@@ -4,9 +4,13 @@ This directory holds **project-local Claude Code skills**: reusable agent workfl
 apply across many sessions, packaged once instead of re-explained every time. Claude Code
 auto-discovers any `.claude/skills/<name>/SKILL.md` in this repo.
 
-Authoritative shipped skill: [`run-feature/`](run-feature/SKILL.md) — the canonical
-pick-one-feature → implement → verify → handoff lifecycle for this harness. Use it as the
-template for new workflow skills.
+Shipped skills (the 3-role GAN loop):
+
+- [`plan/`](plan/SKILL.md) — Planner: converts a sprint spec into `feature_list.json`.
+- [`generate/`](generate/SKILL.md) — Generator: builds one feature at a time, then verifies.
+- [`browser-validate/`](browser-validate/SKILL.md) — Evaluator: drives the running app and scores it.
+
+Use any of these as the template for new workflow skills.
 
 ## What belongs here
 
@@ -69,7 +73,7 @@ Both exit non-zero on the first problem so they can gate CI. Keep the two script
 
 ## Adding a new workflow skill
 
-1. Copy `run-feature/` to `.claude/skills/<new-name>/` and rewrite `SKILL.md`.
+1. Copy one of the shipped skills above to `.claude/skills/<new-name>/` and rewrite `SKILL.md`.
 2. Replace every `<PLACEHOLDER>` and remove sections that don't apply.
 3. Trim `references/` / `templates/` to what the new workflow actually needs.
 4. Run the validator (above) — fix every reported issue.

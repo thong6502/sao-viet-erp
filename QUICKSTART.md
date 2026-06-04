@@ -1,85 +1,83 @@
 # QUICKSTART — Bắt đầu từ đâu
 
-> File này dành cho **con người** đọc nhanh để hiểu luồng. Agent thì đọc `AGENTS.md`.
-> Việc nối dây phần an toàn (hook/trust) nằm ở `SETUP.md`.
+> File này dành cho **con người** đọc nhanh để hiểu luồng GAN. Agent thì đọc `AGENTS.md`.
 
-Harness này = **một vòng lặp làm việc** + **6 module lan can** bao quanh.
-Ngày thường bạn chỉ cần nhớ vòng lặp. Các module phần lớn tự chạy hoặc chỉ dùng khi cần.
+Template này = **vòng lặp GAN 3 vai** để dựng một app **React + Vite (frontend) · FastAPI (backend) · SQLite/Postgres (DB)** theo từng feature một, có người làm Planner.
+
+```text
+Sprint spec  →  🧠 plan  →  feature_list.json  →  🔨 generate  ⇄  🔍 browser-validate  →  review
+   (người)      (skill)        (sổ feature)         (build)        (chấm điểm, lặp lại)    (người)
+```
 
 ---
 
-## TL;DR — chạy thử ngay
+## Bước 0 — App skeleton CHƯA có sẵn, dựng nó trước
+
+⚠️ Đây là **TEMPLATE**, không phải app. Source của app (React + Vite + FastAPI + DB) **chưa được ship**. Trước khi chạy vòng lặp, hãy dựng khung tối thiểu để app chạy được và `init` xác minh được:
+
+- Khung frontend React + Vite, backend FastAPI, kết nối DB SQLite/Postgres — theo `docs/ARCHITECTURE.md`.
+- Mọi chỗ đặc thù dự án còn để `<PLACEHOLDER>` thì điền theo dự án thật của bạn.
+- Chạy `./init.sh` (Unix/macOS/CI) hoặc `./init.ps1` (Windows/PowerShell) — phải **PASS** (`pytest` smoke `tests/test_template_smoke.py` + `compileall`). Đỏ thì sửa TRƯỚC.
+
+---
+
+## Bước 1 — Viết sprint spec (người)
+
+Tạo `docs/product-specs/<sprint>.md` từ `docs/product-specs/_TEMPLATE.md`, ghi danh mục vào `docs/product-specs/index.md`.
+Mô tả mục tiêu sprint, phạm vi, và acceptance criteria mong muốn. Tham khảo `docs/PRODUCT_SENSE.md` để biết "tốt" nghĩa là gì.
+
+## Bước 2 — Chạy skill 🧠 plan
+
+Gọi skill `plan` (`.claude/skills/plan/SKILL.md`). Skill này:
+
+1. Đọc sprint spec của bạn.
+2. **DỪNG để hỏi** — trình một **menu lựa chọn** mức độ chi tiết (kèm tùy chọn "Other" để tự nhập). Nó không bao giờ tự chạy tiếp.
+3. Tinh chỉnh theo lựa chọn của bạn rồi điền `feature_list.json` (`feat-001..N` + acceptance criteria).
+
+## Bước 3 — Chạy workflow gan-loop
+
+Chạy orchestrator `.claude/workflows/gan-loop.js`. Nó tự lái bước 3–5 của vòng lặp, mỗi lần **MỘT feature**:
+
+- 🔨 **generate** (`.claude/skills/generate/SKILL.md`) — build feature từ spec + `docs/UI_DESIGN.md`, rồi tự xác minh bằng `init`.
+- 🔍 **browser-validate** (`.claude/skills/browser-validate/SKILL.md`) — Playwright click app đang chạy, chấm 4 tiêu chí (design quality, originality, craft, functionality) theo `docs/EVALUATION.md`.
+- Điểm dưới ngưỡng → tiêu chí yếu nhất được feed ngược về 🔨 để build lại, **lặp** tới khi đạt hoặc hết budget.
+
+## Bước 4 — Review (người)
+
+Xem điểm đã ghi trong `docs/EVALUATION.md`, tiến độ trong `progress.md`, và trạng thái trong `feature_list.json`. Duyệt feature, rồi quay lại Bước 1 cho sprint kế tiếp.
+
+---
+
+## Bản đồ file — theo vai
+
+| Vai | File / thư mục | Dùng để |
+|---|---|---|
+| Router | `AGENTS.md` | **Chỉ dẫn chính** cho agent (luồng, quy tắc, "xong" là gì) |
+| Router | `CLAUDE.md` | Chỉ trỏ về `AGENTS.md` |
+| Người | `QUICKSTART.md` | File này — đường nhanh nhất chạy vòng lặp |
+| Người | `docs/product-specs/_TEMPLATE.md` · `index.md` | Mẫu sprint spec + danh mục |
+| Người | `docs/PRODUCT_SENSE.md` | Thước đo "tốt" cho feature |
+| 🧠 plan | `.claude/skills/plan/SKILL.md` | Sprint → `feature_list.json` (hỏi menu, dừng lại) |
+| Sổ | `feature_list.json` | Danh sách feature + `status` + `evidence` |
+| 🔨 generate | `.claude/skills/generate/SKILL.md` | Build + xác minh một feature |
+| 🔨 generate | `docs/ARCHITECTURE.md` · `docs/UI_DESIGN.md` (assets: `docs/design-assets/`) | Layout/quy ước stack + design system |
+| 🔍 validate | `.claude/skills/browser-validate/SKILL.md` · `docs/sops/browser-validation-loop.md` | Playwright chấm app đang chạy |
+| 🔍 validate | `docs/EVALUATION.md` | 4 tiêu chí, ngưỡng, và điểm đã ghi |
+| Orchestrator | `.claude/workflows/gan-loop.js` | Lái generate → validate → feedback |
+| Tham chiếu | `docs/ORCHESTRATION.md` | 3 vai + `gan-loop.js` ráp với nhau ra sao |
+| Tham chiếu | `docs/SECURITY.md` | Secrets, dữ liệu không tin cậy, hành động ngoài |
+| Xác minh | `init.sh` / `init.ps1` · `pytest.ini` · `tests/test_template_smoke.py` | Lệnh xác minh chuẩn (smoke + compileall) |
+| Nhật ký | `progress.md` | Đang làm gì, kẹt ở đâu, làm gì tiếp |
+| Skill meta | `.claude/skills/README.md` · `.claude/skills/scripts/validate-skills.{sh,ps1}` | Viết & kiểm tra skill |
+
+---
+
+## Khôi phục bản đầy đủ
+
+Template này là bản **rút gọn**. Nhiều module nặng (memory, hooks, coordination, các SOP/docs mở rộng…) đã được lược bỏ. Để lấy lại bản đầy đủ:
 
 ```bash
-./init.sh        # Unix / macOS / CI
-# hoặc trên Windows:
-./init.ps1       # PowerShell
+git checkout full-pack    # checkout tag bản đầy đủ
 ```
 
-Lệnh này = "đèn xanh môi trường": chạy test (`pytest`) + biên dịch (`compileall`).
-Hiện tại nó **PASS** sẵn (3 test của hook bảo vệ). Nếu nó đỏ → sửa nó TRƯỚC khi làm gì khác.
-
----
-
-## Vòng lặp cốt lõi (mọi phiên làm việc đều theo đây)
-
-```
-BẮT ĐẦU  →  CHỌN VIỆC  →  LÀM  →  XÁC MINH  →  KẾT THÚC
-```
-
-1. **BẮT ĐẦU** — đọc `AGENTS.md`, đọc `memory/MEMORY.md`, chạy `./init.sh` (hoặc `./init.ps1`),
-   đọc `feature_list.json` xem đang ở đâu.
-2. **CHỌN VIỆC** — chọn **đúng MỘT** feature chưa xong trong `feature_list.json`
-   (`status` khác `done`). Không ôm nhiều việc cùng lúc.
-3. **LÀM** — code feature đó, không đụng file ngoài phạm vi.
-4. **XÁC MINH** — chạy lại `./init.sh`, phải PASS. Ghi bằng chứng (lệnh + kết quả)
-   vào ô `evidence` của feature trong `feature_list.json`.
-5. **KẾT THÚC** — cập nhật `progress.md` + `feature_list.json` (đổi `status`),
-   ghi `memory/` nếu có quyết định lâu dài, điền `session-handoff.md`, rồi `git commit`.
-
-**3 quy tắc bất biến:** một feature một lúc · luôn xác minh trước khi nói "xong" ·
-để repo sạch để phiên sau chạy `./init.sh` được ngay.
-
----
-
-## Bản đồ file — cái nào để làm gì
-
-| File / thư mục | Dùng để |
-|---|---|
-| `AGENTS.md` | **Nguồn chỉ dẫn chính** cho agent (luồng, quy tắc, định nghĩa "xong") |
-| `CLAUDE.md` | Chỉ trỏ về `AGENTS.md` (để Claude Code tự tìm thấy) |
-| `feature_list.json` | **Sổ trạng thái**: danh sách feature + `status` + `evidence` |
-| `progress.md` | Nhật ký phiên: đang làm gì, kẹt ở đâu, làm gì tiếp |
-| `session-handoff.md` | Bàn giao cho phiên sau (khi việc lớn, kéo dài nhiều phiên) |
-| `init.sh` / `init.ps1` | Lệnh xác minh chuẩn (bash / PowerShell) |
-| `pytest.ini` | Cấu hình để `pytest` tìm thấy test (kể cả test trong `.claude/`) |
-| `memory/` | Ghi nhớ lâu dài: `MEMORY.md` (chỉ mục) + `topics/<slug>.md` (chi tiết) |
-| `docs/` | Giao thức từng module: `CONTEXT*`, `TOOL_SAFETY`, `LIFECYCLE`, `COORDINATION` |
-| `.claude/settings.json` | Quyền (allow/ask/deny) + đăng ký hook |
-| `.claude/hooks/` | Hook: `guard_bash.py` (chặn lệnh nguy hiểm), `dispatch.py` (mở/đóng phiên) |
-| `.claude/skills/` | Skill tái dùng — gõ `/run-feature` để chạy đúng vòng lặp trên |
-| `coordination/` | Khi giao việc cho agent con: sổ task + chống đệ quy fork |
-| `tools/` | Tiện ích bảo trì (vd quét file memory mồ côi) |
-| `SETUP.md` | **Danh sách việc cần nối dây** trước khi dùng thật |
-
----
-
-## Quan trọng: cái gì ĐANG chạy vs cái gì mới là KHUNG
-
-- ✅ **Dùng được ngay:** `AGENTS.md`/`CLAUDE.md`, `init.*` (đã xanh), `feature_list.json`,
-  `progress.md`. Đây là vòng lặp cốt lõi.
-- ⚠️ **Mới là khung, CHƯA tự chạy:** các hook bảo vệ (`guard_bash.py`, `fork_guard.py`,
-  `dispatch.py`) chỉ kích hoạt khi workspace "được tin cậy", mà hàm
-  `workspace_is_trusted()` còn là `<PLACEHOLDER>`. Xem `SETUP.md` mục 1 để bật.
-- 📝 Còn nhiều `<PLACEHOLDER>` trong `memory/`, `docs/`, `guard_bash.py`… cần điền theo
-  dự án thật của bạn.
-
----
-
-## Việc đầu tiên nên làm (theo thứ tự)
-
-1. Mở `feature_list.json`, thay `feat-002 … feat-005` (đang là placeholder) bằng
-   feature thật đầu tiên của bạn.
-2. Khi đã có code Python thật + test → `./init.sh` sẽ kiểm chứng dự án của bạn, không chỉ test hook.
-3. Đọc `SETUP.md` và nối dây trust signal nếu muốn các lan can an toàn hoạt động.
-4. Bắt đầu vòng lặp ở trên (hoặc gõ `/run-feature`).
+Xem các tag có sẵn bằng `git tag`.

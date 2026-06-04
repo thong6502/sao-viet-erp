@@ -3,7 +3,8 @@
 # PRODUCT_SENSE.md
 
 This file captures durable product judgment that agents cannot infer reliably
-from code alone.
+from code alone. It is the product judgment the human Planner draws on when
+writing a sprint spec in `product-specs/<sprint>.md`.
 
 ## Product Core
 

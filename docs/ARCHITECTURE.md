@@ -1,69 +1,94 @@
 # ARCHITECTURE.md
 
-> **PLACEHOLDER TEMPLATE** — project source empty; fill Domain Map +
-> Cross-Cutting Interfaces when real code lands. Until then the structure below is
-> the contract agents follow; the `[replace]` / `[domain-a]` slots are intentionally
-> blank. Single source of truth for "is the tree healthy" stays `./init.sh` / `./init.ps1`.
+> **PLACEHOLDER TEMPLATE** — the app source does not exist yet. This file is the
+> contract agents follow until real code lands. Slots marked `<PLACEHOLDER>` are
+> intentionally blank; fill the Domain Map and System Shape when the first feature
+> is generated. Single source of truth for "is the tree healthy" stays
+> `./init.sh` / `./init.ps1` (smoke tests + `compileall`) — never add a competing
+> verify command.
 
-This file is the top-level map of the system. It is a Tier-3 resource (load on demand
-per `docs/CONTEXT-MAP.md`): read it only when implementing or changing a cross-cutting
-design or a hard dependency boundary. Keep it concise and point to deeper documents
-when needed.
+This file is the top-level map of the system. Read it on demand when implementing
+or changing a cross-cutting boundary or a hard dependency. Keep it concise. For
+anything visual — layout, components, tokens, styling, UX states — defer to
+[docs/UI_DESIGN.md](UI_DESIGN.md); do not duplicate visual concerns here.
+
+## Stack
+
+- **Frontend:** React + Vite (SPA, TypeScript or JSX `<PLACEHOLDER>`).
+- **Backend:** FastAPI (Python), served via ASGI (`uvicorn` `<PLACEHOLDER>`).
+- **Database:** SQLite for local/dev, Postgres for production (single SQL layer,
+  same migrations and queries against both).
+- **Transport:** JSON over HTTP; the frontend talks to the backend only through a
+  typed API client.
 
 ## System Shape
 
-- Product: `[replace with product name]`
-- Primary user workflow: `[replace with main workflow]`
-- Runtime surfaces: `[desktop / web / cli / services / workers]`
-- Source of truth for product behavior: `[replace with product/requirements doc path]`
+- Product: `<PLACEHOLDER product name>`
+- Primary user workflow: `<PLACEHOLDER main workflow>`
+- Runtime surfaces: web SPA (browser) + HTTP API service + relational DB.
+- Source of truth for product behavior: the active sprint spec under
+  [docs/product-specs/](product-specs/index.md) and its derived `feature_list.json`.
 
 ## Domain Map
 
-| Domain | Purpose | Primary Entry Points | Related Spec |
-|--------|---------|----------------------|--------------|
-| `[domain-a]` | `[what it owns]` | `[modules / routes / commands]` | `[spec path]` |
-| `[domain-b]` | `[what it owns]` | `[modules / routes / commands]` | `[spec path]` |
+| Domain       | Purpose          | Frontend Entry   | Backend Entry        | Related Spec  |
+|--------------|------------------|------------------|----------------------|---------------|
+| `<domain-a>` | `<what it owns>` | `<route / view>` | `<router / service>` | `<spec path>` |
+| `<domain-b>` | `<what it owns>` | `<route / view>` | `<router / service>` | `<spec path>` |
 
 ## Layer Model
 
-Use a fixed directional model so agents do not invent ad hoc architecture:
+Use these fixed directional models so agents do not invent ad hoc architecture.
+Data and dependencies flow in one direction only.
 
-`Types -> Config -> Repo -> Service -> Runtime -> UI`
+**Frontend (React + Vite):**
 
-Cross-cutting concerns should enter through explicit provider or adapter
-boundaries instead of reaching across layers directly.
+`UI components -> state / hooks -> API client -> (HTTP) -> backend`
+
+- Components render and capture input; they hold no fetch logic.
+- State and hooks own local/shared state and call the API client.
+- The API client is the single place that knows backend URLs, request/response
+  shapes, and error mapping.
+
+**Backend (FastAPI):**
+
+`API routes -> services -> repositories -> DB`
+
+- Routes parse/validate (Pydantic schemas) and shape HTTP responses only.
+- Services hold business logic and orchestration; they are framework-agnostic.
+- Repositories own all SQL/ORM access and are the only layer that touches the DB.
+- The DB (SQLite/Postgres) is reached exclusively through repositories.
 
 ## Hard Dependency Rules
 
-- Lower layers must not depend on higher layers.
-- UI must not bypass runtime or service contracts.
-- Data access must enter through repositories or equivalent adapters.
-- Shared utilities must remain generic and must not accumulate domain logic.
-- New dependencies should be justified in the matching plan or design doc.
-
-## Cross-Cutting Interfaces
-
-| Concern | Approved Boundary | Notes |
-|--------|-------------------|-------|
-| Logging and tracing | `[provider / utility path]` | `[structured only, no ad hoc console use]` |
-| Auth | `[provider path]` | `[token/session rules]` |
-| External APIs | `[client or provider path]` | `[rate limit / retry guidance]` |
-| Feature flags | `[flag boundary]` | `[ownership]` |
-
-## Current Hot Spots
-
-- `[area that is hardest for agents to change safely]`
-- `[area with weak boundaries or fragile tests]`
+- Lower layers must not import or depend on higher layers (DB never imports a
+  service; a service never imports a route; the API client never imports a
+  component).
+- The frontend reaches the backend **only** through the API client — components,
+  hooks, and views must not call `fetch`/`axios` directly.
+- The backend reaches the database **only** through repositories — routes and
+  services must not run raw SQL or open sessions.
+- Routes contain no business logic; services contain no HTTP or DB-driver
+  specifics; repositories contain no business rules.
+- SQL must remain portable across SQLite and Postgres; backend-specific dialect
+  features need an explicit, justified reason.
+- Cross-cutting concerns (auth, logging, config) enter through explicit
+  provider/dependency boundaries (e.g. FastAPI dependencies, a React context),
+  not by reaching across layers. See [docs/SECURITY.md](SECURITY.md) for auth and
+  secret-handling rules.
+- New dependencies should be justified in the matching sprint spec.
 
 ## Change Checklist
 
 When you touch architecture-relevant code:
 
-1. Update this file if the domain map or allowed boundaries changed.
-2. Update the matching design doc if the reasoning (not just the map) changed.
-3. Add or update an executable check so the rule is enforced mechanically by
-   `./init.sh` / `./init.ps1` (the single verification source of truth) — never add a
-   competing verify command.
-4. If a layer/dependency rule was violated and is being remediated, the on-demand
-   remediation note lives at [docs/design/layered-domain-architecture.md](./design/layered-domain-architecture.md)
-   (Tier-3; loaded only while remediating).
+1. Update this file if the Domain Map or an allowed boundary changed.
+2. Keep the layer flow intact — if a change requires crossing a boundary, fix the
+   boundary, do not bypass it.
+3. Put any visual/UI decision in [docs/UI_DESIGN.md](UI_DESIGN.md), not here.
+4. Add or update an executable check so the rule is enforced mechanically by
+   `./init.sh` / `./init.ps1` (the single verification source of truth) — never add
+   a competing verify command.
+5. Confirm the change is traceable to a feature in `feature_list.json` and its
+   acceptance criteria in the sprint spec; record evaluation outcomes per
+   [docs/EVALUATION.md](EVALUATION.md).

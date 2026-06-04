@@ -2,50 +2,39 @@
 
 ## Current State
 
-**Last Updated:** YYYY-MM-DD HH:MM
-**Session ID:** [optional]
-**Active Feature:** [feat-XXX - Feature Name]
+**Last Updated:** <PLACEHOLDER: YYYY-MM-DD HH:MM>
+**Active Feature:** <PLACEHOLDER: feat-XXX - Feature Name>
 
 ## Status
 
 ### What's Done
 
-- [x] [Completed item 1]
-- [x] [Completed item 2]
+- <PLACEHOLDER: completed item>
 
 ### What's In Progress
 
-- [ ] [Current work item]
-  - Details: [specific task]
-  - Blockers: [if any]
+- <PLACEHOLDER: current work item>
 
 ### What's Next
 
-1. [Next action item]
-2. [Following action item]
+1. <PLACEHOLDER: next action>
 
 ## Blockers / Risks
 
-- [ ] [Blocker 1]: [description, impact]
-- [ ] [Risk 1]: [description, mitigation]
+- <PLACEHOLDER: blocker or risk, with impact>
 
 ## Decisions Made
 
-- **[Decision 1]**: [description]
-  - Context: [why this decision was made]
-  - Alternatives considered: [what else was discussed]
+- <PLACEHOLDER: decision and why>
 
 ## Files Modified This Session
 
-- `path/to/file1.ts` - [brief description of change]
-- `path/to/file2.ts` - [brief description of change]
+- <PLACEHOLDER: path/to/file — brief change>
 
 ## Evidence of Completion
 
-- [ ] Tests pass: `[command and output]`
-- [ ] Type check clean: `[command and output]`
-- [ ] Manual verification: `[what was tested]`
+- <PLACEHOLDER: ./init.sh / ./init.ps1 output, browser-validate scores>
 
 ## Notes for Next Session
 
-[Free-form notes that will help the next session pick up context]
+<PLACEHOLDER: free-form notes to help the next session pick up context>

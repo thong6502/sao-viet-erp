@@ -1,15 +1,22 @@
-# Python
+# Python / FastAPI backend
 __pycache__/
 *.py[cod]
 *.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-
-# Virtualenvs
 .venv/
 venv/
 env/
+*.sqlite3
+*.db
 
-# Harness runtime artifacts (append-only audit log written on first hook run)
-.claude/hooks/dispatch.log
+# Node / React + Vite frontend
+node_modules/
+dist/
+.vite/
+
+# Env / secrets (commit an .env.example instead)
+.env
+.env.*
+!.env.example

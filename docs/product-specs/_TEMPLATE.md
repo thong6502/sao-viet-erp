@@ -1,24 +1,25 @@
-<!-- Copy to docs/product-specs/<flow-name>.md per real flow; delete this notice when filled -->
+<!-- Copy to docs/product-specs/<sprint>.md per sprint; delete this notice when filled -->
+<!-- This is the SPRINT-SPEC shape the human Planner fills. The plan skill reads it. -->
 
-# <PLACEHOLDER: Flow Name>
+# <PLACEHOLDER: Sprint Name>
 
 ## Goal
 
-<PLACEHOLDER: one sentence describing the experience this flow should deliver.>
+<PLACEHOLDER: one sentence describing what this sprint should deliver for the user.>
 
-## Entry Conditions
+## Screens
 
-- <PLACEHOLDER: state before the flow starts>
+- <PLACEHOLDER: screen / view the user sees>
+- <PLACEHOLDER: screen / view the user sees>
 
-## User Flow
+## Features
 
-1. <PLACEHOLDER: step one>
-2. <PLACEHOLDER: step two>
-3. <PLACEHOLDER: step three>
+- <PLACEHOLDER: discrete user-facing capability>
+- <PLACEHOLDER: discrete user-facing capability>
 
-## Acceptance Criteria
+## Acceptance criteria
 
-> State observable outcomes; for UI flows write them as Playwright MCP browser
+> State observable outcomes; for UI work write them as Playwright MCP browser
 > assertions (snapshot/text/state via `../sops/browser-validation-loop.md`),
 > confirmed on top of green `./init.sh` / `./init.ps1`.
 
@@ -26,7 +27,11 @@
 - <PLACEHOLDER: observable outcome>
 - <PLACEHOLDER: observable outcome>
 
-## Failure States
+## Out-of-scope
 
-- <PLACEHOLDER: recoverable error and user feedback>
+- <PLACEHOLDER: explicitly NOT built this sprint>
+
+## Failure states
+
+- <PLACEHOLDER: recoverable error and the user feedback shown>
 - <PLACEHOLDER: blocked state and fallback>

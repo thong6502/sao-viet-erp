@@ -1,4 +1,0 @@
-# Worker deliverables land here as <task-id>.md (two-phase handoff).
-# Files are written by workers at terminal state and only removed by the
-# coordinator AFTER it records `consumed: yes` in coordination/tasks.md.
-# See docs/COORDINATION.md.

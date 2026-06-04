@@ -102,14 +102,13 @@ A journey is clean when ALL hold on a fresh run:
 
 ## Cross-references
 
-- **Verify step:** this loop produces runtime evidence for the `run-feature`
-  verify step (`.claude/skills/run-feature/SKILL.md`). Code verification still goes
-  through `./init.sh` / `./init.ps1` first; never introduce a competing command.
-- **UI states:** consult `docs/FRONTEND.md` for the canonical loading / empty /
-  error / success states a journey must exercise (created by the frontend policy
-  pack file).
+- **Verify step:** this loop produces runtime evidence for the 🔍 `browser-validate`
+  Evaluator step (`.claude/skills/browser-validate/SKILL.md`). Code verification still
+  goes through `./init.sh` / `./init.ps1` first; never introduce a competing command.
+- **UI states:** consult `docs/UI_DESIGN.md` for the canonical loading / empty /
+  error / success states a journey must exercise.
 - **Golden journeys:** when a journey is worth protecting, promote it in
-  `docs/RELIABILITY.md` as a golden journey so regressions are caught deliberately.
+  `docs/EVALUATION.md` so regressions are caught deliberately against the scoring criteria.
 - **Screenshot safety:** before saving or sharing any `browser_take_screenshot`
   output, redact secrets/PII per `docs/SECURITY.md` (tokens, emails, account data
   can appear on screen). Treat captured artifacts as potentially sensitive.
@@ -124,5 +123,5 @@ evidence-producing loop when the Playwright MCP server is connected.
 ## Repo artifacts to update
 
 - The active execution plan / `progress.md` (target journey + result).
-- `docs/RELIABILITY.md` if the journey becomes a golden path.
+- `docs/EVALUATION.md` if the journey becomes a golden path (scores + criteria).
 - The product spec if the visible behavior changed.
