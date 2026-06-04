@@ -34,7 +34,7 @@ Rules:
   when its trigger fires.
 - Every variable-length block you paste (command output, file dumps) must be capped.
   If you truncate, leave a recovery pointer, e.g. `(truncated - re-run "git log" for full output)`.
-- <PLACEHOLDER: list this project's biggest Tier 3 docs once they exist, e.g. docs/ARCHITECTURE.md, docs/API.md>
+- The largest Tier 3 docs present today include `docs/ARCHITECTURE.md` (system map + layer/dependency rules) and `docs/references/<topic>-llms.txt` (curated external-service extracts). Add others here as they land.
 
 ## WRITE — Memory discipline
 

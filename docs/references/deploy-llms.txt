@@ -1,0 +1,114 @@
+# deploy-llms.txt — Build & Deploy Reference (curated extract for agents)
+
+PLACEHOLDER TEMPLATE. The project source is currently EMPTY, so this file is a
+GENERALIZED starter modeled on a Nixpacks-style auto-build deployer (the kind used by
+Railway / Coolify / Render-style platforms that detect a language and build a container
+without a hand-written Dockerfile). Replace every <PLACEHOLDER: ...> with the real values
+once this project picks a deploy target. See docs/references/README.md for the convention.
+
+Scope: how this project gets built into a runnable artifact and deployed, and how to
+recognize when that goes wrong. This is an EXTERNAL reference — it does NOT define how to
+build/verify locally. The single verification source of truth is init.sh / init.ps1.
+Load this file just-in-time (only when you are about to deploy or debug a deploy), per the
+Tier 3 row in ../CONTEXT-MAP.md.
+
+
+## 1. Build entrypoints
+
+A Nixpacks-style builder auto-detects the stack and runs three phases in order:
+
+- setup    — install system/runtime packages (the language toolchain).
+- install  — install project dependencies.
+- build    — produce the runnable artifact (optional; many Python apps skip it).
+- start    — the command the container runs at boot (the runtime entrypoint).
+
+For THIS Python project, keep the deploy build aligned with local verification rather than
+inventing a parallel pipeline:
+
+- Local build/verify (source of truth): `./init.sh` (Unix/CI) or `./init.ps1` (Windows).
+  Both run `python -m pytest` then `python -m compileall .`. CI should run this before any
+  deploy step. See ../../SETUP.md for environment/trust prerequisites.
+- Dependency install (deploy phase): <PLACEHOLDER: e.g. `pip install -r requirements.txt`,
+  `pip install .`, or `uv sync` — match what the repo actually uses>.
+- Build phase: <PLACEHOLDER: usually none for a plain Python service; fill if you compile
+  assets / wheels>.
+- Start command (runtime entrypoint): <PLACEHOLDER: e.g. `python -m <pkg>`,
+  `gunicorn <module>:app`, `uvicorn <module>:app --host 0.0.0.0 --port $PORT`>.
+
+Provider config files (only if/when adopted): a `nixpacks.toml` (or `[providers.*]` block)
+pins phases/packages; a `Procfile`'s `web:` line can supply the start command. Add them only
+when the project actually needs to override auto-detection — keep them minimal.
+
+
+## 2. Runtime assumptions
+
+- Bind to the port the platform injects, not a hardcoded one: listen on `0.0.0.0:$PORT`
+  (Unix shell) / `$env:PORT` (PowerShell). Apps that bind `127.0.0.1` or a fixed port get
+  no inbound traffic and fail health checks.
+- Process must stay in the foreground (PID 1); a process that daemonizes/forks-and-exits is
+  treated as a crash.
+- Filesystem is ephemeral — do not rely on writing to local disk surviving a restart/redeploy.
+- Python version is detected from the repo (e.g. a `.python-version`, `runtime.txt`, or a
+  `pyproject.toml`/`requires-python` pin). Pin it explicitly to avoid a surprise upgrade:
+  <PLACEHOLDER: state the pinned Python version, e.g. 3.12>.
+- Toolchain note: hooks and init scripts here invoke `python` (not `python3`). If the build
+  image only exposes `python3`, see ../../SETUP.md §"python vs python3" before deploying.
+
+
+## 3. Env-var expectations
+
+The builder/runtime relies on env vars; missing ones are the most common deploy failure.
+
+- `PORT`         — injected by the platform; the start command MUST bind to it.
+- `NIXPACKS_*`   — builder overrides (e.g. `NIXPACKS_PYTHON_VERSION`, `NIXPACKS_INSTALL_CMD`,
+                   `NIXPACKS_START_CMD`). Set only to override auto-detection.
+- App secrets/config: <PLACEHOLDER: list the real required vars, e.g. DATABASE_URL,
+  SECRET_KEY, API keys>. Define these in the platform's secret store.
+
+Secret-handling rules (do not weaken):
+- NEVER commit secrets or bake them into the image. They are injected as runtime env vars.
+- Secret file globs are guarded in this repo (.env, secrets/**, *.pem, id_rsa) via
+  .claude/settings.json — see ../SECURITY.md and ../TOOL_SAFETY.md. Do not read or echo them.
+- `HARNESS_TRUST=1` is a CI/lifecycle trust signal (so hooks run), NOT an app secret — see
+  ../../SETUP.md §"Trust wiring".
+
+
+## 4. Common failure signatures
+
+Symptom -> likely cause -> fix
+
+- "No start command could be found" / container exits immediately at boot
+  -> no detected/declared start command
+  -> set the start command (Procfile `web:` line, `NIXPACKS_START_CMD`, or nixpacks config).
+
+- Build can't detect the language / picks the wrong provider
+  -> missing manifest the detector keys on (e.g. requirements.txt / pyproject.toml)
+  -> add the manifest, or pin the provider in nixpacks config.
+
+- Deploys but health check fails / "no open ports" / 502 from the proxy
+  -> app bound to 127.0.0.1 or a fixed port instead of 0.0.0.0:$PORT
+  -> bind 0.0.0.0 and read `$PORT` / `$env:PORT`.
+
+- ModuleNotFoundError / ImportError at runtime (worked locally)
+  -> dependency not in the install manifest, or install phase mismatched the local env
+  -> reconcile the manifest; confirm `python -m compileall .` passes locally via
+     ./init.sh / ./init.ps1 BEFORE deploying.
+
+- "python: command not found" or wrong Python version in build
+  -> image exposes `python3` only, or version unpinned
+  -> pin the Python version; see ../../SETUP.md §"python vs python3".
+
+- App boots then crashes on first request with a config error
+  -> a required env var is unset in the platform (see §3)
+  -> set it in the platform secret store; never hardcode it.
+
+- KeyError: 'PORT' / app reads PORT before the platform sets it
+  -> reading the var at import time in an env where it is absent (e.g. local)
+  -> default safely when unset locally; require it only in the deployed runtime.
+
+
+## Cross-references
+- ../../SETUP.md            — environment, trust wiring, python vs python3
+- ../../init.sh / init.ps1  — SINGLE source of truth for build/verify (pytest + compileall)
+- ../CONTEXT-MAP.md         — when to load this file (Tier 3, load-on-demand)
+- ../SECURITY.md            — secret handling; ../TOOL_SAFETY.md — guarded commands/paths
