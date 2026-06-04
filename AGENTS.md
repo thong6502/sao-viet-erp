@@ -32,7 +32,7 @@ If baseline verification is failing, repair that first before adding scope.
 - **Verification required**: never claim done without running `init.sh` / `init.ps1`.
 - **Mechanize repeated feedback**: when the same review/eval note recurs, promote it into a check (an `init.sh`/`init.ps1` step or a test) instead of re-explaining it.
 - **Stay in scope**: don't modify files unrelated to the current feature; write only your own files.
-- **Leave clean state**: next session must run `./init.sh` immediately, and update `progress.md` before ending.
+- **Leave clean state**: next session must run `./init.sh` immediately; update `progress.md` before ending, and fill `session-handoff.md` when work spans sessions.
 
 ## Definition of Done
 
@@ -51,6 +51,7 @@ Load a file only when its row is relevant.
 | --- | --- |
 | `CLAUDE.md` | Pointer to this router. |
 | `QUICKSTART.md` | Fastest path to run the loop end-to-end. |
+| `session-handoff.md` | End-of-session handoff for multi-session work (sprint, scores, next step). |
 | `docs/ORCHESTRATION.md` | How the 3 roles + `gan-loop.js` wire together. |
 | `docs/PRODUCT_SENSE.md` | What "good" means; product bar for features. |
 | `docs/ARCHITECTURE.md` | React + Vite / FastAPI / DB layout and conventions. |
