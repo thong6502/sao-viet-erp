@@ -2,39 +2,95 @@
 
 ## Current State
 
-**Last Updated:** <PLACEHOLDER: YYYY-MM-DD HH:MM>
-**Active Feature:** <PLACEHOLDER: feat-XXX - Feature Name>
+**Last Updated:** 2026-06-25
+**Active Feature:** feat-003 — Login screen + protected Dashboard (frontend)
 
 ## Status
 
 ### What's Done
 
-- <PLACEHOLDER: completed item>
+- **feat-001 — App skeleton + Postgres in Docker:** monorepo `backend/` (FastAPI,
+  layered routes→services→repositories→DB) + `frontend/` (React + Vite + TypeScript);
+  `docker-compose.yml` runs `db` (postgres:16-alpine) + `backend`; `.env.example` at root
+  and per app. `init.ps1` green.
+- **feat-002 — Seeded-user JWT login (backend):** `POST /api/auth/login` (bcrypt verify →
+  JWT) and `GET /api/auth/me`; seeded admin on startup; generic 401 (no user enumeration);
+  ORM/bound-param SQL only. 8 backend tests pass.
+- **Data dictionary:** `docs/DB_SCHEMA.md` documents every table (purpose, columns, PK/FK,
+  indexes). Guard test `backend/tests/test_schema_documented.py` fails `init` if a model
+  table/column is undocumented, so schema + docs can't drift. `init` now `11 passed`.
 
 ### What's In Progress
 
-- <PLACEHOLDER: current work item>
+- **feat-003 — frontend login:** LoginPage (validation/loading/error/retry states),
+  AuthContext (token persist + `/me` session restore), protected Dashboard + Logout.
+  Code complete and `npm run build` passes; pending browser-validate (Evaluator) scoring.
 
 ### What's Next
 
-1. <PLACEHOLDER: next action>
+1. Run the Evaluator (browser-validate skill) against the running app to score feat-003's
+   four criteria and record in `docs/EVALUATION.md`; mark feat-003 `done` on PASS.
+2. Next sprint: self-registration / password reset, Alembic migrations, RBAC.
 
 ## Blockers / Risks
 
-- <PLACEHOLDER: blocker or risk, with impact>
+- Frontend is not yet a Docker service (runs via `npm run dev`); fine for dev, revisit for
+  a fully-containerized deploy.
+- `JWT_SECRET` and seed password are dev defaults — must be overridden via env in any real
+  deployment (docs/SECURITY.md).
 
 ## Decisions Made
 
-- <PLACEHOLDER: decision and why>
+- Login-only this sprint (users seeded, no self-registration) — per planning choice.
+- Auth = JWT bearer token (localStorage), not cookie sessions.
+- Frontend = TypeScript.
+- DB bootstrap via `create_all` + idempotent seed; Alembic deferred to keep sprint-01 small.
+- Tests run on in-memory SQLite (StaticPool) so `init` stays green without Docker; Postgres
+  is the Docker/prod target through the same SQLAlchemy layer.
+- Pinned pydantic as a `>=2.11.5,<3` range (not exact) to avoid downgrading other tools in a
+  shared global Python env.
 
 ## Files Modified This Session
 
-- <PLACEHOLDER: path/to/file — brief change>
+- `backend/` — full FastAPI app (`app/**`), `tests/test_auth.py`, `requirements.txt`,
+  `Dockerfile`, `.env.example`.
+- `frontend/` — Vite+TS SPA (`src/**`, `package.json`, `tsconfig.json`, `vite.config.ts`,
+  `index.html`, `.env.example`).
+- `docker-compose.yml`, root `.env.example`.
+- `feature_list.json`, `docs/product-specs/sprint-01-auth.md`, `docs/product-specs/index.md`,
+  `docs/ARCHITECTURE.md`, `pytest.ini`, `init.ps1`, `init.sh`.
 
 ## Evidence of Completion
 
-- <PLACEHOLDER: ./init.sh / ./init.ps1 output, browser-validate scores>
+- `init.ps1`: `9 passed` (1 template smoke + 8 auth) + `compileall` clean — 2026-06-25.
+- `frontend`: `npm run build` (tsc --noEmit + vite build) succeeds, 39 modules.
+- Login e2e (live, SQLite backend): `POST /api/auth/login` → JWT; `GET /api/auth/me` →
+  `{id:1,email:admin@example.com,name:Admin}`; wrong password → `401 {"detail":"Invalid
+  email or password"}`. Same SQLAlchemy layer runs on Postgres.
+
+## Current Run / DB Status
+
+- App is currently running on **SQLite** (`backend/dev.db`) so the UI is testable now:
+  backend `uvicorn` :8000, frontend Vite :5173. Login: `admin@example.com` / `admin123`.
+- **Postgres is fully wired but NOT live-verified yet** — the local Docker daemon got
+  wedged (every container-create hangs; `docker version` responds but `docker run` /
+  `docker compose up` time out, likely a stuck build/pull holding a lock). Per decision,
+  we test on SQLite now and switch to Postgres once Docker is healthy.
+
+### Switch to Postgres (when Docker daemon is healthy)
+
+1. Restart Docker Desktop (tray → Restart) to clear the wedged daemon.
+2. `docker compose up -d db`  → Postgres on :5432 (creds from root `.env`).
+3. Stop the SQLite backend, then run the backend so it reads `backend/.env`
+   (`DATABASE_URL=postgresql+psycopg2://app:app@localhost:5432/gan_app`):
+   `cd backend; python -m uvicorn app.main:app --port 8000`  (lifespan create_all + seed
+   runs against Postgres).
+4. Re-test login — identical behavior, now Postgres-backed.
+   (Full-Docker alternative once the backend image builds: `docker compose up -d`.)
 
 ## Notes for Next Session
 
-<PLACEHOLDER: free-form notes to help the next session pick up context>
+- `.env` (root, for compose) and `backend/.env` (local backend → Postgres) exist and are
+  gitignored. `.env.example` files are the committed templates.
+- Seeded login: `admin@example.com` / `admin123` (dev defaults; do not ship).
+- Backend deps are installed in the local Python env so `init.ps1` runs backend tests.

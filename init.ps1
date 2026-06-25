@@ -20,8 +20,10 @@ function Invoke-Step {
 
 Write-Host "=== Harness Initialization ==="
 
+$compileExclude = '([\\/](\.git|node_modules|\.venv|venv|dist|\.pytest_cache))'
+
 Invoke-Step "python -m pytest"        { python -m pytest }
-Invoke-Step "python -m compileall ."  { python -m compileall . }
+Invoke-Step "python -m compileall ."  { python -m compileall -q -x $compileExclude . }
 
 Write-Host "=== Verification Complete ==="
 Write-Host ""

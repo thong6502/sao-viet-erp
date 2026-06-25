@@ -15,6 +15,7 @@ env/
 node_modules/
 dist/
 .vite/
+*.tsbuildinfo
 
 # Env / secrets (commit an .env.example instead)
 .env

@@ -1,0 +1,58 @@
+/* Design tokens — single source of truth for visual values.
+   Extracted from docs/UI_DESIGN.md ("paper + ink pigment", single rust accent).
+   Never hard-code raw values in components; reference these vars. */
+:root {
+  /* Color */
+  --paper: #f5f1e8;
+  --canvas: #fbfaf5;
+  --ink: #14130f;
+  --ash: #6b665b;
+  --ash-2: #918b7e;
+  --rust: #c5400a;
+  --rust-deep: #8a2d07;
+  --rust-soft: #f4e2d6;
+  --paper-contrast: #f5f1e8;
+  --rule: #d8d2c0;
+  --rule-soft: #e8e3d3;
+  --rule-hair: #efebde;
+  --moss: #2f5d3a;
+  --amber: #9c7714;
+  --signal: #8a1f1f;
+  --signal-soft: #efd5d5;
+
+  /* Typography */
+  --ff-sans: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --ff-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-bold: 600;
+
+  /* Spacing — 4px scale */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-7: 28px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+  --sp-16: 64px;
+
+  /* Radius */
+  --r-2: 4px;
+  --r-3: 6px;
+  --r-5: 10px;
+  --r-pill: 9999px;
+
+  /* Shadow / Elevation (flat by default) */
+  --shadow-1: 0 1px 0 var(--rule-soft);
+  --shadow-4: 0 4px 12px rgba(20, 19, 15, 0.06);
+  --shadow-lg: 0 14px 34px rgba(20, 19, 15, 0.17);
+
+  /* Motion */
+  --duration-fast: 120ms;
+  --duration-base: 140ms;
+  --easing-standard: ease;
+}

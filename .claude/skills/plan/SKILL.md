@@ -56,8 +56,10 @@ Apply ONLY the depth the human picked:
 
 - Edit `docs/product-specs/<sprint>.md` in place so the spec and the backlog stay in sync
   (same-session rule from `docs/product-specs/index.md`).
-- Keep refinements grounded in the spec's own Goal / User Flow / Acceptance Criteria;
-  treat genuine ambiguity as a spec gap to flag, not as license to guess.
+- Keep refinements grounded in the spec's own sections — Goal / Logic-flow / System
+  statuses / Edge cases / Acceptance criteria / Failure states; carry each into the
+  feature `description`s so no flow step or edge case is silently dropped. Treat genuine
+  ambiguity as a spec gap to flag, not as license to guess.
 - For UI work, phrase acceptance criteria as observable browser assertions confirmed on top
   of green `./init.sh` / `./init.ps1` (the single verification command), never as a
   replacement for it. The pixel/interaction bar lives in `docs/UI_DESIGN.md`.

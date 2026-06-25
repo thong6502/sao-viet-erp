@@ -1,0 +1,81 @@
+/* Auth screens layout — centered card on warm paper. */
+.auth {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-8);
+}
+
+.auth__card {
+  width: 100%;
+  max-width: 400px;
+}
+
+.auth__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-6);
+}
+
+.auth__title {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.auth__sub {
+  color: var(--ash);
+  font-size: 14px;
+  margin: 0;
+}
+
+.auth__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.auth__actions {
+  margin-top: var(--sp-1);
+}
+
+/* Centered full-screen status (session restore). */
+.screen-center {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--ash);
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---- Dashboard (minimal protected page) ---------------------------------- */
+.dash {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-8);
+}
+
+.dash__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: var(--sp-8);
+}
+
+.dash__who {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.dash__email {
+  font-weight: var(--fw-medium);
+  font-size: 15px;
+}

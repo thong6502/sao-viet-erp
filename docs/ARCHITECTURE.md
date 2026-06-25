@@ -10,31 +10,43 @@
 This file is the top-level map of the system. Read it on demand when implementing
 or changing a cross-cutting boundary or a hard dependency. Keep it concise. For
 anything visual — layout, components, tokens, styling, UX states — defer to
-[docs/UI_DESIGN.md](UI_DESIGN.md); do not duplicate visual concerns here.
+[docs/UI_DESIGN.md](UI_DESIGN.md); do not duplicate visual concerns here. For the
+**database schema** — tables, column meanings, keys, indexes — defer to the data
+dictionary [docs/DB_SCHEMA.md](DB_SCHEMA.md) (kept in sync with the models by a test);
+do not duplicate per-column detail here.
 
 ## Stack
 
-- **Frontend:** React + Vite (SPA, TypeScript or JSX `<PLACEHOLDER>`).
-- **Backend:** FastAPI (Python), served via ASGI (`uvicorn` `<PLACEHOLDER>`).
-- **Database:** SQLite for local/dev, Postgres for production (single SQL layer,
-  same migrations and queries against both).
+- **Frontend:** React + Vite (SPA, **TypeScript**). Source in `frontend/`.
+- **Backend:** FastAPI (Python), served via ASGI (`uvicorn app.main:app`). Source in
+  `backend/app/`.
+- **Database:** SQLite for local/test (`sqlite:///./dev.db`, in-memory for tests),
+  **PostgreSQL for Docker/prod** (`postgres:16-alpine` via `docker-compose.yml`) —
+  single SQLAlchemy layer, same queries against both. Schema bootstrap this sprint is
+  `create_all` + seed; Alembic migrations are a later sprint.
 - **Transport:** JSON over HTTP; the frontend talks to the backend only through a
   typed API client.
 
 ## System Shape
 
-- Product: `<PLACEHOLDER product name>`
-- Primary user workflow: `<PLACEHOLDER main workflow>`
-- Runtime surfaces: web SPA (browser) + HTTP API service + relational DB.
+- Product: GAN App (working title)
+- Primary user workflow: sign in → reach the protected app shell (Dashboard).
+- Runtime surfaces: web SPA (browser, Vite :5173), HTTP API service (FastAPI :8000),
+  and relational DB (PostgreSQL :5432 in Docker).
 - Source of truth for product behavior: the active sprint spec under
   [docs/product-specs/](product-specs/index.md) and its derived `feature_list.json`.
 
 ## Domain Map
 
-| Domain       | Purpose          | Frontend Entry   | Backend Entry        | Related Spec  |
-|--------------|------------------|------------------|----------------------|---------------|
-| `<domain-a>` | `<what it owns>` | `<route / view>` | `<router / service>` | `<spec path>` |
-| `<domain-b>` | `<what it owns>` | `<route / view>` | `<router / service>` | `<spec path>` |
+| Domain | Purpose | Frontend Entry | Backend Entry | Related Spec |
+|--------|---------|----------------|---------------|--------------|
+| `auth` | Seeded-user login, JWT issue/verify, current-user, session restore | `frontend/src/pages/LoginPage.tsx`, `frontend/src/auth/` | `backend/app/routers/auth.py` → `services/auth_service.py` → `repositories/user_repo.py` | [`product-specs/sprint-01-auth.md`](product-specs/sprint-01-auth.md) |
+
+### Backend module layout (`backend/app/`)
+
+`main.py` (app + CORS + lifespan seed) · `config.py` (env settings) · `db.py` (engine/session/Base)
+· `security.py` (bcrypt + JWT) · `deps.py` (DI: db→repo→service, current-user) ·
+`models/` · `schemas/` · `repositories/` · `services/` · `routers/` · `seed.py`.
 
 ## Layer Model
 

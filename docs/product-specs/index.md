@@ -1,6 +1,3 @@
-<!-- PLACEHOLDER TEMPLATE: this repo's product source is currently EMPTY. -->
-<!-- Active Specs lists only `_TEMPLATE.md` until a real sprint spec is copied from it. -->
-
 # Product Specs Index
 
 One file per sprint. The human Planner writes a sprint spec here (from
@@ -8,7 +5,9 @@ One file per sprint. The human Planner writes a sprint spec here (from
 
 ## Active Specs
 
-- `_TEMPLATE.md` (copy per sprint) — <PLACEHOLDER: real sprint specs land here, e.g. `sprint-01-onboarding.md`>
+- `_TEMPLATE.md` (copy per sprint) — the blank sprint shape.
+- [`sprint-01-auth.md`](sprint-01-auth.md) — Foundation & Login: app skeleton
+  (React + Vite + TS / FastAPI / PostgreSQL-in-Docker) + seeded-user JWT login. **Active.**
 
 ## Rules
 

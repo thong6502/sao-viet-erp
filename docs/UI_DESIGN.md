@@ -1,222 +1,244 @@
-# UI_DESIGN.md
+# DESIGN.md
 
-> **PLACEHOLDER TEMPLATE** — the app source does not exist yet. This is the project's
-> visual-language store; every value marked `<PLACEHOLDER>` must be filled when the
-> real product, brand, or design system lands. The structure below is the contract
-> agents follow until then. Code health stays `../init.sh` / `../init.ps1`; this file
-> is the *design* contract, not a verification command.
+> **VISUAL-LANGUAGE STORE.** Unlike a blank template, the app source **does exist** —
+> an HTML + vanilla-JS + CSS mockup. Every concrete value below is extracted from the
+> live stylesheet `../assets/css/style.css` (tokens in `:root`) and `../assets/js/layout.js`.
+> Values still marked `<PLACEHOLDER>` are genuinely undecided (brand/Figma/dark-mode) or
+> point at harness files not yet created. Reference page for "what good looks like":
+> `../pages/02-bao-gia.html`.
 
 This is the single source of truth for the **visual language** — colors, type,
 spacing, component conventions, and required UI states. It is deliberately separate
-from [ARCHITECTURE.md](./ARCHITECTURE.md), which owns *code structure* (layers,
-domains, dependency rules). When a question is "how should this look / behave on
-screen", the answer lives here. When it is "where does this code go", that is
-ARCHITECTURE.
+from `ARCHITECTURE.md` (`<PLACEHOLDER — not created>`), which owns *code structure*.
+When a question is "how should this look / behave on screen", the answer lives here.
+When it is "where does this code go", that is ARCHITECTURE.
 
 **Role in the GAN loop:**
 
-- 🔨 **Generator** (`../.claude/skills/generate/SKILL.md`) builds every feature *to
-  this document* — it must read the relevant tokens, component conventions, and the
-  Required UI States before generating frontend code.
-- 🔍 **Evaluator** (`../.claude/skills/browser-validate/SKILL.md`) scores the
-  **design quality** criterion *against this document* (see
-  [EVALUATION.md](./EVALUATION.md)). A feature whose UI drifts from these tokens,
-  conventions, or required states should lose points on design quality and be fed
-  back for a rebuild.
+- 🔨 **Generator** builds every feature *to this document* — it must read the relevant
+  tokens, component conventions, and the Required UI States before generating frontend
+  code. (Skill path: `<PLACEHOLDER — ../.claude/skills/generate/SKILL.md not created>`.)
+- 🔍 **Evaluator** scores the **design quality** criterion *against this document*. A
+  feature whose UI drifts from these tokens, conventions, or required states should lose
+  points and be fed back for a rebuild. (Skill path: `<PLACEHOLDER — browser-validate not created>`.)
 
-> **Figma MCP is available in this environment.** Design context can be pulled in
-> directly rather than transcribed by hand. When a Figma file/frame URL is known,
-> resolve tokens with `get_variable_defs`, capture a frame with `get_screenshot`,
-> and read structure with `get_metadata` / `get_design_context`, then record the
-> resulting values in the tables below. See [References](#references).
+> **Figma MCP is available in this environment** but no Figma file is wired to this
+> project yet. When a frame URL is known, resolve tokens with `get_variable_defs`,
+> capture with `get_screenshot`, read structure with `get_metadata` /
+> `get_design_context`, then record values in the tables below. See [References](#references).
 
 ---
 
 ## Design Tokens
 
-Tokens are the atomic, named values. Define them ONCE here, expose them as the
-frontend's source of truth (e.g. CSS custom properties / a theme object —
-`<PLACEHOLDER token mechanism>`), and never hard-code raw values in components.
+Tokens are the atomic, named values. They are defined ONCE as **CSS custom properties
+in `:root` (`../assets/css/style.css`)** and are the frontend's source of truth — never
+hard-code raw values in components. The palette is warm "paper + ink pigment" with a
+single rust accent.
 
 ### Color
 
 | Token | Value | Use |
 |-------|-------|-----|
-| `--color-bg` | `<PLACEHOLDER>` | App background |
-| `--color-surface` | `<PLACEHOLDER>` | Cards, panels, modals |
-| `--color-text` | `<PLACEHOLDER>` | Primary text |
-| `--color-text-muted` | `<PLACEHOLDER>` | Secondary / hint text |
-| `--color-primary` | `<PLACEHOLDER>` | Primary action, focus accent |
-| `--color-primary-contrast` | `<PLACEHOLDER>` | Text/icon on primary |
-| `--color-border` | `<PLACEHOLDER>` | Dividers, input borders |
-| `--color-success` | `<PLACEHOLDER>` | Success state |
-| `--color-warning` | `<PLACEHOLDER>` | Warning state |
-| `--color-danger` | `<PLACEHOLDER>` | Destructive / error state |
-| `--color-focus-ring` | `<PLACEHOLDER>` | Keyboard focus outline |
+| `--paper` (bg) | `#f5f1e8` | App background (warm paper) |
+| `--canvas` (surface) | `#fbfaf5` | Cards, panels, tables, modals |
+| `--ink` (text) | `#14130f` | Primary text; dark sidebar; primary button |
+| `--ash` (text-muted) | `#6b665b` | Secondary / hint text |
+| `--ash-2` | `#918b7e` | Tertiary text / placeholder |
+| `--rust` (primary) | `#c5400a` | Primary action, link, accent, current/selected |
+| `--paper` (primary-contrast) | `#f5f1e8` | Text/icon on rust (and on ink) |
+| `--rule` (border) | `#d8d2c0` | Dividers, input borders (`--rule-soft #e8e3d3` cards, `--rule-hair #efebde` row lines) |
+| `--moss` (success) | `#2f5d3a` | Success / done / sufficient |
+| `--amber` (warning) | `#9c7714` | Waiting / warning |
+| `--signal` (danger) | `#8a1f1f` | Destructive / error / overdue |
+| `--ink` (focus-ring) | `#14130f` | ⚠️ No dedicated ring — focus currently = ink border + `outline:none` (see [Accessibility](#accessibility)) |
 
-> Every text/background pair must meet the contrast bar in [Accessibility](#accessibility).
-> Define a dark-mode mapping or state `<PLACEHOLDER: light only>` here so it is a
-> decision, not an accident.
+Each semantic color ships a `-soft` tint (badge/status background) and a `-deep` shade
+(text on tint / filled-hover): rust `#e85a2a`/`#f4e2d6`/`#8a2d07` · moss `#dde8d8`/`#1f4127`
+· amber `#f0e6c4` · signal `#efd5d5` · steel `#4a5560`/`#e0e5ea` (neutral/info).
+
+> **Dark mode:** `<PLACEHOLDER — light only; no dark-mode mapping defined>`.
+> Use **exactly one accent (rust)**. Legacy alias tokens (`--brand-yellow`, `--brand-blue`…)
+> map to this palette so old pages don't break — **new code uses the tokens above only**.
 
 ### Typography
 
 | Token | Value | Use |
 |-------|-------|-----|
-| `--font-sans` | `<PLACEHOLDER font stack>` | Body / UI |
-| `--font-mono` | `<PLACEHOLDER font stack>` | Code, data |
-| `--font-weight-regular` / `-medium` / `-bold` | `<PLACEHOLDER>` | Weights in use |
+| `--ff-sans` | `'Geist', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif` | Body / UI |
+| `--ff-mono` | `'JetBrains Mono', ui-monospace, 'SF Mono', monospace` | Column/section labels, codes, **all numbers** |
+| weight regular / medium / bold | `400 / 500 / 600` | Body 400; headings & labels 500; emphasis 600 |
 
-Type scale (`<PLACEHOLDER base size>` base, `<PLACEHOLDER ratio>` ratio):
+Type scale (**14px base**, custom scale — not a single modular ratio; headings weight 500,
+slightly negative tracking):
 
 | Step | Size | Line height | Typical use |
 |------|------|-------------|-------------|
-| `xs` | `<PLACEHOLDER>` | `<PLACEHOLDER>` | Caption / meta |
-| `sm` | `<PLACEHOLDER>` | `<PLACEHOLDER>` | Secondary text |
-| `base` | `<PLACEHOLDER>` | `<PLACEHOLDER>` | Body |
-| `lg` | `<PLACEHOLDER>` | `<PLACEHOLDER>` | Lead / subheading |
-| `xl`–`3xl` | `<PLACEHOLDER>` | `<PLACEHOLDER>` | Headings |
+| `xs` (micro) | 10–11px | 1.4 | Mono uppercase labels (column/KPI/section), meta |
+| `sm` | 12–13px | 1.4–1.5 | Caption, secondary, table cell, badge |
+| `base` | 14px | 1.55 | Body |
+| `lg` | 15–17px | 1.3–1.5 | Subtitle / H4–H5 |
+| `xl–3xl` | 20 / 24 / 32px | 1.25 / 1.18 / 1.1 | Headings (H3→H1); page title 26px/600 |
+| `display / hero` | 48 / 64px | 1.05 / 1.02 | Landing only |
+
+> Signature label style ("xs micro-upper"): **10px, weight 600, mono, UPPERCASE,
+> letter-spacing .14em, color ash** — used for every table column header, KPI label,
+> and section eyebrow. KPI value = 28px/500; page `<h1>` = 26px/600.
 
 ### Spacing
 
-Single spacing scale (`<PLACEHOLDER base unit>`, e.g. 4px) — use scale steps, not
-arbitrary pixels.
+Single 4px scale — use scale steps, not arbitrary pixels.
 
 | Token | Value |
 |-------|-------|
-| `--space-1` … `--space-8` | `<PLACEHOLDER scale: 4, 8, 12, 16, 24, 32, 48, 64 …>` |
+| `--sp-1 … --sp-24` | `4, 8, 12, 16, 20, 24, 28, 32, 40, 48, 64, 80, 96` px |
+
+Defaults: grid gap **12px**, card padding **20px**, content padding **28px 32px**.
 
 ### Radius
 
 | Token | Value | Use |
 |-------|-------|-----|
-| `--radius-sm` | `<PLACEHOLDER>` | Inputs, small controls |
-| `--radius-md` | `<PLACEHOLDER>` | Cards, buttons |
-| `--radius-lg` | `<PLACEHOLDER>` | Modals, large surfaces |
-| `--radius-full` | `<PLACEHOLDER>` | Pills, avatars |
+| `--r-2` (sm) | `4px` | Badges, inputs, small controls |
+| `--r-3` (md) | `6px` | Buttons |
+| `--r-5` (lg) | `10px` | Cards, tables, KPI, modals |
+| `--r-pill` (full) | `9999px` | Pills, avatars, toggles |
 
 ### Shadow / Elevation
 
+Design is **flat by default** — separate surfaces with hairlines + background shifts, not shadows.
+
 | Token | Value | Use |
 |-------|-------|-----|
-| `--shadow-sm` | `<PLACEHOLDER>` | Resting cards |
-| `--shadow-md` | `<PLACEHOLDER>` | Popovers, raised controls |
-| `--shadow-lg` | `<PLACEHOLDER>` | Modals, overlays |
+| `--shadow-1` (sm) | `0 1px 0 var(--rule-soft)` | Resting hairline lift (rarely used) |
+| `--shadow-4` (md) | `0 4px 12px rgba(20,19,15,0.06)` | Popovers, raised controls |
+| (lg) | `0 14px 34px rgba(20,19,15,0.17)` | Modals, overlays |
 
 ### Motion
 
 | Token | Value | Use |
 |-------|-------|-----|
-| `--duration-fast` / `--duration-base` | `<PLACEHOLDER>` | Transitions |
-| `--easing-standard` | `<PLACEHOLDER>` | Default easing |
+| `--duration-fast` | ~120ms | Row hover, small toggles |
+| `--duration-base` | ~140ms | Buttons, color/border transitions (nav caret ~180ms) |
+| `--easing-standard` | `ease` | Default easing |
 
-> Respect `prefers-reduced-motion`: disable or shorten non-essential motion.
+> ⚠️ `prefers-reduced-motion` is **not yet honored** (`<PLACEHOLDER — to implement>`).
 
 ---
 
 ## Components
 
-Conventions every component honors. Build with tokens above; do not invent new
-raw values. Each interactive component must define all of: **default, hover, focus
-(visible ring), active, disabled**, plus its loading/error behavior where it acts.
+Conventions every component honors. Build with the tokens above; do not invent raw
+values. Each interactive component should define: **default, hover, focus, active,
+disabled**, plus loading/error where it acts. Reuse the shared classes — do not
+hand-roll new variants.
 
 ### Button
 
-- Variants: `<PLACEHOLDER: primary / secondary / ghost / danger>`.
-- Sizes: `<PLACEHOLDER: sm / md / lg>`; padding from the spacing scale, radius
-  `--radius-md`.
-- Disabled is visually distinct AND `disabled`/`aria-disabled`. Async actions show
-  an inline loading state (see Required UI States) and stay non-re-triggerable.
-- Destructive actions use `--color-danger` and are never the lone default focus.
+- Variants: **primary** (ink/black bg, paper text) · **secondary** (canvas + rule border)
+  · **accent** (rust — strong CTA) · **ghost** (transparent) · **link** (rust underlined)
+  · **icon**.
+- Sizes: **sm / md / lg**; padding from the spacing scale, radius `6px`. Icon `~14px` inside.
+- Press feedback: 1px nudge + brief flash. ⚠️ Disabled state and async inline-loading are
+  `<PLACEHOLDER — not standardized>` (mockup feeds back via toast, not spinner).
+- Destructive actions use `--signal`.
 
 ### Input / Field
 
-- Always paired with a `<label>` (visible or `aria-label`); placeholder is not a label.
-- States: default, focus (`--color-focus-ring`), error (`--color-danger` + message),
-  disabled, read-only.
-- Validation message sits adjacent to the field and is linked via
-  `aria-describedby` / `aria-invalid`.
+- Shared `.input`. Focus = **ink border** + canvas bg (no visible ring — a11y gap).
+- States present: default, focus, read-only. ⚠️ Error / disabled styling and
+  `<label>`-pairing are inconsistent (some fields are placeholder-only) — `<PLACEHOLDER — tighten>`.
 
 ### Form
 
-- One column by default; group related fields; primary action bottom-right
-  (`<PLACEHOLDER per layout convention>`).
-- Submit disabled or shows loading while in flight; never double-submit.
-- Field-level errors inline; a form-level error summary appears on submit failure
-  and moves focus to itself.
+- One column; primary action bottom-right. Submit/validation are **mock** (toast
+  confirmations), not real async — `<PLACEHOLDER — real validation when backend lands>`.
 
 ### Card
 
-- Surface `--color-surface`, `--radius-md`, `--shadow-sm`; consistent internal
-  padding from the spacing scale. Title → body → actions order.
+- Surface `--canvas`, radius `10px`, border `--rule-soft`, **no shadow** (flat), padding `20px`.
+  Order: title → body → actions. Optional left accent bar (`card-feature-*`) to categorize.
 
 ### Modal / Dialog
 
-- Overlay scrim, surface `--shadow-lg`, `--radius-lg`. Focus is **trapped** inside,
-  `Esc` closes, focus returns to the trigger on close. `role="dialog"` +
-  `aria-modal="true"` + labelled title. Background is inert/non-scrolling.
+- `ERPInteract.showModal()`. Scrim overlay, surface shadow `0 14px 34px …`, radius `10px`,
+  sticky header with **✕**, `role="dialog"` + `aria-modal="true"`, **Esc** + click-scrim close,
+  `onPrimary` returning `false` keeps it open (validation).
+- ⚠️ Focus is **not trapped** and **not restored** to the trigger on close — `<PLACEHOLDER — add focus trap>`.
 
 ### Navigation
 
-- Pattern: `<PLACEHOLDER: top bar / sidebar / tabs>`. Current location is clearly
-  marked (`aria-current`). Targets meet the minimum hit size in
-  [Accessibility](#accessibility).
+- Pattern: **left sidebar** (collapsible sections, RBAC-filtered) + sticky **topbar**
+  (breadcrumb, role switch, search, bell). Built by `layout.js` from a single `app-shell` div.
+- Current item marked via `.active` class. ⚠️ `aria-current` not set — `<PLACEHOLDER>`.
 
-> When a component originates in Figma, capture its variants/states with the Figma
-> MCP (`get_metadata` for structure, `get_variable_defs` for the tokens it binds)
-> and reconcile them with the tables above rather than guessing.
+### Table (project signature)
+
+- Shared `.tbl` + `.table-wrap`: **bottom rule per row only — no cell grid, no zebra**.
+  Two-tier cells (primary + `.sub-soft` secondary), ~6 full columns, never split sparse
+  attributes into thin "—" columns. Header = xs mono-upper ash. Numbers right-aligned,
+  tabular. (Exception: production stage sheets intentionally use an Excel grid.)
+
+### Status / Badge
+
+- `.badge-*` / `.status-*` pills on `-soft` backgrounds, 11px. Map status → color via §Color.
+
+> When a component later originates in Figma, capture variants/states with the Figma MCP
+> (`get_metadata` for structure, `get_variable_defs` for bound tokens) and reconcile with
+> the tables above rather than guessing.
 
 ---
 
 ## Required UI States
 
-**Mandatory.** Any view that loads data or runs an action MUST handle every state
-below. The 🔍 Evaluator exercises these via the browser loop
-([sops/browser-validation-loop.md](./sops/browser-validation-loop.md)); a missing
-state is a design-quality failure, not a nice-to-have.
+**Mandatory.** Any view that loads data or runs an action MUST handle every state below.
+Current mockup coverage is noted honestly — gaps are design-quality failures to close.
 
-| State | Requirement |
-|-------|-------------|
-| **Empty** | First-run / no-data view with a one-line explanation and a next action — never a blank region. `<PLACEHOLDER copy>` |
-| **Loading** | Visible progress (spinner / skeleton) within `<PLACEHOLDER>` ms; layout must not jump when content arrives. |
-| **Success** | The intended result is clearly shown; transient confirmations (e.g. toast) are announced to assistive tech. |
-| **Error** | Plain-language message (no raw stack/JSON), the cause if known, and what the user can do. Uses `--color-danger`. No silent failure. |
-| **Retry** | Recoverable errors expose an explicit retry; retry shows its own loading state and does not duplicate side effects. |
+| State | Requirement | Mockup status |
+|-------|-------------|---------------|
+| **Empty** | First-run / no-data view with a one-line explanation + next action — never blank. | ⚠️ Partial — present on some pages (e.g. "no drafts" panels), missing on others. |
+| **Loading** | Visible progress (spinner / skeleton); layout must not jump. | ⚠️ Largely absent — data is read synchronously from `localStorage`, so no async spinners. `<PLACEHOLDER for real backend>`. |
+| **Success** | Result clearly shown; transient confirmations announced to assistive tech. | ✅ Toasts via `ERPInteract`; stack is `aria-live="polite"`. |
+| **Error** | Plain-language message (no raw stack/JSON), cause, and recovery. Uses `--signal`. | ◐ Error toasts exist; no full error views/boundaries. |
+| **Retry** | Recoverable errors expose explicit retry without duplicate side effects. | ⚠️ Not implemented (mock data never fails). |
 
-These five are the canonical states a golden journey must walk. Map each to an
-observable assertion in the matching product spec's Acceptance Criteria
-([product-specs/_TEMPLATE.md](./product-specs/_TEMPLATE.md)).
+These five are the canonical states a golden journey must walk. Map each to an observable
+assertion in the matching product spec's Acceptance Criteria
+(`<PLACEHOLDER — product-specs/_TEMPLATE.md not created>`).
 
 ---
 
 ## Layout & Navigation
 
-- **Grid / max width:** `<PLACEHOLDER: container max-width, columns, gutter>`.
-- **Breakpoints:** `<PLACEHOLDER: sm / md / lg / xl>`; mobile-first — components
-  reflow, never overflow horizontally.
-- **App shell:** `<PLACEHOLDER: header + content + optional sidebar>`; persistent
-  regions vs per-route content defined here.
-- **Primary navigation:** `<PLACEHOLDER>` (see Navigation component). Back/forward
-  and deep-linkable routes behave predictably; current route is reflected in nav.
-- **Density / rhythm:** consistent vertical rhythm from the spacing scale; align to
-  the grid rather than ad hoc offsets.
+- **Grid / max width:** content container **max-width 1480px**, padding **28px 32px**;
+  internal grids `grid-2/-3/-4/-12` with **12px** gutter.
+- **Breakpoints (desktop-first, max-width):** **1280 / 1024 / 768 / 480**px; components
+  reflow (sidebar/topbar condense), never overflow horizontally.
+- **App shell:** persistent **sidebar + topbar**, per-route **content**. A page declares
+  only `<div id="app-shell" data-active data-title data-crumb>…</div>`; `layout.js` builds
+  the shell, runs the RBAC guard, then fires `erp:ready` for page code.
+- **Primary navigation:** left sidebar (see Navigation). Each page is its own HTML file;
+  links navigate via `<a href>`; active route reflected in the sidebar.
+- **Density / rhythm:** consistent vertical rhythm from the 4px scale; align to the grid.
 
 ---
 
 ## Accessibility
 
-Baseline target: **`<PLACEHOLDER: e.g. WCAG 2.1 AA>`**. Non-negotiable items:
+Baseline target: **`<PLACEHOLDER — not formally targeted (mockup); aim WCAG 2.1 AA>`**.
+Current state, recorded honestly:
 
-- **Contrast:** text ≥ 4.5:1 (≥ 3:1 for large text/UI glyphs) for every token pair.
-- **Keyboard:** every interactive element reachable and operable by keyboard in a
-  logical order; a **visible** focus ring (`--color-focus-ring`) is always present.
-- **Focus management:** modals trap focus and restore it; route changes move focus
-  to the new view's heading.
-- **Semantics:** real landmarks/headings/lists; controls have accessible names;
-  state conveyed by ARIA, not color alone.
-- **Live regions:** async success/error is announced (`aria-live`) so it is not
-  vision-only.
-- **Targets:** minimum hit area `<PLACEHOLDER: e.g. 44×44px>`.
-- **Motion:** honor `prefers-reduced-motion`.
+- **Contrast:** ✅ ink `#14130f` on paper `#f5f1e8` and semantic text on `-soft` tints are
+  strong; verify every new pair to ≥ 4.5:1 (≥ 3:1 large text/UI).
+- **Keyboard / focus ring:** ⚠️ **Gap** — controls use `outline:none`; focus shows only as a
+  border-color change. Add a visible focus ring (`--rust` or `--ink`) for every interactive element.
+- **Focus management:** ⚠️ **Gap** — modal does not trap or restore focus; route changes
+  (full page loads) do not move focus to the new heading.
+- **Semantics:** ◐ Real landmarks/headings exist; nav uses `.active` not `aria-current`;
+  some inputs are placeholder-only (need real `<label>`).
+- **Live regions:** ✅ Toast stack is `aria-live="polite"` so success/error is announced.
+- **Targets:** `<PLACEHOLDER — define min hit area, e.g. 44×44px>`.
+- **Motion:** ⚠️ `prefers-reduced-motion` not honored yet.
 
 ---
 

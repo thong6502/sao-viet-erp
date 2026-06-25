@@ -55,6 +55,7 @@ Load a file only when its row is relevant.
 | `docs/ORCHESTRATION.md` | How the 3 roles + `gan-loop.js` wire together. |
 | `docs/PRODUCT_SENSE.md` | What "good" means; product bar for features. |
 | `docs/ARCHITECTURE.md` | React + Vite / FastAPI / DB layout and conventions. |
+| `docs/DB_SCHEMA.md` | Data dictionary: every table, column meaning, PK/FK/index. Update on any schema change (enforced by a test). |
 | `docs/UI_DESIGN.md` | Design system the 🔨 generate skill builds against (assets in `docs/design-assets/`). |
 | `docs/EVALUATION.md` | The 4 scoring criteria, thresholds, and recorded scores. |
 | `docs/SECURITY.md` | Secrets, untrusted data, and external-action policy. |

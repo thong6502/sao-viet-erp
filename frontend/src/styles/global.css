@@ -1,0 +1,195 @@
+@import "./tokens.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Signature micro-upper label: 10px, weight 600, mono, uppercase, tracking .14em, ash. */
+.eyebrow {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+  margin: 0;
+}
+
+/* ---- Card ---------------------------------------------------------------- */
+.card {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-8);
+}
+
+/* ---- Field --------------------------------------------------------------- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.field__label {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ash);
+}
+
+.input {
+  width: 100%;
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  padding: 10px 12px;
+  transition: border-color var(--duration-base) var(--easing-standard);
+}
+
+.input::placeholder {
+  color: var(--ash-2);
+}
+
+/* Visible focus ring (closing the a11y gap noted in UI_DESIGN.md). */
+.input:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+  border-color: var(--ink);
+}
+
+.input--error {
+  border-color: var(--signal);
+}
+
+.field__error {
+  font-size: 12px;
+  color: var(--signal);
+}
+
+/* ---- Button -------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  border-radius: var(--r-3);
+  border: 1px solid transparent;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Primary = ink/black bg, paper text (per UI_DESIGN.md Button). */
+.btn--primary {
+  background: var(--ink);
+  color: var(--paper-contrast);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: #000;
+}
+
+/* Accent = rust strong CTA. */
+.btn--accent {
+  background: var(--rust);
+  color: var(--paper-contrast);
+}
+
+.btn--accent:hover:not(:disabled) {
+  background: var(--rust-deep);
+}
+
+.btn--ghost {
+  background: transparent;
+  color: var(--ink);
+  border-color: var(--rule);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--rust-soft);
+  border-color: var(--rule);
+}
+
+.btn--block {
+  width: 100%;
+}
+
+/* ---- Inline spinner (loading state) -------------------------------------- */
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: var(--r-pill);
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* ---- Banner (error / retry surface) -------------------------------------- */
+.banner {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  border-radius: var(--r-2);
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.banner--error {
+  background: var(--signal-soft);
+  color: var(--signal);
+  border: 1px solid #e3b9b9;
+}

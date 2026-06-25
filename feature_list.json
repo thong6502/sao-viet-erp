@@ -2,10 +2,26 @@
   "features": [
     {
       "id": "feat-001",
-      "name": "<PLACEHOLDER: the plan skill fills this from your sprint>",
-      "description": "<PLACEHOLDER: the plan skill fills this from your sprint> — one user-facing behavior with acceptance criteria, generated from a sprint spec in docs/product-specs/.",
+      "name": "App skeleton + Postgres in Docker",
+      "description": "Runnable monorepo skeleton: React + Vite + TypeScript frontend, FastAPI backend (routes -> services -> repositories -> DB layering), PostgreSQL via docker-compose reached through DATABASE_URL. Acceptance: ./init.ps1 / ./init.sh pass (pytest + compileall); `docker compose up db` starts Postgres; backend boots and serves a health endpoint; frontend `npm run dev` serves the SPA.",
       "dependencies": [],
-      "status": "not-started",
+      "status": "done",
+      "evidence": "Backend app/ skeleton (config/db/security/deps/models/repositories/services/routers) + backend/tests; frontend Vite+TS SPA; docker-compose.yml (db+backend), Dockerfiles, .env + .env.example. init.ps1 green: pytest + compileall. Postgres compose+env wired; live bring-up pending a healthy Docker daemon (wedged locally) — app currently runs on SQLite via the same SQLAlchemy layer. See progress.md 2026-06-25."
+    },
+    {
+      "id": "feat-002",
+      "name": "Seeded-user JWT login (backend)",
+      "description": "POST /api/auth/login verifies email+password (bcrypt) against a seeded admin user and returns a JWT bearer token + user; GET /api/auth/me returns the user for a valid token, 401 otherwise. Parameterized/ORM SQL only; generic error on bad credentials (no user enumeration). Acceptance: backend pytest covers login success (200 + token), wrong password (401), unknown user (401), /me with valid token (200) and without (401).",
+      "dependencies": ["feat-001"],
+      "status": "done",
+      "evidence": "app/routers/auth.py + services/auth_service.py + repositories/user_repo.py + security.py; backend/tests/test_auth.py covers login ok/bad/unknown + me ok/unauthorized. pytest green via init.ps1."
+    },
+    {
+      "id": "feat-003",
+      "name": "Login screen + protected Dashboard (frontend)",
+      "description": "Login page (email+password, validation, loading, error states per UI_DESIGN.md) calls the API client only; on success persists the JWT and renders a protected Dashboard showing the user email + Logout. Reload restores the session via /me; logout clears the token and returns to Login. Acceptance (browser-validate): login form snapshot, empty-submit validation fires no call, wrong creds shows 'Invalid email or password', success shows Dashboard with user email, reload stays logged in, logout returns to Login, clean console.",
+      "dependencies": ["feat-002"],
+      "status": "in-progress",
       "evidence": ""
     }
   ]
