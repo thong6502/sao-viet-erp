@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from ..deps import (
+    get_activity_service,
     get_department_service,
     get_role_service,
     get_user_admin_service,
@@ -15,6 +16,7 @@ from ..deps import (
 )
 from ..schemas.rbac import (
     ActiveUpdate,
+    AuditRow,
     DepartmentCreate,
     DepartmentSummaryOut,
     DepartmentUpdate,
@@ -51,12 +53,22 @@ from ..services.user_admin_service import (
     UserNotFound,
 )
 from ..services.user_admin_service import DepartmentNotFound as UADeptNotFound
+from ..services.activity_service import ActivityService
 
 router = APIRouter(prefix="/api", tags=["rbac"])
 
 Service = Annotated[RoleService, Depends(get_role_service)]
 Depts = Annotated[DepartmentService, Depends(get_department_service)]
 Users = Annotated[UserAdminService, Depends(get_user_admin_service)]
+Activity = Annotated[ActivityService, Depends(get_activity_service)]
+
+
+@router.get("/audit", response_model=list[AuditRow])
+def list_audit(
+    activity: Activity,
+    _: Annotated[object, Depends(require_permission("activity_log", "read"))],
+) -> list[AuditRow]:
+    return activity.list_recent()
 
 
 @router.get("/rbac/modules", response_model=list[ModuleOut])

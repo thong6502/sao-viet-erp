@@ -3,8 +3,8 @@
 ## Current State
 
 **Last Updated:** 2026-06-26
-**Active Feature:** feat-010 — Menu/route gating — **done** (Evaluator PASS). Only
-**feat-011** (Activity Log) remains to complete sprint-02 RBAC.
+**Active Feature:** none — **sprint-02 RBAC COMPLETE** (feat-001..011 all done, 11/11).
+Next: plan sprint-03 (CRM) or harden RBAC (Postgres bring-up, password reset, etc.).
 
 ## Status
 
@@ -58,21 +58,24 @@
   Sidebar filters items by module + drops empty sections; AppShell loads perms on entry and
   gates content (forbidden → 403 banner). Verified live for admin (catalog only) and NV Sales
   (Dashboard + 3 KD items, no Quản trị). Evaluator PASS 4/4/5/4. `init.ps1`: **49 passed**.
+- **feat-011 — Activity Log:** `GET /api/audit` + read-only `ActivityLogPage` (friendly
+  Vietnamese action labels + filter-by-action); surfaced the full real audit history written
+  across feat-004..010. Evaluator PASS 4/4/5/4. `init.ps1`: **51 passed**.
 
 ### What's In Progress
 
-- None.
+- None — **sprint-02 RBAC is fully done (11/11 features)**.
 
 ### What's Next
 
-1. **feat-011** (Activity Log: API + read-only screen) — buildable now (deps feat-007/008/
-   009 done). Every privilege change since feat-004 already writes an AuditLog row; this is
-   the read-only viewer. After it, sprint-02 RBAC is complete.
-2. UI features need the app running on the RBAC schema: `backend/dev.db` was rebuilt this
-   session (backend :8000, frontend :5173); drop dev.db + restart if the schema changes.
-   Restart the backend after backend route changes (uvicorn doesn't hot-reload here).
-3. Sprint-02 RBAC backlog is planned in `feature_list.json` (feat-004..011) and specced in
-   `docs/product-specs/sprint-02-rbac.md`.
+1. **Sprint-03 = CRM** (Khách hàng): the customer master discussed earlier (MVP CRM-06 +
+   01 + 02 + a minimal Orders entity so lifecycle / value-tier / LTV compute). The RBAC
+   data-scope (own/department/all) is ready to enforce "Sales sees only their customers".
+   Write the sprint spec from `_TEMPLATE.md` → `/plan` → build.
+2. Or harden RBAC: live Postgres bring-up, password reset / invite email, "head assigns
+   only within their level", and scope enforcement on real list endpoints (lands with CRM).
+3. Ops note: app runs on SQLite `backend/dev.db` (rebuilt this session). Restart the backend
+   after backend route changes (uvicorn isn't hot-reloaded here); drop dev.db on schema change.
 
 ## Blockers / Risks
 

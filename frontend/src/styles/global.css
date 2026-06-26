@@ -102,6 +102,11 @@ body {
   color: var(--ash-2);
 }
 
+.input--sm {
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
 /* Visible focus ring (closing the a11y gap noted in UI_DESIGN.md). */
 .input:focus-visible {
   outline: 2px solid var(--rust);

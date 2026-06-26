@@ -120,6 +120,16 @@ export interface UserRow {
   is_active: boolean;
 }
 
+export interface AuditRow {
+  id: number;
+  actor_user_id: number | null;
+  actor_name: string | null;
+  action: string;
+  target: string;
+  detail: string;
+  created_at: string;
+}
+
 export interface Role {
   id: number;
   name: string;
@@ -204,6 +214,9 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ is_active: isActive }),
       });
+    },
+    activityLog(token: string): Promise<AuditRow[]> {
+      return authed<AuditRow[]>("/api/audit", token);
     },
     roles(token: string, departmentId: number): Promise<Role[]> {
       return authed<Role[]>(`/api/roles?department_id=${departmentId}`, token);

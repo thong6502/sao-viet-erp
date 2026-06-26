@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { RolesPage } from "../pages/RolesPage";
@@ -63,6 +64,8 @@ export function AppShell() {
         return <DepartmentsPage />;
       case "nguoi-dung":
         return <UsersPage />;
+      case "nhat-ky":
+        return <ActivityLogPage />;
       default:
         return <DashboardPage />;
     }

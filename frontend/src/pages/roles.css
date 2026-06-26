@@ -171,11 +171,6 @@
   padding-right: var(--sp-6) !important;
 }
 
-.input--sm {
-  padding: 6px 8px;
-  font-size: 13px;
-}
-
 /* ---- Toggle switch (styled checkbox) ------------------------------------- */
 .switch {
   appearance: none;

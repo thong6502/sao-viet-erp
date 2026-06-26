@@ -85,8 +85,8 @@
       "name": "Activity Log: API + read-only screen",
       "description": "Backend list endpoint for AuditLog (actor, action, target, detail, created_at) + a read-only Activity Log screen with basic filtering. Acceptance (browser-validate on green init): after assigning a department, assigning a role, editing a role's permission matrix, or locking a user, the Activity Log shows the corresponding row(s) with actor + action + time; an empty state appears when there is no activity; loading and error states are handled; clean console.",
       "dependencies": ["feat-007", "feat-008", "feat-009"],
-      "status": "not-started",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Backend: activity_service.py (ActivityService.list_recent resolves actor names over AuditLogRepository.list_recent) + GET /api/audit (response_model list[AuditRow]) guarded by require_permission(activity_log, read). Frontend: api.rbac.activityLog; pages/ActivityLogPage.tsx read-only table (Thời gian/Người thực hiện/Hành động/Đối tượng/Chi tiết) with friendly Vietnamese action labels, a filter-by-action dropdown, and loading/empty/error/403 states; Sidebar 'Quản trị → Nhật ký'; AppShell routes it. Verify: init.ps1 51 passed (2 new test_rbac_activity_api: action-appears + 403-for-non-admin) + compileall; frontend tsc+vite build green. browser-validate PASS 4/4/5/4 (2026-06-26): the log surfaced the full real history written across feat-004..010 (create/rename/delete role, role-permission edit, create/delete department, create/assign-role/lock/unlock user) with actor 'Admin' + timestamps + labels; the action filter narrowed correctly; console clean. Empty-state is code-covered (the live log already has data). docs/EVALUATION.md Score Log."
     }
   ]
 }

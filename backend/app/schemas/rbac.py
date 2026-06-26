@@ -1,6 +1,7 @@
 """RBAC admin schemas — shapes the role-management routes parse and return."""
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -73,6 +74,18 @@ class RoleAssign(BaseModel):
 
 class ActiveUpdate(BaseModel):
     is_active: bool
+
+
+class AuditRow(BaseModel):
+    """A row in the Activity Log: who did what, to what, when."""
+
+    id: int
+    actor_user_id: int | None = None
+    actor_name: str | None = None
+    action: str
+    target: str
+    detail: str
+    created_at: datetime
 
 
 class RoleOut(BaseModel):

@@ -1,0 +1,99 @@
+/* Nhật ký hoạt động (RBAC audit log) — read-only table. Built on the tokens. */
+.activity {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.activity__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--rule);
+}
+.activity__title {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+.activity__sub {
+  color: var(--ash);
+  font-size: 14px;
+  margin: 0;
+}
+
+.activity__filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: 0 0 auto;
+}
+.activity__filter-label {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ash);
+}
+
+.activity__card {
+  padding: 0;
+  overflow-x: auto;
+}
+.activity__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.activity__table thead th {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  text-align: left;
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.activity__table tbody td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: top;
+}
+.activity__table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.activity__table tbody tr:hover {
+  background: var(--rule-hair);
+}
+
+.activity__time,
+.activity__mono {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  color: var(--ash);
+  white-space: nowrap;
+}
+.activity__muted {
+  color: var(--ash-2);
+}
+
+.activity__status {
+  color: var(--ash);
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--sp-8);
+  text-align: center;
+  margin: 0;
+}
