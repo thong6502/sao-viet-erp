@@ -1,4 +1,5 @@
 import { useAuth } from "./auth/useAuth";
+import { AppShell } from "./components/AppShell";
 import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 
@@ -17,5 +18,11 @@ export function App() {
     );
   }
 
-  return status === "authenticated" ? <DashboardPage /> : <LoginPage />;
+  return status === "authenticated" ? (
+    <AppShell>
+      <DashboardPage />
+    </AppShell>
+  ) : (
+    <LoginPage />
+  );
 }

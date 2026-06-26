@@ -1,0 +1,255 @@
+/* Sidebar — dark `--ink` rail. Local light-on-dark vars are scoped here only;
+   the rest of the app stays on the light paper palette (docs/UI_DESIGN.md). */
+.sidebar {
+  --sb-text: #e6e0d2;
+  --sb-muted: #97907f;
+  --sb-hover: rgba(245, 241, 232, 0.06);
+  --sb-edge: rgba(245, 241, 232, 0.08);
+
+  flex: 0 0 264px;
+  width: 264px;
+  height: 100%;
+  overflow-y: auto;
+  background: var(--ink);
+  color: var(--sb-text);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--sb-edge);
+}
+
+/* ---- Brand ---------------------------------------------------------------- */
+.sidebar__brand {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-5);
+  text-decoration: none;
+  color: inherit;
+  border-bottom: 1px solid var(--sb-edge);
+}
+
+.sidebar__logo {
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  background: var(--canvas);
+  border-radius: var(--r-3);
+}
+
+.sidebar__logo img {
+  display: block;
+}
+
+.sidebar__brandtext {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sidebar__name {
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.sidebar__tag {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--sb-muted);
+}
+
+/* ---- Nav scaffold --------------------------------------------------------- */
+.sidebar__nav {
+  flex: 1 1 auto;
+  padding: var(--sp-3) var(--sp-3) var(--sp-6);
+}
+
+.sidebar__section {
+  margin-top: var(--sp-3);
+}
+.sidebar__section:first-child {
+  margin-top: var(--sp-1);
+}
+
+.sidebar__sectionhead {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3) var(--sp-1);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--sb-muted);
+}
+.sidebar__sectionhead:hover {
+  color: var(--sb-text);
+}
+.sidebar__sectionhead:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+  border-radius: var(--r-2);
+}
+
+.sidebar__caret {
+  flex: 0 0 auto;
+  opacity: 0.65;
+  transition: transform var(--duration-base) var(--easing-standard);
+}
+.sidebar__caret.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.sidebar__items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* ---- Item ----------------------------------------------------------------- */
+.sidebar__link {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 9px var(--sp-3);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  color: var(--sb-text);
+  border-radius: var(--r-3);
+  transition: background-color var(--duration-base) var(--easing-standard),
+    color var(--duration-base) var(--easing-standard);
+}
+
+.sidebar__icon {
+  flex: 0 0 auto;
+  color: var(--sb-muted);
+  transition: color var(--duration-base) var(--easing-standard);
+}
+
+.sidebar__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar__link:hover {
+  background: var(--sb-hover);
+}
+.sidebar__link:hover .sidebar__icon {
+  color: var(--sb-text);
+}
+.sidebar__link:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+.sidebar__link.is-active {
+  background: var(--rust);
+  color: var(--paper-contrast);
+  font-weight: var(--fw-medium);
+}
+.sidebar__link.is-active .sidebar__icon,
+.sidebar__link.is-active .sidebar__caret {
+  color: var(--paper-contrast);
+  opacity: 1;
+}
+
+/* ---- Sub-items ------------------------------------------------------------ */
+.sidebar__sub {
+  list-style: none;
+  margin: 2px 0;
+  padding: 0 0 0 calc(18px + var(--sp-3) + var(--sp-3));
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidebar__sublink {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  padding: 7px var(--sp-3);
+  border-radius: var(--r-2);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--sb-muted);
+  transition: background-color var(--duration-base) var(--easing-standard),
+    color var(--duration-base) var(--easing-standard);
+}
+.sidebar__sublink:hover {
+  background: var(--sb-hover);
+  color: var(--sb-text);
+}
+.sidebar__sublink:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.sidebar__sublink.is-active {
+  background: var(--rust-deep);
+  color: var(--paper-contrast);
+}
+
+/* ---- Scrollbar (dark) ----------------------------------------------------- */
+.sidebar::-webkit-scrollbar {
+  width: 10px;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(245, 241, 232, 0.14);
+  border: 3px solid var(--ink);
+  border-radius: var(--r-pill);
+}
+
+/* ---- Responsive: collapse to an icon rail --------------------------------- */
+@media (max-width: 768px) {
+  .sidebar {
+    flex-basis: 64px;
+    width: 64px;
+  }
+  .sidebar__brand {
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .sidebar__brandtext,
+  .sidebar__sectionhead,
+  .sidebar__label,
+  .sidebar__sub,
+  .sidebar__link .sidebar__caret {
+    display: none;
+  }
+  .sidebar__nav {
+    padding: var(--sp-4) var(--sp-2);
+  }
+  .sidebar__link {
+    justify-content: center;
+    gap: 0;
+    padding-left: 0;
+    padding-right: 0;
+  }
+}
