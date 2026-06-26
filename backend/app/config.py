@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     seed_admin_password: str = "admin123"
     seed_admin_name: str = "Admin"
 
+    # Initial password set on HR-created accounts (no invite email this sprint).
+    # MUST be changed by the user in a real deployment (docs/SECURITY.md).
+    default_user_password: str = "password123"
+
     # --- CORS --------------------------------------------------------------
     # Comma-separated list of allowed frontend origins.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

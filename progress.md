@@ -3,8 +3,8 @@
 ## Current State
 
 **Last Updated:** 2026-06-26
-**Active Feature:** feat-008 — Phòng ban (API + screen) — **done** (Evaluator PASS). Next
-buildable is **feat-009** (Người dùng screen).
+**Active Feature:** feat-009 — Người dùng (API + screen) — **done** (Evaluator PASS). Next
+buildable is **feat-010** (menu/route gating theo quyền).
 
 ## Status
 
@@ -50,6 +50,10 @@ buildable is **feat-009** (Người dùng screen).
   head) + set-head (must belong to dept) + delete blocked if roles/users remain;
   `DepartmentsPage` master-detail via sidebar Quản trị → Phòng ban. Evaluator PASS 4/4/5/4.
   `init.ps1`: **39 passed**.
+- **feat-009 — Người dùng (API + screen):** HR create (email-unique, dept required) → no role
+  yet; assign role validated to the user's department; lock/unlock with self-lock guard;
+  `auth_service` + `get_current_user` both refuse a locked account. `UsersPage` table+detail
+  via sidebar Quản trị → Người dùng. Evaluator PASS 4/4/5/4. `init.ps1`: **46 passed**.
 
 ### What's In Progress
 
@@ -57,9 +61,9 @@ buildable is **feat-009** (Người dùng screen).
 
 ### What's Next
 
-1. **feat-009** (Người dùng: HR tạo+gán phòng · trưởng phòng gán vai trò · khóa tài khoản) —
-   buildable now (deps feat-007/008 done). Then **feat-010** (menu gating) → **feat-011**
-   (Activity Log). feat-009 also unblocks live-testing of head pickers + data-scope.
+1. **feat-010** (Menu/route gating theo quyền) — buildable now (deps feat-005/007/003 done):
+   sidebar shows only modules the role can Read; forbidden route → friendly 403. Then
+   **feat-011** (Activity Log). After that, sprint-02 RBAC is complete.
 2. UI features need the app running on the RBAC schema: `backend/dev.db` was rebuilt this
    session (backend :8000, frontend :5173); drop dev.db + restart if the schema changes.
    Restart the backend after backend route changes (uvicorn doesn't hot-reload here).

@@ -27,6 +27,9 @@ class AuthService:
         user = self.users.get_by_email(email)
         if user is None or not verify_password(password, user.password_hash):
             raise AuthError("Invalid email or password")
+        # A locked account cannot authenticate (generic message — no enumeration).
+        if not user.is_active:
+            raise AuthError("Invalid email or password")
         return user
 
     def login(self, email: str, password: str) -> tuple[str, User]:

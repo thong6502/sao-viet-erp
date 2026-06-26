@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class ModuleOut(BaseModel):
@@ -46,6 +46,33 @@ class UserBrief(BaseModel):
     id: int
     name: str
     email: str
+
+
+class UserRow(BaseModel):
+    """A row in the Users admin table: identity + department + role + status."""
+
+    id: int
+    name: str
+    email: str
+    department_id: int | None = None
+    department_name: str | None = None
+    role_id: int | None = None
+    role_name: str | None = None
+    is_active: bool = True
+
+
+class UserCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    email: EmailStr
+    department_id: int
+
+
+class RoleAssign(BaseModel):
+    role_id: int | None = None
+
+
+class ActiveUpdate(BaseModel):
+    is_active: bool
 
 
 class RoleOut(BaseModel):

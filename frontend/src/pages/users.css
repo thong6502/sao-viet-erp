@@ -1,0 +1,169 @@
+/* Người dùng (RBAC users) — table + assign/lock detail. Built on the tokens. */
+.users {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.users__head {
+  padding-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--rule);
+}
+.users__title {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+.users__sub {
+  color: var(--ash);
+  font-size: 14px;
+  margin: 0;
+}
+
+.users__create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.users__create .input {
+  width: 220px;
+  max-width: 100%;
+}
+.users__inline-error {
+  color: var(--signal);
+  font-size: 13px;
+}
+
+/* ---- Grid: table + detail ------------------------------------------------ */
+.users__grid {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: var(--sp-5);
+  align-items: start;
+}
+
+.users__tablewrap {
+  padding: 0;
+  overflow-x: auto;
+}
+.users__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.users__table thead th {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  text-align: left;
+  padding: var(--sp-4) var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.users__row {
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+.users__row td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.users__row:last-child td {
+  border-bottom: 0;
+}
+.users__row:hover {
+  background: var(--rule-hair);
+}
+.users__row.is-active {
+  background: var(--rust-soft);
+}
+.users__email {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  color: var(--ash);
+}
+.users__muted {
+  color: var(--ash-2);
+}
+
+.users__badge {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--moss);
+  color: var(--paper-contrast);
+}
+.users__badge--locked {
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+/* ---- Detail -------------------------------------------------------------- */
+.users__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+.users__who {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.users__who-name {
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  margin: 0;
+}
+.users__who .users__muted {
+  font-size: 13px;
+  margin: 0;
+}
+
+.users__actions,
+.users__lock {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.users__lock {
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-4);
+}
+.users__saved {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--moss);
+}
+.users__hint {
+  color: var(--ash);
+  font-size: 13px;
+}
+
+.users__status {
+  color: var(--ash);
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--sp-6);
+  text-align: center;
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .users__grid {
+    grid-template-columns: 1fr;
+  }
+}

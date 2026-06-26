@@ -5,6 +5,7 @@ import { useState } from "react";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { RolesPage } from "../pages/RolesPage";
+import { UsersPage } from "../pages/UsersPage";
 import { Sidebar } from "./Sidebar";
 
 export function AppShell() {
@@ -16,6 +17,8 @@ export function AppShell() {
         return <RolesPage />;
       case "phong-ban":
         return <DepartmentsPage />;
+      case "nguoi-dung":
+        return <UsersPage />;
       default:
         return <DashboardPage />;
     }

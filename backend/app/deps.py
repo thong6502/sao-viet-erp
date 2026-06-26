@@ -22,6 +22,7 @@ from .services.auth_service import AuthError, AuthService
 from .services.department_service import DepartmentService
 from .services.rbac_service import AuthorizationService
 from .services.role_service import RoleService
+from .services.user_admin_service import UserAdminService
 
 # auto_error=False so we can return our own 401 shape for missing/invalid tokens.
 _bearer = HTTPBearer(auto_error=False)
@@ -110,6 +111,15 @@ def get_department_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> DepartmentService:
     return DepartmentService(departments, roles, users, audit)
+
+
+def get_user_admin_service(
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
+    roles: Annotated[RoleRepository, Depends(get_role_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> UserAdminService:
+    return UserAdminService(users, departments, roles, audit)
 
 
 def require_permission(module_key: str, action: str):

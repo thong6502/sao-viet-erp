@@ -7,18 +7,27 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from ..deps import get_department_service, get_role_service, require_permission
+from ..deps import (
+    get_department_service,
+    get_role_service,
+    get_user_admin_service,
+    require_permission,
+)
 from ..schemas.rbac import (
+    ActiveUpdate,
     DepartmentCreate,
     DepartmentSummaryOut,
     DepartmentUpdate,
     ModuleOut,
     PermissionMatrixIn,
     PermissionRow,
+    RoleAssign,
     RoleCreate,
     RoleOut,
     RoleRename,
     UserBrief,
+    UserCreate,
+    UserRow,
 )
 from ..services.department_service import (
     DepartmentInUse,
@@ -34,11 +43,20 @@ from ..services.role_service import (
     RoleNotFound,
     RoleService,
 )
+from ..services.user_admin_service import (
+    CannotLockSelf,
+    EmailTaken,
+    InvalidRoleForDepartment,
+    UserAdminService,
+    UserNotFound,
+)
+from ..services.user_admin_service import DepartmentNotFound as UADeptNotFound
 
 router = APIRouter(prefix="/api", tags=["rbac"])
 
 Service = Annotated[RoleService, Depends(get_role_service)]
 Depts = Annotated[DepartmentService, Depends(get_department_service)]
+Users = Annotated[UserAdminService, Depends(get_user_admin_service)]
 
 
 @router.get("/rbac/modules", response_model=list[ModuleOut])
@@ -115,6 +133,87 @@ def delete_department(
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/users", response_model=list[UserRow])
+def list_users(
+    admin: Users,
+    _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+) -> list[UserRow]:
+    return admin.list_users()
+
+
+@router.post("/users", response_model=UserRow, status_code=status.HTTP_201_CREATED)
+def create_user(
+    payload: UserCreate,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "create"))],
+) -> dict:
+    try:
+        created = admin.create_user(
+            name=payload.name,
+            email=payload.email,
+            department_id=payload.department_id,
+            actor_id=user.id,
+        )
+    except EmailTaken as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except UADeptNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return {
+        "id": created.id,
+        "name": created.name,
+        "email": created.email,
+        "department_id": created.department_id,
+        "role_id": created.role_id,
+        "is_active": created.is_active,
+    }
+
+
+@router.put("/users/{user_id}/role", response_model=UserRow)
+def assign_user_role(
+    user_id: int,
+    payload: RoleAssign,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+) -> dict:
+    try:
+        updated = admin.assign_role(user_id=user_id, role_id=payload.role_id, actor_id=user.id)
+    except InvalidRoleForDepartment as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return {
+        "id": updated.id,
+        "name": updated.name,
+        "email": updated.email,
+        "department_id": updated.department_id,
+        "role_id": updated.role_id,
+        "is_active": updated.is_active,
+    }
+
+
+@router.put("/users/{user_id}/active", response_model=UserRow)
+def set_user_active(
+    user_id: int,
+    payload: ActiveUpdate,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+) -> dict:
+    try:
+        updated = admin.set_active(user_id=user_id, is_active=payload.is_active, actor_id=user.id)
+    except CannotLockSelf as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return {
+        "id": updated.id,
+        "name": updated.name,
+        "email": updated.email,
+        "department_id": updated.department_id,
+        "role_id": updated.role_id,
+        "is_active": updated.is_active,
+    }
 
 
 @router.get("/roles", response_model=list[RoleOut])

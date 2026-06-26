@@ -42,6 +42,21 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
+    def set_role(self, user: User, role_id: int | None) -> User:
+        user.role_id = role_id
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def set_active(self, user: User, is_active: bool) -> User:
+        user.is_active = is_active
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def list_all(self) -> list[User]:
+        return list(self.db.execute(select(User).order_by(User.id)).scalars())
+
     def count(self) -> int:
         from sqlalchemy import func
 

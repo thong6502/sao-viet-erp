@@ -109,6 +109,17 @@ export interface UserBrief {
   email: string;
 }
 
+export interface UserRow {
+  id: number;
+  name: string;
+  email: string;
+  department_id: number | null;
+  department_name: string | null;
+  role_id: number | null;
+  role_name: string | null;
+  is_active: boolean;
+}
+
 export interface Role {
   id: number;
   name: string;
@@ -165,6 +176,27 @@ export const api = {
     },
     deleteDepartment(token: string, id: number): Promise<void> {
       return authed<void>(`/api/departments/${id}`, token, { method: "DELETE" });
+    },
+    users(token: string): Promise<UserRow[]> {
+      return authed<UserRow[]>("/api/users", token);
+    },
+    createUser(token: string, name: string, email: string, departmentId: number): Promise<UserRow> {
+      return authed<UserRow>("/api/users", token, {
+        method: "POST",
+        body: JSON.stringify({ name, email, department_id: departmentId }),
+      });
+    },
+    assignUserRole(token: string, userId: number, roleId: number | null): Promise<UserRow> {
+      return authed<UserRow>(`/api/users/${userId}/role`, token, {
+        method: "PUT",
+        body: JSON.stringify({ role_id: roleId }),
+      });
+    },
+    setUserActive(token: string, userId: number, isActive: boolean): Promise<UserRow> {
+      return authed<UserRow>(`/api/users/${userId}/active`, token, {
+        method: "PUT",
+        body: JSON.stringify({ is_active: isActive }),
+      });
     },
     roles(token: string, departmentId: number): Promise<Role[]> {
       return authed<Role[]>(`/api/roles?department_id=${departmentId}`, token);
