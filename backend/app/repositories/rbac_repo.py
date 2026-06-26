@@ -61,6 +61,16 @@ class DepartmentRepository:
         self.db.refresh(dept)
         return dept
 
+    def rename(self, dept: Department, name: str) -> Department:
+        dept.name = name
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def delete(self, dept: Department) -> None:
+        self.db.delete(dept)
+        self.db.commit()
+
     def list_all(self) -> list[Department]:
         return list(self.db.execute(select(Department).order_by(Department.id)).scalars())
 
@@ -105,6 +115,11 @@ class RoleRepository:
                 select(Role).where(Role.department_id == department_id).order_by(Role.id)
             ).scalars()
         )
+
+    def count_by_department(self, department_id: int) -> int:
+        return self.db.execute(
+            select(func.count()).select_from(Role).where(Role.department_id == department_id)
+        ).scalar_one()
 
     def get_permission(self, role_id: int, module_key: str) -> RolePermission | None:
         return self.db.execute(

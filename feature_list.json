@@ -61,8 +61,8 @@
       "name": "Quản lý Phòng ban: API + screen",
       "description": "Backend CRUD for departments + set head_user_id; frontend Departments screen listing departments, their roles, and the department head. Validation: department name required + unique; deleting a department that still has roles or users is blocked with a stated reason. Acceptance (browser-validate on green init): create/edit a department; set a department head (chosen from users of that department); duplicate name shows an error; deleting an in-use department is blocked with the reason; empty state when no departments exist; clean console.",
       "dependencies": ["feat-005", "feat-003"],
-      "status": "not-started",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Backend: department_service.py (create/rename/set-head/delete with name dedup, head-must-belong-to-dept rule, block-delete-if-roles/users) + routes in routers/rbac.py (GET /api/departments now returns summaries with role_count/user_count/head_name; GET /api/departments/{id}/users; POST/PUT/DELETE /api/departments) guarded by require_permission(phong_ban). Frontend: api.rbac department methods; pages/DepartmentsPage.tsx master-detail (list summaries + detail rename/head-picker/roles/delete) with loading/empty/error/403 states; Sidebar 'Quản trị → Phòng ban'; AppShell routes it. Verify: init.ps1 39 passed (6 new test_rbac_departments_api) + compileall; frontend tsc+vite build green. browser-validate PASS 4/4/5/4 (2026-06-26): list+summaries render, create (201) + duplicate→inline 409, delete in-use Kinh doanh blocked (409 'còn 3 vai trò'), delete empty dept (204) removes it, empty-state (head picker disabled). Rename + set-head verified backend (same updateDepartment path), not separately browser-exercised. docs/EVALUATION.md Score Log."
     },
     {
       "id": "feat-009",

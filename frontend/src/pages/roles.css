@@ -107,15 +107,7 @@
   font-size: 13px;
 }
 
-/* Destructive button + a low-emphasis danger text affordance. */
-.btn--danger {
-  background: var(--signal);
-  color: var(--paper-contrast);
-}
-.btn--danger:hover:not(:disabled) {
-  background: #6f1818;
-}
-
+/* A low-emphasis danger text affordance (.btn--danger lives in global.css). */
 .roles__danger-text {
   color: var(--signal);
 }

@@ -164,6 +164,16 @@ body {
   border-color: var(--rule);
 }
 
+/* Destructive (delete/confirm) = signal red. */
+.btn--danger {
+  background: var(--signal);
+  color: var(--paper-contrast);
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: #6f1818;
+}
+
 .btn--block {
   width: 100%;
 }

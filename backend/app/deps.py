@@ -19,6 +19,7 @@ from .repositories.rbac_repo import DepartmentRepository, ModuleRepository, Role
 from .repositories.user_repo import UserRepository
 from .security import decode_access_token
 from .services.auth_service import AuthError, AuthService
+from .services.department_service import DepartmentService
 from .services.rbac_service import AuthorizationService
 from .services.role_service import RoleService
 
@@ -100,6 +101,15 @@ def get_role_service(
     users: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> RoleService:
     return RoleService(roles, modules, departments, audit, users)
+
+
+def get_department_service(
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
+    roles: Annotated[RoleRepository, Depends(get_role_repository)],
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> DepartmentService:
+    return DepartmentService(departments, roles, users, audit)
 
 
 def require_permission(module_key: str, action: str):

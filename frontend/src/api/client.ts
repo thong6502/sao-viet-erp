@@ -97,6 +97,16 @@ export interface ModuleDef {
 export interface Department {
   id: number;
   name: string;
+  head_user_id?: number | null;
+  head_name?: string | null;
+  role_count?: number;
+  user_count?: number;
+}
+
+export interface UserBrief {
+  id: number;
+  name: string;
+  email: string;
 }
 
 export interface Role {
@@ -132,6 +142,29 @@ export const api = {
     },
     departments(token: string): Promise<Department[]> {
       return authed<Department[]>("/api/departments", token);
+    },
+    departmentUsers(token: string, departmentId: number): Promise<UserBrief[]> {
+      return authed<UserBrief[]>(`/api/departments/${departmentId}/users`, token);
+    },
+    createDepartment(token: string, name: string): Promise<Department> {
+      return authed<Department>("/api/departments", token, {
+        method: "POST",
+        body: JSON.stringify({ name }),
+      });
+    },
+    updateDepartment(
+      token: string,
+      id: number,
+      name: string,
+      headUserId: number | null,
+    ): Promise<Department> {
+      return authed<Department>(`/api/departments/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify({ name, head_user_id: headUserId }),
+      });
+    },
+    deleteDepartment(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/departments/${id}`, token, { method: "DELETE" });
     },
     roles(token: string, departmentId: number): Promise<Role[]> {
       return authed<Role[]>(`/api/roles?department_id=${departmentId}`, token);

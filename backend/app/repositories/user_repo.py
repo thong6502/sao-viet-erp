@@ -53,3 +53,14 @@ class UserRepository:
         return self.db.execute(
             select(func.count()).select_from(User).where(User.role_id == role_id)
         ).scalar_one()
+
+    def count_by_department(self, department_id: int) -> int:
+        from sqlalchemy import func
+
+        return self.db.execute(
+            select(func.count()).select_from(User).where(User.department_id == department_id)
+        ).scalar_one()
+
+    def list_by_department(self, department_id: int) -> list[User]:
+        stmt = select(User).where(User.department_id == department_id).order_by(User.id)
+        return list(self.db.execute(stmt).scalars())

@@ -3,8 +3,8 @@
 ## Current State
 
 **Last Updated:** 2026-06-26
-**Active Feature:** feat-007 — Vai trò (API + permission matrix screen) — **done** (Evaluator
-PASS). Next buildable is **feat-008** (Phòng ban screen).
+**Active Feature:** feat-008 — Phòng ban (API + screen) — **done** (Evaluator PASS). Next
+buildable is **feat-009** (Người dùng screen).
 
 ## Status
 
@@ -46,6 +46,10 @@ PASS). Next buildable is **feat-008** (Phòng ban screen).
   exposes `token`. Evaluator PASS 4/4/5/4. Follow-up: role **rename + delete** (PUT/DELETE
   `/api/roles/{id}`, delete blocked 409 if a user still holds the role) — browser-verified.
   `init.ps1`: **33 passed**.
+- **feat-008 — Phòng ban (API + screen):** department CRUD + summaries (role/user counts,
+  head) + set-head (must belong to dept) + delete blocked if roles/users remain;
+  `DepartmentsPage` master-detail via sidebar Quản trị → Phòng ban. Evaluator PASS 4/4/5/4.
+  `init.ps1`: **39 passed**.
 
 ### What's In Progress
 
@@ -53,8 +57,9 @@ PASS). Next buildable is **feat-008** (Phòng ban screen).
 
 ### What's Next
 
-1. **feat-008** (Phòng ban: API + screen) — buildable now (deps feat-005/003 done). Then
-   **feat-009** (Người dùng) → **feat-010** (menu gating) → **feat-011** (Activity Log).
+1. **feat-009** (Người dùng: HR tạo+gán phòng · trưởng phòng gán vai trò · khóa tài khoản) —
+   buildable now (deps feat-007/008 done). Then **feat-010** (menu gating) → **feat-011**
+   (Activity Log). feat-009 also unblocks live-testing of head pickers + data-scope.
 2. UI features need the app running on the RBAC schema: `backend/dev.db` was rebuilt this
    session (backend :8000, frontend :5173); drop dev.db + restart if the schema changes.
    Restart the backend after backend route changes (uvicorn doesn't hot-reload here).

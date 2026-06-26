@@ -3,18 +3,28 @@
 // Dashboard until their feature lands.
 import { useState } from "react";
 import { DashboardPage } from "../pages/DashboardPage";
+import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { RolesPage } from "../pages/RolesPage";
 import { Sidebar } from "./Sidebar";
 
 export function AppShell() {
   const [activeId, setActiveId] = useState("dashboard");
 
+  function renderContent() {
+    switch (activeId) {
+      case "vai-tro":
+        return <RolesPage />;
+      case "phong-ban":
+        return <DepartmentsPage />;
+      default:
+        return <DashboardPage />;
+    }
+  }
+
   return (
     <div className="shell">
       <Sidebar activeId={activeId} onSelect={setActiveId} />
-      <div className="shell__main">
-        {activeId === "vai-tro" ? <RolesPage /> : <DashboardPage />}
-      </div>
+      <div className="shell__main">{renderContent()}</div>
     </div>
   );
 }

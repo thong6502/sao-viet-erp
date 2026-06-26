@@ -119,6 +119,15 @@ const ICONS = {
       <path d="m9 11.6 2 2 4-4.2" />
     </>
   ),
+  // Phòng ban (departments)
+  building: (
+    <>
+      <rect x="3" y="4" width="11" height="17" rx="1" />
+      <path d="M14 9h6a1 1 0 0 1 1 1v11h-7" />
+      <path d="M6.5 8h4M6.5 12h4M6.5 16h4" />
+      <path d="M17 13h1M17 17h1" />
+    </>
+  ),
   // Affordance
   chevron: <path d="m6 9 6 6 6-6" />,
 } satisfies Record<string, ReactNode>;

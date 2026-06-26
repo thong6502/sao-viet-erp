@@ -1,0 +1,178 @@
+/* Phòng ban (RBAC departments) — master/detail. Built on the design tokens. */
+.depts {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.depts__head {
+  padding-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--rule);
+}
+
+.depts__title {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+
+.depts__sub {
+  color: var(--ash);
+  font-size: 14px;
+  margin: 0;
+}
+
+.depts__create {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.depts__create .input {
+  width: 320px;
+  max-width: 100%;
+}
+
+.depts__inline-error {
+  color: var(--signal);
+  font-size: 13px;
+}
+
+/* ---- Master / detail grid ------------------------------------------------ */
+.depts__grid {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: var(--sp-5);
+  align-items: start;
+}
+
+.depts__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.depts__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: left;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-3) var(--sp-4);
+  cursor: pointer;
+  transition: border-color var(--duration-base) var(--easing-standard),
+    background-color var(--duration-base) var(--easing-standard);
+}
+.depts__item:hover {
+  border-color: var(--rule);
+}
+.depts__item:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.depts__item.is-active {
+  border-color: var(--rust);
+  background: var(--rust-soft);
+}
+
+.depts__item-name {
+  font-weight: var(--fw-medium);
+  font-size: 15px;
+}
+.depts__item-meta {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash);
+}
+
+/* ---- Detail panel -------------------------------------------------------- */
+.depts__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.depts__save {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.depts__saved {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--moss);
+}
+
+.depts__hint {
+  color: var(--ash);
+  font-size: 13px;
+  margin: var(--sp-2) 0 0;
+}
+
+.depts__roles {
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-4);
+}
+
+.depts__chips {
+  list-style: none;
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.depts__chip {
+  font-size: 13px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 4px 12px;
+}
+
+.depts__delete {
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-4);
+}
+.depts__inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.depts__confirm {
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+}
+.depts__danger-text {
+  color: var(--signal);
+}
+.depts__danger-text:hover:not(:disabled) {
+  background: var(--signal-soft);
+  border-color: var(--signal-soft);
+}
+
+.depts__status {
+  color: var(--ash);
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--sp-6);
+  text-align: center;
+  margin: 0;
+}
+
+@media (max-width: 768px) {
+  .depts__grid {
+    grid-template-columns: 1fr;
+  }
+}

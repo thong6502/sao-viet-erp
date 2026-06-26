@@ -20,6 +20,34 @@ class DepartmentOut(BaseModel):
     name: str
 
 
+class DepartmentSummaryOut(BaseModel):
+    """Department list row: identity + head + role/user counts for the screen."""
+
+    id: int
+    name: str
+    head_user_id: int | None = None
+    head_name: str | None = None
+    role_count: int = 0
+    user_count: int = 0
+
+
+class DepartmentCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
+class DepartmentUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    head_user_id: int | None = None
+
+
+class UserBrief(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    email: str
+
+
 class RoleOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
