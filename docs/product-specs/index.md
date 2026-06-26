@@ -8,6 +8,9 @@ One file per sprint. The human Planner writes a sprint spec here (from
 - `_TEMPLATE.md` (copy per sprint) — the blank sprint shape.
 - [`sprint-01-auth.md`](sprint-01-auth.md) — Foundation & Login: app skeleton
   (React + Vite + TS / FastAPI / PostgreSQL-in-Docker) + seeded-user JWT login. **Active.**
+- [`sprint-02-rbac.md`](sprint-02-rbac.md) — RBAC: Phòng ban · Vai trò (riêng từng phòng,
+  1 vai trò/người) · phân quyền CRUD + Phạm vi dữ liệu (Của tôi/Cả phòng/Tất cả); HR gán
+  phòng, trưởng phòng gán vai trò, Admin/GĐ định nghĩa khuôn vai trò. **Draft — chờ duyệt.**
 
 ## Rules
 
