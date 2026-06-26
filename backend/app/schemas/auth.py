@@ -21,3 +21,9 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class PermissionsOut(BaseModel):
+    """Module keys the current user can Read (for frontend menu/route gating)."""
+
+    modules: list[str]

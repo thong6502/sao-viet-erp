@@ -5,9 +5,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from ..deps import CurrentUser, get_auth_service
-from ..schemas.auth import LoginRequest, TokenResponse, UserOut
+from ..deps import CurrentUser, get_auth_service, get_authorization_service
+from ..schemas.auth import LoginRequest, PermissionsOut, TokenResponse, UserOut
 from ..services.auth_service import AuthError, AuthService
+from ..services.rbac_service import AuthorizationService
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -31,3 +32,11 @@ def login(
 @router.get("/me", response_model=UserOut)
 def me(current_user: CurrentUser) -> UserOut:
     return UserOut.model_validate(current_user)
+
+
+@router.get("/permissions", response_model=PermissionsOut)
+def my_permissions(
+    current_user: CurrentUser,
+    authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+) -> PermissionsOut:
+    return PermissionsOut(modules=authz.readable_modules(current_user))

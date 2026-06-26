@@ -43,6 +43,12 @@ class AuthorizationService:
             return False
         return bool(getattr(perm, attr))
 
+    def readable_modules(self, user: User) -> list[str]:
+        """Module keys the user's role can Read — drives sidebar/route gating."""
+        if user.role_id is None:
+            return []
+        return [p.module_key for p in self.roles.permissions_for(user.role_id) if p.can_read]
+
     def scope_for(self, user: User, module_key: str) -> str | None:
         """The data scope (own|department|all) the user's role has on a module, or
         None if the user has no permission row for it. Callers feed this to

@@ -147,6 +147,13 @@ export const api = {
     return request<User>("/api/auth/me", { headers: authHeader(token) });
   },
 
+  /** Module keys the current user can Read (for menu/route gating). */
+  myPermissions(token: string): Promise<string[]> {
+    return authed<{ modules: string[] }>("/api/auth/permissions", token).then(
+      (r) => r.modules,
+    );
+  },
+
   rbac: {
     modules(token: string): Promise<ModuleDef[]> {
       return authed<ModuleDef[]>("/api/rbac/modules", token);

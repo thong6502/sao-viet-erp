@@ -45,6 +45,23 @@ body {
   background: var(--paper);
 }
 
+.shell__center {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--ash);
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.shell__forbidden {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--sp-10) var(--sp-8);
+}
+
 /* ---- Card ---------------------------------------------------------------- */
 .card {
   background: var(--canvas);

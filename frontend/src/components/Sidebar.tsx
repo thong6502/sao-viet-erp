@@ -1,6 +1,8 @@
 // Left navigation rail (ERP shell). Dark `--ink` surface, mono uppercase
 // section labels, rust active row — per docs/UI_DESIGN.md (Navigation + Color).
 // Sections collapse; items with `children` expand. Active row sets aria-current.
+// Each item is gated by a `module` key: only modules the current role can Read
+// are shown (feat-010) — sections with no visible items are dropped.
 import { useState } from "react";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import { Icon, type IconName } from "./Icons";
@@ -15,6 +17,7 @@ interface NavItem {
   id: string;
   label: string;
   icon: IconName;
+  module: string;
   children?: NavChild[];
 }
 
@@ -24,41 +27,42 @@ interface NavSection {
   items: NavItem[];
 }
 
-// Mirrors the reference rail. `children` entries are placeholder sub-pages —
-// rename/extend them as real routes land.
+// Mirrors the reference rail. `module` is the permission key each item is gated
+// on; `children` entries are placeholder sub-pages — rename/extend as routes land.
 const NAV: NavSection[] = [
   {
     id: "tong-quan",
     label: "Tổng quan",
-    items: [{ id: "dashboard", label: "Dashboard", icon: "grid" }],
+    items: [{ id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" }],
   },
   {
     id: "kinh-doanh",
     label: "Kinh doanh",
     items: [
-      { id: "san-pham", label: "Sản phẩm", icon: "box" },
-      { id: "tinh-gia-thanh", label: "Tính giá thành", icon: "calculator" },
-      { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText" },
-      { id: "hop-dong", label: "Hợp đồng", icon: "fileCheck" },
-      { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart" },
-      { id: "khach-hang", label: "Khách hàng", icon: "users" },
+      { id: "san-pham", label: "Sản phẩm", icon: "box", module: "san_pham" },
+      { id: "tinh-gia-thanh", label: "Tính giá thành", icon: "calculator", module: "tinh_gia_thanh" },
+      { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
+      { id: "hop-dong", label: "Hợp đồng", icon: "fileCheck", module: "hop_dong" },
+      { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart", module: "don_hang_ban" },
+      { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },
     ],
   },
   {
     id: "san-xuat",
     label: "Sản xuất",
     items: [
-      { id: "theo-doi-sx", label: "Theo dõi sản xuất", icon: "activity" },
+      { id: "theo-doi-sx", label: "Theo dõi sản xuất", icon: "activity", module: "san_xuat" },
       {
         id: "lenh-sx",
         label: "Lệnh sản xuất",
         icon: "clipboard",
+        module: "san_xuat",
         children: [
           { id: "lenh-sx-tao", label: "Tạo lệnh" },
           { id: "lenh-sx-list", label: "Danh sách lệnh" },
         ],
       },
-      { id: "ke-hoach-sx", label: "Kế hoạch SX", icon: "calendar" },
+      { id: "ke-hoach-sx", label: "Kế hoạch SX", icon: "calendar", module: "san_xuat" },
     ],
   },
   {
@@ -69,6 +73,7 @@ const NAV: NavSection[] = [
         id: "kho",
         label: "Kho",
         icon: "warehouse",
+        module: "kho",
         children: [
           { id: "kho-ton", label: "Tồn kho" },
           { id: "kho-nhap-xuat", label: "Nhập / Xuất kho" },
@@ -78,6 +83,7 @@ const NAV: NavSection[] = [
         id: "kho-kts",
         label: "Kho kỹ thuật số",
         icon: "database",
+        module: "kho",
         children: [
           { id: "kts-file", label: "File thiết kế" },
           { id: "kts-tai-nguyen", label: "Tài nguyên" },
@@ -89,27 +95,33 @@ const NAV: NavSection[] = [
     id: "thu-mua",
     label: "Thu mua",
     items: [
-      { id: "mua-hang", label: "Mua hàng", icon: "bag" },
-      { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck" },
+      { id: "mua-hang", label: "Mua hàng", icon: "bag", module: "thu_mua" },
+      { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck", module: "thu_mua" },
     ],
   },
   {
     id: "quan-tri",
     label: "Quản trị",
     items: [
-      { id: "nguoi-dung", label: "Người dùng", icon: "users" },
-      { id: "phong-ban", label: "Phòng ban", icon: "building" },
-      { id: "vai-tro", label: "Vai trò", icon: "shield" },
+      { id: "nguoi-dung", label: "Người dùng", icon: "users", module: "nguoi_dung" },
+      { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
+      { id: "vai-tro", label: "Vai trò", icon: "shield", module: "vai_tro" },
     ],
   },
 ];
 
+// id -> module key, for the shell's route gating.
+export const MODULE_BY_NAV_ID: Record<string, string> = Object.fromEntries(
+  NAV.flatMap((s) => s.items.map((i) => [i.id, i.module])),
+);
+
 interface SidebarProps {
   activeId: string;
   onSelect: (id: string) => void;
+  readable: ReadonlySet<string>;
 }
 
-export function Sidebar({ activeId, onSelect }: SidebarProps) {
+export function Sidebar({ activeId, onSelect, readable }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -118,6 +130,12 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   }
+
+  // Only show items whose module the role can Read; drop now-empty sections.
+  const sections = NAV.map((s) => ({
+    ...s,
+    items: s.items.filter((i) => readable.has(i.module)),
+  })).filter((s) => s.items.length > 0);
 
   return (
     <aside className="sidebar">
@@ -132,7 +150,7 @@ export function Sidebar({ activeId, onSelect }: SidebarProps) {
       </a>
 
       <nav className="sidebar__nav" aria-label="Điều hướng chính">
-        {NAV.map((section) => {
+        {sections.map((section) => {
           const isCollapsed = collapsed.has(section.id);
           return (
             <div className="sidebar__section" key={section.id}>

@@ -3,8 +3,8 @@
 ## Current State
 
 **Last Updated:** 2026-06-26
-**Active Feature:** feat-009 — Người dùng (API + screen) — **done** (Evaluator PASS). Next
-buildable is **feat-010** (menu/route gating theo quyền).
+**Active Feature:** feat-010 — Menu/route gating — **done** (Evaluator PASS). Only
+**feat-011** (Activity Log) remains to complete sprint-02 RBAC.
 
 ## Status
 
@@ -54,6 +54,10 @@ buildable is **feat-010** (menu/route gating theo quyền).
   yet; assign role validated to the user's department; lock/unlock with self-lock guard;
   `auth_service` + `get_current_user` both refuse a locked account. `UsersPage` table+detail
   via sidebar Quản trị → Người dùng. Evaluator PASS 4/4/5/4. `init.ps1`: **46 passed**.
+- **feat-010 — Menu/route gating:** `GET /api/auth/permissions` (readable modules);
+  Sidebar filters items by module + drops empty sections; AppShell loads perms on entry and
+  gates content (forbidden → 403 banner). Verified live for admin (catalog only) and NV Sales
+  (Dashboard + 3 KD items, no Quản trị). Evaluator PASS 4/4/5/4. `init.ps1`: **49 passed**.
 
 ### What's In Progress
 
@@ -61,9 +65,9 @@ buildable is **feat-010** (menu/route gating theo quyền).
 
 ### What's Next
 
-1. **feat-010** (Menu/route gating theo quyền) — buildable now (deps feat-005/007/003 done):
-   sidebar shows only modules the role can Read; forbidden route → friendly 403. Then
-   **feat-011** (Activity Log). After that, sprint-02 RBAC is complete.
+1. **feat-011** (Activity Log: API + read-only screen) — buildable now (deps feat-007/008/
+   009 done). Every privilege change since feat-004 already writes an AuditLog row; this is
+   the read-only viewer. After it, sprint-02 RBAC is complete.
 2. UI features need the app running on the RBAC schema: `backend/dev.db` was rebuilt this
    session (backend :8000, frontend :5173); drop dev.db + restart if the schema changes.
    Restart the backend after backend route changes (uvicorn doesn't hot-reload here).

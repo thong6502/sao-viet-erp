@@ -77,8 +77,8 @@
       "name": "Menu/route gating theo quyền (frontend)",
       "description": "The sidebar shows only modules the current role can Read; navigating to a route the role lacks shows a friendly 403 message and routes back to an allowed place (never a blank screen). Acceptance (browser-validate on green init): a user with Read on Dashboard only sees just Dashboard in the sidebar (no Khách hàng/Đơn hàng/etc.); opening a forbidden route shows a 'không có quyền' message rather than a blank screen; console clean of uncaught errors.",
       "dependencies": ["feat-005", "feat-007", "feat-003"],
-      "status": "not-started",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Backend: AuthorizationService.readable_modules(user) + GET /api/auth/permissions (PermissionsOut{modules}) — the module keys the current user can Read. Frontend: api.myPermissions; each Sidebar nav item carries a `module` key and an exported MODULE_BY_NAV_ID map; Sidebar filters items to readable modules and drops empty sections; AppShell loads permissions on entry and gates content (a forbidden module → a friendly 403 banner with 'Về Dashboard'). Verify: init.ps1 49 passed (3 new test_rbac_permissions_api: admin covers catalog, NV Sales limited, unauth 401) + compileall; frontend tsc+vite build green. browser-validate PASS 4/4/5/4 (2026-06-26): as admin the sidebar shows only catalog modules (Tổng quan/Kinh doanh/Quản trị; Sản xuất/Kho/Thu mua hidden); logged in as Trần B (NV Sales) the sidebar shows only Dashboard + Báo giá/Đơn hàng bán/Khách hàng (no Sản phẩm/Tính giá thành/Hợp đồng, no Quản trị); console clean. The 403 content panel is code-covered (forbidden items aren't navigable from the gated sidebar, so not browser-triggered). docs/EVALUATION.md Score Log."
     },
     {
       "id": "feat-011",
