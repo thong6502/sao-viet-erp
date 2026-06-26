@@ -14,9 +14,11 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .models.user import User
+from .repositories.rbac_repo import RoleRepository
 from .repositories.user_repo import UserRepository
 from .security import decode_access_token
 from .services.auth_service import AuthError, AuthService
+from .services.rbac_service import AuthorizationService
 
 # auto_error=False so we can return our own 401 shape for missing/invalid tokens.
 _bearer = HTTPBearer(auto_error=False)
@@ -48,9 +50,48 @@ def get_current_user(
     if claims is None:
         raise unauthorized
     try:
-        return auth.user_from_token_subject(claims.get("sub"))
+        user = auth.user_from_token_subject(claims.get("sub"))
     except AuthError:
         raise unauthorized from None
+    # A locked account is rejected even with a still-valid token (RBAC, sprint-02).
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Tài khoản đã bị khóa",
+        )
+    return user
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+# --- Authorization (RBAC enforcement) --------------------------------------
+
+
+def get_role_repository(db: Annotated[Session, Depends(get_db)]) -> RoleRepository:
+    return RoleRepository(db)
+
+
+def get_authorization_service(
+    roles: Annotated[RoleRepository, Depends(get_role_repository)],
+) -> AuthorizationService:
+    return AuthorizationService(roles)
+
+
+def require_permission(module_key: str, action: str):
+    """Build a dependency that allows the request only if the current user's role
+    grants `action` on `module_key`. 401 if unauthenticated/locked is handled by
+    `get_current_user`; this adds the 403 for a missing permission."""
+
+    def dependency(
+        user: CurrentUser,
+        authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    ) -> User:
+        if not authz.can(user, module_key, action):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn không có quyền thực hiện thao tác này",
+            )
+        return user
+
+    return dependency

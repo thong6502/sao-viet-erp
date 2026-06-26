@@ -23,6 +23,70 @@
       "dependencies": ["feat-002"],
       "status": "in-progress",
       "evidence": ""
+    },
+    {
+      "id": "feat-004",
+      "name": "RBAC data model + seed (backend)",
+      "description": "Add the RBAC domain (sprint-02-rbac.md): Department(name, head_user_id), Role(name, department_id — vai trò thuộc đúng 1 phòng), RolePermission(role_id, module_key, can_read/create/update/delete, scope ∈ own|department|all), a Module catalog seeded ONLY for the Kinh doanh + Hành chính nhân sự scope for now (Kinh doanh: dashboard, khach_hang, don_hang_ban, bao_gia, tinh_gia_thanh, san_pham, hop_dong; quản trị/HCNS: phong_ban, vai_tro, nguoi_dung, activity_log) — a data catalog meant to grow (add san_xuat/kho/thu_mua rows later when those departments come online, no schema change), extend User with department_id + role_id (đúng 1 vai trò) + is_active, and AuditLog(actor_user_id, action, target, detail, created_at). create_all + idempotent seed: Admin account/role (all modules, all CRUD, scope=all) inheriting the sprint-01 seed admin; an HR role; a minimal default role (Xem-only); sample KD roles (Trưởng phòng KD = department scope, NV Sales = own). Update docs/DB_SCHEMA.md for every new table/column. Acceptance: ./init.ps1 green (pytest + compileall); tables created; seed run twice does not duplicate rows; DB_SCHEMA guard test passes with all new tables/columns documented; User exposes department_id/role_id/is_active.",
+      "dependencies": ["feat-002"],
+      "status": "done",
+      "evidence": "Models department/role(+role_permission)/module/audit + User.department_id/role_id/is_active (FK, nullable); repositories rbac_repo (Module/Department/Role w/ set_permission upsert) + audit_repo; seed_all idempotent: 11-module catalog (Kinh doanh + HCNS only), depts Ban giám đốc/Hành chính nhân sự/Kinh doanh, roles Giám đốc(all/all/all)/Trưởng phòng HCNS/Nhân viên(min Read own)/Trưởng phòng KD(department)/NV Sales(own), admin linked to BGĐ+Giám đốc and set as dept head. DB_SCHEMA.md documents all 5 new tables + 3 user cols (schema-doc guard test passes). init.ps1: 17 passed (6 new RBAC seed tests) + compileall clean — 2026-06-26. NOTE: drop backend/dev.db + restart the backend to pick up the new schema for live runs (create_all does not ALTER existing tables)."
+    },
+    {
+      "id": "feat-005",
+      "name": "Permission enforcement layer (backend)",
+      "description": "A reusable require_permission(module, action) FastAPI dependency that resolves the current user's role permissions and authorizes the call: unauthenticated -> 401; missing permission -> 403; a user with is_active=false is rejected even with a still-valid token. Acceptance: a protected test endpoint returns 200 with permission, 403 without, 401 when unauthenticated, and is rejected when the user is locked; pytest covers all four cases.",
+      "dependencies": ["feat-004"],
+      "status": "done",
+      "evidence": "services/rbac_service.py AuthorizationService.can(user, module, action) reads the RolePermission CRUD flags; deps.py require_permission(module, action) dependency raises 403 on a missing permission; get_current_user now also rejects a locked (is_active=false) account with 403 even on a valid token. test_rbac_enforcement (mini guarded app): allowed->200, missing->403, unauthenticated->401, locked->403. init.ps1: 21 passed (4 new) + compileall clean — 2026-06-26. Existing auth tests unaffected (seeded admin stays is_active=true)."
+    },
+    {
+      "id": "feat-006",
+      "name": "Data-scope resolver (backend)",
+      "description": "A reusable scope filter that, given a role's scope (own|department|all), narrows a query over records carrying owner + department: own -> records where người phụ trách = current user; department -> owner in the same department; all -> no filter. Verified against a seeded fixture dataset (the real Khách hàng module is a later CRM sprint). Acceptance: pytest with a fixture dataset proves own/department/all return the correct subsets; the resolver is pure (no HTTP coupling) and reusable by future modules.",
+      "dependencies": ["feat-004"],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-007",
+      "name": "Quản lý Vai trò: API + permission matrix screen",
+      "description": "Backend CRUD for roles-per-department plus saving the permission matrix (CRUD + scope per module); frontend Roles screen matching the reference matrix layout with an added Phạm vi (scope) selector per module row. Admin/GĐ only; others get 403. Validation: role name required + unique within its department. Empty/loading/error states per UI_DESIGN.md. Acceptance (browser-validate on green init): matrix renders modules × (Xem/Thêm/Sửa/Xóa + Phạm vi); toggling a permission and Saving persists across reload; duplicate role name in the same department shows an inline error and does not save; a non-admin hitting the screen/API gets 403; a department with no roles shows an empty state with a Create action; clean console.",
+      "dependencies": ["feat-005", "feat-006", "feat-003"],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-008",
+      "name": "Quản lý Phòng ban: API + screen",
+      "description": "Backend CRUD for departments + set head_user_id; frontend Departments screen listing departments, their roles, and the department head. Validation: department name required + unique; deleting a department that still has roles or users is blocked with a stated reason. Acceptance (browser-validate on green init): create/edit a department; set a department head (chosen from users of that department); duplicate name shows an error; deleting an in-use department is blocked with the reason; empty state when no departments exist; clean console.",
+      "dependencies": ["feat-005", "feat-003"],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-009",
+      "name": "Quản lý Người dùng: HR tạo+gán phòng, trưởng phòng gán vai trò, khóa tài khoản",
+      "description": "Backend + frontend Users screen. HR creates an account (họ tên + email required, email valid + unique, phòng ban required) -> the user starts on the minimal default role. The department head assigns a role from a dropdown that lists ONLY that user's department roles. Lock/unlock account via is_active. Every assignment/lock writes an AuditLog row. Acceptance (browser-validate on green init): creating a user + assigning a department shows them with the minimal default role; assigning a role shows only the correct department's roles and updates the user after save; missing/invalid fields highlight and block creation; locking a user makes login/`/me` rejected; double-submit does not create/assign duplicates; clean console.",
+      "dependencies": ["feat-007", "feat-008"],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-010",
+      "name": "Menu/route gating theo quyền (frontend)",
+      "description": "The sidebar shows only modules the current role can Read; navigating to a route the role lacks shows a friendly 403 message and routes back to an allowed place (never a blank screen). Acceptance (browser-validate on green init): a user with Read on Dashboard only sees just Dashboard in the sidebar (no Khách hàng/Đơn hàng/etc.); opening a forbidden route shows a 'không có quyền' message rather than a blank screen; console clean of uncaught errors.",
+      "dependencies": ["feat-005", "feat-007", "feat-003"],
+      "status": "not-started",
+      "evidence": ""
+    },
+    {
+      "id": "feat-011",
+      "name": "Activity Log: API + read-only screen",
+      "description": "Backend list endpoint for AuditLog (actor, action, target, detail, created_at) + a read-only Activity Log screen with basic filtering. Acceptance (browser-validate on green init): after assigning a department, assigning a role, editing a role's permission matrix, or locking a user, the Activity Log shows the corresponding row(s) with actor + action + time; an empty state appears when there is no activity; loading and error states are handled; clean console.",
+      "dependencies": ["feat-007", "feat-008", "feat-009"],
+      "status": "not-started",
+      "evidence": ""
     }
   ]
 }

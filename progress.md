@@ -2,8 +2,8 @@
 
 ## Current State
 
-**Last Updated:** 2026-06-25
-**Active Feature:** feat-003 — Login screen + protected Dashboard (frontend)
+**Last Updated:** 2026-06-26
+**Active Feature:** feat-005 — Permission enforcement (backend) — **done**; next buildable feat-006.
 
 ## Status
 
@@ -20,17 +20,30 @@
   indexes). Guard test `backend/tests/test_schema_documented.py` fails `init` if a model
   table/column is undocumented, so schema + docs can't drift. `init` now `11 passed`.
 
+- **feat-004 — RBAC data model + seed (backend):** new tables `departments`, `roles`,
+  `role_permissions`, `modules`, `audit_logs` + `users.department_id/role_id/is_active`;
+  `rbac_repo` + `audit_repo`; idempotent `seed_all` (11-module catalog for Kinh doanh +
+  HCNS only, 3 depts, 5 roles incl. Giám đốc all/all/all, admin linked + set as head).
+  `docs/DB_SCHEMA.md` documents every new table/column (schema-doc guard passes).
+- **feat-005 — Permission enforcement (backend):** `services/rbac_service.py`
+  `AuthorizationService.can(user, module, action)`; `deps.require_permission(module, action)`
+  (403 on missing perm); `get_current_user` rejects locked (`is_active=false`) accounts with
+  403. 4 enforcement tests (allowed/missing/unauth/locked). `init.ps1`: **21 passed**.
+
 ### What's In Progress
 
-- **feat-003 — frontend login:** LoginPage (validation/loading/error/retry states),
-  AuthContext (token persist + `/me` session restore), protected Dashboard + Logout.
-  Code complete and `npm run build` passes; pending browser-validate (Evaluator) scoring.
+- **feat-003 — frontend login:** code complete, `npm run build` passes; still pending the
+  browser-validate (Evaluator) score before it can be marked `done`. (Also: an `AppShell`
+  and ERP `Sidebar` were added behind the auth gate — not yet a tracked feature.)
 
 ### What's Next
 
-1. Run the Evaluator (browser-validate skill) against the running app to score feat-003's
-   four criteria and record in `docs/EVALUATION.md`; mark feat-003 `done` on PASS.
-2. Next sprint: self-registration / password reset, Alembic migrations, RBAC.
+1. **feat-006** (backend, buildable now — deps on feat-004 done): the data-scope resolver
+   (own/department/all) for list queries carrying owner + department.
+2. Finish **feat-003** (Evaluator score) to unblock the RBAC frontend features
+   (feat-007/008/010 depend on it).
+3. Sprint-02 RBAC backlog is planned in `feature_list.json` (feat-004..011) and specced in
+   `docs/product-specs/sprint-02-rbac.md`.
 
 ## Blockers / Risks
 
