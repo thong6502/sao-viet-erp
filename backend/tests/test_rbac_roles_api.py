@@ -118,6 +118,65 @@ def test_matrix_get_defaults_and_save_persists(client):
     assert not kh["can_delete"]
 
 
+def test_rename_role(client):
+    token = _admin_token(client)
+    kd_id = _kd_id()
+    role_id = client.post(
+        "/api/roles", json={"name": "RenameMe", "department_id": kd_id}, headers=_h(token)
+    ).json()["id"]
+
+    renamed = client.put(
+        f"/api/roles/{role_id}", json={"name": "Renamed"}, headers=_h(token)
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["name"] == "Renamed"
+
+    names = {r["name"] for r in client.get(f"/api/roles?department_id={kd_id}", headers=_h(token)).json()}
+    assert "Renamed" in names and "RenameMe" not in names
+
+    # Rename onto an existing name in the same department -> 409.
+    clash = client.put(f"/api/roles/{role_id}", json={"name": "NV Sales"}, headers=_h(token))
+    assert clash.status_code == 409
+
+
+def test_delete_role_not_in_use(client):
+    token = _admin_token(client)
+    kd_id = _kd_id()
+    role_id = client.post(
+        "/api/roles", json={"name": "TempRole", "department_id": kd_id}, headers=_h(token)
+    ).json()["id"]
+
+    deleted = client.delete(f"/api/roles/{role_id}", headers=_h(token))
+    assert deleted.status_code == 204
+
+    ids = {r["id"] for r in client.get(f"/api/roles?department_id={kd_id}", headers=_h(token)).json()}
+    assert role_id not in ids
+
+
+def test_delete_role_in_use_is_blocked(client):
+    token = _admin_token(client)
+    kd_id = _kd_id()
+    role_id = client.post(
+        "/api/roles", json={"name": "BusyRole", "department_id": kd_id}, headers=_h(token)
+    ).json()["id"]
+
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        user = users.create(
+            email="busy@example.com", name="B", password_hash=hash_password("x")
+        )
+        users.set_assignment(user, department_id=kd_id, role_id=role_id, is_active=True)
+    finally:
+        db.close()
+
+    blocked = client.delete(f"/api/roles/{role_id}", headers=_h(token))
+    assert blocked.status_code == 409
+    # Still present (not deleted).
+    ids = {r["id"] for r in client.get(f"/api/roles?department_id={kd_id}", headers=_h(token)).json()}
+    assert role_id in ids
+
+
 def test_non_admin_forbidden(client):
     token = _sales_token()
     assert client.get("/api/rbac/modules", headers=_h(token)).status_code == 403

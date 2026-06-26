@@ -43,7 +43,9 @@ PASS). Next buildable is **feat-008** (Phòng ban screen).
   (modules/departments/roles + role permission matrix) guarded by `require_permission`;
   frontend `RolesPage` matrix (CRUD + Phạm vi own/dept/all) reachable via sidebar
   Quản trị → Vai trò; `AppShell` now routes content by active nav id; `AuthContext`
-  exposes `token`. Evaluator PASS 4/4/5/4. `init.ps1`: **30 passed**.
+  exposes `token`. Evaluator PASS 4/4/5/4. Follow-up: role **rename + delete** (PUT/DELETE
+  `/api/roles/{id}`, delete blocked 409 if a user still holds the role) — browser-verified.
+  `init.ps1`: **33 passed**.
 
 ### What's In Progress
 

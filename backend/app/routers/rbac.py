@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from ..deps import get_role_service, require_permission
 from ..schemas.rbac import (
@@ -15,9 +15,11 @@ from ..schemas.rbac import (
     PermissionRow,
     RoleCreate,
     RoleOut,
+    RoleRename,
 )
 from ..services.role_service import (
     DepartmentNotFound,
+    RoleInUse,
     RoleNameTaken,
     RoleNotFound,
     RoleService,
@@ -67,6 +69,40 @@ def create_role(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except DepartmentNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+
+@router.put("/roles/{role_id}", response_model=RoleOut)
+def rename_role(
+    role_id: int,
+    payload: RoleRename,
+    svc: Service,
+    user: Annotated[object, Depends(require_permission("vai_tro", "update"))],
+) -> RoleOut:
+    try:
+        return svc.rename_role(role_id=role_id, name=payload.name, actor_id=user.id)
+    except RoleNameTaken as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except RoleNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+
+@router.delete(
+    "/roles/{role_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_role(
+    role_id: int,
+    svc: Service,
+    user: Annotated[object, Depends(require_permission("vai_tro", "delete"))],
+) -> Response:
+    try:
+        svc.delete_role(role_id=role_id, actor_id=user.id)
+    except RoleInUse as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except RoleNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/roles/{role_id}/permissions", response_model=list[PermissionRow])

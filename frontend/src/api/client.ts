@@ -142,6 +142,15 @@ export const api = {
         body: JSON.stringify({ name, department_id: departmentId }),
       });
     },
+    renameRole(token: string, roleId: number, name: string): Promise<Role> {
+      return authed<Role>(`/api/roles/${roleId}`, token, {
+        method: "PUT",
+        body: JSON.stringify({ name }),
+      });
+    },
+    deleteRole(token: string, roleId: number): Promise<void> {
+      return authed<void>(`/api/roles/${roleId}`, token, { method: "DELETE" });
+    },
     permissions(token: string, roleId: number): Promise<PermissionRow[]> {
       return authed<PermissionRow[]>(`/api/roles/${roleId}/permissions`, token);
     },

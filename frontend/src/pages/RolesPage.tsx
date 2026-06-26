@@ -51,6 +51,15 @@ export function RolesPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
+  const [renaming, setRenaming] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renameBusy, setRenameBusy] = useState(false);
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
   const moduleLabel = useMemo(
     () => new Map(modules.map((m) => [m.key, m.label])),
     [modules],
@@ -104,6 +113,11 @@ export function RolesPage() {
 
   // Load the permission matrix when the selected role changes.
   useEffect(() => {
+    // Reset per-role action UI on any role switch.
+    setRenaming(false);
+    setConfirmingDelete(false);
+    setRenameError(null);
+    setDeleteError(null);
     if (!token || roleId == null) {
       setMatrix([]);
       return;
@@ -174,6 +188,50 @@ export function RolesPage() {
       else setCreateError("Không tạo được vai trò. Vui lòng thử lại.");
     } finally {
       setCreating(false);
+    }
+  }
+
+  function startRename() {
+    if (!currentRole) return;
+    setRenameValue(currentRole.name);
+    setRenameError(null);
+    setConfirmingDelete(false);
+    setRenaming(true);
+  }
+
+  async function submitRename(e: FormEvent) {
+    e.preventDefault();
+    const name = renameValue.trim();
+    if (!token || roleId == null || !name || renameBusy) return;
+    setRenameBusy(true);
+    setRenameError(null);
+    try {
+      const updated = await api.rbac.renameRole(token, roleId, name);
+      setRoles((rs) => rs.map((r) => (r.id === updated.id ? updated : r)));
+      setRenaming(false);
+    } catch (err) {
+      if (err instanceof ApiError && err.isConflict) setRenameError(err.message);
+      else setRenameError("Không đổi được tên. Vui lòng thử lại.");
+    } finally {
+      setRenameBusy(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!token || roleId == null || deleteBusy) return;
+    setDeleteBusy(true);
+    setDeleteError(null);
+    try {
+      await api.rbac.deleteRole(token, roleId);
+      const remaining = roles.filter((r) => r.id !== roleId);
+      setRoles(remaining);
+      setRoleId(remaining[0]?.id ?? null);
+      setConfirmingDelete(false);
+    } catch (err) {
+      if (err instanceof ApiError && err.isConflict) setDeleteError(err.message);
+      else setDeleteError("Không xóa được vai trò. Vui lòng thử lại.");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -287,6 +345,72 @@ export function RolesPage() {
           </Button>
         </form>
       </div>
+
+      {currentRole && (
+        <div className="roles__roleactions">
+          {renaming ? (
+            <form className="roles__inline" onSubmit={submitRename}>
+              <input
+                className={`input input--sm${renameError ? " input--error" : ""}`}
+                value={renameValue}
+                aria-label="Tên vai trò mới"
+                aria-invalid={renameError ? true : undefined}
+                onChange={(e) => {
+                  setRenameValue(e.target.value);
+                  if (renameError) setRenameError(null);
+                }}
+              />
+              <Button type="submit" variant="primary" disabled={!renameValue.trim()} loading={renameBusy}>
+                Lưu tên
+              </Button>
+              <button type="button" className="btn btn--ghost" onClick={() => setRenaming(false)}>
+                Hủy
+              </button>
+              {renameError && (
+                <span className="roles__inline-error" role="alert">
+                  {renameError}
+                </span>
+              )}
+            </form>
+          ) : confirmingDelete ? (
+            <div className="roles__inline">
+              <span className="roles__confirm">Xóa vai trò “{currentRole.name}”?</span>
+              <button
+                type="button"
+                className="btn btn--danger"
+                disabled={deleteBusy}
+                onClick={confirmDelete}
+              >
+                {deleteBusy ? "Đang xóa…" : "Xác nhận xóa"}
+              </button>
+              <button type="button" className="btn btn--ghost" onClick={() => setConfirmingDelete(false)}>
+                Hủy
+              </button>
+              {deleteError && (
+                <span className="roles__inline-error" role="alert">
+                  {deleteError}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="roles__inline">
+              <button type="button" className="btn btn--ghost" onClick={startRename}>
+                Đổi tên
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost roles__danger-text"
+                onClick={() => {
+                  setDeleteError(null);
+                  setConfirmingDelete(true);
+                }}
+              >
+                Xóa
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {createError && (
         <p className="roles__create-error" role="alert">

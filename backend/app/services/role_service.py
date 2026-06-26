@@ -9,6 +9,7 @@ from __future__ import annotations
 from ..models.role import Role
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, ModuleRepository, RoleRepository
+from ..repositories.user_repo import UserRepository
 
 
 class RoleError(Exception):
@@ -27,6 +28,17 @@ class DepartmentNotFound(RoleError):
     """No department with that id."""
 
 
+class RoleInUse(RoleError):
+    """A role still assigned to users cannot be deleted."""
+
+    def __init__(self, count: int) -> None:
+        self.count = count
+        super().__init__(
+            f"Không thể xóa: còn {count} người dùng đang giữ vai trò này. "
+            "Hãy chuyển họ sang vai trò khác trước."
+        )
+
+
 class RoleService:
     def __init__(
         self,
@@ -34,11 +46,13 @@ class RoleService:
         modules: ModuleRepository,
         departments: DepartmentRepository,
         audit: AuditLogRepository,
+        users: UserRepository,
     ) -> None:
         self.roles = roles
         self.modules = modules
         self.departments = departments
         self.audit = audit
+        self.users = users
 
     def list_modules(self):
         return self.modules.list_all()
@@ -64,6 +78,40 @@ class RoleService:
             detail=f"{dept.name} / {name}",
         )
         return role
+
+    def rename_role(self, *, role_id: int, name: str, actor_id: int | None) -> Role:
+        role = self.roles.get_by_id(role_id)
+        if role is None:
+            raise RoleNotFound("Không tìm thấy vai trò")
+        name = name.strip()
+        clash = self.roles.get_by_name_and_department(name, role.department_id)
+        if clash is not None and clash.id != role_id:
+            raise RoleNameTaken("Tên vai trò đã tồn tại trong phòng này")
+        old = role.name
+        self.roles.update_name(role, name)
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="rename_role",
+            target=f"role:{role_id}",
+            detail=f"{old} → {name}",
+        )
+        return role
+
+    def delete_role(self, *, role_id: int, actor_id: int | None) -> None:
+        role = self.roles.get_by_id(role_id)
+        if role is None:
+            raise RoleNotFound("Không tìm thấy vai trò")
+        in_use = self.users.count_by_role(role_id)
+        if in_use > 0:
+            raise RoleInUse(in_use)
+        name = role.name
+        self.roles.delete(role)
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="delete_role",
+            target=f"role:{role_id}",
+            detail=name,
+        )
 
     def get_matrix(self, role_id: int) -> list[dict]:
         """Full matrix for a role: one row per module, merged with stored permissions

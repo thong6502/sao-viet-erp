@@ -81,6 +81,49 @@
   font-size: 13px;
 }
 
+/* ---- Role actions (rename / delete) -------------------------------------- */
+.roles__roleactions {
+  margin-top: calc(-1 * var(--sp-2));
+}
+
+.roles__inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.roles__inline .input--sm {
+  min-width: 220px;
+}
+
+.roles__confirm {
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+}
+
+.roles__inline-error {
+  color: var(--signal);
+  font-size: 13px;
+}
+
+/* Destructive button + a low-emphasis danger text affordance. */
+.btn--danger {
+  background: var(--signal);
+  color: var(--paper-contrast);
+}
+.btn--danger:hover:not(:disabled) {
+  background: #6f1818;
+}
+
+.roles__danger-text {
+  color: var(--signal);
+}
+.roles__danger-text:hover:not(:disabled) {
+  background: var(--signal-soft);
+  border-color: var(--signal-soft);
+}
+
 /* ---- Matrix table -------------------------------------------------------- */
 .roles__matrix {
   padding: 0;

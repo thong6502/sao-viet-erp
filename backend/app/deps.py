@@ -97,8 +97,9 @@ def get_role_service(
     modules: Annotated[ModuleRepository, Depends(get_module_repository)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    users: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> RoleService:
-    return RoleService(roles, modules, departments, audit)
+    return RoleService(roles, modules, departments, audit, users)
 
 
 def require_permission(module_key: str, action: str):

@@ -33,6 +33,10 @@ class RoleCreate(BaseModel):
     department_id: int
 
 
+class RoleRename(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+
+
 class PermissionRow(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

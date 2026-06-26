@@ -46,3 +46,10 @@ class UserRepository:
         from sqlalchemy import func
 
         return self.db.execute(select(func.count()).select_from(User)).scalar_one()
+
+    def count_by_role(self, role_id: int) -> int:
+        from sqlalchemy import func
+
+        return self.db.execute(
+            select(func.count()).select_from(User).where(User.role_id == role_id)
+        ).scalar_one()

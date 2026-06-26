@@ -5,7 +5,7 @@ parameters (no string-formatted input). No business rules here.
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..models.department import Department
@@ -86,6 +86,18 @@ class RoleRepository:
         self.db.commit()
         self.db.refresh(role)
         return role
+
+    def update_name(self, role: Role, name: str) -> Role:
+        role.name = name
+        self.db.commit()
+        self.db.refresh(role)
+        return role
+
+    def delete(self, role: Role) -> None:
+        """Delete a role and its permission rows (no DB cascade configured)."""
+        self.db.execute(delete(RolePermission).where(RolePermission.role_id == role.id))
+        self.db.delete(role)
+        self.db.commit()
 
     def list_by_department(self, department_id: int) -> list[Role]:
         return list(
