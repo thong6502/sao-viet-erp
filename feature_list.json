@@ -21,8 +21,8 @@
       "name": "Login screen + protected Dashboard (frontend)",
       "description": "Login page (email+password, validation, loading, error states per UI_DESIGN.md) calls the API client only; on success persists the JWT and renders a protected Dashboard showing the user email + Logout. Reload restores the session via /me; logout clears the token and returns to Login. Acceptance (browser-validate): login form snapshot, empty-submit validation fires no call, wrong creds shows 'Invalid email or password', success shows Dashboard with user email, reload stays logged in, logout returns to Login, clean console.",
       "dependencies": ["feat-002"],
-      "status": "in-progress",
-      "evidence": ""
+      "status": "done",
+      "evidence": "browser-validate Evaluator PASS (2026-06-26, fresh RBAC-seeded backend): empty-submit shows validation and fires no /login; wrong creds -> login 401 'Invalid email or password' + password cleared; success -> Dashboard (admin@example.com) via login 200 inside the ERP AppShell+Sidebar; reload restores via /me 200; logout -> Login and reload stays on Login. Console clean on all paths (benign favicon 404 + the deliberately-triggered 401 the app handles). Scores design/originality/craft/functionality = 4/4/5/5, overall 4 -> PASS (docs/EVALUATION.md Score Log). Code verification: init.ps1 green."
     },
     {
       "id": "feat-004",

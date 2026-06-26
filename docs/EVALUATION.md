@@ -147,6 +147,6 @@ of the four. `verdict` ∈ `PASS` | `FAIL` | `BUDGET`. Scores are 1–5.
 
 | Date | Sprint | design | originality | craft | functionality | overall | verdict | notes |
 |------|--------|:------:|:-----------:|:-----:|:-------------:|:-------:|:-------:|-------|
-| `<YYYY-MM-DD>` | `<PLACEHOLDER: sprint / feat-NNN>` | – | – | – | – | – | – | `<PLACEHOLDER: source empty; example row — replace on first real evaluation>` |
+| 2026-06-26 | feat-003 | 4 | 4 | 5 | 5 | 4 | PASS | Login golden journey clean & deterministic: empty-submit fires no /login (validation only); wrong creds → login 401 "Invalid email or password" + password cleared; success → Dashboard (admin@example.com) via login 200; reload restores via /me 200; logout → Login and reload stays on Login (no /me). Console clean on all paths (only benign favicon 404 + the deliberately-triggered 401 the app handles). Built to UI_DESIGN tokens inside the ERP AppShell+Sidebar. Threshold: every criterion ≥ 4. |
 
-<!-- Append new rows below; keep the example row last until the first real eval. -->
+<!-- Append new rows below this line (newest last); never overwrite history. -->

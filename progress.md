@@ -3,8 +3,8 @@
 ## Current State
 
 **Last Updated:** 2026-06-26
-**Active Feature:** feat-006 — Data-scope resolver (backend) — **done**. RBAC backend
-foundation (feat-004/005/006) complete; remaining sprint-02 work is UI (feat-007..011).
+**Active Feature:** none in progress. feat-003 passed the Evaluator and RBAC backend
+foundation (feat-004/005/006) is done — next buildable is **feat-007** (Vai trò screen).
 
 ## Status
 
@@ -34,19 +34,22 @@ foundation (feat-004/005/006) complete; remaining sprint-02 work is UI (feat-007
   pure `apply_scope`/`scope_filter` narrow a query by own/department/all (ORM or Core cols).
   4 scope tests on a non-`Base` fixture table. `init.ps1`: **25 passed**.
 
+- **feat-003 — Login screen + protected Dashboard (frontend):** Evaluator PASS 2026-06-26
+  (design/orig/craft/func 4/4/5/5, overall 4) — golden journey clean & deterministic on a
+  fresh RBAC-seeded backend; scores in `docs/EVALUATION.md`. Renders inside the ERP
+  `AppShell` + `Sidebar`.
+
 ### What's In Progress
 
-- **feat-003 — frontend login:** code complete, `npm run build` passes; still pending the
-  browser-validate (Evaluator) score before it can be marked `done`. (Also: an `AppShell`
-  and ERP `Sidebar` were added behind the auth gate — not yet a tracked feature.)
+- None.
 
 ### What's Next
 
-1. **Finish feat-003** (run the browser-validate Evaluator on the login UI, record scores,
-   mark done) — it now gates ALL remaining sprint-02 work: every UI feature (feat-007/008/
-   009/010/011) depends on it.
-2. Then the RBAC UI: **feat-007** (Vai trò matrix) → **feat-008** (Phòng ban) →
-   **feat-009** (Người dùng) → **feat-010** (menu gating) → **feat-011** (Activity Log).
+1. **feat-007** (Vai trò: API + permission matrix screen) — buildable now (deps feat-005/
+   006/003 all done). Then **feat-008** (Phòng ban) → **feat-009** (Người dùng) →
+   **feat-010** (menu gating) → **feat-011** (Activity Log).
+2. UI features need the app running on the fresh RBAC schema: `backend/dev.db` was rebuilt
+   this session (backend :8000, frontend :5173); drop dev.db + restart if the schema changes.
 3. Sprint-02 RBAC backlog is planned in `feature_list.json` (feat-004..011) and specced in
    `docs/product-specs/sprint-02-rbac.md`.
 
