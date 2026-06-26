@@ -41,6 +41,7 @@ do not duplicate per-column detail here.
 | Domain | Purpose | Frontend Entry | Backend Entry | Related Spec |
 |--------|---------|----------------|---------------|--------------|
 | `auth` | Seeded-user login, JWT issue/verify, current-user, session restore | `frontend/src/pages/LoginPage.tsx`, `frontend/src/auth/` | `backend/app/routers/auth.py` → `services/auth_service.py` → `repositories/user_repo.py` | [`product-specs/sprint-01-auth.md`](product-specs/sprint-01-auth.md) |
+| `rbac` | Departments, roles (per department, 1/user), permission matrix (CRUD + data scope), audit log; seeded catalog/roles. Data model + seed landed (feat-004); enforcement/screens follow. | _(screens: feat-007..011)_ | `backend/app/models/{department,role,module,audit}.py`, `repositories/{rbac_repo,audit_repo}.py`, `seed.py` | [`product-specs/sprint-02-rbac.md`](product-specs/sprint-02-rbac.md) |
 
 ### Backend module layout (`backend/app/`)
 

@@ -14,16 +14,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .db import SessionLocal, init_db
 from .routers import auth
-from .seed import seed_admin
+from .seed import seed_all
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Sprint-01: create_all + seed (Alembic migrations are a later sprint).
+    # create_all + idempotent seed (RBAC catalog/roles + admin). Alembic is a later sprint.
     init_db()
     db = SessionLocal()
     try:
-        seed_admin(db)
+        seed_all(db)
     finally:
         db.close()
     yield

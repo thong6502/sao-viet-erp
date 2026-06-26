@@ -26,6 +26,22 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
+    def set_assignment(
+        self,
+        user: User,
+        *,
+        department_id: int | None,
+        role_id: int | None,
+        is_active: bool = True,
+    ) -> User:
+        """Set a user's department + role (RBAC assignment)."""
+        user.department_id = department_id
+        user.role_id = role_id
+        user.is_active = is_active
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
     def count(self) -> int:
         from sqlalchemy import func
 
