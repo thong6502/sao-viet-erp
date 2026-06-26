@@ -14,11 +14,13 @@ from sqlalchemy.orm import Session
 
 from .db import get_db
 from .models.user import User
-from .repositories.rbac_repo import RoleRepository
+from .repositories.audit_repo import AuditLogRepository
+from .repositories.rbac_repo import DepartmentRepository, ModuleRepository, RoleRepository
 from .repositories.user_repo import UserRepository
 from .security import decode_access_token
 from .services.auth_service import AuthError, AuthService
 from .services.rbac_service import AuthorizationService
+from .services.role_service import RoleService
 
 # auto_error=False so we can return our own 401 shape for missing/invalid tokens.
 _bearer = HTTPBearer(auto_error=False)
@@ -76,6 +78,27 @@ def get_authorization_service(
     roles: Annotated[RoleRepository, Depends(get_role_repository)],
 ) -> AuthorizationService:
     return AuthorizationService(roles)
+
+
+def get_module_repository(db: Annotated[Session, Depends(get_db)]) -> ModuleRepository:
+    return ModuleRepository(db)
+
+
+def get_department_repository(db: Annotated[Session, Depends(get_db)]) -> DepartmentRepository:
+    return DepartmentRepository(db)
+
+
+def get_audit_repository(db: Annotated[Session, Depends(get_db)]) -> AuditLogRepository:
+    return AuditLogRepository(db)
+
+
+def get_role_service(
+    roles: Annotated[RoleRepository, Depends(get_role_repository)],
+    modules: Annotated[ModuleRepository, Depends(get_module_repository)],
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> RoleService:
+    return RoleService(roles, modules, departments, audit)
 
 
 def require_permission(module_key: str, action: str):

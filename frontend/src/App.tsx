@@ -1,6 +1,5 @@
 import { useAuth } from "./auth/useAuth";
 import { AppShell } from "./components/AppShell";
-import { DashboardPage } from "./pages/DashboardPage";
 import { LoginPage } from "./pages/LoginPage";
 
 // Route by auth state (no router lib needed for the auth gate this sprint):
@@ -18,11 +17,5 @@ export function App() {
     );
   }
 
-  return status === "authenticated" ? (
-    <AppShell>
-      <DashboardPage />
-    </AppShell>
-  ) : (
-    <LoginPage />
-  );
+  return status === "authenticated" ? <AppShell /> : <LoginPage />;
 }

@@ -93,6 +93,11 @@ const NAV: NavSection[] = [
       { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck" },
     ],
   },
+  {
+    id: "quan-tri",
+    label: "Quản trị",
+    items: [{ id: "vai-tro", label: "Vai trò", icon: "shield" }],
+  },
 ];
 
 interface SidebarProps {

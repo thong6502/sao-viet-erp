@@ -3,8 +3,8 @@
 ## Current State
 
 **Last Updated:** 2026-06-26
-**Active Feature:** none in progress. feat-003 passed the Evaluator and RBAC backend
-foundation (feat-004/005/006) is done — next buildable is **feat-007** (Vai trò screen).
+**Active Feature:** feat-007 — Vai trò (API + permission matrix screen) — **done** (Evaluator
+PASS). Next buildable is **feat-008** (Phòng ban screen).
 
 ## Status
 
@@ -39,17 +39,23 @@ foundation (feat-004/005/006) is done — next buildable is **feat-007** (Vai tr
   fresh RBAC-seeded backend; scores in `docs/EVALUATION.md`. Renders inside the ERP
   `AppShell` + `Sidebar`.
 
+- **feat-007 — Vai trò (API + permission matrix screen):** backend RBAC admin routes
+  (modules/departments/roles + role permission matrix) guarded by `require_permission`;
+  frontend `RolesPage` matrix (CRUD + Phạm vi own/dept/all) reachable via sidebar
+  Quản trị → Vai trò; `AppShell` now routes content by active nav id; `AuthContext`
+  exposes `token`. Evaluator PASS 4/4/5/4. `init.ps1`: **30 passed**.
+
 ### What's In Progress
 
 - None.
 
 ### What's Next
 
-1. **feat-007** (Vai trò: API + permission matrix screen) — buildable now (deps feat-005/
-   006/003 all done). Then **feat-008** (Phòng ban) → **feat-009** (Người dùng) →
-   **feat-010** (menu gating) → **feat-011** (Activity Log).
-2. UI features need the app running on the fresh RBAC schema: `backend/dev.db` was rebuilt
-   this session (backend :8000, frontend :5173); drop dev.db + restart if the schema changes.
+1. **feat-008** (Phòng ban: API + screen) — buildable now (deps feat-005/003 done). Then
+   **feat-009** (Người dùng) → **feat-010** (menu gating) → **feat-011** (Activity Log).
+2. UI features need the app running on the RBAC schema: `backend/dev.db` was rebuilt this
+   session (backend :8000, frontend :5173); drop dev.db + restart if the schema changes.
+   Restart the backend after backend route changes (uvicorn doesn't hot-reload here).
 3. Sprint-02 RBAC backlog is planned in `feature_list.json` (feat-004..011) and specced in
    `docs/product-specs/sprint-02-rbac.md`.
 

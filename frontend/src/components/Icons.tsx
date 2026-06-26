@@ -112,6 +112,13 @@ const ICONS = {
       <circle cx="17" cy="18.2" r="1.7" />
     </>
   ),
+  // Vai trò (roles / permissions)
+  shield: (
+    <>
+      <path d="M12 2.6 5 5.4v5.2c0 4.3 3 7.6 7 8.8 4-1.2 7-4.5 7-8.8V5.4L12 2.6Z" />
+      <path d="m9 11.6 2 2 4-4.2" />
+    </>
+  ),
   // Affordance
   chevron: <path d="m6 9 6 6 6-6" />,
 } satisfies Record<string, ReactNode>;

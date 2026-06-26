@@ -36,6 +36,14 @@ export class ApiError extends Error {
   get isAuth(): boolean {
     return this.status === 401;
   }
+
+  get isForbidden(): boolean {
+    return this.status === 403;
+  }
+
+  get isConflict(): boolean {
+    return this.status === 409;
+  }
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -73,6 +81,39 @@ function authHeader(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
+function authed<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+  return request<T>(path, { ...init, headers: { ...authHeader(token), ...(init.headers ?? {}) } });
+}
+
+// --- RBAC admin shapes ------------------------------------------------------
+
+export type Scope = "own" | "department" | "all";
+
+export interface ModuleDef {
+  key: string;
+  label: string;
+}
+
+export interface Department {
+  id: number;
+  name: string;
+}
+
+export interface Role {
+  id: number;
+  name: string;
+  department_id: number;
+}
+
+export interface PermissionRow {
+  module_key: string;
+  can_read: boolean;
+  can_create: boolean;
+  can_update: boolean;
+  can_delete: boolean;
+  scope: Scope;
+}
+
 export const api = {
   login(email: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -83,5 +124,36 @@ export const api = {
 
   me(token: string): Promise<User> {
     return request<User>("/api/auth/me", { headers: authHeader(token) });
+  },
+
+  rbac: {
+    modules(token: string): Promise<ModuleDef[]> {
+      return authed<ModuleDef[]>("/api/rbac/modules", token);
+    },
+    departments(token: string): Promise<Department[]> {
+      return authed<Department[]>("/api/departments", token);
+    },
+    roles(token: string, departmentId: number): Promise<Role[]> {
+      return authed<Role[]>(`/api/roles?department_id=${departmentId}`, token);
+    },
+    createRole(token: string, name: string, departmentId: number): Promise<Role> {
+      return authed<Role>("/api/roles", token, {
+        method: "POST",
+        body: JSON.stringify({ name, department_id: departmentId }),
+      });
+    },
+    permissions(token: string, roleId: number): Promise<PermissionRow[]> {
+      return authed<PermissionRow[]>(`/api/roles/${roleId}/permissions`, token);
+    },
+    savePermissions(
+      token: string,
+      roleId: number,
+      rows: PermissionRow[],
+    ): Promise<PermissionRow[]> {
+      return authed<PermissionRow[]>(`/api/roles/${roleId}/permissions`, token, {
+        method: "PUT",
+        body: JSON.stringify({ permissions: rows }),
+      });
+    },
   },
 };

@@ -21,3 +21,6 @@ dist/
 .env
 .env.*
 !.env.example
+
+# Playwright MCP browser-validate artifacts (snapshots, screenshots)
+.playwright-mcp/

@@ -53,8 +53,8 @@
       "name": "Quản lý Vai trò: API + permission matrix screen",
       "description": "Backend CRUD for roles-per-department plus saving the permission matrix (CRUD + scope per module); frontend Roles screen matching the reference matrix layout with an added Phạm vi (scope) selector per module row. Admin/GĐ only; others get 403. Validation: role name required + unique within its department. Empty/loading/error states per UI_DESIGN.md. Acceptance (browser-validate on green init): matrix renders modules × (Xem/Thêm/Sửa/Xóa + Phạm vi); toggling a permission and Saving persists across reload; duplicate role name in the same department shows an inline error and does not save; a non-admin hitting the screen/API gets 403; a department with no roles shows an empty state with a Create action; clean console.",
       "dependencies": ["feat-005", "feat-006", "feat-003"],
-      "status": "not-started",
-      "evidence": ""
+      "status": "done",
+      "evidence": "Backend: schemas/rbac.py, services/role_service.py (create with per-dept name dedup + matrix get/save, audit on change), routers/rbac.py (GET /api/rbac/modules, GET /api/departments, GET/POST /api/roles, GET/PUT /api/roles/{id}/permissions) guarded by require_permission(vai_tro/phong_ban). Frontend: api.rbac client + AuthContext exposes token; pages/RolesPage.tsx matrix (modules × Xem/Thêm/Sửa/Xóa + Phạm vi own/dept/all) with dept/role pickers, inline create, loading/empty/error/403 states; Sidebar 'Quản trị → Vai trò'; AppShell routes content by activeId. Verify: init.ps1 30 passed (5 new test_rbac_roles_api) + compileall; frontend tsc+vite build green. browser-validate PASS 4/4/5/4 overall 4 (2026-06-26): matrix renders, toggle+scope+Save persists across a full reload, duplicate name → inline 409 error; non-admin 403 + empty-state covered by backend test/code (not browser-exercised). docs/EVALUATION.md Score Log."
     },
     {
       "id": "feat-008",

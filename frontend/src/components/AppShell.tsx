@@ -1,16 +1,20 @@
-// Authenticated app shell: persistent left Sidebar + scrollable content.
-// The active nav id lives here so content can react to it as real routes land;
-// for now the sidebar selection is visual and `children` is the page body.
-import { useState, type ReactNode } from "react";
+// Authenticated app shell: persistent left Sidebar + the active screen.
+// The active nav id selects the content; unbuilt modules fall back to the
+// Dashboard until their feature lands.
+import { useState } from "react";
+import { DashboardPage } from "../pages/DashboardPage";
+import { RolesPage } from "../pages/RolesPage";
 import { Sidebar } from "./Sidebar";
 
-export function AppShell({ children }: { children: ReactNode }) {
+export function AppShell() {
   const [activeId, setActiveId] = useState("dashboard");
 
   return (
     <div className="shell">
       <Sidebar activeId={activeId} onSelect={setActiveId} />
-      <div className="shell__main">{children}</div>
+      <div className="shell__main">
+        {activeId === "vai-tro" ? <RolesPage /> : <DashboardPage />}
+      </div>
     </div>
   );
 }

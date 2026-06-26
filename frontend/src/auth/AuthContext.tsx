@@ -17,6 +17,7 @@ type Status = "loading" | "authenticated" | "anonymous";
 export interface AuthState {
   status: Status;
   user: User | null;
+  token: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -27,20 +28,22 @@ export const AuthContext = createContext<AuthState | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>("loading");
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   // On mount: restore the session from a stored token via /me.
   useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEY);
-    if (!token) {
+    const stored = localStorage.getItem(TOKEN_KEY);
+    if (!stored) {
       setStatus("anonymous");
       return;
     }
     let cancelled = false;
     api
-      .me(token)
+      .me(stored)
       .then((restored) => {
         if (cancelled) return;
         setUser(restored);
+        setToken(stored);
         setStatus("authenticated");
       })
       .catch(() => {
@@ -59,6 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await api.login(email, password);
       localStorage.setItem(TOKEN_KEY, res.access_token);
       setUser(res.user);
+      setToken(res.access_token);
       setStatus("authenticated");
     } catch (err) {
       // Re-throw so the form can render the right message; leave state anonymous.
@@ -69,12 +73,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setUser(null);
+    setToken(null);
     setStatus("anonymous");
   }, []);
 
   const value = useMemo<AuthState>(
-    () => ({ status, user, login, logout }),
-    [status, user, login, logout],
+    () => ({ status, user, token, login, logout }),
+    [status, user, token, login, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

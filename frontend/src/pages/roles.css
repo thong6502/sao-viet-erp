@@ -1,0 +1,218 @@
+/* Vai trò (RBAC roles) — permission matrix screen. Built on the design tokens. */
+.roles {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.roles__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding-bottom: var(--sp-5);
+  border-bottom: 1px solid var(--rule);
+}
+
+.roles__title {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+
+.roles__sub {
+  color: var(--ash);
+  font-size: 14px;
+  margin: 0;
+}
+
+.roles__save {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: 0 0 auto;
+}
+
+.roles__saved {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--moss);
+}
+
+/* ---- Toolbar (department / role / create) -------------------------------- */
+.roles__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--sp-4);
+}
+
+.roles__pick {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 200px;
+}
+
+.roles__pick-label {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ash);
+}
+
+.roles__create {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-3);
+}
+
+.roles__create-error {
+  margin: calc(-1 * var(--sp-2)) 0 0;
+  color: var(--signal);
+  font-size: 13px;
+}
+
+/* ---- Matrix table -------------------------------------------------------- */
+.roles__matrix {
+  padding: 0;
+  overflow-x: auto;
+}
+
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.matrix thead th {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  text-align: center;
+  padding: var(--sp-4) var(--sp-3);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+
+.matrix tbody td {
+  padding: var(--sp-3);
+  border-bottom: 1px solid var(--rule-hair);
+  text-align: center;
+}
+
+.matrix tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.matrix tbody tr:hover {
+  background: var(--rule-hair);
+}
+
+.matrix__mod {
+  text-align: left !important;
+  font-weight: var(--fw-medium);
+  padding-left: var(--sp-6) !important;
+  min-width: 180px;
+}
+
+.matrix__act {
+  width: 84px;
+}
+
+.matrix__scope {
+  width: 160px;
+  padding-right: var(--sp-6) !important;
+}
+
+.input--sm {
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+/* ---- Toggle switch (styled checkbox) ------------------------------------- */
+.switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: var(--r-pill);
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  cursor: pointer;
+  transition: background-color var(--duration-base) var(--easing-standard);
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+
+.switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.25);
+  transition: transform var(--duration-base) var(--easing-standard);
+}
+
+.switch:checked {
+  background: var(--rust);
+  border-color: var(--rust);
+}
+
+.switch:checked::before {
+  transform: translateX(16px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* ---- States -------------------------------------------------------------- */
+.roles__status {
+  color: var(--ash);
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--sp-8);
+  text-align: center;
+  margin: 0;
+}
+
+.roles__empty {
+  padding: var(--sp-10) var(--sp-8);
+  text-align: center;
+}
+
+.roles__empty-title {
+  font-size: 16px;
+  font-weight: var(--fw-medium);
+  margin: 0 0 var(--sp-2);
+}
+
+@media (max-width: 768px) {
+  .roles__toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .roles__pick {
+    min-width: 0;
+  }
+}
