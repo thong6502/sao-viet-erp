@@ -45,8 +45,8 @@
       "name": "Data-scope resolver (backend)",
       "description": "A reusable scope filter that, given a role's scope (own|department|all), narrows a query over records carrying owner + department: own -> records where người phụ trách = current user; department -> owner in the same department; all -> no filter. Verified against a seeded fixture dataset (the real Khách hàng module is a later CRM sprint). Acceptance: pytest with a fixture dataset proves own/department/all return the correct subsets; the resolver is pure (no HTTP coupling) and reusable by future modules.",
       "dependencies": ["feat-004"],
-      "status": "not-started",
-      "evidence": ""
+      "status": "done",
+      "evidence": "services/rbac_service.py: AuthorizationService.scope_for(user, module) returns the role's scope; pure apply_scope/scope_filter narrow any select by own (owner_col==actor.id) / department (dept_col==actor.department_id) / all (no filter) — works on ORM or Core columns. test_rbac_scope against a standalone fixture table (own MetaData, not Base, so the schema-doc guard ignores it): own->[1], department->[1,2], all->[1,2,3]; scope_for reads seeded roles (NV Sales own, Giám đốc all, minimal Nhân viên None). init.ps1: 25 passed (4 new) + compileall clean — 2026-06-26."
     },
     {
       "id": "feat-007",

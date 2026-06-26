@@ -3,7 +3,8 @@
 ## Current State
 
 **Last Updated:** 2026-06-26
-**Active Feature:** feat-005 — Permission enforcement (backend) — **done**; next buildable feat-006.
+**Active Feature:** feat-006 — Data-scope resolver (backend) — **done**. RBAC backend
+foundation (feat-004/005/006) complete; remaining sprint-02 work is UI (feat-007..011).
 
 ## Status
 
@@ -29,6 +30,9 @@
   `AuthorizationService.can(user, module, action)`; `deps.require_permission(module, action)`
   (403 on missing perm); `get_current_user` rejects locked (`is_active=false`) accounts with
   403. 4 enforcement tests (allowed/missing/unauth/locked). `init.ps1`: **21 passed**.
+- **feat-006 — Data-scope resolver (backend):** `rbac_service.scope_for(user, module)` +
+  pure `apply_scope`/`scope_filter` narrow a query by own/department/all (ORM or Core cols).
+  4 scope tests on a non-`Base` fixture table. `init.ps1`: **25 passed**.
 
 ### What's In Progress
 
@@ -38,10 +42,11 @@
 
 ### What's Next
 
-1. **feat-006** (backend, buildable now — deps on feat-004 done): the data-scope resolver
-   (own/department/all) for list queries carrying owner + department.
-2. Finish **feat-003** (Evaluator score) to unblock the RBAC frontend features
-   (feat-007/008/010 depend on it).
+1. **Finish feat-003** (run the browser-validate Evaluator on the login UI, record scores,
+   mark done) — it now gates ALL remaining sprint-02 work: every UI feature (feat-007/008/
+   009/010/011) depends on it.
+2. Then the RBAC UI: **feat-007** (Vai trò matrix) → **feat-008** (Phòng ban) →
+   **feat-009** (Người dùng) → **feat-010** (menu gating) → **feat-011** (Activity Log).
 3. Sprint-02 RBAC backlog is planned in `feature_list.json` (feat-004..011) and specced in
    `docs/product-specs/sprint-02-rbac.md`.
 
