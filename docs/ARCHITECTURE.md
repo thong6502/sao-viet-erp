@@ -22,8 +22,8 @@ do not duplicate per-column detail here.
   `backend/app/`.
 - **Database:** SQLite for local/test (`sqlite:///./dev.db`, in-memory for tests),
   **PostgreSQL for Docker/prod** (`postgres:16-alpine` via `docker-compose.yml`) —
-  single SQLAlchemy layer, same queries against both. Schema bootstrap this sprint is
-  `create_all` + seed; Alembic migrations are a later sprint.
+  single SQLAlchemy layer, same queries against both. Schema bootstrap this spec is
+  `create_all` + seed; Alembic migrations are a later spec.
 - **Transport:** JSON over HTTP; the frontend talks to the backend only through a
   typed API client.
 
@@ -33,15 +33,15 @@ do not duplicate per-column detail here.
 - Primary user workflow: sign in → reach the protected app shell (Dashboard).
 - Runtime surfaces: web SPA (browser, Vite :5173), HTTP API service (FastAPI :8000),
   and relational DB (PostgreSQL :5432 in Docker).
-- Source of truth for product behavior: the active sprint spec under
+- Source of truth for product behavior: the active spec under
   [docs/product-specs/](product-specs/index.md) and its derived `feature_list.json`.
 
 ## Domain Map
 
 | Domain | Purpose | Frontend Entry | Backend Entry | Related Spec |
 |--------|---------|----------------|---------------|--------------|
-| `auth` | Seeded-user login, JWT issue/verify, current-user, session restore | `frontend/src/pages/LoginPage.tsx`, `frontend/src/auth/` | `backend/app/routers/auth.py` → `services/auth_service.py` → `repositories/user_repo.py` | [`product-specs/sprint-01-auth.md`](product-specs/sprint-01-auth.md) |
-| `rbac` | Departments, roles (per department, 1/user), permission matrix (CRUD + data scope), audit log; seeded catalog/roles. Data model + seed landed (feat-004); enforcement/screens follow. | _(screens: feat-007..011)_ | `backend/app/models/{department,role,module,audit}.py`, `repositories/{rbac_repo,audit_repo}.py`, `seed.py` | [`product-specs/sprint-02-rbac.md`](product-specs/sprint-02-rbac.md) |
+| `auth` | Seeded-user login, JWT issue/verify, current-user, session restore | `frontend/src/pages/LoginPage.tsx`, `frontend/src/auth/` | `backend/app/routers/auth.py` → `services/auth_service.py` → `repositories/user_repo.py` | [`product-specs/spec-01-auth.md`](product-specs/spec-01-auth.md) |
+| `rbac` | Departments, roles (per department, 1/user), permission matrix (CRUD + data scope), audit log; seeded catalog/roles. Data model + seed landed (feat-004); enforcement/screens follow. | _(screens: feat-007..011)_ | `backend/app/models/{department,role,module,audit}.py`, `repositories/{rbac_repo,audit_repo}.py`, `seed.py` | [`product-specs/spec-02-rbac.md`](product-specs/spec-02-rbac.md) |
 
 ### Backend module layout (`backend/app/`)
 
@@ -89,7 +89,7 @@ Data and dependencies flow in one direction only.
   provider/dependency boundaries (e.g. FastAPI dependencies, a React context),
   not by reaching across layers. See [docs/SECURITY.md](SECURITY.md) for auth and
   secret-handling rules.
-- New dependencies should be justified in the matching sprint spec.
+- New dependencies should be justified in the matching spec.
 
 ## Change Checklist
 
@@ -103,5 +103,5 @@ When you touch architecture-relevant code:
    `./init.sh` / `./init.ps1` (the single verification source of truth) — never add
    a competing verify command.
 5. Confirm the change is traceable to a feature in `feature_list.json` and its
-   acceptance criteria in the sprint spec; record evaluation outcomes per
+   acceptance criteria in the spec; record evaluation outcomes per
    [docs/EVALUATION.md](EVALUATION.md).

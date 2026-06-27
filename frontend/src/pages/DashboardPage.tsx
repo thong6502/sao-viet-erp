@@ -24,7 +24,7 @@ export function DashboardPage() {
         </h1>
         <p className="auth__sub">
           You are authenticated. This protected page is only reachable with a valid token —
-          the first feature beyond auth will land here next sprint.
+          the first feature beyond auth will land here next spec.
         </p>
       </section>
     </main>

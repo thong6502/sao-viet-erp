@@ -1,21 +1,21 @@
 ---
 name: plan
 description: >-
-  plan sprint, expand sprint spec, sprint to features, feature breakdown, product planning,
-  convert spec to feature_list.json. Use to turn a human sprint spec into feat-001..N. Not for
+  plan spec, expand spec, spec to features, feature breakdown, product planning,
+  convert spec to feature_list.json. Use to turn a human spec into feat-001..N. Not for
   building features or running the GAN loop.
 license: MIT
 ---
 
 # Plan (the human-in-the-loop Planner)
 
-This is the **Planner** role of the 3-role GAN loop. It takes a human-authored sprint spec
+This is the **Planner** role of the 3-role GAN loop. It takes a human-authored spec
 and converts it into the machine-readable backlog (`feature_list.json`) that the builder and
 evaluator consume. It is the **only** role allowed to (re)shape the backlog.
 
-Trigger this skill when the human says: "plan this sprint", "expand the sprint spec",
-"break the spec into features", "turn `<sprint>.md` into a feature list", or "plan the next
-sprint".
+Trigger this skill when the human says: "plan this spec", "expand the spec",
+"break the spec into features", "turn `<spec>.md` into a feature list", or "plan the next
+spec".
 
 This skill **never builds and never auto-runs the loop.** It stops to ask the human how
 much detail they want, refines the spec accordingly, writes `feature_list.json`, and then
@@ -24,8 +24,8 @@ and scoring it is the 🔍 evaluator's job — both are orchestrated by `gan-loo
 
 ## Inputs to read first
 
-1. The human's sprint spec at `docs/product-specs/<sprint>.md` (copied from
-   [_TEMPLATE.md](../../../docs/product-specs/_TEMPLATE.md)). If no sprint file exists,
+1. The human's spec at `docs/product-specs/<spec>.md` (copied from
+   [_TEMPLATE.md](../../../docs/product-specs/_TEMPLATE.md)). If no spec file exists,
    stop and ask the human to write one from the template — do not invent scope.
 2. [docs/product-specs/index.md](../../../docs/product-specs/index.md) for active scope.
 3. [docs/PRODUCT_SENSE.md](../../../docs/PRODUCT_SENSE.md) for cross-cutting product
@@ -36,7 +36,7 @@ and scoring it is the 🔍 evaluator's job — both are orchestrated by `gan-loo
 ## Step 1 — PRESENT THE OPTIONS MENU (always stop here first)
 
 Before refining anything, **present an options menu** to the human on how much to detail
-the sprint, and **wait for their choice**. Offer it as an AskUserQuestion-style single-select
+the spec, and **wait for their choice**. Offer it as an AskUserQuestion-style single-select
 list, and **ALWAYS include a final free-text "Other" choice**:
 
 - **Keep as written** — trust the spec's acceptance criteria as-is; only normalize wording.
@@ -54,7 +54,7 @@ gate that makes the Planner human-driven rather than automatic.
 
 Apply ONLY the depth the human picked:
 
-- Edit `docs/product-specs/<sprint>.md` in place so the spec and the backlog stay in sync
+- Edit `docs/product-specs/<spec>.md` in place so the spec and the backlog stay in sync
   (same-session rule from `docs/product-specs/index.md`).
 - Keep refinements grounded in the spec's own sections — Goal / Logic-flow / System
   statuses / Edge cases / Acceptance criteria / Failure states; carry each into the
@@ -100,7 +100,7 @@ Validate the JSON parses and every dependency `id` exists before saving.
 ## Step 4 — STOP and hand off (never auto-run the build)
 
 After writing `feature_list.json`, **stop.** Do not start building. Report to the human:
-the sprint that was planned, the feat count, and the first buildable feature
+the spec that was planned, the feat count, and the first buildable feature
 (`status: not-started` with all dependencies `done`).
 
 Then point to the rest of the loop — the Planner does not run it:

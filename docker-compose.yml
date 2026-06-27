@@ -1,5 +1,5 @@
 # Docker stack for the GAN app.
-#   db      — PostgreSQL (the database, per this sprint's requirement)
+#   db      — PostgreSQL (the database, per this spec's requirement)
 #   backend — FastAPI, connects to `db` and serves the API on :8000
 #
 # Quick start:

@@ -48,8 +48,8 @@ def get_db() -> Iterator[Session]:
 def init_db() -> None:
     """Create tables for models registered on Base.
 
-    Sprint-01 uses create_all (+ seed) instead of Alembic migrations; migrations
-    are an explicit follow-up (see docs/product-specs/sprint-01-auth.md).
+    Spec-01 uses create_all (+ seed) instead of Alembic migrations; migrations
+    are an explicit follow-up (see docs/product-specs/spec-01-auth.md).
     """
     # Import models so they register on Base.metadata before create_all.
     from . import models  # noqa: F401

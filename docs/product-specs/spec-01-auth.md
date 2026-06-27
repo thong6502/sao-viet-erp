@@ -1,4 +1,4 @@
-# Sprint 01 — Foundation & Login
+# Spec 01 — Foundation & Login
 
 ## Goal
 
@@ -16,7 +16,7 @@ receive a JWT, and reach a protected page.
 
 - Project skeleton that runs and verifies green (`init.sh` / `init.ps1`).
 - PostgreSQL running in Docker (compose), reached by the backend via `DATABASE_URL`.
-- Seeded admin user (no self-registration this sprint).
+- Seeded admin user (no self-registration this spec).
 - `POST /api/auth/login` issuing a JWT bearer token.
 - `GET /api/auth/me` returning the current user for a valid token.
 - Frontend login → token persisted → protected Dashboard + Logout.
@@ -76,7 +76,7 @@ receive a JWT, and reach a protected page.
 
 - Self-registration / sign-up, password reset, email verification.
 - Refresh tokens, roles/permissions (RBAC), "remember me", OAuth/social login.
-- Alembic migrations (this sprint uses `create_all` + seed; migrations land later).
+- Alembic migrations (this spec uses `create_all` + seed; migrations land later).
 - Any feature screen beyond the minimal protected Dashboard.
 
 ## Failure states

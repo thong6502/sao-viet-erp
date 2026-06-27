@@ -2,7 +2,7 @@
 
 Safe to call on every startup — every step creates rows only if absent, so re-runs
 do not duplicate. Seeds only the Kinh doanh + Hành chính nhân sự scope for now; the
-module catalog is data and grows as other departments come online (sprint-02-rbac.md).
+module catalog is data and grows as other departments come online (spec-02-rbac.md).
 Credentials come from config/env (SEED_ADMIN_*).
 """
 from __future__ import annotations
@@ -126,7 +126,7 @@ def seed_roles(db: Session) -> None:
 
 
 def seed_admin(db: Session) -> None:
-    """Create the initial admin user if absent (no self-registration this sprint)."""
+    """Create the initial admin user if absent (no self-registration this spec)."""
     users = UserRepository(db)
     if users.get_by_email(settings.seed_admin_email) is not None:
         return

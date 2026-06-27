@@ -6,7 +6,7 @@ auto-discovers any `.claude/skills/<name>/SKILL.md` in this repo.
 
 Shipped skills (the 3-role GAN loop):
 
-- [`plan/`](plan/SKILL.md) — Planner: converts a sprint spec into `feature_list.json`.
+- [`plan/`](plan/SKILL.md) — Planner: converts a spec into `feature_list.json`.
 - [`generate/`](generate/SKILL.md) — Generator: builds one feature at a time, then verifies.
 - [`browser-validate/`](browser-validate/SKILL.md) — Evaluator: drives the running app and scores it.
 

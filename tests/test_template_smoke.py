@@ -17,7 +17,7 @@ EXPECTED = [
     "AGENTS.md", "CLAUDE.md", "QUICKSTART.md", "feature_list.json", "progress.md",
     "session-handoff.md",
     "init.sh", "init.ps1", "pytest.ini", ".gitignore", ".gitattributes",
-    # Planner (human writes sprint -> agent offers options -> feature_list)
+    # Planner (human writes spec -> agent offers options -> feature_list)
     "docs/PRODUCT_SENSE.md", "docs/product-specs/index.md", "docs/product-specs/_TEMPLATE.md",
     ".claude/skills/plan/SKILL.md",
     # Generator (build each feature)

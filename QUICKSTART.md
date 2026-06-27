@@ -5,7 +5,7 @@
 Template này = **vòng lặp GAN 3 vai** để dựng một app **React + Vite (frontend) · FastAPI (backend) · SQLite/Postgres (DB)** theo từng feature một, có người làm Planner.
 
 ```text
-Sprint spec  →  🧠 plan  →  feature_list.json  →  🔨 generate  ⇄  🔍 browser-validate  →  review
+Spec  →  🧠 plan  →  feature_list.json  →  🔨 generate  ⇄  🔍 browser-validate  →  review
    (người)      (skill)        (sổ feature)         (build)        (chấm điểm, lặp lại)    (người)
 ```
 
@@ -21,16 +21,16 @@ Sprint spec  →  🧠 plan  →  feature_list.json  →  🔨 generate  ⇄  �
 
 ---
 
-## Bước 1 — Viết sprint spec (người)
+## Bước 1 — Viết spec (người)
 
-Tạo `docs/product-specs/<sprint>.md` từ `docs/product-specs/_TEMPLATE.md`, ghi danh mục vào `docs/product-specs/index.md`.
-Mô tả mục tiêu sprint, phạm vi, và acceptance criteria mong muốn. Tham khảo `docs/PRODUCT_SENSE.md` để biết "tốt" nghĩa là gì.
+Tạo `docs/product-specs/<spec>.md` từ `docs/product-specs/_TEMPLATE.md`, ghi danh mục vào `docs/product-specs/index.md`.
+Mô tả mục tiêu spec, phạm vi, và acceptance criteria mong muốn. Tham khảo `docs/PRODUCT_SENSE.md` để biết "tốt" nghĩa là gì.
 
 ## Bước 2 — Chạy skill 🧠 plan
 
 Gọi skill `plan` (`.claude/skills/plan/SKILL.md`). Skill này:
 
-1. Đọc sprint spec của bạn.
+1. Đọc spec của bạn.
 2. **DỪNG để hỏi** — trình một **menu lựa chọn** mức độ chi tiết (kèm tùy chọn "Other" để tự nhập). Nó không bao giờ tự chạy tiếp.
 3. Tinh chỉnh theo lựa chọn của bạn rồi điền `feature_list.json` (`feat-001..N` + acceptance criteria).
 
@@ -44,7 +44,7 @@ Chạy orchestrator `.claude/workflows/gan-loop.js`. Nó tự lái bước 3–5
 
 ## Bước 4 — Review (người)
 
-Xem điểm đã ghi trong `docs/EVALUATION.md`, tiến độ trong `progress.md`, và trạng thái trong `feature_list.json`. Duyệt feature, rồi quay lại Bước 1 cho sprint kế tiếp.
+Xem điểm đã ghi trong `docs/EVALUATION.md`, tiến độ trong `progress.md`, và trạng thái trong `feature_list.json`. Duyệt feature, rồi quay lại Bước 1 cho spec kế tiếp.
 
 ---
 
@@ -55,9 +55,9 @@ Xem điểm đã ghi trong `docs/EVALUATION.md`, tiến độ trong `progress.md
 | Router | `AGENTS.md` | **Chỉ dẫn chính** cho agent (luồng, quy tắc, "xong" là gì) |
 | Router | `CLAUDE.md` | Chỉ trỏ về `AGENTS.md` |
 | Người | `QUICKSTART.md` | File này — đường nhanh nhất chạy vòng lặp |
-| Người | `docs/product-specs/_TEMPLATE.md` · `index.md` | Mẫu sprint spec + danh mục |
+| Người | `docs/product-specs/_TEMPLATE.md` · `index.md` | Mẫu spec + danh mục |
 | Người | `docs/PRODUCT_SENSE.md` | Thước đo "tốt" cho feature |
-| 🧠 plan | `.claude/skills/plan/SKILL.md` | Sprint → `feature_list.json` (hỏi menu, dừng lại) |
+| 🧠 plan | `.claude/skills/plan/SKILL.md` | Spec → `feature_list.json` (hỏi menu, dừng lại) |
 | Sổ | `feature_list.json` | Danh sách feature + `status` + `evidence` |
 | 🔨 generate | `.claude/skills/generate/SKILL.md` | Build + xác minh một feature |
 | 🔨 generate | `docs/ARCHITECTURE.md` · `docs/UI_DESIGN.md` (assets: `docs/design-assets/`) | Layout/quy ước stack + design system |

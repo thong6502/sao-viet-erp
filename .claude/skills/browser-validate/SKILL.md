@@ -104,7 +104,7 @@ vibe.
 
 - **Append one row to the
   [Score Log in EVALUATION.md](../../../docs/EVALUATION.md#score-log)** — date,
-  sprint/feat-NNN, the four scores, `overall` (lowest of the four, a gate not an
+  spec/feat-NNN, the four scores, `overall` (lowest of the four, a gate not an
   average), and `verdict` (`PASS` | `FAIL` | `BUDGET`). Append; never overwrite
   history.
 - **PASS** when every criterion meets the

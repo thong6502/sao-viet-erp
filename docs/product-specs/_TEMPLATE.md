@@ -1,11 +1,11 @@
-<!-- Copy to docs/product-specs/<sprint>.md per sprint; delete this notice when filled -->
-<!-- This is the SPRINT-SPEC shape the human Planner fills. The plan skill reads it. -->
+<!-- Copy to docs/product-specs/<spec>.md per spec; delete this notice when filled -->
+<!-- This is the SPEC shape the human Planner fills. The plan skill reads it. -->
 
-# <PLACEHOLDER: Sprint Name>
+# <PLACEHOLDER: Spec Name>
 
 ## Goal
 
-<PLACEHOLDER: one sentence describing what this sprint should deliver for the user.>
+<PLACEHOLDER: one sentence describing what this spec should deliver for the user.>
 
 ## Screens
 
@@ -54,7 +54,7 @@
 
 ## Out-of-scope
 
-- <PLACEHOLDER: explicitly NOT built this sprint>
+- <PLACEHOLDER: explicitly NOT built this spec>
 
 ## Failure states
 

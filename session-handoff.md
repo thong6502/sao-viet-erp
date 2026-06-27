@@ -4,13 +4,13 @@ Fill this at the end of a session that spans more than one sitting, so the next
 session can resume from the repo alone. For quick single-session notes,
 `progress.md` is enough.
 
-## Current Sprint
+## Current Spec
 
-- Sprint spec: `docs/product-specs/sprint-02-rbac.md` (sprint-01 = `sprint-01-auth.md`, done).
+- Spec: `docs/product-specs/spec-02-rbac.md` (spec-01 = `spec-01-auth.md`, done).
 - Goal: RBAC — Phòng ban · Vai trò (per department, 1/user) · permission matrix
   (CRUD + data scope own/department/all); HR assigns department, head assigns role,
   Admin/GĐ defines roles; menu gating + activity log.
-- Phase: **COMPLETE** — feat-001..011 all `done` (11/11). Sprint-01 + Sprint-02 finished.
+- Phase: **COMPLETE** — feat-001..011 all `done` (11/11). Spec-01 + Spec-02 finished.
 
 ## Features This Session
 
@@ -61,6 +61,6 @@ session can resume from the repo alone. For quick single-session notes,
 
 ## Recommended Next Step
 
-- Next sprint is undecided. Candidate: harden RBAC (live Postgres bring-up, password reset /
+- Next spec is undecided. Candidate: harden RBAC (live Postgres bring-up, password reset /
   invite email, "head assigns only within their level"). Write a spec from `_TEMPLATE.md`
   → `/plan` → build once a direction is chosen.

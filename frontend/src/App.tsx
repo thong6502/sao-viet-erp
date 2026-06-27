@@ -2,7 +2,7 @@ import { useAuth } from "./auth/useAuth";
 import { AppShell } from "./components/AppShell";
 import { LoginPage } from "./pages/LoginPage";
 
-// Route by auth state (no router lib needed for the auth gate this sprint):
+// Route by auth state (no router lib needed for the auth gate this spec):
 //   loading  -> restoring session via /me
 //   authed   -> protected Dashboard
 //   anonymous-> Login

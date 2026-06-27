@@ -1,4 +1,4 @@
-# Sprint 02 — RBAC: Phòng ban · Vai trò · Phân quyền (CRUD + Phạm vi dữ liệu)
+# Spec 02 — RBAC: Phòng ban · Vai trò · Phân quyền (CRUD + Phạm vi dữ liệu)
 
 ## Goal
 
@@ -36,8 +36,8 @@ Mỗi Vai trò, theo từng Module:
 - **Role (vai trò)**: `id`, `name`, `department_id` (vai trò thuộc đúng 1 phòng).
 - **RolePermission**: `role_id`, `module_key`, `can_read`, `can_create`, `can_update`,
   `can_delete`, `scope` ∈ {`own`, `department`, `all`}. Một dòng / (vai trò × module).
-- **User (tài khoản)** — mở rộng model auth sprint-01: thêm `department_id`, `role_id`
-  (đúng 1), `is_active`. (Đăng nhập vẫn dùng cơ chế JWT của sprint-01.)
+- **User (tài khoản)** — mở rộng model auth spec-01: thêm `department_id`, `role_id`
+  (đúng 1), `is_active`. (Đăng nhập vẫn dùng cơ chế JWT của spec-01.)
 - **Module**: danh mục module hệ thống — là **dữ liệu seed, mở rộng dần** (không phải đổi
   cấu trúc). Giai đoạn này **chỉ phủ 2 phòng Kinh doanh + Hành chính nhân sự**:
   - Kinh doanh: `dashboard`, `khach_hang`, `don_hang_ban`, `bao_gia`, `tinh_gia_thanh`,
@@ -49,8 +49,8 @@ Mỗi Vai trò, theo từng Module:
   ghi lại mọi thay đổi gán phòng / gán vai trò / sửa khuôn quyền / khóa tài khoản.
 
 > Phạm vi dữ liệu cần mỗi bản ghi nghiệp vụ mang **người phụ trách + phòng**. Tầng kiểm
-> quyền + phạm vi được dựng sẵn ở sprint này; *hiệu lực lọc "Của tôi/Cả phòng" hiển thị đầy
-> đủ khi một module nghiệp vụ mang dữ liệu ra đời ở sprint sau*. Sprint này verify tầng kiểm
+> quyền + phạm vi được dựng sẵn ở spec này; *hiệu lực lọc "Của tôi/Cả phòng" hiển thị đầy
+> đủ khi một module nghiệp vụ mang dữ liệu ra đời ở spec sau*. Spec này verify tầng kiểm
 > quyền + các màn quản trị.
 
 ## Screens
@@ -75,7 +75,7 @@ Mỗi Vai trò, theo từng Module:
   (own → theo người phụ trách; department → theo phòng; all → không lọc).
 - **Sidebar/menu theo quyền (frontend)**: chỉ hiện module mà vai trò có quyền Xem.
 - Seed khởi tạo: tài khoản **Admin/GĐ** (toàn quyền, scope = all) — kế thừa seed admin
-  sprint-01; vai trò **HR** (quản lý người dùng + phòng ban); một số vai trò mẫu phòng KD
+  spec-01; vai trò **HR** (quản lý người dùng + phòng ban); một số vai trò mẫu phòng KD
   (Trưởng phòng KD = cả phòng, NV Sales = của tôi).
 - Vai trò **mặc định tối thiểu (chỉ Xem)** cho nhân viên mới khi trưởng phòng chưa gán.
 - Ghi **AuditLog** cho mọi lần gán phòng / gán vai trò / sửa khuôn quyền / khóa tài khoản.
@@ -96,11 +96,11 @@ Mỗi Vai trò, theo từng Module:
 6. **Lọc phạm vi**: NV Sales (scope = own) mở danh sách → chỉ thấy bản ghi mình phụ
    trách; Trưởng phòng (department) thấy cả phòng; GĐ (all) thấy tất cả.
 7. **Nghỉ việc**: HR/GĐ **khóa tài khoản** → người đó không đăng nhập được; việc bàn giao
-   dữ liệu phụ trách thuộc một sprint nghiệp vụ sau (ngoài phạm vi sprint này).
+   dữ liệu phụ trách thuộc một spec nghiệp vụ sau (ngoài phạm vi spec này).
 
 ## System statuses
 
-- **Chưa đăng nhập / phiên hết hạn** — `401`, đưa về Login (cơ chế sprint-01).
+- **Chưa đăng nhập / phiên hết hạn** — `401`, đưa về Login (cơ chế spec-01).
 - **Đã đăng nhập nhưng thiếu quyền** — `403` với thông báo ngôn ngữ thường + lối thoát
   (về trang được phép), không phải stack/JSON thô.
 - **Backend lỗi / không truy cập được** — thông báo dễ hiểu + Retry; không bao giờ màn trắng.
@@ -140,7 +140,7 @@ Mỗi Vai trò, theo từng Module:
 ### Quản lý Người dùng
 
 - Tạo tài khoản (HR): họ tên + email **bắt buộc**, email **đúng định dạng + duy nhất**;
-  phòng ban **bắt buộc**. Mật khẩu khởi tạo theo cơ chế sprint-01.
+  phòng ban **bắt buộc**. Mật khẩu khởi tạo theo cơ chế spec-01.
 - Gán vai trò (trưởng phòng): dropdown **chỉ** liệt kê vai trò của phòng người dùng; rỗng
   nếu phòng chưa định nghĩa vai trò (gợi ý nhờ Admin tạo).
 - Double-submit (tạo/gán) → nút khóa + loading; không tạo trùng / không gán trùng.
@@ -179,15 +179,15 @@ Mỗi Vai trò, theo từng Module:
 
 ## Out-of-scope
 
-- **Nhiều vai trò / người** (sprint này: đúng 1 vai trò/người). Người kiêm nhiệm → tạo
+- **Nhiều vai trò / người** (spec này: đúng 1 vai trò/người). Người kiêm nhiệm → tạo
   một vai trò riêng.
-- **Vai trò dùng chung nhiều phòng / phân cấp "không cao hơn cấp mình"** (sprint này:
+- **Vai trò dùng chung nhiều phòng / phân cấp "không cao hơn cấp mình"** (spec này:
   trưởng phòng chỉ giới hạn theo phòng, chưa theo bậc).
 - **Ngày hiệu lực / lịch sử có thời hạn** của việc gán (áp dụng tức thời).
 - **Bàn giao dữ liệu phụ trách khi nghỉ việc** và toàn bộ dữ liệu nghiệp vụ — thuộc một
-  sprint sau; sprint này chỉ dựng tầng quyền + phạm vi để module nghiệp vụ tiêu thụ.
+  spec sau; spec này chỉ dựng tầng quyền + phạm vi để module nghiệp vụ tiêu thụ.
 - **Các phòng/module ngoài Kinh doanh + Hành chính nhân sự** (Sản xuất, Kho, Thu mua…):
-  chỉ thêm vào danh mục module (seed) khi phòng đó lên hệ thống — không thuộc sprint này.
+  chỉ thêm vào danh mục module (seed) khi phòng đó lên hệ thống — không thuộc spec này.
 - SSO / 2FA / quên mật khẩu / tự đăng ký.
 
 ## Failure states
