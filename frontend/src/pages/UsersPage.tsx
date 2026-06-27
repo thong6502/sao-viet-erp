@@ -201,7 +201,7 @@ export function UsersPage() {
   return (
     <main className="users">
       <header className="users__head">
-        <p className="eyebrow">Quản trị</p>
+        <p className="eyebrow">Quản lý hệ thống</p>
         <h1 className="users__title">Quản lý Người dùng</h1>
         <p className="users__sub">Tạo tài khoản, gán phòng & vai trò, khóa/mở tài khoản.</p>
       </header>

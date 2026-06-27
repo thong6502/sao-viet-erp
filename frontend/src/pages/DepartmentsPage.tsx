@@ -199,7 +199,7 @@ export function DepartmentsPage() {
     <main className="depts">
       <header className="depts__head">
         <div>
-          <p className="eyebrow">Quản trị</p>
+          <p className="eyebrow">Quản lý hệ thống</p>
           <h1 className="depts__title">Quản lý Phòng ban</h1>
           <p className="depts__sub">Tạo phòng, đặt người đứng đầu, và xem vai trò của phòng.</p>
         </div>

@@ -70,7 +70,7 @@ export function ActivityLogPage() {
     <main className="activity">
       <header className="activity__head">
         <div>
-          <p className="eyebrow">Quản trị</p>
+          <p className="eyebrow">Quản lý hệ thống</p>
           <h1 className="activity__title">Nhật ký hoạt động</h1>
           <p className="activity__sub">Lịch sử các thay đổi phân quyền (chỉ xem).</p>
         </div>

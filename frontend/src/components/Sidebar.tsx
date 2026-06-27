@@ -101,7 +101,7 @@ const NAV: NavSection[] = [
   },
   {
     id: "quan-tri",
-    label: "Quản trị",
+    label: "Quản lý hệ thống",
     items: [
       { id: "nguoi-dung", label: "Người dùng", icon: "users", module: "nguoi_dung" },
       { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },

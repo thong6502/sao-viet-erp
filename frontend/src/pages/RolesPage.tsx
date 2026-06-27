@@ -272,7 +272,7 @@ export function RolesPage() {
     <main className="roles">
       <header className="roles__head">
         <div>
-          <p className="eyebrow">Quản trị</p>
+          <p className="eyebrow">Quản lý hệ thống</p>
           <h1 className="roles__title">
             Thiết lập Quyền{currentRole ? `: ${currentRole.name}` : ""}
           </h1>
