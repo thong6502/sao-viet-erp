@@ -16,6 +16,26 @@ ask the human which to unblock. Never start a feature whose dependencies are red
 feedback rebuild, the orchestrator (`.claude/workflows/gan-loop.js`) names the feature; reuse
 that one rather than picking a new feature mid-loop.
 
+## Building a whole spec (iterate until done)
+
+When the human asks to build a spec's features (not a single named one), repeat the
+selection + "done" contract below for the next eligible feature until every feature of the
+spec is `done`:
+
+1. Pick the next eligible feature (dependencies all `done`); set it `in-progress`.
+2. Build + verify + (for UI) score it to the full "done" contract; mark it `done` with
+   evidence.
+3. Re-scan for the next eligible feature and repeat. A feature you just finished often
+   unblocks the next in the chain.
+4. Stop when nothing is eligible: either all spec features are `done`, or the rest are
+   `blocked` / stuck below the Evaluator threshold within budget. Leave those
+   `in-progress`/`blocked` with the gap recorded and flag for the human — do not skip a
+   blocked feature to keep going.
+
+Still one feature in flight at a time: never start the next before the current one is green
+and `done`. This batch mode is the human-invoked path; the orchestrator path stays one
+feature per pass.
+
 ## The "done" contract
 
 Mirror of `AGENTS.md` Definition of Done. All must hold before `status: done`:

@@ -14,9 +14,9 @@
 //   (4 criteria: design quality, originality, craft, functionality)
 // LOOP / ROLE WIRING + budgets:  docs/ORCHESTRATION.md
 //
-// This is a REUSABLE TEMPLATE. Every <PLACEHOLDER> marks an app-specific value
-// that does not exist yet (the React + Vite / FastAPI skeleton is not built).
-// Adapt the placeholders, then run. Keep the shape; tune the numbers.
+// Wired for THIS project (React + Vite frontend + FastAPI backend). The APP run
+// commands, the criteria, and the pass threshold below match docs/EVALUATION.md and
+// the project's dev scripts (dev.ps1 / dev.sh). Tune the numbers if the rubric changes.
 // -----------------------------------------------------------------------------
 
 // `meta` MUST be a pure object literal (no function calls / variables) so the
@@ -35,7 +35,7 @@ export const meta = {
 // feature that can never reach threshold cannot spin forever.
 // ---------------------------------------------------------------------------
 const MAX_ROUNDS = 3;          // generate -> validate attempts per feature
-const PASS_THRESHOLD = 7;      // min score (0-10) on EACH criterion to pass
+const PASS_THRESHOLD = 4;      // min score (1-5) on EACH criterion to pass (docs/EVALUATION.md)
 const FEATURE_LIST = 'feature_list.json';
 
 // The 4 evaluation criteria scored by the browser-validate Evaluator.
@@ -43,18 +43,16 @@ const FEATURE_LIST = 'feature_list.json';
 // describe the feedback contract to the agents.
 const CRITERIA = ['design quality', 'originality', 'craft', 'functionality'];
 
-// <PLACEHOLDER: real app run commands>. The skeleton does not exist yet, so
-// these are illustrative. Replace with this project's actual commands/URL.
+// Real run commands for this project (mirror dev.ps1 / dev.sh). The Evaluator launches
+// these, then drives APP.url with Playwright. Tip: ./dev.ps1 (Windows) or ./dev.sh (Unix)
+// starts BOTH with one command.
 const APP = {
-  // Frontend dev server (React + Vite):
-  //   <PLACEHOLDER> e.g. 'npm run dev'    (Unix)
-  //   <PLACEHOLDER> e.g. 'npm run dev'    (Windows / PowerShell)
-  frontend: '<PLACEHOLDER frontend dev command, e.g. npm run dev>',
-  // Backend API (FastAPI):
-  //   <PLACEHOLDER> e.g. 'uvicorn app.main:app --reload --port 8000'
-  backend: '<PLACEHOLDER backend dev command, e.g. uvicorn app.main:app --reload>',
+  // Frontend dev server (React + Vite), from the repo root:
+  frontend: 'cd frontend && npm run dev',
+  // Backend API (FastAPI), from the repo root:
+  backend: 'cd backend && python -m uvicorn app.main:app --port 8000 --reload',
   // URL the Evaluator navigates to with Playwright:
-  url: '<PLACEHOLDER app URL, e.g. http://localhost:5173>',
+  url: 'http://localhost:5173',
 };
 
 export default function gan(ctx) {
@@ -85,7 +83,7 @@ function buildAndScore(ctx, feature) {
     // First round builds from spec only; later rounds receive the Evaluator's
     // weakest-criterion feedback so the rebuild targets the actual deficit.
     const built = agent('generate', {
-      // The Builder reads the sprint spec + docs/UI_DESIGN.md (see the skill).
+      // The Builder reads the spec + docs/UI_DESIGN.md (see the skill).
       skill: '.claude/skills/generate/SKILL.md',
       feature, // { id, name, description, dependencies, ... }
       round,

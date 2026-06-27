@@ -8,8 +8,8 @@ Reusable GAN app-template: build a React + Vite / FastAPI / SQLite-Postgres app 
 
 A human Planner seeds the work; two skills then loop, orchestrated by `.claude/workflows/gan-loop.js`:
 
-1. Human writes a sprint spec in `docs/product-specs/<sprint>.md` (from `_TEMPLATE.md`).
-2. 🧠 **plan** — reads the sprint, presents an options menu (with an "Other" free-text choice) on how much to detail it, refines per the choice, then converts it into `feature_list.json` (feat-001..N + acceptance criteria). It STOPS to ask — never auto-runs.
+1. Human writes a spec in `docs/product-specs/<spec>.md` (from `_TEMPLATE.md`).
+2. 🧠 **plan** — reads the spec, presents an options menu (with an "Other" free-text choice) on how much to detail it, refines per the choice, then converts it into `feature_list.json` (feat-001..N + acceptance criteria). It STOPS to ask — never auto-runs.
 3. 🔨 **generate** — builds ONE feature from the spec + `docs/UI_DESIGN.md`, then verifies.
 4. 🔍 **browser-validate** (Evaluator) — Playwright-clicks the running app, scores 4 criteria (design quality, originality, craft, functionality) per `docs/EVALUATION.md`.
 5. If a score is below threshold, the weakest criterion feeds back to 🔨 and the feature is rebuilt — looping until pass or budget. `gan-loop.js` drives steps 3–5.
@@ -28,7 +28,7 @@ If baseline verification is failing, repair that first before adding scope.
 
 ## Working Rules
 
-- **One feature at a time**: pick exactly one unfinished feature from `feature_list.json`.
+- **One feature in flight at a time**: fully build, verify, and mark one feature `done` before starting the next. When asked to build a whole spec, iterate this single-feature cycle in dependency order until the spec is done — never interleave or parallelize half-built features. (The `gan-loop.js` orchestrator path still advances one feature per pass.)
 - **Verification required**: never claim done without running `init.sh` / `init.ps1`.
 - **Mechanize repeated feedback**: when the same review/eval note recurs, promote it into a check (an `init.sh`/`init.ps1` step or a test) instead of re-explaining it.
 - **Stay in scope**: don't modify files unrelated to the current feature; write only your own files.
@@ -51,7 +51,7 @@ Load a file only when its row is relevant.
 | --- | --- |
 | `CLAUDE.md` | Pointer to this router. |
 | `QUICKSTART.md` | Fastest path to run the loop end-to-end. |
-| `session-handoff.md` | End-of-session handoff for multi-session work (sprint, scores, next step). |
+| `session-handoff.md` | End-of-session handoff for multi-session work (spec, scores, next step). |
 | `docs/ORCHESTRATION.md` | How the 3 roles + `gan-loop.js` wire together. |
 | `docs/PRODUCT_SENSE.md` | What "good" means; product bar for features. |
 | `docs/ARCHITECTURE.md` | React + Vite / FastAPI / DB layout and conventions. |
@@ -59,10 +59,10 @@ Load a file only when its row is relevant.
 | `docs/UI_DESIGN.md` | Design system the 🔨 generate skill builds against (assets in `docs/design-assets/`). |
 | `docs/EVALUATION.md` | The 4 scoring criteria, thresholds, and recorded scores. |
 | `docs/SECURITY.md` | Secrets, untrusted data, and external-action policy. |
-| `docs/product-specs/index.md` | Sprint-spec catalog; author new specs from `_TEMPLATE.md`. |
+| `docs/product-specs/index.md` | Spec catalog; author new specs from `_TEMPLATE.md`. |
 | `docs/sops/browser-validation-loop.md` | Deep SOP behind the 🔍 browser-validate skill. |
 | `.claude/workflows/gan-loop.js` | Orchestrator for generate → validate → feedback (steps 3–5). |
-| `.claude/skills/plan/SKILL.md` | 🧠 sprint → `feature_list.json` (options menu, stops to ask). |
+| `.claude/skills/plan/SKILL.md` | 🧠 spec → `feature_list.json` (options menu, stops to ask). |
 | `.claude/skills/generate/SKILL.md` | 🔨 build + verify one feature. |
 | `.claude/skills/browser-validate/SKILL.md` | 🔍 Playwright-drive and score the running app. |
 | `.claude/skills/README.md` | Skill authoring guide; validate via `.claude/skills/scripts/validate-skills.{sh,ps1}`. |
