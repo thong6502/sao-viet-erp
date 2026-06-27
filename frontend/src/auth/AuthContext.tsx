@@ -1,5 +1,6 @@
-// Auth state — owns the token + current user and the session lifecycle.
-// Cross-cutting concern provided via React context (not reached across layers).
+// Auth state — owns the (in-memory) access token + current user and the session
+// lifecycle. The long-lived refresh token lives ONLY in an httpOnly cookie (spec-03),
+// so the access token is never persisted to localStorage (XSS can't read it).
 import {
   createContext,
   useCallback,
@@ -8,9 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ApiError, api, type User } from "../api/client";
-
-const TOKEN_KEY = "gan_app_token";
+import { ApiError, api, registerAuthCallbacks, type User } from "../api/client";
 
 type Status = "loading" | "authenticated" | "anonymous";
 
@@ -19,7 +18,7 @@ export interface AuthState {
   user: User | null;
   token: string | null;
   login: (email: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -30,26 +29,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
 
-  // On mount: restore the session from a stored token via /me.
+  // Let the API client push a rotated access token (silent refresh) and signal a dead
+  // session back into React state.
   useEffect(() => {
-    const stored = localStorage.getItem(TOKEN_KEY);
-    if (!stored) {
-      setStatus("anonymous");
-      return;
-    }
+    registerAuthCallbacks({
+      onAccessToken: (t) => setToken(t),
+      onSessionEnded: () => {
+        setUser(null);
+        setToken(null);
+        setStatus("anonymous");
+      },
+    });
+  }, []);
+
+  // On mount: restore the session from the httpOnly refresh cookie via /refresh.
+  // No stored bearer token to read — the cookie rides along automatically.
+  useEffect(() => {
     let cancelled = false;
     api
-      .me(stored)
-      .then((restored) => {
+      .refresh()
+      .then((res) => {
         if (cancelled) return;
-        setUser(restored);
-        setToken(stored);
+        setUser(res.user);
+        setToken(res.access_token);
         setStatus("authenticated");
       })
       .catch(() => {
         if (cancelled) return;
-        // Invalid/expired token (or unreachable) -> treat as logged out.
-        localStorage.removeItem(TOKEN_KEY);
+        // No/expired/revoked refresh cookie -> treat as logged out.
         setStatus("anonymous");
       });
     return () => {
@@ -60,7 +67,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     try {
       const res = await api.login(email, password);
-      localStorage.setItem(TOKEN_KEY, res.access_token);
+      // The server set the refresh cookie; keep the access token in memory only.
       setUser(res.user);
       setToken(res.access_token);
       setStatus("authenticated");
@@ -70,8 +77,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY);
+  const logout = useCallback(async () => {
+    // Best-effort server-side revoke; clear local state regardless of the result.
+    try {
+      await api.logout();
+    } catch {
+      /* even if the call fails, end the session locally */
+    }
     setUser(null);
     setToken(null);
     setStatus("anonymous");

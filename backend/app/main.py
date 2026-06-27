@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .config import settings
+from .config import assert_secure_config, settings
 from .db import SessionLocal, init_db
 from .routers import auth, rbac
 from .seed import seed_all
@@ -19,7 +19,9 @@ from .seed import seed_all
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # create_all + idempotent seed (RBAC catalog/roles + admin). Alembic is a later sprint.
+    # Refuse to boot in production with an insecure JWT secret (no-op in development).
+    assert_secure_config(settings)
+    # create_all + idempotent seed (RBAC catalog/roles + admin). Alembic is a later spec.
     init_db()
     db = SessionLocal()
     try:

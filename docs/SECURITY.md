@@ -14,9 +14,17 @@ handling secrets and treating external data as untrusted. Stack: React + Vite
   Secrets are not derivable and must not be persisted in the repo.
 - **Load secrets from `.env` / the environment**, never inline. Keep `.env` (and
   `.env.*`, `secrets/**`, `*.pem`, key files) out of version control via `.gitignore`.
-  - `<PLACEHOLDER: secret-loading paths>` — e.g. which env vars the FastAPI backend
-    reads, which `.env` loader is used (e.g. `pydantic-settings` / `python-dotenv`),
-    and which Vite `VITE_`-prefixed vars are exposed to the frontend (these are PUBLIC).
+  - **This project:** the FastAPI backend loads config via `pydantic-settings`
+    (`backend/app/config.py`) from the environment / a gitignored `.env`. The frontend
+    reads only `VITE_`-prefixed vars (`VITE_API_BASE_URL`) which are **PUBLIC** — never put
+    a secret there.
+  - **`JWT_SECRET` is the token-signing key.** It must be a strong random string
+    (≥32 chars) in any real deployment — generate one with
+    `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Set `APP_ENV=production`
+    and the backend **refuses to start** if `JWT_SECRET` is unset, the public dev default
+    (`dev-insecure-secret-change-me`), or shorter than 32 chars
+    (`assert_secure_config` in `config.py`). Use a different secret per environment; do not
+    rotate it on a live service without expecting every active session to be invalidated.
 - **Redact tokens, API keys, and PII from logs.** Never echo a secret to stdout, a log
   file, or `progress.md`.
 - **Redact from Playwright screenshots too.** `mcp__playwright__browser_take_screenshot`

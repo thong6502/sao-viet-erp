@@ -51,6 +51,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try {
     resp = await fetch(`${BASE_URL}${path}`, {
       ...init,
+      // Send/receive the httpOnly refresh cookie (spec-03). Requires the backend to
+      // allow credentials with a specific origin (never "*").
+      credentials: "include",
       headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
     });
   } catch {
@@ -81,8 +84,61 @@ function authHeader(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-function authed<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
-  return request<T>(path, { ...init, headers: { ...authHeader(token), ...(init.headers ?? {}) } });
+async function authed<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+  try {
+    return await request<T>(path, {
+      ...init,
+      headers: { ...authHeader(token), ...(init.headers ?? {}) },
+    });
+  } catch (err) {
+    // Access token expired? Refresh once (silently) and retry the original request.
+    if (err instanceof ApiError && err.isAuth) {
+      const fresh = await refreshAccessToken();
+      if (fresh) {
+        return await request<T>(path, {
+          ...init,
+          headers: { ...authHeader(fresh), ...(init.headers ?? {}) },
+        });
+      }
+    }
+    throw err;
+  }
+}
+
+// --- Silent refresh ---------------------------------------------------------
+// A single shared in-flight refresh so a burst of concurrent 401s triggers at most
+// ONE /refresh call (no refresh storm). Callbacks let AuthContext stay in sync.
+
+let refreshInFlight: Promise<string | null> | null = null;
+let onAccessToken: (token: string | null) => void = () => {};
+let onSessionEnded: () => void = () => {};
+
+/** AuthContext registers how to receive a rotated access token / a dead session. */
+export function registerAuthCallbacks(cb: {
+  onAccessToken: (token: string | null) => void;
+  onSessionEnded: () => void;
+}): void {
+  onAccessToken = cb.onAccessToken;
+  onSessionEnded = cb.onSessionEnded;
+}
+
+function refreshAccessToken(): Promise<string | null> {
+  if (!refreshInFlight) {
+    refreshInFlight = api
+      .refresh()
+      .then((res) => {
+        onAccessToken(res.access_token);
+        return res.access_token;
+      })
+      .catch(() => {
+        onSessionEnded();
+        return null;
+      })
+      .finally(() => {
+        refreshInFlight = null;
+      });
+  }
+  return refreshInFlight;
 }
 
 // --- RBAC admin shapes ------------------------------------------------------
@@ -155,6 +211,16 @@ export const api = {
 
   me(token: string): Promise<User> {
     return request<User>("/api/auth/me", { headers: authHeader(token) });
+  },
+
+  /** Exchange the httpOnly refresh cookie for a new access token (rotates the cookie). */
+  refresh(): Promise<LoginResponse> {
+    return request<LoginResponse>("/api/auth/refresh", { method: "POST" });
+  },
+
+  /** Revoke the refresh token server-side and clear the cookie. */
+  logout(): Promise<void> {
+    return request<void>("/api/auth/logout", { method: "POST" });
   },
 
   /** Module keys the current user can Read (for menu/route gating). */

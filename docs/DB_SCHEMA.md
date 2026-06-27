@@ -9,7 +9,7 @@
 - **How the schema is built:** `create_all` in
   [`../backend/app/db.py`](../backend/app/db.py) on startup, then seed in
   [`../backend/app/seed.py`](../backend/app/seed.py). No Alembic migrations yet
-  (deferred — see [`product-specs/sprint-01-auth.md`](product-specs/sprint-01-auth.md)).
+  (deferred — see [`product-specs/spec-01-auth.md`](product-specs/spec-01-auth.md)).
 - **Portability:** the same SQLAlchemy layer runs on **SQLite** (local/test) and
   **PostgreSQL** (Docker/prod). Types below show the SQLAlchemy type and how it maps.
 
@@ -43,7 +43,7 @@ Whenever you **add / change / remove** a table, column, key, or index:
 ### `users`
 
 **Purpose:** application accounts that can authenticate. One row per person who can log
-in. (Sprint-01: seeded only — no self-registration.)
+in. (Spec-01: seeded only — no self-registration.)
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
@@ -54,6 +54,7 @@ in. (Sprint-01: seeded only — no self-registration.)
 | `department_id` | `Integer` → `INTEGER` | **FK→departments.id**, **IX** | yes | — | The department (phòng ban) this user belongs to. Null until HR assigns one. |
 | `role_id` | `Integer` → `INTEGER` | **FK→roles.id**, **IX** | yes | — | The single role (vai trò) this user holds; its permissions decide access. Null until the department head assigns one. |
 | `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Whether the account is enabled. A locked (`false`) user is rejected even with a valid token. |
+| `token_version` | `Integer` → `INTEGER` | — | no | `0` | Hard-revoke counter (spec-03). Access tokens embed this as the `tv` claim; bumping it rejects every previously-issued access token (logout-all / forced invalidation). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the account row was created. |
 
 **Keys & indexes**
@@ -194,6 +195,35 @@ quyền, khóa tài khoản) for the Activity Log.
 **Relationships**
 
 - Many audit rows reference one `users` (the actor).
+
+---
+
+### `refresh_tokens`
+
+**Purpose:** one row per issued refresh token (spec-03). Backs long-lived sessions and
+server-side revocation. Only a hash is stored; the plaintext token lives solely in the
+client's httpOnly cookie.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | no | — | The user this refresh token authenticates. |
+| `token_hash` | `String(64)` → `VARCHAR(64)` | **U**, **IX** | no | — | SHA-256 hex digest of the opaque token. The plaintext is NEVER stored. |
+| `family_id` | `String(36)` → `VARCHAR(36)` | **IX** | no | — | Rotation-chain id. Reusing a revoked token revokes every sibling in the family (theft signal). |
+| `expires_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | — | When this token stops being valid. |
+| `revoked_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Set when the token is rotated away or logged out; a non-null value means dead. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the token row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_refresh_tokens_token_hash` on `token_hash`.
+- Indexes: `ix_refresh_tokens_user_id` on `user_id`, `ix_refresh_tokens_family_id` on `family_id`.
+- Foreign keys: `user_id FK→users.id`.
+
+**Relationships**
+
+- Many refresh tokens belong to one `users`; tokens sharing a `family_id` form one rotation chain.
 
 ---
 

@@ -2,9 +2,33 @@
 
 ## Current State
 
-**Last Updated:** 2026-06-26
-**Active Feature:** none — **sprint-02 RBAC COMPLETE** (feat-001..011 all done, 11/11).
-Next: harden RBAC (Postgres bring-up, password reset, etc.) — next sprint undecided.
+**Last Updated:** 2026-06-27
+**Active Feature:** none — **spec-03 Auth Hardening COMPLETE** (feat-012..016 done; 16/16 total).
+spec-01 + spec-02 + spec-03 all done. Next spec undecided.
+
+### spec-03 — Auth Hardening (feat-012..016, done 2026-06-27)
+
+- **feat-012 — Production secret guard:** `config.assert_secure_config` refuses to boot when
+  `APP_ENV=production` and `JWT_SECRET` is empty/default/<32 chars; called in `main.py` lifespan.
+  6 tests.
+- **feat-013 — Short access token + `token_version` hard-revoke:** access TTL 60→15 min; `tv`
+  claim checked in `get_current_user`; `users.token_version` + `bump_token_version()`. 4 tests.
+- **feat-014 — Refresh-token store + rotation:** `refresh_tokens` table (hash only) +
+  `RefreshTokenService.issue/rotate/revoke`; rotation + family-revoke on replay. 8 tests.
+- **feat-015 — `/refresh` + `/logout` + httpOnly cookie + CORS creds:** login sets the cookie;
+  `/refresh` rotates; `/logout` revokes+clears (204, idempotent). 9 tests.
+- **feat-016 — Frontend silent refresh + cookie restore + server logout:** in-memory access
+  token (no localStorage), shared-promise refresh-and-retry on 401, restore via `/refresh` on
+  mount, server-side logout. browser-validate PASS 4/4/5/4 (Score Log 2026-06-27).
+- **Decisions:** access token in memory (not localStorage); refresh in httpOnly cookie
+  (SameSite=lax, Path=/api/auth, Secure in prod); hard-revoke via `token_version`; one shared
+  in-flight `/refresh` to avoid a refresh storm. `create_all` does not ALTER — drop `dev.db`
+  (done this session) to pick up `token_version` + `refresh_tokens`.
+- **Harness change:** the `generate` skill (+ `AGENTS.md`, `references/workflow.md`) now supports
+  building a whole spec by iterating the single-feature cycle (one feature in flight at a time);
+  the gan-loop orchestrator path stays one-per-pass.
+
+Verify: `./init.ps1` → 78 passed (+27 over spec-02) + compileall; frontend tsc+vite build green.
 
 ## Status
 
@@ -64,12 +88,12 @@ Next: harden RBAC (Postgres bring-up, password reset, etc.) — next sprint unde
 
 ### What's In Progress
 
-- None — **sprint-02 RBAC is fully done (11/11 features)**.
+- None — **spec-02 RBAC is fully done (11/11 features)**.
 
 ### What's Next
 
 1. Harden RBAC: live Postgres bring-up, password reset / invite email, "head assigns
-   only within their level". Next sprint is undecided — write a spec from `_TEMPLATE.md`
+   only within their level". Next spec is undecided — write a spec from `_TEMPLATE.md`
    → `/plan` → build when chosen.
 2. Ops note: app runs on SQLite `backend/dev.db` (rebuilt this session). Restart the backend
    after backend route changes (uvicorn isn't hot-reloaded here); drop dev.db on schema change.
@@ -83,10 +107,10 @@ Next: harden RBAC (Postgres bring-up, password reset, etc.) — next sprint unde
 
 ## Decisions Made
 
-- Login-only this sprint (users seeded, no self-registration) — per planning choice.
+- Login-only this spec (users seeded, no self-registration) — per planning choice.
 - Auth = JWT bearer token (localStorage), not cookie sessions.
 - Frontend = TypeScript.
-- DB bootstrap via `create_all` + idempotent seed; Alembic deferred to keep sprint-01 small.
+- DB bootstrap via `create_all` + idempotent seed; Alembic deferred to keep spec-01 small.
 - Tests run on in-memory SQLite (StaticPool) so `init` stays green without Docker; Postgres
   is the Docker/prod target through the same SQLAlchemy layer.
 - Pinned pydantic as a `>=2.11.5,<3` range (not exact) to avoid downgrading other tools in a
@@ -99,7 +123,7 @@ Next: harden RBAC (Postgres bring-up, password reset, etc.) — next sprint unde
 - `frontend/` — Vite+TS SPA (`src/**`, `package.json`, `tsconfig.json`, `vite.config.ts`,
   `index.html`, `.env.example`).
 - `docker-compose.yml`, root `.env.example`.
-- `feature_list.json`, `docs/product-specs/sprint-01-auth.md`, `docs/product-specs/index.md`,
+- `feature_list.json`, `docs/product-specs/spec-01-auth.md`, `docs/product-specs/index.md`,
   `docs/ARCHITECTURE.md`, `pytest.ini`, `init.ps1`, `init.sh`.
 
 ## Evidence of Completion

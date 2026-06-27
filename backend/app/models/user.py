@@ -24,7 +24,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
-    # RBAC (sprint-02): a user belongs to one department and holds one role. Both are
+    # RBAC (spec-02): a user belongs to one department and holds one role. Both are
     # nullable so a freshly-created account can exist before HR/head assignment.
     department_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("departments.id"), index=True, nullable=True
@@ -33,6 +33,12 @@ class User(Base):
         Integer, ForeignKey("roles.id"), index=True, nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Bumping this invalidates every previously-issued access token for the user
+    # (logout-all / lock). Access tokens carry the value as a `tv` claim; a token whose
+    # `tv` no longer matches this column is rejected (spec-03 hard-revoke).
+    token_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

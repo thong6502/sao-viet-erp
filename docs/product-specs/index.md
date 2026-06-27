@@ -1,22 +1,26 @@
 # Product Specs Index
 
-One file per sprint. The human Planner writes a sprint spec here (from
+One file per spec. The human Planner writes a spec here (from
 `_TEMPLATE.md`); the plan skill reads these to produce `feature_list.json`.
 
 ## Active Specs
 
-- `_TEMPLATE.md` (copy per sprint) — the blank sprint shape.
-- [`sprint-01-auth.md`](sprint-01-auth.md) — Foundation & Login: app skeleton
+- `_TEMPLATE.md` (copy per spec) — the blank spec shape.
+- [`spec-01-auth.md`](spec-01-auth.md) — Foundation & Login: app skeleton
   (React + Vite + TS / FastAPI / PostgreSQL-in-Docker) + seeded-user JWT login. **Active.**
-- [`sprint-02-rbac.md`](sprint-02-rbac.md) — RBAC: Phòng ban · Vai trò (riêng từng phòng,
+- [`spec-02-rbac.md`](spec-02-rbac.md) — RBAC: Phòng ban · Vai trò (riêng từng phòng,
   1 vai trò/người) · phân quyền CRUD + Phạm vi dữ liệu (Của tôi/Cả phòng/Tất cả); HR gán
   phòng, trưởng phòng gán vai trò, Admin/GĐ định nghĩa khuôn vai trò. **Done** (feat-004..011,
   Evaluator PASS for each UI feature — see docs/EVALUATION.md).
+- [`spec-03-auth-hardening.md`](spec-03-auth-hardening.md) — Auth hardening: short access token +
+  refresh token (httpOnly cookie, rotation), `POST /api/auth/refresh` + `/logout`, server-side
+  refresh-token store, `token_version` hard-revoke, and a production secret guard. **Planned**
+  (feat-012..016 in `feature_list.json`; not yet built).
 
 ## Rules
 
-- One file per sprint, describing user-visible behavior and acceptance criteria.
-- The plan skill reads these sprint specs; keep this index current so a fresh
+- One file per spec, describing user-visible behavior and acceptance criteria.
+- The plan skill reads these specs; keep this index current so a fresh
   agent (and the plan skill) can discover product scope quickly.
 - If implementation diverges from the spec, update one of them in the same
   session.

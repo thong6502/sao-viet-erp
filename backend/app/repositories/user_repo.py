@@ -54,6 +54,13 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
+    def bump_token_version(self, user: User) -> User:
+        """Invalidate every outstanding access token for the user (logout-all / lock)."""
+        user.token_version = (user.token_version or 0) + 1
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
     def list_all(self) -> list[User]:
         return list(self.db.execute(select(User).order_by(User.id)).scalars())
 

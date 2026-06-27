@@ -16,12 +16,14 @@ from .db import get_db
 from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
 from .repositories.rbac_repo import DepartmentRepository, ModuleRepository, RoleRepository
+from .repositories.refresh_token_repo import RefreshTokenRepository
 from .repositories.user_repo import UserRepository
 from .security import decode_access_token
 from .services.auth_service import AuthError, AuthService
 from .services.activity_service import ActivityService
 from .services.department_service import DepartmentService
 from .services.rbac_service import AuthorizationService
+from .services.refresh_service import RefreshTokenService
 from .services.role_service import RoleService
 from .services.user_admin_service import UserAdminService
 
@@ -37,6 +39,19 @@ def get_auth_service(
     users: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> AuthService:
     return AuthService(users)
+
+
+def get_refresh_token_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> RefreshTokenRepository:
+    return RefreshTokenRepository(db)
+
+
+def get_refresh_service(
+    tokens: Annotated[RefreshTokenRepository, Depends(get_refresh_token_repository)],
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+) -> RefreshTokenService:
+    return RefreshTokenService(tokens, users)
 
 
 def get_current_user(
@@ -58,7 +73,11 @@ def get_current_user(
         user = auth.user_from_token_subject(claims.get("sub"))
     except AuthError:
         raise unauthorized from None
-    # A locked account is rejected even with a still-valid token (RBAC, sprint-02).
+    # Hard-revoke: a token whose `tv` no longer matches the user's token_version is dead
+    # (logout-all / forced invalidation), even if not yet expired (spec-03).
+    if claims.get("tv") != user.token_version:
+        raise unauthorized
+    # A locked account is rejected even with a still-valid token (RBAC, spec-02).
     if not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

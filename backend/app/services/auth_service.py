@@ -35,7 +35,7 @@ class AuthService:
     def login(self, email: str, password: str) -> tuple[str, User]:
         """Authenticate and mint an access token. Returns (token, user)."""
         user = self.authenticate(email, password)
-        token = create_access_token(subject=str(user.id))
+        token = create_access_token(subject=str(user.id), token_version=user.token_version)
         return token, user
 
     def user_from_token_subject(self, subject: str | None) -> User:
