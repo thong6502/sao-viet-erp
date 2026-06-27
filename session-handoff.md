@@ -44,7 +44,7 @@ session can resume from the repo alone. For quick single-session notes,
 - App still on SQLite `backend/dev.db` (Postgres wired but not live-verified).
 - Dev-only secrets / initial passwords must be overridden in real deploys.
 - Data-scope (own/department/all) is enforced in the resolver but has no real data-bearing
-  module yet — it visibly applies once the CRM (customers/orders) lands.
+  module yet — it visibly applies once a data-bearing business module lands.
 
 ## How to Run
 
@@ -61,7 +61,6 @@ session can resume from the repo alone. For quick single-session notes,
 
 ## Recommended Next Step
 
-- **Sprint-03 = CRM** (Khách hàng): the customer master discussed earlier — MVP CRM-06
-  (create/edit + dedup) + CRM-01 (list/filter) + CRM-02 (360 profile) + a minimal Orders
-  entity so lifecycle / value-tier / LTV compute. The RBAC data-scope is ready to make
-  "Sales sees only their customers" real. Write the spec from `_TEMPLATE.md` → `/plan` → build.
+- Next sprint is undecided. Candidate: harden RBAC (live Postgres bring-up, password reset /
+  invite email, "head assigns only within their level"). Write a spec from `_TEMPLATE.md`
+  → `/plan` → build once a direction is chosen.

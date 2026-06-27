@@ -4,7 +4,7 @@
 
 **Last Updated:** 2026-06-26
 **Active Feature:** none — **sprint-02 RBAC COMPLETE** (feat-001..011 all done, 11/11).
-Next: plan sprint-03 (CRM) or harden RBAC (Postgres bring-up, password reset, etc.).
+Next: harden RBAC (Postgres bring-up, password reset, etc.) — next sprint undecided.
 
 ## Status
 
@@ -68,13 +68,10 @@ Next: plan sprint-03 (CRM) or harden RBAC (Postgres bring-up, password reset, et
 
 ### What's Next
 
-1. **Sprint-03 = CRM** (Khách hàng): the customer master discussed earlier (MVP CRM-06 +
-   01 + 02 + a minimal Orders entity so lifecycle / value-tier / LTV compute). The RBAC
-   data-scope (own/department/all) is ready to enforce "Sales sees only their customers".
-   Write the sprint spec from `_TEMPLATE.md` → `/plan` → build.
-2. Or harden RBAC: live Postgres bring-up, password reset / invite email, "head assigns
-   only within their level", and scope enforcement on real list endpoints (lands with CRM).
-3. Ops note: app runs on SQLite `backend/dev.db` (rebuilt this session). Restart the backend
+1. Harden RBAC: live Postgres bring-up, password reset / invite email, "head assigns
+   only within their level". Next sprint is undecided — write a spec from `_TEMPLATE.md`
+   → `/plan` → build when chosen.
+2. Ops note: app runs on SQLite `backend/dev.db` (rebuilt this session). Restart the backend
    after backend route changes (uvicorn isn't hot-reloaded here); drop dev.db on schema change.
 
 ## Blockers / Risks

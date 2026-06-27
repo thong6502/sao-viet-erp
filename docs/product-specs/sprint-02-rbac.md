@@ -48,10 +48,10 @@ Mỗi Vai trò, theo từng Module:
 - **AuditLog**: `id`, `actor_user_id`, `action`, `target`, `detail`, `created_at` —
   ghi lại mọi thay đổi gán phòng / gán vai trò / sửa khuôn quyền / khóa tài khoản.
 
-> Phạm vi dữ liệu cần mỗi bản ghi nghiệp vụ mang **người phụ trách + phòng**. Module
-> Khách hàng (CRM) đã bắt buộc trường "Người phụ trách", nên tầng kiểm quyền dựng ở
-> sprint này; *hiệu lực lọc "Của tôi/Cả phòng" hiển thị đầy đủ khi module Khách hàng ra đời*
-> (sprint CRM). Sprint này verify tầng kiểm quyền + các màn quản trị.
+> Phạm vi dữ liệu cần mỗi bản ghi nghiệp vụ mang **người phụ trách + phòng**. Tầng kiểm
+> quyền + phạm vi được dựng sẵn ở sprint này; *hiệu lực lọc "Của tôi/Cả phòng" hiển thị đầy
+> đủ khi một module nghiệp vụ mang dữ liệu ra đời ở sprint sau*. Sprint này verify tầng kiểm
+> quyền + các màn quản trị.
 
 ## Screens
 
@@ -95,8 +95,8 @@ Mỗi Vai trò, theo từng Module:
    "Bạn không có quyền thực hiện thao tác này".
 6. **Lọc phạm vi**: NV Sales (scope = own) mở danh sách → chỉ thấy bản ghi mình phụ
    trách; Trưởng phòng (department) thấy cả phòng; GĐ (all) thấy tất cả.
-7. **Nghỉ việc**: HR/GĐ **khóa tài khoản** → người đó không đăng nhập được; bàn giao dữ
-   liệu phụ trách xử lý ở luồng CRM-05 (sprint CRM).
+7. **Nghỉ việc**: HR/GĐ **khóa tài khoản** → người đó không đăng nhập được; việc bàn giao
+   dữ liệu phụ trách thuộc một sprint nghiệp vụ sau (ngoài phạm vi sprint này).
 
 ## System statuses
 
@@ -184,8 +184,8 @@ Mỗi Vai trò, theo từng Module:
 - **Vai trò dùng chung nhiều phòng / phân cấp "không cao hơn cấp mình"** (sprint này:
   trưởng phòng chỉ giới hạn theo phòng, chưa theo bậc).
 - **Ngày hiệu lực / lịch sử có thời hạn** của việc gán (áp dụng tức thời).
-- **Bàn giao khách khi nghỉ việc** (luồng CRM-05) và toàn bộ dữ liệu Khách hàng/Đơn hàng
-  — thuộc sprint CRM; sprint này chỉ dựng tầng quyền + phạm vi để CRM tiêu thụ.
+- **Bàn giao dữ liệu phụ trách khi nghỉ việc** và toàn bộ dữ liệu nghiệp vụ — thuộc một
+  sprint sau; sprint này chỉ dựng tầng quyền + phạm vi để module nghiệp vụ tiêu thụ.
 - **Các phòng/module ngoài Kinh doanh + Hành chính nhân sự** (Sản xuất, Kho, Thu mua…):
   chỉ thêm vào danh mục module (seed) khi phòng đó lên hệ thống — không thuộc sprint này.
 - SSO / 2FA / quên mật khẩu / tự đăng ký.
