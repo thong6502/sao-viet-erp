@@ -20,7 +20,14 @@
 
 ## Chạy nhanh (local, dùng SQLite — không cần Docker)
 
-Cài dependencies **một lần**:
+Cài dependencies **một phát** (cài backend + frontend, tạo `.env` nếu thiếu):
+
+```powershell
+./setup.ps1     # Windows / PowerShell
+./setup.sh      # Unix / macOS
+```
+
+Hoặc làm thủ công:
 
 ```powershell
 python -m pip install -r backend/requirements.txt   # backend
