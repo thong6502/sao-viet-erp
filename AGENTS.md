@@ -62,6 +62,7 @@ Load a file only when its row is relevant.
 | `docs/product-specs/index.md` | Spec catalog; author new specs from `_TEMPLATE.md`. |
 | `docs/sops/browser-validation-loop.md` | Deep SOP behind the 🔍 browser-validate skill. |
 | `.claude/workflows/gan-loop.js` | Orchestrator for generate → validate → feedback (steps 3–5). |
+| `.claude/skills/gan-loop/SKILL.md` | `/gan-loop` launcher — runs the gan-loop workflow (build + independent validate). |
 | `.claude/skills/plan/SKILL.md` | 🧠 spec → `feature_list.json` (options menu, stops to ask). |
 | `.claude/skills/generate/SKILL.md` | 🔨 build + verify one feature. |
 | `.claude/skills/browser-validate/SKILL.md` | 🔍 Playwright-drive and score the running app. |
