@@ -18,6 +18,7 @@ from ..schemas.rbac import (
     ActiveUpdate,
     AuditRow,
     DepartmentCreate,
+    DepartmentSubtreeRow,
     DepartmentSummaryOut,
     DepartmentUpdate,
     ModuleOut,
@@ -32,7 +33,7 @@ from ..schemas.rbac import (
     UserRow,
 )
 from ..services.department_service import (
-    DepartmentInUse,
+    DepartmentBranchHasUsers,
     DepartmentNameTaken,
     InvalidHead,
 )
@@ -103,10 +104,17 @@ def create_department(
     user: Annotated[object, Depends(require_permission("phong_ban", "create"))],
 ) -> dict:
     try:
-        dept = depts.create(name=payload.name, actor_id=user.id)
+        dept = depts.create(
+            name=payload.name,
+            description=payload.description,
+            parent_id=payload.parent_id,
+            actor_id=user.id,
+        )
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    return {"id": dept.id, "name": dept.name}
+    except DeptNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return depts.summary_of(dept)
 
 
 @router.put("/departments/{dept_id}", response_model=DepartmentSummaryOut)
@@ -120,6 +128,7 @@ def update_department(
         dept = depts.update(
             dept_id=dept_id,
             name=payload.name,
+            description=payload.description,
             head_user_id=payload.head_user_id,
             actor_id=user.id,
         )
@@ -129,7 +138,7 @@ def update_department(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    return {"id": dept.id, "name": dept.name, "head_user_id": dept.head_user_id}
+    return depts.summary_of(dept)
 
 
 @router.delete("/departments/{dept_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
@@ -140,11 +149,21 @@ def delete_department(
 ) -> Response:
     try:
         depts.delete(dept_id=dept_id, actor_id=user.id)
-    except DepartmentInUse as e:
+    except DepartmentBranchHasUsers as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/departments/{dept_id}/subtree", response_model=list[DepartmentSubtreeRow])
+def department_subtree(
+    dept_id: int,
+    depts: Depts,
+    _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
+) -> list[dict]:
+    # The units a delete of this department would remove (PBI-4005 confirm preview).
+    return [{"id": d.id, "name": d.name, "code": d.code} for d in depts.branch(dept_id)]
 
 
 @router.get("/users", response_model=list[UserRow])

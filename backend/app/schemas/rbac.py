@@ -22,10 +22,13 @@ class DepartmentOut(BaseModel):
 
 
 class DepartmentSummaryOut(BaseModel):
-    """Department list row: identity + head + role/user counts for the screen."""
+    """Department list row: identity + code + tree + head + role/user counts for the screen."""
 
     id: int
     name: str
+    code: str
+    description: str | None = None
+    parent_id: int | None = None
     head_user_id: int | None = None
     head_name: str | None = None
     role_count: int = 0
@@ -33,12 +36,24 @@ class DepartmentSummaryOut(BaseModel):
 
 
 class DepartmentCreate(BaseModel):
+    # Code is system-generated (spec-05) — never accepted from the client.
     name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=500)
+    parent_id: int | None = None
 
 
 class DepartmentUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=500)
     head_user_id: int | None = None
+
+
+class DepartmentSubtreeRow(BaseModel):
+    """A node in a department's delete-preview subtree (spec-05): identity + code."""
+
+    id: int
+    name: str
+    code: str
 
 
 class UserBrief(BaseModel):

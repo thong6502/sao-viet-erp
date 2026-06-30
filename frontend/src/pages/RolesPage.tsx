@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   ApiError,
   api,
@@ -10,22 +10,8 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
+import { PermissionMatrix, type ActionKey } from "../components/PermissionMatrix";
 import "./roles.css";
-
-const ACTIONS = [
-  { key: "can_read", label: "Xem" },
-  { key: "can_create", label: "Thêm" },
-  { key: "can_update", label: "Sửa" },
-  { key: "can_delete", label: "Xóa" },
-] as const;
-
-type ActionKey = (typeof ACTIONS)[number]["key"];
-
-const SCOPES: { value: Scope; label: string }[] = [
-  { value: "own", label: "Của tôi" },
-  { value: "department", label: "Cả phòng" },
-  { value: "all", label: "Tất cả" },
-];
 
 export function RolesPage() {
   const { token } = useAuth();
@@ -60,10 +46,6 @@ export function RolesPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
-  const moduleLabel = useMemo(
-    () => new Map(modules.map((m) => [m.key, m.label])),
-    [modules],
-  );
   const currentRole = roles.find((r) => r.id === roleId) ?? null;
 
   // Boot: load the module catalog + departments once.
@@ -435,53 +417,14 @@ export function RolesPage() {
             <p className="roles__sub">Tạo vai trò đầu tiên ở ô “Vai trò mới” phía trên.</p>
           </div>
         ) : (
-          <table className="matrix">
-            <thead>
-              <tr>
-                <th className="matrix__mod">Module</th>
-                {ACTIONS.map((a) => (
-                  <th key={a.key} className="matrix__act">
-                    {a.label}
-                  </th>
-                ))}
-                <th className="matrix__scope">Phạm vi</th>
-              </tr>
-            </thead>
-            <tbody>
-              {matrix.map((row) => (
-                <tr key={row.module_key}>
-                  <td className="matrix__mod">
-                    {moduleLabel.get(row.module_key) ?? row.module_key}
-                  </td>
-                  {ACTIONS.map((a) => (
-                    <td key={a.key} className="matrix__act">
-                      <input
-                        type="checkbox"
-                        className="switch"
-                        checked={row[a.key]}
-                        aria-label={`${a.label} — ${moduleLabel.get(row.module_key) ?? row.module_key}`}
-                        onChange={(e) => toggle(row.module_key, a.key, e.target.checked)}
-                      />
-                    </td>
-                  ))}
-                  <td className="matrix__scope">
-                    <select
-                      className="input input--sm"
-                      value={row.scope}
-                      aria-label={`Phạm vi — ${moduleLabel.get(row.module_key) ?? row.module_key}`}
-                      onChange={(e) => setScope(row.module_key, e.target.value as Scope)}
-                    >
-                      {SCOPES.map((s) => (
-                        <option key={s.value} value={s.value}>
-                          {s.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="matrix-scroll">
+            <PermissionMatrix
+              modules={modules}
+              matrix={matrix}
+              onToggle={toggle}
+              onScope={setScope}
+            />
+          </div>
         )}
       </section>
     </main>

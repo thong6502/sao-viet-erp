@@ -1,8 +1,8 @@
-"""feat-008 — Phòng ban admin API.
+"""feat-008 — Phòng ban admin API (delete semantics updated by spec-05 / feat-026).
 
 Admin can list department summaries, create (with name dedup), rename, set a head
-(must belong to the department), and delete (blocked when roles/users remain);
-a non-admin (NV Sales, no phong_ban permission) is forbidden.
+(must belong to the department), and delete (blocked only when the branch still has
+PERSONNEL — roles cascade); a non-admin (NV Sales, no phong_ban permission) is forbidden.
 """
 from __future__ import annotations
 
@@ -58,14 +58,46 @@ def test_list_departments_has_summary_fields(client):
 
 def test_create_department_dedup_and_validation(client):
     token = _admin_token(client)
-    created = client.post("/api/departments", json={"name": "Thiết kế"}, headers=_h(token))
+    created = client.post(
+        "/api/departments",
+        json={"name": "Thiết kế", "description": "Phòng thiết kế"},
+        headers=_h(token),
+    )
     assert created.status_code == 201
+    body = created.json()
+    # spec-05: system-generated code (PB###) + description echoed back.
+    assert body["code"].startswith("PB")
+    assert body["description"] == "Phòng thiết kế"
+    assert body["parent_id"] is None
 
     dup = client.post("/api/departments", json={"name": "Thiết kế"}, headers=_h(token))
     assert dup.status_code == 409
 
     empty = client.post("/api/departments", json={"name": ""}, headers=_h(token))
     assert empty.status_code == 422
+
+
+def test_create_child_and_edit_description(client):
+    """spec-05: create under a parent, then edit name + description (code unchanged)."""
+    token = _admin_token(client)
+    parent = client.post("/api/departments", json={"name": "Phòng cha"}, headers=_h(token)).json()
+    child = client.post(
+        "/api/departments",
+        json={"name": "Phòng con", "parent_id": parent["id"]},
+        headers=_h(token),
+    ).json()
+    assert child["parent_id"] == parent["id"]
+
+    edited = client.put(
+        f"/api/departments/{child['id']}",
+        json={"name": "Phòng con đổi tên", "description": "mô tả mới"},
+        headers=_h(token),
+    )
+    assert edited.status_code == 200
+    body = edited.json()
+    assert body["name"] == "Phòng con đổi tên"
+    assert body["description"] == "mô tả mới"
+    assert body["code"] == child["code"]  # code never changes on edit
 
 
 def test_rename_department(client):
@@ -115,19 +147,35 @@ def test_set_head_must_belong_to_department(client):
     assert any(m["id"] == uid for m in members)
 
 
-def test_delete_department_blocked_then_ok(client):
+def test_delete_department_blocked_by_personnel_then_ok(client):
+    """spec-05 / PBI-4005: deletion is blocked only when the branch still has people;
+    a department with roles but no users CAN be deleted (its roles cascade)."""
     token = _admin_token(client)
 
+    # A department with a user in it -> blocked (409).
+    with_people = client.post(
+        "/api/departments", json={"name": "Phòng có người"}, headers=_h(token)
+    ).json()
+    db = SessionLocal()
+    try:
+        u = UserRepository(db).create(
+            username="dept-member", name="M", password_hash=hash_password("x")
+        )
+        UserRepository(db).set_assignment(
+            u, department_id=with_people["id"], role_id=None, is_active=True
+        )
+    finally:
+        db.close()
+    blocked = client.delete(f"/api/departments/{with_people['id']}", headers=_h(token))
+    assert blocked.status_code == 409  # has personnel
+
+    # "Kinh doanh" has roles but no users -> now deletable (roles cascade with it).
     db = SessionLocal()
     try:
         kd_id = DepartmentRepository(db).get_by_name("Kinh doanh").id
     finally:
         db.close()
-    blocked = client.delete(f"/api/departments/{kd_id}", headers=_h(token))
-    assert blocked.status_code == 409  # has roles
-
-    empty_id = client.post("/api/departments", json={"name": "Phòng Rỗng"}, headers=_h(token)).json()["id"]
-    ok = client.delete(f"/api/departments/{empty_id}", headers=_h(token))
+    ok = client.delete(f"/api/departments/{kd_id}", headers=_h(token))
     assert ok.status_code == 204
 
 

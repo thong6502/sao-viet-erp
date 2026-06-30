@@ -3,9 +3,22 @@
 ## Current State
 
 **Last Updated:** 2026-06-30
-**Active Feature:** **spec-04 — Hồ sơ & Cài đặt cá nhân (feat-018..022)** — code-complete + verified
-(init.ps1 94 passed, frontend build green, live API smoke green). Browser-validate via Playwright MCP
-not run (the Playwright MCP server is not connected this session). feat-017 also code-verified earlier.
+**Active Feature:** **spec-05 — Quản lý Phòng ban (feat-023..026)** — feat-023 (foundation) DONE; next
+buildable = feat-024 (Tạo phòng ban, FE). spec-04 (feat-018..022) also done/code-verified.
+Browser-validate via Playwright MCP not run (server not connected this session).
+
+### spec-05 — Quản lý Phòng ban (PBI-4002/4003/4005, 2026-06-30)
+
+- Planned feat-023..026 (spec `docs/product-specs/spec-05-departments.md`). Decisions: add `parent_id`
+  + pick parent at create; code = `PB` + sequential (PB001…); delete blocks only on people (roles
+  cascade) — changes feat-008 delete semantics (feat-026).
+- **feat-023 DONE** (backend foundation): departments gained `code` (PB###, unique, system-generated),
+  `description`, `parent_id` (self-FK tree); repo `_next_code`/`create(…desc,parent)`/`children_of`/
+  `subtree`; DB_SCHEMA updated (guard passes); 6 tests. init.ps1 100 passed. Live dev.db ALTERed +
+  codes backfilled PB001..PB004.
+- **NEXT:** feat-024 Tạo phòng ban (FE form: code read-only, description, parent picker, inline
+  duplicate-name error, list shows code) → feat-025 Sửa → feat-026 Xoá theo nhánh có chặn (also
+  rewrites feat-008 delete + its tests). UI features need the Playwright browser-validate pass.
 
 ### spec-04 — User profile widget + self-service (feat-018..022, 2026-06-30)
 

@@ -17,8 +17,11 @@ One file per spec. The human Planner writes a spec here (from
   refresh-token store, `token_version` hard-revoke, and a production secret guard. **Done**
   (feat-012..016 in `feature_list.json`).
 - [`spec-04-change-password.md`](spec-04-change-password.md) — Hồ sơ & Cài đặt cá nhân: widget
-  avatar + tên ở cuối sidebar, dropdown mở Thông tin tài khoản · Đổi tên · Đổi avatar · Đổi mật khẩu
-  (đổi mật khẩu vô hiệu mọi phiên cũ). **Planned.**
+  avatar + tên (đặt ở header trên), dropdown mở Thông tin tài khoản · Đổi tên · Đổi avatar · Đổi mật khẩu
+  (đổi mật khẩu vô hiệu mọi phiên cũ). **Built** (feat-018..022, code-verified; browser-validate pending).
+- [`spec-05-departments.md`](spec-05-departments.md) — Quản lý Phòng ban (PBI-4002/4003/4005): tạo có
+  mã tự sinh (PB###) + mô tả + chọn cha; sửa tên/mô tả (mã chỉ-đọc); xoá theo nhánh cha–con, chặn nếu còn
+  nhân sự, vai trò trong nhánh xoá theo; ghi nhật ký. **Planned** (feat-023..026 in `feature_list.json`).
 
 ## Rules
 

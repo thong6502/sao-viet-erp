@@ -48,12 +48,69 @@ class DepartmentRepository:
             select(Department).where(Department.name == name)
         ).scalar_one_or_none()
 
-    def create(self, *, name: str, head_user_id: int | None = None) -> Department:
-        dept = Department(name=name, head_user_id=head_user_id)
+    def _next_code(self) -> str:
+        """Next sequential department code: 'PB' + zero-padded number (spec-05). Based on the
+        max existing PB-number so codes stay unique even after deletions (no reuse)."""
+        max_n = 0
+        for code in self.db.execute(select(Department.code)).scalars():
+            if code and code.startswith("PB"):
+                try:
+                    max_n = max(max_n, int(code[2:]))
+                except ValueError:
+                    continue
+        return f"PB{max_n + 1:03d}"
+
+    def create(
+        self,
+        *,
+        name: str,
+        head_user_id: int | None = None,
+        description: str | None = None,
+        parent_id: int | None = None,
+    ) -> Department:
+        dept = Department(
+            name=name,
+            code=self._next_code(),
+            description=description,
+            parent_id=parent_id,
+            head_user_id=head_user_id,
+        )
         self.db.add(dept)
         self.db.commit()
         self.db.refresh(dept)
         return dept
+
+    def set_description(self, dept: Department, description: str | None) -> Department:
+        dept.description = description
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def children_of(self, parent_id: int) -> list[Department]:
+        """Direct child departments of a parent (spec-05 tree)."""
+        return list(
+            self.db.execute(
+                select(Department).where(Department.parent_id == parent_id).order_by(Department.id)
+            ).scalars()
+        )
+
+    def subtree(self, root_id: int) -> list[Department]:
+        """The department and ALL its descendants (spec-05), breadth-first from the root.
+        Returns [] if the root does not exist. No duplicates."""
+        root = self.get_by_id(root_id)
+        if root is None:
+            return []
+        result: list[Department] = [root]
+        seen = {root.id}
+        queue = [root.id]
+        while queue:
+            current = queue.pop(0)
+            for child in self.children_of(current):
+                if child.id not in seen:
+                    seen.add(child.id)
+                    result.append(child)
+                    queue.append(child.id)
+        return result
 
     def set_head(self, dept: Department, head_user_id: int | None) -> Department:
         dept.head_user_id = head_user_id

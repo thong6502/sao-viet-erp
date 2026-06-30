@@ -1,4 +1,4 @@
-/* Phòng ban (RBAC departments) — master/detail. Built on the design tokens. */
+/* Phòng ban (RBAC departments) — master/detail on the paper + ink + rust system. */
 .depts {
   max-width: 1480px;
   margin: 0 auto;
@@ -9,43 +9,86 @@
 }
 
 .depts__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
   padding-bottom: var(--sp-5);
   border-bottom: 1px solid var(--rule);
 }
-
 .depts__title {
   font-size: 26px;
   font-weight: var(--fw-bold);
   letter-spacing: -0.01em;
   margin: var(--sp-2) 0 var(--sp-1);
 }
-
 .depts__sub {
   color: var(--ash);
   font-size: 14px;
   margin: 0;
 }
 
+/* ---- Create card (PBI-4002) ---------------------------------------------- */
 .depts__create {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-3);
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
 }
-.depts__create .input {
-  width: 320px;
-  max-width: 100%;
+.depts__create-grid {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: var(--sp-4);
+}
+.depts__create-desc {
+  grid-column: 1 / -1;
+}
+.depts__create-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-4);
+}
+.depts__req {
+  color: var(--signal);
+}
+.depts__textarea {
+  resize: none; /* fixed size — no free dragging */
+  height: 84px;
+  overflow-y: auto; /* scroll when the text is long */
+  font-family: inherit;
+  line-height: 1.5;
 }
 
-.depts__inline-error {
-  color: var(--signal);
-  font-size: 13px;
+/* System-generated code badge (mono pill) — replaces the old read-only input. */
+.depts__code {
+  flex: 0 0 auto;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.02em;
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  border-radius: var(--r-2);
+  padding: 1px 6px;
+}
+
+/* Stacked form inside the create popup. */
+.depts__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.depts__form .field {
+  margin: 0;
 }
 
 /* ---- Master / detail grid ------------------------------------------------ */
 .depts__grid {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 320px 1fr;
   gap: var(--sp-5);
   align-items: start;
 }
@@ -55,14 +98,14 @@
   flex-direction: column;
   gap: var(--sp-2);
 }
-
 .depts__item {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: var(--sp-1);
   text-align: left;
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
+  border-left: 3px solid transparent;
   border-radius: var(--r-5);
   padding: var(--sp-3) var(--sp-4);
   cursor: pointer;
@@ -77,13 +120,22 @@
   outline-offset: 2px;
 }
 .depts__item.is-active {
-  border-color: var(--rust);
+  border-color: var(--rule);
+  border-left-color: var(--rust);
   background: var(--rust-soft);
 }
-
+.depts__item-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
 .depts__item-name {
   font-weight: var(--fw-medium);
   font-size: 15px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .depts__item-meta {
   font-family: var(--ff-mono);
@@ -91,17 +143,99 @@
   color: var(--ash);
 }
 
-/* ---- Detail panel -------------------------------------------------------- */
+.depts__empty {
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-5);
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+}
+.depts__empty-title {
+  font-weight: var(--fw-medium);
+  margin: 0 0 var(--sp-1);
+}
+
+/* ---- Detail column (stack of cards) -------------------------------------- */
 .depts__detail {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-5);
+  gap: var(--sp-4);
+}
+.depts__placeholder {
+  padding: var(--sp-8);
 }
 
-.depts__save {
+/* Identity header card. */
+.depts__id {
   display: flex;
   align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+}
+.depts__id-avatar {
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--r-5);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  display: grid;
+  place-items: center;
+  font-weight: var(--fw-bold);
+  font-size: 18px;
+}
+.depts__id-main {
+  min-width: 0;
+}
+.depts__id-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.depts__id-name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+}
+.depts__id-meta {
+  margin: var(--sp-1) 0 0;
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  color: var(--ash);
+}
+
+/* Generic section card. */
+.depts__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+}
+.depts__section .field {
+  margin: 0;
+}
+.depts__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--sp-3);
+}
+.depts__matrix-label {
+  margin: var(--sp-2) 0 0;
+}
+/* Delete affordance at the bottom of the edit-role popup. */
+.depts__role-danger {
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-4);
+  margin-top: var(--sp-1);
+}
+.depts__section-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-4);
 }
 .depts__saved {
   font-family: var(--ff-mono);
@@ -110,21 +244,19 @@
   letter-spacing: 0.1em;
   color: var(--moss);
 }
-
+.depts__inline-error {
+  color: var(--signal);
+  font-size: 13px;
+}
 .depts__hint {
   color: var(--ash);
   font-size: 13px;
-  margin: var(--sp-2) 0 0;
-}
-
-.depts__roles {
-  border-top: 1px solid var(--rule-hair);
-  padding-top: var(--sp-4);
+  margin: var(--sp-1) 0 0;
 }
 
 .depts__chips {
   list-style: none;
-  margin: var(--sp-3) 0 0;
+  margin: 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
@@ -137,27 +269,85 @@
   border-radius: var(--r-pill);
   padding: 4px 12px;
 }
+/* Clickable role chip → opens the edit-role popup. */
+.depts__chip--btn {
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+.depts__chip--btn:hover {
+  border-color: var(--rust);
+  color: var(--rust-deep);
+}
+.depts__chip--btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
 
-.depts__delete {
-  border-top: 1px solid var(--rule-hair);
-  padding-top: var(--sp-4);
+/* Danger zone card. */
+.depts__danger {
+  padding: var(--sp-5);
+}
+.depts__danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+}
+.depts__danger-title {
+  font-weight: var(--fw-medium);
+  margin: 0;
+}
+.depts__danger-text {
+  color: var(--signal);
+  flex: 0 0 auto;
+}
+.depts__danger-text:hover:not(:disabled) {
+  background: var(--signal-soft);
+  border-color: var(--signal-soft);
+}
+
+.depts__confirm-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.depts__confirm {
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  margin: 0;
+}
+.depts__confirm-count {
+  font-size: 13px;
+  color: var(--ash);
+  margin: 0;
+}
+.depts__subtree {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-height: 180px;
+  overflow: auto;
+  font-size: 13px;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+.depts__subtree li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
 }
 .depts__inline {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--sp-3);
-}
-.depts__confirm {
-  font-size: 14px;
-  font-weight: var(--fw-medium);
-}
-.depts__danger-text {
-  color: var(--signal);
-}
-.depts__danger-text:hover:not(:disabled) {
-  background: var(--signal-soft);
-  border-color: var(--signal-soft);
 }
 
 .depts__status {
@@ -166,13 +356,23 @@
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: var(--sp-6);
+  padding: var(--sp-5);
   text-align: center;
   margin: 0;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 1024px) {
   .depts__grid {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 768px) {
+  .depts__create-grid {
+    grid-template-columns: 1fr;
+  }
+  .depts__create-foot,
+  .depts__danger-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
