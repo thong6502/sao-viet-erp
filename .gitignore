@@ -24,3 +24,11 @@ dist/
 
 # Playwright MCP browser-validate artifacts (snapshots, screenshots)
 .playwright-mcp/
+
+# State / coordination files kept local per-dev (untracked to avoid merge conflicts).
+# WARNING: these now live only on each machine — they are NOT shared via git.
+feature_list.json
+progress.md
+session-handoff.md
+docs/EVALUATION.md
+docs/product-specs/
