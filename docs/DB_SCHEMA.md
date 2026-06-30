@@ -82,18 +82,23 @@ belongs to exactly one, and roles are defined per department.
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
 | `name` | `String(255)` → `VARCHAR(255)` | **U**, **IX** | no | — | Department name (e.g. "Kinh doanh"); unique. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | System-generated unique code (spec-05): `PB` + zero-padded sequence (`PB001`, `PB002`, …). Read-only — users never type it; the repository assigns it on create from the highest existing PB-number + 1, and the unique index guarantees no two live departments share a code. |
+| `description` | `String(500)` → `VARCHAR(500)` | — | yes | — | Optional free-text description of the department (spec-05). |
+| `parent_id` | `Integer` → `INTEGER` | **FK→departments.id**, **IX** | yes | — | Parent department for the org tree (spec-05); null = root unit. A department and its whole subtree are cascade-deleted together (enforced in the service, not the DB). |
 | `head_user_id` | `Integer` → `INTEGER` | — | yes | — | Logical reference to `users.id` of the trưởng phòng (no DB-level FK to avoid a create cycle; assigned via Alembic later). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the department row was created. |
 
 **Keys & indexes**
 
 - Primary key: `id`.
-- Unique index: `ix_departments_name` on `name`.
-- Foreign keys: none enforced (`head_user_id` is a logical reference to `users.id`).
+- Unique index: `ix_departments_name` on `name`, `ix_departments_code` on `code`.
+- Indexes: `ix_departments_parent_id` on `parent_id`.
+- Foreign keys: `parent_id FK→departments.id` (self-reference); `head_user_id` is a logical reference to `users.id` (no enforced FK).
 
 **Relationships**
 
 - One department has many `roles` and many `users`; `head_user_id` points at the user who heads it.
+- Departments form a tree via `parent_id` (self-reference): a department has many child departments; deleting a department deletes its whole subtree (spec-05).
 
 ---
 

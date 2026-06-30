@@ -174,10 +174,20 @@ export interface ModuleDef {
 export interface Department {
   id: number;
   name: string;
+  code: string;
+  description?: string | null;
+  parent_id?: number | null;
   head_user_id?: number | null;
   head_name?: string | null;
   role_count?: number;
   user_count?: number;
+}
+
+/** A node in a department's delete-preview subtree (spec-05). */
+export interface DepartmentSubtreeRow {
+  id: number;
+  name: string;
+  code: string;
 }
 
 export interface UserBrief {
@@ -299,10 +309,15 @@ export const api = {
     departmentUsers(token: string, departmentId: number): Promise<UserBrief[]> {
       return authed<UserBrief[]>(`/api/departments/${departmentId}/users`, token);
     },
-    createDepartment(token: string, name: string): Promise<Department> {
+    createDepartment(
+      token: string,
+      name: string,
+      description: string | null,
+      parentId: number | null,
+    ): Promise<Department> {
       return authed<Department>("/api/departments", token, {
         method: "POST",
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, description, parent_id: parentId }),
       });
     },
     updateDepartment(
@@ -310,11 +325,16 @@ export const api = {
       id: number,
       name: string,
       headUserId: number | null,
+      description: string | null,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
-        body: JSON.stringify({ name, head_user_id: headUserId }),
+        body: JSON.stringify({ name, head_user_id: headUserId, description }),
       });
+    },
+    /** Departments that would be deleted with this one's branch (spec-05 confirm). */
+    departmentSubtree(token: string, id: number): Promise<DepartmentSubtreeRow[]> {
+      return authed<DepartmentSubtreeRow[]>(`/api/departments/${id}/subtree`, token);
     },
     deleteDepartment(token: string, id: number): Promise<void> {
       return authed<void>(`/api/departments/${id}`, token, { method: "DELETE" });
