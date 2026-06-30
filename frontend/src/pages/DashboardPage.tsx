@@ -1,22 +1,11 @@
 import { useAuth } from "../auth/useAuth";
-import { Button } from "../components/Button";
 import "./auth.css";
 
 export function DashboardPage() {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
 
   return (
     <main className="dash">
-      <div className="dash__bar">
-        <div className="dash__who">
-          <p className="eyebrow">Signed in</p>
-          <span className="dash__email">{user?.username}</span>
-        </div>
-        <Button variant="ghost" onClick={logout}>
-          Log out
-        </Button>
-      </div>
-
       <section className="card">
         <p className="eyebrow">Dashboard</p>
         <h1 className="auth__title" style={{ marginTop: "var(--sp-2)" }}>

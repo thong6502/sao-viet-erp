@@ -18,12 +18,19 @@ os.environ["SEED_ADMIN_NAME"] = "Admin"
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
+from app.db import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402
 
 
 @pytest.fixture
 def client():
-    # `with TestClient` triggers the lifespan (init_db + seed_admin).
+    # The in-memory SQLite DB is shared across the whole session (StaticPool keeps the
+    # single connection alive). Wipe + recreate the schema before each test so mutating
+    # tests (e.g. change-password, lock user) can't leak seeded state into later tests;
+    # the lifespan below re-seeds a clean admin + RBAC catalog.
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    # `with TestClient` triggers the lifespan (init_db + seed_all).
     with TestClient(app) as c:
         yield c
 

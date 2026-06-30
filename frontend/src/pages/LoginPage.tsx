@@ -11,7 +11,7 @@ interface FieldErrors {
 }
 
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, notice, setNotice } = useAuth();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -32,6 +32,7 @@ export function LoginPage() {
 
     setFormError(null);
     setCanRetry(false);
+    setNotice(null); // a fresh attempt supersedes any one-shot notice
 
     const errs = validate();
     setFieldErrors(errs);
@@ -67,6 +68,12 @@ export function LoginPage() {
           </h1>
           <p className="auth__sub">Nhập tài khoản nội bộ để tiếp tục.</p>
         </header>
+
+        {notice && !formError && (
+          <div className="banner banner--success" role="status">
+            <span>{notice}</span>
+          </div>
+        )}
 
         {formError && (
           <div className="banner banner--error" role="alert">

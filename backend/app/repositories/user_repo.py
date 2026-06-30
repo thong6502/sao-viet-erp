@@ -45,6 +45,27 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
+    def set_name(self, user: User, name: str) -> User:
+        """Update the user's display name (self-service profile edit, spec-04)."""
+        user.name = name
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def set_avatar(self, user: User, avatar_url: str | None) -> User:
+        """Set or clear the user's avatar path (spec-04)."""
+        user.avatar_url = avatar_url
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def set_password(self, user: User, password_hash: str) -> User:
+        """Replace the user's bcrypt password hash (self-service change, spec-04)."""
+        user.password_hash = password_hash
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
     def set_role(self, user: User, role_id: int | None) -> User:
         user.role_id = role_id
         self.db.commit()

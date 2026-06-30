@@ -9,12 +9,15 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { RolesPage } from "../pages/RolesPage";
 import { UsersPage } from "../pages/UsersPage";
+import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
 import { MODULE_BY_NAV_ID, Sidebar } from "./Sidebar";
+import { Topbar } from "./Topbar";
 
 export function AppShell() {
   const { token } = useAuth();
   const [activeId, setActiveId] = useState("dashboard");
   const [readable, setReadable] = useState<Set<string> | null>(null);
+  const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
 
   useEffect(() => {
     if (!token) return;
@@ -74,7 +77,11 @@ export function AppShell() {
   return (
     <div className="shell">
       <Sidebar activeId={activeId} onSelect={setActiveId} readable={readable} />
-      <div className="shell__main">{renderContent()}</div>
+      <div className="shell__main">
+        <Topbar onProfileAction={setProfileAction} />
+        <div className="shell__content">{renderContent()}</div>
+      </div>
+      <ProfileDialog action={profileAction} onClose={() => setProfileAction(null)} />
     </div>
   );
 }

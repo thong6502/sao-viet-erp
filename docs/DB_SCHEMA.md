@@ -54,6 +54,7 @@ in. (Spec-01: seeded only — no self-registration.) Login is by `username` (spe
 | `department_id` | `Integer` → `INTEGER` | **FK→departments.id**, **IX** | yes | — | The department (phòng ban) this user belongs to. Null until HR assigns one. |
 | `role_id` | `Integer` → `INTEGER` | **FK→roles.id**, **IX** | yes | — | The single role (vai trò) this user holds; its permissions decide access. Null until the department head assigns one. |
 | `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Whether the account is enabled. A locked (`false`) user is rejected even with a valid token. |
+| `avatar_url` | `String(500)` → `VARCHAR(500)` | — | yes | — | Server-relative path of the user's uploaded profile picture (spec-04), e.g. `/static/avatars/<file>`. Null means no avatar — the UI shows an initials fallback. The plaintext file lives under the backend `static/` dir, not the DB. |
 | `token_version` | `Integer` → `INTEGER` | — | no | `0` | Hard-revoke counter (spec-03). Access tokens embed this as the `tv` claim; bumping it rejects every previously-issued access token (logout-all / forced invalidation). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the account row was created. |
 

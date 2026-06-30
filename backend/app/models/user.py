@@ -37,6 +37,10 @@ class User(Base):
         Integer, ForeignKey("roles.id"), index=True, nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Optional profile picture (spec-04). Stores the server-relative path of the
+    # uploaded file (e.g. `/static/avatars/<file>`); null means "use the initials
+    # fallback". The frontend prefixes it with the API origin to render the <img>.
+    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Bumping this invalidates every previously-issued access token for the user
     # (logout-all / lock). Access tokens carry the value as a `tv` claim; a token whose
     # `tv` no longer matches this column is rejected (spec-03 hard-revoke).

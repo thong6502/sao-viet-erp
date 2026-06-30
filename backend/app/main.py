@@ -7,14 +7,21 @@ schema (create_all) + seeds the admin user. Run with:
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .config import assert_secure_config, settings
 from .db import SessionLocal, init_db
-from .routers import auth, rbac
+from .routers import auth, profile, rbac
 from .seed import seed_all
+
+# Uploaded files (e.g. avatars, spec-04) live under <backend>/static and are served
+# read-only at /static. Created up-front so the StaticFiles mount never errors on a
+# fresh checkout.
+STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 
 
 @asynccontextmanager
@@ -41,7 +48,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
 app.include_router(auth.router)
+app.include_router(profile.router)
 app.include_router(rbac.router)
 
 
