@@ -6,7 +6,7 @@ from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
 
-ADMIN = {"email": "admin@example.com", "password": "admin123"}
+ADMIN = {"username": "admin", "password": "admin123"}
 
 
 def _h(token: str) -> dict[str, str]:
@@ -17,13 +17,13 @@ def _sales_token() -> str:
     db = SessionLocal()
     try:
         users = UserRepository(db)
-        existing = users.get_by_email("sales-perm@example.com")
+        existing = users.get_by_username("sales-perm")
         if existing is not None:
             return create_access_token(str(existing.id))
         kd = DepartmentRepository(db).get_by_name("Kinh doanh")
         sales = RoleRepository(db).get_by_name_and_department("NV Sales", kd.id)
         u = users.create(
-            email="sales-perm@example.com", name="S", password_hash=hash_password("x")
+            username="sales-perm", name="S", password_hash=hash_password("x")
         )
         users.set_assignment(u, department_id=kd.id, role_id=sales.id, is_active=True)
         return create_access_token(str(u.id))

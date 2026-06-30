@@ -2,9 +2,25 @@
 
 ## Current State
 
-**Last Updated:** 2026-06-27
-**Active Feature:** none — **spec-03 Auth Hardening COMPLETE** (feat-012..016 done; 16/16 total).
-spec-01 + spec-02 + spec-03 all done. Next spec undecided.
+**Last Updated:** 2026-06-30
+**Active Feature:** **feat-017 — Đăng nhập bằng username (thay email)** — code-verified, browser-validate
+pending. spec-01 + spec-02 + spec-03 done (16); feat-017 is an amendment to feat-002/003.
+
+### feat-017 — Username replaces email entirely (spec-0001, in_progress 2026-06-30)
+
+- **What changed:** **email column removed**; `users.username` (String(150), **NOT NULL**, unique,
+  index) is now the sole account identity + login credential. Full replacement across the stack:
+  login form / `LoginRequest` / `UserOut`; the HR **Người dùng** screen (create form, table, detail
+  all use "Tên đăng nhập"); **Phòng ban** head-picker; audit detail; seed; every RBAC user shape.
+  Wrong creds → generic **"Tên đăng nhập hoặc mật khẩu không đúng"** (no enumeration); duplicate
+  username on create → 409. Seed admin username = `admin` (`SEED_ADMIN_USERNAME`).
+- **Scope decision (per user request, evolved over the session):** first "login only", then "keep
+  email too", finally **"xóa luôn cột email"** — so email is gone everywhere and username took its
+  place, including the HR create-user form (it now captures username → new users can log in).
+- **Verify:** `./init.ps1` → **78 passed** + compileall clean; frontend tsc + vite build green.
+- **PENDING:** browser-validate of the live login + user-management journeys. Requires **dropping
+  `backend/dev.db`** so `create_all` rebuilds `users` without `email` + with `username` (it does
+  not ALTER), then restart the backend (re-seeds admin). Live login is now **`admin` / `admin123`**.
 
 ### spec-03 — Auth Hardening (feat-012..016, done 2026-06-27)
 

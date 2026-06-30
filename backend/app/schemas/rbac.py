@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ModuleOut(BaseModel):
@@ -46,7 +46,7 @@ class UserBrief(BaseModel):
 
     id: int
     name: str
-    email: str
+    username: str
 
 
 class UserRow(BaseModel):
@@ -54,7 +54,7 @@ class UserRow(BaseModel):
 
     id: int
     name: str
-    email: str
+    username: str
     department_id: int | None = None
     department_name: str | None = None
     role_id: int | None = None
@@ -64,7 +64,7 @@ class UserRow(BaseModel):
 
 class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
-    email: EmailStr
+    username: str = Field(min_length=1, max_length=150)
     department_id: int
 
 

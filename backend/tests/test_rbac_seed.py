@@ -78,7 +78,7 @@ def test_admin_linked_to_dept_and_role(client):
         depts = DepartmentRepository(db)
         roles = RoleRepository(db)
 
-        admin = users.get_by_email("admin@example.com")
+        admin = users.get_by_username("admin")
         assert admin is not None
         assert admin.is_active is True
         assert admin.department_id is not None and admin.role_id is not None

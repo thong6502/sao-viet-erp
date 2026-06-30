@@ -126,12 +126,13 @@ def seed_roles(db: Session) -> None:
 
 
 def seed_admin(db: Session) -> None:
-    """Create the initial admin user if absent (no self-registration this spec)."""
+    """Create the initial admin user if absent (no self-registration this spec).
+    Identity is the username (spec-0001)."""
     users = UserRepository(db)
-    if users.get_by_email(settings.seed_admin_email) is not None:
+    if users.get_by_username(settings.seed_admin_username) is not None:
         return
     users.create(
-        email=settings.seed_admin_email,
+        username=settings.seed_admin_username,
         name=settings.seed_admin_name,
         password_hash=hash_password(settings.seed_admin_password),
     )
@@ -144,7 +145,7 @@ def link_admin(db: Session) -> None:
     depts = DepartmentRepository(db)
     roles = RoleRepository(db)
 
-    admin = users.get_by_email(settings.seed_admin_email)
+    admin = users.get_by_username(settings.seed_admin_username)
     dept = depts.get_by_name(ADMIN_DEPARTMENT)
     if admin is None or dept is None:
         return

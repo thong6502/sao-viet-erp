@@ -18,23 +18,24 @@ class AuthService:
     def __init__(self, users: UserRepository) -> None:
         self.users = users
 
-    def authenticate(self, email: str, password: str) -> User:
+    def authenticate(self, username: str, password: str) -> User:
         """Return the user on valid credentials, else raise AuthError.
 
-        Generic failure for both unknown email and wrong password so we never
-        leak which accounts exist (no user enumeration — docs/SECURITY.md).
+        Login is by username (spec-0001). Generic failure for both unknown username and
+        wrong password so we never leak which accounts exist (no user enumeration —
+        docs/SECURITY.md).
         """
-        user = self.users.get_by_email(email)
+        user = self.users.get_by_username((username or "").strip())
         if user is None or not verify_password(password, user.password_hash):
-            raise AuthError("Invalid email or password")
+            raise AuthError("Invalid username or password")
         # A locked account cannot authenticate (generic message — no enumeration).
         if not user.is_active:
-            raise AuthError("Invalid email or password")
+            raise AuthError("Invalid username or password")
         return user
 
-    def login(self, email: str, password: str) -> tuple[str, User]:
+    def login(self, username: str, password: str) -> tuple[str, User]:
         """Authenticate and mint an access token. Returns (token, user)."""
-        user = self.authenticate(email, password)
+        user = self.authenticate(username, password)
         token = create_access_token(subject=str(user.id), token_version=user.token_version)
         return token, user
 

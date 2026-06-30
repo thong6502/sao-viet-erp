@@ -21,7 +21,11 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    # The sole account identity + login credential (spec-0001): users sign in with this.
+    # Email was removed entirely; username is required and unique.
+    username: Mapped[str] = mapped_column(
+        String(150), unique=True, index=True, nullable=False
+    )
     name: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     # RBAC (spec-02): a user belongs to one department and holds one role. Both are

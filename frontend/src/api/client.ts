@@ -9,7 +9,7 @@ const BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").
 
 export interface User {
   id: number;
-  email: string;
+  username: string;
   name: string;
 }
 
@@ -162,13 +162,13 @@ export interface Department {
 export interface UserBrief {
   id: number;
   name: string;
-  email: string;
+  username: string;
 }
 
 export interface UserRow {
   id: number;
   name: string;
-  email: string;
+  username: string;
   department_id: number | null;
   department_name: string | null;
   role_id: number | null;
@@ -202,10 +202,10 @@ export interface PermissionRow {
 }
 
 export const api = {
-  login(email: string, password: string): Promise<LoginResponse> {
+  login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
       method: "POST",
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ username, password }),
     });
   },
 
@@ -263,10 +263,10 @@ export const api = {
     users(token: string): Promise<UserRow[]> {
       return authed<UserRow[]>("/api/users", token);
     },
-    createUser(token: string, name: string, email: string, departmentId: number): Promise<UserRow> {
+    createUser(token: string, name: string, username: string, departmentId: number): Promise<UserRow> {
       return authed<UserRow>("/api/users", token, {
         method: "POST",
-        body: JSON.stringify({ name, email, department_id: departmentId }),
+        body: JSON.stringify({ name, username, department_id: departmentId }),
       });
     },
     assignUserRole(token: string, userId: number, roleId: number | null): Promise<UserRow> {

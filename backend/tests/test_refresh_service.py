@@ -35,7 +35,7 @@ def _service(session) -> RefreshTokenService:
 
 
 def _admin(session):
-    return UserRepository(session).get_by_email("admin@example.com")
+    return UserRepository(session).get_by_username("admin")
 
 
 def test_issue_then_rotate_returns_new_token_and_revokes_old(db):

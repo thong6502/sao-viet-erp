@@ -10,8 +10,6 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import "./users.css";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 export function UsersPage() {
   const { token, user: me } = useAuth();
 
@@ -26,7 +24,7 @@ export function UsersPage() {
   const [rolesLoading, setRolesLoading] = useState(false);
 
   const [cName, setCName] = useState("");
-  const [cEmail, setCEmail] = useState("");
+  const [cUsername, setCUsername] = useState("");
   const [cDept, setCDept] = useState<number | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -104,7 +102,7 @@ export function UsersPage() {
 
   function validateCreate(): string | null {
     if (!cName.trim()) return "Họ tên là bắt buộc.";
-    if (!EMAIL_RE.test(cEmail.trim())) return "Email không hợp lệ.";
+    if (!cUsername.trim()) return "Tên đăng nhập là bắt buộc.";
     if (cDept == null) return "Phòng ban là bắt buộc.";
     return null;
   }
@@ -120,9 +118,9 @@ export function UsersPage() {
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await api.rbac.createUser(token, cName.trim(), cEmail.trim(), cDept!);
+      const created = await api.rbac.createUser(token, cName.trim(), cUsername.trim(), cDept!);
       setCName("");
-      setCEmail("");
+      setCUsername("");
       await refresh(created.id);
     } catch (e2) {
       if (e2 instanceof ApiError && e2.isConflict) setCreateError(e2.message);
@@ -218,11 +216,11 @@ export function UsersPage() {
         />
         <input
           className="input"
-          type="email"
-          placeholder="Email"
-          value={cEmail}
+          type="text"
+          placeholder="Tên đăng nhập"
+          value={cUsername}
           onChange={(e) => {
-            setCEmail(e.target.value);
+            setCUsername(e.target.value);
             if (createError) setCreateError(null);
           }}
         />
@@ -253,7 +251,7 @@ export function UsersPage() {
             <thead>
               <tr>
                 <th>Tên</th>
-                <th>Email</th>
+                <th>Tên đăng nhập</th>
                 <th>Phòng</th>
                 <th>Vai trò</th>
                 <th>Trạng thái</th>
@@ -268,7 +266,7 @@ export function UsersPage() {
                   onClick={() => setSelectedId(u.id)}
                 >
                   <td>{u.name}</td>
-                  <td className="users__email">{u.email}</td>
+                  <td className="users__email">{u.username}</td>
                   <td>{u.department_name ?? "—"}</td>
                   <td>{u.role_name ?? <span className="users__muted">Chưa gán</span>}</td>
                   <td>
@@ -289,7 +287,7 @@ export function UsersPage() {
             <>
               <div className="users__who">
                 <p className="users__who-name">{current.name}</p>
-                <p className="users__muted">{current.email}</p>
+                <p className="users__muted">{current.username}</p>
                 <p className="users__muted">{current.department_name ?? "—"}</p>
               </div>
 

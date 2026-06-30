@@ -48,21 +48,21 @@ def _bearer(user_id: int) -> dict[str, str]:
 
 
 def _admin(session):
-    return UserRepository(session).get_by_email("admin@example.com")
+    return UserRepository(session).get_by_username("admin")
 
 
 def _minimal_employee(session):
     """A user holding the minimal 'Nhân viên' role (Dashboard read only — no
     khach_hang permission). Idempotent within the shared in-memory DB."""
     users = UserRepository(session)
-    existing = users.get_by_email("nv@example.com")
+    existing = users.get_by_username("nv")
     if existing is not None:
         return existing
     depts = DepartmentRepository(session)
     roles = RoleRepository(session)
     hcns = depts.get_by_name("Hành chính nhân sự")
     nhan_vien = roles.get_by_name_and_department("Nhân viên", hcns.id)
-    user = users.create(email="nv@example.com", name="NV", password_hash=hash_password("x"))
+    user = users.create(username="nv", name="NV", password_hash=hash_password("x"))
     users.set_assignment(
         user, department_id=hcns.id, role_id=nhan_vien.id, is_active=True
     )

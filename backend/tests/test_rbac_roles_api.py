@@ -11,7 +11,7 @@ from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
 
-ADMIN = {"email": "admin@example.com", "password": "admin123"}
+ADMIN = {"username": "admin", "password": "admin123"}
 
 
 def _admin_token(client) -> str:
@@ -35,13 +35,13 @@ def _sales_token() -> str:
     db = SessionLocal()
     try:
         users = UserRepository(db)
-        existing = users.get_by_email("sales@example.com")
+        existing = users.get_by_username("sales")
         if existing is not None:
             return create_access_token(str(existing.id))
         kd = DepartmentRepository(db).get_by_name("Kinh doanh")
         sales_role = RoleRepository(db).get_by_name_and_department("NV Sales", kd.id)
         user = users.create(
-            email="sales@example.com", name="S", password_hash=hash_password("x")
+            username="sales", name="S", password_hash=hash_password("x")
         )
         users.set_assignment(
             user, department_id=kd.id, role_id=sales_role.id, is_active=True
@@ -164,7 +164,7 @@ def test_delete_role_in_use_is_blocked(client):
     try:
         users = UserRepository(db)
         user = users.create(
-            email="busy@example.com", name="B", password_hash=hash_password("x")
+            username="busy", name="B", password_hash=hash_password("x")
         )
         users.set_assignment(user, department_id=kd_id, role_id=role_id, is_active=True)
     finally:

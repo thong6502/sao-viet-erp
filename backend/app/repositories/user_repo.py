@@ -15,12 +15,15 @@ class UserRepository:
     def get_by_id(self, user_id: int) -> User | None:
         return self.db.get(User, user_id)
 
-    def get_by_email(self, email: str) -> User | None:
-        stmt = select(User).where(User.email == email)
+    def get_by_username(self, username: str) -> User | None:
+        """Resolve the login identifier (spec-0001). A blank value never matches."""
+        if not username:
+            return None
+        stmt = select(User).where(User.username == username)
         return self.db.execute(stmt).scalar_one_or_none()
 
-    def create(self, *, email: str, name: str, password_hash: str) -> User:
-        user = User(email=email, name=name, password_hash=password_hash)
+    def create(self, *, username: str, name: str, password_hash: str) -> User:
+        user = User(username=username, name=name, password_hash=password_hash)
         self.db.add(user)
         self.db.commit()
         self.db.refresh(user)

@@ -58,12 +58,12 @@ def login(
     refresh: Annotated[RefreshTokenService, Depends(get_refresh_service)],
 ) -> TokenResponse:
     try:
-        token, user = auth.login(payload.email, payload.password)
+        token, user = auth.login(payload.username, payload.password)
     except AuthError:
-        # Generic message — never reveal whether the email exists.
+        # Generic message — never reveal whether the username exists (spec-0001).
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password",
+            detail="Tên đăng nhập hoặc mật khẩu không đúng",
         ) from None
     _set_refresh_cookie(response, refresh.issue(user))
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))

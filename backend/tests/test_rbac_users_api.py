@@ -11,7 +11,7 @@ from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
 
-ADMIN = {"email": "admin@example.com", "password": "admin123"}
+ADMIN = {"username": "admin", "password": "admin123"}
 DEFAULT_PW = "password123"
 
 
@@ -43,7 +43,7 @@ def _role_id(name: str, dept_name: str) -> int:
 def _admin_id() -> int:
     db = SessionLocal()
     try:
-        return UserRepository(db).get_by_email("admin@example.com").id
+        return UserRepository(db).get_by_username("admin").id
     finally:
         db.close()
 
@@ -52,13 +52,13 @@ def _sales_token() -> str:
     db = SessionLocal()
     try:
         users = UserRepository(db)
-        existing = users.get_by_email("sales-users@example.com")
+        existing = users.get_by_username("sales-users")
         if existing is not None:
             return create_access_token(str(existing.id))
         kd = DepartmentRepository(db).get_by_name("Kinh doanh")
         sales_role = RoleRepository(db).get_by_name_and_department("NV Sales", kd.id)
         u = users.create(
-            email="sales-users@example.com", name="S", password_hash=hash_password("x")
+            username="sales-users", name="S", password_hash=hash_password("x")
         )
         users.set_assignment(u, department_id=kd.id, role_id=sales_role.id, is_active=True)
         return create_access_token(str(u.id))
@@ -68,7 +68,7 @@ def _sales_token() -> str:
 
 def test_list_users_includes_admin(client):
     rows = client.get("/api/users", headers=_h(_admin_token(client))).json()
-    assert any(u["email"] == "admin@example.com" for u in rows)
+    assert any(u["username"] == "admin" for u in rows)
 
 
 def test_create_user_starts_with_no_role(client):
@@ -76,7 +76,7 @@ def test_create_user_starts_with_no_role(client):
     kd_id = _dept_id("Kinh doanh")
     resp = client.post(
         "/api/users",
-        json={"name": "Nguyễn A", "email": "a@example.com", "department_id": kd_id},
+        json={"name": "Nguyễn A", "username": "nguyena", "department_id": kd_id},
         headers=_h(token),
     )
     assert resp.status_code == 201
@@ -90,25 +90,25 @@ def test_create_user_validation(client):
     token = _admin_token(client)
     kd_id = _dept_id("Kinh doanh")
     client.post(
-        "/api/users", json={"name": "Dup", "email": "dup@example.com", "department_id": kd_id}, headers=_h(token)
+        "/api/users", json={"name": "Dup", "username": "dup", "department_id": kd_id}, headers=_h(token)
     )
     dup = client.post(
-        "/api/users", json={"name": "Dup2", "email": "dup@example.com", "department_id": kd_id}, headers=_h(token)
+        "/api/users", json={"name": "Dup2", "username": "dup", "department_id": kd_id}, headers=_h(token)
     )
-    assert dup.status_code == 409  # email taken
+    assert dup.status_code == 409  # username taken
 
-    bad_email = client.post(
-        "/api/users", json={"name": "X", "email": "not-an-email", "department_id": kd_id}, headers=_h(token)
+    blank_username = client.post(
+        "/api/users", json={"name": "X", "username": "", "department_id": kd_id}, headers=_h(token)
     )
-    assert bad_email.status_code == 422
+    assert blank_username.status_code == 422
 
     no_name = client.post(
-        "/api/users", json={"name": "", "email": "y@example.com", "department_id": kd_id}, headers=_h(token)
+        "/api/users", json={"name": "", "username": "y", "department_id": kd_id}, headers=_h(token)
     )
     assert no_name.status_code == 422
 
     bad_dept = client.post(
-        "/api/users", json={"name": "Z", "email": "z@example.com", "department_id": 99999}, headers=_h(token)
+        "/api/users", json={"name": "Z", "username": "z", "department_id": 99999}, headers=_h(token)
     )
     assert bad_dept.status_code == 404
 
@@ -117,7 +117,7 @@ def test_assign_role_must_match_department(client):
     token = _admin_token(client)
     kd_id = _dept_id("Kinh doanh")
     uid = client.post(
-        "/api/users", json={"name": "B", "email": "b@example.com", "department_id": kd_id}, headers=_h(token)
+        "/api/users", json={"name": "B", "username": "userb", "department_id": kd_id}, headers=_h(token)
     ).json()["id"]
 
     # A KD role -> ok.
@@ -136,11 +136,12 @@ def test_lock_blocks_login_and_me(client):
     token = _admin_token(client)
     kd_id = _dept_id("Kinh doanh")
     uid = client.post(
-        "/api/users", json={"name": "C", "email": "c@example.com", "department_id": kd_id}, headers=_h(token)
+        "/api/users", json={"name": "C", "username": "cuser", "department_id": kd_id}, headers=_h(token)
     ).json()["id"]
+    creds = {"username": "cuser", "password": DEFAULT_PW}
 
     # The new user can log in with the default password and use /me.
-    login = client.post("/api/auth/login", json={"email": "c@example.com", "password": DEFAULT_PW})
+    login = client.post("/api/auth/login", json=creds)
     assert login.status_code == 200
     u_token = login.json()["access_token"]
     assert client.get("/api/auth/me", headers=_h(u_token)).status_code == 200
@@ -151,7 +152,7 @@ def test_lock_blocks_login_and_me(client):
 
     # The still-valid token is now rejected, and a fresh login is refused.
     assert client.get("/api/auth/me", headers=_h(u_token)).status_code == 403
-    assert client.post("/api/auth/login", json={"email": "c@example.com", "password": DEFAULT_PW}).status_code == 401
+    assert client.post("/api/auth/login", json=creds).status_code == 401
 
 
 def test_cannot_lock_self(client):
@@ -166,7 +167,7 @@ def test_non_admin_forbidden(client):
     assert (
         client.post(
             "/api/users",
-            json={"name": "X", "email": "x@example.com", "department_id": _dept_id("Kinh doanh")},
+            json={"name": "X", "username": "userx", "department_id": _dept_id("Kinh doanh")},
             headers=_h(token),
         ).status_code
         == 403

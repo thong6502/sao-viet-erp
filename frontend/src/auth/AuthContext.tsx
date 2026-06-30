@@ -17,7 +17,7 @@ export interface AuthState {
   status: Status;
   user: User | null;
   token: string | null;
-  login: (email: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -64,9 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
-  const login = useCallback(async (email: string, password: string) => {
+  const login = useCallback(async (username: string, password: string) => {
     try {
-      const res = await api.login(email, password);
+      const res = await api.login(username, password);
       // The server set the refresh cookie; keep the access token in memory only.
       setUser(res.user);
       setToken(res.access_token);

@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
 
     # --- Seed user (no self-registration this spec) ----------------------
-    seed_admin_email: str = "admin@example.com"
+    seed_admin_username: str = "admin"
     seed_admin_password: str = "admin123"
     seed_admin_name: str = "Admin"
 

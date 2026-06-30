@@ -43,12 +43,12 @@ Whenever you **add / change / remove** a table, column, key, or index:
 ### `users`
 
 **Purpose:** application accounts that can authenticate. One row per person who can log
-in. (Spec-01: seeded only — no self-registration.)
+in. (Spec-01: seeded only — no self-registration.) Login is by `username` (spec-0001).
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key; stable internal id, also the JWT `sub` claim. |
-| `email` | `String(255)` → `VARCHAR(255)` | **U**, **IX** | no | — | Login identifier; unique (no two accounts share an email). Indexed for fast lookup at login. |
+| `username` | `String(150)` → `VARCHAR(150)` | **U**, **IX** | no | — | The sole account identity + login credential (spec-0001): users sign in with this. Required + unique (no two accounts share a username). Indexed for fast lookup at login. Email was removed entirely. |
 | `name` | `String(255)` → `VARCHAR(255)` | — | no | `""` | Human display name shown in the UI (e.g. Dashboard greeting). |
 | `password_hash` | `String(255)` → `VARCHAR(255)` | — | no | — | **bcrypt** hash of the password (`$2b$...`). The plaintext password is NEVER stored. |
 | `department_id` | `Integer` → `INTEGER` | **FK→departments.id**, **IX** | yes | — | The department (phòng ban) this user belongs to. Null until HR assigns one. |
@@ -60,7 +60,7 @@ in. (Spec-01: seeded only — no self-registration.)
 **Keys & indexes**
 
 - Primary key: `id`.
-- Unique index: `ix_users_email` on `email` (enforces uniqueness + speeds login lookup).
+- Unique index: `ix_users_username` on `username` (the login identifier; uniqueness + fast login lookup).
 - Indexes: `ix_users_department_id` on `department_id`, `ix_users_role_id` on `role_id`.
 - Foreign keys: `department_id FK→departments.id`, `role_id FK→roles.id`.
 

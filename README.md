@@ -40,11 +40,11 @@ PostgreSQL (prod) trên cùng một tầng dữ liệu.
 ./dev.sh         # Unix
 ```
 
-Mở **http://localhost:5173** rồi đăng nhập bằng tài khoản seed sẵn:
+Mở **http://localhost:5173** rồi đăng nhập bằng tài khoản seed sẵn (đăng nhập bằng **tên đăng nhập**):
 
-| Email | Mật khẩu |
+| Tên đăng nhập | Mật khẩu |
 |---|---|
-| `admin@example.com` | `admin123` |
+| `admin` | `admin123` |
 
 API docs tự sinh khi backend chạy: **http://localhost:8000/docs**.
 

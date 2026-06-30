@@ -70,7 +70,7 @@ def test_expired_refresh_is_401(client, seed_credentials):
     client.post("/api/auth/login", json=seed_credentials)  # ensures admin seeded
     session = SessionLocal()
     try:
-        admin = UserRepository(session).get_by_email(seed_credentials["email"])
+        admin = UserRepository(session).get_by_username(seed_credentials["username"])
         RefreshTokenRepository(session).create(
             user_id=admin.id,
             token_hash=hash_refresh_token("expired-raw"),
@@ -104,7 +104,7 @@ def test_refresh_for_locked_user_is_401(client, seed_credentials):
     session = SessionLocal()
     try:
         users = UserRepository(session)
-        admin = users.get_by_email(seed_credentials["email"])
+        admin = users.get_by_username(seed_credentials["username"])
         users.set_active(admin, False)
     finally:
         session.close()
@@ -114,6 +114,6 @@ def test_refresh_for_locked_user_is_401(client, seed_credentials):
     session = SessionLocal()
     try:
         users = UserRepository(session)
-        users.set_active(users.get_by_email(seed_credentials["email"]), True)
+        users.set_active(users.get_by_username(seed_credentials["username"]), True)
     finally:
         session.close()

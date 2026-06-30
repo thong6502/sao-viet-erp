@@ -47,8 +47,8 @@ from ..services.role_service import (
 )
 from ..services.user_admin_service import (
     CannotLockSelf,
-    EmailTaken,
     InvalidRoleForDepartment,
+    UsernameTaken,
     UserAdminService,
     UserNotFound,
 )
@@ -164,18 +164,18 @@ def create_user(
     try:
         created = admin.create_user(
             name=payload.name,
-            email=payload.email,
+            username=payload.username,
             department_id=payload.department_id,
             actor_id=user.id,
         )
-    except EmailTaken as e:
+    except UsernameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except UADeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return {
         "id": created.id,
         "name": created.name,
-        "email": created.email,
+        "username": created.username,
         "department_id": created.department_id,
         "role_id": created.role_id,
         "is_active": created.is_active,
@@ -198,7 +198,7 @@ def assign_user_role(
     return {
         "id": updated.id,
         "name": updated.name,
-        "email": updated.email,
+        "username": updated.username,
         "department_id": updated.department_id,
         "role_id": updated.role_id,
         "is_active": updated.is_active,
@@ -221,7 +221,7 @@ def set_user_active(
     return {
         "id": updated.id,
         "name": updated.name,
-        "email": updated.email,
+        "username": updated.username,
         "department_id": updated.department_id,
         "role_id": updated.role_id,
         "is_active": updated.is_active,

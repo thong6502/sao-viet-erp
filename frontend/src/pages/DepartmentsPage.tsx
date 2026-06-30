@@ -289,7 +289,7 @@ export function DepartmentsPage() {
                   <option value="">— Không —</option>
                   {users.map((u) => (
                     <option key={u.id} value={u.id}>
-                      {u.name} ({u.email})
+                      {u.name} ({u.username})
                     </option>
                   ))}
                 </select>

@@ -5,16 +5,14 @@ import { Button } from "../components/Button";
 import { Field } from "../components/Field";
 import "./auth.css";
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
 interface FieldErrors {
-  email?: string;
+  username?: string;
   password?: string;
 }
 
 export function LoginPage() {
   const { login } = useAuth();
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -23,9 +21,8 @@ export function LoginPage() {
 
   function validate(): FieldErrors {
     const errs: FieldErrors = {};
-    if (!email.trim()) errs.email = "Email is required.";
-    else if (!EMAIL_RE.test(email.trim())) errs.email = "Enter a valid email address.";
-    if (!password) errs.password = "Password is required.";
+    if (!username.trim()) errs.username = "Vui lòng nhập tên đăng nhập.";
+    if (!password) errs.password = "Vui lòng nhập mật khẩu.";
     return errs;
   }
 
@@ -42,17 +39,17 @@ export function LoginPage() {
 
     setSubmitting(true);
     try {
-      await login(email.trim(), password);
+      await login(username.trim(), password);
       // On success the app swaps to the Dashboard; nothing else to do here.
     } catch (err) {
       if (err instanceof ApiError && err.isAuth) {
-        setFormError("Invalid email or password");
+        setFormError("Tên đăng nhập hoặc mật khẩu không đúng");
         setPassword("");
       } else if (err instanceof ApiError && err.isNetwork) {
         setFormError(err.message);
         setCanRetry(true);
       } else {
-        setFormError("Something went wrong. Please try again.");
+        setFormError("Đã có lỗi xảy ra. Vui lòng thử lại.");
         setCanRetry(true);
       }
     } finally {
@@ -64,11 +61,11 @@ export function LoginPage() {
     <main className="auth">
       <section className="card auth__card" aria-labelledby="auth-title">
         <header className="auth__head">
-          <p className="eyebrow">GAN App</p>
+          <p className="eyebrow">Sao Việt Nhật ERP</p>
           <h1 className="auth__title" id="auth-title">
-            Sign in
+            Đăng nhập
           </h1>
-          <p className="auth__sub">Enter your credentials to continue.</p>
+          <p className="auth__sub">Nhập tài khoản nội bộ để tiếp tục.</p>
         </header>
 
         {formError && (
@@ -81,7 +78,7 @@ export function LoginPage() {
                 style={{ padding: "2px 10px" }}
                 onClick={() => void onSubmit(new Event("submit") as unknown as FormEvent)}
               >
-                Retry
+                Thử lại
               </button>
             )}
           </div>
@@ -89,18 +86,18 @@ export function LoginPage() {
 
         <form className="auth__form" onSubmit={onSubmit} noValidate>
           <Field
-            label="Email"
-            type="email"
-            name="email"
+            label="Tên đăng nhập"
+            type="text"
+            name="username"
             autoComplete="username"
-            placeholder="you@example.com"
-            value={email}
-            error={fieldErrors.email}
-            onChange={(e) => setEmail(e.target.value)}
+            placeholder="vd: admin"
+            value={username}
+            error={fieldErrors.username}
+            onChange={(e) => setUsername(e.target.value)}
             disabled={submitting}
           />
           <Field
-            label="Password"
+            label="Mật khẩu"
             type="password"
             name="password"
             autoComplete="current-password"
@@ -112,7 +109,7 @@ export function LoginPage() {
           />
           <div className="auth__actions">
             <Button type="submit" variant="accent" block loading={submitting}>
-              {submitting ? "Signing in…" : "Sign in"}
+              {submitting ? "Đang đăng nhập…" : "Đăng nhập"}
             </Button>
           </div>
         </form>

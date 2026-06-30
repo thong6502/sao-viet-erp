@@ -18,8 +18,8 @@ class UserAdminError(Exception):
     """Base for user-management domain errors."""
 
 
-class EmailTaken(UserAdminError):
-    """An account with that email already exists."""
+class UsernameTaken(UserAdminError):
+    """An account with that username already exists."""
 
 
 class UserNotFound(UserAdminError):
@@ -72,7 +72,7 @@ class UserAdminService:
                 {
                     "id": u.id,
                     "name": u.name,
-                    "email": u.email,
+                    "username": u.username,
                     "department_id": u.department_id,
                     "department_name": dept_name,
                     "role_id": u.role_id,
@@ -83,15 +83,15 @@ class UserAdminService:
         return rows
 
     def create_user(
-        self, *, name: str, email: str, department_id: int, actor_id: int | None
+        self, *, name: str, username: str, department_id: int, actor_id: int | None
     ) -> User:
-        email = email.strip().lower()
+        username = username.strip()
         if self.departments.get_by_id(department_id) is None:
             raise DepartmentNotFound("Không tìm thấy phòng ban")
-        if self.users.get_by_email(email) is not None:
-            raise EmailTaken("Email đã được sử dụng")
+        if self.users.get_by_username(username) is not None:
+            raise UsernameTaken("Tên đăng nhập đã được sử dụng")
         user = self.users.create(
-            email=email,
+            username=username,
             name=name.strip(),
             password_hash=hash_password(settings.default_user_password),
         )
@@ -104,7 +104,7 @@ class UserAdminService:
             actor_user_id=actor_id,
             action="create_user",
             target=f"user:{user.id}",
-            detail=f"{email} → dept:{department_id}",
+            detail=f"{username} → dept:{department_id}",
         )
         return user
 
@@ -138,6 +138,6 @@ class UserAdminService:
             actor_user_id=actor_id,
             action="lock_user" if not is_active else "unlock_user",
             target=f"user:{user_id}",
-            detail=user.email,
+            detail=user.username,
         )
         return user

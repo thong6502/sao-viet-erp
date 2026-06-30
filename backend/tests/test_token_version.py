@@ -48,7 +48,7 @@ def test_bumped_token_version_rejects_old_token(client, seed_credentials):
     session = SessionLocal()
     try:
         users = UserRepository(session)
-        admin = users.get_by_email(seed_credentials["email"])
+        admin = users.get_by_username(seed_credentials["username"])
         users.bump_token_version(admin)
     finally:
         session.close()

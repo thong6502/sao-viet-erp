@@ -11,7 +11,7 @@ import os
 # Must be set before any `app.*` import so Settings reads them.
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
 os.environ["JWT_SECRET"] = "test-secret"
-os.environ["SEED_ADMIN_EMAIL"] = "admin@example.com"
+os.environ["SEED_ADMIN_USERNAME"] = "admin"
 os.environ["SEED_ADMIN_PASSWORD"] = "admin123"
 os.environ["SEED_ADMIN_NAME"] = "Admin"
 
@@ -30,4 +30,5 @@ def client():
 
 @pytest.fixture
 def seed_credentials() -> dict[str, str]:
-    return {"email": "admin@example.com", "password": "admin123"}
+    # Login is by username (spec-0001).
+    return {"username": "admin", "password": "admin123"}

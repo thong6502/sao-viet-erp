@@ -10,7 +10,7 @@ export function DashboardPage() {
       <div className="dash__bar">
         <div className="dash__who">
           <p className="eyebrow">Signed in</p>
-          <span className="dash__email">{user?.email}</span>
+          <span className="dash__email">{user?.username}</span>
         </div>
         <Button variant="ghost" onClick={logout}>
           Log out

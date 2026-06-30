@@ -11,7 +11,7 @@ from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
 
-ADMIN = {"email": "admin@example.com", "password": "admin123"}
+ADMIN = {"username": "admin", "password": "admin123"}
 
 
 def _admin_token(client) -> str:
@@ -25,7 +25,7 @@ def _h(token: str) -> dict[str, str]:
 def _admin_id() -> int:
     db = SessionLocal()
     try:
-        return UserRepository(db).get_by_email("admin@example.com").id
+        return UserRepository(db).get_by_username("admin").id
     finally:
         db.close()
 
@@ -34,13 +34,13 @@ def _sales_token() -> str:
     db = SessionLocal()
     try:
         users = UserRepository(db)
-        existing = users.get_by_email("sales-dept@example.com")
+        existing = users.get_by_username("sales-dept")
         if existing is not None:
             return create_access_token(str(existing.id))
         kd = DepartmentRepository(db).get_by_name("Kinh doanh")
         sales_role = RoleRepository(db).get_by_name_and_department("NV Sales", kd.id)
         user = users.create(
-            email="sales-dept@example.com", name="S", password_hash=hash_password("x")
+            username="sales-dept", name="S", password_hash=hash_password("x")
         )
         users.set_assignment(user, department_id=kd.id, role_id=sales_role.id, is_active=True)
         return create_access_token(str(user.id))
@@ -96,7 +96,7 @@ def test_set_head_must_belong_to_department(client):
     db = SessionLocal()
     try:
         user = UserRepository(db).create(
-            email="head@example.com", name="H", password_hash=hash_password("x")
+            username="head", name="H", password_hash=hash_password("x")
         )
         UserRepository(db).set_assignment(user, department_id=dept_id, role_id=None, is_active=True)
         uid = user.id
