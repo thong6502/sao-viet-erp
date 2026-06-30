@@ -14,8 +14,11 @@ One file per spec. The human Planner writes a spec here (from
   Evaluator PASS for each UI feature — see docs/EVALUATION.md).
 - [`spec-03-auth-hardening.md`](spec-03-auth-hardening.md) — Auth hardening: short access token +
   refresh token (httpOnly cookie, rotation), `POST /api/auth/refresh` + `/logout`, server-side
-  refresh-token store, `token_version` hard-revoke, and a production secret guard. **Planned**
-  (feat-012..016 in `feature_list.json`; not yet built).
+  refresh-token store, `token_version` hard-revoke, and a production secret guard. **Done**
+  (feat-012..016 in `feature_list.json`).
+- [`spec-04-change-password.md`](spec-04-change-password.md) — Hồ sơ & Cài đặt cá nhân: widget
+  avatar + tên ở cuối sidebar, dropdown mở Thông tin tài khoản · Đổi tên · Đổi avatar · Đổi mật khẩu
+  (đổi mật khẩu vô hiệu mọi phiên cũ). **Planned.**
 
 ## Rules
 

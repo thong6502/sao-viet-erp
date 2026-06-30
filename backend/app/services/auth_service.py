@@ -7,11 +7,17 @@ from __future__ import annotations
 
 from ..models.user import User
 from ..repositories.user_repo import UserRepository
-from ..security import create_access_token, verify_password
+from ..security import create_access_token, hash_password, verify_password
 
 
 class AuthError(Exception):
     """Raised when authentication fails. The route maps this to 401."""
+
+
+class PasswordChangeError(Exception):
+    """Raised when a self-service password change is rejected (wrong current password,
+    or the new password equals the current one). The route maps this to 400 and surfaces
+    the message verbatim (spec-04)."""
 
 
 class AuthService:
@@ -38,6 +44,24 @@ class AuthService:
         user = self.authenticate(username, password)
         token = create_access_token(subject=str(user.id), token_version=user.token_version)
         return token, user
+
+    def change_password(self, user: User, current_password: str, new_password: str) -> User:
+        """Self-service password change (spec-04).
+
+        Verifies the current password (bcrypt), refuses an unchanged password, then stores
+        the new hash and bumps `token_version` so every previously-issued access token dies.
+        The caller (route) revokes the user's refresh tokens. Raises PasswordChangeError
+        (→ 400) on a wrong current password or a new == current password. Pydantic enforces
+        the strength rules before we get here (→ 422).
+        """
+        if not verify_password(current_password, user.password_hash):
+            raise PasswordChangeError("Mật khẩu hiện tại không đúng")
+        if verify_password(new_password, user.password_hash):
+            raise PasswordChangeError("Mật khẩu mới phải khác mật khẩu hiện tại")
+        self.users.set_password(user, hash_password(new_password))
+        # Hard-revoke every outstanding access token (spec-03 lever).
+        self.users.bump_token_version(user)
+        return user
 
     def user_from_token_subject(self, subject: str | None) -> User:
         """Resolve the `sub` claim back to a live user, or raise AuthError."""

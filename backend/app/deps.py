@@ -22,6 +22,7 @@ from .security import decode_access_token
 from .services.auth_service import AuthError, AuthService
 from .services.activity_service import ActivityService
 from .services.department_service import DepartmentService
+from .services.profile_service import ProfileService
 from .services.rbac_service import AuthorizationService
 from .services.refresh_service import RefreshTokenService
 from .services.role_service import RoleService
@@ -140,6 +141,14 @@ def get_user_admin_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> UserAdminService:
     return UserAdminService(users, departments, roles, audit)
+
+
+def get_profile_service(
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
+    roles: Annotated[RoleRepository, Depends(get_role_repository)],
+) -> ProfileService:
+    return ProfileService(users, departments, roles)
 
 
 def get_activity_service(

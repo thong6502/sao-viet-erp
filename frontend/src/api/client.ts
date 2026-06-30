@@ -11,6 +11,21 @@ export interface User {
   id: number;
   username: string;
   name: string;
+  avatar_url?: string | null;
+}
+
+/** Enriched profile for the account panel (spec-04): user + resolved dept/role + created. */
+export interface Profile extends User {
+  department_name: string | null;
+  role_name: string | null;
+  created_at: string;
+}
+
+/** Resolve a server-relative asset path (e.g. an avatar `/static/...`) to a full URL the
+ *  browser can load from the API origin. Returns null for an empty/missing path. */
+export function assetUrl(path?: string | null): string | null {
+  if (!path) return null;
+  return /^https?:\/\//i.test(path) ? path : `${BASE_URL}${path}`;
 }
 
 export interface LoginResponse {
@@ -49,12 +64,18 @@ export class ApiError extends Error {
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   let resp: Response;
   try {
+    // Let the browser set the multipart boundary itself for FormData (avatar upload);
+    // force JSON otherwise.
+    const isForm = init.body instanceof FormData;
     resp = await fetch(`${BASE_URL}${path}`, {
       ...init,
       // Send/receive the httpOnly refresh cookie (spec-03). Requires the backend to
       // allow credentials with a specific origin (never "*").
       credentials: "include",
-      headers: { "Content-Type": "application/json", ...(init.headers ?? {}) },
+      headers: {
+        ...(isForm ? {} : { "Content-Type": "application/json" }),
+        ...(init.headers ?? {}),
+      },
     });
   } catch {
     throw new ApiError("Cannot reach the server. Check your connection and try again.", 0);
@@ -228,6 +249,44 @@ export const api = {
     return authed<{ modules: string[] }>("/api/auth/permissions", token).then(
       (r) => r.modules,
     );
+  },
+
+  // --- Self-service profile (spec-04) ---------------------------------------
+
+  /** Enriched current-user profile (department/role names + created_at). */
+  profile(token: string): Promise<Profile> {
+    return authed<Profile>("/api/auth/me", token);
+  },
+
+  /** Change the display name; returns the updated user. */
+  updateName(token: string, name: string): Promise<User> {
+    return authed<User>("/api/users/me", token, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    });
+  },
+
+  /** Upload a new avatar (JPG/PNG ≤ 2 MB); returns its server path. */
+  uploadAvatar(token: string, file: File): Promise<{ avatar_url: string }> {
+    const form = new FormData();
+    form.append("file", file);
+    return authed<{ avatar_url: string }>("/api/users/me/avatar", token, {
+      method: "POST",
+      body: form,
+    });
+  },
+
+  /** Remove the avatar → initials fallback. */
+  removeAvatar(token: string): Promise<void> {
+    return authed<void>("/api/users/me/avatar", token, { method: "DELETE" });
+  },
+
+  /** Change the current user's password; ends all sessions (caller returns to Login). */
+  changePassword(token: string, currentPassword: string, newPassword: string): Promise<void> {
+    return authed<void>("/api/auth/change-password", token, {
+      method: "POST",
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
   },
 
   rbac: {

@@ -19,6 +19,12 @@ export interface AuthState {
   token: string | null;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** feat-018: patch local user state after a profile update (name, avatar_url) */
+  updateUser: (patch: Partial<User>) => void;
+  /** A one-shot message to surface on the Login screen (e.g. after a password change
+   *  forces re-login, feat-022). Cleared by the Login screen once shown. */
+  notice: string | null;
+  setNotice: (msg: string | null) => void;
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
@@ -28,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>("loading");
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Let the API client push a rotated access token (silent refresh) and signal a dead
   // session back into React state.
@@ -89,9 +96,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("anonymous");
   }, []);
 
+  const updateUser = useCallback((patch: Partial<User>) => {
+    setUser((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
+
   const value = useMemo<AuthState>(
-    () => ({ status, user, token, login, logout }),
-    [status, user, token, login, logout],
+    () => ({ status, user, token, login, logout, updateUser, notice, setNotice }),
+    [status, user, token, login, logout, updateUser, notice],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

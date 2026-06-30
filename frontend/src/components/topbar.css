@@ -1,0 +1,190 @@
+/* Top header bar — light `--paper` surface above the scrolling content.
+   Hosts the user widget on the right (feat-018). */
+.topbar {
+  flex: 0 0 auto;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-5);
+  background: var(--canvas);
+  border-bottom: 1px solid var(--rule);
+}
+
+/* ---- User widget ---------------------------------------------------------- */
+.tb-user {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+/* Trigger button */
+.tb-user__trigger {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-1) var(--sp-2);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+  transition: background-color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard);
+}
+.tb-user__trigger:hover,
+.tb-user__trigger.is-open {
+  background: var(--paper);
+  border-color: var(--rule);
+}
+.tb-user__trigger:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* Avatar circle */
+.tb-user__avatar {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-pill);
+  background: var(--rust);
+  color: var(--paper);
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  overflow: hidden;
+}
+.tb-user__avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.tb-user__avatar--lg {
+  width: 44px;
+  height: 44px;
+  font-size: 16px;
+}
+
+/* Text block in trigger */
+.tb-user__trigger-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-right: var(--sp-1);
+}
+.tb-user__name {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+}
+.tb-user__sub {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Caret */
+.tb-user__caret {
+  flex: 0 0 auto;
+  opacity: 0.6;
+  transition: transform var(--duration-base) var(--easing-standard);
+}
+.tb-user__caret.is-up {
+  transform: rotate(-180deg);
+}
+
+/* Dropdown — opens downward, aligned to the right edge */
+.tb-user__dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 232px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  z-index: 200;
+  animation: tbDropDown var(--duration-base) var(--easing-standard);
+}
+
+@keyframes tbDropDown {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Dropdown header */
+.tb-user__dropdown-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+}
+.tb-user__info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Divider */
+.tb-user__divider {
+  height: 1px;
+  background: var(--rule-soft);
+  margin: var(--sp-1) 0;
+}
+
+/* Dropdown items */
+.tb-user__item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 9px var(--sp-4);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ink);
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+.tb-user__item:hover {
+  background: var(--paper);
+}
+.tb-user__item:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: -2px;
+}
+.tb-user__item--danger {
+  color: var(--signal);
+}
+.tb-user__item--danger:hover {
+  background: var(--signal-soft);
+}
+
+/* ---- Responsive: hide the trigger text on a narrow viewport --------------- */
+@media (max-width: 768px) {
+  .tb-user__trigger-text {
+    display: none;
+  }
+}

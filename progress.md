@@ -3,8 +3,34 @@
 ## Current State
 
 **Last Updated:** 2026-06-30
-**Active Feature:** **feat-017 — Đăng nhập bằng username (thay email)** — code-verified, browser-validate
-pending. spec-01 + spec-02 + spec-03 done (16); feat-017 is an amendment to feat-002/003.
+**Active Feature:** **spec-04 — Hồ sơ & Cài đặt cá nhân (feat-018..022)** — code-complete + verified
+(init.ps1 94 passed, frontend build green, live API smoke green). Browser-validate via Playwright MCP
+not run (the Playwright MCP server is not connected this session). feat-017 also code-verified earlier.
+
+### spec-04 — User profile widget + self-service (feat-018..022, 2026-06-30)
+
+- **Trigger:** user reported the Topbar user-menu items ("Thông tin tài khoản", "Đổi tên", "Đổi
+  avatar") did nothing — they were stubs (AppShell didn't pass `onProfileAction` and no panels
+  existed). Built the whole spec-04 to make the menu real.
+- **feat-018** user widget: placement moved from the sidebar bottom to a top header (`Topbar.tsx`);
+  avatar + name + dropdown (4 items + Đăng xuất), outside-click/Escape close, `assetUrl` for avatar.
+- **feat-019** `GET /api/auth/me` enriched to `ProfileOut` (dept/role names + created_at); read-only
+  InfoView. **feat-020** `PATCH /api/users/me {name}`. **feat-021** avatar upload/remove
+  (`POST/DELETE /api/users/me/avatar`, `users.avatar_url`, StaticFiles `/static`, 2 MB + JPG/PNG
+  guard). **feat-022** `POST /api/auth/change-password` (verify current → bump token_version +
+  revoke all refresh tokens → 204 → frontend logs out to Login with a success notice).
+- **Backend:** new `services/profile_service.py`, `routers/profile.py`, `schemas/profile.py`;
+  `AuthService.change_password` + `PasswordChangeError`; user_repo set_name/set_avatar/set_password;
+  16 new tests. **Test isolation fix:** `conftest` now drops+recreates the schema per test (the
+  in-memory StaticPool DB was shared across the session, so the new mutating tests leaked state) —
+  this is why the suite is now green at 94.
+- **Frontend:** `ProfileDialog.tsx` (+ css), `assetUrl` + profile API methods + FormData support in
+  `client.ts`, `AuthContext.updateUser`/`notice`, `.banner--success` + `--moss-soft`.
+- **Live DB:** `backend/dev.db` ALTERed to add `avatar_url` (create_all does not ALTER); already has
+  `username` from feat-017. Backend on :8000 runs with `--reload` and serves the new endpoints.
+- **NEXT:** hard-refresh the browser (Ctrl+Shift+R) and click through the 4 menu items; run the formal
+  Playwright browser-validate once that MCP server is connected. feat-017's live login journey is also
+  still pending the same browser pass.
 
 ### feat-017 — Username replaces email entirely (spec-0001, in_progress 2026-06-30)
 

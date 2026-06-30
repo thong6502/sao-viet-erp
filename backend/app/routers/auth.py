@@ -15,11 +15,22 @@ from ..deps import (
     CurrentUser,
     get_auth_service,
     get_authorization_service,
+    get_profile_service,
     get_refresh_service,
+    get_refresh_token_repository,
 )
-from ..schemas.auth import LoginRequest, PermissionsOut, TokenResponse, UserOut
+from ..repositories.refresh_token_repo import RefreshTokenRepository
+from ..schemas.auth import (
+    ChangePasswordRequest,
+    LoginRequest,
+    PermissionsOut,
+    ProfileOut,
+    TokenResponse,
+    UserOut,
+)
 from ..security import create_access_token
-from ..services.auth_service import AuthError, AuthService
+from ..services.auth_service import AuthError, AuthService, PasswordChangeError
+from ..services.profile_service import ProfileService
 from ..services.rbac_service import AuthorizationService
 from ..services.refresh_service import RefreshError, RefreshTokenService
 
@@ -103,9 +114,34 @@ def logout(
     return response
 
 
-@router.get("/me", response_model=UserOut)
-def me(current_user: CurrentUser) -> UserOut:
-    return UserOut.model_validate(current_user)
+@router.get("/me", response_model=ProfileOut)
+def me(
+    current_user: CurrentUser,
+    profiles: Annotated[ProfileService, Depends(get_profile_service)],
+) -> ProfileOut:
+    # Enriched profile (department/role names + created_at) for the account panel (spec-04).
+    return ProfileOut.model_validate(profiles.get_profile(current_user))
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def change_password(
+    payload: ChangePasswordRequest,
+    current_user: CurrentUser,
+    auth: Annotated[AuthService, Depends(get_auth_service)],
+    refresh_tokens: Annotated[RefreshTokenRepository, Depends(get_refresh_token_repository)],
+) -> Response:
+    """Self-service password change (spec-04). Verifies the current password, stores the new
+    hash + bumps token_version (kills access tokens), and revokes every refresh token so all
+    sessions end. The frontend then returns to Login. Cookie clearing is handled client-side
+    by the forced re-login; we also clear it here for good measure."""
+    try:
+        auth.change_password(current_user, payload.current_password, payload.new_password)
+    except PasswordChangeError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    refresh_tokens.revoke_all_for_user(current_user.id)
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    _clear_refresh_cookie(response)
+    return response
 
 
 @router.get("/permissions", response_model=PermissionsOut)

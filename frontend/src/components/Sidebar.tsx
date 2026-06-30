@@ -3,6 +3,7 @@
 // Sections collapse; items with `children` expand. Active row sets aria-current.
 // Each item is gated by a `module` key: only modules the current role can Read
 // are shown (feat-010) — sections with no visible items are dropped.
+// The user widget lives in the top header (Topbar), not here (feat-018).
 import { useState } from "react";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import { Icon, type IconName } from "./Icons";

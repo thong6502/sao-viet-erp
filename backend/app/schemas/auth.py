@@ -1,7 +1,9 @@
 """Auth schemas — the shapes routes parse and return (no business logic here)."""
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class LoginRequest(BaseModel):
@@ -16,6 +18,29 @@ class UserOut(BaseModel):
     id: int
     username: str
     name: str
+    avatar_url: str | None = None
+
+
+class ProfileOut(UserOut):
+    """Read-only profile for the account panel (spec-04): the lean UserOut enriched with
+    the resolved department/role names and the account creation date."""
+
+    department_name: str | None = None
+    role_name: str | None = None
+    created_at: datetime
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    # New password strength (spec-04): ≥ 8 chars with at least one letter and one digit.
+    new_password: str = Field(min_length=8, max_length=256)
+
+    @field_validator("new_password")
+    @classmethod
+    def _strength(cls, v: str) -> str:
+        if not any(c.isalpha() for c in v) or not any(c.isdigit() for c in v):
+            raise ValueError("Mật khẩu mới phải gồm cả chữ và số")
+        return v
 
 
 class TokenResponse(BaseModel):
