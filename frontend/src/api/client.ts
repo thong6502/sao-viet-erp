@@ -179,8 +179,22 @@ export interface Department {
   parent_id?: number | null;
   head_user_id?: number | null;
   head_name?: string | null;
+  /** This department's own role/user counts. */
   role_count?: number;
   user_count?: number;
+  /** Branch-rolled-up counts (department + every descendant) — PBI-4001. */
+  total_role_count?: number;
+  total_user_count?: number;
+}
+
+/** A staff member of a department (PBI-4001 detail panel). */
+export interface DepartmentMember {
+  id: number;
+  name: string;
+  username: string;
+  role_name?: string | null;
+  is_active: boolean;
+  is_head: boolean;
 }
 
 /** A node in a department's delete-preview subtree (spec-05). */
@@ -306,8 +320,8 @@ export const api = {
     departments(token: string): Promise<Department[]> {
       return authed<Department[]>("/api/departments", token);
     },
-    departmentUsers(token: string, departmentId: number): Promise<UserBrief[]> {
-      return authed<UserBrief[]>(`/api/departments/${departmentId}/users`, token);
+    departmentUsers(token: string, departmentId: number): Promise<DepartmentMember[]> {
+      return authed<DepartmentMember[]>(`/api/departments/${departmentId}/users`, token);
     },
     createDepartment(
       token: string,

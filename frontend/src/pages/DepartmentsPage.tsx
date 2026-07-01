@@ -3,12 +3,12 @@ import {
   ApiError,
   api,
   type Department,
+  type DepartmentMember,
   type DepartmentSubtreeRow,
   type ModuleDef,
   type PermissionRow,
   type Role,
   type Scope,
-  type UserBrief,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
@@ -20,29 +20,26 @@ import {
 } from "../components/PermissionMatrix";
 import "./departments.css";
 
-/** Order departments as a tree (parent before its children) with a depth for indentation. */
-function orderTree(list: Department[]): { dept: Department; depth: number }[] {
-  const byParent = new Map<number | null, Department[]>();
+/** Group departments by parent and find the roots, so the list can render as a real tree.
+ *  Orphans (parent missing/filtered out) are treated as roots so nothing ever disappears. */
+function buildTree(list: Department[]): {
+  childrenOf: Map<number, Department[]>;
+  roots: Department[];
+} {
+  const ids = new Set(list.map((d) => d.id));
+  const childrenOf = new Map<number, Department[]>();
+  const roots: Department[] = [];
   for (const d of list) {
-    const key = d.parent_id ?? null;
-    const bucket = byParent.get(key);
-    if (bucket) bucket.push(d);
-    else byParent.set(key, [d]);
-  }
-  const out: { dept: Department; depth: number }[] = [];
-  const placed = new Set<number>();
-  const visit = (parent: number | null, depth: number) => {
-    for (const d of byParent.get(parent) ?? []) {
-      if (placed.has(d.id)) continue;
-      placed.add(d.id);
-      out.push({ dept: d, depth });
-      visit(d.id, depth + 1);
+    const parent = d.parent_id ?? null;
+    if (parent != null && ids.has(parent)) {
+      const bucket = childrenOf.get(parent);
+      if (bucket) bucket.push(d);
+      else childrenOf.set(parent, [d]);
+    } else {
+      roots.push(d);
     }
-  };
-  visit(null, 0);
-  // Orphans (parent filtered out / missing) fall back to roots so nothing disappears.
-  for (const d of list) if (!placed.has(d.id)) out.push({ dept: d, depth: 0 });
-  return out;
+  }
+  return { childrenOf, roots };
 }
 
 function initials(name: string): string {
@@ -59,9 +56,11 @@ export function DepartmentsPage() {
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [users, setUsers] = useState<UserBrief[]>([]);
+  const [members, setMembers] = useState<DepartmentMember[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [modules, setModules] = useState<ModuleDef[]>([]);
+  // Collapsed branches in the cha–con tree (by parent department id).
+  const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
   // Add-role popup (reuses the Roles permission matrix).
   const [addRoleOpen, setAddRoleOpen] = useState(false);
@@ -85,6 +84,7 @@ export function DepartmentsPage() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -111,7 +111,7 @@ export function DepartmentsPage() {
   const [deleteBusy, setDeleteBusy] = useState(false);
 
   const currentDept = departments.find((d) => d.id === selectedId) ?? null;
-  const tree = useMemo(() => orderTree(departments), [departments]);
+  const { childrenOf, roots } = useMemo(() => buildTree(departments), [departments]);
   const byId = useMemo(() => new Map(departments.map((d) => [d.id, d])), [departments]);
 
   function loadDepartments(): Promise<Department[]> {
@@ -161,22 +161,24 @@ export function DepartmentsPage() {
     setEditDescription(dept?.description ?? "");
     setEditHead(dept?.head_user_id ?? null);
     if (!token || selectedId == null) {
-      setUsers([]);
+      setMembers([]);
       setRoles([]);
       return;
     }
     let cancelled = false;
     setDetailLoading(true);
+    setDetailError(null);
     Promise.all([api.rbac.departmentUsers(token, selectedId), api.rbac.roles(token, selectedId)])
-      .then(([us, rs]) => {
+      .then(([ms, rs]) => {
         if (cancelled) return;
-        setUsers(us);
+        setMembers(ms);
         setRoles(rs);
       })
       .catch(() => {
         if (cancelled) return;
-        setUsers([]);
+        setMembers([]);
         setRoles([]);
+        setDetailError("Không tải được nhân sự / vai trò của phòng.");
       })
       .finally(() => !cancelled && setDetailLoading(false));
     return () => {
@@ -194,6 +196,15 @@ export function DepartmentsPage() {
 
   const parentName = (id: number | null | undefined) =>
     id == null ? null : byId.get(id)?.name ?? null;
+
+  function toggleCollapse(id: number) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function openCreate() {
     setNewName("");
@@ -402,6 +413,58 @@ export function DepartmentsPage() {
     }
   }
 
+  /** One node of the cha–con tree: a toggle (for branches) + the selectable row, then its
+   *  expanded children nested under a guide rail. Counts shown are branch-rolled-up (PBI-4001). */
+  function renderNode(d: Department) {
+    const kids = childrenOf.get(d.id) ?? [];
+    const hasKids = kids.length > 0;
+    const isCollapsed = collapsed.has(d.id);
+    const roleTotal = d.total_role_count ?? d.role_count ?? 0;
+    const userTotal = d.total_user_count ?? d.user_count ?? 0;
+    return (
+      <li key={d.id} className="depts__node">
+        <div className={`depts__item${d.id === selectedId ? " is-active" : ""}`}>
+          {hasKids ? (
+            <button
+              type="button"
+              className={`depts__toggle${isCollapsed ? "" : " is-open"}`}
+              aria-label={isCollapsed ? "Mở rộng" : "Thu gọn"}
+              aria-expanded={!isCollapsed}
+              onClick={() => toggleCollapse(d.id)}
+            >
+              <span className="depts__toggle-caret" aria-hidden="true">
+                ▸
+              </span>
+            </button>
+          ) : (
+            <span className="depts__toggle depts__toggle--leaf" aria-hidden="true" />
+          )}
+          <button
+            type="button"
+            className="depts__item-main"
+            aria-current={d.id === selectedId ? "true" : undefined}
+            onClick={() => setSelectedId(d.id)}
+          >
+            <span className="depts__item-top">
+              {d.code && <span className="depts__code">{d.code}</span>}
+              <span className="depts__item-name">{d.name}</span>
+              {hasKids && <span className="depts__item-count">{kids.length}</span>}
+            </span>
+            <span className="depts__item-meta">
+              {roleTotal} vai trò · {userTotal} người
+            </span>
+            <span className="depts__item-head">
+              {d.head_name ? `TP: ${d.head_name}` : "Chưa có trưởng phòng"}
+            </span>
+          </button>
+        </div>
+        {hasKids && !isCollapsed && (
+          <ul className="depts__children">{kids.map(renderNode)}</ul>
+        )}
+      </li>
+    );
+  }
+
   if (forbidden) {
     return (
       <main className="depts">
@@ -458,25 +521,7 @@ export function DepartmentsPage() {
               <p className="depts__hint">Bấm “Tạo phòng ban” để thêm phòng đầu tiên.</p>
             </div>
           ) : (
-            tree.map(({ dept: d, depth }) => (
-              <button
-                key={d.id}
-                type="button"
-                className={`depts__item${d.id === selectedId ? " is-active" : ""}`}
-                style={depth ? { marginLeft: `${depth * 16}px` } : undefined}
-                aria-current={d.id === selectedId ? "true" : undefined}
-                onClick={() => setSelectedId(d.id)}
-              >
-                <span className="depts__item-top">
-                  {d.code && <span className="depts__code">{d.code}</span>}
-                  <span className="depts__item-name">{d.name}</span>
-                </span>
-                <span className="depts__item-meta">
-                  {d.role_count ?? 0} vai trò · {d.user_count ?? 0} người
-                  {depth > 0 && parentName(d.parent_id) ? ` · thuộc ${parentName(d.parent_id)}` : ""}
-                </span>
-              </button>
-            ))
+            <ul className="depts__tree">{roots.map(renderNode)}</ul>
           )}
         </aside>
 
@@ -498,11 +543,17 @@ export function DepartmentsPage() {
                     <h2 className="depts__id-name">{currentDept.name}</h2>
                   </div>
                   <p className="depts__id-meta">
-                    {roles.length} vai trò · {users.length} người ·{" "}
+                    {roles.length} vai trò · {members.length} người ·{" "}
                     {parentName(currentDept.parent_id)
                       ? `Thuộc ${parentName(currentDept.parent_id)}`
                       : "Phòng gốc"}
                   </p>
+                  {(childrenOf.get(currentDept.id)?.length ?? 0) > 0 && (
+                    <p className="depts__id-branch">
+                      Gồm cả nhánh con: {currentDept.total_role_count ?? roles.length} vai trò ·{" "}
+                      {currentDept.total_user_count ?? members.length} người
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -552,7 +603,7 @@ export function DepartmentsPage() {
                     id="dept-head"
                     className="input"
                     value={editHead ?? ""}
-                    disabled={users.length === 0}
+                    disabled={members.length === 0}
                     onChange={(e) => {
                       setEditHead(e.target.value ? Number(e.target.value) : null);
                       setDirty(true);
@@ -560,13 +611,13 @@ export function DepartmentsPage() {
                     }}
                   >
                     <option value="">— Chưa chỉ định —</option>
-                    {users.map((u) => (
+                    {members.map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.name} ({u.username})
                       </option>
                     ))}
                   </select>
-                  {users.length === 0 && (
+                  {members.length === 0 && (
                     <span className="depts__hint">
                       Phòng chưa có người dùng — thêm ở màn Người dùng trước.
                     </span>
@@ -591,6 +642,52 @@ export function DepartmentsPage() {
                     Lưu thay đổi
                   </Button>
                 </div>
+              </div>
+
+              {/* Staff in this department (PBI-4001): name + username + role + status. */}
+              <div className="card depts__section">
+                <div className="depts__section-head">
+                  <p className="eyebrow">Nhân sự trong phòng</p>
+                  <span className="depts__count-pill">{members.length}</span>
+                </div>
+                {detailLoading ? (
+                  <p className="depts__status">Đang tải…</p>
+                ) : detailError ? (
+                  <span className="depts__inline-error" role="alert">
+                    {detailError}
+                  </span>
+                ) : members.length === 0 ? (
+                  <p className="depts__hint">
+                    Phòng chưa có nhân sự. Thêm người ở màn “Người dùng”.
+                  </p>
+                ) : (
+                  <ul className="depts__members">
+                    {members.map((m) => (
+                      <li key={m.id} className="depts__member">
+                        <span className="depts__member-avatar" aria-hidden="true">
+                          {initials(m.name)}
+                        </span>
+                        <span className="depts__member-main">
+                          <span className="depts__member-line">
+                            <span className="depts__member-name">{m.name}</span>
+                            {m.is_head && (
+                              <span className="depts__badge depts__badge--head">Trưởng phòng</span>
+                            )}
+                            {!m.is_active && (
+                              <span className="depts__badge depts__badge--locked">Đã khóa</span>
+                            )}
+                          </span>
+                          <span className="depts__member-meta">
+                            <span className="depts__member-user">@{m.username}</span>
+                            <span className="depts__member-role">
+                              {m.role_name ?? "Chưa gán vai trò"}
+                            </span>
+                          </span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
 
               {/* Roles in this department — add a role (name + permission matrix) right here. */}

@@ -22,7 +22,12 @@ class DepartmentOut(BaseModel):
 
 
 class DepartmentSummaryOut(BaseModel):
-    """Department list row: identity + code + tree + head + role/user counts for the screen."""
+    """Department list row: identity + code + tree + head + role/user counts for the screen.
+
+    `role_count`/`user_count` are this department's OWN counts; `total_role_count`/
+    `total_user_count` roll the whole branch up (the department + every descendant), so a
+    parent unit shows the aggregate of its sub-tree (spec-05 / PBI-4001).
+    """
 
     id: int
     name: str
@@ -33,6 +38,19 @@ class DepartmentSummaryOut(BaseModel):
     head_name: str | None = None
     role_count: int = 0
     user_count: int = 0
+    total_role_count: int = 0
+    total_user_count: int = 0
+
+
+class DepartmentMemberOut(BaseModel):
+    """A staff member of a department (PBI-4001 detail): identity + role + status + head flag."""
+
+    id: int
+    name: str
+    username: str
+    role_name: str | None = None
+    is_active: bool = True
+    is_head: bool = False
 
 
 class DepartmentCreate(BaseModel):
