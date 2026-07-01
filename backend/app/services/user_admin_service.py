@@ -125,6 +125,44 @@ class UserAdminService:
         )
         return user
 
+    def transfer_users(
+        self, *, user_ids: list[int], target_department_id: int, actor_id: int | None
+    ) -> int:
+        """Bulk-move people to a target department (spec-06 / PBI-4008).
+
+        Each transferred user lands in the target department with NO role (role_id=None) —
+        back to minimal access until the new head assigns one. If a moved user headed their
+        OLD department, that department's head is cleared. Validates the target and every
+        user up front (nothing changes if any is missing), then writes one audit row per
+        person moved. Returns how many were moved.
+        """
+        target = self.departments.get_by_id(target_department_id)
+        if target is None:
+            raise DepartmentNotFound("Không tìm thấy phòng đích")
+        # Resolve everyone first so a bad id fails the whole batch (no partial move).
+        users: list[User] = []
+        for uid in user_ids:
+            u = self.users.get_by_id(uid)
+            if u is None:
+                raise UserNotFound(f"Không tìm thấy người dùng (id={uid})")
+            users.append(u)
+        for u in users:
+            old_dept_id = u.department_id
+            if old_dept_id is not None and old_dept_id != target_department_id:
+                old = self.departments.get_by_id(old_dept_id)
+                if old is not None and old.head_user_id == u.id:
+                    self.departments.set_head(old, None)  # they no longer head the old unit
+            self.users.set_assignment(
+                u, department_id=target_department_id, role_id=None, is_active=u.is_active
+            )
+            self.audit.create(
+                actor_user_id=actor_id,
+                action="transfer_user",
+                target=f"user:{u.id}",
+                detail=f"{u.username} → dept:{target_department_id}",
+            )
+        return len(users)
+
     def set_active(
         self, *, user_id: int, is_active: bool, actor_id: int | None
     ) -> User:

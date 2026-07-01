@@ -11,6 +11,7 @@ from ..deps import (
     get_activity_service,
     get_department_service,
     get_role_service,
+    get_unit_level_service,
     get_user_admin_service,
     require_permission,
 )
@@ -21,6 +22,7 @@ from ..schemas.rbac import (
     DepartmentMemberOut,
     DepartmentSubtreeRow,
     DepartmentSummaryOut,
+    DepartmentTransferIn,
     DepartmentUpdate,
     ModuleOut,
     PermissionMatrixIn,
@@ -29,17 +31,30 @@ from ..schemas.rbac import (
     RoleCreate,
     RoleOut,
     RoleRename,
+    TransferResult,
+    UnitLevelCreate,
+    UnitLevelOut,
+    UnitLevelUpdate,
     UserBrief,
     UserCreate,
     UserRow,
 )
 from ..services.department_service import (
     DepartmentBranchHasUsers,
+    DepartmentCycle,
     DepartmentNameTaken,
     InvalidHead,
+    InvalidLevelOrder,
 )
 from ..services.department_service import DepartmentNotFound as DeptNotFound
 from ..services.department_service import DepartmentService
+from ..services.unit_level_service import (
+    UnitLevelInUse,
+    UnitLevelNameTaken,
+    UnitLevelNotFound,
+    UnitLevelRankTaken,
+    UnitLevelService,
+)
 from ..services.role_service import (
     DepartmentNotFound,
     RoleInUse,
@@ -61,6 +76,7 @@ router = APIRouter(prefix="/api", tags=["rbac"])
 
 Service = Annotated[RoleService, Depends(get_role_service)]
 Depts = Annotated[DepartmentService, Depends(get_department_service)]
+Levels = Annotated[UnitLevelService, Depends(get_unit_level_service)]
 Users = Annotated[UserAdminService, Depends(get_user_admin_service)]
 Activity = Annotated[ActivityService, Depends(get_activity_service)]
 
@@ -110,10 +126,13 @@ def create_department(
             name=payload.name,
             description=payload.description,
             parent_id=payload.parent_id,
+            level_id=payload.level_id,
             actor_id=user.id,
         )
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except (DepartmentCycle, InvalidLevelOrder) as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return depts.summary_of(dept)
@@ -127,16 +146,24 @@ def update_department(
     user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
 ) -> dict:
     try:
+        # Only re-parent when the client explicitly sends parent_id (absent → keep current).
+        parent_kw = (
+            {"parent_id": payload.parent_id}
+            if "parent_id" in payload.model_fields_set
+            else {}
+        )
         dept = depts.update(
             dept_id=dept_id,
             name=payload.name,
             description=payload.description,
             head_user_id=payload.head_user_id,
+            level_id=payload.level_id,
             actor_id=user.id,
+            **parent_kw,
         )
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except InvalidHead as e:
+    except (InvalidHead, DepartmentCycle, InvalidLevelOrder) as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
@@ -166,6 +193,101 @@ def department_subtree(
 ) -> list[dict]:
     # The units a delete of this department would remove (PBI-4005 confirm preview).
     return [{"id": d.id, "name": d.name, "code": d.code} for d in depts.branch(dept_id)]
+
+
+@router.get("/departments/{dept_id}/head-candidates", response_model=list[UserBrief])
+def department_head_candidates(
+    dept_id: int,
+    depts: Depts,
+    _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
+) -> list[UserBrief]:
+    # PBI-4004: valid heads are people in this unit OR any of its sub-units (subtree).
+    return depts.head_candidates(dept_id)
+
+
+@router.post("/departments/transfer", response_model=TransferResult)
+def transfer_department_users(
+    payload: DepartmentTransferIn,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+) -> TransferResult:
+    # PBI-4008: bulk-move people to a target department (old role dropped, audited per person).
+    try:
+        n = admin.transfer_users(
+            user_ids=payload.user_ids,
+            target_department_id=payload.target_department_id,
+            actor_id=user.id,
+        )
+    except UADeptNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return TransferResult(transferred=n)
+
+
+@router.get("/unit-levels", response_model=list[UnitLevelOut])
+def list_unit_levels(
+    levels: Levels,
+    _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
+) -> list[UnitLevelOut]:
+    return levels.list_levels()
+
+
+@router.post("/unit-levels", response_model=UnitLevelOut, status_code=status.HTTP_201_CREATED)
+def create_unit_level(
+    payload: UnitLevelCreate,
+    levels: Levels,
+    user: Annotated[object, Depends(require_permission("phong_ban", "create"))],
+) -> UnitLevelOut:
+    try:
+        return levels.create(
+            name=payload.name,
+            rank=payload.rank,
+            head_title=payload.head_title,
+            actor_id=user.id,
+        )
+    except (UnitLevelNameTaken, UnitLevelRankTaken) as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+
+
+@router.put("/unit-levels/{level_id}", response_model=UnitLevelOut)
+def update_unit_level(
+    level_id: int,
+    payload: UnitLevelUpdate,
+    levels: Levels,
+    user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
+) -> UnitLevelOut:
+    try:
+        return levels.update(
+            level_id=level_id,
+            name=payload.name,
+            rank=payload.rank,
+            head_title=payload.head_title,
+            actor_id=user.id,
+        )
+    except (UnitLevelNameTaken, UnitLevelRankTaken) as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except UnitLevelNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+
+@router.delete(
+    "/unit-levels/{level_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_unit_level(
+    level_id: int,
+    levels: Levels,
+    user: Annotated[object, Depends(require_permission("phong_ban", "delete"))],
+) -> Response:
+    try:
+        levels.delete(level_id=level_id, actor_id=user.id)
+    except UnitLevelInUse as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except UnitLevelNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/users", response_model=list[UserRow])

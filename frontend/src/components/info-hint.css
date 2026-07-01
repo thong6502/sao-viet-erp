@@ -1,0 +1,72 @@
+/* InfoHint — circled "i" + tooltip bubble on hover/focus (paper + ink system). */
+.hint-tip {
+  position: relative;
+  display: inline-flex;
+  vertical-align: middle;
+}
+.hint-tip__btn {
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule);
+  background: var(--canvas);
+  color: var(--ash);
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  cursor: help;
+  padding: 0;
+  transition: color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+.hint-tip__btn:hover,
+.hint-tip__btn:focus-visible {
+  color: var(--rust-deep);
+  border-color: var(--rust);
+  outline: none;
+}
+
+.hint-tip__bubble {
+  position: absolute;
+  z-index: 60;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(4px);
+  width: max-content;
+  max-width: 240px;
+  padding: 8px 10px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: var(--fw-regular);
+  line-height: 1.45;
+  letter-spacing: normal;
+  text-transform: none;
+  border-radius: var(--r-3);
+  box-shadow: 0 4px 12px rgba(20, 19, 15, 0.2);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--duration-base) var(--easing-standard),
+    transform var(--duration-base) var(--easing-standard);
+}
+/* Little pointer under the bubble. */
+.hint-tip__bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+}
+.hint-tip__btn:hover + .hint-tip__bubble,
+.hint-tip__btn:focus-visible + .hint-tip__bubble,
+.hint-tip:hover .hint-tip__bubble {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

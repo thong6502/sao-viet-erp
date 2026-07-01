@@ -9,10 +9,16 @@ import {
   type PermissionRow,
   type Role,
   type Scope,
+  type UnitLevel,
+  type UserBrief,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
+import { InfoHint } from "../components/InfoHint";
+import { Select } from "../components/Select";
+import { UnitLevelsDialog } from "../components/UnitLevelsDialog";
 import {
   PermissionMatrix,
   defaultMatrix,
@@ -59,6 +65,14 @@ export function DepartmentsPage() {
   const [members, setMembers] = useState<DepartmentMember[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [modules, setModules] = useState<ModuleDef[]>([]);
+  // Org tiers (spec-06 / PBI-4009) + who may head the selected unit (its subtree, PBI-4004).
+  const [levels, setLevels] = useState<UnitLevel[]>([]);
+  const [headCandidates, setHeadCandidates] = useState<UserBrief[]>([]);
+  const [levelsOpen, setLevelsOpen] = useState(false);
+  // "Thông tin phòng" edit form now opens in a modal instead of expanding inline.
+  const [infoOpen, setInfoOpen] = useState(false);
+  // Warn before discarding unsaved edits when closing the modal.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   // Collapsed branches in the cha–con tree (by parent department id).
   const [collapsed, setCollapsed] = useState<Set<number>>(new Set());
 
@@ -80,6 +94,18 @@ export function DepartmentsPage() {
   const [editRoleConfirmDelete, setEditRoleConfirmDelete] = useState(false);
   const [editRoleDeleting, setEditRoleDeleting] = useState(false);
 
+  // Bulk transfer (PBI-4008): tick members + pick a target department.
+  const [selectedMemberIds, setSelectedMemberIds] = useState<Set<number>>(new Set());
+  const [transferTarget, setTransferTarget] = useState<number | null>(null);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  // Staff list: search + status filter + pagination.
+  const [memberSearch, setMemberSearch] = useState("");
+  const [memberStatusFilter, setMemberStatusFilter] = useState<"all" | "active" | "locked">(
+    "all",
+  );
+  const [memberPage, setMemberPage] = useState(1);
+
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
@@ -89,19 +115,30 @@ export function DepartmentsPage() {
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editHead, setEditHead] = useState<number | null>(null);
+  const [editLevelId, setEditLevelId] = useState<number | null>(null);
+  const [editParentId, setEditParentId] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [confirmingSave, setConfirmingSave] = useState(false);
 
-  // Create (PBI-4002): name + optional description + optional parent; code is auto.
+  // Create (PBI-4002): name + optional description + optional parent + optional level; code is auto.
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newParentId, setNewParentId] = useState<number | null>(null);
+  const [newLevelId, setNewLevelId] = useState<number | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+
+  // List view (wireframe): full-width table with KPI stats, search, and filters.
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "complete" | "no_head" | "empty">(
+    "all",
+  );
+  const [levelFilter, setLevelFilter] = useState<number | null>(null);
+  // Staff-count range (wireframe): blank bound = open-ended. Kept as strings for the inputs.
+  const [staffMin, setStaffMin] = useState("");
+  const [staffMax, setStaffMax] = useState("");
 
   // Delete (PBI-4005): confirm shows the whole branch that will be removed.
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -113,6 +150,109 @@ export function DepartmentsPage() {
   const currentDept = departments.find((d) => d.id === selectedId) ?? null;
   const { childrenOf, roots } = useMemo(() => buildTree(departments), [departments]);
   const byId = useMemo(() => new Map(departments.map((d) => [d.id, d])), [departments]);
+  // Units that can't be the selected unit's parent: itself + all its descendants (no cycles).
+  const excludedParentIds = useMemo(() => {
+    const ids = new Set<number>();
+    if (selectedId == null) return ids;
+    const walk = (id: number) => {
+      ids.add(id);
+      for (const c of childrenOf.get(id) ?? []) walk(c.id);
+    };
+    walk(selectedId);
+    return ids;
+  }, [selectedId, childrenOf]);
+
+  // A department's staffing status (wireframe): no staff → trống; staff but no head → thiếu TP.
+  function deptStatus(d: Department): "empty" | "no_head" | "complete" {
+    if ((d.user_count ?? 0) === 0) return "empty";
+    if (d.head_user_id == null) return "no_head";
+    return "complete";
+  }
+
+  const stats = useMemo(() => {
+    let staff = 0;
+    let noHead = 0;
+    let empty = 0;
+    for (const d of departments) {
+      staff += d.user_count ?? 0;
+      const s = deptStatus(d);
+      if (s === "no_head") noHead += 1;
+      if (s === "empty") empty += 1;
+    }
+    return { count: departments.length, staff, noHead, empty };
+  }, [departments]);
+
+  const filtersActive =
+    search.trim() !== "" ||
+    statusFilter !== "all" ||
+    levelFilter != null ||
+    staffMin.trim() !== "" ||
+    staffMax.trim() !== "";
+
+  function matchesFilters(d: Department): boolean {
+    const q = search.trim().toLowerCase();
+    if (q) {
+      const hay = `${d.code ?? ""} ${d.name} ${d.head_name ?? ""}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (statusFilter !== "all" && deptStatus(d) !== statusFilter) return false;
+    if (levelFilter != null && d.level_id !== levelFilter) return false;
+    const count = d.user_count ?? 0;
+    const min = staffMin.trim() === "" ? null : Number(staffMin);
+    const max = staffMax.trim() === "" ? null : Number(staffMax);
+    if (min != null && !Number.isNaN(min) && count < min) return false;
+    if (max != null && !Number.isNaN(max) && count > max) return false;
+    return true;
+  }
+
+  // Rows to render: a flat filtered list while searching/filtering, else the collapsible tree.
+  const listRows = useMemo(() => {
+    if (filtersActive) {
+      return departments
+        .filter(matchesFilters)
+        .map((d) => ({ dept: d, depth: 0, hasKids: false }));
+    }
+    const rows: { dept: Department; depth: number; hasKids: boolean }[] = [];
+    const walk = (d: Department, depth: number) => {
+      const kids = childrenOf.get(d.id) ?? [];
+      rows.push({ dept: d, depth, hasKids: kids.length > 0 });
+      if (!collapsed.has(d.id)) for (const c of kids) walk(c, depth + 1);
+    };
+    for (const r of roots) walk(r, 0);
+    return rows;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departments, roots, childrenOf, collapsed, filtersActive, search, statusFilter, levelFilter, staffMin, staffMax]);
+
+  function resetFilters() {
+    setSearch("");
+    setStatusFilter("all");
+    setLevelFilter(null);
+    setStaffMin("");
+    setStaffMax("");
+  }
+
+  // Staff list, filtered + paginated (search by name/username/role, filter by lock status).
+  const [memberPageSize, setMemberPageSize] = useState(8);
+  const filteredMembers = useMemo(() => {
+    const q = memberSearch.trim().toLowerCase();
+    return members.filter((m) => {
+      if (memberStatusFilter === "active" && !m.is_active) return false;
+      if (memberStatusFilter === "locked" && m.is_active) return false;
+      if (q) {
+        const hay = `${m.name} ${m.username} ${m.role_name ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [members, memberSearch, memberStatusFilter]);
+  const memberPageCount = Math.max(1, Math.ceil(filteredMembers.length / memberPageSize));
+  const pageMembers = filteredMembers.slice(
+    (memberPage - 1) * memberPageSize,
+    memberPage * memberPageSize,
+  );
+  useEffect(() => {
+    if (memberPage > memberPageCount) setMemberPage(memberPageCount);
+  }, [memberPage, memberPageCount]);
 
   function loadDepartments(): Promise<Department[]> {
     if (!token) return Promise.resolve([]);
@@ -127,12 +267,14 @@ export function DepartmentsPage() {
     Promise.all([
       loadDepartments(),
       api.rbac.modules(token).catch(() => [] as ModuleDef[]),
+      api.rbac.unitLevels(token).catch(() => [] as UnitLevel[]),
     ])
-      .then(([list, mods]) => {
+      .then(([list, mods, lvls]) => {
         if (cancelled) return;
         setDepartments(list);
         setModules(mods);
-        setSelectedId(list[0]?.id ?? null);
+        setLevels(lvls);
+        setSelectedId(null); // start on the list; click a department to configure it
       })
       .catch((err) => {
         if (cancelled) return;
@@ -148,36 +290,51 @@ export function DepartmentsPage() {
 
   useEffect(() => {
     setConfirmingDelete(false);
-    setConfirmingSave(false);
+    setInfoOpen(false);
+    setConfirmDiscard(false);
     setAddRoleOpen(false);
     setEditRoleOpen(false);
     setSubtree(null);
     setDeleteError(null);
     setSaveError(null);
-    setSaved(false);
     setDirty(false);
+    setSelectedMemberIds(new Set());
+    setTransferTarget(null);
+    setTransferError(null);
+    setMemberSearch("");
+    setMemberStatusFilter("all");
+    setMemberPage(1);
     const dept = departments.find((d) => d.id === selectedId) ?? null;
     setEditName(dept?.name ?? "");
     setEditDescription(dept?.description ?? "");
     setEditHead(dept?.head_user_id ?? null);
+    setEditLevelId(dept?.level_id ?? null);
+    setEditParentId(dept?.parent_id ?? null);
     if (!token || selectedId == null) {
       setMembers([]);
       setRoles([]);
+      setHeadCandidates([]);
       return;
     }
     let cancelled = false;
     setDetailLoading(true);
     setDetailError(null);
-    Promise.all([api.rbac.departmentUsers(token, selectedId), api.rbac.roles(token, selectedId)])
-      .then(([ms, rs]) => {
+    Promise.all([
+      api.rbac.departmentUsers(token, selectedId),
+      api.rbac.roles(token, selectedId),
+      api.rbac.headCandidates(token, selectedId).catch(() => [] as UserBrief[]),
+    ])
+      .then(([ms, rs, cands]) => {
         if (cancelled) return;
         setMembers(ms);
         setRoles(rs);
+        setHeadCandidates(cands);
       })
       .catch(() => {
         if (cancelled) return;
         setMembers([]);
         setRoles([]);
+        setHeadCandidates([]);
         setDetailError("Không tải được nhân sự / vai trò của phòng.");
       })
       .finally(() => !cancelled && setDetailLoading(false));
@@ -190,12 +347,62 @@ export function DepartmentsPage() {
   async function refresh(keepId: number | null) {
     const list = await loadDepartments();
     setDepartments(list);
+    // Keep the open department if it still exists; otherwise fall back to the list view.
     if (keepId != null && list.some((d) => d.id === keepId)) setSelectedId(keepId);
-    else setSelectedId(list[0]?.id ?? null);
+    else setSelectedId(null);
+  }
+
+  // Open the "Thông tin phòng" edit modal, seeding the form from the current department.
+  function openInfoEdit() {
+    setEditName(currentDept?.name ?? "");
+    setEditDescription(currentDept?.description ?? "");
+    setEditHead(currentDept?.head_user_id ?? null);
+    setEditLevelId(currentDept?.level_id ?? null);
+    setEditParentId(currentDept?.parent_id ?? null);
+    setSaveError(null);
+    setDirty(false);
+    setInfoOpen(true);
   }
 
   const parentName = (id: number | null | undefined) =>
     id == null ? null : byId.get(id)?.name ?? null;
+
+  function toggleMember(id: number) {
+    setSelectedMemberIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    setTransferError(null);
+  }
+
+  async function doTransfer() {
+    if (!token || transferTarget == null || selectedMemberIds.size === 0 || transferBusy) return;
+    setTransferBusy(true);
+    setTransferError(null);
+    try {
+      await api.rbac.transferUsers(token, [...selectedMemberIds], transferTarget);
+      setSelectedMemberIds(new Set());
+      setTransferTarget(null);
+      // Reload this department's members + the tree counts.
+      if (selectedId != null) {
+        const [ms, cands] = await Promise.all([
+          api.rbac.departmentUsers(token, selectedId),
+          api.rbac.headCandidates(token, selectedId).catch(() => [] as UserBrief[]),
+        ]);
+        setMembers(ms);
+        setHeadCandidates(cands);
+      }
+      await refresh(selectedId);
+    } catch (err) {
+      if (err instanceof ApiError && err.isForbidden)
+        setTransferError("Bạn không có quyền chuyển nhân sự.");
+      else setTransferError("Không chuyển được nhân sự. Vui lòng thử lại.");
+    } finally {
+      setTransferBusy(false);
+    }
+  }
 
   function toggleCollapse(id: number) {
     setCollapsed((prev) => {
@@ -210,6 +417,7 @@ export function DepartmentsPage() {
     setNewName("");
     setNewDescription("");
     setNewParentId(null);
+    setNewLevelId(null);
     setCreateError(null);
     setCreateOpen(true);
   }
@@ -230,11 +438,13 @@ export function DepartmentsPage() {
         name,
         newDescription.trim() || null,
         newParentId,
+        newLevelId,
       );
       setCreateOpen(false);
       await refresh(dept.id);
     } catch (err) {
-      if (err instanceof ApiError && err.isConflict) setCreateError(err.message);
+      if (err instanceof ApiError && (err.isConflict || err.status === 400))
+        setCreateError(err.message);
       else if (err instanceof ApiError && err.isForbidden)
         setCreateError("Bạn không có quyền tạo phòng ban.");
       else setCreateError("Không tạo được phòng ban. Vui lòng thử lại.");
@@ -254,11 +464,12 @@ export function DepartmentsPage() {
         editName.trim(),
         editHead,
         editDescription.trim() || null,
+        editLevelId,
+        editParentId,
       );
       await refresh(selectedId);
       setDirty(false);
-      setSaved(true);
-      setConfirmingSave(false);
+      setInfoOpen(false);
     } catch (err) {
       if (err instanceof ApiError && (err.isConflict || err.status === 400)) setSaveError(err.message);
       else setSaveError("Lưu thất bại. Vui lòng thử lại.");
@@ -413,55 +624,65 @@ export function DepartmentsPage() {
     }
   }
 
-  /** One node of the cha–con tree: a toggle (for branches) + the selectable row, then its
-   *  expanded children nested under a guide rail. Counts shown are branch-rolled-up (PBI-4001). */
-  function renderNode(d: Department) {
-    const kids = childrenOf.get(d.id) ?? [];
-    const hasKids = kids.length > 0;
+  /** One row of the department table (wireframe): tree caret + code/name, counts, head,
+   *  status badge. Clicking the row opens that department's config; the caret only toggles. */
+  function renderRow({
+    dept: d,
+    depth,
+    hasKids,
+  }: {
+    dept: Department;
+    depth: number;
+    hasKids: boolean;
+  }) {
     const isCollapsed = collapsed.has(d.id);
-    const roleTotal = d.total_role_count ?? d.role_count ?? 0;
-    const userTotal = d.total_user_count ?? d.user_count ?? 0;
+    const status = deptStatus(d);
+    const statusMeta = {
+      complete: { label: "Đầy đủ", cls: "is-ok" },
+      no_head: { label: "Thiếu TP", cls: "is-warn" },
+      empty: { label: "Phòng trống", cls: "is-empty" },
+    }[status];
     return (
-      <li key={d.id} className="depts__node">
-        <div className={`depts__item${d.id === selectedId ? " is-active" : ""}`}>
+      <div
+        key={d.id}
+        className="deptbl__row"
+        role="button"
+        tabIndex={0}
+        onClick={() => setSelectedId(d.id)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setSelectedId(d.id);
+          }
+        }}
+      >
+        <div className="deptbl__cell deptbl__cell--name" style={{ paddingLeft: depth * 22 }}>
           {hasKids ? (
             <button
               type="button"
-              className={`depts__toggle${isCollapsed ? "" : " is-open"}`}
+              className={`deptbl__toggle${isCollapsed ? "" : " is-open"}`}
               aria-label={isCollapsed ? "Mở rộng" : "Thu gọn"}
               aria-expanded={!isCollapsed}
-              onClick={() => toggleCollapse(d.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleCollapse(d.id);
+              }}
             >
-              <span className="depts__toggle-caret" aria-hidden="true">
-                ▸
-              </span>
+              <span className="deptbl__caret" aria-hidden="true">▸</span>
             </button>
           ) : (
-            <span className="depts__toggle depts__toggle--leaf" aria-hidden="true" />
+            <span className="deptbl__toggle deptbl__toggle--leaf" aria-hidden="true" />
           )}
-          <button
-            type="button"
-            className="depts__item-main"
-            aria-current={d.id === selectedId ? "true" : undefined}
-            onClick={() => setSelectedId(d.id)}
-          >
-            <span className="depts__item-top">
-              {d.code && <span className="depts__code">{d.code}</span>}
-              <span className="depts__item-name">{d.name}</span>
-              {hasKids && <span className="depts__item-count">{kids.length}</span>}
-            </span>
-            <span className="depts__item-meta">
-              {roleTotal} vai trò · {userTotal} người
-            </span>
-            <span className="depts__item-head">
-              {d.head_name ? `TP: ${d.head_name}` : "Chưa có trưởng phòng"}
-            </span>
-          </button>
+          {d.code && <span className="depts__code">{d.code}</span>}
+          <span className="deptbl__name">{d.name}</span>
         </div>
-        {hasKids && !isCollapsed && (
-          <ul className="depts__children">{kids.map(renderNode)}</ul>
-        )}
-      </li>
+        <div className="deptbl__cell deptbl__num">{d.user_count ?? 0}</div>
+        <div className="deptbl__cell deptbl__num">{d.role_count ?? 0}</div>
+        <div className="deptbl__cell deptbl__head">{d.head_name ?? "Chưa có"}</div>
+        <div className="deptbl__cell">
+          <span className={`deptbl__status ${statusMeta.cls}`}>{statusMeta.label}</span>
+        </div>
+      </div>
     );
   }
 
@@ -505,62 +726,91 @@ export function DepartmentsPage() {
           <p className="eyebrow">Quản trị</p>
           <h1 className="depts__title">Phòng ban</h1>
           <p className="depts__sub">
-            {departments.length} phòng · mã tự sinh, tổ chức theo cây cha–con.
+            Quản lý cơ cấu phòng ban, nhân sự và vai trò trong từng phòng.
           </p>
         </div>
-        <Button type="button" variant="accent" onClick={openCreate}>
-          + Tạo phòng ban
-        </Button>
+        <div className="depts__head-actions">
+          <Button type="button" variant="ghost" onClick={() => setLevelsOpen(true)}>
+            Cấp đơn vị
+          </Button>
+          <Button type="button" variant="accent" onClick={openCreate}>
+            + Tạo phòng ban
+          </Button>
+        </div>
       </header>
 
-      <div className="depts__grid">
-        <aside className="depts__list" aria-label="Danh sách phòng ban">
-          {departments.length === 0 ? (
-            <div className="depts__empty">
-              <p className="depts__empty-title">Chưa có phòng ban</p>
-              <p className="depts__hint">Bấm “Tạo phòng ban” để thêm phòng đầu tiên.</p>
-            </div>
-          ) : (
-            <ul className="depts__tree">{roots.map(renderNode)}</ul>
-          )}
-        </aside>
+      {selectedId != null && currentDept ? (
+        <section className="depts__detail depts__detail--full">
+          <div className="depts__detail-bar">
+            <button
+              type="button"
+              className="btn btn--ghost depts__back"
+              onClick={() => setSelectedId(null)}
+            >
+              ← Danh sách phòng ban
+            </button>
+          </div>
 
-        <section className="depts__detail">
-          {!currentDept ? (
-            <div className="card depts__placeholder">
-              <p className="depts__status">Chọn một phòng bên trái để xem chi tiết.</p>
-            </div>
-          ) : (
-            <>
-              {/* Header: identity at a glance — code badge, name, live counts. */}
+              {/* Identity masthead + quick delete. */}
               <div className="card depts__id">
-                <div className="depts__id-avatar" aria-hidden="true">
-                  {initials(currentDept.name)}
-                </div>
-                <div className="depts__id-main">
-                  <div className="depts__id-line">
-                    {currentDept.code && <span className="depts__code">{currentDept.code}</span>}
-                    <h2 className="depts__id-name">{currentDept.name}</h2>
+                <div className="depts__id-lead">
+                  <div className="depts__id-avatar" aria-hidden="true">
+                    {initials(currentDept.name)}
                   </div>
-                  <p className="depts__id-meta">
-                    {roles.length} vai trò · {members.length} người ·{" "}
-                    {parentName(currentDept.parent_id)
-                      ? `Thuộc ${parentName(currentDept.parent_id)}`
-                      : "Phòng gốc"}
-                  </p>
-                  {(childrenOf.get(currentDept.id)?.length ?? 0) > 0 && (
-                    <p className="depts__id-branch">
-                      Gồm cả nhánh con: {currentDept.total_role_count ?? roles.length} vai trò ·{" "}
-                      {currentDept.total_user_count ?? members.length} người
+                  <div className="depts__id-main">
+                    <div className="depts__id-line">
+                      {currentDept.code && <span className="depts__code">{currentDept.code}</span>}
+                      <h2 className="depts__id-name">{currentDept.name}</h2>
+                    </div>
+                    <p className="depts__id-meta">
+                      {levels.find((l) => l.id === currentDept.level_id)?.name ?? "Chưa gán cấp"}
+                      {" · "}
+                      {parentName(currentDept.parent_id)
+                        ? `Thuộc ${parentName(currentDept.parent_id)}`
+                        : "Phòng gốc"}
+                      {" · "}
+                      {roles.length} vai trò · {members.length} người
                     </p>
-                  )}
+                    {(childrenOf.get(currentDept.id)?.length ?? 0) > 0 && (
+                      <p className="depts__id-branch">
+                        Gồm cả nhánh con: {currentDept.total_role_count ?? roles.length} vai trò ·{" "}
+                        {currentDept.total_user_count ?? members.length} người
+                      </p>
+                    )}
+                  </div>
+                </div>
+                <div className="depts__id-actions">
+                  <Button type="button" variant="primary" onClick={openInfoEdit}>
+                    Chỉnh sửa
+                  </Button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost depts__danger-text"
+                    onClick={openDeleteConfirm}
+                  >
+                    Xóa phòng
+                  </button>
                 </div>
               </div>
 
-              {/* Edit section. */}
-              <div className="card depts__section">
-                <p className="eyebrow">Thông tin phòng</p>
-                <div className="field">
+              {/* Thông tin phòng — chỉnh sửa trong modal (mở từ nút "Chỉnh sửa" ở masthead). */}
+              <ConfirmDialog
+                open={infoOpen}
+                title="Chỉnh sửa phòng"
+                wide
+                confirmLabel="Lưu thay đổi"
+                busy={saving}
+                error={saveError}
+                confirmDisabled={!editName.trim() || !dirty}
+                onConfirm={doSave}
+                onCancel={() => {
+                  if (saving) return;
+                  if (dirty) setConfirmDiscard(true);
+                  else setInfoOpen(false);
+                }}
+              >
+                <div className="depts__form-grid">
+                <div className="field depts__field--full">
                   <label className="field__label" htmlFor="dept-name">
                     Tên phòng
                   </label>
@@ -571,13 +821,12 @@ export function DepartmentsPage() {
                     onChange={(e) => {
                       setEditName(e.target.value);
                       setDirty(true);
-                      setSaved(false);
                       if (saveError) setSaveError(null);
                     }}
                   />
                 </div>
 
-                <div className="field">
+                <div className="field depts__field--full">
                   <label className="field__label" htmlFor="dept-desc">
                     Mô tả
                   </label>
@@ -590,110 +839,111 @@ export function DepartmentsPage() {
                     onChange={(e) => {
                       setEditDescription(e.target.value);
                       setDirty(true);
-                      setSaved(false);
                     }}
                   />
                 </div>
 
                 <div className="field">
-                  <label className="field__label" htmlFor="dept-head">
-                    Người đứng đầu
-                  </label>
-                  <select
-                    id="dept-head"
-                    className="input"
-                    value={editHead ?? ""}
-                    disabled={members.length === 0}
-                    onChange={(e) => {
-                      setEditHead(e.target.value ? Number(e.target.value) : null);
-                      setDirty(true);
-                      setSaved(false);
-                    }}
-                  >
-                    <option value="">— Chưa chỉ định —</option>
-                    {members.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name} ({u.username})
-                      </option>
-                    ))}
-                  </select>
-                  {members.length === 0 && (
-                    <span className="depts__hint">
-                      Phòng chưa có người dùng — thêm ở màn Người dùng trước.
-                    </span>
-                  )}
-                </div>
-
-                <div className="depts__section-foot">
-                  {saved && !dirty && <span className="depts__saved">Đã lưu</span>}
-                  {saveError && (
-                    <span className="depts__inline-error" role="alert">
-                      {saveError}
-                    </span>
-                  )}
-                  <Button
-                    variant="accent"
-                    onClick={() => {
-                      setSaveError(null);
-                      setConfirmingSave(true);
-                    }}
-                    disabled={!dirty || !editName.trim()}
-                  >
-                    Lưu thay đổi
-                  </Button>
-                </div>
-              </div>
-
-              {/* Staff in this department (PBI-4001): name + username + role + status. */}
-              <div className="card depts__section">
-                <div className="depts__section-head">
-                  <p className="eyebrow">Nhân sự trong phòng</p>
-                  <span className="depts__count-pill">{members.length}</span>
-                </div>
-                {detailLoading ? (
-                  <p className="depts__status">Đang tải…</p>
-                ) : detailError ? (
-                  <span className="depts__inline-error" role="alert">
-                    {detailError}
+                  <span className="field__label depts__label">
+                    Trực thuộc
+                    <InfoHint label="Đơn vị cha trong sơ đồ tổ chức. Không thể chọn chính nó hoặc đơn vị con/cháu (tránh vòng lặp)." />
                   </span>
-                ) : members.length === 0 ? (
-                  <p className="depts__hint">
-                    Phòng chưa có nhân sự. Thêm người ở màn “Người dùng”.
-                  </p>
-                ) : (
-                  <ul className="depts__members">
-                    {members.map((m) => (
-                      <li key={m.id} className="depts__member">
-                        <span className="depts__member-avatar" aria-hidden="true">
-                          {initials(m.name)}
-                        </span>
-                        <span className="depts__member-main">
-                          <span className="depts__member-line">
-                            <span className="depts__member-name">{m.name}</span>
-                            {m.is_head && (
-                              <span className="depts__badge depts__badge--head">Trưởng phòng</span>
-                            )}
-                            {!m.is_active && (
-                              <span className="depts__badge depts__badge--locked">Đã khóa</span>
-                            )}
-                          </span>
-                          <span className="depts__member-meta">
-                            <span className="depts__member-user">@{m.username}</span>
-                            <span className="depts__member-role">
-                              {m.role_name ?? "Chưa gán vai trò"}
-                            </span>
-                          </span>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+                  <Select
+                    portal
+                    ariaLabel="Trực thuộc"
+                    value={editParentId}
+                    placeholder="— Không (phòng gốc) —"
+                    onChange={(v) => {
+                      setEditParentId(v);
+                      setDirty(true);
+                      if (saveError) setSaveError(null);
+                    }}
+                    options={[
+                      { value: null, label: "— Không (phòng gốc) —" },
+                      ...departments
+                        .filter((d) => !excludedParentIds.has(d.id))
+                        .map((d) => ({ value: d.id, label: d.name, hint: d.code || undefined })),
+                    ]}
+                  />
+                </div>
 
-              {/* Roles in this department — add a role (name + permission matrix) right here. */}
+                <div className="field">
+                  <span className="field__label depts__label">
+                    Cấp đơn vị
+                    <InfoHint label="Tầng trong cơ cấu (Khối · Phòng · Tổ). Quyết định nhãn chức danh người đứng đầu; cấp con phải thấp hơn cấp cha." />
+                  </span>
+                  <Select
+                    portal
+                    ariaLabel="Cấp đơn vị"
+                    value={editLevelId}
+                    placeholder="— Chưa gán cấp —"
+                    onChange={(v) => {
+                      setEditLevelId(v);
+                      setDirty(true);
+                      if (saveError) setSaveError(null);
+                    }}
+                    options={[
+                      { value: null, label: "— Chưa gán cấp —" },
+                      ...levels.map((lv) => ({
+                        value: lv.id,
+                        label: lv.name,
+                        hint: lv.head_title || undefined,
+                      })),
+                    ]}
+                  />
+                </div>
+
+                <div className="field depts__field--full">
+                  <span className="field__label depts__label">
+                    {currentDept.head_title || "Người đứng đầu"}
+                    <InfoHint label="Người phụ trách đơn vị. Chỉ chọn được người thuộc phòng này hoặc đơn vị con của nó." />
+                  </span>
+                  <Select
+                    portal
+                    ariaLabel="Người đứng đầu"
+                    value={editHead}
+                    disabled={headCandidates.length === 0}
+                    placeholder="— Chưa chỉ định —"
+                    onChange={(v) => {
+                      setEditHead(v);
+                      setDirty(true);
+                    }}
+                    options={[
+                      { value: null, label: "— Chưa chỉ định —" },
+                      ...headCandidates.map((u) => ({
+                        value: u.id,
+                        label: u.name,
+                        hint: `@${u.username}`,
+                      })),
+                    ]}
+                  />
+                  {headCandidates.length === 0 && (
+                    <span className="depts__hint">
+                      Chưa có người trong phòng hoặc nhánh con — thêm ở màn Người dùng trước.
+                    </span>
+                  )}
+                </div>
+                </div>
+
+              </ConfirmDialog>
+
+              {/* Cảnh báo khi thoát modal chỉnh sửa mà còn thay đổi chưa lưu. */}
+              <DiscardChangesDialog
+                open={confirmDiscard}
+                onDiscard={() => {
+                  setConfirmDiscard(false);
+                  setInfoOpen(false);
+                }}
+                onKeepEditing={() => setConfirmDiscard(false)}
+              />
+
+              {/* Vai trò trong phòng — đặt TRÊN danh sách nhân sự cho dễ thao tác. */}
               <div className="card depts__section">
                 <div className="depts__section-head">
-                  <p className="eyebrow">Vai trò trong phòng</p>
+                  <div className="depts__eyebrow-row">
+                    <p className="eyebrow">Vai trò trong phòng</p>
+                    <InfoHint label="Các vai trò định nghĩa riêng cho phòng này. Bấm một vai trò để sửa quyền hoặc xóa." />
+                  </div>
                   <Button type="button" variant="ghost" onClick={openAddRole}>
                     + Thêm vai trò
                   </Button>
@@ -718,22 +968,321 @@ export function DepartmentsPage() {
                 )}
               </div>
 
-              {/* Danger zone. */}
-              <div className="card depts__danger">
-                <div className="depts__danger-row">
-                  <div>
-                    <p className="depts__danger-title">Xóa phòng ban</p>
-                    <p className="depts__hint">Xóa phòng này cùng mọi phòng con và vai trò của chúng.</p>
+              {/* Nhân sự trong phòng — tìm kiếm · lọc · chuyển hàng loạt · phân trang. */}
+              <div className="card depts__section">
+                <div className="depts__section-head">
+                  <div className="depts__eyebrow-row">
+                    <p className="eyebrow">Nhân sự trong phòng</p>
+                    <InfoHint label="Người thuộc phòng này. Tích chọn nhiều người rồi chọn phòng đích để chuyển hàng loạt." />
                   </div>
-                  <button type="button" className="btn btn--ghost depts__danger-text" onClick={openDeleteConfirm}>
-                    Xóa phòng
-                  </button>
+                  <span className="depts__count-pill">{members.length}</span>
                 </div>
+                {detailLoading ? (
+                  <p className="depts__status">Đang tải…</p>
+                ) : detailError ? (
+                  <span className="depts__inline-error" role="alert">
+                    {detailError}
+                  </span>
+                ) : members.length === 0 ? (
+                  <p className="depts__hint">
+                    Phòng chưa có nhân sự. Thêm người ở màn “Người dùng”.
+                  </p>
+                ) : (
+                  <>
+                    {/* Toolbar: tìm kiếm + lọc trạng thái. */}
+                    <div className="depts__staff-toolbar">
+                      <input
+                        className="input depts__staff-search"
+                        placeholder="Tìm theo tên, tên đăng nhập, vai trò…"
+                        value={memberSearch}
+                        onChange={(e) => {
+                          setMemberSearch(e.target.value);
+                          setMemberPage(1);
+                        }}
+                        aria-label="Tìm nhân sự"
+                      />
+                      <div className="depts__staff-filter">
+                        <Select
+                          ariaLabel="Lọc trạng thái nhân sự"
+                          value={memberStatusFilter}
+                          onChange={(v) => {
+                            setMemberStatusFilter(v);
+                            setMemberPage(1);
+                          }}
+                          options={[
+                            { value: "all", label: "Tất cả trạng thái" },
+                            { value: "active", label: "Đang hoạt động" },
+                            { value: "locked", label: "Đã khóa" },
+                          ]}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Thanh chuyển hàng loạt — hiện Ở TRÊN danh sách khi có người được chọn. */}
+                    {selectedMemberIds.size > 0 && (
+                      <div className="depts__transfer">
+                        <span className="depts__transfer-count">
+                          Đã chọn {selectedMemberIds.size} người · chuyển sang
+                        </span>
+                        <div className="depts__transfer-select">
+                          <Select
+                            ariaLabel="Phòng đích"
+                            value={transferTarget}
+                            placeholder="— Chọn phòng đích —"
+                            onChange={(v) => setTransferTarget(v)}
+                            options={[
+                              { value: null, label: "— Chọn phòng đích —" },
+                              ...departments
+                                .filter((d) => d.id !== selectedId)
+                                .map((d) => ({
+                                  value: d.id,
+                                  label: d.name,
+                                  hint: d.code || undefined,
+                                })),
+                            ]}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          variant="accent"
+                          loading={transferBusy}
+                          disabled={transferTarget == null}
+                          onClick={doTransfer}
+                        >
+                          Chuyển
+                        </Button>
+                        <button
+                          type="button"
+                          className="btn btn--ghost"
+                          onClick={() => setSelectedMemberIds(new Set())}
+                        >
+                          Bỏ chọn
+                        </button>
+                      </div>
+                    )}
+                    {transferError && (
+                      <span className="depts__inline-error" role="alert">
+                        {transferError}
+                      </span>
+                    )}
+                    {selectedMemberIds.size > 0 && (
+                      <p className="depts__hint">
+                        Vai trò cũ sẽ bị gỡ sau khi chuyển; trưởng phòng mới gán lại.
+                      </p>
+                    )}
+
+                    {/* Danh sách (trang hiện tại). */}
+                    {filteredMembers.length === 0 ? (
+                      <p className="depts__hint">Không có nhân sự khớp tìm kiếm.</p>
+                    ) : (
+                      <ul
+                        className="depts__members"
+                        style={
+                          memberPageCount > 1 ? { minHeight: memberPageSize * 54 } : undefined
+                        }
+                      >
+                        {pageMembers.map((m) => (
+                          <li key={m.id} className="depts__member">
+                            <input
+                              type="checkbox"
+                              className="depts__member-check"
+                              checked={selectedMemberIds.has(m.id)}
+                              onChange={() => toggleMember(m.id)}
+                              aria-label={`Chọn ${m.name} để chuyển`}
+                            />
+                            <span className="depts__member-avatar" aria-hidden="true">
+                              {initials(m.name)}
+                            </span>
+                            <span className="depts__member-main">
+                              <span className="depts__member-line">
+                                <span className="depts__member-name">{m.name}</span>
+                                {m.is_head && (
+                                  <span className="depts__badge depts__badge--head">Trưởng phòng</span>
+                                )}
+                                {!m.is_active && (
+                                  <span className="depts__badge depts__badge--locked">Đã khóa</span>
+                                )}
+                              </span>
+                              <span className="depts__member-meta">
+                                <span className="depts__member-user">@{m.username}</span>
+                                <span className="depts__member-role">
+                                  {m.role_name ?? "Chưa gán vai trò"}
+                                </span>
+                              </span>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {/* Phân trang — luôn hiện khi có nhân sự. */}
+                    {filteredMembers.length > 0 && (
+                      <div className="depts__pager">
+                        <div className="depts__pager-left">
+                          <span className="depts__pager-info">
+                            {(memberPage - 1) * memberPageSize + 1}–
+                            {Math.min(memberPage * memberPageSize, filteredMembers.length)} trên{" "}
+                            {filteredMembers.length} người
+                          </span>
+                          <div className="depts__pager-size">
+                            <span className="depts__pager-info">Hiển thị</span>
+                            <Select
+                              ariaLabel="Số dòng mỗi trang"
+                              value={memberPageSize}
+                              onChange={(v) => {
+                                setMemberPageSize(v ?? 8);
+                                setMemberPage(1);
+                              }}
+                              options={[
+                                { value: 8, label: "8" },
+                                { value: 16, label: "16" },
+                                { value: 32, label: "32" },
+                                { value: 50, label: "50" },
+                              ]}
+                            />
+                          </div>
+                        </div>
+                        <div className="depts__pager-controls">
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            disabled={memberPage <= 1}
+                            onClick={() => setMemberPage((p) => Math.max(1, p - 1))}
+                          >
+                            ‹ Trước
+                          </button>
+                          <span className="depts__pager-info">
+                            Trang {memberPage}/{memberPageCount}
+                          </span>
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            disabled={memberPage >= memberPageCount}
+                            onClick={() => setMemberPage((p) => Math.min(memberPageCount, p + 1))}
+                          >
+                            Sau ›
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
-            </>
-          )}
         </section>
-      </div>
+      ) : (
+        <section className="depts__listview" aria-label="Danh sách phòng ban">
+          {/* KPI stats. */}
+          <div className="deptbl__stats">
+            <div className="deptbl__stat">
+              <span className="deptbl__stat-num">{stats.count}</span>
+              <span className="deptbl__stat-label">phòng ban</span>
+            </div>
+            <div className="deptbl__stat">
+              <span className="deptbl__stat-num">{stats.staff}</span>
+              <span className="deptbl__stat-label">nhân sự</span>
+            </div>
+            <div className="deptbl__stat deptbl__stat--warn">
+              <span className="deptbl__stat-num">{stats.noHead}</span>
+              <span className="deptbl__stat-label">thiếu trưởng phòng</span>
+            </div>
+            <div className="deptbl__stat">
+              <span className="deptbl__stat-num">{stats.empty}</span>
+              <span className="deptbl__stat-label">phòng trống</span>
+            </div>
+          </div>
+
+          {/* Search + filters. */}
+          <div className="deptbl__toolbar">
+            <input
+              className="input deptbl__search"
+              placeholder="Tìm theo tên phòng, mã phòng, người đứng đầu…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Tìm phòng ban"
+            />
+            <div className="deptbl__filters">
+              <div className="deptbl__filter">
+                <Select
+                  ariaLabel="Lọc theo trạng thái"
+                  value={statusFilter}
+                  onChange={(v) => setStatusFilter(v)}
+                  options={[
+                    { value: "all", label: "Tất cả trạng thái" },
+                    { value: "complete", label: "Đầy đủ" },
+                    { value: "no_head", label: "Thiếu trưởng phòng" },
+                    { value: "empty", label: "Phòng trống" },
+                  ]}
+                />
+              </div>
+              <div className="deptbl__filter">
+                <Select
+                  ariaLabel="Lọc theo cấp đơn vị"
+                  value={levelFilter}
+                  placeholder="Tất cả cấp"
+                  onChange={(v) => setLevelFilter(v)}
+                  options={[
+                    { value: null, label: "Tất cả cấp" },
+                    ...levels.map((lv) => ({ value: lv.id, label: lv.name })),
+                  ]}
+                />
+              </div>
+              <div className="deptbl__staff">
+                <span className="deptbl__staff-label">Nhân sự:</span>
+                <input
+                  className="input deptbl__staff-input"
+                  type="number"
+                  min={0}
+                  placeholder="từ"
+                  value={staffMin}
+                  onChange={(e) => setStaffMin(e.target.value)}
+                  aria-label="Số nhân sự tối thiểu"
+                />
+                <span className="deptbl__staff-dash">–</span>
+                <input
+                  className="input deptbl__staff-input"
+                  type="number"
+                  min={0}
+                  placeholder="đến"
+                  value={staffMax}
+                  onChange={(e) => setStaffMax(e.target.value)}
+                  aria-label="Số nhân sự tối đa"
+                />
+              </div>
+              {filtersActive && (
+                <button type="button" className="btn btn--ghost" onClick={resetFilters}>
+                  Đặt lại
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Table. */}
+          {departments.length === 0 ? (
+            <div className="depts__empty">
+              <p className="depts__empty-title">Chưa có phòng ban</p>
+              <p className="depts__hint">Bấm “Tạo phòng ban” để thêm phòng đầu tiên.</p>
+            </div>
+          ) : (
+            <div className="deptbl" role="table">
+              <div className="deptbl__row deptbl__row--head" role="row">
+                <div className="deptbl__cell deptbl__cell--name">Phòng ban</div>
+                <div className="deptbl__cell deptbl__num">Nhân sự</div>
+                <div className="deptbl__cell deptbl__num">Vai trò</div>
+                <div className="deptbl__cell deptbl__head">Trưởng phòng</div>
+                <div className="deptbl__cell">Trạng thái</div>
+              </div>
+              {listRows.length === 0 ? (
+                <p className="depts__hint deptbl__none">Không có phòng ban khớp bộ lọc.</p>
+              ) : (
+                listRows.map(renderRow)
+              )}
+            </div>
+          )}
+          <p className="depts__hint deptbl__tip">
+            Gợi ý: bấm vào một phòng ban để xem và cấu hình chi tiết.
+          </p>
+        </section>
+      )}
 
       {/* Create department form (popup). */}
       <ConfirmDialog
@@ -776,23 +1325,41 @@ export function DepartmentsPage() {
           </div>
 
           <div className="field">
-            <label className="field__label" htmlFor="new-dept-parent">
-              Trực thuộc
-            </label>
-            <select
-              id="new-dept-parent"
-              className="input"
-              value={newParentId ?? ""}
-              onChange={(e) => setNewParentId(e.target.value ? Number(e.target.value) : null)}
-            >
-              <option value="">— Không (phòng gốc) —</option>
-              {departments.map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.code ? `${d.code} · ` : ""}
-                  {d.name}
-                </option>
-              ))}
-            </select>
+            <span className="field__label">Trực thuộc</span>
+            <Select
+              portal
+              ariaLabel="Trực thuộc"
+              value={newParentId}
+              placeholder="— Không (phòng gốc) —"
+              onChange={(v) => setNewParentId(v)}
+              options={[
+                { value: null, label: "— Không (phòng gốc) —" },
+                ...departments.map((d) => ({
+                  value: d.id,
+                  label: d.name,
+                  hint: d.code || undefined,
+                })),
+              ]}
+            />
+          </div>
+
+          <div className="field">
+            <span className="field__label">Cấp đơn vị</span>
+            <Select
+              portal
+              ariaLabel="Cấp đơn vị"
+              value={newLevelId}
+              placeholder="— Chưa gán cấp —"
+              onChange={(v) => setNewLevelId(v)}
+              options={[
+                { value: null, label: "— Chưa gán cấp —" },
+                ...levels.map((lv) => ({
+                  value: lv.id,
+                  label: lv.name,
+                  hint: lv.head_title || undefined,
+                })),
+              ]}
+            />
           </div>
 
           <div className="field">
@@ -939,20 +1506,6 @@ export function DepartmentsPage() {
         </div>
       </ConfirmDialog>
 
-      {/* Confirm: save changes. */}
-      <ConfirmDialog
-        open={confirmingSave}
-        title="Lưu thay đổi?"
-        message={
-          currentDept ? `Cập nhật thông tin phòng “${currentDept.name}”?` : undefined
-        }
-        confirmLabel="Lưu"
-        busy={saving}
-        error={saveError}
-        onConfirm={doSave}
-        onCancel={() => !saving && setConfirmingSave(false)}
-      />
-
       {/* Confirm: delete the whole branch. */}
       <ConfirmDialog
         open={confirmingDelete}
@@ -990,6 +1543,18 @@ export function DepartmentsPage() {
           </>
         ) : null}
       </ConfirmDialog>
+
+      {/* Danh mục cấp đơn vị (PBI-4009). Refresh levels + departments so head-title labels update. */}
+      <UnitLevelsDialog
+        open={levelsOpen}
+        token={token}
+        onClose={() => setLevelsOpen(false)}
+        onChanged={() => {
+          if (!token) return;
+          api.rbac.unitLevels(token).then(setLevels).catch(() => {});
+          void refresh(selectedId);
+        }}
+      />
     </main>
   );
 }

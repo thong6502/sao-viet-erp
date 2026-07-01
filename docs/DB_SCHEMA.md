@@ -85,6 +85,7 @@ belongs to exactly one, and roles are defined per department.
 | `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | System-generated unique code (spec-05): `PB` + zero-padded sequence (`PB001`, `PB002`, …). Read-only — users never type it; the repository assigns it on create from the highest existing PB-number + 1, and the unique index guarantees no two live departments share a code. |
 | `description` | `String(500)` → `VARCHAR(500)` | — | yes | — | Optional free-text description of the department (spec-05). |
 | `parent_id` | `Integer` → `INTEGER` | **FK→departments.id**, **IX** | yes | — | Parent department for the org tree (spec-05); null = root unit. A department and its whole subtree are cascade-deleted together (enforced in the service, not the DB). |
+| `level_id` | `Integer` → `INTEGER` | **FK→unit_levels.id**, **IX** | yes | — | Organizational tier this unit sits at (spec-06 / PBI-4009); null = untagged. Drives the head's title label (Trưởng khối / Trưởng phòng / Tổ trưởng) and blocks deleting a level still in use. |
 | `head_user_id` | `Integer` → `INTEGER` | — | yes | — | Logical reference to `users.id` of the trưởng phòng (no DB-level FK to avoid a create cycle; assigned via Alembic later). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the department row was created. |
 
@@ -92,13 +93,14 @@ belongs to exactly one, and roles are defined per department.
 
 - Primary key: `id`.
 - Unique index: `ix_departments_name` on `name`, `ix_departments_code` on `code`.
-- Indexes: `ix_departments_parent_id` on `parent_id`.
-- Foreign keys: `parent_id FK→departments.id` (self-reference); `head_user_id` is a logical reference to `users.id` (no enforced FK).
+- Indexes: `ix_departments_parent_id` on `parent_id`, `ix_departments_level_id` on `level_id`.
+- Foreign keys: `parent_id FK→departments.id` (self-reference); `level_id FK→unit_levels.id`; `head_user_id` is a logical reference to `users.id` (no enforced FK).
 
 **Relationships**
 
 - One department has many `roles` and many `users`; `head_user_id` points at the user who heads it.
 - Departments form a tree via `parent_id` (self-reference): a department has many child departments; deleting a department deletes its whole subtree (spec-05).
+- Each department may be tagged with one `unit_levels` tier via `level_id` (spec-06).
 
 ---
 
@@ -175,6 +177,33 @@ data that grows as new departments come online (adding a module is a new row).
 **Relationships**
 
 - One module is referenced by many `role_permissions` (via `module_key` → `key`).
+
+---
+
+### `unit_levels`
+
+**Purpose:** catalog of organizational tiers (cấp đơn vị: Khối, Phòng, Tổ, …) — spec-06 /
+PBI-4009. One row per tier; a department may be tagged with one via `departments.level_id`.
+Admin-declared data (seeded with sensible defaults) that grows as the org model evolves.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `name` | `String(100)` → `VARCHAR(100)` | **U**, **IX** | no | — | Tier name (e.g. "Khối", "Phòng", "Tổ"); unique so the catalog has no duplicates. |
+| `rank` | `Integer` → `INTEGER` | **U**, **IX** | no | — | Display order, high→low (1 = highest tier); unique so two tiers never share a rank. |
+| `head_title` | `String(100)` → `VARCHAR(100)` | — | no | `""` | Title of the person heading a unit at this level (e.g. "Trưởng khối", "Tổ trưởng"). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the level row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_unit_levels_name` on `name`, `ix_unit_levels_rank` on `rank`.
+- Foreign keys: none.
+
+**Relationships**
+
+- One unit level is referenced by many `departments` (via `level_id`); a level cannot be
+  deleted while any department still uses it (enforced in the service).
 
 ---
 

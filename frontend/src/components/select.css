@@ -1,0 +1,116 @@
+/* Custom Select (dropdown) — paper + ink + rust, matches .input metrics. */
+.sel {
+  position: relative;
+  width: 100%;
+}
+.sel__trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  color: var(--ink);
+  text-align: left;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color var(--duration-base) var(--easing-standard);
+}
+.sel__trigger:hover:not(:disabled) {
+  border-color: var(--ash-2);
+}
+.sel__trigger.is-open {
+  border-color: var(--ink);
+}
+.sel__trigger:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+  border-color: var(--ink);
+}
+.sel--disabled .sel__trigger,
+.sel__trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: var(--paper);
+}
+.sel__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sel__value--ph {
+  color: var(--ash-2);
+}
+.sel__caret {
+  flex: 0 0 auto;
+  color: var(--ash);
+  font-size: 11px;
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+.sel__trigger.is-open .sel__caret {
+  transform: rotate(180deg);
+}
+
+/* Popover list. */
+.sel__list {
+  position: absolute;
+  z-index: 50;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-1);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-4, 0 4px 12px rgba(20, 19, 15, 0.1));
+  max-height: 260px;
+  overflow-y: auto;
+}
+/* Portal mode: sits above the modal (z-index 500); position comes from inline fixed coords. */
+.sel__list--portal {
+  z-index: 2000;
+}
+.sel__opt {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 8px 10px;
+  border-radius: var(--r-2);
+  cursor: pointer;
+}
+.sel__opt.is-active {
+  background: var(--paper);
+}
+.sel__opt.is-selected {
+  color: var(--rust-deep);
+  font-weight: var(--fw-medium);
+}
+.sel__opt.is-selected.is-active {
+  background: var(--rust-soft);
+}
+.sel__opt-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sel__opt-hint {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash);
+}
+.sel__opt.is-selected .sel__opt-hint {
+  color: var(--rust-deep);
+}
+.sel__opt-check {
+  margin-left: auto;
+  color: var(--rust);
+  font-size: 12px;
+}
