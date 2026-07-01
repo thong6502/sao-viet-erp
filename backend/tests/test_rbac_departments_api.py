@@ -179,6 +179,53 @@ def test_delete_department_blocked_by_personnel_then_ok(client):
     assert ok.status_code == 204
 
 
+def test_rolled_up_counts_and_member_detail(client):
+    """spec-05 / PBI-4001: a parent's total_* counts aggregate its whole sub-tree, and the
+    members endpoint carries role name + active status + head flag."""
+    token = _admin_token(client)
+    parent = client.post("/api/departments", json={"name": "Khối A"}, headers=_h(token)).json()
+    child = client.post(
+        "/api/departments",
+        json={"name": "Khối A · Tổ 1", "parent_id": parent["id"]},
+        headers=_h(token),
+    ).json()
+
+    # A role + a user placed in the CHILD; the user is the child's head.
+    role = client.post(
+        "/api/roles",
+        json={"name": "Tổ trưởng", "department_id": child["id"]},
+        headers=_h(token),
+    ).json()
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        u = users.create(username="khoia-1", name="Người A", password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=child["id"], role_id=role["id"], is_active=True)
+        uid = u.id
+    finally:
+        db.close()
+    client.put(
+        f"/api/departments/{child['id']}",
+        json={"name": child["name"], "head_user_id": uid},
+        headers=_h(token),
+    )
+
+    listing = client.get("/api/departments", headers=_h(token)).json()
+    p = next(d for d in listing if d["id"] == parent["id"])
+    c = next(d for d in listing if d["id"] == child["id"])
+    # Parent owns nothing but rolls up the child's 1 user + 1 role.
+    assert p["user_count"] == 0 and p["role_count"] == 0
+    assert p["total_user_count"] == 1 and p["total_role_count"] == 1
+    # The leaf child's own counts equal its totals.
+    assert c["user_count"] == 1 and c["total_user_count"] == 1
+
+    members = client.get(f"/api/departments/{child['id']}/users", headers=_h(token)).json()
+    me = next(m for m in members if m["id"] == uid)
+    assert me["role_name"] == "Tổ trưởng"
+    assert me["is_active"] is True
+    assert me["is_head"] is True
+
+
 def test_non_admin_forbidden(client):
     token = _sales_token()
     assert client.post("/api/departments", json={"name": "X"}, headers=_h(token)).status_code == 403

@@ -98,10 +98,81 @@
   flex-direction: column;
   gap: var(--sp-2);
 }
-.depts__item {
+
+/* ---- Cha–con tree (PBI-4001) --------------------------------------------- */
+.depts__tree,
+.depts__children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.depts__tree {
   display: flex;
   flex-direction: column;
+  gap: var(--sp-2);
+}
+.depts__node {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+/* Nested children sit under a vertical guide rail (the "scientific" tree look). */
+.depts__children {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  margin-left: 13px; /* aligns the rail under the toggle caret */
+  padding-left: var(--sp-4);
+  border-left: 1.5px solid var(--rule-soft);
+}
+
+/* A row = collapse toggle + the selectable card. */
+.depts__item {
+  display: flex;
+  align-items: stretch;
   gap: var(--sp-1);
+}
+.depts__toggle {
+  flex: 0 0 auto;
+  width: 22px;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--r-2);
+  color: var(--ash);
+  cursor: pointer;
+  padding: 0;
+  height: 22px;
+}
+.depts__toggle:hover {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+}
+.depts__toggle:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.depts__toggle--leaf {
+  cursor: default;
+}
+.depts__toggle-caret {
+  font-size: 11px;
+  line-height: 1;
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+.depts__toggle.is-open .depts__toggle-caret {
+  transform: rotate(90deg);
+}
+
+.depts__item-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   text-align: left;
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
@@ -112,14 +183,14 @@
   transition: border-color var(--duration-base) var(--easing-standard),
     background-color var(--duration-base) var(--easing-standard);
 }
-.depts__item:hover {
+.depts__item-main:hover {
   border-color: var(--rule);
 }
-.depts__item:focus-visible {
+.depts__item-main:focus-visible {
   outline: 2px solid var(--rust);
   outline-offset: 2px;
 }
-.depts__item.is-active {
+.depts__item.is-active .depts__item-main {
   border-color: var(--rule);
   border-left-color: var(--rust);
   background: var(--rust-soft);
@@ -137,10 +208,30 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* Direct-children badge on a parent node. */
+.depts__item-count {
+  flex: 0 0 auto;
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 0 6px;
+  line-height: 16px;
+}
 .depts__item-meta {
   font-family: var(--ff-mono);
   font-size: 11px;
   color: var(--ash);
+}
+.depts__item-head {
+  font-size: 11px;
+  color: var(--ash);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .depts__empty {
@@ -202,6 +293,106 @@
   font-family: var(--ff-mono);
   font-size: 12px;
   color: var(--ash);
+}
+.depts__id-branch {
+  margin: 2px 0 0;
+  font-size: 12px;
+  color: var(--rust-deep);
+}
+
+/* Small count pill next to a section heading (e.g. staff count). */
+.depts__count-pill {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  border-radius: var(--r-pill);
+  padding: 1px 9px;
+}
+
+/* ---- Staff list (PBI-4001) ----------------------------------------------- */
+.depts__members {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.depts__member {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-2);
+  border-radius: var(--r-3);
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+.depts__member:hover {
+  background: var(--paper);
+}
+.depts__member-avatar {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-pill);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  display: grid;
+  place-items: center;
+  font-weight: var(--fw-bold);
+  font-size: 12px;
+}
+.depts__member-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.depts__member-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.depts__member-name {
+  font-weight: var(--fw-medium);
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.depts__member-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 12px;
+  color: var(--ash);
+}
+.depts__member-user {
+  font-family: var(--ff-mono);
+}
+.depts__member-role::before {
+  content: "·";
+  margin-right: var(--sp-2);
+  color: var(--rule);
+}
+.depts__badge {
+  flex: 0 0 auto;
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+}
+.depts__badge--head {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+}
+.depts__badge--locked {
+  color: var(--signal);
+  background: var(--signal-soft);
 }
 
 /* Generic section card. */

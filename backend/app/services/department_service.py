@@ -53,13 +53,47 @@ class DepartmentService:
         self.users = users
         self.audit = audit
 
+    def _head_name(self, dept: Department) -> str | None:
+        if dept.head_user_id is None:
+            return None
+        head = self.users.get_by_id(dept.head_user_id)
+        return head.name if head is not None else None
+
     def list_summaries(self) -> list[dict]:
+        """All departments with own + branch-rolled-up role/user counts (PBI-4001).
+
+        Counts each department's own roles/users once, then sums every descendant's counts
+        into each ancestor via a memoized walk over the parent→children map — so a parent
+        unit's `total_*` aggregates its whole sub-tree.
+        """
+        depts = self.departments.list_all()
+        own_roles = {d.id: self.roles.count_by_department(d.id) for d in depts}
+        own_users = {d.id: self.users.count_by_department(d.id) for d in depts}
+
+        children: dict[int, list[int]] = {}
+        for d in depts:
+            if d.parent_id is not None:
+                children.setdefault(d.parent_id, []).append(d.id)
+
+        role_total: dict[int, int] = {}
+        user_total: dict[int, int] = {}
+
+        def totals(dept_id: int, visiting: frozenset[int]) -> tuple[int, int]:
+            if dept_id in role_total:
+                return role_total[dept_id], user_total[dept_id]
+            r, u = own_roles.get(dept_id, 0), own_users.get(dept_id, 0)
+            for child_id in children.get(dept_id, []):
+                if child_id in visiting:  # defensive: never recurse a cycle
+                    continue
+                cr, cu = totals(child_id, visiting | {dept_id})
+                r += cr
+                u += cu
+            role_total[dept_id], user_total[dept_id] = r, u
+            return r, u
+
         rows: list[dict] = []
-        for dept in self.departments.list_all():
-            head_name = None
-            if dept.head_user_id is not None:
-                head = self.users.get_by_id(dept.head_user_id)
-                head_name = head.name if head is not None else None
+        for dept in depts:
+            tr, tu = totals(dept.id, frozenset())
             rows.append(
                 {
                     "id": dept.id,
@@ -68,19 +102,21 @@ class DepartmentService:
                     "description": dept.description,
                     "parent_id": dept.parent_id,
                     "head_user_id": dept.head_user_id,
-                    "head_name": head_name,
-                    "role_count": self.roles.count_by_department(dept.id),
-                    "user_count": self.users.count_by_department(dept.id),
+                    "head_name": self._head_name(dept),
+                    "role_count": own_roles[dept.id],
+                    "user_count": own_users[dept.id],
+                    "total_role_count": tr,
+                    "total_user_count": tu,
                 }
             )
         return rows
 
     def summary_of(self, dept: Department) -> dict:
-        """Build the list-row shape for a single department (after create/update)."""
-        head_name = None
-        if dept.head_user_id is not None:
-            head = self.users.get_by_id(dept.head_user_id)
-            head_name = head.name if head is not None else None
+        """Build the list-row shape for a single department (after create/update), including
+        the branch-rolled-up counts (PBI-4001)."""
+        branch = self.departments.subtree(dept.id)
+        total_roles = sum(self.roles.count_by_department(d.id) for d in branch)
+        total_users = sum(self.users.count_by_department(d.id) for d in branch)
         return {
             "id": dept.id,
             "name": dept.name,
@@ -88,13 +124,34 @@ class DepartmentService:
             "description": dept.description,
             "parent_id": dept.parent_id,
             "head_user_id": dept.head_user_id,
-            "head_name": head_name,
+            "head_name": self._head_name(dept),
             "role_count": self.roles.count_by_department(dept.id),
             "user_count": self.users.count_by_department(dept.id),
+            "total_role_count": total_roles,
+            "total_user_count": total_users,
         }
 
-    def users_in_department(self, department_id: int):
-        return self.users.list_by_department(department_id)
+    def members_of_department(self, department_id: int) -> list[dict]:
+        """Staff in a department with their role name, active status, and head flag (PBI-4001)."""
+        dept = self.departments.get_by_id(department_id)
+        head_id = dept.head_user_id if dept is not None else None
+        members: list[dict] = []
+        for user in self.users.list_by_department(department_id):
+            role_name = None
+            if user.role_id is not None:
+                role = self.roles.get_by_id(user.role_id)
+                role_name = role.name if role is not None else None
+            members.append(
+                {
+                    "id": user.id,
+                    "name": user.name,
+                    "username": user.username,
+                    "role_name": role_name,
+                    "is_active": user.is_active,
+                    "is_head": user.id == head_id,
+                }
+            )
+        return members
 
     def create(
         self,

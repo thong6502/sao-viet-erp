@@ -18,6 +18,7 @@ from ..schemas.rbac import (
     ActiveUpdate,
     AuditRow,
     DepartmentCreate,
+    DepartmentMemberOut,
     DepartmentSubtreeRow,
     DepartmentSummaryOut,
     DepartmentUpdate,
@@ -88,13 +89,14 @@ def list_departments(
     return depts.list_summaries()
 
 
-@router.get("/departments/{dept_id}/users", response_model=list[UserBrief])
+@router.get("/departments/{dept_id}/users", response_model=list[DepartmentMemberOut])
 def department_users(
     dept_id: int,
     depts: Depts,
     _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
-) -> list[UserBrief]:
-    return depts.users_in_department(dept_id)
+) -> list[dict]:
+    # PBI-4001: staff of a department with role + status + head flag for the detail panel.
+    return depts.members_of_department(dept_id)
 
 
 @router.post("/departments", response_model=DepartmentSummaryOut, status_code=status.HTTP_201_CREATED)
