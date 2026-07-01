@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from ..models.department import Department
 from ..models.module import Module
 from ..models.role import Role, RolePermission
+from ..models.unit_level import UnitLevel
 
 
 class ModuleRepository:
@@ -118,6 +119,27 @@ class DepartmentRepository:
         self.db.refresh(dept)
         return dept
 
+    def set_parent(self, dept: Department, parent_id: int | None) -> Department:
+        """Re-parent a department in the org tree (spec-06 / PBI-4007). Cycle/level checks
+        live in the service, not here."""
+        dept.parent_id = parent_id
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def set_level(self, dept: Department, level_id: int | None) -> Department:
+        """Tag (or clear) a department's organizational tier (spec-06 / PBI-4009)."""
+        dept.level_id = level_id
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def count_by_level(self, level_id: int) -> int:
+        """How many departments are tagged with a given unit level (delete guard)."""
+        return self.db.execute(
+            select(func.count()).select_from(Department).where(Department.level_id == level_id)
+        ).scalar_one()
+
     def rename(self, dept: Department, name: str) -> Department:
         dept.name = name
         self.db.commit()
@@ -220,3 +242,51 @@ class RoleRepository:
 
     def count(self) -> int:
         return self.db.execute(select(func.count()).select_from(Role)).scalar_one()
+
+
+class UnitLevelRepository:
+    """Data access for the unit-level catalog (cấp đơn vị, spec-06 / PBI-4009)."""
+
+    def __init__(self, db: Session) -> None:
+        self.db = db
+
+    def get_by_id(self, level_id: int) -> UnitLevel | None:
+        return self.db.get(UnitLevel, level_id)
+
+    def get_by_name(self, name: str) -> UnitLevel | None:
+        return self.db.execute(
+            select(UnitLevel).where(UnitLevel.name == name)
+        ).scalar_one_or_none()
+
+    def get_by_rank(self, rank: int) -> UnitLevel | None:
+        return self.db.execute(
+            select(UnitLevel).where(UnitLevel.rank == rank)
+        ).scalar_one_or_none()
+
+    def list_all(self) -> list[UnitLevel]:
+        """All levels, highest tier first (rank ascending)."""
+        return list(
+            self.db.execute(select(UnitLevel).order_by(UnitLevel.rank)).scalars()
+        )
+
+    def create(self, *, name: str, rank: int, head_title: str) -> UnitLevel:
+        level = UnitLevel(name=name, rank=rank, head_title=head_title)
+        self.db.add(level)
+        self.db.commit()
+        self.db.refresh(level)
+        return level
+
+    def update(self, level: UnitLevel, *, name: str, rank: int, head_title: str) -> UnitLevel:
+        level.name = name
+        level.rank = rank
+        level.head_title = head_title
+        self.db.commit()
+        self.db.refresh(level)
+        return level
+
+    def delete(self, level: UnitLevel) -> None:
+        self.db.delete(level)
+        self.db.commit()
+
+    def count(self) -> int:
+        return self.db.execute(select(func.count()).select_from(UnitLevel)).scalar_one()

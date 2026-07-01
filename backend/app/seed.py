@@ -11,7 +11,12 @@ from sqlalchemy.orm import Session
 
 from .config import settings
 from .models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
-from .repositories.rbac_repo import DepartmentRepository, ModuleRepository, RoleRepository
+from .repositories.rbac_repo import (
+    DepartmentRepository,
+    ModuleRepository,
+    RoleRepository,
+    UnitLevelRepository,
+)
 from .repositories.user_repo import UserRepository
 from .security import hash_password
 
@@ -44,6 +49,14 @@ KD_MODULE_KEYS = [
 ]
 
 DEPARTMENTS = ["Ban giám đốc", "Hành chính nhân sự", "Kinh doanh"]
+
+# Default org tiers (spec-06 / PBI-4009): (name, rank cao→thấp, head_title). Data, not schema —
+# admins add/edit more via the catalog screen.
+UNIT_LEVELS: list[tuple[str, int, str]] = [
+    ("Khối", 1, "Trưởng khối"),
+    ("Phòng", 2, "Trưởng phòng"),
+    ("Tổ", 3, "Tổ trưởng"),
+]
 
 ADMIN_DEPARTMENT = "Ban giám đốc"
 ADMIN_ROLE = "Giám đốc"
@@ -110,6 +123,14 @@ def seed_departments(db: Session) -> None:
             depts.create(name=name)
 
 
+def seed_unit_levels(db: Session) -> None:
+    """Seed the default org tiers (Khối/Phòng/Tổ) if absent (spec-06 / PBI-4009)."""
+    levels = UnitLevelRepository(db)
+    for name, rank, head_title in UNIT_LEVELS:
+        if levels.get_by_name(name) is None and levels.get_by_rank(rank) is None:
+            levels.create(name=name, rank=rank, head_title=head_title)
+
+
 def seed_roles(db: Session) -> None:
     depts = DepartmentRepository(db)
     roles = RoleRepository(db)
@@ -162,6 +183,7 @@ def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user, and its assignment."""
     seed_modules(db)
     seed_departments(db)
+    seed_unit_levels(db)
     seed_roles(db)
     seed_admin(db)
     link_admin(db)

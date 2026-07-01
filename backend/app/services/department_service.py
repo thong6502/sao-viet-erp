@@ -8,8 +8,12 @@ from __future__ import annotations
 
 from ..models.department import Department
 from ..repositories.audit_repo import AuditLogRepository
-from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
+from ..repositories.rbac_repo import DepartmentRepository, RoleRepository, UnitLevelRepository
 from ..repositories.user_repo import UserRepository
+
+# Sentinel: "caller did not send this field" — distinct from an explicit None (which means
+# "clear the parent / make it a root"). Lets a partial update keep the current parent.
+_KEEP = object()
 
 
 class DepartmentError(Exception):
@@ -26,6 +30,14 @@ class DepartmentNotFound(DepartmentError):
 
 class InvalidHead(DepartmentError):
     """The chosen head is not a user of this department."""
+
+
+class DepartmentCycle(DepartmentError):
+    """Re-parenting would create a cycle (parent is the unit itself or a descendant)."""
+
+
+class InvalidLevelOrder(DepartmentError):
+    """A child unit's level must rank BELOW its parent's level (spec-06 / PBI-4007)."""
 
 
 class DepartmentBranchHasUsers(DepartmentError):
@@ -47,17 +59,63 @@ class DepartmentService:
         roles: RoleRepository,
         users: UserRepository,
         audit: AuditLogRepository,
+        levels: UnitLevelRepository,
     ) -> None:
         self.departments = departments
         self.roles = roles
         self.users = users
         self.audit = audit
+        self.levels = levels
 
     def _head_name(self, dept: Department) -> str | None:
         if dept.head_user_id is None:
             return None
         head = self.users.get_by_id(dept.head_user_id)
         return head.name if head is not None else None
+
+    def _head_title(self, dept: Department) -> str | None:
+        """The head's title from the department's level (spec-06 / PBI-4004 label), or None."""
+        if dept.level_id is None:
+            return None
+        level = self.levels.get_by_id(dept.level_id)
+        return (level.head_title or None) if level is not None else None
+
+    def _level_rank(self, level_id: int | None) -> int | None:
+        if level_id is None:
+            return None
+        level = self.levels.get_by_id(level_id)
+        return level.rank if level is not None else None
+
+    def _validate_hierarchy(
+        self, *, dept_id: int | None, parent_id: int | None, level_id: int | None
+    ) -> None:
+        """Guard the org tree (spec-06 / PBI-4007): no parent cycle, and a child unit's level
+        must rank strictly BELOW its parent's (rank number higher = lower tier). `dept_id` is
+        None on create (the unit has no descendants/children yet)."""
+        # Cycle: the chosen parent may not be the unit itself or any of its descendants.
+        if parent_id is not None and dept_id is not None:
+            if any(d.id == parent_id for d in self.departments.subtree(dept_id)):
+                raise DepartmentCycle(
+                    "Không thể chọn chính đơn vị hoặc đơn vị con/cháu làm đơn vị cha"
+                )
+        my_rank = self._level_rank(level_id)
+        # This unit's level vs its parent's: child must be a lower tier (bigger rank).
+        if parent_id is not None and my_rank is not None:
+            parent = self.departments.get_by_id(parent_id)
+            parent_rank = self._level_rank(parent.level_id) if parent is not None else None
+            if parent_rank is not None and my_rank <= parent_rank:
+                raise InvalidLevelOrder(
+                    "Cấp của đơn vị con phải thấp hơn cấp của đơn vị cha"
+                )
+        # This unit's level vs its existing direct children (update only): each child must
+        # stay a lower tier than this unit.
+        if my_rank is not None and dept_id is not None:
+            for child in self.departments.children_of(dept_id):
+                child_rank = self._level_rank(child.level_id)
+                if child_rank is not None and child_rank <= my_rank:
+                    raise InvalidLevelOrder(
+                        "Cấp của đơn vị phải cao hơn cấp của các đơn vị con"
+                    )
 
     def list_summaries(self) -> list[dict]:
         """All departments with own + branch-rolled-up role/user counts (PBI-4001).
@@ -103,6 +161,8 @@ class DepartmentService:
                     "parent_id": dept.parent_id,
                     "head_user_id": dept.head_user_id,
                     "head_name": self._head_name(dept),
+                    "level_id": dept.level_id,
+                    "head_title": self._head_title(dept),
                     "role_count": own_roles[dept.id],
                     "user_count": own_users[dept.id],
                     "total_role_count": tr,
@@ -125,6 +185,8 @@ class DepartmentService:
             "parent_id": dept.parent_id,
             "head_user_id": dept.head_user_id,
             "head_name": self._head_name(dept),
+            "level_id": dept.level_id,
+            "head_title": self._head_title(dept),
             "role_count": self.roles.count_by_department(dept.id),
             "user_count": self.users.count_by_department(dept.id),
             "total_role_count": total_roles,
@@ -153,12 +215,25 @@ class DepartmentService:
             )
         return members
 
+    def head_candidates(self, dept_id: int) -> list:
+        """People eligible to head a unit (spec-06 / PBI-4004): everyone in the unit and its
+        sub-units (subtree). Returns User rows; empty if the department does not exist."""
+        candidates: list = []
+        seen: set[int] = set()
+        for d in self.departments.subtree(dept_id):
+            for user in self.users.list_by_department(d.id):
+                if user.id not in seen:
+                    seen.add(user.id)
+                    candidates.append(user)
+        return candidates
+
     def create(
         self,
         *,
         name: str,
         description: str | None = None,
         parent_id: int | None = None,
+        level_id: int | None = None,
         actor_id: int | None,
     ) -> Department:
         name = name.strip()
@@ -166,8 +241,14 @@ class DepartmentService:
             raise DepartmentNameTaken("Tên phòng ban đã tồn tại")
         if parent_id is not None and self.departments.get_by_id(parent_id) is None:
             raise DepartmentNotFound("Không tìm thấy phòng cha")
+        if level_id is not None and self.levels.get_by_id(level_id) is None:
+            raise DepartmentNotFound("Không tìm thấy cấp đơn vị")
+        # New unit has no descendants yet — only the parent/level ordering rule applies.
+        self._validate_hierarchy(dept_id=None, parent_id=parent_id, level_id=level_id)
         desc = (description or "").strip() or None
         dept = self.departments.create(name=name, description=desc, parent_id=parent_id)
+        if level_id is not None:
+            self.departments.set_level(dept, level_id)
         self.audit.create(
             actor_user_id=actor_id,
             action="create_department",
@@ -183,30 +264,48 @@ class DepartmentService:
         name: str,
         description: str | None = None,
         head_user_id: int | None,
+        level_id: int | None = None,
+        parent_id: int | None | object = _KEEP,
         actor_id: int | None,
     ) -> Department:
         dept = self.departments.get_by_id(dept_id)
         if dept is None:
             raise DepartmentNotFound("Không tìm thấy phòng ban")
+        # Absent parent_id → keep the current parent (partial update, e.g. a plain rename).
+        if parent_id is _KEEP:
+            parent_id = dept.parent_id
         name = name.strip()
         clash = self.departments.get_by_name(name)
         if clash is not None and clash.id != dept_id:
             raise DepartmentNameTaken("Tên phòng ban đã tồn tại")
-        if head_user_id is not None:
-            head = self.users.get_by_id(head_user_id)
-            if head is None or head.department_id != dept_id:
-                raise InvalidHead("Người đứng đầu phải thuộc phòng này")
+        if head_user_id is not None and not self._can_head(dept_id, head_user_id):
+            raise InvalidHead("Người đứng đầu phải thuộc phòng này hoặc đơn vị con")
+        if level_id is not None and self.levels.get_by_id(level_id) is None:
+            raise DepartmentNotFound("Không tìm thấy cấp đơn vị")
+        if parent_id is not None and self.departments.get_by_id(parent_id) is None:
+            raise DepartmentNotFound("Không tìm thấy phòng cha")
+        # No cycle (parent ∉ this unit's subtree) + child level ranks below parent (PBI-4007).
+        self._validate_hierarchy(dept_id=dept_id, parent_id=parent_id, level_id=level_id)
         # The code is system-owned and never edited here (spec-05).
         self.departments.rename(dept, name)
         self.departments.set_description(dept, (description or "").strip() or None)
         self.departments.set_head(dept, head_user_id)
+        self.departments.set_level(dept, level_id)
+        self.departments.set_parent(dept, parent_id)
         self.audit.create(
             actor_user_id=actor_id,
             action="update_department",
             target=f"dept:{dept_id}",
-            detail=f"{name} (head={head_user_id})",
+            detail=f"{name} (head={head_user_id}, level={level_id}, parent={parent_id})",
         )
         return dept
+
+    def _can_head(self, dept_id: int, user_id: int) -> bool:
+        """A valid head belongs to the unit OR any unit in its subtree (spec-06 / PBI-4004)."""
+        user = self.users.get_by_id(user_id)
+        if user is None or user.department_id is None:
+            return False
+        return any(d.id == user.department_id for d in self.departments.subtree(dept_id))
 
     def branch(self, dept_id: int) -> list[Department]:
         """The department + its whole subtree (spec-05) — the units a delete would remove.

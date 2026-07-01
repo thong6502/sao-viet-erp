@@ -33,6 +33,11 @@ class Department(Base):
     parent_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("departments.id"), index=True, nullable=True
     )
+    # Organizational tier this unit sits at (spec-06 / PBI-4009): FK→unit_levels.id, null =
+    # untagged. Drives the head's title label (Trưởng khối / Trưởng phòng / Tổ trưởng).
+    level_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("unit_levels.id"), index=True, nullable=True
+    )
     # Logical reference to users.id (the trưởng phòng). Kept as a plain column to avoid a
     # users<->departments FK cycle under create_all; the DB-level FK can land with Alembic.
     head_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)

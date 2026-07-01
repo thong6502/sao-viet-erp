@@ -36,6 +36,10 @@ class DepartmentSummaryOut(BaseModel):
     parent_id: int | None = None
     head_user_id: int | None = None
     head_name: str | None = None
+    # Organizational tier (spec-06 / PBI-4009): the level id + its head-title label, so the
+    # UI can show e.g. "Trưởng khối" instead of a generic "Người đứng đầu". Null = untagged.
+    level_id: int | None = None
+    head_title: str | None = None
     role_count: int = 0
     user_count: int = 0
     total_role_count: int = 0
@@ -58,12 +62,40 @@ class DepartmentCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=500)
     parent_id: int | None = None
+    # Optional org tier (spec-06 / PBI-4009).
+    level_id: int | None = None
 
 
 class DepartmentUpdate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     description: str | None = Field(default=None, max_length=500)
     head_user_id: int | None = None
+    level_id: int | None = None
+    # Re-parent in the org tree (spec-06 / PBI-4007); null = make it a root unit.
+    parent_id: int | None = None
+
+
+class UnitLevelOut(BaseModel):
+    """A tier in the org-level catalog (spec-06 / PBI-4009)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    rank: int
+    head_title: str
+
+
+class UnitLevelCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    rank: int = Field(ge=1)
+    head_title: str = Field(default="", max_length=100)
+
+
+class UnitLevelUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    rank: int = Field(ge=1)
+    head_title: str = Field(default="", max_length=100)
 
 
 class DepartmentSubtreeRow(BaseModel):
@@ -107,6 +139,17 @@ class RoleAssign(BaseModel):
 
 class ActiveUpdate(BaseModel):
     is_active: bool
+
+
+class DepartmentTransferIn(BaseModel):
+    """Bulk-move personnel to a target department (spec-06 / PBI-4008)."""
+
+    user_ids: list[int] = Field(min_length=1)
+    target_department_id: int
+
+
+class TransferResult(BaseModel):
+    transferred: int
 
 
 class AuditRow(BaseModel):

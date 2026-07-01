@@ -1,0 +1,55 @@
+/* Danh mục cấp đơn vị (spec-06 / PBI-4009) — grid rows inside the modal. */
+.ulvl__hint {
+  margin: 0 0 12px;
+  color: var(--muted, #6b7280);
+  font-size: 0.9rem;
+}
+
+.ulvl__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ulvl__row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.7fr 1.4fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.ulvl__row--head {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #6b7280);
+  padding: 0 2px 6px;
+}
+
+.ulvl__row--add {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border, #e5e7eb);
+}
+
+.ulvl__name {
+  font-weight: 600;
+}
+
+.ulvl__rank {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted, #6b7280);
+}
+
+.ulvl__title {
+  color: var(--muted, #4b5563);
+}
+
+.ulvl__actions {
+  display: inline-flex;
+  gap: 6px;
+  justify-content: flex-end;
+}

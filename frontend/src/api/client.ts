@@ -185,6 +185,17 @@ export interface Department {
   /** Branch-rolled-up counts (department + every descendant) — PBI-4001. */
   total_role_count?: number;
   total_user_count?: number;
+  /** Org tier tag + its head-title label (spec-06 / PBI-4009). Null = untagged. */
+  level_id?: number | null;
+  head_title?: string | null;
+}
+
+/** A tier in the org-level catalog (spec-06 / PBI-4009). */
+export interface UnitLevel {
+  id: number;
+  name: string;
+  rank: number;
+  head_title: string;
 }
 
 /** A staff member of a department (PBI-4001 detail panel). */
@@ -328,10 +339,11 @@ export const api = {
       name: string,
       description: string | null,
       parentId: number | null,
+      levelId: number | null = null,
     ): Promise<Department> {
       return authed<Department>("/api/departments", token, {
         method: "POST",
-        body: JSON.stringify({ name, description, parent_id: parentId }),
+        body: JSON.stringify({ name, description, parent_id: parentId, level_id: levelId }),
       });
     },
     updateDepartment(
@@ -340,18 +352,60 @@ export const api = {
       name: string,
       headUserId: number | null,
       description: string | null,
+      levelId: number | null = null,
+      parentId: number | null = null,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
-        body: JSON.stringify({ name, head_user_id: headUserId, description }),
+        body: JSON.stringify({
+          name,
+          head_user_id: headUserId,
+          description,
+          level_id: levelId,
+          parent_id: parentId,
+        }),
       });
     },
     /** Departments that would be deleted with this one's branch (spec-05 confirm). */
     departmentSubtree(token: string, id: number): Promise<DepartmentSubtreeRow[]> {
       return authed<DepartmentSubtreeRow[]>(`/api/departments/${id}/subtree`, token);
     },
+    /** People eligible to head a unit: everyone in the unit + its sub-units (PBI-4004). */
+    headCandidates(token: string, id: number): Promise<UserBrief[]> {
+      return authed<UserBrief[]>(`/api/departments/${id}/head-candidates`, token);
+    },
     deleteDepartment(token: string, id: number): Promise<void> {
       return authed<void>(`/api/departments/${id}`, token, { method: "DELETE" });
+    },
+    // --- Unit-level catalog (spec-06 / PBI-4009) ---
+    unitLevels(token: string): Promise<UnitLevel[]> {
+      return authed<UnitLevel[]>("/api/unit-levels", token);
+    },
+    createUnitLevel(
+      token: string,
+      name: string,
+      rank: number,
+      headTitle: string,
+    ): Promise<UnitLevel> {
+      return authed<UnitLevel>("/api/unit-levels", token, {
+        method: "POST",
+        body: JSON.stringify({ name, rank, head_title: headTitle }),
+      });
+    },
+    updateUnitLevel(
+      token: string,
+      id: number,
+      name: string,
+      rank: number,
+      headTitle: string,
+    ): Promise<UnitLevel> {
+      return authed<UnitLevel>(`/api/unit-levels/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify({ name, rank, head_title: headTitle }),
+      });
+    },
+    deleteUnitLevel(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/unit-levels/${id}`, token, { method: "DELETE" });
     },
     users(token: string): Promise<UserRow[]> {
       return authed<UserRow[]>("/api/users", token);
@@ -372,6 +426,17 @@ export const api = {
       return authed<UserRow>(`/api/users/${userId}/active`, token, {
         method: "PUT",
         body: JSON.stringify({ is_active: isActive }),
+      });
+    },
+    /** Bulk-move people to a target department (spec-06 / PBI-4008); old roles are dropped. */
+    transferUsers(
+      token: string,
+      userIds: number[],
+      targetDepartmentId: number,
+    ): Promise<{ transferred: number }> {
+      return authed<{ transferred: number }>("/api/departments/transfer", token, {
+        method: "POST",
+        body: JSON.stringify({ user_ids: userIds, target_department_id: targetDepartmentId }),
       });
     },
     activityLog(token: string): Promise<AuditRow[]> {

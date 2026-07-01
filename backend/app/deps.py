@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
-from .repositories.rbac_repo import DepartmentRepository, ModuleRepository, RoleRepository
+from .repositories.rbac_repo import (
+    DepartmentRepository,
+    ModuleRepository,
+    RoleRepository,
+    UnitLevelRepository,
+)
 from .repositories.refresh_token_repo import RefreshTokenRepository
 from .repositories.user_repo import UserRepository
 from .security import decode_access_token
@@ -26,6 +31,7 @@ from .services.profile_service import ProfileService
 from .services.rbac_service import AuthorizationService
 from .services.refresh_service import RefreshTokenService
 from .services.role_service import RoleService
+from .services.unit_level_service import UnitLevelService
 from .services.user_admin_service import UserAdminService
 
 # auto_error=False so we can return our own 401 shape for missing/invalid tokens.
@@ -125,13 +131,28 @@ def get_role_service(
     return RoleService(roles, modules, departments, audit, users)
 
 
+def get_unit_level_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> UnitLevelRepository:
+    return UnitLevelRepository(db)
+
+
 def get_department_service(
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     roles: Annotated[RoleRepository, Depends(get_role_repository)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    levels: Annotated[UnitLevelRepository, Depends(get_unit_level_repository)],
 ) -> DepartmentService:
-    return DepartmentService(departments, roles, users, audit)
+    return DepartmentService(departments, roles, users, audit, levels)
+
+
+def get_unit_level_service(
+    levels: Annotated[UnitLevelRepository, Depends(get_unit_level_repository)],
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> UnitLevelService:
+    return UnitLevelService(levels, departments, audit)
 
 
 def get_user_admin_service(
