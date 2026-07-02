@@ -14,7 +14,7 @@ fi
 
 echo "[dev] Backend  -> http://localhost:8000"
 echo "[dev] Frontend -> http://localhost:5173"
-echo "[dev] Login: admin@example.com / admin123"
+echo "[dev] Login: admin / admin123"
 echo "[dev] Ctrl+C to stop both."
 echo
 

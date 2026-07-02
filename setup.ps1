@@ -48,5 +48,5 @@ Write-Host "`n=== Setup xong ===" -ForegroundColor Green
 Write-Host "Tiếp theo:"
 Write-Host "  ./dev.ps1     # chạy backend (:8000) + frontend (:5173)"
 Write-Host "  ./init.ps1    # verify (pytest + compileall)"
-Write-Host "Đăng nhập demo: admin@example.com / admin123"
+Write-Host "Đăng nhập demo: admin / admin123"
 Write-Host "LƯU Ý: .env đang dùng JWT_SECRET mặc định (dev). Đổi nó + đặt APP_ENV=production trước khi deploy thật." -ForegroundColor Yellow

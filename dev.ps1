@@ -14,7 +14,7 @@ if (-not (Test-Path "$root/frontend/node_modules")) {
 
 Write-Host "[dev] Backend  -> http://localhost:8000  (cửa sổ riêng)" -ForegroundColor Green
 Write-Host "[dev] Frontend -> http://localhost:5173  (cửa sổ này)"   -ForegroundColor Green
-Write-Host "[dev] Đăng nhập: admin@example.com / admin123"           -ForegroundColor DarkGray
+Write-Host "[dev] Đăng nhập: admin / admin123"                       -ForegroundColor DarkGray
 Write-Host "[dev] Ctrl+C để dừng cả hai.`n"                          -ForegroundColor DarkGray
 
 # Backend ở tiến trình/cửa sổ riêng để log uvicorn hiện rõ
