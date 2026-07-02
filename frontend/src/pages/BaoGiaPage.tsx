@@ -431,6 +431,12 @@ function QuotationFormDialog({
   const [fieldErr, setFieldErr] = useState<Record<string, string>>({});
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // SEAM-14 (CRM) đã back-fill ở backend → thay input ID thô bằng picker Khách hàng thật.
+  const [customers, setCustomers] = useState<{ id: number; name: string; code: string }[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    api.customers.list(token, { page: 1, size: 200 }).then((r) => setCustomers(r.items)).catch(() => {});
+  }, [token]);
 
   const num = (s: string): number | null => {
     if (s.trim() === "") return null;
@@ -546,16 +552,21 @@ function QuotationFormDialog({
                 </label>
               ) : (
                 <label className="field">
-                  <span className="field__label">Khách hàng (ID) — SEAM-14 (CRM)</span>
-                  <input
+                  <span className="field__label">Khách hàng</span>
+                  <select
                     className="input"
                     value={customerId}
                     onChange={(e) => setCustomerId(e.target.value)}
-                    inputMode="numeric"
-                    placeholder="ID khách hàng"
-                  />
+                  >
+                    <option value="">— Chọn khách hàng (không bắt buộc) —</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.code})
+                      </option>
+                    ))}
+                  </select>
                   <span className="bg__hint">
-                    Đọc tên + trạng thái công nợ (chỉ hiển thị, không chặn).
+                    Chọn từ danh mục Khách hàng (CRM) — đọc tên + trạng thái công nợ (không chặn).
                   </span>
                 </label>
               )}

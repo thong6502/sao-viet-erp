@@ -68,6 +68,12 @@ class PricingEngine:
         sheet_h = input_spec.get("sheet_h")
         pieces_per_sheet_input = input_spec.get("pieces_per_sheet")
         grain_locked = bool(input_spec.get("grain_locked", False))
+        # #4 — tham số bình bản (đơn vị cm), mặc định 0 ⇒ công thức trùng floor(khổ/thành phẩm) cũ.
+        # gripper = kẹp nhíp cạnh nạp giấy; edge_trim = xén mép; bleed = tràn lề; gutter = chừa giữa con.
+        gripper_cm = float(input_spec.get("gripper_cm") or 0)
+        edge_trim_cm = float(input_spec.get("edge_trim_cm") or 0)
+        bleed_cm = float(input_spec.get("bleed_cm") or 0)
+        gutter_cm = float(input_spec.get("gutter_cm") or 0)
 
         # 2. Layout Calculation (pieces_per_sheet)
         pieces_per_sheet = 1
@@ -96,16 +102,25 @@ class PricingEngine:
                         add_warning("blocking_error", "INVALID_DIMENSIONS", "Kích thước khổ phải lớn hơn 0.")
                         pieces_per_sheet = 1
                     else:
-                        straight = max(0, int(sw // fw) * int(sh // fh))
-                        if grain_locked:
-                            pieces_per_sheet = straight
-                        else:
-                            rotated = max(0, int(sw // fh) * int(sh // fw))
-                            pieces_per_sheet = max(straight, rotated)
-                        
-                        if pieces_per_sheet < 1:
-                            add_warning("blocking_error", "PIECES_PER_SHEET_ZERO", "Khổ thành phẩm lớn hơn khổ tờ vật liệu in.")
+                        # #4 — trừ nhíp (1 cạnh nạp) + xén mép (2 cạnh); cộng bleed (2 cạnh) + gutter giữa con.
+                        usable_w = sw - gripper_cm - 2 * edge_trim_cm
+                        usable_h = sh - 2 * edge_trim_cm
+                        piece_w = fw + 2 * bleed_cm + gutter_cm
+                        piece_h = fh + 2 * bleed_cm + gutter_cm
+                        if usable_w <= 0 or usable_h <= 0 or piece_w <= 0 or piece_h <= 0:
+                            add_warning("blocking_error", "PIECES_PER_SHEET_ZERO", "Khổ thành phẩm (kèm bleed/nhíp/xén) lớn hơn khổ tờ vật liệu in.")
                             pieces_per_sheet = 1
+                        else:
+                            straight = max(0, int(usable_w // piece_w) * int(usable_h // piece_h))
+                            if grain_locked:
+                                pieces_per_sheet = straight
+                            else:
+                                rotated = max(0, int(usable_w // piece_h) * int(usable_h // piece_w))
+                                pieces_per_sheet = max(straight, rotated)
+
+                            if pieces_per_sheet < 1:
+                                add_warning("blocking_error", "PIECES_PER_SHEET_ZERO", "Khổ thành phẩm lớn hơn khổ tờ vật liệu in.")
+                                pieces_per_sheet = 1
                 except (ValueError, TypeError):
                     add_warning("blocking_error", "INVALID_DIMENSIONS", "Kích thước khổ không hợp lệ.")
                     pieces_per_sheet = 1
@@ -296,6 +311,10 @@ class PricingEngine:
         # Calculations
         running_sheets = int(math.ceil(printed_sheets / (1 - printing_waste_pct)))
         makeready_sheets = int(math.ceil(makeready_per_color_side * colors * sides * forms))
+        # #5 — sàn makeready theo máy: một số máy cần tối thiểu N tờ canh bất kể số màu.
+        # setup_waste_sheets mặc định 0 ⇒ không đổi (trước đây field này bị bỏ quên hoàn toàn).
+        if machine is not None:
+            makeready_sheets = max(makeready_sheets, int(float(machine.setup_waste_sheets or 0)))
         total_sheets = running_sheets + makeready_sheets
 
         calc_snapshot = {
@@ -327,12 +346,21 @@ class PricingEngine:
             min_charge_applied = False
 
             if is_sheet:
-                # convert ram to sheet if needed
+                unit = "to"
                 if material_cost.price_unit == "ram":
+                    # 1 ram ≈ 500 tờ
                     unit_cost = float(material_cost.unit_price) / 500.0
-                    unit = "to"
-                else:
-                    unit = "to"
+                elif material_cost.price_unit == "kg":
+                    # #3 — quy đổi tờ↔kg: kg/tờ = (rộng×cao/10000 m²) × gsm/1000. Giấy bán theo ram VÀ kg (§4).
+                    w_cm = float(sheet_w or material.width_cm or 0)
+                    h_cm = float(sheet_h or material.height_cm or 0)
+                    if material.gsm and w_cm > 0 and h_cm > 0:
+                        sheet_kg = (w_cm * h_cm / 10000.0) * (float(material.gsm) / 1000.0)
+                        unit_cost = float(material_cost.unit_price) * sheet_kg
+                    else:
+                        add_warning("blocking_error", "MISSING_GSM_FOR_KG", f"Giấy {material.name} tính giá theo kg nhưng thiếu định lượng (gsm) hoặc khổ để quy đổi ra tờ.", "material", material.id)
+                        unit_cost = float(material_cost.unit_price)
+                # else: giá theo tờ (unit_cost giữ nguyên đơn giá gốc)
                 quantity = float(total_sheets)
                 total_material_cost = quantity * unit_cost
                 desc_text = f"Giấy in: {material.name} ({total_sheets} tờ)"
@@ -352,6 +380,13 @@ class PricingEngine:
                 unit = "m2"
                 total_material_cost = quantity * unit_cost
                 desc_text = f"Vật tư {material.material_type}: {material.name} ({quantity:.2f} m²)"
+
+            # #6 — bù hao riêng của vật tư (hao hụt xử lý/bốc dỡ), ngoài bù hao in & công đoạn.
+            # default_waste_pct mặc định 0 ⇒ không đổi (trước đây field này không được engine đọc).
+            waste_mult = 1.0 + float(material.default_waste_pct or 0) / 100.0
+            if waste_mult != 1.0:
+                quantity *= waste_mult
+                total_material_cost = quantity * unit_cost
 
             # Apply min fee
             min_fee = float(material.min_fee or 0)
@@ -495,6 +530,47 @@ class PricingEngine:
             else:
                 add_warning("warning", "MISSING_PLATE_RATE", "Không tìm thấy đơn giá bản kẽm offset.")
 
+        # 9b. Offset Ink Cost Line (#1) — mực in offset tính theo lượt-màu (impressions = tờ × màu × mặt).
+        # Đơn giá là định mức versioned `ink_cost_per_1000_impressions` (đ/1000 lượt), cấu hình trên UI.
+        if machine and machine_rate and machine.machine_type == "offset":
+            impressions = int(total_sheets * colors * sides)
+            ink_rate = None
+            ink_norm_id = None
+            try:
+                ink_rate = self.norm_service.get_norm("ink_cost_per_1000_impressions", print_ctx)
+                norm_rec = self.norm_service._find_norm_candidate("ink_cost_per_1000_impressions", print_ctx)
+                if norm_rec:
+                    ink_norm_id = norm_rec.id
+            except Exception:
+                pass
+
+            if ink_rate and ink_rate > 0:
+                ink_cost = math.ceil(impressions / 1000.0) * float(ink_rate)
+                cost_lines.append(EstimateCostLine(
+                    category="ink",
+                    description=f"Mực in offset: {impressions} lượt-màu ({colors} màu × {sides} mặt × {total_sheets} tờ)",
+                    source_type="norms",
+                    source_id=ink_norm_id,
+                    source_snapshot_json={
+                        "norm_id": ink_norm_id,
+                        "ink_cost_per_1000_impressions": ink_rate
+                    },
+                    calculation_snapshot_json={
+                        "impressions": impressions,
+                        "colors": colors,
+                        "sides": sides,
+                        "total_sheets": total_sheets
+                    },
+                    quantity=float(impressions),
+                    unit="luot",
+                    unit_cost=float(ink_rate) / 1000.0,
+                    setup_cost=0.0,
+                    min_charge_applied=False,
+                    total_cost=ink_cost
+                ))
+            else:
+                add_warning("warning", "MISSING_INK_RATE", "Chưa cấu hình đơn giá mực offset (định mức ink_cost_per_1000_impressions) — chi phí mực chưa được tính.")
+
         # 10. Machine Operating Cost Line
         if machine and machine_rate:
             # Resolve run qty based on speed_unit
@@ -525,6 +601,16 @@ class PricingEngine:
                 run_time_hours = run_qty / (speed * 60.0)
             else:
                 run_time_hours = run_qty / speed
+
+            # #2 — số pass = ⌈màu / số đơn vị màu của máy⌉ khi job nhiều màu hơn số đơn vị in của máy (§31c).
+            # VD 6 màu trên máy 4 đơn vị → 2 lượt chạy → nhân đôi giờ máy. num_ink_units None ⇒ passes=1.
+            num_ink_units = getattr(machine, "num_ink_units", None)
+            passes = 1
+            if num_ink_units:
+                passes = max(1, math.ceil(colors / int(num_ink_units)))
+            if passes > 1:
+                run_time_hours *= passes
+                add_warning("info", "MULTI_PASS", f"Job {colors} màu chạy trên máy {num_ink_units} đơn vị in → {passes} lượt in (giờ máy ×{passes}).", "machine", machine.id)
 
             setup_hours = float(machine.setup_time_mins + machine.changeover_time_mins) / 60.0
             machine_hours = run_time_hours + setup_hours

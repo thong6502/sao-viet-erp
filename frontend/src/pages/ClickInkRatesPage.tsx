@@ -42,7 +42,7 @@ export function ClickInkRatesPage() {
   const [machineFilter, setMachineFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   
-  const [machines, setMachines] = useState<{ id: number; name: string }[]>([]);
+  const [machines, setMachines] = useState<{ id: number; name: string; machine_type: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
@@ -410,7 +410,9 @@ export function ClickInkRatesPage() {
                     onChange={(e) => setMachineId(e.target.value)}
                   >
                     <option value="">-- Áp dụng chung cho công nghệ --</option>
-                    {machines.filter(m => m.name.toLowerCase().includes(technology) || technology === "digital").map((m) => (
+                    {/* lọc theo machine_type (đúng công nghệ), không theo tên máy như trước (máy
+                        "Mitsubishi Daiya 4 màu" không chứa chữ "offset" nên trước đây bị ẩn). */}
+                    {machines.filter((m) => m.machine_type === technology).map((m) => (
                       <option key={m.id} value={m.id}>{m.name}</option>
                     ))}
                   </select>

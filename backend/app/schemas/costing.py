@@ -121,6 +121,11 @@ class SuggestPiecesIn(BaseModel):
     piece_w: float
     piece_h: float
     grain_locked: bool = False
+    # #4 — tham số bình bản (cm), mặc định 0 ⇒ gợi ý như cũ
+    gripper_cm: float = 0.0
+    edge_trim_cm: float = 0.0
+    bleed_cm: float = 0.0
+    gutter_cm: float = 0.0
 
 
 class SuggestPiecesOut(BaseModel):

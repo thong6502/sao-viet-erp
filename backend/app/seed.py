@@ -595,7 +595,9 @@ def seed_machines(db: Session) -> None:
             min_width_cm=36,
             min_height_cm=54,
             setup_time_mins=30,
-            setup_waste_sheets=200
+            setup_waste_sheets=200,
+            num_ink_units=4,
+            supports_perfecting=False
         )
         repo.add_machine_rate(machine_id=offset.id, hourly_rate=500000, min_charge=1500000, effective_from=date(2026, 1, 1))
 
@@ -649,7 +651,18 @@ def seed_operations(db: Session) -> None:
             allow_outsource=False
         )
         repo.add_operation_rate(operation_id=dong.id, setup_fee=0, run_rate=20000, labor_rate=5000, min_charge=50000, speed=20, effective_from=date(2026, 1, 1))
-        
+
+        # #8 — bổ sung công đoạn mà seed_product_types tham chiếu (gap/dong_cuon/dan_hop) để lookup không treo.
+        # TODO(SVN): xác nhận đơn giá gia công thực tế các công đoạn này.
+        gap = repo.create(name="Gấp thành phẩm", operation_type="gap", unit="to", allow_outsource=False)
+        repo.add_operation_rate(operation_id=gap.id, setup_fee=50000, run_rate=100, labor_rate=50, min_charge=100000, speed=3000, effective_from=date(2026, 1, 1))
+
+        dong_cuon = repo.create(name="Đóng cuốn (keo nhiệt)", operation_type="dong_cuon", unit="cuon", allow_outsource=True)
+        repo.add_operation_rate(operation_id=dong_cuon.id, setup_fee=200000, run_rate=800, labor_rate=200, min_charge=300000, speed=500, effective_from=date(2026, 1, 1))
+
+        dan_hop = repo.create(name="Dán hộp", operation_type="dan_hop", unit="cai", allow_outsource=False)
+        repo.add_operation_rate(operation_id=dan_hop.id, setup_fee=100000, run_rate=300, labor_rate=100, min_charge=200000, speed=1000, effective_from=date(2026, 1, 1))
+
         db.commit()
 
 
@@ -769,6 +782,22 @@ def seed_norms(db: Session) -> None:
             qty_max=None,
             context=ctx,
             context_key=canonicalize_context(ctx),
+            effective_from=date(2026, 1, 1)
+        )
+        # 4. Offset ink price per 1000 impressions (#1).
+        # GIÁ TRỊ MẶC ĐỊNH placeholder — TODO(SVN): xác nhận đơn giá mực offset (đ / 1000 lượt-màu);
+        # sửa trên trang "Định mức & Bù hao".
+        repo.add_norm(
+            norm_key="ink_cost_per_1000_impressions",
+            value=500,
+            product_type=None,
+            machine_id=None,
+            operation_id=None,
+            operation_key=None,
+            qty_min=None,
+            qty_max=None,
+            context=None,
+            context_key="{}",
             effective_from=date(2026, 1, 1)
         )
         db.commit()

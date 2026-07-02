@@ -97,6 +97,11 @@ export function TinhGiaPage() {
   const [overridePieces, setOverridePieces] = useState(false);
   const [piecesPerSheet, setPiecesPerSheet] = useState("");
   const [grainLocked, setGrainLocked] = useState(false);
+  // #4 — tham số bình bản (cm, tùy chọn) tinh chỉnh gợi ý số con/khổ (nhíp/xén/bleed/gutter)
+  const [gripperCm, setGripperCm] = useState("");
+  const [edgeTrimCm, setEdgeTrimCm] = useState("");
+  const [bleedCm, setBleedCm] = useState("");
+  const [gutterCm, setGutterCm] = useState("");
 
   // Machine
   const [machineId, setMachineId] = useState<number | null>(null);
@@ -210,6 +215,10 @@ export function TinhGiaPage() {
       piece_w: pw,
       piece_h: ph,
       grain_locked: grainLocked,
+      gripper_cm: Number(gripperCm) || 0,
+      edge_trim_cm: Number(edgeTrimCm) || 0,
+      bleed_cm: Number(bleedCm) || 0,
+      gutter_cm: Number(gutterCm) || 0,
     })
     .then((res) => {
       if (!cancelled) setSuggestedPieces(res.pieces);
@@ -221,7 +230,7 @@ export function TinhGiaPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, materialId, finishedWidth, finishedHeight, boxLength, boxWidth, largeWidth, largeHeight, grainLocked, productType, overridePieces, materials]);
+  }, [token, materialId, finishedWidth, finishedHeight, boxLength, boxWidth, largeWidth, largeHeight, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, productType, overridePieces, materials]);
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
@@ -263,6 +272,10 @@ export function TinhGiaPage() {
     setOverridePieces(false);
     setPiecesPerSheet("");
     setGrainLocked(false);
+    setGripperCm("");
+    setEdgeTrimCm("");
+    setBleedCm("");
+    setGutterCm("");
     setMachineId(null);
     setOperations([]);
     setCustomCosts([]);
@@ -313,7 +326,11 @@ export function TinhGiaPage() {
       setOverridePieces(!!spec.override_pieces);
       setPiecesPerSheet(spec.pieces_per_sheet || "");
       setGrainLocked(!!spec.grain_locked);
-      
+      setGripperCm(spec.gripper_cm || "");
+      setEdgeTrimCm(spec.edge_trim_cm || "");
+      setBleedCm(spec.bleed_cm || "");
+      setGutterCm(spec.gutter_cm || "");
+
       setMachineId(spec.machine_id || null);
       
       // Operations mapping
@@ -539,7 +556,11 @@ export function TinhGiaPage() {
       sheet_w: mat?.width_cm || 0,
       sheet_h: mat?.height_cm || 0,
       grain_locked: grainLocked,
-      
+      gripper_cm: Number(gripperCm) || 0,
+      edge_trim_cm: Number(edgeTrimCm) || 0,
+      bleed_cm: Number(bleedCm) || 0,
+      gutter_cm: Number(gutterCm) || 0,
+
       machine_id: machineId,
       operations: operations.map((o) => ({
         operation_key: o.name.trim(),
@@ -601,6 +622,7 @@ export function TinhGiaPage() {
     switch (cat) {
       case "material": return "Vật liệu";
       case "click_ink": return "Click / Mực";
+      case "ink": return "Mực in";
       case "plate_die": return "Bản / Khuôn";
       case "machine": return "Chạy máy";
       case "operation": return "Gia công";
@@ -1251,6 +1273,26 @@ export function TinhGiaPage() {
                     onChange={(e) => setGrainLocked(e.target.checked)}
                   />
                   <span>Ràng buộc thớ giấy (Grain locked - bỏ nhánh quay giấy)</span>
+                </div>
+
+                {/* #4 — tham số bình bản (tùy chọn) tinh chỉnh gợi ý số con/khổ */}
+                <div className="tg__form-grid" style={{ marginTop: "12px" }}>
+                  <label className="field">
+                    <span className="field__label">Kẹp nhíp (cm)</span>
+                    <input className="input" type="number" step="0.1" placeholder="VD: 1.0" value={gripperCm} onChange={(e) => setGripperCm(e.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Xén mép (cm)</span>
+                    <input className="input" type="number" step="0.1" placeholder="VD: 0.5" value={edgeTrimCm} onChange={(e) => setEdgeTrimCm(e.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Bleed tràn lề (cm)</span>
+                    <input className="input" type="number" step="0.1" placeholder="VD: 0.3" value={bleedCm} onChange={(e) => setBleedCm(e.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Chừa giữa con (cm)</span>
+                    <input className="input" type="number" step="0.1" placeholder="VD: 0.3" value={gutterCm} onChange={(e) => setGutterCm(e.target.value)} />
+                  </label>
                 </div>
               </div>
             </section>

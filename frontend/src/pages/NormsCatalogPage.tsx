@@ -17,6 +17,8 @@ const NORM_KEYS = [
   { value: "makeready_per_color_side", label: "Hao hụt Setup (Makeready per color/side)" },
   // #10 — bù hao theo công đoạn (gắn với Công đoạn/operation_key); engine đọc key này cho từng CĐ.
   { value: "waste_pct_of_operation", label: "Tỷ lệ bù hao công đoạn (Waste % per operation)" },
+  // #1 — đơn giá mực in offset (đ / 1000 lượt-màu); engine tính tiền mực từ định mức này.
+  { value: "ink_cost_per_1000_impressions", label: "Đơn giá mực offset (đ / 1000 lượt-màu)" },
 ];
 
 export function NormsCatalogPage() {
@@ -475,15 +477,25 @@ export function NormsCatalogPage() {
 
                 <div>
                   <label className="label">
-                    {normKey === "makeready_per_color_side" ? "Giá trị hao hụt (Tờ bù hao)" : "Giá trị tỷ lệ (VD: 0.98 cho 98%)"}
+                    {normKey === "makeready_per_color_side"
+                      ? "Giá trị hao hụt (Tờ bù hao)"
+                      : normKey === "ink_cost_per_1000_impressions"
+                      ? "Đơn giá mực (đ / 1000 lượt-màu)"
+                      : "Giá trị tỷ lệ (VD: 0.98 cho 98%)"}
                   </label>
                   <input
                     type="number"
-                    step="0.001"
+                    step={normKey === "ink_cost_per_1000_impressions" || normKey === "makeready_per_color_side" ? "1" : "0.001"}
                     className="input"
                     value={value}
                     onChange={(e) => setValue(e.target.value)}
-                    placeholder={normKey === "makeready_per_color_side" ? "VD: 25" : "VD: 0.03"}
+                    placeholder={
+                      normKey === "makeready_per_color_side"
+                        ? "VD: 25"
+                        : normKey === "ink_cost_per_1000_impressions"
+                        ? "VD: 500"
+                        : "VD: 0.03"
+                    }
                     required
                     min="0"
                   />

@@ -800,6 +800,8 @@ client's httpOnly cookie.
 | `changeover_time_mins` | `Integer` → `INTEGER` | — | no | `0` | Job changeover/cleanup time (minutes). |
 | `setup_waste_sheets` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0.0` | Fixed sheets/material waste during setup. |
 | `supported_materials` | `JSON` → `TEXT` / `JSONB` | — | yes | — | List of supported material_type codes. |
+| `num_ink_units` | `Integer` → `INTEGER` | — | yes | — | Số đơn vị in (số màu in được 1 lượt); dùng tính số pass `⌈màu/num_ink_units⌉` (§31c). Null = không áp dụng. |
+| `supports_perfecting` | `Boolean` → `BOOLEAN` | — | no | `false` | Máy in được 2 mặt trong 1 lượt (trở nhật/lật, §3). |
 | `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status of machine. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
 | `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |

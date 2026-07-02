@@ -65,7 +65,15 @@ class Machine(Base):
     )
     
     supported_materials: Mapped[list[str] | None] = mapped_column(JSON, nullable=True) # list material_type
-    
+
+    # #2 — số đơn vị in (số màu máy in được trong 1 lượt); pricing_engine dùng để tính số pass
+    # (⌈màu/num_ink_units⌉) khi job nhiều màu hơn số đơn vị của máy (§31c). NULL = không tính pass.
+    num_ink_units: Mapped[int | None] = mapped_column(
+        Integer, CheckConstraint("num_ink_units IS NULL OR num_ink_units >= 1"), nullable=True
+    )
+    # #11 — trở nhật/lật: máy in được 2 mặt trong 1 lượt (perfecting). Thông tin cấu hình (§3).
+    supports_perfecting: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

@@ -120,7 +120,7 @@ class EstimateCostLine(Base):
         CheckConstraint("setup_cost >= 0", name="chk_estimate_cost_lines_setup_cost"),
         CheckConstraint("total_cost >= 0", name="chk_estimate_cost_lines_total_cost"),
         CheckConstraint(
-            "category IN ('material', 'click_ink', 'plate_die', 'machine', 'operation', 'outsource', 'delivery', 'packing', 'other')",
+            "category IN ('material', 'ink', 'click_ink', 'plate_die', 'machine', 'operation', 'outsource', 'delivery', 'packing', 'other')",
             name="chk_estimate_cost_lines_category"
         ),
     )

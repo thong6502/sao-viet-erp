@@ -13,12 +13,20 @@ import "./master-data.css";
 
 const PAGE_SIZE = 10;
 
+// Bộ công đoạn thành phẩm theo domain §5 (thêm bồi/ép kim/dập nổi/UV/dán hộp/xén; trước thiếu dan_hop
+// dù seed dùng nó cho hộp/túi → hiển thị raw).
 const OP_TYPES = [
   { value: "in", label: "In ấn (Printing)" },
   { value: "can_mang", label: "Cán màng (Lamination)" },
   { value: "be", label: "Bế hình / Đột (Die-cutting)" },
+  { value: "boi", label: "Bồi (Mounting)" },
+  { value: "ep_kim", label: "Ép kim / Nhũ (Foil stamping)" },
+  { value: "dap_noi", label: "Dập nổi / chìm (Emboss)" },
+  { value: "uv", label: "UV định hình (Spot UV)" },
   { value: "gap", label: "Gấp nếp / Cấn (Folding)" },
   { value: "dong_cuon", label: "Đóng cuốn (Binding)" },
+  { value: "dan_hop", label: "Dán hộp (Box gluing)" },
+  { value: "xen", label: "Xén (Trimming)" },
   { value: "dong_goi", label: "Đóng gói (Packaging)" },
   { value: "other", label: "Gia công khác" },
 ];
@@ -386,10 +394,15 @@ function OperationFormDialog({
             <span className="field__label">Đơn vị đo lường *</span>
             <input
               className="input"
+              list="op-units"
               placeholder="VD: m2, luot, to, cai"
               value={unit}
               onChange={(e) => setUnit(e.target.value)}
             />
+            {/* #9 — gợi ý đơn vị chuẩn (engine hiểu: to/m2/cuon/cai/san_pham; §33) */}
+            <datalist id="op-units">
+              {["m2", "to", "luot", "cuon", "cai", "san_pham", "thung", "kg"].map((u) => <option key={u} value={u} />)}
+            </datalist>
           </label>
 
           <label className="field">

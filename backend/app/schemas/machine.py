@@ -40,7 +40,11 @@ class MachineCreate(BaseModel):
     setup_time_mins: int = Field(default=0, ge=0)
     changeover_time_mins: int = Field(default=0, ge=0)
     setup_waste_sheets: float = Field(default=0.0, ge=0)
-    
+
+    # #2 số đơn vị màu của máy · #11 in được 2 mặt 1 lượt (trở nhật/lật)
+    num_ink_units: int | None = Field(default=None, ge=1)
+    supports_perfecting: bool = False
+
     supported_materials: list[str] | None = Field(default=None)
     is_active: bool = True
 
@@ -55,8 +59,20 @@ class MachineRow(BaseModel):
     name: str
     machine_type: str
     process_type: str
+    # List phải trả đủ thông số: (1) bảng hiển thị khổ máy, (2) form Sửa prefill đúng — nếu thiếu,
+    # Sửa máy (chỉ đổi tên) sẽ ghi đè null/0 = MẤT khổ máy, thời gian setup, chất liệu hỗ trợ.
+    max_width_cm: float | None = None
+    max_height_cm: float | None = None
+    min_width_cm: float | None = None
+    min_height_cm: float | None = None
     speed: float
     speed_unit: str
+    setup_time_mins: int = 0
+    changeover_time_mins: int = 0
+    setup_waste_sheets: float = 0.0
+    num_ink_units: int | None = None
+    supports_perfecting: bool = False
+    supported_materials: list[str] | None = None
     is_active: bool
     rates: list[MachineRateOut] = Field(default_factory=list)
 
@@ -83,6 +99,8 @@ class MachineDetailOut(BaseModel):
     setup_time_mins: int
     changeover_time_mins: int
     setup_waste_sheets: float
+    num_ink_units: int | None
+    supports_perfecting: bool
     supported_materials: list[str] | None
     is_active: bool
     created_at: datetime

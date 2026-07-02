@@ -20,10 +20,17 @@ const MAT_TYPES = [
   { value: "pp", label: "PP" },
   { value: "canvas", label: "Vải canvas" },
   { value: "carton", label: "Giấy carton" },
+  { value: "film", label: "Film" },
+  { value: "formex", label: "Formex" },
   { value: "lamination", label: "Màng cán" },
   { value: "glue", label: "Keo dán" },
   { value: "chemical", label: "Hóa chất / mực" },
 ];
+
+// #9 — gợi ý chuẩn hoá danh mục (datalist: gợi ý nhưng vẫn cho nhập khác — domain §4 còn Kraft/art paper).
+const PAPER_FAMILIES = ["Ford", "Couche", "Ivory", "Bristol", "Duplex", "Kraft"];
+const PAPER_SURFACES = ["bong", "mo", "khong_trang"];
+const PRICE_UNITS = ["ram", "kg", "to", "m2"];
 
 export function MaterialsCatalogPage() {
   const { token } = useAuth();
@@ -405,6 +412,17 @@ function MaterialFormDialog({
 
     if (!name.trim()) return setError("Tên vật tư không được trống.");
     if (!unit.trim()) return setError("Đơn vị tính không được trống.");
+    // Giấy PHẢI đủ họ + gsm + khổ: thiếu thì không tính được số con/khổ hay quy đổi tờ↔kg.
+    // (Trước đây "Họ giấy *" đánh dấu bắt buộc nhưng không hề validate.)
+    if (type === "paper") {
+      if (!family.trim()) return setError("Họ giấy không được trống.");
+      if (!gsm.trim()) return setError("Định lượng (gsm) không được trống cho giấy.");
+      if (!widthCm.trim() || !heightCm.trim()) return setError("Khổ giấy (rộng × dài, cm) không được trống.");
+    }
+    // #10 — khổ giấy VN nhập theo quy ước CẠNH NGẮN TRƯỚC (rộng ≤ dài), VD 65×86, 79×109.
+    if (type === "paper" && widthCm && heightCm && Number(widthCm) > Number(heightCm)) {
+      return setError("Khổ giấy nhập cạnh ngắn trước: Khổ rộng phải ≤ Khổ dài (VD: 65×86, 79×109).");
+    }
 
     const payload: MaterialInput = {
       name: name.trim(),
@@ -538,22 +556,30 @@ function MaterialFormDialog({
                   <span className="field__label">Họ giấy *</span>
                   <input
                     className="input"
+                    list="paper-families"
                     placeholder="VD: Couche, Bristol, Ford"
                     value={family}
                     onChange={(e) => setFamily(e.target.value)}
                   />
+                  <datalist id="paper-families">
+                    {PAPER_FAMILIES.map((f) => <option key={f} value={f} />)}
+                  </datalist>
                 </label>
                 <label className="field">
                   <span className="field__label">Bề mặt</span>
                   <input
                     className="input"
-                    placeholder="VD: bong, mo, trang"
+                    list="paper-surfaces"
+                    placeholder="VD: bong, mo, khong_trang"
                     value={surface}
                     onChange={(e) => setSurface(e.target.value)}
                   />
+                  <datalist id="paper-surfaces">
+                    {PAPER_SURFACES.map((s) => <option key={s} value={s} />)}
+                  </datalist>
                 </label>
                 <label className="field">
-                  <span className="field__label">Định lượng (gsm)</span>
+                  <span className="field__label">Định lượng (gsm) *</span>
                   <input
                     className="input"
                     type="number"
@@ -562,7 +588,7 @@ function MaterialFormDialog({
                   />
                 </label>
                 <label className="field">
-                  <span className="field__label">Khổ rộng (cm)</span>
+                  <span className="field__label">Khổ rộng (cm) *</span>
                   <input
                     className="input"
                     type="number"
@@ -572,7 +598,7 @@ function MaterialFormDialog({
                   />
                 </label>
                 <label className="field">
-                  <span className="field__label">Khổ dài/cao (cm)</span>
+                  <span className="field__label">Khổ dài/cao (cm) *</span>
                   <input
                     className="input"
                     type="number"
@@ -628,6 +654,8 @@ function PaperCloneDialog({
     const w = Number(widthCm);
     const h = Number(heightCm);
     if (!g || !w || !h) return setError("Các thông số gsm, kích thước không được trống.");
+    // #10 — khổ giấy nhập cạnh ngắn trước (rộng ≤ dài).
+    if (w > h) return setError("Khổ giấy nhập cạnh ngắn trước: Khổ rộng phải ≤ Khổ dài.");
 
     setSaving(true);
     try {
@@ -757,10 +785,14 @@ function MaterialCostsDialog({
                 <span className="field__label">Đơn vị giá</span>
                 <input
                   className="input"
+                  list="price-units"
                   placeholder="VD: ram, kg, to"
                   value={priceUnit}
                   onChange={(e) => setPriceUnit(e.target.value)}
                 />
+                <datalist id="price-units">
+                  {PRICE_UNITS.map((u) => <option key={u} value={u} />)}
+                </datalist>
               </label>
               <label className="field">
                 <span className="field__label">Đơn giá (đ) *</span>

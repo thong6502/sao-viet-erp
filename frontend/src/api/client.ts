@@ -1038,6 +1038,8 @@ export interface MachineRow {
   setup_time_mins: number;
   changeover_time_mins: number;
   setup_waste_sheets: number;
+  num_ink_units: number | null;
+  supports_perfecting: boolean;
   supported_materials: string[];
   is_active: boolean;
   rates: MachineRateRow[];
@@ -1058,6 +1060,8 @@ export interface MachineInput {
   setup_time_mins?: number;
   changeover_time_mins?: number;
   setup_waste_sheets?: number;
+  num_ink_units?: number | null;
+  supports_perfecting?: boolean;
   supported_materials?: string[];
   is_active?: boolean;
 }
@@ -1471,7 +1475,7 @@ export const api = {
     },
     suggestPieces(
       token: string,
-      body: { sheet_w: number; sheet_h: number; piece_w: number; piece_h: number; grain_locked: boolean },
+      body: { sheet_w: number; sheet_h: number; piece_w: number; piece_h: number; grain_locked: boolean; gripper_cm?: number; edge_trim_cm?: number; bleed_cm?: number; gutter_cm?: number },
     ): Promise<SuggestPiecesOut> {
       return authed<SuggestPiecesOut>("/api/costings/suggest-pieces", token, {
         method: "POST",

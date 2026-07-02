@@ -118,6 +118,8 @@ class MachineRepository:
         setup_time_mins: int = 0,
         changeover_time_mins: int = 0,
         setup_waste_sheets: float = 0.0,
+        num_ink_units: int | None = None,
+        supports_perfecting: bool = False,
         supported_materials: list[str] | None = None,
         is_active: bool = True,
     ) -> Machine:
@@ -135,6 +137,8 @@ class MachineRepository:
             setup_time_mins=setup_time_mins,
             changeover_time_mins=changeover_time_mins,
             setup_waste_sheets=setup_waste_sheets,
+            num_ink_units=num_ink_units,
+            supports_perfecting=supports_perfecting,
             supported_materials=supported_materials,
             is_active=is_active,
         )
@@ -162,6 +166,8 @@ class MachineRepository:
         setup_time_mins: int = 0,
         changeover_time_mins: int = 0,
         setup_waste_sheets: float = 0.0,
+        num_ink_units: int | None = None,
+        supports_perfecting: bool = False,
         supported_materials: list[str] | None = None,
         is_active: bool | None = None,
     ) -> Machine:
@@ -177,6 +183,8 @@ class MachineRepository:
         machine.setup_time_mins = setup_time_mins
         machine.changeover_time_mins = changeover_time_mins
         machine.setup_waste_sheets = setup_waste_sheets
+        machine.num_ink_units = num_ink_units
+        machine.supports_perfecting = supports_perfecting
         machine.supported_materials = supported_materials
         if is_active is not None:
             machine.is_active = is_active

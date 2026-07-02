@@ -31,6 +31,12 @@ class ProductTypeCatalogRow(BaseModel):
     product_type: str
     name: str
     calculation_strategy: str
+    # List phải trả các mảng cấu hình: (1) để bảng hiển thị cột "Thuộc tính/Công nghệ",
+    # (2) để form Sửa prefill đúng — nếu thiếu, Sửa sẽ ghi đè rỗng = mất cấu hình.
+    required_fields: list[str] | None = None
+    default_operations: list[str] | None = None
+    allowed_materials: list[str] | None = None
+    compatible_technologies: list[str] | None = None
     is_active: bool
     created_at: datetime
 

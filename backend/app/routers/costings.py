@@ -148,6 +148,10 @@ def suggest_pieces(
         piece_w=payload.piece_w,
         piece_h=payload.piece_h,
         grain_locked=payload.grain_locked,
+        gripper_cm=payload.gripper_cm,
+        edge_trim_cm=payload.edge_trim_cm,
+        bleed_cm=payload.bleed_cm,
+        gutter_cm=payload.gutter_cm,
     )
     message = (
         "Giấy quá nhỏ so với khổ thành phẩm — kiểm tra lại khổ tờ / khổ SP."

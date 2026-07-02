@@ -64,8 +64,11 @@ class ProductTypeCatalogService:
             try:
                 from ..models.operation import Operation
                 for op_code in default_operations:
+                    # default_operations chứa operation_TYPE (be, gap, dong_goi…), KHÔNG phải code
+                    # tự sinh (CD###). Trước đây so nhầm với Operation.code nên mọi công đoạn hợp lệ
+                    # đều bị coi là "không tồn tại" → Sửa loại SP có công đoạn luôn 422.
                     op = self.repo.db.execute(
-                        select(Operation).where(Operation.code == op_code)
+                        select(Operation).where(Operation.operation_type == op_code)
                     ).scalars().first()
                     if not op:
                         raise ProductTypeCatalogValidationError(f"Công đoạn mặc định '{op_code}' không tồn tại trong danh mục.")

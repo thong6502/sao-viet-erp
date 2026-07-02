@@ -335,6 +335,8 @@ function MachineFormDialog({
   const [setupTime, setSetupTime] = useState(existing?.setup_time_mins ? String(existing.setup_time_mins) : "0");
   const [changeoverTime, setChangeoverTime] = useState(existing?.changeover_time_mins ? String(existing.changeover_time_mins) : "0");
   const [setupWaste, setSetupWaste] = useState(existing?.setup_waste_sheets ? String(existing.setup_waste_sheets) : "0");
+  const [numInkUnits, setNumInkUnits] = useState(existing?.num_ink_units ? String(existing.num_ink_units) : "");
+  const [perfecting, setPerfecting] = useState(existing?.supports_perfecting ?? false);
   const [materials, setMaterials] = useState<string[]>(existing?.supported_materials ?? ["paper"]);
   const [isActive, setIsActive] = useState(existing?.is_active ?? true);
 
@@ -380,6 +382,8 @@ function MachineFormDialog({
       setup_time_mins: Number(setupTime) || 0,
       changeover_time_mins: Number(changeoverTime) || 0,
       setup_waste_sheets: Number(setupWaste) || 0,
+      num_ink_units: numInkUnits ? Number(numInkUnits) : null,
+      supports_perfecting: perfecting,
       supported_materials: materials,
       is_active: isActive,
     };
@@ -450,10 +454,17 @@ function MachineFormDialog({
               <span className="field__label">Đơn vị tốc độ *</span>
               <input
                 className="input"
+                list="speed-units"
                 placeholder="VD: to/gio, trang/phut, m2/gio"
                 value={speedUnit}
                 onChange={(e) => setSpeedUnit(e.target.value)}
               />
+              {/* engine chỉ hiểu 3 đơn vị này; gợi ý để tránh gõ sai → tính giờ máy sai */}
+              <datalist id="speed-units">
+                <option value="to/gio" />
+                <option value="trang/phut" />
+                <option value="m2/gio" />
+              </datalist>
             </label>
 
             <label className="field">
@@ -489,6 +500,31 @@ function MachineFormDialog({
             <label className="field">
               <span className="field__label">Hao hụt Setup ban đầu (tờ)</span>
               <input className="input" type="number" value={setupWaste} onChange={(e) => setSetupWaste(e.target.value)} />
+            </label>
+
+            <label className="field">
+              <span className="field__label">Số đơn vị màu (máy in)</span>
+              <input
+                className="input"
+                type="number"
+                min="1"
+                placeholder="VD: 4 (máy 4 màu) — để trống nếu không áp dụng"
+                value={numInkUnits}
+                onChange={(e) => setNumInkUnits(e.target.value)}
+              />
+            </label>
+
+            <label className="field">
+              <span className="field__label">In 2 mặt 1 lượt (trở nhật/lật)</span>
+              <div className="md-page__toggle-wrap">
+                <input
+                  type="checkbox"
+                  id="mc-perfecting-check"
+                  checked={perfecting}
+                  onChange={(e) => setPerfecting(e.target.checked)}
+                />
+                <label htmlFor="mc-perfecting-check">Máy hỗ trợ perfecting</label>
+              </div>
             </label>
 
             <label className="field">

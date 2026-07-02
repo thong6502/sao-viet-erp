@@ -48,6 +48,12 @@ class MaterialRow(BaseModel):
     name: str
     material_type: str
     unit: str
+    # List phải trả đủ field mà form Sửa dùng để prefill — nếu thiếu, Sửa vật tư (chỉ đổi tên) sẽ
+    # ghi đè 0/null lên min_fee, độ dày, bù hao (default_waste_pct feeds pricing_engine #6), SL mua tối thiểu.
+    min_fee: int = 0
+    thickness_mm: float | None = None
+    default_waste_pct: float = 0.0
+    min_purchase_qty: float = 0.0
     is_active: bool
     width_cm: float | None
     height_cm: float | None

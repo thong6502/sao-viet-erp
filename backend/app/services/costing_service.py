@@ -69,26 +69,40 @@ def suggest_pieces_per_sheet(
     piece_w: float,
     piece_h: float,
     grain_locked: bool,
+    gripper_cm: float = 0.0,
+    edge_trim_cm: float = 0.0,
+    bleed_cm: float = 0.0,
+    gutter_cm: float = 0.0,
 ) -> int:
     """Pure geometry suggestion for số con/khổ (§31a). Fits the piece rectangle into the
     sheet in both orientations and returns the better count; when `grain_locked` the rotated
     (xoay) branch is dropped (§31 L782). Returns 0 (never divides by zero) when any dimension
     is ≤0 or the piece is larger than the sheet — the caller shows an explicit warning.
 
-    This is a naive grid fit (⌊W/w⌋·⌊H/h⌋), NOT a nesting optimiser — good enough for a
-    parallel hint next to the manually-entered value (which stays authoritative)."""
+    #4 — trừ nhíp (gripper, 1 cạnh nạp) + xén mép (2 cạnh); cộng bleed (2 cạnh) + gutter giữa con
+    (§31a). Bốn tham số mặc định 0 ⇒ trùng ⌊W/w⌋·⌊H/h⌋ cũ (mirror pricing_engine).
+
+    This is a naive grid fit, NOT a nesting optimiser — good enough for a parallel hint next to
+    the manually-entered value (which stays authoritative)."""
     if sheet_w <= 0 or sheet_h <= 0 or piece_w <= 0 or piece_h <= 0:
         return 0
 
-    def grid(sw: float, sh: float, pw: float, ph: float) -> int:
-        cols = math.floor(sw / pw)
-        rows = math.floor(sh / ph)
+    usable_w = sheet_w - gripper_cm - 2 * edge_trim_cm
+    usable_h = sheet_h - 2 * edge_trim_cm
+    pw = piece_w + 2 * bleed_cm + gutter_cm
+    ph = piece_h + 2 * bleed_cm + gutter_cm
+    if usable_w <= 0 or usable_h <= 0 or pw <= 0 or ph <= 0:
+        return 0
+
+    def grid(sw: float, sh: float, a: float, b: float) -> int:
+        cols = math.floor(sw / a)
+        rows = math.floor(sh / b)
         return max(0, cols) * max(0, rows)
 
-    straight = grid(sheet_w, sheet_h, piece_w, piece_h)
+    straight = grid(usable_w, usable_h, pw, ph)
     if grain_locked:
         return straight
-    rotated = grid(sheet_w, sheet_h, piece_h, piece_w)
+    rotated = grid(usable_w, usable_h, ph, pw)
     return max(straight, rotated)
 
 

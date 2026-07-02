@@ -9,40 +9,55 @@ import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import "./master-data.css";
 
+// Phải khớp CALCULATION_STRATEGIES ở model (sheet/page/area/roll/box/book) — trước đây lệch
+// (thừa item_based/other vô hiệu, thiếu box/roll/book → hộp/cuộn/sách hiện raw + tạo bị 422).
 const CALC_STRATEGIES = [
   { value: "sheet_based", label: "Theo khổ tờ (Sheet-based)" },
   { value: "page_based", label: "Theo số trang (Page-based)" },
   { value: "area_based", label: "Theo diện tích m2 (Area-based)" },
-  { value: "item_based", label: "Theo cái/thành phẩm (Item-based)" },
-  { value: "other", label: "Tính toán khác (Other)" },
+  { value: "box_based", label: "Theo hộp (Box-based)" },
+  { value: "roll_based", label: "Theo cuộn (Roll-based)" },
+  { value: "book_based", label: "Theo cuốn sách (Book-based)" },
 ];
 
 const STAGE_FIELDS = [
   { value: "gsm", label: "Định lượng (GSM)" },
   { value: "finished_w", label: "Khổ rộng TP (cm)" },
   { value: "finished_h", label: "Khổ cao TP (cm)" },
+  { value: "finished_d", label: "Khổ sâu/dày TP (cm)" },
   { value: "page_count", label: "Số trang" },
   { value: "binding_type", label: "Kiểu đóng gáy" },
   { value: "sides", label: "Số mặt in" },
 ];
 
+// Khớp OP_TYPES của trang Công đoạn (domain §5); trước thiếu dan_hop dù seed hộp/túi dùng nó.
 const OP_TYPES = [
   { value: "in", label: "In ấn" },
   { value: "can_mang", label: "Cán màng" },
   { value: "be", label: "Bế hình / Đột" },
+  { value: "boi", label: "Bồi" },
+  { value: "ep_kim", label: "Ép kim / Nhũ" },
+  { value: "dap_noi", label: "Dập nổi / chìm" },
+  { value: "uv", label: "UV định hình" },
   { value: "gap", label: "Gấp nếp" },
   { value: "dong_cuon", label: "Đóng cuốn" },
+  { value: "dan_hop", label: "Dán hộp" },
+  { value: "xen", label: "Xén" },
   { value: "dong_goi", label: "Đóng gói" },
 ];
 
+// Khớp VALID_MATERIAL_TYPES ở product_type_catalog_service (backend từ chối type ngoài tập này).
 const MAT_TYPES = [
   { value: "paper", label: "Giấy in" },
   { value: "decal", label: "Decal" },
   { value: "pp", label: "PP" },
   { value: "canvas", label: "Vải canvas" },
   { value: "carton", label: "Giấy carton" },
+  { value: "film", label: "Film" },
+  { value: "formex", label: "Formex" },
   { value: "lamination", label: "Màng cán" },
   { value: "glue", label: "Keo dán" },
+  { value: "chemical", label: "Hóa chất / mực" },
 ];
 
 const TECH_TYPES = [

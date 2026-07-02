@@ -15,6 +15,9 @@ VALID_NORM_KEYS = {
     # #10 — pricing_engine (chuỗi bù hao ngược) đọc key này cho TỪNG công đoạn; trước đây thiếu
     # nên bù hao mỗi công đoạn luôn kẹt mặc định 2%. TODO(SVN): xác nhận danh mục bù hao công đoạn.
     "waste_pct_of_operation",
+    # #1 — đơn giá mực in offset (đ / 1000 lượt-màu). pricing_engine tính tiền mực = ⌈lượt/1000⌉ × giá.
+    # Trước đây mực offset KHÔNG được tính vào giá thành. TODO(SVN): xác nhận đơn giá mực thực tế.
+    "ink_cost_per_1000_impressions",
 }
 
 # Các key bù hao là phân số [0,1) (khác yield_rate là (0,1]).
