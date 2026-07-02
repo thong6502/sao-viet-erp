@@ -1,8 +1,7 @@
 # Context Map — Sổ liên đới chéo phân hệ (INDEX)
 
 Ghi mọi "mối nối treo" giữa các phân hệ: phần một phân hệ **chưa làm được** vì phụ thuộc
-phân hệ chưa build. Workflow `.claude/workflows/module-build.mjs` đọc/ghi file này
-(Phase 0 đọc để back-fill; Phase 1–2 ghi seam mới; Phase 4 đóng seam).
+phân hệ chưa build.
 
 > ⚠️ **Nguồn sự thật KHÔNG phải file này.** Nguồn sự thật = **marker `SEAM-NN` trong code**
 > + **test pytest skip/xfail mang đúng ID**. Bảng dưới chỉ là *index* để người đọc tra nhanh.
@@ -62,7 +61,7 @@ Consumer-Driven Contract (Pact) · Acyclic Dependencies Principle (Martin).
 > Bảng dưới KHÔNG phải nguồn sự thật (vẫn là marker + test skip). Chỉ để tra: feat nào **TREO**
 > vì phụ thuộc phân hệ chưa build, và đóng seam nào thì feat đó buildable. Các feat "làm ngay"
 > (feat-027..031, 033..036, 038..039, 043..047) dựng màn + trạng thái seam tường minh ngay, KHÔNG
-> đợi seam. `feature_list.json` là backlog thi hành.
+> đợi seam.
 
 | Feat TREO | Spec | Chờ phân hệ | Seam(s) | Đóng seam ⇒ buildable |
 |-----------|------|-------------|---------|------------------------|

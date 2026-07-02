@@ -6,8 +6,8 @@
 > các module ERP.
 >
 > **Bộ tài liệu nền của repo:** file này thay thế và gộp toàn bộ kiến thức domain (kỹ thuật +
-> luồng sản xuất + bản đồ module). Tài liệu hệ thống/kiến trúc vẫn ở
-> [ARCHITECTURE.md](ARCHITECTURE.md) · [DB_SCHEMA.md](DB_SCHEMA.md).
+> luồng sản xuất + bản đồ module). Từ điển dữ liệu ở [DB_SCHEMA.md](DB_SCHEMA.md); mối nối chéo
+> phân hệ ở [CROSS_MODULE_LINKS.md](CROSS_MODULE_LINKS.md).
 >
 > **Độ tin cậy nguồn:**
 > - **KỸ THUẬT & TIÊU CHUẨN** (ISO 12647, G7, ICC, AM/FM tram, CTP) — nguồn gốc chính thống

@@ -1,15 +1,13 @@
 # DB_SCHEMA.md — Data Dictionary
 
 > **Single source of truth for the DATABASE SCHEMA.** Every table, what it is for, the
-> meaning of each column, primary keys, foreign keys, and indexes live here. Code
-> structure lives in [ARCHITECTURE.md](ARCHITECTURE.md); visuals in
-> [UI_DESIGN.md](UI_DESIGN.md); the **data model** lives in THIS file.
+> meaning of each column, primary keys, foreign keys, and indexes live here.
 
 - **Models (the actual definitions):** [`../backend/app/models/`](../backend/app/models/).
 - **How the schema is built:** `create_all` in
   [`../backend/app/db.py`](../backend/app/db.py) on startup, then seed in
   [`../backend/app/seed.py`](../backend/app/seed.py). No Alembic migrations yet
-  (deferred — see [`product-specs/spec-01-auth.md`](product-specs/spec-01-auth.md)).
+  (deferred).
 - **Portability:** the same SQLAlchemy layer runs on **SQLite** (local/test) and
   **PostgreSQL** (Docker/prod). Types below show the SQLAlchemy type and how it maps.
 

@@ -4,9 +4,6 @@ Nền tảng ERP full-stack: **xác thực (JWT)** + **phân quyền (RBAC)** �
 nghiệp vụ cắm vào sau. Backend FastAPI phân tầng, frontend React + Vite, chạy SQLite (dev) hoặc
 PostgreSQL (prod) trên cùng một tầng dữ liệu.
 
-> Dự án được phát triển theo **vòng lặp GAN 3 vai** (Planner · Generator · Evaluator). Nếu bạn
-> làm việc bằng AI agent, đọc [AGENTS.md](AGENTS.md) trước.
-
 ## Tính năng
 
 - **Đăng nhập JWT** — access token ngắn hạn + refresh token trong httpOnly cookie (tự xoay
@@ -49,7 +46,7 @@ Mở **http://localhost:5173** rồi đăng nhập bằng tài khoản seed sẵ
 API docs tự sinh khi backend chạy: **http://localhost:8000/docs**.
 
 > **Trước khi deploy thật:** đặt `APP_ENV=production` và một `JWT_SECRET` ngẫu nhiên (≥ 32 ký
-> tự). Backend sẽ **từ chối khởi động** nếu secret còn để mặc định — xem [docs/SECURITY.md](docs/SECURITY.md).
+> tự). Backend sẽ **từ chối khởi động** nếu secret còn để mặc định.
 
 ## Kiểm thử
 
@@ -58,7 +55,7 @@ API docs tự sinh khi backend chạy: **http://localhost:8000/docs**.
 ./init.sh        # Unix / CI
 ```
 
-Lệnh xác minh chuẩn duy nhất — chạy `pytest` + `compileall` (hiện **78 passed**).
+Lệnh xác minh chuẩn duy nhất — chạy `pytest` + `compileall` (hiện **308 passed**).
 
 ## Chạy với PostgreSQL (Docker)
 
@@ -70,7 +67,6 @@ docker compose up -d       # Postgres + backend API (:8000)
 ```
 
 Backend tự tạo bảng (`create_all`) + seed admin lúc khởi động; frontend vẫn chạy bằng `./dev`.
-Chi tiết tầng dữ liệu và lựa chọn SQLite ⇄ Postgres: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Cấu hình (`.env`)
 
@@ -87,9 +83,6 @@ làm mẫu; `./setup` tự tạo nếu chưa có:
 
 | Tài liệu | Nội dung |
 |---|---|
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Kiến trúc, phân tầng, domain map |
 | [docs/DB_SCHEMA.md](docs/DB_SCHEMA.md) | Từ điển dữ liệu — mọi bảng/cột |
-| [docs/SECURITY.md](docs/SECURITY.md) | Chính sách secrets & dữ liệu không tin cậy |
-| [docs/UI_DESIGN.md](docs/UI_DESIGN.md) | Hệ design (tokens, components, UI states) |
-| [docs/product-specs/](docs/product-specs/) | Spec từng đợt: `spec-01` auth · `spec-02` RBAC · `spec-03` hardening |
-| [AGENTS.md](AGENTS.md) · [QUICKSTART.md](QUICKSTART.md) | Quy trình phát triển bằng GAN loop |
+| [docs/DOMAIN_NHA_MAY_IN.md](docs/DOMAIN_NHA_MAY_IN.md) | Cẩm nang domain nhà máy in offset |
+| [docs/CROSS_MODULE_LINKS.md](docs/CROSS_MODULE_LINKS.md) | Context Map — sổ mối nối chéo phân hệ (seam) |

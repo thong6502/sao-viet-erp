@@ -1,8 +1,0 @@
-{
-  "id": "<PLACEHOLDER: feat-NNN, unique, e.g. feat-006>",
-  "name": "<PLACEHOLDER: short feature name>",
-  "description": "<PLACEHOLDER: one concrete user-facing behavior to implement>",
-  "dependencies": ["<PLACEHOLDER: feat-NNN this depends on, or remove for none>"],
-  "status": "not-started",
-  "evidence": ""
-}

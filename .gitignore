@@ -31,13 +31,5 @@ dist/
 # User-uploaded avatars = runtime content, not source (tests/validate sinh ảnh 1×1 mỗi lần)
 backend/static/avatars/
 
-# State / coordination files kept local per-dev (untracked to avoid merge conflicts).
-# WARNING: these now live only on each machine — they are NOT shared via git.
-feature_list.json
-progress.md
-session-handoff.md
-docs/EVALUATION.md
-docs/product-specs/
-
 # DB backups (dev.db.bak-*)
 *.bak-*
