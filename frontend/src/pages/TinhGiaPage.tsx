@@ -152,7 +152,7 @@ export function TinhGiaPage() {
   useEffect(() => {
     if (!token) return;
     
-    api.customers.list(token, { page: 1, size: 1000 })
+    api.customers.list(token, { page: 1, size: 200 })
       .then(res => setCustomers(res.items))
       .catch(() => setCustomers([]));
 
@@ -160,15 +160,15 @@ export function TinhGiaPage() {
       .then(res => setProductTypes(res.items))
       .catch(() => setProductTypes([]));
 
-    api.materials.list(token, { page: 1, size: 1000 })
+    api.materials.list(token, { page: 1, size: 200 })
       .then(res => setMaterials(res.items))
       .catch(() => setMaterials([]));
 
-    api.machines.list(token, { page: 1, size: 1000 })
+    api.machines.list(token, { page: 1, size: 200 })
       .then(res => setMachines(res.items))
       .catch(() => setMachines([]));
 
-    api.operations.list(token, { page: 1, size: 1000 })
+    api.operations.list(token, { page: 1, size: 200 })
       .then(res => setOperationsCatalog(res.items))
       .catch(() => setOperationsCatalog([]));
   }, [token]);

@@ -324,7 +324,7 @@
   padding: var(--sp-3);
   border: 1px dashed var(--rule);
   border-radius: var(--r-2);
-  background: var(--paper, #fff);
+  background: var(--rule-hair);
 }
 .tg__seam-tag {
   font-size: 13px;
@@ -370,16 +370,16 @@
   color: var(--ink);
 }
 .tg__tab-btn.is-active {
-  background: var(--paper, #fff);
+  background: var(--canvas);
   border-color: var(--rule);
   color: var(--rust);
   font-weight: var(--fw-bold);
-  border-bottom: 1px solid var(--paper, #fff);
+  border-bottom: 1px solid var(--canvas);
   margin-bottom: -1px;
 }
 
 .tg__breakdown-section {
-  background: var(--paper, #fff);
+  background: var(--canvas);
   border: 1px solid var(--rule);
   border-radius: var(--r-3);
   padding: var(--sp-5);
@@ -398,14 +398,14 @@
   border: 1px solid transparent;
 }
 .tg__warning-alert--error {
-  background: #fdf2f2;
-  border-color: #fde8e8;
-  color: #c81e1e;
+  background: var(--signal-soft);
+  border-color: var(--signal);
+  color: var(--signal);
 }
 .tg__warning-alert--warn {
-  background: #fdfaf2;
-  border-color: #fdf6b2;
-  color: #7e3af2;
+  background: var(--amber-soft);
+  border-color: var(--amber);
+  color: var(--amber-deep);
 }
 .tg__warning-title {
   font-weight: var(--fw-bold);
@@ -443,24 +443,24 @@
   border-bottom: none;
 }
 
-/* Category backgrounds */
+/* Category backgrounds — tint theo bảng màu thiết kế (không dùng màu ngoài palette) */
 .tg__row-cat-material {
-  background-color: rgba(49, 196, 141, 0.06);
+  background-color: rgba(47, 93, 58, 0.06); /* moss */
 }
 .tg__row-cat-machine {
-  background-color: rgba(63, 131, 248, 0.06);
+  background-color: rgba(74, 85, 96, 0.07); /* steel */
 }
 .tg__row-cat-click_ink {
-  background-color: rgba(126, 58, 242, 0.06);
+  background-color: rgba(74, 85, 96, 0.04); /* steel nhạt */
 }
 .tg__row-cat-plate_die {
-  background-color: rgba(227, 160, 8, 0.06);
+  background-color: rgba(156, 119, 20, 0.07); /* amber */
 }
 .tg__row-cat-operation {
-  background-color: rgba(111, 118, 126, 0.04);
+  background-color: rgba(107, 102, 91, 0.05); /* ash */
 }
 .tg__row-cat-packing {
-  background-color: rgba(111, 118, 126, 0.04);
+  background-color: rgba(107, 102, 91, 0.05); /* ash */
 }
 
 .tg__cost-summary {
@@ -477,23 +477,28 @@
 }
 
 .tg__badge--error {
-  color: #c81e1e;
-  border-color: #fde8e8;
-  background-color: #fdf2f2;
+  color: var(--signal);
+  border-color: var(--signal-soft);
+  background-color: var(--signal-soft);
 }
 .tg__badge--warn {
-  color: #9f580a;
-  border-color: #fdf6b2;
-  background-color: #fdfaf2;
+  color: var(--amber-deep);
+  border-color: var(--amber-soft);
+  background-color: var(--amber-soft);
+}
+.tg__badge--cancelled {
+  color: var(--ash);
+  border-color: var(--rule);
+  background-color: var(--rule-hair);
 }
 
 .tg__recalc-notice {
   font-size: 13px;
-  color: #9f580a;
-  background-color: #fdfaf2;
+  color: var(--amber-deep);
+  background-color: var(--amber-soft);
   padding: var(--sp-3);
   border-radius: var(--r-2);
-  border-left: 4px solid #e3a008;
+  border-left: 4px solid var(--amber);
 }
 
 /* Glassmorphism backdrop blur */
@@ -509,7 +514,7 @@
   margin-bottom: var(--sp-4);
 }
 .tg__kpi-card {
-  background: var(--paper, #fff);
+  background: var(--canvas);
   border: 1px solid var(--rule);
   border-radius: var(--r-3);
   padding: var(--sp-4) var(--sp-5);
@@ -671,7 +676,7 @@
 }
 
 .tg__form-section {
-  background: var(--paper, #fff);
+  background: var(--canvas);
   border: 1px solid var(--rule);
   border-radius: var(--r-3);
   padding: var(--sp-6);
@@ -692,7 +697,7 @@
 
 /* Sidebar summary panel */
 .tg__summary-panel {
-  background: var(--paper, #fff);
+  background: var(--canvas);
   border: 1px solid var(--rule);
   border-radius: var(--r-3);
   padding: var(--sp-5);
