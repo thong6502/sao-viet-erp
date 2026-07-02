@@ -36,9 +36,17 @@ interface PermissionMatrixProps {
   matrix: PermissionRow[];
   onToggle: (moduleKey: string, action: ActionKey, value: boolean) => void;
   onScope: (moduleKey: string, scope: Scope) => void;
+  /** Chế độ chỉ xem: mọi công tắc + phạm vi bị khóa (người dùng thiếu quyền sửa vai trò). */
+  readOnly?: boolean;
 }
 
-export function PermissionMatrix({ modules, matrix, onToggle, onScope }: PermissionMatrixProps) {
+export function PermissionMatrix({
+  modules,
+  matrix,
+  onToggle,
+  onScope,
+  readOnly = false,
+}: PermissionMatrixProps) {
   const moduleLabel = new Map(modules.map((m) => [m.key, m.label]));
   return (
     <table className="matrix">
@@ -65,6 +73,7 @@ export function PermissionMatrix({ modules, matrix, onToggle, onScope }: Permiss
                     type="checkbox"
                     className="switch"
                     checked={row[a.key]}
+                    disabled={readOnly}
                     aria-label={`${a.label} — ${label}`}
                     onChange={(e) => onToggle(row.module_key, a.key, e.target.checked)}
                   />
@@ -74,6 +83,7 @@ export function PermissionMatrix({ modules, matrix, onToggle, onScope }: Permiss
                 <select
                   className="input input--sm"
                   value={row.scope}
+                  disabled={readOnly}
                   aria-label={`Phạm vi — ${label}`}
                   onChange={(e) => onScope(row.module_key, e.target.value as Scope)}
                 >

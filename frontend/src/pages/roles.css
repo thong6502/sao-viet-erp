@@ -45,6 +45,18 @@
   color: var(--moss);
 }
 
+/* Huy hiệu "Chỉ xem" khi người dùng không có quyền sửa vai trò. */
+.roles__readonly {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ash);
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  padding: var(--sp-1) var(--sp-3);
+}
+
 /* ---- Toolbar (department / role / create) -------------------------------- */
 .roles__toolbar {
   display: flex;

@@ -60,6 +60,16 @@ def generate_refresh_token() -> str:
     return secrets.token_urlsafe(48)
 
 
+# Ambiguous characters (0/O/1/l/I) left out so a handed-over temp password is easy to read.
+_TEMP_PW_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789"
+
+
+def generate_temp_password(length: int = 12) -> str:
+    """A readable, high-entropy temporary password shown ONCE on admin reset (spec-08).
+    Never stored in plaintext — only its bcrypt hash is persisted."""
+    return "".join(secrets.choice(_TEMP_PW_ALPHABET) for _ in range(length))
+
+
 def hash_refresh_token(raw: str) -> str:
     """SHA-256 hex digest stored in the DB; the plaintext token is never persisted."""
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()

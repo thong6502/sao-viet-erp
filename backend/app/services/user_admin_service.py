@@ -7,11 +7,14 @@ domain errors the router maps to HTTP, and writes an audit row on every change.
 from __future__ import annotations
 
 from ..config import settings
+from ..models.audit import AuditLog
+from ..models.refresh_token import RefreshToken
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
+from ..repositories.refresh_token_repo import RefreshTokenRepository
 from ..repositories.user_repo import UserRepository
-from ..security import hash_password
+from ..security import generate_temp_password, hash_password
 
 
 class UserAdminError(Exception):
@@ -45,11 +48,13 @@ class UserAdminService:
         departments: DepartmentRepository,
         roles: RoleRepository,
         audit: AuditLogRepository,
+        tokens: RefreshTokenRepository,
     ) -> None:
         self.users = users
         self.departments = departments
         self.roles = roles
         self.audit = audit
+        self.tokens = tokens
 
     def list_users(self) -> list[dict]:
         dept_names: dict[int, str] = {}
@@ -179,3 +184,70 @@ class UserAdminService:
             detail=user.username,
         )
         return user
+
+    def update_user(
+        self, *, user_id: int, name: str, department_id: int, actor_id: int | None
+    ) -> tuple[User, bool]:
+        """Edit a user's name + department (spec-08 / PBI-2003). Username is NOT editable.
+        Changing department drops the current role (it belongs to the old department). Returns
+        (user, role_dropped)."""
+        user = self.users.get_by_id(user_id)
+        if user is None:
+            raise UserNotFound("Không tìm thấy người dùng")
+        if self.departments.get_by_id(department_id) is None:
+            raise DepartmentNotFound("Không tìm thấy phòng ban")
+        role_dropped = department_id != user.department_id and user.role_id is not None
+        new_role_id = user.role_id if department_id == user.department_id else None
+        self.users.set_name(user, name.strip())
+        self.users.set_assignment(
+            user, department_id=department_id, role_id=new_role_id, is_active=user.is_active
+        )
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="update_user",
+            target=f"user:{user_id}",
+            detail=f"{user.username} → dept:{department_id}"
+            + (" (gỡ vai trò)" if role_dropped else ""),
+        )
+        return user, role_dropped
+
+    def reset_password(self, *, user_id: int, actor_id: int | None) -> str:
+        """Set a fresh temporary password (spec-08 / PBI-2006), revoke every session, audit,
+        and return the plaintext ONCE (never stored/logged in plaintext)."""
+        user = self.users.get_by_id(user_id)
+        if user is None:
+            raise UserNotFound("Không tìm thấy người dùng")
+        temp = generate_temp_password()
+        self.users.set_password(user, hash_password(temp))
+        self.users.bump_token_version(user)
+        self.tokens.revoke_all_for_user(user_id)
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="reset_password",
+            target=f"user:{user_id}",
+            detail=user.username,
+        )
+        return temp
+
+    def revoke_sessions(self, *, user_id: int, actor_id: int | None) -> int:
+        """Log the user out everywhere (spec-08): bump token_version + revoke refresh tokens."""
+        user = self.users.get_by_id(user_id)
+        if user is None:
+            raise UserNotFound("Không tìm thấy người dùng")
+        self.users.bump_token_version(user)
+        n = self.tokens.revoke_all_for_user(user_id)
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="revoke_sessions",
+            target=f"user:{user_id}",
+            detail=user.username,
+        )
+        return n
+
+    def list_sessions(self, user_id: int) -> list[RefreshToken]:
+        """Live sessions (active refresh tokens) for a user (spec-08)."""
+        return self.tokens.list_active_for_user(user_id)
+
+    def list_activity(self, user_id: int) -> list[AuditLog]:
+        """Recent audit rows targeting this user (spec-08)."""
+        return self.audit.list_for_target(f"user:{user_id}")

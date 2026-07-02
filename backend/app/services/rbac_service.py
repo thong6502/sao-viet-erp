@@ -49,6 +49,22 @@ class AuthorizationService:
             return []
         return [p.module_key for p in self.roles.permissions_for(user.role_id) if p.can_read]
 
+    def capabilities(self, user: User) -> list[dict]:
+        """Full CRUD matrix of the user's role, per module (spec-09 UI action gating).
+        Empty if the user has no role."""
+        if user.role_id is None:
+            return []
+        return [
+            {
+                "module_key": p.module_key,
+                "can_read": p.can_read,
+                "can_create": p.can_create,
+                "can_update": p.can_update,
+                "can_delete": p.can_delete,
+            }
+            for p in self.roles.permissions_for(user.role_id)
+        ]
+
     def scope_for(self, user: User, module_key: str) -> str | None:
         """The data scope (own|department|all) the user's role has on a module, or
         None if the user has no permission row for it. Callers feed this to

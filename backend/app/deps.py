@@ -160,8 +160,9 @@ def get_user_admin_service(
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     roles: Annotated[RoleRepository, Depends(get_role_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    tokens: Annotated[RefreshTokenRepository, Depends(get_refresh_token_repository)],
 ) -> UserAdminService:
-    return UserAdminService(users, departments, roles, audit)
+    return UserAdminService(users, departments, roles, audit, tokens)
 
 
 def get_profile_service(
@@ -189,6 +190,25 @@ def require_permission(module_key: str, action: str):
         authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
     ) -> User:
         if not authz.can(user, module_key, action):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bạn không có quyền thực hiện thao tác này",
+            )
+        return user
+
+    return dependency
+
+
+def require_any_permission(*grants: tuple[str, str]):
+    """Like `require_permission`, but allows the request if ANY of the
+    (module_key, action) pairs is granted — for read endpoints that legitimately
+    serve more than one screen (e.g. role names shown inside the department view)."""
+
+    def dependency(
+        user: CurrentUser,
+        authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+    ) -> User:
+        if not any(authz.can(user, module_key, action) for module_key, action in grants):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Bạn không có quyền thực hiện thao tác này",

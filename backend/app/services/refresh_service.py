@@ -44,7 +44,9 @@ class RefreshTokenService:
     def _is_expired(self, row: RefreshToken) -> bool:
         return _as_utc(row.expires_at) <= _utcnow()
 
-    def issue(self, user: User, *, family_id: str | None = None) -> str:
+    def issue(
+        self, user: User, *, family_id: str | None = None, user_agent: str | None = None
+    ) -> str:
         """Mint a new refresh token for the user; return the raw (un-hashed) value."""
         raw = generate_refresh_token()
         self.tokens.create(
@@ -52,10 +54,11 @@ class RefreshTokenService:
             token_hash=hash_refresh_token(raw),
             family_id=family_id or uuid4().hex,
             expires_at=self._expiry(),
+            user_agent=user_agent,
         )
         return raw
 
-    def rotate(self, raw: str) -> tuple[str, User]:
+    def rotate(self, raw: str, *, user_agent: str | None = None) -> tuple[str, User]:
         """Validate + rotate a refresh token. Returns (new_raw_token, user) or raises.
 
         On reuse of an already-revoked token, revoke the whole family (theft signal).
@@ -76,7 +79,7 @@ class RefreshTokenService:
 
         # Rotate: revoke the presented token, issue a new one in the same family.
         self.tokens.revoke(row)
-        new_raw = self.issue(user, family_id=row.family_id)
+        new_raw = self.issue(user, family_id=row.family_id, user_agent=user_agent)
         return new_raw, user
 
     def revoke(self, raw: str) -> None:

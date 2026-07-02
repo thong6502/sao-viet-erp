@@ -247,6 +247,7 @@ client's httpOnly cookie.
 | `family_id` | `String(36)` → `VARCHAR(36)` | **IX** | no | — | Rotation-chain id. Reusing a revoked token revokes every sibling in the family (theft signal). |
 | `expires_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | — | When this token stops being valid. |
 | `revoked_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Set when the token is rotated away or logged out; a non-null value means dead. |
+| `user_agent` | `String(400)` → `VARCHAR(400)` | — | yes | — | User-Agent captured when the token was issued (spec-08); shown as the "device" of a session in the admin user-detail view. Never used for auth decisions. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the token row was created. |
 
 **Keys & indexes**

@@ -13,6 +13,7 @@ import {
   type UserBrief,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
@@ -59,6 +60,14 @@ function initials(name: string): string {
 
 export function DepartmentsPage() {
   const { token } = useAuth();
+  const can = useCan();
+  const canCreateDept = can("phong_ban", "create");
+  const canUpdateDept = can("phong_ban", "update");
+  const canDeleteDept = can("phong_ban", "delete");
+  const canCreateRole = can("vai_tro", "create");
+  const canUpdateRole = can("vai_tro", "update");
+  const canDeleteRole = can("vai_tro", "delete");
+  const canTransfer = can("nguoi_dung", "update");
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -733,9 +742,11 @@ export function DepartmentsPage() {
           <Button type="button" variant="ghost" onClick={() => setLevelsOpen(true)}>
             Cấp đơn vị
           </Button>
-          <Button type="button" variant="accent" onClick={openCreate}>
-            + Tạo phòng ban
-          </Button>
+          {canCreateDept && (
+            <Button type="button" variant="accent" onClick={openCreate}>
+              + Tạo phòng ban
+            </Button>
+          )}
         </div>
       </header>
 
@@ -780,16 +791,20 @@ export function DepartmentsPage() {
                   </div>
                 </div>
                 <div className="depts__id-actions">
-                  <Button type="button" variant="primary" onClick={openInfoEdit}>
-                    Chỉnh sửa
-                  </Button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost depts__danger-text"
-                    onClick={openDeleteConfirm}
-                  >
-                    Xóa phòng
-                  </button>
+                  {canUpdateDept && (
+                    <Button type="button" variant="primary" onClick={openInfoEdit}>
+                      Chỉnh sửa
+                    </Button>
+                  )}
+                  {canDeleteDept && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost depts__danger-text"
+                      onClick={openDeleteConfirm}
+                    >
+                      Xóa phòng
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -942,28 +957,48 @@ export function DepartmentsPage() {
                 <div className="depts__section-head">
                   <div className="depts__eyebrow-row">
                     <p className="eyebrow">Vai trò trong phòng</p>
-                    <InfoHint label="Các vai trò định nghĩa riêng cho phòng này. Bấm một vai trò để sửa quyền hoặc xóa." />
+                    <InfoHint
+                      label={
+                        canUpdateRole
+                          ? "Các vai trò định nghĩa riêng cho phòng này. Bấm một vai trò để sửa quyền hoặc xóa."
+                          : "Các vai trò định nghĩa riêng cho phòng này."
+                      }
+                    />
                   </div>
-                  <Button type="button" variant="ghost" onClick={openAddRole}>
-                    + Thêm vai trò
-                  </Button>
+                  {canCreateRole && (
+                    <Button type="button" variant="ghost" onClick={openAddRole}>
+                      + Thêm vai trò
+                    </Button>
+                  )}
                 </div>
                 {detailLoading ? (
                   <p className="depts__status">Đang tải…</p>
                 ) : roles.length === 0 ? (
-                  <p className="depts__hint">Chưa có vai trò. Bấm “+ Thêm vai trò” để tạo.</p>
+                  <p className="depts__hint">
+                    {canCreateRole
+                      ? "Chưa có vai trò. Bấm “+ Thêm vai trò” để tạo."
+                      : "Phòng này chưa có vai trò."}
+                  </p>
                 ) : (
                   <div className="depts__chips">
-                    {roles.map((r) => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        className="depts__chip depts__chip--btn"
-                        onClick={() => openEditRole(r)}
-                      >
-                        {r.name}
-                      </button>
-                    ))}
+                    {roles.map((r) =>
+                      // Chỉ người có quyền sửa vai trò mới mở được popup chi tiết/ma trận quyền;
+                      // người chỉ xem thấy tên vai trò dưới dạng chip tĩnh (không bấm được).
+                      canUpdateRole ? (
+                        <button
+                          key={r.id}
+                          type="button"
+                          className="depts__chip depts__chip--btn"
+                          onClick={() => openEditRole(r)}
+                        >
+                          {r.name}
+                        </button>
+                      ) : (
+                        <span key={r.id} className="depts__chip">
+                          {r.name}
+                        </span>
+                      ),
+                    )}
                   </div>
                 )}
               </div>
@@ -973,7 +1008,13 @@ export function DepartmentsPage() {
                 <div className="depts__section-head">
                   <div className="depts__eyebrow-row">
                     <p className="eyebrow">Nhân sự trong phòng</p>
-                    <InfoHint label="Người thuộc phòng này. Tích chọn nhiều người rồi chọn phòng đích để chuyển hàng loạt." />
+                    <InfoHint
+                      label={
+                        canTransfer
+                          ? "Người thuộc phòng này. Tích chọn nhiều người rồi chọn phòng đích để chuyển hàng loạt."
+                          : "Người thuộc phòng này."
+                      }
+                    />
                   </div>
                   <span className="depts__count-pill">{members.length}</span>
                 </div>
@@ -1018,8 +1059,9 @@ export function DepartmentsPage() {
                       </div>
                     </div>
 
-                    {/* Thanh chuyển hàng loạt — hiện Ở TRÊN danh sách khi có người được chọn. */}
-                    {selectedMemberIds.size > 0 && (
+                    {/* Thanh chuyển hàng loạt — hiện Ở TRÊN danh sách khi có người được chọn.
+                        Chỉ dành cho người có quyền chuyển nhân sự (checkbox cũng đã ẩn). */}
+                    {canTransfer && selectedMemberIds.size > 0 && (
                       <div className="depts__transfer">
                         <span className="depts__transfer-count">
                           Đã chọn {selectedMemberIds.size} người · chuyển sang
@@ -1046,7 +1088,7 @@ export function DepartmentsPage() {
                           type="button"
                           variant="accent"
                           loading={transferBusy}
-                          disabled={transferTarget == null}
+                          disabled={transferTarget == null || !canTransfer}
                           onClick={doTransfer}
                         >
                           Chuyển
@@ -1065,7 +1107,7 @@ export function DepartmentsPage() {
                         {transferError}
                       </span>
                     )}
-                    {selectedMemberIds.size > 0 && (
+                    {canTransfer && selectedMemberIds.size > 0 && (
                       <p className="depts__hint">
                         Vai trò cũ sẽ bị gỡ sau khi chuyển; trưởng phòng mới gán lại.
                       </p>
@@ -1083,13 +1125,15 @@ export function DepartmentsPage() {
                       >
                         {pageMembers.map((m) => (
                           <li key={m.id} className="depts__member">
-                            <input
-                              type="checkbox"
-                              className="depts__member-check"
-                              checked={selectedMemberIds.has(m.id)}
-                              onChange={() => toggleMember(m.id)}
-                              aria-label={`Chọn ${m.name} để chuyển`}
-                            />
+                            {canTransfer && (
+                              <input
+                                type="checkbox"
+                                className="depts__member-check"
+                                checked={selectedMemberIds.has(m.id)}
+                                onChange={() => toggleMember(m.id)}
+                                aria-label={`Chọn ${m.name} để chuyển`}
+                              />
+                            )}
                             <span className="depts__member-avatar" aria-hidden="true">
                               {initials(m.name)}
                             </span>
@@ -1260,7 +1304,11 @@ export function DepartmentsPage() {
           {departments.length === 0 ? (
             <div className="depts__empty">
               <p className="depts__empty-title">Chưa có phòng ban</p>
-              <p className="depts__hint">Bấm “Tạo phòng ban” để thêm phòng đầu tiên.</p>
+              <p className="depts__hint">
+                {canCreateDept
+                  ? "Bấm “Tạo phòng ban” để thêm phòng đầu tiên."
+                  : "Chưa có phòng ban nào để xem."}
+              </p>
             </div>
           ) : (
             <div className="deptbl" role="table">
@@ -1425,15 +1473,18 @@ export function DepartmentsPage() {
         </div>
       </ConfirmDialog>
 
-      {/* Edit a role in this department: its name + permission matrix. */}
+      {/* Edit a role in this department: its name + permission matrix.
+          Không có quyền sửa → mở ở chế độ chỉ xem (input khóa, ma trận khóa, không nút Lưu). */}
       <ConfirmDialog
         open={editRoleOpen}
-        title="Sửa vai trò"
+        title={canUpdateRole ? "Sửa vai trò" : "Chi tiết vai trò (chỉ xem)"}
         confirmLabel="Lưu"
+        cancelLabel={canUpdateRole ? "Hủy" : "Đóng"}
         wide
         busy={editRoleBusy}
         error={editRoleError}
         confirmDisabled={editRoleLoading || !editRoleName.trim()}
+        hideConfirm={!canUpdateRole}
         onConfirm={submitEditRole}
         onCancel={() => {
           if (!editRoleBusy && !editRoleDeleting) setEditRoleOpen(false);
@@ -1441,13 +1492,14 @@ export function DepartmentsPage() {
       >
         <div className="field">
           <label className="field__label" htmlFor="edit-role-name">
-            Tên vai trò <span className="depts__req">*</span>
+            Tên vai trò {canUpdateRole && <span className="depts__req">*</span>}
           </label>
           <input
             id="edit-role-name"
             className={`input${editRoleError ? " input--error" : ""}`}
             value={editRoleName}
-            autoFocus
+            autoFocus={canUpdateRole}
+            disabled={!canUpdateRole}
             aria-invalid={editRoleError ? true : undefined}
             onChange={(e) => {
               setEditRoleName(e.target.value);
@@ -1465,6 +1517,7 @@ export function DepartmentsPage() {
               matrix={editRoleMatrix}
               onToggle={toggleEditRole}
               onScope={scopeEditRole}
+              readOnly={!canUpdateRole}
             />
           </div>
         )}
@@ -1490,7 +1543,7 @@ export function DepartmentsPage() {
                 Hủy
               </button>
             </div>
-          ) : (
+          ) : canDeleteRole ? (
             <button
               type="button"
               className="btn btn--ghost depts__danger-text"
@@ -1502,7 +1555,7 @@ export function DepartmentsPage() {
             >
               Xóa vai trò
             </button>
-          )}
+          ) : null}
         </div>
       </ConfirmDialog>
 

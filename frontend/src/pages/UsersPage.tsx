@@ -1,41 +1,43 @@
-import { useEffect, useState, type FormEvent } from "react";
-import {
-  ApiError,
-  api,
-  type Department,
-  type Role,
-  type UserRow,
-} from "../api/client";
+import { useEffect, useMemo, useState } from "react";
+import { ApiError, api, type Department, type UserRow } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Select } from "../components/Select";
+import { UserDetailDialog } from "../components/UserDetailDialog";
 import "./users.css";
 
 export function UsersPage() {
   const { token, user: me } = useAuth();
+  const can = useCan();
+  const canCreate = can("nguoi_dung", "create");
 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [deptRoles, setDeptRoles] = useState<Role[]>([]);
 
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
-  const [rolesLoading, setRolesLoading] = useState(false);
 
+  // List: search + filters + pagination.
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "locked">("all");
+  const [deptFilter, setDeptFilter] = useState<number | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  // Create-account modal.
+  const [createOpen, setCreateOpen] = useState(false);
   const [cName, setCName] = useState("");
   const [cUsername, setCUsername] = useState("");
   const [cDept, setCDept] = useState<number | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const [editRole, setEditRole] = useState<number | null>(null);
-  const [roleSaving, setRoleSaving] = useState(false);
-  const [roleSaved, setRoleSaved] = useState(false);
-  const [roleError, setRoleError] = useState<string | null>(null);
-
-  const [activeBusy, setActiveBusy] = useState(false);
-  const [activeError, setActiveError] = useState<string | null>(null);
+  // Detail modal.
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const current = users.find((u) => u.id === selectedId) ?? null;
 
@@ -43,7 +45,6 @@ export function UsersPage() {
     return token ? api.rbac.users(token) : Promise.resolve([]);
   }
 
-  // Boot: users + departments (for the create form).
   useEffect(() => {
     if (!token) return;
     let cancelled = false;
@@ -54,8 +55,6 @@ export function UsersPage() {
         if (cancelled) return;
         setUsers(us);
         setDepartments(depts);
-        setCDept(depts[0]?.id ?? null);
-        setSelectedId(us[0]?.id ?? null);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -69,97 +68,72 @@ export function UsersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  // Load the selected user's department roles for the role picker.
+  async function refresh() {
+    setUsers(await loadUsers());
+  }
+
+  const filtersActive =
+    search.trim() !== "" || statusFilter !== "all" || deptFilter != null;
+
+  const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return users.filter((u) => {
+      if (statusFilter === "active" && !u.is_active) return false;
+      if (statusFilter === "locked" && u.is_active) return false;
+      if (deptFilter != null && u.department_id !== deptFilter) return false;
+      if (q) {
+        const hay = `${u.name} ${u.username} ${u.department_name ?? ""} ${u.role_name ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [users, search, statusFilter, deptFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filteredUsers.length / pageSize));
+  const pageUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
-    setRoleSaved(false);
-    setRoleError(null);
-    setActiveError(null);
-    const u = users.find((x) => x.id === selectedId) ?? null;
-    setEditRole(u?.role_id ?? null);
-    if (!token || u == null || u.department_id == null) {
-      setDeptRoles([]);
-      return;
-    }
-    let cancelled = false;
-    setRolesLoading(true);
-    api.rbac
-      .roles(token, u.department_id)
-      .then((rs) => !cancelled && setDeptRoles(rs))
-      .catch(() => !cancelled && setDeptRoles([]))
-      .finally(() => !cancelled && setRolesLoading(false));
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, selectedId]);
+    if (page > pageCount) setPage(pageCount);
+  }, [page, pageCount]);
 
-  async function refresh(keepId: number | null) {
-    const us = await loadUsers();
-    setUsers(us);
-    if (keepId != null && us.some((u) => u.id === keepId)) setSelectedId(keepId);
-    else setSelectedId(us[0]?.id ?? null);
+  function resetFilters() {
+    setSearch("");
+    setStatusFilter("all");
+    setDeptFilter(null);
+    setPage(1);
   }
 
-  function validateCreate(): string | null {
-    if (!cName.trim()) return "Họ tên là bắt buộc.";
-    if (!cUsername.trim()) return "Tên đăng nhập là bắt buộc.";
-    if (cDept == null) return "Phòng ban là bắt buộc.";
-    return null;
+  function openCreate() {
+    setCName("");
+    setCUsername("");
+    setCDept(departments[0]?.id ?? null);
+    setCreateError(null);
+    setCreateOpen(true);
   }
 
-  async function onCreate(e: FormEvent) {
-    e.preventDefault();
+  async function onCreate() {
     if (!token || creating) return;
-    const err = validateCreate();
-    if (err) {
-      setCreateError(err);
-      return;
-    }
+    if (!cName.trim()) return setCreateError("Họ tên là bắt buộc.");
+    if (!cUsername.trim()) return setCreateError("Tên đăng nhập là bắt buộc.");
+    if (cDept == null) return setCreateError("Phòng ban là bắt buộc.");
     setCreating(true);
     setCreateError(null);
     try {
-      const created = await api.rbac.createUser(token, cName.trim(), cUsername.trim(), cDept!);
-      setCName("");
-      setCUsername("");
-      await refresh(created.id);
-    } catch (e2) {
-      if (e2 instanceof ApiError && e2.isConflict) setCreateError(e2.message);
-      else if (e2 instanceof ApiError && e2.status === 404) setCreateError(e2.message);
+      await api.rbac.createUser(token, cName.trim(), cUsername.trim(), cDept);
+      setCreateOpen(false);
+      await refresh();
+    } catch (e) {
+      if (e instanceof ApiError && (e.isConflict || e.status === 404)) setCreateError(e.message);
+      else if (e instanceof ApiError && e.isForbidden)
+        setCreateError("Bạn không có quyền tạo tài khoản.");
       else setCreateError("Không tạo được tài khoản. Vui lòng thử lại.");
     } finally {
       setCreating(false);
     }
   }
 
-  async function onSaveRole() {
-    if (!token || current == null || roleSaving) return;
-    setRoleSaving(true);
-    setRoleError(null);
-    try {
-      await api.rbac.assignUserRole(token, current.id, editRole);
-      await refresh(current.id);
-      setRoleSaved(true);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 400) setRoleError(e.message);
-      else setRoleError("Không gán được vai trò. Vui lòng thử lại.");
-    } finally {
-      setRoleSaving(false);
-    }
-  }
-
-  async function onToggleActive() {
-    if (!token || current == null || activeBusy) return;
-    setActiveBusy(true);
-    setActiveError(null);
-    try {
-      await api.rbac.setUserActive(token, current.id, !current.is_active);
-      await refresh(current.id);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 400) setActiveError(e.message);
-      else setActiveError("Không đổi được trạng thái. Vui lòng thử lại.");
-    } finally {
-      setActiveBusy(false);
-    }
+  function openDetail(u: UserRow) {
+    setSelectedId(u.id);
+    setDetailOpen(true);
   }
 
   if (forbidden) {
@@ -193,162 +167,271 @@ export function UsersPage() {
     );
   }
 
-  const isSelf = current != null && me != null && current.id === me.id;
-  const roleDirty = current != null && editRole !== (current.role_id ?? null);
-
   return (
     <main className="users">
       <header className="users__head">
-        <p className="eyebrow">Quản lý hệ thống</p>
-        <h1 className="users__title">Quản lý Người dùng</h1>
-        <p className="users__sub">Tạo tài khoản, gán phòng & vai trò, khóa/mở tài khoản.</p>
+        <div>
+          <p className="eyebrow">Quản lý hệ thống</p>
+          <h1 className="users__title">Quản lý Người dùng</h1>
+          <p className="users__sub">
+            {canCreate
+              ? "Tạo tài khoản, gán vai trò, khóa/mở tài khoản."
+              : "Danh sách tài khoản trong hệ thống."}
+          </p>
+        </div>
+        {canCreate && (
+          <Button type="button" variant="accent" onClick={openCreate}>
+            + Tạo tài khoản
+          </Button>
+        )}
       </header>
 
-      <form className="users__create" onSubmit={onCreate}>
+      {/* Toolbar: search + filters. */}
+      <div className="users__toolbar">
         <input
-          className="input"
-          placeholder="Họ tên"
-          value={cName}
+          className="input users__search"
+          placeholder="Tìm theo tên, tên đăng nhập, phòng, vai trò…"
+          value={search}
           onChange={(e) => {
-            setCName(e.target.value);
-            if (createError) setCreateError(null);
+            setSearch(e.target.value);
+            setPage(1);
           }}
+          aria-label="Tìm người dùng"
         />
-        <input
-          className="input"
-          type="text"
-          placeholder="Tên đăng nhập"
-          value={cUsername}
-          onChange={(e) => {
-            setCUsername(e.target.value);
-            if (createError) setCreateError(null);
-          }}
-        />
-        <select
-          className="input"
-          value={cDept ?? ""}
-          onChange={(e) => setCDept(e.target.value ? Number(e.target.value) : null)}
-        >
-          {departments.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
-        <Button type="submit" variant="primary" loading={creating}>
-          Tạo tài khoản
-        </Button>
-        {createError && (
-          <span className="users__inline-error" role="alert">
-            {createError}
-          </span>
-        )}
-      </form>
-
-      <div className="users__grid">
-        <div className="card users__tablewrap">
-          <table className="users__table">
-            <thead>
-              <tr>
-                <th>Tên</th>
-                <th>Tên đăng nhập</th>
-                <th>Phòng</th>
-                <th>Vai trò</th>
-                <th>Trạng thái</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((u) => (
-                <tr
-                  key={u.id}
-                  className={`users__row${u.id === selectedId ? " is-active" : ""}`}
-                  aria-current={u.id === selectedId ? "true" : undefined}
-                  onClick={() => setSelectedId(u.id)}
-                >
-                  <td>{u.name}</td>
-                  <td className="users__email">{u.username}</td>
-                  <td>{u.department_name ?? "—"}</td>
-                  <td>{u.role_name ?? <span className="users__muted">Chưa gán</span>}</td>
-                  <td>
-                    <span className={`users__badge${u.is_active ? "" : " users__badge--locked"}`}>
-                      {u.is_active ? "Hoạt động" : "Đã khóa"}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <section className="card users__detail">
-          {!current ? (
-            <p className="users__status">Chọn một người dùng để gán vai trò / khóa.</p>
-          ) : (
-            <>
-              <div className="users__who">
-                <p className="users__who-name">{current.name}</p>
-                <p className="users__muted">{current.username}</p>
-                <p className="users__muted">{current.department_name ?? "—"}</p>
-              </div>
-
-              <div className="field">
-                <label className="field__label" htmlFor="user-role">
-                  Vai trò (trong phòng)
-                </label>
-                <select
-                  id="user-role"
-                  className="input"
-                  value={editRole ?? ""}
-                  disabled={rolesLoading}
-                  onChange={(e) => {
-                    setEditRole(e.target.value ? Number(e.target.value) : null);
-                    setRoleSaved(false);
-                  }}
-                >
-                  <option value="">— Chưa gán —</option>
-                  {deptRoles.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
-                {deptRoles.length === 0 && !rolesLoading && (
-                  <span className="users__hint">Phòng chưa có vai trò — tạo ở màn Vai trò.</span>
-                )}
-              </div>
-
-              <div className="users__actions">
-                <Button variant="accent" onClick={onSaveRole} disabled={!roleDirty} loading={roleSaving}>
-                  Lưu vai trò
-                </Button>
-                {roleSaved && !roleDirty && <span className="users__saved">Đã lưu</span>}
-                {roleError && (
-                  <span className="users__inline-error" role="alert">
-                    {roleError}
-                  </span>
-                )}
-              </div>
-
-              <div className="users__lock">
-                <button
-                  type="button"
-                  className={`btn ${current.is_active ? "btn--danger" : "btn--primary"}`}
-                  disabled={activeBusy || isSelf}
-                  onClick={onToggleActive}
-                >
-                  {current.is_active ? "Khóa tài khoản" : "Mở khóa"}
-                </button>
-                {isSelf && <span className="users__hint">Không thể tự khóa tài khoản của mình.</span>}
-                {activeError && (
-                  <span className="users__inline-error" role="alert">
-                    {activeError}
-                  </span>
-                )}
-              </div>
-            </>
+        <div className="users__filters">
+          <div className="users__filter">
+            <Select
+              ariaLabel="Lọc trạng thái"
+              value={statusFilter}
+              onChange={(v) => {
+                setStatusFilter(v);
+                setPage(1);
+              }}
+              options={[
+                { value: "all", label: "Tất cả trạng thái" },
+                { value: "active", label: "Đang hoạt động" },
+                { value: "locked", label: "Đã khóa" },
+              ]}
+            />
+          </div>
+          <div className="users__filter">
+            <Select
+              ariaLabel="Lọc theo phòng"
+              value={deptFilter}
+              placeholder="Tất cả phòng"
+              onChange={(v) => {
+                setDeptFilter(v);
+                setPage(1);
+              }}
+              options={[
+                { value: null, label: "Tất cả phòng" },
+                ...departments.map((d) => ({ value: d.id, label: d.name, hint: d.code || undefined })),
+              ]}
+            />
+          </div>
+          {filtersActive && (
+            <button type="button" className="btn btn--ghost" onClick={resetFilters}>
+              Đặt lại
+            </button>
           )}
-        </section>
+        </div>
       </div>
+
+      {/* Table. */}
+      <div className="card users__tablewrap">
+        <table className="users__table">
+          <thead>
+            <tr>
+              <th>Tên</th>
+              <th>Tên đăng nhập</th>
+              <th>Phòng</th>
+              <th>Vai trò</th>
+              <th>Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pageUsers.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="users__empty">
+                  {users.length !== 0
+                    ? "Không có người dùng khớp tìm kiếm."
+                    : canCreate
+                      ? "Chưa có người dùng. Bấm “Tạo tài khoản” để thêm."
+                      : "Chưa có người dùng nào để xem."}
+                </td>
+              </tr>
+            ) : (
+              <>
+                {pageUsers.map((u) => (
+                  <tr
+                    key={u.id}
+                    className="users__row"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => openDetail(u)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openDetail(u);
+                      }
+                    }}
+                  >
+                    <td>{u.name}</td>
+                    <td className="users__email">@{u.username}</td>
+                    <td>{u.department_name ?? "—"}</td>
+                    <td>{u.role_name ?? <span className="users__muted">Chưa gán</span>}</td>
+                    <td>
+                      <span className={`users__badge${u.is_active ? "" : " users__badge--locked"}`}>
+                        {u.is_active ? "Hoạt động" : "Đã khóa"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                {/* Hàng đệm giữ chiều cao bảng ổn định khi trang cuối ít người. */}
+                {pageCount > 1 &&
+                  pageUsers.length < pageSize &&
+                  Array.from({ length: pageSize - pageUsers.length }).map((_, i) => (
+                    <tr
+                      key={`filler-${i}`}
+                      className="users__row users__row--filler"
+                      aria-hidden="true"
+                    >
+                      <td colSpan={5}>&nbsp;</td>
+                    </tr>
+                  ))}
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination. */}
+      {filteredUsers.length > 0 && (
+        <div className="users__pager">
+          <div className="users__pager-left">
+            <span className="users__pager-info">
+              {(page - 1) * pageSize + 1}–{Math.min(page * pageSize, filteredUsers.length)} trên{" "}
+              {filteredUsers.length} người
+            </span>
+            <div className="users__pager-size">
+              <span className="users__pager-info">Hiển thị</span>
+              <Select
+                ariaLabel="Số dòng mỗi trang"
+                value={pageSize}
+                onChange={(v) => {
+                  setPageSize(v ?? 10);
+                  setPage(1);
+                }}
+                options={[
+                  { value: 10, label: "10" },
+                  { value: 20, label: "20" },
+                  { value: 50, label: "50" },
+                ]}
+              />
+            </div>
+          </div>
+          <div className="users__pager-controls">
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={page <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              ‹ Trước
+            </button>
+            <span className="users__pager-info">
+              Trang {page}/{pageCount}
+            </span>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={page >= pageCount}
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+            >
+              Sau ›
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Create-account modal. */}
+      <ConfirmDialog
+        open={createOpen}
+        title="Tạo tài khoản"
+        confirmLabel="Tạo tài khoản"
+        busy={creating}
+        error={createError}
+        confirmDisabled={!cName.trim() || !cUsername.trim() || cDept == null}
+        onConfirm={onCreate}
+        onCancel={() => {
+          if (!creating) setCreateOpen(false);
+        }}
+      >
+        <div className="users__form">
+          <div className="field">
+            <label className="field__label" htmlFor="new-user-name">
+              Họ tên <span className="users__req">*</span>
+            </label>
+            <input
+              id="new-user-name"
+              className="input"
+              placeholder="VD: Nguyễn Văn A"
+              value={cName}
+              autoFocus
+              onChange={(e) => {
+                setCName(e.target.value);
+                if (createError) setCreateError(null);
+              }}
+            />
+          </div>
+          <div className="field">
+            <label className="field__label" htmlFor="new-user-username">
+              Tên đăng nhập <span className="users__req">*</span>
+            </label>
+            <input
+              id="new-user-username"
+              className={`input${createError ? " input--error" : ""}`}
+              placeholder="VD: nguyenvana"
+              value={cUsername}
+              onChange={(e) => {
+                setCUsername(e.target.value);
+                if (createError) setCreateError(null);
+              }}
+            />
+          </div>
+          <div className="field">
+            <span className="field__label">
+              Phòng ban <span className="users__req">*</span>
+            </span>
+            <Select
+              portal
+              ariaLabel="Phòng ban"
+              value={cDept}
+              placeholder="— Chọn phòng —"
+              onChange={(v) => setCDept(v)}
+              options={departments.map((d) => ({
+                value: d.id,
+                label: d.name,
+                hint: d.code || undefined,
+              }))}
+            />
+          </div>
+          <p className="users__hint">
+            Tài khoản mới dùng mật khẩu mặc định và chưa có vai trò — gán vai trò sau khi tạo.
+          </p>
+        </div>
+      </ConfirmDialog>
+
+      {/* User detail / actions modal. */}
+      <UserDetailDialog
+        open={detailOpen}
+        user={current}
+        departments={departments}
+        token={token}
+        currentUserId={me?.id ?? null}
+        onClose={() => setDetailOpen(false)}
+        onChanged={refresh}
+      />
     </main>
   );
 }

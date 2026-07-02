@@ -50,3 +50,21 @@ def test_sales_permissions_are_limited(client):
 
 def test_permissions_requires_auth(client):
     assert client.get("/api/auth/permissions").status_code == 401
+
+
+def test_permissions_include_crud_matrix(client):
+    """spec-09: response carries the full CRUD matrix per module for the current user."""
+    token = client.post("/api/auth/login", json=ADMIN).json()["access_token"]
+    perms = client.get("/api/auth/permissions", headers=_h(token)).json()["permissions"]
+    by_key = {p["module_key"]: p for p in perms}
+    # Admin (Giám đốc) has full rights on phong_ban.
+    pb = by_key["phong_ban"]
+    assert pb["can_read"] and pb["can_create"] and pb["can_update"] and pb["can_delete"]
+
+    # NV Sales: can read+create+update khach_hang but NOT delete, and no phong_ban row at all.
+    sales = client.get("/api/auth/permissions", headers=_h(_sales_token())).json()["permissions"]
+    s_by_key = {p["module_key"]: p for p in sales}
+    assert "phong_ban" not in s_by_key
+    kh = s_by_key["khach_hang"]
+    assert kh["can_read"] and kh["can_create"] and kh["can_update"]
+    assert kh["can_delete"] is False

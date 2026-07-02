@@ -64,6 +64,7 @@ def _issue_access(user) -> str:
 @router.post("/login", response_model=TokenResponse)
 def login(
     payload: LoginRequest,
+    request: Request,
     response: Response,
     auth: Annotated[AuthService, Depends(get_auth_service)],
     refresh: Annotated[RefreshTokenService, Depends(get_refresh_service)],
@@ -76,7 +77,7 @@ def login(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Tên đăng nhập hoặc mật khẩu không đúng",
         ) from None
-    _set_refresh_cookie(response, refresh.issue(user))
+    _set_refresh_cookie(response, refresh.issue(user, user_agent=request.headers.get("user-agent")))
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
 
@@ -90,7 +91,7 @@ def refresh_session(
     if not raw:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     try:
-        new_raw, user = refresh.rotate(raw)
+        new_raw, user = refresh.rotate(raw, user_agent=request.headers.get("user-agent"))
     except RefreshError:
         _clear_refresh_cookie(response)
         raise HTTPException(
@@ -149,4 +150,7 @@ def my_permissions(
     current_user: CurrentUser,
     authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
 ) -> PermissionsOut:
-    return PermissionsOut(modules=authz.readable_modules(current_user))
+    return PermissionsOut(
+        modules=authz.readable_modules(current_user),
+        permissions=authz.capabilities(current_user),
+    )

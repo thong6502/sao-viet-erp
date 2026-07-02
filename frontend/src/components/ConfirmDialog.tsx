@@ -16,6 +16,8 @@ interface ConfirmDialogProps {
   busy?: boolean;
   error?: string | null;
   confirmDisabled?: boolean;
+  /** Ẩn hẳn nút xác nhận — dùng khi dialog mở ở chế độ chỉ xem. */
+  hideConfirm?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   children?: ReactNode;
@@ -32,6 +34,7 @@ export function ConfirmDialog({
   busy = false,
   error = null,
   confirmDisabled = false,
+  hideConfirm = false,
   onConfirm,
   onCancel,
   children,
@@ -72,7 +75,7 @@ export function ConfirmDialog({
           <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </button>
-          {danger ? (
+          {hideConfirm ? null : danger ? (
             <button
               type="button"
               className="btn btn--danger"

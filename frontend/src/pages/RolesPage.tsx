@@ -9,12 +9,17 @@ import {
   type Scope,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { PermissionMatrix, type ActionKey } from "../components/PermissionMatrix";
 import "./roles.css";
 
 export function RolesPage() {
   const { token } = useAuth();
+  const can = useCan();
+  const canCreate = can("vai_tro", "create");
+  const canUpdate = can("vai_tro", "update");
+  const canDelete = can("vai_tro", "delete");
 
   const [modules, setModules] = useState<ModuleDef[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -259,19 +264,27 @@ export function RolesPage() {
             Thiết lập Quyền{currentRole ? `: ${currentRole.name}` : ""}
           </h1>
           <p className="roles__sub">
-            Bật/tắt thao tác và chọn phạm vi dữ liệu cho từng module của vai trò.
+            {canUpdate
+              ? "Bật/tắt thao tác và chọn phạm vi dữ liệu cho từng module của vai trò."
+              : "Bạn đang xem phân quyền ở chế độ chỉ xem."}
           </p>
         </div>
         <div className="roles__save">
-          {saved && !dirty && <span className="roles__saved">Đã lưu</span>}
-          <Button
-            variant="accent"
-            onClick={onSave}
-            disabled={!currentRole || !dirty}
-            loading={saving}
-          >
-            Lưu thay đổi
-          </Button>
+          {canUpdate ? (
+            <>
+              {saved && !dirty && <span className="roles__saved">Đã lưu</span>}
+              <Button
+                variant="accent"
+                onClick={onSave}
+                disabled={!currentRole || !dirty}
+                loading={saving}
+              >
+                Lưu thay đổi
+              </Button>
+            </>
+          ) : (
+            <span className="roles__readonly">Chỉ xem</span>
+          )}
         </div>
       </header>
 
@@ -308,27 +321,29 @@ export function RolesPage() {
           </select>
         </label>
 
-        <form className="roles__create" onSubmit={onCreate}>
-          <label className="roles__pick">
-            <span className="roles__pick-label">Vai trò mới</span>
-            <input
-              className={`input${createError ? " input--error" : ""}`}
-              placeholder="VD: Trợ lý KD"
-              value={newName}
-              onChange={(e) => {
-                setNewName(e.target.value);
-                if (createError) setCreateError(null);
-              }}
-              aria-invalid={createError ? true : undefined}
-            />
-          </label>
-          <Button type="submit" variant="primary" disabled={!newName.trim()} loading={creating}>
-            Tạo
-          </Button>
-        </form>
+        {canCreate && (
+          <form className="roles__create" onSubmit={onCreate}>
+            <label className="roles__pick">
+              <span className="roles__pick-label">Vai trò mới</span>
+              <input
+                className={`input${createError ? " input--error" : ""}`}
+                placeholder="VD: Trợ lý KD"
+                value={newName}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  if (createError) setCreateError(null);
+                }}
+                aria-invalid={createError ? true : undefined}
+              />
+            </label>
+            <Button type="submit" variant="primary" disabled={!newName.trim()} loading={creating}>
+              Tạo
+            </Button>
+          </form>
+        )}
       </div>
 
-      {currentRole && (
+      {currentRole && (canUpdate || canDelete) && (
         <div className="roles__roleactions">
           {renaming ? (
             <form className="roles__inline" onSubmit={submitRename}>
@@ -376,19 +391,23 @@ export function RolesPage() {
             </div>
           ) : (
             <div className="roles__inline">
-              <button type="button" className="btn btn--ghost" onClick={startRename}>
-                Đổi tên
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost roles__danger-text"
-                onClick={() => {
-                  setDeleteError(null);
-                  setConfirmingDelete(true);
-                }}
-              >
-                Xóa
-              </button>
+              {canUpdate && (
+                <button type="button" className="btn btn--ghost" onClick={startRename}>
+                  Đổi tên
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  type="button"
+                  className="btn btn--ghost roles__danger-text"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setConfirmingDelete(true);
+                  }}
+                >
+                  Xóa
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -414,7 +433,11 @@ export function RolesPage() {
         ) : !currentRole ? (
           <div className="roles__empty">
             <p className="roles__empty-title">Phòng này chưa có vai trò</p>
-            <p className="roles__sub">Tạo vai trò đầu tiên ở ô “Vai trò mới” phía trên.</p>
+            <p className="roles__sub">
+              {canCreate
+                ? "Tạo vai trò đầu tiên ở ô “Vai trò mới” phía trên."
+                : "Chưa có vai trò nào để xem."}
+            </p>
           </div>
         ) : (
           <div className="matrix-scroll">
@@ -423,6 +446,7 @@ export function RolesPage() {
               matrix={matrix}
               onToggle={toggle}
               onScope={setScope}
+              readOnly={!canUpdate}
             />
           </div>
         )}
