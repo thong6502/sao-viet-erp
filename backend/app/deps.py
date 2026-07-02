@@ -17,8 +17,12 @@ from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
 from .repositories.costing_repo import CostingRepository
 from .repositories.customer_repo import CustomerRepository
+from .repositories.machine_repo import MachineRepository
+from .repositories.material_repo import MaterialRepository
+from .repositories.operation_repo import OperationRepository
 from .repositories.order_repo import OrderRepository
 from .repositories.product_repo import ProductRepository
+from .repositories.product_type_catalog_repo import ProductTypeCatalogRepository
 from .repositories.quotation_repo import QuotationRepository
 from .repositories.rbac_repo import (
     DepartmentRepository,
@@ -28,14 +32,24 @@ from .repositories.rbac_repo import (
 )
 from .repositories.refresh_token_repo import RefreshTokenRepository
 from .repositories.user_repo import UserRepository
+from .repositories.click_ink_rate_repo import ClickInkRateRepository
+from .repositories.plate_die_rate_repo import PlateDieRateRepository
+from .repositories.norm_repo import NormRepository
+from .repositories.document_sequence_repo import DocumentSequenceRepository
+from .repositories.estimate_repo import EstimateRepository
 from .security import decode_access_token
 from .services.auth_service import AuthError, AuthService
 from .services.activity_service import ActivityService
 from .services.costing_service import CostingService
+from .services.estimate_service import EstimateService
 from .services.customer_analytics import CustomerAnalyticsService
 from .services.customer_service import CustomerService
 from .services.department_service import DepartmentService
+from .services.machine_service import MachineService
+from .services.material_service import MaterialService
+from .services.operation_service import OperationService
 from .services.product_service import ProductService
+from .services.product_type_catalog_service import ProductTypeCatalogService
 from .services.order_service import OrderService
 from .services.quotation_service import QuotationService
 from .services.profile_service import ProfileService
@@ -44,6 +58,11 @@ from .services.refresh_service import RefreshTokenService
 from .services.role_service import RoleService
 from .services.unit_level_service import UnitLevelService
 from .services.user_admin_service import UserAdminService
+from .services.click_ink_rate_service import ClickInkRateService
+from .services.plate_die_rate_service import PlateDieRateService
+from .services.norm_service import NormService
+from .services.sequence_service import SequenceService
+
 
 # auto_error=False so we can return our own 401 shape for missing/invalid tokens.
 _bearer = HTTPBearer(auto_error=False)
@@ -290,3 +309,127 @@ def require_permission(module_key: str, action: str):
         return user
 
     return dependency
+
+
+def get_product_type_catalog_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> ProductTypeCatalogRepository:
+    return ProductTypeCatalogRepository(db)
+
+
+def get_product_type_catalog_service(
+    repo: Annotated[
+        ProductTypeCatalogRepository, Depends(get_product_type_catalog_repository)
+    ],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> ProductTypeCatalogService:
+    return ProductTypeCatalogService(repo, audit)
+
+
+def get_material_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> MaterialRepository:
+    return MaterialRepository(db)
+
+
+def get_material_service(
+    repo: Annotated[MaterialRepository, Depends(get_material_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> MaterialService:
+    return MaterialService(repo, audit)
+
+
+def get_machine_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> MachineRepository:
+    return MachineRepository(db)
+
+
+def get_machine_service(
+    repo: Annotated[MachineRepository, Depends(get_machine_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> MachineService:
+    return MachineService(repo, audit)
+
+
+def get_operation_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> OperationRepository:
+    return OperationRepository(db)
+
+
+def get_operation_service(
+    repo: Annotated[OperationRepository, Depends(get_operation_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> OperationService:
+    return OperationService(repo, audit)
+
+
+def get_click_ink_rate_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> ClickInkRateRepository:
+    return ClickInkRateRepository(db)
+
+
+def get_click_ink_rate_service(
+    repo: Annotated[ClickInkRateRepository, Depends(get_click_ink_rate_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> ClickInkRateService:
+    return ClickInkRateService(repo, audit)
+
+
+def get_plate_die_rate_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> PlateDieRateRepository:
+    return PlateDieRateRepository(db)
+
+
+def get_plate_die_rate_service(
+    repo: Annotated[PlateDieRateRepository, Depends(get_plate_die_rate_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> PlateDieRateService:
+    return PlateDieRateService(repo, audit)
+
+
+def get_norm_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> NormRepository:
+    return NormRepository(db)
+
+
+def get_norm_service(
+    repo: Annotated[NormRepository, Depends(get_norm_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> NormService:
+    return NormService(repo, audit)
+
+
+def get_document_sequence_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> DocumentSequenceRepository:
+    return DocumentSequenceRepository(db)
+
+
+def get_sequence_service(
+    repo: Annotated[DocumentSequenceRepository, Depends(get_document_sequence_repository)],
+) -> SequenceService:
+    return SequenceService(repo)
+
+
+def get_estimate_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> EstimateRepository:
+    return EstimateRepository(db)
+
+
+def get_estimate_service(
+    db: Annotated[Session, Depends(get_db)],
+    repo: Annotated[EstimateRepository, Depends(get_estimate_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    sequence: Annotated[SequenceService, Depends(get_sequence_service)],
+) -> EstimateService:
+    return EstimateService(db, repo, audit, sequence)
+
+
+
+

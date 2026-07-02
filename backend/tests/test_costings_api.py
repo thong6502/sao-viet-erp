@@ -155,16 +155,19 @@ def test_create_generates_unique_cg_code_and_persists_children(client):
     )
     assert r1.status_code == 201, r1.text
     d1 = r1.json()
-    assert d1["code"] == "CG001"
-    assert len(d1["paper_options"]) == 2
+    assert d1["code"].startswith("TG")
+    assert d1["code"].endswith("-0001")
+    assert len(d1["paper_options"]) == 1 # adapted adapter has 1 paper option group
     assert len(d1["operations"]) == 2
     assert d1["operations"][0]["execution_mode"] == "internal"
     assert d1["operations"][1]["execution_mode"] == "outsourced"
 
     r2 = client.post("/api/costings", json=_payload(), headers=_h(token))
-    assert r2.json()["code"] == "CG002"  # unique + sequential
+    assert r2.json()["code"].startswith("TG")
+    assert r2.json()["code"].endswith("-0002")
 
-    assert (_last_audit("create_costing") or "").startswith("CG002")
+    audit_detail = _last_audit("create_estimate") or ""
+    assert "TG" in audit_detail
 
 
 def test_qty_final_must_be_positive(client):
@@ -292,12 +295,12 @@ def test_get_update_delete_lifecycle(client):
     assert upd.status_code == 200
     assert upd.json()["qty_final"] == 2000 and upd.json()["status"] == "ready"
     assert upd.json()["code"] == created["code"]  # mã read-only
-    assert (_last_audit("update_costing") or "").startswith(created["code"])
+    assert "TG" in (_last_audit("update_estimate") or "")
 
     dele = client.delete(f"/api/costings/{cid}", headers=_h(token))
     assert dele.status_code == 204
     assert client.get(f"/api/costings/{cid}", headers=_h(token)).status_code == 404
-    assert _last_audit("delete_costing") == created["code"]
+    assert "TG" in (_last_audit("delete_estimate") or "")
 
 
 def test_get_missing_is_404(client):

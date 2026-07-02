@@ -223,12 +223,8 @@ class ProductService:
     # --- paper picker (SEAM-03) --------------------------------------------
 
     def list_papers(self, q: str | None = None) -> list:
-        """List selectable papers for the component editor. Delegates to the SEAM-03
-        port, which RAISES NotImplementedError until Danh mục Giấy is built — the router
-        turns that into an explicit "Danh mục Giấy chưa sẵn sàng" state (never a fake
-        list). NEVER fabricates papers here."""
-        # SEAM-03: chờ dm_giay_vat_tu (PaperMaster — Danh mục Giấy, chưa build)
-        return product_ports.list_paper_masters(q)
+        """List selectable papers for the component editor."""
+        return product_ports.list_paper_masters(self.products.db, q)
 
     # --- reads --------------------------------------------------------------
 

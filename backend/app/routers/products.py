@@ -150,7 +150,20 @@ def list_papers(
             available=False,
             message="Danh mục Giấy chưa sẵn sàng",
         )
-    return PaperPickerOut(available=True, items=papers)
+    return PaperPickerOut(
+        available=True,
+        items=[
+            {
+                "paper_master_id": p.paper_master_id,
+                "family": p.family,
+                "gsm": p.gsm,
+                "sheet_w_cm": p.sheet_w_cm,
+                "sheet_h_cm": p.sheet_h_cm,
+                "display_name": p.display_name,
+            }
+            for p in papers
+        ],
+    )
 
 
 @router.get("", response_model=ProductListOut)

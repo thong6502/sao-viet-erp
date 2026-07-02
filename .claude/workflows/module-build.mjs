@@ -1,9 +1,9 @@
 export const meta = {
   name: 'module-build',
-  description: 'Build BẤT KỲ phân hệ SVN (args.module): resolve màn → spec (song song) → plan → build+validate (tuần tự) → back-fill mối nối chéo. One-shot. Đọc/ghi Context Map CROSS_MODULE_LINKS.md; seam = SEAM-id + marker + test skip.',
+  description: 'Build BẤT KỲ phân hệ SVN (args.module): resolve màn → spec (tuần tự) → plan → build+validate (tuần tự) → back-fill mối nối chéo. One-shot, 1 agent/lần. Đọc/ghi Context Map CROSS_MODULE_LINKS.md; seam = SEAM-id + marker + test skip.',
   phases: [
     { title: 'Resolve',   detail: 'đọc §41 → màn + thứ tự + số spec; đọc Context Map → seam mà phân hệ này mở khóa' },
-    { title: 'Spec',      detail: 'research (song song) → BARRIER → reconcile → verify độc lập → ghi spec MÀN ERP THẬT (đủ trường/panel liên quan/hành động/states)' },
+    { title: 'Spec',      detail: 'tuần tự mỗi màn: research → reconcile → verify độc lập → ghi spec MÀN ERP THẬT (đủ trường/panel liên quan/hành động/states)' },
     { title: 'Plan',      detail: 'spec → feature_list.json; tách feat làm-ngay vs treo → ghi Context Map' },
     { title: 'Build',     detail: 'tuần tự: BE+FE theo BAR (chọn-đừng-gõ, panel liên quan, PDF letterhead) → init → VÒNG NÂNG-CHẤT: evaluator độc lập đối kháng chấm tới khi đạt bar' },
     { title: 'Wire',      detail: 'đóng seam NỘI-BỘ: màn cùng phân hệ tự nối bằng picker + kéo dữ liệu thật (hết gõ ID tay)' },
@@ -60,28 +60,29 @@ const SCREENS = (r && r.screens) || []
 if (!SCREENS.length) return { error:`Không tìm thấy màn cho phân hệ "${MODULE}" trong §41` }
 log(`Resolve: ${SCREENS.length} màn; ${((r&&r.backfill)||[]).length} seam cần back-fill`)
 
-// ── PHASE 1 — SPEC (research song song → BARRIER → reconcile → verify độc lập → ghi spec) ──
+// ── PHASE 1 — SPEC (TUẦN TỰ: mỗi màn lần lượt research → reconcile → verify độc lập → ghi spec; 1 agent/lần, KHÔNG pipeline/song song) ──
 phase('Spec')
-const specs = (await pipeline(
-  SCREENS,
-  // ① research (fan-out độc lập; effort theo depth)
-  (s) => agent(`MỤC TIÊU: giải phẫu màn "${s.name}" (${MODULE}, in offset SVN), depth=${s.depth}. `+
+const specs = []
+for (const s of SCREENS) {
+  // ① research (effort theo depth)
+  const research = await agent(`MỤC TIÊU: giải phẫu màn "${s.name}" (${MODULE}, in offset SVN), depth=${s.depth}. `+
     (s.depth==='heavy'?'Tra phần mềm in thật (Label Traxx, PrintVis, Tharstern, Optimus, EFI Pace, PrintSmith, Avanti) qua WebSearch/WebFetch: dữ liệu hiển thị/input/nút/luồng. ':
      s.depth==='medium'?'Chủ yếu domain doc + DB schema; web bù phần đặc thù in. ':'CRUD phổ thông — domain doc + DB schema, không web. ')+
-    `FORMAT: bản ghi giải phẫu + nguồn. ${CONTRACT} ${GROUNDING}`, { label:`research:${s.key}`, phase:'Spec' }),
-  // ② reconcile với domain (điểm hội tụ per-màn)
-  (research,s) => agent(`MỤC TIÊU: đối chiếu giải phẫu màn "${s.name}" với ${DOMAIN} — bỏ field không hợp SVN, thêm field đặc thù in còn thiếu. ${CONTRACT} ${GROUNDING}\nINPUT:\n${research}`,
-    { label:`reconcile:${s.key}`, phase:'Spec' }),
+    `FORMAT: bản ghi giải phẫu + nguồn. ${CONTRACT} ${GROUNDING}`, { label:`research:${s.key}`, phase:'Spec' })
+  // ② reconcile với domain
+  const draft = await agent(`MỤC TIÊU: đối chiếu giải phẫu màn "${s.name}" với ${DOMAIN} — bỏ field không hợp SVN, thêm field đặc thù in còn thiếu. ${CONTRACT} ${GROUNDING}\nINPUT:\n${research}`,
+    { label:`reconcile:${s.key}`, phase:'Spec' })
   // ③ adversarial verify ĐỘC LẬP: tự đọc lại domain, KHÔNG tin lý luận của bước trước
-  (draft,s) => agent(`MỤC TIÊU (đối kháng): tự ĐỌC LẠI ${DOMAIN} rồi PHẢN BÁC bản nháp màn "${s.name}" — field thừa/thiếu? luồng sai nghiệp vụ in? phá P0/DB schema? Đừng mặc nhiên tin bản nháp; chỉ giữ điều tự kiểm chứng được. ${CONTRACT} ${GROUNDING}\nBẢN NHÁP CẦN SOI:\n${draft}`,
-    { label:`verify:${s.key}`, phase:'Spec' }),
+  const v = await agent(`MỤC TIÊU (đối kháng): tự ĐỌC LẠI ${DOMAIN} rồi PHẢN BÁC bản nháp màn "${s.name}" — field thừa/thiếu? luồng sai nghiệp vụ in? phá P0/DB schema? Đừng mặc nhiên tin bản nháp; chỉ giữ điều tự kiểm chứng được. ${CONTRACT} ${GROUNDING}\nBẢN NHÁP CẦN SOI:\n${draft}`,
+    { label:`verify:${s.key}`, phase:'Spec' })
   // ④ ghi spec MÀN ERP THẬT (đủ trường/panel liên quan/hành động/states) + seam nếu chạm phân hệ chưa có
-  (v,s) => agent(`MỤC TIÊU: viết SPEC màn "${s.name}" như MỘT MÀN ERP THẬT (không CRUD tối thiểu) theo docs/product-specs/_TEMPLATE.md, bám ${BAR} `+
+  const spec = await agent(`MỤC TIÊU: viết SPEC màn "${s.name}" như MỘT MÀN ERP THẬT (không CRUD tối thiểu) theo docs/product-specs/_TEMPLATE.md, bám ${BAR} `+
     `Spec PHẢI nêu rõ: (a) kiến trúc List→Object-page; (b) ĐỦ TRƯỜNG THẬT theo nghiệp vụ + luật VN (MST, thuế, đơn vị) — không cắt còn 3 ô; (c) mọi tham chiếu là PICKER (không gõ ID); `+
     `(d) các PANEL LIÊN QUAN chéo module + drill-through (seam nếu module đích chưa có); (e) toolbar hành động ngữ cảnh + tab lịch sử + KPI/biểu đồ khi dữ liệu cho phép; (f) đủ states (rỗng/tải/lỗi); (g) PDF letterhead nếu là chứng từ gửi ra. `+
     `Acceptance criteria viết dạng quan sát được (Playwright). GHI docs/product-specs/spec-${String(s.spec).padStart(2,'0')}-${s.key}.md + thêm dòng index.md. ${SEAM} ${CONTRACT} ${GROUNDING}\nĐÃ VERIFY:\n${v}`,
-    { label:`spec:${s.key}`, phase:'Spec', schema: SPEC_SCHEMA }),
-)).filter(Boolean)
+    { label:`spec:${s.key}`, phase:'Spec', schema: SPEC_SCHEMA })
+  if (spec) specs.push(spec)
+}
 log(`Spec: ${specs.length}/${SCREENS.length} màn`)
 
 // ── PHASE 2 — PLAN (barrier: cần đủ spec; tách làm-ngay vs treo) ──

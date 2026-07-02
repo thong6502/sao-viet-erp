@@ -36,6 +36,8 @@ MODULES: list[tuple[str, str]] = [
     ("vai_tro", "Vai trò"),
     ("nguoi_dung", "Người dùng"),
     ("activity_log", "Nhật ký hoạt động"),
+    ("dm_giay_vat_tu", "Danh mục Giấy & Vật tư"),
+    ("dm_dinh_muc", "Định mức & Bù hao"),
 ]
 
 ALL_MODULE_KEYS = [k for k, _ in MODULES]
@@ -484,6 +486,306 @@ def seed_sales_history(db: Session) -> None:
     db.commit()
 
 
+def seed_product_types(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.product_type_catalog import ProductTypeCatalog
+    
+    types = [
+        ("business_card", "Name card", "sheet_based", ["finished_w", "finished_h"], ["be", "dong_goi"], ["paper"], ["offset", "digital"]),
+        ("flyer", "Tờ rơi", "sheet_based", ["finished_w", "finished_h"], ["be", "dong_goi"], ["paper"], ["offset", "digital"]),
+        ("brochure", "Brochure", "sheet_based", ["finished_w", "finished_h"], ["gap", "dong_goi"], ["paper"], ["offset", "digital"]),
+        ("catalogue", "Catalogue", "page_based", ["finished_w", "finished_h", "page_count"], ["dong_cuon", "dong_goi"], ["paper"], ["offset", "digital"]),
+        ("book", "Sách", "page_based", ["finished_w", "finished_h", "page_count"], ["dong_cuon", "dong_goi"], ["paper"], ["offset", "digital"]),
+        ("sticker", "Sticker", "area_based", ["finished_w", "finished_h"], ["be", "dong_goi"], ["decal"], ["offset", "digital"]),
+        ("label", "Tem nhãn", "area_based", ["finished_w", "finished_h"], ["be", "dong_goi"], ["decal", "pp"], ["offset", "digital"]),
+        ("paper_box", "Hộp giấy", "box_based", ["finished_w", "finished_h", "finished_d"], ["be", "dan_hop", "dong_goi"], ["paper", "carton"], ["offset", "flexo"]),
+        ("paper_bag", "Túi giấy", "box_based", ["finished_w", "finished_h", "finished_d"], ["be", "dan_hop", "dong_goi"], ["paper"], ["offset"]),
+        ("banner", "Banner", "area_based", ["finished_w", "finished_h"], ["dong_goi"], ["pp", "canvas"], ["large_format"]),
+        ("envelope", "Bao thư", "sheet_based", ["finished_w", "finished_h"], ["be", "dan_hop", "dong_goi"], ["paper"], ["offset"]),
+    ]
+    
+    for code, name, strategy, req_fields, default_ops, allowed_mats, comp_techs in types:
+        existing = db.execute(
+            select(ProductTypeCatalog).where(ProductTypeCatalog.product_type == code)
+        ).scalars().first()
+        if not existing:
+            pt = ProductTypeCatalog(
+                product_type=code,
+                name=name,
+                calculation_strategy=strategy,
+                required_fields=req_fields,
+                default_operations=default_ops,
+                allowed_materials=allowed_mats,
+                compatible_technologies=comp_techs,
+                is_active=True
+            )
+            db.add(pt)
+    db.commit()
+
+
+def seed_materials(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.material import Material
+    from .repositories.material_repo import MaterialRepository
+    from datetime import date
+    
+    repo = MaterialRepository(db)
+    
+    if db.execute(select(Material)).first() is None:
+        c150 = repo.create(
+            name="Couche 150gsm 65x86",
+            material_type="paper",
+            unit="to",
+            width_cm=65,
+            height_cm=86,
+            gsm=150,
+            paper_family="Couche",
+            surface="bong"
+        )
+        repo.add_cost_price(material_id=c150.id, price_unit="ram", unit_price=750000, effective_from=date(2026, 1, 1))
+
+        c300 = repo.create(
+            name="Couche 300gsm 79x109",
+            material_type="paper",
+            unit="to",
+            width_cm=79,
+            height_cm=109,
+            gsm=300,
+            paper_family="Couche",
+            surface="mo"
+        )
+        repo.add_cost_price(material_id=c300.id, price_unit="ram", unit_price=1200000, effective_from=date(2026, 1, 1))
+
+        decal = repo.create(
+            name="Decal giấy đế vàng",
+            material_type="decal",
+            unit="m2",
+            default_waste_pct=2.0
+        )
+        repo.add_cost_price(material_id=decal.id, price_unit="m2", unit_price=15000, effective_from=date(2026, 1, 1))
+
+        film = repo.create(
+            name="Màng mờ nhiệt",
+            material_type="lamination",
+            unit="m2",
+            default_waste_pct=1.0
+        )
+        repo.add_cost_price(material_id=film.id, price_unit="m2", unit_price=2500, effective_from=date(2026, 1, 1))
+        
+        db.commit()
+
+
+def seed_machines(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.machine import Machine
+    from .repositories.machine_repo import MachineRepository
+    from datetime import date
+    
+    repo = MachineRepository(db)
+    
+    if db.execute(select(Machine)).first() is None:
+        offset = repo.create(
+            name="Mitsubishi Daiya 4 màu",
+            machine_type="offset",
+            process_type="in",
+            speed=12000,
+            speed_unit="to/gio",
+            max_width_cm=72,
+            max_height_cm=102,
+            min_width_cm=36,
+            min_height_cm=54,
+            setup_time_mins=30,
+            setup_waste_sheets=200
+        )
+        repo.add_machine_rate(machine_id=offset.id, hourly_rate=500000, min_charge=1500000, effective_from=date(2026, 1, 1))
+
+        digital = repo.create(
+            name="Konica Minolta C6085",
+            machine_type="digital",
+            process_type="in",
+            speed=85,
+            speed_unit="trang/phut",
+            max_width_cm=33,
+            max_height_cm=48,
+            min_width_cm=10,
+            min_height_cm=15,
+            setup_time_mins=5,
+            setup_waste_sheets=5
+        )
+        repo.add_machine_rate(machine_id=digital.id, hourly_rate=200000, min_charge=50000, effective_from=date(2026, 1, 1))
+        
+        db.commit()
+
+
+def seed_operations(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.operation import Operation
+    from .repositories.operation_repo import OperationRepository
+    from datetime import date
+    
+    repo = OperationRepository(db)
+    
+    if db.execute(select(Operation)).first() is None:
+        can = repo.create(
+            name="Cán màng mờ",
+            operation_type="can_mang",
+            unit="m2",
+            allow_outsource=True
+        )
+        repo.add_operation_rate(operation_id=can.id, setup_fee=100000, run_rate=1200, labor_rate=300, min_charge=250000, speed=1500, effective_from=date(2026, 1, 1))
+
+        be = repo.create(
+            name="Bế hộp",
+            operation_type="be",
+            unit="cai",
+            allow_outsource=False
+        )
+        repo.add_operation_rate(operation_id=be.id, setup_fee=300000, run_rate=500, labor_rate=100, min_charge=500000, speed=2000, effective_from=date(2026, 1, 1))
+
+        dong = repo.create(
+            name="Đóng gói thùng carton",
+            operation_type="dong_goi",
+            unit="thung",
+            allow_outsource=False
+        )
+        repo.add_operation_rate(operation_id=dong.id, setup_fee=0, run_rate=20000, labor_rate=5000, min_charge=50000, speed=20, effective_from=date(2026, 1, 1))
+        
+        db.commit()
+
+
+def seed_click_ink_rates(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.click_ink_rate import ClickInkRate
+    from .repositories.click_ink_rate_repo import ClickInkRateRepository
+    from datetime import date
+    
+    repo = ClickInkRateRepository(db)
+    if db.execute(select(ClickInkRate)).first() is None:
+        # CMYK digital
+        repo.add_rate(
+            technology="digital",
+            color_type="cmyk",
+            machine_id=None,
+            unit="click",
+            unit_price=350,
+            setup_fee=15000,
+            min_charge=5000,
+            effective_from=date(2026, 1, 1)
+        )
+        # Grayscale digital
+        repo.add_rate(
+            technology="digital",
+            color_type="grayscale",
+            machine_id=None,
+            unit="click",
+            unit_price=80,
+            setup_fee=5000,
+            min_charge=1000,
+            effective_from=date(2026, 1, 1)
+        )
+        db.commit()
+
+
+def seed_plate_die_rates(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.plate_die_rate import PlateDieRate
+    from .repositories.plate_die_rate_repo import PlateDieRateRepository
+    from datetime import date
+    
+    repo = PlateDieRateRepository(db)
+    if db.execute(select(PlateDieRate)).first() is None:
+        # Offset plates
+        repo.add_rate(
+            plate_type="ban_kem_offset",
+            technology="offset",
+            unit="ban",
+            unit_price=150000,
+            setup_fee=0,
+            min_charge=0,
+            reusable=False,
+            effective_from=date(2026, 1, 1)
+        )
+        # Die tooling
+        repo.add_rate(
+            plate_type="khuon_be",
+            technology="be",
+            unit="bo",
+            unit_price=450000,
+            setup_fee=0,
+            min_charge=0,
+            reusable=True,
+            effective_from=date(2026, 1, 1)
+        )
+        db.commit()
+
+
+def seed_norms(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.norm import Norm
+    from .repositories.norm_repo import NormRepository
+    from .services.norm_service import canonicalize_context
+    from datetime import date
+    
+    repo = NormRepository(db)
+    if db.execute(select(Norm)).first() is None:
+        # 1. Fallback yield rate
+        repo.add_norm(
+            norm_key="yield_rate",
+            value=0.98,
+            product_type=None,
+            machine_id=None,
+            operation_id=None,
+            operation_key=None,
+            qty_min=None,
+            qty_max=None,
+            context=None,
+            context_key="{}",
+            effective_from=date(2026, 1, 1)
+        )
+        # 2. General offset waste pct
+        repo.add_norm(
+            norm_key="running_waste_pct",
+            value=0.02,
+            product_type=None,
+            machine_id=None,
+            operation_id=None,
+            operation_key=None,
+            qty_min=None,
+            qty_max=None,
+            context=None,
+            context_key="{}",
+            effective_from=date(2026, 1, 1)
+        )
+        # 3. Brochure offset setup waste (15 sheets per color-side)
+        ctx = {"colors": 4, "sides": 2}
+        repo.add_norm(
+            norm_key="makeready_per_color_side",
+            value=15.0,
+            product_type="brochure",
+            machine_id=None,
+            operation_id=None,
+            operation_key=None,
+            qty_min=None,
+            qty_max=None,
+            context=ctx,
+            context_key=canonicalize_context(ctx),
+            effective_from=date(2026, 1, 1)
+        )
+        db.commit()
+
+
+def seed_document_sequences(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.document_sequence import DocumentSequence
+    from .repositories.document_sequence_repo import DocumentSequenceRepository
+    
+    repo = DocumentSequenceRepository(db)
+    if db.execute(select(DocumentSequence)).first() is None:
+        for doc_type in ["costing", "quotation", "order", "job"]:
+            repo.increment_and_get(doc_type, 2026)
+        db.commit()
+
+
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -498,8 +800,17 @@ def seed_all(db: Session) -> None:
     seed_roles(db)
     seed_admin(db)
     link_admin(db)
+    seed_product_types(db)
+    seed_materials(db)
+    seed_machines(db)
+    seed_operations(db)
     if settings.seed_demo:
         seed_kd_staff(db)
         seed_customers(db)
         seed_products(db)
         seed_sales_history(db)
+        seed_click_ink_rates(db)
+        seed_plate_die_rates(db)
+        seed_norms(db)
+        seed_document_sequences(db)
+

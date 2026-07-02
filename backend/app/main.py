@@ -18,12 +18,20 @@ from .db import SessionLocal, init_db
 from .routers import (
     auth,
     costings,
+    estimates,
     customers,
+    machines,
+    materials,
+    operations,
     orders,
     products,
+    product_types_catalog,
     profile,
     quotations,
     rbac,
+    click_ink_rates,
+    plate_die_rates,
+    norms,
 )
 from .seed import seed_all
 
@@ -66,8 +74,17 @@ app.include_router(rbac.router)
 app.include_router(customers.router)
 app.include_router(products.router)
 app.include_router(costings.router)
+app.include_router(estimates.router)
 app.include_router(quotations.router)
 app.include_router(orders.router)
+app.include_router(product_types_catalog.router)
+app.include_router(materials.router)
+app.include_router(machines.router)
+app.include_router(operations.router)
+app.include_router(click_ink_rates.router)
+app.include_router(plate_die_rates.router)
+app.include_router(norms.router)
+
 
 
 @app.get("/api/health", tags=["health"])

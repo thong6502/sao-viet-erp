@@ -279,15 +279,15 @@ def test_nonpositive_page_count_422(client):
 # --- SEAM-03 paper picker --------------------------------------------------
 
 
-def test_paper_picker_unavailable_no_fake_list(client):
-    """SEAM-03 not built → picker available=False + message, empty items (NO fake list)."""
+def test_paper_picker_available_and_returns_seeded_list(client):
+    """SEAM-03 built → picker available=True and returns the seeded paper list."""
     token = _admin_token(client)
     resp = client.get("/api/products/papers", headers=_h(token))
     assert resp.status_code == 200
     body = resp.json()
-    assert body["available"] is False
-    assert body["items"] == []
-    assert "Giấy" in (body["message"] or "")
+    assert body["available"] is True
+    assert len(body["items"]) >= 1
+    assert any("Couche" in item["display_name"] for item in body["items"])
 
 
 def test_enums_endpoint(client):

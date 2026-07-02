@@ -46,29 +46,58 @@ def test_seam_08_stub_raises():
 
 
 # --- SEAM-09 — định mức/bù hao (Norm) --------------------------------------
-@pytest.mark.skip(reason="SEAM-09 chờ định mức/bù hao (Norm)")
 def test_seam_09_norm_lookup():
-    yield_rate = costing_ports.get_norm(norm_key="yield_rate", context={})
-    assert isinstance(yield_rate, (int, float))
+    from app.db import SessionLocal
+    from app.models.norm import Norm
+    from datetime import date
+    
+    db = SessionLocal()
+    try:
+        norm = Norm(
+            norm_key="yield_rate",
+            value=0.98,
+            qty_min=None,
+            qty_max=None,
+            context_key="{}",
+            effective_from=date(2026, 1, 1),
+            effective_to=None,
+        )
+        db.add(norm)
+        db.commit()
+        
+        yield_rate = costing_ports.get_norm(norm_key="yield_rate", context={})
+        assert yield_rate == 0.98
+        
+        db.delete(norm)
+        db.commit()
+    finally:
+        db.close()
 
 
-def test_seam_09_stub_raises():
-    with pytest.raises(NotImplementedError, match="SEAM-09"):
-        costing_ports.get_norm(norm_key="yield_rate", context={})
+def test_seam_09_lookup_not_found():
+    from app.services.norm_service import NormNotFoundError
+    with pytest.raises(NormNotFoundError):
+        costing_ports.get_norm(norm_key="yield_rate", context={"quantity": 99999})
+
 
 
 # --- SEAM-10 — specs máy (MachineSpec) -------------------------------------
-@pytest.mark.skip(reason="SEAM-10 chờ specs máy (MachineSpec)")
-def test_seam_10_machine_spec_lookup():
-    spec = costing_ports.get_machine_spec(machine_id=1)
-    assert "units_per_pass" in spec
-    assert "max_sheet_w" in spec
-    assert "max_sheet_h" in spec
-
-
-def test_seam_10_stub_raises():
-    with pytest.raises(NotImplementedError, match="SEAM-10"):
-        costing_ports.get_machine_spec(machine_id=1)
+def test_seam_10_machine_spec_lookup(client):
+    from app.db import SessionLocal
+    from app.models.machine import Machine
+    from sqlalchemy import select
+    
+    db = SessionLocal()
+    try:
+        machine = db.execute(select(Machine)).scalars().first()
+        assert machine is not None
+        
+        spec = costing_ports.get_machine_spec(machine_id=machine.id)
+        assert "units_per_pass" in spec
+        assert spec["max_sheet_w"] == float(machine.max_width_cm or 0)
+        assert spec["max_sheet_h"] == float(machine.max_height_cm or 0)
+    finally:
+        db.close()
 
 
 # --- SEAM-11 — đọc Sản phẩm (ProductRead) ----------------------------------

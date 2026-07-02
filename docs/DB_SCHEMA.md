@@ -546,6 +546,93 @@ NOT stored here — it is pulled versioned at cost time (feat-041).
 
 ---
 
+### `estimates`
+
+**Purpose:** internal cost estimates (headers) for product pricing, replacing the legacy `costings` logically.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `estimate_number` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | Auto-generated sequential code (TG26-0001, TG26-0002...). |
+| `customer_id` | `Integer` → `INTEGER` | **IX** | yes | — | Optional CRM customer reference. |
+| `product_type` | `String(50)` → `VARCHAR(50)` | **FK→product_types_catalog.product_type** | no | — | Reference to product type strategy configuration. |
+| `product_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Name of product being estimated. |
+| `status` | `String(20)` → `VARCHAR(20)` | — | no | `draft` | Status (draft, calculated, cancelled). |
+| `input_spec_json` | `JSON` → `JSON` | — | no | — | Complete input specification configuration. |
+| `quantity_list_json` | `JSON` → `JSON` | — | no | — | List of quantity points calculated. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | User who created the estimate. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_estimates_estimate_number` on `estimate_number`.
+- Index: `ix_estimates_customer_id` on `customer_id`.
+- Foreign keys: `product_type FK→product_types_catalog.product_type`, `created_by FK→users.id`.
+
+---
+
+### `estimate_options`
+
+**Purpose:** calculated estimate results for a specific quantity point.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `estimate_id` | `Integer` → `INTEGER` | **FK→estimates.id**, **IX** | no | — | Parent estimate ID. |
+| `quantity` | `Integer` → `INTEGER` | — | no | — | Quantity point calculated. |
+| `total_cost` | `Numeric(15,2)` → `NUMERIC(15,2)` | — | no | `0` | Total internal estimated cost. |
+| `warnings_json` | `JSON` → `JSON` | — | yes | — | List of warnings or blocking errors. |
+| `margin_percent` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | no | `0` | Desired profit margin (%). |
+| `selling_price` | `Numeric(15,2)` → `NUMERIC(15,2)` | — | no | `0` | Base selling price. |
+| `discount_amount` | `Numeric(15,2)` → `NUMERIC(15,2)` | — | no | `0` | Absolute discount. |
+| `vat_percent` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | no | `0` | VAT rate (%). |
+| `vat_amount` | `Numeric(15,2)` → `NUMERIC(15,2)` | — | no | `0` | Calculated VAT amount. |
+| `final_price` | `Numeric(15,2)` → `NUMERIC(15,2)` | — | no | `0` | Selling price after discount + VAT. |
+| `unit_price` | `Numeric(15,2)` → `NUMERIC(15,2)` | — | no | `0` | Per unit final price. |
+| `actual_margin` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | no | `0` | Actual margin calculated. |
+| `included_in_quote` | `Boolean` → `BOOLEAN` | — | no | `false` | Selected for inclusion in quotation. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `uix_estimate_options_estimate_qty` on `(estimate_id, quantity)`.
+- Index: `ix_estimate_options_estimate_id` on `estimate_id`.
+- Foreign keys: `estimate_id FK→estimates.id ON DELETE CASCADE`.
+
+---
+
+### `estimate_cost_lines`
+
+**Purpose:** detail breakdown of costs for an estimate option.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `estimate_option_id` | `Integer` → `INTEGER` | **FK→estimate_options.id**, **IX** | no | — | Parent estimate option ID. |
+| `category` | `String(32)` → `VARCHAR(32)` | — | no | — | Cost pool category. |
+| `description` | `String(255)` → `VARCHAR(255)` | — | no | — | Text description. |
+| `source_type` | `String(50)` → `VARCHAR(50)` | — | yes | — | DB table for source rate. |
+| `source_id` | `Integer` → `INTEGER` | — | yes | — | ID of source rate. |
+| `source_snapshot_json` | `JSON` → `JSON` | — | yes | — | Copy of source configuration rate/norm. |
+| `calculation_snapshot_json` | `JSON` → `JSON` | — | yes | — | Interim parameters and math formula. |
+| `quantity` | `Numeric(12,2)` → `NUMERIC(12,2)` | — | no | — | Quantity of resource used. |
+| `unit` | `String(16)` → `VARCHAR(16)` | — | no | — | Unit of resource. |
+| `unit_cost` | `Numeric(15,2)` → `NUMERIC(15,2)` | — | no | — | Rate per resource unit. |
+| `setup_cost` | `Numeric(15,2)` → `NUMERIC(15,2)` | — | no | `0` | Setup fee of operation or machine. |
+| `min_charge_applied` | `Boolean` → `BOOLEAN` | — | no | `false` | Whether minimum charge was triggered. |
+| `total_cost` | `Numeric(15,2)` → `NUMERIC(15,2)` | — | no | — | Final computed line cost. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_estimate_cost_lines_estimate_option_id` on `estimate_option_id`.
+- Foreign keys: `estimate_option_id FK→estimate_options.id ON DELETE CASCADE`.
+
+---
+
 ### `audit_logs`
 
 **Purpose:** one row per privilege-changing action (gán phòng, gán vai trò, sửa khuôn
@@ -601,7 +688,343 @@ client's httpOnly cookie.
 
 ---
 
+### `product_types_catalog`
+
+**Purpose:** configuration for product types (e.g. name card, brochure, catalogue, boxes...) mapping required inputs, default operations, allowed materials, and compatible printing strategies.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `product_type` | `String(32)` → `VARCHAR(32)` | **U**, **IX** | no | — | Unique key for the product type (e.g. `catalogue`, `business_card`). |
+| `name` | `String(100)` → `VARCHAR(100)` | — | no | — | Human display name (e.g. `Catalogue`, `Name card`). |
+| `calculation_strategy` | `String(32)` → `VARCHAR(32)` | — | no | — | Enum strategy (e.g. `sheet_based`, `page_based`, `area_based`, `roll_based`, `box_based`, `book_based`). |
+| `required_fields` | `JSON` → `TEXT` / `JSONB` | — | yes | — | Array of required fields for inputs. |
+| `default_operations` | `JSON` → `TEXT` / `JSONB` | — | yes | — | Array of default operation codes. |
+| `allowed_materials` | `JSON` → `TEXT` / `JSONB` | — | yes | — | Array of allowed material types. |
+| `compatible_technologies` | `JSON` → `TEXT` / `JSONB` | — | yes | — | Array of compatible technology keys. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status of the product type configuration. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was last updated. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_product_types_catalog_product_type` on `product_type`.
+
+**Relationships**
+
+- Referenced as a foreign key by `norms.product_type`.
+
+---
+
+### `materials`
+
+**Purpose:** unified catalog of raw materials and consumables (Paper, Decal, PP, canvas, carton, film, formex, lamination film, glue, chemical...).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | Unique master code (GY### for paper, VT### for other materials). |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Master material name. |
+| `material_type` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | Material category (e.g. `paper`, `decal`, `pp`, `canvas`, `carton`, `film`, `lamination`, `glue`, `chemical`). |
+| `unit` | `String(16)` → `VARCHAR(16)` | — | no | — | Unit of measurement (e.g. `to`, `m2`, `kg`, `cuon`, `cai`). |
+| `min_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Minimum usage fee (VND). |
+| `width_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Width dimensions (cm) for sheets and rolls. |
+| `height_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Height/length dimensions (cm) for sheets. Null for rolls. |
+| `gsm` | `Integer` → `INTEGER` | — | yes | — | Paper grammage / density weight (gsm). |
+| `thickness_mm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Thickness dimensions (mm). |
+| `default_waste_pct` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | no | `0.0` | Default waste percentage. |
+| `min_purchase_qty` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0.0` | Minimum quantity required for purchase. |
+| `paper_family` | `String(32)` → `VARCHAR(32)` | — | yes | — | Paper family family designation (Couche, Ivory, Ford, Bristol, Duplex...). |
+| `surface` | `String(32)` → `VARCHAR(32)` | — | yes | — | Surface tráng/bề mặt description (bong, mo, trang-1-mat...). |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status in selection pickers. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the material was created. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the material was last updated. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_materials_code` on `code`.
+- Index: `ix_materials_material_type` on `material_type`.
+
+**Relationships**
+
+- One material has many historical `material_costs`.
+
+---
+
+### `material_costs`
+
+**Purpose:** time-versioned unit cost prices for materials.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `material_id` | `Integer` → `INTEGER` | **FK→materials.id**, **IX** | no | — | Reference to target material. |
+| `price_unit` | `String(16)` → `VARCHAR(16)` | — | no | — | Unit this price corresponds to (e.g. `to`, `ram`, `kg`, `m2`). |
+| `unit_price` | `BigInteger` → `BIGINT` | — | no | `0` | Cost price (VND). |
+| `effective_from` | `Date` → `DATE` | — | no | — | Date pricing becomes active. |
+| `effective_to` | `Date` → `DATE` | — | yes | — | Date pricing stops being active. Null means current active price. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_material_costs_material_id` on `material_id`.
+- Unique index: `uix_material_costs_current` on `(material_id, price_unit) WHERE effective_to IS NULL`.
+- Foreign key: `material_id FK→materials.id`.
+
+**Relationships**
+
+- Belongs to one `materials`.
+
+---
+
+### `machines`
+
+**Purpose:** machines catalog (printing & finishing) carrying mechanical dimensions and processing capability parameters.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | Unique machine code (MY###). |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Machine name. |
+| `machine_type` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | Type designation (offset, digital, large_format, flexo...). |
+| `process_type` | `String(32)` → `VARCHAR(32)` | — | no | — | Production step mapped (in, can_mang, be, gap...). |
+| `max_width_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Max width of sheet/roll machine can process. |
+| `max_height_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Max height of sheet machine can process. |
+| `min_width_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Min width machine can process. |
+| `min_height_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Min height machine can process. |
+| `speed` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | — | Processing speed (must be > 0). |
+| `speed_unit` | `String(32)` → `VARCHAR(32)` | — | no | — | Speed unit (trang/phut, to/gio, m2/gio). |
+| `setup_time_mins` | `Integer` → `INTEGER` | — | no | `0` | Setup/makeready time (minutes). |
+| `changeover_time_mins` | `Integer` → `INTEGER` | — | no | `0` | Job changeover/cleanup time (minutes). |
+| `setup_waste_sheets` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0.0` | Fixed sheets/material waste during setup. |
+| `supported_materials` | `JSON` → `TEXT` / `JSONB` | — | yes | — | List of supported material_type codes. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status of machine. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_machines_code` on `code`.
+- Index: `ix_machines_machine_type` on `machine_type`.
+
+**Relationships**
+
+- One machine has many historical `machine_rates` and references in `norms`.
+
+---
+
+### `machine_rates`
+
+**Purpose:** hourly rates and minimum job fees for running machines over time.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `machine_id` | `Integer` → `INTEGER` | **FK→machines.id**, **IX** | no | — | Reference to machine. |
+| `hourly_rate` | `BigInteger` → `BIGINT` | — | no | — | Rate per hour of machine usage (VND). |
+| `min_charge` | `BigInteger` → `BIGINT` | — | no | `0` | Minimum charge for running this machine (VND). |
+| `min_run_time_mins` | `Integer` → `INTEGER` | — | no | `0` | Minimum running time billed (minutes). |
+| `effective_from` | `Date` → `DATE` | — | no | — | Pricing effective start date. |
+| `effective_to` | `Date` → `DATE` | — | yes | — | Pricing effective end date. Null means current. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_machine_rates_machine_id` on `machine_id`.
+- Unique index: `uix_machine_rates_current` on `(machine_id) WHERE effective_to IS NULL`.
+- Foreign key: `machine_id FK→machines.id`.
+
+**Relationships**
+
+- Belongs to one `machines`.
+
+---
+
+### `operations`
+
+**Purpose:** execution operations and finishing catalog (folding, lamination, binding, cutting, packing...).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | Unique operation code (CD###). |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Operation name. |
+| `operation_type` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | Operation type (in, can_mang, be, gap, dong_cuon, dong_goi). |
+| `unit` | `String(16)` → `VARCHAR(16)` | — | no | — | Unit of quantity (e.g. `m2`, `luot`, `to`, `cuon`, `san_pham`). |
+| `allow_outsource` | `Boolean` → `BOOLEAN` | — | no | `false` | Whether this operation can be outsourced. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_operations_code` on `code`.
+- Index: `ix_operations_operation_type` on `operation_type`.
+
+**Relationships**
+
+- One operation has many historical `operation_rates`, `vendor_service_rates`, and references in `norms`.
+
+---
+
+### `operation_rates`
+
+**Purpose:** rates, setup fees and labor charges for operations over time.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `operation_id` | `Integer` → `INTEGER` | **FK→operations.id**, **IX** | no | — | Reference to operation. |
+| `setup_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Flat setup fee (VND). |
+| `run_rate` | `BigInteger` → `BIGINT` | — | no | `0` | Rate per quantity unit (VND). |
+| `labor_rate` | `BigInteger` → `BIGINT` | — | no | `0` | Labor rate per hour if any (VND). |
+| `min_charge` | `BigInteger` → `BIGINT` | — | no | `0` | Minimum charge for using this operation (VND). |
+| `speed` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0.0` | Speed of operation in units per hour. |
+| `effective_from` | `Date` → `DATE` | — | no | — | Pricing effective start date. |
+| `effective_to` | `Date` → `DATE` | — | yes | — | Pricing effective end date. Null means current. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_operation_rates_operation_id` on `operation_id`.
+- Unique index: `uix_operation_rates_current` on `(operation_id) WHERE effective_to IS NULL`.
+- Foreign key: `operation_id FK→operations.id`.
+
+- Belongs to one `operations`.
+
+---
+
+### `click_ink_rates`
+
+**Purpose:** click rates and ink/toner charges for digital or specialized machinery over time.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `technology` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | Printing technology (offset, digital, large_format, flexo). |
+| `color_type` | `String(32)` → `VARCHAR(32)` | — | no | — | Color style (cmyk, grayscale, spot, white). |
+| `machine_id` | `Integer` → `INTEGER` | **FK→machines.id**, **IX** | yes | — | Specific machine reference (or Null for technology-wide default). |
+| `unit` | `String(16)` → `VARCHAR(16)` | — | no | — | unit (trang, m2, ml, click). |
+| `unit_price` | `BigInteger` → `BIGINT` | — | no | — | Price per unit (VND). |
+| `setup_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Flat setup fee for clicking (VND). |
+| `min_charge` | `BigInteger` → `BIGINT` | — | no | `0` | Minimum charge (VND). |
+| `effective_from` | `Date` → `DATE` | — | no | — | Rate effective start date. |
+| `effective_to` | `Date` → `DATE` | — | yes | — | Rate effective end date. Null means current. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status flag. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_click_ink_rates_technology` on `technology`.
+- Index: `ix_click_ink_rates_machine_id` on `machine_id`.
+- Unique index: `uix_click_ink_rates_current` on `(technology, color_type, COALESCE(machine_id, 0), unit) WHERE effective_to IS NULL`.
+- Foreign key: `machine_id FK→machines.id`.
+
+**Relationships**
+
+- Optionally references one `machines`.
+
+---
+
+### `plate_die_rates`
+
+**Purpose:** rates, setup fees and charges for offset plate-making, dies, and embossing clichés over time.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `plate_type` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | Type of tooling (ban_kem_offset, khuon_be, khuon_ep_kim). |
+| `technology` | `String(32)` → `VARCHAR(32)` | — | no | — | Tooling technology (offset, flexo, be, ep_kim). |
+| `unit` | `String(16)` → `VARCHAR(16)` | — | no | — | unit (ban, bo, cm2). |
+| `unit_price` | `BigInteger` → `BIGINT` | — | no | — | Price per unit (VND). |
+| `setup_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Flat setup fee (VND). |
+| `min_charge` | `BigInteger` → `BIGINT` | — | no | `0` | Minimum charge (VND). |
+| `reusable` | `Boolean` → `BOOLEAN` | — | no | `false` | Reusability of plate/die. |
+| `effective_from` | `Date` → `DATE` | — | no | — | Rate effective start date. |
+| `effective_to` | `Date` → `DATE` | — | yes | — | Rate effective end date. Null means current. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status flag. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_plate_die_rates_plate_type` on `plate_type`.
+- Unique index: `uix_plate_die_rates_current` on `(plate_type, technology, unit) WHERE effective_to IS NULL`.
+
+---
+
+### `norms`
+
+**Purpose:** versioned loss and makeup norms, waste percentages, and setup wastes with specificity dimensions.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `norm_key` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | Key identifying the norm (yield_rate, running_waste_pct, makeready_per_color_side). |
+| `value` | `Numeric(10,4)` → `NUMERIC(10,4)` | — | no | — | Norm value (yield in (0, 1], waste rate >= 0, makeready sheet count). |
+| `product_type` | `String(32)` → `VARCHAR(32)` | **FK→product_types_catalog.product_type**, **IX** | yes | — | Narrowing dimension for product type. |
+| `machine_id` | `Integer` → `INTEGER` | **FK→machines.id**, **IX** | yes | — | Narrowing dimension for machine. |
+| `operation_id` | `Integer` → `INTEGER` | **FK→operations.id**, **IX** | yes | — | Narrowing dimension for operation. |
+| `operation_key` | `String(32)` → `VARCHAR(32)` | **IX** | yes | — | Fallback string key for operation. |
+| `qty_min` | `Integer` → `INTEGER` | — | yes | — | Lower bound of print quantity range (inclusive). |
+| `qty_max` | `Integer` → `INTEGER` | — | yes | — | Upper bound of print quantity range (inclusive). |
+| `context` | `JSON` → `JSONB` / `JSON` | — | yes | — | Dynamic context parameters like colors, sides, etc. |
+| `context_key` | `String(160)` → `VARCHAR(160)` | — | no | `"{}"` | Canonical string representation of context for uniqueness constraint. |
+| `effective_from` | `Date` → `DATE` | — | no | — | Norm effective start date. |
+| `effective_to` | `Date` → `DATE` | — | yes | — | Norm effective end date. Null means current. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Optional developer or admin notes. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_norms_norm_key` on `norm_key`.
+- Index: `ix_norms_product_type` on `product_type`.
+- Index: `ix_norms_machine_id` on `machine_id`.
+- Index: `ix_norms_operation_id` on `operation_id`.
+- Index: `ix_norms_operation_key` on `operation_key`.
+- Unique index: `uix_norms_current` on `(norm_key, COALESCE(product_type, ''), COALESCE(machine_id, 0), COALESCE(operation_id, 0), COALESCE(operation_key, ''), COALESCE(qty_min, -1), COALESCE(qty_max, -1), context_key) WHERE effective_to IS NULL`.
+- Foreign keys: `product_type FK→product_types_catalog.product_type`, `machine_id FK→machines.id`, `operation_id FK→operations.id`.
+
+**Relationships**
+
+- Optionally references `product_types_catalog`, `machines`, or `operations`.
+
+---
+
+### `document_sequences`
+
+**Purpose:** atomic year-based counter sequences for generating auto-incrementing document codes (quotations, costings, orders, jobs).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `doc_type` | `String(32)` → `VARCHAR(32)` | **PK** | no | — | Document type (costing, quotation, order, job). |
+| `year` | `Integer` → `INTEGER` | **PK** | no | — | Year of counter sequence (e.g. 2026). |
+| `current_number` | `Integer` → `INTEGER` | — | no | `0` | Auto-incremented sequence number. |
+
+**Keys & indexes**
+
+- Primary key: `(doc_type, year)`.
+
+---
+
 ## Template for a new table (copy when adding one)
+
+
 
 ```markdown
 ### `table_name`

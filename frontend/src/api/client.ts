@@ -598,6 +598,89 @@ export interface CostingEnumsOut {
   execution_modes: EnumOption[];
 }
 
+export interface EstimateWarning {
+  severity: "warning" | "blocking_error";
+  code: string;
+  message: string;
+  source_type?: string | null;
+  source_id?: number | null;
+}
+
+export interface EstimateCostLineRow {
+  id: number;
+  category: string;
+  description: string;
+  source_type?: string | null;
+  source_id?: number | null;
+  source_snapshot_json?: Record<string, any> | null;
+  calculation_snapshot_json?: Record<string, any> | null;
+  quantity: number;
+  unit: string;
+  unit_cost: number;
+  setup_cost: number;
+  min_charge_applied: boolean;
+  total_cost: number;
+  note?: string | null;
+}
+
+export interface EstimateOptionRow {
+  id: number;
+  quantity: number;
+  total_cost: number;
+  warnings_json?: EstimateWarning[];
+  can_create_quote?: boolean;
+  blocking_error_count?: number;
+  warning_count?: number;
+  cost_lines?: EstimateCostLineRow[];
+}
+
+export interface EstimateDetail {
+  id: number;
+  estimate_number: string;
+  customer_id: number | null;
+  product_type: string;
+  product_name: string;
+  status: string;
+  input_spec_json: Record<string, any>;
+  quantity_list_json: number[];
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+  options: EstimateOptionRow[];
+}
+
+export interface EstimateRow {
+  id: number;
+  estimate_number: string;
+  product_type: string;
+  product_name: string;
+  status: string;
+  quantity_list_json: number[];
+  total_cost_min: number | null;
+  total_cost_max: number | null;
+  warnings_count: number;
+  blocking_error_count: number;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface EstimateListOut {
+  items: EstimateRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface EstimateInput {
+  product_type: string;
+  product_name: string;
+  quantity_list: number[];
+  input_spec: Record<string, any>;
+  customer_id?: number | null;
+  status?: string;
+}
+
+
 /** Paper-cost picker state (SEAM-07): available=false + message when Danh mục Giấy is not built. */
 export interface PaperCostPickerOut {
   available: boolean;
@@ -813,6 +896,233 @@ export interface OrderListParams {
   q?: string;
   status?: string | null;
   order_kind?: string | null;
+  sort?: string;
+  page?: number;
+  size?: number;
+}
+
+// --- Master Data (Cấu hình danh mục) shapes --------------------------------
+export interface ProductTypeCatalogRow {
+  id: number;
+  product_type: string;
+  name: string;
+  calculation_strategy: string;
+  required_fields: string[];
+  default_operations: string[];
+  allowed_materials: string[];
+  compatible_technologies: string[];
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ProductTypeCatalogInput {
+  product_type: string;
+  name: string;
+  calculation_strategy: string;
+  required_fields?: string[];
+  default_operations?: string[];
+  allowed_materials?: string[];
+  compatible_technologies?: string[];
+  is_active?: boolean;
+}
+
+export interface ProductTypeCatalogListOut {
+  items: ProductTypeCatalogRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface MaterialCostRow {
+  id: number;
+  material_id: number;
+  price_unit: string;
+  unit_price: number;
+  effective_from: string;
+  effective_to: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialCostInput {
+  price_unit: string;
+  unit_price: number;
+  effective_from: string;
+}
+
+export interface MaterialRow {
+  id: number;
+  code: string;
+  name: string;
+  material_type: string;
+  unit: string;
+  min_fee: number;
+  width_cm: number | null;
+  height_cm: number | null;
+  gsm: number | null;
+  thickness_mm: number | null;
+  default_waste_pct: number;
+  min_purchase_qty: number;
+  paper_family: string | null;
+  surface: string | null;
+  is_active: boolean;
+  costs: MaterialCostRow[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialInput {
+  name: string;
+  material_type: string;
+  unit: string;
+  min_fee?: number;
+  width_cm?: number | null;
+  height_cm?: number | null;
+  gsm?: number | null;
+  thickness_mm?: number | null;
+  default_waste_pct?: number;
+  min_purchase_qty?: number;
+  paper_family?: string | null;
+  surface?: string | null;
+  is_active?: boolean;
+}
+
+export interface MaterialListStats {
+  total_materials: number;
+  total_papers: number;
+  total_consumables: number;
+  no_price_count: number;
+  price_updates_this_month: number;
+}
+
+export interface MaterialListOut {
+  items: MaterialRow[];
+  total: number;
+  page: number;
+  size: number;
+  stats: MaterialListStats;
+}
+
+export interface MachineRateRow {
+  id: number;
+  machine_id: number;
+  hourly_rate: number;
+  min_charge: number;
+  min_run_time_mins: number;
+  effective_from: string;
+  effective_to: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MachineRateInput {
+  hourly_rate: number;
+  min_charge: number;
+  min_run_time_mins: number;
+  effective_from: string;
+}
+
+export interface MachineRow {
+  id: number;
+  code: string;
+  name: string;
+  machine_type: string;
+  process_type: string;
+  max_width_cm: number | null;
+  max_height_cm: number | null;
+  min_width_cm: number | null;
+  min_height_cm: number | null;
+  speed: number;
+  speed_unit: string;
+  setup_time_mins: number;
+  changeover_time_mins: number;
+  setup_waste_sheets: number;
+  supported_materials: string[];
+  is_active: boolean;
+  rates: MachineRateRow[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MachineInput {
+  name: string;
+  machine_type: string;
+  process_type: string;
+  max_width_cm?: number | null;
+  max_height_cm?: number | null;
+  min_width_cm?: number | null;
+  min_height_cm?: number | null;
+  speed: number;
+  speed_unit: string;
+  setup_time_mins?: number;
+  changeover_time_mins?: number;
+  setup_waste_sheets?: number;
+  supported_materials?: string[];
+  is_active?: boolean;
+}
+
+export interface MachineListOut {
+  items: MachineRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface OperationCatalogRateRow {
+  id: number;
+  operation_id: number;
+  setup_fee: number;
+  run_rate: number;
+  labor_rate: number;
+  min_charge: number;
+  speed: number;
+  effective_from: string;
+  effective_to: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OperationCatalogRateInput {
+  setup_fee: number;
+  run_rate: number;
+  labor_rate: number;
+  min_charge: number;
+  speed: number;
+  effective_from: string;
+}
+
+export interface OperationCatalogRow {
+  id: number;
+  code: string;
+  name: string;
+  operation_type: string;
+  unit: string;
+  allow_outsource: boolean;
+  is_active: boolean;
+  rates: OperationCatalogRateRow[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OperationCatalogInput {
+  name: string;
+  operation_type: string;
+  unit: string;
+  allow_outsource?: boolean;
+  is_active?: boolean;
+}
+
+export interface OperationCatalogListOut {
+  items: OperationCatalogRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface CatalogListParams {
+  q?: string;
+  type?: string | null;
   sort?: string;
   page?: number;
   size?: number;
@@ -1188,6 +1498,38 @@ export const api = {
     },
   },
 
+  estimates: {
+    list(token: string, params: { q?: string; product_type?: string | null; status?: string | null; sort?: string; page?: number; size?: number } = {}): Promise<EstimateListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.product_type) qs.set("product_type", params.product_type);
+      if (params.status) qs.set("status", params.status);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<EstimateListOut>(`/api/estimates${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<EstimateDetail> {
+      return authed<EstimateDetail>(`/api/estimates/${id}`, token);
+    },
+    create(token: string, input: EstimateInput): Promise<EstimateDetail> {
+      return authed<EstimateDetail>("/api/estimates", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: EstimateInput): Promise<EstimateDetail> {
+      return authed<EstimateDetail>(`/api/estimates/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/estimates/${id}`, token, { method: "DELETE" });
+    },
+  },
+
   // --- Báo giá (Quotation), spec-09 -----------------------------------------
   quotations: {
     list(token: string, params: QuotationListParams = {}): Promise<QuotationListOut> {
@@ -1301,4 +1643,358 @@ export const api = {
       });
     },
   },
+
+  // --- Product Types Catalog ------------------------------------------------
+  productTypesCatalog: {
+    list(token: string, params: CatalogListParams = {}): Promise<ProductTypeCatalogListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<ProductTypeCatalogListOut>(`/api/product-types-catalog${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<ProductTypeCatalogRow> {
+      return authed<ProductTypeCatalogRow>(`/api/product-types-catalog/${id}`, token);
+    },
+    create(token: string, input: ProductTypeCatalogInput): Promise<ProductTypeCatalogRow> {
+      return authed<ProductTypeCatalogRow>("/api/product-types-catalog", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: ProductTypeCatalogInput): Promise<ProductTypeCatalogRow> {
+      return authed<ProductTypeCatalogRow>(`/api/product-types-catalog/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/product-types-catalog/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Materials Catalog ----------------------------------------------------
+  materials: {
+    list(token: string, params: CatalogListParams & { material_type?: string | null } = {}): Promise<MaterialListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.material_type) qs.set("material_type", params.material_type);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<MaterialListOut>(`/api/materials${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<MaterialRow> {
+      return authed<MaterialRow>(`/api/materials/${id}`, token);
+    },
+    create(token: string, input: MaterialInput): Promise<MaterialRow> {
+      return authed<MaterialRow>("/api/materials", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: MaterialInput): Promise<MaterialRow> {
+      return authed<MaterialRow>(`/api/materials/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    toggleActive(token: string, id: number): Promise<MaterialRow> {
+      return authed<MaterialRow>(`/api/materials/${id}/toggle-active`, token, {
+        method: "PATCH",
+      });
+    },
+    clone(token: string, id: number, body: { gsm: number; width_cm: number; height_cm: number }): Promise<MaterialRow> {
+      return authed<MaterialRow>(`/api/materials/${id}/clone`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    addCost(token: string, id: number, input: MaterialCostInput): Promise<MaterialCostRow> {
+      return authed<MaterialCostRow>(`/api/materials/${id}/costs`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/materials/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Machines Catalog -----------------------------------------------------
+  machines: {
+    list(token: string, params: CatalogListParams & { machine_type?: string | null } = {}): Promise<MachineListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.machine_type) qs.set("machine_type", params.machine_type);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<MachineListOut>(`/api/machines${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<MachineRow> {
+      return authed<MachineRow>(`/api/machines/${id}`, token);
+    },
+    create(token: string, input: MachineInput): Promise<MachineRow> {
+      return authed<MachineRow>("/api/machines", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: MachineInput): Promise<MachineRow> {
+      return authed<MachineRow>(`/api/machines/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    addRate(token: string, id: number, input: MachineRateInput): Promise<MachineRateRow> {
+      return authed<MachineRateRow>(`/api/machines/${id}/rates`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/machines/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Operations Catalog ---------------------------------------------------
+  operations: {
+    list(token: string, params: CatalogListParams & { operation_type?: string | null } = {}): Promise<OperationCatalogListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.operation_type) qs.set("operation_type", params.operation_type);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<OperationCatalogListOut>(`/api/operations${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<OperationCatalogRow> {
+      return authed<OperationCatalogRow>(`/api/operations/${id}`, token);
+    },
+    create(token: string, input: OperationCatalogInput): Promise<OperationCatalogRow> {
+      return authed<OperationCatalogRow>("/api/operations", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: OperationCatalogInput): Promise<OperationCatalogRow> {
+      return authed<OperationCatalogRow>(`/api/operations/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    addRate(token: string, id: number, input: OperationCatalogRateInput): Promise<OperationCatalogRateRow> {
+      return authed<OperationCatalogRateRow>(`/api/operations/${id}/rates`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/operations/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Click/Ink Rates ------------------------------------------------------
+  clickInkRates: {
+    list(token: string, params: { technology?: string | null; machine_id?: number | null; is_active?: boolean | null; page?: number; size?: number } = {}): Promise<ClickInkRateListOut> {
+      const qs = new URLSearchParams();
+      if (params.technology) qs.set("technology", params.technology);
+      if (params.machine_id !== undefined && params.machine_id !== null) qs.set("machine_id", String(params.machine_id));
+      if (params.is_active !== undefined && params.is_active !== null) qs.set("is_active", String(params.is_active));
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<ClickInkRateListOut>(`/api/click-ink-rates${suffix}`, token);
+    },
+    create(token: string, input: ClickInkRateInput): Promise<ClickInkRateRow> {
+      return authed<ClickInkRateRow>("/api/click-ink-rates", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    close(token: string, id: number, effectiveTo: string): Promise<ClickInkRateRow> {
+      return authed<ClickInkRateRow>(`/api/click-ink-rates/${id}/close`, token, {
+        method: "POST",
+        body: JSON.stringify({ effective_to: effectiveTo }),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/click-ink-rates/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Plate/Die Rates ------------------------------------------------------
+  plateDieRates: {
+    list(token: string, params: { plate_type?: string | null; technology?: string | null; is_active?: boolean | null; page?: number; size?: number } = {}): Promise<PlateDieRateListOut> {
+      const qs = new URLSearchParams();
+      if (params.plate_type) qs.set("plate_type", params.plate_type);
+      if (params.technology) qs.set("technology", params.technology);
+      if (params.is_active !== undefined && params.is_active !== null) qs.set("is_active", String(params.is_active));
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<PlateDieRateListOut>(`/api/plate-die-rates${suffix}`, token);
+    },
+    create(token: string, input: PlateDieRateInput): Promise<PlateDieRateRow> {
+      return authed<PlateDieRateRow>("/api/plate-die-rates", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    close(token: string, id: number, effectiveTo: string): Promise<PlateDieRateRow> {
+      return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}/close`, token, {
+        method: "POST",
+        body: JSON.stringify({ effective_to: effectiveTo }),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/plate-die-rates/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Norms Catalog --------------------------------------------------------
+  norms: {
+    list(token: string, params: { norm_key?: string | null; product_type?: string | null; machine_id?: number | null; operation_id?: number | null; only_current?: boolean; page?: number; size?: number } = {}): Promise<NormListOut> {
+      const qs = new URLSearchParams();
+      if (params.norm_key) qs.set("norm_key", params.norm_key);
+      if (params.product_type) qs.set("product_type", params.product_type);
+      if (params.machine_id !== undefined && params.machine_id !== null) qs.set("machine_id", String(params.machine_id));
+      if (params.operation_id !== undefined && params.operation_id !== null) qs.set("operation_id", String(params.operation_id));
+      if (params.only_current) qs.set("only_current", "true");
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<NormListOut>(`/api/norms${suffix}`, token);
+    },
+    create(token: string, input: NormInput): Promise<NormRow> {
+      return authed<NormRow>("/api/norms", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    close(token: string, id: number, effectiveTo: string): Promise<NormRow> {
+      return authed<NormRow>(`/api/norms/${id}/close`, token, {
+        method: "POST",
+        body: JSON.stringify({ effective_to: effectiveTo }),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/norms/${id}`, token, { method: "DELETE" });
+    },
+  },
 };
+
+export interface ClickInkRateRow {
+  id: number;
+  technology: string;
+  color_type: string;
+  machine_id: number | null;
+  unit: string;
+  unit_price: number;
+  setup_fee: number;
+  min_charge: number;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClickInkRateInput {
+  technology: string;
+  color_type: string;
+  machine_id?: number | null;
+  unit: string;
+  unit_price: number;
+  setup_fee?: number;
+  min_charge?: number;
+  effective_from: string;
+}
+
+export interface ClickInkRateListOut {
+  items: ClickInkRateRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface PlateDieRateRow {
+  id: number;
+  plate_type: string;
+  technology: string;
+  unit: string;
+  unit_price: number;
+  setup_fee: number;
+  min_charge: number;
+  reusable: boolean;
+  effective_from: string;
+  effective_to: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlateDieRateInput {
+  plate_type: string;
+  technology: string;
+  unit: string;
+  unit_price: number;
+  setup_fee?: number;
+  min_charge?: number;
+  reusable?: boolean;
+  effective_from: string;
+}
+
+export interface PlateDieRateListOut {
+  items: PlateDieRateRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface NormRow {
+  id: number;
+  norm_key: string;
+  value: number;
+  product_type: string | null;
+  machine_id: number | null;
+  operation_id: number | null;
+  operation_key: string | null;
+  qty_min: number | null;
+  qty_max: number | null;
+  context: any | null;
+  context_key: string;
+  effective_from: string;
+  effective_to: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface NormInput {
+  norm_key: string;
+  value: number;
+  product_type?: string | null;
+  machine_id?: number | null;
+  operation_id?: number | null;
+  operation_key?: string | null;
+  qty_min?: number | null;
+  qty_max?: number | null;
+  context?: any | null;
+  effective_from: string;
+  note?: string | null;
+}
+
+export interface NormListOut {
+  items: NormRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+

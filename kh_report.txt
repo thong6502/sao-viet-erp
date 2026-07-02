@@ -1,0 +1,16 @@
+total 83
+feat-004 | done | RBAC data model + seed (backend)
+feat-010 | done | Menu/route gating theo quyền (frontend)
+feat-027 | done | Khách hàng (CRM): data model `customers` + seed (backend)
+feat-028 | done | Khách hàng: Danh bạ (list + tìm + phạm vi dữ liệu) — KH-01
+feat-029 | done | Khách hàng: Tạo (mã tự sinh + MST check-trùng cảnh báo mềm) — KH-02
+feat-030 | done | Khách hàng: Sửa + Chi tiết (mã chỉ-đọc, đổi hạn mức/Sale/trạng thái) — KH-03
+feat-031 | done | Khách hàng: Thẻ Công nợ chỉ-đọc + trạng thái 'Chưa có phân hệ Công nợ' (KH-04, tiêu thụ SEAM-16)
+feat-032 | blocked | Khách hàng: CreditOverride (duyệt vượt hạn mức) + Netting AR↔AP — KH-05 (P1)
+feat-043 | done | Báo giá: data model `quotations` + vòng đời/version + scaffold SEAM-13/14 (backend)
+feat-044 | done | Báo giá: Danh sách + Lập/Sửa (tham chiếu Tính giá + lãi/chiết khấu + tính giá bán) — F1/F2
+feat-062 | todo | Chiet khau: data model discount_policies + discount_tiers + module key + SEAM-23 (backend)
+feat-063 | todo | Chiet khau: Danh sach + Lap/Sua chinh sach + bac so luong (F1/F2/F3)
+feat-065 | todo | Chiet khau: Xem truoc ap dung (tinh thu, khong ghi Bao gia) (F6)
+feat-079 | blocked | Giay: back-fill SEAM-22 (guard hard-delete <- Kho/StockLot) — TREO cho Kho
+feat-crm360 | done | Khách hàng: CRM-360 Object-page (KPI strip, tier từ đơn thật, dashboard 12T + donut + heatmap, lịch sử mua/báo giá, Excel)

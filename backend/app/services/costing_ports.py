@@ -73,8 +73,37 @@ class NormLookupPort(Protocol):
 
 
 def get_norm(norm_key: str, context: dict | None = None, at_date: date | None = None) -> float:
-    # SEAM-09: chờ DinhMuc_BuHao (Norm)
-    raise NotImplementedError("SEAM-09 chưa back-fill")
+    # SEAM-09 CLOSED: Đấu nối sang NormService thực tế
+    from app.db import SessionLocal
+    from app.repositories.norm_repo import NormRepository
+    from app.repositories.audit_repo import AuditLogRepository
+    from app.services.norm_service import NormService, NormLookupContext
+
+    ctx_dict = context or {}
+    lookup_ctx = NormLookupContext(
+        product_type=ctx_dict.get("product_type"),
+        machine_id=ctx_dict.get("machine_id"),
+        operation_id=ctx_dict.get("operation_id"),
+        operation_key=ctx_dict.get("operation_key"),
+        quantity=ctx_dict.get("quantity"),
+        colors=ctx_dict.get("colors"),
+        sides=ctx_dict.get("sides"),
+        at_date=at_date,
+    )
+
+    db = SessionLocal()
+    try:
+        repo = NormRepository(db)
+        audit = AuditLogRepository(db)
+        service = NormService(repo, audit)
+        return service.get_norm(norm_key, lookup_ctx)
+    except Exception as e:
+        # If it's a NormNotFoundError, we can propagate or handle.
+        # But we let it raise so downstream can react.
+        raise e
+    finally:
+        db.close()
+
 
 
 # --- SEAM-10: chờ may_moc (MachineSpec) ------------------------------------
@@ -91,8 +120,24 @@ class MachineSpecLookupPort(Protocol):
 
 
 def get_machine_spec(machine_id: int) -> dict:
-    # SEAM-10: chờ may_moc (MachineSpec)
-    raise NotImplementedError("SEAM-10 chưa back-fill")
+    from app.db import SessionLocal
+    from app.models.machine import Machine
+    from sqlalchemy import select
+    
+    db = SessionLocal()
+    try:
+        machine = db.execute(
+            select(Machine).where(Machine.id == machine_id)
+        ).scalars().first()
+        if not machine:
+            raise ValueError(f"Không tìm thấy máy với ID {machine_id}")
+        return {
+            "units_per_pass": 1,
+            "max_sheet_w": float(machine.max_width_cm or 0),
+            "max_sheet_h": float(machine.max_height_cm or 0),
+        }
+    finally:
+        db.close()
 
 
 # --- SEAM-11: chờ san_pham (ProductRead) -----------------------------------

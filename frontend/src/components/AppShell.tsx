@@ -14,6 +14,13 @@ import { RolesPage } from "../pages/RolesPage";
 import { SanPhamPage } from "../pages/SanPhamPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { UsersPage } from "../pages/UsersPage";
+import { ProductTypesCatalogPage } from "../pages/ProductTypesCatalogPage";
+import { MaterialsCatalogPage } from "../pages/MaterialsCatalogPage";
+import { MachinesCatalogPage } from "../pages/MachinesCatalogPage";
+import { OperationsCatalogPage } from "../pages/OperationsCatalogPage";
+import { ClickInkRatesPage } from "../pages/ClickInkRatesPage";
+import { PlateDieRatesPage } from "../pages/PlateDieRatesPage";
+import { NormsCatalogPage } from "../pages/NormsCatalogPage";
 import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
 import { MODULE_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -114,6 +121,20 @@ export function AppShell() {
             openOrderId={navParams?.openOrderId ?? null}
           />
         );
+      case "loai-san-pham":
+        return <ProductTypesCatalogPage />;
+      case "vat-lieu":
+        return <MaterialsCatalogPage />;
+      case "thiet-bi-may":
+        return <MachinesCatalogPage />;
+      case "cong-doan-gc":
+        return <OperationsCatalogPage />;
+      case "gia-click":
+        return <ClickInkRatesPage />;
+      case "gia-khuon-ban":
+        return <PlateDieRatesPage />;
+      case "dinh-muc-bu-hao":
+        return <NormsCatalogPage />;
       case "nhat-ky":
         return <ActivityLogPage />;
       default:
