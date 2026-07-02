@@ -14,6 +14,9 @@ os.environ["JWT_SECRET"] = "test-secret"
 os.environ["SEED_ADMIN_USERNAME"] = "admin"
 os.environ["SEED_ADMIN_PASSWORD"] = "admin123"
 os.environ["SEED_ADMIN_NAME"] = "Admin"
+# Keep the test dataset minimal + deterministic regardless of any local .env
+# (spec-06 demo staff/customers would otherwise break RBAC delete-guard assumptions).
+os.environ["SEED_DEMO"] = "false"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

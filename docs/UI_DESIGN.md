@@ -1,262 +1,169 @@
-# DESIGN.md
+# UI_DESIGN.md
 
-> **VISUAL-LANGUAGE STORE.** Unlike a blank template, the app source **does exist** —
-> an HTML + vanilla-JS + CSS mockup. Every concrete value below is extracted from the
-> live stylesheet `../assets/css/style.css` (tokens in `:root`) and `../assets/js/layout.js`.
-> Values still marked `<PLACEHOLDER>` are genuinely undecided (brand/Figma/dark-mode) or
-> point at harness files not yet created. Reference page for "what good looks like":
-> `../pages/02-bao-gia.html`.
+Single source of truth for the **visual language + how a real ERP screen is built and
+behaves**. Two jobs:
 
-This is the single source of truth for the **visual language** — colors, type,
-spacing, component conventions, and required UI states. It is deliberately separate
-from `ARCHITECTURE.md` (`<PLACEHOLDER — not created>`), which owns *code structure*.
-When a question is "how should this look / behave on screen", the answer lives here.
-When it is "where does this code go", that is ARCHITECTURE.
+- 🔨 **Generator** builds every screen to this document (tokens, screen archetypes,
+  required states, cross-module panels) — read it before writing frontend code.
+- 🔍 **Evaluator** scores **design quality + usability** against it and against the
+  reference-quality bar (`docs/design-assets/`). Drift = lost points + rebuild.
 
-**Role in the GAN loop:**
-
-- 🔨 **Generator** builds every feature *to this document* — it must read the relevant
-  tokens, component conventions, and the Required UI States before generating frontend
-  code. (Skill path: `<PLACEHOLDER — ../.claude/skills/generate/SKILL.md not created>`.)
-- 🔍 **Evaluator** scores the **design quality** criterion *against this document*. A
-  feature whose UI drifts from these tokens, conventions, or required states should lose
-  points and be fed back for a rebuild. (Skill path: `<PLACEHOLDER — browser-validate not created>`.)
-
-> **Figma MCP is available in this environment** but no Figma file is wired to this
-> project yet. When a frame URL is known, resolve tokens with `get_variable_defs`,
-> capture with `get_screenshot`, read structure with `get_metadata` /
-> `get_design_context`, then record values in the tables below. See [References](#references).
+> **North star: an ERP that is EXCELLENT and EASY TO USE.** The reference screenshots in
+> `docs/design-assets/` show the *quality level* to reach — **calibration, not a layout to
+> clone**. Match the depth, connectedness, and polish; do not pixel-copy. Use judgment.
 
 ---
 
-## Design Tokens
+## PART A — Design Tokens (the visual language)
 
-Tokens are the atomic, named values. They are defined ONCE as **CSS custom properties
-in `:root` (`../assets/css/style.css`)** and are the frontend's source of truth — never
-hard-code raw values in components. The palette is warm "paper + ink pigment" with a
-single rust accent.
+Defined ONCE as CSS custom properties in the frontend theme; never hard-code raw values.
+Palette = warm "paper + ink pigment" with a single rust accent.
 
 ### Color
-
 | Token | Value | Use |
 |-------|-------|-----|
-| `--paper` (bg) | `#f5f1e8` | App background (warm paper) |
-| `--canvas` (surface) | `#fbfaf5` | Cards, panels, tables, modals |
-| `--ink` (text) | `#14130f` | Primary text; dark sidebar; primary button |
-| `--ash` (text-muted) | `#6b665b` | Secondary / hint text |
-| `--ash-2` | `#918b7e` | Tertiary text / placeholder |
-| `--rust` (primary) | `#c5400a` | Primary action, link, accent, current/selected |
-| `--paper` (primary-contrast) | `#f5f1e8` | Text/icon on rust (and on ink) |
-| `--rule` (border) | `#d8d2c0` | Dividers, input borders (`--rule-soft #e8e3d3` cards, `--rule-hair #efebde` row lines) |
-| `--moss` (success) | `#2f5d3a` | Success / done / sufficient |
-| `--amber` (warning) | `#9c7714` | Waiting / warning |
-| `--signal` (danger) | `#8a1f1f` | Destructive / error / overdue |
-| `--ink` (focus-ring) | `#14130f` | ⚠️ No dedicated ring — focus currently = ink border + `outline:none` (see [Accessibility](#accessibility)) |
+| `--paper` | `#f5f1e8` | App background (warm paper) |
+| `--canvas` | `#fbfaf5` | Cards, panels, tables, modals |
+| `--ink` | `#14130f` | Primary text; dark sidebar; primary button |
+| `--ash` | `#6b665b` | Secondary / hint text |
+| `--ash-2` | `#918b7e` | Tertiary / placeholder |
+| `--rust` | `#c5400a` | Primary action, link, accent, current/selected |
+| `--rule` | `#d8d2c0` | Borders (`--rule-soft #e8e3d3` cards · `--rule-hair #efebde` row lines) |
+| `--moss` | `#2f5d3a` | Success / done / on-time |
+| `--amber` | `#9c7714` | Waiting / warning / in-progress |
+| `--signal` | `#8a1f1f` | Destructive / error / overdue |
+| `--steel` | `#4a5560` | Neutral / info |
 
-Each semantic color ships a `-soft` tint (badge/status background) and a `-deep` shade
-(text on tint / filled-hover): rust `#e85a2a`/`#f4e2d6`/`#8a2d07` · moss `#dde8d8`/`#1f4127`
-· amber `#f0e6c4` · signal `#efd5d5` · steel `#4a5560`/`#e0e5ea` (neutral/info).
-
-> **Dark mode:** `<PLACEHOLDER — light only; no dark-mode mapping defined>`.
-> Use **exactly one accent (rust)**. Legacy alias tokens (`--brand-yellow`, `--brand-blue`…)
-> map to this palette so old pages don't break — **new code uses the tokens above only**.
+Each semantic color ships a `-soft` tint (badge/status bg) and a `-deep` shade (text on
+tint). Use **exactly one accent (rust)**. Light mode only.
 
 ### Typography
+- `--ff-sans`: `'Geist','Inter',system-ui,sans-serif` (body/UI)
+- `--ff-mono`: `'JetBrains Mono',ui-monospace,monospace` — **all numbers, codes, and
+  micro-labels** (mono makes money/quantities scan cleanly).
+- Base 14px. Scale: micro 10–11 · sm 12–13 · base 14 · lg 15–17 · xl–3xl 20/24/32 · page `<h1>` 26/600.
+- **Signature label ("xs micro-upper"):** 10px, weight 600, mono, UPPERCASE, letter-spacing
+  .14em, color ash — every table column header, KPI label, section eyebrow. KPI value = 28px/500.
 
-| Token | Value | Use |
-|-------|-------|-----|
-| `--ff-sans` | `'Geist', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif` | Body / UI |
-| `--ff-mono` | `'JetBrains Mono', ui-monospace, 'SF Mono', monospace` | Column/section labels, codes, **all numbers** |
-| weight regular / medium / bold | `400 / 500 / 600` | Body 400; headings & labels 500; emphasis 600 |
-
-Type scale (**14px base**, custom scale — not a single modular ratio; headings weight 500,
-slightly negative tracking):
-
-| Step | Size | Line height | Typical use |
-|------|------|-------------|-------------|
-| `xs` (micro) | 10–11px | 1.4 | Mono uppercase labels (column/KPI/section), meta |
-| `sm` | 12–13px | 1.4–1.5 | Caption, secondary, table cell, badge |
-| `base` | 14px | 1.55 | Body |
-| `lg` | 15–17px | 1.3–1.5 | Subtitle / H4–H5 |
-| `xl–3xl` | 20 / 24 / 32px | 1.25 / 1.18 / 1.1 | Headings (H3→H1); page title 26px/600 |
-| `display / hero` | 48 / 64px | 1.05 / 1.02 | Landing only |
-
-> Signature label style ("xs micro-upper"): **10px, weight 600, mono, UPPERCASE,
-> letter-spacing .14em, color ash** — used for every table column header, KPI label,
-> and section eyebrow. KPI value = 28px/500; page `<h1>` = 26px/600.
-
-### Spacing
-
-Single 4px scale — use scale steps, not arbitrary pixels.
-
-| Token | Value |
-|-------|-------|
-| `--sp-1 … --sp-24` | `4, 8, 12, 16, 20, 24, 28, 32, 40, 48, 64, 80, 96` px |
-
-Defaults: grid gap **12px**, card padding **20px**, content padding **28px 32px**.
-
-### Radius
-
-| Token | Value | Use |
-|-------|-------|-----|
-| `--r-2` (sm) | `4px` | Badges, inputs, small controls |
-| `--r-3` (md) | `6px` | Buttons |
-| `--r-5` (lg) | `10px` | Cards, tables, KPI, modals |
-| `--r-pill` (full) | `9999px` | Pills, avatars, toggles |
-
-### Shadow / Elevation
-
-Design is **flat by default** — separate surfaces with hairlines + background shifts, not shadows.
-
-| Token | Value | Use |
-|-------|-------|-----|
-| `--shadow-1` (sm) | `0 1px 0 var(--rule-soft)` | Resting hairline lift (rarely used) |
-| `--shadow-4` (md) | `0 4px 12px rgba(20,19,15,0.06)` | Popovers, raised controls |
-| (lg) | `0 14px 34px rgba(20,19,15,0.17)` | Modals, overlays |
-
-### Motion
-
-| Token | Value | Use |
-|-------|-------|-----|
-| `--duration-fast` | ~120ms | Row hover, small toggles |
-| `--duration-base` | ~140ms | Buttons, color/border transitions (nav caret ~180ms) |
-| `--easing-standard` | `ease` | Default easing |
-
-> ⚠️ `prefers-reduced-motion` is **not yet honored** (`<PLACEHOLDER — to implement>`).
+### Spacing / Radius / Elevation / Motion
+- Spacing: 4px scale (`4,8,12,16,20,24,28,32,40,48,64,80,96`). Grid gap 12px, card pad 20px, content pad `28px 32px`.
+- Radius: sm 4px (badges/inputs) · md 6px (buttons) · lg 10px (cards/tables/modals) · pill 9999px.
+- **Flat by default** — separate surfaces with hairlines + bg shifts, not shadows. Reserve shadow for popovers (`0 4px 12px rgba(20,19,15,.06)`) and modals/slide-overs (`0 14px 34px rgba(20,19,15,.17)`).
+- Motion: fast ~120ms (hover) · base ~140ms (buttons/color). Honor `prefers-reduced-motion`.
 
 ---
 
-## Components
+## PART B — Screen Archetypes (how an ERP screen is structured)
 
-Conventions every component honors. Build with the tokens above; do not invent raw
-values. Each interactive component should define: **default, hover, focus, active,
-disabled**, plus loading/error where it acts. Reuse the shared classes — do not
-hand-roll new variants.
+Almost every ERP screen is one of two archetypes. Build to these — do NOT emit a bare CRUD form.
 
-### Button
+### B1 · List-Report (the entry screen for every module)
+A full-page list a user scans and acts on. Required anatomy:
+- **KPI header strip** — 3–5 summary cards (e.g. total count, this-month, overdue, avg value)
+  in mono numbers with a trend hint. Gives instant situational awareness.
+- **Search** (by the fields a user actually knows: name / code / MST / person) **+ filter
+  tabs/chips** (status, segment) with a visible active-filter indicator.
+- **Table** — first column is a **human-readable identity** (name + code/MST as sub-line),
+  never a raw ID. Sortable headers; right-aligned mono numbers; **status badges**; row tags;
+  pagination when >25 rows; row → opens the Object-Page. Bottom rule per row (no cell grid, no zebra).
+- **Primary action** (e.g. "+ Tạo …") top-right.
+- All **required states** (Part D).
 
-- Variants: **primary** (ink/black bg, paper text) · **secondary** (canvas + rule border)
-  · **accent** (rust — strong CTA) · **ghost** (transparent) · **link** (rust underlined)
-  · **icon**.
-- Sizes: **sm / md / lg**; padding from the spacing scale, radius `6px`. Icon `~14px` inside.
-- Press feedback: 1px nudge + brief flash. ⚠️ Disabled state and async inline-loading are
-  `<PLACEHOLDER — not standardized>` (mockup feeds back via toast, not spinner).
-- Destructive actions use `--signal`.
+### B2 · Object-Page / Detail (slide-over or full page)
+The rich detail view — this is where "excellent + connected" is won. Required anatomy:
+- **Identity header** — name + code + key status badge + a few key facts (MST, since-date,
+  lifetime value, người phụ trách). Optional score/gauge where meaningful (payment reputation…).
+- **Action toolbar** — ≥3 *contextual* actions the user actually needs here (Gọi · Email ·
+  Zalo · Tạo báo giá · Lịch hẹn · In phiếu · YC thu tiền · Báo hỏng…), not just Edit/Delete.
+- **Tabs** for related history when volume warrants (Dashboard · Lịch sử mua hàng · Lịch sử báo giá…).
+- **Cross-module related panels** (Part C) — the defining requirement.
+- **Analytics where data supports it** — bar chart (revenue 12 months), donut (product mix),
+  heatmap (order frequency), gauge (reputation), top-N lists. Numbers mono. Don't force charts
+  onto data that doesn't warrant them (judgment).
+- **Export** where relevant (Xuất Excel for lists; branded PDF for documents — Part E).
 
-### Input / Field
-
-- Shared `.input`. Focus = **ink border** + canvas bg (no visible ring — a11y gap).
-- States present: default, focus, read-only. ⚠️ Error / disabled styling and
-  `<label>`-pairing are inconsistent (some fields are placeholder-only) — `<PLACEHOLDER — tighten>`.
-
-### Form
-
-- One column; primary action bottom-right. Submit/validation are **mock** (toast
-  confirmations), not real async — `<PLACEHOLDER — real validation when backend lands>`.
-
-### Card
-
-- Surface `--canvas`, radius `10px`, border `--rule-soft`, **no shadow** (flat), padding `20px`.
-  Order: title → body → actions. Optional left accent bar (`card-feature-*`) to categorize.
-
-### Modal / Dialog
-
-- `ERPInteract.showModal()`. Scrim overlay, surface shadow `0 14px 34px …`, radius `10px`,
-  sticky header with **✕**, `role="dialog"` + `aria-modal="true"`, **Esc** + click-scrim close,
-  `onPrimary` returning `false` keeps it open (validation).
-- ⚠️ Focus is **not trapped** and **not restored** to the trigger on close — `<PLACEHOLDER — add focus trap>`.
-
-### Navigation
-
-- Pattern: **left sidebar** (collapsible sections, RBAC-filtered) + sticky **topbar**
-  (breadcrumb, role switch, search, bell). Built by `layout.js` from a single `app-shell` div.
-- Current item marked via `.active` class. ⚠️ `aria-current` not set — `<PLACEHOLDER>`.
-
-### Table (project signature)
-
-- Shared `.tbl` + `.table-wrap`: **bottom rule per row only — no cell grid, no zebra**.
-  Two-tier cells (primary + `.sub-soft` secondary), ~6 full columns, never split sparse
-  attributes into thin "—" columns. Header = xs mono-upper ash. Numbers right-aligned,
-  tabular. (Exception: production stage sheets intentionally use an Excel grid.)
-
-### Status / Badge
-
-- `.badge-*` / `.status-*` pills on `-soft` backgrounds, 11px. Map status → color via §Color.
-
-> When a component later originates in Figma, capture variants/states with the Figma MCP
-> (`get_metadata` for structure, `get_variable_defs` for bound tokens) and reconcile with
-> the tables above rather than guessing.
+> Use a **slide-over panel** for quick drill-in from a list (with ▲/▼ to page through
+> siblings + ✕ to close); use a **full page** when content is heavy/multi-section.
 
 ---
 
-## Required UI States
+## PART C — Cross-Module Related Panels (the "connected ERP" requirement)
 
-**Mandatory.** Any view that loads data or runs an action MUST handle every state below.
-Current mockup coverage is noted honestly — gaps are design-quality failures to close.
+A screen is a **hub of information**, not an island. Every Object-Page shows **live related
+data from other modules** with **drill-through links**. Examples (build the panel; wire it
+per Part F):
 
-| State | Requirement | Mockup status |
-|-------|-------------|---------------|
-| **Empty** | First-run / no-data view with a one-line explanation + next action — never blank. | ⚠️ Partial — present on some pages (e.g. "no drafts" panels), missing on others. |
-| **Loading** | Visible progress (spinner / skeleton); layout must not jump. | ⚠️ Largely absent — data is read synchronously from `localStorage`, so no async spinners. `<PLACEHOLDER for real backend>`. |
-| **Success** | Result clearly shown; transient confirmations announced to assistive tech. | ✅ Toasts via `ERPInteract`; stack is `aria-live="polite"`. |
-| **Error** | Plain-language message (no raw stack/JSON), cause, and recovery. Uses `--signal`. | ◐ Error toasts exist; no full error views/boundaries. |
-| **Retry** | Recoverable errors expose explicit retry without duplicate side effects. | ⚠️ Not implemented (mock data never fails). |
+- **Đơn hàng** → source **Báo giá** (link) · **Lệnh sản xuất** card (máy, BOM, tiến độ,
+  badge "Đang SX", "Mở LSX →") · **Giao hàng** · **Công nợ**.
+- **Tính giá** → **imposition/proof** visual + tính-ra sản lượng (tờ in, hao hụt, lượt-tờ,
+  giờ máy) · **Báo giá liên quan**.
+- **Khách hàng** → **lịch sử mua hàng** · **lịch sử báo giá** · công nợ · doanh số 12T.
 
-These five are the canonical states a golden journey must walk. Map each to an observable
-assertion in the matching product spec's Acceptance Criteria
-(`<PLACEHOLDER — product-specs/_TEMPLATE.md not created>`).
-
----
-
-## Layout & Navigation
-
-- **Grid / max width:** content container **max-width 1480px**, padding **28px 32px**;
-  internal grids `grid-2/-3/-4/-12` with **12px** gutter.
-- **Breakpoints (desktop-first, max-width):** **1280 / 1024 / 768 / 480**px; components
-  reflow (sidebar/topbar condense), never overflow horizontally.
-- **App shell:** persistent **sidebar + topbar**, per-route **content**. A page declares
-  only `<div id="app-shell" data-active data-title data-crumb>…</div>`; `layout.js` builds
-  the shell, runs the RBAC guard, then fires `erp:ready` for page code.
-- **Primary navigation:** left sidebar (see Navigation). Each page is its own HTML file;
-  links navigate via `<a href>`; active route reflected in the sidebar.
-- **Density / rhythm:** consistent vertical rhythm from the 4px scale; align to the grid.
+**Honesty rule (hard):** if the target module isn't built yet, the panel shows an explicit
+**"chờ phân hệ X"** placeholder (a seam — see Part F). **Never fabricate numbers.** A fake
+value is worse than an honest gap.
 
 ---
 
-## Accessibility
+## PART D — Required States (mandatory on every data view)
 
-Baseline target: **`<PLACEHOLDER — not formally targeted (mockup); aim WCAG 2.1 AA>`**.
-Current state, recorded honestly:
+| State | Requirement |
+|-------|-------------|
+| **Empty** | First-run / no-data / no-results, each distinct: one-line reason + a next action ("Tạo … đầu tiên" / "Xoá bộ lọc"). Never a blank area. |
+| **Loading** | Skeleton for structured content (tables/cards/dashboard); spinner only for discrete blocking actions (save/upload); layout must not jump. |
+| **Success** | Result clearly shown; transient confirmations announced (`aria-live`). Prefer inline update over full reload. |
+| **Error** | Plain-language message beside the field/section, states the cause + how to fix, keeps the user's input, uses `--signal` + icon (not color alone). No raw stack/JSON. |
+| **Retry / blocked** | Recoverable errors expose retry without duplicate side-effects; blocked states explain the block + fallback. |
 
-- **Contrast:** ✅ ink `#14130f` on paper `#f5f1e8` and semantic text on `-soft` tints are
-  strong; verify every new pair to ≥ 4.5:1 (≥ 3:1 large text/UI).
-- **Keyboard / focus ring:** ⚠️ **Gap** — controls use `outline:none`; focus shows only as a
-  border-color change. Add a visible focus ring (`--rust` or `--ink`) for every interactive element.
-- **Focus management:** ⚠️ **Gap** — modal does not trap or restore focus; route changes
-  (full page loads) do not move focus to the new heading.
-- **Semantics:** ◐ Real landmarks/headings exist; nav uses `.active` not `aria-current`;
-  some inputs are placeholder-only (need real `<label>`).
-- **Live regions:** ✅ Toast stack is `aria-live="polite"` so success/error is announced.
-- **Targets:** `<PLACEHOLDER — define min hit area, e.g. 44×44px>`.
-- **Motion:** ⚠️ `prefers-reduced-motion` not honored yet.
+---
+
+## PART E — Document Export (branded)
+
+Any document a user sends out (Báo giá, Đơn hàng, Phiếu giao, Hóa đơn) exports to a
+**branded PDF**:
+- **Letterhead Sao Việt Nhật**: logo + company name + address + **MST** + phone/hotline +
+  email/website — **pulled from a single "Hồ sơ công ty" config (master data), not hard-coded**.
+- **Tiếng Việt is sufficient** (bilingual VN/EN optional, not required).
+- Proper document table (STT · mã hàng · mô tả · kích thước · ĐVT · SL · đơn giá chưa VAT ·
+  ghi chú), a **Ghi chú block** (hiệu lực, vận chuyển, VAT%, thời gian giao), VAT line + total.
+- Print-buildup internals (số con/khổ, số tờ, số bản kẽm, bù hao) stay **hidden** on
+  customer-facing documents.
+
+---
+
+## PART F — Wiring (how panels & pickers get their data)
+
+- **Pick, don't type:** every reference to another entity (khách/SP/giá/chứng-từ-nguồn) is a
+  **searchable picker** returning a real record's id — **zero free-text ID inputs**. On select,
+  auto-fill master fields.
+- **Same-module dependency exists → wire it now** (Báo giá picks a real Khách hàng, pulls a
+  real Tính giá result). Do not leave same-module links as manual inputs.
+- **Cross-module dependency not built → seam:** render the related panel with an honest
+  "chờ phân hệ X" state, register the seam per `docs/CROSS_MODULE_LINKS.md`; it back-fills real
+  data when that module lands.
+- **Snapshot on commit:** when a document is finalized, copy master values (price, norms,
+  address) into it — later master edits must not change historical documents.
+
+---
+
+## PART G — Components & Accessibility (conventions)
+
+- **Button:** primary (ink) · accent (rust CTA) · secondary (canvas+border) · ghost · link ·
+  icon. Every interactive element defines default/hover/focus/active/disabled + loading where it acts.
+- **Field:** shared `.input`; pair every field with a real `<label>` (top-aligned); no
+  placeholder-as-label. Inline validation **on blur** ("reward early, punish late").
+- **Modal / slide-over:** scrim + shadow + radius 10px, sticky header with ✕, `role="dialog"`
+  + `aria-modal`, **Esc + scrim close, focus trapped and restored to trigger**.
+- **Table / Badge / KPI card / Tabs / Toolbar:** reuse shared classes; status→color via Part A.
+- **Accessibility (target WCAG 2.1 AA):** visible focus ring (≥3:1) on every control; full
+  keyboard operability + hotkeys for high-frequency entry; `aria-current` on active nav; live
+  region for toasts; contrast ≥4.5:1 (≥3:1 large/UI).
 
 ---
 
 ## References
-
-Pointers to the design source(s) of truth. Keep links resolving to a real artifact;
-mark unknowns as `<PLACEHOLDER>`.
-
-- **Figma file / project:** `<PLACEHOLDER figma.com/design/... URL>` — pull tokens
-  and frames via the Figma MCP (`get_variable_defs`, `get_screenshot`,
-  `get_metadata`, `get_design_context`). Load the `/figma-use` skill before any
-  write-back to Figma.
-- **Mockups / exported flows:** `<PLACEHOLDER: links or files>`.
-- **Local design assets** (logos, icons, exported screenshots, palettes):
-  [design-assets/](./design-assets/) — commit static references here so agents and
-  the Evaluator can read them offline.
-- **Product intent behind the visuals:** [PRODUCT_SENSE.md](./PRODUCT_SENSE.md).
-- **Code structure (not visual language):** [ARCHITECTURE.md](./ARCHITECTURE.md).
-- **How design quality is scored:** [EVALUATION.md](./EVALUATION.md).
-- **How states are validated in a real browser:**
-  [sops/browser-validation-loop.md](./sops/browser-validation-loop.md).
+- **Reference-quality screenshots** (the bar to reach): [design-assets/](./design-assets/).
+- Product intent: [PRODUCT_SENSE.md](./PRODUCT_SENSE.md) · Scoring: [EVALUATION.md](./EVALUATION.md).
+- Cross-module wiring: [CROSS_MODULE_LINKS.md](./CROSS_MODULE_LINKS.md).
+- Browser validation SOP: [sops/browser-validation-loop.md](./sops/browser-validation-loop.md).
+- Figma MCP is available; when a frame is wired, resolve tokens with `get_variable_defs` and reconcile here.

@@ -1,0 +1,1011 @@
+/* Khách hàng — CRM-360 (spec-06). List-Report + slide-over Object-page.
+   Built entirely on design tokens (docs/UI_DESIGN.md) — no hard-coded colours. */
+.kh {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.kh__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+}
+.kh__title {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+.kh__sub {
+  color: var(--ash);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* ---- KPI header strip ---------------------------------------------------- */
+.kh__kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-3);
+}
+.kh__kpi {
+  padding: var(--sp-4) var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kh__kpi-label {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+}
+.kh__kpi-value {
+  font-family: var(--ff-mono);
+  font-size: 28px;
+  font-weight: var(--fw-medium);
+  line-height: 1.15;
+  color: var(--ink);
+}
+.kh__kpi-value--muted {
+  font-size: 15px;
+  color: var(--ash);
+}
+.kh__kpi-hint {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+
+/* ---- Filter tabs --------------------------------------------------------- */
+.kh__tabs {
+  display: flex;
+  gap: var(--sp-1);
+  border-bottom: 1px solid var(--rule);
+}
+.kh__tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--sp-2) var(--sp-4);
+  margin-bottom: -1px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ash);
+  cursor: pointer;
+  transition: color var(--duration-base) var(--easing-standard);
+}
+.kh__tab:hover {
+  color: var(--ink);
+}
+.kh__tab.is-active {
+  color: var(--rust);
+  border-bottom-color: var(--rust);
+  font-weight: var(--fw-medium);
+}
+.kh__tab:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+  border-radius: var(--r-2);
+}
+
+/* ---- Toolbar ------------------------------------------------------------- */
+.kh__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.kh__search {
+  display: flex;
+  gap: var(--sp-2);
+}
+.kh__search .input {
+  width: 340px;
+  max-width: 100%;
+}
+.kh__salefilter {
+  width: 220px;
+}
+
+/* ---- Table --------------------------------------------------------------- */
+.kh__tablewrap {
+  padding: 0;
+  overflow-x: auto;
+}
+.kh__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.kh__table thead th {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  text-align: left;
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.kh__table tbody td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: middle;
+}
+.kh__table--tight thead th,
+.kh__table--tight tbody td {
+  padding: var(--sp-2) var(--sp-3);
+}
+.kh__row {
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+.kh__row:hover,
+.kh__row:focus-visible {
+  background: var(--rule-hair);
+  outline: none;
+}
+.kh__row.is-open {
+  background: var(--rust-soft);
+}
+.kh__mono {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+}
+.kh__identity {
+  display: flex;
+  flex-direction: column;
+}
+.kh__name {
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.kh__submeta {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.kh__num {
+  text-align: right;
+  white-space: nowrap;
+}
+.kh__muted {
+  color: var(--ash-2);
+}
+.kh__badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--r-2);
+  font-size: 12px;
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  white-space: nowrap;
+}
+.kh__badge--off {
+  background: var(--rule-soft);
+  color: var(--ash);
+}
+.kh__tag {
+  display: inline-block;
+  margin-left: var(--sp-2);
+  padding: 1px 6px;
+  border-radius: var(--r-2);
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  background: var(--rule-hair);
+  color: var(--ash);
+}
+
+/* ---- Tier badge (sao) ---------------------------------------------------- */
+.kh__tier {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.kh__stars {
+  font-size: 11px;
+  letter-spacing: -1px;
+}
+.tier--loyal {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+}
+.tier--partner {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+.tier--regular {
+  background: var(--steel-soft);
+  color: var(--steel);
+}
+.tier--new {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.kh__sortbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.kh__sortbtn.is-active {
+  color: var(--rust);
+}
+
+.kh__status,
+.kh__empty {
+  padding: var(--sp-8);
+  text-align: center;
+  color: var(--ash);
+}
+.kh__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+/* ---- Skeletons ----------------------------------------------------------- */
+.kh__skel {
+  display: block;
+  height: 14px;
+  width: 70%;
+  border-radius: var(--r-2);
+  background: linear-gradient(90deg, var(--rule-hair), var(--rule-soft), var(--rule-hair));
+  background-size: 200% 100%;
+  animation: kh-shimmer 1.2s infinite;
+}
+.kh__skel--kpi {
+  height: 28px;
+  width: 60%;
+}
+.kh__skel--title {
+  height: 22px;
+  width: 40%;
+}
+.kh__skel--line {
+  height: 12px;
+  width: 60%;
+  margin-top: var(--sp-2);
+}
+@keyframes kh-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kh__skel {
+    animation: none;
+  }
+}
+
+/* ---- Pager --------------------------------------------------------------- */
+.kh__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.kh__pager-btns {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+/* ========================================================================== */
+/* Slide-over Object-page                                                     */
+/* ========================================================================== */
+.kh__scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 19, 15, 0.45);
+  display: flex;
+  justify-content: flex-end;
+  z-index: 120;
+  animation: kh-fade var(--duration-base) var(--easing-standard);
+}
+@keyframes kh-fade {
+  from {
+    opacity: 0;
+  }
+}
+.kh__slideover {
+  width: min(920px, 96vw);
+  height: 100%;
+  background: var(--paper);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  animation: kh-slidein var(--duration-base) var(--easing-standard);
+}
+@keyframes kh-slidein {
+  from {
+    transform: translateX(24px);
+    opacity: 0.4;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .kh__scrim,
+  .kh__slideover {
+    animation: none;
+  }
+}
+.kh__so-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--rule);
+  background: var(--canvas);
+}
+.kh__so-nav {
+  display: flex;
+  gap: var(--sp-1);
+}
+.kh__iconbtn {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  cursor: pointer;
+  color: var(--ash);
+  font-size: 11px;
+}
+.kh__iconbtn:hover:not(:disabled) {
+  background: var(--rule-hair);
+  color: var(--ink);
+}
+.kh__iconbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.kh__close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--ash);
+  line-height: 1;
+}
+.kh__close:hover {
+  color: var(--ink);
+}
+
+.kh__so-head {
+  padding: var(--sp-5) var(--sp-6) var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+  background: var(--canvas);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "main gauge"
+    "actions actions";
+  gap: var(--sp-4) var(--sp-6);
+}
+.kh__so-headmain {
+  grid-area: main;
+}
+.kh__so-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.kh__so-title h2 {
+  font-size: 20px;
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.kh__so-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-3) var(--sp-5);
+  margin: var(--sp-4) 0 0;
+}
+.kh__so-facts dt {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ash);
+  margin-bottom: 1px;
+}
+.kh__so-facts dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* Gauge uy tín thanh toán */
+.kh__gauge {
+  grid-area: gauge;
+  width: 180px;
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  text-align: center;
+}
+.kh__gauge-arc {
+  --ang: 0deg;
+  width: 120px;
+  height: 60px;
+  margin-top: var(--sp-2);
+  border-radius: 120px 120px 0 0;
+  position: relative;
+  background: conic-gradient(
+    from 270deg,
+    var(--arc-color) 0deg,
+    var(--arc-color) var(--ang),
+    var(--rule-soft) var(--ang),
+    var(--rule-soft) 180deg,
+    transparent 180deg
+  );
+  overflow: hidden;
+}
+.kh__gauge-arc::after {
+  content: "";
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 0;
+  top: 18px;
+  background: var(--canvas);
+  border-radius: 120px 120px 0 0;
+}
+.kh__gauge-arc--moss {
+  --arc-color: var(--moss);
+}
+.kh__gauge-arc--amber {
+  --arc-color: var(--amber);
+}
+.kh__gauge-arc--signal {
+  --arc-color: var(--signal);
+}
+.kh__gauge-arc--muted {
+  --arc-color: var(--rule);
+}
+.kh__gauge-num {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 2px;
+  z-index: 1;
+  font-size: 18px;
+  font-weight: var(--fw-medium);
+}
+.kh__gauge-seam {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.kh__seam-note {
+  font-size: 11px;
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  padding: 2px 6px;
+  border-radius: var(--r-2);
+}
+
+.kh__toolbar-actions {
+  grid-area: actions;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+/* Tabs inside the slide-over */
+.kh__so-tabs {
+  display: flex;
+  gap: var(--sp-1);
+  padding: 0 var(--sp-6);
+  border-bottom: 1px solid var(--rule);
+  background: var(--canvas);
+}
+.kh__so-tab {
+  appearance: none;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: -1px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  cursor: pointer;
+}
+.kh__so-tab:hover {
+  color: var(--ink);
+}
+.kh__so-tab.is-active {
+  color: var(--rust);
+  border-bottom-color: var(--rust);
+}
+.kh__so-tab:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: -2px;
+}
+
+.kh__so-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-5) var(--sp-6) var(--sp-8);
+}
+.kh__so-headskel {
+  margin-bottom: var(--sp-5);
+}
+
+/* ---- Dashboard tab ------------------------------------------------------- */
+.kh__dash {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.kh__chart {
+  padding: var(--sp-5);
+}
+.kh__chart-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.kh__chart-head h3 {
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.kh__chart-head .kh__muted {
+  font-size: 11px;
+}
+.kh__chart-empty {
+  padding: var(--sp-6) 0;
+  text-align: center;
+  font-size: 13px;
+}
+
+/* Bar chart (doanh số 12 tháng) */
+.kh__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  height: 160px;
+}
+.kh__bar-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 100%;
+}
+.kh__bar-track {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.kh__bar-fill {
+  width: 70%;
+  min-height: 2px;
+  background: var(--rust);
+  border-radius: var(--r-2) var(--r-2) 0 0;
+  transition: height var(--duration-base) var(--easing-standard);
+}
+.kh__bar-col:hover .kh__bar-fill {
+  background: var(--rust-deep);
+}
+.kh__bar-label {
+  font-size: 10px;
+  color: var(--ash);
+}
+
+.kh__dash-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+
+/* Donut (cơ cấu sản phẩm) */
+.kh__donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+}
+.kh__donut {
+  width: 120px;
+  height: 120px;
+  border-radius: 50%;
+  position: relative;
+  flex-shrink: 0;
+}
+.kh__donut-hole {
+  position: absolute;
+  inset: 26px;
+  background: var(--canvas);
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.kh__donut-hole .kh__mono {
+  font-size: 22px;
+  font-weight: var(--fw-medium);
+}
+.kh__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  flex: 1;
+}
+.kh__legend li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 12px;
+}
+.kh__legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+.kh__legend-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kh__legend-val {
+  color: var(--ash);
+  font-size: 11px;
+}
+
+/* Heatmap (tần suất đặt) */
+.kh__heat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 10px;
+}
+.kh__heat-row {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+.kh__heat-labels {
+  color: var(--ash);
+}
+.kh__heat-corner {
+  width: 20px;
+}
+.kh__heat-mlabel {
+  flex: 1;
+  text-align: center;
+  font-size: 9px;
+  color: var(--ash-2);
+}
+.kh__heat-wlabel {
+  width: 20px;
+  color: var(--ash-2);
+  font-size: 9px;
+}
+.kh__heat-cell {
+  flex: 1;
+  aspect-ratio: 1;
+  min-width: 10px;
+  border-radius: 2px;
+  background: var(--rule-hair);
+}
+.kh__heat-l1 {
+  background: var(--moss-soft);
+}
+.kh__heat-l2 {
+  background: color-mix(in srgb, var(--moss) 45%, var(--moss-soft));
+}
+.kh__heat-l3 {
+  background: color-mix(in srgb, var(--moss) 70%, var(--moss-soft));
+}
+.kh__heat-l4 {
+  background: var(--moss);
+}
+
+/* ---- History tabs -------------------------------------------------------- */
+.kh__histwrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.kh__hist-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.kh__ostat {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--r-pill);
+  font-size: 11px;
+  background: var(--rule-hair);
+  color: var(--ash);
+}
+.kh__ostat--ordered,
+.kh__ostat--approved {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+.kh__ostat--draft,
+.kh__ostat--sent {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+.kh__ostat--cancelled,
+.kh__ostat--rejected,
+.kh__ostat--expired {
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+/* ---- Empty panels -------------------------------------------------------- */
+.kh__empty-panel {
+  padding: var(--sp-10) var(--sp-6);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.kh__empty-title {
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+  margin: 0;
+}
+.kh__empty-panel .kh__muted {
+  max-width: 420px;
+  font-size: 13px;
+}
+
+/* ========================================================================== */
+/* Create / edit dialog                                                       */
+/* ========================================================================== */
+.kh__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 19, 15, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--sp-10) var(--sp-4);
+  overflow-y: auto;
+  z-index: 130;
+}
+.kh__dialog {
+  width: 100%;
+  max-width: 760px;
+  padding: 0;
+  box-shadow: var(--shadow-lg);
+}
+.kh__dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-5) var(--sp-6);
+  border-bottom: 1px solid var(--rule);
+}
+.kh__dialog-head h2 {
+  font-size: 18px;
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.kh__dialog-body {
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+.kh__form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+.kh__form-wide {
+  grid-column: 1 / -1;
+}
+.kh__err {
+  color: var(--signal);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.kh__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+}
+
+@media (max-width: 900px) {
+  .kh__kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .kh__so-head {
+    grid-template-columns: 1fr;
+    grid-template-areas: "main" "gauge" "actions";
+  }
+  .kh__gauge {
+    width: 100%;
+  }
+  .kh__dash-grid {
+    grid-template-columns: 1fr;
+  }
+  .kh__form-grid,
+  .kh__so-facts {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* --- Toolbar SEAM hint (bảng kê công nợ chờ Công nợ) --------------------- */
+.kh__seam-hint {
+  align-self: center;
+  font-size: 11px;
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  padding: 2px 8px;
+  border-radius: var(--r-2);
+}
+
+/* --- Drill-through history rows (order/quote → document detail) ---------- */
+.kh__table--drill .kh__drillrow {
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.kh__table--drill .kh__drillrow:hover,
+.kh__table--drill .kh__drillrow:focus-visible {
+  background: var(--rust-soft);
+  outline: none;
+}
+.kh__link {
+  color: var(--rust);
+  font-weight: var(--fw-medium);
+}
+.kh__table--drill .kh__drillrow:hover .kh__link {
+  text-decoration: underline;
+}
+
+/* --- Nhật ký (activity timeline) ---------------------------------------- */
+.kh__timeline {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.kh__tl-sub {
+  font-size: 12px;
+}
+.kh__tl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: relative;
+}
+.kh__tl-list::before {
+  content: "";
+  position: absolute;
+  left: 15px;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  background: var(--rule);
+}
+.kh__tl-item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-2) var(--sp-3) 0;
+  border-radius: var(--r-2);
+}
+.kh__tl-item.is-drillable {
+  cursor: pointer;
+}
+.kh__tl-item.is-drillable:hover,
+.kh__tl-item.is-drillable:focus-visible {
+  background: var(--rust-soft);
+  outline: none;
+}
+.kh__tl-dot {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  font-size: 14px;
+  z-index: 1;
+}
+.kh__tl--order .kh__tl-dot {
+  border-color: var(--moss);
+  background: var(--moss-soft);
+}
+.kh__tl--quote .kh__tl-dot {
+  border-color: var(--amber-deep);
+  background: var(--amber-soft);
+}
+.kh__tl--profile .kh__tl-dot {
+  border-color: var(--rust);
+  background: var(--rust-soft);
+}
+.kh__tl-body {
+  flex: 1;
+  min-width: 0;
+}
+.kh__tl-line1 {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.kh__tl-title {
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.kh__tl-kind {
+  font-size: 11px;
+  color: var(--ash-2);
+  background: var(--panel, var(--canvas));
+  border: 1px solid var(--rule);
+  padding: 0 6px;
+  border-radius: var(--r-2);
+}
+.kh__tl-time {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ash);
+}
+.kh__tl-detail {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--ash);
+}
+.kh__tl-actor {
+  margin: 2px 0 0;
+  font-size: 11px;
+}
+.kh__tl-arrow {
+  align-self: center;
+  color: var(--ash-2);
+  font-size: 18px;
+}

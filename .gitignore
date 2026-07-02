@@ -25,6 +25,12 @@ dist/
 # Playwright MCP browser-validate artifacts (snapshots, screenshots)
 .playwright-mcp/
 
+# Runtime server logs (uvicorn / vite / eval helpers: _uv_*.log, _vite_run.log, _eval_*.log…)
+*.log
+
+# User-uploaded avatars = runtime content, not source (tests/validate sinh ảnh 1×1 mỗi lần)
+backend/static/avatars/
+
 # State / coordination files kept local per-dev (untracked to avoid merge conflicts).
 # WARNING: these now live only on each machine — they are NOT shared via git.
 feature_list.json
@@ -32,3 +38,6 @@ progress.md
 session-handoff.md
 docs/EVALUATION.md
 docs/product-specs/
+
+# DB backups (dev.db.bak-*)
+*.bak-*

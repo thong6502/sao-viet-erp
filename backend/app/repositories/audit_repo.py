@@ -34,5 +34,17 @@ class AuditLogRepository:
             ).scalars()
         )
 
+    def list_by_target(self, target: str, limit: int = 200) -> list[AuditLog]:
+        """Audit rows for one entity (e.g. ``customer:42``), newest first — feeds the
+        per-record "Nhật ký" timeline."""
+        return list(
+            self.db.execute(
+                select(AuditLog)
+                .where(AuditLog.target == target)
+                .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                .limit(limit)
+            ).scalars()
+        )
+
     def count(self) -> int:
         return self.db.execute(select(func.count()).select_from(AuditLog)).scalar_one()

@@ -17,9 +17,14 @@
   --rule-hair: #efebde;
   --moss: #2f5d3a;
   --moss-soft: #dbe7dd;
+  --moss-deep: #244a2e;
   --amber: #9c7714;
+  --amber-soft: #efe4c4;
+  --amber-deep: #7a5c0f;
   --signal: #8a1f1f;
   --signal-soft: #efd5d5;
+  --steel: #4a5560;
+  --steel-soft: #dde1e5;
 
   /* Typography */
   --ff-sans: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;

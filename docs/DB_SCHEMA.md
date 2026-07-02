@@ -207,6 +207,345 @@ Admin-declared data (seeded with sensible defaults) that grows as the org model 
 
 ---
 
+### `customers`
+
+**Purpose:** the Kinh doanh contact book (Khách hàng / CRM) — spec-06-khach-hang. One row
+per customer used to raise báo giá / đơn hàng. "Mở rộng từ nền RBAC" (DOMAIN §23 L528): a
+customer is owned by a Sale (`sale_user_id`) so RBAC data-scope (own/department/all)
+narrows the list. `tax_code` (MST) is optional and only *soft*-checked for duplicates — a
+duplicate MST is a warning, NOT a hard block (§34 L885, §41 L1133) — so it is indexed but
+NOT unique. `credit_limit` is the limit only; the live receivable balance lives in Công nợ
+and is read via SEAM-16, never stored here.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | System-generated sequential code (KH001, KH002…); read-only, never user-entered (KH-02, PB### pattern). |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Customer name (required, non-blank). |
+| `tax_code` | `String(20)` → `VARCHAR(20)` | **IX** | yes | — | MST (mã số thuế). Optional; indexed for the duplicate-check but NOT unique (soft warning, §34 L885). 10 or 13 digits when present. |
+| `phone` | `String(30)` → `VARCHAR(30)` | — | yes | — | Contact phone. |
+| `email` | `String(255)` → `VARCHAR(255)` | — | yes | — | Contact email. |
+| `address` | `String(500)` → `VARCHAR(500)` | — | yes | — | Billing / delivery address. |
+| `contact_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người liên hệ tại khách (CRM field). |
+| `credit_limit` | `Integer` → `INTEGER` | — | no | `0` | Hạn mức tín dụng (VND integer). Limit only; live balance is read via SEAM-16. |
+| `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Owning Sale (RBAC scope owner). Nullable; indexed because every scoped list filters on it. |
+| `status` | `String(16)` → `VARCHAR(16)` | — | no | `active` | `active` = đang giao dịch, `inactive` = ngừng giao dịch. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the customer row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_customers_code` on `code`.
+- Indexes: `ix_customers_tax_code` on `tax_code` (duplicate-check, non-unique), `ix_customers_sale_user_id` on `sale_user_id` (scope filter).
+- Foreign keys: `sale_user_id FK→users.id`.
+
+**Relationships**
+
+- Many customers belong to one owning Sale (`users`); the customer's "department" for the
+  `department` scope is that Sale's `department_id`.
+- Receivable/CreditLimit live in Công nợ (Tài chính–Kế toán) and are read via SEAM-16 —
+  NOT modeled as FKs here at P0 (cardinality `Customer 1─n Receivable` is inferred; see
+  spec-06 open decision #3).
+
+---
+
+### `products`
+
+**Purpose:** the Sản phẩm in catalog head (Product) — spec-07-san-pham. One row per
+reusable commercial product ("cái khách mua"); đơn hàng / job reference it, never the
+reverse (DOMAIN §29 L701, §34 L865). Khổ/giấy/màu live on `product_components`, NOT here —
+a multi-component product (sách: bìa≠ruột) has no single trim size (§34 L894, spec-07
+out-of-scope). Price / snapshot giá are NOT stored (snapshotted at order-close copy-on-write,
+P0 #5, §34 L877). Portable across SQLite and Postgres.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | System-generated sequential code (SP001, SP002…); read-only, never user-entered (§34 L865, KH###/PB### pattern). |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Product name (required, non-blank, unique case-insensitive). |
+| `product_type` | `String(32)` → `VARCHAR(32)` | — | no | — | Loại SP (enum §7): catalogue, brochure, tem_nhan, hop, sach, to_roi, name_card. |
+| `binding_type` | `String(16)` → `VARCHAR(16)` | — | yes | — | Kiểu đóng (enum §5, nullable — chỉ SP có gáy): perfect / saddle / sewn. Null = không gáy. |
+| `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Ghi chú tự do. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the product row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_products_code` on `code`.
+
+**Relationships**
+
+- One product has many `product_components` (bìa/ruột/tay đệm), cascade-deleted with it.
+- Đơn/job reference the product (SP là master dùng lại) — those reverse FKs live on the
+  Kinh doanh/Job side, not here (§29 L701). No reverse FK exists at P0.
+
+---
+
+### `product_components`
+
+**Purpose:** one component (cấu phần) of a product (Sản phẩm in) — spec-07-san-pham. A
+product with a spine (sách/hộp) breaks into ordered components; each carries its OWN khổ
+thành phẩm, giấy, số màu 2 mặt, số trang, bleed, canh thớ (§34 L893–894) so báo giá / job /
+bình bản read them back exactly. `paper_master_id` is an FK-nullable **SEAM-03** seam to
+PaperMaster (module `dm_giay_vat_tu`, Danh mục Giấy) — a plain nullable Integer (no FK
+constraint) until that catalog exists.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `product_id` | `Integer` → `INTEGER` | **FK→products.id**, **IX** | no | — | Parent product; `ON DELETE CASCADE` (component deleted with the product). |
+| `sequence` | `Integer` → `INTEGER` | — | no | `0` | Display / print order (bìa trước ruột…). |
+| `component_type` | `String(16)` → `VARCHAR(16)` | — | no | — | cover / body / insert (§34 L893). |
+| `paper_master_id` | `Integer` → `INTEGER` | — | yes | — | **SEAM-03** FK-nullable to PaperMaster (Danh mục Giấy chưa build); no FK constraint yet. |
+| `colors_front` | `Integer` → `INTEGER` | — | no | `0` | Số màu mặt trước (0..8, §23 L532). |
+| `colors_back` | `Integer` → `INTEGER` | — | no | `0` | Số màu mặt sau (0..8). |
+| `page_count` | `Integer` → `INTEGER` | — | no | `0` | Số trang. body của SP có gáy phải % 4 == 0 (tay sách, §31). |
+| `finished_w` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Khổ thành phẩm rộng (>0). |
+| `finished_h` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Khổ thành phẩm cao (>0). |
+| `bleed` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Bleed (mm, ≥0). |
+| `grain_direction` | `String(8)` → `VARCHAR(8)` | — | yes | — | Canh thớ: long / short. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_product_components_product_id` on `product_id`.
+- Foreign keys: `product_id FK→products.id ON DELETE CASCADE`.
+
+**Relationships**
+
+- Many components belong to one `products` row; deleting the product cascades to its
+  components (delete-orphan on the ORM side + `ON DELETE CASCADE` at the DB).
+- `paper_master_id` → PaperMaster once Danh mục Giấy (`dm_giay_vat_tu`) is built (SEAM-03).
+
+---
+
+### `quotations`
+
+**Purpose:** the Báo giá (Quotation) phiếu chào giá đối ngoại — spec-09-bao-gia. One row per
+version of a quotation: it references ONE Tính giá result (giá vốn, via SEAM-13) and adds
+lãi + chiết khấu → **giá bán** shown to the customer, and moves through the lifecycle
+`draft → sent → approved/rejected/expired` (+ `cancelled` / `on_hold` / `change_order`). At
+Chốt giá / Gửi it **snapshots** `unit_price_snapshot` **and** `norm_snapshot` copy-on-write
+(P0 §34 L877-879) + the source price window `price_effective_from/to` — there is NO live FK
+to a price/norm table, so a later price-list change never rewrites a phiếu đã gửi. The buildup
+(số con/khổ, số tờ, số bản kẽm, bù hao) is NOT stored here — Báo giá holds only `cost_von_total`
+(1 số), because it is a tài liệu đối ngoại (L1132/L1218). `code` is shared across a re-quote
+chain (BG001 v1 → v2) with `version` bumping; `customer_id` reads via SEAM-14 (CRM),
+`costing_id` via SEAM-13 (Tính giá). Portable across SQLite and Postgres.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **IX** | no | — | System-generated code (BG001, BG002…); shared across a re-quote version chain (not unique alone — the (code, version) pair is). |
+| `version` | `Integer` → `INTEGER` | — | no | `1` | Version within a code chain; `change_order` (re-quote) sinh version mới, giữ phiếu cũ (F4). |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id**, **IX** | yes | — | Customer the quotation is addressed to (SEAM-14 CRM read). Nullable so a draft can start unassigned. |
+| `costing_id` | `Integer` → `INTEGER` | **IX** | yes | — | Referenced Tính giá result (SEAM-13). Plain Integer (NO FK) — the frozen giá-vốn result is TREO behind SEAM-07..12. |
+| `cost_von_total` | `Integer` → `INTEGER` | — | yes | — | Giá vốn tổng (1 số, VND) pulled from Tính giá. NOT a buildup — số con/khổ/tờ/kẽm/bù hao never stored here. |
+| `margin` | `Integer` → `INTEGER` | — | no | `0` | Lãi (markup, VND); giá bán = giá vốn + lãi (F2). ≥ 0. |
+| `discount` | `Integer` → `INTEGER` | — | no | `0` | Chiết khấu / bậc SL (VND, subtracted). ≥ 0 and ≤ (giá vốn + lãi). |
+| `total` | `Integer` → `INTEGER` | — | yes | — | Tổng giá bán = cost_von_total + margin − discount (derived + stored; null when giá vốn chưa biết). |
+| `valid_until` | `Date` → `DATE` | — | yes | — | Hạn hiệu lực (L258-259); quá hạn → status=expired (chặn duyệt). |
+| `status` | `String(16)` → `VARCHAR(16)` | — | no | `draft` | Lifecycle: draft/sent/approved/rejected/expired/cancelled/on_hold/change_order. |
+| `cancel_reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Set only when status=cancelled (F4). |
+| `cancelled_at_state` | `String(16)` → `VARCHAR(16)` | — | yes | — | The status the phiếu was in when cancelled (F4). |
+| `unit_price_snapshot` | `JSON` → `JSON` | — | yes | — | **P0 copy-on-write**: frozen unit-price snapshot at Chốt giá/Gửi. NO live FK. |
+| `norm_snapshot` | `JSON` → `JSON` | — | yes | — | **P0 copy-on-write**: frozen norm/định mức snapshot (ngang hàng unit_price_snapshot — bậc SL phụ thuộc bù hao/định mức). |
+| `price_effective_from` | `Date` → `DATE` | — | yes | — | Effective-from of the source price list at snapshot time (copy-on-write, not a FK). |
+| `price_effective_to` | `Date` → `DATE` | — | yes | — | Effective-to of the source price list at snapshot time. |
+| `row_version` | `Integer` → `INTEGER` | — | no | `1` | Optimistic-locking version (§34 L898); a stale concurrent edit → 409. |
+| `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Owning Sale (KD) — RBAC data-scope owner (own/department/all, §41 L1128). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the quotation (version) row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_quotations_code` on `code` (version-chain lookup), `ix_quotations_customer_id`, `ix_quotations_costing_id`, `ix_quotations_sale_user_id` (scope filter).
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE SET NULL), `sale_user_id FK→users.id`. `costing_id` is deliberately NOT a FK (SEAM-13, frozen result TREO).
+
+**Relationships**
+
+- Many quotations (versions) share a `code`; the whole chain is the version history.
+- The referenced Tính giá result (`costing_id`) is read via SEAM-13 (no FK). The customer
+  (`customer_id`) display is read via SEAM-14 (CRM, back-filled). The Báo giá → Đơn hàng
+  handoff is a pull on the Đơn hàng bán side (spec-10 SEAM-04), never modelled here (ADP).
+
+---
+
+### `orders`
+
+**Purpose:** the Đơn hàng bán header — spec-10-don-hang-ban (bước ④ CHỐT ĐƠN). One row per đơn
+created AFTER a khách chấp nhận a **báo giá đã duyệt** (`Quotation.status == approved` còn hạn).
+It pins the quotation reference C1 (`quotation_id` + `quotation_version` + `quotation_effective_from`
+via SEAM-04 `quotation_ref`, Báo giá LIVE) and moves through the lifecycle
+`draft → ordered` (+ `on_hold` / `change_order` / `cancelled`, §32 L825-829). The ③→④ hard gate to
+`ordered` needs `quotation.approved AND deposit ≥ total·min_deposit_pct` (§32 L827-828); the deposit
+write is TREO behind SEAM-04 (Payment, feat-048). `parent_order_id` (self-FK) is used **ONLY** for an
+**đơn bổ sung** (sub-job trỏ đơn gốc, §32 L807-813); đổi (`change_order`) giữ lịch sử qua
+Quotation-version, KHÔNG dùng `parent_order_id` (decision #5). The physical layer (khổ/màu/kẽm/
+imposition/PrintForm) is NEVER stored here — ẩn khỏi Sale (§29 P0 L730, §43 #1). `row_version`
+(optimistic locking) is deliberately NOT modelled (doc chỉ Job/Quotation, §34 L898 — Out-of-scope).
+VAT chân lý ở `InvoiceLine` (⑬); the order carries only `vat_pct_estimate`. Portable across SQLite
+and Postgres.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `order_no` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | System-generated order number (DH001, DH002…). Unique. NOT `PB###` (mã phòng ban); pattern chưa xác nhận với SVN. |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id**, **IX** | yes | — | Customer kéo từ báo giá (read-only display via CRM). Nullable so a draft can exist while wiring. |
+| `quotation_id` | `Integer` → `INTEGER` | **IX** | yes | — | Referenced approved quotation (SEAM-04 quotation_ref). Plain Integer (NO FK) — báo giá versioned, pin the exact version below. |
+| `quotation_version` | `Integer` → `INTEGER` | — | yes | — | The exact quotation version pinned (C1); không tự nhảy sang version mới hơn. |
+| `quotation_effective_from` | `Date` → `DATE` | — | yes | — | Effective-from of the snapshotted quotation price window (copy-on-write source pointer, not a FK). |
+| `order_type` | `String(16)` → `VARCHAR(16)` | — | no | `theo_yc` | Loại đơn ∈ {noi_bo, theo_yc} (§41 L1135). |
+| `order_kind` | `String(16)` → `VARCHAR(16)` | — | no | `moi` | Loại ∈ {moi, bo_sung}. Đơn bổ sung mang giá bán riêng, giữ kẽm cũ → rẻ (§32). |
+| `parent_order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | yes | — | Đơn gốc — set **CHỈ** khi order_kind=bo_sung (bắt buộc). NULL cho đơn mới; KHÔNG dùng cho change_order. |
+| `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | NV kinh doanh phụ trách (hoa hồng) + RBAC data-scope owner (own/department/all, §41). |
+| `status` | `String(16)` → `VARCHAR(16)` | — | no | `draft` | Lifecycle: draft/ordered/on_hold/change_order/cancelled. |
+| `has_customer_paper` | `Boolean` → `BOOLEAN` | — | no | `false` | F4 cờ ứng giấy khách; chi tiết lô (ownership=customer, cost=0) sống ở Kho — read-only link via SEAM-06. |
+| `vat_pct_estimate` | `Integer` → `INTEGER` | — | no | `0` | VAT DỰ KIẾN (%) để ước tổng — chân lý ở InvoiceLine (⑬). |
+| `cancel_reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Set only when status=cancelled (F8). |
+| `cancelled_at_state` | `String(16)` → `VARCHAR(16)` | — | yes | — | The status khi hủy (để biết hoàn/không hoàn vật tư-cọc theo §32 L817-825). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the order row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_orders_order_no` (U), `ix_orders_customer_id`, `ix_orders_quotation_id`, `ix_orders_parent_order_id`, `ix_orders_sale_user_id` (scope filter).
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE SET NULL), `parent_order_id FK→orders.id` (ON DELETE SET NULL, self-FK), `sale_user_id FK→users.id`. `quotation_id` is deliberately NOT a FK (SEAM-04; báo giá versioned — the (id, version) pin is the reference).
+
+**Relationships**
+
+- `orders 1─n order_lines` (cascade delete). Cardinality Order 1─n Job → thực tế n-n Order-line ↔ Job/PrintForm (§34/§43 #6) is NOT modelled at P0 (Sản xuất chưa build; no hard FK to Job).
+- The referenced quotation (`quotation_id` + version) is read via SEAM-04 (quotation_ref, Báo giá LIVE). The customer display is a read of `customers` (kéo từ báo giá). Cọc/proof/lô giấy/tiến độ/giao đều đọc qua SEAM-04(payment)/05/06/01/02 (TREO).
+
+---
+
+### `order_lines`
+
+**Purpose:** a line of an `orders` (đơn hàng bán) — spec-10-don-hang-ban. Snapshotted từ báo giá đã
+duyệt at create/chốt: `unit_price_snapshot` (Int) **and** `norm_snapshot` (JSON) are frozen
+copy-on-write (P0 §34 L877-878, §43 #5) — there is NO live FK to a price/norm table, so đổi giá gốc
+sau đó KHÔNG đổi số trên đơn. `description` is mô tả SP thương mại (đối ngoại) — the physical layer
+(số màu/kẽm/khổ/imposition/PrintForm) is NEVER stored here (§29 P0). After chốt (`orders.status ==
+ordered`) the lines are read-only (sửa → chặn; đổi phải change_order).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | no | — | Owning order (ON DELETE CASCADE). |
+| `description` | `String(500)` → `VARCHAR(500)` | — | no | `''` | Mô tả SP thương mại (đối ngoại). NEVER số màu/kẽm/khổ/imposition/PrintForm. |
+| `qty` | `Integer` → `INTEGER` | — | no | `1` | Số lượng dòng đơn. |
+| `unit_price_snapshot` | `Integer` → `INTEGER` | — | yes | — | **P0 copy-on-write**: frozen unit price (VND) từ báo giá. NO live FK. |
+| `norm_snapshot` | `JSON` → `JSON` | — | yes | — | **P0 copy-on-write**: frozen norm/định mức snapshot (ngang hàng unit_price_snapshot). |
+| `vat_pct_estimate` | `Integer` → `INTEGER` | — | no | `0` | VAT DỰ KIẾN (%) cho dòng — chân lý ở InvoiceLine (⑬). |
+| `line_total` | `Integer` → `INTEGER` | — | yes | — | Thành tiền = qty × unit_price_snapshot (derived + stored; null khi chưa có giá). |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_order_lines_order_id`.
+- Foreign keys: `order_id FK→orders.id` (ON DELETE CASCADE).
+
+**Relationships**
+
+- Many `order_lines` belong to one `orders`. The snapshot pair lives on the line (copy-on-write); no FK to a live price/norm table.
+
+---
+
+### `costings`
+
+**Purpose:** the Tính giá (Costing / giá thành nội bộ) header — spec-08-tinh-gia. One row per
+phương án tính giá for a product + số lượng; Báo giá đọc lại kết quả (§43 L1217–1219). This
+screen reads **live versioned** đơn giá/định mức and does NOT snapshot (snapshot P0
+copy-on-write = chốt Đơn hàng, §34 L877-878). No bậc SL / lãi / chiết khấu here (thuộc Báo
+giá). `product_id` is read via **SEAM-11** (ProductRead · `san_pham`). Portable across SQLite
+and Postgres.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | System-generated sequential code (CG001, CG002…); read-only, never user-entered (SP###/KH###/PB### pattern). |
+| `product_id` | `Integer` → `INTEGER` | **FK→products.id**, **IX** | yes | — | **SEAM-11** the product this costing is for; `ON DELETE SET NULL`. Nullable so a draft can start before the product is picked. |
+| `qty_final` | `Integer` → `INTEGER` | — | no | `0` | Số lượng cần giao (bắt buộc >0, validated in the service). KHÔNG bậc SL (A1). |
+| `status` | `String(16)` → `VARCHAR(16)` | — | no | `draft` | Vòng đời: draft (đang lập) / ready (đủ input để Báo giá đọc). No snapshot. |
+| `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Ghi chú tự do. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the costing row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_costings_code` on `code`.
+- Index: `ix_costings_product_id` on `product_id`.
+- Foreign keys: `product_id FK→products.id ON DELETE SET NULL`.
+
+**Relationships**
+
+- One costing has many `costing_paper_options` (phương án giấy) + `costing_operations` (công
+  đoạn gia công), cascade-deleted with it.
+- Báo giá references a costing (đọc lại giá vốn) — that reverse FK lives on the `bao_gia` side
+  once built, not here. No reverse FK exists at P0.
+
+---
+
+### `costing_paper_options`
+
+**Purpose:** one phương án giấy & bình bản of a costing (Khối B) — spec-08. Estimator may lập
+>1 phương án giấy per costing để so sánh giá vốn. `sheet_paper_master_id` is an FK-nullable
+**SEAM-07** seam to PaperMaster (Danh mục Giấy / Kho · `dm_giay_vat_tu`/`kho`) — a plain
+nullable Integer (no FK) until that catalog exists; giá per-ram/kg + lot_type + ownership are
+looked up via the raising port stub, never fabricated.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `costing_id` | `Integer` → `INTEGER` | **FK→costings.id**, **IX** | no | — | Parent costing; `ON DELETE CASCADE`. |
+| `sheet_paper_master_id` | `Integer` → `INTEGER` | — | yes | — | **SEAM-07** FK-nullable to PaperMaster (Danh mục Giấy chưa build); no FK constraint yet. |
+| `sheet_w` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Khổ tờ in rộng (cm). |
+| `sheet_h` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Khổ tờ in cao (cm). |
+| `pieces_per_sheet` | `Integer` → `INTEGER` | — | no | `0` | Số con/khổ NHẬP TAY (>0); gợi ý song song là hình học (§31a), giá trị nhập là chuẩn. |
+| `grain_locked` | `Boolean` → `BOOLEAN` | — | no | `false` | Ràng buộc thớ: khi true gợi ý bỏ nhánh xoay (§31 L782). |
+| `selected` | `Boolean` → `BOOLEAN` | — | no | `false` | Phương án giấy được chọn để "dùng" (so sánh — F7). |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_costing_paper_options_costing_id` on `costing_id`.
+- Foreign keys: `costing_id FK→costings.id ON DELETE CASCADE`.
+
+**Relationships**
+
+- Many phương án giấy belong to one `costings` row; deleting the costing cascades.
+- `sheet_paper_master_id` → PaperMaster once Danh mục Giấy (`dm_giay_vat_tu`) is built (SEAM-07).
+
+---
+
+### `costing_operations`
+
+**Purpose:** one công đoạn gia công of a costing (Khối E) — spec-08. Each carries an
+`execution_mode` ∈ {internal, outsourced} (§14 L389–390, §23 L537): internal → đơn giá khoán
+(SEAM-08), outsourced → đơn giá NCC (SEAM-12); cost pool "Gia công" phân đôi nguồn. Đơn giá is
+NOT stored here — it is pulled versioned at cost time (feat-041).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `costing_id` | `Integer` → `INTEGER` | **FK→costings.id**, **IX** | no | — | Parent costing; `ON DELETE CASCADE`. |
+| `sequence` | `Integer` → `INTEGER` | — | no | `0` | Display / process order. |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên công đoạn gia công (cán màng, bế, đóng cuốn…). |
+| `execution_mode` | `String(16)` → `VARCHAR(16)` | — | no | `internal` | internal (khoán nội bộ · SEAM-08) / outsourced (NCC · SEAM-12). |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Index: `ix_costing_operations_costing_id` on `costing_id`.
+- Foreign keys: `costing_id FK→costings.id ON DELETE CASCADE`.
+
+**Relationships**
+
+- Many công đoạn belong to one `costings` row; deleting the costing cascades.
+- `execution_mode` routes the đơn giá source: SEAM-08 (internal) or SEAM-12 (outsourced).
+
+---
+
 ### `audit_logs`
 
 **Purpose:** one row per privilege-changing action (gán phòng, gán vai trò, sửa khuôn

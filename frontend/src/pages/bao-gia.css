@@ -1,0 +1,368 @@
+/* Báo giá (Quotation) — spec-09. Danh sách phiếu + toolbar + Tạo/Sửa dialog (tham chiếu
+   Tính giá + lãi/chiết khấu → tổng giá bán) + Chi tiết (vòng đời + snapshot + version + PDF).
+   Built on the design tokens (docs/UI_DESIGN.md); mirrors the Tính giá / Khách hàng screens. */
+.bg {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.bg__head {
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+}
+.bg__title {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+.bg__sub {
+  color: var(--ash);
+  font-size: 14px;
+  margin: 0;
+  max-width: 720px;
+}
+
+/* ---- Toolbar ------------------------------------------------------------- */
+.bg__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.bg__search {
+  display: flex;
+  gap: var(--sp-2);
+}
+.bg__search .input {
+  width: 320px;
+  max-width: 100%;
+}
+.bg__statusfilter {
+  width: 200px;
+}
+.bg__toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+/* ---- Table --------------------------------------------------------------- */
+.bg__tablewrap {
+  padding: 0;
+  overflow-x: auto;
+}
+.bg__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.bg__table thead th {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  text-align: left;
+  padding: var(--sp-4) var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.bg__table tbody td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: middle;
+}
+.bg__row {
+  cursor: pointer;
+}
+.bg__row:hover {
+  background: var(--rule-hair);
+}
+.bg__mono {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+}
+.bg__ver {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash-2);
+  margin-left: var(--sp-2);
+}
+.bg__num {
+  text-align: right;
+  white-space: nowrap;
+}
+.bg__muted {
+  color: var(--ash-2);
+}
+
+.bg__badge {
+  display: inline-block;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--rule);
+  color: var(--ash);
+}
+.bg__badge--ok {
+  color: var(--moss);
+  border-color: var(--moss);
+}
+.bg__badge--sent {
+  color: var(--rust);
+  border-color: var(--rust);
+}
+.bg__badge--off {
+  color: var(--signal);
+  border-color: var(--signal);
+}
+
+.bg__sortbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.bg__sortbtn.is-active {
+  color: var(--rust);
+}
+.bg__sortbtn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+.bg__status,
+.bg__empty {
+  padding: var(--sp-8);
+  text-align: center;
+  color: var(--ash);
+}
+.bg__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+/* ---- Pager --------------------------------------------------------------- */
+.bg__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.bg__pager-btns {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+/* ---- Dialog -------------------------------------------------------------- */
+.bg__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 19, 15, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--sp-10) var(--sp-4);
+  overflow-y: auto;
+  z-index: 100;
+}
+.bg__dialog {
+  width: 100%;
+  max-width: 760px;
+  padding: 0;
+}
+.bg__dialog--sm {
+  max-width: 420px;
+}
+.bg__dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-5) var(--sp-6);
+  border-bottom: 1px solid var(--rule);
+}
+.bg__dialog-head h2 {
+  font-size: 18px;
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.bg__close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--ash);
+  line-height: 1;
+  border-radius: var(--r-2);
+}
+.bg__close:hover {
+  color: var(--ink);
+}
+.bg__close:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.bg__dialog-body {
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+.bg__section-title {
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  margin: 0 0 var(--sp-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ash);
+}
+.bg__form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+.bg__inline {
+  display: flex;
+  gap: var(--sp-2);
+}
+.bg__inline .input {
+  flex: 1 1 auto;
+}
+.bg__hint {
+  font-size: 12px;
+  color: var(--ash-2);
+  margin-top: 2px;
+}
+.bg__err {
+  color: var(--signal);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.bg__seam-tag {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--rust);
+  margin-top: 2px;
+}
+
+.bg__total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--rule-hair);
+  border-radius: var(--r-2);
+  font-size: 15px;
+}
+.bg__total strong {
+  font-size: 18px;
+  color: var(--rust-deep);
+}
+
+.bg__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--rule-hair);
+}
+.bg__dialog-actions--wrap {
+  flex-wrap: wrap;
+}
+
+/* ---- Detail -------------------------------------------------------------- */
+.bg__detail-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.bg__customer strong {
+  font-size: 16px;
+}
+.bg__pricetable {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  overflow: hidden;
+}
+.bg__priceline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-3) var(--sp-5);
+  border-bottom: 1px solid var(--rule-hair);
+  font-size: 14px;
+}
+.bg__priceline:last-child {
+  border-bottom: none;
+}
+.bg__priceline--total {
+  background: var(--rule-hair);
+  font-weight: var(--fw-bold);
+}
+.bg__priceline--total strong {
+  font-size: 17px;
+  color: var(--rust-deep);
+}
+.bg__snapshot {
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-2);
+}
+.bg__snapshot .bg__muted {
+  font-size: 12px;
+  margin: 0;
+}
+.bg__versions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.bg__versions li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-2);
+}
+.bg__versions li.is-current {
+  background: var(--rule-hair);
+}
+
+@media (max-width: 760px) {
+  .bg__form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Pinned customer (ghim từ CRM drill-through) — read-only, no hand-typed id */
+.bg__pinned {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--moss-soft, var(--rust-soft));
+  border: 1px solid var(--moss, var(--rule));
+  border-radius: var(--r-2);
+}
+.bg__pinned strong {
+  color: var(--ink);
+  font-size: 14px;
+}

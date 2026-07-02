@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     # MUST be changed by the user in a real deployment (docs/SECURITY.md).
     default_user_password: str = "password123"
 
+    # Seed illustrative Kinh doanh staff + customers (spec-06 CRM demo data) on startup.
+    # OFF by default so automated tests keep a minimal, predictable dataset; the dev /
+    # browser-validate runtime turns it ON (SEED_DEMO=true in .env) to exercise the
+    # own/department/all data-scope on the Khách hàng screen.
+    seed_demo: bool = False
+
     # --- CORS --------------------------------------------------------------
     # Comma-separated list of allowed frontend origins.
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"

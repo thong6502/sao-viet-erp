@@ -195,6 +195,23 @@ body {
   border-color: var(--rule);
 }
 
+/* Secondary = canvas surface + hairline border (UI_DESIGN Part G). */
+.btn--secondary {
+  background: var(--canvas);
+  color: var(--ink);
+  border-color: var(--rule);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: var(--rule-hair);
+}
+
+.btn--secondary.is-disabled,
+.btn--secondary[aria-disabled="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 /* Destructive (delete/confirm) = signal red. */
 .btn--danger {
   background: var(--signal);
@@ -253,4 +270,10 @@ body {
   background: var(--moss-soft);
   color: var(--moss);
   border: 1px solid #b9d2c0;
+}
+
+.banner--warn {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border: 1px solid #e6c3ab;
 }

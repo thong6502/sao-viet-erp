@@ -1,0 +1,300 @@
+/* Sản phẩm in (Product catalog) — spec-07. Danh mục table + toolbar + create/edit
+   dialog (Khối A đầu SP + Khối B bảng cấu phần) + xoá. Built on the design tokens
+   (docs/UI_DESIGN.md); mirrors the Khách hàng screen conventions. */
+.sp {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.sp__head {
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+}
+.sp__title {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+.sp__sub {
+  color: var(--ash);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* ---- Toolbar ------------------------------------------------------------- */
+.sp__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.sp__search {
+  display: flex;
+  gap: var(--sp-2);
+}
+.sp__search .input {
+  width: 320px;
+  max-width: 100%;
+}
+.sp__typefilter {
+  width: 200px;
+}
+.sp__toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+/* ---- Table --------------------------------------------------------------- */
+.sp__tablewrap {
+  padding: 0;
+  overflow-x: auto;
+}
+.sp__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.sp__table thead th {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  text-align: left;
+  padding: var(--sp-4) var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.sp__table tbody td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: middle;
+}
+.sp__row {
+  cursor: pointer;
+}
+.sp__row:hover {
+  background: var(--rule-hair);
+}
+.sp__mono {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+}
+.sp__name {
+  font-weight: var(--fw-medium);
+}
+.sp__num {
+  text-align: right;
+  white-space: nowrap;
+}
+.sp__muted {
+  color: var(--ash-2);
+}
+.sp__actions-col {
+  white-space: nowrap;
+  text-align: right;
+}
+.sp__rowbtn {
+  padding: 2px 10px;
+  font-size: 13px;
+}
+.sp__rowbtn--danger {
+  color: var(--signal);
+}
+
+.sp__sortbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.sp__sortbtn.is-active {
+  color: var(--rust);
+}
+
+.sp__status,
+.sp__empty {
+  padding: var(--sp-8);
+  text-align: center;
+  color: var(--ash);
+}
+.sp__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+/* ---- Pager --------------------------------------------------------------- */
+.sp__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.sp__pager-btns {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+/* ---- Dialog -------------------------------------------------------------- */
+.sp__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 19, 15, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--sp-10) var(--sp-4);
+  overflow-y: auto;
+  z-index: 100;
+}
+.sp__dialog {
+  width: 100%;
+  max-width: 860px;
+  padding: 0;
+}
+.sp__dialog--sm {
+  max-width: 480px;
+}
+.sp__dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-5) var(--sp-6);
+  border-bottom: 1px solid var(--rule);
+}
+.sp__dialog-head h2 {
+  font-size: 18px;
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.sp__close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--ash);
+  line-height: 1;
+}
+.sp__dialog-body {
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+.sp__section-title {
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  margin: 0 0 var(--sp-4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ash);
+}
+.sp__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+.sp__section-head .sp__section-title {
+  margin: 0;
+}
+.sp__req {
+  color: var(--rust);
+  font-weight: var(--fw-medium);
+}
+.sp__form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+.sp__form-wide {
+  grid-column: 1 / -1;
+}
+.sp__err {
+  color: var(--signal);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.sp__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+}
+
+/* ---- Components (Khối B) -------------------------------------------------- */
+.sp__comp-empty {
+  padding: var(--sp-4) 0;
+}
+.sp__comp-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.sp__comp {
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--rule-hair);
+}
+.sp__comp-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.sp__comp-badge {
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+}
+.sp__comp-type {
+  width: 160px;
+}
+.sp__comp-tools {
+  margin-left: auto;
+  display: flex;
+  gap: var(--sp-2);
+}
+.sp__comp-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-3);
+}
+
+/* ---- SEAM-03 paper picker ------------------------------------------------ */
+.sp__paper-seam {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3);
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-2);
+  background: var(--paper, #fff);
+}
+.sp__paper-tag {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--rust);
+}
+.sp__paper-seam .sp__muted {
+  font-size: 12px;
+}
+
+@media (max-width: 860px) {
+  .sp__form-grid {
+    grid-template-columns: 1fr;
+  }
+  .sp__comp-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

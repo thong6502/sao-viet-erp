@@ -1,23 +1,50 @@
 // Authenticated app shell: persistent left Sidebar + the active screen.
 // On entry it loads the current user's readable modules (feat-010) to gate both
 // the sidebar (handled in Sidebar) and the content (a forbidden module → 403).
-import { useEffect, useState } from "react";
-import { api } from "../api/client";
+import { useCallback, useEffect, useState } from "react";
+import { api, type PinnedCustomer } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { ActivityLogPage } from "../pages/ActivityLogPage";
+import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
+import { DonHangBanPage } from "../pages/DonHangBanPage";
+import { KhachHangPage } from "../pages/KhachHangPage";
 import { RolesPage } from "../pages/RolesPage";
+import { SanPhamPage } from "../pages/SanPhamPage";
+import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { UsersPage } from "../pages/UsersPage";
 import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
 import { MODULE_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
+/** A cross-module navigation intent: which screen to open + optional payload so the
+ *  target screen can pre-pin a customer or drill straight to a document. */
+export interface NavParams {
+  /** Pre-pin this customer on the target create flow (CRM → Báo giá / Đơn hàng). */
+  customer?: PinnedCustomer;
+  /** Open this quotation's detail on the Báo giá screen. */
+  openQuoteId?: number;
+  /** Open this order's detail on the Đơn hàng bán screen. */
+  openOrderId?: number;
+}
+
+export type NavigateFn = (id: string, params?: NavParams) => void;
+
 export function AppShell() {
   const { token } = useAuth();
   const [activeId, setActiveId] = useState("dashboard");
+  const [navParams, setNavParams] = useState<NavParams | null>(null);
   const [readable, setReadable] = useState<Set<string> | null>(null);
   const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
+
+  // Single navigation entrypoint: switches the active screen AND carries an optional
+  // payload (pinned customer / document to open). Every param object is fresh so the
+  // target screen's effect re-fires even when re-navigating to the same screen.
+  const navigate = useCallback<NavigateFn>((id, params) => {
+    setActiveId(id);
+    setNavParams(params ?? null);
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -67,6 +94,26 @@ export function AppShell() {
         return <DepartmentsPage />;
       case "nguoi-dung":
         return <UsersPage />;
+      case "khach-hang":
+        return <KhachHangPage navigate={navigate} />;
+      case "san-pham":
+        return <SanPhamPage />;
+      case "tinh-gia-thanh":
+        return <TinhGiaPage />;
+      case "bao-gia":
+        return (
+          <BaoGiaPage
+            pinnedCustomer={navParams?.customer ?? null}
+            openQuoteId={navParams?.openQuoteId ?? null}
+          />
+        );
+      case "don-hang-ban":
+        return (
+          <DonHangBanPage
+            pinnedCustomer={navParams?.customer ?? null}
+            openOrderId={navParams?.openOrderId ?? null}
+          />
+        );
       case "nhat-ky":
         return <ActivityLogPage />;
       default:
@@ -76,7 +123,7 @@ export function AppShell() {
 
   return (
     <div className="shell">
-      <Sidebar activeId={activeId} onSelect={setActiveId} readable={readable} />
+      <Sidebar activeId={activeId} onSelect={(id) => navigate(id)} readable={readable} />
       <div className="shell__main">
         <Topbar onProfileAction={setProfileAction} />
         <div className="shell__content">{renderContent()}</div>

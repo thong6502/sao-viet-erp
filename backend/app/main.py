@@ -15,7 +15,16 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import assert_secure_config, settings
 from .db import SessionLocal, init_db
-from .routers import auth, profile, rbac
+from .routers import (
+    auth,
+    costings,
+    customers,
+    orders,
+    products,
+    profile,
+    quotations,
+    rbac,
+)
 from .seed import seed_all
 
 # Uploaded files (e.g. avatars, spec-04) live under <backend>/static and are served
@@ -54,6 +63,11 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(rbac.router)
+app.include_router(customers.router)
+app.include_router(products.router)
+app.include_router(costings.router)
+app.include_router(quotations.router)
+app.include_router(orders.router)
 
 
 @app.get("/api/health", tags=["health"])

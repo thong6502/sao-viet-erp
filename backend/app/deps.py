@@ -15,6 +15,11 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
+from .repositories.costing_repo import CostingRepository
+from .repositories.customer_repo import CustomerRepository
+from .repositories.order_repo import OrderRepository
+from .repositories.product_repo import ProductRepository
+from .repositories.quotation_repo import QuotationRepository
 from .repositories.rbac_repo import (
     DepartmentRepository,
     ModuleRepository,
@@ -26,7 +31,13 @@ from .repositories.user_repo import UserRepository
 from .security import decode_access_token
 from .services.auth_service import AuthError, AuthService
 from .services.activity_service import ActivityService
+from .services.costing_service import CostingService
+from .services.customer_analytics import CustomerAnalyticsService
+from .services.customer_service import CustomerService
 from .services.department_service import DepartmentService
+from .services.product_service import ProductService
+from .services.order_service import OrderService
+from .services.quotation_service import QuotationService
 from .services.profile_service import ProfileService
 from .services.rbac_service import AuthorizationService
 from .services.refresh_service import RefreshTokenService
@@ -177,6 +188,89 @@ def get_activity_service(
     users: Annotated[UserRepository, Depends(get_user_repository)],
 ) -> ActivityService:
     return ActivityService(audit, users)
+
+
+def get_customer_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> CustomerRepository:
+    return CustomerRepository(db)
+
+
+def get_customer_service(
+    customers: Annotated[CustomerRepository, Depends(get_customer_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> CustomerService:
+    # The receivable port defaults to the raising SEAM-16 stub inside the service.
+    return CustomerService(customers, audit)
+
+
+def get_customer_analytics_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> CustomerAnalyticsService:
+    """CRM-360 analytics read over the live orders/quotations tables (same app)."""
+    return CustomerAnalyticsService(db)
+
+
+def get_product_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> ProductRepository:
+    return ProductRepository(db)
+
+
+def get_product_service(
+    products: Annotated[ProductRepository, Depends(get_product_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> ProductService:
+    return ProductService(products, audit)
+
+
+def get_costing_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> CostingRepository:
+    return CostingRepository(db)
+
+
+def get_costing_service(
+    costings: Annotated[CostingRepository, Depends(get_costing_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> CostingService:
+    return CostingService(costings, audit)
+
+
+def get_quotation_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> QuotationRepository:
+    return QuotationRepository(db)
+
+
+def get_quotation_service(
+    quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    customers: Annotated[CustomerRepository, Depends(get_customer_repository)],
+) -> QuotationService:
+    # SEAM-14 CLOSED: the CRM repo is injected so the quotation can resolve the customer
+    # display name (read-only). SEAM-13 (Tính giá result) stays a raising stub inside the
+    # service until the giá-vốn engine (feat-040..042) is built.
+    return QuotationService(quotations, audit, customers=customers)
+
+
+def get_order_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> OrderRepository:
+    return OrderRepository(db)
+
+
+def get_order_service(
+    orders: Annotated[OrderRepository, Depends(get_order_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
+    customers: Annotated[CustomerRepository, Depends(get_customer_repository)],
+) -> OrderService:
+    # SEAM-04 quotation_ref half CLOSED-live: the Báo giá repo is injected so the order can
+    # pull an approved quotation (read-only). The deposit half (Payment) stays a raising stub
+    # inside order_ports until the Payment table is built (feat-048). CRM repo resolves the
+    # customer display name (kéo từ báo giá, read-only).
+    return OrderService(orders, audit, quotations=quotations, customers=customers)
 
 
 def require_permission(module_key: str, action: str):

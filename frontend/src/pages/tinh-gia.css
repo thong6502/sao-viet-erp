@@ -1,0 +1,345 @@
+/* Tính giá (Costing / giá thành nội bộ) — spec-08. Danh sách phương án + toolbar +
+   Tạo/Sửa dialog (Khối A đầu bài + Khối B phương án giấy với gợi ý song song + Khối E
+   công đoạn gia công) + Xoá. Built on the design tokens (docs/UI_DESIGN.md); mirrors the
+   Sản phẩm / Khách hàng screen conventions. */
+.tg {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: var(--sp-7) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.tg__head {
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+}
+.tg__title {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  margin: var(--sp-2) 0 var(--sp-1);
+}
+.tg__sub {
+  color: var(--ash);
+  font-size: 14px;
+  margin: 0;
+}
+
+/* ---- Toolbar ------------------------------------------------------------- */
+.tg__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.tg__search {
+  display: flex;
+  gap: var(--sp-2);
+}
+.tg__search .input {
+  width: 320px;
+  max-width: 100%;
+}
+.tg__statusfilter {
+  width: 200px;
+}
+.tg__toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+/* ---- Table --------------------------------------------------------------- */
+.tg__tablewrap {
+  padding: 0;
+  overflow-x: auto;
+}
+.tg__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.tg__table thead th {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  text-align: left;
+  padding: var(--sp-4) var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.tg__table tbody td {
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: middle;
+}
+.tg__row {
+  cursor: pointer;
+}
+.tg__row:hover {
+  background: var(--rule-hair);
+}
+.tg__mono {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+}
+.tg__num {
+  text-align: right;
+  white-space: nowrap;
+}
+.tg__muted {
+  color: var(--ash-2);
+}
+.tg__actions-col {
+  white-space: nowrap;
+  text-align: right;
+}
+.tg__rowbtn {
+  padding: 2px 10px;
+  font-size: 13px;
+}
+.tg__rowbtn--danger {
+  color: var(--signal);
+}
+
+.tg__badge {
+  display: inline-block;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 2px 8px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--rule);
+  color: var(--ash);
+}
+.tg__badge--ready {
+  color: var(--rust);
+  border-color: var(--rust);
+}
+
+.tg__sortbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.tg__sortbtn.is-active {
+  color: var(--rust);
+}
+.tg__sortbtn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+.tg__status,
+.tg__empty {
+  padding: var(--sp-8);
+  text-align: center;
+  color: var(--ash);
+}
+.tg__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+/* ---- Pager --------------------------------------------------------------- */
+.tg__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.tg__pager-btns {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+/* ---- Dialog -------------------------------------------------------------- */
+.tg__overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 19, 15, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--sp-10) var(--sp-4);
+  overflow-y: auto;
+  z-index: 100;
+}
+.tg__dialog {
+  width: 100%;
+  max-width: 900px;
+  padding: 0;
+}
+.tg__dialog--sm {
+  max-width: 480px;
+}
+.tg__dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-5) var(--sp-6);
+  border-bottom: 1px solid var(--rule);
+}
+.tg__dialog-head h2 {
+  font-size: 18px;
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.tg__close {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: var(--ash);
+  line-height: 1;
+  border-radius: var(--r-2);
+}
+.tg__close:hover {
+  color: var(--ink);
+}
+.tg__close:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.tg__dialog-body {
+  padding: var(--sp-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+.tg__section-title {
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  margin: 0 0 var(--sp-4);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ash);
+}
+.tg__section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--sp-4);
+}
+.tg__section-head .tg__section-title {
+  margin: 0;
+}
+.tg__req {
+  color: var(--rust);
+  font-weight: var(--fw-medium);
+}
+.tg__form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+.tg__form-wide {
+  grid-column: 1 / -1;
+}
+.tg__err {
+  color: var(--signal);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.tg__dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  padding-top: var(--sp-5);
+  border-top: 1px solid var(--rule-hair);
+}
+
+/* ---- Paper options (Khối B) + operations (Khối E) ------------------------ */
+.tg__opt-empty {
+  padding: var(--sp-4) 0;
+}
+.tg__opt-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.tg__opt {
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--rule-hair);
+}
+.tg__opt-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+.tg__opt-badge {
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+}
+.tg__opt-tools {
+  margin-left: auto;
+  display: flex;
+  gap: var(--sp-2);
+}
+.tg__opt-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-3);
+}
+.tg__check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+}
+
+/* ---- Parallel số con/khổ suggestion (§31a) ------------------------------- */
+.tg__suggest {
+  font-size: 12px;
+  margin-top: 2px;
+  color: var(--ash);
+}
+.tg__suggest strong {
+  color: var(--rust);
+}
+.tg__suggest--warn {
+  color: var(--signal);
+}
+
+/* ---- SEAM (Giấy / Sản phẩm chưa sẵn sàng) -------------------------------- */
+.tg__seam {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-3);
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-2);
+  background: var(--paper, #fff);
+}
+.tg__seam-tag {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--rust);
+}
+.tg__seam .tg__muted {
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .tg__form-grid {
+    grid-template-columns: 1fr;
+  }
+  .tg__opt-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
