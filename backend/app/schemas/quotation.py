@@ -120,13 +120,23 @@ class QuotationEnumsOut(BaseModel):
     statuses: list[EnumOption]
 
 
+class CostingQtyOption(BaseModel):
+    """One quantity point (bậc SL) of the referenced Tính giá."""
+
+    quantity: int
+    total_cost: int
+
+
 class CostingPickerOut(BaseModel):
-    """The Tính giá picker/read state (SEAM-13). While the giá-vốn engine is TREO the port
-    raises → available=false + message "Tính giá chưa sẵn sàng" (never a fabricated cost)."""
+    """The Tính giá picker/read state (SEAM-13 — CLOSED). available=false + user-facing
+    message when the estimate can't yield a frozen result (never a fabricated cost);
+    otherwise cost_von_total of the chosen quantity point + all quantity points (bậc SL)."""
 
     available: bool
     message: str | None = None
     cost_von_total: int | None = None
+    quantity: int | None = None
+    options: list[CostingQtyOption] | None = None
 
 
 __all__ = [
@@ -140,5 +150,6 @@ __all__ = [
     "QuotationDetailOut",
     "EnumOption",
     "QuotationEnumsOut",
+    "CostingQtyOption",
     "CostingPickerOut",
 ]

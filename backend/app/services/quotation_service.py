@@ -17,10 +17,10 @@ rules (F1..F7):
     (chặn duyệt).
 
 SEAM reads (owned by this consumer per DIP):
-  - **SEAM-13** ``get_costing_result`` (Tính giá) — STILL raising: the giá-vốn engine is
-    TREO behind SEAM-07..12, so referencing a costing surfaces "Tính giá chưa sẵn sàng"
-    (never a fabricated cost). At P0 the cost_von_total is entered as a plain number the KD
-    reads off the Tính giá screen — the automatic pull closes when SEAM-13 does.
+  - **SEAM-13** ``EstimateCostingAdapter`` (Tính giá) — CLOSED: a quotation referencing a
+    *calculated* estimate pulls cost_von_total + copy-on-write price/norm snapshots for the
+    chosen quantity point (bậc SL). Without the injected repo the port still raises →
+    "Tính giá chưa sẵn sàng" (never a fabricated cost).
   - **SEAM-14** ``CustomerRefAdapter`` (CRM) — CLOSED: resolves the live customer name /
     credit display (read-only, no block).
 """
@@ -71,18 +71,8 @@ class QuotationLocked(QuotationError):
 
 
 class CostingUnavailable(QuotationError):
-    """SEAM-13 (Tính giá result) is not back-filled — referencing a costing can't fetch a
-    frozen cost. Carries the message so the UI shows "Tính giá chưa sẵn sàng"."""
-
-
-def _snapshot_from_costing(costing_id: int) -> quotation_ports.CostingResult:
-    """Pull the frozen Tính giá result via SEAM-13. Raises CostingUnavailable while the
-    seam is open (never a fabricated cost)."""
-    try:
-        # SEAM-13: chờ Tính giá (costing engine)
-        return quotation_ports.get_costing_result(costing_id)
-    except NotImplementedError as exc:
-        raise CostingUnavailable(str(exc)) from exc
+    """The referenced Tính giá can't yield a frozen cost (repo not wired / not found / not
+    calculated / blocking errors). Carries the user-facing message — never a fake cost."""
 
 
 class QuotationService:
@@ -91,11 +81,37 @@ class QuotationService:
         quotations: QuotationRepository,
         audit: AuditLogRepository,
         customers=None,
+        estimates=None,
     ) -> None:
         self.quotations = quotations
         self.audit = audit
         # SEAM-14 CLOSED: the CRM adapter (read-only). Injectable for tests.
         self._customers = customers
+        # SEAM-13 CLOSED: the Tính giá (Estimate) repository. Injectable for tests; when
+        # absent the port raises and every costing read surfaces CostingUnavailable.
+        self._estimates = estimates
+
+    def _costing_result(
+        self,
+        costing_id: int,
+        quantity: int | None = None,
+        cost_hint: int | None = None,
+    ) -> quotation_ports.CostingResult:
+        """Pull the frozen Tính giá result via SEAM-13. Raises CostingUnavailable with the
+        user-facing reason when the result can't be produced (never a fabricated cost)."""
+        try:
+            return quotation_ports.get_costing_result(
+                costing_id, quantity=quantity, cost_hint=cost_hint, estimates=self._estimates
+            )
+        except (NotImplementedError, quotation_ports.CostingLookupError) as exc:
+            raise CostingUnavailable(str(exc)) from exc
+
+    def costing_picker(
+        self, costing_id: int, quantity: int | None = None
+    ) -> quotation_ports.CostingResult:
+        """Picker read for the Báo giá form: frozen giá vốn + the quantity points (bậc SL)
+        of the referenced Tính giá."""
+        return self._costing_result(costing_id, quantity=quantity)
 
     # --- validation helpers -------------------------------------------------
 
@@ -336,12 +352,19 @@ class QuotationService:
         norm_snapshot + the source price window. Both vế phải có mặt — a snapshot thiếu vế
         định mức = cùng lỗ như FK giá sống.
 
-        Prefers the frozen Tính giá result via SEAM-13. While SEAM-13 is open the engine
-        can't return snapshots, so we freeze a self-contained snapshot of the numbers the
-        quotation already holds (giá vốn / lãi / chiết khấu the KD entered) — an explicit,
-        honest copy, NOT a fabricated cost pulled from a live price table."""
+        Prefers the frozen Tính giá result via SEAM-13 (cost_hint = giá vốn phiếu đang giữ,
+        để snapshot đúng mức bậc-SL KD đã chọn). When the costing can't be read (repo not
+        wired / estimate gone / not calculated) we freeze a self-contained snapshot of the
+        numbers the quotation already holds (giá vốn / lãi / chiết khấu the KD entered) —
+        an explicit, honest copy, NOT a fabricated cost pulled from a live price table."""
         try:
-            result = _snapshot_from_costing(quotation.costing_id) if quotation.costing_id else None
+            result = (
+                self._costing_result(
+                    quotation.costing_id, cost_hint=quotation.cost_von_total
+                )
+                if quotation.costing_id
+                else None
+            )
         except CostingUnavailable:
             result = None
 

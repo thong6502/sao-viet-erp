@@ -266,11 +266,12 @@ def get_quotation_service(
     quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     customers: Annotated[CustomerRepository, Depends(get_customer_repository)],
+    estimates: Annotated[EstimateRepository, Depends(get_estimate_repository)],
 ) -> QuotationService:
     # SEAM-14 CLOSED: the CRM repo is injected so the quotation can resolve the customer
-    # display name (read-only). SEAM-13 (Tính giá result) stays a raising stub inside the
-    # service until the giá-vốn engine (feat-040..042) is built.
-    return QuotationService(quotations, audit, customers=customers)
+    # display name (read-only). SEAM-13 CLOSED: the Tính giá (Estimate) repo is injected so
+    # a quotation referencing a calculated estimate pulls the frozen giá vốn + snapshots.
+    return QuotationService(quotations, audit, customers=customers, estimates=estimates)
 
 
 def get_order_repository(

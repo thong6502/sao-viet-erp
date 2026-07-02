@@ -147,14 +147,63 @@ def test_stale_row_version_409(client):
 
 # --- SEAM-13 costing picker ----------------------------------------------------
 
-def test_costing_picker_unavailable(client):
+def test_costing_picker_not_found_is_honest(client):
+    # SEAM-13 CLOSED: an unknown estimate id → explicit reason, never a fabricated cost.
     token = _admin_token(client)
-    r = client.get("/api/quotations/costings/1", headers=_h(token))
+    r = client.get("/api/quotations/costings/999", headers=_h(token))
     assert r.status_code == 200
     body = r.json()
     assert body["available"] is False
-    assert "chưa sẵn sàng" in body["message"]
+    assert "Không tìm thấy" in body["message"]
     assert body["cost_von_total"] is None  # never a fabricated cost
+
+
+def test_costing_picker_pulls_calculated_estimate(client):
+    """SEAM-13 CLOSED end-to-end: calculated estimate → picker (bậc SL) → quotation
+    send freezes BOTH snapshot vế from the estimate."""
+    token = _admin_token(client)
+    est = client.post(
+        "/api/estimates",
+        json={
+            "product_type": "brochure",
+            "product_name": "SEAM-13 QA",
+            "quantity_list": [500, 1000],
+            "status": "calculated",
+            "input_spec": {
+                "material_id": 1, "machine_id": 1, "sheet_w": 65, "sheet_h": 86,
+                "pieces_per_sheet": 8, "colors": 4, "sides": 2, "forms": 1,
+                "operations": [],
+            },
+        },
+        headers=_h(token),
+    )
+    assert est.status_code == 201, est.text
+    eid = est.json()["id"]
+
+    r = client.get(f"/api/quotations/costings/{eid}", headers=_h(token))
+    body = r.json()
+    assert body["available"] is True
+    assert body["quantity"] == 500  # default = lowest quantity point
+    assert body["cost_von_total"] and body["cost_von_total"] > 0
+    assert [o["quantity"] for o in body["options"]] == [500, 1000]
+
+    # Explicit quantity point (bậc SL).
+    r2 = client.get(f"/api/quotations/costings/{eid}?quantity=1000", headers=_h(token))
+    assert r2.json()["quantity"] == 1000
+    assert r2.json()["cost_von_total"] >= body["cost_von_total"]
+
+    # Quotation referencing the estimate: send freezes BOTH vế from the estimate.
+    q = _create(client, token, costing_id=eid, cost_von_total=body["cost_von_total"])
+    sent = client.post(
+        f"/api/quotations/{q['id']}/transition",
+        json={"to_status": "sent"},
+        headers=_h(token),
+    ).json()
+    assert sent["unit_price_snapshot"]["source"] == "estimate"
+    assert sent["unit_price_snapshot"]["quantity"] == 500  # cost_hint matched the point
+    assert sent["unit_price_snapshot"]["cost_lines"], "per-line frozen prices must be present"
+    assert sent["norm_snapshot"]["estimate_id"] == eid
+    assert sent["norm_snapshot"]["input_spec"]["colors"] == 4
 
 
 # --- F3/F4/F5 lifecycle --------------------------------------------------------

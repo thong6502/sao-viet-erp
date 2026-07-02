@@ -27,6 +27,7 @@ from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT
 from ..models.user import User
 from ..schemas.quotation import (
     CostingPickerOut,
+    CostingQtyOption,
     CustomerDisplayOut,
     EnumOption,
     QuotationCreate,
@@ -38,7 +39,6 @@ from ..schemas.quotation import (
     TransitionRequest,
     VersionRow,
 )
-from ..services import quotation_ports
 from ..services.quotation_service import (
     CostingUnavailable,
     QuotationConflict,
@@ -137,19 +137,26 @@ def quotation_enums(
 @router.get("/costings/{costing_id}", response_model=CostingPickerOut)
 def read_costing(
     costing_id: int,
+    svc: Service,
     _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    quantity: int | None = Query(default=None, ge=1),
 ) -> CostingPickerOut:
-    """Reference a Tính giá result (SEAM-13). While the giá-vốn engine is TREO the port
-    raises → explicit "Tính giá chưa sẵn sàng" (never a fabricated cost_von_total)."""
+    """Reference a Tính giá result (SEAM-13 — CLOSED). Returns the frozen giá vốn of the
+    chosen quantity point + the other quantity points (bậc SL). When the estimate can't
+    yield a result the reason is surfaced verbatim (never a fabricated cost_von_total)."""
     try:
-        # SEAM-13: chờ Tính giá (costing engine)
-        result = quotation_ports.get_costing_result(costing_id)
-    except NotImplementedError:
-        return CostingPickerOut(
-            available=False,
-            message="Tính giá chưa sẵn sàng — nhập giá vốn thủ công từ màn Tính giá.",
-        )
-    return CostingPickerOut(available=True, cost_von_total=result.cost_von_total)
+        result = svc.costing_picker(costing_id, quantity=quantity)
+    except CostingUnavailable as e:
+        return CostingPickerOut(available=False, message=str(e))
+    return CostingPickerOut(
+        available=True,
+        cost_von_total=result.cost_von_total,
+        quantity=result.quantity,
+        options=[
+            CostingQtyOption(quantity=o["quantity"], total_cost=o["total_cost"])
+            for o in (result.quantity_options or [])
+        ],
+    )
 
 
 # --- list (F1) -----------------------------------------------------------------

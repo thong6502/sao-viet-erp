@@ -437,6 +437,19 @@ function QuotationFormDialog({
     if (!token) return;
     api.customers.list(token, { page: 1, size: 200 }).then((r) => setCustomers(r.items)).catch(() => {});
   }, [token]);
+  // SEAM-13 (Tính giá) đã back-fill → picker chọn phương án Tính giá "Đã tính toán" +
+  // mức bậc-SL; giá vốn tự nạp từ kết quả đông cứng (vẫn cho sửa tay nếu cần).
+  const [estimates, setEstimates] = useState<
+    { id: number; estimate_number: string; product_name: string }[]
+  >([]);
+  const [qtyChoice, setQtyChoice] = useState<string>("");
+  useEffect(() => {
+    if (!token) return;
+    api.estimates
+      .list(token, { status: "calculated", page: 1, size: 200 })
+      .then((r) => setEstimates(r.items))
+      .catch(() => {});
+  }, [token]);
 
   const num = (s: string): number | null => {
     if (s.trim() === "") return null;
@@ -449,11 +462,12 @@ function QuotationFormDialog({
   const discountN = num(discount) ?? 0;
   const total = cost == null ? null : cost + marginN - discountN;
 
-  async function checkCosting() {
+  async function checkCosting(rawId?: string) {
     if (!token) return;
-    const id = num(costingId);
+    const id = num(rawId ?? costingId);
     if (id == null) {
       setCostingState(null);
+      setQtyChoice("");
       return;
     }
     try {
@@ -461,10 +475,18 @@ function QuotationFormDialog({
       setCostingState(state);
       if (state.available && state.cost_von_total != null) {
         setCostVon(String(state.cost_von_total));
+        setQtyChoice(state.quantity != null ? String(state.quantity) : "");
       }
     } catch {
       setCostingState(null);
     }
+  }
+
+  // Đổi mức bậc-SL → nạp giá vốn của mức đó (options đã có sẵn từ picker, không cần gọi lại).
+  function pickQty(q: string) {
+    setQtyChoice(q);
+    const opt = costingState?.options?.find((o) => String(o.quantity) === q);
+    if (opt) setCostVon(String(opt.total_cost));
   }
 
   function validate(): boolean {
@@ -571,23 +593,43 @@ function QuotationFormDialog({
                 </label>
               )}
               <label className="field">
-                <span className="field__label">Kết quả Tính giá (ID) — SEAM-13</span>
-                <div className="bg__inline">
-                  <input
+                <span className="field__label">Kết quả Tính giá (giá vốn)</span>
+                <select
+                  className="input"
+                  value={costingId}
+                  onChange={(e) => {
+                    setCostingId(e.target.value);
+                    checkCosting(e.target.value);
+                  }}
+                >
+                  <option value="">— Không tham chiếu (nhập giá vốn tay) —</option>
+                  {estimates.map((est) => (
+                    <option key={est.id} value={est.id}>
+                      {est.estimate_number} — {est.product_name}
+                    </option>
+                  ))}
+                </select>
+                {costingState?.available && (costingState.options?.length ?? 0) > 1 && (
+                  <select
                     className="input"
-                    value={costingId}
-                    onChange={(e) => setCostingId(e.target.value)}
-                    onBlur={checkCosting}
-                    inputMode="numeric"
-                    placeholder="ID Tính giá"
-                  />
-                  <Button type="button" variant="ghost" onClick={checkCosting}>
-                    Nạp giá vốn
-                  </Button>
-                </div>
+                    value={qtyChoice}
+                    onChange={(e) => pickQty(e.target.value)}
+                    aria-label="Mức số lượng (bậc SL)"
+                  >
+                    {costingState.options!.map((o) => (
+                      <option key={o.quantity} value={o.quantity}>
+                        SL {o.quantity.toLocaleString("vi-VN")} — giá vốn{" "}
+                        {o.total_cost.toLocaleString("vi-VN")} đ
+                      </option>
+                    ))}
+                  </select>
+                )}
                 {costingState && !costingState.available && (
                   <span className="bg__seam-tag">{costingState.message}</span>
                 )}
+                <span className="bg__hint">
+                  Chỉ phương án "Đã tính toán" — giá vốn nạp từ kết quả đông cứng theo mức bậc SL.
+                </span>
               </label>
             </div>
           </div>

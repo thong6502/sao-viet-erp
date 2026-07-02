@@ -786,11 +786,20 @@ export interface QuotationEnumsOut {
   statuses: EnumOption[];
 }
 
-/** Tính giá picker state (SEAM-13): available=false + message while the giá-vốn engine is TREO. */
+/** Một mức số lượng (bậc SL) của Tính giá được tham chiếu. */
+export interface CostingQtyOption {
+  quantity: number;
+  total_cost: number;
+}
+
+/** Tính giá picker state (SEAM-13 — ĐÃ ĐÓNG): available=false + lý do khi estimate chưa
+ * cho được kết quả đông cứng; ngược lại giá vốn của mức SL đã chọn + các mức bậc-SL. */
 export interface CostingPickerOut {
   available: boolean;
   message: string | null;
   cost_von_total: number | null;
+  quantity?: number | null;
+  options?: CostingQtyOption[] | null;
 }
 
 export interface QuotationListParams {
@@ -1549,8 +1558,9 @@ export const api = {
     enums(token: string): Promise<QuotationEnumsOut> {
       return authed<QuotationEnumsOut>("/api/quotations/enums", token);
     },
-    costing(token: string, costingId: number): Promise<CostingPickerOut> {
-      return authed<CostingPickerOut>(`/api/quotations/costings/${costingId}`, token);
+    costing(token: string, costingId: number, quantity?: number): Promise<CostingPickerOut> {
+      const suffix = quantity != null ? `?quantity=${quantity}` : "";
+      return authed<CostingPickerOut>(`/api/quotations/costings/${costingId}${suffix}`, token);
     },
     get(token: string, id: number): Promise<QuotationDetail> {
       return authed<QuotationDetail>(`/api/quotations/${id}`, token);
