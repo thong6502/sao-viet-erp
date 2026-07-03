@@ -4,6 +4,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, type PinnedCustomer } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import {
+  buildCapabilities,
+  PermissionsProvider,
+  type Capabilities,
+} from "../auth/permissions";
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
@@ -45,6 +50,7 @@ export function AppShell() {
   const [activeId, setActiveId] = useState("dashboard");
   const [navParams, setNavParams] = useState<NavParams | null>(null);
   const [readable, setReadable] = useState<Set<string> | null>(null);
+  const [caps, setCaps] = useState<Capabilities>(new Map());
   const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
 
   // Single navigation entrypoint: switches the active screen AND carries an optional
@@ -59,9 +65,17 @@ export function AppShell() {
     if (!token) return;
     let cancelled = false;
     api
-      .myPermissions(token)
-      .then((mods) => !cancelled && setReadable(new Set(mods)))
-      .catch(() => !cancelled && setReadable(new Set()));
+      .myAccess(token)
+      .then((acc) => {
+        if (cancelled) return;
+        setReadable(new Set(acc.modules));
+        setCaps(buildCapabilities(acc.permissions));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setReadable(new Set());
+        setCaps(new Map());
+      });
     return () => {
       cancelled = true;
     };
@@ -147,13 +161,15 @@ export function AppShell() {
   }
 
   return (
-    <div className="shell">
-      <Sidebar activeId={activeId} onSelect={(id) => navigate(id)} readable={readable} />
-      <div className="shell__main">
-        <Topbar onProfileAction={setProfileAction} />
-        <div className="shell__content">{renderContent()}</div>
+    <PermissionsProvider caps={caps}>
+      <div className="shell">
+        <Sidebar activeId={activeId} onSelect={(id) => navigate(id)} readable={readable} />
+        <div className="shell__main">
+          <Topbar onProfileAction={setProfileAction} />
+          <div className="shell__content">{renderContent()}</div>
+        </div>
+        <ProfileDialog action={profileAction} onClose={() => setProfileAction(null)} />
       </div>
-      <ProfileDialog action={profileAction} onClose={() => setProfileAction(null)} />
-    </div>
+    </PermissionsProvider>
   );
 }

@@ -1,0 +1,134 @@
+/* User detail popup (spec-07 + spec-08) — content inside the shared cdlg shell. */
+.udlg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.udlg__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.udlg__section .field {
+  margin: 0;
+}
+.udlg__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+.udlg__status-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.udlg__badge {
+  align-self: flex-start;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  padding: 2px 10px;
+  border-radius: var(--r-pill);
+  background: var(--moss-soft, #dde8d8);
+  color: var(--moss);
+}
+.udlg__badge--locked {
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+.udlg__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.udlg__divider {
+  height: 1px;
+  background: var(--rule-hair);
+}
+.udlg__warn {
+  margin: 0;
+  font-size: 13px;
+  color: var(--amber);
+}
+.udlg__saved {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--moss);
+}
+.udlg__error {
+  color: var(--signal);
+  font-size: 13px;
+}
+.udlg__hint {
+  color: var(--ash);
+  font-size: 13px;
+}
+.udlg__muted {
+  margin: 0;
+  color: var(--ash);
+  font-size: 13px;
+}
+
+/* One-time temporary password box. */
+.udlg__temp {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--rust-soft);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+.udlg__temp-label {
+  font-size: 13px;
+  color: var(--rust-deep);
+}
+.udlg__temp-value {
+  font-family: var(--ff-mono);
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+/* Sessions + activity lists. */
+.udlg__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-height: 200px;
+  overflow-y: auto;
+}
+.udlg__list-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.udlg__list-row:last-child {
+  border-bottom: none;
+}
+.udlg__list-main {
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+}
+.udlg__list-meta {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash);
+}
+
+@media (max-width: 640px) {
+  .udlg__grid {
+    grid-template-columns: 1fr;
+  }
+}

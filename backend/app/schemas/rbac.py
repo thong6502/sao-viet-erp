@@ -133,6 +133,28 @@ class UserCreate(BaseModel):
     department_id: int
 
 
+class UserUpdate(BaseModel):
+    """Admin edit of a user (spec-08 / PBI-2003): name + department. Username is not editable."""
+
+    name: str = Field(min_length=1, max_length=255)
+    department_id: int
+
+
+class SessionOut(BaseModel):
+    """A live login session (active refresh token) — read-only in the user detail (spec-08)."""
+
+    id: int
+    user_agent: str | None = None
+    created_at: datetime
+    expires_at: datetime
+
+
+class ResetPasswordOut(BaseModel):
+    """The one-time temporary password returned after an admin reset (spec-08 / PBI-2006)."""
+
+    temporary_password: str
+
+
 class RoleAssign(BaseModel):
     role_id: int | None = None
 

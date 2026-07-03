@@ -49,7 +49,19 @@ class TokenResponse(BaseModel):
     user: UserOut
 
 
+class ModuleCapability(BaseModel):
+    """The current user's CRUD flags on one module (spec-09 — frontend action gating)."""
+
+    module_key: str
+    can_read: bool = False
+    can_create: bool = False
+    can_update: bool = False
+    can_delete: bool = False
+
+
 class PermissionsOut(BaseModel):
-    """Module keys the current user can Read (for frontend menu/route gating)."""
+    """Current user's permissions for the frontend: `modules` = readable keys (menu/route
+    gating, spec-02); `permissions` = full CRUD matrix per module (action gating, spec-09)."""
 
     modules: list[str]
+    permissions: list[ModuleCapability] = []

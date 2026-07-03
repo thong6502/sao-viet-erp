@@ -4,6 +4,7 @@
 // modal shell (cdlg-*) for a consistent look.
 import { useEffect, useState } from "react";
 import { ApiError, api, type UnitLevel } from "../api/client";
+import { useCan } from "../auth/permissions";
 import { Button } from "./Button";
 import "./confirm-dialog.css";
 import "./unit-levels-dialog.css";
@@ -35,6 +36,11 @@ export function UnitLevelsDialog({ open, token, onClose, onChanged }: Props) {
   const [eTitle, setETitle] = useState("");
   const [rowError, setRowError] = useState<string | null>(null);
   const [rowBusy, setRowBusy] = useState(false);
+
+  const can = useCan();
+  const canCreate = can("phong_ban", "create");
+  const canUpdate = can("phong_ban", "update");
+  const canDelete = can("phong_ban", "delete");
 
   useEffect(() => {
     if (!open || !token) return;
@@ -173,7 +179,9 @@ export function UnitLevelsDialog({ open, token, onClose, onChanged }: Props) {
                 <span />
               </div>
               {levels.length === 0 ? (
-                <p className="depts__hint">Chưa có cấp nào. Thêm cấp đầu tiên bên dưới.</p>
+                <p className="depts__hint">
+                  {canCreate ? "Chưa có cấp nào. Thêm cấp đầu tiên bên dưới." : "Chưa có cấp nào."}
+                </p>
               ) : (
                 <ul className="ulvl__list">
                   {levels.map((lv) =>
@@ -224,22 +232,26 @@ export function UnitLevelsDialog({ open, token, onClose, onChanged }: Props) {
                         <span className="ulvl__rank">{lv.rank}</span>
                         <span className="ulvl__title">{lv.head_title || "—"}</span>
                         <span className="ulvl__actions">
-                          <button
-                            type="button"
-                            className="btn btn--ghost"
-                            disabled={rowBusy}
-                            onClick={() => startEdit(lv)}
-                          >
-                            Sửa
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn--ghost depts__danger-text"
-                            disabled={rowBusy}
-                            onClick={() => remove(lv)}
-                          >
-                            Xóa
-                          </button>
+                          {canUpdate && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              disabled={rowBusy}
+                              onClick={() => startEdit(lv)}
+                            >
+                              Sửa
+                            </button>
+                          )}
+                          {canDelete && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost depts__danger-text"
+                              disabled={rowBusy}
+                              onClick={() => remove(lv)}
+                            >
+                              Xóa
+                            </button>
+                          )}
                         </span>
                       </li>
                     ),
@@ -253,7 +265,8 @@ export function UnitLevelsDialog({ open, token, onClose, onChanged }: Props) {
                 </div>
               )}
 
-              {/* Add a new level. */}
+              {/* Add a new level (only if allowed to create). */}
+              {canCreate && (
               <div className="ulvl__row ulvl__row--add">
                 <input
                   className={`input${addError ? " input--error" : ""}`}
@@ -296,6 +309,7 @@ export function UnitLevelsDialog({ open, token, onClose, onChanged }: Props) {
                   </Button>
                 </span>
               </div>
+              )}
               {addError && (
                 <span className="field__error" role="alert">
                   {addError}

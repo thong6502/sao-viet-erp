@@ -13,6 +13,7 @@ from ..deps import (
     get_role_service,
     get_unit_level_service,
     get_user_admin_service,
+    require_any_permission,
     require_permission,
 )
 from ..schemas.rbac import (
@@ -29,8 +30,10 @@ from ..schemas.rbac import (
     PermissionRow,
     RoleAssign,
     RoleCreate,
+    ResetPasswordOut,
     RoleOut,
     RoleRename,
+    SessionOut,
     TransferResult,
     UnitLevelCreate,
     UnitLevelOut,
@@ -38,6 +41,7 @@ from ..schemas.rbac import (
     UserBrief,
     UserCreate,
     UserRow,
+    UserUpdate,
 )
 from ..services.department_service import (
     DepartmentBranchHasUsers,
@@ -371,11 +375,106 @@ def set_user_active(
     }
 
 
+@router.put("/users/{user_id}", response_model=UserRow)
+def update_user(
+    user_id: int,
+    payload: UserUpdate,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+) -> dict:
+    # PBI-2003: edit name + department. Changing department drops the old role (service).
+    try:
+        updated, _dropped = admin.update_user(
+            user_id=user_id,
+            name=payload.name,
+            department_id=payload.department_id,
+            actor_id=user.id,
+        )
+    except UADeptNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return {
+        "id": updated.id,
+        "name": updated.name,
+        "username": updated.username,
+        "department_id": updated.department_id,
+        "role_id": updated.role_id,
+        "is_active": updated.is_active,
+    }
+
+
+@router.post("/users/{user_id}/reset-password", response_model=ResetPasswordOut)
+def reset_user_password(
+    user_id: int,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+) -> ResetPasswordOut:
+    # PBI-2006: set a temp password (shown once), revoke every session, audit.
+    try:
+        temp = admin.reset_password(user_id=user_id, actor_id=user.id)
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return ResetPasswordOut(temporary_password=temp)
+
+
+@router.post(
+    "/users/{user_id}/revoke-sessions",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def revoke_user_sessions(
+    user_id: int,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+) -> Response:
+    # PBI-2008: log the user out everywhere.
+    try:
+        admin.revoke_sessions(user_id=user_id, actor_id=user.id)
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/users/{user_id}/sessions", response_model=list[SessionOut])
+def list_user_sessions(
+    user_id: int,
+    admin: Users,
+    _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+) -> list[SessionOut]:
+    return admin.list_sessions(user_id)
+
+
+@router.get("/users/{user_id}/activity", response_model=list[AuditRow])
+def list_user_activity(
+    user_id: int,
+    admin: Users,
+    _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+) -> list[AuditRow]:
+    return [
+        AuditRow(
+            id=a.id,
+            actor_user_id=a.actor_user_id,
+            action=a.action,
+            target=a.target,
+            detail=a.detail,
+            created_at=a.created_at,
+        )
+        for a in admin.list_activity(user_id)
+    ]
+
+
 @router.get("/roles", response_model=list[RoleOut])
 def list_roles(
     department_id: int,
     svc: Service,
-    _: Annotated[object, Depends(require_permission("vai_tro", "read"))],
+    # Tên vai trò trong một phòng là một phần của việc XEM phòng ban (màn chi tiết phòng
+    # hiển thị chip vai trò; danh sách nhân sự vốn đã trả role_name với phong_ban:read).
+    # Ma trận quyền chi tiết vẫn khóa sau vai_tro:read (GET /roles/{id}/permissions).
+    _: Annotated[
+        object,
+        Depends(require_any_permission(("vai_tro", "read"), ("phong_ban", "read"))),
+    ],
 ) -> list[RoleOut]:
     return svc.list_roles(department_id)
 

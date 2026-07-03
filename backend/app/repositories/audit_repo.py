@@ -46,5 +46,9 @@ class AuditLogRepository:
             ).scalars()
         )
 
+    def list_for_target(self, target: str, limit: int = 50) -> list[AuditLog]:
+        """Recent audit rows whose action targeted a given entity (spec-08 per-user activity)."""
+        return self.list_by_target(target, limit=limit)
+
     def count(self) -> int:
         return self.db.execute(select(func.count()).select_from(AuditLog)).scalar_one()
