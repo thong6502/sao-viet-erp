@@ -747,6 +747,14 @@ export interface QuotationRow {
   total: number | null;
   status: string;
   valid_until: string | null;
+  // Field hiển thị 2 tầng (đều có default phía backend)
+  version_count?: number;
+  sent_at?: string | null;
+  margin_percent?: number | null;
+  estimate_refs?: string[];
+  product_summary?: string | null;
+  updated_at?: string | null;
+  salesperson_name?: string | null;
 }
 
 export interface QuotationListOut {
@@ -754,6 +762,24 @@ export interface QuotationListOut {
   total: number;
   page: number;
   size: number;
+}
+
+export interface QuotationStats {
+  total: number;
+  draft: number;
+  sent: number;
+  accepted: number;
+  rejected: number;
+  expired: number;
+  converted_to_order: number;
+  cancelled: number;
+  need_action: number;
+}
+
+/** 1 phiếu tính giá + các mức SL được pick vào báo giá. */
+export interface QuotePick {
+  estimate_id: number;
+  option_ids: number[];
 }
 
 export interface CustomerDisplay {
@@ -774,6 +800,8 @@ export interface VersionRow {
 
 export interface QuoteItemDetail {
   id: number;
+  estimate_id?: number | null;
+  estimate_number?: string | null;
   estimate_option_id: number | null;
   line_no: number;
   product_type: string;
@@ -823,8 +851,12 @@ export interface QuotationDetail {
 
 export interface QuotationInput {
   customer_id: number | null;
-  estimate_id: number | null;
-  selected_option_ids: number[] | null;
+  estimate_id?: number | null;
+  selected_option_ids?: number[] | null;
+  /** Đường đa phiếu: mỗi pick = 1 phiếu tính giá + option đã tick. Ưu tiên nếu có. */
+  picks?: QuotePick[] | null;
+  /** Gói biên áp chung khi tạo (per dòng chỉnh sau). */
+  margin_percent?: number | null;
   valid_until: string | null;
   payment_terms: string | null;
   delivery_terms: string | null;
@@ -1648,6 +1680,10 @@ export const api = {
     },
     enums(token: string): Promise<QuotationEnumsOut> {
       return authed<QuotationEnumsOut>("/api/quotations/enums", token);
+    },
+    /** Số đếm cho thanh tab list. */
+    stats(token: string): Promise<QuotationStats> {
+      return authed<QuotationStats>("/api/quotations/stats", token);
     },
     costing(token: string, costingId: number, _quantity?: number): Promise<CostingPickerOut> {
       return authed<CostingPickerOut>(`/api/quotations/costings/${costingId}`, token);

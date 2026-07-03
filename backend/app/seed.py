@@ -415,13 +415,20 @@ def seed_sales_history(db: Session) -> None:
 
     from .repositories.order_repo import OrderRepository
 
+    from .repositories.document_sequence_repo import DocumentSequenceRepository
+    from .services.sequence_service import SequenceService
+
+    _quote_seq = SequenceService(DocumentSequenceRepository(db))
+
     def _mk_quote(customer, sale_id, months_ago, total, status=STATUS_SENT, day=10):
         created = _month_mid(months_ago, day)
         valid = date(created.year + (1 if created.month == 12 else 0),
                      1 if created.month == 12 else created.month + 1,
                      min(created.day, 28))
-        
-        quote_number = f"BG26-{db.query(Quote).count() + 1:04d}"
+
+        # Sinh mã qua SequenceService (KHÔNG đếm tay) — giữ counter đồng bộ để
+        # báo giá tạo sau seed không đụng UNIQUE quote_number.
+        quote_number = _quote_seq.generate_code("quotation", at_date=created.date())
         q = Quote(
             quote_number=quote_number,
             customer_id=customer.id,

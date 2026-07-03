@@ -114,7 +114,10 @@ class QuotationRepository:
                 Quote.customer_id.in_(cust_ids),
             )
             conditions.append(q_cond)
-        if status:
+        if status == "need_action":
+            # Tab "Cần xử lý": soạn tiếp (draft) + đã gửi chờ khách (sent)
+            conditions.append(Quote.status.in_(("draft", "sent")))
+        elif status:
             conditions.append(Quote.status == status)
 
         for c in conditions:

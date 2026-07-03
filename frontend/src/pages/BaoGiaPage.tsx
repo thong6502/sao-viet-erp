@@ -10,9 +10,13 @@ import {
   type QuotationDetail,
   type QuotationEnumsOut,
   type QuotationRow,
+  type QuotationStats,
+  type QuotePick,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
+import { StatusTabs } from "../components/StatusTabs";
+import { DarkSummaryPanel } from "../components/DarkSummaryPanel";
 import "./bao-gia.css";
 
 const PAGE_SIZE = 10;
@@ -69,32 +73,7 @@ export function BaoGiaPage({
   const [pinned, setPinned] = useState<PinnedCustomer | null>(null);
   const [preSelectedEstimateId, setPreSelectedEstimateId] = useState<number | null>(null);
 
-  const [statsData, setStatsData] = useState({
-    totalValue: 0,
-    winRate: 0,
-    pendingCount: 0,
-    expiredCount: 0,
-  });
-
-  useEffect(() => {
-    if (!token) return;
-    api.quotations.list(token, { page: 1, size: 1000 })
-      .then((res) => {
-        const items = res.items;
-        const totalVal = items.reduce((acc, i) => acc + (i.total ?? 0), 0);
-        const accepted = items.filter((i) => i.status === "accepted" || i.status === "converted_to_order").length;
-        const win = items.length > 0 ? (accepted / items.length) * 100 : 0;
-        const pending = items.filter((i) => i.status === "draft" || i.status === "sent").length;
-        const expired = items.filter((i) => i.status === "expired").length;
-        setStatsData({
-          totalValue: totalVal,
-          winRate: win,
-          pendingCount: pending,
-          expiredCount: expired,
-        });
-      })
-      .catch(() => {});
-  }, [token, rows]);
+  const [stats, setStats] = useState<QuotationStats | null>(null);
 
   // Arriving from CRM with a customer to pre-pin
   useEffect(() => {
@@ -146,6 +125,9 @@ export function BaoGiaPage({
         else setListError("Không tải được danh sách báo giá.");
       })
       .finally(() => setLoading(false));
+
+    // Số đếm cho thanh tab
+    api.quotations.stats(token).then(setStats).catch(() => setStats(null));
   }, [token, q, statusFilter, sort, page]);
 
   useEffect(() => {
@@ -199,29 +181,6 @@ export function BaoGiaPage({
         </p>
       </header>
 
-      <div className="bg__metrics-grid">
-        <div className="bg__metric-card">
-          <div className="bg__metric-label">Tổng doanh số chào giá</div>
-          <div className="bg__metric-value">{fmtVnd(statsData.totalValue)}</div>
-          <div className="bg__metric-sub">Tích lũy từ tất cả các báo giá</div>
-        </div>
-        <div className="bg__metric-card">
-          <div className="bg__metric-label">Tỷ lệ chốt đơn (Win Rate)</div>
-          <div className="bg__metric-value">{statsData.winRate.toFixed(1)}%</div>
-          <div className="bg__metric-sub">Báo giá được duyệt & chốt đơn</div>
-        </div>
-        <div className="bg__metric-card">
-          <div className="bg__metric-label">Đang chờ xử lý / Nháp</div>
-          <div className="bg__metric-value">{statsData.pendingCount} phiếu</div>
-          <div className="bg__metric-sub">Cần Sales theo dõi thúc đẩy</div>
-        </div>
-        <div className="bg__metric-card">
-          <div className="bg__metric-label">Đã hết hạn hiệu lực</div>
-          <div className="bg__metric-value text-danger">{statsData.expiredCount} phiếu</div>
-          <div className="bg__metric-sub">Quá hạn cần gia hạn hoặc bỏ</div>
-        </div>
-      </div>
-
       <div className="bg__toolbar">
         <form className="bg__search" onSubmit={onSearch} role="search">
           <input
@@ -236,23 +195,6 @@ export function BaoGiaPage({
           </Button>
         </form>
 
-        <select
-          className="input bg__statusfilter"
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value);
-            setPage(1);
-          }}
-          aria-label="Lọc theo trạng thái"
-        >
-          <option value="">Tất cả trạng thái</option>
-          {statuses.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-
         <div className="bg__toolbar-spacer" />
 
         <Button
@@ -264,8 +206,28 @@ export function BaoGiaPage({
             setMode("create");
           }}
         >
-          + Tạo báo giá mới
+          + Báo giá mới (pick từ Tính giá)
         </Button>
+      </div>
+
+      {/* Tab trạng thái đếm số — "Cần xử lý" = nháp + đã gửi chờ khách */}
+      <div style={{ margin: "12px 0 16px" }}>
+        <StatusTabs
+          tabs={[
+            { key: "", label: "Tất cả", count: stats?.total },
+            { key: "need_action", label: "Cần xử lý", count: stats?.need_action, tone: "alert" },
+            { key: "draft", label: "Soạn", count: stats?.draft },
+            { key: "sent", label: "Đã gửi khách", count: stats?.sent },
+            { key: "accepted", label: "Khách chốt", count: stats?.accepted },
+            { key: "converted_to_order", label: "Đã lên đơn", count: stats?.converted_to_order },
+            { key: "rejected", label: "Từ chối", count: stats?.rejected },
+          ]}
+          active={statusFilter}
+          onChange={(k) => {
+            setStatusFilter(k);
+            setPage(1);
+          }}
+        />
       </div>
 
       <div className="card bg__tablewrap">
@@ -276,27 +238,26 @@ export function BaoGiaPage({
                 <SortBtn label="Mã báo giá" col="code" sort={sort} onSort={setSort} />
               </th>
               <th>Khách hàng</th>
+              <th>Sản phẩm · Tham chiếu</th>
               <th className="bg__num">
-                <SortBtn label="Giá trị chốt (đ)" col="total" sort={sort} onSort={setSort} />
+                <SortBtn label="Giá bán (đã VAT)" col="total" sort={sort} onSort={setSort} />
               </th>
               <th>
                 <SortBtn label="Trạng thái" col="status" sort={sort} onSort={setSort} />
               </th>
-              <th>
-                <SortBtn label="Hạn hiệu lực" col="valid_until" sort={sort} onSort={setSort} />
-              </th>
+              <th>Cập nhật</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} className="bg__status" role="status">
+                <td colSpan={6} className="bg__status" role="status">
                   Đang tải danh sách báo giá…
                 </td>
               </tr>
             ) : listError ? (
               <tr>
-                <td colSpan={5} className="bg__status">
+                <td colSpan={6} className="bg__status">
                   <div className="banner banner--error" role="alert">
                     <span>{listError}</span>
                     <button type="button" className="btn btn--ghost" onClick={() => load()}>
@@ -307,7 +268,7 @@ export function BaoGiaPage({
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={5} className="bg__empty">
+                <td colSpan={6} className="bg__empty">
                   <p>Chưa có báo giá thương mại nào được tạo.</p>
                   <Button
                     variant="accent"
@@ -323,34 +284,58 @@ export function BaoGiaPage({
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
-                <tr key={r.id} className="bg__row" onClick={() => openDetail(r)}>
-                  <td className="bg__mono" style={{ fontWeight: "bold" }}>
-                    {r.code}
-                    <span className="bg__ver">v{r.version}</span>
-                  </td>
-                  <td>
-                    {r.customer_name ?? (
-                      <span className="bg__muted">
-                        {r.customer_id != null ? `KH #${r.customer_id}` : "Chưa chọn khách"}
-                      </span>
-                    )}
-                  </td>
-                  <td className="bg__num" style={{ color: "var(--rust-deep)", fontWeight: "bold" }}>
-                    {r.total != null ? (
-                      fmtVnd(r.total)
-                    ) : (
-                      <span className="bg__muted">
-                        —
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <StatusBadge status={r.status} statuses={statuses} />
-                  </td>
-                  <td>{fmtDate(r.valid_until)}</td>
-                </tr>
-              ))
+              rows.map((r) => {
+                // Tuổi phiếu: đã gửi N ngày chưa có phản hồi → nhắc follow-up
+                const sentDays =
+                  r.status === "sent" && r.sent_at
+                    ? Math.floor((Date.now() - new Date(r.sent_at).getTime()) / 86_400_000)
+                    : null;
+                return (
+                  <tr key={r.id} className="bg__row" onClick={() => openDetail(r)}>
+                    <td className="bg__mono" style={{ fontWeight: "bold" }}>
+                      {r.code}
+                      <span className="bg__ver">v{r.version}</span>
+                      {(r.version_count ?? 1) > 1 && (
+                        <span className="tgroup__subdesc">{r.version_count} phiên bản</span>
+                      )}
+                    </td>
+                    <td>
+                      {r.customer_name ?? (
+                        <span className="bg__muted">
+                          {r.customer_id != null ? `KH #${r.customer_id}` : "Chưa chọn khách"}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      {r.product_summary ?? <span className="bg__muted">—</span>}
+                      {r.estimate_refs && r.estimate_refs.length > 0 && (
+                        <span className="tgroup__subdesc bg__mono">↳ {r.estimate_refs.join(", ")}</span>
+                      )}
+                    </td>
+                    <td className="bg__num" style={{ color: "var(--rust-deep)", fontWeight: "bold" }}>
+                      {r.total != null ? fmtVnd(r.total) : <span className="bg__muted">—</span>}
+                      {r.margin_percent != null && (
+                        <span className="tgroup__subdesc">biên {Math.round(r.margin_percent)}%</span>
+                      )}
+                    </td>
+                    <td>
+                      <StatusBadge status={r.status} statuses={statuses} />
+                      {sentDays !== null && sentDays >= 0 && (
+                        <span
+                          className="tgroup__subdesc"
+                          style={sentDays >= 7 ? { color: "var(--amber-deep)", fontWeight: 600 } : undefined}
+                        >
+                          Đã gửi {sentDays} ngày{sentDays >= 7 ? " · cần follow-up" : ""}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <span style={{ whiteSpace: "nowrap" }}>{fmtDate(r.updated_at ?? null)}</span>
+                      {r.salesperson_name && <span className="tgroup__subdesc">{r.salesperson_name}</span>}
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -465,6 +450,9 @@ function StatusBadge({ status, statuses }: { status: string; statuses: EnumOptio
 
 interface LocalItem {
   id: number;
+  /** Phiếu tính giá gốc của dòng (đa phiếu / 1 báo giá) */
+  estimate_id: number | null;
+  estimate_ref: string;
   estimate_option_id: number | null;
   line_no: number;
   product_type: string;
@@ -516,9 +504,9 @@ function QuotationFormDialog({
         ? String(pinnedCustomer.id)
         : "",
   );
-  const [estimateId, setEstimateId] = useState<string>(
-    existing?.estimate_id != null ? String(existing.estimate_id) : (initialEstimateId ? String(initialEstimateId) : ""),
-  );
+  // Đa phiếu: giỏ các phiếu tính giá đã pick (mỗi phiếu kéo các mức SL vào bảng định giá)
+  const [picked, setPicked] = useState<{ id: number; estimate_number: string; product_name: string }[]>([]);
+  const [pendingEstimateId, setPendingEstimateId] = useState<string>("");
   const [validUntil, setValidUntil] = useState<string>(existing?.valid_until ?? "");
   const [paymentTerms, setPaymentTerms] = useState<string>(existing?.payment_terms ?? "Tạm ứng 50% khi chốt đơn, 50% còn lại thanh toán khi giao hàng.");
   const [deliveryTerms, setDeliveryTerms] = useState<string>(existing?.delivery_terms ?? "Giao hàng tận nơi tại TP. Hồ Chí Minh.");
@@ -598,6 +586,8 @@ function QuotationFormDialog({
       const items = existing.items.map((item) => {
         return calculateItemCalculatedFields({
           id: item.id,
+          estimate_id: item.estimate_id ?? null,
+          estimate_ref: item.estimate_number ?? "",
           estimate_option_id: item.estimate_option_id,
           line_no: item.line_no,
           product_type: item.product_type,
@@ -620,27 +610,37 @@ function QuotationFormDialog({
     }
   }, [isEdit, existing]);
 
-  // Trigger costing options load if creating and estimateId is selected
+  // Pre-pick từ trang Tính giá (nút "Tạo báo giá") — chờ catalog phiếu load xong để lấy mã/tên
   useEffect(() => {
-    if (!isEdit && estimateId) {
-      loadEstimateOptions(Number(estimateId));
-    } else if (!isEdit && !estimateId) {
-      setLocalItems([]);
-    }
-  }, [isEdit, estimateId]);
+    if (isEdit || !initialEstimateId || estimates.length === 0) return;
+    if (picked.some((p) => p.id === initialEstimateId)) return;
+    const est = estimates.find((e) => e.id === initialEstimateId);
+    if (est) addPick(est);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, initialEstimateId, estimates]);
 
-  async function loadEstimateOptions(estId: number) {
-    if (!token) return;
+  /** Pick 1 phiếu: thêm vào giỏ + kéo các mức SL của nó vào bảng định giá (append). */
+  async function addPick(est: { id: number; estimate_number: string; product_name: string }) {
+    if (!token || picked.some((p) => p.id === est.id)) return;
+    setSaveErr(null);
     try {
-      const state = await api.quotations.costing(token, estId);
-      if (state.available && state.options) {
-        const items = state.options.map((opt, idx) => {
-          return calculateItemCalculatedFields({
-            id: -(idx + 1), // temp negative ID for unsaved items
+      const state = await api.quotations.costing(token, est.id);
+      if (!state.available || !state.options || state.options.length === 0) {
+        setSaveErr(state.message ?? `Phiếu ${est.estimate_number} không có mức số lượng khả dụng.`);
+        return;
+      }
+      setPicked((prev) => [...prev, est]);
+      setLocalItems((prev) => {
+        const base = prev.length;
+        const items = state.options!.map((opt, idx) =>
+          calculateItemCalculatedFields({
+            id: -(base + idx + 1), // temp negative ID for unsaved items
+            estimate_id: est.id,
+            estimate_ref: est.estimate_number,
             estimate_option_id: opt.id,
-            line_no: idx + 1,
-            product_type: "", // loaded on backend
-            product_name: "", // loaded on backend
+            line_no: base + idx + 1,
+            product_type: "",
+            product_name: est.product_name,
             quantity: opt.quantity,
             unit: "cái",
             total_cost_snapshot: opt.total_cost,
@@ -653,13 +653,18 @@ function QuotationFormDialog({
             vat_percent: opt.vat_percent,
             rounding: "no_rounding",
             note: "",
-          });
-        });
-        setLocalItems(items);
-      }
+          }),
+        );
+        return [...prev, ...items];
+      });
     } catch {
-      setLocalItems([]);
+      setSaveErr(`Không tải được mức số lượng của phiếu ${est.estimate_number}.`);
     }
+  }
+
+  function removePick(estId: number) {
+    setPicked((prev) => prev.filter((p) => p.id !== estId));
+    setLocalItems((prev) => prev.filter((i) => i.estimate_id !== estId));
   }
 
   // Pure mathematical pricing calculator matching backend formulas (Phase 2B)
@@ -750,8 +755,8 @@ function QuotationFormDialog({
       setSaveErr("Vui lòng chọn khách hàng.");
       return false;
     }
-    if (!estimateId) {
-      setSaveErr("Vui lòng chọn phương án tính giá tham chiếu.");
+    if (!isEdit && picked.length === 0) {
+      setSaveErr("Vui lòng pick ít nhất một phiếu tính giá.");
       return false;
     }
     if (selectedCount === 0) {
@@ -803,11 +808,19 @@ function QuotationFormDialog({
           })),
         });
       } else {
-        // Create new quotation + save custom item prices sequentially
+        // Create new quotation (đa phiếu: picks[]) + save custom item prices sequentially
+        const picks: QuotePick[] = picked
+          .map((p) => ({
+            estimate_id: p.id,
+            option_ids: activeItems
+              .filter((i) => i.estimate_id === p.id && i.estimate_option_id !== null)
+              .map((i) => i.estimate_option_id!),
+          }))
+          .filter((p) => p.option_ids.length > 0);
+
         const createdQuote = await api.quotations.create(token, {
           customer_id: Number(customerId),
-          estimate_id: Number(estimateId),
-          selected_option_ids: activeItems.map((i) => i.estimate_option_id!).filter((id) => id !== null),
+          picks,
           valid_until: validUntil || null,
           payment_terms: paymentTerms,
           delivery_terms: deliveryTerms,
@@ -895,17 +908,64 @@ function QuotationFormDialog({
                 </label>
               </div>
 
-              <div className="bg__form-grid" style={{ marginTop: "16px" }}>
-                <label className="field">
-                  <span className="field__label">Phương án tính giá nguồn *</span>
-                  <select className="input" value={estimateId} onChange={(e) => setEstimateId(e.target.value)} disabled={isEdit}>
-                    <option value="">— Chọn Tính giá (Calculated) —</option>
-                    {estimates.map((est) => (
-                      <option key={est.id} value={est.id}>{est.estimate_number} — {est.product_name}</option>
-                    ))}
-                  </select>
-                </label>
+              {/* Picker đa phiếu: báo giá KHÔNG soạn tay — mọi dòng pick từ phiếu tính giá đã tính */}
+              {!isEdit && (
+                <div style={{ marginTop: "16px" }}>
+                  <span className="field__label">Pick phiếu tính giá vào báo giá * <span className="bg__muted">(được chọn nhiều phiếu — nhiều sản phẩm trong 1 báo giá)</span></span>
+                  <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
+                    <select
+                      className="input"
+                      value={pendingEstimateId}
+                      onChange={(e) => setPendingEstimateId(e.target.value)}
+                      style={{ flex: 1 }}
+                    >
+                      <option value="">— Chọn phiếu Đã tính để thêm —</option>
+                      {estimates
+                        .filter((est) => !picked.some((p) => p.id === est.id))
+                        .map((est) => (
+                          <option key={est.id} value={est.id}>{est.estimate_number} — {est.product_name}</option>
+                        ))}
+                    </select>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        const est = estimates.find((e) => e.id === Number(pendingEstimateId));
+                        if (est) {
+                          addPick(est);
+                          setPendingEstimateId("");
+                        }
+                      }}
+                      disabled={!pendingEstimateId}
+                    >
+                      ＋ Thêm phiếu
+                    </Button>
+                  </div>
+                  {picked.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
+                      {picked.map((p) => (
+                        <span
+                          key={p.id}
+                          className="bg__mono"
+                          style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "var(--rust-soft)", border: "1px solid var(--rust)", color: "var(--rust-deep)", borderRadius: "999px", padding: "3px 10px", fontSize: "12px" }}
+                        >
+                          ↳ {p.estimate_number} · {p.product_name}
+                          <button
+                            type="button"
+                            onClick={() => removePick(p.id)}
+                            style={{ border: "none", background: "none", cursor: "pointer", color: "var(--rust-deep)", fontWeight: 700, padding: 0, lineHeight: 1 }}
+                            aria-label={`Bỏ ${p.estimate_number}`}
+                          >
+                            ✕
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
+              <div className="bg__form-grid" style={{ marginTop: "16px" }}>
                 <label className="field">
                   <span className="field__label">Địa chỉ giao hàng</span>
                   <input className="input" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Nhập địa chỉ giao hàng..." />
@@ -945,9 +1005,10 @@ function QuotationFormDialog({
                   <svg className="bg__empty-state-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                   </svg>
-                  <span style={{ fontSize: "14px", fontWeight: "bold", color: "var(--ink)" }}>Chưa chọn phương án tính giá</span>
+                  <span style={{ fontSize: "14px", fontWeight: "bold", color: "var(--ink)" }}>Chưa pick phiếu tính giá nào</span>
                   <p className="bg__hint" style={{ textAlign: "center", maxWidth: "340px", margin: "4px auto 0", lineHeight: 1.4 }}>
-                    Hãy chọn một phương án tính giá ở mục <strong>"Phương án tính giá nguồn"</strong> bên cột trái để hệ thống tự động tải bảng định giá đa số lượng.
+                    Dùng ô <strong>"Pick phiếu tính giá vào báo giá"</strong> bên cột trái — mỗi phiếu kéo các mức
+                    số lượng (kèm giá vốn khóa) vào bảng này. Pick nhiều phiếu nếu khách hỏi nhiều sản phẩm.
                   </p>
                 </div>
               ) : (
@@ -1025,6 +1086,7 @@ function QuotationFormDialog({
                     <thead>
                       <tr>
                         <th style={{ width: "40px" }}>Chọn</th>
+                        <th>Sản phẩm</th>
                         <th>Số lượng</th>
                         <th>Giá vốn</th>
                         <th style={{ width: "90px" }}>Margin (%)</th>
@@ -1048,6 +1110,12 @@ function QuotationFormDialog({
                                 checked={item.included}
                                 onChange={(e) => handleItemChange(idx, { included: e.target.checked })}
                               />
+                            </td>
+                            <td>
+                              {item.product_name || <span className="bg__muted">—</span>}
+                              {item.estimate_ref && (
+                                <span className="tgroup__subdesc bg__mono">↳ {item.estimate_ref}</span>
+                              )}
                             </td>
                             <td className="bg__mono font-bold">{item.quantity.toLocaleString("vi-VN")}</td>
                             <td className="bg__mono text-gray-500">{fmtVnd(item.total_cost_snapshot)}</td>
@@ -1203,6 +1271,24 @@ const TRANSITION_LABELS: Record<string, string> = {
   cancelled: "Hủy",
 };
 
+// Gói biên lợi nhuận — shortcut UI (ô % từng dòng vẫn nhận giá trị bất kỳ;
+// đợt sau chuyển thành catalog cấu hình được theo luật "không hardcode số liệu").
+const MARGIN_PRESETS: Array<[string, number]> = [
+  ["Tiêu chuẩn", 25],
+  ["Khách quen", 18],
+  ["Đơn gấp/khó", 35],
+  ["Cạnh tranh", 12],
+];
+
+const STATUS_LABEL_SHORT: Record<string, string> = {
+  sent: "gửi khách",
+  accepted: "được khách chốt",
+  rejected: "bị từ chối",
+  expired: "hết hạn",
+  converted_to_order: "lên đơn hàng",
+  cancelled: "hủy",
+};
+
 function QuotationDetailDialog({
   quotationId,
   statuses,
@@ -1279,6 +1365,39 @@ function QuotationDetailDialog({
       onChanged();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Re-quote không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Gói biên: áp 1 mức % cho TOÀN BỘ dòng (chỉ khi còn nháp). */
+  async function applyMarginAll(pct: number) {
+    if (!token || !d || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.quotations.update(token, d.id, {
+        customer_id: d.customer_id,
+        valid_until: d.valid_until,
+        payment_terms: d.payment_terms,
+        delivery_terms: d.delivery_terms,
+        delivery_address: d.delivery_address,
+        customer_note: d.customer_note,
+        internal_note: d.internal_note,
+        items: d.items.map((it) => ({
+          id: it.id,
+          margin_percent: pct,
+          discount_amount: it.discount_amount,
+          discount_percent: 0,
+          vat_percent: it.vat_percent,
+          rounding: "no_rounding",
+          note: it.note,
+        })),
+      });
+      await reload();
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Không áp được gói biên.");
     } finally {
       setBusy(false);
     }
@@ -1440,6 +1559,65 @@ function QuotationDetailDialog({
               <div className="bg__internal-tab">
                 <div className="banner banner--warn" style={{ marginBottom: "20px" }}>
                   <span>⚠️ <strong>Thông tin nội bộ:</strong> Giá vốn và biên lợi nhuận chỉ hiển thị cho nhân viên kinh doanh sở hữu và cấp quản lý. Tuyệt đối không gửi bản in này cho khách hàng.</span>
+                </div>
+
+                {/* Panel GIÁ BÁN ĐỀ XUẤT + gói biên (kiểu phiếu tính giá nhà in) */}
+                <div style={{ maxWidth: "420px", marginBottom: "20px" }}>
+                  <DarkSummaryPanel
+                    label="GIÁ BÁN ĐỀ XUẤT"
+                    labelExtra={`V${d.version}`}
+                    amount={Math.round(d.total).toLocaleString("vi-VN")}
+                    sub={`${d.items.length} dòng · giá vốn khóa từ phiếu tính giá`}
+                    rows={[
+                      { label: "Giá vốn (khóa)", value: fmtVnd(d.total_cost) },
+                      { label: "Lợi nhuận gộp", value: fmtVnd(d.subtotal_amount - d.total_cost) },
+                      { label: "Giá bán (chưa VAT)", value: fmtVnd(d.subtotal_amount - d.discount_amount) },
+                      { label: "VAT", value: fmtVnd(d.vat_amount) },
+                      { label: "Tổng cộng", value: fmtVnd(d.total), total: true },
+                    ]}
+                  >
+                    {d.status === "draft" ? (
+                      <div>
+                        <span style={{ fontSize: "10.5px", letterSpacing: "0.08em", color: "var(--ash-2)", fontWeight: 700 }}>
+                          LỢI NHUẬN · GÓI BIÊN — ÁP CẢ PHIẾU
+                        </span>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginTop: "6px" }}>
+                          {MARGIN_PRESETS.map(([label, pct]) => {
+                            const isActive = d.items.length > 0 && d.items.every((it) => Math.round(it.margin_percent) === pct);
+                            return (
+                              <button
+                                key={label}
+                                type="button"
+                                disabled={busy}
+                                onClick={() => applyMarginAll(pct)}
+                                style={{
+                                  border: `1px solid ${isActive ? "var(--rust)" : "rgba(245,241,232,0.25)"}`,
+                                  background: isActive ? "var(--rust)" : "transparent",
+                                  color: isActive ? "#fff" : "var(--rule)",
+                                  borderRadius: "6px",
+                                  padding: "7px 10px",
+                                  cursor: busy ? "wait" : "pointer",
+                                  textAlign: "left",
+                                  fontSize: "12.5px",
+                                  lineHeight: 1.3,
+                                }}
+                              >
+                                {label}
+                                <strong style={{ display: "block", fontSize: "14px" }}>{pct}%</strong>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        <p style={{ fontSize: "11px", color: "var(--ash-2)", marginTop: "6px", lineHeight: 1.5 }}>
+                          Chỉnh % lẻ từng dòng: nút "Sửa" (bảng định giá).
+                        </p>
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: "11.5px", color: "var(--ash-2)", lineHeight: 1.5 }}>
+                        Phiếu đã {STATUS_LABEL_SHORT[d.status] ?? d.status} — muốn đổi biên, dùng "Re-quote" tạo phiên bản mới.
+                      </p>
+                    )}
+                  </DarkSummaryPanel>
                 </div>
 
                 <table className="bg__detail-table">
