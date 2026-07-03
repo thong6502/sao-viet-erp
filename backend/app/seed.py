@@ -345,13 +345,13 @@ def seed_sales_history(db: Session) -> None:
         OrderLine,
     )
     from .models.quotation import (
-        STATUS_APPROVED,
-        STATUS_REJECTED,
         STATUS_SENT,
-        Quotation,
+        STATUS_ACCEPTED,
+        STATUS_REJECTED,
+        Quote,
+        QuoteVersion,
+        QuoteItem,
     )
-    from .repositories.order_repo import OrderRepository
-    from .repositories.quotation_repo import QuotationRepository
 
     # Guard: any order already present → assume seeded.
     if db.query(Order).first() is not None:
@@ -413,27 +413,61 @@ def seed_sales_history(db: Session) -> None:
         db.add(o)
         db.flush()  # so the next _next_order_no() sees this row (unique DH###)
 
+    from .repositories.order_repo import OrderRepository
+
     def _mk_quote(customer, sale_id, months_ago, total, status=STATUS_SENT, day=10):
         created = _month_mid(months_ago, day)
         valid = date(created.year + (1 if created.month == 12 else 0),
                      1 if created.month == 12 else created.month + 1,
                      min(created.day, 28))
-        q = Quotation(
-            code=QuotationRepository(db)._next_code(),
-            version=1,
+        
+        quote_number = f"BG26-{db.query(Quote).count() + 1:04d}"
+        q = Quote(
+            quote_number=quote_number,
             customer_id=customer.id,
-            cost_von_total=int(total * 0.8),
-            margin=int(total * 0.2),
-            discount=0,
-            total=total,
+            customer_name_snapshot=customer.name,
+            salesperson_id=sale_id,
+            status="accepted" if status == STATUS_ACCEPTED else status,
             valid_until=valid,
-            sale_user_id=sale_id,
-            status=status,
-            row_version=1,
             created_at=created,
         )
         db.add(q)
-        db.flush()  # so the next _next_code() sees this row (unique BG###)
+        db.flush()
+
+        qv = QuoteVersion(
+            quote_id=q.id,
+            version_number=1,
+            status="sent" if status == STATUS_SENT else ("accepted" if status == STATUS_ACCEPTED else "rejected"),
+            total_cost_snapshot=int(total * 0.8),
+            subtotal_amount=total,
+            discount_amount=0.0,
+            vat_percent=10.0,
+            vat_amount=int(total * 0.1),
+            final_amount=int(total * 1.1),
+            created_at=created,
+        )
+        db.add(qv)
+        db.flush()
+        q.current_version_id = qv.id
+
+        qi = QuoteItem(
+            quote_version_id=qv.id,
+            line_no=1,
+            product_type="brochure",
+            product_name="Catalogue A4 in offset",
+            quantity=1000,
+            unit="cái",
+            total_cost_snapshot=int(total * 0.8),
+            margin_percent=20.0,
+            selling_price=total,
+            unit_price=total / 1000.0,
+            discount_amount=0.0,
+            vat_percent=10.0,
+            vat_amount=int(total * 0.1),
+            final_amount=int(total * 1.1),
+        )
+        db.add(qi)
+        db.flush()
 
     sale1 = users.get_by_username("sale1")
     sale2 = users.get_by_username("sale2")
@@ -455,10 +489,10 @@ def seed_sales_history(db: Session) -> None:
         _mk_order(an_phat, sale1.id, 1, [("Catalogue A4 32 trang", 1000, 15_000)], day=20)
         _mk_order(an_phat, sale1.id, 0, [("Name card 4 màu", 4000, 900)], day=3)
         # Báo giá: đủ trạng thái (duyệt / gửi / từ chối) cho lịch sử báo giá + win-rate.
-        _mk_quote(an_phat, sale1.id, 11, 30_000_000, status=STATUS_APPROVED)
-        _mk_quote(an_phat, sale1.id, 7, 22_500_000, status=STATUS_APPROVED)
+        _mk_quote(an_phat, sale1.id, 11, 30_000_000, status=STATUS_ACCEPTED)
+        _mk_quote(an_phat, sale1.id, 7, 22_500_000, status=STATUS_ACCEPTED)
         _mk_quote(an_phat, sale1.id, 4, 18_000_000, status=STATUS_REJECTED)
-        _mk_quote(an_phat, sale1.id, 1, 15_000_000, status=STATUS_APPROVED)
+        _mk_quote(an_phat, sale1.id, 1, 15_000_000, status=STATUS_ACCEPTED)
         _mk_quote(an_phat, sale1.id, 0, 3_600_000, status=STATUS_SENT)
 
     # --- KH: Công ty CP Bao Bì Việt (sale2) — bao bì, đơn to thưa, có đơn hủy/nháp ---
@@ -471,8 +505,8 @@ def seed_sales_history(db: Session) -> None:
         _mk_order(bao_bi, sale2.id, 2, [("Túi giấy in offset", 15000, 3_500)], day=7)
         _mk_order(bao_bi, sale2.id, 1, [("Hộp giấy cao cấp", 3000, 6_000)],
                   status=STATUS_DRAFT, day=16)  # đang lập
-        _mk_quote(bao_bi, sale2.id, 10, 30_000_000, status=STATUS_APPROVED)
-        _mk_quote(bao_bi, sale2.id, 5, 48_000_000, status=STATUS_APPROVED)
+        _mk_quote(bao_bi, sale2.id, 10, 30_000_000, status=STATUS_ACCEPTED)
+        _mk_quote(bao_bi, sale2.id, 5, 48_000_000, status=STATUS_ACCEPTED)
         _mk_quote(bao_bi, sale2.id, 2, 52_500_000, status=STATUS_SENT)
 
     # --- KH: Nhà in Minh Khai (sale1) — khách vừa, vài đơn để không trống ------------
@@ -480,7 +514,7 @@ def seed_sales_history(db: Session) -> None:
         _mk_order(minh_khai, sale1.id, 9, [("Tờ rơi A5 4 màu", 5000, 1_200)], day=13)
         _mk_order(minh_khai, sale1.id, 5, [("Name card 4 màu", 2000, 900)], day=21)
         _mk_order(minh_khai, sale1.id, 2, [("Catalogue A4 32 trang", 800, 15_000)], day=6)
-        _mk_quote(minh_khai, sale1.id, 5, 6_000_000, status=STATUS_APPROVED)
+        _mk_quote(minh_khai, sale1.id, 5, 6_000_000, status=STATUS_ACCEPTED)
         _mk_quote(minh_khai, sale1.id, 2, 12_000_000, status=STATUS_SENT)
 
     db.commit()

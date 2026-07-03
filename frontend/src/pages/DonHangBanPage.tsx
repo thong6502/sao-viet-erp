@@ -45,9 +45,11 @@ function fmtDate(v: string | null): string {
 export function DonHangBanPage({
   pinnedCustomer = null,
   openOrderId = null,
+  openQuoteId = null,
 }: {
   pinnedCustomer?: PinnedCustomer | null;
   openOrderId?: number | null;
+  openQuoteId?: number | null;
 } = {}) {
   const { token } = useAuth();
 
@@ -68,6 +70,7 @@ export function DonHangBanPage({
   // Customer pinned by a CRM drill-through ("+ Tạo đơn hàng"). The create dialog scopes its
   // approved-quotation picker to this customer so the order lands on the right account.
   const [pinned, setPinned] = useState<PinnedCustomer | null>(null);
+  const [preSelectedQuoteId, setPreSelectedQuoteId] = useState<number | null>(null);
 
   useEffect(() => {
     if (pinnedCustomer) {
@@ -75,6 +78,13 @@ export function DonHangBanPage({
       setCreating(true);
     }
   }, [pinnedCustomer]);
+
+  useEffect(() => {
+    if (openQuoteId != null) {
+      setPreSelectedQuoteId(openQuoteId);
+      setCreating(true);
+    }
+  }, [openQuoteId]);
 
   useEffect(() => {
     if (openOrderId != null) setDetailId(openOrderId);
@@ -292,13 +302,16 @@ export function DonHangBanPage({
         <OrderCreateDialog
           enums={enums}
           pinnedCustomer={pinned}
+          initialQuotationId={preSelectedQuoteId}
           onClose={() => {
             setCreating(false);
             setPinned(null);
+            setPreSelectedQuoteId(null);
           }}
           onSaved={() => {
             setCreating(false);
             setPinned(null);
+            setPreSelectedQuoteId(null);
             setPage(1);
             load();
           }}
@@ -371,18 +384,22 @@ function GateBadge({ ok }: { ok: boolean }) {
 function OrderCreateDialog({
   enums,
   pinnedCustomer,
+  initialQuotationId,
   onClose,
   onSaved,
 }: {
   enums: OrderEnumsOut;
   pinnedCustomer: PinnedCustomer | null;
+  initialQuotationId: number | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const { token } = useAuth();
 
   const [approvedAll, setApprovedAll] = useState<ApprovedQuotationRow[] | null>(null);
-  const [quotationId, setQuotationId] = useState<string>("");
+  const [quotationId, setQuotationId] = useState<string>(
+    initialQuotationId ? String(initialQuotationId) : ""
+  );
   const [orderType, setOrderType] = useState("theo_yc");
   const [orderKind, setOrderKind] = useState("moi");
   const [parentOrderNo, setParentOrderNo] = useState<string>("");
@@ -400,6 +417,12 @@ function OrderCreateDialog({
       .then((res) => setApprovedAll(res.items))
       .catch(() => setApprovedAll([]));
   }, [token]);
+
+  useEffect(() => {
+    if (initialQuotationId) {
+      setQuotationId(String(initialQuotationId));
+    }
+  }, [initialQuotationId]);
 
   // When pinned from CRM, only offer this customer's approved quotations so the order lands
   // on the right account (the customer itself is carried by the quotation, read-only).

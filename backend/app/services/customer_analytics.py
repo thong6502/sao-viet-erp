@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from ..models.customer import Customer
 from ..models.order import STATUS_CANCELLED as ORDER_CANCELLED
 from ..models.order import Order, OrderLine
-from ..models.quotation import Quotation
+from ..models.quotation import Quote, QuoteVersion
 
 # --- Tier thresholds (SVN-input, ⚠️ chưa xác nhận — documented default) ---------
 LOYAL_REVENUE_VND = 50_000_000   # doanh số 12T ≥ 50tr → "thân thiết"
@@ -364,12 +364,12 @@ class CustomerAnalyticsService:
 
         # Quotation totals (đã gửi trở lên) for the win-rate + count.
         quotes_total = self.db.execute(
-            select(func.count(Quotation.id)).where(Quotation.customer_id == cid)
+            select(func.count(Quote.id)).where(Quote.customer_id == cid)
         ).scalar_one()
         sent_quotes = self.db.execute(
-            select(func.count(Quotation.id)).where(
-                Quotation.customer_id == cid,
-                Quotation.status.in_(("sent", "approved", "rejected", "expired")),
+            select(func.count(Quote.id)).where(
+                Quote.customer_id == cid,
+                Quote.status.in_(("sent", "accepted", "rejected", "expired")),
             )
         ).scalar_one()
 
@@ -447,20 +447,21 @@ class CustomerAnalyticsService:
 
     def quote_history(self, customer_id: int, *, limit: int = 200) -> list[QuoteHistoryRow]:
         rows = self.db.execute(
-            select(Quotation)
-            .where(Quotation.customer_id == customer_id)
-            .order_by(Quotation.created_at.desc(), Quotation.id.desc())
+            select(Quote, QuoteVersion)
+            .join(QuoteVersion, Quote.current_version_id == QuoteVersion.id, isouter=True)
+            .where(Quote.customer_id == customer_id)
+            .order_by(Quote.created_at.desc(), Quote.id.desc())
             .limit(limit)
-        ).scalars().all()
+        ).all()
         return [
             QuoteHistoryRow(
                 id=q.id,
-                code=q.code,
-                version=q.version,
+                code=q.quote_number,
+                version=qv.version_number if qv else 1,
                 status=q.status,
-                total=q.total,
+                total=int(qv.final_amount) if qv else 0,
                 valid_until=q.valid_until,
                 created_at=q.created_at,
             )
-            for q in rows
+            for q, qv in rows
         ]

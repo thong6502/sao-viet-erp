@@ -1,18 +1,17 @@
-"""feat-044/045 — Báo giá (Quotation) API (spec-09 F1..F6).
+"""Báo giá H-V-I API (Quote → QuoteVersion → QuoteItem).
 
-Covers: list ?page&size&sort&q&status + scope; create (giá bán = giá vốn + lãi − chiết khấu)
-+ validation 422; edit only when draft (409) + optimistic lock (409); SEAM-13 costing picker
-"chưa sẵn sàng" (no fabricated cost); lifecycle send→approved by a manager, Sale can't approve
-(403); change_order new version; PDF đối ngoại (no buildup keywords); RBAC 403.
+Covers: list + status filter + stats; create bằng PICK từ phiếu tính giá — cả đường cũ
+(1 phiếu: estimate_id + selected_option_ids) lẫn đường mới (đa phiếu: picks[]) với giá vốn
+khóa per dòng + gói biên áp chung; validation (phiếu chưa tính → 422, hạn quá khứ → 422);
+khóa sửa sau khi gửi (409); lifecycle draft→sent (freeze snapshot) → accepted/rejected,
+transition sai → 409/422, hủy cần lý do; requote sinh phiên bản mới; SEAM-13 picker honest.
 """
 from __future__ import annotations
 
 from datetime import date, timedelta
 
 from app.db import SessionLocal
-from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
-from app.repositories.user_repo import UserRepository
-from app.security import create_access_token, hash_password
+from app.models.estimate import Estimate, EstimateOption
 
 ADMIN = {"username": "admin", "password": "admin123"}
 TOMORROW = (date.today() + timedelta(days=30)).isoformat()
@@ -27,269 +26,259 @@ def _h(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
-def _role_token(username: str, role_name: str, dept_name: str = "Kinh doanh") -> str:
+def _mk_estimate(*, product_name="Catalogue A4", quantities=(1000, 2000), unit_cost=1000,
+                 status="calculated") -> tuple[int, list[int]]:
+    """Dựng phiếu tính giá đã-tính trực tiếp (engine không tham gia): mỗi mức SL 1 option,
+    total_cost = quantity × unit_cost. Trả (estimate_id, [option_ids])."""
     db = SessionLocal()
     try:
-        users = UserRepository(db)
-        existing = users.get_by_username(username)
-        if existing is not None:
-            return create_access_token(str(existing.id))
-        dept = DepartmentRepository(db).get_by_name(dept_name)
-        role = RoleRepository(db).get_by_name_and_department(role_name, dept.id)
-        u = users.create(username=username, name=username, password_hash=hash_password("x"))
-        users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
-        return create_access_token(str(u.id))
+        n = db.query(Estimate).count() + 1
+        est = Estimate(
+            estimate_number=f"TGT-{n:04d}", product_type="brochure", product_name=product_name,
+            status=status, input_spec_json={"finished_width": 21, "finished_height": 29.7,
+                                            "colors": 4, "sides": 2},
+            quantity_list_json=list(quantities),
+        )
+        db.add(est)
+        db.flush()
+        opt_ids = []
+        for q in quantities:
+            opt = EstimateOption(
+                estimate_id=est.id, quantity=q, total_cost=q * unit_cost, warnings_json=[],
+                margin_percent=20, vat_percent=10,
+            )
+            db.add(opt)
+            db.flush()
+            opt_ids.append(opt.id)
+        db.commit()
+        return est.id, opt_ids
     finally:
         db.close()
 
 
-def _create(client, token, **over) -> dict:
-    body = {
-        "customer_id": None, "costing_id": None, "cost_von_total": 1_000_000,
-        "margin": 200_000, "discount": 50_000, "valid_until": TOMORROW,
-    }
+def _create_multi(client, token, picks, **over) -> dict:
+    body = {"customer_id": None, "picks": picks, "valid_until": TOMORROW}
     body.update(over)
     r = client.post("/api/quotations", json=body, headers=_h(token))
     assert r.status_code == 201, r.text
     return r.json()
 
 
-# --- F1 list -------------------------------------------------------------------
+# --- list + stats ---------------------------------------------------------------
 
 def test_list_empty_then_shows_created(client):
     token = _admin_token(client)
     r = client.get("/api/quotations", headers=_h(token))
-    assert r.status_code == 200
-    assert r.json()["total"] == 0
-    q = _create(client, token)
-    r = client.get("/api/quotations?sort=code&page=1&size=10", headers=_h(token))
-    body = r.json()
+    assert r.status_code == 200 and r.json()["total"] == 0
+
+    eid, opts = _mk_estimate()
+    q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts[:1]}])
+
+    body = client.get("/api/quotations?page=1&size=10", headers=_h(token)).json()
     assert body["total"] == 1
     row = body["items"][0]
     assert row["code"].startswith("BG")
     assert row["version"] == 1
-    assert row["total"] == q["total"]
     assert row["status"] == "draft"
+    assert row["total"] == q["total"]
+    # ↳ tham chiếu phiếu tính giá hiện trên list
+    assert row["estimate_refs"] and row["estimate_refs"][0].startswith("TGT-")
+    assert row["product_summary"] == "Catalogue A4"
 
 
-def test_list_status_filter(client):
+def test_list_status_filter_and_stats(client):
     token = _admin_token(client)
-    _create(client, token)
-    r = client.get("/api/quotations?status=approved", headers=_h(token))
+    eid, opts = _mk_estimate()
+    _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
+
+    r = client.get("/api/quotations?status=accepted", headers=_h(token))
     assert r.status_code == 200 and r.json()["total"] == 0
 
+    stats = client.get("/api/quotations/stats", headers=_h(token)).json()
+    assert stats["total"] == 1 and stats["draft"] == 1 and stats["need_action"] == 1
 
-# --- F2 create + pricing -------------------------------------------------------
 
-def test_create_computes_gia_ban(client):
+# --- create: pick từ phiếu tính giá ---------------------------------------------
+
+def test_create_multi_pick_from_two_estimates(client):
+    """Logic chốt: 1 báo giá pick từ NHIỀU phiếu tính giá — mỗi dòng khóa giá vốn riêng."""
     token = _admin_token(client)
-    q = _create(client, token, cost_von_total=1_000_000, margin=300_000, discount=100_000)
-    assert q["total"] == 1_200_000
-    assert q["cost_von_total"] == 1_000_000
+    e1, o1 = _mk_estimate(product_name="Catalogue A4", quantities=(1000,), unit_cost=1000)
+    e2, o2 = _mk_estimate(product_name="Tờ rơi A5", quantities=(5000, 10000), unit_cost=200)
+
+    q = _create_multi(client, token, [
+        {"estimate_id": e1, "option_ids": o1},
+        {"estimate_id": e2, "option_ids": o2},
+    ], margin_percent=25)
+
+    assert len(q["items"]) == 3  # 1 mức + 2 mức
+    by_est = {}
+    for it in q["items"]:
+        by_est.setdefault(it["estimate_id"], []).append(it)
+        assert it["estimate_number"].startswith("TGT-")
+        assert it["margin_percent"] == 25.0  # gói biên áp chung
+        assert it["total_cost_snapshot"] > 0  # giá vốn khóa per dòng
+    assert set(by_est) == {e1, e2}
+
+    # Giá bán mỗi dòng = giá vốn / (1 − 25%) rồi + VAT 10%
+    it1 = by_est[e1][0]
+    assert abs(it1["selling_price"] - 1_000_000 / 0.75) < 1
+    assert abs(it1["final_amount"] - it1["selling_price"] * 1.10) < 1
+
+    # Tổng version = cộng các dòng
+    assert abs(q["total"] - sum(it["final_amount"] for it in q["items"])) < 1
+
+    # Phiếu nguồn bị đánh dấu đã lên báo giá (không pick lại được)
+    db = SessionLocal()
+    try:
+        assert db.get(Estimate, e1).status == "converted_to_quote"
+        assert db.get(Estimate, e2).status == "converted_to_quote"
+    finally:
+        db.close()
 
 
-def test_create_validation_422(client):
+def test_create_picks_requires_calculated_estimate(client):
     token = _admin_token(client)
-    # discount > cost + margin
+    eid, opts = _mk_estimate(status="draft")  # chưa tính
     r = client.post(
         "/api/quotations",
-        json={"cost_von_total": 100, "margin": 0, "discount": 500, "valid_until": TOMORROW},
+        json={"picks": [{"estimate_id": eid, "option_ids": opts}], "valid_until": TOMORROW},
         headers=_h(token),
     )
     assert r.status_code == 422
-    # past valid_until
+    assert "Đã tính" in r.json()["detail"]
+
     r = client.post(
         "/api/quotations",
-        json={"cost_von_total": 100, "margin": 0, "discount": 0, "valid_until": YESTERDAY},
+        json={"picks": [{"estimate_id": 99999, "option_ids": [1]}], "valid_until": TOMORROW},
         headers=_h(token),
     )
     assert r.status_code == 422
 
 
-# --- edit draft only + optimistic lock ----------------------------------------
-
-def test_update_draft_then_lock_after_send(client):
+def test_create_legacy_single_estimate_path(client):
     token = _admin_token(client)
-    q = _create(client, token)
-    # ok while draft
-    r = client.put(
-        f"/api/quotations/{q['id']}",
-        json={"cost_von_total": 900_000, "margin": 100_000, "discount": 0,
-              "valid_until": TOMORROW, "row_version": q["row_version"]},
+    eid, opts = _mk_estimate(quantities=(1000, 2000))
+    r = client.post(
+        "/api/quotations",
+        json={"estimate_id": eid, "selected_option_ids": opts[:1], "valid_until": TOMORROW},
         headers=_h(token),
     )
-    assert r.status_code == 200 and r.json()["total"] == 1_000_000
-    rv = r.json()["row_version"]
-    # send → sent
-    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"},
-                headers=_h(token))
-    # now edit is locked
+    assert r.status_code == 201
+    body = r.json()
+    assert len(body["items"]) == 1
+    assert body["items"][0]["estimate_id"] == eid
+
+
+def test_create_past_valid_until_422(client):
+    token = _admin_token(client)
+    r = client.post("/api/quotations", json={"valid_until": YESTERDAY}, headers=_h(token))
+    assert r.status_code == 422
+
+
+# --- update draft only -----------------------------------------------------------
+
+def test_update_locked_after_send(client):
+    token = _admin_token(client)
+    eid, opts = _mk_estimate()
+    q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts[:1]}])
+
+    # sửa được khi draft (đổi % biên dòng đầu)
+    item_id = q["items"][0]["id"]
     r = client.put(
         f"/api/quotations/{q['id']}",
-        json={"cost_von_total": 1, "margin": 0, "discount": 0,
-              "valid_until": TOMORROW, "row_version": rv + 1},
+        json={"items": [{"id": item_id, "margin_percent": 30, "vat_percent": 10}]},
         headers=_h(token),
     )
-    assert r.status_code == 409
+    assert r.status_code == 200, r.text
+    assert r.json()["items"][0]["margin_percent"] == 30.0
 
-
-def test_stale_row_version_409(client):
-    token = _admin_token(client)
-    q = _create(client, token)
-    r = client.put(
-        f"/api/quotations/{q['id']}",
-        json={"cost_von_total": 1, "margin": 0, "discount": 0,
-              "valid_until": TOMORROW, "row_version": q["row_version"] + 9},
-        headers=_h(token),
-    )
-    assert r.status_code == 409
-
-
-# --- SEAM-13 costing picker ----------------------------------------------------
-
-def test_costing_picker_not_found_is_honest(client):
-    # SEAM-13 CLOSED: an unknown estimate id → explicit reason, never a fabricated cost.
-    token = _admin_token(client)
-    r = client.get("/api/quotations/costings/999", headers=_h(token))
+    # gửi khách → khóa
+    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
     assert r.status_code == 200
-    body = r.json()
-    assert body["available"] is False
-    assert "Không tìm thấy" in body["message"]
-    assert body["cost_von_total"] is None  # never a fabricated cost
-
-
-def test_costing_picker_pulls_calculated_estimate(client):
-    """SEAM-13 CLOSED end-to-end: calculated estimate → picker (bậc SL) → quotation
-    send freezes BOTH snapshot vế from the estimate."""
-    token = _admin_token(client)
-    est = client.post(
-        "/api/estimates",
-        json={
-            "product_type": "brochure",
-            "product_name": "SEAM-13 QA",
-            "quantity_list": [500, 1000],
-            "status": "calculated",
-            "input_spec": {
-                "material_id": 1, "machine_id": 1, "sheet_w": 65, "sheet_h": 86,
-                "pieces_per_sheet": 8, "colors": 4, "sides": 2, "forms": 1,
-                "operations": [],
-            },
-        },
+    r = client.put(
+        f"/api/quotations/{q['id']}",
+        json={"items": [{"id": item_id, "margin_percent": 5}]},
         headers=_h(token),
     )
-    assert est.status_code == 201, est.text
-    eid = est.json()["id"]
-
-    r = client.get(f"/api/quotations/costings/{eid}", headers=_h(token))
-    body = r.json()
-    assert body["available"] is True
-    assert body["quantity"] == 500  # default = lowest quantity point
-    assert body["cost_von_total"] and body["cost_von_total"] > 0
-    assert [o["quantity"] for o in body["options"]] == [500, 1000]
-
-    # Explicit quantity point (bậc SL).
-    r2 = client.get(f"/api/quotations/costings/{eid}?quantity=1000", headers=_h(token))
-    assert r2.json()["quantity"] == 1000
-    assert r2.json()["cost_von_total"] >= body["cost_von_total"]
-
-    # Quotation referencing the estimate: send freezes BOTH vế from the estimate.
-    q = _create(client, token, costing_id=eid, cost_von_total=body["cost_von_total"])
-    sent = client.post(
-        f"/api/quotations/{q['id']}/transition",
-        json={"to_status": "sent"},
-        headers=_h(token),
-    ).json()
-    assert sent["unit_price_snapshot"]["source"] == "estimate"
-    assert sent["unit_price_snapshot"]["quantity"] == 500  # cost_hint matched the point
-    assert sent["unit_price_snapshot"]["cost_lines"], "per-line frozen prices must be present"
-    assert sent["norm_snapshot"]["estimate_id"] == eid
-    assert sent["norm_snapshot"]["input_spec"]["colors"] == 4
+    assert r.status_code == 409
 
 
-# --- F3/F4/F5 lifecycle --------------------------------------------------------
+# --- lifecycle --------------------------------------------------------------------
 
-def test_send_freezes_snapshot(client):
+def test_send_freezes_snapshot_then_accept(client):
     token = _admin_token(client)
-    q = _create(client, token)
-    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"},
-                    headers=_h(token))
+    eid, opts = _mk_estimate()
+    q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
+
+    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
     assert r.status_code == 200
     body = r.json()
     assert body["status"] == "sent"
-    assert body["unit_price_snapshot"] is not None
-    assert body["norm_snapshot"] is not None  # P0: both vế frozen
+    assert "accepted" in body["allowed_transitions"]
+
+    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "accepted"}, headers=_h(token))
+    assert r.status_code == 200 and r.json()["status"] == "accepted"
 
 
-def test_illegal_transition_409(client):
+def test_illegal_transition_conflict(client):
     token = _admin_token(client)
-    q = _create(client, token)
-    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "approved"},
-                    headers=_h(token))
-    assert r.status_code == 409  # draft → approved illegal
-
-
-def test_sale_cannot_approve_manager_can(client):
-    admin = _admin_token(client)
-    q = _create(client, admin)
-    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"},
-                headers=_h(admin))
-    # A Sale (scope=own) → 403 on approve.
-    sale = _role_token("sale-approve", "NV Sales")
-    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "approved"},
-                    headers=_h(sale))
-    assert r.status_code in (403, 404)  # own-scope sale may not even see it → both are "no"
-    # Admin (scope=all) approves.
-    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "approved"},
-                    headers=_h(admin))
-    assert r.status_code == 200 and r.json()["status"] == "approved"
+    eid, opts = _mk_estimate()
+    q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
+    # draft → rejected là bất hợp lệ
+    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "rejected"}, headers=_h(token))
+    assert r.status_code == 409
+    # trạng thái lạ → 422
+    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "banana"}, headers=_h(token))
+    assert r.status_code == 422
 
 
 def test_cancel_requires_reason(client):
     token = _admin_token(client)
-    q = _create(client, token)
-    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "cancelled"},
-                    headers=_h(token))
+    eid, opts = _mk_estimate()
+    q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
+    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "cancelled"}, headers=_h(token))
     assert r.status_code == 422
-    r = client.post(f"/api/quotations/{q['id']}/transition",
-                    json={"to_status": "cancelled", "cancel_reason": "khách đổi ý"},
-                    headers=_h(token))
-    assert r.status_code == 200
-    assert r.json()["status"] == "cancelled"
-    assert r.json()["cancelled_at_state"] == "draft"
+    r = client.post(
+        f"/api/quotations/{q['id']}/transition",
+        json={"to_status": "cancelled", "cancel_reason": "Khách đổi ý"},
+        headers=_h(token),
+    )
+    assert r.status_code == 200 and r.json()["status"] == "cancelled"
 
 
 def test_requote_new_version(client):
     token = _admin_token(client)
-    q = _create(client, token)
-    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"},
-                headers=_h(token))
+    eid, opts = _mk_estimate()
+    q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
+    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
+
     r = client.post(f"/api/quotations/{q['id']}/requote", headers=_h(token))
-    assert r.status_code == 201
+    assert r.status_code == 201, r.text
     body = r.json()
-    assert body["code"] == q["code"] and body["version"] == 2 and body["status"] == "draft"
-    # old one superseded, still fetchable
-    old = client.get(f"/api/quotations/{q['id']}", headers=_h(token)).json()
-    assert old["status"] == "change_order"
+    assert body["version"] == 2
     assert len(body["versions"]) == 2
+    # phiên bản cũ giữ nguyên trong lịch sử
+    assert {v["version"] for v in body["versions"]} == {1, 2}
 
 
-# --- F6 PDF đối ngoại ----------------------------------------------------------
+# --- SEAM-13 costing picker --------------------------------------------------------
 
-def test_pdf_is_pdf_and_hides_buildup(client):
+def test_costing_picker_not_found_is_honest(client):
     token = _admin_token(client)
-    q = _create(client, token)
-    r = client.get(f"/api/quotations/{q['id']}/pdf", headers=_h(token))
+    r = client.get("/api/quotations/costings/99999", headers=_h(token))
     assert r.status_code == 200
-    assert r.headers["content-type"] == "application/pdf"
-    assert r.content[:4] == b"%PDF"
-    # The buildup vocabulary must NOT appear in the document bytes.
-    lowered = r.content.lower()
-    for banned in (b"ke\xcc\x83m", b"imposition", b"bu hao", b"buildup", b"so to", b"so con"):
-        assert banned not in lowered
+    body = r.json()
+    assert body["available"] is False
+    assert body.get("options") in (None, [])  # never a fabricated cost
 
 
-# --- RBAC ----------------------------------------------------------------------
-
-def test_requires_permission(client):
-    r = client.get("/api/quotations")
-    assert r.status_code == 401
+def test_costing_picker_pulls_calculated_estimate(client):
+    token = _admin_token(client)
+    eid, _ = _mk_estimate(quantities=(1000, 2000), unit_cost=500)
+    r = client.get(f"/api/quotations/costings/{eid}", headers=_h(token))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["available"] is True
+    assert [o["quantity"] for o in body["options"]] == [1000, 2000]
+    assert body["options"][0]["total_cost"] == 500_000

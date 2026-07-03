@@ -13,7 +13,13 @@ import pytest
 
 from app.db import Base, SessionLocal, engine
 from app.models.order import ORDER_KIND_BO_SUNG, ORDER_KIND_MOI, STATUS_DRAFT
-from app.models.quotation import STATUS_APPROVED, STATUS_DRAFT as Q_DRAFT
+from app.models.quotation import (
+    STATUS_ACCEPTED,
+    STATUS_DRAFT as Q_DRAFT,
+    Quote,
+    QuoteItem,
+    QuoteVersion,
+)
 from app.repositories.audit_repo import AuditLogRepository
 from app.repositories.order_repo import OrderRepository
 from app.repositories.quotation_repo import QuotationRepository
@@ -26,6 +32,37 @@ from app.services.order_service import (
 )
 
 TOMORROW = date.today() + timedelta(days=30)
+
+
+def _mk_quote(db, *, sale_user_id: int, total: int, valid_until=None, status: str = STATUS_ACCEPTED) -> int:
+    """Dựng Quote H-V-I trực tiếp (header + v1 + 1 item, qty=1 nên unit_price = total)."""
+    n = db.query(Quote).count() + 1
+    q = Quote(
+        quote_number=f"BGT-{n:04d}",
+        customer_id=None,
+        salesperson_id=sale_user_id,
+        status=status,
+        valid_until=valid_until,
+        created_by=sale_user_id,
+    )
+    db.add(q)
+    db.flush()
+    v = QuoteVersion(
+        quote_id=q.id, version_number=1, status="accepted" if status == STATUS_ACCEPTED else "draft",
+        total_cost_snapshot=0, subtotal_amount=total, discount_amount=0,
+        vat_percent=0, vat_amount=0, final_amount=total, created_by=sale_user_id,
+    )
+    db.add(v)
+    db.flush()
+    db.add(QuoteItem(
+        quote_version_id=v.id, line_no=1, product_type="brochure", product_name="SP Test",
+        quantity=1, unit="cái", total_cost_snapshot=0, margin_percent=0,
+        selling_price=total, unit_price=total, discount_amount=0,
+        vat_percent=0, vat_amount=0, final_amount=total,
+    ))
+    q.current_version_id = v.id
+    db.commit()
+    return q.id
 
 
 @pytest.fixture
@@ -58,12 +95,7 @@ def _service(db) -> OrderService:
 
 
 def _approved_quotation(db, actor, *, total=1_000_000) -> int:
-    qrepo = QuotationRepository(db)
-    q = qrepo.create(
-        customer_id=None, costing_id=None, cost_von_total=total, margin=0, discount=0,
-        total=total, valid_until=TOMORROW, sale_user_id=actor.id, status=STATUS_APPROVED,
-    )
-    return q.id
+    return _mk_quote(db, sale_user_id=actor.id, total=total, valid_until=TOMORROW)
 
 
 # --- create from an approved quotation (F1) -----------------------------------
@@ -100,10 +132,14 @@ def test_snapshot_is_copy_on_write_not_live_fk(db):
         parent_order_id=None, has_customer_paper=False, vat_pct_estimate=0, actor=actor,
     )
     order_id = order.id
-    # Change the SOURCE quotation total afterwards.
-    qrepo = QuotationRepository(db)
-    q = qrepo.get_by_id(qid)
-    qrepo.update(q, total=9_999_999)
+    # Change the SOURCE quotation total afterwards (mutate the active version + item).
+    q = QuotationRepository(db).get_by_id(qid)
+    for v in q.versions:
+        if v.id == q.current_version_id:
+            v.final_amount = 9_999_999
+            for it in v.items:
+                it.unit_price = 9_999_999
+    db.commit()
     # The order-line snapshot must NOT change (no live FK).
     fresh = OrderRepository(db).get_with_lines(order_id)
     assert fresh.lines[0].unit_price_snapshot == 1_000_000
@@ -111,15 +147,11 @@ def test_snapshot_is_copy_on_write_not_live_fk(db):
 
 def test_cannot_create_from_non_approved_quotation(db):
     actor = _make_actor(db)
-    qrepo = QuotationRepository(db)
-    q = qrepo.create(
-        customer_id=None, costing_id=None, cost_von_total=100, margin=0, discount=0,
-        total=100, valid_until=TOMORROW, sale_user_id=actor.id, status=Q_DRAFT,
-    )
+    qid = _mk_quote(db, sale_user_id=actor.id, total=100, valid_until=TOMORROW, status=Q_DRAFT)
     svc = _service(db)
     with pytest.raises(QuotationNotSelectable):
         svc.create_order(
-            quotation_id=q.id, order_type="theo_yc", order_kind="moi",
+            quotation_id=qid, order_type="theo_yc", order_kind="moi",
             parent_order_id=None, has_customer_paper=False, vat_pct_estimate=0, actor=actor,
         )
 

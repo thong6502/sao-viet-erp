@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.db import SessionLocal
 from app.models.order import Order, OrderLine
-from app.models.quotation import Quotation
+from app.models.quotation import Quote, QuoteVersion
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
@@ -73,20 +73,24 @@ def _add_orders(customer_id: int, sale_username: str) -> None:
                 OrderLine(description=desc, qty=qty, unit_price_snapshot=unit, line_total=qty * unit)
             )
             db.add(o)
-        db.add(
-            Quotation(
-                code="BGX1",
-                version=1,
-                customer_id=customer_id,
-                total=25_000_000,
-                margin=5_000_000,
-                discount=0,
-                sale_user_id=sale.id if sale else None,
-                status="sent",
-                row_version=1,
-                created_at=now - timedelta(days=20),
-            )
+        q = Quote(
+            quote_number="BGX1",
+            customer_id=customer_id,
+            salesperson_id=sale.id if sale else None,
+            status="sent",
+            created_at=now - timedelta(days=20),
         )
+        db.add(q)
+        db.flush()
+        qv = QuoteVersion(
+            quote_id=q.id, version_number=1, status="sent",
+            total_cost_snapshot=20_000_000, subtotal_amount=25_000_000, discount_amount=0,
+            vat_percent=0, vat_amount=0, final_amount=25_000_000,
+            sent_at=now - timedelta(days=20), created_at=now - timedelta(days=20),
+        )
+        db.add(qv)
+        db.flush()
+        q.current_version_id = qv.id
         db.commit()
     finally:
         db.close()

@@ -1,278 +1,126 @@
-"""feat-043 — Báo giá (Quotation) data model + lifecycle/version + snapshot (spec-09).
+"""Báo giá H-V-I data model (Quote → QuoteVersion → QuoteItem).
 
-Service/repo level (no HTTP): sequential BG### codes, giá bán = giá vốn + lãi − chiết khấu,
-snapshot copy-on-write freezes BOTH unit_price_snapshot AND norm_snapshot (P0), the state
-machine allows/blocks the right transitions, change_order creates a new version keeping the
-old one, and row_version optimistic locking clashes → conflict.
+Model-level: status constants, header/version/item roundtrip, current_version pointer,
+per-item estimate reference (1 báo giá pick từ NHIỀU phiếu tính giá), cascade delete
+(xóa quote → versions/items/activity đi theo).
 """
 from __future__ import annotations
 
-from datetime import date, timedelta
-
 import pytest
 
-from app.db import SessionLocal, init_db
+from app.db import Base, SessionLocal, engine
 from app.models.quotation import (
-    STATUS_APPROVED,
-    STATUS_CHANGE_ORDER,
+    QUOTE_STATUSES,
+    STATUS_ACCEPTED,
+    STATUS_CANCELLED,
+    STATUS_CONVERTED_TO_ORDER,
     STATUS_DRAFT,
+    STATUS_EXPIRED,
     STATUS_REJECTED,
     STATUS_SENT,
-)
-from app.repositories.audit_repo import AuditLogRepository
-from app.repositories.customer_repo import CustomerRepository
-from app.repositories.quotation_repo import QuotationRepository
-from app.seed import seed_all
-from app.services.quotation_service import (
-    QuotationConflict,
-    QuotationForbidden,
-    QuotationLocked,
-    QuotationService,
-    QuotationValidationError,
+    Quote,
+    QuoteActivityLog,
+    QuoteItem,
+    QuoteVersion,
 )
 
 
 @pytest.fixture
 def db():
-    init_db()
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
     session = SessionLocal()
     try:
-        seed_all(session)
         yield session
     finally:
         session.close()
 
 
-class _Actor:
-    def __init__(self, id: int, department_id: int | None = 1) -> None:
-        self.id = id
-        self.department_id = department_id
+def _mk_quote(db, *, number="BGT-0001", status=STATUS_DRAFT) -> Quote:
+    q = Quote(quote_number=number, status=status)
+    db.add(q)
+    db.flush()
+    v = QuoteVersion(
+        quote_id=q.id, version_number=1, status="draft",
+        subtotal_amount=1_000_000, discount_amount=0, vat_percent=8,
+        vat_amount=80_000, final_amount=1_080_000,
+    )
+    db.add(v)
+    db.flush()
+    q.current_version_id = v.id
+    return q
 
 
-def _svc(db) -> QuotationService:
-    return QuotationService(
-        QuotationRepository(db),
-        AuditLogRepository(db),
-        customers=CustomerRepository(db),
+def test_status_constants_complete():
+    assert QUOTE_STATUSES == (
+        STATUS_DRAFT, STATUS_SENT, STATUS_ACCEPTED, STATUS_REJECTED,
+        STATUS_EXPIRED, STATUS_CONVERTED_TO_ORDER, STATUS_CANCELLED,
     )
 
 
-TOMORROW = date.today() + timedelta(days=30)
-YESTERDAY = date.today() - timedelta(days=1)
+def test_header_version_item_roundtrip(db):
+    q = _mk_quote(db)
+    v = db.get(QuoteVersion, q.current_version_id)
+    db.add(QuoteItem(
+        quote_version_id=v.id, line_no=1, product_type="brochure", product_name="Catalogue A4",
+        product_spec_text="21×29,7 cm · 4 màu/2 mặt", quantity=1000, unit="cái",
+        total_cost_snapshot=800_000, margin_percent=20, selling_price=1_000_000,
+        unit_price=1_000, discount_amount=0, vat_percent=8, vat_amount=80_000,
+        final_amount=1_080_000,
+    ))
+    db.commit()
+
+    fresh = db.get(Quote, q.id)
+    assert fresh.quote_number == "BGT-0001"
+    assert len(fresh.versions) == 1
+    assert fresh.versions[0].items[0].product_name == "Catalogue A4"
+    assert float(fresh.versions[0].items[0].total_cost_snapshot) == 800_000
 
 
-# --- create + giá bán ----------------------------------------------------------
+def test_items_carry_per_line_estimate_reference(db):
+    """1 báo giá pick từ NHIỀU phiếu tính giá — mỗi dòng giữ estimate_id riêng."""
+    from app.models.estimate import Estimate
 
-def test_create_generates_sequential_bg_code_and_computes_total(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    a = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=1_000_000,
-        margin=200_000, discount=50_000, valid_until=TOMORROW, actor=actor,
-    )
-    b = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=500_000,
-        margin=0, discount=0, valid_until=TOMORROW, actor=actor,
-    )
-    assert a.code.startswith("BG") and b.code.startswith("BG")
-    assert a.code != b.code
-    assert int(b.code[2:]) == int(a.code[2:]) + 1
-    # giá bán = giá vốn + lãi − chiết khấu
-    assert a.total == 1_000_000 + 200_000 - 50_000
-    assert a.status == STATUS_DRAFT and a.version == 1
+    e1 = Estimate(estimate_number="TGT-1", product_type="brochure", product_name="SP1",
+                  status="calculated", input_spec_json={}, quantity_list_json=[1000])
+    e2 = Estimate(estimate_number="TGT-2", product_type="box", product_name="SP2",
+                  status="calculated", input_spec_json={}, quantity_list_json=[500])
+    db.add_all([e1, e2])
+    db.flush()
 
+    q = _mk_quote(db, number="BGT-0002")
+    v = db.get(QuoteVersion, q.current_version_id)
+    for i, est in enumerate((e1, e2), start=1):
+        db.add(QuoteItem(
+            quote_version_id=v.id, estimate_id=est.id, line_no=i,
+            product_type=est.product_type, product_name=est.product_name,
+            quantity=100, unit="cái", total_cost_snapshot=1, margin_percent=0,
+            selling_price=1, unit_price=1, discount_amount=0, vat_percent=0,
+            vat_amount=0, final_amount=1,
+        ))
+    db.commit()
 
-def test_total_is_none_when_cost_unknown(db):
-    svc = _svc(db)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=None,
-        margin=100_000, discount=0, valid_until=None, actor=_Actor(1),
-    )
-    assert q.total is None  # no fabricated number when giá vốn chưa nạp
+    fresh = db.get(Quote, q.id)
+    refs = {it.estimate_id for it in fresh.versions[0].items}
+    assert refs == {e1.id, e2.id}
 
 
-def test_negative_amount_and_over_discount_and_past_date_blocked(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    with pytest.raises(QuotationValidationError):
-        svc.create_quotation(
-            customer_id=None, costing_id=None, cost_von_total=-1,
-            margin=0, discount=0, valid_until=None, actor=actor,
-        )
-    with pytest.raises(QuotationValidationError):
-        svc.create_quotation(
-            customer_id=None, costing_id=None, cost_von_total=100,
-            margin=0, discount=200, valid_until=None, actor=actor,  # discount > cost+margin
-        )
-    with pytest.raises(QuotationValidationError):
-        svc.create_quotation(
-            customer_id=None, costing_id=None, cost_von_total=100,
-            margin=0, discount=0, valid_until=YESTERDAY, actor=actor,  # past hạn
-        )
+def test_cascade_delete_versions_items_activity(db):
+    q = _mk_quote(db, number="BGT-0003")
+    v = db.get(QuoteVersion, q.current_version_id)
+    db.add(QuoteItem(
+        quote_version_id=v.id, line_no=1, product_type="x", product_name="x",
+        quantity=1, unit="cái", total_cost_snapshot=0, margin_percent=0,
+        selling_price=0, unit_price=0, discount_amount=0, vat_percent=0,
+        vat_amount=0, final_amount=0,
+    ))
+    db.add(QuoteActivityLog(quote_id=q.id, action="create_quote"))
+    db.commit()
+    qid, vid = q.id, v.id
 
+    db.delete(db.get(Quote, qid))
+    db.commit()
 
-# --- edit (draft only) + optimistic lock --------------------------------------
-
-def test_edit_only_when_draft(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=100,
-        margin=10, discount=0, valid_until=TOMORROW, actor=actor,
-    )
-    svc.transition(quotation_id=q.id, to_status=STATUS_SENT, scope="all", actor=actor)
-    with pytest.raises(QuotationLocked):
-        svc.update_quotation(
-            quotation_id=q.id, scope="all", actor=actor,
-            customer_id=None, costing_id=None, cost_von_total=200,
-            margin=10, discount=0, valid_until=TOMORROW, row_version=q.row_version,
-        )
-
-
-def test_stale_row_version_conflicts(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=100,
-        margin=10, discount=0, valid_until=TOMORROW, actor=actor,
-    )
-    with pytest.raises(QuotationConflict):
-        svc.update_quotation(
-            quotation_id=q.id, scope="all", actor=actor,
-            customer_id=None, costing_id=None, cost_von_total=200,
-            margin=10, discount=0, valid_until=TOMORROW, row_version=q.row_version + 5,
-        )
-
-
-# --- P0 snapshot copy-on-write -------------------------------------------------
-
-def test_send_freezes_both_snapshots(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=1_000_000,
-        margin=300_000, discount=100_000, valid_until=TOMORROW, actor=actor,
-    )
-    sent = svc.transition(quotation_id=q.id, to_status=STATUS_SENT, scope="all", actor=actor)
-    # P0: BOTH vế must be frozen together — a half-frozen snapshot is the same bug as a live FK.
-    assert sent.unit_price_snapshot is not None
-    assert sent.norm_snapshot is not None
-    assert sent.price_effective_from is not None
-    assert sent.unit_price_snapshot["total"] == 1_200_000
-
-
-def test_snapshot_survives_source_change(db):
-    """P0 observable: editing is blocked after send, and the frozen number is what's kept."""
-    svc = _svc(db)
-    actor = _Actor(1)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=1_000_000,
-        margin=0, discount=0, valid_until=TOMORROW, actor=actor,
-    )
-    sent = svc.transition(quotation_id=q.id, to_status=STATUS_SENT, scope="all", actor=actor)
-    frozen = sent.unit_price_snapshot["total"]
-    # Even a re-quote (new version) carries forward the same snapshot origin; the SENT phiếu
-    # keeps its frozen number regardless.
-    assert frozen == 1_000_000
-    assert sent.total == 1_000_000
-
-
-# --- state machine -------------------------------------------------------------
-
-def test_illegal_transition_blocked(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=100,
-        margin=0, discount=0, valid_until=TOMORROW, actor=actor,
-    )
-    # draft → approved is illegal (must go through sent first).
-    with pytest.raises(QuotationConflict):
-        svc.transition(quotation_id=q.id, to_status=STATUS_APPROVED, scope="all", actor=actor)
-
-
-def test_approve_requires_approver_permission(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=100,
-        margin=0, discount=0, valid_until=TOMORROW, actor=actor,
-    )
-    svc.transition(quotation_id=q.id, to_status=STATUS_SENT, scope="all", actor=actor)
-    # A Sale (scope=own) cannot approve → forbidden.
-    with pytest.raises(QuotationForbidden):
-        svc.transition(quotation_id=q.id, to_status=STATUS_APPROVED, scope="own", actor=actor)
-    # A manager (scope=all|department) can.
-    approved = svc.transition(
-        quotation_id=q.id, to_status=STATUS_APPROVED, scope="all", actor=actor
-    )
-    assert approved.status == STATUS_APPROVED
-
-
-def test_reject_from_sent(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=100,
-        margin=0, discount=0, valid_until=TOMORROW, actor=actor,
-    )
-    svc.transition(quotation_id=q.id, to_status=STATUS_SENT, scope="all", actor=actor)
-    rejected = svc.transition(
-        quotation_id=q.id, to_status=STATUS_REJECTED, scope="department", actor=actor
-    )
-    assert rejected.status == STATUS_REJECTED
-
-
-def test_cancel_requires_reason_and_records_state(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=100,
-        margin=0, discount=0, valid_until=TOMORROW, actor=actor,
-    )
-    with pytest.raises(QuotationValidationError):
-        svc.transition(quotation_id=q.id, to_status="cancelled", scope="all", actor=actor)
-    cancelled = svc.transition(
-        quotation_id=q.id, to_status="cancelled", scope="all", actor=actor,
-        cancel_reason="khách đổi ý",
-    )
-    assert cancelled.status == "cancelled"
-    assert cancelled.cancel_reason == "khách đổi ý"
-    assert cancelled.cancelled_at_state == STATUS_DRAFT
-
-
-def test_expired_blocks_approval(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    # valid_until today is fine at create; force a past date on the row to simulate expiry.
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=100,
-        margin=0, discount=0, valid_until=date.today(), actor=actor,
-    )
-    svc.transition(quotation_id=q.id, to_status=STATUS_SENT, scope="all", actor=actor)
-    # Backdate valid_until directly (repo update bypasses the create-time guard).
-    QuotationRepository(db).update(q, valid_until=YESTERDAY)
-    # Next transition sees the time guard → expired, so approve is illegal.
-    with pytest.raises(QuotationConflict):
-        svc.transition(quotation_id=q.id, to_status=STATUS_APPROVED, scope="all", actor=actor)
-
-
-# --- version / change_order ----------------------------------------------------
-
-def test_requote_creates_new_version_keeping_old(db):
-    svc = _svc(db)
-    actor = _Actor(1)
-    q = svc.create_quotation(
-        customer_id=None, costing_id=None, cost_von_total=100,
-        margin=10, discount=0, valid_until=TOMORROW, actor=actor,
-    )
-    svc.transition(quotation_id=q.id, to_status=STATUS_SENT, scope="all", actor=actor)
-    new_v = svc.requote(quotation_id=q.id, scope="all", actor=actor)
-    assert new_v.code == q.code
-    assert new_v.version == q.version + 1
-    assert new_v.status == STATUS_DRAFT
-    # The old phiếu is superseded but still retrievable (history kept).
-    old = svc.get_quotation(quotation_id=q.id, scope="all", actor=actor)
-    assert old.status == STATUS_CHANGE_ORDER
-    chain = svc.version_history(new_v)
-    assert len(chain) == 2
+    assert db.get(QuoteVersion, vid) is None
+    assert db.query(QuoteItem).filter_by(quote_version_id=vid).count() == 0
+    assert db.query(QuoteActivityLog).filter_by(quote_id=qid).count() == 0

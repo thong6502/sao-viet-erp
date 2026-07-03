@@ -1,29 +1,28 @@
-"""Báo giá lifecycle state machine — spec-09 F4/F5 (§9 L280-298, §32 L825-827).
+"""Báo giá lifecycle state machine — H-V-I (Quote → QuoteVersion → QuoteItem).
 
-The transition table is the single source of truth for which status changes are legal:
-``(from, to) -> Transition(action, requires_approval, requires_reason, snapshots)``.
+The transition table mirrors the legality rules implemented in
+``QuotationService.transition`` / ``requote`` — it is the DISPLAY source of truth the
+router uses to compute ``allowed_transitions`` (which action buttons the UI shows).
+If the service rules change, change this table with them.
 
-- ``requires_approval`` transitions (approve/reject) need the approver permission (ngưỡng
-  X/Y — values are SVN-input, versioned, ⚠️ chưa xác nhận; at P0 mapped to the manager
-  scope of ``bao_gia`` in the service, not a fabricated number).
-- ``requires_reason`` (cancel) needs a cancel_reason (+ cancelled_at_state captured).
-- ``snapshots`` marks the transition that freezes unit_price_snapshot + norm_snapshot
-  copy-on-write (draft→sent = Chốt giá / Gửi, P0 §34 L877-879).
-
-An unlisted ``(from, to)`` is an illegal transition → the service raises (router → 409/422).
-``expired`` is reached from a time guard (past valid_until), not a user click.
+- ``snapshots`` marks the transition that freezes the internal cost snapshot
+  copy-on-write (draft→sent = Chốt giá / Gửi khách, P0 §34 L877-879).
+- ``requires_reason`` (cancel) needs a cancel_reason.
+- ``expired`` is reached from a time guard (past valid_until) inside the service,
+  listed here so the UI can render the "Đánh dấu hết hạn" state.
+- Re-quote (new version) is NOT a status transition — it is ``POST /requote``
+  (legal from sent/accepted/rejected, see service).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from ..models.quotation import (
-    STATUS_APPROVED,
+    STATUS_ACCEPTED,
     STATUS_CANCELLED,
-    STATUS_CHANGE_ORDER,
+    STATUS_CONVERTED_TO_ORDER,
     STATUS_DRAFT,
     STATUS_EXPIRED,
-    STATUS_ON_HOLD,
     STATUS_REJECTED,
     STATUS_SENT,
 )
@@ -37,44 +36,24 @@ class Transition:
     snapshots: bool = False
 
 
-# (from, to) → Transition. Only these are legal.
+# (from, to) → Transition. Only these are legal (mirror of QuotationService.transition).
 TRANSITIONS: dict[tuple[str, str], Transition] = {
-    # Chốt giá / Gửi khách: freeze the snapshot (P0). draft → sent.
+    # Gửi khách: khóa phiên bản + freeze snapshot. draft → sent.
     (STATUS_DRAFT, STATUS_SENT): Transition(action="send_quote", snapshots=True),
-    # Duyệt / Từ chối (approver only). sent → approved | rejected.
-    (STATUS_SENT, STATUS_APPROVED): Transition(
-        action="approve_quote", requires_approval=True
-    ),
-    (STATUS_SENT, STATUS_REJECTED): Transition(
-        action="reject_quote", requires_approval=True
-    ),
-    # Hết hạn: sent → expired (time guard; chặn duyệt afterwards).
+    # Khách chốt: sent → accepted (service cũng cho draft → accepted khi chốt trực tiếp).
+    (STATUS_SENT, STATUS_ACCEPTED): Transition(action="accept_quote"),
+    (STATUS_DRAFT, STATUS_ACCEPTED): Transition(action="accept_quote"),
+    # Khách từ chối: sent → rejected.
+    (STATUS_SENT, STATUS_REJECTED): Transition(action="reject_quote"),
+    # Hết hạn: time guard trong service (valid_until đã qua) — hiển thị, không phải nút bấm tùy ý.
     (STATUS_SENT, STATUS_EXPIRED): Transition(action="expire_quote"),
-    # Tạm giữ / bỏ tạm giữ. sent ↔ on_hold.
-    (STATUS_SENT, STATUS_ON_HOLD): Transition(action="hold_quote"),
-    (STATUS_ON_HOLD, STATUS_SENT): Transition(action="resume_quote"),
-    (STATUS_ON_HOLD, STATUS_EXPIRED): Transition(action="expire_quote"),
-    # Re-quote (change_order): supersede the current phiếu (a new version is created
-    # separately). sent | approved | rejected → change_order.
-    (STATUS_SENT, STATUS_CHANGE_ORDER): Transition(action="change_order"),
-    (STATUS_APPROVED, STATUS_CHANGE_ORDER): Transition(action="change_order"),
-    (STATUS_REJECTED, STATUS_CHANGE_ORDER): Transition(action="change_order"),
-    # Hủy from any non-terminal working state (needs a reason).
-    (STATUS_DRAFT, STATUS_CANCELLED): Transition(
-        action="cancel_quote", requires_reason=True
-    ),
-    (STATUS_SENT, STATUS_CANCELLED): Transition(
-        action="cancel_quote", requires_reason=True
-    ),
-    (STATUS_ON_HOLD, STATUS_CANCELLED): Transition(
-        action="cancel_quote", requires_reason=True
-    ),
-    (STATUS_APPROVED, STATUS_CANCELLED): Transition(
-        action="cancel_quote", requires_reason=True
-    ),
-    (STATUS_REJECTED, STATUS_CANCELLED): Transition(
-        action="cancel_quote", requires_reason=True
-    ),
+    # Lên đơn hàng: accepted → converted_to_order (đặt bởi module Đơn hàng bán khi tạo đơn).
+    (STATUS_ACCEPTED, STATUS_CONVERTED_TO_ORDER): Transition(action="convert_to_order"),
+    # Hủy (cần lý do) từ các trạng thái đang làm việc.
+    (STATUS_DRAFT, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),
+    (STATUS_SENT, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),
+    (STATUS_ACCEPTED, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),
+    (STATUS_REJECTED, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),
 }
 
 

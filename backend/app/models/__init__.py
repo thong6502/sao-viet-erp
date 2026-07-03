@@ -10,7 +10,7 @@ from .operation import Operation, OperationRate
 from .order import Order, OrderLine
 from .product import Product, ProductComponent
 from .product_type_catalog import ProductTypeCatalog
-from .quotation import Quotation
+from .quotation import Quote, QuoteVersion, QuoteItem, QuoteAttachment, QuoteActivityLog
 from .refresh_token import RefreshToken
 from .role import Role, RolePermission
 from .unit_level import UnitLevel
@@ -40,7 +40,11 @@ __all__ = [
     "MachineRate",
     "Operation",
     "OperationRate",
-    "Quotation",
+    "Quote",
+    "QuoteVersion",
+    "QuoteItem",
+    "QuoteAttachment",
+    "QuoteActivityLog",
     "Costing",
     "CostingPaperOption",
     "CostingOperation",

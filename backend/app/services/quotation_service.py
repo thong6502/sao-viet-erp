@@ -1,78 +1,72 @@
-"""Báo giá (Quotation) business logic — spec-09-bao-gia.
-
-Framework-agnostic: raises domain errors the router maps to HTTP. Enforces the spec's
-rules (F1..F7):
-  - **F2 giá bán** = ``cost_von_total + margin − discount``; margin/discount ≥ 0,
-    discount ≤ (giá vốn + margin) (chiết khấu > 100% chặn); recomputed on every save.
-  - Edit only when ``status == draft`` (sửa phiếu khác draft → chặn; đổi giá → change_order).
-  - ``valid_until`` ≥ hôm nay on save.
-  - **F3 snapshot copy-on-write (P0)**: at Chốt giá / Gửi we freeze ``unit_price_snapshot``
-    AND ``norm_snapshot`` + ``price_effective_from/to`` — NO live FK to the price/norm
-    tables; a later price change never rewrites a sent phiếu.
-  - **F4 vòng đời/version**: transitions go through the state machine; ``change_order``
-    creates a NEW version (same code) and supersedes the current one; ``row_version``
-    optimistic locking (stale → 409).
-  - **F5 duyệt**: approve/reject need the approver permission (ngưỡng X/Y — SVN-input,
-    ⚠️ chưa xác nhận; at P0 = manager scope of ``bao_gia``); past ``valid_until`` → expired
-    (chặn duyệt).
-
-SEAM reads (owned by this consumer per DIP):
-  - **SEAM-13** ``EstimateCostingAdapter`` (Tính giá) — CLOSED: a quotation referencing a
-    *calculated* estimate pulls cost_von_total + copy-on-write price/norm snapshots for the
-    chosen quantity point (bậc SL). Without the injected repo the port still raises →
-    "Tính giá chưa sẵn sàng" (never a fabricated cost).
-  - **SEAM-14** ``CustomerRefAdapter`` (CRM) — CLOSED: resolves the live customer name /
-    credit display (read-only, no block).
+"""Báo giá (Quotation / Quote) business logic — Header-Version-Item (H-V-I) pattern.
 """
 from __future__ import annotations
 
-from datetime import date
+import math
+import json
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from typing import Any
 
 from ..models.quotation import (
-    QUOTATION_STATUSES,
-    STATUS_APPROVED,
-    STATUS_CANCELLED,
-    STATUS_CHANGE_ORDER,
+    Quote,
+    QuoteVersion,
+    QuoteItem,
     STATUS_DRAFT,
-    STATUS_EXPIRED,
     STATUS_SENT,
-    Quotation,
+    STATUS_ACCEPTED,
+    STATUS_REJECTED,
+    STATUS_EXPIRED,
+    STATUS_CONVERTED_TO_ORDER,
+    STATUS_CANCELLED,
+    VERSION_STATUS_DRAFT,
+    VERSION_STATUS_LOCKED,
+    VERSION_STATUS_SENT,
+    VERSION_STATUS_ACCEPTED,
+    VERSION_STATUS_REJECTED,
+    VERSION_STATUS_SUPERSEDED,
+    VERSION_STATUS_CANCELLED,
 )
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.quotation_repo import QuotationRepository
 from ..services import quotation_ports
-from ..services.quotation_state import transition_for
+from ..services.sequence_service import SequenceService
 
 
 class QuotationError(Exception):
     """Base for quotation domain errors."""
+    pass
 
 
 class QuotationValidationError(QuotationError):
-    """A field failed validation (negative amount, discount > cost+margin, past date…)."""
+    """A field failed validation."""
+    pass
 
 
 class QuotationNotFound(QuotationError):
-    """No quotation with that id (or not visible under the caller's scope)."""
+    """No quotation with that id."""
+    pass
 
 
 class QuotationForbidden(QuotationError):
-    """The quotation exists but is outside the caller's data scope, OR the caller lacks
-    the approver permission for an approve/reject."""
+    """The quotation exists but is outside the caller's data scope."""
+    pass
 
 
 class QuotationConflict(QuotationError):
-    """Optimistic-lock clash (stale row_version) or an illegal state transition."""
+    """Optimistic-lock or illegal state transition."""
+    pass
 
 
 class QuotationLocked(QuotationError):
-    """Attempt to edit a quotation that is not in `draft` (dùng change_order để đổi giá)."""
+    """Attempt to edit a locked quotation."""
+    pass
 
 
 class CostingUnavailable(QuotationError):
-    """The referenced Tính giá can't yield a frozen cost (repo not wired / not found / not
-    calculated / blocking errors). Carries the user-facing message — never a fake cost."""
+    """The referenced Estimate is not available or not calculated."""
+    pass
 
 
 class QuotationService:
@@ -82,89 +76,89 @@ class QuotationService:
         audit: AuditLogRepository,
         customers=None,
         estimates=None,
+        sequence: SequenceService | None = None,
     ) -> None:
         self.quotations = quotations
         self.audit = audit
-        # SEAM-14 CLOSED: the CRM adapter (read-only). Injectable for tests.
         self._customers = customers
-        # SEAM-13 CLOSED: the Tính giá (Estimate) repository. Injectable for tests; when
-        # absent the port raises and every costing read surfaces CostingUnavailable.
         self._estimates = estimates
+        self.sequence = sequence
 
-    def _costing_result(
-        self,
-        costing_id: int,
-        quantity: int | None = None,
-        cost_hint: int | None = None,
-    ) -> quotation_ports.CostingResult:
-        """Pull the frozen Tính giá result via SEAM-13. Raises CostingUnavailable with the
-        user-facing reason when the result can't be produced (never a fabricated cost)."""
-        try:
-            return quotation_ports.get_costing_result(
-                costing_id, quantity=quantity, cost_hint=cost_hint, estimates=self._estimates
-            )
-        except (NotImplementedError, quotation_ports.CostingLookupError) as exc:
-            raise CostingUnavailable(str(exc)) from exc
-
-    def costing_picker(
-        self, costing_id: int, quantity: int | None = None
-    ) -> quotation_ports.CostingResult:
-        """Picker read for the Báo giá form: frozen giá vốn + the quantity points (bậc SL)
-        of the referenced Tính giá."""
-        return self._costing_result(costing_id, quantity=quantity)
-
-    # --- validation helpers -------------------------------------------------
-
-    @staticmethod
-    def _validate_amount(value, label: str) -> int:
-        if value is None:
-            return 0
-        if not isinstance(value, int) or isinstance(value, bool):
-            raise QuotationValidationError(f"{label} phải là số nguyên (VND).")
-        if value < 0:
-            raise QuotationValidationError(f"{label} không được âm.")
-        return value
-
-    @staticmethod
-    def _validate_valid_until(valid_until: date | None) -> date | None:
-        if valid_until is None:
-            return None
-        if valid_until < date.today():
-            raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
-        return valid_until
-
-    @staticmethod
-    def compute_total(cost_von_total: int | None, margin: int, discount: int) -> int | None:
-        """Giá bán = giá vốn + lãi − chiết khấu (F2). None when giá vốn is not yet known
-        (SEAM-13 chưa nạp) so the UI shows "—" rather than a wrong number."""
-        if cost_von_total is None:
-            return None
-        return cost_von_total + margin - discount
-
-    def _validate_pricing(
-        self, *, cost_von_total: int | None, margin: int, discount: int
-    ) -> tuple[int | None, int, int, int | None]:
-        cost = None if cost_von_total is None else self._validate_amount(
-            cost_von_total, "Giá vốn"
-        )
-        margin = self._validate_amount(margin, "Lãi")
-        discount = self._validate_amount(discount, "Chiết khấu")
-        if cost is not None and discount > cost + margin:
-            # chiết khấu > 100% của (giá vốn + lãi) → tổng âm; chặn.
-            raise QuotationValidationError(
-                "Chiết khấu không được vượt quá giá vốn cộng lãi."
-            )
-        total = self.compute_total(cost, margin, discount)
-        return cost, margin, discount, total
-
-    def _customer_ref(self, customer_id: int | None):
-        """Resolve the customer display via SEAM-14 (CLOSED). None when no customer/repo."""
+    def _customer_display_name(self, customer_id: int | None) -> str | None:
         if customer_id is None or self._customers is None:
             return None
-        return quotation_ports.CustomerRefAdapter(self._customers).get_customer(customer_id)
+        c = self._customers.get_by_id(customer_id)
+        return c.name if c else None
 
-    # --- reads --------------------------------------------------------------
+    # --- Pricing calculation engine (Phase 2B) --------------------------------
+    @staticmethod
+    def calculate_pricing(
+        total_cost: float,
+        margin_percent: float,
+        manual_selling_price: float | None = None,
+        manual_unit_price: float | None = None,
+        discount_amount: float = 0.0,
+        discount_percent: float = 0.0,
+        vat_percent: float = 0.0,
+        rounding: str = "no_rounding",
+        quantity: int = 1,
+    ) -> dict[str, Any]:
+        """Compute prices based on standard rules (Phase 2B)."""
+        quantity = max(1, quantity)
+        total_cost = float(total_cost)
 
+        # 1. Base selling price
+        if manual_selling_price is not None and manual_selling_price > 0:
+            selling_price = float(manual_selling_price)
+        elif manual_unit_price is not None and manual_unit_price > 0:
+            selling_price = float(manual_unit_price) * quantity
+        else:
+            m_pct = min(99.99, max(0.0, float(margin_percent)))
+            selling_price = total_cost / (1.0 - m_pct / 100.0)
+
+        # 2. Rounding
+        if rounding == "round_up_1000":
+            selling_price = float(math.ceil(selling_price / 1000.0) * 1000)
+        elif rounding == "round_up_5000":
+            selling_price = float(math.ceil(selling_price / 5000.0) * 5000)
+        elif rounding == "round_up_10000":
+            selling_price = float(math.ceil(selling_price / 10000.0) * 10000)
+
+        # 3. actual margin
+        if selling_price > 0:
+            actual_margin = ((selling_price - total_cost) / selling_price) * 100.0
+        else:
+            actual_margin = 0.0
+
+        # 4. Discount
+        if discount_percent > 0:
+            item_discount = selling_price * (float(discount_percent) / 100.0)
+        else:
+            item_discount = float(discount_amount)
+        item_discount = min(selling_price, max(0.0, item_discount))
+
+        # 5. Price after discount
+        subtotal = max(0.0, selling_price - item_discount)
+
+        # 6. VAT
+        vat_val = max(0.0, float(vat_percent))
+        vat_amount = subtotal * (vat_val / 100.0)
+
+        # 7. Final amount
+        final_amount = subtotal + vat_amount
+        unit_price = selling_price / quantity
+
+        return {
+            "selling_price": selling_price,
+            "unit_price": unit_price,
+            "actual_margin": actual_margin,
+            "discount_amount": item_discount,
+            "subtotal": subtotal,
+            "vat_amount": vat_amount,
+            "final_amount": final_amount,
+        }
+
+    # --- reads ----------------------------------------------------------------
     def list_quotations(
         self,
         *,
@@ -180,56 +174,217 @@ class QuotationService:
             scope=scope, actor=actor, q=q, status=status, sort=sort, page=page, size=size
         )
 
-    def get_quotation(self, *, quotation_id: int, scope: str, actor) -> Quotation:
-        quotation = self.quotations.get_by_id(quotation_id)
-        if quotation is None:
+    def get_quotation(self, *, quotation_id: int, scope: str, actor) -> Quote:
+        quote = self.quotations.get_by_id(quotation_id)
+        if quote is None:
             raise QuotationNotFound("Không tìm thấy báo giá.")
-        if not self.quotations.can_access(quotation=quotation, scope=scope, actor=actor):
+        if not self.quotations.can_access(quote=quote, scope=scope, actor=actor):
             raise QuotationForbidden("Bạn không có quyền xem báo giá này.")
-        return quotation
+        return quote
 
-    def version_history(self, quotation: Quotation) -> list[Quotation]:
-        return self.quotations.versions_of(quotation.code)
+    def stats(self) -> dict:
+        return self.quotations.stats()
 
-    def customer_display(self, quotation: Quotation):
-        return self._customer_ref(quotation.customer_id)
+    def estimate_numbers(self, estimate_ids: set[int]) -> dict[int, str]:
+        """Map estimate_id → estimate_number cho hiển thị ↳ tham chiếu (bulk, tránh N+1)."""
+        ids = {i for i in estimate_ids if i}
+        if not ids:
+            return {}
+        from sqlalchemy import select as _select
+        from ..models.estimate import Estimate
+        return dict(
+            self.quotations.db.execute(
+                _select(Estimate.id, Estimate.estimate_number).where(Estimate.id.in_(ids))
+            ).all()
+        )
 
-    # --- writes: create / update (draft only) -------------------------------
+    def user_names(self, user_ids: set[int]) -> dict[int, str]:
+        """Map user_id → tên hiển thị (người phụ trách trên list)."""
+        ids = {i for i in user_ids if i}
+        if not ids:
+            return {}
+        from sqlalchemy import select as _select
+        from ..models.user import User as _User
+        return dict(
+            self.quotations.db.execute(
+                _select(_User.id, _User.name).where(_User.id.in_(ids))
+            ).all()
+        )
+
+    def version_history(self, quote: Quote) -> list[QuoteVersion]:
+        return self.quotations.versions_of(quote.quote_number)
+
+    def customer_display(self, quote: Quote):
+        if quote.customer_id is None or self._customers is None:
+            return None
+        return quotation_ports.CustomerRefAdapter(self._customers).get_customer(quote.customer_id)
+
+    # --- writes ---------------------------------------------------------------
+    @staticmethod
+    def _spec_text(spec: dict | None) -> str | None:
+        """Dòng spec đọc được cho item ('21×29,7 cm · 4 màu/2 mặt') thay vì dump JSON."""
+        if not spec:
+            return None
+        parts: list[str] = []
+        try:
+            w, h = spec.get("finished_width"), spec.get("finished_height")
+            if w and h:
+                fmt = lambda v: (str(int(float(v))) if float(v).is_integer() else f"{float(v):g}".replace(".", ","))  # noqa: E731
+                parts.append(f"{fmt(w)}×{fmt(h)} cm")
+        except (TypeError, ValueError):
+            pass
+        colors = spec.get("colors")
+        if colors:
+            sides = spec.get("sides")
+            parts.append(f"{colors} màu" + (f"/{sides} mặt" if sides else ""))
+        return " · ".join(parts) or None
 
     def create_quotation(
         self,
         *,
         customer_id: int | None,
-        costing_id: int | None,
-        cost_von_total: int | None,
-        margin: int,
-        discount: int,
-        valid_until: date | None,
+        estimate_id: int | None,
+        selected_option_ids: list[int] | None = None,
+        picks: list[dict] | None = None,
+        margin_percent: float | None = None,
+        valid_until: date | None = None,
+        payment_terms: str | None = None,
+        delivery_terms: str | None = None,
+        delivery_address: str | None = None,
+        customer_note: str | None = None,
+        internal_note: str | None = None,
         actor,
-    ) -> Quotation:
-        cost, margin, discount, total = self._validate_pricing(
-            cost_von_total=cost_von_total, margin=margin, discount=discount
-        )
-        valid_until = self._validate_valid_until(valid_until)
+    ) -> Quote:
+        if valid_until and valid_until < date.today():
+            raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
 
-        quotation = self.quotations.create(
+        # Chuẩn hóa: đường mới `picks` (đa phiếu) ưu tiên; đường cũ 1 phiếu = 1 pick.
+        pick_list: list[tuple[int, list[int] | None]] = []
+        if picks:
+            pick_list = [(int(p["estimate_id"]), list(p["option_ids"])) for p in picks]
+        elif estimate_id:
+            pick_list = [(estimate_id, selected_option_ids)]
+
+        # Header giữ phiếu đầu tiên cho tương thích cũ; tham chiếu thật nằm per dòng item.
+        header_estimate_id = estimate_id or (pick_list[0][0] if pick_list else None)
+
+        # Generate unique code
+        quote_number = self.sequence.generate_code("quotation") if self.sequence else "BG26-0001"
+        cust_name = self._customer_display_name(customer_id)
+
+        # Create Header
+        quote = Quote(
+            quote_number=quote_number,
             customer_id=customer_id,
-            costing_id=costing_id,
-            cost_von_total=cost,
-            margin=margin,
-            discount=discount,
-            total=total,
-            valid_until=valid_until,
-            sale_user_id=actor.id,
+            customer_name_snapshot=cust_name,
+            estimate_id=header_estimate_id,
+            salesperson_id=actor.id,
             status=STATUS_DRAFT,
+            valid_until=valid_until,
+            payment_terms=payment_terms,
+            delivery_terms=delivery_terms,
+            delivery_address=delivery_address,
+            customer_note=customer_note,
+            internal_note=internal_note,
+            created_by=actor.id,
         )
+        self.quotations.create(quote)
+
+        # Create Version 1
+        version = QuoteVersion(
+            quote_id=quote.id,
+            version_number=1,
+            status=VERSION_STATUS_DRAFT,
+            created_by=actor.id,
+        )
+        self.quotations.db.add(version)
+        self.quotations.db.flush()
+
+        # Build Items from Estimate Options — mỗi pick = 1 phiếu tính giá
+        subtotal = 0.0
+        discount = 0.0
+        vat = 0.0
+        final = 0.0
+        total_cost = 0.0
+        line_no = 1
+        strict = picks is not None  # đường mới: phiếu không hợp lệ phải chặn, không im lặng
+
+        for est_id, option_ids in pick_list:
+            if not self._estimates:
+                break
+            estimate = self._estimates.get_by_id(est_id)
+            if not estimate or estimate.status != "calculated":
+                if strict:
+                    raise QuotationValidationError(
+                        f"Phiếu tính giá #{est_id} không tồn tại hoặc chưa ở trạng thái 'Đã tính' — không thể đưa vào báo giá."
+                    )
+                continue
+
+            matched = 0
+            for opt in estimate.options:
+                if option_ids is None or opt.id in option_ids:
+                    m_pct = float(margin_percent) if margin_percent is not None else float(opt.margin_percent or 20.0)
+                    pricing = self.calculate_pricing(
+                        total_cost=float(opt.total_cost),
+                        margin_percent=m_pct,
+                        vat_percent=float(opt.vat_percent or 10.0),
+                        quantity=opt.quantity,
+                    )
+
+                    item = QuoteItem(
+                        quote_version_id=version.id,
+                        estimate_id=estimate.id,
+                        estimate_option_id=opt.id,
+                        line_no=line_no,
+                        product_type=estimate.product_type,
+                        product_name=estimate.product_name,
+                        product_spec_text=self._spec_text(estimate.input_spec_json),
+                        product_spec_snapshot_json=estimate.input_spec_json,
+                        quantity=opt.quantity,
+                        unit="cái",
+                        total_cost_snapshot=float(opt.total_cost),
+                        margin_percent=m_pct,
+                        selling_price=pricing["selling_price"],
+                        unit_price=pricing["unit_price"],
+                        discount_amount=pricing["discount_amount"],
+                        vat_percent=opt.vat_percent or 10.0,
+                        vat_amount=pricing["vat_amount"],
+                        final_amount=pricing["final_amount"],
+                    )
+                    self.quotations.db.add(item)
+                    subtotal += pricing["selling_price"]
+                    discount += pricing["discount_amount"]
+                    vat += pricing["vat_amount"]
+                    final += pricing["final_amount"]
+                    total_cost += float(opt.total_cost)
+                    line_no += 1
+                    matched += 1
+
+            if strict and matched == 0:
+                raise QuotationValidationError(
+                    f"Phiếu {estimate.estimate_number}: không mức số lượng nào khớp lựa chọn."
+                )
+
+            # Lock the estimate to quote
+            estimate.status = "converted_to_quote"
+
+        # Update Version Totals
+        version.total_cost_snapshot = total_cost
+        version.subtotal_amount = subtotal
+        version.discount_amount = discount
+        version.vat_amount = vat
+        version.final_amount = final
+
+        quote.current_version_id = version.id
+        self.quotations.update(quote)
+
         self.audit.create(
             actor_user_id=actor.id,
             action="create_quote",
-            target=f"quotation:{quotation.id}",
-            detail=f"{quotation.code} v{quotation.version} (KH={customer_id}, CG={costing_id})",
+            target=f"quote:{quote.id}",
+            detail=f"Tạo báo giá {quote.quote_number} v1 (KH={customer_id}, {line_no - 1} dòng từ {len(pick_list)} phiếu tính giá)",
         )
-        return quotation
+        return quote
 
     def update_quotation(
         self,
@@ -238,61 +393,101 @@ class QuotationService:
         scope: str,
         actor,
         customer_id: int | None,
-        costing_id: int | None,
-        cost_von_total: int | None,
-        margin: int,
-        discount: int,
         valid_until: date | None,
-        row_version: int,
-    ) -> Quotation:
-        quotation = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
-        if quotation.status != STATUS_DRAFT:
-            raise QuotationLocked(
-                "Chỉ sửa được báo giá ở trạng thái nháp. Dùng Re-quote để đổi giá."
-            )
-        if row_version != quotation.row_version:
-            raise QuotationConflict("Phiếu vừa được thay đổi, vui lòng tải lại.")
+        payment_terms: str | None = None,
+        delivery_terms: str | None = None,
+        delivery_address: str | None = None,
+        customer_note: str | None = None,
+        internal_note: str | None = None,
+        items_payload: list[dict] | None = None,
+    ) -> Quote:
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        if quote.status not in (STATUS_DRAFT,):
+            raise QuotationLocked("Chỉ chỉnh sửa được báo giá ở trạng thái nháp.")
 
-        cost, margin, discount, total = self._validate_pricing(
-            cost_von_total=cost_von_total, margin=margin, discount=discount
-        )
-        valid_until = self._validate_valid_until(valid_until)
+        if valid_until and valid_until < date.today():
+            raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
 
-        self.quotations.update(
-            quotation,
-            customer_id=customer_id,
-            costing_id=costing_id,
-            cost_von_total=cost,
-            margin=margin,
-            discount=discount,
-            total=total,
-            valid_until=valid_until,
-        )
+        # Update Header
+        quote.customer_id = customer_id
+        quote.customer_name_snapshot = self._customer_display_name(customer_id)
+        quote.valid_until = valid_until
+        quote.payment_terms = payment_terms
+        quote.delivery_terms = delivery_terms
+        quote.delivery_address = delivery_address
+        quote.customer_note = customer_note
+        quote.internal_note = internal_note
+
+        # Find Draft Version
+        version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
+        if not version or version.status != VERSION_STATUS_DRAFT:
+            raise QuotationLocked("Phiên bản hiện tại không ở trạng thái nháp để chỉnh sửa.")
+
+        # Update Items and Recalculate
+        subtotal = 0.0
+        discount = 0.0
+        vat = 0.0
+        final = 0.0
+        total_cost = 0.0
+
+        if items_payload is not None:
+            # We map the submitted array of items to the DB
+            item_map = {item.id: item for item in version.items}
+            for ip in items_payload:
+                item_id = ip.get("id")
+                if item_id and item_id in item_map:
+                    db_item = item_map[item_id]
+                    pricing = self.calculate_pricing(
+                        total_cost=float(db_item.total_cost_snapshot),
+                        margin_percent=float(ip.get("margin_percent", db_item.margin_percent)),
+                        manual_selling_price=ip.get("manual_selling_price"),
+                        manual_unit_price=ip.get("manual_unit_price"),
+                        discount_amount=float(ip.get("discount_amount", 0.0)),
+                        discount_percent=float(ip.get("discount_percent", 0.0)),
+                        vat_percent=float(ip.get("vat_percent", db_item.vat_percent)),
+                        rounding=ip.get("rounding", "no_rounding"),
+                        quantity=db_item.quantity,
+                    )
+                    db_item.margin_percent = ip.get("margin_percent", db_item.margin_percent)
+                    db_item.selling_price = pricing["selling_price"]
+                    db_item.unit_price = pricing["unit_price"]
+                    db_item.discount_amount = pricing["discount_amount"]
+                    db_item.vat_percent = ip.get("vat_percent", db_item.vat_percent)
+                    db_item.vat_amount = pricing["vat_amount"]
+                    db_item.final_amount = pricing["final_amount"]
+                    db_item.note = ip.get("note", db_item.note)
+
+                    subtotal += pricing["selling_price"]
+                    discount += pricing["discount_amount"]
+                    vat += pricing["vat_amount"]
+                    final += pricing["final_amount"]
+                    total_cost += float(db_item.total_cost_snapshot)
+        else:
+            # Just sum up existing items
+            for db_item in version.items:
+                subtotal += float(db_item.selling_price)
+                discount += float(db_item.discount_amount)
+                vat += float(db_item.vat_amount)
+                final += float(db_item.final_amount)
+                total_cost += float(db_item.total_cost_snapshot)
+
+        version.total_cost_snapshot = total_cost
+        version.subtotal_amount = subtotal
+        version.discount_amount = discount
+        version.vat_amount = vat
+        version.final_amount = final
+
+        self.quotations.update(quote)
+
         self.audit.create(
             actor_user_id=actor.id,
             action="update_quote",
-            target=f"quotation:{quotation.id}",
-            detail=f"{quotation.code} v{quotation.version}",
+            target=f"quote:{quote.id}",
+            detail=f"Cập nhật báo giá {quote.quote_number} v{version.version_number}",
         )
-        return quotation
+        return quote
 
-    # --- writes: lifecycle transitions --------------------------------------
-
-    def _can_approve(self, actor, scope: str) -> bool:
-        """Whether the actor may approve/reject (ngưỡng X/Y — SVN-input, ⚠️ chưa xác nhận).
-        At P0: a manager (bao_gia scope department|all), not a Sale (own)."""
-        return scope in (SCOPE_DEPARTMENT, SCOPE_ALL)
-
-    def _apply_expiry(self, quotation: Quotation) -> None:
-        """Flip a sent/on_hold quotation to expired if past valid_until (observable guard,
-        chặn duyệt). Idempotent."""
-        if (
-            quotation.status in (STATUS_SENT,)
-            and quotation.valid_until is not None
-            and quotation.valid_until < date.today()
-        ):
-            quotation.status = STATUS_EXPIRED
-
+    # --- Writes: Transition (Phase 2C) ----------------------------------------
     def transition(
         self,
         *,
@@ -300,138 +495,154 @@ class QuotationService:
         to_status: str,
         scope: str,
         actor,
-        row_version: int | None = None,
         cancel_reason: str | None = None,
-    ) -> Quotation:
-        """Move a quotation to `to_status` per the state machine. Freezes the snapshot on
-        Chốt giá / Gửi (draft→sent). Approve/reject need the approver permission; cancel
-        needs a reason. Illegal transitions → QuotationConflict."""
-        quotation = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+    ) -> Quote:
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
 
-        if to_status not in QUOTATION_STATUSES:
+        if to_status == STATUS_SENT:
+            # Gửi khách: khóa phiên bản
+            if quote.status != STATUS_DRAFT:
+                raise QuotationConflict(f"Không thể chuyển trạng thái {quote.status} -> sent")
+            
+            # Freeze snapshot copy-on-write
+            if version:
+                version.status = VERSION_STATUS_SENT
+                version.sent_at = datetime.now(timezone.utc)
+                # Copy estimate specs & cost breakdown as snapshots
+                if quote.estimate_id and self._estimates:
+                    est = self._estimates.get_by_id(quote.estimate_id)
+                    if est:
+                        version.estimate_snapshot_json = est.input_spec_json
+                        # Map costing lines
+                        lines_data = []
+                        for opt in est.options:
+                            opt_items = []
+                            for line in opt.cost_lines:
+                                opt_items.append({
+                                    "category": line.category,
+                                    "description": line.description,
+                                    "total_cost": float(line.total_cost),
+                                    "quantity": float(line.quantity),
+                                    "unit": line.unit,
+                                    "unit_cost": float(line.unit_cost),
+                                })
+                            lines_data.append({"quantity": opt.quantity, "lines": opt_items})
+                        version.internal_cost_snapshot_json = {"options": lines_data}
+            
+            quote.status = STATUS_SENT
+            if quote.valid_until is None:
+                quote.valid_until = date.today()
+
+        elif to_status == STATUS_ACCEPTED:
+            # Khách duyệt
+            if quote.status not in (STATUS_SENT, STATUS_DRAFT):
+                raise QuotationConflict(f"Không thể duyệt báo giá đang ở trạng thái {quote.status}")
+            if quote.valid_until and quote.valid_until < date.today():
+                quote.status = STATUS_EXPIRED
+                self.quotations.update(quote)
+                raise QuotationConflict("Báo giá đã hết hạn hiệu lực, không thể duyệt.")
+
+            quote.status = STATUS_ACCEPTED
+            if version:
+                version.status = VERSION_STATUS_ACCEPTED
+                version.accepted_at = datetime.now(timezone.utc)
+
+        elif to_status == STATUS_REJECTED:
+            # Từ chối
+            if quote.status != STATUS_SENT:
+                raise QuotationConflict(f"Không thể từ chối báo giá đang ở trạng thái {quote.status}")
+            quote.status = STATUS_REJECTED
+            if version:
+                version.status = VERSION_STATUS_REJECTED
+                version.rejected_at = datetime.now(timezone.utc)
+
+        elif to_status == STATUS_CANCELLED:
+            # Hủy
+            if not cancel_reason or not cancel_reason.strip():
+                raise QuotationValidationError("Cần nêu lý do hủy.")
+            quote.status = STATUS_CANCELLED
+            quote.cancel_reason = cancel_reason
+            if version:
+                version.status = VERSION_STATUS_CANCELLED
+
+        else:
             raise QuotationValidationError("Trạng thái đích không hợp lệ.")
 
-        # Time guard: a past-hạn sent phiếu is expired before any approve attempt.
-        self._apply_expiry(quotation)
-
-        if row_version is not None and row_version != quotation.row_version:
-            raise QuotationConflict("Phiếu vừa được thay đổi, vui lòng tải lại.")
-
-        rule = transition_for(quotation.status, to_status)
-        if rule is None:
-            raise QuotationConflict(
-                f"Không thể chuyển '{quotation.status}' → '{to_status}'."
-            )
-
-        if rule.requires_approval and not self._can_approve(actor, scope):
-            raise QuotationForbidden("Bạn không có quyền duyệt báo giá.")
-
-        reason = (cancel_reason or "").strip() if rule.requires_reason else None
-        if rule.requires_reason and not reason:
-            raise QuotationValidationError("Cần nêu lý do hủy.")
-
-        fields: dict = {"status": to_status}
-        if rule.snapshots:
-            fields.update(self._freeze_snapshot(quotation))
-        if to_status == STATUS_CANCELLED:
-            fields["cancel_reason"] = reason
-            fields["cancelled_at_state"] = quotation.status
-
-        self.quotations.update(quotation, **fields)
+        self.quotations.update(quote)
         self.audit.create(
             actor_user_id=actor.id,
-            action=rule.action,
-            target=f"quotation:{quotation.id}",
-            detail=f"{quotation.code} v{quotation.version}: {quotation.status}→{to_status}"
-            + (f" ({reason})" if reason else ""),
+            action=f"transition_{to_status}",
+            target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: chuyển sang {to_status}" + (f" ({cancel_reason})" if cancel_reason else ""),
         )
-        return quotation
+        return quote
 
-    def _freeze_snapshot(self, quotation: Quotation) -> dict:
-        """P0 copy-on-write freeze (§34 L877-879): store unit_price_snapshot AND
-        norm_snapshot + the source price window. Both vế phải có mặt — a snapshot thiếu vế
-        định mức = cùng lỗ như FK giá sống.
+    # --- Writes: Re-quote / Versioning (Phase 2C) -----------------------------
+    def requote(self, *, quotation_id: int, scope: str, actor) -> Quote:
+        """Create a new version (re-quote) from an existing quote."""
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
 
-        Prefers the frozen Tính giá result via SEAM-13 (cost_hint = giá vốn phiếu đang giữ,
-        để snapshot đúng mức bậc-SL KD đã chọn). When the costing can't be read (repo not
-        wired / estimate gone / not calculated) we freeze a self-contained snapshot of the
-        numbers the quotation already holds (giá vốn / lãi / chiết khấu the KD entered) —
-        an explicit, honest copy, NOT a fabricated cost pulled from a live price table."""
-        try:
-            result = (
-                self._costing_result(
-                    quotation.costing_id, cost_hint=quotation.cost_von_total
+        # Re-quote is only valid for sent, approved/accepted, or rejected quotes
+        if quote.status not in (STATUS_SENT, STATUS_ACCEPTED, STATUS_REJECTED):
+            raise QuotationConflict(f"Không thể re-quote từ trạng thái '{quote.status}'.")
+
+        # Mark current version as superseded
+        current_version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
+        if current_version:
+            current_version.status = VERSION_STATUS_SUPERSEDED
+
+        # Create new version
+        new_version = QuoteVersion(
+            quote_id=quote.id,
+            version_number=current_version.version_number + 1 if current_version else 2,
+            status=VERSION_STATUS_DRAFT,
+            total_cost_snapshot=current_version.total_cost_snapshot if current_version else 0.0,
+            subtotal_amount=current_version.subtotal_amount if current_version else 0.0,
+            discount_amount=current_version.discount_amount if current_version else 0.0,
+            vat_percent=current_version.vat_percent if current_version else 0.0,
+            vat_amount=current_version.vat_amount if current_version else 0.0,
+            final_amount=current_version.final_amount if current_version else 0.0,
+            estimate_snapshot_json=current_version.estimate_snapshot_json if current_version else None,
+            internal_cost_snapshot_json=current_version.internal_cost_snapshot_json if current_version else None,
+            created_by=actor.id,
+        )
+        self.quotations.db.add(new_version)
+        self.quotations.db.flush()
+
+        # Duplicate items to new version
+        if current_version:
+            for item in current_version.items:
+                new_item = QuoteItem(
+                    quote_version_id=new_version.id,
+                    estimate_option_id=item.estimate_option_id,
+                    line_no=item.line_no,
+                    product_type=item.product_type,
+                    product_name=item.product_name,
+                    product_spec_text=item.product_spec_text,
+                    product_spec_snapshot_json=item.product_spec_snapshot_json,
+                    quantity=item.quantity,
+                    unit=item.unit,
+                    total_cost_snapshot=item.total_cost_snapshot,
+                    margin_percent=item.margin_percent,
+                    selling_price=item.selling_price,
+                    unit_price=item.unit_price,
+                    discount_amount=item.discount_amount,
+                    vat_percent=item.vat_percent,
+                    vat_amount=item.vat_amount,
+                    final_amount=item.final_amount,
+                    note=item.note,
                 )
-                if quotation.costing_id
-                else None
-            )
-        except CostingUnavailable:
-            result = None
+                self.quotations.db.add(new_item)
 
-        if result is not None:
-            return {
-                "unit_price_snapshot": dict(result.unit_price_snapshot),
-                "norm_snapshot": dict(result.norm_snapshot),
-                "price_effective_from": result.price_effective_from,
-                "price_effective_to": result.price_effective_to,
-            }
+        quote.current_version_id = new_version.id
+        quote.status = STATUS_DRAFT
+        self.quotations.update(quote)
 
-        # Self-contained freeze from the entered numbers (P0 shape preserved: BOTH vế).
-        today = date.today()
-        return {
-            "unit_price_snapshot": {
-                "cost_von_total": quotation.cost_von_total,
-                "margin": quotation.margin,
-                "discount": quotation.discount,
-                "total": quotation.total,
-                "source": "manual" if quotation.costing_id is None else "costing_ref",
-                "costing_id": quotation.costing_id,
-            },
-            "norm_snapshot": {
-                # Định mức vế: at P0 the Tính giá norm engine is TREO (SEAM-09), so the
-                # captured norms are the reference itself — recorded so the pair is never
-                # half-frozen. Real norms fill in when SEAM-13/09 close.
-                "costing_id": quotation.costing_id,
-                "frozen_at": today.isoformat(),
-                "note": "norm engine TREO (SEAM-09); snapshot giữ tham chiếu để không nửa vời",
-            },
-            "price_effective_from": today,
-            "price_effective_to": quotation.valid_until,
-        }
-
-    # --- writes: re-quote (change_order → new version) ----------------------
-
-    def requote(self, *, quotation_id: int, scope: str, actor) -> Quotation:
-        """Re-quote (change_order, F4): supersede the current phiếu (→ change_order) and
-        create a NEW draft version (same code, version+1) so the old phiếu stays traceable.
-        Returns the NEW version."""
-        current = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
-
-        rule = transition_for(current.status, STATUS_CHANGE_ORDER)
-        if rule is None:
-            raise QuotationConflict(
-                f"Không thể re-quote từ trạng thái '{current.status}'."
-            )
-
-        new_version = self.quotations.create(
-            customer_id=current.customer_id,
-            costing_id=current.costing_id,
-            cost_von_total=current.cost_von_total,
-            margin=current.margin,
-            discount=current.discount,
-            total=current.total,
-            valid_until=current.valid_until,
-            sale_user_id=actor.id,
-            code=current.code,
-            version=current.version + 1,
-            status=STATUS_DRAFT,
-        )
-        # Supersede the old one (keeps its history).
-        self.quotations.update(current, status=STATUS_CHANGE_ORDER)
         self.audit.create(
             actor_user_id=actor.id,
             action="change_order",
-            target=f"quotation:{new_version.id}",
-            detail=f"{current.code}: v{current.version}→v{new_version.version} (re-quote)",
+            target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: v{current_version.version_number if current_version else 1} -> v{new_version.version_number} (re-quote)",
         )
-        return new_version
+        return quote

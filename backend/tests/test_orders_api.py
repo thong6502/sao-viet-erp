@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 from app.db import SessionLocal
-from app.models.quotation import STATUS_APPROVED
+from app.models.quotation import STATUS_ACCEPTED, Quote, QuoteItem, QuoteVersion
 from app.repositories.quotation_repo import QuotationRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
@@ -52,18 +52,41 @@ def _role_token(username: str, role_name: str, dept_name: str = "Kinh doanh") ->
         db.close()
 
 
-def _seed_approved_quotation(*, sale_user_id: int, total=1_000_000, valid_until=None) -> int:
-    """Insert an approved quotation directly (Báo giá is a peer module; SEAM-04 reads it live)."""
+def _seed_quote(*, sale_user_id: int, total=1_000_000, valid_until=None, status=STATUS_ACCEPTED) -> int:
+    """Insert an H-V-I quote directly (Báo giá is a peer module; SEAM-04 reads it live).
+    qty=1 nên unit_price_snapshot của order line = total."""
     db = SessionLocal()
     try:
-        q = QuotationRepository(db).create(
-            customer_id=None, costing_id=None, cost_von_total=total, margin=0, discount=0,
-            total=total, valid_until=valid_until, sale_user_id=sale_user_id,
-            status=STATUS_APPROVED,
+        n = db.query(Quote).count() + 1
+        q = Quote(
+            quote_number=f"BGT-{n:04d}", customer_id=None, salesperson_id=sale_user_id,
+            status=status, valid_until=valid_until, created_by=sale_user_id,
         )
+        db.add(q)
+        db.flush()
+        v = QuoteVersion(
+            quote_id=q.id, version_number=1,
+            status="accepted" if status == STATUS_ACCEPTED else "draft",
+            total_cost_snapshot=0, subtotal_amount=total, discount_amount=0,
+            vat_percent=0, vat_amount=0, final_amount=total, created_by=sale_user_id,
+        )
+        db.add(v)
+        db.flush()
+        db.add(QuoteItem(
+            quote_version_id=v.id, line_no=1, product_type="brochure", product_name="SP Test",
+            quantity=1, unit="cái", total_cost_snapshot=0, margin_percent=0,
+            selling_price=total, unit_price=total, discount_amount=0,
+            vat_percent=0, vat_amount=0, final_amount=total,
+        ))
+        q.current_version_id = v.id
+        db.commit()
         return q.id
     finally:
         db.close()
+
+
+def _seed_approved_quotation(*, sale_user_id: int, total=1_000_000, valid_until=None) -> int:
+    return _seed_quote(sale_user_id=sale_user_id, total=total, valid_until=valid_until)
 
 
 def _admin_id() -> int:
@@ -99,16 +122,8 @@ def test_approved_picker_only_approved_and_in_date(client):
     token = _admin_token(client)
     admin_id = _admin_id()
     good = _seed_approved_quotation(sale_user_id=admin_id, valid_until=date.today() + timedelta(days=10))
-    # An approved-but-expired quotation must NOT be choosable.
-    _seed_expired = SessionLocal()
-    try:
-        QuotationRepository(_seed_expired).create(
-            customer_id=None, costing_id=None, cost_von_total=1, margin=0, discount=0, total=1,
-            valid_until=date.today() - timedelta(days=1), sale_user_id=admin_id,
-            status=STATUS_APPROVED,
-        )
-    finally:
-        _seed_expired.close()
+    # An accepted-but-expired quotation must NOT be choosable.
+    _seed_quote(sale_user_id=admin_id, total=1, valid_until=date.today() - timedelta(days=1))
 
     r = client.get("/api/orders/approved-quotations", headers=_h(token))
     assert r.status_code == 200
@@ -159,11 +174,16 @@ def test_snapshot_not_live_fk(client):
     token = _admin_token(client)
     qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_000_000)
     order = _create_order(client, token, qid).json()
-    # Mutate the source quotation total.
+    # Mutate the source quotation total (active version + item).
     db = SessionLocal()
     try:
-        qrepo = QuotationRepository(db)
-        qrepo.update(qrepo.get_by_id(qid), total=9_999_999)
+        q = QuotationRepository(db).get_by_id(qid)
+        for v in q.versions:
+            if v.id == q.current_version_id:
+                v.final_amount = 9_999_999
+                for it in v.items:
+                    it.unit_price = 9_999_999
+        db.commit()
     finally:
         db.close()
     d = client.get(f"/api/orders/{order['id']}", headers=_h(token)).json()
@@ -174,15 +194,7 @@ def test_snapshot_not_live_fk(client):
 
 def test_create_from_draft_quotation_blocked(client):
     token = _admin_token(client)
-    db = SessionLocal()
-    try:
-        q = QuotationRepository(db).create(
-            customer_id=None, costing_id=None, cost_von_total=1, margin=0, discount=0, total=1,
-            valid_until=None, sale_user_id=_admin_id(), status="draft",
-        )
-        qid = q.id
-    finally:
-        db.close()
+    qid = _seed_quote(sale_user_id=_admin_id(), total=1, status="draft")
     r = _create_order(client, token, qid)
     assert r.status_code == 422
     assert "duyệt" in r.json()["detail"]

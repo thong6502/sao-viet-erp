@@ -116,20 +116,21 @@ def approved_quotations(
     except NotImplementedError:
         # SEAM-04 (quotation_ref) not wired — no fabricated list.
         return ApprovedQuotationListOut(items=[])
-    return ApprovedQuotationListOut(
-        items=[
+    items = []
+    for q in rows:
+        active = next((v for v in q.versions if v.id == q.current_version_id), None)
+        items.append(
             ApprovedQuotationRow(
                 id=q.id,
-                code=q.code,
-                version=q.version,
+                code=q.quote_number,
+                version=active.version_number if active else 1,
                 customer_id=q.customer_id,
-                customer_name=names.get(q.id),
-                total=q.total,
+                customer_name=names.get(q.id) or q.customer_name_snapshot,
+                total=int(active.final_amount) if active else None,
                 valid_until=q.valid_until,
             )
-            for q in rows
-        ]
-    )
+        )
+    return ApprovedQuotationListOut(items=items)
 
 
 # --- list (F1) -----------------------------------------------------------------

@@ -34,6 +34,8 @@ export interface NavParams {
   openQuoteId?: number;
   /** Open this order's detail on the Đơn hàng bán screen. */
   openOrderId?: number;
+  /** Pre-select this estimate when creating a quotation. */
+  estimateId?: number;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -106,12 +108,14 @@ export function AppShell() {
       case "san-pham":
         return <SanPhamPage />;
       case "tinh-gia-thanh":
-        return <TinhGiaPage />;
+        return <TinhGiaPage navigate={navigate} />;
       case "bao-gia":
         return (
           <BaoGiaPage
             pinnedCustomer={navParams?.customer ?? null}
             openQuoteId={navParams?.openQuoteId ?? null}
+            estimateId={navParams?.estimateId ?? null}
+            navigate={navigate}
           />
         );
       case "don-hang-ban":

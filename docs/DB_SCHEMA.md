@@ -317,55 +317,128 @@ constraint) until that catalog exists.
 
 ---
 
-### `quotations`
+### `quotes`
 
-**Purpose:** the Báo giá (Quotation) phiếu chào giá đối ngoại — spec-09-bao-gia. One row per
-version of a quotation: it references ONE Tính giá result (giá vốn, via SEAM-13) and adds
-lãi + chiết khấu → **giá bán** shown to the customer, and moves through the lifecycle
-`draft → sent → approved/rejected/expired` (+ `cancelled` / `on_hold` / `change_order`). At
-Chốt giá / Gửi it **snapshots** `unit_price_snapshot` **and** `norm_snapshot` copy-on-write
-(P0 §34 L877-879) + the source price window `price_effective_from/to` — there is NO live FK
-to a price/norm table, so a later price-list change never rewrites a phiếu đã gửi. The buildup
-(số con/khổ, số tờ, số bản kẽm, bù hao) is NOT stored here — Báo giá holds only `cost_von_total`
-(1 số), because it is a tài liệu đối ngoại (L1132/L1218). `code` is shared across a re-quote
-chain (BG001 v1 → v2) with `version` bumping; `customer_id` reads via SEAM-14 (CRM),
-`costing_id` via SEAM-13 (Tính giá). Portable across SQLite and Postgres.
+**Purpose:** Báo giá header — mô hình **Header-Version-Item (H-V-I)** thay bảng `quotations`
+phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header giữ danh tính phiếu
+(`quote_number` BG26-xxxx duy nhất), khách hàng, trạng thái lifecycle
+`draft → sent → accepted/rejected/expired → converted_to_order` (+ `cancelled`), và con trỏ
+`current_version_id` tới phiên bản đang hiệu lực. Nội dung giá nằm ở `quote_versions` /
+`quote_items`. Logic **pick từ phiếu tính giá**: 1 báo giá pick từ NHIỀU phiếu (per-item
+`quote_items.estimate_id`); header `estimate_id` chỉ là phiếu đầu tiên (tương thích cũ).
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
-| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `code` | `String(20)` → `VARCHAR(20)` | **IX** | no | — | System-generated code (BG001, BG002…); shared across a re-quote version chain (not unique alone — the (code, version) pair is). |
-| `version` | `Integer` → `INTEGER` | — | no | `1` | Version within a code chain; `change_order` (re-quote) sinh version mới, giữ phiếu cũ (F4). |
-| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id**, **IX** | yes | — | Customer the quotation is addressed to (SEAM-14 CRM read). Nullable so a draft can start unassigned. |
-| `costing_id` | `Integer` → `INTEGER` | **IX** | yes | — | Referenced Tính giá result (SEAM-13). Plain Integer (NO FK) — the frozen giá-vốn result is TREO behind SEAM-07..12. |
-| `cost_von_total` | `Integer` → `INTEGER` | — | yes | — | Giá vốn tổng (1 số, VND) pulled from Tính giá. NOT a buildup — số con/khổ/tờ/kẽm/bù hao never stored here. |
-| `margin` | `Integer` → `INTEGER` | — | no | `0` | Lãi (markup, VND); giá bán = giá vốn + lãi (F2). ≥ 0. |
-| `discount` | `Integer` → `INTEGER` | — | no | `0` | Chiết khấu / bậc SL (VND, subtracted). ≥ 0 and ≤ (giá vốn + lãi). |
-| `total` | `Integer` → `INTEGER` | — | yes | — | Tổng giá bán = cost_von_total + margin − discount (derived + stored; null when giá vốn chưa biết). |
-| `valid_until` | `Date` → `DATE` | — | yes | — | Hạn hiệu lực (L258-259); quá hạn → status=expired (chặn duyệt). |
-| `status` | `String(16)` → `VARCHAR(16)` | — | no | `draft` | Lifecycle: draft/sent/approved/rejected/expired/cancelled/on_hold/change_order. |
-| `cancel_reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Set only when status=cancelled (F4). |
-| `cancelled_at_state` | `String(16)` → `VARCHAR(16)` | — | yes | — | The status the phiếu was in when cancelled (F4). |
-| `unit_price_snapshot` | `JSON` → `JSON` | — | yes | — | **P0 copy-on-write**: frozen unit-price snapshot at Chốt giá/Gửi. NO live FK. |
-| `norm_snapshot` | `JSON` → `JSON` | — | yes | — | **P0 copy-on-write**: frozen norm/định mức snapshot (ngang hàng unit_price_snapshot — bậc SL phụ thuộc bù hao/định mức). |
-| `price_effective_from` | `Date` → `DATE` | — | yes | — | Effective-from of the source price list at snapshot time (copy-on-write, not a FK). |
-| `price_effective_to` | `Date` → `DATE` | — | yes | — | Effective-to of the source price list at snapshot time. |
-| `row_version` | `Integer` → `INTEGER` | — | no | `1` | Optimistic-locking version (§34 L898); a stale concurrent edit → 409. |
-| `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Owning Sale (KD) — RBAC data-scope owner (own/department/all, §41 L1128). |
-| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the quotation (version) row was created. |
+| `id` | `Integer` | **PK** | no | auto | Surrogate primary key. |
+| `quote_number` | `String(20)` | **UQ**, **IX** | no | — | Mã phiếu (BG26-0001…) — duy nhất; version nằm ở `quote_versions.version_number`. |
+| `customer_id` | `Integer` | **FK→customers.id** (SET NULL), **IX** | yes | — | Khách hàng (SEAM-14 CRM read). |
+| `customer_name_snapshot` | `String(255)` | — | yes | — | Tên KH chốt tại thời điểm tạo (copy-on-write hiển thị). |
+| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá ĐẦU TIÊN (tương thích cũ); tham chiếu thật per dòng ở `quote_items.estimate_id`. |
+| `salesperson_id` | `Integer` | **FK→users.id** (SET NULL), **IX** | yes | — | Sale phụ trách — RBAC data-scope owner. |
+| `status` | `String(20)` | — | no | `draft` | draft/sent/accepted/rejected/expired/converted_to_order/cancelled. |
+| `current_version_id` | `Integer` | **IX** | yes | — | Phiên bản đang hiệu lực (con trỏ, không FK để tránh vòng). |
+| `valid_until` | `Date` | — | yes | — | Hạn hiệu lực; quá hạn → expired (chặn duyệt). |
+| `payment_terms` | `String(255)` | — | yes | — | Điều khoản thanh toán. |
+| `delivery_terms` | `String(255)` | — | yes | — | Điều khoản giao hàng. |
+| `delivery_address` | `String(500)` | — | yes | — | Địa chỉ giao. |
+| `customer_note` | `String(1000)` | — | yes | — | Ghi chú hiện cho khách. |
+| `internal_note` | `String(1000)` | — | yes | — | Ghi chú nội bộ. |
+| `cancel_reason` | `String(500)` | — | yes | — | Lý do hủy (bắt buộc khi cancelled). |
+| `created_by` | `Integer` | **FK→users.id** (SET NULL) | yes | — | Người tạo. |
+| `created_at` | `DateTime(tz)` | — | no | now (UTC) | Tạo lúc. |
+| `updated_at` | `DateTime(tz)` | — | no | now (UTC) | Sửa lần cuối (onupdate). |
 
-**Keys & indexes**
+### `quote_versions`
 
-- Primary key: `id`.
-- Indexes: `ix_quotations_code` on `code` (version-chain lookup), `ix_quotations_customer_id`, `ix_quotations_costing_id`, `ix_quotations_sale_user_id` (scope filter).
-- Foreign keys: `customer_id FK→customers.id` (ON DELETE SET NULL), `sale_user_id FK→users.id`. `costing_id` is deliberately NOT a FK (SEAM-13, frozen result TREO).
+**Purpose:** một phiên bản chào giá (v1, v2…) của 1 quote — re-quote sinh version mới, phiếu cũ
+`superseded` giữ nguyên lịch sử. Khi **Gửi khách** (draft→sent) version đóng băng
+copy-on-write: `estimate_snapshot_json` (spec phiếu tính giá) + `internal_cost_snapshot_json`
+(phân rã giá vốn per mức SL) — đổi bảng giá sau này không rewrite phiếu đã gửi (P0 §34).
 
-**Relationships**
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `quote_id` | `Integer` | **FK→quotes.id** (CASCADE), **IX** | no | — | Header cha. |
+| `version_number` | `Integer` | — | no | `1` | v1, v2… trong 1 quote. |
+| `status` | `String(20)` | — | no | `draft` | draft/locked/sent/accepted/rejected/superseded/cancelled (per-version). |
+| `change_reason` | `String(255)` | — | yes | — | "Lý do/ghi chú phiên bản này" (đổi giấy, khách ép giá…). |
+| `estimate_snapshot_json` | `JSON` | — | yes | — | **Copy-on-write** spec phiếu tính giá tại lúc gửi. |
+| `internal_cost_snapshot_json` | `JSON` | — | yes | — | **Copy-on-write** phân rã giá vốn (options → lines). |
+| `customer_output_snapshot_json` | `JSON` | — | yes | — | Bản chốt nội dung đối ngoại (PDF data) nếu render. |
+| `pricing_snapshot_json` | `JSON` | — | yes | — | Tham số pricing đã áp (gói biên, rounding…). |
+| `total_cost_snapshot` | `Numeric(15,2)` | — | yes | — | Tổng giá vốn khóa của version. |
+| `subtotal_amount` | `Numeric(15,2)` | — | no | `0` | Tổng giá bán trước VAT/chiết khấu. |
+| `discount_amount` | `Numeric(15,2)` | — | no | `0` | Chiết khấu tổng. |
+| `vat_percent` | `Numeric(5,2)` | — | no | `0` | %VAT áp version. |
+| `vat_amount` | `Numeric(15,2)` | — | no | `0` | Tiền VAT. |
+| `final_amount` | `Numeric(15,2)` | — | no | `0` | Tổng cộng (đã VAT). |
+| `pdf_file_url` | `String(255)` | — | yes | — | File PDF đối ngoại đã xuất (nếu có). |
+| `created_by` | `Integer` | **FK→users.id** (SET NULL) | yes | — | Người tạo version. |
+| `created_at` | `DateTime(tz)` | — | no | now | Tạo lúc. |
+| `sent_at` | `DateTime(tz)` | — | yes | — | Gửi khách lúc (tính tuổi phiếu "đã gửi N ngày"). |
+| `accepted_at` | `DateTime(tz)` | — | yes | — | Khách chốt lúc. |
+| `rejected_at` | `DateTime(tz)` | — | yes | — | Từ chối lúc. |
 
-- Many quotations (versions) share a `code`; the whole chain is the version history.
-- The referenced Tính giá result (`costing_id`) is read via SEAM-13 (no FK). The customer
-  (`customer_id`) display is read via SEAM-14 (CRM, back-filled). The Báo giá → Đơn hàng
-  handoff is a pull on the Đơn hàng bán side (spec-10 SEAM-04), never modelled here (ADP).
+### `quote_items`
+
+**Purpose:** một dòng hàng của version — **mỗi dòng = 1 phiếu tính giá + 1 mức số lượng đã
+pick** (logic chốt: báo giá không soạn tay, chỉ pick từ phiếu tính giá `calculated`). Giá vốn
+đóng băng per dòng (`total_cost_snapshot`); markup/VAT per dòng.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `quote_version_id` | `Integer` | **FK→quote_versions.id** (CASCADE), **IX** | no | — | Version cha. |
+| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá gốc của DÒNG NÀY (đa phiếu/1 báo giá). |
+| `estimate_option_id` | `Integer` | — | yes | — | Mức số lượng (option) đã pick trong phiếu. |
+| `line_no` | `Integer` | — | no | — | Thứ tự dòng. |
+| `product_type` | `String(50)` | — | no | — | Loại SP (snapshot từ phiếu). |
+| `product_name` | `String(255)` | — | no | — | Tên SP (snapshot). |
+| `product_spec_text` | `String(1000)` | — | yes | — | Spec đọc được ("21×29,7 cm · 4 màu/2 mặt"). |
+| `product_spec_snapshot_json` | `JSON` | — | yes | — | Spec đầy đủ copy-on-write. |
+| `quantity` | `Integer` | — | no | — | Số lượng của mức đã pick. |
+| `unit` | `String(16)` | — | no | `cái` | Đơn vị bán. |
+| `total_cost_snapshot` | `Numeric(15,2)` | — | no | `0` | Giá vốn KHÓA của dòng (không sửa ở Báo giá). |
+| `margin_percent` | `Numeric(5,2)` | — | no | `0` | % biên lợi nhuận dòng. |
+| `selling_price` | `Numeric(15,2)` | — | no | `0` | Giá bán dòng (trước VAT). |
+| `unit_price` | `Numeric(15,2)` | — | no | `0` | Đơn giá bán /sp. |
+| `discount_amount` | `Numeric(15,2)` | — | no | `0` | Chiết khấu dòng. |
+| `vat_percent` | `Numeric(5,2)` | — | no | `0` | %VAT dòng. |
+| `vat_amount` | `Numeric(15,2)` | — | no | `0` | Tiền VAT dòng. |
+| `final_amount` | `Numeric(15,2)` | — | no | `0` | Thành tiền dòng (đã VAT). |
+| `note` | `String(500)` | — | yes | — | Ghi chú dòng. |
+
+### `quote_attachments`
+
+**Purpose:** file đính kèm phiếu báo giá (bản chào PDF, artwork tham chiếu…).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `quote_id` | `Integer` | **FK→quotes.id** (CASCADE), **IX** | no | — | Phiếu cha. |
+| `quote_version_id` | `Integer` | **FK→quote_versions.id** (CASCADE), **IX** | yes | — | Gắn version cụ thể (nếu có). |
+| `file_name` | `String(255)` | — | no | — | Tên file. |
+| `file_url` | `String(500)` | — | no | — | Đường dẫn lưu trữ. |
+| `file_type` | `String(100)` | — | yes | — | MIME/loại file. |
+| `uploaded_by` | `Integer` | **FK→users.id** (SET NULL) | yes | — | Người upload. |
+| `uploaded_at` | `DateTime(tz)` | — | no | now | Upload lúc. |
+
+### `quote_activity_logs`
+
+**Purpose:** timeline "Hoạt động" của phiếu (tạo version, gửi khách, khách chốt…) — nguồn dữ
+liệu cho khung timeline trên UI detail.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `quote_id` | `Integer` | **FK→quotes.id** (CASCADE), **IX** | no | — | Phiếu cha. |
+| `quote_version_id` | `Integer` | **FK→quote_versions.id** (CASCADE), **IX** | yes | — | Version liên quan (nếu có). |
+| `action` | `String(50)` | — | no | — | Động từ sự kiện (create_quote, send_quote…). |
+| `old_value_json` | `JSON` | — | yes | — | Giá trị trước (diff). |
+| `new_value_json` | `JSON` | — | yes | — | Giá trị sau (diff). |
+| `actor_id` | `Integer` | **FK→users.id** (SET NULL) | yes | — | Người thao tác. |
+| `actor_name_snapshot` | `String(255)` | — | yes | — | Tên người thao tác chốt lúc ghi. |
+| `created_at` | `DateTime(tz)` | — | no | now | Xảy ra lúc. |
 
 ---
 

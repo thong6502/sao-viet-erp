@@ -39,7 +39,8 @@ class Estimate(Base):
 
     __table_args__ = (
         CheckConstraint(
-            "status IN ('draft', 'calculated', 'cancelled')",
+            # converted_to_quote: phiếu đã pick vào báo giá (Quote) — khóa khỏi picker
+            "status IN ('draft', 'calculated', 'cancelled', 'converted_to_quote')",
             name="chk_estimates_status"
         ),
     )

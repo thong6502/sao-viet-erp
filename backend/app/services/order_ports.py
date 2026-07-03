@@ -28,7 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Protocol, runtime_checkable
 
-from ..models.quotation import STATUS_APPROVED
+from ..models.quotation import STATUS_ACCEPTED
 
 
 # --- SEAM-04 (a): quotation_ref — Báo giá (LIVE, back-filled) ------------------
@@ -80,28 +80,42 @@ class QuotationRefAdapter:
         q = self._quotations.get_by_id(quotation_id)
         if q is None:
             return None
-        # One order-line snapshotted from the quotation's giá bán (đối ngoại: 1 số, no buildup).
+        
+        # Get active version
+        active_version = None
+        for v in q.versions:
+            if v.id == q.current_version_id:
+                active_version = v
+                break
+        if not active_version:
+            return None
+
+        # One order-line snapshotted from the quotation's items
         # The physical layer (khổ/màu/kẽm/imposition) is NEVER read here — ẩn khỏi Sale (§29 P0).
-        lines = [
-            QuotationRefLine(
-                description=f"Báo giá {q.code} v{q.version}",
-                qty=1,
-                unit_price_snapshot=q.total,
-                norm_snapshot={
-                    "source": "quotation",
-                    "quotation_id": q.id,
-                    "quotation_version": q.version,
-                    # Copy-on-write của vế định mức đã đóng băng ở báo giá (nếu có).
-                    "quotation_norm_snapshot": q.norm_snapshot,
-                },
+        lines = []
+        for item in active_version.items:
+            lines.append(
+                QuotationRefLine(
+                    description=f"{item.product_name} - SL {item.quantity}",
+                    qty=int(item.quantity),
+                    unit_price_snapshot=int(item.unit_price),
+                    norm_snapshot={
+                        "source": "quotation",
+                        "quotation_id": q.id,
+                        "quotation_version": active_version.id,
+                        "quotation_version_number": active_version.version_number,
+                        "quotation_norm_snapshot": active_version.internal_cost_snapshot_json,
+                        "product_spec_snapshot": item.product_spec_snapshot_json,
+                    },
+                )
             )
-        ]
+
         return QuotationRef(
             quotation_id=q.id,
-            version=q.version,
-            approved=q.status == STATUS_APPROVED,
-            effective_from=q.price_effective_from,
-            total=q.total,
+            version=active_version.version_number,
+            approved=q.status == STATUS_ACCEPTED,
+            effective_from=active_version.created_at.date() if active_version.created_at else None,
+            total=int(active_version.final_amount),
             customer_id=q.customer_id,
             lines=lines,
         )

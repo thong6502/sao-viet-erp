@@ -1,51 +1,66 @@
-"""Pydantic request/response models for the Báo giá (Quotation) API — spec-09.
-
-Field constraints here are the first line of validation (422 shape); QuotationService
-enforces the domain rules (amounts ≥ 0, discount ≤ cost+margin, valid_until ≥ today, edit
-only when draft, transition legality, approver permission, optimistic lock). The buildup
-(số con/khổ, số tờ, số bản kẽm, bù hao) is NEVER part of any response shape here (tài liệu
-đối ngoại, L1132/L1218).
+"""Pydantic request/response models for the Báo giá (Quotation / Quote) API — spec-09.
 """
 from __future__ import annotations
 
 from datetime import date, datetime
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# --- create / update (draft only) ---------------------------------------------
+class QuoteItemUpdate(BaseModel):
+    id: int
+    margin_percent: float = Field(default=20.0)
+    manual_selling_price: float | None = None
+    manual_unit_price: float | None = None
+    discount_amount: float = Field(default=0.0)
+    discount_percent: float = Field(default=0.0)
+    vat_percent: float = Field(default=10.0)
+    rounding: str = Field(default="no_rounding")
+    note: str | None = None
+
+
+# --- create / update ----------------------------------------------------------
+
+class QuotePick(BaseModel):
+    """1 phiếu tính giá + các mức số lượng (option) được chọn vào báo giá."""
+    estimate_id: int
+    option_ids: list[int] = Field(min_length=1)
+
 
 class QuotationCreate(BaseModel):
-    # SEAM-14 (CRM): the customer; nullable so a draft can start unassigned.
     customer_id: int | None = None
-    # SEAM-13 (Tính giá): the referenced costing result; nullable while chọn Tính giá.
-    costing_id: int | None = None
-    # Giá vốn (1 số) read off Tính giá. Optional at draft; None → total shows "—".
-    cost_von_total: int | None = None
-    margin: int = Field(default=0)          # lãi (service enforces ≥ 0)
-    discount: int = Field(default=0)        # chiết khấu (≥ 0, ≤ cost+margin)
+    # Đường cũ (1 phiếu): estimate_id + selected_option_ids — giữ tương thích.
+    estimate_id: int | None = None
+    selected_option_ids: list[int] | None = None
+    # Đường mới (đa phiếu): mỗi pick = 1 phiếu tính giá + option đã tick. Ưu tiên nếu có.
+    picks: list[QuotePick] | None = None
+    margin_percent: float | None = None  # gói biên áp chung khi tạo (per dòng chỉnh sau)
     valid_until: date | None = None
+    payment_terms: str | None = None
+    delivery_terms: str | None = None
+    delivery_address: str | None = None
+    customer_note: str | None = None
+    internal_note: str | None = None
 
 
-class QuotationUpdate(QuotationCreate):
-    """Same shape + the optimistic-locking row_version (mã/version are never client-set)."""
-
-    row_version: int = Field(default=1)
+class QuotationUpdate(BaseModel):
+    customer_id: int | None = None
+    valid_until: date | None = None
+    payment_terms: str | None = None
+    delivery_terms: str | None = None
+    delivery_address: str | None = None
+    customer_note: str | None = None
+    internal_note: str | None = None
+    items: list[QuoteItemUpdate] | None = None
 
 
 class TransitionRequest(BaseModel):
-    """Move a quotation to `to_status` (send/approve/reject/hold/resume/expire/cancel)."""
-
-    to_status: str = Field(min_length=1, max_length=16)
+    to_status: str = Field(min_length=1, max_length=20)
     cancel_reason: str | None = Field(default=None, max_length=500)
-    row_version: int | None = None
 
 
 # --- outputs ------------------------------------------------------------------
 
 class CustomerDisplayOut(BaseModel):
-    """Read-only customer display resolved via SEAM-14 (CRM). NOT a block gate."""
-
     customer_id: int
     name: str
     tax_code: str | None = None
@@ -53,8 +68,6 @@ class CustomerDisplayOut(BaseModel):
 
 
 class QuotationRow(BaseModel):
-    """A row in the Danh sách list: mã+version, khách, tổng giá bán, status, valid_until."""
-
     id: int
     code: str
     version: int
@@ -63,6 +76,14 @@ class QuotationRow(BaseModel):
     total: int | None
     status: str
     valid_until: date | None
+    # Field hiển thị list 2 tầng (đều optional — client cũ không vỡ)
+    version_count: int = 1
+    sent_at: datetime | None = None          # tính tuổi phiếu "đã gửi N ngày"
+    margin_percent: float | None = None      # % biên dòng đầu (hiển thị markup)
+    estimate_refs: list[str] = []            # các mã phiếu tính giá tham chiếu (↳ TG26-xxxx)
+    product_summary: str | None = None       # "Catalogue A4 + 2 SP khác"
+    updated_at: datetime | None = None
+    salesperson_name: str | None = None
 
 
 class QuotationListOut(BaseModel):
@@ -72,43 +93,79 @@ class QuotationListOut(BaseModel):
     size: int
 
 
-class VersionRow(BaseModel):
-    """A row in the version-history panel (F4)."""
+class QuotationStatsOut(BaseModel):
+    """Số đếm cho thanh tab list Báo giá."""
+    total: int
+    draft: int
+    sent: int
+    accepted: int
+    rejected: int
+    expired: int
+    converted_to_order: int
+    cancelled: int
+    need_action: int  # draft + sent (cần tôi xử lý: soạn tiếp / follow-up)
 
+
+class VersionRow(BaseModel):
     id: int
     version: int
     status: str
     total: int | None
     created_at: datetime
+    change_reason: str | None = None
+
+
+class QuoteItemOut(BaseModel):
+    id: int
+    estimate_id: int | None = None
+    estimate_number: str | None = None   # mã phiếu tính giá gốc của dòng (↳ link)
+    estimate_option_id: int | None
+    line_no: int
+    product_type: str
+    product_name: str
+    product_spec_text: str | None
+    quantity: int
+    unit: str
+    total_cost_snapshot: float
+    margin_percent: float
+    selling_price: float
+    unit_price: float
+    discount_amount: float
+    vat_percent: float
+    vat_amount: float
+    final_amount: float
+    note: str | None
 
 
 class QuotationDetailOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    code: str
-    version: int
+    code: str  # maps to quote_number
+    version: int  # maps to current version_number
     customer_id: int | None
     customer: CustomerDisplayOut | None = None
-    costing_id: int | None
-    cost_von_total: int | None
-    margin: int
-    discount: int
-    total: int | None
+    estimate_id: int | None
     valid_until: date | None
     status: str
     cancel_reason: str | None
-    cancelled_at_state: str | None
-    # P0 snapshot (internal — shown in the detail but ẩn khỏi PDF đối ngoại).
-    unit_price_snapshot: dict | None
-    norm_snapshot: dict | None
-    price_effective_from: date | None
-    price_effective_to: date | None
-    row_version: int
-    # Legal next transitions for the current status + whether the caller may approve.
+    payment_terms: str | None
+    delivery_terms: str | None
+    delivery_address: str | None
+    customer_note: str | None
+    internal_note: str | None
+    
+    # Financial snapshot totals from active version
+    total_cost: float
+    subtotal_amount: float
+    discount_amount: float
+    vat_amount: float
+    total: float  # maps to final_amount
+    
+    versions: list[VersionRow] = Field(default_factory=list)
+    items: list[QuoteItemOut] = Field(default_factory=list)
     allowed_transitions: list[str] = Field(default_factory=list)
     can_approve: bool = False
-    versions: list[VersionRow] = Field(default_factory=list)
 
 
 class EnumOption(BaseModel):
@@ -121,21 +178,21 @@ class QuotationEnumsOut(BaseModel):
 
 
 class CostingQtyOption(BaseModel):
-    """One quantity point (bậc SL) of the referenced Tính giá."""
-
+    id: int
     quantity: int
     total_cost: int
+    margin_percent: float
+    selling_price: float
+    discount_amount: float
+    vat_percent: float
+    final_price: float
+    unit_price: float
+    actual_margin: float
 
 
 class CostingPickerOut(BaseModel):
-    """The Tính giá picker/read state (SEAM-13 — CLOSED). available=false + user-facing
-    message when the estimate can't yield a frozen result (never a fabricated cost);
-    otherwise cost_von_total of the chosen quantity point + all quantity points (bậc SL)."""
-
     available: bool
     message: str | None = None
-    cost_von_total: int | None = None
-    quantity: int | None = None
     options: list[CostingQtyOption] | None = None
 
 
@@ -147,6 +204,7 @@ __all__ = [
     "QuotationRow",
     "QuotationListOut",
     "VersionRow",
+    "QuoteItemOut",
     "QuotationDetailOut",
     "EnumOption",
     "QuotationEnumsOut",
