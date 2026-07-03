@@ -599,7 +599,7 @@ export interface CostingEnumsOut {
 }
 
 export interface EstimateWarning {
-  severity: "warning" | "blocking_error";
+  severity: "warning" | "blocking_error" | "info";
   code: string;
   message: string;
   source_type?: string | null;
@@ -662,6 +662,20 @@ export interface EstimateRow {
   blocking_error_count: number;
   created_at: string;
   updated_at?: string | null;
+  // Field hiển thị 2 tầng (backend cũ chưa trả — đều optional)
+  customer_id?: number | null;
+  customer_name?: string | null;
+  spec_summary?: string | null;
+  machine_type?: string | null;
+  unit_cost_min?: number | null;
+  created_by_name?: string | null;
+}
+
+export interface EstimateStats {
+  total: number;
+  draft: number;
+  calculated: number;
+  blocking: number;
 }
 
 export interface EstimateListOut {
@@ -669,6 +683,19 @@ export interface EstimateListOut {
   total: number;
   page: number;
   size: number;
+}
+
+/** Live preview (không lưu) — sidebar Tính giá hiện giá vốn tức thời khi gõ form. */
+export interface EstimatePreviewLine {
+  category: string;
+  description: string;
+  total_cost: number;
+}
+
+export interface EstimatePreviewOut {
+  total_cost: number;
+  cost_lines: EstimatePreviewLine[];
+  warnings: { severity: string; code: string; message: string }[];
 }
 
 export interface EstimateInput {
@@ -742,6 +769,27 @@ export interface VersionRow {
   status: string;
   total: number | null;
   created_at: string;
+  change_reason?: string | null;
+}
+
+export interface QuoteItemDetail {
+  id: number;
+  estimate_option_id: number | null;
+  line_no: number;
+  product_type: string;
+  product_name: string;
+  product_spec_text: string | null;
+  quantity: number;
+  unit: string;
+  total_cost_snapshot: number;
+  margin_percent: number;
+  selling_price: number;
+  unit_price: number;
+  discount_amount: number;
+  vat_percent: number;
+  vat_amount: number;
+  final_amount: number;
+  note: string | null;
 }
 
 export interface QuotationDetail {
@@ -750,36 +798,62 @@ export interface QuotationDetail {
   version: number;
   customer_id: number | null;
   customer: CustomerDisplay | null;
-  costing_id: number | null;
-  cost_von_total: number | null;
-  margin: number;
-  discount: number;
-  total: number | null;
+  estimate_id: number | null;
   valid_until: string | null;
   status: string;
   cancel_reason: string | null;
-  cancelled_at_state: string | null;
-  unit_price_snapshot: Record<string, unknown> | null;
-  norm_snapshot: Record<string, unknown> | null;
-  price_effective_from: string | null;
-  price_effective_to: string | null;
-  row_version: number;
+  payment_terms: string | null;
+  delivery_terms: string | null;
+  delivery_address: string | null;
+  customer_note: string | null;
+  internal_note: string | null;
+  
+  // Financial snapshot totals
+  total_cost: number;
+  subtotal_amount: number;
+  discount_amount: number;
+  vat_amount: number;
+  total: number;
+  
   allowed_transitions: string[];
   can_approve: boolean;
   versions: VersionRow[];
+  items: QuoteItemDetail[];
 }
 
 export interface QuotationInput {
   customer_id: number | null;
-  costing_id: number | null;
-  cost_von_total: number | null;
-  margin: number;
-  discount: number;
+  estimate_id: number | null;
+  selected_option_ids: number[] | null;
   valid_until: string | null;
+  payment_terms: string | null;
+  delivery_terms: string | null;
+  delivery_address: string | null;
+  customer_note: string | null;
+  internal_note: string | null;
 }
 
-export interface QuotationUpdateInput extends QuotationInput {
-  row_version: number;
+export interface QuoteItemUpdateInput {
+  id: number;
+  margin_percent: number;
+  manual_selling_price?: number | null;
+  manual_unit_price?: number | null;
+  discount_amount?: number;
+  discount_percent?: number;
+  vat_percent?: number;
+  rounding?: string;
+  note?: string | null;
+}
+
+export interface QuotationUpdateInput {
+  customer_id: number | null;
+  valid_until: string | null;
+  payment_terms: string | null;
+  delivery_terms: string | null;
+  delivery_address: string | null;
+  customer_note: string | null;
+  internal_note: string | null;
+  items: QuoteItemUpdateInput[] | null;
 }
 
 export interface QuotationEnumsOut {
@@ -788,17 +862,22 @@ export interface QuotationEnumsOut {
 
 /** Một mức số lượng (bậc SL) của Tính giá được tham chiếu. */
 export interface CostingQtyOption {
+  id: number;
   quantity: number;
   total_cost: number;
+  margin_percent: number;
+  selling_price: number;
+  discount_amount: number;
+  vat_percent: number;
+  final_price: number;
+  unit_price: number;
+  actual_margin: number;
 }
 
-/** Tính giá picker state (SEAM-13 — ĐÃ ĐÓNG): available=false + lý do khi estimate chưa
- * cho được kết quả đông cứng; ngược lại giá vốn của mức SL đã chọn + các mức bậc-SL. */
+/** Tính giá picker state */
 export interface CostingPickerOut {
   available: boolean;
   message: string | null;
-  cost_von_total: number | null;
-  quantity?: number | null;
   options?: CostingQtyOption[] | null;
 }
 
@@ -1512,16 +1591,21 @@ export const api = {
   },
 
   estimates: {
-    list(token: string, params: { q?: string; product_type?: string | null; status?: string | null; sort?: string; page?: number; size?: number } = {}): Promise<EstimateListOut> {
+    list(token: string, params: { q?: string; product_type?: string | null; status?: string | null; has_blocking?: boolean; sort?: string; page?: number; size?: number } = {}): Promise<EstimateListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.product_type) qs.set("product_type", params.product_type);
       if (params.status) qs.set("status", params.status);
+      if (params.has_blocking) qs.set("has_blocking", "true");
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<EstimateListOut>(`/api/estimates${suffix}`, token);
+    },
+    /** Số đếm cho thanh tab list (backend mới có sau khi restart — caller phải catch). */
+    stats(token: string): Promise<EstimateStats> {
+      return authed<EstimateStats>("/api/estimates/stats", token);
     },
     get(token: string, id: number): Promise<EstimateDetail> {
       return authed<EstimateDetail>(`/api/estimates/${id}`, token);
@@ -1541,6 +1625,13 @@ export const api = {
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/estimates/${id}`, token, { method: "DELETE" });
     },
+    /** Live preview (KHÔNG lưu): chạy engine với spec đang gõ để form hiện giá vốn tức thời. */
+    preview(token: string, input: { input_spec: Record<string, unknown>; quantity: number }): Promise<EstimatePreviewOut> {
+      return authed<EstimatePreviewOut>("/api/estimates/preview", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
   },
 
   // --- Báo giá (Quotation), spec-09 -----------------------------------------
@@ -1558,9 +1649,8 @@ export const api = {
     enums(token: string): Promise<QuotationEnumsOut> {
       return authed<QuotationEnumsOut>("/api/quotations/enums", token);
     },
-    costing(token: string, costingId: number, quantity?: number): Promise<CostingPickerOut> {
-      const suffix = quantity != null ? `?quantity=${quantity}` : "";
-      return authed<CostingPickerOut>(`/api/quotations/costings/${costingId}${suffix}`, token);
+    costing(token: string, costingId: number, _quantity?: number): Promise<CostingPickerOut> {
+      return authed<CostingPickerOut>(`/api/quotations/costings/${costingId}`, token);
     },
     get(token: string, id: number): Promise<QuotationDetail> {
       return authed<QuotationDetail>(`/api/quotations/${id}`, token);

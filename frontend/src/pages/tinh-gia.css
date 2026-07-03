@@ -42,8 +42,10 @@
   width: 320px;
   max-width: 100%;
 }
-.tg__statusfilter {
-  width: 200px;
+.tg__toolbar select.tg__statusfilter {
+  /* thắng .input { width:100% } để không giãn nguyên hàng */
+  width: 220px;
+  flex: 0 0 220px;
 }
 .tg__toolbar-spacer {
   flex: 1 1 auto;

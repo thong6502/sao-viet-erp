@@ -1,0 +1,251 @@
+/* ui-blocks.css — component chung cho Tính giá / Báo giá (StatusTabs, Timeline, DarkSummaryPanel).
+   Tham chiếu tokens.css, không hard-code màu. */
+
+/* ---------- StatusTabs ---------- */
+.stabs {
+  display: flex;
+  gap: var(--sp-1);
+  flex-wrap: wrap;
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-1);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.stabs__tab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--r-3);
+  padding: 6px 12px;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ash);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background var(--duration-fast) var(--easing-standard);
+  white-space: nowrap;
+}
+
+.stabs__tab:hover {
+  color: var(--ink);
+}
+
+.stabs__tab--active {
+  background: var(--canvas);
+  border-color: var(--rule);
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+  box-shadow: var(--shadow-1);
+}
+
+.stabs__count {
+  font-size: 11px;
+  font-family: var(--ff-mono);
+  background: var(--rule-soft);
+  color: var(--ash);
+  border-radius: var(--r-pill);
+  padding: 1px 7px;
+  line-height: 1.4;
+}
+
+.stabs__tab--active .stabs__count {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.stabs__count--alert {
+  background: var(--rust);
+  color: #fff;
+}
+
+/* ---------- Timeline ---------- */
+.tline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tline__item {
+  position: relative;
+  padding: 0 0 var(--sp-4) 22px;
+}
+
+.tline__item::before {
+  /* trục dọc */
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 14px;
+  bottom: 0;
+  width: 1px;
+  background: var(--rule-soft);
+}
+
+.tline__item:last-child::before {
+  display: none;
+}
+
+.tline__dot {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--canvas);
+  border: 2px solid var(--ash-2);
+  box-sizing: border-box;
+}
+
+.tline__item--accent .tline__dot {
+  border-color: var(--rust);
+}
+
+.tline__title {
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.45;
+}
+
+.tline__meta {
+  font-size: 11.5px;
+  color: var(--ash-2);
+  margin-top: 1px;
+}
+
+.tline__empty {
+  font-size: 12.5px;
+  color: var(--ash-2);
+  font-style: italic;
+}
+
+/* ---------- DarkSummaryPanel ---------- */
+.dpanel {
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: var(--r-5);
+  border-top: 3px solid var(--rust);
+  padding: var(--sp-5);
+  box-shadow: var(--shadow-4);
+}
+
+.dpanel__label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  font-weight: var(--fw-bold);
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+
+.dpanel__label-extra {
+  color: var(--rust);
+  font-family: var(--ff-mono);
+  font-size: 11px;
+}
+
+.dpanel__amount {
+  font-size: 30px;
+  font-weight: var(--fw-bold);
+  font-family: var(--ff-mono);
+  letter-spacing: -0.01em;
+  margin-top: var(--sp-2);
+  line-height: 1.1;
+}
+
+.dpanel__amount small {
+  font-size: 16px;
+  font-weight: var(--fw-regular);
+  color: var(--ash-2);
+  margin-left: 2px;
+}
+
+.dpanel__sub {
+  font-size: 12px;
+  color: var(--ash-2);
+  margin-top: var(--sp-1);
+}
+
+.dpanel__note {
+  display: flex;
+  gap: var(--sp-2);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--rule);
+  background: rgba(245, 241, 232, 0.07);
+  border: 1px solid rgba(245, 241, 232, 0.12);
+  border-radius: var(--r-3);
+  padding: var(--sp-2) var(--sp-3);
+  margin-top: var(--sp-3);
+}
+
+.dpanel__rows {
+  margin-top: var(--sp-4);
+  border-top: 1px solid rgba(245, 241, 232, 0.14);
+  padding-top: var(--sp-2);
+}
+
+.dpanel__row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-3);
+  padding: 5px 0;
+  font-size: 12.5px;
+  color: var(--rule);
+}
+
+.dpanel__row-value {
+  font-family: var(--ff-mono);
+  color: var(--paper);
+  white-space: nowrap;
+}
+
+.dpanel__row--total {
+  border-top: 1px solid rgba(245, 241, 232, 0.14);
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-2);
+  font-size: 13.5px;
+}
+
+.dpanel__row--total .dpanel__row-value {
+  color: var(--rust);
+  font-weight: var(--fw-bold);
+  font-size: 16px;
+}
+
+.dpanel__body {
+  margin-top: var(--sp-3);
+}
+
+/* ---------- Bảng nhóm section (dùng trong bảng phân rã) ---------- */
+.tgroup__head td,
+.tgroup__head th {
+  padding: 10px 8px 4px !important;
+  font-size: 10.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  font-weight: var(--fw-bold);
+  border-bottom: 1px solid var(--rule-soft);
+  background: transparent;
+}
+
+.tgroup__subdesc {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ash-2);
+  margin-top: 1px;
+  font-weight: var(--fw-regular);
+}

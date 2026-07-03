@@ -67,6 +67,7 @@ class EstimateService:
         q: str | None = None,
         product_type: str | None = None,
         status: str | None = None,
+        has_blocking: bool | None = None,
         sort: str = "estimate_number",
         page: int = 1,
         size: int = 20,
@@ -75,10 +76,14 @@ class EstimateService:
             q=q,
             product_type=product_type,
             status=status,
+            has_blocking=has_blocking,
             sort=sort,
             page=page,
             size=size
         )
+
+    def stats(self) -> dict:
+        return self.repo.stats()
 
     def create_estimate(
         self,

@@ -47,10 +47,30 @@ class EstimateOptionOut(BaseModel):
 class EstimateCreate(BaseModel):
     product_type: str = Field(..., min_length=1, max_length=50)
     product_name: str = Field(..., min_length=1, max_length=255)
-    quantity_list: list[int] = Field(..., min_items=1)
+    quantity_list: list[int] = Field(..., min_length=1)
     input_spec: dict
     customer_id: int | None = None
     status: str = "draft"
+
+
+class EstimatePreviewIn(BaseModel):
+    """Live preview (KHÔNG lưu): chạy engine với spec đang gõ trên form để sidebar hiện
+    giá vốn tức thời. Cùng shape input_spec như EstimateCreate."""
+
+    input_spec: dict
+    quantity: int = Field(..., gt=0)
+
+
+class EstimatePreviewLineOut(BaseModel):
+    category: str
+    description: str
+    total_cost: float
+
+
+class EstimatePreviewOut(BaseModel):
+    total_cost: float
+    cost_lines: list[EstimatePreviewLineOut]
+    warnings: list[dict]
 
 class EstimateUpdate(EstimateCreate):
     pass
@@ -84,9 +104,24 @@ class EstimateRow(BaseModel):
     blocking_error_count: int = 0
     created_at: datetime
     updated_at: datetime | None = None
+    # Field hiển thị cho list 2 tầng (đều optional — client cũ không vỡ)
+    customer_id: int | None = None
+    customer_name: str | None = None
+    spec_summary: str | None = None          # "21×29,7 cm · Couche 150gsm · 4 màu/2 mặt"
+    machine_type: str | None = None          # offset | digital — chip công nghệ
+    unit_cost_min: float | None = None       # giá vốn/đơn thấp nhất giữa các mức SL
+    created_by_name: str | None = None
 
 class EstimateListOut(BaseModel):
     items: list[EstimateRow]
     total: int
     page: int
     size: int
+
+
+class EstimateStatsOut(BaseModel):
+    """Số đếm cho thanh tab trang list."""
+    total: int
+    draft: int
+    calculated: int
+    blocking: int

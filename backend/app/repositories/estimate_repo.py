@@ -2,7 +2,7 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import select, func, asc, desc
+from sqlalchemy import String, select, func, asc, desc
 from sqlalchemy.orm import Session, selectinload
 from ..models.estimate import Estimate, EstimateOption, EstimateCostLine
 
@@ -42,6 +42,7 @@ class EstimateRepository:
         q: str | None = None,
         product_type: str | None = None,
         status: str | None = None,
+        has_blocking: bool | None = None,
         sort: str = "estimate_number",
         page: int = 1,
         size: int = 20,
@@ -57,6 +58,14 @@ class EstimateRepository:
             conditions.append(Estimate.product_type == product_type)
         if status:
             conditions.append(Estimate.status == status)
+        if has_blocking:
+            # Lọc phiếu có lỗi chặn: dò chuỗi "blocking_error" trong JSON warnings của option.
+            # LIKE trên JSON-as-text đủ cho tab lọc (severity chỉ xuất hiện ở field này).
+            sub = select(EstimateOption.id).where(
+                EstimateOption.estimate_id == Estimate.id,
+                func.cast(EstimateOption.warnings_json, String).like("%blocking_error%"),
+            )
+            conditions.append(sub.exists())
 
         base = select(Estimate)
         count_stmt = select(func.count()).select_from(Estimate)
@@ -86,6 +95,25 @@ class EstimateRepository:
             ).scalars()
         )
         return rows, total
+
+    def stats(self) -> dict:
+        """Đếm nhanh cho thanh tab list: tổng / theo trạng thái / số phiếu có lỗi chặn."""
+        total = self.db.execute(select(func.count()).select_from(Estimate)).scalar_one()
+        by_status = dict(
+            self.db.execute(select(Estimate.status, func.count()).group_by(Estimate.status)).all()
+        )
+        blocking_ids: set[int] = set()
+        for est_id, warnings in self.db.execute(
+            select(EstimateOption.estimate_id, EstimateOption.warnings_json)
+        ).all():
+            if warnings and any(w.get("severity") == "blocking_error" for w in warnings):
+                blocking_ids.add(est_id)
+        return {
+            "total": total,
+            "draft": int(by_status.get("draft", 0)),
+            "calculated": int(by_status.get("calculated", 0)),
+            "blocking": len(blocking_ids),
+        }
 
     def save(self, estimate: Estimate) -> Estimate:
         self.db.add(estimate)

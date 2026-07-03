@@ -30,21 +30,24 @@ const STAGE_FIELDS = [
   { value: "sides", label: "Số mặt in" },
 ];
 
-// Khớp OP_TYPES của trang Công đoạn (domain §5); trước thiếu dan_hop dù seed hộp/túi dùng nó.
-const OP_TYPES = [
-  { value: "in", label: "In ấn" },
-  { value: "can_mang", label: "Cán màng" },
-  { value: "be", label: "Bế hình / Đột" },
-  { value: "boi", label: "Bồi" },
-  { value: "ep_kim", label: "Ép kim / Nhũ" },
-  { value: "dap_noi", label: "Dập nổi / chìm" },
-  { value: "uv", label: "UV định hình" },
-  { value: "gap", label: "Gấp nếp" },
-  { value: "dong_cuon", label: "Đóng cuốn" },
-  { value: "dan_hop", label: "Dán hộp" },
-  { value: "xen", label: "Xén" },
-  { value: "dong_goi", label: "Đóng gói" },
-];
+// Nhãn hiển thị cho operation_type (domain §5). CHỈ là label-map — danh sách checkbox
+// "Công đoạn mặc định" render từ CATALOG Công đoạn thật (backend validate theo catalog;
+// offer type không tồn tại, vd "in", sẽ bị 422 "không tồn tại trong danh mục").
+const OP_TYPE_LABELS: Record<string, string> = {
+  in: "In ấn",
+  can_mang: "Cán màng",
+  be: "Bế hình / Đột",
+  boi: "Bồi",
+  ep_kim: "Ép kim / Nhũ",
+  dap_noi: "Dập nổi / chìm",
+  uv: "UV định hình",
+  gap: "Gấp nếp",
+  dong_cuon: "Đóng cuốn",
+  dan_hop: "Dán hộp",
+  xen: "Xén",
+  dong_goi: "Đóng gói",
+  other: "Gia công khác",
+};
 
 // Khớp VALID_MATERIAL_TYPES ở product_type_catalog_service (backend từ chối type ngoài tập này).
 const MAT_TYPES = [
@@ -287,6 +290,22 @@ function ProductTypeFormDialog({
   const [saving, setSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
 
+  // "Công đoạn mặc định" render từ CATALOG Công đoạn thật (backend validate theo catalog —
+  // offer type không tồn tại sẽ 422). Giữ luôn type đang gán trên bản ghi cũ (nếu catalog đổi).
+  const [opTypes, setOpTypes] = useState<string[]>([]);
+  useEffect(() => {
+    if (!token) return;
+    api.operations
+      .list(token, { page: 1, size: 200 })
+      .then((res) => {
+        const fromCatalog = [...new Set(res.items.map((o) => o.operation_type))];
+        const kept = (existing?.default_operations ?? []).filter((t) => !fromCatalog.includes(t));
+        setOpTypes([...fromCatalog, ...kept]);
+      })
+      .catch(() => setOpTypes([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
   function toggleItem(list: string[], setList: (l: string[]) => void, val: string) {
     if (list.includes(val)) {
       setList(list.filter((x) => x !== val));
@@ -407,18 +426,24 @@ function ProductTypeFormDialog({
 
             <div className="md-page__choices">
               <span className="field__label">Công đoạn mặc định</span>
-              <div className="md-page__checkboxes">
-                {OP_TYPES.map((o) => (
-                  <label key={o.value} className="md-page__checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={defOps.includes(o.value)}
-                      onChange={() => toggleItem(defOps, setDefOps, o.value)}
-                    />
-                    <span>{o.label}</span>
-                  </label>
-                ))}
-              </div>
+              {opTypes.length === 0 ? (
+                <p className="md-page__muted">
+                  Chưa có công đoạn nào trong danh mục — tạo ở trang "Công đoạn gia công" trước.
+                </p>
+              ) : (
+                <div className="md-page__checkboxes">
+                  {opTypes.map((t) => (
+                    <label key={t} className="md-page__checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={defOps.includes(t)}
+                        onChange={() => toggleItem(defOps, setDefOps, t)}
+                      />
+                      <span>{OP_TYPE_LABELS[t] ?? t}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="md-page__choices">

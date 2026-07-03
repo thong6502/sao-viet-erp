@@ -15,6 +15,13 @@ from ..models.plate_die_rate import PlateDieRate
 from ..models.estimate import EstimateCostLine
 from ..services.norm_service import NormService, NormLookupContext
 
+# Nhãn tiếng Việt cho mã đơn vị khi nhúng vào mô tả dòng chi phí (hiển thị cho người dùng)
+UNIT_LABELS_VI = {
+    "to": "tờ", "ban": "bản", "luot": "lượt", "gio": "giờ", "trang": "trang",
+    "m2": "m²", "cuon": "cuốn", "cai": "cái", "san_pham": "sản phẩm", "lo": "lô",
+    "nghin_to": "1.000 tờ", "nghin_cai": "1.000 cái", "thung": "thùng",
+}
+
 class PricingEngine:
     def __init__(self, db: Session) -> None:
         self.db = db
@@ -462,7 +469,7 @@ class PricingEngine:
 
                 cost_lines.append(EstimateCostLine(
                     category="click_ink",
-                    description=f"Click in KTS ({color_type.upper()}): {run_quantity} clicks",
+                    description=f"Click in KTS ({color_type.upper()}): {run_quantity} lượt click",
                     source_type="click_ink_rates",
                     source_id=click_rate.id,
                     source_snapshot_json={
@@ -696,9 +703,14 @@ class PricingEngine:
 
                 category = "packing" if op.operation_type == "dong_goi" else "operation"
 
+                # Format vi-VN: chấm ngăn nghìn, phẩy thập phân (331.0 → "331", 1666.67 → "1.666,67")
+                if float(qty_val).is_integer():
+                    qty_disp = f"{int(qty_val):,}".replace(",", ".")
+                else:
+                    qty_disp = f"{qty_val:,.2f}".replace(",", "\x00").replace(".", ",").replace("\x00", ".")
                 cost_lines.append(EstimateCostLine(
                     category=category,
-                    description=f"Gia công {op.name}: {qty_val} {op_unit}",
+                    description=f"Gia công {op.name}: {qty_disp} {UNIT_LABELS_VI.get(op_unit, op_unit)}",
                     source_type="operation_rates",
                     source_id=op_rate.id,
                     source_snapshot_json={
