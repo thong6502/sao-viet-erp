@@ -7,7 +7,6 @@ import {
   type EstimateInput,
   type EstimatePreviewOut,
   type EstimateStats,
-  type CustomerRow,
   type MaterialRow,
   type MachineRow,
   type OperationCatalogRow,
@@ -152,7 +151,13 @@ function snapshotValue(key: string, val: unknown): string {
   return JSON.stringify(val);
 }
 
-export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any) => void }) {
+export function TinhGiaPage({
+  navigate,
+  openEstimateId = null,
+}: {
+  navigate?: (id: string, params?: any) => void;
+  openEstimateId?: number | null;
+}) {
   const { token, user } = useAuth();
 
   // List States
@@ -169,7 +174,6 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
   const [stats, setStats] = useState<EstimateStats | null>(null);
 
   // Catalogs
-  const [customers, setCustomers] = useState<CustomerRow[]>([]);
   const [productTypes, setProductTypes] = useState<ProductTypeCatalogRow[]>([]);
   const [materials, setMaterials] = useState<MaterialRow[]>([]);
   const [machines, setMachines] = useState<MachineRow[]>([]);
@@ -191,7 +195,6 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
   const breakdownRef = useRef<HTMLDivElement | null>(null);
 
   // Form Fields States
-  const [customerId, setCustomerId] = useState<number | null>(null);
   const [productName, setProductName] = useState("");
   const [productType, setProductType] = useState("brochure");
   const [quantityList, setQuantityList] = useState<number[]>([]);
@@ -292,10 +295,6 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
   // Load Catalogs on mount
   useEffect(() => {
     if (!token) return;
-    
-    api.customers.list(token, { page: 1, size: 200 })
-      .then(res => setCustomers(res.items))
-      .catch(() => setCustomers([]));
 
     api.productTypesCatalog.list(token, { page: 1, size: 100 })
       .then(res => setProductTypes(res.items))
@@ -439,7 +438,6 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
   // Open Form for Create
   function openCreate() {
     setEditing(null);
-    setCustomerId(null);
     setProductName("");
     setProductType("brochure");
     setQuantityList([1000]);
@@ -493,7 +491,6 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
       setEditing(detail);
       
       const spec = detail.input_spec_json || {};
-      setCustomerId(detail.customer_id);
       setProductName(detail.product_name);
       setProductType(detail.product_type);
       setQuantityList(detail.quantity_list_json);
@@ -560,6 +557,15 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
       setLoading(false);
     }
   }
+
+  // Mở sẵn 1 phiếu khi điều hướng từ Báo giá ("Xem phiếu tính giá" / ↳ mã phiếu).
+  const openedFromNavRef = useRef(false);
+  useEffect(() => {
+    if (!token || !openEstimateId || openedFromNavRef.current) return;
+    openedFromNavRef.current = true;
+    openEdit({ id: openEstimateId } as EstimateRow);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, openEstimateId]);
 
   function handleCloseForm() {
     setMode(null);
@@ -778,7 +784,7 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
       product_name: productName.trim(),
       quantity_list: quantityList,
       input_spec,
-      customer_id: customerId,
+      customer_id: null, // Tính giá là giá vốn nội bộ — không gắn khách hàng (KH ở Báo giá)
       status: submitStatus,
     };
 
@@ -1080,7 +1086,6 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
                 <th>
                   <SortBtn label="Mã TG" col="code" sort={sort} onSort={setSort} />
                 </th>
-                <th>Khách hàng</th>
                 <th>Sản phẩm</th>
                 <th className="tg__num">Số lượng</th>
                 <th className="tg__num">Lỗi/Cảnh báo</th>
@@ -1093,11 +1098,11 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={9} className="tg__status" role="status">Đang tải…</td>
+                  <td colSpan={8} className="tg__status" role="status">Đang tải…</td>
                 </tr>
               ) : listError ? (
                 <tr>
-                  <td colSpan={9} className="tg__status">
+                  <td colSpan={8} className="tg__status">
                     <div className="banner banner--error" role="alert">
                       <span>{listError}</span>
                       <button type="button" className="btn btn--ghost" onClick={() => load()}>Thử lại</button>
@@ -1106,7 +1111,7 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="tg__empty">
+                  <td colSpan={8} className="tg__empty">
                     <p>Chưa có phương án tính giá nào.</p>
                     <p className="tg__muted">Tạo phương án đầu tiên để bắt đầu tính giá sản phẩm in.</p>
                     <Button variant="primary" onClick={openCreate}>+ Tạo tính giá</Button>
@@ -1128,7 +1133,6 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
                         : `${c.total_cost_min.toLocaleString("vi-VN")} - ${c.total_cost_max.toLocaleString("vi-VN")} đ`
                       : "—";
 
-                  const resolvedCust = customers.find(cust => cust.id === c.customer_id);
                   const typeLabel = productTypes.find(p => p.product_type === c.product_type)?.name ?? c.product_type;
                   const techLabel = c.machine_type === "offset" ? "Offset" : c.machine_type === "digital" ? "KTS" : null;
                   const specLine = [techLabel, c.spec_summary].filter(Boolean).join(" · ");
@@ -1136,7 +1140,6 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
                   return (
                     <tr key={c.id} className="tg__row" onClick={() => openEdit(c)}>
                       <td className="tg__mono">{c.estimate_number}</td>
-                      <td>{c.customer_name ?? resolvedCust?.name ?? <span className="tg__muted">Khách vãng lai</span>}</td>
                       <td>
                         <strong>{c.product_name}</strong>
                         <span className="tgroup__subdesc">
@@ -1284,22 +1287,6 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
               </h3>
               <div className="tg__form-grid" style={{ marginTop: "16px" }}>
                 <label className="field">
-                  <span className="field__label">Khách hàng</span>
-                  <select
-                    className="input"
-                    value={customerId || ""}
-                    onChange={(e) => setCustomerId(e.target.value ? Number(e.target.value) : null)}
-                  >
-                    <option value="">Chọn khách hàng (Không bắt buộc)...</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.code})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="field">
                   <span className="field__label">Tên sản phẩm in *</span>
                   <input
                     className="input"
@@ -1431,17 +1418,20 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
                   })()}
                 </label>
 
-                <div className="field tg__check tg__form-wide" style={{ marginTop: "8px" }}>
+                <label className="tg__toggle" style={{ marginTop: "8px" }}>
                   <input
                     type="checkbox"
                     checked={overridePieces}
                     onChange={(e) => setOverridePieces(e.target.checked)}
                   />
-                  <span>Tự nhập số con trên khổ giấy (Không dùng thuật toán hình học tự động)</span>
-                </div>
+                  <span className="tg__toggle-text">
+                    Tự nhập số con trên khổ giấy
+                    <small>Không dùng thuật toán bình bản tự động — nhập tay số con/khổ.</small>
+                  </span>
+                </label>
 
                 {overridePieces ? (
-                  <label className="field">
+                  <label className="field tg__form-wide">
                     <span className="field__label">Số con trên khổ (pieces_per_sheet) *</span>
                     <input
                       className="input"
@@ -1452,7 +1442,7 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
                     />
                   </label>
                 ) : (
-                  <div className="field">
+                  <div className="field tg__form-wide">
                     <span className="field__label">Bố cục dàn trang (Pieces per sheet)</span>
                     <span className="tg__suggest">
                       Dự kiến từ thuật toán hình học: {suggestedPieces !== null ? (
@@ -1464,19 +1454,22 @@ export function TinhGiaPage({ navigate }: { navigate?: (id: string, params?: any
                   </div>
                 )}
 
-                <div className="field tg__check">
+                <label className="tg__toggle">
                   <input
                     type="checkbox"
                     checked={grainLocked}
                     onChange={(e) => setGrainLocked(e.target.checked)}
                   />
-                  <span>Ràng buộc thớ giấy (Grain locked - bỏ nhánh quay giấy)</span>
-                </div>
+                  <span className="tg__toggle-text">
+                    Ràng buộc thớ giấy (Grain locked)
+                    <small>Bỏ nhánh xoay giấy — giữ đúng chiều thớ khi dàn con.</small>
+                  </span>
+                </label>
 
                 {/* #4 — tham số bình bản CHỈ áp cho thuật toán tự tính số con/khổ; khi
                     "Tự nhập số con" bật, engine dùng số nhập tay nên ẩn để khỏi gây hiểu lầm. */}
                 {!overridePieces && (
-                  <div className="tg__form-grid" style={{ marginTop: "12px" }}>
+                  <div className="tg__form-grid tg__form-wide" style={{ marginTop: "12px" }}>
                     <label className="field">
                       <span className="field__label">Kẹp nhíp (cm)</span>
                       <input className="input" type="number" step="0.1" placeholder="VD: 1.0" value={gripperCm} onChange={(e) => setGripperCm(e.target.value)} />

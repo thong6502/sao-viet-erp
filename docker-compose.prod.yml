@@ -1,0 +1,75 @@
+# Stack PRODUCTION cho VPS: Postgres + FastAPI backend + nginx (frontend build + reverse-proxy).
+#
+#   Frontend (nginx, cổng 80) ──/api──▶ backend (uvicorn :8000) ──▶ db (Postgres)
+#
+# Deploy:  docker compose -f docker-compose.prod.yml up -d --build
+# Bí mật đọc từ file .env cùng thư mục (KHÔNG commit) — xem .env.prod.example.
+name: erp-svn
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Không publish 5432 ra ngoài — chỉ backend trong mạng compose truy cập.
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: production                # bật guard bắt buộc JWT_SECRET mạnh
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
+      SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin}
+      SEED_DEMO: ${SEED_DEMO:-false}     # production: KHÔNG seed dữ liệu demo
+      CORS_ORIGINS: ${CORS_ORIGINS}
+    expose:
+      - "8000"                           # chỉ nội bộ; nginx proxy vào
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: ""            # same-origin: client gọi /api tương đối
+    restart: unless-stopped
+    depends_on:
+      - backend
+    expose:
+      - "80"                             # chỉ nội bộ; Caddy đứng trước lo TLS
+
+  # Reverse-proxy + auto-HTTPS (Let's Encrypt) cho subdomain.
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}        # vd: erp.saovietnhat.vn (đặt trong .env)
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data                 # lưu chứng chỉ TLS (đừng xoá)
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

@@ -40,10 +40,8 @@ const NAV: NavSection[] = [
     id: "kinh-doanh",
     label: "Kinh doanh",
     items: [
-      { id: "san-pham", label: "Sản phẩm", icon: "box", module: "san_pham" },
       { id: "tinh-gia-thanh", label: "Tính giá thành", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
-      { id: "hop-dong", label: "Hợp đồng", icon: "fileCheck", module: "hop_dong" },
       { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart", module: "don_hang_ban" },
       { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },
     ],

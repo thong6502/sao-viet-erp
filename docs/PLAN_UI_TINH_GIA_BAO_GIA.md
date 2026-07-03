@@ -108,6 +108,19 @@
 - Gói biên cấu hình được trên UI (luật dự án: không hardcode số liệu nghiệp vụ).
 - Thảo luận/comment.
 
+### Seed — nối Tính giá ↔ Báo giá (2026-07-03)
+
+`seed_sales_history` trước đây tạo báo giá "trơ" (QuoteItem `estimate_id=None`, giá vốn = total×0.8 bịa).
+Đã sửa: thêm helper `_mk_estimate()` tạo `Estimate`(mã TG qua `SequenceService("costing")`, status
+`converted_to_quote`) + `EstimateOption`; `_mk_quote()` giờ tạo phiếu tính giá NGUỒN rồi set
+`QuoteItem.estimate_id/estimate_option_id/product_spec_text` + `Quote.estimate_id`. Số tiền giữ nguyên
+(giá vốn=total×0.8, biên 20% → khớp cũ). Thêm 1 báo giá **nháp đa dòng** (Catalogue+Tờ rơi = 2 phiếu, giữ
+demo BG-nhiều-dòng) + 2 phiếu **'calculated' độc lập** cho picker "Báo giá mới" không rỗng sau reset.
+Đã reset `dev.db` (backup `dev.db.bak-linkseed`) + restart. **Verify API**: 11/11 báo giá có `estimate_refs`
+(TG25/TG26); detail có `estimate_id`+`estimate_number`+`product_spec_text`; `GET /api/estimates/{id}`→200
+(mở được phiếu); picker có 2 phiếu calculated. Pattern hand-create theo `tests/test_quotations_api.py::_mk_estimate`
+(spec tối thiểu `{finished_width,finished_height,colors,sides}`, `warnings_json=[]`, không cần chạy engine).
+
 ## Rủi ro & ràng buộc
 
 1. Backend Báo giá đang chuyển đổi H-V-I ở nhánh song song → Phase 5–6 xếp cuối,
@@ -133,7 +146,23 @@
 - [x] Phase 6 — picker đa phiếu (giỏ chip, mỗi phiếu kéo mức SL + giá vốn khóa; create gửi `picks[]`)
       + detail panel "GIÁ BÁN ĐỀ XUẤT" 4 gói biên áp cả phiếu khi nháp — verify e2e:
       BG26-0011 pick TG26-0002+0003 → 4 dòng → gói 12% → tổng 20.284.000 → 18.440.000
-- [ ] Phase 7 — tùy chọn (duyệt nội bộ, gói biên cấu hình được, thảo luận, so sánh 2 phiên bản)
+- [x] Phase 7 — **Detail "ý hệt" prototype inan5 (2026-07-03, parity UI)**: user chốt inan5 là chuẩn → sửa SVN.
+      Chuyển `QuotationDetailDialog` (modal 4 tab) → `QuotationDetailView` (trang 2 cột in-page, `.bgv`,
+      list⇄editor toggle như inan5). Trái: card giá vốn khóa dạng bảng dòng (SP+↳PTG+spec · SL · giá vốn ·
+      markup% editable từng dòng · thành tiền VAT) + điều khoản/hiệu lực/lý do + follow-up "Theo dõi gửi khách"
+      (kênh/ngày gửi/hạn/đã gửi N ngày + "Ghi nhận đã liên hệ") + Lịch sử phiên bản + "So sánh". Phải: panel tối
+      "GIÁ BÁN ĐỀ XUẤT" với 4 gói biên + **slider + ô % nhập tay đồng bộ** (1 dòng) / ẩn khi đa dòng, đơn giá/cái,
+      toggle "Bắt buộc cấp trên duyệt", breakdown sống; card Khách hàng; timeline Hoạt động; Thảo luận (role selector).
+      **Xem in = bản song ngữ VN/EN letterhead MY AN PHU** (bảng chưa-VAT, 5 ghi chú, 2 ô ký). CSS port `.bgv`+`.qpdf`
+      vào `bao-gia.css` (thêm `--paper-2`,`--rust-2`; tokens còn lại trùng SVN). Backend-backed chạy thật (margin
+      persist qua PUT + reload, transitions, requote, pdf). **Mockup parity-UI (localStorage, chưa backend):** thảo
+      luận (`bgv_comments_*`), nhân bản, ghi nhận liên hệ (`bgv_contact_*`), toggle duyệt (`bgv_appr_*`). Verify e2e:
+      BG26-0005 (sent, 1 dòng) layout+follow-up+in; BG26-0011 (nháp, 4 dòng) sửa markup dòng 1 12→30 → total
+      18.440.000→19.489.143 persist thật; thảo luận gửi OK; typecheck sạch. **TODO nối backend sau:** comment/duplicate/
+      contact-log/approval-2-cấp. **Bản in đã đổi letterhead sang Sao Việt Nhật** (logo thật
+      `assets/sao-viet-nhat-logo-mark.png` + const `SVN_COMPANY`); các trường pháp lý (địa chỉ/MST/điện thoại/
+      email/website/người gửi) để "—" chờ khảo sát — KHÔNG bịa (luật "không hardcode số liệu"). Điền `SVN_COMPANY`
+      trong `BaoGiaPage.tsx` khi có giấy phép kinh doanh Sao Việt Nhật.
 
 Backend đã heal + hoàn tất (commit a79fa6e): chuỗi import lành, `QuoteItem.estimate_id`,
 create đa phiếu strict, suite 298 pass. Bug bắt được khi làm: CHECK estimates thiếu
