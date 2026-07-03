@@ -92,9 +92,9 @@
   phải = giỏ dòng đã pick (`↳ mã phiếu · SP · SL · giá vốn khóa · % biên · giá bán`).
   Áp gói biên chung hoặc per dòng. Từ trang Tính giá, "Tạo báo giá" pre-pick phiếu đang mở.
 - **Detail**: trái = khối "🔒 Giá vốn — khóa từ phiếu tính giá" (read-only, link mở phiếu)
-  + điều khoản + hiệu lực + lý do phiên bản + lịch sử phiên bản (so sánh 2 bản);
-  phải = panel tối GIÁ BÁN ĐỀ XUẤT (4 gói biên 12/18/25/35 làm shortcut UI + slider
-  + ô % tự do) → Lợi nhuận → Giá bán → VAT → Tổng, tính sống; card Khách hàng; Timeline.
+  kèm điều khoản, hiệu lực, lý do phiên bản, lịch sử phiên bản (so sánh 2 bản);
+  phải = panel tối GIÁ BÁN ĐỀ XUẤT (4 gói biên 12/18/25/35 làm shortcut UI, slider,
+  ô % tự do) → Lợi nhuận → Giá bán → VAT → Tổng, tính sống; card Khách hàng; Timeline.
 - Action theo trạng thái (Gửi khách / Khách chốt / Từ chối / Tạo đơn hàng) + **"Xem in"**
   (print CSS báo giá gửi khách).
 - **Delta backend (additive, cần điều phối với nhánh backend Báo giá đang làm)**:
@@ -128,9 +128,17 @@
 - [x] Phase 3 — sơ đồ bình bản SVG (`ImpositionDiagram`, mirror công thức engine; 21×29,7/65×86 → 2×4 xoay 90° = 8 con,
       hiệu suất 89%; case vượt khổ vẽ đỏ + cảnh báo) — verify browser
 - [x] Phase 4 — kết quả: box "Thông số sản xuất" + bảng nhóm 5 khu + đơn giá kèm đơn vị (đ/tờ, đ/lượt...) — verify browser
-- [ ] Phase 5 — list Báo giá (CHỜ backend H-V-I boot được)
-- [ ] Phase 6 — picker đa phiếu + detail Báo giá (CHỜ backend)
-- [ ] Phase 7 — tùy chọn (duyệt nội bộ, gói biên cấu hình, thảo luận)
+- [x] Phase 5 — list Báo giá: tabs đếm số (`GET /api/quotations/stats`, filter `need_action`),
+      chip vN + số phiên bản, sản phẩm + ↳ mã phiếu TG, biên %, tuổi phiếu "gửi N ngày" — verify browser
+- [x] Phase 6 — picker đa phiếu (giỏ chip, mỗi phiếu kéo mức SL + giá vốn khóa; create gửi `picks[]`)
+      + detail panel "GIÁ BÁN ĐỀ XUẤT" 4 gói biên áp cả phiếu khi nháp — verify e2e:
+      BG26-0011 pick TG26-0002+0003 → 4 dòng → gói 12% → tổng 20.284.000 → 18.440.000
+- [ ] Phase 7 — tùy chọn (duyệt nội bộ, gói biên cấu hình được, thảo luận, so sánh 2 phiên bản)
+
+Backend đã heal + hoàn tất (commit a79fa6e): chuỗi import lành, `QuoteItem.estimate_id`,
+create đa phiếu strict, suite 298 pass. Bug bắt được khi làm: CHECK estimates thiếu
+converted_to_quote; picker gọi get_estimate không tồn tại; orders router đọc field cũ;
+seed đếm tay quote_number lệch SequenceService (đụng UNIQUE khi tạo phiếu mới).
 
 Fix kèm theo khi verify: label máy in dùng nhầm `process_type` ("in") thay vì `machine_type` →
 Mitsubishi offset từng hiện "- Khổ lớn"; select `.tg__statusfilter` bị `.input{width:100%}` đè → giãn nguyên hàng.
