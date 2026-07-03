@@ -9,6 +9,10 @@
 }
 
 .users__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
   padding-bottom: var(--sp-5);
   border-bottom: 1px solid var(--rule);
 }
@@ -24,19 +28,82 @@
   margin: 0;
 }
 
-.users__create {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-3);
-}
-.users__create .input {
-  width: 220px;
-  max-width: 100%;
-}
 .users__inline-error {
   color: var(--signal);
   font-size: 13px;
+}
+
+/* ---- Toolbar: search + filters ------------------------------------------- */
+.users__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.users__search {
+  flex: 1 1 320px;
+  min-width: 240px;
+}
+.users__filters {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.users__filter {
+  flex: 0 0 auto;
+  width: 190px;
+}
+
+/* ---- Create modal form --------------------------------------------------- */
+.users__form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.users__form .field {
+  margin: 0;
+}
+.users__req {
+  color: var(--signal);
+}
+
+/* ---- Pagination ---------------------------------------------------------- */
+.users__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.users__pager-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.users__pager-size {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.users__pager-size .sel {
+  width: 76px;
+}
+.users__pager-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.users__pager-info {
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  color: var(--ash);
+}
+.users__empty {
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--ash);
 }
 
 /* ---- Grid: table + detail ------------------------------------------------ */
@@ -84,6 +151,13 @@
 }
 .users__row.is-active {
   background: var(--rust-soft);
+}
+/* Filler rows keep the table height constant across pages (no layout jump). */
+.users__row--filler {
+  cursor: default;
+}
+.users__row--filler:hover {
+  background: transparent;
 }
 .users__email {
   font-family: var(--ff-mono);

@@ -33,6 +33,9 @@ class RefreshToken(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     # Non-null once the token is rotated away or logged out.
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # User-Agent captured when the token was issued (spec-08) — shown as the "device" of a
+    # session in the admin user-detail view. Nullable; never used for auth decisions.
+    user_agent: Mapped[str | None] = mapped_column(String(400), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

@@ -186,3 +186,49 @@ def test_non_admin_forbidden(client):
         ).status_code
         == 403
     )
+    # No phong_ban NOR vai_tro read → cannot even list role names.
+    assert (
+        client.get(f"/api/roles?department_id={_kd_id()}", headers=_h(token)).status_code
+        == 403
+    )
+
+
+def _dept_viewer_token() -> str:
+    """A user whose role grants ONLY phong_ban:read (no vai_tro permission) — the
+    view-only employee looking at the department screen (spec-09)."""
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        existing = users.get_by_username("pb-viewer")
+        if existing is not None:
+            return create_access_token(str(existing.id))
+        kd = DepartmentRepository(db).get_by_name("Kinh doanh")
+        roles = RoleRepository(db)
+        role = roles.create(name="PB Viewer", department_id=kd.id)
+        roles.set_permission(
+            role_id=role.id, module_key="phong_ban", can_read=True, scope="all"
+        )
+        u = users.create(username="pb-viewer", name="V", password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=kd.id, role_id=role.id, is_active=True)
+        return create_access_token(str(u.id))
+    finally:
+        db.close()
+
+
+def test_dept_viewer_can_list_role_names_but_not_matrix(client):
+    """Role NAMES inside a department are part of viewing the department
+    (phong_ban:read); the permission matrix stays behind vai_tro:read."""
+    token = _dept_viewer_token()
+    kd_id = _kd_id()
+
+    listed = client.get(f"/api/roles?department_id={kd_id}", headers=_h(token))
+    assert listed.status_code == 200
+    roles = listed.json()
+    assert {"NV Sales", "Trưởng phòng KD"} <= {r["name"] for r in roles}
+
+    # …but the detailed permission matrix of any role stays forbidden.
+    role_id = roles[0]["id"]
+    assert (
+        client.get(f"/api/roles/{role_id}/permissions", headers=_h(token)).status_code
+        == 403
+    )

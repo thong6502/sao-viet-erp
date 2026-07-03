@@ -25,17 +25,33 @@ class RefreshTokenRepository:
         token_hash: str,
         family_id: str,
         expires_at: datetime,
+        user_agent: str | None = None,
     ) -> RefreshToken:
         row = RefreshToken(
             user_id=user_id,
             token_hash=token_hash,
             family_id=family_id,
             expires_at=expires_at,
+            user_agent=user_agent,
         )
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
         return row
+
+    def list_active_for_user(self, user_id: int) -> list[RefreshToken]:
+        """Non-revoked, non-expired refresh tokens for a user = its live sessions (spec-08),
+        newest first."""
+        stmt = (
+            select(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked_at.is_(None),
+                RefreshToken.expires_at > _utcnow(),
+            )
+            .order_by(RefreshToken.created_at.desc())
+        )
+        return list(self.db.execute(stmt).scalars())
 
     def get_by_hash(self, token_hash: str) -> RefreshToken | None:
         stmt = select(RefreshToken).where(RefreshToken.token_hash == token_hash)

@@ -92,6 +92,12 @@
   outline-offset: 2px;
 }
 
+/* Chế độ chỉ xem: công tắc bị khóa — giữ màu trạng thái nhưng mờ đi và mất cursor. */
+.switch:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 /* Horizontal scroll wrapper for narrow containers (e.g. inside a dialog). */
 .matrix-scroll {
   overflow-x: auto;

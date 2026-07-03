@@ -242,6 +242,23 @@ export interface AuditRow {
   created_at: string;
 }
 
+/** Current user's CRUD flags on one module (spec-09 — frontend action gating). */
+export interface ModuleCapability {
+  module_key: string;
+  can_read: boolean;
+  can_create: boolean;
+  can_update: boolean;
+  can_delete: boolean;
+}
+
+/** A live login session (active refresh token) for the admin user-detail view (spec-08). */
+export interface Session {
+  id: number;
+  user_agent: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
 export interface Role {
   id: number;
   name: string;
@@ -283,6 +300,16 @@ export const api = {
   myPermissions(token: string): Promise<string[]> {
     return authed<{ modules: string[] }>("/api/auth/permissions", token).then(
       (r) => r.modules,
+    );
+  },
+
+  /** Current user's readable modules + full CRUD matrix (spec-09 action gating). */
+  myAccess(
+    token: string,
+  ): Promise<{ modules: string[]; permissions: ModuleCapability[] }> {
+    return authed<{ modules: string[]; permissions: ModuleCapability[] }>(
+      "/api/auth/permissions",
+      token,
     );
   },
 
@@ -427,6 +454,31 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ is_active: isActive }),
       });
+    },
+    /** Edit a user's name + department (spec-08 / PBI-2003); dept change drops the old role. */
+    updateUser(token: string, userId: number, name: string, departmentId: number): Promise<UserRow> {
+      return authed<UserRow>(`/api/users/${userId}`, token, {
+        method: "PUT",
+        body: JSON.stringify({ name, department_id: departmentId }),
+      });
+    },
+    /** Reset a user's password → returns the one-time temp password; revokes all sessions. */
+    resetUserPassword(token: string, userId: number): Promise<{ temporary_password: string }> {
+      return authed<{ temporary_password: string }>(`/api/users/${userId}/reset-password`, token, {
+        method: "POST",
+      });
+    },
+    /** Log a user out everywhere (spec-08 / PBI-2008). */
+    revokeUserSessions(token: string, userId: number): Promise<void> {
+      return authed<void>(`/api/users/${userId}/revoke-sessions`, token, { method: "POST" });
+    },
+    /** A user's live sessions (device + times), read-only. */
+    userSessions(token: string, userId: number): Promise<Session[]> {
+      return authed<Session[]>(`/api/users/${userId}/sessions`, token);
+    },
+    /** Recent activity targeting a user. */
+    userActivity(token: string, userId: number): Promise<AuditRow[]> {
+      return authed<AuditRow[]>(`/api/users/${userId}/activity`, token);
     },
     /** Bulk-move people to a target department (spec-06 / PBI-4008); old roles are dropped. */
     transferUsers(

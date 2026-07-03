@@ -34,5 +34,16 @@ class AuditLogRepository:
             ).scalars()
         )
 
+    def list_for_target(self, target: str, limit: int = 50) -> list[AuditLog]:
+        """Recent audit rows whose action targeted a given entity (spec-08 per-user activity)."""
+        return list(
+            self.db.execute(
+                select(AuditLog)
+                .where(AuditLog.target == target)
+                .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+                .limit(limit)
+            ).scalars()
+        )
+
     def count(self) -> int:
         return self.db.execute(select(func.count()).select_from(AuditLog)).scalar_one()
