@@ -802,6 +802,40 @@ class PricingEngine:
                     total_cost=outsource_cost
                 ))
 
+        # 11b. Override thủ công tổng tiền từng dòng (§12) — kèm LÝ DO bắt buộc. Đọc từ
+        # input_spec["overrides"] = [{target:"line:<category>", value:<số>, reason:<str>}]. Áp SAU
+        # khi engine tính; lưu giá gốc + lý do vào snapshot dòng (được đóng băng qua input_spec_json).
+        for ov in (input_spec.get("overrides") or []):
+            try:
+                target = str(ov.get("target") or "")
+                if not target.startswith("line:"):
+                    continue
+                cat = target.split(":", 1)[1]
+                reason = (ov.get("reason") or "").strip()
+                new_val = float(ov.get("value"))
+                if not reason:
+                    add_warning("blocking_error", "OVERRIDE_NO_REASON",
+                                f"Sửa tay dòng '{cat}' phải nhập lý do.")
+                    continue
+                if new_val < 0:
+                    add_warning("blocking_error", "OVERRIDE_NEGATIVE", f"Giá sửa tay dòng '{cat}' không được âm.")
+                    continue
+                line = next((l for l in cost_lines if l.category == cat), None)
+                if line is None:
+                    add_warning("warning", "OVERRIDE_NO_LINE", f"Không có dòng '{cat}' để sửa tay.")
+                    continue
+                orig = float(line.total_cost)
+                line.total_cost = new_val
+                line.min_charge_applied = False
+                line.note = f"[SỬA TAY] {orig:,.0f}→{new_val:,.0f}đ · Lý do: {reason}"
+                snap = dict(line.calculation_snapshot_json or {})
+                snap.update({"override_original": orig, "override_value": new_val, "override_reason": reason})
+                line.calculation_snapshot_json = snap
+                add_warning("info", "OVERRIDE_APPLIED",
+                            f"Dòng '{cat}' sửa tay: {orig:,.0f}→{new_val:,.0f}đ (lý do: {reason}).")
+            except (ValueError, TypeError):
+                add_warning("warning", "OVERRIDE_INVALID", "Một mục sửa tay không hợp lệ đã bị bỏ qua.")
+
         # 12. Accumulate Cost
         total_cost = sum(float(line.total_cost) for line in cost_lines)
 
