@@ -82,6 +82,34 @@ class PricingEngine:
         bleed_cm = float(input_spec.get("bleed_cm") or 0)
         gutter_cm = float(input_spec.get("gutter_cm") or 0)
 
+        # 1b. Bình bài (imposition) — đọc hệ số từ DM Kiểu bình bài (mục 9). Spec gửi `imposition`
+        # có thể là MÃ (ONE_SIDE, TU_TRO… từ dropdown Tính giá) hoặc TÊN (legacy). Resolve theo
+        # code → name → hiệu lực tại ngày tính → version cao nhất. Không chỉ định → suy từ số mặt.
+        from ..repositories.imposition_type_repo import ImpositionTypeRepository
+        impo_code = input_spec.get("imposition") or input_spec.get("imposition_name")
+        if not impo_code:
+            # Mặc định theo số mặt khi spec không chọn kiểu: dùng MÃ ổn định (tên có thể đổi).
+            impo_code = "ONE_SIDE" if sides == 1 else "TRO_NHIP_2_KEM"
+        impo = ImpositionTypeRepository(self.db).resolve_active(
+            code=impo_code, name=impo_code, at_date=at_date
+        )
+        if impo:
+            finished_factor = float(impo.finished_factor)
+            plate_set_factor = float(impo.plate_set_factor)
+            impo_pass_count = float(impo.pass_count)
+            ink_pass_factor = float(impo.ink_pass_factor)
+            impo_label = impo.name
+            impo_resolved_code = impo.code
+        else:
+            # Fallback khi DM chưa seed: suy từ số mặt = đúng bằng hành vi engine cũ (không đổi kết quả).
+            finished_factor = 1.0
+            plate_set_factor = float(sides)
+            impo_pass_count = 1.0
+            ink_pass_factor = float(sides)
+            impo_label = impo_code
+            impo_resolved_code = None
+            add_warning("warning", "MISSING_IMPOSITION", f"Không tìm thấy kiểu bình bài '{impo_code}' trong danh mục — dùng hệ số suy từ số mặt.")
+
         # 2. Layout Calculation (pieces_per_sheet)
         pieces_per_sheet = 1
         if pieces_per_sheet_input is not None:
@@ -131,6 +159,11 @@ class PricingEngine:
                 except (ValueError, TypeError):
                     add_warning("blocking_error", "INVALID_DIMENSIONS", "Kích thước khổ không hợp lệ.")
                     pieces_per_sheet = 1
+
+        # Hệ số thành phẩm (bình bài): số con thành phẩm = số con hình học × hệ số (tự trở=½). Mục 9.
+        geometric_pieces_per_sheet = pieces_per_sheet
+        if finished_factor != 1.0:
+            pieces_per_sheet = max(1, int(math.floor(geometric_pieces_per_sheet * finished_factor)))
 
         # 3. Load Material and Price
         material: Material | None = None
@@ -509,12 +542,12 @@ class PricingEngine:
             ).scalars().first()
 
             if plate_rate:
-                plates_count = colors * sides * forms
+                plates_count = int(round(colors * plate_set_factor * forms))
                 plate_cost = plates_count * float(plate_rate.unit_price)
-                
+
                 cost_lines.append(EstimateCostLine(
                     category="plate_die",
-                    description=f"Bản kẽm Offset: {plates_count} bản ({colors} màu x {sides} mặt x {forms} khuôn)",
+                    description=f"Bản kẽm Offset: {plates_count} bản ({colors} màu × {plate_set_factor:g} bộ kẽm × {forms} khuôn — {impo_label})",
                     source_type="plate_die_rates",
                     source_id=plate_rate.id,
                     source_snapshot_json={
@@ -525,6 +558,8 @@ class PricingEngine:
                     calculation_snapshot_json={
                         "colors": colors,
                         "sides": sides,
+                        "plate_set_factor": plate_set_factor,
+                        "imposition": impo_label,
                         "forms": forms
                     },
                     quantity=float(plates_count),
@@ -618,6 +653,16 @@ class PricingEngine:
             if passes > 1:
                 run_time_hours *= passes
                 add_warning("info", "MULTI_PASS", f"Job {colors} màu chạy trên máy {num_ink_units} đơn vị in → {passes} lượt in (giờ máy ×{passes}).", "machine", machine.id)
+
+            # Số lượt qua máy (bình bài): tờ qua máy impo_pass_count lần (2 mặt → 2 lượt). Mục 9.
+            # Máy trở tự động (perfecting) in cả 2 mặt trong 1 lượt qua máy → KHÔNG nhân lượt bình bài.
+            machine_pass = impo_pass_count
+            if getattr(machine, "supports_perfecting", False) and machine_pass and machine_pass > 1:
+                add_warning("info", "PERFECTING", f"Máy {machine.name} in trở tự động (perfecting) — không nhân lượt qua máy dù bình bài '{impo_label}' 2 mặt.", "machine", machine.id)
+                machine_pass = 1.0
+            if machine_pass and machine_pass != 1.0:
+                run_time_hours *= machine_pass
+                add_warning("info", "IMPOSITION_PASS", f"Bình bài '{impo_label}': tờ qua máy ×{machine_pass:g} lượt (giờ máy ×{machine_pass:g}).", "machine", machine.id)
 
             setup_hours = float(machine.setup_time_mins + machine.changeover_time_mins) / 60.0
             machine_hours = run_time_hours + setup_hours

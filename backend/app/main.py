@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import assert_secure_config, settings
 from .db import SessionLocal, init_db
+from .db_migrations import run_migrations
 from .routers import (
     auth,
     costings,
@@ -24,6 +25,8 @@ from .routers import (
     materials,
     operations,
     orders,
+    paper_sizes,
+    imposition_types,
     products,
     product_types_catalog,
     profile,
@@ -49,6 +52,9 @@ async def lifespan(app: FastAPI):
     init_db()
     db = SessionLocal()
     try:
+        # create_all never ALTERs existing tables; run tracked additive migrations so the
+        # persistent prod DB picks up new columns before seed/queries touch them.
+        run_migrations(db)
         seed_all(db)
     finally:
         db.close()
@@ -81,6 +87,8 @@ app.include_router(product_types_catalog.router)
 app.include_router(materials.router)
 app.include_router(machines.router)
 app.include_router(operations.router)
+app.include_router(paper_sizes.router)
+app.include_router(imposition_types.router)
 app.include_router(click_ink_rates.router)
 app.include_router(plate_die_rates.router)
 app.include_router(norms.router)

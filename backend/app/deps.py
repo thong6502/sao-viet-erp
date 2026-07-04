@@ -21,6 +21,8 @@ from .repositories.machine_repo import MachineRepository
 from .repositories.material_repo import MaterialRepository
 from .repositories.operation_repo import OperationRepository
 from .repositories.order_repo import OrderRepository
+from .repositories.paper_size_repo import PaperSizeRepository
+from .repositories.imposition_type_repo import ImpositionTypeRepository
 from .repositories.product_repo import ProductRepository
 from .repositories.product_type_catalog_repo import ProductTypeCatalogRepository
 from .repositories.quotation_repo import QuotationRepository
@@ -48,6 +50,8 @@ from .services.department_service import DepartmentService
 from .services.machine_service import MachineService
 from .services.material_service import MaterialService
 from .services.operation_service import OperationService
+from .services.paper_size_service import PaperSizeService
+from .services.imposition_type_service import ImpositionTypeService
 from .services.product_service import ProductService
 from .services.product_type_catalog_service import ProductTypeCatalogService
 from .services.order_service import OrderService
@@ -372,6 +376,32 @@ def get_machine_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> MachineService:
     return MachineService(repo, audit)
+
+
+def get_paper_size_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> PaperSizeRepository:
+    return PaperSizeRepository(db)
+
+
+def get_paper_size_service(
+    repo: Annotated[PaperSizeRepository, Depends(get_paper_size_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> PaperSizeService:
+    return PaperSizeService(repo, audit)
+
+
+def get_imposition_type_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> ImpositionTypeRepository:
+    return ImpositionTypeRepository(db)
+
+
+def get_imposition_type_service(
+    repo: Annotated[ImpositionTypeRepository, Depends(get_imposition_type_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> ImpositionTypeService:
+    return ImpositionTypeService(repo, audit)
 
 
 def get_operation_repository(

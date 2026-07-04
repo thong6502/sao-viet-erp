@@ -812,6 +812,106 @@ def seed_operations(db: Session) -> None:
         db.commit()
 
 
+def seed_paper_sizes(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.paper_size import PaperSize, summarize_size_type
+    from .repositories.paper_size_repo import PaperSizeRepository
+
+    repo = PaperSizeRepository(db)
+
+    if db.execute(select(PaperSize)).first() is None:
+        # (name, w, h, size_group, is_purchase, is_print, is_cut)
+        sizes = [
+            ("Khổ 79×109", 79, 109, "cong_nghiep", True, True, False),
+            ("Khổ 65×86", 65, 86, "cong_nghiep", True, True, False),
+            ("Khổ 60×84", 60, 84, "cong_nghiep", True, True, False),
+            ("Khổ 68×102", 68, 102, "cong_nghiep", True, True, False),
+            ("Khổ 39×54", 39, 54, "kho_cat", False, True, False),
+            ("Khổ 43×65", 43, 65, "kho_cat", False, True, False),
+        ]
+        for name, w, h, group, is_buy, is_print, is_cut in sizes:
+            repo.create(
+                code=repo._next_code(),
+                name=name,
+                width_cm=w,
+                height_cm=h,
+                size_group=group,
+                is_purchase_size=is_buy,
+                is_print_sheet_size=is_print,
+                is_cut_size=is_cut,
+                size_type=summarize_size_type(is_buy, is_print, is_cut),
+                allow_rotation=True,
+                is_active=True,
+            )
+        db.commit()
+
+
+def seed_imposition_types(db: Session) -> None:
+    from sqlalchemy import select
+    from .models.imposition_type import ImpositionType
+    from .repositories.imposition_type_repo import ImpositionTypeRepository
+
+    repo = ImpositionTypeRepository(db)
+
+    if db.execute(select(ImpositionType)).first() is None:
+        # (code, name, group_kind, applies_to_sides, sides, finished_factor, pass_count,
+        #  plate_set_factor, ink_pass_factor, allow_rotate, shared_plate_set, priority, note).
+        # Mã ngữ nghĩa ổn định — engine resolve theo code (fallback name). TÊN cũng giữ ổn định để
+        # tương thích spec/phiếu cũ tra theo tên.
+        types = [
+            (
+                "ONE_SIDE", "1 mặt", "one_side", "1", 1, 1.0, 1, 1.0, 1.0, True, False, 10,
+                "1 bộ kẽm, tờ qua máy 1 lần.",
+            ),
+            (
+                "AB", "A-B / trước-sau riêng", "two_side", "2", 2, 1.0, 2, 2.0, 2.0, True, False, 20,
+                "A-B: 2 bộ kẽm riêng cho mặt trước/sau, tờ qua máy 2 lượt.",
+            ),
+            (
+                "TU_TRO", "Tự trở", "two_side", "2", 2, 0.5, 2, 1.0, 2.0, True, True, 30,
+                "Work-and-turn: dùng chung 1 bộ kẽm, lật giấy in mặt kia; con÷2, lượt×2 — công thức "
+                "tạm, chờ phiếu NextPrint thật đối chiếu.",
+            ),
+            (
+                "TRO_NHIP_2_KEM", "Trở nhíp (2 kẽm)", "two_side", "2", 2, 1.0, 2, 2.0, 2.0, True, False, 40,
+                "Sheetwise cổ điển: 2 bộ kẽm, con nguyên, tờ qua máy 2 lượt.",
+            ),
+            (
+                "TRO_NHIP_1_KEM", "Trở nhíp (1 kẽm)", "two_side", "2", 2, 0.5, 2, 1.0, 2.0, True, True, 45,
+                "Trở nhíp dùng chung 1 bộ kẽm: con÷2, lượt×2 (biến thể tiết kiệm kẽm).",
+            ),
+            (
+                "PERFECTING", "In 2 mặt 1 lượt (perfecting)", "two_side", "2", 2, 1.0, 1, 2.0, 2.0,
+                True, False, 50,
+                "Máy trở tự động: in cả 2 mặt trong 1 lượt qua máy (pass=1); 2 bộ kẽm. Giờ máy không nhân lượt.",
+            ),
+            (
+                "CUSTOM", "Tùy chỉnh", "custom", "any", 2, 1.0, 1, 1.0, 1.0, True, False, 100,
+                "Kiểu tự khai — tự nhập toàn bộ hệ số cho job đặc biệt.",
+            ),
+        ]
+        for (
+            code, name, group_kind, applies_to_sides, sides, finished_factor, pass_count,
+            plate_set_factor, ink_pass_factor, allow_rotate, shared_plate_set, priority, note,
+        ) in types:
+            repo.create(
+                code=code,
+                name=name,
+                group_kind=group_kind,
+                applies_to_sides=applies_to_sides,
+                sides=sides,
+                finished_factor=finished_factor,
+                pass_count=pass_count,
+                plate_set_factor=plate_set_factor,
+                ink_pass_factor=ink_pass_factor,
+                allow_rotate=allow_rotate,
+                shared_plate_set=shared_plate_set,
+                priority=priority,
+                note=note,
+            )
+        db.commit()
+
+
 def seed_click_ink_rates(db: Session) -> None:
     from sqlalchemy import select
     from .models.click_ink_rate import ClickInkRate
@@ -979,6 +1079,8 @@ def seed_all(db: Session) -> None:
     seed_materials(db)
     seed_machines(db)
     seed_operations(db)
+    seed_paper_sizes(db)
+    seed_imposition_types(db)
     if settings.seed_demo:
         seed_kd_staff(db)
         seed_customers(db)

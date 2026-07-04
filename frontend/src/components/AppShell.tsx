@@ -25,6 +25,8 @@ import { OperationsCatalogPage } from "../pages/OperationsCatalogPage";
 import { ClickInkRatesPage } from "../pages/ClickInkRatesPage";
 import { PlateDieRatesPage } from "../pages/PlateDieRatesPage";
 import { NormsCatalogPage } from "../pages/NormsCatalogPage";
+import { PaperSizesCatalogPage } from "../pages/PaperSizesCatalogPage";
+import { ImpositionTypesCatalogPage } from "../pages/ImpositionTypesCatalogPage";
 import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
 import { MODULE_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -152,6 +154,10 @@ export function AppShell() {
         return <PlateDieRatesPage />;
       case "dinh-muc-bu-hao":
         return <NormsCatalogPage />;
+      case "kho-giay":
+        return <PaperSizesCatalogPage />;
+      case "kieu-binh-bai":
+        return <ImpositionTypesCatalogPage />;
       case "nhat-ky":
         return <ActivityLogPage />;
       default:

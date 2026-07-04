@@ -119,6 +119,27 @@
   font-weight: var(--fw-bold);
   color: var(--ink);
 }
+/* Group header row inside a table (e.g. kẽm / bế / ép kim) */
+.md-page__group-row td {
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--paper);
+  border-top: 2px solid var(--rust);
+  border-bottom: 1px solid var(--rule);
+}
+.md-page__group-label {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--rust);
+}
+.md-page__group-hint {
+  margin-left: var(--sp-2);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ash-2);
+}
 .md-page__danger-text {
   color: var(--signal);
   font-weight: var(--fw-medium);
@@ -344,4 +365,66 @@
   .md-page__choices-group {
     grid-template-columns: 1fr;
   }
+}
+
+/* Công đoạn form — tabs (spec §4.2) */
+.md-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 0 var(--sp-6);
+  border-bottom: 1px solid var(--rule);
+}
+.md-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.md-tab:hover {
+  color: var(--ink);
+}
+.md-tab--active {
+  color: var(--ink);
+  border-bottom-color: var(--brand, #2563eb);
+}
+
+/* Preview / hint / note dưới các tab */
+.md-page__hint {
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--wash, #f4f6fb);
+  border-radius: 8px;
+  padding: var(--sp-3) var(--sp-4);
+}
+.md-page__note {
+  font-size: 12.5px;
+  color: var(--ash);
+  line-height: 1.5;
+}
+.md-page__preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  background: var(--wash, #f4f6fb);
+  border-radius: 8px;
+  padding: var(--sp-3) var(--sp-4);
+}
+/* Tiêu đề khối trong form Định mức & Bù hao (5 khối) */
+.md-page__section-title {
+  font-size: 13px;
+  font-weight: var(--fw-bold, 700);
+  color: var(--ink);
+  margin: var(--sp-4) 0 var(--sp-2);
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.md-page__preview-head {
+  font-size: 14px;
 }

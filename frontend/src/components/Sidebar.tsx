@@ -103,12 +103,13 @@ const NAV: NavSection[] = [
     label: "Cấu hình danh mục",
     items: [
       { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_dinh_muc" },
-      { id: "vat-lieu", label: "Vật liệu & Giá", icon: "bag", module: "dm_giay_vat_tu" },
-      { id: "thiet-bi-may", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_giay_vat_tu" },
-      { id: "cong-doan-gc", label: "Công đoạn gia công", icon: "activity", module: "dm_giay_vat_tu" },
-      { id: "gia-click", label: "Bảng giá Click", icon: "calculator", module: "dm_dinh_muc" },
-      { id: "gia-khuon-ban", label: "Bảng giá Khuôn & Bản", icon: "fileText", module: "dm_dinh_muc" },
+      { id: "vat-lieu", label: "Vật tư & Đơn giá", icon: "bag", module: "dm_giay_vat_tu" },
+      { id: "thiet-bi-may", label: "Máy móc & Đơn giá", icon: "warehouse", module: "dm_giay_vat_tu" },
+      { id: "cong-doan-gc", label: "Công đoạn & Đơn giá", icon: "activity", module: "dm_giay_vat_tu" },
+      { id: "gia-khuon-ban", label: "Đơn giá kẽm & khuôn", icon: "fileText", module: "dm_dinh_muc" },
       { id: "dinh-muc-bu-hao", label: "Định mức & Bù hao", icon: "activity", module: "dm_dinh_muc" },
+      { id: "kho-giay", label: "Khổ giấy chuẩn", icon: "grid", module: "dm_giay_vat_tu" },
+      { id: "kieu-binh-bai", label: "Kiểu bình bài", icon: "calculator", module: "dm_dinh_muc" },
     ],
   },
   {

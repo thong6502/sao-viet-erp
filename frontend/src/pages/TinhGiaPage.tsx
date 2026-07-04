@@ -11,6 +11,7 @@ import {
   type MachineRow,
   type OperationCatalogRow,
   type ProductTypeCatalogRow,
+  type ImpositionTypeRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
@@ -103,6 +104,21 @@ const SNAPSHOT_LABELS: Record<string, string> = {
   pieces_per_sheet: "Số con / tờ",
   run_cost: "Chi phí chạy",
   labor_cost: "Chi phí nhân công",
+  // Bình bài (Lát 7) + số tờ 3 lớp (Lát 8)
+  imposition: "Kiểu bình bài",
+  finished_factor: "Hệ số thành phẩm",
+  geometric_pieces_per_sheet: "Số con hình học / tờ",
+  plate_set_factor: "Hệ số bộ kẽm",
+  impo_pass_count: "Số lượt qua máy",
+  ink_pass_factor: "Hệ số lượt in màu",
+  theoretical_sheets: "Số tờ lý thuyết",
+  sheets_after_yield: "Sau tỷ lệ đạt in",
+  makeready_sheets: "Bù hao setup (makeready)",
+  running_waste_sheets: "Bù hao chạy máy",
+  production_sheets: "Số tờ sản xuất",
+  paper_extra_sheets: "Hao giấy riêng",
+  purchase_sheets: "Số tờ mua giấy",
+  press_per_purchase: "Số tờ in / tờ giấy mua",
 };
 
 const MONEY_KEYS = new Set([
@@ -115,11 +131,11 @@ const UNIT_VALUE_KEYS = new Set(["unit", "price_unit", "speed_unit"]);
 
 // Nguồn đơn giá → tên trang cấu hình tương ứng (trả lời "con số này lấy từ đâu")
 const SOURCE_TYPE_LABELS: Record<string, string> = {
-  material_costs: "Bảng giá vật liệu — trang Vật liệu & Giá",
-  machine_rates: "Đơn giá giờ máy — trang Thiết bị & Máy in",
-  plate_die_rates: "Trang Bảng giá Khuôn & Bản",
-  click_ink_rates: "Trang Bảng giá Click",
-  operation_rates: "Đơn giá gia công — trang Công đoạn gia công",
+  material_costs: "Bảng giá vật tư — trang Vật tư & Đơn giá vật tư",
+  machine_rates: "Đơn giá giờ máy — trang Máy móc & Đơn giá giờ máy",
+  plate_die_rates: "Trang Đơn giá kẽm & khuôn",
+  click_ink_rates: "Trang Bảng giá Click (in kỹ thuật số)",
+  operation_rates: "Đơn giá gia công — trang Công đoạn & Đơn giá gia công",
   norms: "Trang Định mức & Bù hao",
   input_spec: "Nhập tay trong phiếu tính giá này",
 };
@@ -177,6 +193,7 @@ export function TinhGiaPage({
   const [productTypes, setProductTypes] = useState<ProductTypeCatalogRow[]>([]);
   const [materials, setMaterials] = useState<MaterialRow[]>([]);
   const [machines, setMachines] = useState<MachineRow[]>([]);
+  const [impositionTypes, setImpositionTypes] = useState<ImpositionTypeRow[]>([]);
   const [operationsCatalog, setOperationsCatalog] = useState<OperationCatalogRow[]>([]);
 
   // View Mode: null = List, "create" = Form Create, "edit" = Form Edit
@@ -206,6 +223,8 @@ export function TinhGiaPage({
   const [finishedHeight, setFinishedHeight] = useState("");
   const [colors, setColors] = useState(4);
   const [sides, setSides] = useState(2);
+  // Kiểu bình bài (mã, vd TU_TRO). Rỗng = engine tự suy theo số mặt (hành vi cũ).
+  const [imposition, setImposition] = useState("");
   const [pageCount, setPageCount] = useState("");
   const [forms, setForms] = useState(1);
   const [bindingType, setBindingType] = useState("");
@@ -307,6 +326,10 @@ export function TinhGiaPage({
     api.machines.list(token, { page: 1, size: 200 })
       .then(res => setMachines(res.items))
       .catch(() => setMachines([]));
+    // Kiểu bình bài đang hiệu lực (mỗi mã 1 phiên bản hiện hành) để chọn ở section In ấn.
+    api.impositionTypes.list(token, { current_only: true, is_active: true, sort: "priority", size: 200 })
+      .then(res => setImpositionTypes(res.items))
+      .catch(() => setImpositionTypes([]));
 
     api.operations.list(token, { page: 1, size: 200 })
       .then(res => setOperationsCatalog(res.items))
@@ -385,6 +408,7 @@ export function TinhGiaPage({
         finished_height: finishedHeight ? Number(finishedHeight) : null,
         colors: Number(colors),
         sides: Number(sides),
+        imposition: imposition || null,
         page_count: pageCount ? Number(pageCount) : null,
         forms: Number(forms),
         box_length: boxLength ? Number(boxLength) : null,
@@ -427,7 +451,7 @@ export function TinhGiaPage({
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, mode, materialId, machineId, quantityList, colors, sides, pageCount, forms, overridePieces, piecesPerSheet, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, operations, productType, finishedWidth, finishedHeight, boxLength, boxWidth, boxHeight, largeWidth, largeHeight]);
+  }, [token, mode, materialId, machineId, quantityList, colors, sides, imposition, pageCount, forms, overridePieces, piecesPerSheet, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, operations, productType, finishedWidth, finishedHeight, boxLength, boxWidth, boxHeight, largeWidth, largeHeight]);
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
@@ -449,6 +473,7 @@ export function TinhGiaPage({
     setFinishedHeight("");
     setColors(4);
     setSides(2);
+    setImposition("");
     setPageCount("");
     setForms(1);
     setBindingType("");
@@ -502,6 +527,7 @@ export function TinhGiaPage({
       setFinishedHeight(spec.finished_height || spec.finished_h || "");
       setColors(spec.colors || 4);
       setSides(spec.sides || 2);
+      setImposition(spec.imposition || "");
       setPageCount(spec.page_count || "");
       setForms(spec.forms || 1);
       setBindingType(spec.binding_type || "");
@@ -739,6 +765,7 @@ export function TinhGiaPage({
       finished_height: finishedHeight ? Number(finishedHeight) : null,
       colors: Number(colors),
       sides: Number(sides),
+      imposition: imposition || null,
       page_count: pageCount ? Number(pageCount) : null,
       forms: Number(forms),
       binding_type: bindingType || null,
@@ -1590,6 +1617,46 @@ export function TinhGiaPage({
                   </select>
                 </label>
 
+                <label className="field tg__form-wide">
+                  <span className="field__label">Kiểu bình bài</span>
+                  <select
+                    className="input"
+                    value={imposition}
+                    onChange={(e) => {
+                      const code = e.target.value;
+                      setImposition(code);
+                      const t = impositionTypes.find((it) => it.code === code);
+                      // Kiểu 1 mặt / 2 mặt xác định → đồng bộ số mặt (custom/nhiều trang giữ nguyên).
+                      if (t && t.group_kind === "one_side") setSides(1);
+                      else if (t && t.group_kind === "two_side") setSides(2);
+                    }}
+                  >
+                    <option value="">— Tự suy theo số mặt —</option>
+                    {impositionTypes
+                      .filter((it) => !it.applicable_product_types?.length || it.applicable_product_types.includes(productType))
+                      .filter((it) => !it.applicable_machine_ids?.length || (machineId !== null && it.applicable_machine_ids.includes(machineId)))
+                      .filter((it) => it.applies_to_sides === "any" || it.applies_to_sides === "multi" || it.applies_to_sides === String(sides))
+                      .map((it) => (
+                        <option key={it.id} value={it.code}>
+                          {it.name} ({it.code})
+                        </option>
+                      ))}
+                  </select>
+                  {(() => {
+                    const t = impositionTypes.find((it) => it.code === imposition);
+                    if (!t) return <span className="tg__suggest" style={{ display: "block" }}>Không chọn = engine suy hệ số theo số mặt (1 mặt / trở nhíp 2 kẽm).</span>;
+                    return (
+                      <div style={{ marginTop: 6, background: "rgba(20,19,15,0.03)", border: "1px solid var(--rule-hair)", borderRadius: 6, padding: "10px 12px", fontSize: 12.5, lineHeight: 1.7 }}>
+                        <div style={{ fontWeight: 700, marginBottom: 4 }}>{t.name} — diễn giải</div>
+                        <div>Hệ số thành phẩm: <strong>{t.finished_factor}</strong> · Số lượt qua máy: <strong>{t.pass_count}</strong> · Hệ số bộ kẽm: <strong>{t.plate_set_factor}</strong> · Hệ số lượt in màu: <strong>{t.ink_pass_factor}</strong></div>
+                        <div style={{ marginTop: 6, color: "var(--rust)" }}>
+                          Ảnh hưởng: Số con TP/tờ = con hình học × {t.finished_factor} · Giờ máy = tờ SX × {t.pass_count} / tốc độ · Kẽm = số màu × {t.plate_set_factor} × số form/tay · Mực = tờ SX × số màu × {t.ink_pass_factor}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </label>
+
                 {machineId !== null && (() => {
                   const m = machines.find(mac => mac.id === machineId);
                   return (
@@ -2038,12 +2105,17 @@ export function TinhGiaPage({
                     const matCalc = calcOf("material");
                     const machCalc = calcOf("machine");
                     const inkCalc = calcOf("ink");
+                    const plateCalc = calcOf("plate_die");
                     const opCalc = lines.find((l) => l.calculation_snapshot_json?.pieces_per_sheet)?.calculation_snapshot_json ?? {};
 
                     const facts: Array<[string, string]> = [];
+                    if (plateCalc.imposition) facts.push(["Kiểu bình bài", String(plateCalc.imposition)]);
                     if (opCalc.pieces_per_sheet) facts.push(["Số con / tờ", `${opCalc.pieces_per_sheet} con`]);
                     if (matCalc.sheet_w && matCalc.sheet_h) facts.push(["Khổ giấy", `${matCalc.sheet_w}×${matCalc.sheet_h} cm`]);
-                    if (matCalc.total_sheets) facts.push(["Tổng tờ in (gồm hao)", `${Number(matCalc.total_sheets).toLocaleString("vi-VN")} tờ`]);
+                    if (matCalc.theoretical_sheets && matCalc.production_sheets && matCalc.purchase_sheets)
+                      facts.push(["Số tờ (lý thuyết→SX→mua)", `${Number(matCalc.theoretical_sheets).toLocaleString("vi-VN")} → ${Number(matCalc.production_sheets).toLocaleString("vi-VN")} → ${Number(matCalc.purchase_sheets).toLocaleString("vi-VN")}`]);
+                    else if (matCalc.total_sheets) facts.push(["Tổng tờ in (gồm hao)", `${Number(matCalc.total_sheets).toLocaleString("vi-VN")} tờ`]);
+                    if (Number(matCalc.press_per_purchase) > 1) facts.push(["Cắt tờ in / tờ mua", String(matCalc.press_per_purchase)]);
                     if (matCalc.sides) facts.push(["Số mặt in", String(matCalc.sides)]);
                     if (inkCalc.impressions) facts.push(["Tổng lượt-màu", Number(inkCalc.impressions).toLocaleString("vi-VN")]);
                     if (machCalc.run_qty) facts.push(["Sản lượng chạy máy", Number(machCalc.run_qty).toLocaleString("vi-VN")]);
@@ -2280,9 +2352,25 @@ export function TinhGiaPage({
 
                     <div style={{ borderTop: "1px solid var(--rule-hair)", margin: "8px 0", paddingTop: "8px" }} />
 
+                    {/* Định mức & Bù hao áp dụng (mỗi bước nêu rule) — danh mục #7 */}
+                    {Array.isArray(auditLine.calculation_snapshot_json?.norms_applied) &&
+                      auditLine.calculation_snapshot_json.norms_applied.length > 0 && (
+                        <div style={{ background: "#f8f4ec", border: "1px solid var(--rule-hair)", borderRadius: "6px", padding: "10px", margin: "6px 0" }}>
+                          <div style={{ fontWeight: "bold", fontSize: "11px", marginBottom: "4px" }}>ĐỊNH MỨC & BÙ HAO ÁP DỤNG</div>
+                          {auditLine.calculation_snapshot_json.norms_applied.map((n: { label: string; detail: string; rule: string | null }, i: number) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "11px", padding: "1px 0" }}>
+                              <span>{n.label}: <span className="tg__mono">{n.detail}</span></span>
+                              {n.rule && <span className="tg__muted" style={{ whiteSpace: "nowrap" }}>{n.rule}</span>}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                     <span className="tg__summary-label" style={{ fontWeight: "bold", fontSize: "11px" }}>CÁC BƯỚC TÍNH TOÁN</span>
                     {auditLine.calculation_snapshot_json ? (
-                      Object.entries(auditLine.calculation_snapshot_json).map(([key, val]) => (
+                      Object.entries(auditLine.calculation_snapshot_json)
+                        .filter(([key]) => key !== "norms_applied")
+                        .map(([key, val]) => (
                         <div className="tg__summary-item" key={key}>
                           <span className="tg__summary-label" style={{ fontSize: "11px" }} title={key}>{snapshotLabel(key)}</span>
                           <span className="tg__summary-value" style={{ fontSize: "11px", textAlign: "right" }}>{snapshotValue(key, val)}</span>

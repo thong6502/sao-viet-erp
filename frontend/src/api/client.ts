@@ -1071,6 +1071,133 @@ export interface ProductTypeCatalogListOut {
   size: number;
 }
 
+export type PaperSizeGroup = "cong_nghiep" | "kho_a" | "kho_cat" | "custom";
+
+export interface PaperSizeRow {
+  id: number;
+  code: string;
+  name: string;
+  size_group: string;
+  is_purchase_size: boolean;
+  is_print_sheet_size: boolean;
+  is_cut_size: boolean;
+  size_type: string;
+  note: string | null;
+  width_cm: number;
+  height_cm: number;
+  area_m2: number;
+  allow_rotation: boolean;
+  compatible_machine_ids: number[] | null;
+  default_machine_id: number | null;
+  parent_size_id: number | null;
+  cut_count: number | null;
+  cut_waste_rate: number | null;
+  version: number;
+  effective_from: string | null;
+  effective_to: string | null;
+  used_count: number;
+  created_by: number | null;
+  updated_by: number | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+export interface PaperSizeInput {
+  code?: string | null;
+  name: string;
+  size_group?: PaperSizeGroup;
+  is_purchase_size?: boolean | null;
+  is_print_sheet_size?: boolean | null;
+  is_cut_size?: boolean | null;
+  size_type?: string | null;
+  note?: string | null;
+  is_active?: boolean | null;
+  width_cm: number;
+  height_cm: number;
+  allow_rotation?: boolean;
+  compatible_machine_ids?: number[] | null;
+  default_machine_id?: number | null;
+  parent_size_id?: number | null;
+  cut_count?: number | null;
+  cut_waste_rate?: number | null;
+  effective_from?: string | null;
+  effective_to?: string | null;
+}
+
+export interface PaperSizeListOut {
+  items: PaperSizeRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export type ImpositionGroupKind = "one_side" | "two_side" | "multi_page" | "custom";
+export type ImpositionAppliesToSides = "any" | "1" | "2" | "multi";
+
+export interface ImpositionTypeRow {
+  id: number;
+  code: string;
+  name: string;
+  group_kind: ImpositionGroupKind;
+  sides: number;
+  finished_factor: number;
+  pass_count: number;
+  plate_set_factor: number;
+  ink_pass_factor: number;
+  allow_rotate: boolean;
+  shared_plate_set: boolean;
+  note: string | null;
+  technology: string;
+  applies_to_sides: ImpositionAppliesToSides;
+  applicable_product_types: string[] | null;
+  applicable_machine_ids: number[] | null;
+  applicable_paper_size_ids: number[] | null;
+  allow_multi_signature: boolean;
+  priority: number;
+  version: number;
+  effective_from: string | null;
+  effective_to: string | null;
+  used_count: number;
+  created_by: number | null;
+  updated_by: number | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+// Create carries `code`; Update omits it (code is immutable — keyed by the version chain).
+// force_version (update only): buộc tạo phiên bản mới kể cả khi chưa dùng.
+export interface ImpositionTypeInput {
+  code?: string;
+  force_version?: boolean;
+  name: string;
+  group_kind: ImpositionGroupKind;
+  sides: number;
+  finished_factor: number;
+  pass_count: number;
+  plate_set_factor: number;
+  ink_pass_factor: number;
+  allow_rotate: boolean;
+  shared_plate_set: boolean;
+  note?: string | null;
+  technology?: string;
+  applies_to_sides: ImpositionAppliesToSides;
+  applicable_product_types?: string[] | null;
+  applicable_machine_ids?: number[] | null;
+  applicable_paper_size_ids?: number[] | null;
+  allow_multi_signature: boolean;
+  priority: number;
+  effective_from?: string | null;
+  effective_to?: string | null;
+  is_active?: boolean;
+}
+
+export interface ImpositionTypeListOut {
+  items: ImpositionTypeRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
 export interface MaterialCostRow {
   id: number;
   material_id: number;
@@ -1218,6 +1345,19 @@ export interface OperationCatalogRateRow {
   labor_rate: number;
   min_charge: number;
   speed: number;
+  setup_time_mins: number;
+  hourly_rate: number;
+  labor_shift_rate: number;
+  labor_fixed: number;
+  labor_min: number;
+  tooling_unit_price: number;
+  outsource_supplier: string | null;
+  outsource_unit_price: number;
+  outsource_setup_fee: number;
+  outsource_min_charge: number;
+  outsource_transport_fee: number;
+  outsource_moq: number;
+  outsource_lead_time_days: number;
   effective_from: string;
   effective_to: string | null;
   created_at: string;
@@ -1230,6 +1370,19 @@ export interface OperationCatalogRateInput {
   labor_rate: number;
   min_charge: number;
   speed: number;
+  setup_time_mins: number;
+  hourly_rate?: number;
+  labor_shift_rate?: number;
+  labor_fixed?: number;
+  labor_min?: number;
+  tooling_unit_price?: number;
+  outsource_supplier?: string | null;
+  outsource_unit_price?: number;
+  outsource_setup_fee?: number;
+  outsource_min_charge?: number;
+  outsource_transport_fee?: number;
+  outsource_moq?: number;
+  outsource_lead_time_days?: number;
   effective_from: string;
 }
 
@@ -1239,6 +1392,20 @@ export interface OperationCatalogRow {
   name: string;
   operation_type: string;
   unit: string;
+  basis_quantity: string;
+  pricing_method: string;
+  process_group: string;
+  process_type: string;
+  default_sequence: number;
+  quantity_formula_type: string;
+  allow_manual_quantity: boolean;
+  internal_pricing_method: string;
+  labor_people_count: number;
+  has_tooling: boolean;
+  tooling_type: string | null;
+  has_yield_loss: boolean;
+  default_yield_rate: number | null;
+  default_yield_rule: string | null;
   allow_outsource: boolean;
   is_active: boolean;
   rates: OperationCatalogRateRow[];
@@ -1250,8 +1417,47 @@ export interface OperationCatalogInput {
   name: string;
   operation_type: string;
   unit: string;
+  basis_quantity: string;
+  pricing_method: string;
+  process_group?: string;
+  process_type?: string;
+  default_sequence?: number;
+  quantity_formula_type?: string;
+  allow_manual_quantity?: boolean;
+  internal_pricing_method?: string;
+  labor_people_count?: number;
+  has_tooling?: boolean;
+  tooling_type?: string | null;
+  has_yield_loss?: boolean;
+  default_yield_rate?: number | null;
+  default_yield_rule?: string | null;
   allow_outsource?: boolean;
   is_active?: boolean;
+}
+
+export interface OperationPreviewInput {
+  sheet_qty?: number;
+  finished_qty?: number;
+  area_m2?: number;
+  book_qty?: number;
+  manual_qty?: number;
+  execution_mode?: string;
+}
+
+export interface OperationPreviewComponent {
+  label: string;
+  formula: string;
+  amount: number;
+}
+
+export interface OperationPreviewResult {
+  operation_name: string;
+  execution_mode: string;
+  quantity: number;
+  unit: string;
+  components: OperationPreviewComponent[];
+  total: number;
+  warnings: string[];
 }
 
 export interface OperationCatalogListOut {
@@ -1867,6 +2073,100 @@ export const api = {
     },
   },
 
+  // --- Paper Sizes Catalog --------------------------------------------------
+  paperSizes: {
+    list(
+      token: string,
+      params: CatalogListParams & {
+        size_type?: string | null;
+        size_group?: string | null;
+        machine_id?: number | null;
+        is_active?: boolean | null;
+        current_only?: boolean;
+      } = {},
+    ): Promise<PaperSizeListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.size_type) qs.set("size_type", params.size_type);
+      if (params.size_group) qs.set("size_group", params.size_group);
+      if (params.machine_id != null) qs.set("machine_id", String(params.machine_id));
+      if (params.is_active != null) qs.set("is_active", String(params.is_active));
+      if (params.current_only) qs.set("current_only", "true");
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<PaperSizeListOut>(`/api/paper-sizes${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<PaperSizeRow> {
+      return authed<PaperSizeRow>(`/api/paper-sizes/${id}`, token);
+    },
+    history(token: string, id: number): Promise<PaperSizeListOut> {
+      return authed<PaperSizeListOut>(`/api/paper-sizes/${id}/history`, token);
+    },
+    create(token: string, input: PaperSizeInput): Promise<PaperSizeRow> {
+      return authed<PaperSizeRow>("/api/paper-sizes", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: PaperSizeInput): Promise<PaperSizeRow> {
+      return authed<PaperSizeRow>(`/api/paper-sizes/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    createVersion(token: string, id: number, input: PaperSizeInput): Promise<PaperSizeRow> {
+      return authed<PaperSizeRow>(`/api/paper-sizes/${id}/version`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    clone(token: string, id: number): Promise<PaperSizeRow> {
+      return authed<PaperSizeRow>(`/api/paper-sizes/${id}/clone`, token, { method: "POST" });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/paper-sizes/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Imposition Types Catalog (Kiểu bình bài) -----------------------------
+  impositionTypes: {
+    list(
+      token: string,
+      params: CatalogListParams & { current_only?: boolean; is_active?: boolean; code?: string } = {},
+    ): Promise<ImpositionTypeListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.code) qs.set("code", params.code);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      if (params.current_only) qs.set("current_only", "true");
+      if (params.is_active !== undefined) qs.set("is_active", String(params.is_active));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<ImpositionTypeListOut>(`/api/imposition-types${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<ImpositionTypeRow> {
+      return authed<ImpositionTypeRow>(`/api/imposition-types/${id}`, token);
+    },
+    create(token: string, input: ImpositionTypeInput): Promise<ImpositionTypeRow> {
+      return authed<ImpositionTypeRow>("/api/imposition-types", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: ImpositionTypeInput): Promise<ImpositionTypeRow> {
+      return authed<ImpositionTypeRow>(`/api/imposition-types/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/imposition-types/${id}`, token, { method: "DELETE" });
+    },
+  },
+
   // --- Materials Catalog ----------------------------------------------------
   materials: {
     list(token: string, params: CatalogListParams & { material_type?: string | null } = {}): Promise<MaterialListOut> {
@@ -1990,6 +2290,12 @@ export const api = {
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/operations/${id}`, token, { method: "DELETE" });
     },
+    preview(token: string, id: number, input: OperationPreviewInput): Promise<OperationPreviewResult> {
+      return authed<OperationPreviewResult>(`/api/operations/${id}/preview`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
   },
 
   // --- Click/Ink Rates ------------------------------------------------------
@@ -2050,11 +2356,12 @@ export const api = {
     },
   },
 
-  // --- Norms Catalog --------------------------------------------------------
+  // --- Norms Catalog (Định mức & Bù hao) ------------------------------------
   norms: {
-    list(token: string, params: { norm_key?: string | null; product_type?: string | null; machine_id?: number | null; operation_id?: number | null; only_current?: boolean; page?: number; size?: number } = {}): Promise<NormListOut> {
+    list(token: string, params: { norm_key?: string | null; waste_group?: string | null; product_type?: string | null; machine_id?: number | null; operation_id?: number | null; only_current?: boolean; page?: number; size?: number } = {}): Promise<NormListOut> {
       const qs = new URLSearchParams();
       if (params.norm_key) qs.set("norm_key", params.norm_key);
+      if (params.waste_group) qs.set("waste_group", params.waste_group);
       if (params.product_type) qs.set("product_type", params.product_type);
       if (params.machine_id !== undefined && params.machine_id !== null) qs.set("machine_id", String(params.machine_id));
       if (params.operation_id !== undefined && params.operation_id !== null) qs.set("operation_id", String(params.operation_id));
@@ -2078,6 +2385,21 @@ export const api = {
     },
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/norms/${id}`, token, { method: "DELETE" });
+    },
+    duplicate(token: string, id: number, effectiveFrom: string, code?: string | null): Promise<NormRow> {
+      return authed<NormRow>(`/api/norms/${id}/duplicate`, token, {
+        method: "POST",
+        body: JSON.stringify({ effective_from: effectiveFrom, code: code ?? null }),
+      });
+    },
+    history(token: string, id: number): Promise<NormListOut> {
+      return authed<NormListOut>(`/api/norms/${id}/history`, token);
+    },
+    test(token: string, input: NormTestInput): Promise<NormTestOutput> {
+      return authed<NormTestOutput>("/api/norms/test", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
     },
   },
 };
@@ -2150,18 +2472,35 @@ export interface PlateDieRateListOut {
   size: number;
 }
 
+export type WasteGroup = "YIELD_RATE" | "SETUP_WASTE" | "RUNNING_WASTE" | "PAPER_EXTRA_WASTE";
+
 export interface NormRow {
   id: number;
   norm_key: string;
+  waste_group: WasteGroup | null;
+  calculation_method: string | null;
   value: number;
+  code: string | null;
+  name: string | null;
   product_type: string | null;
   machine_id: number | null;
   operation_id: number | null;
   operation_key: string | null;
+  applicable_product_types: string[] | null;
+  applicable_machine_ids: number[] | null;
   qty_min: number | null;
   qty_max: number | null;
   context: any | null;
   context_key: string;
+  setup_waste_qty: number | null;
+  setup_waste_per_color: number | null;
+  setup_waste_per_side: number | null;
+  min_waste_qty: number | null;
+  max_waste_qty: number | null;
+  paper_add_to_purchase: boolean;
+  priority: number;
+  version: number;
+  used_count: number;
   effective_from: string;
   effective_to: string | null;
   note: string | null;
@@ -2170,15 +2509,28 @@ export interface NormRow {
 }
 
 export interface NormInput {
-  norm_key: string;
-  value: number;
+  norm_key?: string | null;
+  waste_group?: WasteGroup | null;
+  calculation_method?: string | null;
+  value?: number;
+  code?: string | null;
+  name?: string | null;
   product_type?: string | null;
   machine_id?: number | null;
   operation_id?: number | null;
   operation_key?: string | null;
+  applicable_product_types?: string[] | null;
+  applicable_machine_ids?: number[] | null;
   qty_min?: number | null;
   qty_max?: number | null;
   context?: any | null;
+  setup_waste_qty?: number | null;
+  setup_waste_per_color?: number | null;
+  setup_waste_per_side?: number | null;
+  min_waste_qty?: number | null;
+  max_waste_qty?: number | null;
+  paper_add_to_purchase?: boolean;
+  priority?: number;
   effective_from: string;
   note?: string | null;
 }
@@ -2188,5 +2540,36 @@ export interface NormListOut {
   total: number;
   page: number;
   size: number;
+}
+
+export interface NormTestInput {
+  quantity: number;
+  pieces_per_sheet: number;
+  colors: number;
+  sides: number;
+  forms: number;
+  product_type?: string | null;
+  machine_id?: number | null;
+  operation_keys: string[];
+}
+
+export interface NormTestStep {
+  label: string;
+  detail: string;
+  rule_code: string | null;
+  value: number | null;
+}
+
+export interface NormTestOutput {
+  theoretical_sheets: number;
+  required_before_print: number;
+  sheets_after_yield: number;
+  makeready_sheets: number;
+  running_sheets: number;
+  production_sheets: number;
+  paper_extra_sheets: number;
+  purchase_sheets: number;
+  steps: NormTestStep[];
+  warnings: string[];
 }
 
