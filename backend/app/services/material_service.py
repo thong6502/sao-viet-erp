@@ -12,6 +12,14 @@ from ..models.product import ProductComponent, Product
 from ..models.costing import CostingPaperOption, Costing
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.material_repo import MaterialRepository
+from ..models.material import GROUP_FROM_TYPE, MATERIAL_GROUPS
+
+# Field vật tư mới (tái thiết kế #2) — service chuyển thẳng xuống repo.
+_EXTRA_MATERIAL_FIELDS = (
+    "material_group", "default_supplier", "base_uom", "purchase_uom", "consumption_uom",
+    "conversion_method", "conversion_factor", "ink_type", "ink_color_system",
+    "ink_color_code", "film_type",
+)
 
 VALID_MATERIAL_TYPES = {
     "paper",
@@ -101,6 +109,19 @@ class MaterialService:
             # Non-papers shouldn't enforce paper_family or surface, we can clean them
             pass
 
+    def _clean_extra(self, extra: dict, material_type: str) -> dict:
+        """Lọc field vật tư mới (#2) + suy material_group mặc định + validate nhóm."""
+        clean = {k: v for k, v in extra.items() if k in _EXTRA_MATERIAL_FIELDS}
+        group = clean.get("material_group") or GROUP_FROM_TYPE.get(material_type)
+        if group is not None and group not in MATERIAL_GROUPS:
+            raise MaterialValidationError(f"Nhóm vật tư '{group}' không hợp lệ.")
+        clean["material_group"] = group
+        for s in ("default_supplier", "base_uom", "purchase_uom", "consumption_uom",
+                  "conversion_method", "ink_type", "ink_color_system", "ink_color_code", "film_type"):
+            if isinstance(clean.get(s), str):
+                clean[s] = clean[s].strip() or None
+        return clean
+
     def list_materials(
         self,
         *,
@@ -138,6 +159,7 @@ class MaterialService:
         surface: str | None = None,
         is_active: bool = True,
         actor,
+        **extra,
     ) -> Material:
         self._validate(
             name=name,
@@ -156,6 +178,7 @@ class MaterialService:
         if self.repo.find_by_name(name) is not None:
             raise MaterialDuplicate("Tên vật tư đã tồn tại.")
 
+        clean_extra = self._clean_extra(extra, material_type)
         material = self.repo.create(
             name=name.strip(),
             material_type=material_type,
@@ -170,6 +193,7 @@ class MaterialService:
             paper_family=paper_family.strip() if paper_family else None,
             surface=surface.strip() if surface else None,
             is_active=is_active,
+            **clean_extra,
         )
         self.audit.create(
             actor_user_id=actor.id,
@@ -197,6 +221,7 @@ class MaterialService:
         surface: str | None = None,
         is_active: bool | None = None,
         actor,
+        **extra,
     ) -> Material:
         material = self.get_material(material_id)
         self._validate(
@@ -217,6 +242,7 @@ class MaterialService:
         if dup is not None and dup.id != material.id:
             raise MaterialDuplicate("Tên vật tư đã tồn tại.")
 
+        clean_extra = self._clean_extra(extra, material_type)
         material = self.repo.update(
             material,
             name=name.strip(),
@@ -232,6 +258,7 @@ class MaterialService:
             paper_family=paper_family.strip() if paper_family else None,
             surface=surface.strip() if surface else None,
             is_active=is_active,
+            **clean_extra,
         )
         self.audit.create(
             actor_user_id=actor.id,
@@ -325,27 +352,52 @@ class MaterialService:
         unit_price: int,
         effective_from: date,
         actor,
+        supplier: str | None = None,
+        paper_size_id: int | None = None,
+        price_type: str = "standard",
+        vat_included: bool = False,
+        transport_fee: int = 0,
+        moq: float = 0.0,
+        lead_time_days: int = 0,
+        quantity_from: float | None = None,
+        quantity_to: float | None = None,
     ) -> MaterialCost:
         material = self.get_material(material_id)
         if unit_price < 0:
             raise MaterialValidationError("Đơn giá không được âm.")
         if not price_unit.strip():
             raise MaterialValidationError("Đơn vị tính giá không được trống.")
+        price_unit = price_unit.strip()
 
-        # Validate date interval overlaps
-        # 1. If there's an active price, the new starting date must be strictly greater than active starting date.
-        current = self.repo.get_current_cost(material_id, price_unit)
+        # §12 — giấy tính giá theo kg phải có GSM (+ khổ) để engine quy đổi ra tờ.
+        is_paperish = material.material_group == "paper" or material.material_type in ("paper", "carton")
+        if price_unit == "kg" and is_paperish and not material.gsm:
+            raise MaterialValidationError("Giấy tính giá theo kg phải khai định lượng (gsm) để quy đổi ra tờ.")
+        if quantity_from is not None and quantity_to is not None and quantity_to < quantity_from:
+            raise MaterialValidationError("Số lượng bậc: 'đến' không được nhỏ hơn 'từ'.")
+
+        supplier = supplier.strip() if isinstance(supplier, str) and supplier.strip() else None
+
+        # Overlap CHỈ trong cùng biến thể (price_unit + bậc + NCC + khổ). Nửa-mở [from, to).
+        def same_variant(c) -> bool:
+            return (
+                c.price_unit == price_unit
+                and c.quantity_from == quantity_from
+                and c.quantity_to == quantity_to
+                and (c.supplier or None) == supplier
+                and c.paper_size_id == paper_size_id
+            )
+
+        current = self.repo.get_current_cost_variant(
+            material_id, price_unit, quantity_from=quantity_from, quantity_to=quantity_to,
+            supplier=supplier, paper_size_id=paper_size_id,
+        )
         if current and effective_from <= current.effective_from:
             raise MaterialValidationError(
                 f"Ngày hiệu lực mới phải sau ngày hiệu lực của bảng giá hiện hành ({current.effective_from})."
             )
-
-        # 2. Check if new effective_from falls inside any historical price interval
-        #    #6 — CHỈ xét cùng price_unit (mỗi đơn vị giá là một chuỗi thời gian độc lập);
-        #    trước đây lặp mọi cost nên giá đơn vị khác (vd kg) chặn nhầm giá đơn vị 'to'.
-        #    Dùng nửa-mở [from, to): cận trên LOẠI TRỪ, khớp cách đóng giá (#5).
         for cost in material.costs:
-            if cost.price_unit == price_unit and cost.effective_to is not None:
+            if same_variant(cost) and cost.effective_to is not None:
                 if cost.effective_from <= effective_from < cost.effective_to:
                     raise MaterialValidationError(
                         f"Ngày hiệu lực bị chồng lấn với bảng giá cũ từ {cost.effective_from} đến {cost.effective_to}."
@@ -356,6 +408,15 @@ class MaterialService:
             price_unit=price_unit,
             unit_price=unit_price,
             effective_from=effective_from,
+            supplier=supplier,
+            paper_size_id=paper_size_id,
+            price_type=price_type,
+            vat_included=vat_included,
+            transport_fee=transport_fee,
+            moq=moq,
+            lead_time_days=lead_time_days,
+            quantity_from=quantity_from,
+            quantity_to=quantity_to,
         )
         self.audit.create(
             actor_user_id=actor.id,
@@ -364,6 +425,66 @@ class MaterialService:
             detail=f"Đơn giá mới: {unit_price} VND/{price_unit} từ {effective_from}",
         )
         return cost
+
+    def get_cost_history(self, material_id: int) -> list[MaterialCost]:
+        material = self.get_material(material_id)
+        return sorted(material.costs, key=lambda c: (c.price_unit, c.effective_from), reverse=True)
+
+    @staticmethod
+    def convert(*, gsm: int, width_cm: float, height_cm: float) -> dict:
+        """Quy đổi khổ giấy → kg/tờ (kg/tờ = diện tích m² × gsm/1000)."""
+        area = (float(width_cm) * float(height_cm)) / 10000.0
+        kg_per_sheet = area * (float(gsm) / 1000.0)
+        return {
+            "area_m2": round(area, 4),
+            "kg_per_sheet": round(kg_per_sheet, 4),
+            "detail": (
+                f"Diện tích = {width_cm}×{height_cm}/10000 = {area:.4f} m² · "
+                f"Kg/tờ = {area:.4f} × {gsm}/1000 = {kg_per_sheet:.4f} kg"
+            ),
+        }
+
+    @staticmethod
+    def price_test(params) -> dict:
+        """Test tính tiền vật tư theo đơn vị giá (§9) — không cần material trong DB."""
+        import math as _m
+        pu = params.price_unit
+        up = float(params.unit_price)
+        steps: list[str] = []
+        total = 0.0
+        if pu == "nghin_luot":
+            blocks = _m.ceil(float(params.impressions) / 1000.0) if params.impressions else 0
+            total = blocks * up
+            steps.append(f"Số block 1.000 lượt = ceil({params.impressions:g}/1000) = {blocks}")
+            steps.append(f"Tiền = {blocks} × {up:,.0f} = {total:,.0f}")
+        elif pu == "kg":
+            area = (float(params.width_cm or 0) * float(params.height_cm or 0)) / 10000.0
+            kg_per_sheet = area * (float(params.gsm or 0) / 1000.0)
+            total_kg = float(params.sheets) * kg_per_sheet
+            total = total_kg * up
+            steps.append(f"Kg/tờ = {area:.4f} × {params.gsm or 0}/1000 = {kg_per_sheet:.4f}")
+            steps.append(f"Tổng kg = {params.sheets:g} × {kg_per_sheet:.4f} = {total_kg:.2f}")
+            steps.append(f"Tiền = {total_kg:.2f} × {up:,.0f} = {total:,.0f}")
+        elif pu == "ram":
+            total = float(params.sheets) * up / 500.0
+            steps.append(f"Tiền = {params.sheets:g} tờ × {up:,.0f}/500 = {total:,.0f}")
+        elif pu == "m2":
+            area = (float(params.width_cm or 0) * float(params.height_cm or 0)) / 10000.0
+            total_m2 = float(params.sheets) * area if params.sheets else 0.0
+            total = total_m2 * up
+            steps.append(f"Tổng m² = {params.sheets:g} × {area:.4f} = {total_m2:.2f}")
+            steps.append(f"Tiền = {total_m2:.2f} × {up:,.0f} = {total:,.0f}")
+        elif pu == "to":
+            total = float(params.sheets) * up
+            steps.append(f"Tiền = {params.sheets:g} tờ × {up:,.0f} = {total:,.0f}")
+        else:  # cai/cuon/thung...
+            qty = float(params.quantity or params.sheets or 0)
+            total = qty * up
+            steps.append(f"Tiền = {qty:g} × {up:,.0f} = {total:,.0f}")
+        if params.transport_fee:
+            total += float(params.transport_fee)
+            steps.append(f"+ Phí vận chuyển {float(params.transport_fee):,.0f} = {total:,.0f}")
+        return {"total": round(total, 2), "steps": steps}
 
     # --- stats calculation --------------------------------------------------
 

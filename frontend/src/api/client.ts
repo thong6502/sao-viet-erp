@@ -1044,24 +1044,109 @@ export interface ProductTypeCatalogRow {
   product_type: string;
   name: string;
   calculation_strategy: string;
-  required_fields: string[];
-  default_operations: string[];
-  allowed_materials: string[];
-  compatible_technologies: string[];
+  product_group: string;
+  technology: string;
+  display_order: number;
+  version: number;
+  description?: string | null;
+  required_fields: string[] | null;
+  shown_fields: string[] | null;
+  default_operations: string[] | null;
+  required_operations: string[] | null;
+  allowed_materials: string[] | null;
+  compatible_technologies: string[] | null;
+  allowed_imposition_codes: string[] | null;
+  default_imposition_code: string | null;
+  dimension_rule_type: string;
+  default_bleed_mm: number;
+  default_gutter_mm: number;
+  default_trim_mm: number;
+  allow_rotation?: boolean;
+  allow_custom_size?: boolean;
+  has_page_count: boolean;
+  page_multiple?: number;
+  pages_per_signature?: number;
+  has_cover_body_split: boolean;
+  has_tooling: boolean;
+  default_tooling_type?: string | null;
+  has_packaging: boolean;
+  default_pack_qty?: number;
+  default_paper_material_id?: number | null;
+  default_cover_material_id?: number | null;
+  default_body_material_id?: number | null;
+  default_ink_material_id?: number | null;
+  allow_extra_operations?: boolean;
+  allow_imposition_change?: boolean;
+  allow_manual_override?: boolean;
+  sheet_count_mode: string;
+  ink_cost_mode: string;
   is_active: boolean;
   created_at: string;
-  updated_at: string;
+  updated_at?: string;
 }
 
 export interface ProductTypeCatalogInput {
   product_type: string;
   name: string;
   calculation_strategy: string;
-  required_fields?: string[];
-  default_operations?: string[];
-  allowed_materials?: string[];
-  compatible_technologies?: string[];
+  product_group?: string;
+  technology?: string;
+  description?: string | null;
+  display_order?: number;
+  required_fields?: string[] | null;
+  shown_fields?: string[] | null;
+  dimension_rule_type?: string;
+  default_bleed_mm?: number;
+  default_gutter_mm?: number;
+  default_trim_mm?: number;
+  allow_rotation?: boolean;
+  allow_custom_size?: boolean;
+  has_page_count?: boolean;
+  page_multiple?: number;
+  pages_per_signature?: number;
+  has_cover_body_split?: boolean;
+  allowed_materials?: string[] | null;
+  default_paper_material_id?: number | null;
+  default_cover_material_id?: number | null;
+  default_body_material_id?: number | null;
+  default_ink_material_id?: number | null;
+  has_packaging?: boolean;
+  default_pack_qty?: number;
+  default_operations?: string[] | null;
+  required_operations?: string[] | null;
+  allow_extra_operations?: boolean;
+  allowed_imposition_codes?: string[] | null;
+  default_imposition_code?: string | null;
+  allow_imposition_change?: boolean;
+  compatible_technologies?: string[] | null;
+  sheet_count_mode?: string;
+  ink_cost_mode?: string;
+  has_tooling?: boolean;
+  default_tooling_type?: string | null;
+  allow_manual_override?: boolean;
   is_active?: boolean;
+}
+
+export interface ProductTypePreviewResult {
+  product_type: string;
+  name: string;
+  shown_fields: string[];
+  required_fields: string[];
+  routing: string[];
+  required_operations: string[];
+  allowed_imposition_codes: string[];
+  default_imposition_code: string | null;
+  dimension_rule_type: string;
+  default_bleed_mm: number;
+  default_gutter_mm: number;
+  default_trim_mm: number;
+  sheet_count_mode: string;
+  ink_cost_mode: string;
+  has_tooling: boolean;
+  has_packaging: boolean;
+  has_cover_body_split: boolean;
+  rules: string[];
+  warnings: string[];
 }
 
 export interface ProductTypeCatalogListOut {
@@ -1198,24 +1283,58 @@ export interface ImpositionTypeListOut {
   size: number;
 }
 
+export type MaterialGroup = "paper" | "ink" | "film" | "glue" | "packaging" | "auxiliary";
+
 export interface MaterialCostRow {
   id: number;
-  material_id: number;
+  material_id?: number;
   price_unit: string;
   unit_price: number;
+  supplier: string | null;
+  paper_size_id: number | null;
+  price_type: string;
+  vat_included: boolean;
+  transport_fee: number;
+  moq: number;
+  lead_time_days: number;
+  quantity_from: number | null;
+  quantity_to: number | null;
+  version: number;
   effective_from: string;
   effective_to: string | null;
   created_at: string;
-  updated_at: string;
 }
 
 export interface MaterialCostInput {
   price_unit: string;
   unit_price: number;
   effective_from: string;
+  supplier?: string | null;
+  paper_size_id?: number | null;
+  price_type?: string;
+  vat_included?: boolean;
+  transport_fee?: number;
+  moq?: number;
+  lead_time_days?: number;
+  quantity_from?: number | null;
+  quantity_to?: number | null;
 }
 
-export interface MaterialRow {
+interface MaterialFields {
+  material_group?: MaterialGroup | null;
+  default_supplier?: string | null;
+  base_uom?: string | null;
+  purchase_uom?: string | null;
+  consumption_uom?: string | null;
+  conversion_method?: string | null;
+  conversion_factor?: number | null;
+  ink_type?: string | null;
+  ink_color_system?: string | null;
+  ink_color_code?: string | null;
+  film_type?: string | null;
+}
+
+export interface MaterialRow extends MaterialFields {
   id: number;
   code: string;
   name: string;
@@ -1230,13 +1349,14 @@ export interface MaterialRow {
   min_purchase_qty: number;
   paper_family: string | null;
   surface: string | null;
+  version: number;
   is_active: boolean;
   costs: MaterialCostRow[];
   created_at: string;
   updated_at: string;
 }
 
-export interface MaterialInput {
+export interface MaterialInput extends MaterialFields {
   name: string;
   material_type: string;
   unit: string;
@@ -1250,6 +1370,29 @@ export interface MaterialInput {
   paper_family?: string | null;
   surface?: string | null;
   is_active?: boolean;
+}
+
+export interface MaterialConvertOut {
+  area_m2: number;
+  kg_per_sheet: number;
+  detail: string;
+}
+
+export interface MaterialPriceTestInput {
+  price_unit: string;
+  unit_price: number;
+  sheets?: number;
+  gsm?: number | null;
+  width_cm?: number | null;
+  height_cm?: number | null;
+  impressions?: number;
+  quantity?: number;
+  transport_fee?: number;
+}
+
+export interface MaterialPriceTestOut {
+  total: number;
+  steps: string[];
 }
 
 export interface MaterialListStats {
@@ -1268,67 +1411,90 @@ export interface MaterialListOut {
   stats: MaterialListStats;
 }
 
+export type MachineGroup = "may_in" | "may_can" | "may_be" | "may_xen" | "khac";
+export type MachineStatusKind = "active" | "inactive" | "maintenance";
+export type MachineRoundingPolicy = "none" | "0.01" | "0.25" | "0.5";
+
 export interface MachineRateRow {
   id: number;
-  machine_id: number;
   hourly_rate: number;
   min_charge: number;
   min_run_time_mins: number;
+  rate_depreciation: number;
+  rate_energy: number;
+  rate_maintenance: number;
+  rate_labor: number;
+  rate_overhead: number;
   effective_from: string;
   effective_to: string | null;
   created_at: string;
-  updated_at: string;
 }
 
 export interface MachineRateInput {
   hourly_rate: number;
   min_charge: number;
   min_run_time_mins: number;
+  rate_depreciation?: number;
+  rate_energy?: number;
+  rate_maintenance?: number;
+  rate_labor?: number;
+  rate_overhead?: number;
   effective_from: string;
 }
 
-export interface MachineRow {
-  id: number;
-  code: string;
+// Shared machine spec fields (row + input).
+interface MachineFields {
   name: string;
   machine_type: string;
   process_type: string;
+  machine_group: MachineGroup;
+  status: MachineStatusKind;
+  note: string | null;
+  speed: number;
+  speed_unit: string;
+  min_speed: number | null;
+  max_speed: number | null;
   max_width_cm: number | null;
   max_height_cm: number | null;
   min_width_cm: number | null;
   min_height_cm: number | null;
-  speed: number;
-  speed_unit: string;
+  max_print_width_cm: number | null;
+  max_print_height_cm: number | null;
+  gripper_cm: number;
+  side_margin_cm: number;
+  top_bottom_margin_cm: number;
+  compatible_paper_size_ids: number[] | null;
   setup_time_mins: number;
   changeover_time_mins: number;
   setup_waste_sheets: number;
+  setup_time_base_hour: number;
+  setup_time_per_color_hour: number;
+  setup_time_per_side_hour: number;
+  cleaning_time_hour: number;
+  color_change_time_hour: number;
+  plate_change_time_per_plate_hour: number;
+  color_check_time_hour: number;
+  min_setup_time_hour: number;
+  max_setup_time_hour: number | null;
+  rounding_hour_policy: MachineRoundingPolicy;
+  overhead_included: boolean;
+  operator_included: boolean;
   num_ink_units: number | null;
   supports_perfecting: boolean;
-  supported_materials: string[];
+  supported_materials: string[] | null;
   is_active: boolean;
-  rates: MachineRateRow[];
-  created_at: string;
-  updated_at: string;
 }
 
-export interface MachineInput {
-  name: string;
-  machine_type: string;
-  process_type: string;
-  max_width_cm?: number | null;
-  max_height_cm?: number | null;
-  min_width_cm?: number | null;
-  min_height_cm?: number | null;
-  speed: number;
-  speed_unit: string;
-  setup_time_mins?: number;
-  changeover_time_mins?: number;
-  setup_waste_sheets?: number;
-  num_ink_units?: number | null;
-  supports_perfecting?: boolean;
-  supported_materials?: string[];
-  is_active?: boolean;
+export interface MachineRow extends MachineFields {
+  id: number;
+  code: string;
+  used_count: number;
+  created_by: number | null;
+  updated_by: number | null;
+  rates: MachineRateRow[];
 }
+
+export type MachineInput = MachineFields & { code?: string };
 
 export interface MachineListOut {
   items: MachineRow[];
@@ -1403,6 +1569,7 @@ export interface OperationCatalogRow {
   labor_people_count: number;
   has_tooling: boolean;
   tooling_type: string | null;
+  tooling_rate_id: number | null;
   has_yield_loss: boolean;
   default_yield_rate: number | null;
   default_yield_rule: string | null;
@@ -1428,6 +1595,7 @@ export interface OperationCatalogInput {
   labor_people_count?: number;
   has_tooling?: boolean;
   tooling_type?: string | null;
+  tooling_rate_id?: number | null;
   has_yield_loss?: boolean;
   default_yield_rate?: number | null;
   default_yield_rule?: string | null;
@@ -2071,6 +2239,18 @@ export const api = {
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/product-types-catalog/${id}`, token, { method: "DELETE" });
     },
+    preview(token: string, id: number): Promise<ProductTypePreviewResult> {
+      return authed<ProductTypePreviewResult>(`/api/product-types-catalog/${id}/preview`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    },
+    clone(token: string, id: number, body: { new_product_type: string; new_name: string }): Promise<ProductTypeCatalogRow> {
+      return authed<ProductTypeCatalogRow>(`/api/product-types-catalog/${id}/clone`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
   },
 
   // --- Paper Sizes Catalog --------------------------------------------------
@@ -2211,6 +2391,21 @@ export const api = {
         body: JSON.stringify(input),
       });
     },
+    costHistory(token: string, id: number): Promise<MaterialCostRow[]> {
+      return authed<MaterialCostRow[]>(`/api/materials/${id}/costs/history`, token);
+    },
+    convert(token: string, body: { gsm: number; width_cm: number; height_cm: number }): Promise<MaterialConvertOut> {
+      return authed<MaterialConvertOut>("/api/materials/convert", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    priceTest(token: string, input: MaterialPriceTestInput): Promise<MaterialPriceTestOut> {
+      return authed<MaterialPriceTestOut>("/api/materials/price-test", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/materials/${id}`, token, { method: "DELETE" });
     },
@@ -2329,21 +2524,39 @@ export const api = {
 
   // --- Plate/Die Rates ------------------------------------------------------
   plateDieRates: {
-    list(token: string, params: { plate_type?: string | null; technology?: string | null; is_active?: boolean | null; page?: number; size?: number } = {}): Promise<PlateDieRateListOut> {
+    list(token: string, params: { q?: string | null; plate_type?: string | null; technology?: string | null; machine_id?: number | null; is_active?: boolean | null; current_only?: boolean; page?: number; size?: number } = {}): Promise<PlateDieRateListOut> {
       const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
       if (params.plate_type) qs.set("plate_type", params.plate_type);
       if (params.technology) qs.set("technology", params.technology);
+      if (params.machine_id != null) qs.set("machine_id", String(params.machine_id));
       if (params.is_active !== undefined && params.is_active !== null) qs.set("is_active", String(params.is_active));
+      if (params.current_only) qs.set("current_only", "true");
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<PlateDieRateListOut>(`/api/plate-die-rates${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<PlateDieRateRow> {
+      return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}`, token);
+    },
+    history(token: string, id: number): Promise<PlateDieRateListOut> {
+      return authed<PlateDieRateListOut>(`/api/plate-die-rates/${id}/history`, token);
     },
     create(token: string, input: PlateDieRateInput): Promise<PlateDieRateRow> {
       return authed<PlateDieRateRow>("/api/plate-die-rates", token, {
         method: "POST",
         body: JSON.stringify(input),
       });
+    },
+    createVersion(token: string, id: number, input: PlateDieRateInput): Promise<PlateDieRateRow> {
+      return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}/version`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    clone(token: string, id: number): Promise<PlateDieRateRow> {
+      return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}/clone`, token, { method: "POST" });
     },
     close(token: string, id: number, effectiveTo: string): Promise<PlateDieRateRow> {
       return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}/close`, token, {
@@ -2440,28 +2653,68 @@ export interface ClickInkRateListOut {
 
 export interface PlateDieRateRow {
   id: number;
+  code: string;
+  name: string;
   plate_type: string;
   technology: string;
   unit: string;
+  plate_kind: string | null;
+  plate_width_mm: number | null;
+  plate_height_mm: number | null;
+  machine_ids: number[] | null;
+  paper_size_ids: number[] | null;
   unit_price: number;
   setup_fee: number;
   min_charge: number;
+  pricing_method: string;
+  unit_price_area: number;
+  unit_price_perimeter: number;
+  max_charge: number | null;
+  allow_manual_price: boolean;
   reusable: boolean;
+  reuse_price_method: string | null;
+  maintenance_fee: number;
+  supplier: string | null;
+  lead_time_days: number;
+  transport_fee: number;
+  moq: number;
   effective_from: string;
   effective_to: string | null;
   is_active: boolean;
+  used_count: number;
+  created_by: number | null;
+  updated_by: number | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface PlateDieRateInput {
+  code?: string;
+  name: string;
   plate_type: string;
   technology: string;
   unit: string;
-  unit_price: number;
+  plate_kind?: string | null;
+  plate_width_mm?: number | null;
+  plate_height_mm?: number | null;
+  machine_ids?: number[] | null;
+  paper_size_ids?: number[] | null;
+  unit_price?: number;
   setup_fee?: number;
   min_charge?: number;
+  pricing_method?: string;
+  unit_price_area?: number;
+  unit_price_perimeter?: number;
+  max_charge?: number | null;
+  allow_manual_price?: boolean;
   reusable?: boolean;
+  reuse_price_method?: string | null;
+  maintenance_fee?: number;
+  supplier?: string | null;
+  lead_time_days?: number;
+  transport_fee?: number;
+  moq?: number;
+  is_active?: boolean;
   effective_from: string;
 }
 

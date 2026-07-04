@@ -13,11 +13,14 @@ from ..schemas.operation import (
     OperationCreate,
     OperationDetailOut,
     OperationListOut,
+    OperationPreviewIn,
+    OperationPreviewOut,
     OperationRow,
     OperationUpdate,
 )
 from ..services.operation_service import (
     OperationDuplicate,
+    OperationInUse,
     OperationValidationError,
     OperationNotFound,
     OperationService,
@@ -67,12 +70,8 @@ def create_operation(
 ) -> OperationDetailOut:
     try:
         operation = svc.create_operation(
-            name=payload.name,
-            operation_type=payload.operation_type,
-            unit=payload.unit,
-            allow_outsource=payload.allow_outsource,
-            is_active=payload.is_active,
             actor=user,
+            **payload.model_dump(),
         )
     except OperationDuplicate as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
@@ -92,12 +91,8 @@ def update_operation(
     try:
         operation = svc.update_operation(
             operation_id=operation_id,
-            name=payload.name,
-            operation_type=payload.operation_type,
-            unit=payload.unit,
-            allow_outsource=payload.allow_outsource,
-            is_active=payload.is_active,
             actor=user,
+            **payload.model_dump(),
         )
     except OperationNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
@@ -119,6 +114,8 @@ def delete_operation(
         svc.delete_operation(operation_id=operation_id, actor=user)
     except OperationNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    except OperationInUse as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except OperationValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -135,13 +132,9 @@ def add_operation_rate(
     try:
         rate = svc.add_operation_rate(
             operation_id=operation_id,
-            setup_fee=payload.setup_fee,
-            run_rate=payload.run_rate,
-            labor_rate=payload.labor_rate,
-            min_charge=payload.min_charge,
-            speed=payload.speed,
             effective_from=payload.effective_from,
             actor=user,
+            **payload.model_dump(exclude={"effective_from"}),
         )
     except OperationNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
@@ -150,3 +143,18 @@ def add_operation_rate(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from None
     return OperationRateOut.model_validate(rate)
+
+
+@router.post("/{operation_id}/preview", response_model=OperationPreviewOut)
+def preview_operation_cost(
+    operation_id: int,
+    payload: OperationPreviewIn,
+    svc: Annotated[OperationService, Depends(get_operation_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> OperationPreviewOut:
+    """Tab 'Test nhanh' — mô phỏng chi phí công đoạn theo lượng nhập & cách làm."""
+    try:
+        result = svc.preview_cost(operation_id=operation_id, preview=payload)
+    except OperationNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return OperationPreviewOut(**result)

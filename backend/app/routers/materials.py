@@ -9,12 +9,16 @@ from pydantic import BaseModel, Field
 from ..deps import get_material_service, require_permission
 from ..models.user import User
 from ..schemas.material import (
+    MaterialConvertInput,
+    MaterialConvertOut,
     MaterialCostCreate,
     MaterialCostOut,
     MaterialCreate,
     MaterialDetailOut,
     MaterialListOut,
     MaterialListStats,
+    MaterialPriceTestInput,
+    MaterialPriceTestOut,
     MaterialRow,
     MaterialUpdate,
 )
@@ -28,6 +32,13 @@ from ..services.material_service import (
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
 MODULE = "dm_giay_vat_tu"
+
+# Field vật tư mới (#2) chuyển thẳng service → repo.
+_EXTRA_KEYS = {
+    "material_group", "default_supplier", "base_uom", "purchase_uom", "consumption_uom",
+    "conversion_method", "conversion_factor", "ink_type", "ink_color_system",
+    "ink_color_code", "film_type",
+}
 
 class ClonePaperPayload(BaseModel):
     gsm: int = Field(ge=0)
@@ -91,6 +102,7 @@ def create_material(
             surface=payload.surface,
             is_active=payload.is_active,
             actor=user,
+            **payload.model_dump(include=_EXTRA_KEYS),
         )
     except MaterialDuplicate as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
@@ -124,6 +136,7 @@ def update_material(
             surface=payload.surface,
             is_active=payload.is_active,
             actor=user,
+            **payload.model_dump(include=_EXTRA_KEYS),
         )
     except MaterialNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
@@ -177,6 +190,15 @@ def add_material_price(
             unit_price=payload.unit_price,
             effective_from=payload.effective_from,
             actor=user,
+            supplier=payload.supplier,
+            paper_size_id=payload.paper_size_id,
+            price_type=payload.price_type,
+            vat_included=payload.vat_included,
+            transport_fee=payload.transport_fee,
+            moq=payload.moq,
+            lead_time_days=payload.lead_time_days,
+            quantity_from=payload.quantity_from,
+            quantity_to=payload.quantity_to,
         )
     except MaterialNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
@@ -185,6 +207,34 @@ def add_material_price(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
         ) from None
     return MaterialCostOut.model_validate(cost)
+
+@router.get("/{material_id}/costs/history", response_model=list[MaterialCostOut])
+def cost_history(
+    material_id: int,
+    svc: Annotated[MaterialService, Depends(get_material_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[MaterialCostOut]:
+    try:
+        rows = svc.get_cost_history(material_id)
+    except MaterialNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return [MaterialCostOut.model_validate(r) for r in rows]
+
+@router.post("/convert", response_model=MaterialConvertOut)
+def convert(
+    payload: MaterialConvertInput,
+    svc: Annotated[MaterialService, Depends(get_material_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> MaterialConvertOut:
+    return MaterialConvertOut(**svc.convert(gsm=payload.gsm, width_cm=payload.width_cm, height_cm=payload.height_cm))
+
+@router.post("/price-test", response_model=MaterialPriceTestOut)
+def price_test(
+    payload: MaterialPriceTestInput,
+    svc: Annotated[MaterialService, Depends(get_material_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> MaterialPriceTestOut:
+    return MaterialPriceTestOut(**svc.price_test(payload))
 
 @router.post("/{material_id}/clone", response_model=MaterialDetailOut, status_code=status.HTTP_201_CREATED)
 def clone_paper(

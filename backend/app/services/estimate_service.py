@@ -121,6 +121,16 @@ class EstimateService:
         self.db.add(estimate)
         self.db.flush() # get estimate.id
 
+        # Danh mục #1 — đếm lượt loại SP được dùng (used_count) để guard xóa/sửa. Cùng transaction
+        # với estimate: recalc lỗi → rollback → không tăng oan.
+        from ..models.product_type_catalog import ProductTypeCatalog
+        self.db.query(ProductTypeCatalog).filter(
+            ProductTypeCatalog.product_type == product_type
+        ).update(
+            {ProductTypeCatalog.used_count: ProductTypeCatalog.used_count + 1},
+            synchronize_session=False,
+        )
+
         try:
             self._recalculate_options(estimate, spec_to_calc)
             

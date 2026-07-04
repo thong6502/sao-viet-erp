@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from sqlalchemy import (
+    Boolean,
     CheckConstraint,
     Date,
     DateTime,
@@ -16,12 +17,33 @@ from sqlalchemy import (
     String,
     JSON,
     text,
+    true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db import Base
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+# 4 nhóm định mức (waste_group). Mực (ink_cost) KHÔNG thuộc nhóm nào → waste_group NULL.
+WASTE_GROUPS = ("YIELD_RATE", "SETUP_WASTE", "RUNNING_WASTE", "PAPER_EXTRA_WASTE")
+
+# waste_group → norm_key (khóa tra cứu nội bộ engine, giữ nguyên để không phá lookup/version cũ).
+GROUP_TO_KEY = {
+    "YIELD_RATE": "yield_rate",
+    "SETUP_WASTE": "makeready_per_color_side",
+    "RUNNING_WASTE": "running_waste_pct",
+    "PAPER_EXTRA_WASTE": "paper_extra_waste",
+}
+KEY_TO_GROUP = {v: k for k, v in GROUP_TO_KEY.items()}
+
+# Cách tính hợp lệ theo nhóm (UI đổi field theo đây).
+METHODS_BY_GROUP = {
+    "YIELD_RATE": ("PERCENT",),
+    "SETUP_WASTE": ("FIXED", "PER_COLOR", "PER_SIDE", "COMBINED", "PER_COLOR_SIDE"),
+    "RUNNING_WASTE": ("PERCENT",),
+    "PAPER_EXTRA_WASTE": ("PERCENT", "FIXED", "PER_REAM"),
+}
 
 class Norm(Base):
     __tablename__ = "norms"
@@ -64,7 +86,46 @@ class Norm(Base):
     effective_from: Mapped[date] = mapped_column(Date, nullable=False)
     effective_to: Mapped[date | None] = mapped_column(Date, nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    
+
+    # ---- Tái thiết kế danh mục #7: nhóm + cách tính + field theo nhóm ----
+    code: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 1 trong WASTE_GROUPS; NULL = rule đơn-giá cũ (mực). Suy được từ norm_key.
+    waste_group: Mapped[str | None] = mapped_column(String(24), index=True, nullable=True)
+    calculation_method: Mapped[str | None] = mapped_column(String(24), nullable=True)
+
+    # Phạm vi áp dụng multi-select (mirror imposition_types). NULL/[] = tất cả.
+    applicable_product_types: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    applicable_machine_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # SETUP_WASTE: makeready = clamp(qty + per_color×màu + per_side×mặt, min, max)
+    setup_waste_qty: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
+    setup_waste_per_color: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
+    setup_waste_per_side: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
+    # Clamp chung cho SETUP / RUNNING / PAPER.
+    min_waste_qty: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
+    max_waste_qty: Mapped[float | None] = mapped_column(Numeric(12, 3), nullable=True)
+    # PAPER_EXTRA_WASTE: có cộng vào số tờ mua giấy không.
+    paper_add_to_purchase: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_true(), default=True
+    )
+
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="100", default=100
+    )
+    version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
+    used_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    updated_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

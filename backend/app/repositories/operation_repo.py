@@ -11,8 +11,51 @@ _SORTABLE = {
     "code": Operation.code,
     "name": Operation.name,
     "operation_type": Operation.operation_type,
+    "sequence": Operation.default_sequence,
     "created_at": Operation.created_at,
 }
+
+# Config fields carried on the Operation row (spec §A–§G), shared by create/update.
+_OP_CONFIG_FIELDS = (
+    "basis_quantity",
+    "pricing_method",
+    "process_group",
+    "process_type",
+    "default_sequence",
+    "quantity_formula_type",
+    "allow_manual_quantity",
+    "internal_pricing_method",
+    "labor_people_count",
+    "has_tooling",
+    "tooling_type",
+    "tooling_rate_id",
+    "has_yield_loss",
+    "default_yield_rate",
+    "default_yield_rule",
+    "allow_outsource",
+)
+
+# Price fields carried on each OperationRate version (spec §C–§F).
+_RATE_PRICE_FIELDS = (
+    "setup_fee",
+    "run_rate",
+    "labor_rate",
+    "min_charge",
+    "speed",
+    "setup_time_mins",
+    "hourly_rate",
+    "labor_shift_rate",
+    "labor_fixed",
+    "labor_min",
+    "tooling_unit_price",
+    "outsource_supplier",
+    "outsource_unit_price",
+    "outsource_setup_fee",
+    "outsource_min_charge",
+    "outsource_transport_fee",
+    "outsource_moq",
+    "outsource_lead_time_days",
+)
 
 class OperationRepository:
     def __init__(self, db: Session) -> None:
@@ -109,16 +152,16 @@ class OperationRepository:
         name: str,
         operation_type: str,
         unit: str,
-        allow_outsource: bool = False,
         is_active: bool = True,
+        **config,
     ) -> Operation:
         operation = Operation(
             code=self._next_code(),
             name=name,
             operation_type=operation_type,
             unit=unit,
-            allow_outsource=allow_outsource,
             is_active=is_active,
+            **{k: v for k, v in config.items() if k in _OP_CONFIG_FIELDS},
         )
         self.db.add(operation)
         try:
@@ -135,13 +178,15 @@ class OperationRepository:
         name: str,
         operation_type: str,
         unit: str,
-        allow_outsource: bool,
         is_active: bool | None = None,
+        **config,
     ) -> Operation:
         operation.name = name
         operation.operation_type = operation_type
         operation.unit = unit
-        operation.allow_outsource = allow_outsource
+        for field in _OP_CONFIG_FIELDS:
+            if field in config:
+                setattr(operation, field, config[field])
         if is_active is not None:
             operation.is_active = is_active
         try:
@@ -168,12 +213,8 @@ class OperationRepository:
         self,
         *,
         operation_id: int,
-        setup_fee: int = 0,
-        run_rate: int = 0,
-        labor_rate: int = 0,
-        min_charge: int = 0,
-        speed: float = 0.0,
         effective_from: date,
+        **prices,
     ) -> OperationRate:
         current = self.get_current_rate(operation_id)
         if current:
@@ -181,16 +222,12 @@ class OperationRepository:
             # (effective_to > effective_from) khi rate mới cách rate cũ đúng 1 ngày → crash 500.
             current.effective_to = effective_from
             self.db.add(current)
-            
+
         new_rate = OperationRate(
             operation_id=operation_id,
-            setup_fee=setup_fee,
-            run_rate=run_rate,
-            labor_rate=labor_rate,
-            min_charge=min_charge,
-            speed=speed,
             effective_from=effective_from,
             effective_to=None,
+            **{k: v for k, v in prices.items() if k in _RATE_PRICE_FIELDS},
         )
         self.db.add(new_rate)
         try:

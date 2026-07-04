@@ -121,6 +121,7 @@ class MaterialRepository:
         paper_family: str | None = None,
         surface: str | None = None,
         is_active: bool = True,
+        **extra,
     ) -> Material:
         material = Material(
             code=self._next_code(material_type),
@@ -137,6 +138,7 @@ class MaterialRepository:
             paper_family=paper_family,
             surface=surface,
             is_active=is_active,
+            **extra,
         )
         self.db.add(material)
         try:
@@ -163,6 +165,7 @@ class MaterialRepository:
         paper_family: str | None = None,
         surface: str | None = None,
         is_active: bool | None = None,
+        **extra,
     ) -> Material:
         material.name = name
         # Do not change code. If material_type changes, prefix code is kept or regenerated?
@@ -178,6 +181,8 @@ class MaterialRepository:
         material.min_purchase_qty = min_purchase_qty
         material.paper_family = paper_family
         material.surface = surface
+        for k, v in extra.items():
+            setattr(material, k, v)
         if is_active is not None:
             material.is_active = is_active
         try:
@@ -216,6 +221,23 @@ class MaterialRepository:
             )
         ).scalars().first()
 
+    def get_current_cost_variant(
+        self, material_id: int, price_unit: str, *,
+        quantity_from=None, quantity_to=None, supplier=None, paper_size_id=None,
+    ) -> MaterialCost | None:
+        """Dòng giá hiện hành đúng biến thể (bậc + NCC + khổ) — cho versioning nhiều bậc/NCC."""
+        stmt = (
+            select(MaterialCost)
+            .where(MaterialCost.material_id == material_id)
+            .where(MaterialCost.price_unit == price_unit)
+            .where(MaterialCost.effective_to.is_(None))
+            .where(MaterialCost.quantity_from.is_(None) if quantity_from is None else MaterialCost.quantity_from == quantity_from)
+            .where(MaterialCost.quantity_to.is_(None) if quantity_to is None else MaterialCost.quantity_to == quantity_to)
+            .where(MaterialCost.supplier.is_(None) if supplier is None else MaterialCost.supplier == supplier)
+            .where(MaterialCost.paper_size_id.is_(None) if paper_size_id is None else MaterialCost.paper_size_id == paper_size_id)
+        )
+        return self.db.execute(stmt).scalars().first()
+
     def add_cost_price(
         self,
         *,
@@ -223,28 +245,31 @@ class MaterialRepository:
         price_unit: str,
         unit_price: int,
         effective_from: date,
+        **extra,
     ) -> MaterialCost:
-        """Add a cost price version for a material.
+        """Add a cost price version for a material (cùng biến thể bậc/NCC/khổ thì đóng bản cũ).
 
-        Implements the add-row-close-old logic:
-        Finds the current active cost row for the same unit and closes it (set effective_to
-        to the new effective_from, half-open [from, to)) before opening the new one.
+        Nửa-mở [from, to): đóng bản hiện hành bằng effective_to = effective_from mới.
         """
-        # Find current active cost
-        current = self.get_current_cost(material_id, price_unit)
+        variant = dict(
+            quantity_from=extra.get("quantity_from"),
+            quantity_to=extra.get("quantity_to"),
+            supplier=extra.get("supplier"),
+            paper_size_id=extra.get("paper_size_id"),
+        )
+        current = self.get_current_cost_variant(material_id, price_unit, **variant)
         if current:
-            # #5 — đóng bằng effective_to = effective_from (nửa-mở), KHÔNG phải effective_from-1
-            # ngày: cách cũ vi phạm CHECK (effective_to > effective_from) khi giá mới cách giá cũ
-            # đúng 1 ngày → crash 500. Nửa-mở khớp get_cost_at_date (> at_date).
             current.effective_to = effective_from
             self.db.add(current)
-            
+            extra.setdefault("version", int(current.version or 1) + 1)
+
         new_cost = MaterialCost(
             material_id=material_id,
             price_unit=price_unit,
             unit_price=unit_price,
             effective_from=effective_from,
             effective_to=None,
+            **extra,
         )
         self.db.add(new_cost)
         try:

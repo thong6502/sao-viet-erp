@@ -100,6 +100,13 @@ class QuotationService:
             impo = repo.resolve_active(code=code, name=code, at_date=date.today())
             if impo:
                 repo.increment_used_count(impo, commit=False)
+            # Nuôi used_count của Máy đã dùng (khóa xóa/sửa thông số ảnh hưởng giá).
+            mid = spec.get("machine_id")
+            if mid:
+                from ..models.machine import Machine
+                machine = self.quotations.db.get(Machine, int(mid))
+                if machine is not None:
+                    machine.used_count = int(getattr(machine, "used_count", 0) or 0) + 1
         except Exception:
             pass
 

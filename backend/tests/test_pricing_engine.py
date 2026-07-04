@@ -205,6 +205,7 @@ def test_setup(client):
     db.add(click)
 
     plate = PlateDieRate(
+        code="PLATE_T", name="Kẽm test",
         plate_type="ban_kem_offset",
         technology="offset",
         unit="ban",
@@ -214,14 +215,15 @@ def test_setup(client):
     db.add(plate)
 
     # 7. Seed norms
-    # waste_pct_of_operation (can_mang = 3% = 0.03, be = 2% = 0.02, packing = 0% = 0.0)
-    db.add(Norm(norm_key="waste_pct_of_operation", value=0.03, operation_key="can_mang", context_key="{}", effective_from=date(2026, 1, 1)))
-    db.add(Norm(norm_key="waste_pct_of_operation", value=0.02, operation_key="be", context_key="{}", effective_from=date(2026, 1, 1)))
-    db.add(Norm(norm_key="waste_pct_of_operation", value=0.0, operation_key="dong_goi", context_key="{}", effective_from=date(2026, 1, 1)))
-    # print running waste
-    db.add(Norm(norm_key="running_waste_pct", value=0.02, context_key="{}", effective_from=date(2026, 1, 1)))
-    # print makeready waste
-    db.add(Norm(norm_key="makeready_per_color_side", value=15.0, context_key="{}", effective_from=date(2026, 1, 1)))
+    # Tỷ lệ đạt từng công đoạn (gộp "hao công đoạn" → tỷ lệ đạt = 1 − hao):
+    # can_mang 97% (hao 3%), be 98% (hao 2%), packing 100% (hao 0%).
+    db.add(Norm(norm_key="yield_rate", waste_group="YIELD_RATE", value=0.97, operation_key="can_mang", context_key="{}", effective_from=date(2026, 1, 1)))
+    db.add(Norm(norm_key="yield_rate", waste_group="YIELD_RATE", value=0.98, operation_key="be", context_key="{}", effective_from=date(2026, 1, 1)))
+    db.add(Norm(norm_key="yield_rate", waste_group="YIELD_RATE", value=1.0, operation_key="dong_goi", context_key="{}", effective_from=date(2026, 1, 1)))
+    # print running waste (cộng thêm base × 2%)
+    db.add(Norm(norm_key="running_waste_pct", waste_group="RUNNING_WASTE", value=0.02, context_key="{}", effective_from=date(2026, 1, 1)))
+    # print makeready waste (legacy: 15 tờ/màu-mặt)
+    db.add(Norm(norm_key="makeready_per_color_side", waste_group="SETUP_WASTE", value=15.0, context_key="{}", effective_from=date(2026, 1, 1)))
 
     db.commit()
 
@@ -321,15 +323,15 @@ def test_reverse_waste_chain_sorting(test_setup):
     machine_lines = [l for l in cost_lines if l.category == "machine"]
     assert len(machine_lines) == 1
     
-    # Verify print waste calculations:
+    # Verify print waste calculations (chuỗi mới — tỷ lệ đạt CĐ + running CỘNG thêm):
     # 1. targetFinished: 1000
-    # 2. packing: waste 0% -> required 1000
-    # 3. be: waste 2% -> required ceil(1000 / 0.98) = 1021
-    # 4. can_mang: waste 3% -> required ceil(1021 / 0.97) = 1053
-    # 5. printed_sheets = ceil(1053 / 4) = 264
-    # 6. running_sheets = ceil(264 / (1 - 0.02)) = 270
+    # 2. packing: đạt 100% -> ceil(1000 / 1.0) = 1000
+    # 3. be: đạt 98% -> ceil(1000 / 0.98) = 1021
+    # 4. can_mang: đạt 97% -> ceil(1021 / 0.97) = 1053
+    # 5. printed_sheets = ceil(1053 / 4) = 264 (tỷ lệ đạt in mặc định 1.0)
+    # 6. running_add = ceil(264 × 2%) = 6  → tờ chạy = 264 + 6 = 270
     # 7. makeready_sheets = 15 * 4 * 2 * 1 = 120
-    # 8. total_sheets = 270 + 120 = 390
+    # 8. total_sheets = 264 + 120 + 6 = 390
     
     # Let's assert total sheets matches 390!
     mat_line = [l for l in cost_lines if l.category == "material"][0]

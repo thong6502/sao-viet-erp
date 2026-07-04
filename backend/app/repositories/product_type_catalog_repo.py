@@ -10,8 +10,50 @@ _SORTABLE = {
     "product_type": ProductTypeCatalog.product_type,
     "name": ProductTypeCatalog.name,
     "calculation_strategy": ProductTypeCatalog.calculation_strategy,
+    "product_group": ProductTypeCatalog.product_group,
+    "display_order": ProductTypeCatalog.display_order,
     "created_at": ProductTypeCatalog.created_at,
 }
+
+# Mọi field cấu hình (spec §A–§H) mang trên row — dùng chung create/update/clone.
+_PT_CONFIG_FIELDS = (
+    "calculation_strategy",
+    "product_group",
+    "technology",
+    "description",
+    "display_order",
+    "required_fields",
+    "shown_fields",
+    "dimension_rule_type",
+    "default_bleed_mm",
+    "default_gutter_mm",
+    "default_trim_mm",
+    "allow_rotation",
+    "allow_custom_size",
+    "has_page_count",
+    "page_multiple",
+    "pages_per_signature",
+    "has_cover_body_split",
+    "allowed_materials",
+    "default_paper_material_id",
+    "default_cover_material_id",
+    "default_body_material_id",
+    "default_ink_material_id",
+    "has_packaging",
+    "default_pack_qty",
+    "default_operations",
+    "required_operations",
+    "allow_extra_operations",
+    "allowed_imposition_codes",
+    "default_imposition_code",
+    "allow_imposition_change",
+    "compatible_technologies",
+    "sheet_count_mode",
+    "ink_cost_mode",
+    "has_tooling",
+    "default_tooling_type",
+    "allow_manual_override",
+)
 
 class ProductTypeCatalogRepository:
     def __init__(self, db: Session) -> None:
@@ -86,22 +128,14 @@ class ProductTypeCatalogRepository:
         *,
         product_type: str,
         name: str,
-        calculation_strategy: str,
-        required_fields: list[str] | None = None,
-        default_operations: list[str] | None = None,
-        allowed_materials: list[str] | None = None,
-        compatible_technologies: list[str] | None = None,
         is_active: bool = True,
+        **config,
     ) -> ProductTypeCatalog:
         item = ProductTypeCatalog(
             product_type=product_type,
             name=name,
-            calculation_strategy=calculation_strategy,
-            required_fields=required_fields,
-            default_operations=default_operations,
-            allowed_materials=allowed_materials,
-            compatible_technologies=compatible_technologies,
             is_active=is_active,
+            **{k: v for k, v in config.items() if k in _PT_CONFIG_FIELDS},
         )
         self.db.add(item)
         try:
@@ -116,19 +150,13 @@ class ProductTypeCatalogRepository:
         item: ProductTypeCatalog,
         *,
         name: str,
-        calculation_strategy: str,
-        required_fields: list[str] | None = None,
-        default_operations: list[str] | None = None,
-        allowed_materials: list[str] | None = None,
-        compatible_technologies: list[str] | None = None,
         is_active: bool | None = None,
+        **config,
     ) -> ProductTypeCatalog:
         item.name = name
-        item.calculation_strategy = calculation_strategy
-        item.required_fields = required_fields
-        item.default_operations = default_operations
-        item.allowed_materials = allowed_materials
-        item.compatible_technologies = compatible_technologies
+        for field in _PT_CONFIG_FIELDS:
+            if field in config:
+                setattr(item, field, config[field])
         if is_active is not None:
             item.is_active = is_active
         try:
@@ -137,6 +165,12 @@ class ProductTypeCatalogRepository:
             self.db.rollback()
             raise
         return item
+
+    def count_estimate_refs(self, product_type: str) -> int:
+        from ..models.estimate import Estimate
+        return self.db.execute(
+            select(func.count()).select_from(Estimate).where(Estimate.product_type == product_type)
+        ).scalar_one()
 
     def delete(self, item: ProductTypeCatalog) -> None:
         self.db.delete(item)

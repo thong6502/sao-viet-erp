@@ -204,6 +204,22 @@ class NormRepository:
         rows = list(self.db.execute(stmt).scalars())
         return rows, total
 
+    def list_history(self, norm: Norm) -> list[Norm]:
+        """Chuỗi version của cùng một cấu hình (mọi bản, gồm đã đóng) — cho 'Xem lịch sử'."""
+        stmt = (
+            select(Norm)
+            .where(Norm.norm_key == norm.norm_key)
+            .where(Norm.context_key == norm.context_key)
+            .where(Norm.product_type == norm.product_type)
+            .where(Norm.machine_id == norm.machine_id)
+            .where(Norm.operation_id == norm.operation_id)
+            .where(Norm.operation_key == norm.operation_key)
+            .where(Norm.qty_min == norm.qty_min)
+            .where(Norm.qty_max == norm.qty_max)
+            .order_by(Norm.effective_from.asc(), Norm.id.asc())
+        )
+        return list(self.db.execute(stmt).scalars())
+
     def add_norm(
         self,
         *,
@@ -219,6 +235,7 @@ class NormRepository:
         context_key: str = "{}",
         effective_from: date,
         note: str | None = None,
+        **extra,
     ) -> Norm:
         # Find current active norm for the exact same dimensions
         current = self.get_active_norm_matching_config(
@@ -231,10 +248,12 @@ class NormRepository:
             qty_max=qty_max,
             context_key=context_key,
         )
+        version = 1
         if current:
-            # Close old norm: effective_to = new_effective_from (exclusive)
+            # Close old norm: effective_to = new_effective_from (exclusive) + bump version chain.
             current.effective_to = effective_from
             self.db.add(current)
+            version = int(current.version or 1) + 1
 
         new_norm = Norm(
             norm_key=norm_key,
@@ -250,6 +269,8 @@ class NormRepository:
             effective_from=effective_from,
             effective_to=None,
             note=note,
+            version=version,
+            **extra,
         )
         self.db.add(new_norm)
         try:

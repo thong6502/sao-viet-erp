@@ -230,7 +230,7 @@ class PaperSizeService:
         fields["name"] = new_name
         fields["updated_by"] = getattr(actor, "id", None)
 
-        if int(item.used_count or 0) > 0 and dims_changed:
+        if dims_changed and self._is_used(item):
             # Version-chain: giữ dòng đã dùng đóng băng, chèn version mới mang kích thước mới.
             new_fields = dict(fields)
             new_fields.pop("effective_from", None)  # repo đặt effective_from = hôm nay
@@ -329,7 +329,7 @@ class PaperSizeService:
 
     def delete_item(self, *, item_id: int, actor) -> None:
         item = self.get_item(item_id)
-        if int(item.used_count or 0) > 0:
+        if self._is_used(item):
             raise PaperSizeValidationError(
                 "Không thể xóa khổ giấy đã dùng trong phiếu — hãy tạm ngưng (Inactive) thay vì xóa."
             )

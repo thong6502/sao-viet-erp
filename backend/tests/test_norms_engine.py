@@ -60,7 +60,7 @@ def test_yield_rate_bounds_validation(client, service_and_actor):
     service, actor, db = service_and_actor
     
     # yield_rate cannot be 0
-    with pytest.raises(NormValidationError, match="Tỷ lệ thành phẩm"):
+    with pytest.raises(NormValidationError, match="Tỷ lệ đạt"):
         service.create_norm(
             norm_key="yield_rate",
             value=0.0,
@@ -69,7 +69,7 @@ def test_yield_rate_bounds_validation(client, service_and_actor):
         )
 
     # yield_rate cannot be > 1
-    with pytest.raises(NormValidationError, match="Tỷ lệ thành phẩm"):
+    with pytest.raises(NormValidationError, match="Tỷ lệ đạt"):
         service.create_norm(
             norm_key="yield_rate",
             value=1.05,

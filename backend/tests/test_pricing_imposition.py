@@ -43,7 +43,8 @@ def _build_db():
     db.add(mc)
     db.flush()
     db.add(MachineRate(machine_id=mc.id, hourly_rate=1_000_000, effective_from=date(2025, 1, 1)))
-    db.add(PlateDieRate(plate_type="ban_kem_offset", technology="offset", unit="ban",
+    db.add(PlateDieRate(code="PLATE_T", name="Kẽm test", plate_type="ban_kem_offset",
+                        technology="offset", unit="ban",
                         unit_price=100_000, effective_from=date(2025, 1, 1)))
     rows = [
         ("KB001", "In 1 mặt", 1, 1.0, 1, 1.0, 1.0),

@@ -1,169 +1,187 @@
-"""Plate/Die Rate Service — business logic for plate and die rates.
+"""Plate/Die Rate Service — Đơn giá kẽm & khuôn (catalog #5).
+
+Kẽm (`ban_kem_offset`) khai theo MÁY; khuôn (`khuon_*`) khai theo pricing_method. Versioning
+hiệu lực-theo-ngày, family key = `code`: sửa một bản đã dùng ⇒ tạo version mới (đóng bản cũ).
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from typing import Any
-from ..repositories.plate_die_rate_repo import PlateDieRateRepository
-from ..repositories.audit_repo import AuditLogRepository
-from ..models.plate_die_rate import PlateDieRate
 
-VALID_PLATE_TYPES = {"ban_kem_offset", "khuon_be", "khuon_ep_kim"}
-VALID_TECHNOLOGIES = {"offset", "flexo", "be", "ep_kim"}
-VALID_UNITS = {"ban", "bo", "cm2"}
+from ..models.plate_die_rate import (
+    PLATE_KEM, PRICING_METHODS, REUSE_METHODS, VALID_PLATE_TYPES, PlateDieRate,
+)
+from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.plate_die_rate_repo import ASSIGNABLE, PlateDieRateRepository
+
+VALID_TECHNOLOGIES = {"offset", "flexo", "be", "ep_kim", "dap_noi"}
+VALID_UNITS = {"ban", "bo", "cm2", "met"}
+
 
 class PlateDieRateError(Exception):
     pass
 
+
 class PlateDieRateValidationError(PlateDieRateError):
     pass
+
+
+class PlateDieRateDuplicate(PlateDieRateError):
+    pass
+
 
 class PlateDieRateNotFoundError(PlateDieRateError):
     pass
 
+
 class PlateDieRateService:
-    def __init__(
-        self,
-        repo: PlateDieRateRepository,
-        audit: AuditLogRepository,
-    ) -> None:
+    def __init__(self, repo: PlateDieRateRepository, audit: AuditLogRepository) -> None:
         self.repo = repo
         self.audit = audit
 
+    # -- reads -------------------------------------------------------------
     def get_rate(self, rate_id: int) -> PlateDieRate:
         rate = self.repo.get_by_id(rate_id)
         if not rate:
-            raise PlateDieRateNotFoundError("Không tìm thấy đơn giá khuôn/bản kẽm.")
+            raise PlateDieRateNotFoundError("Không tìm thấy đơn giá kẽm/khuôn.")
         return rate
 
-    def list_rates(
-        self,
-        *,
-        plate_type: str | None = None,
-        technology: str | None = None,
-        is_active: bool | None = None,
-        page: int = 1,
-        size: int = 50,
-    ) -> tuple[list[PlateDieRate], int]:
-        return self.repo.list_rates(
-            plate_type=plate_type,
-            technology=technology,
-            is_active=is_active,
-            page=page,
-            size=size,
-        )
+    def list_rates(self, **kw) -> tuple[list[PlateDieRate], int]:
+        return self.repo.list_rates(**kw)
 
-    def create_rate(
-        self,
-        *,
-        plate_type: str,
-        technology: str,
-        unit: str,
-        unit_price: int,
-        setup_fee: int = 0,
-        min_charge: int = 0,
-        reusable: bool = False,
-        effective_from: date,
-        actor: Any,
-    ) -> PlateDieRate:
-        # Validations
+    def history(self, rate_id: int) -> list[PlateDieRate]:
+        return self.repo.list_versions(self.get_rate(rate_id).code)
+
+    # -- validation --------------------------------------------------------
+    def _validate(self, d: dict) -> None:
+        if not (d.get("code") or "").strip():
+            raise PlateDieRateValidationError("Mã bảng giá không được trống.")
+        if not (d.get("name") or "").strip():
+            raise PlateDieRateValidationError("Tên bảng giá không được trống.")
+        plate_type = d.get("plate_type")
         if plate_type not in VALID_PLATE_TYPES:
-            raise PlateDieRateValidationError(f"Loại khuôn/bản '{plate_type}' không hợp lệ.")
-        if technology not in VALID_TECHNOLOGIES:
-            raise PlateDieRateValidationError(f"Công nghệ gia công '{technology}' không hợp lệ.")
-        if unit not in VALID_UNITS:
-            raise PlateDieRateValidationError(f"Đơn vị tính '{unit}' không hợp lệ.")
-        
-        if unit_price < 0:
-            raise PlateDieRateValidationError("Đơn giá không được âm.")
-        if setup_fee < 0:
-            raise PlateDieRateValidationError("Phí setup không được âm.")
-        if min_charge < 0:
-            raise PlateDieRateValidationError("Phí tối thiểu không được âm.")
+            raise PlateDieRateValidationError(f"Loại kẽm/khuôn '{plate_type}' không hợp lệ.")
+        if d.get("technology") not in VALID_TECHNOLOGIES:
+            raise PlateDieRateValidationError("Công nghệ/công đoạn không hợp lệ.")
+        if d.get("unit") not in VALID_UNITS:
+            raise PlateDieRateValidationError("Đơn vị tính không hợp lệ.")
+        for f, label in (("unit_price", "Đơn giá"), ("setup_fee", "Phí setup"),
+                         ("min_charge", "Phí tối thiểu")):
+            v = d.get(f) or 0
+            if v < 0:
+                raise PlateDieRateValidationError(f"{label} không được âm.")
 
-        # Date Overlap protection (sequential versions only)
-        current = self.repo.get_current_rate(plate_type, technology, unit)
-        if current:
-            if effective_from <= current.effective_from:
-                raise PlateDieRateValidationError(
-                    f"Ngày hiệu lực mới ({effective_from}) phải lớn hơn ngày bắt đầu hiện tại ({current.effective_from})."
-                )
-        # #14 — guard trên chỉ soi bản đang mở; chặn thêm nếu chồng lên một bản ĐÃ ĐÓNG.
-        covering = self.repo.get_closed_rate_covering(plate_type, technology, unit, effective_from)
-        if covering is not None:
-            raise PlateDieRateValidationError(
-                f"Ngày hiệu lực ({effective_from}) nằm trong khoảng đơn giá đã đóng "
-                f"({covering.effective_from} → {covering.effective_to}); không được chồng lấn."
-            )
+        is_kem = plate_type == PLATE_KEM
+        if is_kem:
+            # Kẽm phải có đơn giá/bản (spec §11: khổ kẽm/máy/đơn giá).
+            if not (d.get("unit_price") or 0) > 0:
+                raise PlateDieRateValidationError("Đơn giá 1 bản kẽm phải lớn hơn 0.")
+        else:
+            method = d.get("pricing_method") or "fixed"
+            if method not in PRICING_METHODS:
+                raise PlateDieRateValidationError("Cách tính giá khuôn không hợp lệ.")
+            if method == "fixed" and not (d.get("unit_price") or 0) > 0:
+                raise PlateDieRateValidationError("Khuôn giá cố định phải có đơn giá > 0.")
+            if method == "area" and not (d.get("unit_price_area") or 0) > 0:
+                raise PlateDieRateValidationError("Cách tính theo diện tích phải có đơn giá/cm².")
+            if method == "perimeter" and not (d.get("unit_price_perimeter") or 0) > 0:
+                raise PlateDieRateValidationError("Cách tính theo chu vi phải có đơn giá/mét dao.")
+            if d.get("reusable") and d.get("reuse_price_method") not in (None, *REUSE_METHODS):
+                raise PlateDieRateValidationError("Cách tính phí dùng lại khuôn không hợp lệ.")
+        mx = d.get("max_charge")
+        if mx is not None and mx < (d.get("min_charge") or 0):
+            raise PlateDieRateValidationError("Phí tối đa không được nhỏ hơn phí tối thiểu.")
 
-        rate = self.repo.add_rate(
-            plate_type=plate_type,
-            technology=technology,
-            unit=unit,
-            unit_price=unit_price,
-            setup_fee=setup_fee,
-            min_charge=min_charge,
-            reusable=reusable,
-            effective_from=effective_from,
-        )
+    def _fields(self, d: dict) -> dict:
+        out = {}
+        for k in ASSIGNABLE:
+            if k in d:
+                out[k] = d[k]
+        out["name"] = (d.get("name") or "").strip()
+        return out
 
-        self.audit.create(
-            actor_user_id=actor.id,
-            action="create_plate_die_rate",
-            target=f"plate_die_rate:{rate.id}",
-            detail=f"Tạo đơn giá {plate_type}/{technology}={unit_price} từ {effective_from}",
-        )
+    # -- writes ------------------------------------------------------------
+    def create_rate(self, data: dict, *, actor: Any) -> PlateDieRate:
+        self._validate(data)
+        code = (data["code"] or "").strip()
+        if self.repo.find_by_code_any(code) is not None:
+            raise PlateDieRateDuplicate("Mã bảng giá đã tồn tại.")
+        fields = self._fields(data)
+        fields["created_by"] = getattr(actor, "id", None)
+        fields["updated_by"] = getattr(actor, "id", None)
+        rate = self.repo.add_rate(code=code, effective_from=data["effective_from"], **fields)
+        self._audit(actor, "create_plate_die_rate", rate, f"Tạo {rate.code} ({rate.plate_type})")
         return rate
 
-    def close_rate(
-        self,
-        *,
-        rate_id: int,
-        effective_to: date,
-        actor: Any,
-    ) -> PlateDieRate:
+    def create_version(self, rate_id: int, data: dict, *, actor: Any) -> PlateDieRate:
+        """Tạo version mới (đóng bản đang mở của cùng mã)."""
+        base = self.get_rate(rate_id)
+        data = {**data, "code": base.code}
+        self._validate(data)
+        eff = data["effective_from"]
+        current = self.repo.get_open_for_code(base.code)
+        if current and eff <= current.effective_from:
+            raise PlateDieRateValidationError(
+                f"Ngày hiệu lực mới ({eff}) phải sau ngày bắt đầu bản hiện tại ({current.effective_from})."
+            )
+        if self.repo.get_closed_rate_covering(base.code, eff) is not None:
+            raise PlateDieRateValidationError("Ngày hiệu lực chồng lấn với một bản đã đóng.")
+        fields = self._fields(data)
+        fields["created_by"] = getattr(actor, "id", None)
+        fields["updated_by"] = getattr(actor, "id", None)
+        rate = self.repo.add_rate(code=base.code, effective_from=eff, **fields)
+        self._audit(actor, "version_plate_die_rate", rate, f"Version mới {rate.code} từ {eff}")
+        return rate
+
+    def clone_rate(self, rate_id: int, *, actor: Any) -> PlateDieRate:
+        src = self.get_rate(rate_id)
+        # Mã mới = code + _COPY (+ số nếu trùng)
+        base_code = f"{src.code}_COPY"
+        code = base_code
+        i = 2
+        while self.repo.find_by_code_any(code) is not None:
+            code = f"{base_code}{i}"
+            i += 1
+        fields = {k: getattr(src, k) for k in ASSIGNABLE}
+        fields["name"] = f"{src.name} (bản sao)"
+        fields["created_by"] = getattr(actor, "id", None)
+        fields["updated_by"] = getattr(actor, "id", None)
+        rate = self.repo.add_rate(code=code, effective_from=src.effective_from, **fields)
+        self._audit(actor, "clone_plate_die_rate", rate, f"Sao chép {src.code} → {rate.code}")
+        return rate
+
+    def close_rate(self, *, rate_id: int, effective_to: date, actor: Any) -> PlateDieRate:
         rate = self.get_rate(rate_id)
         if effective_to <= rate.effective_from:
-            raise PlateDieRateValidationError("Ngày kết thúc hiệu lực phải lớn hơn ngày bắt đầu.")
-
+            raise PlateDieRateValidationError("Ngày kết thúc phải lớn hơn ngày bắt đầu.")
         rate.effective_to = effective_to
         rate.updated_at = datetime.now(timezone.utc)
         self.repo.db.add(rate)
         self.repo.db.commit()
-
-        self.audit.create(
-            actor_user_id=actor.id,
-            action="close_plate_die_rate",
-            target=f"plate_die_rate:{rate.id}",
-            detail=f"Đóng đơn giá {rate.plate_type}/{rate.technology} tại ngày {effective_to}",
-        )
+        self._audit(actor, "close_plate_die_rate", rate, f"Đóng {rate.code} tại {effective_to}")
         return rate
 
-    def delete_rate(
-        self,
-        *,
-        rate_id: int,
-        actor: Any,
-    ) -> None:
+    def delete_rate(self, *, rate_id: int, actor: Any) -> None:
         rate = self.get_rate(rate_id)
-        
-        today = date.today()
-        # Non-retroactivity logic: only future rates can be hard-deleted
-        if rate.effective_from <= today:
-            raise PlateDieRateValidationError("Không thể xóa cứng đơn giá đã hoặc đang hiệu lực. Hãy dùng chức năng Đóng.")
-
-        # #4 — mở lại bản tiền nhiệm mà bản tương lai này đã đóng, tránh khoảng trống phủ giá.
+        if rate.effective_from <= date.today():
+            raise PlateDieRateValidationError(
+                "Không thể xóa cứng đơn giá đã/đang hiệu lực. Hãy dùng chức năng Đóng."
+            )
         predecessor = self.repo.find_predecessor(rate)
         self.repo.db.delete(rate)
-        self.repo.db.flush()  # áp DELETE trước, tránh 2 hàng effective_to NULL cùng lúc (unique index)
+        self.repo.db.flush()
         if predecessor is not None:
             predecessor.effective_to = None
             self.repo.db.add(predecessor)
         self.repo.db.commit()
-
         self.audit.create(
-            actor_user_id=actor.id,
-            action="delete_plate_die_rate",
+            actor_user_id=actor.id, action="delete_plate_die_rate",
             target=f"plate_die_rate:{rate_id}",
-            detail=f"Xóa đơn giá tương lai {rate.plate_type}/{rate.technology}",
+            detail=f"Xóa bản tương lai {rate.code}",
+        )
+
+    def _audit(self, actor, action: str, rate: PlateDieRate, detail: str) -> None:
+        self.audit.create(
+            actor_user_id=actor.id, action=action,
+            target=f"plate_die_rate:{rate.id}", detail=detail,
         )

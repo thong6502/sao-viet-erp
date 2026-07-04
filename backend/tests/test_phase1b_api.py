@@ -60,6 +60,8 @@ def test_click_ink_rates_api_crud(client, auth_headers):
 def test_plate_die_rates_api_crud(client, auth_headers):
     # 1. Create a rate
     payload = {
+        "code": "PLATE_API_T",
+        "name": "Kẽm API test",
         "plate_type": "ban_kem_offset",
         "technology": "offset",
         "unit": "ban",

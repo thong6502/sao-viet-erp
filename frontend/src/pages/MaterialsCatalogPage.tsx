@@ -27,10 +27,20 @@ const MAT_TYPES = [
   { value: "chemical", label: "Hóa chất / mực" },
 ];
 
+// Nhóm vật tư (tái thiết kế #2) — trục UI trên material_type.
+const MAT_GROUPS = [
+  { value: "paper", label: "Giấy" },
+  { value: "ink", label: "Mực" },
+  { value: "film", label: "Màng" },
+  { value: "glue", label: "Keo" },
+  { value: "packaging", label: "Bao bì" },
+  { value: "auxiliary", label: "Phụ liệu" },
+];
+
 // #9 — gợi ý chuẩn hoá danh mục (datalist: gợi ý nhưng vẫn cho nhập khác — domain §4 còn Kraft/art paper).
 const PAPER_FAMILIES = ["Ford", "Couche", "Ivory", "Bristol", "Duplex", "Kraft"];
 const PAPER_SURFACES = ["bong", "mo", "khong_trang"];
-const PRICE_UNITS = ["ram", "kg", "to", "m2"];
+const PRICE_UNITS = ["ram", "kg", "to", "m2", "nghin_luot", "cai", "cuon", "thung"];
 
 export function MaterialsCatalogPage() {
   const { token } = useAuth();
@@ -47,7 +57,7 @@ export function MaterialsCatalogPage() {
   const [error, setError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
 
-  const [mode, setMode] = useState<null | "create" | "edit" | "clone" | "costs">(null);
+  const [mode, setMode] = useState<null | "create" | "edit" | "clone" | "costs" | "test">(null);
   const [selected, setSelected] = useState<MaterialRow | null>(null);
   const [deleting, setDeleting] = useState<MaterialRow | null>(null);
 
@@ -124,7 +134,7 @@ export function MaterialsCatalogPage() {
     <main className="md-page">
       <header className="md-page__head">
         <p className="eyebrow">Cấu hình danh mục</p>
-        <h1 className="md-page__title">Giấy & Vật tư</h1>
+        <h1 className="md-page__title">Vật tư & Đơn giá vật tư</h1>
         <p className="md-page__sub">
           Quản lý toàn bộ vật tư sản xuất (Giấy cuộn/tờ, decal, màng cán, keo...) và lịch sử đơn giá nhập kho.
         </p>
@@ -179,6 +189,7 @@ export function MaterialsCatalogPage() {
         </select>
 
         <div className="md-page__toolbar-spacer" />
+        <Button variant="ghost" onClick={() => setMode("test")}>Test tính tiền</Button>
         <Button
           variant="primary"
           onClick={() => { setSelected(null); setMode("create"); }}
@@ -351,6 +362,9 @@ export function MaterialsCatalogPage() {
         />
       )}
 
+      {/* Test quy đổi / tính tiền */}
+      {mode === "test" && <MaterialTestDialog onClose={() => setMode(null)} />}
+
       {/* Delete Confirmation */}
       {deleting && (
         <div className="md-page__overlay" role="dialog">
@@ -401,8 +415,26 @@ function MaterialFormDialog({
   const [surface, setSurface] = useState(existing?.surface ?? "");
   const [isActive, setIsActive] = useState(existing?.is_active ?? true);
 
+  // Tái thiết kế #2 — nhóm + NCC + UoM/quy đổi + field theo nhóm.
+  const [group, setGroup] = useState(existing?.material_group ?? "");
+  const [defaultSupplier, setDefaultSupplier] = useState(existing?.default_supplier ?? "");
+  const [baseUom, setBaseUom] = useState(existing?.base_uom ?? "");
+  const [purchaseUom, setPurchaseUom] = useState(existing?.purchase_uom ?? "");
+  const [consumptionUom, setConsumptionUom] = useState(existing?.consumption_uom ?? "");
+  const [conversionMethod, setConversionMethod] = useState(existing?.conversion_method ?? "");
+  const [inkType, setInkType] = useState(existing?.ink_type ?? "");
+  const [inkColorSystem, setInkColorSystem] = useState(existing?.ink_color_system ?? "");
+  const [inkColorCode, setInkColorCode] = useState(existing?.ink_color_code ?? "");
+  const [filmType, setFilmType] = useState(existing?.film_type ?? "");
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Preview quy đổi kg/tờ (§9) khi có gsm + khổ.
+  const convPreview =
+    gsm && widthCm && heightCm
+      ? `Kg/tờ = (${widthCm}×${heightCm}/10000) × ${gsm}/1000 = ${(((Number(widthCm) * Number(heightCm)) / 10000) * (Number(gsm) / 1000)).toFixed(4)} kg`
+      : "";
 
   // If paper size rule is violated (short side first), alert in form
   async function onSubmit(e: FormEvent) {
@@ -438,6 +470,16 @@ function MaterialFormDialog({
       paper_family: type === "paper" ? family.trim() : null,
       surface: type === "paper" ? surface.trim() : null,
       is_active: isActive,
+      material_group: (group || null) as MaterialInput["material_group"],
+      default_supplier: defaultSupplier.trim() || null,
+      base_uom: baseUom.trim() || null,
+      purchase_uom: purchaseUom.trim() || null,
+      consumption_uom: consumptionUom.trim() || null,
+      conversion_method: conversionMethod || null,
+      ink_type: group === "ink" ? inkType.trim() || null : null,
+      ink_color_system: group === "ink" ? inkColorSystem.trim() || null : null,
+      ink_color_code: group === "ink" ? inkColorCode.trim() || null : null,
+      film_type: group === "film" ? filmType.trim() || null : null,
     };
 
     setSaving(true);
@@ -481,6 +523,21 @@ function MaterialFormDialog({
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>
+            </label>
+
+            <label className="field">
+              <span className="field__label">Nhóm vật tư</span>
+              <select className="input" value={group} onChange={(e) => setGroup(e.target.value)}>
+                <option value="">-- Tự suy từ loại --</option>
+                {MAT_GROUPS.map((g) => (
+                  <option key={g.value} value={g.value}>{g.label}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="field">
+              <span className="field__label">NCC mặc định</span>
+              <input className="input" placeholder="VD: NCC Giấy A" value={defaultSupplier} onChange={(e) => setDefaultSupplier(e.target.value)} />
             </label>
 
             <label className="field">
@@ -609,7 +666,63 @@ function MaterialFormDialog({
                 </label>
               </>
             )}
+
+            {/* Nhóm Mực */}
+            {group === "ink" && (
+              <>
+                <label className="field">
+                  <span className="field__label">Loại mực</span>
+                  <input className="input" placeholder="offset / uv / pantone" value={inkType} onChange={(e) => setInkType(e.target.value)} />
+                </label>
+                <label className="field">
+                  <span className="field__label">Hệ màu</span>
+                  <input className="input" placeholder="CMYK / spot" value={inkColorSystem} onChange={(e) => setInkColorSystem(e.target.value)} />
+                </label>
+                <label className="field">
+                  <span className="field__label">Mã màu</span>
+                  <input className="input" placeholder="C/M/Y/K / Pantone 485C" value={inkColorCode} onChange={(e) => setInkColorCode(e.target.value)} />
+                </label>
+              </>
+            )}
+
+            {/* Nhóm Màng */}
+            {group === "film" && (
+              <label className="field">
+                <span className="field__label">Loại màng</span>
+                <input className="input" placeholder="matt / gloss / metalize" value={filmType} onChange={(e) => setFilmType(e.target.value)} />
+              </label>
+            )}
+
+            {/* Đơn vị & quy đổi */}
+            <label className="field">
+              <span className="field__label">ĐVT tồn kho</span>
+              <input className="input" placeholder="kg / to / cuon" value={baseUom} onChange={(e) => setBaseUom(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">ĐVT mua</span>
+              <input className="input" placeholder="kg / ram / cuon" value={purchaseUom} onChange={(e) => setPurchaseUom(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">ĐVT tiêu hao</span>
+              <input className="input" placeholder="to / m2 / gram / luot" value={consumptionUom} onChange={(e) => setConsumptionUom(e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">Cách quy đổi</span>
+              <select className="input" value={conversionMethod} onChange={(e) => setConversionMethod(e.target.value)}>
+                <option value="">-- Không --</option>
+                <option value="gsm_area">kg ↔ tờ (gsm × khổ)</option>
+                <option value="ream_500">ram → tờ (1 ram = 500 tờ)</option>
+                <option value="area_m2">m² (theo diện tích)</option>
+                <option value="none">Không quy đổi</option>
+              </select>
+            </label>
           </div>
+
+          {convPreview && (
+            <div className="md-page__preview">
+              <span className="md-page__mono" style={{ fontSize: "13px" }}>{convPreview}</span>
+            </div>
+          )}
 
           {error && (
             <div className="banner banner--error" role="alert">
@@ -722,6 +835,14 @@ function MaterialCostsDialog({
   const [priceUnit, setPriceUnit] = useState(material.unit);
   const [price, setPrice] = useState("");
   const [effectiveFrom, setEffectiveFrom] = useState(new Date().toISOString().split("T")[0]);
+  // Tái thiết kế #2 — biến thể giá.
+  const [supplier, setSupplier] = useState(material.default_supplier ?? "");
+  const [priceType, setPriceType] = useState("standard");
+  const [qtyFrom, setQtyFrom] = useState("");
+  const [qtyTo, setQtyTo] = useState("");
+  const [transportFee, setTransportFee] = useState("");
+  const [moq, setMoq] = useState("");
+  const [leadTime, setLeadTime] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -754,6 +875,13 @@ function MaterialCostsDialog({
       price_unit: priceUnit.trim(),
       unit_price: pr,
       effective_from: effectiveFrom,
+      supplier: supplier.trim() || null,
+      price_type: priceType,
+      quantity_from: qtyFrom ? Number(qtyFrom) : null,
+      quantity_to: qtyTo ? Number(qtyTo) : null,
+      transport_fee: transportFee ? Number(transportFee) : 0,
+      moq: moq ? Number(moq) : 0,
+      lead_time_days: leadTime ? Number(leadTime) : 0,
     };
 
     setSaving(true);
@@ -813,6 +941,38 @@ function MaterialCostsDialog({
                   onChange={(e) => setEffectiveFrom(e.target.value)}
                 />
               </label>
+              <label className="field">
+                <span className="field__label">Nhà cung cấp</span>
+                <input className="input" placeholder="NCC Giấy A" value={supplier} onChange={(e) => setSupplier(e.target.value)} />
+              </label>
+              <label className="field">
+                <span className="field__label">Loại giá</span>
+                <select className="input" value={priceType} onChange={(e) => setPriceType(e.target.value)}>
+                  <option value="standard">Giá cost chuẩn</option>
+                  <option value="purchase">Giá mua</option>
+                  <option value="temporary">Giá tạm tính</option>
+                </select>
+              </label>
+              <label className="field">
+                <span className="field__label">Bậc SL từ (số tờ mua)</span>
+                <input className="input" type="number" placeholder="trống = mọi SL" value={qtyFrom} onChange={(e) => setQtyFrom(e.target.value)} />
+              </label>
+              <label className="field">
+                <span className="field__label">Bậc SL đến</span>
+                <input className="input" type="number" placeholder="trống = ∞" value={qtyTo} onChange={(e) => setQtyTo(e.target.value)} />
+              </label>
+              <label className="field">
+                <span className="field__label">Phí vận chuyển (đ)</span>
+                <input className="input" type="number" value={transportFee} onChange={(e) => setTransportFee(e.target.value)} />
+              </label>
+              <label className="field">
+                <span className="field__label">MOQ</span>
+                <input className="input" type="number" value={moq} onChange={(e) => setMoq(e.target.value)} />
+              </label>
+              <label className="field">
+                <span className="field__label">Lead time (ngày)</span>
+                <input className="input" type="number" value={leadTime} onChange={(e) => setLeadTime(e.target.value)} />
+              </label>
               <div className="md-page__field-btn-align">
                 <Button type="submit" variant="primary" loading={saving}>Áp dụng</Button>
               </div>
@@ -833,6 +993,8 @@ function MaterialCostsDialog({
                   <tr>
                     <th>Đơn vị tính</th>
                     <th>Đơn giá vốn</th>
+                    <th>NCC</th>
+                    <th>Bậc SL</th>
                     <th>Từ ngày</th>
                     <th>Đến ngày</th>
                     <th>Trạng thái</th>
@@ -841,15 +1003,17 @@ function MaterialCostsDialog({
                 <tbody>
                   {costs.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="md-page__empty">Chưa có bảng giá lịch sử nào.</td>
+                      <td colSpan={7} className="md-page__empty">Chưa có bảng giá lịch sử nào.</td>
                     </tr>
                   ) : (
                     costs.map((c) => {
                       const isActive = c.effective_to === null;
                       return (
                         <tr key={c.id}>
-                          <td>{c.price_unit}</td>
+                          <td>{c.price_unit}{c.version > 1 && <span className="md-page__tag"> v{c.version}</span>}</td>
                           <td><strong>{c.unit_price.toLocaleString("vi-VN")} đ</strong></td>
+                          <td>{c.supplier || <span className="md-page__muted">—</span>}</td>
+                          <td>{c.quantity_from == null && c.quantity_to == null ? <span className="md-page__muted">Mọi SL</span> : `${c.quantity_from ?? 0}–${c.quantity_to ?? "∞"}`}</td>
                           <td>{c.effective_from}</td>
                           <td>{c.effective_to ?? <span className="md-page__status-badge is-active">Hiện hành</span>}</td>
                           <td>
@@ -868,6 +1032,89 @@ function MaterialCostsDialog({
             </div>
           </div>
 
+          <div className="md-page__dialog-actions">
+            <Button variant="ghost" onClick={onClose}>Đóng</Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Test quy đổi + tính tiền vật tư (§9) — gọi /convert và /price-test.
+function MaterialTestDialog({ onClose }: { onClose: () => void }) {
+  const { token } = useAuth();
+  const [priceUnit, setPriceUnit] = useState("kg");
+  const [unitPrice, setUnitPrice] = useState("28000");
+  const [sheets, setSheets] = useState("500");
+  const [gsm, setGsm] = useState("150");
+  const [widthCm, setWidthCm] = useState("79");
+  const [heightCm, setHeightCm] = useState("109");
+  const [impressions, setImpressions] = useState("2400");
+  const [transportFee, setTransportFee] = useState("");
+  const [result, setResult] = useState<{ total: number; steps: string[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    if (!token) return;
+    setError(null);
+    try {
+      const res = await api.materials.priceTest(token, {
+        price_unit: priceUnit,
+        unit_price: Number(unitPrice) || 0,
+        sheets: Number(sheets) || 0,
+        gsm: gsm ? Number(gsm) : null,
+        width_cm: widthCm ? Number(widthCm) : null,
+        height_cm: heightCm ? Number(heightCm) : null,
+        impressions: Number(impressions) || 0,
+        transport_fee: transportFee ? Number(transportFee) : 0,
+      });
+      setResult(res);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Lỗi khi test.");
+    }
+  }
+
+  return (
+    <div className="md-page__overlay" role="dialog">
+      <div className="md-page__dialog card">
+        <div className="md-page__dialog-head">
+          <h2>Test tính tiền vật tư</h2>
+          <button type="button" className="md-page__close" onClick={onClose}>✕</button>
+        </div>
+        <div className="md-page__dialog-body">
+          <div className="md-page__form-grid">
+            <label className="field">
+              <span className="field__label">Đơn vị giá</span>
+              <select className="input" value={priceUnit} onChange={(e) => setPriceUnit(e.target.value)}>
+                {PRICE_UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </label>
+            <label className="field"><span className="field__label">Đơn giá</span>
+              <input className="input" type="number" value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} /></label>
+            <label className="field"><span className="field__label">Số tờ mua (giấy)</span>
+              <input className="input" type="number" value={sheets} onChange={(e) => setSheets(e.target.value)} /></label>
+            <label className="field"><span className="field__label">gsm</span>
+              <input className="input" type="number" value={gsm} onChange={(e) => setGsm(e.target.value)} /></label>
+            <label className="field"><span className="field__label">Khổ rộng (cm)</span>
+              <input className="input" type="number" value={widthCm} onChange={(e) => setWidthCm(e.target.value)} /></label>
+            <label className="field"><span className="field__label">Khổ dài (cm)</span>
+              <input className="input" type="number" value={heightCm} onChange={(e) => setHeightCm(e.target.value)} /></label>
+            <label className="field"><span className="field__label">Lượt in màu (mực)</span>
+              <input className="input" type="number" value={impressions} onChange={(e) => setImpressions(e.target.value)} /></label>
+            <label className="field"><span className="field__label">Phí vận chuyển</span>
+              <input className="input" type="number" value={transportFee} onChange={(e) => setTransportFee(e.target.value)} /></label>
+          </div>
+          <div style={{ margin: "10px 0" }}>
+            <Button type="button" variant="primary" onClick={run}>Tính thử</Button>
+          </div>
+          {error && <div className="banner banner--error">{error}</div>}
+          {result && (
+            <div className="md-page__preview">
+              {result.steps.map((s, i) => <div key={i} className="md-page__mono" style={{ fontSize: "13px" }}>{s}</div>)}
+              <div style={{ marginTop: "6px", fontWeight: "bold" }}>Tổng: <span className="md-page__price">{result.total.toLocaleString("vi-VN")} đ</span></div>
+            </div>
+          )}
           <div className="md-page__dialog-actions">
             <Button variant="ghost" onClick={onClose}>Đóng</Button>
           </div>

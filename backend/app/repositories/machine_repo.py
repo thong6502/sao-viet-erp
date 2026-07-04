@@ -48,6 +48,7 @@ class MachineRepository:
         *,
         q: str | None = None,
         machine_type: str | None = None,
+        machine_group: str | None = None,
         is_active: bool | None = None,
         sort: str = "code",
         page: int = 1,
@@ -64,6 +65,8 @@ class MachineRepository:
             )
         if machine_type:
             conditions.append(Machine.machine_type == machine_type)
+        if machine_group:
+            conditions.append(Machine.machine_group == machine_group)
         if is_active is not None:
             conditions.append(Machine.is_active == is_active)
 
@@ -103,45 +106,9 @@ class MachineRepository:
                 continue
         return f"MY{max_n + 1:03d}"
 
-    def create(
-        self,
-        *,
-        name: str,
-        machine_type: str,
-        process_type: str,
-        speed: float,
-        speed_unit: str,
-        max_width_cm: float | None = None,
-        max_height_cm: float | None = None,
-        min_width_cm: float | None = None,
-        min_height_cm: float | None = None,
-        setup_time_mins: int = 0,
-        changeover_time_mins: int = 0,
-        setup_waste_sheets: float = 0.0,
-        num_ink_units: int | None = None,
-        supports_perfecting: bool = False,
-        supported_materials: list[str] | None = None,
-        is_active: bool = True,
-    ) -> Machine:
-        machine = Machine(
-            code=self._next_code(),
-            name=name,
-            machine_type=machine_type,
-            process_type=process_type,
-            speed=speed,
-            speed_unit=speed_unit,
-            max_width_cm=max_width_cm,
-            max_height_cm=max_height_cm,
-            min_width_cm=min_width_cm,
-            min_height_cm=min_height_cm,
-            setup_time_mins=setup_time_mins,
-            changeover_time_mins=changeover_time_mins,
-            setup_waste_sheets=setup_waste_sheets,
-            num_ink_units=num_ink_units,
-            supports_perfecting=supports_perfecting,
-            supported_materials=supported_materials,
-            is_active=is_active,
-        )
+    def create(self, **fields) -> Machine:
+        code = (fields.pop("code", None) or "").strip().upper() or self._next_code()
+        machine = Machine(code=code, **fields)
         self.db.add(machine)
         try:
             self.db.commit()
@@ -150,44 +117,11 @@ class MachineRepository:
             raise
         return machine
 
-    def update(
-        self,
-        machine: Machine,
-        *,
-        name: str,
-        machine_type: str,
-        process_type: str,
-        speed: float,
-        speed_unit: str,
-        max_width_cm: float | None = None,
-        max_height_cm: float | None = None,
-        min_width_cm: float | None = None,
-        min_height_cm: float | None = None,
-        setup_time_mins: int = 0,
-        changeover_time_mins: int = 0,
-        setup_waste_sheets: float = 0.0,
-        num_ink_units: int | None = None,
-        supports_perfecting: bool = False,
-        supported_materials: list[str] | None = None,
-        is_active: bool | None = None,
-    ) -> Machine:
-        machine.name = name
-        machine.machine_type = machine_type
-        machine.process_type = process_type
-        machine.speed = speed
-        machine.speed_unit = speed_unit
-        machine.max_width_cm = max_width_cm
-        machine.max_height_cm = max_height_cm
-        machine.min_width_cm = min_width_cm
-        machine.min_height_cm = min_height_cm
-        machine.setup_time_mins = setup_time_mins
-        machine.changeover_time_mins = changeover_time_mins
-        machine.setup_waste_sheets = setup_waste_sheets
-        machine.num_ink_units = num_ink_units
-        machine.supports_perfecting = supports_perfecting
-        machine.supported_materials = supported_materials
-        if is_active is not None:
-            machine.is_active = is_active
+    def update(self, machine: Machine, **fields) -> Machine:
+        for k, v in fields.items():
+            if k == "is_active" and v is None:
+                continue
+            setattr(machine, k, v)
         try:
             self.db.commit()
         except Exception:
@@ -215,6 +149,11 @@ class MachineRepository:
         hourly_rate: int,
         min_charge: int = 0,
         min_run_time_mins: int = 0,
+        rate_depreciation: int = 0,
+        rate_energy: int = 0,
+        rate_maintenance: int = 0,
+        rate_labor: int = 0,
+        rate_overhead: int = 0,
         effective_from: date,
     ) -> MachineRate:
         current = self.get_current_rate(machine_id)
@@ -224,12 +163,17 @@ class MachineRepository:
             # Khớp truy vấn của pricing_engine (effective_to > at_date).
             current.effective_to = effective_from
             self.db.add(current)
-            
+
         new_rate = MachineRate(
             machine_id=machine_id,
             hourly_rate=hourly_rate,
             min_charge=min_charge,
             min_run_time_mins=min_run_time_mins,
+            rate_depreciation=rate_depreciation,
+            rate_energy=rate_energy,
+            rate_maintenance=rate_maintenance,
+            rate_labor=rate_labor,
+            rate_overhead=rate_overhead,
             effective_from=effective_from,
             effective_to=None,
         )

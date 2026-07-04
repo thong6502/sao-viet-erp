@@ -33,3 +33,5 @@ backend/static/avatars/
 
 # DB backups (dev.db.bak-*)
 *.bak-*
+
+*.txt

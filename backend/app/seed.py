@@ -635,90 +635,138 @@ def seed_sales_history(db: Session) -> None:
 def seed_product_types(db: Session) -> None:
     from sqlalchemy import select
     from .models.product_type_catalog import ProductTypeCatalog
-    
+
+    # Bộ field hiển thị nền cho ấn phẩm tờ rời (spec §B). required ⊆ shown.
+    SHEET_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "sides", "paper", "machine", "sheet_size", "imposition", "operations"]
+    SHEET_REQ = ["finished_w", "finished_h", "quantity", "paper", "machine", "imposition"]
+    AREA_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "paper", "machine", "imposition", "operations"]
+    AREA_REQ = ["finished_w", "finished_h", "quantity", "paper", "machine"]
+    BOX_SHOWN = ["finished_w", "finished_h", "finished_d", "spread_w", "spread_h", "quantity", "colors", "paper", "machine", "sheet_size", "imposition", "operations"]
+    BOX_REQ = ["spread_w", "spread_h", "quantity", "paper", "machine", "imposition"]
+    PAGE_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "page_count", "cover_paper", "body_paper", "machine", "sheet_size", "imposition", "operations"]
+    PAGE_REQ = ["finished_w", "finished_h", "quantity", "page_count", "cover_paper", "body_paper", "machine"]
+
+    ALL_IMPO = ["ONE_SIDE", "AB", "TU_TRO", "TRO_NHIP_2_KEM", "TRO_NHIP_1_KEM"]
+
+    # (code, name, group, strategy, tech, shown, required, default_ops, required_ops, allowed_mats,
+    #  comp_techs, dim_rule, bleed, gutter, trim, sheet_mode, has_page, cover_body, has_tooling,
+    #  tooling_type, has_packaging, allowed_impo, default_impo)
     types = [
-        ("business_card", "Name card", "sheet_based", ["finished_w", "finished_h"], ["be", "dong_goi"], ["paper"], ["offset", "digital"]),
-        ("flyer", "Tờ rơi", "sheet_based", ["finished_w", "finished_h"], ["be", "dong_goi"], ["paper"], ["offset", "digital"]),
-        ("brochure", "Brochure", "sheet_based", ["finished_w", "finished_h"], ["gap", "dong_goi"], ["paper"], ["offset", "digital"]),
-        ("catalogue", "Catalogue", "page_based", ["finished_w", "finished_h", "page_count"], ["dong_cuon", "dong_goi"], ["paper"], ["offset", "digital"]),
-        ("book", "Sách", "page_based", ["finished_w", "finished_h", "page_count"], ["dong_cuon", "dong_goi"], ["paper"], ["offset", "digital"]),
-        ("sticker", "Sticker", "area_based", ["finished_w", "finished_h"], ["be", "dong_goi"], ["decal"], ["offset", "digital"]),
-        ("label", "Tem nhãn", "area_based", ["finished_w", "finished_h"], ["be", "dong_goi"], ["decal", "pp"], ["offset", "digital"]),
-        ("paper_box", "Hộp giấy", "box_based", ["finished_w", "finished_h", "finished_d"], ["be", "dan_hop", "dong_goi"], ["paper", "carton"], ["offset", "flexo"]),
-        ("paper_bag", "Túi giấy", "box_based", ["finished_w", "finished_h", "finished_d"], ["be", "dan_hop", "dong_goi"], ["paper"], ["offset"]),
-        ("banner", "Banner", "area_based", ["finished_w", "finished_h"], ["dong_goi"], ["pp", "canvas"], ["large_format"]),
-        ("envelope", "Bao thư", "sheet_based", ["finished_w", "finished_h"], ["be", "dan_hop", "dong_goi"], ["paper"], ["offset"]),
+        ("business_card", "Name card", "an_pham", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
+         ["be", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, False, None, True, ["ONE_SIDE", "AB", "TU_TRO"], "AB"),
+        ("flyer", "Tờ rơi", "an_pham", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
+         ["be", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True, ["ONE_SIDE", "AB", "TU_TRO", "TRO_NHIP_2_KEM"], "TU_TRO"),
+        ("brochure", "Brochure", "an_pham", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
+         ["gap", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True, ["AB", "TU_TRO", "TRO_NHIP_2_KEM"], "TU_TRO"),
+        ("catalogue", "Catalogue", "sach", "page_based", "offset", PAGE_SHOWN, PAGE_REQ,
+         ["dong_cuon", "dong_goi"], ["dong_cuon"], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pages", True, True, False, None, True, ["AB", "TU_TRO"], "AB"),
+        ("book", "Sách", "sach", "page_based", "offset", PAGE_SHOWN, PAGE_REQ,
+         ["dong_cuon", "dong_goi"], ["dong_cuon"], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pages", True, True, False, None, True, ["AB", "TU_TRO"], "AB"),
+        ("sticker", "Sticker", "nhan", "area_based", "offset", AREA_SHOWN, AREA_REQ,
+         ["be", "dong_goi"], [], ["decal"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE"], "ONE_SIDE"),
+        ("label", "Tem nhãn", "nhan", "area_based", "offset", AREA_SHOWN, AREA_REQ,
+         ["be", "dong_goi"], [], ["decal", "pp"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE"], "ONE_SIDE"),
+        ("paper_box", "Hộp giấy", "bao_bi", "box_based", "offset", BOX_SHOWN, BOX_REQ,
+         ["be", "dan_hop", "dong_goi"], ["be", "dan_hop"], ["paper", "carton"], ["offset", "flexo"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE", "TU_TRO", "TRO_NHIP_2_KEM"], "TU_TRO"),
+        ("paper_bag", "Túi giấy", "bao_bi", "box_based", "offset", BOX_SHOWN, BOX_REQ,
+         ["be", "dan_hop", "dong_goi"], ["be", "dan_hop"], ["paper"], ["offset"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE", "TU_TRO"], "TU_TRO"),
+        ("banner", "Banner", "an_pham", "area_based", "large_format", AREA_SHOWN, AREA_REQ,
+         ["dong_goi"], [], ["pp", "canvas"], ["large_format"], "finished", 0, 0, 0, "manual", False, False, False, None, True, ["ONE_SIDE"], "ONE_SIDE"),
+        ("envelope", "Bao thư", "bao_bi", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
+         ["be", "dan_hop", "dong_goi"], ["dan_hop"], ["paper"], ["offset"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE", "TU_TRO"], "TU_TRO"),
     ]
-    
-    for code, name, strategy, req_fields, default_ops, allowed_mats, comp_techs in types:
+
+    for row in types:
+        (code, name, group, strategy, tech, shown, required, default_ops, required_ops, allowed_mats,
+         comp_techs, dim_rule, bleed, gutter, trim, sheet_mode, has_page, cover_body, has_tooling,
+         tooling_type, has_packaging, allowed_impo, default_impo) = row
+        # box_based dùng khổ trải nhưng nếu dim_rule='spread' thì shown đã có spread_w/h (BOX_SHOWN).
         existing = db.execute(
             select(ProductTypeCatalog).where(ProductTypeCatalog.product_type == code)
         ).scalars().first()
         if not existing:
-            pt = ProductTypeCatalog(
-                product_type=code,
-                name=name,
-                calculation_strategy=strategy,
-                required_fields=req_fields,
-                default_operations=default_ops,
-                allowed_materials=allowed_mats,
-                compatible_technologies=comp_techs,
-                is_active=True
-            )
-            db.add(pt)
+            db.add(ProductTypeCatalog(
+                product_type=code, name=name, product_group=group, calculation_strategy=strategy,
+                technology=tech, shown_fields=shown, required_fields=required,
+                default_operations=default_ops, required_operations=required_ops,
+                allowed_materials=allowed_mats, compatible_technologies=comp_techs,
+                dimension_rule_type=dim_rule, default_bleed_mm=bleed, default_gutter_mm=gutter,
+                default_trim_mm=trim, sheet_count_mode=sheet_mode, has_page_count=has_page,
+                has_cover_body_split=cover_body, has_tooling=has_tooling, default_tooling_type=tooling_type,
+                has_packaging=has_packaging, default_pack_qty=(50 if has_packaging else 0),
+                allowed_imposition_codes=allowed_impo, default_imposition_code=default_impo,
+                is_active=True,
+            ))
     db.commit()
 
 
 def seed_materials(db: Session) -> None:
     from sqlalchemy import select
-    from .models.material import Material
+    from .models.material import Material, MaterialCost, GROUP_FROM_TYPE
     from .repositories.material_repo import MaterialRepository
     from datetime import date
-    
+
     repo = MaterialRepository(db)
-    
-    if db.execute(select(Material)).first() is None:
-        c150 = repo.create(
-            name="Couche 150gsm 65x86",
-            material_type="paper",
-            unit="to",
-            width_cm=65,
-            height_cm=86,
-            gsm=150,
-            paper_family="Couche",
-            surface="bong"
-        )
-        repo.add_cost_price(material_id=c150.id, price_unit="ram", unit_price=750000, effective_from=date(2026, 1, 1))
+    if db.execute(select(Material)).first() is not None:
+        return
 
-        c300 = repo.create(
-            name="Couche 300gsm 79x109",
-            material_type="paper",
-            unit="to",
-            width_cm=79,
-            height_cm=109,
-            gsm=300,
-            paper_family="Couche",
-            surface="mo"
-        )
-        repo.add_cost_price(material_id=c300.id, price_unit="ram", unit_price=1200000, effective_from=date(2026, 1, 1))
+    eff = date(2026, 1, 1)
 
-        decal = repo.create(
-            name="Decal giấy đế vàng",
-            material_type="decal",
-            unit="m2",
-            default_waste_pct=2.0
+    def mk(*, name, material_type, unit, price_unit, unit_price, group=None, **extra):
+        """Tạo vật tư + 1 dòng giá (dữ liệu mẫu §10 — docs/VAT_TU_DON_GIA.md)."""
+        m = repo.create(
+            name=name, material_type=material_type, unit=unit,
+            width_cm=extra.pop("width_cm", None), height_cm=extra.pop("height_cm", None),
+            gsm=extra.pop("gsm", None), paper_family=extra.pop("paper_family", None),
+            surface=extra.pop("surface", None),
+            default_waste_pct=extra.pop("default_waste_pct", 0.0),
         )
-        repo.add_cost_price(material_id=decal.id, price_unit="m2", unit_price=15000, effective_from=date(2026, 1, 1))
+        m.material_group = group or GROUP_FROM_TYPE.get(material_type)
+        m.base_uom = extra.pop("base_uom", unit)
+        m.purchase_uom = extra.pop("purchase_uom", price_unit)
+        m.consumption_uom = extra.pop("consumption_uom", unit)
+        m.conversion_method = extra.pop("conversion_method", None)
+        for k, v in extra.items():
+            setattr(m, k, v)
+        db.add(m)
+        db.flush()
+        db.add(MaterialCost(material_id=m.id, price_unit=price_unit, unit_price=unit_price, effective_from=eff))
+        return m
 
-        film = repo.create(
-            name="Màng mờ nhiệt",
-            material_type="lamination",
-            unit="m2",
-            default_waste_pct=1.0
-        )
-        repo.add_cost_price(material_id=film.id, price_unit="m2", unit_price=2500, effective_from=date(2026, 1, 1))
-        
-        db.commit()
+    # ── Bộ vật tư nền (luôn seed) — giữ đúng bộ test cũ để golden/stat không đổi ──
+    mk(name="Couche 150gsm 65x86", material_type="paper", unit="to", price_unit="ram", unit_price=750000,
+       width_cm=65, height_cm=86, gsm=150, paper_family="Couche", surface="bong",
+       conversion_method="ream_500", consumption_uom="to")
+    mk(name="Couche 300gsm 79x109", material_type="paper", unit="to", price_unit="ram", unit_price=1200000,
+       width_cm=79, height_cm=109, gsm=300, paper_family="Couche", surface="mo",
+       conversion_method="ream_500", consumption_uom="to")
+    mk(name="Decal giấy đế vàng", material_type="decal", unit="m2", price_unit="m2", unit_price=15000,
+       conversion_method="area_m2", default_waste_pct=2.0)
+    mk(name="Màng mờ nhiệt", material_type="lamination", unit="m2", price_unit="m2", unit_price=2500,
+       group="film", film_type="matt", conversion_method="area_m2", default_waste_pct=1.0)
+
+    # ── Mẫu mở rộng §10 (gồm MỰC) — demo-gate. Mực làm phát sinh dòng chi phí mực cho mọi job offset
+    # nên KHÔNG seed trong test (golden đóng băng không có mực), giống seed_norms ink trước đây. ──
+    if settings.seed_demo:
+        mk(name="Ivory 300gsm 79x109", material_type="paper", unit="to", price_unit="kg", unit_price=31000,
+           width_cm=79, height_cm=109, gsm=300, paper_family="Ivory", surface="bong",
+           conversion_method="gsm_area", consumption_uom="to")
+        mk(name="Duplex 350gsm 79x109", material_type="carton", unit="to", price_unit="kg", unit_price=25000,
+           width_cm=79, height_cm=109, gsm=350, paper_family="Duplex",
+           conversion_method="gsm_area", consumption_uom="to")
+        # Mực (đ/1.000 lượt-màu — engine đọc TỪ ĐÂY). INK_CMYK = mực offset mặc định (id nhỏ nhất nhóm ink).
+        mk(name="Mực offset CMYK", material_type="chemical", unit="kg", price_unit="nghin_luot", unit_price=500,
+           group="ink", ink_type="offset", ink_color_system="CMYK", consumption_uom="luot", conversion_method="none")
+        mk(name="Mực Pantone", material_type="chemical", unit="kg", price_unit="nghin_luot", unit_price=1200,
+           group="ink", ink_type="pantone", ink_color_system="spot", consumption_uom="luot", conversion_method="none")
+        mk(name="Màng bóng nhiệt", material_type="lamination", unit="m2", price_unit="m2", unit_price=2000,
+           group="film", film_type="gloss", conversion_method="area_m2", default_waste_pct=1.0)
+        mk(name="Keo dán hộp", material_type="glue", unit="kg", price_unit="kg", unit_price=45000,
+           group="glue", consumption_uom="gram", conversion_method="none")
+        mk(name="Thùng carton đóng gói", material_type="chemical", unit="cai", price_unit="cai", unit_price=8000,
+           group="packaging", conversion_method="none")
+
+    db.commit()
 
 
 def seed_machines(db: Session) -> None:
@@ -730,38 +778,55 @@ def seed_machines(db: Session) -> None:
     repo = MachineRepository(db)
     
     if db.execute(select(Machine)).first() is None:
-        offset = repo.create(
-            name="Mitsubishi Daiya 4 màu",
-            machine_type="offset",
-            process_type="in",
-            speed=12000,
-            speed_unit="to/gio",
-            max_width_cm=72,
-            max_height_cm=102,
-            min_width_cm=36,
-            min_height_cm=54,
-            setup_time_mins=30,
-            setup_waste_sheets=200,
-            num_ink_units=4,
-            supports_perfecting=False
-        )
-        repo.add_machine_rate(machine_id=offset.id, hourly_rate=500000, min_charge=1500000, effective_from=date(2026, 1, 1))
+        # Máy in offset — khổ tính bằng CM (toàn hệ dùng cm). Setup hạt (giờ): base + 0.1/màu,
+        # vệ sinh 0.25, đổi kẽm 0.05/bản → khớp ví dụ spec (OFFSET_102: 4 màu/4 bản = setup 0.9 +
+        # 0.25 + 0.2). (code, tên, giấy w×h, in w×h, tốc độ, base_setup_h, num_units, đơn giá, min_charge)
+        offsets = [
+            ("OFFSET_52_01", "Máy Offset 52 - 2 màu", 36, 52, 34, 50, 4000, 0.4, 2, 300000, 800000),
+            ("OFFSET_72_01", "Máy Offset 72 - 4 màu", 52, 72, 50, 70, 5000, 0.5, 4, 400000, 1200000),
+            ("OFFSET_102_01", "Máy Offset 102 - 4 màu", 72, 102, 70, 100, 6000, 0.5, 4, 500000, 1500000),
+            ("OFFSET_109_01", "Máy Offset 109 - 5 màu", 79, 109, 77, 107, 6000, 0.6, 5, 600000, 1800000),
+        ]
+        for code, name, gw, gh, pw, ph, spd, base_h, units, rate, minc in offsets:
+            m = repo.create(
+                code=code, name=name, machine_type="offset", process_type="in",
+                machine_group="may_in", status="active",
+                speed=spd, speed_unit="to/gio",
+                max_width_cm=gw, max_height_cm=gh, min_width_cm=round(gw / 2), min_height_cm=round(gh / 2),
+                max_print_width_cm=pw, max_print_height_cm=ph,
+                gripper_cm=1.0, side_margin_cm=0.5, top_bottom_margin_cm=0.5,
+                setup_time_base_hour=base_h, setup_time_per_color_hour=0.1,
+                cleaning_time_hour=0.25, plate_change_time_per_plate_hour=0.05,
+                setup_waste_sheets=200, num_ink_units=units, supports_perfecting=False,
+                rounding_hour_policy="0.01", overhead_included=True, operator_included=True,
+            )
+            repo.add_machine_rate(
+                machine_id=m.id, hourly_rate=rate, min_charge=minc, effective_from=date(2026, 1, 1),
+            )
 
+        # Máy in kỹ thuật số (giữ 1 máy digital minh hoạ).
         digital = repo.create(
-            name="Konica Minolta C6085",
-            machine_type="digital",
-            process_type="in",
-            speed=85,
-            speed_unit="trang/phut",
-            max_width_cm=33,
-            max_height_cm=48,
-            min_width_cm=10,
-            min_height_cm=15,
-            setup_time_mins=5,
-            setup_waste_sheets=5
+            code="DIGITAL_01", name="Konica Minolta C6085", machine_type="digital", process_type="in",
+            machine_group="may_in", speed=85, speed_unit="trang/phut",
+            max_width_cm=33, max_height_cm=48, min_width_cm=10, min_height_cm=15,
+            setup_time_mins=5, setup_waste_sheets=5,
         )
         repo.add_machine_rate(machine_id=digital.id, hourly_rate=200000, min_charge=50000, effective_from=date(2026, 1, 1))
-        
+
+        # Máy sau in (dùng chung DM Máy cho công đoạn nội bộ) — nhóm cán/bế/xén.
+        post = [
+            ("LAM_01", "Máy cán màng 01", "can_mang", "may_can", 3000, 250000),
+            ("DIECUT_01", "Máy bế 01", "be", "may_be", 2000, 300000),
+            ("CUT_01", "Máy xén 01", "xen", "may_xen", 1000, 200000),
+        ]
+        for code, name, ptype, grp, spd, rate in post:
+            m = repo.create(
+                code=code, name=name, machine_type="other", process_type=ptype,
+                machine_group=grp, status="active", speed=spd, speed_unit="to/gio",
+                setup_time_base_hour=0.3, cleaning_time_hour=0.1,
+            )
+            repo.add_machine_rate(machine_id=m.id, hourly_rate=rate, min_charge=100000, effective_from=date(2026, 1, 1))
+
         db.commit()
 
 
@@ -774,40 +839,71 @@ def seed_operations(db: Session) -> None:
     repo = OperationRepository(db)
     
     if db.execute(select(Operation)).first() is None:
+        # spec §5 — dữ liệu mẫu công đoạn kèm cấu hình §A–§G. internal_pricing_method='per_qty' +
+        # pricing_method='theo_sp' tái tạo đúng công thức gia công cũ; các field khác là metadata
+        # (nhóm/thứ tự/công thức lượng/khuôn/hao hụt) để engine & UI dùng đúng theo spec.
         can = repo.create(
             name="Cán màng mờ",
             operation_type="can_mang",
             unit="m2",
-            allow_outsource=True
+            basis_quantity="m2",
+            pricing_method="theo_sp",
+            process_group="sau_in",
+            process_type="both",
+            default_sequence=30,
+            quantity_formula_type="area_m2",
+            internal_pricing_method="per_qty",
+            has_yield_loss=True,
+            default_yield_rate=98.0,
+            default_yield_rule="YIELD_LAMINATION",
+            allow_outsource=True,
         )
-        repo.add_operation_rate(operation_id=can.id, setup_fee=100000, run_rate=1200, labor_rate=300, min_charge=250000, speed=1500, effective_from=date(2026, 1, 1))
+        repo.add_operation_rate(operation_id=can.id, setup_fee=100000, run_rate=1200, labor_rate=300, min_charge=250000, speed=1500, setup_time_mins=20, hourly_rate=250000, outsource_supplier="NCC Cán màng A", outsource_unit_price=1000, outsource_min_charge=300000, outsource_setup_fee=100000, effective_from=date(2026, 1, 1))
 
         be = repo.create(
             name="Bế hộp",
             operation_type="be",
             unit="cai",
-            allow_outsource=False
+            basis_quantity="to",
+            pricing_method="theo_sp",
+            process_group="sau_in",
+            process_type="both",
+            default_sequence=40,
+            quantity_formula_type="print_sheet_qty",
+            internal_pricing_method="per_qty",
+            has_tooling=True,
+            tooling_type="khuon_be",
+            has_yield_loss=True,
+            default_yield_rate=98.0,
+            default_yield_rule="YIELD_DIECUT",
+            allow_outsource=True,
         )
-        repo.add_operation_rate(operation_id=be.id, setup_fee=300000, run_rate=500, labor_rate=100, min_charge=500000, speed=2000, effective_from=date(2026, 1, 1))
+        repo.add_operation_rate(operation_id=be.id, setup_fee=300000, run_rate=500, labor_rate=100, min_charge=500000, speed=2000, setup_time_mins=30, tooling_unit_price=800000, outsource_supplier="NCC Bế A", outsource_unit_price=250, outsource_min_charge=300000, outsource_setup_fee=100000, outsource_transport_fee=200000, effective_from=date(2026, 1, 1))
 
         dong = repo.create(
             name="Đóng gói thùng carton",
             operation_type="dong_goi",
             unit="thung",
-            allow_outsource=False
+            basis_quantity="thung",
+            pricing_method="theo_sp",
+            process_group="dong_goi",
+            process_type="internal",
+            default_sequence=90,
+            quantity_formula_type="pack_qty",
+            internal_pricing_method="per_qty",
+            allow_outsource=False,
         )
-        repo.add_operation_rate(operation_id=dong.id, setup_fee=0, run_rate=20000, labor_rate=5000, min_charge=50000, speed=20, effective_from=date(2026, 1, 1))
+        repo.add_operation_rate(operation_id=dong.id, setup_fee=0, run_rate=20000, labor_rate=5000, min_charge=50000, speed=20, setup_time_mins=0, effective_from=date(2026, 1, 1))
 
         # #8 — bổ sung công đoạn mà seed_product_types tham chiếu (gap/dong_cuon/dan_hop) để lookup không treo.
-        # TODO(SVN): xác nhận đơn giá gia công thực tế các công đoạn này.
-        gap = repo.create(name="Gấp thành phẩm", operation_type="gap", unit="to", allow_outsource=False)
-        repo.add_operation_rate(operation_id=gap.id, setup_fee=50000, run_rate=100, labor_rate=50, min_charge=100000, speed=3000, effective_from=date(2026, 1, 1))
+        gap = repo.create(name="Gấp thành phẩm", operation_type="gap", unit="to", basis_quantity="to", pricing_method="theo_sp", process_group="sau_in", default_sequence=50, quantity_formula_type="print_sheet_qty", allow_outsource=False)
+        repo.add_operation_rate(operation_id=gap.id, setup_fee=50000, run_rate=100, labor_rate=50, min_charge=100000, speed=3000, setup_time_mins=15, effective_from=date(2026, 1, 1))
 
-        dong_cuon = repo.create(name="Đóng cuốn (keo nhiệt)", operation_type="dong_cuon", unit="cuon", allow_outsource=True)
-        repo.add_operation_rate(operation_id=dong_cuon.id, setup_fee=200000, run_rate=800, labor_rate=200, min_charge=300000, speed=500, effective_from=date(2026, 1, 1))
+        dong_cuon = repo.create(name="Đóng cuốn (keo nhiệt)", operation_type="dong_cuon", unit="cuon", basis_quantity="cuon", pricing_method="theo_sp", process_group="sau_in", process_type="both", default_sequence=70, quantity_formula_type="book_qty", allow_outsource=True)
+        repo.add_operation_rate(operation_id=dong_cuon.id, setup_fee=200000, run_rate=800, labor_rate=200, min_charge=300000, speed=500, setup_time_mins=20, outsource_supplier="NCC Đóng cuốn A", outsource_unit_price=700, outsource_min_charge=400000, effective_from=date(2026, 1, 1))
 
-        dan_hop = repo.create(name="Dán hộp", operation_type="dan_hop", unit="cai", allow_outsource=False)
-        repo.add_operation_rate(operation_id=dan_hop.id, setup_fee=100000, run_rate=300, labor_rate=100, min_charge=200000, speed=1000, effective_from=date(2026, 1, 1))
+        dan_hop = repo.create(name="Dán hộp", operation_type="dan_hop", unit="cai", basis_quantity="cai", pricing_method="theo_sp", process_group="sau_in", default_sequence=60, quantity_formula_type="finished_qty", allow_outsource=False)
+        repo.add_operation_rate(operation_id=dan_hop.id, setup_fee=100000, run_rate=300, labor_rate=100, min_charge=200000, speed=1000, setup_time_mins=15, effective_from=date(2026, 1, 1))
 
         db.commit()
 
@@ -948,34 +1044,46 @@ def seed_click_ink_rates(db: Session) -> None:
 def seed_plate_die_rates(db: Session) -> None:
     from sqlalchemy import select
     from .models.plate_die_rate import PlateDieRate
+    from .models.machine import Machine
     from .repositories.plate_die_rate_repo import PlateDieRateRepository
     from datetime import date
-    
+
     repo = PlateDieRateRepository(db)
-    if db.execute(select(PlateDieRate)).first() is None:
-        # Offset plates
-        repo.add_rate(
-            plate_type="ban_kem_offset",
-            technology="offset",
-            unit="ban",
-            unit_price=150000,
-            setup_fee=0,
-            min_charge=0,
-            reusable=False,
-            effective_from=date(2026, 1, 1)
-        )
-        # Die tooling
-        repo.add_rate(
-            plate_type="khuon_be",
-            technology="be",
-            unit="bo",
-            unit_price=450000,
-            setup_fee=0,
-            min_charge=0,
-            reusable=True,
-            effective_from=date(2026, 1, 1)
-        )
-        db.commit()
+    if db.execute(select(PlateDieRate)).first() is not None:
+        return
+    eff = date(2026, 1, 1)
+    offset_ids = [m.id for m in db.execute(
+        select(Machine).where(Machine.machine_type == "offset")
+    ).scalars()] or None
+
+    # A. Kẽm offset — chọn theo máy (PLATE_72 gắn máy offset thật; 102/52 là mẫu mọi-máy).
+    repo.add_rate(code="PLATE_72", name="Kẽm CTP máy 72", plate_type="ban_kem_offset",
+                  technology="offset", unit="ban", plate_kind="ctp",
+                  plate_width_mm=605, plate_height_mm=745, machine_ids=offset_ids,
+                  unit_price=100000, pricing_method="fixed", effective_from=eff)
+    repo.add_rate(code="PLATE_102", name="Kẽm CTP máy 102", plate_type="ban_kem_offset",
+                  technology="offset", unit="ban", plate_kind="ctp",
+                  plate_width_mm=790, plate_height_mm=1030, machine_ids=None,
+                  unit_price=120000, pricing_method="fixed", effective_from=eff)
+    repo.add_rate(code="PLATE_52", name="Kẽm CTP máy 52", plate_type="ban_kem_offset",
+                  technology="offset", unit="ban", plate_kind="ctp",
+                  plate_width_mm=510, plate_height_mm=400, machine_ids=None,
+                  unit_price=60000, pricing_method="fixed", effective_from=eff)
+
+    # B. Khuôn — pricing_method + dùng lại.
+    repo.add_rate(code="DIE_BOX_STD", name="Khuôn bế hộp tiêu chuẩn", plate_type="khuon_be",
+                  technology="be", unit="bo", unit_price=800000, min_charge=500000,
+                  pricing_method="fixed", reusable=True, reuse_price_method="maintenance_fee",
+                  maintenance_fee=100000, effective_from=eff)
+    repo.add_rate(code="FOIL_AREA", name="Khuôn ép kim (theo diện tích)", plate_type="khuon_ep_kim",
+                  technology="ep_kim", unit="cm2", unit_price=0, unit_price_area=2000,
+                  min_charge=300000, pricing_method="area", reusable=True,
+                  reuse_price_method="zero", effective_from=eff)
+    repo.add_rate(code="EMBOSS_STD", name="Khuôn dập nổi tiêu chuẩn", plate_type="khuon_dap_noi",
+                  technology="dap_noi", unit="bo", unit_price=700000, min_charge=500000,
+                  pricing_method="fixed", reusable=True, reuse_price_method="maintenance_fee",
+                  maintenance_fee=100000, effective_from=eff)
+    db.commit()
 
 
 def seed_norms(db: Session) -> None:
@@ -985,68 +1093,49 @@ def seed_norms(db: Session) -> None:
     from .services.norm_service import canonicalize_context
     from datetime import date
     
+    from .models.norm import GROUP_TO_KEY
+
     repo = NormRepository(db)
-    if db.execute(select(Norm)).first() is None:
-        # 1. Fallback yield rate
-        repo.add_norm(
-            norm_key="yield_rate",
-            value=0.98,
-            product_type=None,
-            machine_id=None,
-            operation_id=None,
-            operation_key=None,
-            qty_min=None,
-            qty_max=None,
-            context=None,
-            context_key="{}",
-            effective_from=date(2026, 1, 1)
-        )
-        # 2. General offset waste pct
-        repo.add_norm(
-            norm_key="running_waste_pct",
-            value=0.02,
-            product_type=None,
-            machine_id=None,
-            operation_id=None,
-            operation_key=None,
-            qty_min=None,
-            qty_max=None,
-            context=None,
-            context_key="{}",
-            effective_from=date(2026, 1, 1)
-        )
-        # 3. Brochure offset setup waste (15 sheets per color-side)
-        ctx = {"colors": 4, "sides": 2}
-        repo.add_norm(
-            norm_key="makeready_per_color_side",
-            value=15.0,
-            product_type="brochure",
-            machine_id=None,
-            operation_id=None,
-            operation_key=None,
-            qty_min=None,
-            qty_max=None,
-            context=ctx,
-            context_key=canonicalize_context(ctx),
-            effective_from=date(2026, 1, 1)
-        )
-        # 4. Offset ink price per 1000 impressions (#1).
-        # GIÁ TRỊ MẶC ĐỊNH placeholder — TODO(SVN): xác nhận đơn giá mực offset (đ / 1000 lượt-màu);
-        # sửa trên trang "Định mức & Bù hao".
-        repo.add_norm(
-            norm_key="ink_cost_per_1000_impressions",
-            value=500,
-            product_type=None,
-            machine_id=None,
-            operation_id=None,
-            operation_key=None,
-            qty_min=None,
-            qty_max=None,
-            context=None,
-            context_key="{}",
-            effective_from=date(2026, 1, 1)
-        )
-        db.commit()
+    if db.execute(select(Norm)).first() is not None:
+        return
+
+    eff = date(2026, 1, 1)
+
+    def mk(group: str, method: str, code: str, name: str, *, value: float = 0.0, **kw) -> None:
+        """Dựng 1 rule định mức (dữ liệu mẫu §5 — docs/DINH_MUC_BU_HAO.md)."""
+        norm_key = GROUP_TO_KEY.get(group, group)
+        ctx = kw.pop("context", None)
+        db.add(Norm(
+            norm_key=norm_key, waste_group=group, calculation_method=method,
+            code=code, name=name, value=value,
+            context=ctx, context_key=canonicalize_context(ctx),
+            effective_from=eff, **kw,
+        ))
+
+    # ── A. Tỷ lệ đạt theo công đoạn (YIELD_RATE) ──
+    mk("YIELD_RATE", "PERCENT", "YIELD_PRINT_STD", "Tỷ lệ đạt in offset", value=0.97)  # khâu in (no-op)
+    mk("YIELD_RATE", "PERCENT", "YIELD_LAMINATION", "Tỷ lệ đạt cán màng", value=0.99, operation_key="can_mang")
+    mk("YIELD_RATE", "PERCENT", "YIELD_DIECUT", "Tỷ lệ đạt bế", value=0.98, operation_key="be")
+    mk("YIELD_RATE", "PERCENT", "YIELD_GLUE_BOX", "Tỷ lệ đạt dán hộp", value=0.99, operation_key="dan_hop")
+
+    # ── B. Bù hao setup / makeready (SETUP_WASTE) ──
+    mk("SETUP_WASTE", "COMBINED", "MR_PRINT", "Makeready in offset",
+       setup_waste_qty=100, setup_waste_per_color=30, setup_waste_per_side=50,
+       min_waste_qty=100, max_waste_qty=1000)
+    mk("SETUP_WASTE", "FIXED", "MR_DIECUT", "Setup bế", setup_waste_qty=30, operation_key="be")
+    mk("SETUP_WASTE", "FIXED", "MR_LAMINATION", "Setup cán màng", setup_waste_qty=20, operation_key="can_mang")
+
+    # ── C. Bù hao chạy máy (RUNNING_WASTE) theo bậc sản lượng ──
+    mk("RUNNING_WASTE", "PERCENT", "RW_PRINT_SMALL", "Hao chạy in ≤500", value=0.05, qty_min=1, qty_max=500, min_waste_qty=20)
+    mk("RUNNING_WASTE", "PERCENT", "RW_PRINT_MEDIUM", "Hao chạy in 501–2.000", value=0.03, qty_min=501, qty_max=2000, min_waste_qty=20)
+    mk("RUNNING_WASTE", "PERCENT", "RW_PRINT_LARGE", "Hao chạy in >2.000", value=0.02, qty_min=2001, qty_max=None)
+    mk("RUNNING_WASTE", "PERCENT", "RW_DIECUT", "Hao chạy bế", value=0.015, operation_key="be")
+
+    # ── D. Hao giấy riêng (PAPER_EXTRA_WASTE) — cộng vào số tờ mua ──
+    mk("PAPER_EXTRA_WASTE", "PERCENT", "PAPER_CUT_WASTE", "Hao cắt giấy", value=0.01, min_waste_qty=10, paper_add_to_purchase=True)
+
+    # Đơn giá mực đã DỜI sang danh mục Vật tư (#2) — xem seed_materials (Mực offset CMYK, price_unit=nghin_luot).
+    db.commit()
 
 
 def seed_document_sequences(db: Session) -> None:

@@ -12,6 +12,7 @@ import {
   type OperationCatalogRow,
   type ProductTypeCatalogRow,
   type ImpositionTypeRow,
+  type PaperSizeRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
@@ -67,6 +68,10 @@ function unitLabel(u: string | null | undefined): string {
 
 const SNAPSHOT_LABELS: Record<string, string> = {
   // Cấu hình áp dụng (source_snapshot)
+  tooling_rate_code: "Mã bảng giá khuôn (#5)",
+  tooling_pricing_method: "Cách tính khuôn",
+  tooling_unit_price: "Đơn giá khuôn (nhập tay)",
+  tooling_cost: "Tiền khuôn",
   material_id: "Vật liệu (ID)",
   code: "Mã vật liệu",
   name: "Tên vật liệu",
@@ -225,6 +230,8 @@ export function TinhGiaPage({
   const [sides, setSides] = useState(2);
   // Kiểu bình bài (mã, vd TU_TRO). Rỗng = engine tự suy theo số mặt (hành vi cũ).
   const [imposition, setImposition] = useState("");
+  // §12 — Sửa tay tổng tiền từng dòng, mỗi mục kèm lý do bắt buộc. Đi trong input_spec.overrides.
+  const [overrides, setOverrides] = useState<Array<{ target: string; value: number; reason: string }>>([]);
   const [pageCount, setPageCount] = useState("");
   const [forms, setForms] = useState(1);
   const [bindingType, setBindingType] = useState("");
@@ -250,6 +257,9 @@ export function TinhGiaPage({
   const [edgeTrimCm, setEdgeTrimCm] = useState("");
   const [bleedCm, setBleedCm] = useState("");
   const [gutterCm, setGutterCm] = useState("");
+  // Khổ tờ in chọn từ DM Khổ giấy tiêu chuẩn (ghi đè khổ tờ từ vật tư khi được chọn).
+  const [paperSizes, setPaperSizes] = useState<PaperSizeRow[]>([]);
+  const [printSizeId, setPrintSizeId] = useState<number | null>(null);
 
   // Machine
   const [machineId, setMachineId] = useState<number | null>(null);
@@ -326,6 +336,10 @@ export function TinhGiaPage({
     api.machines.list(token, { page: 1, size: 200 })
       .then(res => setMachines(res.items))
       .catch(() => setMachines([]));
+    // Khổ tờ in tiêu chuẩn đang hiệu lực (chỉ khổ tờ in) để chọn ở section Vật liệu.
+    api.paperSizes.list(token, { current_only: true, is_active: true, size: 200 })
+      .then(res => setPaperSizes(res.items.filter(s => s.is_print_sheet_size)))
+      .catch(() => setPaperSizes([]));
     // Kiểu bình bài đang hiệu lực (mỗi mã 1 phiên bản hiện hành) để chọn ở section In ấn.
     api.impositionTypes.list(token, { current_only: true, is_active: true, sort: "priority", size: 200 })
       .then(res => setImpositionTypes(res.items))
@@ -367,9 +381,10 @@ export function TinhGiaPage({
     }
 
     let cancelled = false;
+    const psz = paperSizes.find(s => s.id === printSizeId);
     api.costings.suggestPieces(token, {
-      sheet_w: mat.width_cm,
-      sheet_h: mat.height_cm,
+      sheet_w: psz?.width_cm ?? mat.width_cm,
+      sheet_h: psz?.height_cm ?? mat.height_cm,
       piece_w: pw,
       piece_h: ph,
       grain_locked: grainLocked,
@@ -388,7 +403,7 @@ export function TinhGiaPage({
     return () => {
       cancelled = true;
     };
-  }, [token, materialId, finishedWidth, finishedHeight, boxLength, boxWidth, largeWidth, largeHeight, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, productType, overridePieces, materials]);
+  }, [token, materialId, printSizeId, paperSizes, finishedWidth, finishedHeight, boxLength, boxWidth, largeWidth, largeHeight, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, productType, overridePieces, materials]);
 
   // Live preview giá vốn: gọi engine (không lưu) khi đã đủ giấy + máy + số lượng — debounce
   // 700ms để không dội API theo từng phím. Kết quả hiện ở sidebar (mức SL đầu tiên).
@@ -402,6 +417,7 @@ export function TinhGiaPage({
     setPreviewLoading(true);
     const timer = setTimeout(() => {
       const mat = materials.find((m) => m.id === materialId);
+      const psz = paperSizes.find((s) => s.id === printSizeId);
       const input_spec: Record<string, unknown> = {
         product_type: productType,
         finished_width: finishedWidth ? Number(finishedWidth) : null,
@@ -409,6 +425,7 @@ export function TinhGiaPage({
         colors: Number(colors),
         sides: Number(sides),
         imposition: imposition || null,
+        overrides,
         page_count: pageCount ? Number(pageCount) : null,
         forms: Number(forms),
         box_length: boxLength ? Number(boxLength) : null,
@@ -417,8 +434,9 @@ export function TinhGiaPage({
         width: largeWidth ? Number(largeWidth) : null,
         height: largeHeight ? Number(largeHeight) : null,
         material_id: materialId,
-        sheet_w: mat?.width_cm || 0,
-        sheet_h: mat?.height_cm || 0,
+        print_sheet_size_id: printSizeId,
+        sheet_w: psz?.width_cm ?? (mat?.width_cm || 0),
+        sheet_h: psz?.height_cm ?? (mat?.height_cm || 0),
         grain_locked: grainLocked,
         gripper_cm: Number(gripperCm) || 0,
         edge_trim_cm: Number(edgeTrimCm) || 0,
@@ -451,7 +469,7 @@ export function TinhGiaPage({
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, mode, materialId, machineId, quantityList, colors, sides, imposition, pageCount, forms, overridePieces, piecesPerSheet, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, operations, productType, finishedWidth, finishedHeight, boxLength, boxWidth, boxHeight, largeWidth, largeHeight]);
+  }, [token, mode, materialId, printSizeId, paperSizes, machineId, quantityList, colors, sides, imposition, overrides, pageCount, forms, overridePieces, piecesPerSheet, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, operations, productType, finishedWidth, finishedHeight, boxLength, boxWidth, boxHeight, largeWidth, largeHeight]);
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
@@ -474,6 +492,7 @@ export function TinhGiaPage({
     setColors(4);
     setSides(2);
     setImposition("");
+    setOverrides([]);
     setPageCount("");
     setForms(1);
     setBindingType("");
@@ -528,6 +547,7 @@ export function TinhGiaPage({
       setColors(spec.colors || 4);
       setSides(spec.sides || 2);
       setImposition(spec.imposition || "");
+      setOverrides(Array.isArray(spec.overrides) ? spec.overrides : []);
       setPageCount(spec.page_count || "");
       setForms(spec.forms || 1);
       setBindingType(spec.binding_type || "");
@@ -544,6 +564,7 @@ export function TinhGiaPage({
       setEyeletRequired(!!spec.eyelet_required);
 
       setMaterialId(spec.material_id || null);
+      setPrintSizeId(spec.print_sheet_size_id || null);
       setOverridePieces(!!spec.override_pieces);
       setPiecesPerSheet(spec.pieces_per_sheet || "");
       setGrainLocked(!!spec.grain_locked);
@@ -644,9 +665,33 @@ export function TinhGiaPage({
       setEdgeFinishing("");
       setEyeletRequired(false);
       
-      // Clear machine/ops since catalog rules change
+      // Clear machine since catalog rules change
       setMachineId(null);
-      setOperations([]);
+
+      // Áp template loại SP (danh mục #1 — Loại sản phẩm & Quy tắc tính): bleed/gutter/lề xén
+      // mặc định (mm→cm), bình bài mặc định, và auto-nạp routing công đoạn từ default_operations.
+      const cfg = productTypes.find((p) => p.product_type === newType);
+      if (cfg) {
+        const mm2cm = (mm?: number | null) => (mm && mm > 0 ? String(Number((mm / 10).toFixed(2))) : "");
+        setBleedCm(mm2cm(cfg.default_bleed_mm));
+        setGutterCm(mm2cm(cfg.default_gutter_mm));
+        setEdgeTrimCm(mm2cm(cfg.default_trim_mm));
+        setImposition(cfg.default_imposition_code || "");
+        const routed = (cfg.default_operations || [])
+          .map((t) => operationsCatalog.find((o) => o.operation_type === t))
+          .filter((o): o is OperationCatalogRow => !!o)
+          .map((o, idx) => ({
+            key: `op-tpl-${o.id}-${idx}`,
+            name: o.name,
+            execution_mode: (o.allow_outsource ? "outsource" : "internal") as "outsource" | "internal",
+            sequence: (idx + 1) * 10,
+          }));
+        setOperations(routed);
+      } else {
+        setImposition("");
+    setOverrides([]);
+        setOperations([]);
+      }
     }
   };
 
@@ -759,6 +804,7 @@ export function TinhGiaPage({
 
     // Build spec
     const mat = materials.find(m => m.id === materialId);
+    const chosenPrintSize = paperSizes.find(s => s.id === printSizeId);
     const input_spec = {
       product_id: null,
       finished_width: finishedWidth ? Number(finishedWidth) : null,
@@ -766,6 +812,7 @@ export function TinhGiaPage({
       colors: Number(colors),
       sides: Number(sides),
       imposition: imposition || null,
+      overrides,
       page_count: pageCount ? Number(pageCount) : null,
       forms: Number(forms),
       binding_type: bindingType || null,
@@ -782,10 +829,11 @@ export function TinhGiaPage({
       eyelet_required: eyeletRequired,
 
       material_id: materialId,
+      print_sheet_size_id: printSizeId,
       override_pieces: overridePieces,
       pieces_per_sheet: finalPieces,
-      sheet_w: mat?.width_cm || 0,
-      sheet_h: mat?.height_cm || 0,
+      sheet_w: chosenPrintSize?.width_cm ?? (mat?.width_cm || 0),
+      sheet_h: chosenPrintSize?.height_cm ?? (mat?.height_cm || 0),
       grain_locked: grainLocked,
       gripper_cm: Number(gripperCm) || 0,
       edge_trim_cm: Number(edgeTrimCm) || 0,
@@ -869,6 +917,10 @@ export function TinhGiaPage({
   }
 
   function renderProductSpecFields() {
+    // Danh mục #1 — shown_fields của loại SP điều khiển field nào hiện trên màn Tính giá.
+    // Không khai (rỗng/null) ⇒ hiện đủ như cũ (an toàn ngược).
+    const ptCfg = productTypes.find((p) => p.product_type === productType);
+    const showField = (key: string) => !ptCfg?.shown_fields?.length || ptCfg.shown_fields.includes(key);
     switch (productType) {
       case "brochure":
       case "namecard":
@@ -883,6 +935,7 @@ export function TinhGiaPage({
               <span className="field__label">Cao thành phẩm (cm) *</span>
               <input className="input" type="number" step="0.1" value={finishedHeight} onChange={e => setFinishedHeight(e.target.value)} />
             </label>
+            {showField("sides") && (
             <label className="field">
               <span className="field__label">Số mặt in *</span>
               <select className="input" value={sides} onChange={e => setSides(Number(e.target.value))}>
@@ -890,10 +943,13 @@ export function TinhGiaPage({
                 <option value={2}>In 2 mặt (4/4 hoặc 1/1)</option>
               </select>
             </label>
+            )}
+            {showField("colors") && (
             <label className="field">
               <span className="field__label">Số màu in *</span>
               <input className="input" type="number" min="1" max="10" value={colors} onChange={e => setColors(Number(e.target.value))} />
             </label>
+            )}
           </div>
         );
       case "catalogue":
@@ -909,11 +965,13 @@ export function TinhGiaPage({
               <span className="field__label">Cao thành phẩm (cm) *</span>
               <input className="input" type="number" step="0.1" value={finishedHeight} onChange={e => setFinishedHeight(e.target.value)} />
             </label>
+            {showField("page_count") && (
             <label className="field">
               <span className="field__label">Tổng số trang (ruột + bìa) *</span>
               <input className="input" type="number" min="4" step="4" value={pageCount} onChange={e => setPageCount(e.target.value)} />
               <span className="tg__suggest">Phải là số chia hết cho 4 (tay sách).</span>
             </label>
+            )}
             <label className="field">
               <span className="field__label">Số form in (bản kẽm ruột+bìa) *</span>
               <input className="input" type="number" min="1" value={forms} onChange={e => setForms(Number(e.target.value))} />
@@ -928,10 +986,12 @@ export function TinhGiaPage({
                 <option value="lo_xo">Đóng gáy lò xo</option>
               </select>
             </label>
+            {showField("colors") && (
             <label className="field">
               <span className="field__label">Số màu in *</span>
               <input className="input" type="number" min="1" max="10" value={colors} onChange={e => setColors(Number(e.target.value))} />
             </label>
+            )}
           </div>
         );
       case "sticker":
@@ -1377,6 +1437,26 @@ export function TinhGiaPage({
                     ))}
                   </select>
                 </label>
+                {/* Danh mục #1 — box "Quy tắc áp dụng" theo loại SP đang chọn */}
+                {(() => {
+                  const cfg = productTypes.find((p) => p.product_type === productType);
+                  if (!cfg) return null;
+                  const dimLabel: Record<string, string> = { finished: "khổ thành phẩm", spread: "khổ trải", multi_page: "khổ trang (nhiều trang)" };
+                  const routing = (cfg.default_operations || []).map((t) => operationsCatalog.find((o) => o.operation_type === t)?.name ?? t);
+                  return (
+                    <div className="field tg__form-wide" style={{ marginTop: 6, background: "rgba(20,19,15,0.03)", border: "1px solid var(--rule-hair)", borderRadius: 6, padding: "10px 12px", fontSize: 12.5, lineHeight: 1.7 }}>
+                      <div style={{ fontWeight: 700, marginBottom: 4 }}>Quy tắc áp dụng — {cfg.name}</div>
+                      <div>Kích thước tính số con: <strong>{dimLabel[cfg.dimension_rule_type] ?? cfg.dimension_rule_type}</strong>
+                        {(cfg.default_bleed_mm || cfg.default_gutter_mm || cfg.default_trim_mm)
+                          ? <> · bleed <strong>{cfg.default_bleed_mm}mm</strong> · gutter <strong>{cfg.default_gutter_mm}mm</strong> · lề xén <strong>{cfg.default_trim_mm}mm</strong> (đã tự điền)</>
+                          : null}</div>
+                      {routing.length ? <div>Routing gợi ý: <strong>{routing.join(" → ")}</strong> (đã tự nạp công đoạn)</div> : null}
+                      {cfg.has_tooling ? <div style={{ color: "var(--rust)" }}>Có phát sinh khuôn ({cfg.default_tooling_type ?? "—"}).</div> : null}
+                      {cfg.has_cover_body_split ? <div>Tính bìa / ruột riêng.</div> : null}
+                      {cfg.allowed_imposition_codes?.length ? <div>Kiểu bình bài cho phép: <strong>{cfg.allowed_imposition_codes.join(", ")}</strong>.</div> : null}
+                    </div>
+                  );
+                })()}
               </div>
             </section>
 
@@ -1440,6 +1520,41 @@ export function TinhGiaPage({
                         ) : (
                           <span style={{ color: "var(--signal)", fontWeight: "bold" }}>⚠️ Chưa cấu hình giá hiệu lực!</span>
                         )}
+                      </span>
+                    );
+                  })()}
+                </label>
+
+                <label className="field tg__form-wide">
+                  <span className="field__label">Khổ tờ in (chuẩn)</span>
+                  <select
+                    className="input"
+                    value={printSizeId || ""}
+                    onChange={(e) => setPrintSizeId(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">— Dùng khổ của vật tư —</option>
+                    {paperSizes
+                      .filter(s => machineId === null || !s.compatible_machine_ids || s.compatible_machine_ids.length === 0 || s.compatible_machine_ids.includes(machineId))
+                      .map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.code} · {s.name} ({s.width_cm}×{s.height_cm} cm)
+                        </option>
+                      ))}
+                  </select>
+                  {printSizeId !== null && (() => {
+                    const psz = paperSizes.find(s => s.id === printSizeId);
+                    const mac = machines.find(m => m.id === machineId);
+                    if (!psz) return null;
+                    let warn: string | null = null;
+                    if (mac && mac.max_width_cm != null && mac.max_height_cm != null) {
+                      const w = psz.width_cm, h = psz.height_cm, mw = mac.max_width_cm, mh = mac.max_height_cm;
+                      const fits = (w <= mw && h <= mh) || (psz.allow_rotation && h <= mw && w <= mh);
+                      if (!fits) warn = `⚠️ Khổ ${w}×${h} vượt khổ in tối đa của ${mac.name} (${mw}×${mh}).`;
+                    }
+                    return (
+                      <span className="tg__suggest" style={{ display: "block", marginTop: "4px" }}>
+                        Khổ tờ in: <strong>{psz.width_cm} × {psz.height_cm} cm</strong> — ghi đè khổ từ vật tư.
+                        {warn && <span style={{ color: "var(--signal)", fontWeight: "bold", display: "block" }}>{warn}</span>}
                       </span>
                     );
                   })()}
@@ -1519,6 +1634,9 @@ export function TinhGiaPage({
                 {/* Sơ đồ bình bản trực quan — cập nhật sống theo khổ giấy + tham số phía trên */}
                 {!overridePieces && (() => {
                   const mat = materials.find(m => m.id === materialId);
+                  const psz = paperSizes.find(s => s.id === printSizeId);
+                  const sw = psz?.width_cm ?? mat?.width_cm;
+                  const sh = psz?.height_cm ?? mat?.height_cm;
                   let pw = 0, ph = 0;
                   if (productType === "box" || productType === "packaging") {
                     pw = Number(boxLength) || 0;
@@ -1530,11 +1648,11 @@ export function TinhGiaPage({
                     pw = Number(finishedWidth) || 0;
                     ph = Number(finishedHeight) || 0;
                   }
-                  if (!mat?.width_cm || !mat?.height_cm || pw <= 0 || ph <= 0) return null;
+                  if (!sw || !sh || pw <= 0 || ph <= 0) return null;
 
                   const inp = {
-                    sheetW: mat.width_cm,
-                    sheetH: mat.height_cm,
+                    sheetW: sw,
+                    sheetH: sh,
                     finishedW: pw,
                     finishedH: ph,
                     gripperCm: Number(gripperCm) || 0,
@@ -1558,7 +1676,7 @@ export function TinhGiaPage({
                         <div className="tg__summary-list">
                           <div className="tg__summary-item">
                             <span className="tg__summary-label">Khổ tờ</span>
-                            <span className="tg__summary-value tg__mono">{mat.width_cm}×{mat.height_cm} cm</span>
+                            <span className="tg__summary-value tg__mono">{sw}×{sh} cm</span>
                           </div>
                           <div className="tg__summary-item">
                             <span className="tg__summary-label">Bố cục</span>
@@ -1580,7 +1698,7 @@ export function TinhGiaPage({
                         {!lay.fits && (
                           <p style={{ color: "var(--signal)", fontSize: "12.5px", marginTop: "8px", lineHeight: 1.5 }}>
                             ⚠ <strong>Vượt khổ:</strong> thành phẩm {pw}×{ph} cm (kèm bleed/nhíp/xén) lớn hơn vùng in được của tờ
-                            {" "}{mat.width_cm}×{mat.height_cm} cm — chọn khổ giấy lớn hơn hoặc giảm tham số bình bản.
+                            {" "}{sw}×{sh} cm — chọn khổ giấy lớn hơn hoặc giảm tham số bình bản.
                           </p>
                         )}
                         {lay.fits && suggestedPieces !== null && suggestedPieces !== lay.pieces && (
@@ -1636,6 +1754,11 @@ export function TinhGiaPage({
                       .filter((it) => !it.applicable_product_types?.length || it.applicable_product_types.includes(productType))
                       .filter((it) => !it.applicable_machine_ids?.length || (machineId !== null && it.applicable_machine_ids.includes(machineId)))
                       .filter((it) => it.applies_to_sides === "any" || it.applies_to_sides === "multi" || it.applies_to_sides === String(sides))
+                      // Danh mục #1 — chỉ hiện kiểu bình bài nằm trong allowlist của loại SP (nếu có khai).
+                      .filter((it) => {
+                        const cfg = productTypes.find((p) => p.product_type === productType);
+                        return !cfg?.allowed_imposition_codes?.length || cfg.allowed_imposition_codes.includes(it.code);
+                      })
                       .map((it) => (
                         <option key={it.id} value={it.code}>
                           {it.name} ({it.code})
@@ -1659,21 +1782,27 @@ export function TinhGiaPage({
 
                 {machineId !== null && (() => {
                   const m = machines.find(mac => mac.id === machineId);
+                  if (!m) return null;
+                  const rate = m.rates.find(r => r.effective_to === null);
+                  const mat = materials.find(x => x.id === materialId);
+                  const sw = mat?.width_cm ?? null, sh = mat?.height_cm ?? null;
+                  const tooBig = sw && sh && m.max_width_cm && m.max_height_cm && (sw > m.max_width_cm || sh > m.max_height_cm);
                   return (
-                    <div className="field tg__form-wide" style={{ background: "rgba(20,19,15,0.03)", padding: "10px", borderRadius: "4px" }}>
-                      <span className="tg__suggest" style={{ display: "block" }}>
-                        Khổ in tối đa: <strong>{m?.max_width_cm} x {m?.max_height_cm} cm</strong>. 
-                        Đơn vị tốc độ: <strong>{m?.speed_unit}</strong>.
-                      </span>
-                      {m?.process_type === "offset" && (
-                        <span className="tg__suggest" style={{ display: "block", marginTop: "4px", color: "var(--rust)" }}>
-                          💡 <strong>Offset Preview:</strong> Tổng kẽm in dự kiến = {colors} màu x {sides} mặt x {forms} khuôn = <strong>{colors * sides * forms} bản kẽm</strong>.
-                        </span>
-                      )}
-                      {m?.process_type === "digital" && (
-                        <span className="tg__suggest" style={{ display: "block", marginTop: "4px", color: "var(--rust)" }}>
-                          💡 <strong>Digital Preview:</strong> Click charge sẽ tự động tra cứu click màu/đen trắng dựa trên loại mực in.
-                        </span>
+                    <div className="field tg__form-wide" style={{ background: "rgba(20,19,15,0.03)", padding: "10px", borderRadius: "4px", fontSize: 12.5, lineHeight: 1.7 }}>
+                      <div><strong>Khả năng máy:</strong> khổ giấy tối đa <strong>{m.max_width_cm ?? "?"}×{m.max_height_cm ?? "?"}cm</strong>
+                        {m.max_print_width_cm ? <> · khổ in <strong>{m.max_print_width_cm}×{m.max_print_height_cm}cm</strong></> : null}
+                        {m.gripper_cm ? <> · nhíp {m.gripper_cm}cm</> : null}
+                        {" · "}tốc độ <strong>{m.speed.toLocaleString("vi-VN")} {m.speed_unit}</strong>
+                        {rate ? <> · đơn giá <strong>{rate.hourly_rate.toLocaleString("vi-VN")}đ/giờ</strong></> : <> · <span style={{ color: "var(--rust)" }}>chưa có đơn giá giờ</span></>}
+                      </div>
+                      {tooBig ? (
+                        <div style={{ marginTop: 4, color: "var(--rust)", fontWeight: 600 }}>
+                          ⚠️ Khổ giấy {sw}×{sh}cm vượt khổ tối đa của máy — máy có thể không chạy được, hãy đổi máy hoặc khổ.
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 4, color: "var(--rust)" }}>
+                          💡 Giờ máy = setup + tờ tính giờ / tốc độ + vệ sinh + đổi màu + đổi kẽm · Công in = Giờ máy × đơn giá giờ (xem chi tiết ở bảng kết quả).
+                        </div>
                       )}
                     </div>
                   );
@@ -2177,7 +2306,12 @@ export function TinhGiaPage({
                                 : 0;
                               return (
                                 <tr key={line.id} className={getCostCategoryClassName(line.category)}>
-                                  <td><strong>{getCostCategoryLabel(line.category)}</strong></td>
+                                  <td>
+                                    <strong>{getCostCategoryLabel(line.category)}</strong>
+                                    {line.note?.includes("[SỬA TAY]") && (
+                                      <span title={line.note} style={{ marginLeft: 6, fontSize: 11, color: "var(--rust)", fontWeight: 700 }}>✏️ sửa tay</span>
+                                    )}
+                                  </td>
                                   <td>{line.description}</td>
                                   <td className="tg__num">{line.quantity.toLocaleString("vi-VN", { maximumFractionDigits: 2 })}</td>
                                   <td>{unitLabel(line.unit)}</td>
@@ -2199,9 +2333,9 @@ export function TinhGiaPage({
                                       type="button"
                                       className="btn btn--ghost tg__rowbtn"
                                       onClick={() => setAuditLineId(line.id)}
-                                      title="Xem cách tính ra số tiền của dòng này"
+                                      title="Xem cách tính + sửa tay số tiền dòng này"
                                     >
-                                      Xem cách tính
+                                      Xem / Sửa tay
                                     </button>
                                   </td>
                                 </tr>
@@ -2287,7 +2421,11 @@ export function TinhGiaPage({
                     {(() => {
                       const computed = auditLine.quantity * auditLine.unit_cost + auditLine.setup_cost;
                       const inkRate = auditLine.category === "ink"
-                        ? Number(auditLine.source_snapshot_json?.ink_cost_per_1000_impressions ?? 0)
+                        ? Number(
+                            auditLine.source_snapshot_json?.unit_price ??
+                            auditLine.source_snapshot_json?.ink_cost_per_1000_impressions ??
+                            0
+                          )
                         : 0;
                       return (
                         <div style={{ background: "#f8f4ec", border: "1px solid var(--rule-hair)", borderRadius: "6px", padding: "10px", margin: "10px 0", lineHeight: 1.7 }}>
@@ -2340,7 +2478,9 @@ export function TinhGiaPage({
                       <span style={{ fontWeight: "normal", textTransform: "none" }}> (chốt lúc tính — đổi bảng giá sau không ảnh hưởng)</span>
                     </span>
                     {auditLine.source_snapshot_json ? (
-                      Object.entries(auditLine.source_snapshot_json).map(([key, val]) => (
+                      Object.entries(auditLine.source_snapshot_json)
+                        .filter(([key, val]) => !(val == null && key.startsWith("tooling_")))
+                        .map(([key, val]) => (
                         <div className="tg__summary-item" key={key}>
                           <span className="tg__summary-label" style={{ fontSize: "11px" }} title={key}>{snapshotLabel(key)}</span>
                           <span className="tg__summary-value" style={{ fontSize: "11px" }}>{snapshotValue(key, val)}</span>
@@ -2380,6 +2520,12 @@ export function TinhGiaPage({
                       <span className="tg__muted">Không có dữ liệu.</span>
                     )}
                   </div>
+                  <OverrideSection
+                    line={auditLine}
+                    overrides={overrides}
+                    setOverrides={setOverrides}
+                    onDone={() => setAuditLineId(null)}
+                  />
                 </div>
               )}
             </div>
@@ -2387,6 +2533,55 @@ export function TinhGiaPage({
         </div>
       )}
     </main>
+  );
+}
+
+function OverrideSection({ line, overrides, setOverrides, onDone }: {
+  line: { category: string; total_cost: number };
+  overrides: Array<{ target: string; value: number; reason: string }>;
+  setOverrides: (o: Array<{ target: string; value: number; reason: string }>) => void;
+  onDone: () => void;
+}) {
+  const target = `line:${line.category}`;
+  const existing = overrides.find((o) => o.target === target);
+  const [value, setValue] = useState(existing ? String(existing.value) : String(Math.round(line.total_cost)));
+  const [reason, setReason] = useState(existing?.reason ?? "");
+  const [err, setErr] = useState<string | null>(null);
+
+  const apply = () => {
+    const v = Number(value);
+    if (!Number.isFinite(v) || v < 0) return setErr("Số tiền sửa tay phải ≥ 0.");
+    if (!reason.trim()) return setErr("Phải nhập lý do sửa tay.");
+    setOverrides([...overrides.filter((o) => o.target !== target), { target, value: v, reason: reason.trim() }]);
+    onDone();
+  };
+  const clear = () => {
+    setOverrides(overrides.filter((o) => o.target !== target));
+    onDone();
+  };
+
+  return (
+    <div style={{ marginTop: 14, borderTop: "1px solid var(--rule-hair)", paddingTop: 12 }}>
+      <div className="tg__summary-label" style={{ fontWeight: "bold", marginBottom: 8 }}>✏️ Sửa tay số tiền dòng này (§12)</div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+        <label className="field" style={{ flex: "0 0 160px" }}>
+          <span className="field__label">Số tiền (đ)</span>
+          <input className="input" type="number" min="0" value={value} onChange={(e) => setValue(e.target.value)} />
+        </label>
+        <label className="field" style={{ flex: "1 1 240px" }}>
+          <span className="field__label">Lý do (bắt buộc)</span>
+          <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="VD: chốt giá NCC thực tế" />
+        </label>
+      </div>
+      {err && <div className="banner banner--error" style={{ marginTop: 8 }}>{err}</div>}
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button type="button" className="btn btn--primary" onClick={apply}>Áp dụng sửa tay</button>
+        {existing && <button type="button" className="btn btn--ghost" onClick={clear}>Bỏ sửa tay</button>}
+      </div>
+      <p className="tg__muted" style={{ marginTop: 6, fontSize: 12 }}>
+        Áp dụng xong bấm <strong>Lưu / Tính lại</strong> để giá vốn cập nhật. Giá gốc + lý do được lưu vào snapshot.
+      </p>
+    </div>
   );
 }
 

@@ -232,3 +232,31 @@ def test_clone_creates_new_code():
     assert clone.id != item.id and clone.code != item.code
     assert float(clone.width_cm) == float(item.width_cm)
     assert "bản sao" in clone.name
+
+
+# -- Lát 3: khổ được phiếu tính giá tham chiếu = 'đã dùng' -------------------
+
+def _ref_from_costing(db, paper_size_id: int):
+    from app.models.costing import Costing, CostingPaperOption
+    c = Costing(code="CG001", qty_final=1000, status="draft")
+    db.add(c)
+    db.flush()
+    db.add(CostingPaperOption(costing_id=c.id, print_sheet_size_id=paper_size_id,
+                              sheet_w=79, sheet_h=109, pieces_per_sheet=10))
+    db.commit()
+
+
+def test_costing_ref_blocks_delete():
+    db, repo, svc, actor = _setup()
+    item = svc.create_item(_data(), actor=actor)
+    _ref_from_costing(db, item.id)
+    with pytest.raises(PaperSizeValidationError):
+        svc.delete_item(item_id=item.id, actor=actor)
+
+
+def test_costing_ref_forces_version_on_dim_edit():
+    db, repo, svc, actor = _setup()
+    item = svc.create_item(_data(), actor=actor)
+    _ref_from_costing(db, item.id)
+    new = svc.update_item(item.id, _data(width_cm=80), actor=actor)
+    assert new.id != item.id and new.version == 2  # khổ đã dùng → version mới

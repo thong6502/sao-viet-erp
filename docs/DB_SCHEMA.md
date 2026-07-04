@@ -776,6 +776,41 @@ client's httpOnly cookie.
 | `default_operations` | `JSON` → `TEXT` / `JSONB` | — | yes | — | Array of default operation codes. |
 | `allowed_materials` | `JSON` → `TEXT` / `JSONB` | — | yes | — | Array of allowed material types. |
 | `compatible_technologies` | `JSON` → `TEXT` / `JSONB` | — | yes | — | Array of compatible technology keys. |
+| `product_group` | `String(24)` → `VARCHAR(24)` | — | no | `an_pham` | §A Nhóm sản phẩm (an_pham/bao_bi/sach/nhan/khac). |
+| `technology` | `String(20)` → `VARCHAR(20)` | — | no | `offset` | §A Công nghệ áp dụng chính. |
+| `description` | `Text` → `TEXT` | — | yes | — | §A Mô tả nghiệp vụ. |
+| `display_order` | `Integer` → `INTEGER` | — | no | `100` | §A Thứ tự hiển thị. |
+| `version` | `Integer` → `INTEGER` | — | no | `1` | §A Version metadata (clone bump). |
+| `effective_from` | `Date` → `DATE` | — | yes | — | §A Ngày bắt đầu hiệu lực. |
+| `effective_to` | `Date` → `DATE` | — | yes | — | §A Ngày kết thúc hiệu lực. |
+| `used_count` | `Integer` → `INTEGER` | — | no | `0` | §A Số lần đã dùng (guard). |
+| `shown_fields` | `JSON` → `TEXT` / `JSONB` | — | yes | — | §B Field hiển thị trên màn Tính giá (superset của required). |
+| `dimension_rule_type` | `String(16)` → `VARCHAR(16)` | — | no | `finished` | §C Kiểu kích thước tính số con (finished/spread/multi_page). |
+| `default_bleed_mm` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | §C Bleed mặc định (mm). |
+| `default_gutter_mm` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | §C Gutter mặc định (mm). |
+| `default_trim_mm` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | §C Lề xén mặc định (mm). |
+| `allow_rotation` | `Boolean` → `BOOLEAN` | — | no | `true` | §C Cho phép xoay bài. |
+| `allow_custom_size` | `Boolean` → `BOOLEAN` | — | no | `true` | §C Cho phép nhập khổ custom. |
+| `has_page_count` | `Boolean` → `BOOLEAN` | — | no | `false` | §D Có dùng số trang. |
+| `page_multiple` | `Integer` → `INTEGER` | — | no | `0` | §D Số trang chia hết cho (0 = không ràng buộc). |
+| `pages_per_signature` | `Integer` → `INTEGER` | — | no | `0` | §D Số trang mỗi tay. |
+| `has_cover_body_split` | `Boolean` → `BOOLEAN` | — | no | `false` | §D Tính bìa/ruột riêng. |
+| `default_paper_material_id` | `Integer` → `INTEGER` | — | yes | — | §E Giấy mặc định (materials.id). |
+| `default_cover_material_id` | `Integer` → `INTEGER` | — | yes | — | §E Giấy bìa mặc định. |
+| `default_body_material_id` | `Integer` → `INTEGER` | — | yes | — | §E Giấy ruột mặc định. |
+| `default_ink_material_id` | `Integer` → `INTEGER` | — | yes | — | §E Mực mặc định. |
+| `has_packaging` | `Boolean` → `BOOLEAN` | — | no | `false` | §E Có bao bì. |
+| `default_pack_qty` | `Integer` → `INTEGER` | — | no | `0` | §E Quy cách đóng gói (cái/thùng). |
+| `required_operations` | `JSON` → `TEXT` / `JSONB` | — | yes | — | §F Công đoạn bắt buộc (⊆ default_operations). |
+| `allow_extra_operations` | `Boolean` → `BOOLEAN` | — | no | `true` | §F Cho phép thêm công đoạn ngoài template. |
+| `allowed_imposition_codes` | `JSON` → `TEXT` / `JSONB` | — | yes | — | §G Danh sách mã kiểu bình bài cho phép. |
+| `default_imposition_code` | `String(32)` → `VARCHAR(32)` | — | yes | — | §G Kiểu bình bài mặc định. |
+| `allow_imposition_change` | `Boolean` → `BOOLEAN` | — | no | `true` | §G Cho phép người dùng đổi bình bài. |
+| `sheet_count_mode` | `String(16)` → `VARCHAR(16)` | — | no | `by_pieces` | §H Cách tính số tờ (by_pieces/by_pages/manual). |
+| `ink_cost_mode` | `String(20)` → `VARCHAR(20)` | — | no | `per_1000` | §H Cách tính mực (per_1000/coverage). |
+| `has_tooling` | `Boolean` → `BOOLEAN` | — | no | `false` | §H Có phát sinh khuôn. |
+| `default_tooling_type` | `String(20)` → `VARCHAR(20)` | — | yes | — | §H Loại khuôn mặc định. |
+| `allow_manual_override` | `Boolean` → `BOOLEAN` | — | no | `false` | §H Cho phép override công thức. |
 | `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status of the product type configuration. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
 | `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was last updated. |
@@ -911,6 +946,18 @@ client's httpOnly cookie.
 | `min_purchase_qty` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0.0` | Minimum quantity required for purchase. |
 | `paper_family` | `String(32)` → `VARCHAR(32)` | — | yes | — | Paper family family designation (Couche, Ivory, Ford, Bristol, Duplex...). |
 | `surface` | `String(32)` → `VARCHAR(32)` | — | yes | — | Surface tráng/bề mặt description (bong, mo, trang-1-mat...). |
+| `material_group` | `String(20)` → `VARCHAR(20)` | **IX** | yes | — | Nhóm vật tư trục UI (`paper`/`ink`/`film`/`glue`/`packaging`/`auxiliary`); `material_type` vẫn là trục engine. |
+| `default_supplier` | `String(150)` → `VARCHAR(150)` | — | yes | — | Nhà cung cấp mặc định. |
+| `base_uom` | `String(16)` → `VARCHAR(16)` | — | yes | — | Đơn vị cơ sở (base UoM). |
+| `purchase_uom` | `String(16)` → `VARCHAR(16)` | — | yes | — | Đơn vị mua hàng (purchase UoM). |
+| `consumption_uom` | `String(16)` → `VARCHAR(16)` | — | yes | — | Đơn vị tiêu hao (consumption UoM). |
+| `conversion_method` | `String(24)` → `VARCHAR(24)` | — | yes | — | Cách quy đổi UoM (`gsm_area`/`ream_500`/`area_m2`/`fixed_factor`/`none`). |
+| `conversion_factor` | `Numeric(12,4)` → `NUMERIC(12,4)` | — | yes | — | Hệ số quy đổi UoM. |
+| `ink_type` | `String(32)` → `VARCHAR(32)` | — | yes | — | Loại mực (nhóm ink). |
+| `ink_color_system` | `String(32)` → `VARCHAR(32)` | — | yes | — | Hệ màu mực (nhóm ink). |
+| `ink_color_code` | `String(32)` → `VARCHAR(32)` | — | yes | — | Mã màu mực (nhóm ink). |
+| `film_type` | `String(32)` → `VARCHAR(32)` | — | yes | — | Loại film (nhóm film). |
+| `version` | `Integer` → `INTEGER` | — | no | `1` | Số phiên bản bản ghi (optimistic lock). |
 | `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status in selection pickers. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the material was created. |
 | `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the material was last updated. |
@@ -937,6 +984,16 @@ client's httpOnly cookie.
 | `material_id` | `Integer` → `INTEGER` | **FK→materials.id**, **IX** | no | — | Reference to target material. |
 | `price_unit` | `String(16)` → `VARCHAR(16)` | — | no | — | Unit this price corresponds to (e.g. `to`, `ram`, `kg`, `m2`). |
 | `unit_price` | `BigInteger` → `BIGINT` | — | no | `0` | Cost price (VND). |
+| `supplier` | `String(150)` → `VARCHAR(150)` | — | yes | — | Nhà cung cấp của mức giá này. |
+| `paper_size_id` | `Integer` → `INTEGER` | **FK→paper_sizes.id** | yes | — | Khổ giấy áp dụng cho mức giá (SET NULL khi khổ bị xoá). |
+| `price_type` | `String(20)` → `VARCHAR(20)` | — | no | `standard` | Loại giá (`standard`...). |
+| `vat_included` | `Boolean` → `BOOLEAN` | — | no | `false` | Giá đã bao gồm VAT hay chưa. |
+| `transport_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Phí vận chuyển (VND). |
+| `moq` | `Numeric(12,2)` → `NUMERIC(12,2)` | — | no | `0.0` | Số lượng đặt hàng tối thiểu (MOQ). |
+| `lead_time_days` | `Integer` → `INTEGER` | — | no | `0` | Thời gian giao hàng (ngày). |
+| `quantity_from` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | yes | — | Cận dưới bậc số lượng (price tier). |
+| `quantity_to` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | yes | — | Cận trên bậc số lượng (price tier). |
+| `version` | `Integer` → `INTEGER` | — | no | `1` | Số phiên bản bản ghi (optimistic lock). |
 | `effective_from` | `Date` → `DATE` | — | no | — | Date pricing becomes active. |
 | `effective_to` | `Date` → `DATE` | — | yes | — | Date pricing stops being active. Null means current active price. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
@@ -978,7 +1035,33 @@ client's httpOnly cookie.
 | `supported_materials` | `JSON` → `TEXT` / `JSONB` | — | yes | — | List of supported material_type codes. |
 | `num_ink_units` | `Integer` → `INTEGER` | — | yes | — | Số đơn vị in (số màu in được 1 lượt); dùng tính số pass `⌈màu/num_ink_units⌉` (§31c). Null = không áp dụng. |
 | `supports_perfecting` | `Boolean` → `BOOLEAN` | — | no | `false` | Máy in được 2 mặt trong 1 lượt (trở nhật/lật, §3). |
-| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status of machine. |
+| `machine_group` | `String(20)` → `VARCHAR(20)` | — | no | `may_in` | Nhóm máy — `may_in`/`may_can`/`may_be`/`may_xen`/`khac`. |
+| `status` | `String(16)` → `VARCHAR(16)` | — | no | `active` | Trạng thái — `active`/`inactive`/`maintenance`. `is_active` được suy từ status. |
+| `note` | `Text` → `TEXT` | — | yes | — | Ghi chú. |
+| `max_print_width_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Khổ IN tối đa (vùng in) — rộng. ≤ khổ giấy tối đa. |
+| `max_print_height_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Khổ IN tối đa — cao. |
+| `gripper_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Nhíp máy (cm) — trừ khỏi vùng in khả dụng. |
+| `side_margin_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Lề an toàn ngang (cm). |
+| `top_bottom_margin_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Lề an toàn dọc (cm). |
+| `compatible_paper_size_ids` | `JSON` → `JSON` | — | yes | — | List paper_size id chạy được. NULL/[] = tất cả. |
+| `min_speed` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Tốc độ tối thiểu. |
+| `max_speed` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Tốc độ tối đa. |
+| `setup_time_base_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | no | `0` | Setup cố định (giờ). Tổng các *_hour = 0 ⇒ engine fallback `(setup_time_mins+changeover)/60`. |
+| `setup_time_per_color_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | no | `0` | Setup theo màu (giờ/màu). |
+| `setup_time_per_side_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | no | `0` | Setup theo mặt (giờ/mặt). |
+| `cleaning_time_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | no | `0` | Vệ sinh máy (giờ). |
+| `color_change_time_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | no | `0` | Đổi màu (giờ/màu). |
+| `plate_change_time_per_plate_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | no | `0` | Đổi kẽm (giờ/bản). |
+| `color_check_time_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | no | `0` | Kiểm/canh màu (giờ). |
+| `min_setup_time_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | no | `0` | Clamp dưới cho giờ setup. |
+| `max_setup_time_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | yes | — | Clamp trên cho giờ setup. |
+| `rounding_hour_policy` | `String(8)` → `VARCHAR(8)` | — | no | `none` | Làm tròn giờ máy — `none`/`0.01`/`0.25`/`0.5`. |
+| `overhead_included` | `Boolean` → `BOOLEAN` | — | no | `true` | Overhead xưởng đã gồm trong đơn giá giờ. |
+| `operator_included` | `Boolean` → `BOOLEAN` | — | no | `true` | Nhân công vận hành đã gồm trong đơn giá giờ (hourly_rate_includes_operator). |
+| `used_count` | `Integer` → `INTEGER` | — | no | `0` | Số báo giá snapshot đã dùng máy. `>0` ⇒ khóa sửa thông số ảnh hưởng giá; không xóa. |
+| `created_by` | `Integer` → `INTEGER` | **FK** | yes | — | Người tạo → `users.id` (ON DELETE SET NULL). |
+| `updated_by` | `Integer` → `INTEGER` | **FK** | yes | — | Người sửa → `users.id` (ON DELETE SET NULL). |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status of machine (suy từ `status == active`). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
 | `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
 
@@ -1006,6 +1089,11 @@ client's httpOnly cookie.
 | `impression_rate` | `BigInteger` → `BIGINT` | — | no | `0` | D1 — đơn giá công in cho 1 lượt-màu (1 tờ×1 màu×1 mặt); dùng khi `billing_mode=per_impression`. 0 = chưa cấu hình ⇒ công in 0. |
 | `min_charge` | `BigInteger` → `BIGINT` | — | no | `0` | Minimum charge for running this machine (VND). |
 | `min_run_time_mins` | `Integer` → `INTEGER` | — | no | `0` | Minimum running time billed (minutes). |
+| `rate_depreciation` | `BigInteger` → `BIGINT` | — | no | `0` | Cấu thành tham khảo: khấu hao (đ/giờ). Engine chỉ dùng tổng `hourly_rate`. |
+| `rate_energy` | `BigInteger` → `BIGINT` | — | no | `0` | Cấu thành tham khảo: điện/vật tư phụ (đ/giờ). |
+| `rate_maintenance` | `BigInteger` → `BIGINT` | — | no | `0` | Cấu thành tham khảo: bảo trì (đ/giờ). |
+| `rate_labor` | `BigInteger` → `BIGINT` | — | no | `0` | Cấu thành tham khảo: nhân công (đ/giờ). |
+| `rate_overhead` | `BigInteger` → `BIGINT` | — | no | `0` | Cấu thành tham khảo: overhead xưởng (đ/giờ). |
 | `effective_from` | `Date` → `DATE` | — | no | — | Pricing effective start date. |
 | `effective_to` | `Date` → `DATE` | — | yes | — | Pricing effective end date. Null means current. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
@@ -1047,6 +1135,7 @@ client's httpOnly cookie.
 | `labor_people_count` | `Numeric(6,2)` → `NUMERIC(6,2)` | — | no | `1` | Số người tham gia (dùng cho nhân công theo giờ) — spec §D. |
 | `has_tooling` | `Boolean` → `BOOLEAN` | — | no | `false` | Có sử dụng khuôn/tooling hay không — spec §F. |
 | `tooling_type` | `String(20)` → `VARCHAR(20)` | — | yes | — | Loại khuôn (khuon_be/khuon_ep_kim/khuon_dap_noi/other) — spec §F. |
+| `tooling_rate_id` | `Integer` → `INTEGER` | **IX** | yes | — | Link tới bảng giá khuôn (`plate_die_rates.id`, plain Integer no FK); engine lấy giá khuôn theo pricing_method của bảng đó. NULL = dùng `operation_rates.tooling_unit_price`. |
 | `has_yield_loss` | `Boolean` → `BOOLEAN` | — | no | `false` | Có phát sinh hao hụt/bù hao hay không — spec §G. |
 | `default_yield_rate` | `Numeric(6,2)` → `NUMERIC(6,2)` | — | yes | — | Tỷ lệ đạt mặc định (%), vd 98.00 — spec §G. |
 | `default_yield_rule` | `String(40)` → `VARCHAR(40)` | — | yes | — | Mã rule bù hao mặc định, vd YIELD_DIECUT — spec §G. |
@@ -1144,29 +1233,52 @@ client's httpOnly cookie.
 
 ### `plate_die_rates`
 
-**Purpose:** rates, setup fees and charges for offset plate-making, dies, and embossing clichés over time.
+**Purpose:** Đơn giá kẽm & khuôn (#5) — kẽm in offset (`ban_kem_offset`, engine chọn theo MÁY áp dụng) và khuôn gia công (`khuon_be`/`khuon_ep_kim`/`khuon_dap_noi`/`khuon_khac`, theo `pricing_method`). Versioning hiệu lực-theo-ngày, family key = **`code`** (một bản mở duy nhất mỗi mã).
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `plate_type` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | Type of tooling (ban_kem_offset, khuon_be, khuon_ep_kim). |
-| `technology` | `String(32)` → `VARCHAR(32)` | — | no | — | Tooling technology (offset, flexo, be, ep_kim). |
-| `unit` | `String(16)` → `VARCHAR(16)` | — | no | — | unit (ban, bo, cm2). |
-| `unit_price` | `BigInteger` → `BIGINT` | — | no | — | Price per unit (VND). |
-| `setup_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Flat setup fee (VND). |
-| `min_charge` | `BigInteger` → `BIGINT` | — | no | `0` | Minimum charge (VND). |
-| `reusable` | `Boolean` → `BOOLEAN` | — | no | `false` | Reusability of plate/die. |
+| `code` | `String(40)` → `VARCHAR(40)` | **IX** | no | — | Mã bảng giá (PLATE_102_CTP, DIE_BOX_STD…). Family key của version-chain; một bản MỞ duy nhất mỗi mã. |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên bảng giá. |
+| `plate_type` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | ban_kem_offset / khuon_be / khuon_ep_kim / khuon_dap_noi / khuon_khac. |
+| `technology` | `String(32)` → `VARCHAR(32)` | — | no | — | offset / flexo / be / ep_kim / dap_noi. |
+| `unit` | `String(16)` → `VARCHAR(16)` | — | no | — | ban / bo / cm2 / met. |
+| `plate_kind` | `String(16)` → `VARCHAR(16)` | — | yes | — | Loại kẽm: ctp / ps / thuong. |
+| `plate_width_mm` | `Integer` → `INTEGER` | — | yes | — | Khổ kẽm rộng (mm). |
+| `plate_height_mm` | `Integer` → `INTEGER` | — | yes | — | Khổ kẽm dài (mm). |
+| `machine_ids` | `JSON` → `JSON` | — | yes | — | List machine id áp dụng (NULL/`[]`=mọi máy); engine chọn giá kẽm theo máy. |
+| `paper_size_ids` | `JSON` → `JSON` | — | yes | — | List paper_size id áp dụng. |
+| `unit_price` | `BigInteger` → `BIGINT` | — | no | — | Đơn giá 1 bản kẽm / khuôn cố định (VND). |
+| `setup_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Phí setup cố định (VND). |
+| `min_charge` | `BigInteger` → `BIGINT` | — | no | `0` | Phí tối thiểu (VND). |
+| `pricing_method` | `String(20)` → `VARCHAR(20)` | — | no | `fixed` | Cách tính khuôn: fixed / area / perimeter / size_tier / manual. |
+| `unit_price_area` | `BigInteger` → `BIGINT` | — | no | `0` | Đơn giá theo diện tích (VND/cm²). |
+| `unit_price_perimeter` | `BigInteger` → `BIGINT` | — | no | `0` | Đơn giá theo chu vi (VND/mét dao). |
+| `max_charge` | `BigInteger` → `BIGINT` | — | yes | — | Trần chi phí khuôn (VND). |
+| `allow_manual_price` | `Boolean` → `BOOLEAN` | — | no | `false` | Cho phép nhập tay giá khuôn. |
+| `reusable` | `Boolean` → `BOOLEAN` | — | no | `false` | Cho dùng lại khuôn cũ. |
+| `reuse_price_method` | `String(16)` → `VARCHAR(16)` | — | yes | — | Khi dùng lại: zero / maintenance_fee / manual. |
+| `maintenance_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Phí bảo trì khuôn khi dùng lại (VND). |
+| `supplier` | `String(255)` → `VARCHAR(255)` | — | yes | — | Nhà cung cấp khuôn. |
+| `lead_time_days` | `Integer` → `INTEGER` | — | no | `0` | Lead time (ngày). |
+| `transport_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Phí vận chuyển (VND). |
+| `moq` | `Integer` → `INTEGER` | — | no | `0` | Số lượng đặt tối thiểu. |
 | `effective_from` | `Date` → `DATE` | — | no | — | Rate effective start date. |
 | `effective_to` | `Date` → `DATE` | — | yes | — | Rate effective end date. Null means current. |
 | `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status flag. |
+| `used_count` | `Integer` → `INTEGER` | — | no | `0` | Số phiếu/công đoạn đã dùng. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tạo; `ON DELETE SET NULL`. |
+| `updated_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người sửa cuối; `ON DELETE SET NULL`. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
 | `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
 
 **Keys & indexes**
 
 - Primary key: `id`.
-- Index: `ix_plate_die_rates_plate_type` on `plate_type`.
-- Unique index: `uix_plate_die_rates_current` on `(plate_type, technology, unit) WHERE effective_to IS NULL`.
+- Index: `ix_plate_die_rates_plate_type` on `plate_type`; `ix_plate_die_rates_code` on `code`.
+- Unique index: `uix_plate_die_rates_current` on `(code) WHERE effective_to IS NULL`.
+- Foreign keys: `created_by` / `updated_by` → `users.id` (`ON DELETE SET NULL`).
+- Referenced by `operations.tooling_rate_id` (plain Integer, no FK).
 
 ---
 
