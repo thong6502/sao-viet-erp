@@ -32,6 +32,13 @@ class Estimate(Base):
     input_spec_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     quantity_list_json: Mapped[list] = mapped_column(JSON, nullable=False)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    # §9 — lifecycle: khóa snapshot (locked_at != NULL ⇒ khóa, không sửa) + version-chain phiếu.
+    # Sao chép/sửa phiếu đã khóa ⇒ tạo phiếu mới (parent_id trỏ bản nguồn, version+1); bản nguồn
+    # được đánh dấu superseded_by_id = phiếu mới.
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
+    parent_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("estimates.id", ondelete="SET NULL"), nullable=True)
+    superseded_by_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("estimates.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False)
 

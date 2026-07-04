@@ -620,6 +620,25 @@ def _migrate_plate_die_full_fields(db: Session) -> None:
         db.commit()
 
 
+def _migrate_estimate_lifecycle(db: Session) -> None:
+    """Add §9 lifecycle columns to estimates: locked_at, version, parent_id, superseded_by_id.
+    Defaults = phiếu chưa khóa, version 1, không có cha/kế thừa — không đổi hành vi cũ."""
+    insp = inspect(db.get_bind())
+    if "estimates" not in insp.get_table_names():
+        return
+    cols = [
+        ("locked_at", "TIMESTAMP"),
+        ("version", "INTEGER NOT NULL DEFAULT 1"),
+        ("parent_id", "INTEGER"),
+        ("superseded_by_id", "INTEGER"),
+    ]
+    existing = _existing_columns(insp, "estimates")
+    for name, ddl in cols:
+        if name not in existing:
+            db.execute(text(f"ALTER TABLE estimates ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0001_imposition_type_full_fields", _migrate_imposition_type_full_fields),
     ("0002_operation_full_fields", _migrate_operation_full_fields),
@@ -629,6 +648,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0006_product_type_full_fields", _migrate_product_type_full_fields),
     ("0007_materials_full_fields", _migrate_materials_full_fields),
     ("0008_plate_die_full_fields", _migrate_plate_die_full_fields),
+    ("0009_estimate_lifecycle", _migrate_estimate_lifecycle),
 ]
 
 

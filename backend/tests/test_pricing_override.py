@@ -67,3 +67,28 @@ def test_override_missing_reason_is_blocking():
     # không áp khi thiếu lý do
     machine = next(l for l in lines if l.category == "machine")
     assert float(machine.total_cost) != 100000
+
+
+def test_override_production_sheets_cascades():
+    """§12 nâng cao — override số tờ SX phải cascade sang giấy + công in (giảm tờ ⇒ giảm tiền)."""
+    db, mid, mcid = _db()
+    base_lines, _, _ = PricingEngine(db).calculate_option(_spec(mid, mcid), 10000)
+    base_paper = float(next(l for l in base_lines if l.category == "material").total_cost)
+
+    spec = _spec(mid, mcid)
+    spec["override_production_sheets"] = {"value": 100, "reason": "chốt theo lệnh sản xuất"}
+    lines, _, warns = PricingEngine(db).calculate_option(spec, 10000)
+    paper = float(next(l for l in lines if l.category == "material").total_cost)
+    assert any(w["code"] == "OVERRIDE_PRODUCTION_SHEETS" for w in warns)
+    assert paper < base_paper  # ít tờ hơn ⇒ giấy rẻ hơn (cascade)
+
+
+def test_override_material_unit_price():
+    """§12 nâng cao — override đơn giá vật tư thay đơn giá/tờ."""
+    db, mid, mcid = _db()
+    spec = _spec(mid, mcid)
+    spec["override_material_unit_price"] = {"value": 99, "reason": "giá giấy NCC mới"}
+    lines, _, warns = PricingEngine(db).calculate_option(spec, 10000)
+    mat = next(l for l in lines if l.category == "material")
+    assert any(w["code"] == "OVERRIDE_MATERIAL_PRICE" for w in warns)
+    assert abs(float(mat.unit_cost) - 99) < 1e-6

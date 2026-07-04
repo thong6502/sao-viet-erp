@@ -177,6 +177,8 @@ class EstimateService:
         estimate = self.get_estimate(estimate_id)
         if estimate.status == "converted_to_quote": # Phase 2C lock check
             raise EstimateInUse("Không thể chỉnh sửa phương án tính giá đã chuyển thành báo giá.")
+        if getattr(estimate, "locked_at", None) is not None:  # §9 — phiếu đã khóa snapshot
+            raise EstimateInUse("Phiếu đã khóa snapshot — hãy Sao chép ra phiên bản mới để chỉnh sửa.")
 
         self._validate_spec(product_type, product_name, quantity_list, input_spec)
 
@@ -220,11 +222,64 @@ class EstimateService:
             )
         return estimate
 
+    def lock_estimate(self, estimate_id: int, actor_id: int | None = None) -> Estimate:
+        """§9 — Khóa snapshot: chốt kết quả, không cho sửa nữa (sửa ⇒ Sao chép version mới)."""
+        estimate = self.get_estimate(estimate_id)
+        if getattr(estimate, "locked_at", None) is not None:
+            return estimate  # idempotent
+        if estimate.status not in ("calculated",):
+            raise EstimateValidationError("Chỉ khóa được phiếu đã tính (calculated).")
+        estimate.locked_at = datetime.now(timezone.utc)
+        self.db.commit()
+        if actor_id:
+            self.audit.create(actor_user_id=actor_id, action="lock_estimate",
+                              target=f"estimate:{estimate.id}",
+                              detail=f"Khóa snapshot phiếu {estimate.estimate_number}")
+        return estimate
+
+    def duplicate_estimate(self, estimate_id: int, actor_id: int | None = None) -> Estimate:
+        """§7/§9 — Sao chép phiếu (dùng làm mẫu). Nếu phiếu nguồn đã KHÓA thì bản mới là VERSION
+        thay thế: parent_id trỏ nguồn, version+1, và nguồn được đánh dấu superseded_by_id."""
+        src = self.get_estimate(estimate_id)
+        spec_to_calc = dict(src.input_spec_json or {})
+        spec_to_calc["product_type"] = src.product_type
+        spec_to_calc["product_name"] = src.product_name
+
+        new = Estimate(
+            estimate_number=self.sequence.generate_code("costing"),
+            customer_id=src.customer_id,
+            product_type=src.product_type,
+            product_name=src.product_name,
+            status="draft",
+            input_spec_json=dict(src.input_spec_json or {}),
+            quantity_list_json=list(src.quantity_list_json or []),
+            created_by=actor_id,
+            parent_id=src.id,
+            version=int(getattr(src, "version", 1) or 1) + 1,
+        )
+        self.db.add(new)
+        self.db.flush()
+        try:
+            self._recalculate_options(new, spec_to_calc)
+            if getattr(src, "locked_at", None) is not None:
+                src.superseded_by_id = new.id  # bản khóa được thay thế bởi version mới
+            self.db.commit()
+        except Exception:
+            self.db.rollback()
+            raise
+        if actor_id:
+            self.audit.create(actor_user_id=actor_id, action="duplicate_estimate",
+                              target=f"estimate:{new.id}",
+                              detail=f"Sao chép {src.estimate_number} → {new.estimate_number} (v{new.version})")
+        return new
+
     def delete_estimate(self, estimate_id: int, actor_id: int | None = None) -> None:
         estimate = self.get_estimate(estimate_id)
         if estimate.status == "converted_to_quote":
             raise EstimateInUse("Không thể xóa phương án tính giá đã chuyển thành báo giá.")
-        
+        if getattr(estimate, "locked_at", None) is not None:
+            raise EstimateInUse("Không thể xóa phiếu đã khóa snapshot.")
+
         estimate_number = estimate.estimate_number
         self.repo.delete(estimate)
 

@@ -87,6 +87,10 @@ class EstimateOut(BaseModel):
     input_spec_json: dict
     quantity_list_json: list[int]
     created_by: int | None
+    locked_at: datetime | None = None
+    version: int = 1
+    parent_id: int | None = None
+    superseded_by_id: int | None = None
     created_at: datetime
     updated_at: datetime
     options: list[EstimateOptionOut]
@@ -97,6 +101,8 @@ class EstimateRow(BaseModel):
     product_type: str
     product_name: str
     status: str
+    locked_at: datetime | None = None
+    version: int = 1
     quantity_list_json: list[int]
     total_cost_min: float | None = None
     total_cost_max: float | None = None

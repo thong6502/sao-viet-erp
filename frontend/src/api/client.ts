@@ -661,6 +661,10 @@ export interface EstimateDetail {
   input_spec_json: Record<string, any>;
   quantity_list_json: number[];
   created_by: number | null;
+  locked_at?: string | null;
+  version?: number;
+  parent_id?: number | null;
+  superseded_by_id?: number | null;
   created_at: string;
   updated_at: string;
   options: EstimateOptionRow[];
@@ -2082,6 +2086,14 @@ export const api = {
     },
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/estimates/${id}`, token, { method: "DELETE" });
+    },
+    /** §9 — Khóa snapshot phiếu (chốt kết quả, không cho sửa nữa). */
+    lock(token: string, id: number): Promise<EstimateDetail> {
+      return authed<EstimateDetail>(`/api/estimates/${id}/lock`, token, { method: "POST" });
+    },
+    /** §7/§9 — Sao chép phiếu (làm mẫu / version mới nếu phiếu nguồn đã khóa). */
+    duplicate(token: string, id: number): Promise<EstimateDetail> {
+      return authed<EstimateDetail>(`/api/estimates/${id}/duplicate`, token, { method: "POST" });
     },
     /** Live preview (KHÔNG lưu): chạy engine với spec đang gõ để form hiện giá vốn tức thời. */
     preview(token: string, input: { input_spec: Record<string, unknown>; quantity: number }): Promise<EstimatePreviewOut> {

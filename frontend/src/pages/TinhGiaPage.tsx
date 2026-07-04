@@ -232,6 +232,9 @@ export function TinhGiaPage({
   const [imposition, setImposition] = useState("");
   // §12 — Sửa tay tổng tiền từng dòng, mỗi mục kèm lý do bắt buộc. Đi trong input_spec.overrides.
   const [overrides, setOverrides] = useState<Array<{ target: string; value: number; reason: string }>>([]);
+  // §12 nâng cao — override số tờ SX + đơn giá vật tư (đi riêng trong input_spec).
+  const [ovProdSheets, setOvProdSheets] = useState<{ value: string; reason: string }>({ value: "", reason: "" });
+  const [ovMatPrice, setOvMatPrice] = useState<{ value: string; reason: string }>({ value: "", reason: "" });
   const [pageCount, setPageCount] = useState("");
   const [forms, setForms] = useState(1);
   const [bindingType, setBindingType] = useState("");
@@ -426,6 +429,8 @@ export function TinhGiaPage({
         sides: Number(sides),
         imposition: imposition || null,
         overrides,
+        override_production_sheets: ovProdSheets.value ? { value: Number(ovProdSheets.value), reason: ovProdSheets.reason } : null,
+        override_material_unit_price: ovMatPrice.value ? { value: Number(ovMatPrice.value), reason: ovMatPrice.reason } : null,
         page_count: pageCount ? Number(pageCount) : null,
         forms: Number(forms),
         box_length: boxLength ? Number(boxLength) : null,
@@ -469,7 +474,7 @@ export function TinhGiaPage({
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, mode, materialId, printSizeId, paperSizes, machineId, quantityList, colors, sides, imposition, overrides, pageCount, forms, overridePieces, piecesPerSheet, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, operations, productType, finishedWidth, finishedHeight, boxLength, boxWidth, boxHeight, largeWidth, largeHeight]);
+  }, [token, mode, materialId, printSizeId, paperSizes, machineId, quantityList, colors, sides, imposition, overrides, ovProdSheets, ovMatPrice, pageCount, forms, overridePieces, piecesPerSheet, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, operations, productType, finishedWidth, finishedHeight, boxLength, boxWidth, boxHeight, largeWidth, largeHeight]);
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
@@ -493,6 +498,8 @@ export function TinhGiaPage({
     setSides(2);
     setImposition("");
     setOverrides([]);
+    setOvProdSheets({ value: "", reason: "" });
+    setOvMatPrice({ value: "", reason: "" });
     setPageCount("");
     setForms(1);
     setBindingType("");
@@ -548,6 +555,8 @@ export function TinhGiaPage({
       setSides(spec.sides || 2);
       setImposition(spec.imposition || "");
       setOverrides(Array.isArray(spec.overrides) ? spec.overrides : []);
+      setOvProdSheets(spec.override_production_sheets ? { value: String(spec.override_production_sheets.value ?? ""), reason: spec.override_production_sheets.reason ?? "" } : { value: "", reason: "" });
+      setOvMatPrice(spec.override_material_unit_price ? { value: String(spec.override_material_unit_price.value ?? ""), reason: spec.override_material_unit_price.reason ?? "" } : { value: "", reason: "" });
       setPageCount(spec.page_count || "");
       setForms(spec.forms || 1);
       setBindingType(spec.binding_type || "");
@@ -690,6 +699,8 @@ export function TinhGiaPage({
       } else {
         setImposition("");
     setOverrides([]);
+    setOvProdSheets({ value: "", reason: "" });
+    setOvMatPrice({ value: "", reason: "" });
         setOperations([]);
       }
     }
@@ -782,6 +793,46 @@ export function TinhGiaPage({
     return null;
   }
 
+  // §9 — Khóa snapshot phiếu đang xem.
+  async function handleLockSnapshot() {
+    if (!token || !editing) return;
+    try {
+      const upd = await api.estimates.lock(token, editing.id);
+      setEditing(upd);
+      setFormError(null);
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : "Không khóa được phiếu.");
+    }
+  }
+  // §7/§9 — Sao chép phiếu (mở luôn bản mới để chỉnh).
+  async function handleDuplicate() {
+    if (!token || !editing) return;
+    try {
+      const dup = await api.estimates.duplicate(token, editing.id);
+      await openEdit({ id: dup.id } as EstimateRow);
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : "Không sao chép được phiếu.");
+    }
+  }
+  // §7 — Xuất CSV (mở được bằng Excel). PDF: dùng In trình duyệt.
+  function handleExportCsv() {
+    if (!editing) return;
+    const opt = editing.options?.[0];
+    const rows: string[][] = [["Loại", "Diễn giải", "Số lượng", "ĐVT", "Đơn giá", "Thành tiền"]];
+    for (const l of opt?.cost_lines ?? []) {
+      rows.push([l.category, String(l.description ?? "").replace(/"/g, "'"), String(l.quantity), l.unit, String(l.unit_cost), String(l.total_cost)]);
+    }
+    rows.push(["", "", "", "", "GIÁ THÀNH TRỰC TIẾP", String(opt?.total_cost ?? 0)]);
+    const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\r\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${editing.estimate_number}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function handleSave(submitStatus: "draft" | "calculated") {
     if (!token || saving) return;
     setFormError(null);
@@ -813,6 +864,8 @@ export function TinhGiaPage({
       sides: Number(sides),
       imposition: imposition || null,
       overrides,
+      override_production_sheets: ovProdSheets.value ? { value: Number(ovProdSheets.value), reason: ovProdSheets.reason } : null,
+      override_material_unit_price: ovMatPrice.value ? { value: Number(ovMatPrice.value), reason: ovMatPrice.reason } : null,
       page_count: pageCount ? Number(pageCount) : null,
       forms: Number(forms),
       binding_type: bindingType || null,
@@ -2086,13 +2139,49 @@ export function TinhGiaPage({
                 </div>
               )}
 
+              <div style={{ marginTop: 12, marginBottom: 8, padding: 10, background: "rgba(20,19,15,0.03)", border: "1px solid var(--rule-hair)", borderRadius: 6, fontSize: 12.5 }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>✏️ Sửa tay nâng cao (§12) — kèm lý do</div>
+                <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "6px 8px", alignItems: "center" }}>
+                  <span>Số tờ SX</span>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <input className="input" type="number" placeholder="số tờ" value={ovProdSheets.value} onChange={(e) => setOvProdSheets({ ...ovProdSheets, value: e.target.value })} style={{ width: 90 }} />
+                    <input className="input" placeholder="Lý do" value={ovProdSheets.reason} onChange={(e) => setOvProdSheets({ ...ovProdSheets, reason: e.target.value })} />
+                  </div>
+                  <span>Đơn giá vật tư</span>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <input className="input" type="number" placeholder="đ/đơn vị" value={ovMatPrice.value} onChange={(e) => setOvMatPrice({ ...ovMatPrice, value: e.target.value })} style={{ width: 90 }} />
+                    <input className="input" placeholder="Lý do" value={ovMatPrice.reason} onChange={(e) => setOvMatPrice({ ...ovMatPrice, reason: e.target.value })} />
+                  </div>
+                </div>
+                <p className="tg__muted" style={{ marginTop: 6, fontSize: 11 }}>Trống = không sửa. Nhập giá trị thì BẮT BUỘC lý do (thiếu → không tính được). Số tờ SX cascade sang giấy/mực/công in.</p>
+              </div>
+
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <Button type="button" variant="primary" loading={saving} onClick={() => handleSave("calculated")} style={{ width: "100%" }}>
-                  🚀 Tính giá & Lưu kết quả
-                </Button>
-                <Button type="button" variant="ghost" loading={saving} onClick={() => handleSave("draft")} style={{ width: "100%" }}>
-                  💾 Lưu bản nháp (Draft)
-                </Button>
+                {editing?.locked_at ? (
+                  <div className="banner banner--info" role="status" style={{ marginBottom: 4 }}>
+                    🔒 Phiếu đã <strong>khóa snapshot</strong> (v{editing.version ?? 1}) — không sửa được. Bấm <strong>Sao chép</strong> để tạo phiên bản mới.
+                  </div>
+                ) : (
+                  <>
+                    <Button type="button" variant="primary" loading={saving} onClick={() => handleSave("calculated")} style={{ width: "100%" }}>
+                      🚀 Tính giá & Lưu kết quả
+                    </Button>
+                    <Button type="button" variant="ghost" loading={saving} onClick={() => handleSave("draft")} style={{ width: "100%" }}>
+                      💾 Lưu bản nháp (Draft)
+                    </Button>
+                  </>
+                )}
+
+                {editing && (
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {!editing.locked_at && editing.status === "calculated" && (
+                      <Button type="button" variant="ghost" onClick={handleLockSnapshot} style={{ flex: "1 1 auto" }}>🔒 Khóa snapshot</Button>
+                    )}
+                    <Button type="button" variant="ghost" onClick={handleDuplicate} style={{ flex: "1 1 auto" }}>📄 Sao chép</Button>
+                    <Button type="button" variant="ghost" onClick={handleExportCsv} style={{ flex: "1 1 auto" }}>⬇️ Xuất CSV</Button>
+                  </div>
+                )}
+
                 <Button type="button" variant="ghost" onClick={handleCloseForm} style={{ width: "100%" }}>
                   Đóng / Quay lại
                 </Button>

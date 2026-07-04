@@ -142,6 +142,8 @@ def list_estimates(
             product_type=est.product_type,
             product_name=est.product_name,
             status=est.status,
+            locked_at=est.locked_at,
+            version=est.version,
             quantity_list_json=est.quantity_list_json,
             total_cost_min=min_cost,
             total_cost_max=max_cost,
@@ -297,3 +299,33 @@ def delete_estimate(
             detail=str(e)
         ) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{estimate_id}/lock", response_model=EstimateOut)
+def lock_estimate(
+    estimate_id: int,
+    svc: Annotated[EstimateService, Depends(get_estimate_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> EstimateOut:
+    """§9 — Khóa snapshot phiếu (chốt kết quả, không cho sửa nữa)."""
+    try:
+        return svc.lock_estimate(estimate_id, actor_id=user.id)
+    except EstimateNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phương án tính giá.") from None
+    except EstimateValidationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+
+
+@router.post("/{estimate_id}/duplicate", response_model=EstimateOut, status_code=status.HTTP_201_CREATED)
+def duplicate_estimate(
+    estimate_id: int,
+    svc: Annotated[EstimateService, Depends(get_estimate_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> EstimateOut:
+    """§7/§9 — Sao chép phiếu (làm mẫu / version mới nếu phiếu nguồn đã khóa)."""
+    try:
+        return svc.duplicate_estimate(estimate_id, actor_id=user.id)
+    except EstimateNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy phương án tính giá.") from None
+    except EstimateValidationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None

@@ -490,6 +490,23 @@ class PricingEngine:
         running_sheets = sheets_after_yield + running_add  # tờ chạy (nền + bù hao)
         total_sheets = sheets_after_yield + makeready_sheets + running_add
 
+        # §12 nâng cao — override SỐ TỜ SẢN XUẤT (kèm lý do). Áp trước khi tính giấy/mực/công in
+        # (cascade). input_spec["override_production_sheets"] = {value, reason}.
+        _ovps = input_spec.get("override_production_sheets")
+        if isinstance(_ovps, dict) and _ovps.get("value") is not None:
+            _reason = (_ovps.get("reason") or "").strip()
+            if not _reason:
+                add_warning("blocking_error", "OVERRIDE_NO_REASON", "Sửa tay số tờ sản xuất phải nhập lý do.")
+            else:
+                try:
+                    _v = int(float(_ovps["value"]))
+                    if _v >= 1:
+                        add_warning("info", "OVERRIDE_PRODUCTION_SHEETS",
+                                    f"Số tờ sản xuất sửa tay: {total_sheets:,}→{_v:,} tờ (lý do: {_reason}).")
+                        total_sheets = _v
+                except (ValueError, TypeError):
+                    add_warning("warning", "OVERRIDE_INVALID", "Override số tờ sản xuất không hợp lệ.")
+
         # Hao giấy riêng (PAPER_EXTRA_WASTE) — cộng vào số tờ SX để ra tờ cần MUA (trước khi quy đổi khổ mua).
         paper_extra_sheets = 0
         paper_extra_norm_id = None
@@ -644,6 +661,23 @@ class PricingEngine:
             if waste_mult != 1.0:
                 quantity *= waste_mult
                 total_material_cost = quantity * unit_cost
+
+            # §12 nâng cao — override ĐƠN GIÁ vật tư (đơn giá/đơn vị cuối, bỏ qua quy đổi ram/kg).
+            _ovmp = input_spec.get("override_material_unit_price")
+            if isinstance(_ovmp, dict) and _ovmp.get("value") is not None:
+                _r = (_ovmp.get("reason") or "").strip()
+                if not _r:
+                    add_warning("blocking_error", "OVERRIDE_NO_REASON", "Sửa tay đơn giá vật tư phải nhập lý do.")
+                else:
+                    try:
+                        _uc = float(_ovmp["value"])
+                        if _uc >= 0:
+                            add_warning("info", "OVERRIDE_MATERIAL_PRICE",
+                                        f"Đơn giá vật tư sửa tay: {unit_cost:,.2f}→{_uc:,.2f} (lý do: {_r}).")
+                            unit_cost = _uc
+                            total_material_cost = quantity * unit_cost
+                    except (ValueError, TypeError):
+                        add_warning("warning", "OVERRIDE_INVALID", "Override đơn giá vật tư không hợp lệ.")
 
             # Apply min fee
             min_fee = float(material.min_fee or 0)
