@@ -17,6 +17,51 @@
   padding-bottom: var(--sp-4);
   border-bottom: 1px solid var(--rule);
 }
+.kh__head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 0 0 auto;
+}
+/* Khoảng CỐ ĐỊNH trên bảng: luôn giữ chiều cao để thanh thao tác không đẩy danh sách. */
+.kh__bulkslot {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+}
+.kh__bulkhint {
+  font-size: 13px;
+  color: var(--ash-2);
+}
+/* Thanh thao tác hàng loạt — lấp đầy khoảng cố định khi tick chọn khách. */
+.kh__bulkbar {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--rust-soft);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+.kh__bulkbar-count {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--rust-deep);
+}
+.kh__bulkbar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+/* Cột checkbox chọn dòng. */
+.kh__check-col {
+  width: 1%;
+  white-space: nowrap;
+  text-align: center;
+}
 .kh__title {
   font-size: 26px;
   font-weight: var(--fw-bold);
@@ -65,39 +110,6 @@
   color: var(--ash-2);
 }
 
-/* ---- Filter tabs --------------------------------------------------------- */
-.kh__tabs {
-  display: flex;
-  gap: var(--sp-1);
-  border-bottom: 1px solid var(--rule);
-}
-.kh__tab {
-  appearance: none;
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  padding: var(--sp-2) var(--sp-4);
-  margin-bottom: -1px;
-  font: inherit;
-  font-size: 13px;
-  color: var(--ash);
-  cursor: pointer;
-  transition: color var(--duration-base) var(--easing-standard);
-}
-.kh__tab:hover {
-  color: var(--ink);
-}
-.kh__tab.is-active {
-  color: var(--rust);
-  border-bottom-color: var(--rust);
-  font-weight: var(--fw-medium);
-}
-.kh__tab:focus-visible {
-  outline: 2px solid var(--rust);
-  outline-offset: 2px;
-  border-radius: var(--r-2);
-}
-
 /* ---- Toolbar ------------------------------------------------------------- */
 .kh__toolbar {
   display: flex;
@@ -113,7 +125,7 @@
   width: 340px;
   max-width: 100%;
 }
-.kh__salefilter {
+.kh__filter {
   width: 220px;
 }
 
@@ -313,6 +325,19 @@
 .kh__pager-btns {
   display: flex;
   gap: var(--sp-2);
+}
+.kh__pager-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.kh__pager-size {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.kh__pager-size > :last-child {
+  min-width: 80px;
 }
 
 /* ========================================================================== */

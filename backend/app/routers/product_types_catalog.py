@@ -23,7 +23,7 @@ from ..services.product_type_catalog_service import (
 )
 
 router = APIRouter(prefix="/api/product-types-catalog", tags=["product-types-catalog"])
-MODULE = "dm_giay_vat_tu"
+MODULE = "dm_loai_san_pham"
 
 @router.get("", response_model=ProductTypeCatalogListOut)
 def list_items(

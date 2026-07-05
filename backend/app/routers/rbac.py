@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from ..deps import (
     get_activity_service,
+    get_authorization_service,
     get_department_service,
     get_role_service,
     get_unit_level_service,
@@ -29,6 +30,8 @@ from ..schemas.rbac import (
     PermissionMatrixIn,
     PermissionRow,
     RoleAssign,
+    RoleAssignResult,
+    RoleBulkAssignIn,
     RoleCreate,
     ResetPasswordOut,
     RoleOut,
@@ -49,6 +52,8 @@ from ..services.department_service import (
     DepartmentNameTaken,
     InvalidHead,
     InvalidLevelOrder,
+    ReparentForbidden,
+    SetHeadForbidden,
 )
 from ..services.department_service import DepartmentNotFound as DeptNotFound
 from ..services.department_service import DepartmentService
@@ -68,13 +73,16 @@ from ..services.role_service import (
 )
 from ..services.user_admin_service import (
     CannotLockSelf,
+    CannotRevokeSelf,
     InvalidRoleForDepartment,
+    TransferForbidden,
     UsernameTaken,
     UserAdminService,
     UserNotFound,
 )
 from ..services.user_admin_service import DepartmentNotFound as UADeptNotFound
 from ..services.activity_service import ActivityService
+from ..services.rbac_service import AuthorizationService
 
 router = APIRouter(prefix="/api", tags=["rbac"])
 
@@ -82,6 +90,7 @@ Service = Annotated[RoleService, Depends(get_role_service)]
 Depts = Annotated[DepartmentService, Depends(get_department_service)]
 Levels = Annotated[UnitLevelService, Depends(get_unit_level_service)]
 Users = Annotated[UserAdminService, Depends(get_user_admin_service)]
+Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 Activity = Annotated[ActivityService, Depends(get_activity_service)]
 
 
@@ -147,6 +156,7 @@ def update_department(
     dept_id: int,
     payload: DepartmentUpdate,
     depts: Depts,
+    authz: Authz,
     user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
 ) -> dict:
     try:
@@ -163,8 +173,12 @@ def update_department(
             head_user_id=payload.head_user_id,
             level_id=payload.level_id,
             actor_id=user.id,
+            allow_set_head=authz.can(user, "phong_ban", "set_head"),
+            allow_reparent=authz.can(user, "phong_ban", "reparent"),
             **parent_kw,
         )
+    except (SetHeadForbidden, ReparentForbidden) as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
     except DepartmentNameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except (InvalidHead, DepartmentCycle, InvalidLevelOrder) as e:
@@ -213,7 +227,7 @@ def department_head_candidates(
 def transfer_department_users(
     payload: DepartmentTransferIn,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "transfer"))],
 ) -> TransferResult:
     # PBI-4008: bulk-move people to a target department (old role dropped, audited per person).
     try:
@@ -227,6 +241,26 @@ def transfer_department_users(
     except UserNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return TransferResult(transferred=n)
+
+
+@router.post("/departments/assign-role", response_model=RoleAssignResult)
+def bulk_assign_role(
+    payload: RoleBulkAssignIn,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "assign_role"))],
+) -> RoleAssignResult:
+    # Gán một vai trò cho nhiều người cùng lúc từ màn Phòng ban (audit từng người).
+    try:
+        n = admin.bulk_assign_role(
+            user_ids=payload.user_ids,
+            role_id=payload.role_id,
+            actor_id=user.id,
+        )
+    except InvalidRoleForDepartment as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return RoleAssignResult(assigned=n)
 
 
 @router.get("/unit-levels", response_model=list[UnitLevelOut])
@@ -321,6 +355,7 @@ def create_user(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return {
         "id": created.id,
+        "code": created.code,
         "name": created.name,
         "username": created.username,
         "department_id": created.department_id,
@@ -334,7 +369,7 @@ def assign_user_role(
     user_id: int,
     payload: RoleAssign,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "assign_role"))],
 ) -> dict:
     try:
         updated = admin.assign_role(user_id=user_id, role_id=payload.role_id, actor_id=user.id)
@@ -344,6 +379,7 @@ def assign_user_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return {
         "id": updated.id,
+        "code": updated.code,
         "name": updated.name,
         "username": updated.username,
         "department_id": updated.department_id,
@@ -357,7 +393,7 @@ def set_user_active(
     user_id: int,
     payload: ActiveUpdate,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "lock"))],
 ) -> dict:
     try:
         updated = admin.set_active(user_id=user_id, is_active=payload.is_active, actor_id=user.id)
@@ -367,6 +403,7 @@ def set_user_active(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return {
         "id": updated.id,
+        "code": updated.code,
         "name": updated.name,
         "username": updated.username,
         "department_id": updated.department_id,
@@ -380,22 +417,28 @@ def update_user(
     user_id: int,
     payload: UserUpdate,
     admin: Users,
+    authz: Authz,
     user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
 ) -> dict:
     # PBI-2003: edit name + department. Changing department drops the old role (service).
+    # Đổi phòng ban là quyền chi tiết `transfer` (đổi tên trong cùng phòng chỉ cần `update`).
     try:
         updated, _dropped = admin.update_user(
             user_id=user_id,
             name=payload.name,
             department_id=payload.department_id,
             actor_id=user.id,
+            allow_transfer=authz.can(user, "nguoi_dung", "transfer"),
         )
+    except TransferForbidden as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
     except UADeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     except UserNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return {
         "id": updated.id,
+        "code": updated.code,
         "name": updated.name,
         "username": updated.username,
         "department_id": updated.department_id,
@@ -408,7 +451,7 @@ def update_user(
 def reset_user_password(
     user_id: int,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "reset_password"))],
 ) -> ResetPasswordOut:
     # PBI-2006: set a temp password (shown once), revoke every session, audit.
     try:
@@ -426,11 +469,13 @@ def reset_user_password(
 def revoke_user_sessions(
     user_id: int,
     admin: Users,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "update"))],
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "revoke_sessions"))],
 ) -> Response:
     # PBI-2008: log the user out everywhere.
     try:
         admin.revoke_sessions(user_id=user_id, actor_id=user.id)
+    except CannotRevokeSelf as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     except UserNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)
@@ -546,7 +591,7 @@ def save_role_permissions(
     role_id: int,
     payload: PermissionMatrixIn,
     svc: Service,
-    user: Annotated[object, Depends(require_permission("vai_tro", "update"))],
+    user: Annotated[object, Depends(require_permission("vai_tro", "manage_permissions"))],
 ) -> list[PermissionRow]:
     try:
         return svc.save_matrix(

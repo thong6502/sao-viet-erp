@@ -167,6 +167,15 @@
 .users__muted {
   color: var(--ash-2);
 }
+/* Cột ID tự sinh — hẹp, mono, mờ để không lấn át tên. */
+.users__id {
+  width: 1%;
+  white-space: nowrap;
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  color: var(--ash);
+  text-align: right;
+}
 
 .users__badge {
   font-family: var(--ff-mono);

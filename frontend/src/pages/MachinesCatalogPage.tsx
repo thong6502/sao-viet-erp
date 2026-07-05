@@ -8,6 +8,7 @@ import {
   type MachineRateRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./master-data.css";
 
@@ -33,6 +34,11 @@ const PROCESS_TYPES = [
 
 export function MachinesCatalogPage() {
   const { token } = useAuth();
+  // CRUD: ẩn nút Thêm/Sửa/Xóa nếu thiếu quyền (view-only: ẩn hẳn, không disable).
+  const can = useCan();
+  const canCreate = can("dm_thiet_bi", "create");
+  const canUpdate = can("dm_thiet_bi", "update");
+  const canDelete = can("dm_thiet_bi", "delete");
 
   const [rows, setRows] = useState<MachineRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -140,12 +146,14 @@ export function MachinesCatalogPage() {
         </select>
 
         <div className="md-page__toolbar-spacer" />
-        <Button
-          variant="primary"
-          onClick={() => { setSelected(null); setMode("create"); }}
-        >
-          + Tạo máy in / Thiết bị
-        </Button>
+        {canCreate && (
+          <Button
+            variant="primary"
+            onClick={() => { setSelected(null); setMode("create"); }}
+          >
+            + Tạo máy in / Thiết bị
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -182,7 +190,12 @@ export function MachinesCatalogPage() {
               rows.map((row) => {
                 const activeRate = row.rates.find((r) => r.effective_to === null);
                 return (
-                  <tr key={row.id} className="md-page__row" onClick={() => { setSelected(row); setMode("edit"); }}>
+                  <tr
+                    key={row.id}
+                    className="md-page__row"
+                    onClick={canUpdate ? () => { setSelected(row); setMode("edit"); } : undefined}
+                    style={canUpdate ? undefined : { cursor: "default" }}
+                  >
                     <td className="md-page__mono">{row.code}</td>
                     <td><strong>{row.name}</strong></td>
                     <td>{MACHINE_TYPES.find((t) => t.value === row.machine_type)?.label ?? row.machine_type}</td>
@@ -216,13 +229,15 @@ export function MachinesCatalogPage() {
                       </span>
                     </td>
                     <td className="md-page__actions-col" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className="btn btn--ghost md-page__rowbtn"
-                        onClick={() => { setSelected(row); setMode("edit"); }}
-                      >
-                        Sửa
-                      </button>
+                      {canUpdate && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost md-page__rowbtn"
+                          onClick={() => { setSelected(row); setMode("edit"); }}
+                        >
+                          Sửa
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn--ghost md-page__rowbtn"
@@ -230,13 +245,15 @@ export function MachinesCatalogPage() {
                       >
                         Giá giờ máy
                       </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"
-                        onClick={() => setDeleting(row)}
-                      >
-                        Xóa
-                      </button>
+                      {canDelete && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"
+                          onClick={() => setDeleting(row)}
+                        >
+                          Xóa
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -583,6 +600,8 @@ function MachineRatesDialog({
   onSaved: () => void;
 }) {
   const { token } = useAuth();
+  // Cập nhật đơn giá theo mốc = quyền chi tiết `manage_price` (tách khỏi "Sửa").
+  const canManagePrice = useCan()("dm_thiet_bi", "manage_price");
 
   const [rates, setRates] = useState<MachineRateRow[]>([]);
   const [hourlyRate, setHourlyRate] = useState("");
@@ -641,6 +660,10 @@ function MachineRatesDialog({
           <button type="button" className="md-page__close" onClick={onClose}>✕</button>
         </div>
         <div className="md-page__dialog-body">
+          {!canManagePrice && (
+            <p className="md-page__hint">Bạn không có quyền cập nhật đơn giá.</p>
+          )}
+          {canManagePrice && (
           <form className="md-page__rates-form" onSubmit={handleAddRate}>
             <h3 className="md-page__section-title">Thiết lập đơn giá giờ mới</h3>
             <div className="md-page__form-grid">
@@ -686,6 +709,7 @@ function MachineRatesDialog({
               </div>
             </div>
           </form>
+          )}
 
           {error && (
             <div className="banner banner--error" role="alert">

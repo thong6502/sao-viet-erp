@@ -22,8 +22,25 @@ class UserRepository:
         stmt = select(User).where(User.username == username)
         return self.db.execute(stmt).scalar_one_or_none()
 
+    def next_code(self) -> str:
+        """Next sequential employee code: 'NV' + zero-padded number (spec-07). Based on the
+        max existing NV-number so codes stay unique even after deletions (no reuse)."""
+        max_n = 0
+        for code in self.db.execute(select(User.code)).scalars():
+            if code and code.startswith("NV"):
+                try:
+                    max_n = max(max_n, int(code[2:]))
+                except ValueError:
+                    continue
+        return f"NV{max_n + 1:03d}"
+
     def create(self, *, username: str, name: str, password_hash: str) -> User:
-        user = User(username=username, name=name, password_hash=password_hash)
+        user = User(
+            username=username,
+            name=name,
+            password_hash=password_hash,
+            code=self.next_code(),
+        )
         self.db.add(user)
         self.db.commit()
         self.db.refresh(user)

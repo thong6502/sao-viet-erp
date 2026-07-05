@@ -242,6 +242,7 @@ export function UsersPage() {
         <table className="users__table">
           <thead>
             <tr>
+              <th className="users__id">ID</th>
               <th>Tên</th>
               <th>Tên đăng nhập</th>
               <th>Phòng</th>
@@ -252,7 +253,7 @@ export function UsersPage() {
           <tbody>
             {pageUsers.length === 0 ? (
               <tr>
-                <td colSpan={5} className="users__empty">
+                <td colSpan={6} className="users__empty">
                   {users.length !== 0
                     ? "Không có người dùng khớp tìm kiếm."
                     : canCreate
@@ -276,8 +277,9 @@ export function UsersPage() {
                       }
                     }}
                   >
+                    <td className="users__id">{u.code ?? "—"}</td>
                     <td>{u.name}</td>
-                    <td className="users__email">@{u.username}</td>
+                    <td className="users__email">{u.username}</td>
                     <td>{u.department_name ?? "—"}</td>
                     <td>{u.role_name ?? <span className="users__muted">Chưa gán</span>}</td>
                     <td>
@@ -296,7 +298,7 @@ export function UsersPage() {
                       className="users__row users__row--filler"
                       aria-hidden="true"
                     >
-                      <td colSpan={5}>&nbsp;</td>
+                      <td colSpan={6}>&nbsp;</td>
                     </tr>
                   ))}
               </>

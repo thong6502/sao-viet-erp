@@ -57,6 +57,28 @@ class ModuleCapability(BaseModel):
     can_create: bool = False
     can_update: bool = False
     can_delete: bool = False
+    # Data scope (own|department|all) — dùng để bật/tắt hành động phạm-vi-rộng ở UI
+    # (vd nút/checkbox "Điều chuyển khách hàng" chỉ hiện với scope department/all).
+    scope: str = "own"
+    # Quyền chi tiết (Cách B) — hành động đặc thù ngoài CRUD.
+    can_reassign: bool = False
+    can_export: bool = False
+    can_view_debt: bool = False
+    can_approve: bool = False
+    can_manage_status: bool = False
+    can_reset_password: bool = False
+    can_lock: bool = False
+    can_revoke_sessions: bool = False
+    can_assign_role: bool = False
+    can_transfer: bool = False
+    can_set_head: bool = False
+    can_requote: bool = False
+    can_manage_price: bool = False
+    can_cancel: bool = False
+    can_manage_permissions: bool = False
+    can_clone: bool = False
+    can_toggle_active: bool = False
+    can_reparent: bool = False
 
 
 class PermissionsOut(BaseModel):

@@ -6,6 +6,7 @@ import {
   type PlateDieRateInput,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./master-data.css";
 
@@ -32,7 +33,11 @@ const UNITS = [
 
 export function PlateDieRatesPage() {
   const { token } = useAuth();
-  
+  const can = useCan();
+  const canCreate = can("dm_gia_khuon_ban", "create");
+  const canUpdate = can("dm_gia_khuon_ban", "update");
+  const canDelete = can("dm_gia_khuon_ban", "delete");
+
   const [rows, setRows] = useState<PlateDieRateRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -191,9 +196,11 @@ export function PlateDieRatesPage() {
             <h1 className="md-page__title">Bảng giá Khuôn & Bản kẽm</h1>
             <p className="md-page__sub">Quản lý đơn giá chế bản kẽm offset, khuôn bế, khuôn ép kim và cliché</p>
           </div>
-          <Button variant="primary" onClick={handleCreateClick}>
-            + Thêm khuôn/bản mới
-          </Button>
+          {canCreate && (
+            <Button variant="primary" onClick={handleCreateClick}>
+              + Thêm khuôn/bản mới
+            </Button>
+          )}
         </div>
       </div>
 
@@ -298,7 +305,7 @@ export function PlateDieRatesPage() {
                     </span>
                   </td>
                   <td className="md-page__actions-col">
-                    {row.is_active && (
+                    {canUpdate && row.is_active && (
                       <button
                         type="button"
                         className="btn btn--secondary md-page__rowbtn"
@@ -307,7 +314,7 @@ export function PlateDieRatesPage() {
                         Đóng giá
                       </button>
                     )}
-                    {row.effective_from > todayStr && (
+                    {canDelete && row.effective_from > todayStr && (
                       <button
                         type="button"
                         className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"

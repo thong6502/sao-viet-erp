@@ -2,7 +2,7 @@
 // On entry it loads the current user's readable modules (feat-010) to gate both
 // the sidebar (handled in Sidebar) and the content (a forbidden module → 403).
 import { useCallback, useEffect, useState } from "react";
-import { api, type PinnedCustomer } from "../api/client";
+import { api, type PinnedCustomer, type WarehouseOption } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import {
   buildCapabilities,
@@ -15,7 +15,6 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
-import { RolesPage } from "../pages/RolesPage";
 import { SanPhamPage } from "../pages/SanPhamPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { UsersPage } from "../pages/UsersPage";
@@ -26,6 +25,8 @@ import { OperationsCatalogPage } from "../pages/OperationsCatalogPage";
 import { ClickInkRatesPage } from "../pages/ClickInkRatesPage";
 import { PlateDieRatesPage } from "../pages/PlateDieRatesPage";
 import { NormsCatalogPage } from "../pages/NormsCatalogPage";
+import { WarehousesCatalogPage } from "../pages/WarehousesCatalogPage";
+import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
 import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
 import { MODULE_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -45,6 +46,12 @@ export interface NavParams {
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
 
+/** Nav id của mặt hàng-trong-kho: "kho-hang:<warehouseId>" → id kho, hoặc null. */
+function warehouseIdOf(navId: string): number | null {
+  const [base, wid] = navId.split(":");
+  return base === "kho-hang" && wid ? Number(wid) : null;
+}
+
 export function AppShell() {
   const { token } = useAuth();
   const [activeId, setActiveId] = useState("dashboard");
@@ -52,6 +59,8 @@ export function AppShell() {
   const [readable, setReadable] = useState<Set<string> | null>(null);
   const [caps, setCaps] = useState<Capabilities>(new Map());
   const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
+  // Các kho admin đã cấu hình → menu con động dưới "Kho hàng" trong sidebar.
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
 
   // Single navigation entrypoint: switches the active screen AND carries an optional
   // payload (pinned customer / document to open). Every param object is fresh so the
@@ -81,6 +90,20 @@ export function AppShell() {
     };
   }, [token]);
 
+  // Nạp/refresh danh sách kho (cho menu con sidebar) khi có quyền `kho`. Refetch theo
+  // activeId để kho vừa cấu hình xuất hiện ngay khi điều hướng (endpoint rất nhẹ).
+  useEffect(() => {
+    if (!token || readable === null || !readable.has("kho")) return;
+    let cancelled = false;
+    api.warehouseItems
+      .options(token)
+      .then((ws) => !cancelled && setWarehouses(ws))
+      .catch(() => !cancelled && setWarehouses([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [token, readable, activeId]);
+
   if (readable === null) {
     return (
       <div className="shell__center" role="status" aria-live="polite">
@@ -89,8 +112,13 @@ export function AppShell() {
     );
   }
 
-  const moduleKey = MODULE_BY_NAV_ID[activeId];
+  const baseId = activeId.split(":")[0];
+  const moduleKey = MODULE_BY_NAV_ID[baseId];
   const allowed = moduleKey != null && readable.has(moduleKey);
+  // Menu con động: các kho đã cấu hình gắn dưới mục "Kho hàng".
+  const itemChildren = {
+    "kho-hang": warehouses.map((w) => ({ id: `kho-hang:${w.id}`, label: w.name })),
+  };
 
   function renderContent() {
     if (!allowed) {
@@ -110,9 +138,7 @@ export function AppShell() {
         </main>
       );
     }
-    switch (activeId) {
-      case "vai-tro":
-        return <RolesPage />;
+    switch (baseId) {
       case "phong-ban":
         return <DepartmentsPage />;
       case "nguoi-dung":
@@ -153,6 +179,12 @@ export function AppShell() {
         return <PlateDieRatesPage />;
       case "dinh-muc-bu-hao":
         return <NormsCatalogPage />;
+      case "cau-hinh-kho":
+        return <WarehousesCatalogPage />;
+      case "kho-hang":
+        return (
+          <WarehouseItemsPage key={activeId} initialWarehouseId={warehouseIdOf(activeId)} />
+        );
       case "nhat-ky":
         return <ActivityLogPage />;
       default:
@@ -163,7 +195,12 @@ export function AppShell() {
   return (
     <PermissionsProvider caps={caps}>
       <div className="shell">
-        <Sidebar activeId={activeId} onSelect={(id) => navigate(id)} readable={readable} />
+        <Sidebar
+          activeId={activeId}
+          onSelect={(id) => navigate(id)}
+          readable={readable}
+          itemChildren={itemChildren}
+        />
         <div className="shell__main">
           <Topbar onProfileAction={setProfileAction} />
           <div className="shell__content">{renderContent()}</div>

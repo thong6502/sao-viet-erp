@@ -4,7 +4,7 @@
 // Each item is gated by a `module` key: only modules the current role can Read
 // are shown (feat-010) — sections with no visible items are dropped.
 // The user widget lives in the top header (Topbar), not here (feat-018).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import { Icon, type IconName } from "./Icons";
 import "./sidebar.css";
@@ -70,26 +70,7 @@ const NAV: NavSection[] = [
     id: "kho",
     label: "Kho",
     items: [
-      {
-        id: "kho",
-        label: "Kho",
-        icon: "warehouse",
-        module: "kho",
-        children: [
-          { id: "kho-ton", label: "Tồn kho" },
-          { id: "kho-nhap-xuat", label: "Nhập / Xuất kho" },
-        ],
-      },
-      {
-        id: "kho-kts",
-        label: "Kho kỹ thuật số",
-        icon: "database",
-        module: "kho",
-        children: [
-          { id: "kts-file", label: "File thiết kế" },
-          { id: "kts-tai-nguyen", label: "Tài nguyên" },
-        ],
-      },
+      { id: "kho-hang", label: "Kho hàng", icon: "warehouse", module: "kho" },
     ],
   },
   {
@@ -104,13 +85,14 @@ const NAV: NavSection[] = [
     id: "cau-hinh-dm",
     label: "Cấu hình danh mục",
     items: [
-      { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_dinh_muc" },
+      { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_loai_san_pham" },
       { id: "vat-lieu", label: "Vật liệu & Giá", icon: "bag", module: "dm_giay_vat_tu" },
-      { id: "thiet-bi-may", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_giay_vat_tu" },
-      { id: "cong-doan-gc", label: "Công đoạn gia công", icon: "activity", module: "dm_giay_vat_tu" },
-      { id: "gia-click", label: "Bảng giá Click", icon: "calculator", module: "dm_dinh_muc" },
-      { id: "gia-khuon-ban", label: "Bảng giá Khuôn & Bản", icon: "fileText", module: "dm_dinh_muc" },
+      { id: "thiet-bi-may", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
+      { id: "cong-doan-gc", label: "Công đoạn gia công", icon: "activity", module: "dm_cong_doan" },
+      { id: "gia-click", label: "Bảng giá Click", icon: "calculator", module: "dm_gia_click" },
+      { id: "gia-khuon-ban", label: "Bảng giá Khuôn & Bản", icon: "fileText", module: "dm_gia_khuon_ban" },
       { id: "dinh-muc-bu-hao", label: "Định mức & Bù hao", icon: "activity", module: "dm_dinh_muc" },
+      { id: "cau-hinh-kho", label: "Cấu hình kho hàng", icon: "warehouse", module: "dm_kho" },
     ],
   },
   {
@@ -119,7 +101,6 @@ const NAV: NavSection[] = [
     items: [
       { id: "nguoi-dung", label: "Người dùng", icon: "users", module: "nguoi_dung" },
       { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
-      { id: "vai-tro", label: "Vai trò", icon: "shield", module: "vai_tro" },
       { id: "nhat-ky", label: "Nhật ký", icon: "activity", module: "activity_log" },
     ],
   },
@@ -134,9 +115,11 @@ interface SidebarProps {
   activeId: string;
   onSelect: (id: string) => void;
   readable: ReadonlySet<string>;
+  /** Menu con ĐỘNG theo item id (vd các kho đã cấu hình dưới "Kho hàng"). */
+  itemChildren?: Record<string, NavChild[]>;
 }
 
-export function Sidebar({ activeId, onSelect, readable }: SidebarProps) {
+export function Sidebar({ activeId, onSelect, readable, itemChildren }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -146,11 +129,26 @@ export function Sidebar({ activeId, onSelect, readable }: SidebarProps) {
     return next;
   }
 
-  // Only show items whose module the role can Read; drop now-empty sections.
+  // Only show items whose module the role can Read; drop now-empty sections. Inject any
+  // dynamic children (e.g. configured warehouses) onto their host item.
   const sections = NAV.map((s) => ({
     ...s,
-    items: s.items.filter((i) => readable.has(i.module)),
+    items: s.items
+      .filter((i) => readable.has(i.module))
+      .map((i) => {
+        const dyn = itemChildren?.[i.id];
+        return dyn && dyn.length ? { ...i, children: dyn } : i;
+      }),
   })).filter((s) => s.items.length > 0);
+
+  // Auto-mở item cha khi một menu con của nó đang active (mở lại trang / deep-link).
+  useEffect(() => {
+    const host = sections
+      .flatMap((s) => s.items)
+      .find((i) => i.children?.some((c) => c.id === activeId));
+    if (host) setExpanded((prev) => (prev.has(host.id) ? prev : new Set(prev).add(host.id)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeId, itemChildren]);
 
   return (
     <aside className="sidebar">

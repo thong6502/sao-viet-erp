@@ -6,6 +6,7 @@ import {
   type ProductTypeCatalogInput,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./master-data.css";
 
@@ -72,6 +73,10 @@ const TECH_TYPES = [
 
 export function ProductTypesCatalogPage() {
   const { token } = useAuth();
+  const can = useCan();
+  const canCreate = can("dm_loai_san_pham", "create");
+  const canUpdate = can("dm_loai_san_pham", "update");
+  const canDelete = can("dm_loai_san_pham", "delete");
   const [rows, setRows] = useState<ProductTypeCatalogRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -136,15 +141,17 @@ export function ProductTypesCatalogPage() {
 
       <div className="md-page__toolbar">
         <div className="md-page__toolbar-spacer" />
-        <Button
-          variant="primary"
-          onClick={() => {
-            setEditing(null);
-            setMode("create");
-          }}
-        >
-          + Tạo loại sản phẩm
-        </Button>
+        {canCreate && (
+          <Button
+            variant="primary"
+            onClick={() => {
+              setEditing(null);
+              setMode("create");
+            }}
+          >
+            + Tạo loại sản phẩm
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -184,7 +191,12 @@ export function ProductTypesCatalogPage() {
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={row.id} className="md-page__row" onClick={() => { setEditing(row); setMode("edit"); }}>
+                <tr
+                  key={row.id}
+                  className="md-page__row"
+                  onClick={canUpdate ? () => { setEditing(row); setMode("edit"); } : undefined}
+                  style={canUpdate ? undefined : { cursor: "default" }}
+                >
                   <td className="md-page__mono">{row.product_type}</td>
                   <td><strong>{row.name}</strong></td>
                   <td>
@@ -216,20 +228,24 @@ export function ProductTypesCatalogPage() {
                     </span>
                   </td>
                   <td className="md-page__actions-col" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      className="btn btn--ghost md-page__rowbtn"
-                      onClick={() => { setEditing(row); setMode("edit"); }}
-                    >
-                      Sửa
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"
-                      onClick={() => setDeleting(row)}
-                    >
-                      Xóa
-                    </button>
+                    {canUpdate && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost md-page__rowbtn"
+                        onClick={() => { setEditing(row); setMode("edit"); }}
+                      >
+                        Sửa
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"
+                        onClick={() => setDeleting(row)}
+                      >
+                        Xóa
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))

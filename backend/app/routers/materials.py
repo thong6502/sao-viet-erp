@@ -6,7 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
-from ..deps import get_material_service, require_permission
+from ..deps import get_authorization_service, get_material_service, require_permission
 from ..models.user import User
 from ..schemas.material import (
     MaterialCostCreate,
@@ -24,7 +24,9 @@ from ..services.material_service import (
     MaterialNotFound,
     MaterialError,
     MaterialService,
+    ToggleActiveForbidden,
 )
+from ..services.rbac_service import AuthorizationService
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
 MODULE = "dm_giay_vat_tu"
@@ -105,6 +107,7 @@ def update_material(
     material_id: int,
     payload: MaterialUpdate,
     svc: Annotated[MaterialService, Depends(get_material_service)],
+    authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> MaterialDetailOut:
     try:
@@ -124,7 +127,10 @@ def update_material(
             surface=payload.surface,
             is_active=payload.is_active,
             actor=user,
+            allow_toggle_active=authz.can(user, MODULE, "toggle_active"),
         )
+    except ToggleActiveForbidden as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
     except MaterialNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     except MaterialDuplicate as e:
@@ -155,7 +161,7 @@ def delete_material(
 def toggle_active(
     material_id: int,
     svc: Annotated[MaterialService, Depends(get_material_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "toggle_active"))],
 ) -> MaterialDetailOut:
     try:
         material = svc.toggle_active(material_id=material_id, actor=user)
@@ -168,7 +174,7 @@ def add_material_price(
     material_id: int,
     payload: MaterialCostCreate,
     svc: Annotated[MaterialService, Depends(get_material_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_price"))],
 ) -> MaterialCostOut:
     try:
         cost = svc.add_material_price(
@@ -191,7 +197,7 @@ def clone_paper(
     material_id: int,
     payload: ClonePaperPayload,
     svc: Annotated[MaterialService, Depends(get_material_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "clone"))],
 ) -> MaterialDetailOut:
     try:
         material = svc.clone_paper(

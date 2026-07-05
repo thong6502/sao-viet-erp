@@ -14,6 +14,7 @@ import {
   type QuotePick,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
 import { DarkSummaryPanel } from "../components/DarkSummaryPanel";
@@ -1305,10 +1306,16 @@ function QuotationDetailDialog({
   onChanged: () => void;
 }) {
   const { token } = useAuth();
+  // Xuất PDF đối ngoại = quyền chi tiết `export` (tách khỏi "xem").
+  const canExport = useCan()("bao_gia", "export");
+  const canRequote = useCan()("bao_gia", "requote");
+  const canCancel = useCan()("bao_gia", "cancel");
+  // Thao tác trạng thái chung (gửi / từ chối / đánh dấu hết hạn…) — tách khỏi "sửa".
+  const canManageStatus = useCan()("bao_gia", "manage_status");
   const [d, setD] = useState<QuotationDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  
+
   // Detail Tabs
   const [activeTab, setActiveTab] = useState<"commercial" | "internal" | "timeline" | "pdf">("commercial");
 
@@ -1706,7 +1713,9 @@ function QuotationDetailDialog({
               <div className="bg__pdf-tab">
                 <div className="bg__pdf-preview-header">
                   <span>Xem trước định dạng PDF in gửi khách hàng</span>
-                  <Button variant="ghost" onClick={openPdf}>🖨️ Tải bản PDF</Button>
+                  {canExport && (
+                    <Button variant="ghost" onClick={openPdf}>🖨️ Tải bản PDF</Button>
+                  )}
                 </div>
                 <div className="bg__pdf-mockup-frame">
                   <div className="bg__pdf-mockup-sheet">
@@ -1821,11 +1830,13 @@ function QuotationDetailDialog({
               </Button>
             )}
             
-            <Button type="button" variant="ghost" onClick={openPdf}>
-              Xuất PDF
-            </Button>
+            {canExport && (
+              <Button type="button" variant="ghost" onClick={openPdf}>
+                Xuất PDF
+              </Button>
+            )}
 
-            {d.allowed_transitions.includes("change_order") && (
+            {canRequote && d.allowed_transitions.includes("change_order") && (
               <Button type="button" variant="ghost" onClick={doRequote} disabled={busy}>
                 Re-quote (Tạo V{d.version + 1})
               </Button>
@@ -1837,20 +1848,23 @@ function QuotationDetailDialog({
               </Button>
             )}
 
-            {transitions.map((t) => (
-              <Button
-                key={t}
-                type="button"
-                variant={t === "accepted" ? "primary" : "ghost"}
-                disabled={busy || (t === "accepted" && !d.can_approve)}
-                onClick={() => doTransition(t)}
-                title={t === "accepted" && !d.can_approve ? "Cần quyền duyệt (ngưỡng X/Y)" : undefined}
-              >
-                {TRANSITION_LABELS[t] ?? t}
-              </Button>
-            ))}
+            {transitions
+              // Ẩn nút mà người dùng không có quyền: 'accepted' cần quyền Duyệt; các
+              // trạng thái khác (gửi/từ chối/hết hạn) cần quyền Thao tác trạng thái.
+              .filter((t) => (t === "accepted" ? d.can_approve : canManageStatus))
+              .map((t) => (
+                <Button
+                  key={t}
+                  type="button"
+                  variant={t === "accepted" ? "primary" : "ghost"}
+                  disabled={busy}
+                  onClick={() => doTransition(t)}
+                >
+                  {TRANSITION_LABELS[t] ?? t}
+                </Button>
+              ))}
 
-            {d.status !== "cancelled" && d.status !== "converted_to_order" && (
+            {canCancel && d.status !== "cancelled" && d.status !== "converted_to_order" && (
               <Button
                 type="button"
                 variant="danger"

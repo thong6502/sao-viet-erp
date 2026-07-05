@@ -8,6 +8,7 @@ import {
   type OperationCatalogRateRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./master-data.css";
 
@@ -33,6 +34,10 @@ const OP_TYPES = [
 
 export function OperationsCatalogPage() {
   const { token } = useAuth();
+  const can = useCan();
+  const canCreate = can("dm_cong_doan", "create");
+  const canUpdate = can("dm_cong_doan", "update");
+  const canDelete = can("dm_cong_doan", "delete");
 
   const [rows, setRows] = useState<OperationCatalogRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -140,12 +145,14 @@ export function OperationsCatalogPage() {
         </select>
 
         <div className="md-page__toolbar-spacer" />
-        <Button
-          variant="primary"
-          onClick={() => { setSelected(null); setMode("create"); }}
-        >
-          + Tạo công đoạn mới
-        </Button>
+        {canCreate && (
+          <Button
+            variant="primary"
+            onClick={() => { setSelected(null); setMode("create"); }}
+          >
+            + Tạo công đoạn mới
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -182,7 +189,12 @@ export function OperationsCatalogPage() {
               rows.map((row) => {
                 const activeRate = row.rates.find((r) => r.effective_to === null);
                 return (
-                  <tr key={row.id} className="md-page__row" onClick={() => { setSelected(row); setMode("edit"); }}>
+                  <tr
+                    key={row.id}
+                    className="md-page__row"
+                    onClick={canUpdate ? () => { setSelected(row); setMode("edit"); } : undefined}
+                    style={canUpdate ? undefined : { cursor: "default" }}
+                  >
                     <td className="md-page__mono">{row.code}</td>
                     <td><strong>{row.name}</strong></td>
                     <td>{OP_TYPES.find((t) => t.value === row.operation_type)?.label ?? row.operation_type}</td>
@@ -216,13 +228,15 @@ export function OperationsCatalogPage() {
                       </span>
                     </td>
                     <td className="md-page__actions-col" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className="btn btn--ghost md-page__rowbtn"
-                        onClick={() => { setSelected(row); setMode("edit"); }}
-                      >
-                        Sửa
-                      </button>
+                      {canUpdate && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost md-page__rowbtn"
+                          onClick={() => { setSelected(row); setMode("edit"); }}
+                        >
+                          Sửa
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn--ghost md-page__rowbtn"
@@ -230,13 +244,15 @@ export function OperationsCatalogPage() {
                       >
                         Biểu giá
                       </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"
-                        onClick={() => setDeleting(row)}
-                      >
-                        Xóa
-                      </button>
+                      {canDelete && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"
+                          onClick={() => setDeleting(row)}
+                        >
+                          Xóa
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -453,6 +469,8 @@ function OperationRatesDialog({
   onSaved: () => void;
 }) {
   const { token } = useAuth();
+  // Cập nhật đơn giá theo mốc = quyền chi tiết `manage_price` (tách khỏi "Sửa").
+  const canManagePrice = useCan()("dm_cong_doan", "manage_price");
 
   const [rates, setRates] = useState<OperationCatalogRateRow[]>([]);
   const [setupFee, setSetupFee] = useState("0");
@@ -515,6 +533,10 @@ function OperationRatesDialog({
           <button type="button" className="md-page__close" onClick={onClose}>✕</button>
         </div>
         <div className="md-page__dialog-body">
+          {!canManagePrice && (
+            <p className="md-page__hint">Bạn không có quyền cập nhật đơn giá.</p>
+          )}
+          {canManagePrice && (
           <form className="md-page__rates-form" onSubmit={handleAddRate}>
             <h3 className="md-page__section-title">Thiết lập đơn giá gia công mới</h3>
             <div className="md-page__form-grid">
@@ -578,6 +600,7 @@ function OperationRatesDialog({
               </div>
             </div>
           </form>
+          )}
 
           {error && (
             <div className="banner banner--error" role="alert">

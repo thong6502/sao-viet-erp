@@ -20,6 +20,8 @@ export function RolesPage() {
   const canCreate = can("vai_tro", "create");
   const canUpdate = can("vai_tro", "update");
   const canDelete = can("vai_tro", "delete");
+  // Sửa MA TRẬN phân quyền = quyền chi tiết riêng (tách khỏi đổi tên vai trò — chống leo thang quyền).
+  const canManagePerms = can("vai_tro", "manage_permissions");
 
   const [modules, setModules] = useState<ModuleDef[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -270,7 +272,7 @@ export function RolesPage() {
           </p>
         </div>
         <div className="roles__save">
-          {canUpdate ? (
+          {canManagePerms ? (
             <>
               {saved && !dirty && <span className="roles__saved">Đã lưu</span>}
               <Button
@@ -446,7 +448,7 @@ export function RolesPage() {
               matrix={matrix}
               onToggle={toggle}
               onScope={setScope}
-              readOnly={!canUpdate}
+              readOnly={!canManagePerms}
             />
           </div>
         )}

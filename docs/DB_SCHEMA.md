@@ -141,6 +141,24 @@ gets on that module.
 | `can_update` | `Boolean` → `BOOLEAN` | — | no | `false` | May edit (Sửa) records of this module. |
 | `can_delete` | `Boolean` → `BOOLEAN` | — | no | `false` | May delete (Xóa) records of this module. |
 | `scope` | `String(16)` → `VARCHAR(16)` | — | no | `own` | Data scope: `own` (của tôi) / `department` (cả phòng) / `all` (tất cả). |
+| `can_reassign` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (Cách B) — điều chuyển người phụ trách (vd Khách hàng). |
+| `can_export` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — xuất file đối ngoại (CSV khách hàng, PDF báo giá). |
+| `can_view_debt` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — xem công nợ / hạn mức khách hàng. |
+| `can_approve` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — duyệt báo giá (chuyển trạng thái → Khách duyệt). |
+| `can_manage_status` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — chốt / hủy đơn hàng (đổi trạng thái vòng đời). |
+| `can_reset_password` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đặt lại mật khẩu người dùng. |
+| `can_lock` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — khóa / mở tài khoản người dùng. |
+| `can_revoke_sessions` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — thu hồi mọi phiên đăng nhập của người dùng. |
+| `can_assign_role` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — gán vai trò cho người dùng (đơn + hàng loạt). |
+| `can_transfer` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — chuyển người dùng sang phòng ban khác. |
+| `can_set_head` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đặt / đổi trưởng phòng (phong_ban). |
+| `can_requote` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — tạo bản báo giá mới (re-quote). |
+| `can_manage_price` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — cập nhật bảng giá theo mốc (vật liệu / thiết bị / công đoạn). |
+| `can_cancel` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — hủy báo giá (→ Đã hủy) / hủy đơn hàng. |
+| `can_manage_permissions` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — sửa MA TRẬN phân quyền của vai trò (tách khỏi đổi tên; chống leo thang quyền). |
+| `can_clone` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — nhân bản giấy (vật liệu). |
+| `can_toggle_active` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — bật/tắt hoạt động vật liệu. |
+| `can_reparent` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đổi cấp trên phòng ban (tái cấu trúc cây tổ chức). |
 
 **Keys & indexes**
 

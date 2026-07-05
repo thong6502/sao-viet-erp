@@ -125,6 +125,22 @@ class SaleOption(BaseModel):
     name: str
 
 
+class CustomerReassignIn(BaseModel):
+    """Điều chuyển khách hàng (trưởng phòng KD). Hai chế độ:
+    - `customer_ids` (checkbox): chuyển các khách được chọn; hoặc
+    - `from_sale_user_id`: chuyển TOÀN BỘ khách của một Sale.
+    `to_sale_user_id` là nhân viên đích (bắt buộc)."""
+
+    to_sale_user_id: int
+    customer_ids: list[int] | None = None
+    from_sale_user_id: int | None = None
+
+
+class CustomerReassignOut(BaseModel):
+    moved: int
+    skipped: int = 0
+
+
 # --- CRM-360 Object-page Dashboard (spec-06, computed from real orders/quotations) ---
 
 

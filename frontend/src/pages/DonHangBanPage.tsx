@@ -18,6 +18,7 @@ import {
   type PinnedCustomer,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./don-hang-ban.css";
 
@@ -674,6 +675,11 @@ function OrderDetailDialog({
   onChanged: () => void;
 }) {
   const { token } = useAuth();
+  // Chốt/hủy đơn = quyền chi tiết riêng (tách khỏi "sửa"). Không có → ẩn cả cụm nút.
+  const canManageStatus = useCan()("don_hang_ban", "manage_status");
+  // Tách theo từng chuyển trạng thái: Chốt (ordered)=approve, Hủy (cancelled)=cancel, khác=manage_status.
+  const canChot = useCan()("don_hang_ban", "approve");
+  const canHuy = useCan()("don_hang_ban", "cancel");
   const [d, setD] = useState<OrderDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -890,27 +896,37 @@ function OrderDetailDialog({
           )}
 
           <div className="dh__dialog-actions dh__dialog-actions--wrap">
-            {d.allowed_transitions.map((t) => {
-              const isConfirm = t === "ordered";
-              const disabled =
-                busy || (isConfirm && !(gate?.can_confirm ?? false));
-              return (
-                <Button
-                  key={t}
-                  type="button"
-                  variant={isConfirm ? "primary" : "ghost"}
-                  disabled={disabled}
-                  onClick={() => doTransition(t)}
-                  title={
-                    isConfirm && !(gate?.can_confirm ?? false)
-                      ? "Cần đã duyệt giá và cọc đạt ngưỡng (cọc chờ phân hệ Tài chính)"
-                      : undefined
-                  }
-                >
-                  {TRANSITION_LABELS[t] ?? t}
-                </Button>
+            {(() => {
+              // Ẩn nút mà người dùng không có quyền: chốt→approve, hủy→cancel, khác→manage_status.
+              const permitted = d.allowed_transitions.filter((t) =>
+                t === "ordered" ? canChot : t === "cancelled" ? canHuy : canManageStatus,
               );
-            })}
+              if (permitted.length === 0 && d.allowed_transitions.length > 0) {
+                return (
+                  <span className="dh__hint">Bạn không có quyền đổi trạng thái đơn.</span>
+                );
+              }
+              return permitted.map((t) => {
+                const isConfirm = t === "ordered";
+                const disabled = busy || (isConfirm && !(gate?.can_confirm ?? false));
+                return (
+                  <Button
+                    key={t}
+                    type="button"
+                    variant={isConfirm ? "primary" : "ghost"}
+                    disabled={disabled}
+                    onClick={() => doTransition(t)}
+                    title={
+                      isConfirm && !(gate?.can_confirm ?? false)
+                        ? "Cần đã duyệt giá và cọc đạt ngưỡng (cọc chờ phân hệ Tài chính)"
+                        : undefined
+                    }
+                  >
+                    {TRANSITION_LABELS[t] ?? t}
+                  </Button>
+                );
+              });
+            })()}
           </div>
         </div>
       </div>
