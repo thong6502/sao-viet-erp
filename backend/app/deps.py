@@ -38,7 +38,6 @@ from .repositories.rbac_repo import (
 )
 from .repositories.refresh_token_repo import RefreshTokenRepository
 from .repositories.user_repo import UserRepository
-from .repositories.click_ink_rate_repo import ClickInkRateRepository
 from .repositories.plate_die_rate_repo import PlateDieRateRepository
 from .repositories.norm_repo import NormRepository
 from .repositories.document_sequence_repo import DocumentSequenceRepository
@@ -70,7 +69,6 @@ from .services.refresh_service import RefreshTokenService
 from .services.role_service import RoleService
 from .services.unit_level_service import UnitLevelService
 from .services.user_admin_service import UserAdminService
-from .services.click_ink_rate_service import ClickInkRateService
 from .services.plate_die_rate_service import PlateDieRateService
 from .services.norm_service import NormService
 from .services.sequence_service import SequenceService
@@ -479,19 +477,6 @@ def get_warehouse_item_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> WarehouseItemService:
     return WarehouseItemService(repo, warehouses, users, audit)
-
-
-def get_click_ink_rate_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> ClickInkRateRepository:
-    return ClickInkRateRepository(db)
-
-
-def get_click_ink_rate_service(
-    repo: Annotated[ClickInkRateRepository, Depends(get_click_ink_rate_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-) -> ClickInkRateService:
-    return ClickInkRateService(repo, audit)
 
 
 def get_plate_die_rate_repository(

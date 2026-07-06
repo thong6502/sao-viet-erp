@@ -13,13 +13,15 @@ import {
   type TimesheetRow,
   type WorkLocation,
   type WorkLocationInput,
+  type WorkShift,
+  type WorkShiftInput,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import "./nhan-su.css";
 import "./cham-cong.css";
 
-type Tab = "me" | "locations" | "logs" | "timesheet";
+type Tab = "me" | "locations" | "khai-ca" | "logs" | "timesheet";
 
 function fmtDateTime(s: string | null | undefined): string {
   if (!s) return "—";
@@ -69,12 +71,14 @@ export function ChamCongPage() {
       <nav className="ns-tabs cc-tabs">
         <button className={tab === "me" ? "is-active" : ""} onClick={() => setTab("me")}>Chấm công của tôi</button>
         {canConfig && <button className={tab === "locations" ? "is-active" : ""} onClick={() => setTab("locations")}>Điểm chấm công</button>}
+        {canConfig && <button className={tab === "khai-ca" ? "is-active" : ""} onClick={() => setTab("khai-ca")}>Khai ca</button>}
         <button className={tab === "logs" ? "is-active" : ""} onClick={() => setTab("logs")}>Bảng chấm công</button>
         <button className={tab === "timesheet" ? "is-active" : ""} onClick={() => setTab("timesheet")}>Bảng công tháng</button>
       </nav>
 
       {tab === "me" && <MyCheckIn token={token!} />}
       {tab === "locations" && canConfig && <LocationsTab token={token!} />}
+      {tab === "khai-ca" && canConfig && <ShiftsTab token={token!} />}
       {tab === "logs" && <LogsTab token={token!} />}
       {tab === "timesheet" && <TimesheetTab token={token!} />}
     </main>
@@ -314,6 +318,119 @@ function LogsTab({ token }: { token: string }) {
 
 // --- Tab: Bảng công tháng (HR) ----------------------------------------------
 
+// --- Tab: Khai ca (HR) ------------------------------------------------------
+
+function ShiftsTab({ token }: { token: string }) {
+  const [items, setItems] = useState<WorkShift[] | null>(null);
+  const [editing, setEditing] = useState<WorkShift | "new" | null>(null);
+  const load = useCallback(() => {
+    api.attendance.shifts(token).then((r) => setItems(r.items)).catch(() => setItems([]));
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  async function remove(id: number) {
+    await api.attendance.deleteShift(token, id);
+    load();
+  }
+  return (
+    <div>
+      <div className="cc-toolbar">
+        <button className="btn btn--primary" onClick={() => setEditing("new")}>+ Thêm ca</button>
+      </div>
+      <div className="ns__tablewrap">
+        <table className="ns__table">
+          <thead>
+            <tr><th>Tên ca</th><th>Giờ vào</th><th>Giờ ra</th><th>Dung sai</th><th>Loại</th><th>Trạng thái</th><th></th></tr>
+          </thead>
+          <tbody>
+            {items?.map((s) => (
+              <tr key={s.id}>
+                <td>{s.name}</td><td>{s.start_time}</td><td>{s.end_time}</td>
+                <td>{s.grace_minutes}′</td>
+                <td>{[s.is_overnight ? "Qua đêm" : "", s.night_shift ? "🌙 đêm" : ""].filter(Boolean).join(" · ") || "Thường"}</td>
+                <td>{s.is_active
+                  ? <span className="ns-badge ns-badge--ok">Đang dùng</span>
+                  : <span className="ns-badge ns-badge--muted">Tắt</span>}</td>
+                <td className="cc-rowact">
+                  <button className="btn btn--ghost" onClick={() => setEditing(s)}>Sửa</button>
+                  <button className="btn btn--ghost ns-danger" onClick={() => remove(s.id)}>Xóa</button>
+                </td>
+              </tr>
+            ))}
+            {items?.length === 0 && <tr><td colSpan={7} className="ns__empty">Chưa khai ca nào.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {editing && (
+        <ShiftForm token={token} shift={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+      )}
+    </div>
+  );
+}
+
+function ShiftForm({ token, shift, onClose, onSaved }: {
+  token: string; shift: WorkShift | null; onClose: () => void; onSaved: () => void;
+}) {
+  const [form, setForm] = useState<WorkShiftInput>({
+    name: shift?.name ?? "", start_time: shift?.start_time ?? "08:00", end_time: shift?.end_time ?? "17:00",
+    is_overnight: shift?.is_overnight ?? false, night_shift: shift?.night_shift ?? false,
+    grace_minutes: shift?.grace_minutes ?? 5, note: shift?.note ?? "", is_active: shift?.is_active ?? true,
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  function set<K extends keyof WorkShiftInput>(k: K, v: WorkShiftInput[K]) { setForm((f) => ({ ...f, [k]: v })); }
+  async function save() {
+    setBusy(true); setError(null);
+    try {
+      if (shift) await api.attendance.updateShift(token, shift.id, form);
+      else await api.attendance.createShift(token, form);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Lỗi khi lưu.");
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box">
+        <header className="ns-modal__head">
+          <h2>{shift ? "Sửa ca làm việc" : "Thêm ca làm việc"}</h2>
+          <button className="ns-modal__x" onClick={onClose}>×</button>
+        </header>
+        <div className="ns-modal__body">
+          {error && <div className="banner banner--error">{error}</div>}
+          <label className="ns-field"><span className="ns-field__label">Tên ca *</span>
+            <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Hành chính / Ca 1…" /></label>
+          <div className="ns-grid" style={{ marginTop: 12 }}>
+            <label className="ns-field"><span className="ns-field__label">Giờ vào ca</span>
+              <input type="time" value={form.start_time} onChange={(e) => set("start_time", e.target.value)} /></label>
+            <label className="ns-field"><span className="ns-field__label">Giờ ra ca</span>
+              <input type="time" value={form.end_time} onChange={(e) => set("end_time", e.target.value)} /></label>
+            <label className="ns-field"><span className="ns-field__label">Dung sai đi muộn (phút)</span>
+              <input type="number" min={0} value={form.grace_minutes} onChange={(e) => set("grace_minutes", Number(e.target.value))} /></label>
+          </div>
+          <label className="ns-check" style={{ marginTop: 12 }}>
+            <input type="checkbox" checked={!!form.is_overnight} onChange={(e) => set("is_overnight", e.target.checked)} />
+            Ca qua đêm (ra hôm sau, vd 22:00→06:00)
+          </label>
+          <label className="ns-check">
+            <input type="checkbox" checked={!!form.night_shift} onChange={(e) => set("night_shift", e.target.checked)} />
+            Ca đêm (có phụ cấp)
+          </label>
+          <label className="ns-check">
+            <input type="checkbox" checked={!!form.is_active} onChange={(e) => set("is_active", e.target.checked)} /> Đang dùng
+          </label>
+        </div>
+        <footer className="ns-modal__foot">
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? "Đang lưu…" : "Lưu"}</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function TimesheetTab({ token }: { token: string }) {
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -354,7 +471,12 @@ function TimesheetTab({ token }: { token: string }) {
         <button className="btn btn--ghost" onClick={exportCsv} disabled={downloading || !data?.rows.length}>
           {downloading ? "Đang xuất…" : "⬇ Xuất CSV"}
         </button>
-        <span className="cc-ts-legend"><span className="cc-day cc-day--on">8h</span> = số giờ · <span className="cc-day cc-day--on">•</span> = có mặt (thiếu giờ ra)</span>
+        <span className="cc-ts-legend">
+          Ô = <b>công theo ca</b> (0,94…) hoặc số giờ nếu chưa gán ca ·
+          <span className="cc-day cc-day--on cc-late">muộn</span>
+          <span className="cc-day cc-day--on cc-early">sớm</span>
+          <span className="cc-day cc-day--on">•<sup className="cc-ot">+</sup></span>OT
+        </span>
       </div>
       {loading && <p className="ns__empty">Đang tải…</p>}
       {!loading && data && (
@@ -362,7 +484,7 @@ function TimesheetTab({ token }: { token: string }) {
           <table className="ns__table">
             <thead>
               <tr>
-                <th>Mã</th><th>Họ tên</th>
+                <th>Mã</th><th>Họ tên</th><th>Ca</th>
                 {days.map((d) => <th key={d} className="cc-day">{d}</th>)}
                 <th className="cc-total">Công</th><th className="cc-total">Giờ</th>
               </tr>
@@ -370,7 +492,7 @@ function TimesheetTab({ token }: { token: string }) {
             <tbody>
               {data.rows.map((r) => <TimesheetRowView key={r.employee_id} row={r} days={days} />)}
               {data.rows.length === 0 && (
-                <tr><td colSpan={days.length + 4} className="ns__empty">Chưa có dữ liệu chấm công tháng này.</td></tr>
+                <tr><td colSpan={days.length + 5} className="ns__empty">Chưa có dữ liệu chấm công tháng này.</td></tr>
               )}
             </tbody>
           </table>
@@ -385,16 +507,23 @@ function TimesheetRowView({ row, days }: { row: TimesheetRow; days: number[] }) 
     <tr>
       <td className="ns__code">{row.employee_code}</td>
       <td>{row.employee_name}</td>
+      <td>{row.shift_name ?? "—"}</td>
       {days.map((d) => {
         const day = row.days[String(d)];
+        if (!day) return <td key={d} className="cc-day" />;
+        const cls = ["cc-day", "cc-day--on", day.late ? "cc-late" : "", day.early ? "cc-early" : ""]
+          .filter(Boolean).join(" ");
+        const label = day.cong != null ? String(day.cong) : (day.hours != null ? `${day.hours}h` : "•");
+        const tip = `${day.first_in ?? "?"}–${day.last_out ?? "?"}`
+          + (day.late ? " · đi muộn" : "") + (day.early ? " · về sớm" : "")
+          + (day.ot_minutes ? ` · OT ${day.ot_minutes}′` : "") + (day.night ? " · ca đêm" : "");
         return (
-          <td key={d} className={`cc-day ${day ? "cc-day--on" : ""}`}
-              title={day ? `${day.first_in ?? "?"}–${day.last_out ?? "?"}` : ""}>
-            {day ? (day.hours != null ? `${day.hours}h` : "•") : ""}
+          <td key={d} className={cls} title={tip}>
+            {label}{day.ot_minutes ? <sup className="cc-ot">+</sup> : null}
           </td>
         );
       })}
-      <td className="cc-total">{row.total_days}</td>
+      <td className="cc-total">{row.total_cong != null ? row.total_cong : row.total_days}</td>
       <td className="cc-total">{row.total_hours}h</td>
     </tr>
   );

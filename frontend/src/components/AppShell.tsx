@@ -23,7 +23,6 @@ import { ProductTypesCatalogPage } from "../pages/ProductTypesCatalogPage";
 import { MaterialsCatalogPage } from "../pages/MaterialsCatalogPage";
 import { MachinesCatalogPage } from "../pages/MachinesCatalogPage";
 import { OperationsCatalogPage } from "../pages/OperationsCatalogPage";
-import { ClickInkRatesPage } from "../pages/ClickInkRatesPage";
 import { PlateDieRatesPage } from "../pages/PlateDieRatesPage";
 import { NormsCatalogPage } from "../pages/NormsCatalogPage";
 import { PaperSizesCatalogPage } from "../pages/PaperSizesCatalogPage";
@@ -180,8 +179,6 @@ export function AppShell() {
         return <MachinesCatalogPage />;
       case "cong-doan-gc":
         return <OperationsCatalogPage />;
-      case "gia-click":
-        return <ClickInkRatesPage />;
       case "gia-khuon-ban":
         return <PlateDieRatesPage />;
       case "dinh-muc-bu-hao":

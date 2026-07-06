@@ -677,6 +677,21 @@ def _migrate_norms_version_by_code(db: Session) -> None:
     db.commit()
 
 
+def _migrate_employee_default_shift(db: Session) -> None:
+    """Ca kíp: thêm cột `employees.default_shift_id` (ca làm việc mặc định của NV) — logical
+    link tới work_shifts, nullable Integer (không FK cứng). No-op trên DB fresh (create_all đã
+    dựng cột) hoặc khi bảng employees chưa tồn tại."""
+    insp = inspect(db.get_bind())
+    if "employees" not in insp.get_table_names():
+        return
+    if "default_shift_id" not in _existing_columns(insp, "employees"):
+        db.execute(text("ALTER TABLE employees ADD COLUMN default_shift_id INTEGER"))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_employees_default_shift_id ON employees (default_shift_id)"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0001_imposition_type_full_fields", _migrate_imposition_type_full_fields),
     ("0002_operation_full_fields", _migrate_operation_full_fields),
@@ -688,6 +703,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0008_plate_die_full_fields", _migrate_plate_die_full_fields),
     ("0009_estimate_lifecycle", _migrate_estimate_lifecycle),
     ("0010_norms_version_by_code", _migrate_norms_version_by_code),
+    ("0011_employee_default_shift", _migrate_employee_default_shift),
 ]
 
 

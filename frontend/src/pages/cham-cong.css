@@ -55,6 +55,11 @@
 .cc-timesheet .ns__table th, .cc-timesheet .ns__table td { padding: 6px 8px; white-space: nowrap; }
 .cc-day { text-align: center; min-width: 30px; font-size: 12px; color: var(--ash-2); }
 .cc-day--on { background: var(--moss-soft); color: var(--moss-deep); font-weight: var(--fw-medium); border-radius: var(--r-2); }
+/* Đi muộn (đỏ) / về sớm (hổ phách) / OT (dấu +) trong ô công tháng. */
+.cc-day.cc-late { background: var(--signal-soft); color: var(--signal); }
+.cc-day.cc-early { background: var(--amber-soft); color: var(--amber-deep); }
+.cc-ot { color: var(--moss); font-weight: var(--fw-bold); }
+.cc-ts-legend .cc-late, .cc-ts-legend .cc-early { min-width: auto; padding: 1px 6px; }
 .cc-total { text-align: center; font-weight: var(--fw-bold); }
 
 @media (max-width: 720px) {

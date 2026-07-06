@@ -1799,6 +1799,7 @@ export interface EmployeeDetail extends EmployeeRow {
   dependents_count: number;
   bank_account: string | null;
   bank_name: string | null;
+  default_shift_id: number | null;
   resign_date: string | null;
   resign_reason: string | null;
   note: string | null;
@@ -1907,6 +1908,7 @@ export interface EmployeeInput {
   dependents_count?: number;
   bank_account?: string | null;
   bank_name?: string | null;
+  default_shift_id?: number | null;
   note?: string | null;
   account?: EmployeeAccountInput | null;
 }
@@ -1992,11 +1994,39 @@ export interface AttendanceStatus {
   locations_configured: boolean;
 }
 
+export interface WorkShift {
+  id: number;
+  name: string;
+  start_time: string;   // "HH:MM"
+  end_time: string;
+  is_overnight: boolean;
+  night_shift: boolean;
+  grace_minutes: number;
+  is_active: boolean;
+  note: string | null;
+}
+
+export interface WorkShiftInput {
+  name: string;
+  start_time: string;
+  end_time: string;
+  is_overnight?: boolean;
+  night_shift?: boolean;
+  grace_minutes?: number;
+  note?: string | null;
+  is_active?: boolean;
+}
+
 export interface TimesheetDay {
   first_in: string | null;
   last_out: string | null;
   hours: number | null;
   present: boolean;
+  cong: number | null;   // công theo ca (0..1)
+  late: boolean;
+  early: boolean;
+  ot_minutes: number;
+  night: boolean;
 }
 
 export interface TimesheetRow {
@@ -2005,9 +2035,12 @@ export interface TimesheetRow {
   employee_name: string;
   department_id: number | null;
   department_name: string | null;
+  shift_id: number | null;
+  shift_name: string | null;
   days: Record<string, TimesheetDay>;
   total_days: number;
   total_hours: number;
+  total_cong: number | null;
 }
 
 export interface Timesheet {
@@ -2564,6 +2597,19 @@ export const api = {
       if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
       const blob = await resp.blob();
       return URL.createObjectURL(blob);
+    },
+    // --- ca kíp (work shifts) ---
+    shifts(token: string): Promise<{ items: WorkShift[] }> {
+      return authed<{ items: WorkShift[] }>("/api/attendance/shifts", token);
+    },
+    createShift(token: string, input: WorkShiftInput): Promise<WorkShift> {
+      return authed<WorkShift>("/api/attendance/shifts", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateShift(token: string, id: number, input: WorkShiftInput): Promise<WorkShift> {
+      return authed<WorkShift>(`/api/attendance/shifts/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteShift(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/attendance/shifts/${id}`, token, { method: "DELETE" });
     },
   },
 
@@ -3202,35 +3248,6 @@ export const api = {
     },
   },
 
-  // --- Click/Ink Rates ------------------------------------------------------
-  clickInkRates: {
-    list(token: string, params: { technology?: string | null; machine_id?: number | null; is_active?: boolean | null; page?: number; size?: number } = {}): Promise<ClickInkRateListOut> {
-      const qs = new URLSearchParams();
-      if (params.technology) qs.set("technology", params.technology);
-      if (params.machine_id !== undefined && params.machine_id !== null) qs.set("machine_id", String(params.machine_id));
-      if (params.is_active !== undefined && params.is_active !== null) qs.set("is_active", String(params.is_active));
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<ClickInkRateListOut>(`/api/click-ink-rates${suffix}`, token);
-    },
-    create(token: string, input: ClickInkRateInput): Promise<ClickInkRateRow> {
-      return authed<ClickInkRateRow>("/api/click-ink-rates", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    close(token: string, id: number, effectiveTo: string): Promise<ClickInkRateRow> {
-      return authed<ClickInkRateRow>(`/api/click-ink-rates/${id}/close`, token, {
-        method: "POST",
-        body: JSON.stringify({ effective_to: effectiveTo }),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/click-ink-rates/${id}`, token, { method: "DELETE" });
-    },
-  },
-
   // --- Plate/Die Rates ------------------------------------------------------
   plateDieRates: {
     list(token: string, params: { q?: string | null; plate_type?: string | null; technology?: string | null; machine_id?: number | null; is_active?: boolean | null; current_only?: boolean; page?: number; size?: number } = {}): Promise<PlateDieRateListOut> {
@@ -3338,40 +3355,6 @@ export const api = {
     },
   },
 };
-
-export interface ClickInkRateRow {
-  id: number;
-  technology: string;
-  color_type: string;
-  machine_id: number | null;
-  unit: string;
-  unit_price: number;
-  setup_fee: number;
-  min_charge: number;
-  effective_from: string;
-  effective_to: string | null;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ClickInkRateInput {
-  technology: string;
-  color_type: string;
-  machine_id?: number | null;
-  unit: string;
-  unit_price: number;
-  setup_fee?: number;
-  min_charge?: number;
-  effective_from: string;
-}
-
-export interface ClickInkRateListOut {
-  items: ClickInkRateRow[];
-  total: number;
-  page: number;
-  size: number;
-}
 
 export interface PlateDieRateRow {
   id: number;

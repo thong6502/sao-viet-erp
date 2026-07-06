@@ -48,6 +48,37 @@ class WorkLocation(Base):
     )
 
 
+class WorkShift(Base):
+    """Ca làm việc (module `nhan_su`, lát Ca kíp). Giờ vào/ra lưu bằng PHÚT-từ-nửa-đêm
+    (0..1439) cho dễ tính công; API phơi "HH:MM". Ca qua đêm (ca 3) đặt is_overnight."""
+
+    __tablename__ = "work_shifts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)  # "Hành chính", "Ca 1"…
+    start_minute: Mapped[int] = mapped_column(Integer, nullable=False)  # 8:00 = 480
+    end_minute: Mapped[int] = mapped_column(Integer, nullable=False)    # 17:00 = 1020
+    # Ca qua ngày (ra hôm sau, vd 22:00→06:00): cửa sổ ca = (1440−start)+end.
+    is_overnight: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Ca đêm — cờ phụ cấp (engine đánh dấu; quy tiền để module Lương).
+    night_shift: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # Dung sai đi muộn (phút): vào trễ ≤ giá trị này vẫn coi đúng giờ.
+    grace_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=5, server_default="5"
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
 class AttendanceLog(Base):
     __tablename__ = "attendance_logs"
 

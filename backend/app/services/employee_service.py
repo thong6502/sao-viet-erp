@@ -56,7 +56,7 @@ EDITABLE_FIELDS = (
     "national_id", "national_id_date", "national_id_place", "phone", "email",
     "permanent_address", "current_address", "emergency_contact_name",
     "emergency_contact_phone", "social_insurance_no", "pit_tax_code",
-    "dependents_count", "bank_account", "bank_name", "photo_url", "note",
+    "dependents_count", "bank_account", "bank_name", "default_shift_id", "photo_url", "note",
 )
 
 

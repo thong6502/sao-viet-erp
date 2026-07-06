@@ -1,5 +1,5 @@
 """ORM models. Importing this package registers every model on Base.metadata."""
-from .attendance import AttendanceLog, WorkLocation
+from .attendance import AttendanceLog, WorkLocation, WorkShift
 from .audit import AuditLog
 from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
@@ -21,7 +21,6 @@ from .unit_level import UnitLevel
 from .user import User
 from .warehouse import Warehouse
 from .warehouse_item import WarehouseItem
-from .click_ink_rate import ClickInkRate
 from .plate_die_rate import PlateDieRate
 from .norm import Norm
 from .document_sequence import DocumentSequence
@@ -40,6 +39,7 @@ __all__ = [
     "EmployeeEvent",
     "EmployeeAttachment",
     "WorkLocation",
+    "WorkShift",
     "AttendanceLog",
     "Warehouse",
     "WarehouseItem",
@@ -65,7 +65,6 @@ __all__ = [
     "CostingOperation",
     "Order",
     "OrderLine",
-    "ClickInkRate",
     "PlateDieRate",
     "Norm",
     "DocumentSequence",

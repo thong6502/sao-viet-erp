@@ -35,6 +35,36 @@ class WorkLocationsOut(BaseModel):
     items: list[WorkLocationOut]
 
 
+# --- work shifts / ca kíp ---------------------------------------------------
+
+
+class WorkShiftIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    start_time: str = Field(min_length=3, max_length=5, description='HH:MM, vd "08:00"')
+    end_time: str = Field(min_length=3, max_length=5)
+    is_overnight: bool = False
+    night_shift: bool = False
+    grace_minutes: int = Field(default=5, ge=0, le=240)
+    note: str | None = Field(default=None, max_length=500)
+    is_active: bool = True
+
+
+class WorkShiftOut(BaseModel):
+    id: int
+    name: str
+    start_time: str          # "HH:MM" (router convert từ start_minute)
+    end_time: str
+    is_overnight: bool
+    night_shift: bool
+    grace_minutes: int
+    is_active: bool
+    note: str | None = None
+
+
+class WorkShiftsOut(BaseModel):
+    items: list[WorkShiftOut]
+
+
 # --- attendance logs --------------------------------------------------------
 
 
@@ -99,6 +129,12 @@ class TimesheetDay(BaseModel):
     last_out: str | None = None
     hours: float | None = None
     present: bool = True
+    # Đối chiếu ca kíp (null/False khi NV chưa gán ca).
+    cong: float | None = None      # công theo ca (0..1, 2 chữ số)
+    late: bool = False             # đi muộn
+    early: bool = False            # về sớm
+    ot_minutes: int = 0            # tăng ca (phút vượt giờ ca)
+    night: bool = False            # ca đêm
 
 
 class TimesheetRow(BaseModel):
@@ -107,9 +143,12 @@ class TimesheetRow(BaseModel):
     employee_name: str
     department_id: int | None = None
     department_name: str | None = None
+    shift_id: int | None = None
+    shift_name: str | None = None
     days: dict[str, TimesheetDay]  # keyed by day-of-month ("1".."31")
     total_days: int
     total_hours: float
+    total_cong: float | None = None  # tổng công theo ca (null khi chưa gán ca)
 
 
 class TimesheetOut(BaseModel):

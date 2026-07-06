@@ -136,6 +136,11 @@ class Employee(Base):
     bank_account: Mapped[str | None] = mapped_column(String(30), nullable=True)
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # --- Ca kíp ---
+    # Ca làm việc mặc định (logical link → work_shifts.id; không FK cứng để tránh vòng
+    # create_all, giống head_user_id). Null = chưa gán ca.
+    default_shift_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+
     # Server-relative path of the profile photo (mirror users.avatar_url), e.g.
     # `/static/hr/<id>/photo.jpg`. Null → UI shows initials fallback.
     photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)

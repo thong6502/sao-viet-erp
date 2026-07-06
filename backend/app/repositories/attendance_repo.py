@@ -5,12 +5,41 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models.attendance import AttendanceLog, WorkLocation
+from ..models.attendance import AttendanceLog, WorkLocation, WorkShift
 
 
 class AttendanceRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
+
+    # --- work_shifts --------------------------------------------------------
+
+    def list_shifts(self, *, active_only: bool = False) -> list[WorkShift]:
+        stmt = select(WorkShift)
+        if active_only:
+            stmt = stmt.where(WorkShift.is_active.is_(True))
+        return list(self.db.execute(stmt.order_by(WorkShift.start_minute, WorkShift.id)).scalars())
+
+    def get_shift(self, shift_id: int) -> WorkShift | None:
+        return self.db.get(WorkShift, shift_id)
+
+    def create_shift(self, **fields) -> WorkShift:
+        s = WorkShift(**fields)
+        self.db.add(s)
+        self.db.commit()
+        self.db.refresh(s)
+        return s
+
+    def update_shift(self, shift: WorkShift, **fields) -> WorkShift:
+        for key, value in fields.items():
+            setattr(shift, key, value)
+        self.db.commit()
+        self.db.refresh(shift)
+        return shift
+
+    def delete_shift(self, shift: WorkShift) -> None:
+        self.db.delete(shift)
+        self.db.commit()
 
     # --- work_locations -----------------------------------------------------
 

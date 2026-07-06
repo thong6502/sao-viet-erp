@@ -1056,39 +1056,6 @@ def seed_imposition_types(db: Session) -> None:
         db.commit()
 
 
-def seed_click_ink_rates(db: Session) -> None:
-    from sqlalchemy import select
-    from .models.click_ink_rate import ClickInkRate
-    from .repositories.click_ink_rate_repo import ClickInkRateRepository
-    from datetime import date
-    
-    repo = ClickInkRateRepository(db)
-    if db.execute(select(ClickInkRate)).first() is None:
-        # CMYK digital
-        repo.add_rate(
-            technology="digital",
-            color_type="cmyk",
-            machine_id=None,
-            unit="click",
-            unit_price=350,
-            setup_fee=15000,
-            min_charge=5000,
-            effective_from=date(2026, 1, 1)
-        )
-        # Grayscale digital
-        repo.add_rate(
-            technology="digital",
-            color_type="grayscale",
-            machine_id=None,
-            unit="click",
-            unit_price=80,
-            setup_fee=5000,
-            min_charge=1000,
-            effective_from=date(2026, 1, 1)
-        )
-        db.commit()
-
-
 def seed_plate_die_rates(db: Session) -> None:
     from sqlalchemy import select
     from .models.plate_die_rate import PlateDieRate
@@ -1307,6 +1274,36 @@ def seed_employees(db: Session) -> None:
     db.commit()
 
 
+def seed_work_shifts(db: Session) -> None:
+    """Seed ca làm việc demo (Ca kíp) + gán ca mặc định cho NV demo (theo họ tên). Idempotent."""
+    from .repositories.attendance_repo import AttendanceRepository
+    from .repositories.employee_repo import EmployeeRepository
+
+    repo = AttendanceRepository(db)
+    if repo.list_shifts():
+        return
+    shifts = {
+        "Hành chính": repo.create_shift(name="Hành chính", start_minute=8 * 60, end_minute=17 * 60,
+                                        is_overnight=False, night_shift=False, grace_minutes=5, is_active=True),
+        "Ca 1": repo.create_shift(name="Ca 1", start_minute=6 * 60, end_minute=14 * 60,
+                                  is_overnight=False, night_shift=False, grace_minutes=5, is_active=True),
+        "Ca 2": repo.create_shift(name="Ca 2", start_minute=14 * 60, end_minute=22 * 60,
+                                  is_overnight=False, night_shift=False, grace_minutes=5, is_active=True),
+        "Ca 3": repo.create_shift(name="Ca 3", start_minute=22 * 60, end_minute=6 * 60,
+                                  is_overnight=True, night_shift=True, grace_minutes=5, is_active=True),
+    }
+    assign = {
+        "Trần Văn An": "Hành chính", "Lê Thị Bình": "Hành chính", "Phạm Minh Cường": "Hành chính",
+        "Nguyễn Văn Giám": "Hành chính", "Nguyễn Thị Dung": "Hành chính",
+        "Vũ Đức Em": "Ca 1", "Hoàng Văn Phúc": "Ca 2", "Bùi Quốc Hùng": "Ca 3",
+    }
+    emps = EmployeeRepository(db)
+    for e in emps.list_scoped_all(scope="all", actor=_SeedActor()):
+        sh = assign.get(e.full_name)
+        if sh and shifts.get(sh) is not None:
+            emps.update(e, default_shift_id=shifts[sh].id)
+
+
 def seed_work_locations(db: Session) -> None:
     """Seed 1 điểm chấm công demo (module `nhan_su`). Idempotent."""
     from .repositories.attendance_repo import AttendanceRepository
@@ -1403,12 +1400,12 @@ def seed_all(db: Session) -> None:
     if settings.seed_demo:
         seed_kd_staff(db)
         seed_employees(db)
+        seed_work_shifts(db)
         seed_work_locations(db)
         seed_attendance(db)
         seed_customers(db)
         seed_products(db)
         seed_sales_history(db)
-        seed_click_ink_rates(db)
         seed_plate_die_rates(db)
         seed_norms(db)
         seed_document_sequences(db)

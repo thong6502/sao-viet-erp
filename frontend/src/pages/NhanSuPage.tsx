@@ -15,6 +15,7 @@ import {
   type EmployeeMeta,
   type EmployeeRow,
   type EmployeeTransitionInput,
+  type WorkShift,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -604,6 +605,11 @@ function InfoTab({ token, emp, canUpdate, onSaved }: { token: string; emp: Emplo
   const [form, setForm] = useState<EmployeeInput>({ ...emp } as unknown as EmployeeInput);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [shifts, setShifts] = useState<WorkShift[]>([]);
+  useEffect(() => {
+    api.attendance.shifts(token).then((r) => setShifts(r.items)).catch(() => setShifts([]));
+  }, [token]);
+  const shiftName = shifts.find((s) => s.id === emp.default_shift_id)?.name ?? null;
 
   function set<K extends keyof EmployeeInput>(k: K, v: EmployeeInput[K]) {
     setForm((f) => ({ ...f, [k]: v }));
@@ -637,6 +643,12 @@ function InfoTab({ token, emp, canUpdate, onSaved }: { token: string; emp: Emplo
           <Field label="Người phụ thuộc"><input type="number" min={0} value={form.dependents_count ?? 0} onChange={(e) => set("dependents_count", Number(e.target.value))} /></Field>
           <Field label="Số tài khoản"><input value={form.bank_account ?? ""} onChange={(e) => set("bank_account", e.target.value)} /></Field>
           <Field label="Ngân hàng"><input value={form.bank_name ?? ""} onChange={(e) => set("bank_name", e.target.value)} /></Field>
+          <Field label="Ca làm việc">
+            <select value={form.default_shift_id ?? ""} onChange={(e) => set("default_shift_id", e.target.value === "" ? null : Number(e.target.value))}>
+              <option value="">— chưa gán —</option>
+              {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time}–{s.end_time})</option>)}
+            </select>
+          </Field>
           <Field label="Ghi chú"><input value={form.note ?? ""} onChange={(e) => set("note", e.target.value)} /></Field>
         </div>
         <div className="ns-modal__foot">
@@ -656,6 +668,7 @@ function InfoTab({ token, emp, canUpdate, onSaved }: { token: string; emp: Emplo
         <Row k="Mã NV" v={emp.code} /><Row k="Phòng/Tổ" v={emp.department_name} />
         <Row k="Chức danh" v={emp.position} /><Row k="Bậc thợ" v={emp.job_grade} />
         <Row k="Ngày vào" v={fmtDate(emp.hire_date)} /><Row k="Hết thử việc" v={fmtDate(emp.probation_end_date)} />
+        <Row k="Ca làm việc" v={shiftName} />
         {emp.resign_date && <Row k="Ngày nghỉ" v={fmtDate(emp.resign_date)} />}
         {emp.resign_reason && <Row k="Lý do nghỉ" v={emp.resign_reason} />}
       </Section>

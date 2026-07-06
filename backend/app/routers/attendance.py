@@ -35,6 +35,9 @@ from ..schemas.attendance import (
     WorkLocationIn,
     WorkLocationOut,
     WorkLocationsOut,
+    WorkShiftIn,
+    WorkShiftOut,
+    WorkShiftsOut,
 )
 from ..services.attendance_service import (
     AttendanceError,
@@ -42,6 +45,7 @@ from ..services.attendance_service import (
     AttendanceService,
     AttendanceValidationError,
     NoLinkedEmployee,
+    min_to_hhmm,
 )
 
 router = APIRouter(prefix="/api/attendance", tags=["attendance"])
@@ -67,6 +71,72 @@ def _log_out(log, emp_names: dict[int, str], loc_names: dict[int, str]) -> Atten
     if log.work_location_id is not None:
         out.location_name = loc_names.get(log.work_location_id)
     return out
+
+
+def _shift_out(s) -> WorkShiftOut:
+    return WorkShiftOut(
+        id=s.id, name=s.name, start_time=min_to_hhmm(s.start_minute),
+        end_time=min_to_hhmm(s.end_minute), is_overnight=s.is_overnight,
+        night_shift=s.night_shift, grace_minutes=s.grace_minutes, is_active=s.is_active, note=s.note,
+    )
+
+
+# --- work shifts / ca kíp (HR) ----------------------------------------------
+
+
+@router.get("/shifts", response_model=WorkShiftsOut)
+def list_shifts(
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> WorkShiftsOut:
+    return WorkShiftsOut(items=[_shift_out(s) for s in svc.list_shifts()])
+
+
+@router.post("/shifts", response_model=WorkShiftOut, status_code=status.HTTP_201_CREATED)
+def create_shift(
+    body: WorkShiftIn,
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> WorkShiftOut:
+    try:
+        s = svc.create_shift(
+            actor=user, name=body.name, start_time=body.start_time, end_time=body.end_time,
+            is_overnight=body.is_overnight, night_shift=body.night_shift,
+            grace_minutes=body.grace_minutes, note=body.note,
+        )
+    except AttendanceError as exc:
+        _raise(exc)
+    return _shift_out(s)
+
+
+@router.put("/shifts/{shift_id}", response_model=WorkShiftOut)
+def update_shift(
+    shift_id: int,
+    body: WorkShiftIn,
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> WorkShiftOut:
+    try:
+        s = svc.update_shift(
+            actor=user, shift_id=shift_id, name=body.name, start_time=body.start_time,
+            end_time=body.end_time, is_overnight=body.is_overnight, night_shift=body.night_shift,
+            grace_minutes=body.grace_minutes, note=body.note, is_active=body.is_active,
+        )
+    except AttendanceError as exc:
+        _raise(exc)
+    return _shift_out(s)
+
+
+@router.delete("/shifts/{shift_id}", status_code=204)
+def delete_shift(
+    shift_id: int,
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
+):
+    try:
+        svc.delete_shift(actor=user, shift_id=shift_id)
+    except AttendanceError as exc:
+        _raise(exc)
 
 
 # --- work locations (HR) ----------------------------------------------------
@@ -209,8 +279,10 @@ def _timesheet_rows(svc: AttendanceService, depts: DepartmentRepository, data: d
         rows.append(TimesheetRow(
             employee_id=r["employee_id"], employee_code=r["employee_code"],
             employee_name=r["employee_name"], department_id=did, department_name=dn,
+            shift_id=r.get("shift_id"), shift_name=r.get("shift_name"),
             days={k: TimesheetDay(**v) for k, v in r["days"].items()},
             total_days=r["total_days"], total_hours=r["total_hours"],
+            total_cong=r.get("total_cong"),
         ))
     return rows
 
@@ -253,14 +325,23 @@ def timesheet_csv(
     buf = io.StringIO()
     buf.write("﻿")  # BOM để Excel đọc đúng tiếng Việt
     w = csv.writer(buf)
-    w.writerow(["Mã", "Họ tên", "Phòng/Tổ", *[str(d) for d in range(1, n + 1)], "Số công", "Tổng giờ"])
+    w.writerow(["Mã", "Họ tên", "Phòng/Tổ", "Ca", *[str(d) for d in range(1, n + 1)],
+                "Số công", "Tổng giờ"])
     for r in rows:
         cells = []
         for d in range(1, n + 1):
             day = r.days.get(str(d))
-            cells.append(f"{day.hours:g}h" if (day and day.hours is not None) else ("có" if day else ""))
-        w.writerow([r.employee_code, r.employee_name, r.department_name or "",
-                    *cells, r.total_days, f"{r.total_hours:g}"])
+            if not day:
+                cells.append("")
+            elif day.cong is not None:   # có gán ca → công theo ca
+                cells.append(f"{day.cong:g}")
+            elif day.hours is not None:  # chưa gán ca → số giờ
+                cells.append(f"{day.hours:g}h")
+            else:
+                cells.append("có")
+        total = f"{r.total_cong:g}" if r.total_cong is not None else str(r.total_days)
+        w.writerow([r.employee_code, r.employee_name, r.department_name or "", r.shift_name or "",
+                    *cells, total, f"{r.total_hours:g}"])
     return Response(
         content=buf.getvalue(),
         media_type="text/csv; charset=utf-8",

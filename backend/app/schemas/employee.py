@@ -45,6 +45,7 @@ class EmployeeBase(BaseModel):
     dependents_count: int = Field(default=0, ge=0)
     bank_account: str | None = Field(default=None, max_length=30)
     bank_name: str | None = Field(default=None, max_length=100)
+    default_shift_id: int | None = None  # ca làm việc mặc định (ca kíp)
     note: str | None = Field(default=None, max_length=1000)
 
 
@@ -128,6 +129,7 @@ class EmployeeOut(EmployeeRow):
     dependents_count: int = 0
     bank_account: str | None = None
     bank_name: str | None = None
+    default_shift_id: int | None = None
     resign_date: date | None = None
     resign_reason: str | None = None
     note: str | None = None

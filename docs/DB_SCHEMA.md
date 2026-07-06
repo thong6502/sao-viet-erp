@@ -1220,40 +1220,6 @@ client's httpOnly cookie.
 
 ---
 
-### `click_ink_rates`
-
-**Purpose:** click rates and ink/toner charges for digital or specialized machinery over time.
-
-| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `technology` | `String(32)` → `VARCHAR(32)` | **IX** | no | — | Printing technology (offset, digital, large_format, flexo). |
-| `color_type` | `String(32)` → `VARCHAR(32)` | — | no | — | Color style (cmyk, grayscale, spot, white). |
-| `machine_id` | `Integer` → `INTEGER` | **FK→machines.id**, **IX** | yes | — | Specific machine reference (or Null for technology-wide default). |
-| `unit` | `String(16)` → `VARCHAR(16)` | — | no | — | unit (trang, m2, ml, click). |
-| `unit_price` | `BigInteger` → `BIGINT` | — | no | — | Price per unit (VND). |
-| `setup_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Flat setup fee for clicking (VND). |
-| `min_charge` | `BigInteger` → `BIGINT` | — | no | `0` | Minimum charge (VND). |
-| `effective_from` | `Date` → `DATE` | — | no | — | Rate effective start date. |
-| `effective_to` | `Date` → `DATE` | — | yes | — | Rate effective end date. Null means current. |
-| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status flag. |
-| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
-| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Index: `ix_click_ink_rates_technology` on `technology`.
-- Index: `ix_click_ink_rates_machine_id` on `machine_id`.
-- Unique index: `uix_click_ink_rates_current` on `(technology, color_type, COALESCE(machine_id, 0), unit) WHERE effective_to IS NULL`.
-- Foreign key: `machine_id FK→machines.id`.
-
-**Relationships**
-
-- Optionally references one `machines`.
-
----
-
 ### `plate_die_rates`
 
 **Purpose:** Đơn giá kẽm & khuôn (#5) — kẽm in offset (`ban_kem_offset`, engine chọn theo MÁY áp dụng) và khuôn gia công (`khuon_be`/`khuon_ep_kim`/`khuon_dap_noi`/`khuon_khac`, theo `pricing_method`). Versioning hiệu lực-theo-ngày, family key = **`code`** (một bản mở duy nhất mỗi mã).
@@ -1416,6 +1382,7 @@ SEAM-19 (`drivers.employee_id` back-fill khi Tài xế build). Portable across S
 | `dependents_count` | `Integer` → `INTEGER` | — | no | `0` | Số người phụ thuộc (giảm trừ gia cảnh). |
 | `bank_account` | `String(30)` → `VARCHAR(30)` | — | yes | — | Số tài khoản ngân hàng (chi lương). |
 | `bank_name` | `String(100)` → `VARCHAR(100)` | — | yes | — | Ngân hàng. |
+| `default_shift_id` | `Integer` → `INTEGER` | **IX** | yes | — | Ca làm việc mặc định (logical link → `work_shifts.id`, không FK cứng). Null = chưa gán ca. Thêm qua migration 0011. |
 | `photo_url` | `String(500)` → `VARCHAR(500)` | — | yes | — | Đường dẫn ảnh hồ sơ (mirror avatar), `/static/hr/<id>/…`. Null = initials. |
 | `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Ghi chú tự do. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo hồ sơ. |
@@ -1599,6 +1566,36 @@ MỘT kho đã cấu hình (`warehouses`). MVP — về sau mở rộng thành p
 
 - Primary key: `id`. Indexes on `warehouse_id`, `created_by_user_id`.
 - Foreign keys: `warehouse_id FK→warehouses.id` (cascade), `created_by_user_id FK→users.id`.
+
+---
+
+### `work_shifts`
+
+**Purpose:** ca làm việc (module `nhan_su`, lát Ca kíp). One row per ca (Hành chính, Ca
+1/2/3…). Giờ vào/ra lưu bằng **phút-từ-nửa-đêm** (0..1439) cho dễ tính công; API phơi "HH:MM".
+Gán cho NV qua `employees.default_shift_id`. Dùng để đối chiếu chấm công → đi muộn/về sớm/OT
+và tính công theo tỷ lệ giờ làm.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `name` | `String(100)` → `VARCHAR(100)` | — | no | — | Tên ca (vd "Hành chính", "Ca 1"). |
+| `start_minute` | `Integer` → `INTEGER` | — | no | — | Giờ vào ca = phút từ 0h (8:00 = 480). |
+| `end_minute` | `Integer` → `INTEGER` | — | no | — | Giờ ra ca = phút từ 0h (17:00 = 1020). |
+| `is_overnight` | `Boolean` → `BOOLEAN` | — | no | `false` | Ca qua ngày (ra hôm sau, vd 22:00→06:00). |
+| `night_shift` | `Boolean` → `BOOLEAN` | — | no | `false` | Ca đêm (cờ phụ cấp — quy tiền để module Lương). |
+| `grace_minutes` | `Integer` → `INTEGER` | — | no | `5` | Dung sai đi muộn (phút): vào trễ ≤ giá trị này vẫn coi đúng giờ. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Ca đang dùng. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+
+**Relationships**
+
+- Referenced by `employees.default_shift_id` (logical link, no enforced FK).
 
 ---
 

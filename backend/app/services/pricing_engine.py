@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from ..models.material import Material, MaterialCost
 from ..models.machine import Machine, MachineRate
 from ..models.operation import Operation, OperationRate
-from ..models.click_ink_rate import ClickInkRate
 from ..models.plate_die_rate import PlateDieRate
 from ..models.estimate import EstimateCostLine
 from ..services.norm_service import NormService, NormLookupContext
@@ -740,70 +739,7 @@ class PricingEngine:
                 total_cost=total_material_cost
             ))
 
-        # 8. Click/Ink Cost Line (for digital machines)
-        if machine and machine_rate and machine.machine_type == "digital":
-            # Lookup digital rate
-            # digital usually charges per click/impression
-            color_type = "cmyk" if colors > 1 else "grayscale"
-            click_rate = self.db.execute(
-                select(ClickInkRate)
-                .where(
-                    ClickInkRate.technology == "digital",
-                    ClickInkRate.color_type == color_type,
-                    (ClickInkRate.machine_id == None) | (ClickInkRate.machine_id == machine_id),
-                    ClickInkRate.effective_from <= at_date,
-                    (ClickInkRate.effective_to == None) | (ClickInkRate.effective_to > at_date)
-                )
-                # #21 — nulls_last: ưu tiên rate theo máy (machine_id non-null) hơn rate chung (NULL).
-                # Postgres mặc định DESC = NULLS FIRST → bản chung lọt lên đầu, chọn sai. Ép NULLS LAST.
-                .order_by(ClickInkRate.machine_id.desc().nulls_last(), ClickInkRate.effective_from.desc())
-            ).scalars().first()
-
-            if click_rate:
-                # Calculate clicks
-                if page_count and page_count > 0:
-                    run_quantity = current_qty * page_count
-                else:
-                    run_quantity = total_sheets * sides
-
-                click_unit_price = float(click_rate.unit_price)
-                click_setup = float(click_rate.setup_fee or 0)
-                click_cost = run_quantity * click_unit_price + click_setup
-                
-                min_charge_applied = False
-                min_charge = float(click_rate.min_charge or 0)
-                if click_cost < min_charge:
-                    click_cost = min_charge
-                    min_charge_applied = True
-
-                cost_lines.append(EstimateCostLine(
-                    category="click_ink",
-                    description=f"Click in KTS ({color_type.upper()}): {run_quantity} lượt click",
-                    source_type="click_ink_rates",
-                    source_id=click_rate.id,
-                    source_snapshot_json={
-                        "rate_id": click_rate.id,
-                        "unit_price": click_rate.unit_price,
-                        "setup_fee": click_rate.setup_fee,
-                        "min_charge": click_rate.min_charge
-                    },
-                    calculation_snapshot_json={
-                        "run_quantity": run_quantity,
-                        "page_count": page_count,
-                        "total_sheets": total_sheets,
-                        "sides": sides
-                    },
-                    quantity=float(run_quantity),
-                    unit="click",
-                    unit_cost=click_unit_price,
-                    setup_cost=click_setup,
-                    min_charge_applied=min_charge_applied,
-                    total_cost=click_cost
-                ))
-            else:
-                add_warning("warning", "MISSING_CLICK_RATE", f"Không tìm thấy đơn giá click KTS cho màu {color_type.upper()}.")
-
-        # 9. Plate/Die Cost Line (for offset machines) — chọn giá KẼM theo MÁY (DM #5).
+        # 8. Plate/Die Cost Line (for offset machines) — chọn giá KẼM theo MÁY (DM #5).
         if machine and machine_rate and machine.machine_type == "offset":
             from ..repositories.plate_die_rate_repo import PlateDieRateRepository
             plate_rate = PlateDieRateRepository(self.db).resolve_plate_for_machine(machine_id, at_date)

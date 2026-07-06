@@ -87,7 +87,6 @@ const NAV: NavSection[] = [
       { id: "vat-lieu", label: "Vật liệu & Giá", icon: "bag", module: "dm_giay_vat_tu" },
       { id: "thiet-bi-may", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan-gc", label: "Công đoạn gia công", icon: "activity", module: "dm_cong_doan" },
-      { id: "gia-click", label: "Bảng giá Click", icon: "calculator", module: "dm_gia_click" },
       { id: "gia-khuon-ban", label: "Chi phí chế bản & khuôn", icon: "fileText", module: "dm_gia_khuon_ban" },
       { id: "dinh-muc-bu-hao", label: "Định mức & Bù hao", icon: "activity", module: "dm_dinh_muc" },
       { id: "kho-giay", label: "Khổ giấy chuẩn", icon: "grid", module: "dm_giay_vat_tu" },

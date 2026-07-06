@@ -36,7 +36,6 @@ from .routers import (
     profile,
     quotations,
     rbac,
-    click_ink_rates,
     plate_die_rates,
     norms,
 )
@@ -97,7 +96,6 @@ app.include_router(paper_sizes.router)
 app.include_router(imposition_types.router)
 app.include_router(warehouses.router)
 app.include_router(warehouse_items.router)
-app.include_router(click_ink_rates.router)
 app.include_router(plate_die_rates.router)
 app.include_router(norms.router)
 

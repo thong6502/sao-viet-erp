@@ -15,46 +15,6 @@ def token(client, seed_credentials) -> str:
 def auth_headers(token) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
-# --- ClickInkRates API tests ------------------------------------------------
-
-def test_click_ink_rates_api_crud(client, auth_headers):
-    # 1. Create a rate
-    payload = {
-        "technology": "digital",
-        "color_type": "cmyk",
-        "machine_id": None,
-        "unit": "click",
-        "unit_price": 400,
-        "setup_fee": 15000,
-        "min_charge": 5000,
-        "effective_from": str(date.today()),
-    }
-    resp = client.post("/api/click-ink-rates", json=payload, headers=auth_headers)
-    assert resp.status_code == 201
-    rate_id = resp.json()["id"]
-    assert resp.json()["unit_price"] == 400
-
-    # 2. List rates
-    resp = client.get("/api/click-ink-rates?technology=digital", headers=auth_headers)
-    assert resp.status_code == 200
-    items = resp.json()["items"]
-    assert len(items) >= 1
-    assert items[0]["id"] == rate_id
-
-    # 3. Close the rate
-    close_payload = {
-        "effective_to": str(date.today() + timedelta(days=10))
-    }
-    resp = client.post(f"/api/click-ink-rates/{rate_id}/close", json=close_payload, headers=auth_headers)
-    assert resp.status_code == 200
-    assert resp.json()["effective_to"] == str(date.today() + timedelta(days=10))
-
-    # 4. Attempt to delete (should fail because it's already active)
-    resp = client.delete(f"/api/click-ink-rates/{rate_id}", headers=auth_headers)
-    assert resp.status_code == 422
-    assert "Không thể xóa cứng" in resp.json()["detail"]
-
-
 # --- PlateDieRates API tests ------------------------------------------------
 
 def test_plate_die_rates_api_crud(client, auth_headers):

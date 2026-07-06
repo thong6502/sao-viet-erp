@@ -409,6 +409,10 @@ export function NormsCatalogPage() {
     if (!token) return;
     setError(null);
     // Validation client (soft).
+    if (!code.trim()) {
+      setError("Vui lòng nhập mã quy tắc — mã là danh tính của quy tắc (1 quy tắc = 1 mã).");
+      return;
+    }
     if (wasteGroup === "YIELD_RATE") {
       const v = effectiveValue();
       if (!(v > 0 && v <= 1)) {
@@ -822,8 +826,9 @@ export function NormsCatalogPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="label">Mã định mức</label>
-                    <input className="input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="VD: MR_PRINT_4C" />
+                    <label className="label">Mã định mức *</label>
+                    <input className="input" value={code} onChange={(e) => setCode(e.target.value)} placeholder="VD: MR_PRINT_4C" required />
+                    <p className="md-page__note" style={{ fontSize: "11px", marginTop: "2px" }}>Mã là danh tính quy tắc — 2 mã khác nhau luôn chạy song song, không âm thầm đè nhau.</p>
                   </div>
                   <div>
                     <label className="label">Tên định mức</label>

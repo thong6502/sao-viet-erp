@@ -8,7 +8,6 @@ from app.db import SessionLocal
 from app.models.material import Material, MaterialCost
 from app.models.machine import Machine, MachineRate
 from app.models.operation import Operation, OperationRate
-from app.models.click_ink_rate import ClickInkRate
 from app.models.plate_die_rate import PlateDieRate
 from app.models.norm import Norm
 from app.models.product_type_catalog import ProductTypeCatalog
@@ -35,7 +34,6 @@ def test_setup(client):
     db.query(Machine).delete()
     db.query(OperationRate).delete()
     db.query(Operation).delete()
-    db.query(ClickInkRate).delete()
     db.query(PlateDieRate).delete()
     db.query(Norm).delete()
     db.query(ProductTypeCatalog).delete()
@@ -192,18 +190,7 @@ def test_setup(client):
     )
     db.add(packing_rate)
 
-    # 6. Seed click & plate rates
-    click = ClickInkRate(
-        technology="digital",
-        color_type="cmyk",
-        unit="click",
-        unit_price=350,
-        setup_fee=10000,
-        min_charge=5000,
-        effective_from=date(2026, 1, 1)
-    )
-    db.add(click)
-
+    # 6. Seed plate rate
     plate = PlateDieRate(
         code="PLATE_T", name="Kẽm test",
         plate_type="ban_kem_offset",
@@ -368,40 +355,6 @@ def test_offset_plates_multiplier(test_setup):
     assert int(plate_line.quantity) == 24
     # unit price 120,000 -> total cost = 24 * 120,000 = 2,880,000 VND
     assert float(plate_line.total_cost) == 2880000.0
-
-
-def test_digital_page_count_impressions(test_setup):
-    service, db, actor, paper_id, offset_id, be_id, lam_id, pack_id, decal_id, digital_id = test_setup
-
-    # Digital machine
-    # With catalogue booklet page_count=16: clicks = quantity_before_print * 16
-    input_spec = {
-        "material_id": paper_id,
-        "machine_id": digital_id,
-        "sheet_w": 32.0,
-        "sheet_h": 45.0,
-        "pieces_per_sheet": 2,
-        "page_count": 16, # 16 pages catalogue
-        "colors": 4,
-        "sides": 2,
-        "operations": []
-    }
-
-    est = service.create_estimate(
-        product_type="brochure",
-        product_name="Konica Booklet",
-        quantity_list=[1000],
-        input_spec=input_spec,
-        actor_id=actor.id,
-        status="calculated"
-    )
-
-    option = est.options[0]
-    click_line = [l for l in option.cost_lines if l.category == "click_ink"][0]
-    # quantity_before_print = 1000. Clicks = 1000 * 16 = 16000 clicks
-    assert int(click_line.quantity) == 16000
-    # Click cost = 16000 * 350 + 10000 setup = 5,610,000 VND
-    assert float(click_line.total_cost) == 5610000.0
 
 
 def test_blocking_error_guards_calculated_status(test_setup):
