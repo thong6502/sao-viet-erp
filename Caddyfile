@@ -1,0 +1,6 @@
+# Auto-HTTPS cho subdomain. Caddy tự xin & gia hạn chứng chỉ Let's Encrypt,
+# tự chuyển http → https. Domain lấy từ biến SITE_DOMAIN trong .env.
+{$SITE_DOMAIN} {
+	encode gzip
+	reverse_proxy web:80
+}

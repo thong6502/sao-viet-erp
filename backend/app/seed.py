@@ -398,6 +398,13 @@ def seed_sales_history(db: Session) -> None:
         QuoteVersion,
         QuoteItem,
     )
+    from .models.estimate import Estimate, EstimateOption
+
+    # Spec mẫu cho phiếu tính giá seed (khổ thành phẩm A4, 4 màu 2 mặt).
+    _CATALOGUE_SPEC = {"finished_width": 21, "finished_height": 29.7, "colors": 4, "sides": 2}
+    _CATALOGUE_SPEC_TEXT = "21×29,7 cm · 4 màu/2 mặt"
+    _FLYER_SPEC = {"finished_width": 14.8, "finished_height": 21, "colors": 4, "sides": 2}
+    _FLYER_SPEC_TEXT = "14,8×21 cm · 4 màu/2 mặt"
 
     # Guard: any order already present → assume seeded.
     if db.query(Order).first() is not None:
@@ -464,21 +471,60 @@ def seed_sales_history(db: Session) -> None:
     from .repositories.document_sequence_repo import DocumentSequenceRepository
     from .services.sequence_service import SequenceService
 
-    _quote_seq = SequenceService(DocumentSequenceRepository(db))
+    _seq = SequenceService(DocumentSequenceRepository(db))
 
-    def _mk_quote(customer, sale_id, months_ago, total, status=STATUS_SENT, day=10):
+    def _mk_estimate(customer, sale_id, product_name, product_type, spec, quantity,
+                     total_cost, created, status="converted_to_quote"):
+        """Phiếu tính giá (Estimate) + 1 mức SL — nguồn giá vốn KHÓA cho báo giá.
+        status='converted_to_quote' = đã pick vào báo giá (khóa khỏi picker); mã TG26 sinh
+        qua SequenceService như báo giá. Trả (estimate, option)."""
+        est = Estimate(
+            estimate_number=_seq.generate_code("costing", at_date=created.date()),
+            customer_id=customer.id if customer else None,
+            product_type=product_type,
+            product_name=product_name,
+            status=status,
+            input_spec_json=spec,
+            quantity_list_json=[quantity],
+            created_by=sale_id,
+            created_at=created,
+        )
+        db.add(est)
+        db.flush()
+        selling = total_cost / 0.8  # biên 20% trên giá vốn → giữ số khớp báo giá
+        opt = EstimateOption(
+            estimate_id=est.id, quantity=quantity, total_cost=total_cost, warnings_json=[],
+            margin_percent=20.0, selling_price=selling, vat_percent=10.0,
+            vat_amount=selling * 0.10, final_price=selling * 1.10,
+            unit_price=selling / quantity, actual_margin=20.0, included_in_quote=True,
+        )
+        db.add(opt)
+        db.flush()
+        return est, opt
+
+    def _mk_quote(customer, sale_id, months_ago, total, status=STATUS_SENT, day=10,
+                  product_name="Catalogue A4 in offset", product_type="brochure",
+                  spec=None, spec_text=None, quantity=1000):
         created = _month_mid(months_ago, day)
         valid = date(created.year + (1 if created.month == 12 else 0),
                      1 if created.month == 12 else created.month + 1,
                      min(created.day, 28))
+        spec = spec or _CATALOGUE_SPEC
+        spec_text = spec_text or _CATALOGUE_SPEC_TEXT
+        cost = int(total * 0.8)
+
+        # Phiếu tính giá NGUỒN — báo giá khóa giá vốn từ đây (↳ tham chiếu + "Xem phiếu tính giá").
+        est, opt = _mk_estimate(customer, sale_id, product_name, product_type, spec,
+                                quantity, cost, created)
 
         # Sinh mã qua SequenceService (KHÔNG đếm tay) — giữ counter đồng bộ để
         # báo giá tạo sau seed không đụng UNIQUE quote_number.
-        quote_number = _quote_seq.generate_code("quotation", at_date=created.date())
+        quote_number = _seq.generate_code("quotation", at_date=created.date())
         q = Quote(
             quote_number=quote_number,
             customer_id=customer.id,
             customer_name_snapshot=customer.name,
+            estimate_id=est.id,  # phiếu đầu tiên ở header (tương thích 1-phiếu)
             salesperson_id=sale_id,
             status="accepted" if status == STATUS_ACCEPTED else status,
             valid_until=valid,
@@ -491,7 +537,7 @@ def seed_sales_history(db: Session) -> None:
             quote_id=q.id,
             version_number=1,
             status="sent" if status == STATUS_SENT else ("accepted" if status == STATUS_ACCEPTED else "rejected"),
-            total_cost_snapshot=int(total * 0.8),
+            total_cost_snapshot=cost,
             subtotal_amount=total,
             discount_amount=0.0,
             vat_percent=10.0,
@@ -505,15 +551,19 @@ def seed_sales_history(db: Session) -> None:
 
         qi = QuoteItem(
             quote_version_id=qv.id,
+            estimate_id=est.id,
+            estimate_option_id=opt.id,
             line_no=1,
-            product_type="brochure",
-            product_name="Catalogue A4 in offset",
-            quantity=1000,
+            product_type=product_type,
+            product_name=product_name,
+            product_spec_text=spec_text,
+            product_spec_snapshot_json=spec,
+            quantity=quantity,
             unit="cái",
-            total_cost_snapshot=int(total * 0.8),
+            total_cost_snapshot=cost,
             margin_percent=20.0,
             selling_price=total,
-            unit_price=total / 1000.0,
+            unit_price=total / quantity,
             discount_amount=0.0,
             vat_percent=10.0,
             vat_amount=int(total * 0.1),
@@ -521,6 +571,7 @@ def seed_sales_history(db: Session) -> None:
         )
         db.add(qi)
         db.flush()
+        return q, qv
 
     sale1 = users.get_by_username("sale1")
     sale2 = users.get_by_username("sale2")
@@ -569,6 +620,60 @@ def seed_sales_history(db: Session) -> None:
         _mk_order(minh_khai, sale1.id, 2, [("Catalogue A4 32 trang", 800, 15_000)], day=6)
         _mk_quote(minh_khai, sale1.id, 5, 6_000_000, status=STATUS_ACCEPTED)
         _mk_quote(minh_khai, sale1.id, 2, 12_000_000, status=STATUS_SENT)
+
+    # --- Báo giá NHÁP nhiều dòng: 1 báo giá gộp 2 phiếu tính giá (Catalogue + Tờ rơi) ---
+    # Giữ demo "1 báo giá nhiều dòng" (như BG26-0011 trước đây) — mỗi dòng khóa 1 phiếu tính giá.
+    if an_phat is not None and sale1 is not None:
+        created = _month_mid(0, day=14)
+        ml_lines = [
+            ("Catalogue A4 công ty", "brochure", _CATALOGUE_SPEC, _CATALOGUE_SPEC_TEXT, 1000, 3_264_000),
+            ("Tờ rơi A5 khuyến mãi", "flyer", _FLYER_SPEC, _FLYER_SPEC_TEXT, 5000, 3_655_500),
+        ]
+        q = Quote(
+            quote_number=_seq.generate_code("quotation", at_date=created.date()),
+            customer_id=an_phat.id, customer_name_snapshot=an_phat.name,
+            salesperson_id=sale1.id, status="draft",
+            valid_until=date(created.year, min(created.month + 1, 12), min(created.day, 28)),
+            created_at=created,
+        )
+        db.add(q)
+        db.flush()
+        qv = QuoteVersion(quote_id=q.id, version_number=1, status="draft",
+                          vat_percent=10.0, created_at=created)
+        db.add(qv)
+        db.flush()
+        q.current_version_id = qv.id
+        sub = disc = vat = fin = tc = 0.0
+        for i, (pname, ptype, spec, stext, qty, cost) in enumerate(ml_lines, start=1):
+            est, opt = _mk_estimate(an_phat, sale1.id, pname, ptype, spec, qty, cost, created)
+            if i == 1:
+                q.estimate_id = est.id
+            selling = cost / 0.88  # markup 12% (gói "Cạnh tranh") → khớp demo cũ
+            v = selling * 0.10
+            db.add(QuoteItem(
+                quote_version_id=qv.id, estimate_id=est.id, estimate_option_id=opt.id,
+                line_no=i, product_type=ptype, product_name=pname, product_spec_text=stext,
+                product_spec_snapshot_json=spec, quantity=qty, unit="cái",
+                total_cost_snapshot=cost, margin_percent=12.0, selling_price=selling,
+                unit_price=selling / qty, discount_amount=0.0, vat_percent=10.0,
+                vat_amount=v, final_amount=selling + v,
+            ))
+            sub += selling; vat += v; fin += selling + v; tc += cost
+        qv.total_cost_snapshot = tc
+        qv.subtotal_amount = sub
+        qv.discount_amount = disc
+        qv.vat_amount = vat
+        qv.final_amount = fin
+        db.flush()
+
+    # --- Phiếu tính giá ĐỘC LẬP (chưa pick) — để "Báo giá mới" luôn có phiếu để chọn ---
+    if an_phat is not None and sale1 is not None:
+        now0 = _month_mid(0, day=17)
+        _mk_estimate(an_phat, sale1.id, "Name card 4 màu 2 mặt", "business_card",
+                     {"finished_width": 9, "finished_height": 5.5, "colors": 4, "sides": 2},
+                     5000, 1_200_000, now0, status="calculated")
+        _mk_estimate(an_phat, sale1.id, "Tờ rơi A5 quảng cáo", "flyer",
+                     _FLYER_SPEC, 10000, 4_800_000, now0, status="calculated")
 
     db.commit()
 

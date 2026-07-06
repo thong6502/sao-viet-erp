@@ -2,6 +2,7 @@
 # Pinned to known-good versions; bump deliberately and re-run init.
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
+python-multipart==0.0.20      # FastAPI form data (login OAuth2 form) — bắt buộc runtime
 SQLAlchemy==2.0.36
 psycopg2-binary==2.9.10        # PostgreSQL driver (used in Docker/prod)
 # Lower-bounds (not exact pins) on the pydantic stack so installing into a shared

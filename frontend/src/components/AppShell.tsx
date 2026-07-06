@@ -15,7 +15,6 @@ import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
-import { SanPhamPage } from "../pages/SanPhamPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { UsersPage } from "../pages/UsersPage";
 import { ProductTypesCatalogPage } from "../pages/ProductTypesCatalogPage";
@@ -42,6 +41,8 @@ export interface NavParams {
   openOrderId?: number;
   /** Pre-select this estimate when creating a quotation. */
   estimateId?: number;
+  /** Open this estimate's detail on the Tính giá screen. */
+  openEstimateId?: number | null;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -145,10 +146,8 @@ export function AppShell() {
         return <UsersPage />;
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
-      case "san-pham":
-        return <SanPhamPage />;
       case "tinh-gia-thanh":
-        return <TinhGiaPage navigate={navigate} />;
+        return <TinhGiaPage navigate={navigate} openEstimateId={navParams?.openEstimateId ?? null} />;
       case "bao-gia":
         return (
           <BaoGiaPage

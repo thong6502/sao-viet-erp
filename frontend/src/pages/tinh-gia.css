@@ -304,6 +304,57 @@
   gap: var(--sp-2);
   font-size: 13px;
 }
+/* .field đặt flex-direction:column — ép checkbox + nhãn về HÀNG NGANG, trái. */
+.field.tg__check {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  cursor: pointer;
+}
+.tg__check input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--rust);
+  cursor: pointer;
+}
+
+/* Toggle row đẹp (dùng cho các lựa chọn bật/tắt có chú thích) */
+.tg__toggle {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  cursor: pointer;
+}
+.tg__toggle:hover {
+  border-color: var(--rust);
+}
+.tg__toggle input[type="checkbox"] {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  accent-color: var(--rust);
+  cursor: pointer;
+}
+.tg__toggle .tg__toggle-text {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1.4;
+}
+.tg__toggle .tg__toggle-text small {
+  display: block;
+  font-weight: 400;
+  color: var(--ash);
+  font-size: 12px;
+  margin-top: 2px;
+}
 
 /* ---- Parallel số con/khổ suggestion (§31a) ------------------------------- */
 .tg__suggest {

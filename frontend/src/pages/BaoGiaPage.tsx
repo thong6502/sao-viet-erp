@@ -12,13 +12,29 @@ import {
   type QuotationRow,
   type QuotationStats,
   type QuotePick,
+  type QuoteItemDetail,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
-import { DarkSummaryPanel } from "../components/DarkSummaryPanel";
+import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import "./bao-gia.css";
+
+// Thông tin công ty in trên báo giá — Sao Việt Nhật.
+// Luật dự án "không hardcode số liệu": các trường pháp lý để trống chờ khảo sát,
+// điền giá trị thật khi có (địa chỉ/MST/điện thoại/email đăng ký kinh doanh).
+const SVN_COMPANY = {
+  name: "CÔNG TY SAO VIỆT NHẬT",
+  nameEn: "Sao Viet Nhat",
+  address: "—",
+  taxCode: "—",
+  phone: "—",
+  email: "—",
+  website: "—",
+  sender: "—",
+  senderEmail: "—",
+};
 
 const PAGE_SIZE = 10;
 
@@ -168,6 +184,24 @@ export function BaoGiaPage({
           Bạn không có quyền truy cập Báo giá (403).
         </div>
       </main>
+    );
+  }
+
+  // Detail = trang 2 cột in-page (thay danh sách), giống prototype inan5 (viewList ⇄ viewEditor).
+  if (detail) {
+    return (
+      <QuotationDetailView
+        quotationId={detail.id}
+        statuses={statuses}
+        navigate={navigate}
+        onClose={() => setDetail(null)}
+        onEdit={(dd) => {
+          setDetail(null);
+          setEditing(dd);
+          setMode("edit");
+        }}
+        onChanged={() => load()}
+      />
     );
   }
 
@@ -387,21 +421,6 @@ export function BaoGiaPage({
             if (mode === "create") setPage(1);
             load();
           }}
-        />
-      )}
-
-      {detail && (
-        <QuotationDetailDialog
-          quotationId={detail.id}
-          statuses={statuses}
-          navigate={navigate}
-          onClose={() => setDetail(null)}
-          onEdit={(d) => {
-            setDetail(null);
-            setEditing(d);
-            setMode("edit");
-          }}
-          onChanged={() => load()}
         />
       )}
     </main>
@@ -1260,17 +1279,7 @@ function QuotationFormDialog({
   );
 }
 
-// --- Detail dialog (Commercial & Internal views, Version Timeline & PDF Preview) ------------------------------------------------
-
-// Nhãn HÀNH ĐỘNG cho nút chuyển trạng thái (statuses H-V-I mới).
-const TRANSITION_LABELS: Record<string, string> = {
-  sent: "Gửi khách",
-  accepted: "Khách duyệt",
-  rejected: "Từ chối",
-  expired: "Đánh dấu hết hạn",
-  converted_to_order: "Tạo đơn hàng",
-  cancelled: "Hủy",
-};
+// --- Detail 2-cột in-page (port "ý hệt" prototype inan5 02-bao-gia.html) ------------------------------------------------
 
 // Gói biên lợi nhuận — shortcut UI (ô % từng dòng vẫn nhận giá trị bất kỳ;
 // đợt sau chuyển thành catalog cấu hình được theo luật "không hardcode số liệu").
@@ -1290,7 +1299,7 @@ const STATUS_LABEL_SHORT: Record<string, string> = {
   cancelled: "hủy",
 };
 
-function QuotationDetailDialog({
+function QuotationDetailView({
   quotationId,
   statuses,
   navigate,
@@ -1309,53 +1318,188 @@ function QuotationDetailDialog({
   // Xuất PDF đối ngoại = quyền chi tiết `export` (tách khỏi "xem").
   const canExport = useCan()("bao_gia", "export");
   const canRequote = useCan()("bao_gia", "requote");
-  const canCancel = useCan()("bao_gia", "cancel");
+  // Lưu ý: layout 2 cột (main) không còn nút Hủy báo giá — quyền `cancel` vẫn chặn ở backend.
   // Thao tác trạng thái chung (gửi / từ chối / đánh dấu hết hạn…) — tách khỏi "sửa".
   const canManageStatus = useCan()("bao_gia", "manage_status");
   const [d, setD] = useState<QuotationDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  // Detail Tabs
-  const [activeTab, setActiveTab] = useState<"commercial" | "internal" | "timeline" | "pdf">("commercial");
+  // Margin sống (preview cục bộ trước khi persist) — chỉ dùng khi báo giá 1 dòng.
+  const [draftMargin, setDraftMargin] = useState<number | null>(null);
+  // Markup từng dòng khi đang gõ (đa dòng) — override tạm để preview.
+  const [lineDraft, setLineDraft] = useState<Record<number, number>>({});
 
-  // Lifecycle states
-  const [cancelReason, setCancelReason] = useState("");
-  const [askCancel, setAskCancel] = useState(false);
+  const [compareOn, setCompareOn] = useState(false);
+  const [showPrint, setShowPrint] = useState(false);
 
-  const reload = useCallback(async () => {
-    if (!token) return;
-    try {
-      setD(await api.quotations.get(token, quotationId));
-    } catch {
-      setErr("Không tải được chi tiết báo giá.");
-    }
-  }, [token, quotationId]);
+  // Điều khoản chỉnh tại chỗ (nháp)
+  const [terms, setTerms] = useState("");
+  const [validity, setValidity] = useState<number>(30);
+  const [verNote, setVerNote] = useState("");
+
+  // Mockup (parity UI, chưa backend) — localStorage theo mã BG.
+  const [comments, setComments] = useState<{ who: string; text: string; time: string }[]>([]);
+  const [discussWho, setDiscussWho] = useState("Sales");
+  const [discussText, setDiscussText] = useState("");
+  const [apprManual, setApprManual] = useState(false);
+  const [lastContact, setLastContact] = useState<string | null>(null);
+
+  const reload = useCallback(
+    async (id: number) => {
+      if (!token) return;
+      try {
+        const det = await api.quotations.get(token, id);
+        setD(det);
+        setDraftMargin(null);
+        setLineDraft({});
+        setTerms(det.payment_terms ?? "");
+        setVerNote((det as any).change_reason ?? "");
+        // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
+        const vr = det.versions.find((v) => v.version === det.version);
+        const created = vr?.created_at ?? null;
+        if (det.valid_until && created) {
+          const days = Math.round(
+            (new Date(det.valid_until).getTime() - new Date(created).getTime()) / 86_400_000,
+          );
+          setValidity(days > 0 ? days : 30);
+        } else setValidity(30);
+        setComments(lsGet(`bgv_comments_${det.code}`, []));
+        setApprManual(lsGet(`bgv_appr_${det.code}`, false));
+        setLastContact(lsGet(`bgv_contact_${det.code}`, null));
+      } catch {
+        setErr("Không tải được chi tiết báo giá.");
+      }
+    },
+    [token],
+  );
 
   useEffect(() => {
-    reload();
-  }, [reload]);
+    reload(quotationId);
+  }, [reload, quotationId]);
 
-  async function doTransition(to: string) {
+  if (!d) {
+    return (
+      <main className="bg bgv">
+        <div className="card" role="status" style={{ padding: "40px", textAlign: "center", color: "var(--ash)" }}>
+          Đang tải dữ liệu báo giá…
+        </div>
+      </main>
+    );
+  }
+
+  const latestVer = Math.max(...d.versions.map((v) => v.version));
+  const viewingLatest = d.version === latestVer;
+  const editable = d.status === "draft" && viewingLatest;
+  const multi = d.items.length > 1;
+
+  // ---- Tính toán sống (áp override margin nếu có) --------------------------
+  function calcItem(it: QuoteItemDetail) {
+    const override = multi ? lineDraft[it.id] : draftMargin;
+    const m = override != null ? override : it.margin_percent;
+    const cost = it.total_cost_snapshot;
+    const selling = m >= 100 ? cost : cost / (1 - m / 100);
+    const net = Math.max(0, selling - it.discount_amount);
+    const vat = (net * (it.vat_percent || 0)) / 100;
+    return { m, cost, selling, net, vat, final: net + vat, profit: net - cost, qty: it.quantity };
+  }
+  let costT = 0, netT = 0, vatT = 0, grandT = 0, qtyT = 0;
+  d.items.forEach((it) => {
+    const c = calcItem(it);
+    costT += c.cost; netT += c.net; vatT += c.vat; grandT += c.final; qtyT += c.qty;
+  });
+  const profitT = netT - costT;
+  const singleMargin = draftMargin != null ? draftMargin : d.items[0]?.margin_percent ?? 0;
+  const aggMarginPct = costT ? Math.round((profitT / costT) * 100) : 0;
+  const perUnit = qtyT ? Math.round(grandT / qtyT) : 0;
+  const unitLabel = d.items[0]?.unit || "cái";
+
+  const productSummary = d.items[0]?.product_name ?? "—";
+  const ptgRefs = Array.from(new Set(d.items.map((it) => it.estimate_number).filter(Boolean)));
+
+  // ---- Persist margin ------------------------------------------------------
+  async function persistItems(items: { id: number; margin_percent: number }[]) {
     if (!token || !d) return;
-    if (to === "cancelled" && !askCancel) {
-      setAskCancel(true);
-      return;
-    }
     setBusy(true);
     setErr(null);
     try {
-      await api.quotations.transition(token, d.id, {
-        to_status: to,
-        cancel_reason: to === "cancelled" ? cancelReason : null,
+      await api.quotations.update(token, d.id, {
+        customer_id: d.customer_id,
+        valid_until: d.valid_until,
+        payment_terms: terms,
+        delivery_terms: d.delivery_terms,
+        delivery_address: d.delivery_address,
+        customer_note: d.customer_note,
+        internal_note: d.internal_note,
+        items: d.items.map((it) => {
+          const patch = items.find((x) => x.id === it.id);
+          return {
+            id: it.id,
+            margin_percent: patch ? patch.margin_percent : it.margin_percent,
+            discount_amount: it.discount_amount,
+            discount_percent: 0,
+            vat_percent: it.vat_percent,
+            rounding: "no_rounding",
+            note: it.note,
+          };
+        }),
       });
-      setAskCancel(false);
-      setCancelReason("");
-      await reload();
+      await reload(d.id);
       onChanged();
     } catch (e) {
-      if (e instanceof ApiError) setErr(e.message);
-      else setErr("Thao tác không thành công.");
+      setErr(e instanceof ApiError ? e.message : "Không lưu được giá bán.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function commitSingleMargin(val: number) {
+    if (!editable || !d) return;
+    const v = Math.max(0, Math.min(100, val));
+    persistItems(d.items.map((it) => ({ id: it.id, margin_percent: v })));
+  }
+  function commitLineMargin(itemId: number, val: number) {
+    if (!editable) return;
+    const v = Math.max(0, Math.min(100, val));
+    persistItems([{ id: itemId, margin_percent: v }]);
+  }
+
+  async function saveTerms() {
+    if (!token || !d) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.quotations.update(token, d.id, {
+        customer_id: d.customer_id,
+        valid_until: d.valid_until,
+        payment_terms: terms,
+        delivery_terms: d.delivery_terms,
+        delivery_address: d.delivery_address,
+        customer_note: d.customer_note,
+        internal_note: verNote || d.internal_note,
+        items: null,
+      });
+      await reload(d.id);
+      onChanged();
+      setNotice("Đã lưu nháp.");
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Lưu nháp thất bại.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function doTransition(to: string) {
+    if (!token || !d) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.quotations.transition(token, d.id, { to_status: to, cancel_reason: null });
+      await reload(d.id);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Thao tác không thành công.");
     } finally {
       setBusy(false);
     }
@@ -1367,44 +1511,11 @@ function QuotationDetailDialog({
     setErr(null);
     try {
       const nv = await api.quotations.requote(token, d.id);
-      setD(nv);
-      setActiveTab("commercial");
+      setD(null);
+      await reload(nv.id);
       onChanged();
     } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Re-quote không thành công.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** Gói biên: áp 1 mức % cho TOÀN BỘ dòng (chỉ khi còn nháp). */
-  async function applyMarginAll(pct: number) {
-    if (!token || !d || busy) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      await api.quotations.update(token, d.id, {
-        customer_id: d.customer_id,
-        valid_until: d.valid_until,
-        payment_terms: d.payment_terms,
-        delivery_terms: d.delivery_terms,
-        delivery_address: d.delivery_address,
-        customer_note: d.customer_note,
-        internal_note: d.internal_note,
-        items: d.items.map((it) => ({
-          id: it.id,
-          margin_percent: pct,
-          discount_amount: it.discount_amount,
-          discount_percent: 0,
-          vat_percent: it.vat_percent,
-          rounding: "no_rounding",
-          note: it.note,
-        })),
-      });
-      await reload();
-      onChanged();
-    } catch (e) {
-      setErr(e instanceof ApiError ? e.message : "Không áp được gói biên.");
+      setErr(e instanceof ApiError ? e.message : "Tạo phiên bản mới không thành công.");
     } finally {
       setBusy(false);
     }
@@ -1422,461 +1533,592 @@ function QuotationDetailDialog({
 
   function handleCreateOrder() {
     if (!d || !navigate) return;
-    // Redirect to Order Page, pinning this quotation
     navigate("don-hang-ban", {
       customer: d.customer ? { id: d.customer_id!, name: d.customer.name, code: "" } : undefined,
-      openQuoteId: d.id, // pre-pin quote selection
+      openQuoteId: d.id,
     });
     onClose();
   }
 
-  if (!d) {
-    return (
-      <div className="bg__overlay" onClick={onClose}>
-        <div className="card bg__dialog bg__dialog--sm" onClick={(e) => e.stopPropagation()}>
-          <div className="bg__dialog-body" role="status">
-            Đang tải dữ liệu báo giá…
-          </div>
-        </div>
-      </div>
-    );
+  // ---- Mockup handlers -----------------------------------------------------
+  function sendComment() {
+    const txt = discussText.trim();
+    if (!txt || !d) return;
+    const next = [...comments, { who: discussWho, text: txt, time: nowLabel() }];
+    setComments(next);
+    lsSet(`bgv_comments_${d.code}`, next);
+    setDiscussText("");
+  }
+  function recordContact() {
+    if (!d) return;
+    const today = new Date().toLocaleDateString("vi-VN");
+    setLastContact(today);
+    lsSet(`bgv_contact_${d.code}`, today);
+    setNotice("Đã ghi nhận liên hệ khách hôm nay.");
+  }
+  function toggleAppr(v: boolean) {
+    if (!d) return;
+    setApprManual(v);
+    lsSet(`bgv_appr_${d.code}`, v);
+  }
+  function duplicate() {
+    setNotice("Đã nhân bản báo giá (mô phỏng) — bản sao sẽ xuất hiện ở danh sách khi nối backend.");
   }
 
-  const transitions = d.allowed_transitions.filter(
-    (t) => t !== "change_order" && t !== "cancelled", // custom render
-  );
+  // ---- Activity (suy từ versions + trạng thái) -----------------------------
+  const acts: { glyph: string; cls: string; text: string; meta: string }[] = [];
+  d.versions
+    .slice()
+    .sort((a, b) => a.version - b.version)
+    .forEach((v) => {
+      acts.push({
+        glyph: "+",
+        cls: "rust",
+        text: `Tạo phiên bản v${v.version}${v.change_reason ? " · " + v.change_reason : ""}`,
+        meta: fmtDate(v.created_at),
+      });
+    });
+  const stGlyph: Record<string, [string, string]> = {
+    sent: ["✈", "steel"], accepted: ["✓", "moss"], rejected: ["✕", "signal"],
+    converted_to_order: ["→", "moss"], expired: ["!", "ash"], cancelled: ["✕", "ash"],
+  };
+  if (stGlyph[d.status]) {
+    acts.push({
+      glyph: stGlyph[d.status][0], cls: stGlyph[d.status][1],
+      text: `${labelOf(statuses, d.status)} · v${d.version}`,
+      meta: fmtDate(d.versions.find((v) => v.version === d.version)?.created_at ?? null),
+    });
+  }
+  acts.reverse();
+
+  // ---- Follow-up (chỉ khi 'sent') ------------------------------------------
+  const curVerRow = d.versions.find((v) => v.version === d.version);
+  const sentDate = curVerRow?.created_at ?? null;
+  const sentDays = sentDate ? Math.max(0, Math.floor((Date.now() - new Date(sentDate).getTime()) / 86_400_000)) : 0;
+  const stale = d.status === "sent" && sentDays > 3;
+
+  const statusCls = statusChipClass(d.status);
+  const roleAv: Record<string, [string, string]> = {
+    Sales: ["r-sales", "SL"], "Cấp trên": ["r-sep", "CT"], "KTV giá": ["r-ktv", "KT"], "Kế toán": ["r-kt", "KE"],
+  };
 
   return (
-    <div className="bg__overlay" onClick={onClose}>
-      <div className="card bg__dialog bg__dialog-fullscreen" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
-        <div className="bg__dialog-head">
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            <h2>{d.code}</h2>
-            <span className="bg__ver">v{d.version}</span>
-            <StatusBadge status={d.status} statuses={statuses} />
-          </div>
-          <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng">✕</button>
+    <main className="bg bgv">
+      {/* ---------- Header ---------- */}
+      <div className="page-header">
+        <div>
+          <h1>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={onClose}>‹ Danh sách</button>
+            <span style={{ fontFamily: "var(--ff-mono)", fontWeight: 500 }}>{d.code}</span>
+            <span className="ver-badge">v{d.version}</span>
+            <span className={`status-chip ${statusCls}`}>{labelOf(statuses, d.status)}</span>
+          </h1>
+          <p>
+            {d.customer?.name ?? "—"} · {productSummary}
+            {ptgRefs.length > 0 && <> · <span style={{ fontFamily: "var(--ff-mono)" }}>↳ {ptgRefs.join(", ")}</span></>}
+          </p>
         </div>
+        <div className="actions">
+          <Button variant="secondary" onClick={() => setShowPrint(true)}>🖨️ Xem in</Button>
+          <Button variant="secondary" onClick={duplicate}>⧉ Nhân bản</Button>
+          {/* Gating quyền chi tiết: từ chối/gửi cần `manage_status`, chốt cần `approve`
+              (server tính d.can_approve), tạo bản mới cần `requote` — thiếu quyền thì ẨN nút. */}
+          {viewingLatest && d.status === "sent" && (
+            <>
+              {canManageStatus && (
+                <Button variant="secondary" disabled={busy} onClick={() => doTransition("rejected")}>✕ Khách từ chối</Button>
+              )}
+              {d.can_approve && (
+                <Button variant="primary" disabled={busy || !d.allowed_transitions.includes("accepted")} onClick={() => doTransition("accepted")}>✓ Khách chốt</Button>
+              )}
+            </>
+          )}
+          {canManageStatus && viewingLatest && d.status === "draft" && d.allowed_transitions.includes("sent") && (
+            <Button variant="accent" disabled={busy} onClick={() => doTransition("sent")}>➤ Gửi khách</Button>
+          )}
+          {viewingLatest && d.status === "accepted" && navigate && (
+            <Button variant="accent" disabled={busy} onClick={handleCreateOrder}>🛒 Tạo đơn hàng</Button>
+          )}
+          {canRequote && viewingLatest && (d.status === "rejected" || d.status === "expired") && d.allowed_transitions.includes("change_order") && (
+            <Button variant="primary" disabled={busy} onClick={doRequote}>⎇ Tạo phiên bản mới</Button>
+          )}
+        </div>
+      </div>
 
-        <div className="bg__dialog-body">
-          {/* Detail layout structure: Tab navigation + Content pane */}
-          <div className="bg__detail-tabs-nav">
-            <button className={`bg__tab-btn ${activeTab === "commercial" ? "active" : ""}`} onClick={() => setActiveTab("commercial")}>
-              📄 Báo giá gửi khách (Đối ngoại)
-            </button>
-            <button className={`bg__tab-btn ${activeTab === "internal" ? "active" : ""}`} onClick={() => setActiveTab("internal")}>
-              🔐 Phân tích lợi nhuận (Nội bộ)
-            </button>
-            <button className={`bg__tab-btn ${activeTab === "timeline" ? "active" : ""}`} onClick={() => setActiveTab("timeline")}>
-              🕒 Lịch sử phiên bản ({d.versions.length})
-            </button>
-            <button className={`bg__tab-btn ${activeTab === "pdf" ? "active" : ""}`} onClick={() => setActiveTab("pdf")} style={{ color: "var(--rust-deep)" }}>
-              🖨️ Preview PDF
-            </button>
-          </div>
+      {notice && (
+        <div className="banner banner--success" role="status" style={{ marginBottom: "14px" }}>
+          <span>{notice}</span>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setNotice(null)}>Đóng</button>
+        </div>
+      )}
+      {err && (
+        <div className="banner banner--error" role="alert" style={{ marginBottom: "14px" }}>{err}</div>
+      )}
 
-          <div className="bg__tab-content-container">
-            {activeTab === "commercial" && (
-              <div className="bg__commercial-tab">
-                {d.customer && (
-                  <div className="bg__customer-banner">
-                    <p className="eyebrow">KHÁCH HÀNG / CLIENT</p>
-                    <h3>{d.customer.name}</h3>
-                    {d.customer.tax_code && <p className="text-gray-500">MST: {d.customer.tax_code}</p>}
-                    <p className="text-gray-500">{d.customer.credit_status_display}</p>
-                  </div>
-                )}
-
-                <div className="bg__items-table-container">
-                  <table className="bg__detail-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: "50px" }}>STT</th>
-                        <th>Tên sản phẩm / Quy cách</th>
-                        <th className="bg__num">Số lượng</th>
-                        <th>Đơn vị</th>
-                        <th className="bg__num">Đơn giá</th>
-                        <th className="bg__num">Chiết khấu</th>
-                        <th style={{ textAlign: "center" }}>VAT</th>
-                        <th className="bg__num">Thành tiền (gồm VAT)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {d.items.map((item, idx) => (
-                        <tr key={item.id}>
-                          <td>{idx + 1}</td>
-                          <td>
-                            <strong>{item.product_name}</strong>
-                            {item.note && <span className="bg__item-table-note">{item.note}</span>}
-                          </td>
-                          <td className="bg__num bg__mono">{item.quantity.toLocaleString("vi-VN")}</td>
-                          <td>{item.unit}</td>
-                          <td className="bg__num bg__mono">{fmtVnd(item.unit_price)}</td>
-                          <td className="bg__num bg__mono text-danger">- {fmtVnd(item.discount_amount)}</td>
-                          <td style={{ textAlign: "center" }}>{item.vat_percent}%</td>
-                          <td className="bg__num bg__mono font-bold text-rust-deep">{fmtVnd(item.final_amount)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="bg__commercial-footer">
-                  {/* Terms on left */}
-                  <div className="bg__terms-col">
-                    <h4 className="font-bold text-gray-700">Điều khoản & Ghi chú thương mại</h4>
-                    {d.payment_terms && (
-                      <p><strong>Thanh toán:</strong> {d.payment_terms}</p>
-                    )}
-                    {d.delivery_terms && (
-                      <p><strong>Vận chuyển:</strong> {d.delivery_terms}</p>
-                    )}
-                    {d.delivery_address && (
-                      <p><strong>Địa chỉ giao hàng:</strong> {d.delivery_address}</p>
-                    )}
-                    {d.customer_note && (
-                      <p><strong>Ghi chú:</strong> {d.customer_note}</p>
-                    )}
-                  </div>
-
-                  {/* Totals on right */}
-                  <div className="bg__totals-col">
-                    <div className="bg__total-row">
-                      <span>Cộng tiền hàng:</span>
-                      <span className="bg__mono">{fmtVnd(d.subtotal_amount)}</span>
-                    </div>
-                    <div className="bg__total-row">
-                      <span>Chiết khấu thương mại:</span>
-                      <span className="bg__mono text-danger">- {fmtVnd(d.discount_amount)}</span>
-                    </div>
-                    <div className="bg__total-row">
-                      <span>Thuế GTGT (VAT):</span>
-                      <span className="bg__mono">{fmtVnd(d.vat_amount)}</span>
-                    </div>
-                    <div className="bg__total-row bg__total-row--final">
-                      <span>TỔNG TIỀN PHẢI THANH TOÁN:</span>
-                      <span className="text-2xl text-rust-deep">{fmtVnd(d.total)}</span>
-                    </div>
-                  </div>
-                </div>
+      <div className="bg-split">
+        {/* ================= LEFT ================= */}
+        <div className="bg-left">
+          {/* Giá vốn khóa */}
+          <div className="card cost-locked">
+            <div className="bg-card-head">
+              <div className="title">
+                🔒 <span>{multi ? "Báo giá nhiều dòng" : "Giá vốn"}</span>
+                <span className="mono-tag lock">{multi ? `${d.items.length} phiếu tính giá` : "Khóa từ PTG"}</span>
               </div>
-            )}
-
-            {activeTab === "internal" && (
-              <div className="bg__internal-tab">
-                <div className="banner banner--warn" style={{ marginBottom: "20px" }}>
-                  <span>⚠️ <strong>Thông tin nội bộ:</strong> Giá vốn và biên lợi nhuận chỉ hiển thị cho nhân viên kinh doanh sở hữu và cấp quản lý. Tuyệt đối không gửi bản in này cho khách hàng.</span>
-                </div>
-
-                {/* Panel GIÁ BÁN ĐỀ XUẤT + gói biên (kiểu phiếu tính giá nhà in) */}
-                <div style={{ maxWidth: "420px", marginBottom: "20px" }}>
-                  <DarkSummaryPanel
-                    label="GIÁ BÁN ĐỀ XUẤT"
-                    labelExtra={`V${d.version}`}
-                    amount={Math.round(d.total).toLocaleString("vi-VN")}
-                    sub={`${d.items.length} dòng · giá vốn khóa từ phiếu tính giá`}
-                    rows={[
-                      { label: "Giá vốn (khóa)", value: fmtVnd(d.total_cost) },
-                      { label: "Lợi nhuận gộp", value: fmtVnd(d.subtotal_amount - d.total_cost) },
-                      { label: "Giá bán (chưa VAT)", value: fmtVnd(d.subtotal_amount - d.discount_amount) },
-                      { label: "VAT", value: fmtVnd(d.vat_amount) },
-                      { label: "Tổng cộng", value: fmtVnd(d.total), total: true },
-                    ]}
-                  >
-                    {d.status === "draft" ? (
-                      <div>
-                        <span style={{ fontSize: "10.5px", letterSpacing: "0.08em", color: "var(--ash-2)", fontWeight: 700 }}>
-                          LỢI NHUẬN · GÓI BIÊN — ÁP CẢ PHIẾU
-                        </span>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginTop: "6px" }}>
-                          {MARGIN_PRESETS.map(([label, pct]) => {
-                            const isActive = d.items.length > 0 && d.items.every((it) => Math.round(it.margin_percent) === pct);
-                            return (
-                              <button
-                                key={label}
-                                type="button"
-                                disabled={busy}
-                                onClick={() => applyMarginAll(pct)}
-                                style={{
-                                  border: `1px solid ${isActive ? "var(--rust)" : "rgba(245,241,232,0.25)"}`,
-                                  background: isActive ? "var(--rust)" : "transparent",
-                                  color: isActive ? "#fff" : "var(--rule)",
-                                  borderRadius: "6px",
-                                  padding: "7px 10px",
-                                  cursor: busy ? "wait" : "pointer",
-                                  textAlign: "left",
-                                  fontSize: "12.5px",
-                                  lineHeight: 1.3,
-                                }}
-                              >
-                                {label}
-                                <strong style={{ display: "block", fontSize: "14px" }}>{pct}%</strong>
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <p style={{ fontSize: "11px", color: "var(--ash-2)", marginTop: "6px", lineHeight: 1.5 }}>
-                          Chỉnh % lẻ từng dòng: nút "Sửa" (bảng định giá).
-                        </p>
-                      </div>
-                    ) : (
-                      <p style={{ fontSize: "11.5px", color: "var(--ash-2)", lineHeight: 1.5 }}>
-                        Phiếu đã {STATUS_LABEL_SHORT[d.status] ?? d.status} — muốn đổi biên, dùng "Re-quote" tạo phiên bản mới.
-                      </p>
-                    )}
-                  </DarkSummaryPanel>
-                </div>
-
-                <table className="bg__detail-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: "50px" }}>STT</th>
-                      <th>Quy cách sản phẩm</th>
-                      <th className="bg__num">Số lượng</th>
-                      <th className="bg__num">Giá vốn nội bộ (đ)</th>
-                      <th className="bg__num">Biên lãi dự kiến (Margin)</th>
-                      <th className="bg__num">Biên lãi thực tế (Actual)</th>
-                      <th className="bg__num">Giá bán chưa VAT</th>
-                      <th className="bg__num">Lợi nhuận gộp (đ)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {d.items.map((item, idx) => {
-                      const netSelling = item.selling_price - item.discount_amount;
-                      const profit = netSelling - item.total_cost_snapshot;
-                      const actualMargin = netSelling > 0 ? (profit / netSelling) * 100 : 0;
-                      return (
-                        <tr key={item.id} className={profit < 0 ? "bg__row-cat-outsource" : ""}>
-                          <td>{idx + 1}</td>
-                          <td><strong>{item.product_name}</strong></td>
-                          <td className="bg__num bg__mono">{item.quantity.toLocaleString("vi-VN")}</td>
-                          <td className="bg__num bg__mono text-gray-500">{fmtVnd(item.total_cost_snapshot)}</td>
-                          <td className="bg__num bg__mono">{item.margin_percent.toFixed(1)}%</td>
-                          <td className={`bg__num bg__mono font-bold ${actualMargin < 0 ? "text-danger" : "text-moss-deep"}`}>
-                            {actualMargin.toFixed(1)}%
-                          </td>
-                          <td className="bg__num bg__mono">{fmtVnd(netSelling)}</td>
-                          <td className={`bg__num bg__mono font-bold ${profit < 0 ? "text-danger" : "text-moss-deep"}`}>
-                            {fmtVnd(profit)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-
-                {d.internal_note && (
-                  <div className="bg__internal-notes" style={{ marginTop: "24px" }}>
-                    <h4>Ghi chú sản xuất / Ghi chú nội bộ</h4>
-                    <p className="bg__internal-note-content">{d.internal_note}</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === "timeline" && (
-              <div className="bg__timeline-tab">
-                <div className="bg__timeline">
-                  {d.versions.map((v) => {
-                    const isCurrent = v.id === d.id;
-                    return (
-                      <div key={v.id} className={`bg__timeline-node ${isCurrent ? "is-current" : ""}`}>
-                        <div className="bg__timeline-badge">
-                          v{v.version}
-                        </div>
-                        <div className="bg__timeline-content">
-                          <div className="bg__timeline-header">
-                            <h4>Phiên bản v{v.version} {isCurrent && <span className="bg__badge bg__badge--ok">Hiện tại</span>}</h4>
-                            <span className="bg__timeline-date">{fmtDate(v.created_at)}</span>
-                          </div>
-                          <div className="bg__timeline-details" style={{ display: "flex", flexDirection: "column", gap: "6px", marginTop: "8px" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                              <span className="text-gray-500">Trạng thái phiên bản:</span>
-                              <StatusBadge status={v.status} statuses={statuses} />
-                            </div>
-                            <div>
-                              <span className="text-gray-500">Tổng giá trị chào thầu:</span> <strong style={{ color: "var(--rust-deep)", marginLeft: "4px" }}>{fmtVnd(v.total)}</strong>
-                            </div>
-                            {v.change_reason && (
-                              <p className="bg__timeline-reason">Lý do điều chỉnh: <em>"{v.change_reason}"</em></p>
+              {d.estimate_id != null && (
+                <a className="sub-link" onClick={() => navigate?.("tinh-gia-thanh", { openEstimateId: d.estimate_id })}>
+                  ↗ Xem phiếu tính giá
+                </a>
+              )}
+            </div>
+            <div className="locked-banner">
+              🛡️ Giá vốn khóa theo phiếu tính giá đã duyệt · markup riêng từng dòng · giá đã gồm VAT.
+            </div>
+            <table className="bg-lines">
+              <thead>
+                <tr>
+                  <th>Sản phẩm</th><th>SL</th><th>Giá vốn</th><th>Markup %</th><th>Thành tiền (VAT)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.items.map((it) => {
+                  const c = calcItem(it);
+                  return (
+                    <tr key={it.id}>
+                      <td>
+                        <div className="ln-prod">{it.product_name}</div>
+                        {(it.estimate_number || it.product_spec_text) && (
+                          <div className="ln-ref">
+                            {it.estimate_number && (
+                              <a onClick={() => navigate?.("tinh-gia-thanh", { openEstimateId: it.estimate_id })}>↳ {it.estimate_number}</a>
                             )}
+                            {it.product_spec_text ? ` · ${it.product_spec_text}` : ""}
                           </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {activeTab === "pdf" && (
-              <div className="bg__pdf-tab">
-                <div className="bg__pdf-preview-header">
-                  <span>Xem trước định dạng PDF in gửi khách hàng</span>
-                  {canExport && (
-                    <Button variant="ghost" onClick={openPdf}>🖨️ Tải bản PDF</Button>
-                  )}
-                </div>
-                <div className="bg__pdf-mockup-frame">
-                  <div className="bg__pdf-mockup-sheet">
-                    <div style={{ textAlign: "center", borderBottom: "2px solid #000", paddingBottom: "15px", marginBottom: "25px" }}>
-                      <h1 style={{ fontSize: "24px", margin: 0, letterSpacing: "0.1em" }}>BÁO GIÁ THƯƠNG MẠI</h1>
-                      <p style={{ margin: "5px 0 0", fontSize: "12px", color: "var(--ash)" }}>SAO VIỆT ERP — COMMERCIAL QUOTATION</p>
-                    </div>
-
-                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px", fontSize: "12px" }}>
-                      <div>
-                        <p><strong>Mã báo giá:</strong> {d.code} / v{d.version}</p>
-                        {d.customer && (
-                          <>
-                            <p><strong>Khách hàng:</strong> {d.customer.name}</p>
-                            {d.customer.tax_code && <p><strong>MST:</strong> {d.customer.tax_code}</p>}
-                          </>
                         )}
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <p><strong>Ngày báo giá:</strong> {fmtDate(d.versions.find(v => v.id === d.id)?.created_at ?? null)}</p>
-                        {d.valid_until && <p><strong>Hiệu lực đến:</strong> {fmtDate(d.valid_until)}</p>}
-                      </div>
-                    </div>
-
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "11px", marginBottom: "25px" }}>
-                      <thead>
-                        <tr style={{ borderBottom: "1px solid #000", fontWeight: "bold", textAlign: "left" }}>
-                          <th style={{ padding: "8px 4px" }}>STT</th>
-                          <th style={{ padding: "8px 4px" }}>Sản phẩm / Quy cách</th>
-                          <th style={{ padding: "8px 4px", textAlign: "right" }}>Số lượng</th>
-                          <th style={{ padding: "8px 4px" }}>Đơn vị</th>
-                          <th style={{ padding: "8px 4px", textAlign: "right" }}>Đơn giá (đ)</th>
-                          <th style={{ padding: "8px 4px", textAlign: "right" }}>VAT</th>
-                          <th style={{ padding: "8px 4px", textAlign: "right" }}>Thành tiền (đ)</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {d.items.map((item, idx) => (
-                          <tr key={item.id} style={{ borderBottom: "1px dashed #eee" }}>
-                            <td style={{ padding: "8px 4px" }}>{idx + 1}</td>
-                            <td style={{ padding: "8px 4px" }}>
-                              <strong>{item.product_name}</strong>
-                              {item.note && <div style={{ fontSize: "10px", color: "var(--ash)" }}>{item.note}</div>}
-                            </td>
-                            <td style={{ padding: "8px 4px", textAlign: "right" }}>{item.quantity.toLocaleString("vi-VN")}</td>
-                            <td style={{ padding: "8px 4px" }}>{item.unit}</td>
-                            <td style={{ padding: "8px 4px", textAlign: "right" }}>{Math.round(item.unit_price).toLocaleString("vi-VN")}</td>
-                            <td style={{ padding: "8px 4px", textAlign: "right" }}>{item.vat_percent}%</td>
-                            <td style={{ padding: "8px 4px", textAlign: "right", fontWeight: "bold" }}>{Math.round(item.final_amount).toLocaleString("vi-VN")}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11px", marginTop: "15px" }}>
-                      <div style={{ width: "60%" }}>
-                        <p style={{ fontWeight: "bold", marginBottom: "5px" }}>ĐIỀU KHOẢN THƯƠNG MẠI</p>
-                        {d.payment_terms && <p style={{ margin: "2px 0" }}>- Thanh toán: {d.payment_terms}</p>}
-                        {d.delivery_terms && <p style={{ margin: "2px 0" }}>- Giao nhận: {d.delivery_terms}</p>}
-                        {d.customer_note && <p style={{ margin: "2px 0" }}>- Ghi chú: {d.customer_note}</p>}
-                      </div>
-                      <div style={{ width: "35%", textAlign: "right" }}>
-                        <p style={{ margin: "4px 0" }}>Tổng tiền hàng: {fmtVnd(d.subtotal_amount)}</p>
-                        <p style={{ margin: "4px 0" }}>Chiết khấu: -{fmtVnd(d.discount_amount)}</p>
-                        <p style={{ margin: "4px 0" }}>Thuế VAT: {fmtVnd(d.vat_amount)}</p>
-                        <p style={{ margin: "6px 0 0", fontSize: "14px", fontWeight: "bold", borderTop: "1px solid #000", paddingTop: "6px" }}>
-                          TỔNG CỘNG: {fmtVnd(d.total)}
-                        </p>
-                    </div>
-                  </div>
-
-                  {/* Signature Block */}
-                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: "60px", fontSize: "11px", borderTop: "1px dashed #ddd", paddingTop: "20px" }}>
-                      <div style={{ width: "45%", textAlign: "center" }}>
-                        <p style={{ fontWeight: "bold", margin: "0 0 60px" }}>ĐẠI DIỆN KHÁCH HÀNG (BÊN A)</p>
-                        <p style={{ color: "var(--ash-2)", fontSize: "10px" }}>(Ký, ghi rõ họ tên)</p>
-                      </div>
-                      <div style={{ width: "45%", textAlign: "center" }}>
-                        <p style={{ fontWeight: "bold", margin: "0 0 60px" }}>ĐẠI DIỆN SAO VIỆT ERP (BÊN B)</p>
-                        <p style={{ color: "var(--ash-2)", fontSize: "10px" }}>(Ký, đóng dấu và ghi rõ họ tên)</p>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
+                      </td>
+                      <td className="bg__mono">{it.quantity.toLocaleString("vi-VN")}</td>
+                      <td className="bg__mono">{vnd(c.cost)}</td>
+                      <td>
+                        <input
+                          className="ln-mk bg__mono"
+                          type="number" min={0} max={100} step={0.5}
+                          value={multi ? (lineDraft[it.id] ?? it.margin_percent) : (draftMargin ?? it.margin_percent)}
+                          disabled={!editable}
+                          onChange={(e) => {
+                            const v = Number(e.target.value);
+                            if (multi) setLineDraft((p) => ({ ...p, [it.id]: v }));
+                            else setDraftMargin(v);
+                          }}
+                          onBlur={(e) => {
+                            const v = Number(e.target.value);
+                            if (multi) commitLineMargin(it.id, v);
+                            else commitSingleMargin(v);
+                          }}
+                        />
+                      </td>
+                      <td className="bg__mono" style={{ fontWeight: 600, color: "var(--ink)" }}>{vnd(c.final)}</td>
+                    </tr>
+                  );
+                })}
+                <tr className="lines-sum">
+                  <td>Tổng {d.items.length} dòng</td>
+                  <td></td>
+                  <td>{vnd(costT)}</td>
+                  <td></td>
+                  <td>{vnd(grandT)}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
 
-          {err && (
-            <div className="banner banner--error" role="alert" style={{ marginTop: "15px" }}>
-              {err}
+          {/* Điều khoản & ghi chú phiên bản */}
+          <div className="card">
+            <div className="bg-card-head"><div className="title">📝 Điều khoản &amp; ghi chú phiên bản</div></div>
+            <div className="field-row">
+              <span className="field-lbl">Điều khoản</span>
+              <textarea className="field-in" rows={2} value={terms} disabled={!editable} onChange={(e) => setTerms(e.target.value)} />
+            </div>
+            <div className="field-inline">
+              <span className="field-lbl">Hiệu lực báo giá</span>
+              <input className="field-in bg__mono" type="number" min={1} max={180} style={{ width: "64px", textAlign: "right" }} value={validity} disabled onChange={() => {}} />
+              <span style={{ color: "var(--ash)", fontSize: "12px" }}>ngày kể từ ngày gửi</span>
+            </div>
+            <div className="field-row">
+              <span className="field-lbl">Lý do / ghi chú phiên bản này</span>
+              <input className="field-in" value={verNote} disabled={!editable} onChange={(e) => setVerNote(e.target.value)} />
+            </div>
+            {!editable && (
+              <div className="ro-note" style={{ marginTop: "12px" }}>
+                👁 Phiên bản này {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"} — khóa chỉnh sửa. Bấm "Tạo phiên bản mới" để sửa.
+              </div>
+            )}
+            <div style={{ marginTop: "14px", display: "flex", gap: "8px" }}>
+              {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}>💾 Lưu nháp</Button>}
+              {canRequote && !editable && d.allowed_transitions.includes("change_order") && (
+                <Button variant="primary" disabled={busy} onClick={doRequote}>⎇ Tạo phiên bản mới</Button>
+              )}
+              <Button variant="ghost" onClick={() => onEdit(d)}>Sửa chi tiết dòng</Button>
+            </div>
+          </div>
+
+          {/* Theo dõi gửi khách (follow-up) */}
+          {d.status === "sent" && (
+            <div className="card">
+              <div className="bg-card-head">
+                <div className="title">🔗 Theo dõi gửi khách</div>
+                {stale && <span className="sub" style={{ color: "var(--amber)" }}>CẦN FOLLOW-UP</span>}
+              </div>
+              <div className="stage-rows">
+                <div className="sr"><span className="k">Kênh gửi</span><span className="v">Email</span></div>
+                <div className="sr"><span className="k">Ngày gửi</span><span className="v">{fmtDate(sentDate)}</span></div>
+                <div className="sr"><span className="k">Hạn phản hồi</span><span className="v">{fmtDate(d.valid_until)} ({validity} ngày)</span></div>
+                {lastContact && <div className="sr"><span className="k">Liên hệ gần nhất</span><span className="v">{lastContact}</span></div>}
+                <div className="sr"><span className="k">Đã gửi</span><span className={`v ${stale ? "warn" : ""}`}>{sentDays} ngày</span></div>
+              </div>
+              {stale && <div className="stage-note">Quá 3 ngày chưa chốt — nên liên hệ nhắc khách.</div>}
+              {viewingLatest && (
+                <div className="stage-card-actions">
+                  <Button variant="secondary" onClick={recordContact}>📞 Ghi nhận đã liên hệ</Button>
+                </div>
+              )}
+            </div>
+          )}
+          {d.status === "rejected" && d.cancel_reason && (
+            <div className="card">
+              <div className="bg-card-head"><div className="title">🚫 Lý do từ chối</div></div>
+              <div className="stage-note warn">{d.cancel_reason}</div>
             </div>
           )}
 
-          {askCancel && (
-            <label className="field" style={{ marginTop: "15px" }}>
-              <span className="field__label">Lý do hủy báo giá *</span>
-              <input
-                className="input input--error"
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Nhập lý do hủy bắt buộc..."
-                autoFocus
-              />
-            </label>
-          )}
-
-          <div className="bg__dialog-actions bg__dialog-actions--wrap" style={{ marginTop: "24px" }}>
-            {d.status === "draft" && (
-              <Button type="button" variant="ghost" onClick={() => onEdit(d)}>
-                Sửa báo giá
-              </Button>
-            )}
-            
-            {canExport && (
-              <Button type="button" variant="ghost" onClick={openPdf}>
-                Xuất PDF
-              </Button>
-            )}
-
-            {canRequote && d.allowed_transitions.includes("change_order") && (
-              <Button type="button" variant="ghost" onClick={doRequote} disabled={busy}>
-                Re-quote (Tạo V{d.version + 1})
-              </Button>
-            )}
-
-            {d.status === "accepted" && navigate && (
-              <Button type="button" variant="accent" onClick={handleCreateOrder} title="Tạo Đơn hàng bán thực tế từ báo giá được khách duyệt này">
-                🛒 Tạo đơn hàng
-              </Button>
-            )}
-
-            {transitions
-              // Ẩn nút mà người dùng không có quyền: 'accepted' cần quyền Duyệt; các
-              // trạng thái khác (gửi/từ chối/hết hạn) cần quyền Thao tác trạng thái.
-              .filter((t) => (t === "accepted" ? d.can_approve : canManageStatus))
-              .map((t) => (
-                <Button
-                  key={t}
-                  type="button"
-                  variant={t === "accepted" ? "primary" : "ghost"}
-                  disabled={busy}
-                  onClick={() => doTransition(t)}
-                >
-                  {TRANSITION_LABELS[t] ?? t}
-                </Button>
-              ))}
-
-            {canCancel && d.status !== "cancelled" && d.status !== "converted_to_order" && (
-              <Button
-                type="button"
-                variant="danger"
-                disabled={busy}
-                onClick={() => doTransition("cancelled")}
-              >
-                {askCancel ? "Xác nhận Hủy" : "Hủy báo giá"}
-              </Button>
+          {/* Lịch sử phiên bản */}
+          <div className="card">
+            <div className="bg-card-head">
+              <div className="title">🕒 Lịch sử phiên bản</div>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCompareOn((v) => !v)}>⇄ So sánh</button>
+            </div>
+            <div>
+              {d.versions.slice().sort((a, b) => b.version - a.version).map((v) => {
+                const isCur = v.version === latestVer;
+                const active = v.version === d.version;
+                return (
+                  <div
+                    key={v.id}
+                    className={`ver-item${active ? " active" : ""}${isCur ? " current" : ""}`}
+                    onClick={() => v.id !== d.id && reload(v.id)}
+                  >
+                    <span className="v-tag">v{v.version}</span>
+                    <div>
+                      <div className="v-note">{v.change_reason || "—"}</div>
+                      <div className="v-meta">{fmtDate(v.created_at)}{isCur ? " · " : ""}{isCur && <b style={{ color: "var(--moss)" }}>hiện tại</b>}</div>
+                    </div>
+                    <div className="v-price">{vnd(v.total ?? 0)}<div className="v-st"><span className={`status-chip ${statusChipClass(v.status)}`}>{labelOf(statuses, v.status)}</span></div></div>
+                  </div>
+                );
+              })}
+            </div>
+            {compareOn && (
+              <div style={{ marginTop: "12px", borderTop: "1px solid var(--rule-soft)", paddingTop: "12px", overflowX: "auto" }}>
+                <table className="cmp-tbl">
+                  <thead>
+                    <tr><th>Chỉ tiêu</th>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <th key={v.id}>v{v.version}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Giá bán (đã VAT)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{vnd(v.total ?? 0)}</td>)}</tr>
+                    <tr>
+                      <td>Chênh lệch</td>
+                      {d.versions.slice().sort((a, b) => a.version - b.version).map((v, i, arr) => {
+                        if (i === 0) return <td key={v.id}>—</td>;
+                        const diff = (v.total ?? 0) - (arr[i - 1].total ?? 0);
+                        if (diff === 0) return <td key={v.id}>0</td>;
+                        return <td key={v.id}><span className={diff > 0 ? "up" : "down"}>{diff > 0 ? "+" : ""}{vnd(diff)}</span></td>;
+                      })}
+                    </tr>
+                    <tr><td>Trạng thái</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{labelOf(statuses, v.status)}</td>)}</tr>
+                    <tr><td>Ngày</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{fmtDate(v.created_at)}</td>)}</tr>
+                  </tbody>
+                </table>
+              </div>
             )}
           </div>
+        </div>
+
+        {/* ================= RIGHT ================= */}
+        <div className="bg-sidebar">
+          {/* Panel giá bán đề xuất */}
+          <div className="summary-card">
+            <div className="lbl">Giá bán đề xuất <span style={{ color: "var(--rust-2)" }}>· v{d.version}</span></div>
+            <div className="grand"><span className={busy ? "" : "flash"}>{numf(grandT)}</span><span style={{ fontSize: "16px", color: "rgba(245,241,232,0.55)", marginLeft: "4px" }}>₫</span></div>
+            <div className="grand-unit">≈ {numf(perUnit)}₫/{unitLabel} · đã VAT</div>
+
+            {!multi && (
+              <div className="mk-block">
+                <span className="mk-lbl">Lợi nhuận · gói biên</span>
+                <div className="mk-presets">
+                  {MARGIN_PRESETS.map(([name, pct]) => (
+                    <button
+                      key={name}
+                      type="button"
+                      className={`mk-chip${Math.round(singleMargin) === pct ? " on" : ""}`}
+                      disabled={!editable || busy}
+                      onClick={() => { setDraftMargin(pct); commitSingleMargin(pct); }}
+                    >
+                      <span className="mc-name">{name}</span>
+                      <span className="mc-pct">{pct}%</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="mk-controls">
+                  <input
+                    type="range" min={5} max={50} step={1}
+                    className="markup-slider"
+                    value={Math.max(5, Math.min(50, singleMargin))}
+                    disabled={!editable}
+                    onChange={(e) => setDraftMargin(Number(e.target.value))}
+                    onMouseUp={(e) => commitSingleMargin(Number((e.target as HTMLInputElement).value))}
+                    onTouchEnd={(e) => commitSingleMargin(Number((e.target as HTMLInputElement).value))}
+                  />
+                  <div className="mk-manual">
+                    <input
+                      type="number" min={0} max={100} step={0.5}
+                      value={singleMargin}
+                      disabled={!editable}
+                      onChange={(e) => setDraftMargin(Number(e.target.value))}
+                      onBlur={(e) => commitSingleMargin(Number(e.target.value))}
+                    />
+                    <span>%</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {editable && (
+              <div className="appr-block">
+                <label className="appr-toggle">
+                  <input type="checkbox" checked={apprManual} onChange={(e) => toggleAppr(e.target.checked)} />
+                  <span className="at-text">Bắt buộc cấp trên duyệt<small>Bật để buộc qua bước duyệt nội bộ.</small></span>
+                </label>
+              </div>
+            )}
+
+            <div className="br-rows">
+              <div className="row-cost"><span className="row-key">Giá vốn (khóa)</span><span className="row-val">{numf(costT)}₫</span></div>
+              <div><span className="row-key">Lợi nhuận ({multi ? "~" + aggMarginPct : Math.round(singleMargin)}%)</span><span className="row-val">{numf(profitT)}₫</span></div>
+              <div><span className="row-key">Giá bán (chưa VAT)</span><span className="row-val">{numf(netT)}₫</span></div>
+              <div><span className="row-key">VAT</span><span className="row-val">{numf(vatT)}₫</span></div>
+              <div className="row-total"><span className="row-key">Tổng cộng</span><span className="row-val">{numf(grandT)}₫</span></div>
+            </div>
+          </div>
+
+          {/* Khách hàng */}
+          <div className="card">
+            <div className="bg-card-head"><div className="title">👤 Khách hàng</div></div>
+            <div className="cust-rows">
+              <div><span>Công ty</span><b>{d.customer?.name ?? "—"}</b></div>
+              <div><span>MST</span><b>{d.customer?.tax_code ?? "—"}</b></div>
+              <div><span>Tín dụng</span><b>{d.customer?.credit_status_display ?? "—"}</b></div>
+              <div><span>Phiếu tính giá</span><b>{ptgRefs.length ? ptgRefs.join(", ") : "—"}</b></div>
+            </div>
+          </div>
+
+          {/* Hoạt động */}
+          <div className="card">
+            <div className="bg-card-head"><div className="title">⚡ Hoạt động</div><span className="sub">{acts.length} sự kiện</span></div>
+            <div className="act-timeline">
+              {acts.map((a, i) => (
+                <div className="act-item" key={i}>
+                  <span className={`a-dot ${a.cls}`}>{a.glyph}</span>
+                  <div><div className="a-text">{a.text}</div><div className="a-meta">{a.meta}</div></div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Thảo luận */}
+          <div className="card">
+            <div className="bg-card-head"><div className="title">💬 Thảo luận</div><span className="sub">{comments.length ? comments.length + " bình luận" : ""}</span></div>
+            <div className="discuss-thread">
+              {comments.length === 0 ? (
+                <div className="discuss-empty">Chưa có thảo luận. Hãy mở đầu trao đổi về báo giá này.</div>
+              ) : comments.map((m, i) => {
+                const av = roleAv[m.who] ?? ["r-sales", (m.who || "?").slice(0, 2).toUpperCase()];
+                return (
+                  <div className="dc-msg" key={i}>
+                    <span className={`dc-av ${av[0]}`}>{av[1]}</span>
+                    <div className="dc-bubble">
+                      <div className="dc-head"><span className="dc-who">{m.who}</span><span className="dc-time">{m.time}</span></div>
+                      <div className="dc-body">{m.text}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="discuss-compose">
+              <select className="discuss-who" value={discussWho} onChange={(e) => setDiscussWho(e.target.value)}>
+                <option value="Sales">Sales</option>
+                <option value="Cấp trên">Cấp trên</option>
+                <option value="KTV giá">KTV giá</option>
+                <option value="Kế toán">Kế toán</option>
+              </select>
+              <input
+                placeholder="Viết bình luận về báo giá này..."
+                value={discussText}
+                onChange={(e) => setDiscussText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") sendComment(); }}
+              />
+              <Button variant="primary" onClick={sendComment}>➤</Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showPrint && <QuotationPrintModal d={d} statuses={statuses} onDownloadPdf={openPdf} canDownload={canExport} onClose={() => setShowPrint(false)} />}
+    </main>
+  );
+}
+
+// ---- Bản in báo giá song ngữ (MY AN PHU) -----------------------------------
+function QuotationPrintModal({
+  d,
+  onDownloadPdf,
+  canDownload,
+  onClose,
+}: {
+  d: QuotationDetail;
+  statuses: EnumOption[];
+  onDownloadPdf: () => void;
+  /** Quyền chi tiết `export`: thiếu thì chỉ xem trước, ẩn nút In/Lưu PDF. */
+  canDownload: boolean;
+  onClose: () => void;
+}) {
+  const now = new Date();
+  const p2 = (n: number) => (n < 10 ? "0" : "") + n;
+  const qdate = `${p2(now.getDate())}/${p2(now.getMonth() + 1)}/${now.getFullYear()}`;
+  const qno = d.code.replace(/[^0-9A-Za-z]/g, "");
+  const note = (vi: string, en: string) => (
+    <li>{vi} <span className="q-en">({en})</span></li>
+  );
+  return (
+    <div className="bg__overlay" onClick={onClose}>
+      <div className="card bg__dialog" style={{ maxWidth: "900px", padding: 0 }} onClick={(e) => e.stopPropagation()}>
+        <div className="bg__dialog-head">
+          <h2>Xem trước báo giá in</h2>
+          <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng">✕</button>
+        </div>
+        <div className="qpdf">
+          <div className="q-head">
+            <div className="q-logo"><img src={svnLogoUrl} alt="Sao Việt Nhật" /></div>
+            <div className="q-co">
+              <div className="q-co-name">{SVN_COMPANY.name}</div>
+              <div><b>Address:</b> {SVN_COMPANY.address}</div>
+              <div><b>Tax code:</b> {SVN_COMPANY.taxCode}</div>
+              <div><b>Phone:</b> {SVN_COMPANY.phone}</div>
+              <div><b>Email:</b> {SVN_COMPANY.email} · <b>Website:</b> {SVN_COMPANY.website}</div>
+            </div>
+          </div>
+          <div className="q-title">BẢNG BÁO GIÁ / QUOTATION</div>
+          <div className="q-meta">
+            <div className="q-col">
+              <div><b>Kính gửi</b> <span className="q-en">/ To:</span> {d.customer?.name ?? "—"}</div>
+              <div><b>Địa chỉ</b> <span className="q-en">/ Address:</span> —</div>
+              <div><b>MST</b> <span className="q-en">/ Tax code:</span> {d.customer?.tax_code ?? "—"}</div>
+            </div>
+            <div className="q-col">
+              <div><b>Ngày báo giá</b> <span className="q-en">/ Quote Date:</span> {qdate}</div>
+              <div><b>Số báo giá</b> <span className="q-en">/ Quote No:</span> {qno} · v{d.version}</div>
+              <div><b>Người gửi</b> <span className="q-en">/ Sender:</span> {SVN_COMPANY.sender}</div>
+              <div><b>Email</b> <span className="q-en">/ Email:</span> {SVN_COMPANY.senderEmail}</div>
+            </div>
+          </div>
+          <div className="q-intro">Cảm ơn Quý khách đã quan tâm sản phẩm của {SVN_COMPANY.nameEn}. Chúng tôi xin gửi bảng báo giá chi tiết như sau:</div>
+          <table className="q-tbl">
+            <thead>
+              <tr>
+                <th>STT<span className="q-en">No</span></th>
+                <th>MÃ HÀNG<span className="q-en">Production Code</span></th>
+                <th>MÔ TẢ SẢN PHẨM<span className="q-en">Production Description</span></th>
+                <th>KÍCH THƯỚC<span className="q-en">Size</span></th>
+                <th>ĐVT<span className="q-en">Unit</span></th>
+                <th>SỐ LƯỢNG<span className="q-en">Quantity</span></th>
+                <th>ĐƠN GIÁ VND (CHƯA VAT)<span className="q-en">Unit Price (Excl. VAT)</span></th>
+                <th>GHI CHÚ<span className="q-en">Remark</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {d.items.map((it, i) => {
+                const net = Math.max(0, it.selling_price - it.discount_amount);
+                const netUnit = it.quantity ? Math.round(net / it.quantity) : Math.round(net);
+                return (
+                  <tr key={it.id}>
+                    <td className="c">{i + 1}</td>
+                    <td className="c">{it.estimate_number ?? "—"}</td>
+                    <td>{it.product_name}{it.note ? `, ${it.note}` : ""}</td>
+                    <td className="c">{it.product_spec_text ?? "—"}</td>
+                    <td className="c">{it.unit}</td>
+                    <td className="c">{it.quantity.toLocaleString("vi-VN")}</td>
+                    <td className="r">{netUnit.toLocaleString("vi-VN")}</td>
+                    <td></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="q-notes">
+            <div className="q-note-ttl">Ghi chú / Note:</div>
+            <ol>
+              {note("Hiệu lực của báo giá: Áp dụng từ ngày báo giá cho đến khi có thông báo mới.", "Validity of quotation: Valid from the date of quotation until further notice.")}
+              {note("Giá trên đã bao gồm chi phí vận chuyển đến kho của Quý khách hàng.", "The price includes shipping costs to your warehouse.")}
+              {note("Giá trên chưa bao gồm thuế GTGT theo quy định hiện hành là 8%.", "The prices above do not include VAT, which is currently 8%.")}
+              {note("Thời gian giao hàng: Từ 7-10 ngày kể từ khi nhận đơn hàng.", "Delivery time: 7-10 days from the date of order placement.")}
+              {note(`Thời hạn thanh toán: ${d.payment_terms || "Theo thỏa thuận."}`, "Payment terms as agreed.")}
+            </ol>
+          </div>
+          <div className="q-thanks">Công ty chúng tôi xin trân trọng cảm ơn sự hợp tác của Quý khách hàng. (Thank you for your cooperation.)</div>
+          <div className="q-sign">
+            <div className="q-sign-col"><div className="q-sign-ttl">KHÁCH HÀNG XÁC NHẬN <span className="q-en">(Buyer's Confirmation)</span></div><div className="q-sign-sub">(Ký và ghi rõ họ tên / Signature &amp; Full Name)</div><div className="q-sign-space"></div></div>
+            <div className="q-sign-col"><div className="q-sign-ttl">NHÀ CUNG CẤP XÁC NHẬN <span className="q-en">(Supplier's Confirmation)</span></div><div className="q-sign-sub">(Ký và ghi rõ họ tên / Signature &amp; Full Name)</div><div className="q-sign-space"></div></div>
+          </div>
+        </div>
+        <div className="bg__dialog-actions" style={{ padding: "16px 20px" }}>
+          <Button variant="ghost" onClick={onClose}>Đóng</Button>
+          {canDownload && (
+            <Button variant="primary" onClick={onDownloadPdf}>In / Lưu PDF</Button>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+// ---- helpers cho detail view -----------------------------------------------
+function statusChipClass(status: string): string {
+  if (status === "accepted" || status === "converted_to_order") return "ok";
+  if (status === "sent") return "sent";
+  if (status === "rejected" || status === "expired" || status === "cancelled") return "reject";
+  return "draft";
+}
+function vnd(v: number): string {
+  return Math.round(v).toLocaleString("vi-VN") + "₫";
+}
+function numf(v: number): string {
+  return Math.round(v).toLocaleString("vi-VN");
+}
+function nowLabel(): string {
+  const dd = new Date();
+  const p = (n: number) => (n < 10 ? "0" : "") + n;
+  return `${p(dd.getDate())}/${p(dd.getMonth() + 1)} ${p(dd.getHours())}:${p(dd.getMinutes())}`;
+}
+function lsGet<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem(key);
+    return v ? (JSON.parse(v) as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+function lsSet(key: string, val: unknown): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(val));
+  } catch {
+    /* ignore */
+  }
 }
