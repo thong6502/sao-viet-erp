@@ -50,6 +50,7 @@ class DepartmentMemberOut(BaseModel):
     """A staff member of a department (PBI-4001 detail): identity + role + status + head flag."""
 
     id: int
+    code: str | None = None
     name: str
     username: str
     role_name: str | None = None
@@ -118,6 +119,7 @@ class UserRow(BaseModel):
     """A row in the Users admin table: identity + department + role + status."""
 
     id: int
+    code: str | None = None
     name: str
     username: str
     department_id: int | None = None
@@ -174,6 +176,17 @@ class TransferResult(BaseModel):
     transferred: int
 
 
+class RoleBulkAssignIn(BaseModel):
+    """Gán một vai trò cho nhiều người cùng lúc từ màn Phòng ban (bulk)."""
+
+    user_ids: list[int] = Field(min_length=1)
+    role_id: int
+
+
+class RoleAssignResult(BaseModel):
+    assigned: int
+
+
 class AuditRow(BaseModel):
     """A row in the Activity Log: who did what, to what, when."""
 
@@ -212,6 +225,25 @@ class PermissionRow(BaseModel):
     can_update: bool = False
     can_delete: bool = False
     scope: Literal["own", "department", "all"] = "own"
+    # Quyền chi tiết (Cách B).
+    can_reassign: bool = False
+    can_export: bool = False
+    can_view_debt: bool = False
+    can_approve: bool = False
+    can_manage_status: bool = False
+    can_reset_password: bool = False
+    can_lock: bool = False
+    can_revoke_sessions: bool = False
+    can_assign_role: bool = False
+    can_transfer: bool = False
+    can_set_head: bool = False
+    can_requote: bool = False
+    can_manage_price: bool = False
+    can_cancel: bool = False
+    can_manage_permissions: bool = False
+    can_clone: bool = False
+    can_toggle_active: bool = False
+    can_reparent: bool = False
 
 
 class PermissionMatrixIn(BaseModel):

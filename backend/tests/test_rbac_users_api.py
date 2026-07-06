@@ -84,6 +84,25 @@ def test_create_user_starts_with_no_role(client):
     assert body["department_id"] == kd_id
     assert body["role_id"] is None  # most-minimal default until a head assigns
     assert body["is_active"] is True
+    # spec-07: every user gets a system-generated NVxxx business code.
+    import re
+
+    assert re.fullmatch(r"NV\d{3,}", body["code"]), body["code"]
+
+
+def test_user_codes_are_unique_and_listed(client):
+    token = _admin_token(client)
+    kd_id = _dept_id("Kinh doanh")
+    for uname in ("code1", "code2"):
+        client.post(
+            "/api/users",
+            json={"name": uname, "username": uname, "department_id": kd_id},
+            headers=_h(token),
+        )
+    rows = client.get("/api/users", headers=_h(token)).json()
+    codes = [u["code"] for u in rows if u["code"]]
+    assert all(c.startswith("NV") for c in codes)
+    assert len(codes) == len(set(codes))  # no duplicates
 
 
 def test_create_user_validation(client):
@@ -158,6 +177,12 @@ def test_lock_blocks_login_and_me(client):
 def test_cannot_lock_self(client):
     token = _admin_token(client)
     resp = client.put(f"/api/users/{_admin_id()}/active", json={"is_active": False}, headers=_h(token))
+    assert resp.status_code == 400
+
+
+def test_cannot_revoke_own_sessions(client):
+    token = _admin_token(client)
+    resp = client.post(f"/api/users/{_admin_id()}/revoke-sessions", headers=_h(token))
     assert resp.status_code == 400
 
 

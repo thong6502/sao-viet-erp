@@ -20,8 +20,8 @@ from ..services.plate_die_rate_service import (
 )
 
 router = APIRouter(prefix="/api/plate-die-rates", tags=["plate-die-rates"])
-MODULE = "dm_dinh_muc"
-
+# Quyền chi tiết: catalog Bảng giá kẽm & khuôn có module quyền riêng (RBAC feature #6).
+MODULE = "dm_gia_khuon_ban"
 
 @router.get("", response_model=PlateDieRateListOut,
             dependencies=[Depends(require_permission(MODULE, "read"))])

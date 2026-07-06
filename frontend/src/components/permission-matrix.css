@@ -46,7 +46,75 @@
 
 .matrix__scope {
   width: 160px;
+}
+
+/* ---- Cột quyền chi tiết (Cách B) ----------------------------------------- */
+.matrix__fine {
+  text-align: left !important;
+  min-width: 180px;
   padding-right: var(--sp-5) !important;
+}
+.matrix__fine-toggle {
+  appearance: none;
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.matrix__fine-toggle:hover,
+.matrix__fine-toggle.is-open {
+  border-color: var(--rust);
+}
+.matrix__fine-caret {
+  color: var(--ash);
+  font-size: 10px;
+  transition: transform var(--duration-base) var(--easing-standard);
+}
+.matrix__fine-toggle.is-open .matrix__fine-caret {
+  transform: rotate(180deg);
+}
+.matrix__fine-badge {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash);
+  background: var(--rule-hair);
+  border-radius: var(--r-pill);
+  padding: 1px 7px;
+}
+.matrix__fine-badge.is-on {
+  color: var(--canvas);
+  background: var(--rust);
+}
+/* Popover nổi (portal) — position:fixed đặt theo JS; overlay không đẩy bảng. */
+.matrix__fine-popover {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  box-shadow: 0 10px 28px rgba(20, 19, 15, 0.18);
+}
+.matrix__fine-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.matrix__fine-none {
+  color: var(--ash-2);
 }
 
 /* ---- Toggle switch (styled checkbox) ------------------------------------- */

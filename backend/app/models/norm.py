@@ -150,18 +150,16 @@ class Norm(Base):
             "operation_id IS NULL OR operation_key IS NULL",
             name="chk_norms_operation_exclusivity"
         ),
+        # "1 quy tắc = 1 mã": mỗi mã chỉ có ĐÚNG 1 bản đang mở (version hiện hành).
+        # Thay cơ chế cũ khóa theo cấu-hình-phạm-vi (uix_norms_current) — cơ chế đó coi 2 rule
+        # chỉ khác nhau ở applicable_* là cùng một cấu hình nên âm thầm ghi đè nhau (bug multi-select).
+        # Định danh theo code khiến 2 rule khác mã luôn cùng tồn tại. Rule không có mã (dữ liệu
+        # legacy/seed) không bị index này ràng — vẫn giữ hành vi cũ qua get_active_norm_matching_config.
         Index(
-            "uix_norms_current",
-            "norm_key",
-            text("coalesce(product_type, '')"),
-            text("coalesce(machine_id, 0)"),
-            text("coalesce(operation_id, 0)"),
-            text("coalesce(operation_key, '')"),
-            text("coalesce(qty_min, -1)"),
-            text("coalesce(qty_max, -1)"),
-            "context_key",
+            "uix_norms_open_code",
+            "code",
             unique=True,
-            sqlite_where=text("effective_to IS NULL"),
-            postgresql_where=text("effective_to IS NULL")
-        )
+            sqlite_where=text("effective_to IS NULL AND code IS NOT NULL"),
+            postgresql_where=text("effective_to IS NULL AND code IS NOT NULL"),
+        ),
     )

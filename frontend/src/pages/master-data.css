@@ -78,6 +78,31 @@
   flex: 1 1 auto;
 }
 
+/* Kho hàng: chọn kho từ dropdown → quản lý mặt hàng trong kho đó. */
+.md-page__picker {
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.md-page__picker-field {
+  max-width: 480px;
+  margin: 0;
+}
+.md-page__prompt {
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+  color: var(--ash, #6b7280);
+}
+.md-page__wh-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px 12px;
+  border-radius: var(--r-2, 8px);
+  background: var(--rust-soft, #f5ece7);
+  color: var(--rust-deep, #7a3b1e);
+  font-size: 14px;
+}
+
 /* Table */
 .md-page__tablewrap {
   padding: 0;

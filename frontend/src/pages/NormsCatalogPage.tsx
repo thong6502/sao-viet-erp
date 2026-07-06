@@ -10,6 +10,7 @@ import {
   type WasteGroup,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./master-data.css";
 
@@ -142,6 +143,10 @@ function isPercentValue(group: WasteGroup, method: string): boolean {
 
 export function NormsCatalogPage() {
   const { token } = useAuth();
+  const can = useCan();
+  const canCreate = can("dm_dinh_muc", "create");
+  const canUpdate = can("dm_dinh_muc", "update");
+  const canDelete = can("dm_dinh_muc", "delete");
 
   const [rows, setRows] = useState<NormRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -573,7 +578,7 @@ export function NormsCatalogPage() {
             <h1 className="md-page__title">Định mức & Bù hao</h1>
             <p className="md-page__sub">Khai báo quy tắc setup, hao chạy máy, hao giấy & tỷ lệ đạt → engine tính số tờ sản xuất, số tờ mua giấy và chi phí công đoạn.</p>
           </div>
-          <Button variant="primary" onClick={handleCreateClick}>+ Tạo quy tắc</Button>
+          {canCreate && <Button variant="primary" onClick={handleCreateClick}>+ Tạo quy tắc</Button>}
         </div>
       </div>
 
@@ -736,12 +741,12 @@ export function NormsCatalogPage() {
                           <>
                             <div style={{ position: "fixed", inset: 0, zIndex: 29 }} onClick={() => setMenuFor(null)} />
                             <div className="md-page__menu" role="menu">
-                              <button type="button" onClick={() => handleOpenClick(row)}>Tạo phiên bản mới</button>
-                              <button type="button" onClick={() => handleDuplicateFillClick(row)}>Sao chép thành quy tắc mới</button>
-                              {active && <button type="button" onClick={() => { setMenuFor(null); handleCloseClick(row); }}>Ngừng áp dụng</button>}
+                              {canUpdate && <button type="button" onClick={() => handleOpenClick(row)}>Tạo phiên bản mới</button>}
+                              {canCreate && <button type="button" onClick={() => handleDuplicateFillClick(row)}>Sao chép thành quy tắc mới</button>}
+                              {active && canUpdate && <button type="button" onClick={() => { setMenuFor(null); handleCloseClick(row); }}>Ngừng áp dụng</button>}
                               {row.estimate_count > 0 && <button type="button" onClick={() => openUsage(row)}>Xem phiếu tính giá đang dùng</button>}
                               <button type="button" onClick={() => { setMenuFor(null); openHistory(row); }}>Xem lịch sử</button>
-                              {row.effective_from > today && (
+                              {canDelete && row.effective_from > today && (
                                 <>
                                   <div className="md-page__menu__sep" />
                                   <button type="button" className="danger" onClick={() => { setMenuFor(null); setDeleting(row); }}>Xóa</button>

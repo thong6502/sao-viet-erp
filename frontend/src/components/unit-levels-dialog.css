@@ -16,7 +16,9 @@
 
 .ulvl__row {
   display: grid;
-  grid-template-columns: 1.4fr 0.7fr 1.4fr auto;
+  /* Fixed last column so header / data / add / edit rows all share one grid — an
+     `auto` column would size to each row's buttons and drift the middle columns. */
+  grid-template-columns: minmax(0, 1.4fr) 96px minmax(0, 1.6fr) 152px;
   gap: 10px;
   align-items: center;
 }
@@ -26,7 +28,7 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted, #6b7280);
-  padding: 0 2px 6px;
+  padding: 0 0 6px;
 }
 
 .ulvl__row--add {

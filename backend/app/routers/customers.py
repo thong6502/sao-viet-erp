@@ -34,6 +34,8 @@ from ..schemas.customer import (
     CustomerDetailOut,
     CustomerKpis,
     CustomerListOut,
+    CustomerReassignIn,
+    CustomerReassignOut,
     CustomerRow,
     CustomerUpdate,
     DuplicateRef,
@@ -53,6 +55,7 @@ from ..services.customer_service import (
     CustomerNotFound,
     CustomerService,
     CustomerValidationError,
+    ReassignForbidden,
     ReceivableUnavailable,
 )
 from ..services.rbac_service import AuthorizationService
@@ -121,6 +124,7 @@ def list_customers(
     q: str | None = Query(default=None),
     sale: int | None = Query(default=None),
     tier: str | None = Query(default=None),
+    status: str | None = Query(default=None),
     sort: str = Query(default="code"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
@@ -147,6 +151,8 @@ def list_customers(
         filtered = [c for c in filtered if c.sale_user_id == sale]
     if tier:
         filtered = [c for c in filtered if stats.per_customer[c.id].tier == tier]
+    if status in ("active", "inactive"):
+        filtered = [c for c in filtered if c.status == status]
 
     key, is_desc = _sort_key(sort or "code")
     derived = {"revenue": "revenue_12m", "orders": "orders_total"}
@@ -210,6 +216,78 @@ def list_sale_options(
     return [SaleOption(id=u.id, name=u.name or u.username) for u in candidates]
 
 
+@router.post("/reassign", response_model=CustomerReassignOut)
+def reassign_customers(
+    payload: CustomerReassignIn,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "reassign"))],
+) -> CustomerReassignOut:
+    """Điều chuyển toàn bộ khách của một Sale sang Sale khác. Dành cho trưởng phòng KD
+    (scope `department`) hoặc quản lý (scope `all`); Sale thường (scope `own`) bị 403.
+    Ở scope `department`, cả Sale nguồn và đích phải cùng phòng với người thực hiện."""
+    scope = _scope_for(authz, user)
+    if scope == "own":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền điều chuyển khách hàng.",
+        )
+    to_u = users.get_by_id(payload.to_sale_user_id)
+    if to_u is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy nhân viên đích."
+        )
+    # Ở scope `department`, nhân viên đích phải cùng phòng với người thực hiện.
+    if scope == "department" and (
+        user.department_id is None or to_u.department_id != user.department_id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Nhân viên đích phải thuộc phòng của bạn.",
+        )
+
+    try:
+        if payload.customer_ids:
+            moved, skipped = svc.reassign_selected(
+                customer_ids=payload.customer_ids,
+                to_sale_user_id=payload.to_sale_user_id,
+                scope=scope,
+                actor=user,
+            )
+            return CustomerReassignOut(moved=moved, skipped=skipped)
+        if payload.from_sale_user_id is not None:
+            from_u = users.get_by_id(payload.from_sale_user_id)
+            if from_u is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Không tìm thấy nhân viên nguồn.",
+                )
+            if scope == "department" and from_u.department_id != user.department_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Nhân viên nguồn phải thuộc phòng của bạn.",
+                )
+            moved = svc.reassign_customers(
+                from_sale_user_id=payload.from_sale_user_id,
+                to_sale_user_id=payload.to_sale_user_id,
+                scope=scope,
+                actor=user,
+            )
+            return CustomerReassignOut(moved=moved)
+    except CustomerValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from None
+    except CustomerForbidden as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
+
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail="Cần chọn khách hàng hoặc nhân viên nguồn để điều chuyển.",
+    )
+
+
 @router.post("", response_model=CustomerCreateOut, status_code=status.HTTP_201_CREATED)
 def create_customer(
     payload: CustomerCreate,
@@ -259,7 +337,9 @@ def get_customer(
     stat = analytics.list_stats([customer]).per_customer.get(customer.id)
     return CustomerDetailOut(
         customer=_row(customer, names, stat),
-        receivable=_receivable_card(svc, customer),
+        receivable=_receivable_card(
+            svc, customer, can_view=authz.can(user, MODULE, "view_debt")
+        ),
     )
 
 
@@ -294,7 +374,9 @@ def customer_dashboard(
         product_mix=[ProductSliceOut(**vars(s)) for s in d.product_mix],
         heatmap=[HeatCellOut(**vars(h)) for h in d.heatmap],
         has_data=d.has_data,
-        receivable=_receivable_card(svc, customer),
+        receivable=_receivable_card(
+            svc, customer, can_view=authz.can(user, MODULE, "view_debt")
+        ),
     )
 
 
@@ -349,6 +431,7 @@ _QUOTE_STATUS_LABELS = {
 _PROFILE_ACTION_LABELS = {
     "create_customer": "Tạo hồ sơ khách hàng",
     "update_customer": "Cập nhật hồ sơ",
+    "reassign_customer": "Điều chuyển phụ trách",
 }
 
 
@@ -427,7 +510,7 @@ def customer_order_history_csv(
     svc: Service,
     analytics: Analytics,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
 ) -> Response:
     """Xuất Excel (CSV UTF-8 BOM mở được bằng Excel) — lịch sử mua hàng THẬT của khách."""
     scope = _scope_for(authz, user)
@@ -484,7 +567,10 @@ def update_customer(
             credit_limit=payload.credit_limit,
             sale_user_id=payload.sale_user_id,
             status=payload.status,
+            allow_reassign=authz.can(user, MODULE, "reassign"),
         )
+    except ReassignForbidden as e:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
     except CustomerValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
@@ -522,9 +608,18 @@ def _dup_ref(duplicate: Customer | None) -> DuplicateRef | None:
     return DuplicateRef(id=duplicate.id, code=duplicate.code, name=duplicate.name)
 
 
-def _receivable_card(svc: CustomerService, customer: Customer) -> ReceivableCard:
+def _receivable_card(
+    svc: CustomerService, customer: Customer, *, can_view: bool = True
+) -> ReceivableCard:
     """Build the read-only Công nợ card. On SEAM-16 (Công nợ chưa build) return an
-    explicit unavailable card — NEVER a fabricated 0 (§34 L885 / spec KH-04)."""
+    explicit unavailable card — NEVER a fabricated 0 (§34 L885 / spec KH-04).
+    `can_view=False` (quyền chi tiết `view_debt` tắt) → ẩn số liệu công nợ."""
+    if not can_view:
+        return ReceivableCard(
+            available=False,
+            credit_limit=customer.credit_limit,
+            message="Bạn không có quyền xem công nợ",
+        )
     try:
         balance = svc.receivable_balance(customer.id)
     except ReceivableUnavailable:

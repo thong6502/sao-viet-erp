@@ -32,13 +32,21 @@ MODULES: list[tuple[str, str]] = [
     ("tinh_gia_thanh", "Tính giá thành"),
     ("san_pham", "Sản phẩm"),
     ("hop_dong", "Hợp đồng"),
+    ("kho", "Kho hàng"),
     ("phong_ban", "Phòng ban"),
     ("vai_tro", "Vai trò"),
     ("nguoi_dung", "Người dùng"),
     ("activity_log", "Nhật ký hoạt động"),
-    ("dm_giay_vat_tu", "Danh mục Giấy & Vật tư"),
+    # Cấu hình danh mục (spec-06): mỗi trang là một module quyền riêng để tích quyền độc lập.
+    ("dm_loai_san_pham", "Loại sản phẩm"),
+    ("dm_giay_vat_tu", "Vật liệu & Giá"),
+    ("dm_thiet_bi", "Thiết bị & Máy in"),
+    ("dm_cong_doan", "Công đoạn gia công"),
+    ("dm_gia_click", "Bảng giá Click"),
+    ("dm_gia_khuon_ban", "Bảng giá Khuôn & Bản"),
     ("dm_dinh_muc", "Định mức & Bù hao"),
     ("nhan_su", "Nhân sự"),
+    ("dm_kho", "Cấu hình kho hàng"),
 ]
 
 ALL_MODULE_KEYS = [k for k, _ in MODULES]
@@ -67,7 +75,31 @@ ADMIN_ROLE = "Giám đốc"
 
 
 def _full(scope: str) -> dict:
-    return dict(can_read=True, can_create=True, can_update=True, can_delete=True, scope=scope)
+    return dict(
+        can_read=True,
+        can_create=True,
+        can_update=True,
+        can_delete=True,
+        scope=scope,
+        can_reassign=True,
+        can_export=True,
+        can_view_debt=True,
+        can_approve=True,
+        can_manage_status=True,
+        can_reset_password=True,
+        can_lock=True,
+        can_revoke_sessions=True,
+        can_assign_role=True,
+        can_transfer=True,
+        can_set_head=True,
+        can_requote=True,
+        can_manage_price=True,
+        can_cancel=True,
+        can_manage_permissions=True,
+        can_clone=True,
+        can_toggle_active=True,
+        can_reparent=True,
+    )
 
 
 def _rcu(scope: str) -> dict:
@@ -90,7 +122,16 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_ALL),
             "nhan_su": _rcu(SCOPE_ALL),
-            "nguoi_dung": _rcu(SCOPE_ALL),
+            # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
+            # đặt lại MK, khóa/mở, thu hồi phiên, gán vai trò, chuyển phòng ban.
+            "nguoi_dung": {
+                **_rcu(SCOPE_ALL),
+                "can_reset_password": True,
+                "can_lock": True,
+                "can_revoke_sessions": True,
+                "can_assign_role": True,
+                "can_transfer": True,
+            },
             "phong_ban": _read(SCOPE_ALL),
             "vai_tro": _read(SCOPE_ALL),
             "activity_log": _read(SCOPE_ALL),
@@ -117,8 +158,13 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
 def seed_modules(db: Session) -> None:
     modules = ModuleRepository(db)
     for key, label in MODULES:
-        if modules.get_by_key(key) is None:
+        existing = modules.get_by_key(key)
+        if existing is None:
             modules.create(key=key, label=label)
+        elif existing.label != label:
+            # Keep labels in sync when a module is renamed (data, not schema).
+            existing.label = label
+            db.commit()
 
 
 def seed_departments(db: Session) -> None:
@@ -1317,6 +1363,21 @@ def seed_attendance(db: Session) -> None:
                     checked_at=checked_at, latitude=float(loc.latitude), longitude=float(loc.longitude),
                     distance_m=12.0, within_range=True,
                 )
+    db.commit()
+
+
+def backfill_user_codes(db: Session) -> None:
+    """Assign an 'NV' code (spec-07) to any user still missing one, oldest id first.
+    Idempotent: users created via the repository already get a code, so on a fresh DB
+    this is a no-op; it only fills legacy rows that predate the code column."""
+    users = UserRepository(db)
+    changed = False
+    for u in users.list_all():
+        if not u.code:
+            u.code = users.next_code()
+            changed = True
+    if changed:
+        db.commit()
 
 
 def seed_all(db: Session) -> None:
@@ -1351,4 +1412,5 @@ def seed_all(db: Session) -> None:
         seed_plate_die_rates(db)
         seed_norms(db)
         seed_document_sequences(db)
+    backfill_user_codes(db)
 

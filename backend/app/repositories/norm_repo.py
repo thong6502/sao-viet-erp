@@ -96,23 +96,37 @@ class NormRepository:
 
         return self.db.execute(stmt).scalars().first()
 
-    def find_predecessor(self, norm: Norm) -> Norm | None:
-        """Norm (cùng cấu hình) mà `norm` đã đóng — tức effective_to == norm.effective_from.
-        Dùng để mở lại khi xóa cứng một norm tương lai (tránh khoảng trống định mức — #1).
-        (SQLAlchemy: `== None` sinh IS NULL, nên khớp đúng các chiều nullable.)"""
+    def get_open_by_code(self, code: str | None) -> Norm | None:
+        """Bản đang mở (effective_to IS NULL) mang mã `code` — định danh "1 quy tắc = 1 mã".
+        Trả None nếu code rỗng (rule legacy không mã dùng lối cũ get_active_norm_matching_config)."""
+        if not code:
+            return None
         stmt = (
             select(Norm)
-            .where(Norm.id != norm.id)
-            .where(Norm.norm_key == norm.norm_key)
-            .where(Norm.context_key == norm.context_key)
-            .where(Norm.effective_to == norm.effective_from)
-            .where(Norm.product_type == norm.product_type)
-            .where(Norm.machine_id == norm.machine_id)
-            .where(Norm.operation_id == norm.operation_id)
-            .where(Norm.operation_key == norm.operation_key)
-            .where(Norm.qty_min == norm.qty_min)
-            .where(Norm.qty_max == norm.qty_max)
+            .where(Norm.code == code)
+            .where(Norm.effective_to.is_(None))
         )
+        return self.db.execute(stmt).scalars().first()
+
+    def find_predecessor(self, norm: Norm) -> Norm | None:
+        """Norm mà `norm` đã đóng — tức effective_to == norm.effective_from.
+        Dùng để mở lại khi xóa cứng một norm tương lai (tránh khoảng trống định mức — #1).
+        Định danh theo `code` nếu có (cùng mã = cùng quy tắc); rule không mã dùng lối cấu-hình cũ.
+        (SQLAlchemy: `== None` sinh IS NULL, nên khớp đúng các chiều nullable.)"""
+        stmt = select(Norm).where(Norm.id != norm.id).where(Norm.effective_to == norm.effective_from)
+        if norm.code:
+            stmt = stmt.where(Norm.code == norm.code)
+        else:
+            stmt = (
+                stmt.where(Norm.norm_key == norm.norm_key)
+                .where(Norm.context_key == norm.context_key)
+                .where(Norm.product_type == norm.product_type)
+                .where(Norm.machine_id == norm.machine_id)
+                .where(Norm.operation_id == norm.operation_id)
+                .where(Norm.operation_key == norm.operation_key)
+                .where(Norm.qty_min == norm.qty_min)
+                .where(Norm.qty_max == norm.qty_max)
+            )
         return self.db.execute(stmt).scalars().first()
 
     def get_candidates(
@@ -246,19 +260,23 @@ class NormRepository:
         return list(self.db.execute(select(Norm).where(Norm.effective_to.is_(None))).scalars())
 
     def list_history(self, norm: Norm) -> list[Norm]:
-        """Chuỗi version của cùng một cấu hình (mọi bản, gồm đã đóng) — cho 'Xem lịch sử'."""
-        stmt = (
-            select(Norm)
-            .where(Norm.norm_key == norm.norm_key)
-            .where(Norm.context_key == norm.context_key)
-            .where(Norm.product_type == norm.product_type)
-            .where(Norm.machine_id == norm.machine_id)
-            .where(Norm.operation_id == norm.operation_id)
-            .where(Norm.operation_key == norm.operation_key)
-            .where(Norm.qty_min == norm.qty_min)
-            .where(Norm.qty_max == norm.qty_max)
-            .order_by(Norm.effective_from.asc(), Norm.id.asc())
-        )
+        """Chuỗi version (mọi bản, gồm đã đóng) — cho 'Xem lịch sử'.
+        Cùng mã = cùng quy tắc; rule không mã (legacy) gom theo cấu-hình-phạm-vi như cũ."""
+        if norm.code:
+            stmt = select(Norm).where(Norm.code == norm.code)
+        else:
+            stmt = (
+                select(Norm)
+                .where(Norm.norm_key == norm.norm_key)
+                .where(Norm.context_key == norm.context_key)
+                .where(Norm.product_type == norm.product_type)
+                .where(Norm.machine_id == norm.machine_id)
+                .where(Norm.operation_id == norm.operation_id)
+                .where(Norm.operation_key == norm.operation_key)
+                .where(Norm.qty_min == norm.qty_min)
+                .where(Norm.qty_max == norm.qty_max)
+            )
+        stmt = stmt.order_by(Norm.effective_from.asc(), Norm.id.asc())
         return list(self.db.execute(stmt).scalars())
 
     def add_norm(
@@ -278,17 +296,22 @@ class NormRepository:
         note: str | None = None,
         **extra,
     ) -> Norm:
-        # Find current active norm for the exact same dimensions
-        current = self.get_active_norm_matching_config(
-            norm_key=norm_key,
-            product_type=product_type,
-            machine_id=machine_id,
-            operation_id=operation_id,
-            operation_key=operation_key,
-            qty_min=qty_min,
-            qty_max=qty_max,
-            context_key=context_key,
-        )
+        # Định danh "1 quy tắc = 1 mã": nếu có mã, bản đang mở cùng mã là version tiền nhiệm.
+        # Rule không mã (legacy/seed) giữ lối cũ — khóa theo cấu-hình-phạm-vi.
+        code_val = extra.get("code")
+        if code_val:
+            current = self.get_open_by_code(code_val)
+        else:
+            current = self.get_active_norm_matching_config(
+                norm_key=norm_key,
+                product_type=product_type,
+                machine_id=machine_id,
+                operation_id=operation_id,
+                operation_key=operation_key,
+                qty_min=qty_min,
+                qty_max=qty_max,
+                context_key=context_key,
+            )
         version = 1
         if current:
             # Close old norm: effective_to = new_effective_from (exclusive) + bump version chain.

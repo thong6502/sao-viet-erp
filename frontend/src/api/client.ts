@@ -201,6 +201,7 @@ export interface UnitLevel {
 /** A staff member of a department (PBI-4001 detail panel). */
 export interface DepartmentMember {
   id: number;
+  code?: string | null;
   name: string;
   username: string;
   role_name?: string | null;
@@ -223,6 +224,8 @@ export interface UserBrief {
 
 export interface UserRow {
   id: number;
+  /** System-generated employee code (NV001, NV002…); may be null on legacy rows. */
+  code: string | null;
   name: string;
   username: string;
   department_id: number | null;
@@ -249,6 +252,26 @@ export interface ModuleCapability {
   can_create: boolean;
   can_update: boolean;
   can_delete: boolean;
+  scope: Scope;
+  // Quyền chi tiết (Cách B).
+  can_reassign: boolean;
+  can_export: boolean;
+  can_view_debt: boolean;
+  can_approve: boolean;
+  can_manage_status: boolean;
+  can_reset_password: boolean;
+  can_lock: boolean;
+  can_revoke_sessions: boolean;
+  can_assign_role: boolean;
+  can_transfer: boolean;
+  can_set_head: boolean;
+  can_requote: boolean;
+  can_manage_price: boolean;
+  can_cancel: boolean;
+  can_manage_permissions: boolean;
+  can_clone: boolean;
+  can_toggle_active: boolean;
+  can_reparent: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -272,6 +295,25 @@ export interface PermissionRow {
   can_update: boolean;
   can_delete: boolean;
   scope: Scope;
+  // Quyền chi tiết (Cách B).
+  can_reassign: boolean;
+  can_export: boolean;
+  can_view_debt: boolean;
+  can_approve: boolean;
+  can_manage_status: boolean;
+  can_reset_password: boolean;
+  can_lock: boolean;
+  can_revoke_sessions: boolean;
+  can_assign_role: boolean;
+  can_transfer: boolean;
+  can_set_head: boolean;
+  can_requote: boolean;
+  can_manage_price: boolean;
+  can_cancel: boolean;
+  can_manage_permissions: boolean;
+  can_clone: boolean;
+  can_toggle_active: boolean;
+  can_reparent: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 ----------------------------------------------
@@ -441,6 +483,7 @@ export interface CustomerListParams {
   q?: string;
   sale?: number | null;
   tier?: string | null;
+  status?: string | null;
   sort?: string;
   page?: number;
   size?: number;
@@ -1974,6 +2017,69 @@ export interface Timesheet {
   rows: TimesheetRow[];
 }
 
+// --- Cấu hình kho hàng (warehouse master data) ------------------------------
+export interface WarehouseRow {
+  id: number;
+  code: string;
+  name: string;
+  description: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WarehouseInput {
+  name: string;
+  description?: string | null;
+  notes?: string | null;
+  is_active?: boolean;
+}
+
+export interface WarehouseListOut {
+  items: WarehouseRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+// --- Kho hàng vận hành (warehouse items) ------------------------------------
+export interface WarehouseOption {
+  id: number;
+  code: string;
+  name: string;
+}
+
+export interface WarehouseItemRow {
+  id: number;
+  warehouse_id: number;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  name: string;
+  quantity: number;
+  unit: string;
+  notes: string | null;
+  created_by_user_id: number | null;
+  created_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WarehouseItemInput {
+  warehouse_id: number;
+  name: string;
+  quantity: number;
+  unit: string;
+  notes?: string | null;
+}
+
+export interface WarehouseItemListOut {
+  items: WarehouseItemRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -2191,6 +2297,17 @@ export const api = {
         body: JSON.stringify({ user_ids: userIds, target_department_id: targetDepartmentId }),
       });
     },
+    /** Gán một vai trò cho nhiều người cùng lúc từ màn Phòng ban (bulk). */
+    bulkAssignRole(
+      token: string,
+      userIds: number[],
+      roleId: number,
+    ): Promise<{ assigned: number }> {
+      return authed<{ assigned: number }>("/api/departments/assign-role", token, {
+        method: "POST",
+        body: JSON.stringify({ user_ids: userIds, role_id: roleId }),
+      });
+    },
     activityLog(token: string): Promise<AuditRow[]> {
       return authed<AuditRow[]>("/api/audit", token);
     },
@@ -2234,6 +2351,7 @@ export const api = {
       if (params.q) qs.set("q", params.q);
       if (params.sale != null) qs.set("sale", String(params.sale));
       if (params.tier) qs.set("tier", params.tier);
+      if (params.status) qs.set("status", params.status);
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
@@ -2242,6 +2360,34 @@ export const api = {
     },
     sales(token: string): Promise<SaleOption[]> {
       return authed<SaleOption[]>("/api/customers/sales", token);
+    },
+    /** Điều chuyển toàn bộ khách của một Sale sang Sale khác (trưởng phòng KD). */
+    reassign(
+      token: string,
+      fromSaleUserId: number,
+      toSaleUserId: number,
+    ): Promise<{ moved: number; skipped: number }> {
+      return authed<{ moved: number; skipped: number }>("/api/customers/reassign", token, {
+        method: "POST",
+        body: JSON.stringify({
+          from_sale_user_id: fromSaleUserId,
+          to_sale_user_id: toSaleUserId,
+        }),
+      });
+    },
+    /** Điều chuyển các khách ĐƯỢC CHỌN (checkbox) sang một Sale. */
+    reassignSelected(
+      token: string,
+      customerIds: number[],
+      toSaleUserId: number,
+    ): Promise<{ moved: number; skipped: number }> {
+      return authed<{ moved: number; skipped: number }>("/api/customers/reassign", token, {
+        method: "POST",
+        body: JSON.stringify({
+          customer_ids: customerIds,
+          to_sale_user_id: toSaleUserId,
+        }),
+      });
     },
     get(token: string, id: number): Promise<CustomerDetailOut> {
       return authed<CustomerDetailOut>(`/api/customers/${id}`, token);
@@ -2985,6 +3131,74 @@ export const api = {
         method: "POST",
         body: JSON.stringify(input),
       });
+    },
+  },
+
+  // --- Cấu hình kho hàng ----------------------------------------------------
+  warehouses: {
+    list(
+      token: string,
+      params: { q?: string; is_active?: boolean | null; sort?: string; page?: number; size?: number } = {},
+    ): Promise<WarehouseListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.is_active !== undefined && params.is_active !== null)
+        qs.set("is_active", String(params.is_active));
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<WarehouseListOut>(`/api/warehouses${suffix}`, token);
+    },
+    create(token: string, input: WarehouseInput): Promise<WarehouseRow> {
+      return authed<WarehouseRow>("/api/warehouses", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: WarehouseInput): Promise<WarehouseRow> {
+      return authed<WarehouseRow>(`/api/warehouses/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/warehouses/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Kho hàng vận hành ----------------------------------------------------
+  warehouseItems: {
+    options(token: string): Promise<WarehouseOption[]> {
+      return authed<WarehouseOption[]>("/api/warehouse-items/warehouse-options", token);
+    },
+    list(
+      token: string,
+      params: { warehouse_id?: number | null; q?: string; page?: number; size?: number } = {},
+    ): Promise<WarehouseItemListOut> {
+      const qs = new URLSearchParams();
+      if (params.warehouse_id !== undefined && params.warehouse_id !== null)
+        qs.set("warehouse_id", String(params.warehouse_id));
+      if (params.q) qs.set("q", params.q);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<WarehouseItemListOut>(`/api/warehouse-items${suffix}`, token);
+    },
+    create(token: string, input: WarehouseItemInput): Promise<WarehouseItemRow> {
+      return authed<WarehouseItemRow>("/api/warehouse-items", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: WarehouseItemInput): Promise<WarehouseItemRow> {
+      return authed<WarehouseItemRow>(`/api/warehouse-items/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/warehouse-items/${id}`, token, { method: "DELETE" });
     },
   },
 

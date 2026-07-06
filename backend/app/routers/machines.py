@@ -24,7 +24,7 @@ from ..services.machine_service import (
 )
 
 router = APIRouter(prefix="/api/machines", tags=["machines"])
-MODULE = "dm_giay_vat_tu"
+MODULE = "dm_thiet_bi"
 
 @router.get("", response_model=MachineListOut)
 def list_machines(
@@ -117,7 +117,7 @@ def add_machine_rate(
     machine_id: int,
     payload: MachineRateCreate,
     svc: Annotated[MachineService, Depends(get_machine_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_price"))],
 ) -> MachineRateOut:
     try:
         rate = svc.add_machine_rate(

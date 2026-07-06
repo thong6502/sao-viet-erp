@@ -10,6 +10,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
+import { useCan } from "../auth/permissions";
 import "./master-data.css";
 import "./imposition-rules.css";
 import "./plate-die.css";
@@ -181,6 +182,10 @@ export function PlateDieRatesPage() {
   const { token } = useAuth();
   const [tab, setTab] = useState<TabKind>("kem");
   const [statusTab, setStatusTab] = useState<StatusTab>("running");
+  const can = useCan();
+  const canCreate = can("dm_gia_khuon_ban", "create");
+  const canUpdate = can("dm_gia_khuon_ban", "update");
+  const canDelete = can("dm_gia_khuon_ban", "delete");
   const [rows, setRows] = useState<PlateDieRateRow[]>([]);
   const [machines, setMachines] = useState<MachineRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -356,9 +361,11 @@ export function PlateDieRatesPage() {
           </select>
         )}
         <div className="md-page__toolbar-spacer" />
-        <Button variant="primary" onClick={() => { setMenuFor(null); setDrawer({ kind: "create" }); }}>
-          + Tạo bảng giá {tab === "kem" ? "kẽm" : "khuôn"}
-        </Button>
+        {canCreate && (
+          <Button variant="primary" onClick={() => { setMenuFor(null); setDrawer({ kind: "create" }); }}>
+            + Tạo bảng giá {tab === "kem" ? "kẽm" : "khuôn"}
+          </Button>
+        )}
       </div>
 
       <div className="pd-seg" role="tablist" style={{ alignSelf: "flex-start" }}>
@@ -436,16 +443,20 @@ export function PlateDieRatesPage() {
                           <>
                             <div style={{ position: "fixed", inset: 0, zIndex: 29 }} onClick={() => setMenuFor(null)} />
                             <div className="ir-menu" role="menu">
-                              <button type="button" onClick={() => { setMenuFor(null); setDrawer({ kind: "version", row: r }); }}>Tạo phiên bản mới</button>
-                              <button type="button" onClick={() => handleClone(r)}>Sao chép thành bảng giá mới</button>
-                              {st === "running" && (
+                              {canUpdate && (
+                                <button type="button" onClick={() => { setMenuFor(null); setDrawer({ kind: "version", row: r }); }}>Tạo phiên bản mới</button>
+                              )}
+                              {canCreate && (
+                                <button type="button" onClick={() => handleClone(r)}>Sao chép thành bảng giá mới</button>
+                              )}
+                              {st === "running" && canUpdate && (
                                 <button type="button" onClick={() => { setMenuFor(null); setClosing(r); setEffectiveTo(todayStr); }}>Tạm ngừng áp dụng (đóng)</button>
                               )}
                               {usedCount > 0 && (
                                 <button type="button" onClick={() => { setMenuFor(null); setUsageFor(r); }}>Xem nơi đang dùng</button>
                               )}
                               <button type="button" onClick={() => { setMenuFor(null); setHistoryOf(r); }}>Xem lịch sử</button>
-                              {r.effective_from > todayStr && !isUsed(r) && (
+                              {canDelete && r.effective_from > todayStr && !isUsed(r) && (
                                 <>
                                   <div className="ir-menu__sep" />
                                   <button type="button" className="danger" onClick={() => { setMenuFor(null); setDeleting(r); }}>Xóa bản chưa hiệu lực</button>

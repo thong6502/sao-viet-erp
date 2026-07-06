@@ -788,6 +788,7 @@ function RuleDrawer({
                     finishedFactor={ff}
                     plateSetFactor={psf}
                     passCount={pc}
+                    inkPassFactor={ipf}
                     sharedPlateSet={sharedPlateSet}
                     allowRotate={allowRotate}
                   />

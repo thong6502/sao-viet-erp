@@ -15,12 +15,51 @@ ACTION_READ = "read"
 ACTION_CREATE = "create"
 ACTION_UPDATE = "update"
 ACTION_DELETE = "delete"
+# Quyền chi tiết (Cách B) — hành động đặc thù ngoài CRUD.
+ACTION_REASSIGN = "reassign"
+ACTION_EXPORT = "export"
+ACTION_VIEW_DEBT = "view_debt"
+ACTION_APPROVE = "approve"  # bao_gia: duyệt báo giá (đổi trạng thái → Khách duyệt)
+ACTION_MANAGE_STATUS = "manage_status"  # don_hang_ban: chốt / hủy đơn
+ACTION_RESET_PASSWORD = "reset_password"  # nguoi_dung: đặt lại mật khẩu
+# Nhóm 1 — thao tác đặc thù khác:
+ACTION_LOCK = "lock"  # nguoi_dung: khóa / mở tài khoản
+ACTION_REVOKE_SESSIONS = "revoke_sessions"  # nguoi_dung: thu hồi mọi phiên
+ACTION_ASSIGN_ROLE = "assign_role"  # nguoi_dung: gán vai trò (đơn + hàng loạt)
+ACTION_TRANSFER = "transfer"  # nguoi_dung: chuyển phòng ban
+ACTION_SET_HEAD = "set_head"  # phong_ban: đặt trưởng phòng
+ACTION_REQUOTE = "requote"  # bao_gia: tạo bản mới (re-quote)
+ACTION_MANAGE_PRICE = "manage_price"  # dm_*: cập nhật bảng giá theo mốc
+ACTION_CANCEL = "cancel"  # bao_gia: hủy báo giá (→ Đã hủy) | don_hang_ban: hủy đơn
+ACTION_MANAGE_PERMISSIONS = "manage_permissions"  # vai_tro: sửa ma trận phân quyền
+ACTION_CLONE = "clone"  # dm_giay_vat_tu: nhân bản giấy
+ACTION_TOGGLE_ACTIVE = "toggle_active"  # dm_giay_vat_tu: bật/tắt hoạt động
+ACTION_REPARENT = "reparent"  # phong_ban: đổi cấp trên (cây tổ chức)
+# Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn").
 
 _ACTION_ATTR = {
     ACTION_READ: "can_read",
     ACTION_CREATE: "can_create",
     ACTION_UPDATE: "can_update",
     ACTION_DELETE: "can_delete",
+    ACTION_REASSIGN: "can_reassign",
+    ACTION_EXPORT: "can_export",
+    ACTION_VIEW_DEBT: "can_view_debt",
+    ACTION_APPROVE: "can_approve",
+    ACTION_MANAGE_STATUS: "can_manage_status",
+    ACTION_RESET_PASSWORD: "can_reset_password",
+    ACTION_LOCK: "can_lock",
+    ACTION_REVOKE_SESSIONS: "can_revoke_sessions",
+    ACTION_ASSIGN_ROLE: "can_assign_role",
+    ACTION_TRANSFER: "can_transfer",
+    ACTION_SET_HEAD: "can_set_head",
+    ACTION_REQUOTE: "can_requote",
+    ACTION_MANAGE_PRICE: "can_manage_price",
+    ACTION_CANCEL: "can_cancel",
+    ACTION_MANAGE_PERMISSIONS: "can_manage_permissions",
+    ACTION_CLONE: "can_clone",
+    ACTION_TOGGLE_ACTIVE: "can_toggle_active",
+    ACTION_REPARENT: "can_reparent",
 }
 
 
@@ -61,6 +100,25 @@ class AuthorizationService:
                 "can_create": p.can_create,
                 "can_update": p.can_update,
                 "can_delete": p.can_delete,
+                "scope": p.scope,
+                "can_reassign": p.can_reassign,
+                "can_export": p.can_export,
+                "can_view_debt": p.can_view_debt,
+                "can_approve": p.can_approve,
+                "can_manage_status": p.can_manage_status,
+                "can_reset_password": p.can_reset_password,
+                "can_lock": p.can_lock,
+                "can_revoke_sessions": p.can_revoke_sessions,
+                "can_assign_role": p.can_assign_role,
+                "can_transfer": p.can_transfer,
+                "can_set_head": p.can_set_head,
+                "can_requote": p.can_requote,
+                "can_manage_price": p.can_manage_price,
+                "can_cancel": p.can_cancel,
+                "can_manage_permissions": p.can_manage_permissions,
+                "can_clone": p.can_clone,
+                "can_toggle_active": p.can_toggle_active,
+                "can_reparent": p.can_reparent,
             }
             for p in self.roles.permissions_for(user.role_id)
         ]

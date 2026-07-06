@@ -639,6 +639,44 @@ def _migrate_estimate_lifecycle(db: Session) -> None:
     db.commit()
 
 
+def _migrate_norms_version_by_code(db: Session) -> None:
+    """Định mức & Bù hao: chuyển định danh version từ 'cấu-hình-phạm-vi' sang 'mã' (1 quy tắc = 1 mã).
+
+    Index cũ uix_norms_current khóa một-bản-mở theo (norm_key + scope scalar + context_key), BỎ QUA
+    applicable_product_types/_machine_ids → 2 rule chỉ khác multi-select bị coi là cùng cấu hình nên
+    âm thầm ghi đè nhau. Thay bằng uix_norms_open_code: mỗi mã chỉ 1 bản đang mở; rule khác mã cùng
+    tồn tại. Rule không mã (legacy) không bị ràng (code IS NOT NULL) — vẫn theo lối cũ ở tầng service.
+    """
+    insp = inspect(db.get_bind())
+    if "norms" not in insp.get_table_names():
+        return
+
+    # Gỡ ràng buộc một-bản-mở kiểu cũ (theo cấu-hình-phạm-vi).
+    db.execute(text("DROP INDEX IF EXISTS uix_norms_current"))
+
+    # Dedupe phòng hờ: nếu có >1 bản đang mở cùng một mã (dữ liệu cũ không được index chặn),
+    # giữ bản id lớn nhất, hậu tố mã các bản cũ để index unique dựng được.
+    open_coded = db.execute(text(
+        "SELECT id, code FROM norms WHERE effective_to IS NULL AND code IS NOT NULL"
+    )).all()
+    seen: dict[str, int] = {}
+    for row_id, code in open_coded:
+        keep = seen.get(code)
+        if keep is None:
+            seen[code] = row_id
+        elif row_id > keep:
+            db.execute(text("UPDATE norms SET code = :c WHERE id = :i"), {"c": f"{code}-dup{keep}", "i": keep})
+            seen[code] = row_id
+        else:
+            db.execute(text("UPDATE norms SET code = :c WHERE id = :i"), {"c": f"{code}-dup{row_id}", "i": row_id})
+
+    db.execute(text(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uix_norms_open_code ON norms (code) "
+        "WHERE effective_to IS NULL AND code IS NOT NULL"
+    ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0001_imposition_type_full_fields", _migrate_imposition_type_full_fields),
     ("0002_operation_full_fields", _migrate_operation_full_fields),
@@ -649,6 +687,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0007_materials_full_fields", _migrate_materials_full_fields),
     ("0008_plate_die_full_fields", _migrate_plate_die_full_fields),
     ("0009_estimate_lifecycle", _migrate_estimate_lifecycle),
+    ("0010_norms_version_by_code", _migrate_norms_version_by_code),
 ]
 
 

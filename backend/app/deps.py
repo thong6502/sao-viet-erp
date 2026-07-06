@@ -22,6 +22,8 @@ from .repositories.employee_repo import EmployeeRepository
 from .repositories.machine_repo import MachineRepository
 from .repositories.material_repo import MaterialRepository
 from .repositories.operation_repo import OperationRepository
+from .repositories.warehouse_repo import WarehouseRepository
+from .repositories.warehouse_item_repo import WarehouseItemRepository
 from .repositories.order_repo import OrderRepository
 from .repositories.paper_size_repo import PaperSizeRepository
 from .repositories.imposition_type_repo import ImpositionTypeRepository
@@ -56,6 +58,8 @@ from .services.material_service import MaterialService
 from .services.operation_service import OperationService
 from .services.paper_size_service import PaperSizeService
 from .services.imposition_type_service import ImpositionTypeService
+from .services.warehouse_service import WarehouseService
+from .services.warehouse_item_service import WarehouseItemService
 from .services.product_service import ProductService
 from .services.product_type_catalog_service import ProductTypeCatalogService
 from .services.order_service import OrderService
@@ -447,6 +451,34 @@ def get_operation_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> OperationService:
     return OperationService(repo, audit)
+
+
+def get_warehouse_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> WarehouseRepository:
+    return WarehouseRepository(db)
+
+
+def get_warehouse_service(
+    repo: Annotated[WarehouseRepository, Depends(get_warehouse_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> WarehouseService:
+    return WarehouseService(repo, audit)
+
+
+def get_warehouse_item_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> WarehouseItemRepository:
+    return WarehouseItemRepository(db)
+
+
+def get_warehouse_item_service(
+    repo: Annotated[WarehouseItemRepository, Depends(get_warehouse_item_repository)],
+    warehouses: Annotated[WarehouseRepository, Depends(get_warehouse_repository)],
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> WarehouseItemService:
+    return WarehouseItemService(repo, warehouses, users, audit)
 
 
 def get_click_ink_rate_repository(

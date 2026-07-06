@@ -322,17 +322,22 @@ class NormService:
         # Service-side canonicalization of context key
         context_key = canonicalize_context(context)
 
-        # Date Overlap protection (sequential versions only)
-        current = self.repo.get_active_norm_matching_config(
-            norm_key=norm_key,
-            product_type=product_type,
-            machine_id=machine_id,
-            operation_id=operation_id,
-            operation_key=operation_key,
-            qty_min=qty_min,
-            qty_max=qty_max,
-            context_key=context_key,
-        )
+        # Date Overlap protection (sequential versions only).
+        # "1 quy tắc = 1 mã": nếu có mã, phiên bản kế tiếp phải hiệu lực sau bản đang mở cùng mã.
+        # Mã mới (chưa có bản mở) = quy tắc mới → không ràng ngày. Rule không mã dùng lối cũ.
+        if code:
+            current = self.repo.get_open_by_code(code)
+        else:
+            current = self.repo.get_active_norm_matching_config(
+                norm_key=norm_key,
+                product_type=product_type,
+                machine_id=machine_id,
+                operation_id=operation_id,
+                operation_key=operation_key,
+                qty_min=qty_min,
+                qty_max=qty_max,
+                context_key=context_key,
+            )
         if current:
             if effective_from <= current.effective_from:
                 raise NormValidationError(

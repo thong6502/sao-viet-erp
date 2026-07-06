@@ -107,6 +107,10 @@
   max-height: 200px;
   overflow-y: auto;
 }
+/* Hoạt động gần đây: khung cao hơn danh sách phiên, cố định ~4-5 dòng rồi cuộn. */
+.udlg__list--activity {
+  max-height: 280px;
+}
 .udlg__list-row {
   display: flex;
   flex-direction: column;

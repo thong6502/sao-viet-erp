@@ -12,6 +12,7 @@ import {
   type PaperSizeRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./master-data.css";
 
@@ -65,6 +66,9 @@ type FormMode = { kind: "create"; from?: MachineRow } | { kind: "edit"; row: Mac
 
 export function MachinesCatalogPage() {
   const { token } = useAuth();
+  const can = useCan();
+  const canCreate = can("dm_thiet_bi", "create");
+  const canUpdate = can("dm_thiet_bi", "update");
   const [rows, setRows] = useState<MachineRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -135,7 +139,7 @@ export function MachinesCatalogPage() {
           {MACHINE_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
         </select>
         <div className="md-page__toolbar-spacer" />
-        <Button variant="primary" onClick={() => setForm({ kind: "create" })}>+ Thêm máy</Button>
+        {canCreate && <Button variant="primary" onClick={() => setForm({ kind: "create" })}>+ Thêm máy</Button>}
       </div>
 
       {error && <div className="banner banner--error" role="alert">{error}</div>}
@@ -170,10 +174,10 @@ export function MachinesCatalogPage() {
                     <td><span className={`md-page__status-badge ${statusClass(row.status)}`}>{row.status}</span></td>
                     <td>{row.used_count}</td>
                     <td className="md-page__actions-col" onClick={(e) => e.stopPropagation()}>
-                      <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => setForm({ kind: "edit", row })}>Sửa</button>
-                      <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => setForm({ kind: "create", from: row })}>Chép</button>
+                      {canUpdate && <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => setForm({ kind: "edit", row })}>Sửa</button>}
+                      {canCreate && <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => setForm({ kind: "create", from: row })}>Chép</button>}
                       <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => setRatesFor(row)}>Giá giờ</button>
-                      <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => toggleStatus(row)}>{row.status === "active" ? "Ngưng" : "Bật"}</button>
+                      {canUpdate && <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => toggleStatus(row)}>{row.status === "active" ? "Ngưng" : "Bật"}</button>}
                     </td>
                   </tr>
                 );

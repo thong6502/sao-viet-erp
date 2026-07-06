@@ -54,6 +54,7 @@ in. (Spec-01: seeded only — no self-registration.) Login is by `username` (spe
 | `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Whether the account is enabled. A locked (`false`) user is rejected even with a valid token. |
 | `avatar_url` | `String(500)` → `VARCHAR(500)` | — | yes | — | Server-relative path of the user's uploaded profile picture (spec-04), e.g. `/static/avatars/<file>`. Null means no avatar — the UI shows an initials fallback. The plaintext file lives under the backend `static/` dir, not the DB. |
 | `token_version` | `Integer` → `INTEGER` | — | no | `0` | Hard-revoke counter (spec-03). Access tokens embed this as the `tv` claim; bumping it rejects every previously-issued access token (logout-all / forced invalidation). |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | yes | — | Mã nhân viên hệ thống (spec-07): `NV` + số đệm 0 (`NV001`, `NV002`…). Read-only, repo tự sinh khi tạo; `backfill_user_codes` gán cho các user cũ còn thiếu mã. Null cho tới khi được gán. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the account row was created. |
 
 **Keys & indexes**
@@ -141,6 +142,24 @@ gets on that module.
 | `can_update` | `Boolean` → `BOOLEAN` | — | no | `false` | May edit (Sửa) records of this module. |
 | `can_delete` | `Boolean` → `BOOLEAN` | — | no | `false` | May delete (Xóa) records of this module. |
 | `scope` | `String(16)` → `VARCHAR(16)` | — | no | `own` | Data scope: `own` (của tôi) / `department` (cả phòng) / `all` (tất cả). |
+| `can_reassign` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (Cách B) — điều chuyển người phụ trách (vd Khách hàng). |
+| `can_export` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — xuất file đối ngoại (CSV khách hàng, PDF báo giá). |
+| `can_view_debt` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — xem công nợ / hạn mức khách hàng. |
+| `can_approve` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — duyệt báo giá (chuyển trạng thái → Khách duyệt). |
+| `can_manage_status` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — chốt / hủy đơn hàng (đổi trạng thái vòng đời). |
+| `can_reset_password` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đặt lại mật khẩu người dùng. |
+| `can_lock` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — khóa / mở tài khoản người dùng. |
+| `can_revoke_sessions` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — thu hồi mọi phiên đăng nhập của người dùng. |
+| `can_assign_role` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — gán vai trò cho người dùng (đơn + hàng loạt). |
+| `can_transfer` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — chuyển người dùng sang phòng ban khác. |
+| `can_set_head` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đặt / đổi trưởng phòng (phong_ban). |
+| `can_requote` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — tạo bản báo giá mới (re-quote). |
+| `can_manage_price` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — cập nhật bảng giá theo mốc (vật liệu / thiết bị / công đoạn). |
+| `can_cancel` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — hủy báo giá (→ Đã hủy) / hủy đơn hàng. |
+| `can_manage_permissions` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — sửa MA TRẬN phân quyền của vai trò (tách khỏi đổi tên; chống leo thang quyền). |
+| `can_clone` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — nhân bản giấy (vật liệu). |
+| `can_toggle_active` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — bật/tắt hoạt động vật liệu. |
+| `can_reparent` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đổi cấp trên phòng ban (tái cấu trúc cây tổ chức). |
 
 **Keys & indexes**
 
@@ -1534,6 +1553,52 @@ mét quanh BẤT KỲ điểm `is_active` nào (kiểm khoảng cách Haversine 
 **Relationships**
 
 - Many logs belong to one `employees` (cascade delete) and reference one `work_locations`.
+
+---
+
+### `warehouses`
+
+**Purpose:** cấu hình kho hàng (module `dm_kho`, admin master data). One row = một kho do admin
+khai báo; về sau module "Kho hàng" vận hành (phiếu nhập/xuất) tham chiếu tới đây.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | Mã kho hệ thống tự sinh `KHO` + số đệm 0 (`KHO001`, `KHO002`…). Read-only. |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên kho. |
+| `description` | `Text` → `TEXT` | — | yes | — | Mô tả kho (tùy chọn). |
+| `notes` | `Text` → `TEXT` | — | yes | — | Ghi chú (tùy chọn). |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Kho còn dùng (`true`) hay đã ẩn. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Cập nhật cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique index on `code`.
+
+---
+
+### `warehouse_items`
+
+**Purpose:** module "Kho hàng" vận hành (nhân viên nhập). One row = một mặt hàng cơ bản nhập vào
+MỘT kho đã cấu hình (`warehouses`). MVP — về sau mở rộng thành phiếu nhập/xuất đầy đủ.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `warehouse_id` | `Integer` → `INTEGER` | **FK→warehouses.id**, **IX** | no | — | Kho chứa (admin đã cấu hình). Cascade-delete theo kho. |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên mặt hàng. |
+| `quantity` | `Numeric(14,2)` → `NUMERIC(14,2)` | — | no | `0` | Số lượng tồn (CHECK ≥ 0). |
+| `unit` | `String(32)` → `VARCHAR(32)` | — | no | `"cái"` | Đơn vị tính. |
+| `notes` | `Text` → `TEXT` | — | yes | — | Ghi chú (tùy chọn). |
+| `created_by_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Người nhập; null để không mất bản ghi khi user bị xóa. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Cập nhật cuối. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes on `warehouse_id`, `created_by_user_id`.
+- Foreign keys: `warehouse_id FK→warehouses.id` (cascade), `created_by_user_id FK→users.id`.
 
 ---
 

@@ -9,6 +9,7 @@ import {
   type MaterialListStats,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./master-data.css";
 
@@ -44,7 +45,15 @@ const PRICE_UNITS = ["ram", "kg", "to", "m2", "nghin_luot", "cai", "cuon", "thun
 
 export function MaterialsCatalogPage() {
   const { token } = useAuth();
-  
+  // CRUD: ẩn nút Thêm/Sửa/Xóa nếu thiếu quyền (view-only: ẩn hẳn, không disable).
+  const can = useCan();
+  const canCreate = can("dm_giay_vat_tu", "create");
+  const canUpdate = can("dm_giay_vat_tu", "update");
+  const canDelete = can("dm_giay_vat_tu", "delete");
+  // Quyền chi tiết nhóm B: nhân bản + bật/tắt hoạt động (tách khỏi Thêm/Sửa).
+  const canClone = can("dm_giay_vat_tu", "clone");
+  const canToggleActive = can("dm_giay_vat_tu", "toggle_active");
+
   const [rows, setRows] = useState<MaterialRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -190,12 +199,14 @@ export function MaterialsCatalogPage() {
 
         <div className="md-page__toolbar-spacer" />
         <Button variant="ghost" onClick={() => setMode("test")}>Test tính tiền</Button>
-        <Button
-          variant="primary"
-          onClick={() => { setSelected(null); setMode("create"); }}
-        >
-          + Tạo vật tư
-        </Button>
+        {canCreate && (
+          <Button
+            variant="primary"
+            onClick={() => { setSelected(null); setMode("create"); }}
+          >
+            + Tạo vật tư
+          </Button>
+        )}
       </div>
 
       {error && (
@@ -231,7 +242,12 @@ export function MaterialsCatalogPage() {
               rows.map((row) => {
                 const currentCost = row.costs.find((c) => c.effective_to === null);
                 return (
-                  <tr key={row.id} className="md-page__row" onClick={() => { setSelected(row); setMode("edit"); }}>
+                  <tr
+                    key={row.id}
+                    className="md-page__row"
+                    onClick={canUpdate ? () => { setSelected(row); setMode("edit"); } : undefined}
+                    style={canUpdate ? undefined : { cursor: "default" }}
+                  >
                     <td className="md-page__mono">{row.code}</td>
                     <td><strong>{row.name}</strong></td>
                     <td>{MAT_TYPES.find((t) => t.value === row.material_type)?.label ?? row.material_type}</td>
@@ -263,13 +279,15 @@ export function MaterialsCatalogPage() {
                       </span>
                     </td>
                     <td className="md-page__actions-col" onClick={(e) => e.stopPropagation()}>
-                      <button
-                        type="button"
-                        className="btn btn--ghost md-page__rowbtn"
-                        onClick={() => { setSelected(row); setMode("edit"); }}
-                      >
-                        Sửa
-                      </button>
+                      {canUpdate && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost md-page__rowbtn"
+                          onClick={() => { setSelected(row); setMode("edit"); }}
+                        >
+                          Sửa
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="btn btn--ghost md-page__rowbtn"
@@ -277,7 +295,7 @@ export function MaterialsCatalogPage() {
                       >
                         Bảng giá
                       </button>
-                      {row.material_type === "paper" && (
+                      {canClone && row.material_type === "paper" && (
                         <button
                           type="button"
                           className="btn btn--ghost md-page__rowbtn"
@@ -286,20 +304,24 @@ export function MaterialsCatalogPage() {
                           Nhân bản
                         </button>
                       )}
-                      <button
-                        type="button"
-                        className={`btn btn--ghost md-page__rowbtn ${row.is_active ? "md-page__rowbtn--danger" : ""}`}
-                        onClick={() => handleToggleActive(row)}
-                      >
-                        {row.is_active ? "Ẩn" : "Hiện"}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"
-                        onClick={() => setDeleting(row)}
-                      >
-                        Xóa
-                      </button>
+                      {canToggleActive && (
+                        <button
+                          type="button"
+                          className={`btn btn--ghost md-page__rowbtn ${row.is_active ? "md-page__rowbtn--danger" : ""}`}
+                          onClick={() => handleToggleActive(row)}
+                        >
+                          {row.is_active ? "Ẩn" : "Hiện"}
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button
+                          type="button"
+                          className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"
+                          onClick={() => setDeleting(row)}
+                        >
+                          Xóa
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -400,6 +422,10 @@ function MaterialFormDialog({
 }) {
   const { token } = useAuth();
   const isEdit = existing != null;
+  // Đổi trạng thái hoạt động của vật tư ĐANG CÓ = quyền chi tiết `toggle_active`
+  // (backend cũng chặn) — thiếu quyền thì khóa checkbox khi Sửa; Tạo mới vẫn chọn được.
+  const canToggleActive = useCan()("dm_giay_vat_tu", "toggle_active");
+  const activeLocked = isEdit && !canToggleActive;
 
   const [name, setName] = useState(existing?.name ?? "");
   const [type, setType] = useState(existing?.material_type ?? "paper");
@@ -600,10 +626,16 @@ function MaterialFormDialog({
                   type="checkbox"
                   id="mat-active-check"
                   checked={isActive}
+                  disabled={activeLocked}
                   onChange={(e) => setIsActive(e.target.checked)}
                 />
                 <label htmlFor="mat-active-check">Kích hoạt hoạt động</label>
               </div>
+              {activeLocked && (
+                <span className="md-page__muted">
+                  Cần quyền “Bật/tắt hoạt động” để đổi trạng thái.
+                </span>
+              )}
             </label>
 
             {/* Paper fields */}
@@ -830,6 +862,8 @@ function MaterialCostsDialog({
   onSaved: () => void;
 }) {
   const { token } = useAuth();
+  // Cập nhật bảng giá theo mốc = quyền chi tiết `manage_price` (tách khỏi "Sửa").
+  const canManagePrice = useCan()("dm_giay_vat_tu", "manage_price");
 
   const [costs, setCosts] = useState<MaterialCostRow[]>([]);
   const [priceUnit, setPriceUnit] = useState(material.unit);
@@ -905,7 +939,10 @@ function MaterialCostsDialog({
           <button type="button" className="md-page__close" onClick={onClose}>✕</button>
         </div>
         <div className="md-page__dialog-body">
-          
+          {!canManagePrice && (
+            <p className="md-page__hint">Bạn không có quyền cập nhật bảng giá.</p>
+          )}
+          {canManagePrice && (
           <form className="md-page__rates-form" onSubmit={handleAddPrice}>
             <h3 className="md-page__section-title">Cập nhật đơn giá mới</h3>
             <div className="md-page__form-grid">
@@ -978,6 +1015,7 @@ function MaterialCostsDialog({
               </div>
             </div>
           </form>
+          )}
 
           {error && (
             <div className="banner banner--error" role="alert">
