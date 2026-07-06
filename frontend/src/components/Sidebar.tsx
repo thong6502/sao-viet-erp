@@ -100,6 +100,8 @@ const NAV: NavSection[] = [
     items: [
       { id: "nhan-su", label: "Hồ sơ nhân sự", icon: "users", module: "nhan_su" },
       { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su" },
+      { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nhan_su" },
+      { id: "luong", label: "Lương", icon: "calculator", module: "luong" },
     ],
   },
   {

@@ -1,0 +1,52 @@
+/* Lương (module `luong`) — dùng chung tokens + nhan-su.css / cham-cong.css. */
+
+.lg-toolbar { flex-wrap: wrap; }
+.lg-search {
+  padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--r-3);
+  background: var(--canvas); font: inherit; color: var(--ink); min-width: 240px;
+}
+
+/* Segmented CT/TV filter */
+.lg-seg { display: inline-flex; border: 1px solid var(--rule); border-radius: var(--r-3); overflow: hidden; }
+.lg-seg button {
+  border: none; background: var(--canvas); color: var(--ash); padding: 7px 14px;
+  font: inherit; cursor: pointer; border-left: 1px solid var(--rule);
+}
+.lg-seg button:first-child { border-left: none; }
+.lg-seg button.is-active { background: var(--rust); color: #fff; font-weight: var(--fw-medium); }
+
+/* Bảng lương — số căn phải, thực lĩnh nổi bật */
+.lg-table .ns__table th, .lg-table .ns__table td { padding: 7px 10px; white-space: nowrap; }
+.lg-num { text-align: right; font-variant-numeric: tabular-nums; }
+.lg-net { font-weight: var(--fw-bold); color: var(--moss-deep); }
+.lg-minus { color: var(--signal); }
+.lg-foot td { border-top: 2px solid var(--rule); font-weight: var(--fw-bold); background: var(--paper); }
+
+.ns-badge--danger { background: var(--signal-soft); color: var(--signal); }
+
+/* Modal rộng cho Lương nhân viên */
+.ns-modal__box--wide { max-width: 720px; width: 92vw; }
+.lg-preview {
+  background: var(--moss-soft); color: var(--moss-deep); border: 1px solid var(--moss);
+  padding: 8px 12px; border-radius: var(--r-3); margin-bottom: var(--sp-4);
+}
+
+/* Tham số */
+.lg-params-grid { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 720px) { .lg-params-grid { grid-template-columns: repeat(2, 1fr); } }
+
+/* Phiếu lương */
+.lg-payslip { display: flex; justify-content: center; padding-top: var(--sp-4); }
+.lg-payslip__card {
+  width: 460px; max-width: 100%; background: var(--canvas);
+  border: 1px solid var(--rule); border-radius: var(--r-5); padding: var(--sp-6);
+}
+.lg-payslip__head { display: flex; justify-content: space-between; align-items: start; margin-bottom: var(--sp-5); }
+.lg-payslip__who { font-size: 18px; font-weight: var(--fw-bold); }
+.lg-payslip__table { width: 100%; border-collapse: collapse; }
+.lg-payslip__table td { padding: 6px 0; border-bottom: 1px dashed var(--rule); }
+.lg-payslip__sub td { font-weight: var(--fw-bold); border-bottom: 1px solid var(--rule); }
+.lg-payslip__net td {
+  padding-top: var(--sp-4); font-size: 18px; font-weight: var(--fw-bold); color: var(--moss-deep);
+  border-bottom: none;
+}

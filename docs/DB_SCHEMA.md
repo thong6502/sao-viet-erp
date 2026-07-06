@@ -1383,6 +1383,8 @@ SEAM-19 (`drivers.employee_id` back-fill khi Tài xế build). Portable across S
 | `bank_account` | `String(30)` → `VARCHAR(30)` | — | yes | — | Số tài khoản ngân hàng (chi lương). |
 | `bank_name` | `String(100)` → `VARCHAR(100)` | — | yes | — | Ngân hàng. |
 | `default_shift_id` | `Integer` → `INTEGER` | **IX** | yes | — | Ca làm việc mặc định (logical link → `work_shifts.id`, không FK cứng). Null = chưa gán ca. Thêm qua migration 0011. |
+| `payroll_group` | `String(40)` → `VARCHAR(40)` | **IX** | yes | — | Nhóm lương — trục tra `salary_rate_rules` (vd `to_in`, `san_xuat`, `van_phong`). Thêm qua migration 0012. |
+| `pay_grade_key` | `String(20)` → `VARCHAR(20)` | — | yes | — | Bậc lương chuẩn hóa cho tổ theo bậc (tho_1..phu_2). Tách khỏi `job_grade` free-text. Thêm qua migration 0012. |
 | `photo_url` | `String(500)` → `VARCHAR(500)` | — | yes | — | Đường dẫn ảnh hồ sơ (mirror avatar), `/static/hr/<id>/…`. Null = initials. |
 | `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Ghi chú tự do. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo hồ sơ. |
@@ -1596,6 +1598,195 @@ và tính công theo tỷ lệ giờ làm.
 **Relationships**
 
 - Referenced by `employees.default_shift_id` (logical link, no enforced FK).
+
+---
+
+### `leave_types`
+
+**Purpose:** catalog loại nghỉ (Nghỉ phép — module `nhan_su`), HR khai. One row per loại
+(Phép năm / Ốm / Không lương / Việc riêng…). `is_paid` quyết định tác động "công" trên Bảng
+công tháng (có lương = 1 công "P"; không lương = 0 công "KL").
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `name` | `String(100)` → `VARCHAR(100)` | — | no | — | Tên loại nghỉ. |
+| `is_paid` | `Boolean` → `BOOLEAN` | — | no | `true` | Có lương hay không (tác động công). |
+| `annual_quota` | `Integer` → `INTEGER` | — | no | `0` | Hạn mức ngày/năm (thông tin; trừ dần để Lương). 0 = không giới hạn. |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Loại đang dùng. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+
+**Relationships**
+
+- Referenced by `leave_requests.leave_type_id` (ON DELETE SET NULL).
+
+---
+
+### `leave_requests`
+
+**Purpose:** đơn xin nghỉ của một NV (Nghỉ phép — module `nhan_su`). Nguyên ngày, từ
+`start_date` đến `end_date` bao gồm. Workflow `pending → approved / rejected / cancelled`.
+Đơn `approved` được Bảng công tháng đọc (đánh dấu P/KL các ngày trong khoảng).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id**, **IX** | no | — | NV xin nghỉ; `ON DELETE CASCADE`. |
+| `leave_type_id` | `Integer` → `INTEGER` | **FK→leave_types.id**, **IX** | yes | — | Loại nghỉ; `ON DELETE SET NULL`. |
+| `start_date` | `Date` → `DATE` | **IX** | no | — | Từ ngày (bao gồm). |
+| `end_date` | `Date` → `DATE` | — | no | — | Đến ngày (bao gồm). |
+| `days` | `Integer` → `INTEGER` | — | no | `1` | Số ngày nghỉ = số ngày lịch bao gồm 2 đầu. |
+| `reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do nghỉ. |
+| `status` | `String(16)` → `VARCHAR(16)` | **IX** | no | `pending` | pending/approved/rejected/cancelled. |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người duyệt/từ chối. |
+| `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm duyệt/từ chối. |
+| `decision_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do từ chối / ghi chú duyệt. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tạo đơn. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo đơn. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_leave_requests_employee_id`, `ix_leave_requests_leave_type_id`, `ix_leave_requests_start_date`, `ix_leave_requests_status`.
+- Foreign keys: `employee_id FK→employees.id` (CASCADE), `leave_type_id FK→leave_types.id` (SET NULL), `decided_by`/`created_by FK→users.id`.
+
+**Relationships**
+
+- Many requests belong to one `employees` (cascade delete) and reference one `leave_types`.
+
+---
+
+### `payroll_params`
+
+**Purpose:** tham số cấu hình Lương (module `luong`) — 1 dòng active. Không hardcode.
+
+| Column | Type | Null | Default | Meaning |
+|---|---|---|---|---|
+| `id` | `Integer` | no | auto | PK. |
+| `standard_cong_default` | `Numeric(6,2)` | no | `26` | Công chuẩn/tháng để prorate lương thời gian. |
+| `probation_ratio` | `Numeric(5,4)` | no | `0.8` | Thử việc hưởng % của lương chính thức. |
+| `bhxh_rate` | `Numeric(6,4)` | no | `0.08` | Tỷ lệ NV đóng BHXH. |
+| `bhyt_rate` | `Numeric(6,4)` | no | `0.015` | Tỷ lệ NV đóng BHYT. |
+| `bhtn_rate` | `Numeric(6,4)` | no | `0.01` | Tỷ lệ NV đóng BHTN. |
+| `deduction_self` | `Numeric(14,2)` | no | `11000000` | Giảm trừ gia cảnh bản thân (TNCN). |
+| `deduction_dependent` | `Numeric(14,2)` | no | `4400000` | Giảm trừ mỗi người phụ thuộc. |
+| `chuyen_can_default` | `Numeric(14,2)` | no | `300000` | Mức chuyên cần mặc định (đủ công). |
+| `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
+
+---
+
+### `salary_rate_rules`
+
+**Purpose:** bảng chính sách MỨC lương theo `(payroll_group, pay_grade_key?, seniority_band?, gender?)`.
+Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildcard.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `payroll_group` | `String(40)` | **IX** | no | — | Nhóm lương (trục tra chính). |
+| `pay_grade_key` | `String(20)` | — | yes | — | Bậc lương chuẩn hóa (tho_1..phu_2). |
+| `seniority_band` | `String(8)` | — | yes | — | Nhóm thâm niên (lt1/y1_5/y5_10/gt10). |
+| `gender` | `String(8)` | — | yes | — | Giới tính áp dụng (male/female). |
+| `monthly_amount` | `Numeric(14,2)` | — | no | — | Mức lương tháng chuẩn. |
+| `chuyen_can` | `Numeric(14,2)` | — | yes | — | Mức chuyên cần riêng nhóm (NULL = dùng params). |
+| `effective_from` | `Date` | **IX** | yes | — | Hiệu lực từ. |
+| `is_active` | `Boolean` | — | no | `true` | Đang áp dụng. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+
+---
+
+### `employee_salaries`
+
+**Purpose:** lương ẤN ĐỊNH của 1 NV tại một mốc hiệu lực (versioned). Điều chỉnh = thêm bản ghi;
+"hiện hành" = `effective_from` lớn nhất ≤ kỳ.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `employee_id` | `Integer` | **FK→employees.id**, **IX** | no | — | NV; `ON DELETE CASCADE`. |
+| `effective_from` | `Date` | **IX** | no | — | Hiệu lực từ. |
+| `amount_mode` | `String(8)` | — | no | `rule` | rule (tra bảng) / manual (nhập tay). |
+| `base_amount` | `Numeric(14,2)` | — | yes | — | Mức tháng khi manual. |
+| `insurance_base` | `Numeric(14,2)` | — | yes | — | Mức đóng BH (NULL = mức lương). |
+| `allowance` | `Numeric(14,2)` | — | no | `0` | Phụ cấp cố định tháng. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `created_by` | `Integer` | **FK→users.id** | yes | — | Người khai/điều chỉnh. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+
+---
+
+### `salary_advances`
+
+**Purpose:** tạm ứng lương (đa lần/tháng), gắn kỳ `(period_year, period_month)`. Workflow duyệt.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `employee_id` | `Integer` | **FK→employees.id**, **IX** | no | — | NV ứng; `ON DELETE CASCADE`. |
+| `period_year` | `Integer` | **IX** | no | — | Năm kỳ lương áp dụng. |
+| `period_month` | `Integer` | **IX** | no | — | Tháng kỳ lương áp dụng. |
+| `advance_date` | `Date` | — | no | — | Ngày ứng. |
+| `amount` | `Numeric(14,2)` | — | no | — | Số tiền ứng. |
+| `reason` | `String(255)` | — | yes | — | Lý do. |
+| `status` | `String(12)` | **IX** | no | `pending` | pending/approved/rejected/cancelled. |
+| `decided_by` | `Integer` | **FK→users.id** | yes | — | Người duyệt. |
+| `decided_at` | `DateTime(tz)` | — | yes | — | Thời điểm duyệt. |
+| `decision_note` | `String(255)` | — | yes | — | Ghi chú duyệt. |
+| `created_by` | `Integer` | **FK→users.id** | yes | — | Người tạo. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+
+---
+
+### `payroll_periods`
+
+**Purpose:** kỳ lương 1 tháng. UNIQUE(`year`,`month`). draft → locked (chốt, khóa số).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `year` | `Integer` | **UQ(year,month)** | no | — | Năm. |
+| `month` | `Integer` | **UQ(year,month)** | no | — | Tháng. |
+| `status` | `String(8)` | — | no | `draft` | draft/locked. |
+| `standard_cong` | `Numeric(6,2)` | — | no | `26` | Công chuẩn của kỳ. |
+| `locked_at` | `DateTime(tz)` | — | yes | — | Thời điểm chốt. |
+| `locked_by` | `Integer` | **FK→users.id** | yes | — | Người chốt. |
+| `created_by` | `Integer` | **FK→users.id** | yes | — | Người tạo kỳ. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+
+---
+
+### `payroll_lines`
+
+**Purpose:** dòng lương 1 NV trong 1 kỳ (snapshot). UNIQUE(`period_id`,`employee_id`).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `period_id` | `Integer` | **FK→payroll_periods.id**, **IX** | no | — | Kỳ lương; `ON DELETE CASCADE`. |
+| `employee_id` | `Integer` | **FK→employees.id**, **IX** | no | — | NV; `ON DELETE CASCADE`. |
+| `is_probation` | `Boolean` | — | no | `false` | Thử việc (áp %thử việc). |
+| `actual_cong` | `Numeric(6,2)` | — | no | `0` | Số công thực (từ Chấm công). |
+| `standard_cong` | `Numeric(6,2)` | — | no | `26` | Công chuẩn kỳ. |
+| `monthly_salary` | `Numeric(14,2)` | — | no | `0` | Mức lương tháng (đã giải). |
+| `luong_cong` | `Numeric(14,2)` | — | no | `0` | Lương theo công. |
+| `chuyen_can` | `Numeric(14,2)` | — | no | `0` | Thưởng chuyên cần. |
+| `allowance` | `Numeric(14,2)` | — | no | `0` | Phụ cấp cố định. |
+| `vi_pham` | `Numeric(14,2)` | — | no | `0` | Trừ vi phạm (nhập tay). |
+| `other_bonus` | `Numeric(14,2)` | — | no | `0` | Thưởng/hoa hồng (nhập tay). |
+| `gross` | `Numeric(14,2)` | — | no | `0` | Tổng thu nhập trước khấu trừ. |
+| `insurance_base` | `Numeric(14,2)` | — | no | `0` | Mức đóng BH. |
+| `bhxh` | `Numeric(14,2)` | — | no | `0` | Khấu trừ BHXH/BHYT/BHTN. |
+| `pit` | `Numeric(14,2)` | — | no | `0` | Thuế TNCN (nhập tay Phase 1). |
+| `advance_total` | `Numeric(14,2)` | — | no | `0` | Tổng tạm ứng đã duyệt. |
+| `net_pay` | `Numeric(14,2)` | — | no | `0` | Thực lĩnh. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Lần cập nhật. |
 
 ---
 

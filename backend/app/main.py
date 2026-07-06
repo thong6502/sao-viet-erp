@@ -19,6 +19,8 @@ from .db_migrations import run_migrations
 from .routers import (
     auth,
     attendance,
+    leaves,
+    payroll,
     costings,
     estimates,
     customers,
@@ -83,6 +85,8 @@ app.include_router(rbac.router)
 app.include_router(customers.router)
 app.include_router(employees.router)
 app.include_router(attendance.router)
+app.include_router(leaves.router)
+app.include_router(payroll.router)
 app.include_router(products.router)
 app.include_router(costings.router)
 app.include_router(estimates.router)

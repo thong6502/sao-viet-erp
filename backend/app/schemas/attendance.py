@@ -1,9 +1,9 @@
 """Pydantic models for the Chấm công GPS API (module `nhan_su`)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 # --- work locations ---------------------------------------------------------
@@ -84,6 +84,14 @@ class AttendanceLogOut(BaseModel):
     within_range: bool = True
     note: str | None = None
 
+    @field_serializer("checked_at")
+    def _utc_checked_at(self, dt: datetime) -> str:
+        """checked_at ghi UTC nhưng SQLite trả naive → serialize KÈM nhãn UTC ('...Z')
+        để client (new Date) hiểu đúng múi giờ, khỏi lệch 7h."""
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
 
 class AttendanceLogsOut(BaseModel):
     items: list[AttendanceLogOut]
@@ -135,6 +143,8 @@ class TimesheetDay(BaseModel):
     early: bool = False            # về sớm
     ot_minutes: int = 0            # tăng ca (phút vượt giờ ca)
     night: bool = False            # ca đêm
+    leave: str | None = None       # tên loại nghỉ (nếu ngày này nghỉ đã duyệt)
+    leave_paid: bool = False       # nghỉ có lương (P) hay không (KL)
 
 
 class TimesheetRow(BaseModel):
@@ -147,8 +157,9 @@ class TimesheetRow(BaseModel):
     shift_name: str | None = None
     days: dict[str, TimesheetDay]  # keyed by day-of-month ("1".."31")
     total_days: int
+    total_leave: int = 0             # số ngày nghỉ đã duyệt trong tháng
     total_hours: float
-    total_cong: float | None = None  # tổng công theo ca (null khi chưa gán ca)
+    total_cong: float | None = None  # tổng công (theo ca + nghỉ có lương)
 
 
 class TimesheetOut(BaseModel):

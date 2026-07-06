@@ -46,6 +46,8 @@ class EmployeeBase(BaseModel):
     bank_account: str | None = Field(default=None, max_length=30)
     bank_name: str | None = Field(default=None, max_length=100)
     default_shift_id: int | None = None  # ca làm việc mặc định (ca kíp)
+    payroll_group: str | None = Field(default=None, max_length=40)   # nhóm lương (module luong)
+    pay_grade_key: str | None = Field(default=None, max_length=20)   # bậc lương chuẩn hóa
     note: str | None = Field(default=None, max_length=1000)
 
 
@@ -130,6 +132,8 @@ class EmployeeOut(EmployeeRow):
     bank_account: str | None = None
     bank_name: str | None = None
     default_shift_id: int | None = None
+    payroll_group: str | None = None
+    pay_grade_key: str | None = None
     resign_date: date | None = None
     resign_reason: str | None = None
     note: str | None = None

@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import calendar
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from ..models.attendance import CHECK_IN, CHECK_OUT, WorkLocation, WorkShift
 from ..repositories.attendance_repo import AttendanceRepository
@@ -21,6 +21,12 @@ from ..repositories.employee_repo import EmployeeRepository
 
 # Giờ Việt Nam (UTC+7, không DST) — dùng để gom "ngày công" theo lịch địa phương.
 VN_TZ = timezone(timedelta(hours=7))
+
+
+def _as_utc(dt: datetime) -> datetime:
+    """checked_at được ghi UTC (aware) nhưng SQLite trả về NAIVE khi đọc lại. Dán lại
+    nhãn UTC để `.astimezone(VN_TZ)` đúng trên MỌI múi giờ máy chủ (không phụ thuộc TZ hệ)."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 _EARTH_RADIUS_M = 6_371_000.0  # mean Earth radius, metres
 
@@ -106,10 +112,12 @@ class AttendanceService:
         attendance: AttendanceRepository,
         employees: EmployeeRepository,
         audit: AuditLogRepository,
+        leaves=None,
     ) -> None:
         self.attendance = attendance
         self.employees = employees
         self.audit = audit
+        self.leaves = leaves  # LeaveRepository | None — để Bảng công tháng đánh dấu nghỉ đã duyệt
 
     # --- work locations (HR) -----------------------------------------------
 
@@ -324,58 +332,88 @@ class AttendanceService:
         # employee_id → { day(int) → [(local_dt, check_type)] }
         by_emp: dict[int, dict[int, list]] = {}
         for lg in logs:
-            local = lg.checked_at.astimezone(VN_TZ)
+            local = _as_utc(lg.checked_at).astimezone(VN_TZ)
             by_emp.setdefault(lg.employee_id, {}).setdefault(local.day, []).append((local, lg.check_type))
 
         shifts = {s.id: s for s in self.attendance.list_shifts()}
 
+        # Ngày NGHỈ ĐÃ DUYỆT trong tháng: {emp_id → {day → {name, is_paid}}}.
+        leave_map: dict[int, dict[int, dict]] = {}
+        if self.leaves is not None:
+            first = date(year, month, 1)
+            last = date(year, month, days_in_month)
+            ltypes = {t.id: t for t in self.leaves.list_types()}
+            for r in self.leaves.approved_in_range(first, last):
+                lt = ltypes.get(r.leave_type_id)
+                nm = lt.name if lt is not None else "Nghỉ"
+                paid = lt.is_paid if lt is not None else True
+                d, e = max(r.start_date, first), min(r.end_date, last)
+                while d <= e:
+                    leave_map.setdefault(r.employee_id, {})[d.day] = {"name": nm, "is_paid": paid}
+                    d = date.fromordinal(d.toordinal() + 1)
+
+        def _empty_cell() -> dict:
+            return {"first_in": None, "last_out": None, "hours": None, "present": False,
+                    "cong": None, "late": False, "early": False, "ot_minutes": 0, "night": False,
+                    "leave": None, "leave_paid": False}
+
         rows = []
-        for emp_id, days in by_emp.items():
+        for emp_id in set(by_emp) | set(leave_map):
             emp = self.employees.get_by_id(emp_id)
             if emp is None:
                 continue
             if department_id is not None and emp.department_id != department_id:
                 continue
             shift = shifts.get(emp.default_shift_id) if emp.default_shift_id else None
+            att_days = by_emp.get(emp_id, {})
+            lv_days = leave_map.get(emp_id, {})
             day_map: dict[str, dict] = {}
             total_hours = 0.0
             total_days = 0
+            total_leave = 0
             total_cong = 0.0
-            for d, entries in days.items():
-                entries.sort(key=lambda x: x[0])
-                ins = [t for t, ct in entries if ct == CHECK_IN]
-                outs = [t for t, ct in entries if ct == CHECK_OUT]
-                first_in = ins[0] if ins else entries[0][0]
-                last_out = outs[-1] if outs else None
-                hours = None
-                if last_out is not None and last_out > first_in:
-                    hours = round((last_out - first_in).total_seconds() / 3600, 2)
-                    total_hours += hours
-                total_days += 1
-                cell = {
-                    "first_in": first_in.strftime("%H:%M"),
-                    "last_out": last_out.strftime("%H:%M") if last_out else None,
-                    "hours": hours, "present": True,
-                    "cong": None, "late": False, "early": False, "ot_minutes": 0, "night": False,
-                }
-                if shift is not None:
-                    info = compute_day_cong(
-                        start_min=shift.start_minute, end_min=shift.end_minute,
-                        is_overnight=shift.is_overnight, grace_min=shift.grace_minutes,
-                        first_in_min=first_in.hour * 60 + first_in.minute,
-                        last_out_min=(last_out.hour * 60 + last_out.minute) if last_out else None,
-                    )
-                    cell.update(cong=info["cong"], late=info["late"], early=info["early"],
-                                ot_minutes=info["ot_minutes"], night=shift.night_shift)
-                    total_cong += info["cong"]
+            for d in sorted(set(att_days) | set(lv_days)):
+                cell = _empty_cell()
+                if d in att_days:  # có chấm công → attendance thắng ngày nghỉ
+                    entries = sorted(att_days[d], key=lambda x: x[0])
+                    ins = [t for t, ct in entries if ct == CHECK_IN]
+                    outs = [t for t, ct in entries if ct == CHECK_OUT]
+                    first_in = ins[0] if ins else entries[0][0]
+                    last_out = outs[-1] if outs else None
+                    hours = None
+                    if last_out is not None and last_out > first_in:
+                        hours = round((last_out - first_in).total_seconds() / 3600, 2)
+                        total_hours += hours
+                    total_days += 1
+                    cell.update(first_in=first_in.strftime("%H:%M"),
+                                last_out=last_out.strftime("%H:%M") if last_out else None,
+                                hours=hours, present=True)
+                    if shift is not None:
+                        info = compute_day_cong(
+                            start_min=shift.start_minute, end_min=shift.end_minute,
+                            is_overnight=shift.is_overnight, grace_min=shift.grace_minutes,
+                            first_in_min=first_in.hour * 60 + first_in.minute,
+                            last_out_min=(last_out.hour * 60 + last_out.minute) if last_out else None,
+                        )
+                        cell.update(cong=info["cong"], late=info["late"], early=info["early"],
+                                    ot_minutes=info["ot_minutes"], night=shift.night_shift)
+                        total_cong += info["cong"]
+                else:  # ngày nghỉ đã duyệt (không chấm công)
+                    lv = lv_days[d]
+                    cong = 1.0 if lv["is_paid"] else 0.0
+                    cell.update(cong=cong, leave=lv["name"], leave_paid=lv["is_paid"])
+                    total_leave += 1
+                    total_cong += cong
                 day_map[str(d)] = cell
+            has_cong = shift is not None or total_leave > 0
             rows.append({
                 "employee_id": emp_id, "employee_code": emp.code, "employee_name": emp.full_name,
                 "department_id": emp.department_id, "days": day_map,
                 "shift_id": shift.id if shift is not None else None,
                 "shift_name": shift.name if shift is not None else None,
-                "total_days": total_days, "total_hours": round(total_hours, 2),
-                "total_cong": round(total_cong, 2) if shift is not None else None,
+                "total_days": total_days, "total_leave": total_leave,
+                "total_hours": round(total_hours, 2),
+                "total_cong": round(total_cong, 2) if has_cong else None,
             })
         rows.sort(key=lambda r: r["employee_code"])
         return {"year": year, "month": month, "days_in_month": days_in_month, "rows": rows}

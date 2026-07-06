@@ -692,6 +692,23 @@ def _migrate_employee_default_shift(db: Session) -> None:
     db.commit()
 
 
+def _migrate_employee_payroll_fields(db: Session) -> None:
+    """Lương: thêm `employees.payroll_group` + `pay_grade_key` (trục tra bảng chính sách
+    mức lương). Nullable String. No-op trên DB fresh (create_all đã dựng) / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "employees" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "employees")
+    if "payroll_group" not in existing:
+        db.execute(text("ALTER TABLE employees ADD COLUMN payroll_group VARCHAR(40)"))
+        db.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_employees_payroll_group ON employees (payroll_group)"
+        ))
+    if "pay_grade_key" not in existing:
+        db.execute(text("ALTER TABLE employees ADD COLUMN pay_grade_key VARCHAR(20)"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0001_imposition_type_full_fields", _migrate_imposition_type_full_fields),
     ("0002_operation_full_fields", _migrate_operation_full_fields),
@@ -704,6 +721,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0009_estimate_lifecycle", _migrate_estimate_lifecycle),
     ("0010_norms_version_by_code", _migrate_norms_version_by_code),
     ("0011_employee_default_shift", _migrate_employee_default_shift),
+    ("0012_employee_payroll_fields", _migrate_employee_payroll_fields),
 ]
 
 

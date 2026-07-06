@@ -281,8 +281,8 @@ def _timesheet_rows(svc: AttendanceService, depts: DepartmentRepository, data: d
             employee_name=r["employee_name"], department_id=did, department_name=dn,
             shift_id=r.get("shift_id"), shift_name=r.get("shift_name"),
             days={k: TimesheetDay(**v) for k, v in r["days"].items()},
-            total_days=r["total_days"], total_hours=r["total_hours"],
-            total_cong=r.get("total_cong"),
+            total_days=r["total_days"], total_leave=r.get("total_leave", 0),
+            total_hours=r["total_hours"], total_cong=r.get("total_cong"),
         ))
     return rows
 
@@ -333,6 +333,8 @@ def timesheet_csv(
             day = r.days.get(str(d))
             if not day:
                 cells.append("")
+            elif day.leave:              # ngày nghỉ đã duyệt
+                cells.append("P" if day.leave_paid else "KL")
             elif day.cong is not None:   # có gán ca → công theo ca
                 cells.append(f"{day.cong:g}")
             elif day.hours is not None:  # chưa gán ca → số giờ

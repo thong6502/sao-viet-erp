@@ -136,6 +136,14 @@ class Employee(Base):
     bank_account: Mapped[str | None] = mapped_column(String(30), nullable=True)
     bank_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
+    # --- Lương (module `luong`) ---
+    # Nhóm lương — trục tra bảng chính sách mức lương (salary_rate_rules), vd 'to_in',
+    # 'to_dan', 'van_phong'. Null = chưa gán (tính lương sẽ nhắc khai).
+    payroll_group: Mapped[str | None] = mapped_column(String(40), index=True, nullable=True)
+    # Bậc lương chuẩn hóa cho tổ tính theo bậc (tổ In): 'tho_1'/'tho_2'/'tho_3'/'phu_1'/'phu_2'.
+    # Tách khỏi `job_grade` free-text ("3/7") để tra rule được. Null = không theo bậc.
+    pay_grade_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     # --- Ca kíp ---
     # Ca làm việc mặc định (logical link → work_shifts.id; không FK cứng để tránh vòng
     # create_all, giống head_user_id). Null = chưa gán ca.

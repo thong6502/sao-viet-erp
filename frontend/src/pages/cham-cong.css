@@ -34,6 +34,10 @@
 
 .cc-note { color: var(--ash-2); font-size: 12px; margin-top: var(--sp-4); }
 
+/* Lối tắt "đặt điểm ở đây" (chỉ HR/admin) khi ngoài phạm vi / chưa có điểm. */
+.cc-setup { margin-top: var(--sp-5); padding-top: var(--sp-4); border-top: 1px dashed var(--rule); }
+.cc-setup__btn { width: 100%; }
+
 .cc-logs { min-width: 0; }
 
 .banner--ok {
@@ -58,6 +62,8 @@
 /* Đi muộn (đỏ) / về sớm (hổ phách) / OT (dấu +) trong ô công tháng. */
 .cc-day.cc-late { background: var(--signal-soft); color: var(--signal); }
 .cc-day.cc-early { background: var(--amber-soft); color: var(--amber-deep); }
+/* Ngày nghỉ đã duyệt (P/KL) — xanh thép. */
+.cc-day.cc-leave { background: var(--steel-soft); color: var(--steel); }
 .cc-ot { color: var(--moss); font-weight: var(--fw-bold); }
 .cc-ts-legend .cc-late, .cc-ts-legend .cc-early { min-width: auto; padding: 1px 6px; }
 .cc-total { text-align: center; font-weight: var(--fw-bold); }

@@ -46,6 +46,7 @@ MODULES: list[tuple[str, str]] = [
     ("dm_gia_khuon_ban", "Bảng giá Khuôn & Bản"),
     ("dm_dinh_muc", "Định mức & Bù hao"),
     ("nhan_su", "Nhân sự"),
+    ("luong", "Lương"),
     ("dm_kho", "Cấu hình kho hàng"),
 ]
 
@@ -122,6 +123,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_ALL),
             "nhan_su": _rcu(SCOPE_ALL),
+            # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
+            "luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
             # đặt lại MK, khóa/mở, thu hồi phiên, gán vai trò, chuyển phòng ban.
             "nguoi_dung": {
@@ -1349,9 +1352,11 @@ def seed_attendance(db: Session) -> None:
         if e is not None:
             targets.append(e)
 
-    # 2 ngày gần nhất, mỗi ngày 1 cặp VÀO (08:00) / RA (17:00) tại điểm demo.
+    # 2 ngày ĐÃ TRỌN gần nhất (không phải hôm nay), mỗi ngày 1 cặp VÀO/RA tại điểm demo.
+    # KHÔNG seed hôm nay: RA ~17h có thể rơi vào TƯƠNG LAI so với "now" → làm hỏng logic
+    # tự-luân-phiên (last_log tương lai khiến nút cứ đề nghị VÀO). Xem _next_check_type.
     for emp in targets:
-        for days_ago in (1, 0):
+        for days_ago in (2, 1):
             day_in = now - timedelta(days=days_ago, hours=(now.hour - 1))  # ~sáng
             day_out = day_in + timedelta(hours=9)
             for checked_at, ctype in ((day_in, "in"), (day_out, "out")):
@@ -1375,6 +1380,123 @@ def backfill_user_codes(db: Session) -> None:
             changed = True
     if changed:
         db.commit()
+
+
+def seed_leaves(db: Session) -> None:
+    """Seed loại nghỉ demo (Nghỉ phép) + 1 đơn đã duyệt + 1 đơn chờ cho NV admin-linked.
+    Idempotent."""
+    from datetime import date, datetime, timezone
+
+    from .models.leave import STATUS_APPROVED, STATUS_PENDING
+    from .repositories.employee_repo import EmployeeRepository
+    from .repositories.leave_repo import LeaveRepository
+    from .repositories.user_repo import UserRepository
+
+    repo = LeaveRepository(db)
+    if repo.list_types():
+        return
+    annual = repo.create_type(name="Phép năm", is_paid=True, annual_quota=12, is_active=True)
+    repo.create_type(name="Nghỉ ốm", is_paid=True, annual_quota=0, is_active=True)
+    unpaid = repo.create_type(name="Không lương", is_paid=False, annual_quota=0, is_active=True)
+    repo.create_type(name="Việc riêng", is_paid=False, annual_quota=0, is_active=True)
+
+    u = UserRepository(db).get_by_username("admin")
+    emp = EmployeeRepository(db).get_by_user_id(u.id) if u is not None else None
+    if emp is not None:
+        today = date.today()
+        y, m = today.year, today.month
+        # Đơn ĐÃ DUYỆT (phép năm, ngày 10–11) → Bảng công tháng hiện "P".
+        repo.create_request(employee_id=emp.id, leave_type_id=annual.id,
+                            start_date=date(y, m, 10), end_date=date(y, m, 11), days=2,
+                            reason="Về quê", status=STATUS_APPROVED, created_by=u.id,
+                            decided_by=u.id, decided_at=datetime.now(timezone.utc))
+        # Đơn CHỜ DUYỆT (không lương, ngày 20) → tab Duyệt đơn có việc.
+        repo.create_request(employee_id=emp.id, leave_type_id=unpaid.id,
+                            start_date=date(y, m, 20), end_date=date(y, m, 20), days=1,
+                            reason="Việc gia đình", status=STATUS_PENDING, created_by=u.id)
+
+
+def seed_payroll(db: Session) -> None:
+    """Seed cấu hình + demo Lương (module `luong`): tham số, quy tắc mức lương (khớp bảng
+    thật: tổ In theo bậc thợ, tổ sản xuất theo thâm niên×giới), gán nhóm lương cho NV demo,
+    một ít lương ấn định + tạm ứng. Idempotent: bỏ qua nếu đã có quy tắc."""
+    from datetime import date
+
+    from .models.employee import Employee
+    from .models.payroll import AMOUNT_MANUAL, BAND_LT1, BAND_Y1_5, BAND_Y5_10, BAND_GT10
+    from .repositories.payroll_repo import PayrollRepository
+    from .repositories.user_repo import UserRepository
+
+    repo = PayrollRepository(db)
+    if repo.list_rules():
+        return  # đã seed
+    if repo.get_params() is None:
+        repo.create_params()
+
+    # Quy tắc mức lương (số hóa bảng lương thật 2026).
+    # Tổ In — theo BẬC THỢ.
+    for key, amount in (("tho_1", 25_000_000), ("tho_2", 22_000_000), ("tho_3", 20_000_000),
+                        ("phu_1", 14_500_000), ("phu_2", 10_500_000)):
+        repo.create_rule(payroll_group="to_in", pay_grade_key=key, monthly_amount=amount,
+                         effective_from=date(2026, 1, 1), note="Tổ In theo bậc thợ")
+    # Tổ sản xuất (Dán/Bồi/Thành phẩm…) — theo THÂM NIÊN × GIỚI TÍNH.
+    prod = [
+        (BAND_LT1, "male", 8_000_000), (BAND_LT1, "female", 7_000_000),
+        (BAND_Y1_5, "male", 8_500_000), (BAND_Y1_5, "female", 7_500_000),
+        (BAND_Y5_10, "male", 10_000_000), (BAND_Y5_10, "female", 9_000_000),
+        (BAND_GT10, "male", 10_000_000), (BAND_GT10, "female", 9_000_000),
+    ]
+    for band, gender, amount in prod:
+        repo.create_rule(payroll_group="san_xuat", seniority_band=band, gender=gender,
+                         monthly_amount=amount, effective_from=date(2026, 1, 1),
+                         note="Tổ sản xuất theo thâm niên × giới tính")
+    # Văn phòng — mức chung (theo vị trí, demo 1 mức nền).
+    repo.create_rule(payroll_group="van_phong", monthly_amount=10_000_000,
+                     effective_from=date(2026, 1, 1), note="Khối văn phòng (nền)")
+
+    # Gán nhóm lương cho NV demo theo vị trí + tạo lương ấn định (rule).
+    def _group_of(pos: str | None) -> tuple[str, str | None]:
+        p = (pos or "").lower()
+        if "in" in p and "kinh" not in p:  # thợ in / máy in (tránh "kinh doanh")
+            grade = "phu_1" if ("phụ" in p or "phu" in p) else "tho_3"
+            return "to_in", grade
+        for kw in ("dán", "dan", "bồi", "boi", "bế", "be", "cắt", "cat", "cán", "can",
+                   "thành phẩm", "thanh pham", "giao", "gia công", "gia cong"):
+            if kw in p:
+                return "san_xuat", None
+        return "van_phong", None
+
+    users = UserRepository(db)
+    admin = users.get_by_username(settings.seed_admin_username)
+    admin_emp_id = None
+    if admin is not None:
+        row = db.query(Employee).filter(Employee.user_id == admin.id).first()
+        admin_emp_id = row.id if row is not None else None
+
+    for emp in db.query(Employee).all():
+        group, grade = _group_of(emp.position)
+        emp.payroll_group = group
+        emp.pay_grade_key = grade
+        # Lương ấn định: GĐ (admin) nhập tay 40tr; còn lại theo quy tắc.
+        if emp.id == admin_emp_id:
+            repo.create_salary(employee_id=emp.id, effective_from=date(2026, 1, 1),
+                               amount_mode=AMOUNT_MANUAL, base_amount=40_000_000,
+                               allowance=500_000, note="Giám đốc — theo kết quả")
+        else:
+            repo.create_salary(employee_id=emp.id, effective_from=date(2026, 1, 1),
+                               amount_mode="rule", allowance=300_000)
+    db.commit()
+
+    # Vài tạm ứng demo cho GĐ trong kỳ hiện tại.
+    if admin_emp_id is not None:
+        today = date.today()
+        a1 = repo.create_advance(employee_id=admin_emp_id, period_year=today.year,
+                                 period_month=today.month, advance_date=today,
+                                 amount=2_000_000, reason="Ứng đợt 1")
+        repo.update_advance(a1, status="approved")
+        repo.create_advance(employee_id=admin_emp_id, period_year=today.year,
+                            period_month=today.month, advance_date=today,
+                            amount=1_500_000, reason="Ứng đợt 2 (chờ duyệt)")
 
 
 def seed_all(db: Session) -> None:
@@ -1403,6 +1525,8 @@ def seed_all(db: Session) -> None:
         seed_work_shifts(db)
         seed_work_locations(db)
         seed_attendance(db)
+        seed_leaves(db)
+        seed_payroll(db)
         seed_customers(db)
         seed_products(db)
         seed_sales_history(db)

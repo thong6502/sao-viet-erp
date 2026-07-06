@@ -1800,6 +1800,8 @@ export interface EmployeeDetail extends EmployeeRow {
   bank_account: string | null;
   bank_name: string | null;
   default_shift_id: number | null;
+  payroll_group: string | null;
+  pay_grade_key: string | null;
   resign_date: string | null;
   resign_reason: string | null;
   note: string | null;
@@ -1909,6 +1911,8 @@ export interface EmployeeInput {
   bank_account?: string | null;
   bank_name?: string | null;
   default_shift_id?: number | null;
+  payroll_group?: string | null;
+  pay_grade_key?: string | null;
   note?: string | null;
   account?: EmployeeAccountInput | null;
 }
@@ -2027,6 +2031,8 @@ export interface TimesheetDay {
   early: boolean;
   ot_minutes: number;
   night: boolean;
+  leave: string | null;  // tên loại nghỉ (nếu ngày nghỉ đã duyệt)
+  leave_paid: boolean;   // nghỉ có lương (P) hay không (KL)
 }
 
 export interface TimesheetRow {
@@ -2039,8 +2045,201 @@ export interface TimesheetRow {
   shift_name: string | null;
   days: Record<string, TimesheetDay>;
   total_days: number;
+  total_leave: number;
   total_hours: number;
   total_cong: number | null;
+}
+
+// --- Nghỉ phép (leave) ---
+export interface LeaveType {
+  id: number;
+  name: string;
+  is_paid: boolean;
+  annual_quota: number;
+  is_active: boolean;
+  note: string | null;
+}
+
+export interface LeaveTypeInput {
+  name: string;
+  is_paid?: boolean;
+  annual_quota?: number;
+  note?: string | null;
+  is_active?: boolean;
+}
+
+export interface LeaveRequest {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  leave_type_id: number | null;
+  leave_type_name: string | null;
+  is_paid: boolean | null;
+  start_date: string;
+  end_date: string;
+  days: number;
+  reason: string | null;
+  status: string;
+  decided_by: number | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string | null;
+}
+
+export interface LeaveRequestInput {
+  leave_type_id: number;
+  start_date: string;
+  end_date: string;
+  reason?: string | null;
+}
+
+export interface MyLeave {
+  has_employee: boolean;
+  employee_name: string | null;
+  items: LeaveRequest[];
+}
+
+// --- Lương (module `luong`, Phase 1) ----------------------------------------
+export interface PayrollParams {
+  standard_cong_default: number;
+  probation_ratio: number;
+  bhxh_rate: number;
+  bhyt_rate: number;
+  bhtn_rate: number;
+  deduction_self: number;
+  deduction_dependent: number;
+  chuyen_can_default: number;
+}
+export interface SalaryRule {
+  id: number;
+  payroll_group: string;
+  pay_grade_key: string | null;
+  seniority_band: string | null;
+  gender: string | null;
+  monthly_amount: number;
+  chuyen_can: number | null;
+  effective_from: string | null;
+  is_active: boolean;
+  note: string | null;
+}
+export interface SalaryRuleInput {
+  payroll_group: string;
+  pay_grade_key?: string | null;
+  seniority_band?: string | null;
+  gender?: string | null;
+  monthly_amount: number;
+  chuyen_can?: number | null;
+  effective_from?: string | null;
+  is_active?: boolean;
+  note?: string | null;
+}
+export interface EmployeeSalary {
+  id: number;
+  employee_id: number;
+  effective_from: string;
+  amount_mode: string;
+  base_amount: number | null;
+  insurance_base: number | null;
+  allowance: number;
+  note: string | null;
+  created_at: string;
+}
+export interface EmployeeSalaryInput {
+  effective_from: string;
+  amount_mode: string;
+  base_amount?: number | null;
+  insurance_base?: number | null;
+  allowance?: number;
+  note?: string | null;
+}
+export interface EmployeeSalaries {
+  employee_id: number;
+  employee_name: string | null;
+  items: EmployeeSalary[];
+}
+export interface SalaryPreview {
+  employee_id: number;
+  monthly: number;
+  source: string;
+  chuyen_can: number;
+  allowance: number;
+  insurance_base: number;
+}
+export interface SalaryAdvance {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  period_year: number;
+  period_month: number;
+  advance_date: string;
+  amount: number;
+  reason: string | null;
+  status: string;
+  decision_note: string | null;
+  created_at: string;
+}
+export interface SalaryAdvanceInput {
+  employee_id: number;
+  period_year: number;
+  period_month: number;
+  advance_date: string;
+  amount: number;
+  reason?: string | null;
+}
+export interface MyAdvances {
+  has_employee: boolean;
+  items: SalaryAdvance[];
+}
+export interface PayrollPeriod {
+  id: number;
+  year: number;
+  month: number;
+  status: string;
+  standard_cong: number;
+  locked_at: string | null;
+}
+export interface PayrollLine {
+  id: number;
+  employee_id: number;
+  employee_code: string | null;
+  employee_name: string | null;
+  department_name: string | null;
+  payroll_group: string | null;
+  bank_account: string | null;
+  bank_name: string | null;
+  is_probation: boolean;
+  actual_cong: number;
+  standard_cong: number;
+  monthly_salary: number;
+  luong_cong: number;
+  chuyen_can: number;
+  allowance: number;
+  vi_pham: number;
+  other_bonus: number;
+  gross: number;
+  insurance_base: number;
+  bhxh: number;
+  pit: number;
+  advance_total: number;
+  net_pay: number;
+  note: string | null;
+}
+export interface PayrollLineInput {
+  vi_pham?: number | null;
+  other_bonus?: number | null;
+  pit?: number | null;
+  monthly_override?: number | null;
+  note?: string | null;
+}
+export interface PayrollTable {
+  period: PayrollPeriod | null;
+  lines: PayrollLine[];
+}
+export interface MyPayslip {
+  has_employee: boolean;
+  employee_name: string | null;
+  period: PayrollPeriod | null;
+  line: PayrollLine | null;
 }
 
 export interface Timesheet {
@@ -2610,6 +2809,115 @@ export const api = {
     },
     deleteShift(token: string, id: number): Promise<void> {
       return authed<void>(`/api/attendance/shifts/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Nghỉ phép (nhan_su) --------------------------------------------------
+  leaves: {
+    types(token: string): Promise<{ items: LeaveType[] }> {
+      return authed<{ items: LeaveType[] }>("/api/leaves/types", token);
+    },
+    createType(token: string, input: LeaveTypeInput): Promise<LeaveType> {
+      return authed<LeaveType>("/api/leaves/types", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateType(token: string, id: number, input: LeaveTypeInput): Promise<LeaveType> {
+      return authed<LeaveType>(`/api/leaves/types/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteType(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/leaves/types/${id}`, token, { method: "DELETE" });
+    },
+    me(token: string): Promise<MyLeave> {
+      return authed<MyLeave>("/api/leaves/me", token);
+    },
+    create(token: string, input: LeaveRequestInput): Promise<LeaveRequest> {
+      return authed<LeaveRequest>("/api/leaves", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    cancel(token: string, id: number): Promise<LeaveRequest> {
+      return authed<LeaveRequest>(`/api/leaves/${id}/cancel`, token, { method: "POST" });
+    },
+    list(token: string, status?: string): Promise<{ items: LeaveRequest[] }> {
+      const suffix = status ? `?status=${encodeURIComponent(status)}` : "";
+      return authed<{ items: LeaveRequest[] }>(`/api/leaves${suffix}`, token);
+    },
+    approve(token: string, id: number, note?: string): Promise<LeaveRequest> {
+      return authed<LeaveRequest>(`/api/leaves/${id}/approve`, token, { method: "POST", body: JSON.stringify({ note: note ?? null }) });
+    },
+    reject(token: string, id: number, note: string): Promise<LeaveRequest> {
+      return authed<LeaveRequest>(`/api/leaves/${id}/reject`, token, { method: "POST", body: JSON.stringify({ note }) });
+    },
+  },
+
+  // --- Lương (module `luong`, Phase 1) --------------------------------------
+  luong: {
+    getParams(token: string): Promise<PayrollParams> {
+      return authed<PayrollParams>("/api/luong/params", token);
+    },
+    updateParams(token: string, input: Partial<PayrollParams>): Promise<PayrollParams> {
+      return authed<PayrollParams>("/api/luong/params", token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    rules(token: string): Promise<{ items: SalaryRule[] }> {
+      return authed<{ items: SalaryRule[] }>("/api/luong/rules", token);
+    },
+    createRule(token: string, input: SalaryRuleInput): Promise<SalaryRule> {
+      return authed<SalaryRule>("/api/luong/rules", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateRule(token: string, id: number, input: SalaryRuleInput): Promise<SalaryRule> {
+      return authed<SalaryRule>(`/api/luong/rules/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteRule(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/luong/rules/${id}`, token, { method: "DELETE" });
+    },
+    salaries(token: string, employeeId: number): Promise<EmployeeSalaries> {
+      return authed<EmployeeSalaries>(`/api/luong/salaries/${employeeId}`, token);
+    },
+    salaryPreview(token: string, employeeId: number): Promise<SalaryPreview> {
+      return authed<SalaryPreview>(`/api/luong/salaries/${employeeId}/preview`, token);
+    },
+    setSalary(token: string, employeeId: number, input: EmployeeSalaryInput): Promise<EmployeeSalary> {
+      return authed<EmployeeSalary>(`/api/luong/salaries/${employeeId}`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    deleteSalary(token: string, salaryId: number): Promise<void> {
+      return authed<void>(`/api/luong/salaries/item/${salaryId}`, token, { method: "DELETE" });
+    },
+    advances(token: string, year: number, month: number, status?: string): Promise<{ items: SalaryAdvance[] }> {
+      const s = status ? `&status=${encodeURIComponent(status)}` : "";
+      return authed<{ items: SalaryAdvance[] }>(`/api/luong/advances?year=${year}&month=${month}${s}`, token);
+    },
+    createAdvance(token: string, input: SalaryAdvanceInput): Promise<SalaryAdvance> {
+      return authed<SalaryAdvance>("/api/luong/advances", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    approveAdvance(token: string, id: number, note?: string): Promise<SalaryAdvance> {
+      return authed<SalaryAdvance>(`/api/luong/advances/${id}/approve`, token, { method: "POST", body: JSON.stringify({ note: note ?? null }) });
+    },
+    rejectAdvance(token: string, id: number, note?: string): Promise<SalaryAdvance> {
+      return authed<SalaryAdvance>(`/api/luong/advances/${id}/reject`, token, { method: "POST", body: JSON.stringify({ note: note ?? null }) });
+    },
+    cancelAdvance(token: string, id: number): Promise<SalaryAdvance> {
+      return authed<SalaryAdvance>(`/api/luong/advances/${id}/cancel`, token, { method: "POST" });
+    },
+    myAdvances(token: string): Promise<MyAdvances> {
+      return authed<MyAdvances>("/api/luong/advances/me", token);
+    },
+    periods(token: string): Promise<{ items: PayrollPeriod[] }> {
+      return authed<{ items: PayrollPeriod[] }>("/api/luong/periods", token);
+    },
+    table(token: string, year: number, month: number): Promise<PayrollTable> {
+      return authed<PayrollTable>(`/api/luong/table?year=${year}&month=${month}`, token);
+    },
+    generate(token: string, year: number, month: number): Promise<PayrollTable> {
+      return authed<PayrollTable>("/api/luong/generate", token, { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+    updateLine(token: string, id: number, input: PayrollLineInput): Promise<PayrollLine> {
+      return authed<PayrollLine>(`/api/luong/lines/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    lock(token: string, year: number, month: number): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/lock", token, { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+    reopen(token: string, year: number, month: number): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/reopen", token, { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+    myPayslip(token: string): Promise<MyPayslip> {
+      return authed<MyPayslip>("/api/luong/payslip/me", token);
     },
   },
 

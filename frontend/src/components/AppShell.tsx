@@ -16,6 +16,8 @@ import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
 import { ChamCongPage } from "../pages/ChamCongPage";
+import { NghiPhepPage } from "../pages/NghiPhepPage";
+import { LuongPage } from "../pages/LuongPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { UsersPage } from "../pages/UsersPage";
@@ -151,6 +153,10 @@ export function AppShell() {
         return <NhanSuPage />;
       case "cham-cong":
         return <ChamCongPage />;
+      case "nghi-phep":
+        return <NghiPhepPage />;
+      case "luong":
+        return <LuongPage />;
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
       case "tinh-gia-thanh":

@@ -25,8 +25,13 @@ type Tab = "me" | "locations" | "khai-ca" | "logs" | "timesheet";
 
 function fmtDateTime(s: string | null | undefined): string {
   if (!s) return "—";
-  const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? s : d.toLocaleString("vi-VN");
+  // Server gửi UTC. Nếu chuỗi thiếu nhãn múi giờ (SQLite trả naive) thì coi là UTC,
+  // rồi luôn hiển thị theo giờ Việt Nam — không lệ thuộc múi giờ máy người xem.
+  const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(s);
+  const d = new Date(hasTz ? s : `${s}Z`);
+  return Number.isNaN(d.getTime())
+    ? s
+    : d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
 }
 
 /** Promise wrapper quanh navigator.geolocation. */
@@ -76,7 +81,7 @@ export function ChamCongPage() {
         <button className={tab === "timesheet" ? "is-active" : ""} onClick={() => setTab("timesheet")}>Bảng công tháng</button>
       </nav>
 
-      {tab === "me" && <MyCheckIn token={token!} />}
+      {tab === "me" && <MyCheckIn token={token!} canConfig={canConfig} />}
       {tab === "locations" && canConfig && <LocationsTab token={token!} />}
       {tab === "khai-ca" && canConfig && <ShiftsTab token={token!} />}
       {tab === "logs" && <LogsTab token={token!} />}
@@ -87,7 +92,7 @@ export function ChamCongPage() {
 
 // --- Tab: Chấm công của tôi -------------------------------------------------
 
-function MyCheckIn({ token }: { token: string }) {
+function MyCheckIn({ token, canConfig }: { token: string; canConfig: boolean }) {
   const [status, setStatus] = useState<AttendanceStatus | null>(null);
   const [logs, setLogs] = useState<AttendanceLog[]>([]);
   const [checking, setChecking] = useState(false);
@@ -106,6 +111,31 @@ function MyCheckIn({ token }: { token: string }) {
     setGeoErr(null);
     try {
       const pos = await getPosition();
+      const res = await api.attendance.check(token, pos.coords.latitude, pos.coords.longitude);
+      setResult(res);
+      load();
+    } catch (e) {
+      setGeoErr(geoErrText(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  // Lối tắt cho HR/admin: tạo điểm chấm công ngay tại chỗ đang đứng rồi chấm luôn —
+  // gỡ kẹt khi mọi điểm đã khai đều ở xa (vd điểm demo ở TP.HCM). Cần quyền cấu hình.
+  async function setPointHere() {
+    setChecking(true);
+    setResult(null);
+    setGeoErr(null);
+    try {
+      const pos = await getPosition();
+      await api.attendance.createLocation(token, {
+        name: "Điểm chấm công của tôi",
+        latitude: Number(pos.coords.latitude.toFixed(7)),
+        longitude: Number(pos.coords.longitude.toFixed(7)),
+        radius_m: 150,
+        is_active: true,
+      });
       const res = await api.attendance.check(token, pos.coords.latitude, pos.coords.longitude);
       setResult(res);
       load();
@@ -156,6 +186,19 @@ function MyCheckIn({ token }: { token: string }) {
             {result.message}
           </div>
         )}
+
+        {canConfig && (!status.locations_configured || (result != null && !result.within_range)) && (
+          <div className="cc-setup">
+            <button className="btn btn--ghost cc-setup__btn" onClick={setPointHere} disabled={checking}>
+              📍 Đặt điểm chấm công tại vị trí này
+            </button>
+            <p className="cc-note">
+              Tạo điểm mới ngay chỗ bạn đang đứng (bán kính 150 m) rồi chấm luôn.
+              Chỉnh tên/tọa độ/bán kính ở tab <b>“Điểm chấm công”</b>.
+            </p>
+          </div>
+        )}
+
         <p className="cc-note">Cần cho phép trình duyệt truy cập vị trí. Server kiểm khoảng cách tới điểm gần nhất.</p>
       </div>
 
@@ -511,6 +554,13 @@ function TimesheetRowView({ row, days }: { row: TimesheetRow; days: number[] }) 
       {days.map((d) => {
         const day = row.days[String(d)];
         if (!day) return <td key={d} className="cc-day" />;
+        if (day.leave) {
+          return (
+            <td key={d} className="cc-day cc-day--on cc-leave" title={`Nghỉ: ${day.leave}`}>
+              {day.leave_paid ? "P" : "KL"}
+            </td>
+          );
+        }
         const cls = ["cc-day", "cc-day--on", day.late ? "cc-late" : "", day.early ? "cc-early" : ""]
           .filter(Boolean).join(" ");
         const label = day.cong != null ? String(day.cong) : (day.hours != null ? `${day.hours}h` : "•");

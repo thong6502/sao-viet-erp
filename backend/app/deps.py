@@ -17,6 +17,8 @@ from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
 from .repositories.costing_repo import CostingRepository
 from .repositories.attendance_repo import AttendanceRepository
+from .repositories.leave_repo import LeaveRepository
+from .repositories.payroll_repo import PayrollRepository
 from .repositories.customer_repo import CustomerRepository
 from .repositories.employee_repo import EmployeeRepository
 from .repositories.machine_repo import MachineRepository
@@ -49,6 +51,8 @@ from .services.costing_service import CostingService
 from .services.estimate_service import EstimateService
 from .services.customer_analytics import CustomerAnalyticsService
 from .services.attendance_service import AttendanceService
+from .services.leave_service import LeaveService
+from .services.payroll_service import PayrollService
 from .services.customer_service import CustomerService
 from .services.department_service import DepartmentService
 from .services.employee_service import EmployeeService
@@ -261,12 +265,44 @@ def get_attendance_repository(
     return AttendanceRepository(db)
 
 
+def get_leave_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> LeaveRepository:
+    return LeaveRepository(db)
+
+
 def get_attendance_service(
     attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    leaves: Annotated[LeaveRepository, Depends(get_leave_repository)],
 ) -> AttendanceService:
-    return AttendanceService(attendance, employees, audit)
+    # leaves injected so Bảng công tháng đánh dấu ngày nghỉ đã duyệt (P/KL).
+    return AttendanceService(attendance, employees, audit, leaves=leaves)
+
+
+def get_leave_service(
+    leaves: Annotated[LeaveRepository, Depends(get_leave_repository)],
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> LeaveService:
+    return LeaveService(leaves, employees, audit)
+
+
+def get_payroll_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> PayrollRepository:
+    return PayrollRepository(db)
+
+
+def get_payroll_service(
+    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+    attendance: Annotated[AttendanceService, Depends(get_attendance_service)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> PayrollService:
+    # attendance injected để engine lấy số CÔNG từ Bảng công tháng.
+    return PayrollService(payroll, employees, attendance, audit=audit)
 
 
 def get_product_repository(

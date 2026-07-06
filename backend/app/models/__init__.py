@@ -5,11 +5,20 @@ from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
 from .department import Department
 from .employee import Employee, EmployeeAttachment, EmployeeEvent
+from .leave import LeaveRequest, LeaveType
 from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
 from .module import Module
 from .operation import Operation, OperationRate
 from .order import Order, OrderLine
+from .payroll import (
+    EmployeeSalary,
+    PayrollLine,
+    PayrollParams,
+    PayrollPeriod,
+    SalaryAdvance,
+    SalaryRateRule,
+)
 from .paper_size import PaperSize
 from .imposition_type import ImpositionType
 from .product import Product, ProductComponent
@@ -41,6 +50,8 @@ __all__ = [
     "WorkLocation",
     "WorkShift",
     "AttendanceLog",
+    "LeaveType",
+    "LeaveRequest",
     "Warehouse",
     "WarehouseItem",
     "Customer",
@@ -65,6 +76,12 @@ __all__ = [
     "CostingOperation",
     "Order",
     "OrderLine",
+    "PayrollParams",
+    "SalaryRateRule",
+    "EmployeeSalary",
+    "SalaryAdvance",
+    "PayrollPeriod",
+    "PayrollLine",
     "PlateDieRate",
     "Norm",
     "DocumentSequence",
