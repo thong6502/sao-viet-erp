@@ -199,6 +199,55 @@ class ImpositionTypeRepository:
             raise
         return new_item
 
+    # -- "Đang dùng trong" = số TÍNH GIÁ (estimates) dùng quy tắc này -----------
+    # Rule nằm trong estimates.input_spec_json.imposition (mã) hoặc imposition_name (legacy);
+    # không chỉ định → engine suy theo số mặt (ONE_SIDE / TRO_NHIP_2_KEM). Ta lặp lại đúng
+    # quy tắc suy đó để đếm/liệt kê cho khớp cái engine thực sự resolve.
+    @staticmethod
+    def _spec_impo_code(spec: dict | None) -> str:
+        spec = spec or {}
+        code = (spec.get("imposition") or spec.get("imposition_name") or "").strip()
+        if code:
+            return code.upper()
+        try:
+            sides = int(spec.get("sides", 2) or 2)
+        except (TypeError, ValueError):
+            sides = 2
+        return "ONE_SIDE" if sides == 1 else "TRO_NHIP_2_KEM"
+
+    def estimate_code_counts(self, *, include_cancelled: bool = False) -> dict[str, int]:
+        """Đếm số estimates (tính giá) theo mã bình bài đã resolve. Một lượt quét, trả {CODE: n}."""
+        from ..models.estimate import Estimate
+
+        stmt = select(Estimate.input_spec_json, Estimate.status)
+        if not include_cancelled:
+            stmt = stmt.where(Estimate.status != "cancelled")
+        counts: dict[str, int] = {}
+        for spec, _status in self.db.execute(stmt):
+            code = self._spec_impo_code(spec)
+            counts[code] = counts.get(code, 0) + 1
+        return counts
+
+    def list_estimates_by_code(
+        self, code: str, *, include_cancelled: bool = False, limit: int = 100
+    ) -> list:
+        """Liệt kê estimates dùng một mã bình bài (mới nhất trước) — cho drill-down 'Xem tính giá đã dùng'."""
+        from ..models.estimate import Estimate
+
+        target = (code or "").strip().upper()
+        if not target:
+            return []
+        stmt = select(Estimate).order_by(Estimate.created_at.desc(), Estimate.id.desc())
+        if not include_cancelled:
+            stmt = stmt.where(Estimate.status != "cancelled")
+        out = []
+        for est in self.db.execute(stmt).scalars():
+            if self._spec_impo_code(est.input_spec_json) == target:
+                out.append(est)
+                if len(out) >= limit:
+                    break
+        return out
+
     def increment_used_count(self, item: ImpositionType, by: int = 1, commit: bool = True) -> None:
         item.used_count = int(item.used_count or 0) + by
         if commit:

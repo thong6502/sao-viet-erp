@@ -148,3 +148,45 @@ def test_resolve_plate_prefers_machine_specific(svc):
     # máy khác → chỉ có generic
     got2 = service.repo.resolve_plate_for_machine(999, date(2026, 6, 1))
     assert got2 is not None and got2.unit_price == 90000
+
+
+# -- "Đang dùng trong" (kẽm=phiếu, khuôn=công đoạn) ---------------------------
+
+def test_usage_counts_khuon_by_operation(svc):
+    from app.models.operation import Operation
+    service, actor, db = svc
+    die = service.create_rate(_die(code="DIE_USE"), actor=actor)
+    db.add(Operation(code="OP_BE_X", name="Bế X", operation_type="be", unit="to",
+                     has_tooling=True, tooling_rate_id=die.id))
+    db.commit()
+    est_counts, op_counts = service.usage_counts([die.id])
+    assert op_counts[die.id] == 1 and est_counts[die.id] == 0
+    u = service.usage(die.id)
+    assert u["kind"] == "khuon" and len(u["operations"]) == 1
+    assert u["operations"][0]["code"] == "OP_BE_X" and u["estimates"] == []
+
+
+def test_usage_counts_kem_by_estimate(svc):
+    from sqlalchemy import text
+    from app.models.estimate import Estimate, EstimateOption, EstimateCostLine
+    service, actor, db = svc
+    kem = service.create_rate(_kem(code="PLATE_USE"), actor=actor)
+    pt = db.execute(text("SELECT product_type FROM product_types_catalog LIMIT 1")).scalar()
+    est = Estimate(estimate_number="EST-USE-1", product_type=pt, product_name="Test",
+                   status="calculated", input_spec_json={}, quantity_list_json=[1000])
+    db.add(est)
+    db.flush()
+    opt = EstimateOption(estimate_id=est.id, quantity=1000, total_cost=0)
+    db.add(opt)
+    db.flush()
+    db.add(EstimateCostLine(
+        estimate_option_id=opt.id, category="plate_die", description="Bản kẽm",
+        source_type="plate_die_rates", source_id=kem.id,
+        quantity=4, unit="ban", unit_cost=100000, total_cost=400000,
+    ))
+    db.commit()
+    est_counts, op_counts = service.usage_counts([kem.id])
+    assert est_counts[kem.id] == 1 and op_counts[kem.id] == 0
+    u = service.usage(kem.id)
+    assert u["kind"] == "kem" and len(u["estimates"]) == 1
+    assert u["estimates"][0]["estimate_number"] == "EST-USE-1" and u["operations"] == []

@@ -217,7 +217,7 @@ Cơ cấu điển hình (ánh xạ phòng ban — đã có nền RBAC department
 
 - Nhà in thường chạy **2–3 ca/ngày** → cần quản lý **ca/kíp** (ảnh hưởng chấm công, lịch máy, phụ
   cấp ca đêm). ‹cần xác nhận số ca của SVN›
-- Yếu tố **an toàn lao động & môi trường:** xử lý dung môi/hóa chất, phụ cấp độc hại.
+- Yếu tố **an toàn lao động & môi trường:** xử lý dung môi/hóa chất.
 
 ## 8. Quy trình từ yêu cầu khách → giao hàng
 
@@ -426,7 +426,7 @@ treebox.vn; uprint.vn; Dataline MultiPress] *(Giấy là chi phí biến đổi;
 - **Hồ sơ nhân viên**, **hợp đồng lao động**, chức danh, tổ/phòng (nền RBAC đã có).
 - **Chấm công:** **ca/kíp** (nhà in 2–3 ca), máy chấm công, **tăng ca (OT)**, đi muộn.
 - **Nghỉ phép** (năm/ốm/không lương); **bảo hiểm** (BHXH/BHYT/BHTN); **thuế TNCN**; **công đoàn**.
-- Phụ cấp **ca đêm**, **độc hại** (hóa chất in); khen thưởng/kỷ luật.
+- Phụ cấp **ca đêm**; khen thưởng/kỷ luật.
 - **Thực thể:** `Employee`, `LaborContract`, `Shift`, `Attendance`, `LeaveRequest`, `Insurance`.
 - Tích hợp: → Lương; ↔ RBAC; → Sản xuất (tổ/NV thực hiện công đoạn).
 
@@ -440,7 +440,7 @@ treebox.vn; uprint.vn; Dataline MultiPress] *(Giấy là chi phí biến đổi;
      đoạn × đơn giá khoán**. Nguồn = **sản lượng từ `JobOperation`** (số đạt KCS).
   3. **Khoán theo tổ/nhóm** rồi **chia nội bộ** theo công/điểm/hệ số.
   4. **Khoán theo job** (trọn gói đầu việc) chia cho người tham gia.
-  5. Kết hợp: cơ bản + khoán + **thưởng năng suất** + phụ cấp (ca đêm/độc hại) + OT.
+  5. Kết hợp: cơ bản + khoán + **thưởng năng suất** + phụ cấp (ca đêm) + OT.
 - **Công thức khoán:**
   ```
   Lương khoán NV = Σ ( sản lượng đạt của NV ở công đoạn i × đơn giá khoán công đoạn i )
@@ -452,7 +452,7 @@ treebox.vn; uprint.vn; Dataline MultiPress] *(Giấy là chi phí biến đổi;
 - **Luồng:** Chấm công ([§16](#16-hcns-nhân-sự--hành-chính)) + Sản lượng công đoạn ([§8](#8-quy-trình-từ-yêu-cầu-khách--giao-hàng)/[§14](#14-gia-công--3-hình-thái))
   → tính lương kỳ → phiếu lương → chi/Kế toán → **nhân công trực tiếp vào giá thành job**.
 - ‹**Cần khảo sát SVN:** khoán cá nhân hay tổ; đơn giá khoán theo công đoạn nào; quy đổi "công"/điểm;
-  thưởng năng suất; phụ cấp ca/độc hại.›
+  thưởng năng suất; phụ cấp ca.›
 
 ## 18. Công nợ phải thu / phải trả
 
@@ -621,7 +621,7 @@ Những thứ **không nguồn web nào có** — chỉ Sao Việt Nhật trả 
 1. **Đội máy thực tế:** tờ rời/cuộn, khổ máy tối đa, số đơn vị màu, trở nhật/lật, tốc độ, makeready
    thật → cho lịch máy & công in.
 2. **Lương khoán:** khoán cá nhân/tổ; **đơn giá khoán theo công đoạn**; quy đổi "công"/điểm/hệ số;
-   thưởng năng suất; phụ cấp ca đêm/độc hại.
+   thưởng năng suất; phụ cấp ca đêm.
 3. **Định mức gia công** thực (cán theo m², bế theo nghìn SP, ép kim, đóng cuốn…) + định mức mực.
 4. **Tỷ trọng "đặt in" toàn bộ ngoài** vs tự sản xuất; cách quản lý chất lượng & lãi gộp.
 5. **Giấy của khách (ứng giấy):** hạch toán khi không tính tiền giấy.
@@ -853,7 +853,7 @@ loại SP)**, versioned. **Không** dùng 1 cột "số lượng đạt" chung.
 
 → `OutputRecord` ở **mức tổ HOẶC cá nhân**; mức tổ cần `CrewAllocation{ employee_id, factor,
 work_units }`. **Payslip gộp nhiều cơ chế trong cùng kỳ:** `Σ khoán + Σ công_nhật×đơn_giá_ngày + OT
-+ phụ cấp (ca đêm/độc hại) − BHXH − TNCN`; mỗi ngày công gắn **chế độ lương của ngày đó**.
++ phụ cấp (ca đêm) − BHXH − TNCN`; mỗi ngày công gắn **chế độ lương của ngày đó**.
 
 > **⚠️ `fault_party` là INPUT của payroll:** in bù do lỗi tổ → sản lượng đó **không tính khoán**.
 > Không có fault_party ⇒ tính sai lương ⇒ **công nhân phản ứng ngay kỳ lương đầu ⇒ xưởng quay lại
@@ -1157,12 +1157,11 @@ phát hành BCTC/tờ khai thuế.
 
 👥 NHÂN SỰ & LƯƠNG    • Hồ sơ nhân sự & Hợp đồng   • Chấm công & Ca kíp (2–3 ca, ca đêm, tăng ca)
                       • Bảng lương (hỗn hợp: KHOÁN sản lượng[đơn giá/hệ số từ "Tổ & Đầu việc"] + thời gian
-                        + phụ cấp[ca đêm/độc hại] + nghỉ phép; số trích BHXH + khấu trừ TNCN → kết xuất MISA)
+                        + phụ cấp[ca đêm] + nghỉ phép; số trích BHXH + khấu trừ TNCN → kết xuất MISA)
                       Khai báo trong 3 module: ca làm việc · loại phụ cấp + hệ số OT(150/200/300+đêm30%)
-                        · bậc thợ · loại HĐ(2 loại+thử việc) · loại nghỉ(phép 12, NNĐH 14/16)
+                        · bậc thợ · loại HĐ(2 loại+thử việc) · loại nghỉ(phép 12)
                       ⏳ P1 (mở rộng sau, CHƯA làm): Tuyển dụng · Đào tạo & thi nâng bậc · ATLĐ đầy đủ
-                        (khám SK/huấn luyện ATVSLĐ/BHLĐ/TNLĐ/quan trắc) · chế độ NNĐH đầy đủ · KPI/Thưởng-phạt
-                        [nghề in = NNĐH loại IV theo TT11/2020: chế bản/vận hành in/pha mực/xén-bế]
+                        (khám SK/huấn luyện ATVSLĐ/BHLĐ/TNLĐ/quan trắc) · KPI/Thưởng-phạt
 
 🛠️ THIẾT BỊ & BẢO TRÌ  • Máy móc & Bảo trì (specs máy + bảo trì; downtime khóa lịch; OEE)
 

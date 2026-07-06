@@ -109,7 +109,15 @@ const NAV: NavSection[] = [
       { id: "gia-khuon-ban", label: "Đơn giá kẽm & khuôn", icon: "fileText", module: "dm_dinh_muc" },
       { id: "dinh-muc-bu-hao", label: "Định mức & Bù hao", icon: "activity", module: "dm_dinh_muc" },
       { id: "kho-giay", label: "Khổ giấy chuẩn", icon: "grid", module: "dm_giay_vat_tu" },
-      { id: "kieu-binh-bai", label: "Kiểu bình bài", icon: "calculator", module: "dm_dinh_muc" },
+      { id: "kieu-binh-bai", label: "Quy tắc bình bài", icon: "calculator", module: "dm_dinh_muc" },
+    ],
+  },
+  {
+    id: "nhan-su-luong",
+    label: "Nhân sự & Lương",
+    items: [
+      { id: "nhan-su", label: "Hồ sơ nhân sự", icon: "users", module: "nhan_su" },
+      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su" },
     ],
   },
   {

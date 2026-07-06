@@ -18,9 +18,11 @@ from .db import SessionLocal, init_db
 from .db_migrations import run_migrations
 from .routers import (
     auth,
+    attendance,
     costings,
     estimates,
     customers,
+    employees,
     machines,
     materials,
     operations,
@@ -78,6 +80,8 @@ app.include_router(auth.router)
 app.include_router(profile.router)
 app.include_router(rbac.router)
 app.include_router(customers.router)
+app.include_router(employees.router)
+app.include_router(attendance.router)
 app.include_router(products.router)
 app.include_router(costings.router)
 app.include_router(estimates.router)

@@ -84,6 +84,9 @@ class PlateDieRateOut(BaseModel):
     effective_to: date | None
     is_active: bool
     used_count: int
+    # "Đang dùng trong" — kẽm = số phiếu tính giá; khuôn = số công đoạn. Server tính khi list.
+    used_in_estimates: int = 0
+    used_in_operations: int = 0
     created_by: int | None = None
     updated_by: int | None = None
     created_at: datetime
@@ -95,3 +98,27 @@ class PlateDieRateListOut(BaseModel):
     total: int
     page: int
     size: int
+
+
+class PlateDieUsageEstimate(BaseModel):
+    id: int
+    estimate_number: str
+    product_name: str
+    status: str
+    created_at: datetime
+
+
+class PlateDieUsageOperation(BaseModel):
+    id: int
+    code: str
+    name: str
+    operation_type: str
+
+
+class PlateDieRateUsageOut(BaseModel):
+    rate_id: int
+    code: str
+    name: str
+    kind: str  # kem | khuon
+    estimates: list[PlateDieUsageEstimate]
+    operations: list[PlateDieUsageOperation]

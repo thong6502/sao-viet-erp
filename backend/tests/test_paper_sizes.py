@@ -184,14 +184,15 @@ def test_cut_size_within_parent_ok():
 
 # -- machine over-size --------------------------------------------------------
 
-def test_paper_exceeds_machine_rejected():
+def test_paper_exceeds_machine_allowed_no_hard_block():
+    # Máy do người dùng tự chọn — khổ vượt khổ máy KHÔNG bị chặn (chỉ cảnh báo mềm ở FE).
     db, repo, svc, actor = _setup()
     m = Machine(code="M52", name="Máy 52", machine_type="offset", process_type="in",
                 max_width_cm=52, max_height_cm=72, speed=5000, speed_unit="to/gio")
     db.add(m)
     db.commit()
-    with pytest.raises(PaperSizeValidationError):
-        svc.create_item(_data(compatible_machine_ids=[m.id]), actor=actor)  # 79×109 > 52×72
+    item = svc.create_item(_data(compatible_machine_ids=[m.id]), actor=actor)  # 79×109 > 52×72
+    assert item.compatible_machine_ids == [m.id]
 
 
 def test_paper_fits_machine_ok():
@@ -260,3 +261,62 @@ def test_costing_ref_forces_version_on_dim_edit():
     _ref_from_costing(db, item.id)
     new = svc.update_item(item.id, _data(width_cm=80), actor=actor)
     assert new.id != item.id and new.version == 2  # khổ đã dùng → version mới
+
+
+# -- "Đang dùng trong" (usage_counts) + drill-down (usage) -------------------
+
+def _add_costing(db, code: str, *, print_id=None, purchase_id=None, product_id=None):
+    from app.models.costing import Costing, CostingPaperOption
+    c = Costing(code=code, qty_final=1000, status="draft", product_id=product_id)
+    db.add(c)
+    db.flush()
+    db.add(CostingPaperOption(costing_id=c.id, print_sheet_size_id=print_id,
+                              purchase_size_id=purchase_id, sheet_w=79, sheet_h=109,
+                              pieces_per_sheet=10))
+    db.commit()
+    return c
+
+
+def test_usage_counts_counts_distinct_costings():
+    db, repo, svc, actor = _setup()
+    a = svc.create_item(_data(), actor=actor)
+    b = svc.create_item(_data(code="K65", name="Khổ 65×86", width_cm=65, height_cm=86), actor=actor)
+    _add_costing(db, "CG001", print_id=a.id)
+    _add_costing(db, "CG002", print_id=a.id, purchase_id=a.id)  # same size twice → 1 phiếu
+    _add_costing(db, "CG003", print_id=b.id)
+    counts = svc.usage_counts([a.id, b.id])
+    assert counts[a.id] == 2  # CG001 + CG002 (distinct), not 3 option rows
+    assert counts[b.id] == 1
+
+
+def test_usage_counts_empty_ids():
+    db, repo, svc, actor = _setup()
+    assert svc.usage_counts([]) == {}
+
+
+def test_find_dimension_duplicate_both_orientations():
+    db, repo, svc, actor = _setup()
+    svc.create_item(_data(), actor=actor)  # 79×109
+    # Same size, rotated → still a duplicate.
+    match = svc.find_dimension_duplicate(width_cm=109, height_cm=79)
+    assert match is not None and match.code == "K79x109"
+    # A different size → no match.
+    assert svc.find_dimension_duplicate(width_cm=65, height_cm=86) is None
+
+
+def test_find_dimension_duplicate_excludes_self():
+    db, repo, svc, actor = _setup()
+    item = svc.create_item(_data(), actor=actor)
+    # Editing itself must not flag its own row as a duplicate.
+    assert svc.find_dimension_duplicate(width_cm=79, height_cm=109, exclude_id=item.id) is None
+
+
+def test_usage_lists_costings():
+    db, repo, svc, actor = _setup()
+    item = svc.create_item(_data(), actor=actor)
+    _add_costing(db, "CG001", print_id=item.id)
+    _add_costing(db, "CG002", purchase_id=item.id)
+    data = svc.usage(item.id)
+    assert data["costing_count"] == 2
+    codes = {c["code"] for c in data["costings"]}
+    assert codes == {"CG001", "CG002"}

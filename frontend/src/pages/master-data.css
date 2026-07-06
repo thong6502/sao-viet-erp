@@ -428,3 +428,117 @@
 .md-page__preview-head {
   font-size: 14px;
 }
+
+/* Quick filter tabs (page-level, theo loại định mức) */
+.md-page__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  border-bottom: 1px solid var(--rule);
+}
+.md-page__tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.md-page__tab:hover { color: var(--ink); }
+.md-page__tab--active {
+  color: var(--ink);
+  border-bottom-color: var(--rust);
+}
+.md-page__tab__count {
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: var(--r-pill);
+  background: var(--rule-soft);
+  color: var(--ash-2);
+}
+.md-page__tab--active .md-page__tab__count {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+}
+.md-page__tab--warn.md-page__tab--active { border-bottom-color: var(--signal); }
+
+/* "Sắp áp dụng" status */
+.md-page__status-badge.is-upcoming {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+}
+
+/* Sub-label dưới ô "Mức hao / Công thức" */
+.md-page__formula-sub {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+
+/* "Đang dùng trong" + cờ cảnh báo xung đột */
+.md-page__usage-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--rust-deep);
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+.md-page__usage-zero { color: var(--ash-2); }
+.md-page__conflict-flag {
+  color: var(--signal);
+  font-weight: var(--fw-bold);
+  margin-left: 4px;
+  cursor: help;
+}
+
+/* Overflow ⋯ menu trên từng dòng */
+.md-page__menu-wrap {
+  position: relative;
+  display: inline-block;
+}
+.md-page__iconbtn {
+  padding: 2px 10px;
+  font-size: 16px;
+  line-height: 1;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  cursor: pointer;
+  color: var(--ash);
+}
+.md-page__iconbtn:hover { background: var(--rule-hair); color: var(--ink); }
+.md-page__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 2px);
+  z-index: 30;
+  min-width: 220px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  box-shadow: 0 10px 28px rgba(20, 19, 15, 0.16);
+  padding: 4px;
+  text-align: left;
+}
+.md-page__menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.md-page__menu button:hover { background: var(--rule-hair); }
+.md-page__menu button.danger { color: var(--signal); }
+.md-page__menu__sep { height: 1px; background: var(--rule-soft); margin: 4px 2px; }

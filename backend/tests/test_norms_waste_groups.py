@@ -185,3 +185,99 @@ def test_api_yield_bounds_and_min_max(client, seed_credentials):
         "effective_from": str(date.today()),
     }, headers=h)
     assert r.status_code == 422
+
+
+# --- "Đang dùng trong" — quét snapshot tính giá tìm định mức đã dùng --------
+
+def test_estimate_norm_usage_scan():
+    from app.models.estimate import Estimate, EstimateOption, EstimateCostLine
+
+    db = _mem_db()
+    running = Norm(norm_key="running_waste_pct", waste_group="RUNNING_WASTE", calculation_method="PERCENT",
+                   value=0.03, context_key="{}", effective_from=date(2025, 1, 1), code="RW")
+    yield_op = Norm(norm_key="yield_rate", waste_group="YIELD_RATE", calculation_method="PERCENT",
+                    value=0.97, context_key="{}", effective_from=date(2025, 1, 1), code="Y")
+    unused = Norm(norm_key="paper_extra_waste", waste_group="PAPER_EXTRA_WASTE", calculation_method="PERCENT",
+                  value=0.01, context_key="{}", effective_from=date(2025, 1, 1), code="PX")
+    db.add_all([running, yield_op, unused])
+    db.flush()
+
+    est = Estimate(estimate_number="E1", product_type="tor_roi", product_name="Tờ rơi",
+                   status="calculated", input_spec_json={}, quantity_list_json=[1000])
+    db.add(est)
+    db.flush()
+    opt = EstimateOption(estimate_id=est.id, quantity=1000, total_cost=0)
+    db.add(opt)
+    db.flush()
+    # Một dòng dùng norm ở khóa top-level (print_waste) + một norm ở chuỗi hao ngược.
+    db.add(EstimateCostLine(
+        estimate_option_id=opt.id, category="material", description="Giấy",
+        calculation_snapshot_json={
+            "print_waste_norm_id": running.id,
+            "reverse_waste_chain": [{"norm_id": yield_op.id, "setup_norm_id": None}],
+        },
+        quantity=1, unit="to", unit_cost=0, total_cost=0,
+    ))
+    db.commit()
+
+    repo = NormRepository(db)
+    counts = repo.estimate_norm_counts()
+    assert counts.get(running.id) == 1
+    assert counts.get(yield_op.id) == 1
+    assert counts.get(unused.id, 0) == 0  # định mức chưa dùng ở phiếu nào
+
+    ests = repo.list_estimates_by_norm(running.id)
+    assert [e.estimate_number for e in ests] == ["E1"]
+
+    # Phiếu bị hủy → không tính vào "đang dùng".
+    est.status = "cancelled"
+    db.commit()
+    assert NormRepository(db).estimate_norm_counts().get(running.id, 0) == 0
+    assert NormRepository(db).list_estimates_by_norm(running.id) == []
+    db.close()
+
+
+# --- Cảnh báo xung đột (§9) — phạm vi giao + độ cụ thể ngang -----------------
+
+def test_detect_conflicts_equal_specificity():
+    db = _mem_db()
+    svc = NormService(NormRepository(db), AuditLogRepository(db))
+    # A: áp dụng tất cả (spec 0). B: theo loại SP (spec +10). C: theo máy (spec +10).
+    # Dùng cột scope scalar (product_type/machine_id) vì uix_norms_current chỉ khóa theo scalar
+    # — hai rule chỉ khác nhau ở multi-select không thể cùng mở.
+    a = Norm(norm_key="running_waste_pct", waste_group="RUNNING_WASTE", calculation_method="PERCENT",
+             value=0.02, context_key="{}", effective_from=date(2025, 1, 1), code="RW_ALL")
+    b = Norm(norm_key="running_waste_pct", waste_group="RUNNING_WASTE", calculation_method="PERCENT",
+             value=0.015, product_type="cat", context_key="{}",
+             effective_from=date(2025, 1, 1), code="RW_CAT")
+    c = Norm(norm_key="running_waste_pct", waste_group="RUNNING_WASTE", calculation_method="PERCENT",
+             value=0.018, machine_id=5, context_key="{}",
+             effective_from=date(2025, 1, 1), code="RW_M109")
+    db.add_all([a, b, c])
+    db.commit()
+
+    out = svc.detect_conflicts()
+    conflicts = out["conflicts"]
+    # B ↔ C xung đột (đều +10, phạm vi giao: SP=cat trên máy=5 khớp cả hai).
+    assert conflicts.get(b.id) == [c.id]
+    assert conflicts.get(c.id) == [b.id]
+    # A (spec 0) KHÔNG bị cảnh báo — rule cụ thể hơn đã thắng rõ ràng, engine không phân vân.
+    assert a.id not in conflicts
+    assert out["labels"][b.id] == "RW_CAT"
+    db.close()
+
+
+def test_detect_conflicts_disjoint_scopes_no_warning():
+    db = _mem_db()
+    svc = NormService(NormRepository(db), AuditLogRepository(db))
+    # Hai rule theo hai loại SP KHÁC nhau → không thể cùng khớp → không cảnh báo.
+    b = Norm(norm_key="running_waste_pct", waste_group="RUNNING_WASTE", calculation_method="PERCENT",
+             value=0.015, product_type="cat", context_key="{}",
+             effective_from=date(2025, 1, 1), code="RW_CAT")
+    d = Norm(norm_key="running_waste_pct", waste_group="RUNNING_WASTE", calculation_method="PERCENT",
+             value=0.02, product_type="hop", context_key="{}",
+             effective_from=date(2025, 1, 1), code="RW_HOP")
+    db.add_all([b, d])
+    db.commit()
+    assert svc.detect_conflicts()["conflicts"] == {}
+    db.close()

@@ -13,6 +13,7 @@ import {
   type ProductTypeCatalogRow,
   type ImpositionTypeRow,
   type PaperSizeRow,
+  type NormRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
@@ -1760,6 +1761,49 @@ export function TinhGiaPage({
                           </p>
                         )}
                       </div>
+
+                      {/* Phương án khác — cùng thành phẩm + tham số bình, đổi khổ giấy → so số con/tờ */}
+                      {(() => {
+                        const curPieces = suggestedPieces ?? lay.pieces;
+                        const alts = paperSizes
+                          .filter((s) => s.id !== printSizeId && s.width_cm && s.height_cm)
+                          .map((s) => {
+                            const l = computeImposition({ ...inp, sheetW: s.width_cm, sheetH: s.height_cm });
+                            return { s, pieces: l && l.fits ? l.pieces : 0, eff: l && l.fits ? l.efficiencyPct : 0, rotated: !!l?.rotated };
+                          })
+                          .filter((a) => a.pieces > 0)
+                          .sort((a, b) => b.pieces - a.pieces || b.eff - a.eff)
+                          .slice(0, 6);
+                        if (alts.length === 0) return null;
+                        return (
+                          <div style={{ flexBasis: "100%", borderTop: "1px dashed var(--rule)", paddingTop: "12px" }}>
+                            <span className="tg__summary-label" style={{ fontWeight: "bold", fontSize: "11px", display: "block", marginBottom: "8px" }}>
+                              PHƯƠNG ÁN KHÁC — cùng thành phẩm, đổi khổ giấy (bấm để chọn)
+                            </span>
+                            <div className="tg__alt-grid">
+                              {alts.map((a) => {
+                                const better = a.pieces > curPieces;
+                                return (
+                                  <button
+                                    type="button"
+                                    key={a.s.id}
+                                    className={`tg__alt${better ? " tg__alt--better" : ""}`}
+                                    onClick={() => setPrintSizeId(a.s.id)}
+                                    title={`Chọn khổ ${a.s.width_cm}×${a.s.height_cm}`}
+                                  >
+                                    <span className="tg__alt-name">{a.s.width_cm}×{a.s.height_cm} cm</span>
+                                    <span className="tg__alt-pieces">{a.pieces} con/tờ{a.rotated ? " ⟳" : ""}</span>
+                                    <span className="tg__alt-eff">{Math.round(a.eff)}% giấy{better ? " · nhiều con hơn" : ""}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            <p className="tg__muted" style={{ fontSize: "11.5px", marginTop: "8px" }}>
+                              Khổ đang chọn: <strong>{sw}×{sh} cm · {curPieces} con/tờ</strong>. Ô nền xanh = được nhiều con hơn.
+                            </p>
+                          </div>
+                        );
+                      })()}
                     </div>
                   );
                 })()}
@@ -2586,10 +2630,13 @@ export function TinhGiaPage({
                       auditLine.calculation_snapshot_json.norms_applied.length > 0 && (
                         <div style={{ background: "#f8f4ec", border: "1px solid var(--rule-hair)", borderRadius: "6px", padding: "10px", margin: "6px 0" }}>
                           <div style={{ fontWeight: "bold", fontSize: "11px", marginBottom: "4px" }}>ĐỊNH MỨC & BÙ HAO ÁP DỤNG</div>
-                          {auditLine.calculation_snapshot_json.norms_applied.map((n: { label: string; detail: string; rule: string | null }, i: number) => (
+                          {auditLine.calculation_snapshot_json.norms_applied.map((n: { label: string; detail: string; rule: string | null; norm_id?: number | null }, i: number) => (
                             <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "11px", padding: "1px 0" }}>
                               <span>{n.label}: <span className="tg__mono">{n.detail}</span></span>
-                              {n.rule && <span className="tg__muted" style={{ whiteSpace: "nowrap" }}>{n.rule}</span>}
+                              <span style={{ display: "flex", gap: "8px", whiteSpace: "nowrap", alignItems: "center" }}>
+                                {n.rule && <span className="tg__muted">{n.rule}</span>}
+                                {n.norm_id != null && <NormRuleLink normId={n.norm_id} token={token} />}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -2622,6 +2669,106 @@ export function TinhGiaPage({
         </div>
       )}
     </main>
+  );
+}
+
+// --- "Xem quy tắc" — popover chi tiết một định mức (danh mục #7), fetch theo id ---
+const NORM_GROUP_LABEL: Record<string, string> = {
+  YIELD_RATE: "Tỷ lệ đạt",
+  SETUP_WASTE: "Bù hao setup",
+  RUNNING_WASTE: "Bù hao chạy máy",
+  PAPER_EXTRA_WASTE: "Hao giấy riêng",
+};
+
+function normFormula(n: NormRow): string {
+  const g = n.waste_group;
+  if (g === "YIELD_RATE") return `Đạt ${(n.value * 100).toFixed(1)}%`;
+  if (g === "RUNNING_WASTE") return `${(n.value * 100).toFixed(2)}% số tờ`;
+  if (g === "SETUP_WASTE") {
+    if (n.calculation_method === "PER_COLOR_SIDE" || (!n.setup_waste_qty && !n.setup_waste_per_color && !n.setup_waste_per_side))
+      return `${n.value} tờ/màu-mặt`;
+    const parts: string[] = [];
+    if (n.setup_waste_qty) parts.push(`${n.setup_waste_qty}`);
+    if (n.setup_waste_per_color) parts.push(`${n.setup_waste_per_color}×màu`);
+    if (n.setup_waste_per_side) parts.push(`${n.setup_waste_per_side}×mặt`);
+    return parts.length ? `${parts.join(" + ")} tờ` : "0";
+  }
+  if (g === "PAPER_EXTRA_WASTE") {
+    if (n.calculation_method === "FIXED") return `${n.value} tờ`;
+    if (n.calculation_method === "PER_REAM") return `${n.value} tờ/ram`;
+    return `${(n.value * 100).toFixed(2)}% tờ mua`;
+  }
+  return String(n.value);
+}
+
+function NormDetailRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: "12px" }}>
+      <span className="tg__muted">{label}</span>
+      <span style={{ textAlign: "right" }}>{value}</span>
+    </div>
+  );
+}
+
+function NormRuleLink({ normId, token }: { normId: number; token: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [norm, setNorm] = useState<NormRow | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function openRule() {
+    setOpen(true);
+    if (norm || !token) return;
+    setLoading(true);
+    setErr(null);
+    try {
+      setNorm(await api.norms.get(token, normId));
+    } catch {
+      setErr("Không tải được quy tắc định mức.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={openRule}
+        style={{ background: "none", border: "none", padding: 0, font: "inherit", color: "var(--rust-deep, #9a3412)", cursor: "pointer", textDecoration: "underline dotted" }}
+      >
+        Xem quy tắc
+      </button>
+      {open && (
+        <div className="tg__overlay" role="dialog" aria-modal="true" aria-label="Quy tắc định mức" onClick={() => setOpen(false)}>
+          <div className="tg__dialog tg__dialog--sm card" onClick={(e) => e.stopPropagation()}>
+            <div className="tg__dialog-head">
+              <h2>Quy tắc định mức</h2>
+              <button type="button" className="tg__close" aria-label="Đóng" onClick={() => setOpen(false)}>✕</button>
+            </div>
+            <div className="tg__dialog-body">
+              {loading ? (
+                <p className="tg__muted">Đang tải…</p>
+              ) : err ? (
+                <p className="tg__muted">{err}</p>
+              ) : norm ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "13px" }}>
+                  <div><strong>{norm.name || norm.norm_key}</strong>{norm.code && <span className="tg__mono tg__muted"> · {norm.code}</span>}</div>
+                  <NormDetailRow label="Nhóm" value={norm.waste_group ? NORM_GROUP_LABEL[norm.waste_group] ?? norm.waste_group : "Đơn giá"} />
+                  <NormDetailRow label="Mức hao / Công thức" value={normFormula(norm)} />
+                  <NormDetailRow label="Hiệu lực" value={`${norm.effective_from}${norm.effective_to ? ` → ${norm.effective_to}` : " → nay"}${norm.version > 1 ? ` (v${norm.version})` : ""}`} />
+                  <NormDetailRow label="Ưu tiên" value={String(norm.priority)} />
+                  {norm.note && <NormDetailRow label="Ghi chú" value={norm.note} />}
+                  <p className="tg__muted" style={{ fontSize: "11px", marginTop: "4px" }}>
+                    Đây là bản định mức đã chốt lúc tính giá. Sửa định mức về sau sẽ tạo phiên bản mới, không đổi phiếu này.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

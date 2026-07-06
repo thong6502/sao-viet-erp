@@ -1185,10 +1185,42 @@ export interface PaperSizeRow {
   effective_from: string | null;
   effective_to: string | null;
   used_count: number;
+  /** "Đang dùng trong" = số phiếu tính giá tham chiếu khổ — server tính khi list. */
+  used_in_costings: number;
   created_by: number | null;
   updated_by: number | null;
   is_active: boolean;
   created_at: string;
+}
+
+export interface PaperSizeDuplicateRef {
+  id: number;
+  code: string;
+  name: string;
+  width_cm: number;
+  height_cm: number;
+  version: number;
+}
+
+export interface PaperSizeDuplicateOut {
+  matched: PaperSizeDuplicateRef | null;
+}
+
+export interface PaperSizeUsageCosting {
+  id: number;
+  code: string;
+  product_name: string | null;
+  qty_final: number;
+  status: string;
+  created_at: string;
+}
+
+export interface PaperSizeUsageOut {
+  paper_size_id: number;
+  code: string;
+  name: string;
+  costing_count: number;
+  costings: PaperSizeUsageCosting[];
 }
 
 export interface PaperSizeInput {
@@ -1247,10 +1279,49 @@ export interface ImpositionTypeRow {
   effective_from: string | null;
   effective_to: string | null;
   used_count: number;
+  // "Đang dùng trong" = số TÍNH GIÁ (estimates) đang dùng quy tắc — server tính khi list.
+  estimate_count: number;
   created_by: number | null;
   updated_by: number | null;
   is_active: boolean;
   created_at: string;
+}
+
+// Kiểm thử nhanh (preview engine) — dùng chung công thức với pricing_engine.
+export interface ImpositionPreviewRequest {
+  finished_factor: number;
+  pass_count: number;
+  plate_set_factor: number;
+  ink_pass_factor: number;
+  geometric_pieces: number;
+  quantity: number;
+  production_sheets: number;
+  colors: number;
+  forms: number;
+  machine_speed: number;
+}
+
+export interface ImpositionPreviewOut {
+  finished_pieces_per_sheet: number;
+  theoretical_sheets: number;
+  machine_sheets: number;
+  run_hours: number;
+  plates: number;
+  ink_impressions: number;
+}
+
+export interface ImpositionUsageEstimate {
+  id: number;
+  estimate_number: string;
+  product_name: string;
+  status: string;
+  created_at: string;
+}
+
+export interface ImpositionUsageOut {
+  code: string;
+  estimate_count: number;
+  estimates: ImpositionUsageEstimate[];
 }
 
 // Create carries `code`; Update omits it (code is immutable — keyed by the version chain).
@@ -1647,6 +1718,262 @@ export interface CatalogListParams {
   size?: number;
 }
 
+// --- Nhân sự · Hồ sơ nhân sự (nhan_su), lát #1 -----------------------------
+
+export type EmployeeStatus = "probation" | "active" | "on_leave" | "suspended" | "resigned";
+
+export interface EmployeeRow {
+  id: number;
+  code: string;
+  full_name: string;
+  department_id: number | null;
+  department_name: string | null;
+  position: string | null;
+  job_grade: string | null;
+  status: string;
+  hire_date: string | null;
+  probation_end_date: string | null;
+  user_id: number | null;
+  account_username: string | null;
+  photo_url: string | null;
+  created_at: string | null;
+}
+
+export interface EmployeeDetail extends EmployeeRow {
+  date_of_birth: string | null;
+  gender: string | null;
+  national_id: string | null;
+  national_id_date: string | null;
+  national_id_place: string | null;
+  phone: string | null;
+  email: string | null;
+  permanent_address: string | null;
+  current_address: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  social_insurance_no: string | null;
+  pit_tax_code: string | null;
+  dependents_count: number;
+  bank_account: string | null;
+  bank_name: string | null;
+  resign_date: string | null;
+  resign_reason: string | null;
+  note: string | null;
+}
+
+export interface EmployeeKpis {
+  total: number;
+  active: number;
+  probation: number;
+  on_leave: number;
+  resigned: number;
+  probation_ending_soon: number;
+}
+
+export interface EmployeeListOut {
+  items: EmployeeRow[];
+  total: number;
+  page: number;
+  size: number;
+  kpis: EmployeeKpis;
+}
+
+export interface EmployeeDuplicate {
+  id: number;
+  code: string;
+  full_name: string;
+}
+
+export interface EmployeeCreateOut {
+  employee: EmployeeDetail;
+  duplicate_national_id: EmployeeDuplicate | null;
+  duplicate_social_insurance: EmployeeDuplicate | null;
+  account_username: string | null;
+}
+
+export interface EmployeeUpdateOut {
+  employee: EmployeeDetail;
+  duplicate_national_id: EmployeeDuplicate | null;
+  duplicate_social_insurance: EmployeeDuplicate | null;
+}
+
+export interface EmployeeEvent {
+  id: number;
+  event_type: string;
+  effective_date: string | null;
+  field: string | null;
+  from_value: string | null;
+  to_value: string | null;
+  note: string | null;
+  actor_user_id: number | null;
+  actor_name: string | null;
+  created_at: string | null;
+}
+
+export interface EmployeeAttachment {
+  id: number;
+  doc_kind: string;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
+  uploaded_by: number | null;
+  uploaded_at: string | null;
+}
+
+export interface EmployeeActivityRow {
+  action: string;
+  target: string;
+  detail: string;
+  actor_name: string | null;
+  created_at: string;
+}
+
+export interface EmployeeMeta {
+  departments: { id: number; name: string }[];
+  unlinked_users: { id: number; username: string; name: string }[];
+}
+
+export interface EmployeeAccountInput {
+  username: string;
+  password: string;
+  name?: string | null;
+  role_id?: number | null;
+}
+
+export interface EmployeeInput {
+  full_name: string;
+  department_id: number | null;
+  position?: string | null;
+  job_grade?: string | null;
+  status?: string;
+  hire_date?: string | null;
+  probation_end_date?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  national_id?: string | null;
+  national_id_date?: string | null;
+  national_id_place?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  permanent_address?: string | null;
+  current_address?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+  social_insurance_no?: string | null;
+  pit_tax_code?: string | null;
+  dependents_count?: number;
+  bank_account?: string | null;
+  bank_name?: string | null;
+  note?: string | null;
+  account?: EmployeeAccountInput | null;
+}
+
+export interface EmployeeTransitionInput {
+  kind: string;
+  effective_date?: string | null;
+  note?: string | null;
+  new_department_id?: number | null;
+  new_job_grade?: string | null;
+  new_position?: string | null;
+  resign_reason?: string | null;
+}
+
+export interface EmployeeListParams {
+  q?: string;
+  department_id?: number | null;
+  status?: string | null;
+  has_account?: boolean | null;
+  sort?: string;
+  page?: number;
+  size?: number;
+}
+
+// --- Chấm công GPS (nhan_su) ------------------------------------------------
+
+export interface WorkLocation {
+  id: number;
+  name: string;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+  is_active: boolean;
+  note: string | null;
+  created_at?: string | null;
+}
+
+export interface WorkLocationInput {
+  name: string;
+  latitude: number;
+  longitude: number;
+  radius_m: number;
+  note?: string | null;
+  is_active?: boolean;
+}
+
+export interface AttendanceLog {
+  id: number;
+  employee_id: number;
+  employee_name?: string | null;
+  work_location_id?: number | null;
+  location_name?: string | null;
+  check_type: string;
+  checked_at: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  distance_m?: number | null;
+  within_range: boolean;
+  note?: string | null;
+}
+
+export interface NearestLocation {
+  id: number;
+  name: string;
+  radius_m: number;
+}
+
+export interface CheckResult {
+  success: boolean;
+  within_range: boolean;
+  check_type: string | null;
+  distance_m: number | null;
+  nearest_location: NearestLocation | null;
+  message: string;
+  log: AttendanceLog | null;
+}
+
+export interface AttendanceStatus {
+  has_employee: boolean;
+  employee_name: string | null;
+  next_action: string | null;
+  last_check: AttendanceLog | null;
+  locations_configured: boolean;
+}
+
+export interface TimesheetDay {
+  first_in: string | null;
+  last_out: string | null;
+  hours: number | null;
+  present: boolean;
+}
+
+export interface TimesheetRow {
+  employee_id: number;
+  employee_code: string;
+  employee_name: string;
+  department_id: number | null;
+  department_name: string | null;
+  days: Record<string, TimesheetDay>;
+  total_days: number;
+  total_hours: number;
+}
+
+export interface Timesheet {
+  year: number;
+  month: number;
+  days_in_month: number;
+  rows: TimesheetRow[];
+}
+
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -1959,6 +2286,138 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(input),
       });
+    },
+  },
+
+  // --- Nhân sự · Hồ sơ nhân sự (nhan_su), lát #1 ----------------------------
+  employees: {
+    list(token: string, params: EmployeeListParams = {}): Promise<EmployeeListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.department_id != null) qs.set("department_id", String(params.department_id));
+      if (params.status) qs.set("status", params.status);
+      if (params.has_account != null) qs.set("has_account", String(params.has_account));
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<EmployeeListOut>(`/api/employees${suffix}`, token);
+    },
+    meta(token: string): Promise<EmployeeMeta> {
+      return authed<EmployeeMeta>("/api/employees/meta", token);
+    },
+    get(token: string, id: number): Promise<EmployeeDetail> {
+      return authed<EmployeeDetail>(`/api/employees/${id}`, token);
+    },
+    create(token: string, input: EmployeeInput): Promise<EmployeeCreateOut> {
+      return authed<EmployeeCreateOut>("/api/employees", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: EmployeeInput): Promise<EmployeeUpdateOut> {
+      return authed<EmployeeUpdateOut>(`/api/employees/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    transition(token: string, id: number, input: EmployeeTransitionInput): Promise<EmployeeDetail> {
+      return authed<EmployeeDetail>(`/api/employees/${id}/transitions`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    events(token: string, id: number): Promise<{ items: EmployeeEvent[] }> {
+      return authed<{ items: EmployeeEvent[] }>(`/api/employees/${id}/events`, token);
+    },
+    activity(token: string, id: number): Promise<{ items: EmployeeActivityRow[] }> {
+      return authed<{ items: EmployeeActivityRow[] }>(`/api/employees/${id}/activity`, token);
+    },
+    attachments(token: string, id: number): Promise<{ items: EmployeeAttachment[] }> {
+      return authed<{ items: EmployeeAttachment[] }>(`/api/employees/${id}/attachments`, token);
+    },
+    upload(token: string, id: number, file: File, docKind: string): Promise<EmployeeAttachment> {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("doc_kind", docKind);
+      return authed<EmployeeAttachment>(`/api/employees/${id}/attachments`, token, {
+        method: "POST",
+        body: form,
+      });
+    },
+    deleteAttachment(token: string, id: number, attachmentId: number): Promise<void> {
+      return authed<void>(`/api/employees/${id}/attachments/${attachmentId}`, token, {
+        method: "DELETE",
+      });
+    },
+    linkAccount(token: string, id: number, userId: number): Promise<EmployeeDetail> {
+      return authed<EmployeeDetail>(`/api/employees/${id}/account`, token, {
+        method: "POST",
+        body: JSON.stringify({ user_id: userId }),
+      });
+    },
+    unlinkAccount(token: string, id: number): Promise<EmployeeDetail> {
+      return authed<EmployeeDetail>(`/api/employees/${id}/account`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Chấm công GPS (nhan_su) ----------------------------------------------
+  attendance: {
+    locations(token: string): Promise<{ items: WorkLocation[] }> {
+      return authed<{ items: WorkLocation[] }>("/api/attendance/locations", token);
+    },
+    createLocation(token: string, input: WorkLocationInput): Promise<WorkLocation> {
+      return authed<WorkLocation>("/api/attendance/locations", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    updateLocation(token: string, id: number, input: WorkLocationInput): Promise<WorkLocation> {
+      return authed<WorkLocation>(`/api/attendance/locations/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    deleteLocation(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/attendance/locations/${id}`, token, { method: "DELETE" });
+    },
+    myStatus(token: string): Promise<AttendanceStatus> {
+      return authed<AttendanceStatus>("/api/attendance/me/status", token);
+    },
+    check(token: string, latitude: number, longitude: number): Promise<CheckResult> {
+      return authed<CheckResult>("/api/attendance/check", token, {
+        method: "POST",
+        body: JSON.stringify({ latitude, longitude }),
+      });
+    },
+    myLogs(token: string): Promise<{ items: AttendanceLog[] }> {
+      return authed<{ items: AttendanceLog[] }>("/api/attendance/me/logs", token);
+    },
+    logs(token: string, employeeId?: number): Promise<{ items: AttendanceLog[] }> {
+      const suffix = employeeId != null ? `?employee_id=${employeeId}` : "";
+      return authed<{ items: AttendanceLog[] }>(`/api/attendance/logs${suffix}`, token);
+    },
+    timesheet(token: string, year: number, month: number, departmentId?: number | null): Promise<Timesheet> {
+      const qs = new URLSearchParams({ year: String(year), month: String(month) });
+      if (departmentId != null) qs.set("department_id", String(departmentId));
+      return authed<Timesheet>(`/api/attendance/timesheet?${qs.toString()}`, token);
+    },
+    /** Xuất bảng công tháng ra CSV — fetch as a blob (bearer + refresh-aware). */
+    async timesheetCsvBlobUrl(token: string, year: number, month: number, departmentId?: number | null): Promise<string> {
+      const qs = new URLSearchParams({ year: String(year), month: String(month) });
+      if (departmentId != null) qs.set("department_id", String(departmentId));
+      const doFetch = (bearer: string) =>
+        fetch(`${BASE_URL}/api/attendance/timesheet.csv?${qs.toString()}`, {
+          credentials: "include", cache: "no-store", headers: authHeader(bearer),
+        });
+      let resp = await doFetch(token);
+      if (resp.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) resp = await doFetch(fresh);
+      }
+      if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+      const blob = await resp.blob();
+      return URL.createObjectURL(blob);
     },
   },
 
@@ -2296,6 +2755,19 @@ export const api = {
     history(token: string, id: number): Promise<PaperSizeListOut> {
       return authed<PaperSizeListOut>(`/api/paper-sizes/${id}/history`, token);
     },
+    usage(token: string, id: number): Promise<PaperSizeUsageOut> {
+      return authed<PaperSizeUsageOut>(`/api/paper-sizes/${id}/usage`, token);
+    },
+    checkDuplicate(
+      token: string,
+      params: { width: number; height: number; excludeId?: number | null },
+    ): Promise<PaperSizeDuplicateOut> {
+      const qs = new URLSearchParams();
+      qs.set("width", String(params.width));
+      qs.set("height", String(params.height));
+      if (params.excludeId != null) qs.set("exclude_id", String(params.excludeId));
+      return authed<PaperSizeDuplicateOut>(`/api/paper-sizes/check-duplicate?${qs.toString()}`, token);
+    },
     create(token: string, input: PaperSizeInput): Promise<PaperSizeRow> {
       return authed<PaperSizeRow>("/api/paper-sizes", token, {
         method: "POST",
@@ -2356,6 +2828,17 @@ export const api = {
     },
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/imposition-types/${id}`, token, { method: "DELETE" });
+    },
+    // Kiểm thử nhanh — engine thật tính qua imposition_math (không lệch client/server).
+    preview(token: string, input: ImpositionPreviewRequest): Promise<ImpositionPreviewOut> {
+      return authed<ImpositionPreviewOut>("/api/imposition-types/preview", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    // "Xem tính giá đã dùng" — danh sách estimates đang dùng quy tắc.
+    usage(token: string, id: number): Promise<ImpositionUsageOut> {
+      return authed<ImpositionUsageOut>(`/api/imposition-types/${id}/usage`, token);
     },
   },
 
@@ -2570,6 +3053,9 @@ export const api = {
     clone(token: string, id: number): Promise<PlateDieRateRow> {
       return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}/clone`, token, { method: "POST" });
     },
+    usage(token: string, id: number): Promise<PlateDieRateUsageOut> {
+      return authed<PlateDieRateUsageOut>(`/api/plate-die-rates/${id}/usage`, token);
+    },
     close(token: string, id: number, effectiveTo: string): Promise<PlateDieRateRow> {
       return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}/close`, token, {
         method: "POST",
@@ -2583,8 +3069,9 @@ export const api = {
 
   // --- Norms Catalog (Định mức & Bù hao) ------------------------------------
   norms: {
-    list(token: string, params: { norm_key?: string | null; waste_group?: string | null; product_type?: string | null; machine_id?: number | null; operation_id?: number | null; only_current?: boolean; page?: number; size?: number } = {}): Promise<NormListOut> {
+    list(token: string, params: { q?: string | null; norm_key?: string | null; waste_group?: string | null; product_type?: string | null; machine_id?: number | null; operation_id?: number | null; only_current?: boolean; page?: number; size?: number } = {}): Promise<NormListOut> {
       const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
       if (params.norm_key) qs.set("norm_key", params.norm_key);
       if (params.waste_group) qs.set("waste_group", params.waste_group);
       if (params.product_type) qs.set("product_type", params.product_type);
@@ -2595,6 +3082,9 @@ export const api = {
       if (params.size) qs.set("size", String(params.size));
       const suffix = qs.toString() ? `?${qs.toString()}` : "";
       return authed<NormListOut>(`/api/norms${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<NormRow> {
+      return authed<NormRow>(`/api/norms/${id}`, token);
     },
     create(token: string, input: NormInput): Promise<NormRow> {
       return authed<NormRow>("/api/norms", token, {
@@ -2619,6 +3109,12 @@ export const api = {
     },
     history(token: string, id: number): Promise<NormListOut> {
       return authed<NormListOut>(`/api/norms/${id}/history`, token);
+    },
+    usage(token: string, id: number): Promise<NormUsageOut> {
+      return authed<NormUsageOut>(`/api/norms/${id}/usage`, token);
+    },
+    conflicts(token: string): Promise<NormConflictsOut> {
+      return authed<NormConflictsOut>("/api/norms/conflicts", token);
     },
     test(token: string, input: NormTestInput): Promise<NormTestOutput> {
       return authed<NormTestOutput>("/api/norms/test", token, {
@@ -2694,10 +3190,37 @@ export interface PlateDieRateRow {
   effective_to: string | null;
   is_active: boolean;
   used_count: number;
+  /** "Đang dùng trong": kẽm = số phiếu tính giá; khuôn = số công đoạn. Server tính khi list. */
+  used_in_estimates: number;
+  used_in_operations: number;
   created_by: number | null;
   updated_by: number | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface PlateDieUsageEstimate {
+  id: number;
+  estimate_number: string;
+  product_name: string;
+  status: string;
+  created_at: string;
+}
+
+export interface PlateDieUsageOperation {
+  id: number;
+  code: string;
+  name: string;
+  operation_type: string;
+}
+
+export interface PlateDieRateUsageOut {
+  rate_id: number;
+  code: string;
+  name: string;
+  kind: "kem" | "khuon";
+  estimates: PlateDieUsageEstimate[];
+  operations: PlateDieUsageOperation[];
 }
 
 export interface PlateDieRateInput {
@@ -2766,11 +3289,33 @@ export interface NormRow {
   priority: number;
   version: number;
   used_count: number;
+  estimate_count: number;
   effective_from: string;
   effective_to: string | null;
   note: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface NormUsageEstimate {
+  id: number;
+  estimate_number: string;
+  product_name: string;
+  status: string;
+  created_at: string;
+}
+
+export interface NormUsageOut {
+  norm_id: number;
+  code: string;
+  estimate_count: number;
+  estimates: NormUsageEstimate[];
+}
+
+export interface NormConflictsOut {
+  // keys là norm_id (chuỗi trong JSON) → danh sách norm_id có thể xung đột.
+  conflicts: Record<string, number[]>;
+  labels: Record<string, string>;
 }
 
 export interface NormInput {

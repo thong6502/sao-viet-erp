@@ -123,16 +123,8 @@ class PaperSizeService:
                     f"Khổ cắt ({w:g}×{h:g}) lớn hơn khổ cha {parent.code} ({pw:g}×{ph:g})."
                 )
 
-        # Khổ vượt khổ in tối đa của máy được gán
-        bad = self.repo.machines_too_small(
-            width_cm=w, height_cm=h,
-            machine_ids=data.get("compatible_machine_ids"),
-            allow_rotation=bool(data.get("allow_rotation", True)),
-        )
-        if bad:
-            raise PaperSizeValidationError(
-                "Khổ giấy vượt khổ in tối đa của máy: " + ", ".join(bad) + "."
-            )
+        # Máy áp dụng = do NGƯỜI DÙNG tự chọn (không tự suy). Khổ vượt khổ máy KHÔNG chặn ở đây —
+        # chỉ cảnh báo mềm ở FE (drawer/list). Người dùng tự quyết có lưu hay không.
 
     def _assignable(self, data: dict) -> dict:
         out = {}
@@ -178,6 +170,45 @@ class PaperSizeService:
     def history(self, item_id: int) -> list[PaperSize]:
         item = self.get_item(item_id)
         return self.repo.list_versions(item.code)
+
+    # -- "Đang dùng trong" / drill-down / cảnh báo trùng khổ --------------
+    def usage_counts(self, ids: list[int]) -> dict[int, int]:
+        """{paper_size_id: số phiếu tính giá} cho cột 'Đang dùng trong' của bảng danh sách."""
+        return self.repo.costing_ref_counts(ids)
+
+    def find_dimension_duplicate(
+        self, *, width_cm: float, height_cm: float, exclude_id: int | None = None
+    ) -> PaperSize | None:
+        """Khổ đang hiệu lực trùng kích thước (khớp cả 2 chiều) — cảnh báo mềm khi tạo/sửa (§13)."""
+        exclude_code = None
+        if exclude_id is not None:
+            cur = self.repo.get_by_id(exclude_id)
+            exclude_code = cur.code if cur else None
+        try:
+            w, h = float(width_cm), float(height_cm)
+        except (TypeError, ValueError):
+            return None
+        if w <= 0 or h <= 0:
+            return None
+        return self.repo.find_by_dimensions(width_cm=w, height_cm=h, exclude_code=exclude_code)
+
+    def usage(self, item_id: int) -> dict:
+        """Phiếu tính giá (costings) đang dùng khổ này — cho drill-down 'Xem nơi đang dùng'."""
+        item = self.get_item(item_id)
+        pairs = self.repo.list_costings_by_size(item.id)
+        costings = [
+            {
+                "id": c.id,
+                "code": c.code,
+                "product_name": pname,
+                "qty_final": int(c.qty_final or 0),
+                "status": c.status,
+                "created_at": c.created_at,
+            }
+            for c, pname in pairs
+        ]
+        return {"paper_size_id": item.id, "code": item.code, "name": item.name,
+                "costing_count": len(costings), "costings": costings}
 
     # -- writes ------------------------------------------------------------
     def create_item(self, data: dict, *, actor) -> PaperSize:

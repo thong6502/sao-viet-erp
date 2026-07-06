@@ -14,6 +14,7 @@ from ..models.click_ink_rate import ClickInkRate
 from ..models.plate_die_rate import PlateDieRate
 from ..models.estimate import EstimateCostLine
 from ..services.norm_service import NormService, NormLookupContext
+from . import imposition_math
 
 # Nhãn tiếng Việt cho mã đơn vị khi nhúng vào mô tả dòng chi phí (hiển thị cho người dùng)
 UNIT_LABELS_VI = {
@@ -302,9 +303,11 @@ class PricingEngine:
                     pieces_per_sheet = 1
 
         # Hệ số thành phẩm (bình bài): số con thành phẩm = số con hình học × hệ số (tự trở=½). Mục 9.
+        # Dùng chung helper với endpoint Kiểm thử (imposition_math) — một nguồn công thức, không lệch.
         geometric_pieces_per_sheet = pieces_per_sheet
-        if finished_factor != 1.0:
-            pieces_per_sheet = max(1, int(math.floor(geometric_pieces_per_sheet * finished_factor)))
+        pieces_per_sheet = imposition_math.finished_pieces_per_sheet(
+            geometric_pieces_per_sheet, finished_factor
+        )
 
         # 3. Load Material and Price
         material: Material | None = None
@@ -522,6 +525,7 @@ class PricingEngine:
         sheets_to_buy = total_sheets + paper_extra_sheets
 
         # Diễn giải "Định mức & Bù hao áp dụng" cho màn Tính giá (mỗi bước nêu rule đang dùng).
+        # Mỗi dòng kèm "norm_id" (nếu có) để màn Tính giá link "Xem quy tắc" về đúng định mức.
         norms_applied: list[dict] = []
         for snap in reverse_snaps:
             if snap["yield_rate"] != 1.0 or snap["setup_sheets"]:
@@ -529,19 +533,21 @@ class PricingEngine:
                     "label": f"Tỷ lệ đạt {snap['operation_name']}",
                     "detail": f"{snap['yield_rate'] * 100:.1f}% → cần {snap['qty_before']:,} (từ {snap['qty_after']:,})".replace(",", "."),
                     "rule": snap["operation_type"],
+                    "norm_id": snap.get("norm_id") or snap.get("setup_norm_id"),
                 })
         if print_yield != 1.0:
             norms_applied.append({
                 "label": "Tỷ lệ đạt in", "rule": print_yield_rule,
                 "detail": f"{print_yield * 100:.1f}% → {sheets_after_yield:,} tờ".replace(",", "."),
+                "norm_id": print_yield_norm_id,
             })
         if makeready_sheets:
-            norms_applied.append({"label": "Makeready", "rule": makeready_rule, "detail": f"{makeready_sheets:,} tờ".replace(",", ".")})
+            norms_applied.append({"label": "Makeready", "rule": makeready_rule, "detail": f"{makeready_sheets:,} tờ".replace(",", "."), "norm_id": makeready_norm_id})
         if running_add:
-            norms_applied.append({"label": "Running waste", "rule": running_rule, "detail": f"{running_add:,} tờ ({printing_waste_pct * 100:.2f}%)".replace(",", ".")})
-        norms_applied.append({"label": "Số tờ sản xuất", "rule": None, "detail": f"{total_sheets:,} tờ".replace(",", ".")})
+            norms_applied.append({"label": "Running waste", "rule": running_rule, "detail": f"{running_add:,} tờ ({printing_waste_pct * 100:.2f}%)".replace(",", "."), "norm_id": print_waste_norm_id})
+        norms_applied.append({"label": "Số tờ sản xuất", "rule": None, "detail": f"{total_sheets:,} tờ".replace(",", "."), "norm_id": None})
         if paper_extra_sheets:
-            norms_applied.append({"label": "Hao giấy riêng", "rule": paper_rule, "detail": f"{paper_extra_sheets:,} tờ".replace(",", ".")})
+            norms_applied.append({"label": "Hao giấy riêng", "rule": paper_rule, "detail": f"{paper_extra_sheets:,} tờ".replace(",", "."), "norm_id": paper_extra_norm_id})
 
         # Số tờ 3 lớp: lý thuyết (printed_sheets) → sản xuất (total_sheets) → MUA GIẤY (purchase_sheets).
         # Mua giấy dùng Khổ giấy: nếu spec chỉ định khổ giấy mua (purchase_sheet_w/h) lớn hơn khổ tờ in,
@@ -803,8 +809,16 @@ class PricingEngine:
             plate_rate = PlateDieRateRepository(self.db).resolve_plate_for_machine(machine_id, at_date)
 
             if plate_rate:
-                plates_count = int(round(colors * plate_set_factor * forms))
-                plate_cost = plates_count * float(plate_rate.unit_price)
+                plates_count = imposition_math.plates_count(colors, plate_set_factor, forms)
+                # Tiền kẽm = số bản × đơn giá + phí setup, sàn theo phí tối thiểu (đơn giá kẽm #5).
+                # Seed hiện setup=min=0 ⇒ no-op, golden khay-carton giữ nguyên số.
+                plate_setup = float(plate_rate.setup_fee or 0)
+                plate_min = float(plate_rate.min_charge or 0)
+                plate_cost = plates_count * float(plate_rate.unit_price) + plate_setup
+                min_charge_applied = False
+                if plate_cost < plate_min:
+                    plate_cost = plate_min
+                    min_charge_applied = True
 
                 cost_lines.append(EstimateCostLine(
                     category="plate_die",
@@ -814,7 +828,8 @@ class PricingEngine:
                     source_snapshot_json={
                         "rate_id": plate_rate.id,
                         "unit_price": plate_rate.unit_price,
-                        "setup_fee": plate_rate.setup_fee
+                        "setup_fee": plate_rate.setup_fee,
+                        "min_charge": plate_rate.min_charge,
                     },
                     calculation_snapshot_json={
                         "colors": colors,
@@ -826,8 +841,8 @@ class PricingEngine:
                     quantity=float(plates_count),
                     unit="ban",
                     unit_cost=float(plate_rate.unit_price),
-                    setup_cost=0.0,
-                    min_charge_applied=False,
+                    setup_cost=plate_setup,
+                    min_charge_applied=min_charge_applied,
                     total_cost=plate_cost
                 ))
             else:
@@ -837,7 +852,7 @@ class PricingEngine:
         # Đơn giá mực đọc từ DANH MỤC VẬT TƯ (#2): material nhóm 'ink', giá price_unit='nghin_luot'
         # (đ/1.000 lượt). Spec có thể chỉ định ink_material_id; nếu không → mực offset mặc định (id nhỏ nhất).
         if machine and machine_rate and machine.machine_type == "offset":
-            impressions = int(round(total_sheets * colors * ink_pass_factor))
+            impressions = imposition_math.ink_impressions(total_sheets, colors, ink_pass_factor)
             ink_material = None
             ink_material_id = input_spec.get("ink_material_id")
             if ink_material_id:
@@ -972,7 +987,7 @@ class PricingEngine:
             # Setup/canh máy (giờ) — công thức hạt theo DM Máy (spec §D): base + theo màu + theo mặt
             # + vệ sinh + đổi màu×màu + đổi kẽm×số bản + canh màu. Nếu chưa khai (tổng = 0) → FALLBACK
             # về (setup_time_mins + changeover_time_mins)/60 = đúng hành vi cũ (không đổi kết quả job cũ).
-            plates_for_setup = int(round(colors * plate_set_factor * forms))
+            plates_for_setup = imposition_math.plates_count(colors, plate_set_factor, forms)
             setup_gran = (
                 float(getattr(machine, "setup_time_base_hour", 0) or 0)
                 + float(getattr(machine, "setup_time_per_color_hour", 0) or 0) * colors

@@ -8,10 +8,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from ..deps import get_imposition_type_service, require_permission
 from ..models.user import User
 from ..schemas.imposition_type import (
+    ImpositionPreviewOut,
+    ImpositionPreviewRequest,
     ImpositionTypeCreate,
     ImpositionTypeListOut,
     ImpositionTypeRow,
     ImpositionTypeUpdate,
+    ImpositionUsageEstimate,
+    ImpositionUsageOut,
 )
 from ..services.imposition_type_service import (
     ImpositionTypeDuplicate,
@@ -42,11 +46,45 @@ def list_items(
         q=q, code=code, is_active=is_active, current_only=current_only,
         sort=sort, page=page, size=size,
     )
-    return ImpositionTypeListOut(
-        items=[ImpositionTypeRow.model_validate(r) for r in rows],
-        total=total,
-        page=page,
-        size=size,
+    # "Đang dùng trong" = số tính giá (estimates) theo mã bình bài. Tính 1 lần, gán vào từng dòng.
+    counts = svc.estimate_counts()
+    items = []
+    for r in rows:
+        row = ImpositionTypeRow.model_validate(r)
+        row.estimate_count = counts.get((r.code or "").upper(), 0)
+        items.append(row)
+    return ImpositionTypeListOut(items=items, total=total, page=page, size=size)
+
+
+@router.post("/preview", response_model=ImpositionPreviewOut)
+def preview(
+    payload: ImpositionPreviewRequest,
+    svc: Annotated[ImpositionTypeService, Depends(get_imposition_type_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> ImpositionPreviewOut:
+    try:
+        result = svc.preview(payload.model_dump())
+    except ImpositionTypeValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from None
+    return ImpositionPreviewOut(**result)
+
+
+@router.get("/{item_id}/usage", response_model=ImpositionUsageOut)
+def usage(
+    item_id: int,
+    svc: Annotated[ImpositionTypeService, Depends(get_imposition_type_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> ImpositionUsageOut:
+    try:
+        data = svc.usage(item_id)
+    except ImpositionTypeNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return ImpositionUsageOut(
+        code=data["code"],
+        estimate_count=data["estimate_count"],
+        estimates=[ImpositionUsageEstimate.model_validate(e) for e in data["estimates"]],
     )
 
 

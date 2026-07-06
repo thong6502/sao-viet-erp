@@ -102,6 +102,9 @@ class ImpositionTypeRow(BaseModel):
     effective_from: date | None = None
     effective_to: date | None = None
     used_count: int
+    # "Đang dùng trong" = số TÍNH GIÁ (estimates) đang dùng quy tắc. Server tính khi list,
+    # không phải cột DB — mặc định 0 cho các đường không đính kèm.
+    estimate_count: int = 0
     created_by: int | None = None
     updated_by: int | None = None
     is_active: bool
@@ -113,3 +116,45 @@ class ImpositionTypeListOut(BaseModel):
     total: int
     page: int
     size: int
+
+
+# --- Kiểm thử nhanh (preview engine) — dùng chung imposition_math với pricing_engine ---
+class ImpositionPreviewRequest(BaseModel):
+    # Hệ số quy tắc đang soạn (chưa cần lưu mới chạy thử được)
+    finished_factor: float = Field(gt=0)
+    pass_count: float = Field(gt=0)
+    plate_set_factor: float = Field(ge=0)
+    ink_pass_factor: float = Field(ge=0)
+    # Input test giống tình huống tính giá thật
+    geometric_pieces: int = Field(ge=0)
+    quantity: int = Field(ge=0)
+    production_sheets: int = Field(ge=0)
+    colors: int = Field(ge=0)
+    forms: int = Field(default=1, ge=1)
+    machine_speed: float = Field(default=0, ge=0)
+
+
+class ImpositionPreviewOut(BaseModel):
+    finished_pieces_per_sheet: int
+    theoretical_sheets: int
+    machine_sheets: int
+    run_hours: float
+    plates: int
+    ink_impressions: int
+
+
+# --- "Xem tính giá đã dùng" (drill-down) ---
+class ImpositionUsageEstimate(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    estimate_number: str
+    product_name: str
+    status: str
+    created_at: datetime
+
+
+class ImpositionUsageOut(BaseModel):
+    code: str
+    estimate_count: int
+    estimates: list[ImpositionUsageEstimate]

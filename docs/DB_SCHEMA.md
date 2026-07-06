@@ -636,6 +636,10 @@ NOT stored here — it is pulled versioned at cost time (feat-041).
 | `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | User who created the estimate. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Creation timestamp. |
 | `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Last updated timestamp. |
+| `locked_at` | `DateTime` → `TIMESTAMP` | — | yes | — | §9 lifecycle: khi phiếu bị khóa (đông cứng để Báo giá đọc); null = chưa khóa. |
+| `version` | `Integer` → `INTEGER` | — | no | `1` | §9 lifecycle: số phiên bản phiếu tính giá (re-estimate sinh version mới). |
+| `parent_id` | `Integer` → `INTEGER` | — | yes | — | §9 lifecycle: phiếu cha (phiếu gốc khi tạo phiên bản mới); null = phiếu gốc. |
+| `superseded_by_id` | `Integer` → `INTEGER` | — | yes | — | §9 lifecycle: phiếu kế thừa thay thế phiếu này; null = chưa bị thay. |
 
 **Keys & indexes**
 
@@ -1352,6 +1356,184 @@ client's httpOnly cookie.
 **Keys & indexes**
 
 - Primary key: `(doc_type, year)`.
+
+---
+
+### `employees`
+
+**Purpose:** hồ sơ nhân sự (Hồ sơ nhân viên — module `nhan_su`, lát #1). One row per
+employee. `code` NV### tự sinh (read-only); owned by a `department_id` (trục RBAC
+data-scope own/department/all). `user_id` nối tài khoản login 1–1 tùy chọn (UNIQUE,
+nullable) — công nhân xưởng không đăng nhập vẫn có hồ sơ. Đây là **provider sẵn** cho
+SEAM-19 (`drivers.employee_id` back-fill khi Tài xế build). Portable across SQLite/Postgres.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `code` | `String(20)` → `VARCHAR(20)` | **U**, **IX** | no | — | Mã NV tự sinh (NV001, NV002…); read-only, theo pattern KH###/SP###/PB###. |
+| `full_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Họ tên (bắt buộc, non-blank). |
+| `department_id` | `Integer` → `INTEGER` | **FK→departments.id**, **IX** | yes | — | Phòng/tổ; trục RBAC data-scope. Null tới khi gán. |
+| `user_id` | `Integer` → `INTEGER` | **FK→users.id**, **U**, **IX** | yes | — | Tài khoản login nối 1–1 (UNIQUE); null = chưa nối. |
+| `position` | `String(255)` → `VARCHAR(255)` | — | yes | — | Chức danh. |
+| `job_grade` | `String(50)` → `VARCHAR(50)` | — | yes | — | Bậc thợ (vd "3/7"); đầu vào lương khoán. |
+| `status` | `String(16)` → `VARCHAR(16)` | — | no | `probation` | probation/active/on_leave/suspended/resigned. |
+| `hire_date` | `Date` → `DATE` | — | yes | — | Ngày vào làm. |
+| `probation_end_date` | `Date` → `DATE` | — | yes | — | Ngày dự kiến hết thử việc (KPI "sắp hết thử việc"). |
+| `resign_date` | `Date` → `DATE` | — | yes | — | Ngày nghỉ việc. |
+| `resign_reason` | `String(255)` → `VARCHAR(255)` | — | yes | — | Lý do nghỉ (bắt buộc khi status=resigned). |
+| `date_of_birth` | `Date` → `DATE` | — | yes | — | Ngày sinh. |
+| `gender` | `String(8)` → `VARCHAR(8)` | — | yes | — | male/female/other. |
+| `national_id` | `String(20)` → `VARCHAR(20)` | **IX** | yes | — | CCCD/CMND; indexed cho check-trùng mềm, KHÔNG unique. |
+| `national_id_date` | `Date` → `DATE` | — | yes | — | Ngày cấp CCCD. |
+| `national_id_place` | `String(255)` → `VARCHAR(255)` | — | yes | — | Nơi cấp CCCD. |
+| `phone` | `String(30)` → `VARCHAR(30)` | — | yes | — | Điện thoại. |
+| `email` | `String(255)` → `VARCHAR(255)` | — | yes | — | Email. |
+| `permanent_address` | `String(500)` → `VARCHAR(500)` | — | yes | — | Hộ khẩu thường trú. |
+| `current_address` | `String(500)` → `VARCHAR(500)` | — | yes | — | Chỗ ở hiện tại. |
+| `emergency_contact_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người liên hệ khẩn cấp. |
+| `emergency_contact_phone` | `String(30)` → `VARCHAR(30)` | — | yes | — | SĐT liên hệ khẩn cấp. |
+| `social_insurance_no` | `String(20)` → `VARCHAR(20)` | **IX** | yes | — | Số sổ BHXH; indexed check-trùng mềm, KHÔNG unique. |
+| `pit_tax_code` | `String(20)` → `VARCHAR(20)` | — | yes | — | MST cá nhân (TNCN). |
+| `dependents_count` | `Integer` → `INTEGER` | — | no | `0` | Số người phụ thuộc (giảm trừ gia cảnh). |
+| `bank_account` | `String(30)` → `VARCHAR(30)` | — | yes | — | Số tài khoản ngân hàng (chi lương). |
+| `bank_name` | `String(100)` → `VARCHAR(100)` | — | yes | — | Ngân hàng. |
+| `photo_url` | `String(500)` → `VARCHAR(500)` | — | yes | — | Đường dẫn ảnh hồ sơ (mirror avatar), `/static/hr/<id>/…`. Null = initials. |
+| `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Ghi chú tự do. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo hồ sơ. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Unique index: `ix_employees_code` on `code`, `ix_employees_user_id` on `user_id` (UNIQUE — 1 account ↔ ≤1 NV).
+- Indexes: `ix_employees_department_id` on `department_id` (scope filter), `ix_employees_national_id` on `national_id`, `ix_employees_social_insurance_no` on `social_insurance_no` (non-unique — soft dup).
+- Foreign keys: `department_id FK→departments.id`, `user_id FK→users.id`.
+
+**Relationships**
+
+- Many employees belong to one `departments` (via `department_id`). At most one `users`
+  account backs an employee (via UNIQUE `user_id`).
+- One employee has many `employee_events` (Quá trình công tác) and many
+  `employee_attachments`, both cascade-deleted with it.
+- Provider của SEAM-19: `drivers.employee_id` sẽ FK vào `employees.id` khi Tài xế build.
+
+---
+
+### `employee_events`
+
+**Purpose:** một mốc "Quá trình công tác" của nhân viên (module `nhan_su`). Service ghi 1
+dòng mỗi khi đổi giai đoạn (status / department / job_grade) — timeline theo `effective_date`
+(ngày hiệu lực, khác `created_at` = ngày nhập máy).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id**, **IX** | no | — | Nhân viên chủ; `ON DELETE CASCADE`. |
+| `event_type` | `String(24)` → `VARCHAR(24)` | — | no | — | hired/confirmed/transferred/promoted/leave_start/leave_end/suspended/resigned/reinstated. |
+| `effective_date` | `Date` → `DATE` | **IX** | yes | — | Ngày hiệu lực của giai đoạn. |
+| `field` | `String(40)` → `VARCHAR(40)` | — | yes | — | Trường thay đổi (vd "status", "department", "job_grade"). |
+| `from_value` | `String(255)` → `VARCHAR(255)` | — | yes | — | Giá trị trước. |
+| `to_value` | `String(255)` → `VARCHAR(255)` | — | yes | — | Giá trị sau. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do / ghi chú mốc. |
+| `actor_user_id` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người thao tác. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi ghi máy. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_employee_events_employee_id` on `employee_id`, `ix_employee_events_effective_date` on `effective_date`.
+- Foreign keys: `employee_id FK→employees.id` (`ON DELETE CASCADE`), `actor_user_id FK→users.id`.
+
+**Relationships**
+
+- Many events belong to one `employees` row; deleting the employee cascades to its events.
+
+---
+
+### `employee_attachments`
+
+**Purpose:** file đính kèm hồ sơ nhân viên (HĐ scan / CCCD / bằng cấp) — module `nhan_su`.
+Bytes lưu dưới `<backend>/static`, phục vụ read-only ở `/static`; chỉ path lưu ở đây
+(mirror `quote_attachments` / `users.avatar_url`).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id**, **IX** | no | — | Nhân viên chủ; `ON DELETE CASCADE`. |
+| `doc_kind` | `String(24)` → `VARCHAR(24)` | — | no | `khac` | hop_dong/cccd/bang_cap/khac. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file gốc. |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn lưu trữ (`/static/hr/<id>/…`). |
+| `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME / loại file. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người upload. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Upload lúc. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_employee_attachments_employee_id` on `employee_id`.
+- Foreign keys: `employee_id FK→employees.id` (`ON DELETE CASCADE`), `uploaded_by FK→users.id`.
+
+**Relationships**
+
+- Many attachments belong to one `employees` row; deleting the employee cascades to its files.
+
+---
+
+### `work_locations`
+
+**Purpose:** điểm chấm công (geofence) — module `nhan_su`, lát Chấm công GPS. One row per
+work site; HR khai nhiều điểm (xưởng/kho/VP). Nhân viên chấm công khi ở trong `radius_m`
+mét quanh BẤT KỲ điểm `is_active` nào (kiểm khoảng cách Haversine ở server).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên điểm (vd "Xưởng in chính"). |
+| `latitude` | `Numeric(10,7)` → `NUMERIC(10,7)` | — | no | — | Vĩ độ WGS-84 (độ thập phân). |
+| `longitude` | `Numeric(10,7)` → `NUMERIC(10,7)` | — | no | — | Kinh độ WGS-84 (độ thập phân). |
+| `radius_m` | `Integer` → `INTEGER` | — | no | `100` | Bán kính cho phép chấm công (mét). |
+| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Điểm đang dùng; chỉ điểm active mới xét khi chấm. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú (địa chỉ…). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+
+**Relationships**
+
+- One work location is referenced by many `attendance_logs` (via `work_location_id`, ON DELETE SET NULL).
+
+---
+
+### `attendance_logs`
+
+**Purpose:** bản ghi chấm công của một nhân viên (module `nhan_su`). Mỗi lần chấm VÀO/RA =
+1 dòng; toạ độ + khoảng cách lưu để đối soát. Người chấm = user đăng nhập → NV qua
+`employees.user_id`. Ngoài phạm vi bị chặn cứng (không tạo dòng).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id**, **IX** | no | — | Nhân viên chấm; `ON DELETE CASCADE`. |
+| `work_location_id` | `Integer` → `INTEGER` | **FK→work_locations.id**, **IX** | yes | — | Điểm khớp gần nhất lúc chấm; `ON DELETE SET NULL`. |
+| `check_type` | `String(8)` → `VARCHAR(8)` | — | no | — | `in` (vào) / `out` (ra). |
+| `checked_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | **IX** | no | now (UTC) | Thời điểm chấm. |
+| `latitude` | `Numeric(10,7)` → `NUMERIC(10,7)` | — | yes | — | Vĩ độ trình duyệt gửi lúc chấm. |
+| `longitude` | `Numeric(10,7)` → `NUMERIC(10,7)` | — | yes | — | Kinh độ lúc chấm. |
+| `distance_m` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Khoảng cách (mét) tới điểm khớp. |
+| `within_range` | `Boolean` → `BOOLEAN` | — | no | `true` | Trong bán kính hay không (chặn cứng ⇒ luôn true khi ghi). |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi ghi máy. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_attendance_logs_employee_id`, `ix_attendance_logs_work_location_id`, `ix_attendance_logs_checked_at`.
+- Foreign keys: `employee_id FK→employees.id` (CASCADE), `work_location_id FK→work_locations.id` (SET NULL).
+
+**Relationships**
+
+- Many logs belong to one `employees` (cascade delete) and reference one `work_locations`.
 
 ---
 

@@ -116,6 +116,86 @@ class PaperSizeRepository:
             )
         ).scalar_one())
 
+    def costing_ref_counts(self, ids: list[int]) -> dict[int, int]:
+        """{paper_size_id: số phiếu tính giá (costing DISTINCT) dùng khổ} — cột 'Đang dùng trong'.
+        Một lượt quét cho cả trang danh sách (tránh N+1). Đếm phiếu, không đếm dòng phương án."""
+        from ..models.costing import CostingPaperOption
+        if not ids:
+            return {}
+        id_set = set(ids)
+        buckets: dict[int, set[int]] = {i: set() for i in ids}
+        rows = self.db.execute(
+            select(
+                CostingPaperOption.costing_id,
+                CostingPaperOption.print_sheet_size_id,
+                CostingPaperOption.purchase_size_id,
+            ).where(
+                or_(
+                    CostingPaperOption.print_sheet_size_id.in_(ids),
+                    CostingPaperOption.purchase_size_id.in_(ids),
+                )
+            )
+        )
+        for costing_id, psid, purid in rows:
+            if psid in id_set:
+                buckets[psid].add(costing_id)
+            if purid in id_set:
+                buckets[purid].add(costing_id)
+        return {i: len(s) for i, s in buckets.items()}
+
+    def find_by_dimensions(
+        self, *, width_cm: float, height_cm: float, exclude_code: str | None = None,
+        at_date: date | None = None,
+    ) -> PaperSize | None:
+        """Khổ đang hiệu lực trùng kích thước (khớp CẢ 2 CHIỀU, kể cả xoay) — cảnh báo trùng khổ
+        (§13). Bỏ qua mọi phiên bản cùng `exclude_code` (đang sửa chính nó)."""
+        at_date = at_date or date.today()
+        w, h = float(width_cm), float(height_cm)
+        excl = (exclude_code or "").strip().upper()
+        rows = self.db.execute(
+            select(PaperSize).where(_effective_at(at_date)).order_by(PaperSize.version.desc())
+        ).scalars()
+        for r in rows:
+            if excl and (r.code or "").upper() == excl:
+                continue
+            rw, rh = float(r.width_cm), float(r.height_cm)
+            same = (abs(rw - w) < 0.01 and abs(rh - h) < 0.01) or (
+                abs(rw - h) < 0.01 and abs(rh - w) < 0.01
+            )
+            if same:
+                return r
+        return None
+
+    def list_costings_by_size(self, paper_size_id: int, *, limit: int = 100) -> list:
+        """Phiếu tính giá (costings) DISTINCT đang dùng khổ này, mới nhất trước — cho drill-down
+        'Xem nơi đang dùng'. Trả list (Costing, product_name|None)."""
+        from ..models.costing import Costing, CostingPaperOption
+        from ..models.product import Product
+
+        costing_ids = list(self.db.execute(
+            select(CostingPaperOption.costing_id).where(
+                or_(
+                    CostingPaperOption.print_sheet_size_id == paper_size_id,
+                    CostingPaperOption.purchase_size_id == paper_size_id,
+                )
+            )
+        ).scalars())
+        uniq = list(dict.fromkeys(costing_ids))  # distinct, giữ thứ tự lần đầu gặp
+        if not uniq:
+            return []
+        costings = list(self.db.execute(
+            select(Costing)
+            .where(Costing.id.in_(uniq))
+            .order_by(Costing.created_at.desc(), Costing.id.desc())
+        ).scalars())[:limit]
+        prod_ids = {c.product_id for c in costings if c.product_id is not None}
+        names: dict[int, str] = {}
+        if prod_ids:
+            names = dict(self.db.execute(
+                select(Product.id, Product.name).where(Product.id.in_(prod_ids))
+            ))
+        return [(c, names.get(c.product_id)) for c in costings]
+
     def machines_too_small(
         self, *, width_cm: float, height_cm: float, machine_ids: list[int] | None,
         allow_rotation: bool,

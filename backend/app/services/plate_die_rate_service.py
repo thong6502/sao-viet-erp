@@ -52,6 +52,35 @@ class PlateDieRateService:
     def history(self, rate_id: int) -> list[PlateDieRate]:
         return self.repo.list_versions(self.get_rate(rate_id).code)
 
+    # -- "Đang dùng trong" -------------------------------------------------
+    def usage_counts(self, ids: list[int]) -> tuple[dict[int, int], dict[int, int]]:
+        """(kẽm→số phiếu, khuôn→số công đoạn) cho cột 'Đang dùng trong' của bảng danh sách."""
+        return self.repo.estimate_ref_counts(ids), self.repo.operation_ref_counts(ids)
+
+    def usage(self, rate_id: int) -> dict:
+        """Drill-down: kẽm → phiếu tính giá; khuôn → công đoạn đang dùng bảng giá này."""
+        rate = self.get_rate(rate_id)
+        if rate.plate_type == PLATE_KEM:
+            estimates = self.repo.list_estimates_by_rate(rate.id)
+            return {
+                "rate_id": rate.id, "code": rate.code, "name": rate.name, "kind": "kem",
+                "estimates": [
+                    {"id": e.id, "estimate_number": e.estimate_number,
+                     "product_name": e.product_name, "status": e.status, "created_at": e.created_at}
+                    for e in estimates
+                ],
+                "operations": [],
+            }
+        operations = self.repo.list_operations_by_rate(rate.id)
+        return {
+            "rate_id": rate.id, "code": rate.code, "name": rate.name, "kind": "khuon",
+            "estimates": [],
+            "operations": [
+                {"id": o.id, "code": o.code, "name": o.name, "operation_type": o.operation_type}
+                for o in operations
+            ],
+        }
+
     # -- validation --------------------------------------------------------
     def _validate(self, d: dict) -> None:
         if not (d.get("code") or "").strip():

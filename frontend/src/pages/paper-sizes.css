@@ -1,0 +1,131 @@
+/* Khổ giấy tiêu chuẩn — bổ sung cho master-data.css + imposition-rules.css.
+   Chỉ chứa phần RIÊNG của khổ giấy: preview tỷ lệ khổ, bảng máy phù hợp (fit), chip vai trò. */
+
+/* ---- Chip vai trò khổ (mua / tờ in / cắt) ---- */
+.ps-role {
+  display: inline-block;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--steel-soft);
+  color: var(--steel);
+  white-space: nowrap;
+}
+.ps-role--buy { background: #eef4e8; color: #4a6a2f; }
+.ps-role--print { background: var(--steel-soft); color: var(--steel); }
+.ps-role--cut { background: var(--rust-soft); color: var(--rust-deep); }
+
+/* ---- "Máy phù hợp" — link trên bảng ---- */
+.ps-fit-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+  color: var(--rust-deep);
+  text-decoration: underline dotted;
+}
+.ps-fit-zero { color: var(--signal); font-weight: var(--fw-medium); }
+.ps-fit-unknown { color: var(--ash-2); }
+
+/* ---- Badge kết quả fit trong bảng chi tiết ---- */
+.ps-fit-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.ps-fit-badge--fit { background: var(--moss-soft); color: var(--moss-deep); }
+.ps-fit-badge--over { background: var(--rust-soft); color: var(--rust-deep); }
+.ps-fit-badge--under { background: #fdf6e6; color: #7a5a12; }
+.ps-fit-badge--unknown { background: var(--rule-soft); color: var(--ash-2); }
+
+/* ---- Preview tỷ lệ khổ giấy ---- */
+.ps-ratio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: var(--sp-3);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+.ps-ratio__frame {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 120px;
+}
+.ps-ratio__box {
+  border: 2px solid var(--steel);
+  background: repeating-linear-gradient(
+    45deg, transparent, transparent 6px, var(--steel-soft) 6px, var(--steel-soft) 7px
+  );
+  position: relative;
+}
+/* Mũi tên xoay ↻ — hiện khi bật "cho phép xoay" (đang thử cả 2 chiều) */
+.ps-ratio__rot {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: 50%;
+  background: var(--steel);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, 0.25);
+}
+.ps-ratio__cap {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash);
+}
+
+/* ---- Section trong drawer ---- */
+.ps-sec {
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0 0 var(--sp-2);
+  padding-bottom: var(--sp-1);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.ps-sec:not(:first-child) { margin-top: var(--sp-5); }
+
+/* Nút mở/đóng phần nâng cao (ngoại lệ máy) */
+.ps-adv-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--rust-deep);
+  cursor: pointer;
+}
+
+/* Kết quả mô phỏng số con — số to nổi bật */
+.ps-sim-hero {
+  font-size: 22px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.ps-sim-hero small { font-size: 13px; font-weight: var(--fw-medium); color: var(--ash); }
+
+/* Sơ đồ bình con trong panel mô phỏng */
+.ps-sim-diagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
+}

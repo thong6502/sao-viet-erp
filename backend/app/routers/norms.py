@@ -6,7 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Response
 from ..deps import CurrentUser, get_norm_service, require_permission
 from ..schemas.norm import (
     NormCreate, NormClose, NormDuplicate, NormOut, NormListOut,
-    NormTestInput, NormTestOutput,
+    NormTestInput, NormTestOutput, NormUsageOut, NormUsageEstimate,
+    NormConflictsOut,
 )
 from ..models.norm import GROUP_TO_KEY
 from ..services.norm_service import NormService, NormValidationError, NormNotFoundError
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/api/norms", tags=["norms"])
 )
 def list_norms(
     service: Annotated[NormService, Depends(get_norm_service)],
+    q: str | None = None,
     norm_key: str | None = None,
     waste_group: str | None = None,
     product_type: str | None = None,
@@ -34,6 +36,7 @@ def list_norms(
     if not norm_key and waste_group:
         norm_key = GROUP_TO_KEY.get(waste_group, waste_group)
     items, total = service.list_norms(
+        q=q,
         norm_key=norm_key,
         product_type=product_type,
         machine_id=machine_id,
@@ -42,7 +45,26 @@ def list_norms(
         page=page,
         size=size,
     )
-    return NormListOut(items=items, total=total, page=page, size=size)
+    # "Đang dùng trong" — đếm 1 lượt, gán vào từng dòng.
+    counts = service.estimate_counts()
+    out_items = []
+    for it in items:
+        row = NormOut.model_validate(it)
+        row.estimate_count = counts.get(it.id, 0)
+        out_items.append(row)
+    return NormListOut(items=out_items, total=total, page=page, size=size)
+
+
+@router.get(
+    "/conflicts",
+    response_model=NormConflictsOut,
+    dependencies=[Depends(require_permission("dm_dinh_muc", "read"))],
+)
+def norm_conflicts(
+    service: Annotated[NormService, Depends(get_norm_service)],
+) -> NormConflictsOut:
+    data = service.detect_conflicts()
+    return NormConflictsOut(conflicts=data["conflicts"], labels=data["labels"])
 
 
 @router.post(
@@ -96,6 +118,36 @@ def test_norm(
     return NormTestOutput(**service.simulate(payload))
 
 
+@router.get("/{id}", response_model=NormOut)
+def get_norm(
+    id: int,
+    service: Annotated[NormService, Depends(get_norm_service)],
+    actor: Annotated[CurrentUser, Depends(require_permission("dm_dinh_muc", "read"))],
+) -> NormOut:
+    try:
+        return service.get_norm_by_id(id)
+    except NormNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+
+@router.get("/{id}/usage", response_model=NormUsageOut)
+def norm_usage(
+    id: int,
+    service: Annotated[NormService, Depends(get_norm_service)],
+    actor: Annotated[CurrentUser, Depends(require_permission("dm_dinh_muc", "read"))],
+) -> NormUsageOut:
+    try:
+        data = service.usage(id)
+    except NormNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    return NormUsageOut(
+        norm_id=data["norm_id"],
+        code=data["code"],
+        estimate_count=data["estimate_count"],
+        estimates=[NormUsageEstimate.model_validate(e) for e in data["estimates"]],
+    )
+
+
 @router.get("/{id}/history", response_model=NormListOut)
 def norm_history(
     id: int,
@@ -106,7 +158,13 @@ def norm_history(
         items = service.get_history(id)
     except NormNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    return NormListOut(items=items, total=len(items), page=1, size=len(items) or 1)
+    counts = service.estimate_counts()
+    out_items = []
+    for it in items:
+        row = NormOut.model_validate(it)
+        row.estimate_count = counts.get(it.id, 0)
+        out_items.append(row)
+    return NormListOut(items=out_items, total=len(out_items), page=1, size=len(out_items) or 1)
 
 
 @router.post("/{id}/duplicate", response_model=NormOut, status_code=status.HTTP_201_CREATED)

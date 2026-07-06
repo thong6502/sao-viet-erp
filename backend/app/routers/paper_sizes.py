@@ -9,9 +9,12 @@ from ..deps import get_paper_size_service, require_permission
 from ..models.user import User
 from ..schemas.paper_size import (
     PaperSizeCreate,
+    PaperSizeDuplicateOut,
+    PaperSizeDuplicateRef,
     PaperSizeListOut,
     PaperSizeRow,
     PaperSizeUpdate,
+    PaperSizeUsageOut,
 )
 from ..services.paper_size_service import (
     PaperSizeDuplicate,
@@ -44,11 +47,30 @@ def list_items(
         q=q, size_type=size_type, size_group=size_group, machine_id=machine_id,
         is_active=is_active, current_only=current_only, sort=sort, page=page, size=size,
     )
-    return PaperSizeListOut(
-        items=[PaperSizeRow.model_validate(r) for r in rows],
-        total=total,
-        page=page,
-        size=size,
+    # "Đang dùng trong" = số phiếu tính giá theo khổ. Tính 1 lần cho cả trang, gán vào từng dòng.
+    counts = svc.usage_counts([r.id for r in rows])
+    items = []
+    for r in rows:
+        row = PaperSizeRow.model_validate(r)
+        row.used_in_costings = counts.get(r.id, 0)
+        items.append(row)
+    return PaperSizeListOut(items=items, total=total, page=page, size=size)
+
+
+@router.get("/check-duplicate", response_model=PaperSizeDuplicateOut)
+def check_duplicate(
+    svc: Annotated[PaperSizeService, Depends(get_paper_size_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    width: float = Query(..., gt=0),
+    height: float = Query(..., gt=0),
+    exclude_id: int | None = Query(default=None),
+) -> PaperSizeDuplicateOut:
+    """Cảnh báo mềm trùng khổ (§13): có khổ hiện hành nào trùng kích thước (kể cả xoay)?"""
+    match = svc.find_dimension_duplicate(
+        width_cm=width, height_cm=height, exclude_id=exclude_id
+    )
+    return PaperSizeDuplicateOut(
+        matched=PaperSizeDuplicateRef.model_validate(match) if match else None
     )
 
 
@@ -80,6 +102,20 @@ def get_history(
         items=[PaperSizeRow.model_validate(r) for r in rows],
         total=len(rows), page=1, size=len(rows) or 1,
     )
+
+
+@router.get("/{item_id}/usage", response_model=PaperSizeUsageOut)
+def get_usage(
+    item_id: int,
+    svc: Annotated[PaperSizeService, Depends(get_paper_size_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> PaperSizeUsageOut:
+    """Danh sách phiếu tính giá đang dùng khổ này — drill-down 'Xem nơi đang dùng'."""
+    try:
+        data = svc.usage(item_id)
+    except PaperSizeNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return PaperSizeUsageOut(**data)
 
 
 @router.post("", response_model=PaperSizeRow, status_code=status.HTTP_201_CREATED)

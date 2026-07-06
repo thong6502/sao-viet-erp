@@ -1,8 +1,10 @@
 """ORM models. Importing this package registers every model on Base.metadata."""
+from .attendance import AttendanceLog, WorkLocation
 from .audit import AuditLog
 from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
 from .department import Department
+from .employee import Employee, EmployeeAttachment, EmployeeEvent
 from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
 from .module import Module
@@ -32,6 +34,11 @@ __all__ = [
     "AuditLog",
     "RefreshToken",
     "UnitLevel",
+    "Employee",
+    "EmployeeEvent",
+    "EmployeeAttachment",
+    "WorkLocation",
+    "AttendanceLog",
     "Customer",
     "Product",
     "ProductComponent",

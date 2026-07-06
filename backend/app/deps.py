@@ -16,7 +16,9 @@ from .db import get_db
 from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
 from .repositories.costing_repo import CostingRepository
+from .repositories.attendance_repo import AttendanceRepository
 from .repositories.customer_repo import CustomerRepository
+from .repositories.employee_repo import EmployeeRepository
 from .repositories.machine_repo import MachineRepository
 from .repositories.material_repo import MaterialRepository
 from .repositories.operation_repo import OperationRepository
@@ -45,8 +47,10 @@ from .services.activity_service import ActivityService
 from .services.costing_service import CostingService
 from .services.estimate_service import EstimateService
 from .services.customer_analytics import CustomerAnalyticsService
+from .services.attendance_service import AttendanceService
 from .services.customer_service import CustomerService
 from .services.department_service import DepartmentService
+from .services.employee_service import EmployeeService
 from .services.machine_service import MachineService
 from .services.material_service import MaterialService
 from .services.operation_service import OperationService
@@ -233,6 +237,34 @@ def get_customer_analytics_service(
 ) -> CustomerAnalyticsService:
     """CRM-360 analytics read over the live orders/quotations tables (same app)."""
     return CustomerAnalyticsService(db)
+
+
+def get_employee_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> EmployeeRepository:
+    return EmployeeRepository(db)
+
+
+def get_employee_service(
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+) -> EmployeeService:
+    return EmployeeService(employees, audit, users)
+
+
+def get_attendance_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> AttendanceRepository:
+    return AttendanceRepository(db)
+
+
+def get_attendance_service(
+    attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> AttendanceService:
+    return AttendanceService(attendance, employees, audit)
 
 
 def get_product_repository(

@@ -81,6 +81,8 @@ class NormOut(BaseModel):
     priority: int
     version: int
     used_count: int
+    # "Đang dùng trong" — số phiếu tính giá đang dùng (tính live, không lưu). Router gán vào.
+    estimate_count: int = 0
     effective_from: date
     effective_to: date | None
     note: str | None
@@ -93,6 +95,31 @@ class NormListOut(BaseModel):
     total: int
     page: int
     size: int
+
+
+# --- "Đang dùng trong" drill-down — phiếu tính giá đang dùng một định mức ---
+class NormUsageEstimate(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    estimate_number: str
+    product_name: str
+    status: str
+    created_at: datetime
+
+
+class NormUsageOut(BaseModel):
+    norm_id: int
+    code: str
+    estimate_count: int
+    estimates: list[NormUsageEstimate]
+
+
+# --- Cảnh báo xung đột quy tắc (§9) — cặp cùng loại, phạm vi giao, độ cụ thể ngang ---
+class NormConflictsOut(BaseModel):
+    # {norm_id: [các norm_id có thể xung đột]} và nhãn hiển thị cho từng norm_id.
+    conflicts: dict[int, list[int]]
+    labels: dict[int, str]
 
 
 # --- Test nhanh (§4.2 Khối 5) — chạy thử chuỗi số tờ, không ghi DB ---------

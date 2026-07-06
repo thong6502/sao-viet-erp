@@ -38,6 +38,7 @@ MODULES: list[tuple[str, str]] = [
     ("activity_log", "Nhật ký hoạt động"),
     ("dm_giay_vat_tu", "Danh mục Giấy & Vật tư"),
     ("dm_dinh_muc", "Định mức & Bù hao"),
+    ("nhan_su", "Nhân sự"),
 ]
 
 ALL_MODULE_KEYS = [k for k, _ in MODULES]
@@ -88,6 +89,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Trưởng phòng HCNS",
         {
             "dashboard": _read(SCOPE_ALL),
+            "nhan_su": _rcu(SCOPE_ALL),
             "nguoi_dung": _rcu(SCOPE_ALL),
             "phong_ban": _read(SCOPE_ALL),
             "vai_tro": _read(SCOPE_ALL),
@@ -1150,6 +1152,173 @@ def seed_document_sequences(db: Session) -> None:
         db.commit()
 
 
+def seed_employees(db: Session) -> None:
+    """Seed a spread of sample employees (Hồ sơ nhân sự demo, module `nhan_su`) covering
+    every status + a Quá trình công tác timeline + one account link (🔑). Idempotent:
+    skips entirely once any employee exists so re-runs never duplicate."""
+    from datetime import date, timedelta
+
+    from .models.employee import (
+        EVENT_CONFIRMED,
+        EVENT_HIRED,
+        EVENT_LEAVE_START,
+        EVENT_PROMOTED,
+        EVENT_RESIGNED,
+        STATUS_ACTIVE,
+        STATUS_ON_LEAVE,
+        STATUS_PROBATION,
+        STATUS_RESIGNED,
+    )
+    from .repositories.employee_repo import EmployeeRepository
+
+    repo = EmployeeRepository(db)
+    # Cheap idempotency guard: if the table already has rows, assume seeded.
+    if repo.list(scope="all", actor=_SeedActor(), size=1)[1] > 0:
+        return
+
+    depts = DepartmentRepository(db)
+    users = UserRepository(db)
+    today = date.today()
+
+    def _dept(name: str) -> int | None:
+        d = depts.get_by_name(name)
+        return d.id if d is not None else None
+
+    hcns = _dept("Hành chính nhân sự")
+    kd = _dept("Kinh doanh")
+
+    def mk(
+        *, full_name, department_id, position, status, hire_date,
+        gender=None, national_id=None, phone=None, social_insurance_no=None,
+        job_grade=None, probation_end_date=None, link_username=None,
+    ):
+        emp = repo.create(
+            full_name=full_name, department_id=department_id, position=position,
+            status=status, hire_date=hire_date, gender=gender, national_id=national_id,
+            phone=phone, social_insurance_no=social_insurance_no, job_grade=job_grade,
+            probation_end_date=probation_end_date,
+        )
+        # Quá trình công tác: hired (thử việc) → confirmed → (nâng bậc) → (nghỉ dài hạn/việc).
+        repo.add_event(employee_id=emp.id, event_type=EVENT_HIRED, effective_date=hire_date,
+                       field="status", from_value=None, to_value=STATUS_PROBATION,
+                       note="Vào làm", actor_user_id=None)
+        confirmed = hire_date + timedelta(days=60)
+        if status in (STATUS_ACTIVE, STATUS_ON_LEAVE, STATUS_RESIGNED):
+            repo.add_event(employee_id=emp.id, event_type=EVENT_CONFIRMED, effective_date=confirmed,
+                           field="status", from_value=STATUS_PROBATION, to_value=STATUS_ACTIVE,
+                           note="Đạt yêu cầu thử việc", actor_user_id=None)
+        if job_grade:
+            repo.add_event(employee_id=emp.id, event_type=EVENT_PROMOTED,
+                           effective_date=confirmed + timedelta(days=400), field="job_grade",
+                           from_value=None, to_value=job_grade, note="Nâng bậc thợ", actor_user_id=None)
+        if status == STATUS_ON_LEAVE:
+            repo.add_event(employee_id=emp.id, event_type=EVENT_LEAVE_START,
+                           effective_date=today - timedelta(days=20), field="status",
+                           from_value=STATUS_ACTIVE, to_value=STATUS_ON_LEAVE,
+                           note="Nghỉ thai sản", actor_user_id=None)
+        if status == STATUS_RESIGNED:
+            resigned_on = today - timedelta(days=40)
+            repo.add_event(employee_id=emp.id, event_type=EVENT_RESIGNED, effective_date=resigned_on,
+                           field="status", from_value=STATUS_ACTIVE, to_value=STATUS_RESIGNED,
+                           note="Tự xin nghỉ", actor_user_id=None)
+            repo.update(emp, resign_date=resigned_on, resign_reason="Tự xin nghỉ")
+        # Nối 1 tài khoản login sẵn có để demo 🔑 (nếu user tồn tại và chưa gắn NV khác).
+        if link_username:
+            u = users.get_by_username(link_username)
+            if u is not None and repo.get_by_user_id(u.id) is None:
+                repo.update(emp, user_id=u.id)
+        return emp
+
+    mk(full_name="Trần Văn An", department_id=hcns, position="Trưởng phòng HCNS",
+       status=STATUS_ACTIVE, hire_date=date(2019, 3, 1), gender="male",
+       national_id="079083001234", phone="0903001234", social_insurance_no="7900010001")
+    mk(full_name="Lê Thị Bình", department_id=hcns, position="Nhân viên nhân sự",
+       status=STATUS_ACTIVE, hire_date=date(2021, 6, 15), gender="female",
+       national_id="079185002345", phone="0903002345")
+    mk(full_name="Phạm Minh Cường", department_id=kd, position="Nhân viên Sales",
+       status=STATUS_ACTIVE, hire_date=date(2022, 1, 10), gender="male",
+       national_id="079090003456", phone="0903003456", link_username="sale1")
+    mk(full_name="Nguyễn Thị Dung", department_id=kd, position="Nhân viên Sales",
+       status=STATUS_PROBATION, hire_date=today - timedelta(days=45), gender="female",
+       national_id="079193004567", phone="0903004567", probation_end_date=today + timedelta(days=15))
+    mk(full_name="Vũ Đức Em", department_id=hcns, position="Thợ in offset", job_grade="3/7",
+       status=STATUS_ACTIVE, hire_date=date(2018, 9, 20), gender="male",
+       national_id="079088005678", phone="0903005678")
+    mk(full_name="Hoàng Văn Phúc", department_id=hcns, position="Thợ chế bản", job_grade="2/7",
+       status=STATUS_ON_LEAVE, hire_date=date(2020, 2, 3), gender="male",
+       national_id="079091006789", phone="0903006789")
+    mk(full_name="Đặng Thị Giang", department_id=hcns, position="Nhân viên văn thư",
+       status=STATUS_RESIGNED, hire_date=date(2019, 7, 1), gender="female",
+       national_id="079192007890", phone="0903007890")
+    mk(full_name="Bùi Quốc Hùng", department_id=hcns, position="Thợ xén-bế", job_grade="4/7",
+       status=STATUS_ACTIVE, hire_date=date(2017, 4, 12), gender="male",
+       national_id="079085008901", phone="0903008901")
+    # Nối tài khoản admin vào 1 hồ sơ (để demo tự chấm công GPS bằng chính tài khoản admin).
+    mk(full_name="Nguyễn Văn Giám", department_id=_dept("Ban giám đốc"), position="Giám đốc",
+       status=STATUS_ACTIVE, hire_date=date(2015, 1, 5), gender="male",
+       national_id="079080000001", phone="0903000000", link_username="admin")
+
+    db.commit()
+
+
+def seed_work_locations(db: Session) -> None:
+    """Seed 1 điểm chấm công demo (module `nhan_su`). Idempotent."""
+    from .repositories.attendance_repo import AttendanceRepository
+
+    repo = AttendanceRepository(db)
+    if repo.list_locations():
+        return
+    repo.create_location(
+        name="Xưởng in Sao Việt Nhật (demo)",
+        latitude=10.7769000, longitude=106.7009000, radius_m=150,
+        note="Toạ độ demo (TP.HCM) — HCNS chỉnh lại theo thực địa.", is_active=True,
+    )
+
+
+def seed_attendance(db: Session) -> None:
+    """Seed vài bản ghi chấm công demo cho NV có tài khoản (tại điểm demo, trong phạm vi),
+    để Bảng chấm công + lịch sử không trống. Idempotent."""
+    from datetime import datetime, timedelta, timezone
+
+    from .repositories.attendance_repo import AttendanceRepository
+    from .repositories.employee_repo import EmployeeRepository
+    from .repositories.user_repo import UserRepository
+
+    repo = AttendanceRepository(db)
+    if repo.list_all(limit=1):
+        return
+    loc = repo.list_locations(active_only=True)
+    if not loc:
+        return
+    loc = loc[0]
+
+    users = UserRepository(db)
+    emps = EmployeeRepository(db)
+    now = datetime.now(timezone.utc)
+
+    # NV chấm công demo = những người có tài khoản (admin↔GĐ, sale1↔NV003).
+    targets = []
+    for username in ("admin", "sale1"):
+        u = users.get_by_username(username)
+        if u is None:
+            continue
+        e = emps.get_by_user_id(u.id)
+        if e is not None:
+            targets.append(e)
+
+    # 2 ngày gần nhất, mỗi ngày 1 cặp VÀO (08:00) / RA (17:00) tại điểm demo.
+    for emp in targets:
+        for days_ago in (1, 0):
+            day_in = now - timedelta(days=days_ago, hours=(now.hour - 1))  # ~sáng
+            day_out = day_in + timedelta(hours=9)
+            for checked_at, ctype in ((day_in, "in"), (day_out, "out")):
+                repo.create_log(
+                    employee_id=emp.id, work_location_id=loc.id, check_type=ctype,
+                    checked_at=checked_at, latitude=float(loc.latitude), longitude=float(loc.longitude),
+                    distance_m=12.0, within_range=True,
+                )
+
+
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -1172,6 +1341,9 @@ def seed_all(db: Session) -> None:
     seed_imposition_types(db)
     if settings.seed_demo:
         seed_kd_staff(db)
+        seed_employees(db)
+        seed_work_locations(db)
+        seed_attendance(db)
         seed_customers(db)
         seed_products(db)
         seed_sales_history(db)

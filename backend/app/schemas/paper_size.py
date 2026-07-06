@@ -101,6 +101,8 @@ class PaperSizeRow(BaseModel):
     effective_from: date | None = None
     effective_to: date | None = None
     used_count: int
+    # "Đang dùng trong" = số phiếu tính giá (costings) tham chiếu khổ — server tính khi list.
+    used_in_costings: int = 0
     created_by: int | None = None
     updated_by: int | None = None
     is_active: bool
@@ -112,3 +114,36 @@ class PaperSizeListOut(BaseModel):
     total: int
     page: int
     size: int
+
+
+class PaperSizeDuplicateRef(BaseModel):
+    """Khổ hiện có trùng kích thước (cả 2 chiều) — cảnh báo mềm khi tạo/sửa (§13)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    width_cm: float
+    height_cm: float
+    version: int
+
+
+class PaperSizeDuplicateOut(BaseModel):
+    matched: PaperSizeDuplicateRef | None = None
+
+
+class PaperSizeUsageCosting(BaseModel):
+    id: int
+    code: str
+    product_name: str | None = None
+    qty_final: int
+    status: str
+    created_at: datetime
+
+
+class PaperSizeUsageOut(BaseModel):
+    paper_size_id: int
+    code: str
+    name: str
+    costing_count: int
+    costings: list[PaperSizeUsageCosting]

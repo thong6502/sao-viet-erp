@@ -10,6 +10,7 @@ from ..schemas.plate_die_rate import (
     PlateDieRateClose,
     PlateDieRateOut,
     PlateDieRateListOut,
+    PlateDieRateUsageOut,
 )
 from ..services.plate_die_rate_service import (
     PlateDieRateService,
@@ -39,7 +40,15 @@ def list_rates(
         q=q, plate_type=plate_type, technology=technology, machine_id=machine_id,
         is_active=is_active, current_only=current_only, page=page, size=size,
     )
-    return PlateDieRateListOut(items=items, total=total, page=page, size=size)
+    # "Đang dùng trong": kẽm = số phiếu, khuôn = số công đoạn. Tính 1 lần cho cả trang.
+    est_counts, op_counts = service.usage_counts([r.id for r in items])
+    rows = []
+    for r in items:
+        row = PlateDieRateOut.model_validate(r)
+        row.used_in_estimates = est_counts.get(r.id, 0)
+        row.used_in_operations = op_counts.get(r.id, 0)
+        rows.append(row)
+    return PlateDieRateListOut(items=rows, total=total, page=page, size=size)
 
 
 @router.get("/{id}", response_model=PlateDieRateOut,
@@ -65,6 +74,19 @@ def get_history(
     except PlateDieRateNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
     return PlateDieRateListOut(items=rows, total=len(rows), page=1, size=len(rows) or 1)
+
+
+@router.get("/{id}/usage", response_model=PlateDieRateUsageOut,
+            dependencies=[Depends(require_permission(MODULE, "read"))])
+def get_usage(
+    id: int,
+    service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
+) -> PlateDieRateUsageOut:
+    """Nơi đang dùng bảng giá này — kẽm → phiếu tính giá; khuôn → công đoạn."""
+    try:
+        return PlateDieRateUsageOut(**service.usage(id))
+    except PlateDieRateNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
 @router.post("", response_model=PlateDieRateOut, status_code=status.HTTP_201_CREATED)

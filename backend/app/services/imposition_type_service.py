@@ -148,6 +148,41 @@ class ImpositionTypeService:
             raise ImpositionTypeNotFound("Không tìm thấy kiểu bình bài.")
         return item
 
+    # -- "Đang dùng trong" / drill-down -----------------------------------
+    def estimate_counts(self) -> dict[str, int]:
+        """{CODE: số tính giá} cho cột 'Đang dùng trong' của bảng danh sách."""
+        return self.repo.estimate_code_counts()
+
+    def usage(self, item_id: int) -> dict:
+        """Danh sách tính giá (estimates) đang dùng quy tắc — cho drill-down."""
+        item = self.get_item(item_id)
+        estimates = self.repo.list_estimates_by_code(item.code)
+        return {"code": item.code, "estimate_count": len(estimates), "estimates": estimates}
+
+    # -- Kiểm thử nhanh (preview engine) ----------------------------------
+    def preview(self, data: dict) -> dict:
+        """Chạy thử quy tắc với input test — cùng công thức engine (imposition_math)."""
+        from . import imposition_math
+
+        ff = data.get("finished_factor")
+        if ff is None or ff <= 0:
+            raise ImpositionTypeValidationError("Hệ số thành phẩm phải lớn hơn 0.")
+        pc = data.get("pass_count")
+        if pc is None or pc <= 0:
+            raise ImpositionTypeValidationError("Số lượt qua máy phải lớn hơn 0.")
+        return imposition_math.preview(
+            finished_factor=float(ff),
+            pass_count=float(pc),
+            plate_set_factor=float(data.get("plate_set_factor") or 0),
+            ink_pass_factor=float(data.get("ink_pass_factor") or 0),
+            geometric_pieces=int(data.get("geometric_pieces") or 0),
+            quantity=int(data.get("quantity") or 0),
+            production_sheets=int(data.get("production_sheets") or 0),
+            colors=int(data.get("colors") or 0),
+            forms=int(data.get("forms") or 1),
+            machine_speed=float(data.get("machine_speed") or 0),
+        )
+
     # -- writes ------------------------------------------------------------
     def create_item(self, data: dict, *, actor):
         self._validate(data, require_code=True)

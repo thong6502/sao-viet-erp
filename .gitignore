@@ -30,6 +30,8 @@ dist/
 
 # User-uploaded avatars = runtime content, not source (tests/validate sinh ảnh 1×1 mỗi lần)
 backend/static/avatars/
+# Hồ sơ nhân sự upload (CCCD…) = runtime + dữ liệu cá nhân nhạy cảm, KHÔNG commit
+backend/static/hr/
 
 # DB backups (dev.db.bak-*)
 *.bak-*

@@ -5,6 +5,8 @@ import {
   type NormRow,
   type NormInput,
   type NormTestOutput,
+  type NormUsageOut,
+  type NormConflictsOut,
   type WasteGroup,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -66,30 +68,76 @@ function groupOf(g: string | null): (typeof GROUPS)[number] | undefined {
   return GROUPS.find((x) => x.value === g);
 }
 
+// Nhãn trạng thái phiếu tính giá cho drill-down "Đang dùng trong".
+const ESTIMATE_STATUS_LABEL: Record<string, string> = {
+  draft: "Nháp",
+  calculated: "Đã tính",
+  converted_to_quote: "Đã lên báo giá",
+  cancelled: "Đã hủy",
+};
+
+// Tab nhanh theo loại định mức (lọc nhanh cột "Nhóm").
+const QUICK_TABS: { value: string; label: string }[] = [
+  { value: "", label: "Tất cả" },
+  { value: "SETUP_WASTE", label: "Setup" },
+  { value: "RUNNING_WASTE", label: "Hao chạy máy" },
+  { value: "PAPER_EXTRA_WASTE", label: "Hao giấy" },
+  { value: "YIELD_RATE", label: "Tỷ lệ đạt" },
+];
+
 function todayStr(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-// Diễn giải giá trị của một dòng trên bảng danh sách.
+// Diễn giải "Mức hao / Công thức" của một dòng bằng ngôn ngữ nghiệp vụ.
 function valueDisplay(row: NormRow): string {
   const g = row.waste_group;
-  if (g === "YIELD_RATE") return `${(row.value * 100).toFixed(1)}%`;
-  if (g === "RUNNING_WASTE") return `${(row.value * 100).toFixed(2)}%`;
+  if (g === "YIELD_RATE") return `Đạt ${(row.value * 100).toFixed(1)}%`;
+  if (g === "RUNNING_WASTE") return `${(row.value * 100).toFixed(2)}% số tờ`;
   if (g === "SETUP_WASTE") {
     const parts: string[] = [];
     if (row.calculation_method === "PER_COLOR_SIDE" || (!row.setup_waste_qty && !row.setup_waste_per_color && !row.setup_waste_per_side))
       return `${row.value} tờ/màu-mặt`;
-    if (row.setup_waste_qty) parts.push(`${row.setup_waste_qty} cố định`);
-    if (row.setup_waste_per_color) parts.push(`${row.setup_waste_per_color}/màu`);
-    if (row.setup_waste_per_side) parts.push(`${row.setup_waste_per_side}/mặt`);
-    return parts.join(" + ") || "0";
+    if (row.setup_waste_qty) parts.push(`${row.setup_waste_qty}`);
+    if (row.setup_waste_per_color) parts.push(`${row.setup_waste_per_color}×màu`);
+    if (row.setup_waste_per_side) parts.push(`${row.setup_waste_per_side}×mặt`);
+    const body = parts.join(" + ");
+    return body ? `${body} tờ` : "0";
   }
   if (g === "PAPER_EXTRA_WASTE") {
     if (row.calculation_method === "FIXED") return `${row.value} tờ`;
     if (row.calculation_method === "PER_REAM") return `${row.value} tờ/ram`;
-    return `${(row.value * 100).toFixed(2)}%`;
+    return `${(row.value * 100).toFixed(2)}% tờ mua`;
   }
   return String(row.value);
+}
+
+// Nhãn "Cách tính" bằng tiếng Việt nghiệp vụ (thay cho enum FIXED/PERCENT/COMBINED).
+const METHOD_LABEL: Record<string, string> = {
+  FIXED: "Cố định",
+  PERCENT: "Theo tỷ lệ %",
+  COMBINED: "Công thức kết hợp",
+  PER_COLOR: "Theo số màu",
+  PER_SIDE: "Theo số mặt",
+  PER_COLOR_SIDE: "Theo màu × mặt",
+  PER_REAM: "Theo ram",
+};
+function methodLabel(m: string | null): string {
+  return m ? METHOD_LABEL[m] ?? m : "—";
+}
+
+// Trạng thái suy từ ngày hiệu lực (không lưu enum): Sắp / Đang / Hết.
+function statusOf(row: NormRow, today: string): { label: string; cls: string } {
+  if (row.effective_from > today) return { label: "Sắp áp dụng", cls: "is-upcoming" };
+  if (row.effective_to === null || row.effective_to > today) return { label: "Đang áp dụng", cls: "is-active" };
+  return { label: "Hết hiệu lực", cls: "is-inactive" };
+}
+
+// Nhóm nào nhập giá trị dạng % (cho gõ 97 thay vì 0.97).
+function isPercentValue(group: WasteGroup, method: string): boolean {
+  if (group === "YIELD_RATE" || group === "RUNNING_WASTE") return true;
+  if (group === "PAPER_EXTRA_WASTE" && method === "PERCENT") return true;
+  return false;
 }
 
 export function NormsCatalogPage() {
@@ -103,6 +151,8 @@ export function NormsCatalogPage() {
   const [machineFilter, setMachineFilter] = useState("");
   const [operationFilter, setOperationFilter] = useState("");
   const [onlyCurrent, setOnlyCurrent] = useState(true);
+  const [q, setQ] = useState("");
+  const [qInput, setQInput] = useState("");
 
   const [productTypes, setProductTypes] = useState<{ product_type: string; name: string }[]>([]);
   const [machines, setMachines] = useState<{ id: number; name: string }[]>([]);
@@ -113,11 +163,18 @@ export function NormsCatalogPage() {
   const [forbidden, setForbidden] = useState(false);
 
   const [mode, setMode] = useState<null | "form" | "close" | "history">(null);
-  const [editing, setEditing] = useState<NormRow | null>(null); // null = create
+  const [basedOn, setBasedOn] = useState<NormRow | null>(null); // null = tạo mới; có = mở/tạo phiên bản từ dòng có sẵn
   const [selected, setSelected] = useState<NormRow | null>(null);
   const [deleting, setDeleting] = useState<NormRow | null>(null);
   const [history, setHistory] = useState<NormRow[]>([]);
   const [dlgTab, setDlgTab] = useState<"setup" | "test">("setup");
+  const [menuFor, setMenuFor] = useState<number | null>(null); // dòng đang mở menu ⋯
+  const [usageFor, setUsageFor] = useState<NormRow | null>(null); // "Đang dùng trong" drill-down
+  const [usageData, setUsageData] = useState<NormUsageOut | null>(null);
+  const [conflicts, setConflicts] = useState<NormConflictsOut>({ conflicts: {}, labels: {} });
+  const conflictIds = useMemo(() => new Set(Object.keys(conflicts.conflicts).map(Number)), [conflicts]);
+
+  const warnOnly = wasteGroupFilter === "__warn__";
 
   // --- Form state ---
   const [wasteGroup, setWasteGroup] = useState<WasteGroup>("YIELD_RATE");
@@ -125,6 +182,7 @@ export function NormsCatalogPage() {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
+  const [valuePct, setValuePct] = useState(""); // giá trị dạng % (97 = 0.97) cho nhóm tỷ lệ
   const [operationKey, setOperationKey] = useState("");
   const [operationId, setOperationId] = useState("");
   const [applyProducts, setApplyProducts] = useState<string[]>([]);
@@ -170,19 +228,27 @@ export function NormsCatalogPage() {
     api.operations.list(token, { page: 1, size: 200 }).then((res) => setOperations(res.items)).catch(() => {});
   }, [token]);
 
+  const loadConflicts = useCallback(() => {
+    if (!token) return;
+    api.norms.conflicts(token).then(setConflicts).catch(() => {});
+  }, [token]);
+
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
     setError(null);
+    // Tab "Có cảnh báo": lấy toàn bộ bản hiện hành rồi lọc client theo conflictIds.
+    const isWarn = wasteGroupFilter === "__warn__";
     api.norms
       .list(token, {
-        waste_group: wasteGroupFilter || null,
+        q: q || null,
+        waste_group: isWarn ? null : wasteGroupFilter || null,
         product_type: productTypeFilter || null,
         machine_id: machineFilter ? Number(machineFilter) : null,
         operation_id: operationFilter ? Number(operationFilter) : null,
-        only_current: onlyCurrent,
-        page,
-        size: PAGE_SIZE,
+        only_current: isWarn ? true : onlyCurrent,
+        page: isWarn ? 1 : page,
+        size: isWarn ? 200 : PAGE_SIZE,
       })
       .then((res) => {
         setRows(res.items);
@@ -193,12 +259,16 @@ export function NormsCatalogPage() {
         else setError("Không tải được danh mục Định mức & Bù hao.");
       })
       .finally(() => setLoading(false));
-  }, [token, wasteGroupFilter, productTypeFilter, machineFilter, operationFilter, onlyCurrent, page]);
+  }, [token, q, wasteGroupFilter, productTypeFilter, machineFilter, operationFilter, onlyCurrent, page]);
 
   useEffect(() => {
     load();
     loadReferences();
   }, [load, loadReferences]);
+
+  useEffect(() => {
+    loadConflicts();
+  }, [loadConflicts]);
 
   function resetForm() {
     setWasteGroup("YIELD_RATE");
@@ -206,6 +276,7 @@ export function NormsCatalogPage() {
     setCode("");
     setName("");
     setValue("");
+    setValuePct("");
     setOperationKey("");
     setOperationId("");
     setApplyProducts([]);
@@ -229,17 +300,20 @@ export function NormsCatalogPage() {
   }
 
   function handleCreateClick() {
-    setEditing(null);
+    setBasedOn(null);
     resetForm();
     setMode("form");
   }
 
   function fillFromRow(row: NormRow) {
-    setWasteGroup((row.waste_group ?? "YIELD_RATE") as WasteGroup);
-    setMethod(row.calculation_method ?? "PERCENT");
+    const g = (row.waste_group ?? "YIELD_RATE") as WasteGroup;
+    const m = row.calculation_method ?? "PERCENT";
+    setWasteGroup(g);
+    setMethod(m);
     setCode(row.code ?? "");
     setName(row.name ?? "");
     setValue(String(row.value ?? ""));
+    setValuePct(isPercentValue(g, m) && row.value != null ? String(+(row.value * 100).toFixed(4)) : "");
     setOperationKey(row.operation_key ?? "");
     setOperationId(row.operation_id ? String(row.operation_id) : "");
     setApplyProducts(row.applicable_product_types ?? []);
@@ -261,9 +335,19 @@ export function NormsCatalogPage() {
     setDlgTab("setup");
   }
 
+  function handleOpenClick(row: NormRow) {
+    // Mở: xem cấu hình đầy đủ; lưu = tạo phiên bản mới của chính cấu hình này.
+    setMenuFor(null);
+    setBasedOn(row);
+    fillFromRow(row);
+    setEffectiveFrom(todayStr());
+    setMode("form");
+  }
+
   function handleDuplicateFillClick(row: NormRow) {
-    // Sao chép: mở form thêm mới với giá trị copy, ngày hiệu lực = hôm nay.
-    setEditing(null);
+    // Sao chép: mở form thêm mới thành quy tắc KHÁC (đổi mã), ngày hiệu lực = hôm nay.
+    setMenuFor(null);
+    setBasedOn(null);
     fillFromRow(row);
     setCode(row.code ? `${row.code}_COPY` : "");
     setEffectiveFrom(todayStr());
@@ -273,7 +357,17 @@ export function NormsCatalogPage() {
   function onGroupChange(g: WasteGroup) {
     setWasteGroup(g);
     const grp = groupOf(g);
-    setMethod(grp?.methods[0]?.value ?? "PERCENT");
+    const nextMethod = grp?.methods[0]?.value ?? "PERCENT";
+    setMethod(nextMethod);
+    // Đổi nhóm → giá trị cũ không còn ý nghĩa, xóa cả hai ô nhập.
+    setValue("");
+    setValuePct("");
+  }
+
+  // Giá trị dạng phân số gửi lên engine: nhóm % thì lấy từ ô % (97 → 0.97).
+  function effectiveValue(): number {
+    if (isPercentValue(wasteGroup, method)) return valuePct ? Number(valuePct) / 100 : 0;
+    return value ? Number(value) : 0;
   }
 
   function buildPayload(): NormInput {
@@ -283,7 +377,7 @@ export function NormsCatalogPage() {
     return {
       waste_group: wasteGroup,
       calculation_method: method,
-      value: value ? Number(value) : 0,
+      value: effectiveValue(),
       code: code || null,
       name: name || null,
       operation_id: operationId ? Number(operationId) : null,
@@ -311,9 +405,9 @@ export function NormsCatalogPage() {
     setError(null);
     // Validation client (soft).
     if (wasteGroup === "YIELD_RATE") {
-      const v = Number(value);
+      const v = effectiveValue();
       if (!(v > 0 && v <= 1)) {
-        setError("Tỷ lệ đạt phải trong khoảng (0, 1].");
+        setError("Tỷ lệ đạt phải trong khoảng 0–100%.");
         return;
       }
     }
@@ -330,6 +424,7 @@ export function NormsCatalogPage() {
       setMode(null);
       setPage(1);
       load();
+      loadConflicts();
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
       else setError("Lỗi khi lưu định mức.");
@@ -369,6 +464,18 @@ export function NormsCatalogPage() {
     }
   }
 
+  async function openUsage(row: NormRow) {
+    if (!token) return;
+    setMenuFor(null);
+    setUsageFor(row);
+    setUsageData(null);
+    try {
+      setUsageData(await api.norms.usage(token, row.id));
+    } catch {
+      setUsageData(null);
+    }
+  }
+
   function handleCloseClick(row: NormRow) {
     setSelected(row);
     setEffectiveTo(todayStr());
@@ -384,6 +491,7 @@ export function NormsCatalogPage() {
       setMode(null);
       setSelected(null);
       load();
+      loadConflicts();
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
       else setError("Lỗi khi đóng định mức.");
@@ -397,6 +505,7 @@ export function NormsCatalogPage() {
       await api.norms.remove(token, deleting.id);
       setDeleting(null);
       load();
+      loadConflicts();
     } catch (err) {
       if (err instanceof ApiError) setError(err.message);
       else setError("Lỗi khi xóa định mức.");
@@ -409,6 +518,7 @@ export function NormsCatalogPage() {
     const colors = Number(pvColors) || 0;
     const sides = Number(pvSides) || 0;
     const base = Number(pvBase) || 0;
+    const valFrac = isPercentValue(wasteGroup, method) ? (Number(valuePct) || 0) / 100 : (Number(value) || 0);
     const clamp = (v: number) => {
       let r = v;
       if (minWaste) r = Math.max(r, Number(minWaste));
@@ -416,28 +526,28 @@ export function NormsCatalogPage() {
       return r;
     };
     if (wasteGroup === "YIELD_RATE") {
-      const y = Number(value) || 1;
+      const y = valFrac || 1;
       return y > 0 ? `Cần trước = ceil(${base} / ${y}) = ${Math.ceil(base / y)} tờ` : "Nhập tỷ lệ đạt > 0";
     }
     if (wasteGroup === "SETUP_WASTE") {
       let mk: number;
-      if (method === "PER_COLOR_SIDE") mk = (Number(value) || 0) * colors * sides;
+      if (method === "PER_COLOR_SIDE") mk = valFrac * colors * sides;
       else mk = (Number(setupQty) || 0) + (Number(setupPerColor) || 0) * colors + (Number(setupPerSide) || 0) * sides;
       return `Makeready = ${Math.round(clamp(mk))} tờ (với ${colors} màu, ${sides} mặt)`;
     }
     if (wasteGroup === "RUNNING_WASTE") {
-      const w = Math.ceil(base * (Number(value) || 0));
-      return `Running = clamp(ceil(${base} × ${((Number(value) || 0) * 100).toFixed(2)}%)) = ${Math.round(clamp(w))} tờ`;
+      const w = Math.ceil(base * valFrac);
+      return `Running = clamp(ceil(${base} × ${(valFrac * 100).toFixed(2)}%)) = ${Math.round(clamp(w))} tờ`;
     }
     if (wasteGroup === "PAPER_EXTRA_WASTE") {
       let p: number;
-      if (method === "FIXED") p = Number(value) || 0;
-      else if (method === "PER_REAM") p = (Number(value) || 0) * (base / 500);
-      else p = Math.ceil(base * (Number(value) || 0));
+      if (method === "FIXED") p = valFrac;
+      else if (method === "PER_REAM") p = valFrac * (base / 500);
+      else p = Math.ceil(base * valFrac);
       return `Hao giấy = ${Math.round(clamp(p))} tờ → cộng vào tờ mua`;
     }
     return "";
-  }, [wasteGroup, method, value, setupQty, setupPerColor, setupPerSide, minWaste, maxWaste, pvColors, pvSides, pvBase]);
+  }, [wasteGroup, method, value, valuePct, setupQty, setupPerColor, setupPerSide, minWaste, maxWaste, pvColors, pvSides, pvBase]);
 
   if (forbidden) {
     return (
@@ -453,6 +563,7 @@ export function NormsCatalogPage() {
   const isRunning = wasteGroup === "RUNNING_WASTE";
   const isPaper = wasteGroup === "PAPER_EXTRA_WASTE";
   const today = todayStr();
+  const displayRows = warnOnly ? rows.filter((r) => conflictIds.has(r.id)) : rows;
 
   return (
     <div className="md-page">
@@ -460,22 +571,55 @@ export function NormsCatalogPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 className="md-page__title">Định mức & Bù hao</h1>
-            <p className="md-page__sub">Khai tỷ lệ đạt, bù hao setup, chạy máy & hao giấy → engine tính số tờ sản xuất và mua giấy</p>
+            <p className="md-page__sub">Khai báo quy tắc setup, hao chạy máy, hao giấy & tỷ lệ đạt → engine tính số tờ sản xuất, số tờ mua giấy và chi phí công đoạn.</p>
           </div>
-          <Button variant="primary" onClick={handleCreateClick}>+ Thêm quy tắc định mức</Button>
+          <Button variant="primary" onClick={handleCreateClick}>+ Tạo quy tắc</Button>
         </div>
       </div>
 
       {error && <div className="banner banner--error" role="alert">{error}</div>}
 
+      {/* Tab nhanh theo loại định mức */}
+      <div className="md-page__tabs">
+        {QUICK_TABS.map((t) => (
+          <button
+            key={t.value || "all"}
+            type="button"
+            className={`md-page__tab ${wasteGroupFilter === t.value ? "md-page__tab--active" : ""}`}
+            onClick={() => { setWasteGroupFilter(t.value); setPage(1); }}
+          >
+            {t.label}
+          </button>
+        ))}
+        <button
+          type="button"
+          className={`md-page__tab md-page__tab--warn ${warnOnly ? "md-page__tab--active" : ""}`}
+          onClick={() => { setWasteGroupFilter("__warn__"); setPage(1); }}
+          title="Các quy tắc cùng độ cụ thể + phạm vi giao nhau — engine không phân xử rõ được."
+        >
+          ⚠ Có cảnh báo
+          {conflictIds.size > 0 && <span className="md-page__tab__count">{conflictIds.size}</span>}
+        </button>
+      </div>
+
       {/* Filters */}
       <div className="md-page__toolbar">
-        <div className="md-page__filter" style={{ width: "220px" }}>
-          <select className="input select" value={wasteGroupFilter} onChange={(e) => { setWasteGroupFilter(e.target.value); setPage(1); }} aria-label="Lọc nhóm định mức">
-            <option value="">-- Tất cả nhóm --</option>
-            {GROUPS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
-          </select>
-        </div>
+        <form
+          className="md-page__search"
+          onSubmit={(e) => { e.preventDefault(); setQ(qInput.trim()); setPage(1); }}
+        >
+          <input
+            className="input"
+            value={qInput}
+            onChange={(e) => setQInput(e.target.value)}
+            placeholder="Tìm theo mã / tên quy tắc…"
+            aria-label="Tìm quy tắc định mức"
+          />
+          <Button variant="secondary" type="submit">Tìm</Button>
+          {q && (
+            <Button variant="ghost" type="button" onClick={() => { setQ(""); setQInput(""); setPage(1); }}>Xóa lọc</Button>
+          )}
+        </form>
         <div className="md-page__filter">
           <select className="input select" value={productTypeFilter} onChange={(e) => { setProductTypeFilter(e.target.value); setPage(1); }} aria-label="Lọc loại sản phẩm">
             <option value="">-- Tất cả loại SP --</option>
@@ -494,9 +638,11 @@ export function NormsCatalogPage() {
             {operations.map((o) => <option key={o.id} value={o.id}>{o.name} ({o.code})</option>)}
           </select>
         </div>
-        <div className="md-page__toggle-wrap" style={{ padding: "0 var(--sp-2)" }}>
-          <input type="checkbox" id="onlyCurrent" checked={onlyCurrent} onChange={(e) => { setOnlyCurrent(e.target.checked); setPage(1); }} />
-          <label htmlFor="onlyCurrent">Chỉ xem bản hiện hành</label>
+        <div className="md-page__filter">
+          <select className="input select" value={onlyCurrent ? "current" : "all"} onChange={(e) => { setOnlyCurrent(e.target.value === "current"); setPage(1); }} aria-label="Lọc phiên bản">
+            <option value="current">Bản hiện hành</option>
+            <option value="all">Tất cả phiên bản</option>
+          </select>
         </div>
       </div>
 
@@ -504,29 +650,33 @@ export function NormsCatalogPage() {
       <div className="card md-page__tablewrap">
         {loading ? (
           <div style={{ padding: "40px", textAlign: "center" }}>Đang tải định mức...</div>
-        ) : rows.length === 0 ? (
-          <div style={{ padding: "40px", textAlign: "center" }} className="md-page__muted">Không tìm thấy định mức nào.</div>
+        ) : displayRows.length === 0 ? (
+          <div style={{ padding: "40px", textAlign: "center" }} className="md-page__muted">
+            {warnOnly ? "Không có quy tắc nào đang cảnh báo xung đột." : "Không tìm thấy định mức nào."}
+          </div>
         ) : (
           <table className="md-page__table">
             <thead>
               <tr>
                 <th>Mã</th>
-                <th>Tên</th>
+                <th>Quy tắc</th>
                 <th>Nhóm</th>
                 <th>Công đoạn</th>
-                <th>Cách tính</th>
-                <th>Giá trị</th>
-                <th>Áp dụng</th>
-                <th>Ưu tiên</th>
+                <th>Mức hao / Công thức</th>
+                <th>Áp dụng cho</th>
+                <th title="Engine ưu tiên quy tắc CỤ THỂ hơn (khớp nhiều điều kiện). Số ưu tiên chỉ dùng để phá hòa khi độ cụ thể bằng nhau — số LỚN hơn = ưu tiên cao hơn.">Ưu tiên&nbsp;ⓘ</th>
+                <th>Đang dùng trong</th>
                 <th>Hiệu lực</th>
                 <th>Trạng thái</th>
-                <th style={{ width: "120px" }}></th>
+                <th className="md-page__actions-col">Thao tác</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => {
+              {displayRows.map((row) => {
                 const g = groupOf(row.waste_group);
                 const op = operations.find((o) => o.id === row.operation_id);
+                const st = statusOf(row, today);
+                const rowConflicts = conflicts.conflicts[String(row.id)] || [];
                 const active = row.effective_to === null || row.effective_to > today;
                 const applyLabel = row.applicable_product_types?.length
                   ? `${row.applicable_product_types.length} loại SP`
@@ -543,19 +693,64 @@ export function NormsCatalogPage() {
                     <td>{row.name || <span className="md-page__muted">{row.norm_key}</span>}</td>
                     <td>{g ? <span className="md-page__tag">{g.badge}</span> : <span className="md-page__muted">Đơn giá</span>}</td>
                     <td>{op ? op.name : row.operation_key ? <span className="md-page__mono">{row.operation_key}</span> : <span className="md-page__muted">Khâu in/chung</span>}</td>
-                    <td className="md-page__muted" style={{ fontSize: "12px" }}>{row.calculation_method || "—"}</td>
-                    <td className="md-page__price" style={{ fontSize: "15px" }}>{valueDisplay(row)}</td>
+                    <td>
+                      <div className="md-page__price" style={{ fontSize: "14px" }}>{valueDisplay(row)}</div>
+                      <div className="md-page__formula-sub">{methodLabel(row.calculation_method)}</div>
+                    </td>
                     <td>{applyLabel === "Tất cả" ? <span className="md-page__muted">Tất cả</span> : <span className="md-page__tag-tech">{applyLabel}</span>}</td>
-                    <td style={{ textAlign: "right" }}>{row.priority}</td>
+                    <td style={{ textAlign: "right" }} title="Số lớn hơn = ưu tiên cao hơn (chỉ phá hòa khi độ cụ thể bằng nhau)">{row.priority}</td>
+                    <td>
+                      {row.estimate_count > 0 ? (
+                        <button type="button" className="md-page__usage-link" onClick={() => openUsage(row)}>
+                          {row.estimate_count} phiếu tính giá
+                        </button>
+                      ) : (
+                        <span className="md-page__usage-zero">0 phiếu</span>
+                      )}
+                    </td>
                     <td style={{ fontSize: "12px" }}>{row.effective_from}{row.effective_to ? ` → ${row.effective_to}` : ""} {row.version > 1 && <span className="md-page__tag">v{row.version}</span>}</td>
                     <td>
-                      <span className={`md-page__status-badge ${active ? "is-active" : "is-inactive"}`}>{active ? "Hữu hiệu" : "Hết hạn"}</span>
+                      <span className={`md-page__status-badge ${st.cls}`}>{st.label}</span>
+                      {rowConflicts.length > 0 && (
+                        <span
+                          className="md-page__conflict-flag"
+                          title={`Có thể xung đột với: ${rowConflicts.map((id) => conflicts.labels[String(id)] || `#${id}`).join(", ")}`}
+                        >
+                          ⚠
+                        </span>
+                      )}
                     </td>
                     <td className="md-page__actions-col">
-                      <button type="button" className="btn btn--secondary md-page__rowbtn" onClick={() => handleDuplicateFillClick(row)}>Sao chép</button>
-                      <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => openHistory(row)}>Lịch sử</button>
-                      {active && <button type="button" className="btn btn--secondary md-page__rowbtn" onClick={() => handleCloseClick(row)}>Đóng</button>}
-                      {row.effective_from > today && <button type="button" className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger" onClick={() => setDeleting(row)}>Xóa</button>}
+                      <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => handleOpenClick(row)}>Mở</button>
+                      <span className="md-page__menu-wrap">
+                        <button
+                          type="button"
+                          className="md-page__iconbtn"
+                          title="Thao tác khác"
+                          aria-haspopup="menu"
+                          onClick={() => setMenuFor(menuFor === row.id ? null : row.id)}
+                        >
+                          ⋯
+                        </button>
+                        {menuFor === row.id && (
+                          <>
+                            <div style={{ position: "fixed", inset: 0, zIndex: 29 }} onClick={() => setMenuFor(null)} />
+                            <div className="md-page__menu" role="menu">
+                              <button type="button" onClick={() => handleOpenClick(row)}>Tạo phiên bản mới</button>
+                              <button type="button" onClick={() => handleDuplicateFillClick(row)}>Sao chép thành quy tắc mới</button>
+                              {active && <button type="button" onClick={() => { setMenuFor(null); handleCloseClick(row); }}>Ngừng áp dụng</button>}
+                              {row.estimate_count > 0 && <button type="button" onClick={() => openUsage(row)}>Xem phiếu tính giá đang dùng</button>}
+                              <button type="button" onClick={() => { setMenuFor(null); openHistory(row); }}>Xem lịch sử</button>
+                              {row.effective_from > today && (
+                                <>
+                                  <div className="md-page__menu__sep" />
+                                  <button type="button" className="danger" onClick={() => { setMenuFor(null); setDeleting(row); }}>Xóa</button>
+                                </>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </span>
                     </td>
                   </tr>
                 );
@@ -565,7 +760,7 @@ export function NormsCatalogPage() {
         )}
       </div>
 
-      {total > PAGE_SIZE && (
+      {!warnOnly && total > PAGE_SIZE && (
         <div className="md-page__pager">
           <span>Tổng số: <strong>{total}</strong> quy tắc</span>
           <div className="md-page__pager-btns">
@@ -581,7 +776,7 @@ export function NormsCatalogPage() {
         <div className="md-page__overlay">
           <div className="card md-page__dialog">
             <div className="md-page__dialog-head">
-              <h2>{editing ? "Sửa" : "Tạo"} quy tắc Định mức / Bù hao</h2>
+              <h2>{basedOn ? `Quy tắc: ${basedOn.code || basedOn.name || basedOn.norm_key}` : "Tạo quy tắc Định mức / Bù hao"}</h2>
               <button type="button" className="md-page__close" onClick={() => setMode(null)}>×</button>
             </div>
 
@@ -593,6 +788,19 @@ export function NormsCatalogPage() {
 
             {dlgTab === "setup" ? (
               <form className="md-page__dialog-body" onSubmit={handleSubmit}>
+                {basedOn && (
+                  <div className="md-page__hint" style={{ background: "var(--rust-soft)" }}>
+                    {basedOn.estimate_count > 0 && (
+                      <>Quy tắc này đang dùng trong <strong>{basedOn.estimate_count} phiếu tính giá</strong>. </>
+                    )}
+                    Định mức không sửa trực tiếp. <strong>Lưu</strong> sẽ tạo <strong>phiên bản mới</strong> (đóng bản đang chạy từ ngày hiệu lực này) — báo giá cũ vẫn giữ nguyên bản cũ.
+                  </div>
+                )}
+                {basedOn && (conflicts.conflicts[String(basedOn.id)]?.length ?? 0) > 0 && (
+                  <div className="md-page__hint" style={{ background: "var(--signal-soft, #fdecec)" }}>
+                    ⚠ Quy tắc có thể xung đột với: <strong>{(conflicts.conflicts[String(basedOn.id)] || []).map((id) => conflicts.labels[String(id)] || `#${id}`).join(", ")}</strong>. Các quy tắc cùng độ cụ thể + phạm vi giao nhau — engine chỉ còn phân xử bằng ưu tiên / ngày hiệu lực. Cân nhắc thu hẹp phạm vi hoặc chỉnh ưu tiên.
+                  </div>
+                )}
                 {/* Khối 1 — Thông tin chung */}
                 <h3 className="md-page__section-title">① Thông tin chung</h3>
                 <div className="md-page__form-grid">
@@ -674,18 +882,30 @@ export function NormsCatalogPage() {
                   <div>
                     <label className="label">Thứ tự ưu tiên</label>
                     <input type="number" className="input" value={priority} onChange={(e) => setPriority(e.target.value)} />
+                    <p className="md-page__muted" style={{ fontSize: "11px", margin: "2px 0 0" }}>
+                      Engine chọn quy tắc <strong>cụ thể hơn</strong> (khớp nhiều điều kiện) trước. Số này chỉ phá hòa khi độ cụ thể bằng nhau — <strong>số lớn hơn = ưu tiên cao hơn</strong>.
+                    </p>
                   </div>
                 </div>
 
                 {/* Khối 3 — Cách tính (đổi theo nhóm) */}
                 <h3 className="md-page__section-title">③ Cách tính</h3>
                 <div className="md-page__form-grid">
-                  {(isYield || isRunning || isPaper) && (method !== "PER_COLOR_SIDE") && (
+                  {isPercentValue(wasteGroup, method) && (
                     <div>
                       <label className="label">
-                        {isYield ? "Tỷ lệ đạt (0–1, VD 0.97)" : isRunning ? "Tỷ lệ hao (0–1, VD 0.03)" : method === "FIXED" ? "Số tờ cố định" : method === "PER_REAM" ? "Số tờ / ram" : "Tỷ lệ hao giấy (0–1)"}
+                        {isYield ? "Tỷ lệ đạt (%)" : isRunning ? "Tỷ lệ hao (%)" : "Tỷ lệ hao giấy (%)"}
                       </label>
-                      <input type="number" step="0.001" className="input" value={value} onChange={(e) => setValue(e.target.value)} placeholder={isYield ? "0.97" : "0.03"} />
+                      <input type="number" step="0.01" className="input" value={valuePct} onChange={(e) => setValuePct(e.target.value)} placeholder={isYield ? "97" : "1.5"} />
+                      <p className="md-page__muted" style={{ fontSize: "11px", margin: "2px 0 0" }}>
+                        Gõ theo % (VD {isYield ? "97" : "1.5"}). Hệ thống tự lưu {isYield ? "0.97" : "0.015"} cho engine.
+                      </p>
+                    </div>
+                  )}
+                  {isPaper && (method === "FIXED" || method === "PER_REAM") && (
+                    <div>
+                      <label className="label">{method === "FIXED" ? "Số tờ cố định" : "Số tờ / ram"}</label>
+                      <input type="number" step="0.001" className="input" value={value} onChange={(e) => setValue(e.target.value)} placeholder={method === "PER_REAM" ? "5" : "20"} />
                     </div>
                   )}
                   {isSetup && method === "PER_COLOR_SIDE" && (
@@ -753,9 +973,9 @@ export function NormsCatalogPage() {
                     <input className="input" style={{ width: "90px" }} type="number" value={pvBase} onChange={(e) => setPvBase(e.target.value)} title="số tờ nền" /> tờ nền
                   </div>
                   <div className="md-page__mono" style={{ fontSize: "13px" }}>{preview}</div>
-                  {isYield && value !== "" && Number(value) > 0 && Number(value) < 0.8 && (
+                  {isYield && valuePct !== "" && Number(valuePct) > 0 && Number(valuePct) < 80 && (
                     <div style={{ color: "var(--rust, #b45309)", fontSize: "12px", marginTop: "4px" }}>
-                      ⚠ Tỷ lệ đạt {(Number(value) * 100).toFixed(0)}% khá thấp (&lt; 80%) — kiểm tra lại kẻo nhập nhầm.
+                      ⚠ Tỷ lệ đạt {Number(valuePct).toFixed(0)}% khá thấp (&lt; 80%) — kiểm tra lại kẻo nhập nhầm.
                     </div>
                   )}
                 </div>
@@ -845,18 +1065,18 @@ export function NormsCatalogPage() {
         <div className="md-page__overlay">
           <form className="card md-page__dialog md-page__dialog--sm" onSubmit={handleCloseSubmit}>
             <div className="md-page__dialog-head">
-              <h2>Đóng hiệu lực định mức</h2>
+              <h2>Ngừng áp dụng quy tắc</h2>
               <button type="button" className="md-page__close" onClick={() => setMode(null)}>×</button>
             </div>
             <div className="md-page__dialog-body">
-              <p>Dừng hiệu lực quy tắc <strong>{selected.code || selected.name || selected.norm_key}</strong>.</p>
+              <p>Ngừng áp dụng quy tắc <strong>{selected.code || selected.name || selected.norm_key}</strong> kể từ ngày dưới đây. Báo giá đã dùng bản này vẫn giữ nguyên.</p>
               <div>
                 <label className="label">Ngày kết thúc (không gồm ngày này)</label>
                 <input type="date" className="input" value={effectiveTo} onChange={(e) => setEffectiveTo(e.target.value)} required />
               </div>
               <div className="md-page__dialog-actions">
                 <Button variant="secondary" type="button" onClick={() => setMode(null)}>Hủy</Button>
-                <Button variant="danger" type="submit">Xác nhận đóng</Button>
+                <Button variant="danger" type="submit">Xác nhận ngừng</Button>
               </div>
             </div>
           </form>
@@ -873,7 +1093,7 @@ export function NormsCatalogPage() {
             </div>
             <div className="md-page__dialog-body">
               <table className="md-page__table">
-                <thead><tr><th>Version</th><th>Giá trị</th><th>Áp dụng từ</th><th>Đến</th><th>Đã dùng</th></tr></thead>
+                <thead><tr><th>Version</th><th>Mức hao / Công thức</th><th>Áp dụng từ</th><th>Đến</th><th>Đang dùng</th></tr></thead>
                 <tbody>
                   {history.map((h) => (
                     <tr key={h.id}>
@@ -881,12 +1101,51 @@ export function NormsCatalogPage() {
                       <td className="md-page__price">{valueDisplay(h)}</td>
                       <td>{h.effective_from}</td>
                       <td>{h.effective_to || <span className="md-page__muted">Vô hạn</span>}</td>
-                      <td style={{ textAlign: "right" }}>{h.used_count}</td>
+                      <td style={{ textAlign: "right" }}>{h.estimate_count > 0 ? `${h.estimate_count} phiếu` : <span className="md-page__muted">—</span>}</td>
                     </tr>
                   ))}
                   {history.length === 0 && <tr><td colSpan={5} className="md-page__muted" style={{ textAlign: "center" }}>Không có dữ liệu.</td></tr>}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Usage drill-down — "Đang dùng trong" */}
+      {usageFor && (
+        <div className="md-page__overlay">
+          <div className="card md-page__dialog">
+            <div className="md-page__dialog-head">
+              <h2>Phiếu tính giá đang dùng — {usageFor.code || usageFor.name || usageFor.norm_key}</h2>
+              <button type="button" className="md-page__close" onClick={() => { setUsageFor(null); setUsageData(null); }}>×</button>
+            </div>
+            <div className="md-page__dialog-body">
+              {usageData === null ? (
+                <p className="md-page__muted">Đang tải…</p>
+              ) : usageData.estimate_count === 0 ? (
+                <p className="md-page__muted">Chưa có phiếu tính giá nào dùng quy tắc này.</p>
+              ) : (
+                <>
+                  <p className="md-page__muted" style={{ fontSize: "12px" }}>
+                    <strong>{usageData.estimate_count}</strong> phiếu tính giá đang tham chiếu quy tắc này
+                    {usageData.estimates.length < usageData.estimate_count ? ` (hiện ${usageData.estimates.length} phiếu gần nhất)` : ""}. Sửa quy tắc đã dùng → hãy tạo phiên bản mới để không lệch báo giá cũ.
+                  </p>
+                  <table className="md-page__table">
+                    <thead><tr><th>Số phiếu</th><th>Sản phẩm</th><th>Trạng thái</th><th>Ngày tạo</th></tr></thead>
+                    <tbody>
+                      {usageData.estimates.map((e) => (
+                        <tr key={e.id}>
+                          <td className="md-page__mono">{e.estimate_number}</td>
+                          <td>{e.product_name}</td>
+                          <td>{ESTIMATE_STATUS_LABEL[e.status] ?? e.status}</td>
+                          <td style={{ fontSize: "12px" }}>{new Date(e.created_at).toLocaleDateString("vi-VN")}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </>
+              )}
             </div>
           </div>
         </div>

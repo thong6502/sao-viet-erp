@@ -89,6 +89,46 @@ def _calculate_specificity_score(norm: Norm) -> int:
         score += 3
     return score
 
+
+def _qty_overlap(amin, amax, bmin, bmax) -> bool:
+    """Hai dải số lượng [min, max) có giao nhau không (None min=0, None max=∞)."""
+    lo_a = amin if amin is not None else 0
+    hi_a = amax if amax is not None else float("inf")
+    lo_b = bmin if bmin is not None else 0
+    hi_b = bmax if bmax is not None else float("inf")
+    return lo_a < hi_b and lo_b < hi_a
+
+
+def _scope_overlap(a: Norm, b: Norm) -> bool:
+    """Hai định mức có thể cùng khớp một ca sản xuất không (mọi chiều phạm vi đều tương thích)."""
+    # Loại sản phẩm (multi-select + legacy single); rỗng = tất cả.
+    pa = set(a.applicable_product_types or ([] if a.product_type is None else [a.product_type]))
+    pb = set(b.applicable_product_types or ([] if b.product_type is None else [b.product_type]))
+    if pa and pb and pa.isdisjoint(pb):
+        return False
+    # Máy.
+    ma = set(a.applicable_machine_ids or ([] if a.machine_id is None else [a.machine_id]))
+    mb = set(b.applicable_machine_ids or ([] if b.machine_id is None else [b.machine_id]))
+    if ma and mb and ma.isdisjoint(mb):
+        return False
+    # Công đoạn (chỉ so cùng loại định danh).
+    if a.operation_id is not None and b.operation_id is not None and a.operation_id != b.operation_id:
+        return False
+    if a.operation_key is not None and b.operation_key is not None and a.operation_key != b.operation_key:
+        return False
+    # Dải số lượng.
+    if not _qty_overlap(a.qty_min, a.qty_max, b.qty_min, b.qty_max):
+        return False
+    # Context (số màu / số mặt): chỉ xung khắc khi cả hai chỉ định và khác nhau.
+    ca = a.context or {}
+    cb = b.context or {}
+    for k in ("colors", "sides"):
+        va, vb = ca.get(k), cb.get(k)
+        if va is not None and vb is not None and va != vb:
+            return False
+    return True
+
+
 class NormService:
     def __init__(
         self,
@@ -174,6 +214,7 @@ class NormService:
     def list_norms(
         self,
         *,
+        q: str | None = None,
         norm_key: str | None = None,
         product_type: str | None = None,
         machine_id: int | None = None,
@@ -183,6 +224,7 @@ class NormService:
         size: int = 50,
     ) -> tuple[list[Norm], int]:
         return self.repo.list_norms(
+            q=q,
             norm_key=norm_key,
             product_type=product_type,
             machine_id=machine_id,
@@ -333,6 +375,54 @@ class NormService:
             detail=f"Tạo định mức {code or norm_key}={value} áp dụng từ {effective_from}",
         )
         return norm
+
+    def get_norm_by_id(self, norm_id: int) -> Norm:
+        norm = self.repo.get_by_id(norm_id)
+        if not norm:
+            raise NormNotFoundError("Không tìm thấy định mức.")
+        return norm
+
+    def estimate_counts(self) -> dict[int, int]:
+        """{norm_id: số phiếu tính giá đang dùng} — cho cột 'Đang dùng trong'."""
+        return self.repo.estimate_norm_counts()
+
+    def detect_conflicts(self) -> dict:
+        """Tìm các cặp định mức cùng loại (norm_key) có thể cùng khớp một ca mà engine
+        KHÔNG phân xử rõ được: phạm vi giao nhau + độ cụ thể BẰNG nhau (specificity ngang
+        ⇒ chỉ còn ưu tiên/ngày phá hòa). Khác độ cụ thể thì rule cụ thể hơn thắng, không cảnh báo.
+        """
+        from collections import defaultdict
+
+        rows = self.repo.list_open_norms()
+        by_key: dict[str, list[Norm]] = defaultdict(list)
+        for r in rows:
+            by_key[r.norm_key].append(r)
+        conflicts: dict[int, list[int]] = {}
+        for group in by_key.values():
+            scored = [(n, _calculate_specificity_score(n)) for n in group]
+            for i, (a, sa) in enumerate(scored):
+                for b, sb in scored[i + 1:]:
+                    if sa != sb:
+                        continue
+                    if _scope_overlap(a, b):
+                        conflicts.setdefault(a.id, []).append(b.id)
+                        conflicts.setdefault(b.id, []).append(a.id)
+        labels = {r.id: (r.code or r.name or r.norm_key) for r in rows if r.id in conflicts}
+        return {"conflicts": conflicts, "labels": labels}
+
+    def usage(self, norm_id: int) -> dict:
+        """Danh sách phiếu tính giá đang dùng một định mức — cho drill-down."""
+        norm = self.repo.get_by_id(norm_id)
+        if not norm:
+            raise NormNotFoundError("Không tìm thấy định mức.")
+        estimates = self.repo.list_estimates_by_norm(norm_id)
+        count = self.repo.estimate_norm_counts().get(norm_id, len(estimates))
+        return {
+            "norm_id": norm_id,
+            "code": norm.code or norm.norm_key,
+            "estimate_count": count,
+            "estimates": estimates,
+        }
 
     def get_history(self, norm_id: int) -> list[Norm]:
         norm = self.repo.get_by_id(norm_id)

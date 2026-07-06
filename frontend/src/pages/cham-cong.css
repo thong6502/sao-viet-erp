@@ -1,0 +1,62 @@
+/* Chấm công GPS — dùng chung tokens + nhan-su.css. */
+
+.cc-tabs { margin-bottom: var(--sp-5); }
+.cc-toolbar { margin-bottom: var(--sp-3); }
+.cc-rowact { display: flex; gap: var(--sp-2); }
+
+.cc-grid { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: var(--sp-6); align-items: start; }
+
+.cc-card {
+  padding: var(--sp-6) var(--sp-5);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  text-align: center;
+}
+.cc-card__who { font-size: 18px; font-weight: var(--fw-bold); }
+.cc-card__hint { color: var(--ash); font-size: 13px; margin: 6px 0 var(--sp-5); }
+
+.cc-bigbtn {
+  width: 100%;
+  padding: var(--sp-5);
+  font-size: 20px;
+  font-weight: var(--fw-bold);
+  color: #fff;
+  border: none;
+  border-radius: var(--r-5);
+  cursor: pointer;
+  transition: filter var(--duration-fast) var(--easing-standard);
+}
+.cc-bigbtn:hover:not(:disabled) { filter: brightness(1.06); }
+.cc-bigbtn:disabled { opacity: .55; cursor: not-allowed; }
+.cc-bigbtn--in { background: var(--moss); }
+.cc-bigbtn--out { background: var(--rust); }
+
+.cc-note { color: var(--ash-2); font-size: 12px; margin-top: var(--sp-4); }
+
+.cc-logs { min-width: 0; }
+
+.banner--ok {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  border: 1px solid var(--moss);
+  padding: 8px 12px;
+  border-radius: var(--r-3);
+}
+
+/* Bảng công tháng */
+.cc-ts-toolbar { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; }
+.cc-ts-toolbar input[type="month"] {
+  padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--r-3);
+  background: var(--canvas); font: inherit; color: var(--ink);
+}
+.cc-ts-legend { color: var(--ash-2); font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+.cc-ts-legend .cc-day { min-width: auto; padding: 1px 6px; }
+.cc-timesheet .ns__table th, .cc-timesheet .ns__table td { padding: 6px 8px; white-space: nowrap; }
+.cc-day { text-align: center; min-width: 30px; font-size: 12px; color: var(--ash-2); }
+.cc-day--on { background: var(--moss-soft); color: var(--moss-deep); font-weight: var(--fw-medium); border-radius: var(--r-2); }
+.cc-total { text-align: center; font-weight: var(--fw-bold); }
+
+@media (max-width: 720px) {
+  .cc-grid { grid-template-columns: 1fr; }
+}

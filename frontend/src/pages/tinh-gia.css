@@ -369,6 +369,52 @@
   color: var(--signal);
 }
 
+/* ---- Phương án khác (so sánh khổ giấy → con/tờ) ------------------------- */
+.tg__alt-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tg__alt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  text-align: left;
+  min-width: 118px;
+  padding: 7px 11px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  cursor: pointer;
+}
+.tg__alt:hover {
+  border-color: var(--rust);
+  background: var(--rust-soft);
+}
+.tg__alt-name {
+  font-family: var(--ff-mono);
+  font-size: 12.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.tg__alt-pieces {
+  font-size: 12px;
+  color: var(--ash);
+}
+.tg__alt-eff {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.tg__alt--better {
+  border-color: var(--moss);
+  background: var(--moss-soft);
+}
+.tg__alt--better .tg__alt-eff {
+  color: var(--moss-deep);
+  font-weight: var(--fw-bold);
+}
+
 /* ---- SEAM (Giấy / Sản phẩm chưa sẵn sàng) -------------------------------- */
 .tg__seam {
   display: flex;

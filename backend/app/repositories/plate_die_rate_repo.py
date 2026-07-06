@@ -103,6 +103,65 @@ class PlateDieRateRepository:
             select(func.count()).select_from(Operation).where(Operation.tooling_rate_id == rate_id)
         ).scalar_one())
 
+    # -- "Đang dùng trong" (2 cơ chế) -------------------------------------
+    def operation_ref_counts(self, ids: list[int]) -> dict[int, int]:
+        """{rate_id: số công đoạn dùng KHUÔN} — bulk cho cột 'Đang dùng trong' tab khuôn."""
+        from ..models.operation import Operation
+        if not ids:
+            return {}
+        out = {i: 0 for i in ids}
+        rows = self.db.execute(
+            select(Operation.tooling_rate_id, func.count())
+            .where(Operation.tooling_rate_id.in_(ids))
+            .group_by(Operation.tooling_rate_id)
+        )
+        for rate_id, n in rows:
+            if rate_id in out:
+                out[rate_id] = int(n)
+        return out
+
+    def estimate_ref_counts(self, ids: list[int]) -> dict[int, int]:
+        """{rate_id: số phiếu tính giá DISTINCT dùng KẼM} — engine ghi cost-line
+        source_type='plate_die_rates' + source_id=rate.id (kẽm chọn động theo máy)."""
+        from ..models.estimate import EstimateCostLine, EstimateOption
+        if not ids:
+            return {}
+        buckets: dict[int, set[int]] = {i: set() for i in ids}
+        rows = self.db.execute(
+            select(EstimateCostLine.source_id, EstimateOption.estimate_id)
+            .join(EstimateOption, EstimateCostLine.estimate_option_id == EstimateOption.id)
+            .where(EstimateCostLine.source_type == "plate_die_rates")
+            .where(EstimateCostLine.source_id.in_(ids))
+        )
+        for rate_id, est_id in rows:
+            if rate_id in buckets:
+                buckets[rate_id].add(est_id)
+        return {i: len(s) for i, s in buckets.items()}
+
+    def list_estimates_by_rate(self, rate_id: int, *, limit: int = 100) -> list:
+        """Phiếu tính giá DISTINCT dùng kẽm này, mới nhất trước — drill-down 'Xem nơi đang dùng'."""
+        from ..models.estimate import Estimate, EstimateCostLine, EstimateOption
+        est_ids = list(self.db.execute(
+            select(EstimateOption.estimate_id)
+            .join(EstimateCostLine, EstimateCostLine.estimate_option_id == EstimateOption.id)
+            .where(EstimateCostLine.source_type == "plate_die_rates")
+            .where(EstimateCostLine.source_id == rate_id)
+        ).scalars())
+        uniq = list(dict.fromkeys(est_ids))
+        if not uniq:
+            return []
+        return list(self.db.execute(
+            select(Estimate).where(Estimate.id.in_(uniq))
+            .order_by(Estimate.created_at.desc(), Estimate.id.desc())
+        ).scalars())[:limit]
+
+    def list_operations_by_rate(self, rate_id: int, *, limit: int = 100) -> list:
+        """Công đoạn dùng khuôn này — drill-down 'Xem nơi đang dùng'."""
+        from ..models.operation import Operation
+        return list(self.db.execute(
+            select(Operation).where(Operation.tooling_rate_id == rate_id).order_by(Operation.name)
+        ).scalars())[:limit]
+
     def list_rates(
         self,
         *,
