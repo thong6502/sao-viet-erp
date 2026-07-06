@@ -35,6 +35,12 @@ class MaterialValidationError(MaterialError):
 class MaterialDuplicate(MaterialError):
     pass
 
+class ToggleActiveForbidden(MaterialError):
+    """Đổi is_active qua nút Sửa khi không có quyền chi tiết `toggle_active` (Cách B).
+
+    Chốt ở service để endpoint Sửa chung không thành đường vòng né quyền Bật/tắt."""
+
+
 class MaterialNotFound(MaterialError):
     pass
 
@@ -197,8 +203,17 @@ class MaterialService:
         surface: str | None = None,
         is_active: bool | None = None,
         actor,
+        allow_toggle_active: bool = True,
     ) -> Material:
         material = self.get_material(material_id)
+        # Bật/tắt hoạt động là quyền chi tiết `toggle_active` — thiếu nó thì is_active
+        # phải giữ nguyên (các field khác vẫn sửa bình thường).
+        if (
+            is_active is not None
+            and bool(is_active) != bool(material.is_active)
+            and not allow_toggle_active
+        ):
+            raise ToggleActiveForbidden("Bạn không có quyền bật/tắt hoạt động vật tư.")
         self._validate(
             name=name,
             material_type=material_type,

@@ -23,6 +23,8 @@ from .routers import (
     machines,
     materials,
     operations,
+    warehouses,
+    warehouse_items,
     orders,
     products,
     product_types_catalog,
@@ -81,6 +83,8 @@ app.include_router(product_types_catalog.router)
 app.include_router(materials.router)
 app.include_router(machines.router)
 app.include_router(operations.router)
+app.include_router(warehouses.router)
+app.include_router(warehouse_items.router)
 app.include_router(click_ink_rates.router)
 app.include_router(plate_die_rates.router)
 app.include_router(norms.router)

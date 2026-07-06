@@ -6,6 +6,7 @@ import {
   type NormInput,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import "./master-data.css";
 
@@ -23,7 +24,11 @@ const NORM_KEYS = [
 
 export function NormsCatalogPage() {
   const { token } = useAuth();
-  
+  const can = useCan();
+  const canCreate = can("dm_dinh_muc", "create");
+  const canUpdate = can("dm_dinh_muc", "update");
+  const canDelete = can("dm_dinh_muc", "delete");
+
   const [rows, setRows] = useState<NormRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -232,9 +237,11 @@ export function NormsCatalogPage() {
             <h1 className="md-page__title">Định mức & Bù hao hao hụt</h1>
             <p className="md-page__sub">Quản lý tỷ lệ thành phẩm, hao hụt chạy bài và setup theo sản phẩm/máy/công đoạn</p>
           </div>
-          <Button variant="primary" onClick={handleCreateClick}>
-            + Thêm quy tắc định mức
-          </Button>
+          {canCreate && (
+            <Button variant="primary" onClick={handleCreateClick}>
+              + Thêm quy tắc định mức
+            </Button>
+          )}
         </div>
       </div>
 
@@ -400,7 +407,7 @@ export function NormsCatalogPage() {
                       </span>
                     </td>
                     <td className="md-page__actions-col">
-                      {(row.effective_to === null || row.effective_to > todayStr) && (
+                      {canUpdate && (row.effective_to === null || row.effective_to > todayStr) && (
                         <button
                           type="button"
                           className="btn btn--secondary md-page__rowbtn"
@@ -409,7 +416,7 @@ export function NormsCatalogPage() {
                           Đóng định mức
                         </button>
                       )}
-                      {row.effective_from > todayStr && (
+                      {canDelete && row.effective_from > todayStr && (
                         <button
                           type="button"
                           className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"

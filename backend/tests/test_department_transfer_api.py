@@ -120,3 +120,75 @@ def test_transfer_forbidden_without_permission(client):
         headers=_h(token),
     )
     assert resp.status_code == 403
+
+
+def test_bulk_assign_role_sets_role_and_audits(client):
+    token = _admin_token(client)
+    dept = client.post("/api/departments", json={"name": "Gán VT"}, headers=_h(token)).json()
+    role = client.post(
+        "/api/roles", json={"name": "NV Gán", "department_id": dept["id"]}, headers=_h(token)
+    ).json()
+    u1 = _make_user("assign-1", dept["id"], None)
+    u2 = _make_user("assign-2", dept["id"], None)
+
+    resp = client.post(
+        "/api/departments/assign-role",
+        json={"user_ids": [u1, u2], "role_id": role["id"]},
+        headers=_h(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["assigned"] == 2
+
+    users = client.get("/api/users", headers=_h(token)).json()
+    for uid in (u1, u2):
+        row = next(r for r in users if r["id"] == uid)
+        assert row["role_id"] == role["id"]
+
+    audit = client.get("/api/audit", headers=_h(token)).json()
+    assigned = [a for a in audit if a["action"] == "assign_role"]
+    assert len({a["target"] for a in assigned}) >= 2
+
+
+def test_bulk_assign_role_rejects_foreign_role(client):
+    token = _admin_token(client)
+    dept_a = client.post("/api/departments", json={"name": "Phòng A"}, headers=_h(token)).json()
+    dept_b = client.post("/api/departments", json={"name": "Phòng B"}, headers=_h(token)).json()
+    role_b = client.post(
+        "/api/roles", json={"name": "VT B", "department_id": dept_b["id"]}, headers=_h(token)
+    ).json()
+    u = _make_user("assign-foreign", dept_a["id"], None)
+
+    # Role belongs to B but the user is in A -> 400, nothing changes.
+    resp = client.post(
+        "/api/departments/assign-role",
+        json={"user_ids": [u], "role_id": role_b["id"]},
+        headers=_h(token),
+    )
+    assert resp.status_code == 400
+    row = next(r for r in client.get("/api/users", headers=_h(token)).json() if r["id"] == u)
+    assert row["role_id"] is None
+
+
+def test_bulk_assign_role_validation_and_permission(client):
+    token = _admin_token(client)
+    dept = client.post("/api/departments", json={"name": "VT Val"}, headers=_h(token)).json()
+    role = client.post(
+        "/api/roles", json={"name": "VT V", "department_id": dept["id"]}, headers=_h(token)
+    ).json()
+
+    # Empty selection -> 422 (schema min_length).
+    empty = client.post(
+        "/api/departments/assign-role",
+        json={"user_ids": [], "role_id": role["id"]},
+        headers=_h(token),
+    )
+    assert empty.status_code == 422
+
+    # No permission -> 403.
+    sales = _sales_token()
+    forbidden = client.post(
+        "/api/departments/assign-role",
+        json={"user_ids": [1], "role_id": role["id"]},
+        headers=_h(sales),
+    )
+    assert forbidden.status_code == 403

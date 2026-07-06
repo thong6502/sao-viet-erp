@@ -15,6 +15,7 @@ import {
   type QuoteItemDetail,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
 import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
@@ -1314,6 +1315,12 @@ function QuotationDetailView({
   onChanged: () => void;
 }) {
   const { token } = useAuth();
+  // Xuất PDF đối ngoại = quyền chi tiết `export` (tách khỏi "xem").
+  const canExport = useCan()("bao_gia", "export");
+  const canRequote = useCan()("bao_gia", "requote");
+  // Lưu ý: layout 2 cột (main) không còn nút Hủy báo giá — quyền `cancel` vẫn chặn ở backend.
+  // Thao tác trạng thái chung (gửi / từ chối / đánh dấu hết hạn…) — tách khỏi "sửa".
+  const canManageStatus = useCan()("bao_gia", "manage_status");
   const [d, setD] = useState<QuotationDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1614,19 +1621,25 @@ function QuotationDetailView({
         <div className="actions">
           <Button variant="secondary" onClick={() => setShowPrint(true)}>🖨️ Xem in</Button>
           <Button variant="secondary" onClick={duplicate}>⧉ Nhân bản</Button>
+          {/* Gating quyền chi tiết: từ chối/gửi cần `manage_status`, chốt cần `approve`
+              (server tính d.can_approve), tạo bản mới cần `requote` — thiếu quyền thì ẨN nút. */}
           {viewingLatest && d.status === "sent" && (
             <>
-              <Button variant="secondary" disabled={busy} onClick={() => doTransition("rejected")}>✕ Khách từ chối</Button>
-              <Button variant="primary" disabled={busy || !d.allowed_transitions.includes("accepted")} onClick={() => doTransition("accepted")}>✓ Khách chốt</Button>
+              {canManageStatus && (
+                <Button variant="secondary" disabled={busy} onClick={() => doTransition("rejected")}>✕ Khách từ chối</Button>
+              )}
+              {d.can_approve && (
+                <Button variant="primary" disabled={busy || !d.allowed_transitions.includes("accepted")} onClick={() => doTransition("accepted")}>✓ Khách chốt</Button>
+              )}
             </>
           )}
-          {viewingLatest && d.status === "draft" && d.allowed_transitions.includes("sent") && (
+          {canManageStatus && viewingLatest && d.status === "draft" && d.allowed_transitions.includes("sent") && (
             <Button variant="accent" disabled={busy} onClick={() => doTransition("sent")}>➤ Gửi khách</Button>
           )}
           {viewingLatest && d.status === "accepted" && navigate && (
             <Button variant="accent" disabled={busy} onClick={handleCreateOrder}>🛒 Tạo đơn hàng</Button>
           )}
-          {viewingLatest && (d.status === "rejected" || d.status === "expired") && d.allowed_transitions.includes("change_order") && (
+          {canRequote && viewingLatest && (d.status === "rejected" || d.status === "expired") && d.allowed_transitions.includes("change_order") && (
             <Button variant="primary" disabled={busy} onClick={doRequote}>⎇ Tạo phiên bản mới</Button>
           )}
         </div>
@@ -1741,7 +1754,7 @@ function QuotationDetailView({
             )}
             <div style={{ marginTop: "14px", display: "flex", gap: "8px" }}>
               {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}>💾 Lưu nháp</Button>}
-              {!editable && d.allowed_transitions.includes("change_order") && (
+              {canRequote && !editable && d.allowed_transitions.includes("change_order") && (
                 <Button variant="primary" disabled={busy} onClick={doRequote}>⎇ Tạo phiên bản mới</Button>
               )}
               <Button variant="ghost" onClick={() => onEdit(d)}>Sửa chi tiết dòng</Button>
@@ -1958,7 +1971,7 @@ function QuotationDetailView({
         </div>
       </div>
 
-      {showPrint && <QuotationPrintModal d={d} statuses={statuses} onDownloadPdf={openPdf} onClose={() => setShowPrint(false)} />}
+      {showPrint && <QuotationPrintModal d={d} statuses={statuses} onDownloadPdf={openPdf} canDownload={canExport} onClose={() => setShowPrint(false)} />}
     </main>
   );
 }
@@ -1967,11 +1980,14 @@ function QuotationDetailView({
 function QuotationPrintModal({
   d,
   onDownloadPdf,
+  canDownload,
   onClose,
 }: {
   d: QuotationDetail;
   statuses: EnumOption[];
   onDownloadPdf: () => void;
+  /** Quyền chi tiết `export`: thiếu thì chỉ xem trước, ẩn nút In/Lưu PDF. */
+  canDownload: boolean;
   onClose: () => void;
 }) {
   const now = new Date();
@@ -2064,7 +2080,9 @@ function QuotationPrintModal({
         </div>
         <div className="bg__dialog-actions" style={{ padding: "16px 20px" }}>
           <Button variant="ghost" onClick={onClose}>Đóng</Button>
-          <Button variant="primary" onClick={onDownloadPdf}>In / Lưu PDF</Button>
+          {canDownload && (
+            <Button variant="primary" onClick={onDownloadPdf}>In / Lưu PDF</Button>
+          )}
         </div>
       </div>
     </div>

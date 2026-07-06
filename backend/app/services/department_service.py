@@ -32,6 +32,14 @@ class InvalidHead(DepartmentError):
     """The chosen head is not a user of this department."""
 
 
+class SetHeadForbidden(DepartmentError):
+    """Đổi trưởng phòng cần quyền chi tiết `set_head` (tách khỏi sửa phòng ban)."""
+
+
+class ReparentForbidden(DepartmentError):
+    """Đổi cấp trên (cây tổ chức) cần quyền chi tiết `reparent` (tách khỏi sửa phòng ban)."""
+
+
 class DepartmentCycle(DepartmentError):
     """Re-parenting would create a cycle (parent is the unit itself or a descendant)."""
 
@@ -206,6 +214,7 @@ class DepartmentService:
             members.append(
                 {
                     "id": user.id,
+                    "code": user.code,
                     "name": user.name,
                     "username": user.username,
                     "role_name": role_name,
@@ -267,13 +276,21 @@ class DepartmentService:
         level_id: int | None = None,
         parent_id: int | None | object = _KEEP,
         actor_id: int | None,
+        allow_set_head: bool = True,
+        allow_reparent: bool = True,
     ) -> Department:
         dept = self.departments.get_by_id(dept_id)
         if dept is None:
             raise DepartmentNotFound("Không tìm thấy phòng ban")
+        # Đổi trưởng phòng là quyền chi tiết riêng; giữ nguyên head thì không cần.
+        if head_user_id != dept.head_user_id and not allow_set_head:
+            raise SetHeadForbidden("Bạn không có quyền đặt trưởng phòng.")
         # Absent parent_id → keep the current parent (partial update, e.g. a plain rename).
         if parent_id is _KEEP:
             parent_id = dept.parent_id
+        # Đổi cấp trên (tái cấu trúc cây) là quyền chi tiết riêng; giữ nguyên thì không cần.
+        if parent_id != dept.parent_id and not allow_reparent:
+            raise ReparentForbidden("Bạn không có quyền đổi cấp trên của phòng ban.")
         name = name.strip()
         clash = self.departments.get_by_name(name)
         if clash is not None and clash.id != dept_id:

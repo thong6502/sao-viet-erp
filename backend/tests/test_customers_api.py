@@ -135,6 +135,28 @@ def test_list_q_filters(client):
                for c in body["items"]) or body["total"] >= 1
 
 
+def test_list_status_filter(client):
+    token = _admin_token(client)
+    cid = client.post(
+        "/api/customers", json={"name": "KH Status", "credit_limit": 0}, headers=_h(token)
+    ).json()["customer"]["id"]
+    # New customer defaults to active.
+    act = client.get("/api/customers?status=active", headers=_h(token)).json()
+    assert any(c["id"] == cid for c in act["items"])
+    inact = client.get("/api/customers?status=inactive", headers=_h(token)).json()
+    assert all(c["id"] != cid for c in inact["items"])
+    # Switch to inactive → now only the inactive filter shows it.
+    client.put(
+        f"/api/customers/{cid}",
+        json={"name": "KH Status", "credit_limit": 0, "status": "inactive"},
+        headers=_h(token),
+    )
+    inact2 = client.get("/api/customers?status=inactive", headers=_h(token)).json()
+    assert any(c["id"] == cid for c in inact2["items"])
+    act2 = client.get("/api/customers?status=active", headers=_h(token)).json()
+    assert all(c["id"] != cid for c in act2["items"])
+
+
 # --- KH-02 create ----------------------------------------------------------
 
 

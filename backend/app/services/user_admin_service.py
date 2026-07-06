@@ -41,6 +41,14 @@ class CannotLockSelf(UserAdminError):
     """A user may not lock their own account."""
 
 
+class CannotRevokeSelf(UserAdminError):
+    """A user may not revoke their own sessions (would log themselves out)."""
+
+
+class TransferForbidden(UserAdminError):
+    """Đổi phòng ban của người dùng cần quyền chi tiết `transfer` (tách khỏi sửa hồ sơ)."""
+
+
 class UserAdminService:
     def __init__(
         self,
@@ -76,6 +84,7 @@ class UserAdminService:
             rows.append(
                 {
                     "id": u.id,
+                    "code": u.code,
                     "name": u.name,
                     "username": u.username,
                     "department_id": u.department_id,
@@ -129,6 +138,38 @@ class UserAdminService:
             detail=f"role:{role_id}",
         )
         return user
+
+    def bulk_assign_role(
+        self, *, user_ids: list[int], role_id: int, actor_id: int | None
+    ) -> int:
+        """Gán một vai trò cho nhiều người cùng lúc từ màn Phòng ban (bulk).
+
+        The role must belong to the same department as every selected user (a role lives in
+        exactly one department). Validates the role + all users up front so a bad id fails the
+        whole batch (no partial change), then sets the role and writes one audit row per person.
+        Returns how many were assigned.
+        """
+        role = self.roles.get_by_id(role_id)
+        if role is None:
+            raise InvalidRoleForDepartment("Vai trò không tồn tại")
+        # Resolve everyone first; each must be in the role's department (nothing changes on error).
+        users: list[User] = []
+        for uid in user_ids:
+            u = self.users.get_by_id(uid)
+            if u is None:
+                raise UserNotFound(f"Không tìm thấy người dùng (id={uid})")
+            if u.department_id != role.department_id:
+                raise InvalidRoleForDepartment("Vai trò không thuộc phòng của người dùng")
+            users.append(u)
+        for u in users:
+            self.users.set_role(u, role_id)
+            self.audit.create(
+                actor_user_id=actor_id,
+                action="assign_role",
+                target=f"user:{u.id}",
+                detail=f"role:{role_id}",
+            )
+        return len(users)
 
     def transfer_users(
         self, *, user_ids: list[int], target_department_id: int, actor_id: int | None
@@ -186,16 +227,25 @@ class UserAdminService:
         return user
 
     def update_user(
-        self, *, user_id: int, name: str, department_id: int, actor_id: int | None
+        self,
+        *,
+        user_id: int,
+        name: str,
+        department_id: int,
+        actor_id: int | None,
+        allow_transfer: bool = True,
     ) -> tuple[User, bool]:
         """Edit a user's name + department (spec-08 / PBI-2003). Username is NOT editable.
         Changing department drops the current role (it belongs to the old department). Returns
-        (user, role_dropped)."""
+        (user, role_dropped). Đổi phòng ban cần `allow_transfer` (quyền chi tiết `transfer`);
+        đổi tên trong cùng phòng thì không cần."""
         user = self.users.get_by_id(user_id)
         if user is None:
             raise UserNotFound("Không tìm thấy người dùng")
         if self.departments.get_by_id(department_id) is None:
             raise DepartmentNotFound("Không tìm thấy phòng ban")
+        if department_id != user.department_id and not allow_transfer:
+            raise TransferForbidden("Bạn không có quyền chuyển phòng ban cho người dùng.")
         role_dropped = department_id != user.department_id and user.role_id is not None
         new_role_id = user.role_id if department_id == user.department_id else None
         self.users.set_name(user, name.strip())
@@ -231,6 +281,8 @@ class UserAdminService:
 
     def revoke_sessions(self, *, user_id: int, actor_id: int | None) -> int:
         """Log the user out everywhere (spec-08): bump token_version + revoke refresh tokens."""
+        if user_id == actor_id:
+            raise CannotRevokeSelf("Không thể tự thu hồi phiên của tài khoản chính mình")
         user = self.users.get_by_id(user_id)
         if user is None:
             raise UserNotFound("Không tìm thấy người dùng")

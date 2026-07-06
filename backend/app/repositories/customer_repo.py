@@ -199,3 +199,43 @@ class CustomerRepository:
         self.db.commit()
         self.db.refresh(customer)
         return customer
+
+    def reassign_sale(
+        self, *, from_sale_user_id: int, to_sale_user_id: int, scope: str, actor
+    ) -> list[Customer]:
+        """Move every customer owned by `from_sale_user_id` (AND visible under the actor's
+        scope) to `to_sale_user_id`. Returns the moved rows. The scope filter means a
+        `department`-scoped caller can only move customers whose current owner sits in their
+        department — never someone else's book."""
+        stmt = select(Customer).where(Customer.sale_user_id == from_sale_user_id)
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        rows = list(self.db.execute(stmt).scalars())
+        for c in rows:
+            c.sale_user_id = to_sale_user_id
+        self.db.commit()
+        return rows
+
+    def reassign_by_ids(
+        self, *, customer_ids: list[int], to_sale_user_id: int, scope: str, actor
+    ) -> tuple[list[Customer], int]:
+        """Reassign a specific set of customers (checkbox selection) to `to_sale_user_id`.
+        Only customers the actor may access under `scope` are moved; the rest are skipped.
+        Returns (moved_rows, skipped_count)."""
+        moved: list[Customer] = []
+        skipped = 0
+        seen: set[int] = set()
+        for cid in customer_ids:
+            if cid in seen:
+                continue
+            seen.add(cid)
+            c = self.db.get(Customer, cid)
+            if c is None or not self.can_access(customer=c, scope=scope, actor=actor):
+                skipped += 1
+                continue
+            if c.sale_user_id != to_sale_user_id:
+                c.sale_user_id = to_sale_user_id
+                moved.append(c)
+        self.db.commit()
+        return moved, skipped

@@ -22,7 +22,10 @@ import {
 } from "../api/client";
 import type { NavigateFn } from "../components/AppShell";
 import { useAuth } from "../auth/useAuth";
+import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { Select } from "../components/Select";
 import "./khach-hang.css";
 
 /** The customer slice CRM hands to a target screen when navigating (pin, no hand-typed ID). */
@@ -30,18 +33,12 @@ function pinOf(c: CustomerRow): PinnedCustomer {
   return { id: c.id, code: c.code, name: c.name, tax_code: c.tax_code };
 }
 
-const PAGE_SIZE = 25;
 const MST_RE = /^(\d{10}|\d{13})$/;
+const PAGE_SIZES = [25, 50, 100];
 
 function money(n: number | null | undefined): string {
   if (n == null) return "—";
   return n.toLocaleString("vi-VN") + " ₫";
-}
-function moneyShort(n: number): string {
-  if (n >= 1_000_000_000) return (n / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + " tỷ";
-  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + " tr";
-  if (n >= 1_000) return Math.round(n / 1_000) + "k";
-  return String(n);
 }
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -55,13 +52,6 @@ const TIER_META: Record<CustomerTier, { label: string; stars: number; cls: strin
   regular: { label: "Đang giao dịch", stars: 1, cls: "tier--regular" },
   new: { label: "Mới", stars: 0, cls: "tier--new" },
 };
-
-const FILTER_TABS: { key: string; label: string }[] = [
-  { key: "", label: "Tất cả" },
-  { key: "loyal", label: "Thân thiết" },
-  { key: "partner", label: "Đối tác lâu năm" },
-  { key: "new", label: "Mới" },
-];
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
   draft: "Nháp",
@@ -117,9 +107,29 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState("code");
   const [q, setQ] = useState("");
-  const [tier, setTier] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>(""); // "" | "active" | "inactive"
   const [saleFilter, setSaleFilter] = useState<string>("");
+  const [pageSize, setPageSize] = useState(25);
   const [sales, setSales] = useState<SaleOption[]>([]);
+
+  // Điều chuyển khách hàng: gated bằng quyền chi tiết `reassign` (Cách B) — cấu hình trong
+  // ma trận phân quyền, tách khỏi quyền Sửa thông thường.
+  const can = useCan();
+  const canReassign = can("khach_hang", "reassign");
+  const colCount = canReassign ? 7 : 6;
+  const [reassignOpen, setReassignOpen] = useState(false);
+  const [fromSale, setFromSale] = useState<number | null>(null);
+  const [toSale, setToSale] = useState<number | null>(null);
+  const [reassignBusy, setReassignBusy] = useState(false);
+  const [reassignError, setReassignError] = useState<string | null>(null);
+  const [reassignMsg, setReassignMsg] = useState<string | null>(null);
+
+  // Chọn nhiều dòng (checkbox) → thanh thao tác "Chuyển hàng loạt".
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkTarget, setBulkTarget] = useState<number | null>(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -133,14 +143,15 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
     if (!token) return;
     setLoading(true);
     setListError(null);
+    setSelectedIds(new Set()); // selection is per current page/filter
     api.customers
       .list(token, {
         q: q.trim() || undefined,
         sale: saleFilter ? Number(saleFilter) : null,
-        tier: tier || null,
+        status: statusFilter || null,
         sort,
         page,
-        size: PAGE_SIZE,
+        size: pageSize,
       })
       .then((res) => {
         setRows(res.items);
@@ -152,12 +163,12 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
         else setListError("Không tải được danh bạ khách hàng.");
       })
       .finally(() => setLoading(false));
-  }, [token, q, saleFilter, tier, sort, page]);
+  }, [token, q, saleFilter, statusFilter, sort, page, pageSize]);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, sort, page, saleFilter, tier]);
+  }, [token, sort, page, pageSize, saleFilter, statusFilter]);
 
   useEffect(() => {
     if (!token) return;
@@ -170,7 +181,99 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
     load();
   }
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  function openReassign() {
+    setFromSale(null);
+    setToSale(null);
+    setReassignError(null);
+    setReassignMsg(null);
+    setReassignOpen(true);
+  }
+
+  function toggleRow(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const allOnPageSelected = rows.length > 0 && rows.every((r) => selectedIds.has(r.id));
+
+  function toggleAllOnPage() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (rows.every((r) => next.has(r.id))) rows.forEach((r) => next.delete(r.id));
+      else rows.forEach((r) => next.add(r.id));
+      return next;
+    });
+  }
+
+  function openBulk() {
+    setBulkTarget(null);
+    setBulkError(null);
+    setReassignMsg(null);
+    setBulkOpen(true);
+  }
+
+  async function doBulkReassign() {
+    if (!token || bulkBusy) return;
+    const ids = [...selectedIds];
+    if (ids.length === 0) {
+      setBulkError("Chưa chọn khách hàng nào.");
+      return;
+    }
+    if (bulkTarget == null) {
+      setBulkError("Chọn nhân viên đích.");
+      return;
+    }
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const res = await api.customers.reassignSelected(token, ids, bulkTarget);
+      setBulkOpen(false);
+      const toName = sales.find((s) => s.id === bulkTarget)?.name ?? "";
+      setReassignMsg(
+        `Đã chuyển ${res.moved} khách hàng sang ${toName}` +
+          (res.skipped ? ` (bỏ qua ${res.skipped} khách ngoài phạm vi).` : "."),
+      );
+      load(); // also clears selection
+    } catch (err) {
+      if (err instanceof ApiError) setBulkError(err.message);
+      else setBulkError("Điều chuyển thất bại. Vui lòng thử lại.");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function doReassign() {
+    if (!token || reassignBusy) return;
+    if (fromSale == null || toSale == null) {
+      setReassignError("Chọn nhân viên nguồn và nhân viên đích.");
+      return;
+    }
+    if (fromSale === toSale) {
+      setReassignError("Nhân viên nguồn và đích phải khác nhau.");
+      return;
+    }
+    setReassignBusy(true);
+    setReassignError(null);
+    try {
+      const res = await api.customers.reassign(token, fromSale, toSale);
+      setReassignOpen(false);
+      const fromName = sales.find((s) => s.id === fromSale)?.name ?? "";
+      const toName = sales.find((s) => s.id === toSale)?.name ?? "";
+      setReassignMsg(`Đã điều chuyển ${res.moved} khách hàng từ ${fromName} sang ${toName}.`);
+      load();
+    } catch (err) {
+      if (err instanceof ApiError) setReassignError(err.message);
+      else setReassignError("Điều chuyển thất bại. Vui lòng thử lại.");
+    } finally {
+      setReassignBusy(false);
+    }
+  }
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const openIndex = useMemo(
     () => rows.findIndex((r) => r.id === openId),
     [rows, openId],
@@ -202,37 +305,32 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             Danh bạ 360° — tìm, phân loại theo lịch sử mua thật, xem dashboard & công nợ.
           </p>
         </div>
-        <Button
-          variant="primary"
-          onClick={() => {
-            setEditing(null);
-            setMode("create");
-          }}
-        >
-          + Tạo khách hàng
-        </Button>
+        <div className="kh__head-actions">
+          {canReassign && (
+            <Button variant="ghost" onClick={openReassign} disabled={sales.length < 2}>
+              Điều chuyển KH
+            </Button>
+          )}
+          <Button
+            variant="primary"
+            onClick={() => {
+              setEditing(null);
+              setMode("create");
+            }}
+          >
+            + Tạo khách hàng
+          </Button>
+        </div>
       </header>
+
+      {reassignMsg && (
+        <div className="banner banner--success" role="status">
+          {reassignMsg}
+        </div>
+      )}
 
       {/* KPI header strip — số thật từ đơn hàng */}
       <KpiStrip kpis={kpis} loading={loading && !kpis} />
-
-      {/* Filter tabs */}
-      <nav className="kh__tabs" aria-label="Lọc theo phân loại">
-        {FILTER_TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            className={`kh__tab${tier === t.key ? " is-active" : ""}`}
-            aria-current={tier === t.key ? "true" : undefined}
-            onClick={() => {
-              setTier(t.key);
-              setPage(1);
-            }}
-          >
-            {t.label}
-          </button>
-        ))}
-      </nav>
 
       <div className="kh__toolbar">
         <form className="kh__search" onSubmit={onSearch} role="search">
@@ -248,32 +346,84 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
           </Button>
         </form>
 
-        <select
-          className="input kh__salefilter"
-          value={saleFilter}
-          onChange={(e) => {
-            setSaleFilter(e.target.value);
-            setPage(1);
-          }}
-          aria-label="Lọc theo NV phụ trách"
-        >
-          <option value="">Tất cả NV phụ trách</option>
-          {sales.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
+        <div className="kh__filter">
+          <Select
+            ariaLabel="Lọc theo NV phụ trách"
+            value={saleFilter}
+            placeholder="Tất cả NV phụ trách"
+            onChange={(v) => {
+              setSaleFilter(v ?? "");
+              setPage(1);
+            }}
+            options={[
+              { value: "", label: "Tất cả NV phụ trách" },
+              ...sales.map((s) => ({ value: String(s.id), label: s.name })),
+            ]}
+          />
+        </div>
+        <div className="kh__filter">
+          <Select
+            ariaLabel="Lọc theo trạng thái"
+            value={statusFilter}
+            placeholder="Tất cả trạng thái"
+            onChange={(v) => {
+              setStatusFilter(v ?? "");
+              setPage(1);
+            }}
+            options={[
+              { value: "", label: "Tất cả trạng thái" },
+              { value: "active", label: "Đang giao dịch" },
+              { value: "inactive", label: "Ngừng giao dịch" },
+            ]}
+          />
+        </div>
       </div>
+
+      {/* Khoảng CỐ ĐỊNH ngay trên bảng (chỉ cho người có quyền điều chuyển): luôn giữ chiều
+          cao nên khi tick chọn, thanh thao tác lấp vào đúng chỗ — danh sách KHÔNG bị đẩy. */}
+      {canReassign && (
+        <div className="kh__bulkslot">
+          {selectedIds.size > 0 ? (
+            <div className="kh__bulkbar">
+              <span className="kh__bulkbar-count">Đã chọn {selectedIds.size} khách hàng</span>
+              <div className="kh__bulkbar-actions">
+                <Button variant="accent" onClick={openBulk}>
+                  Chuyển hàng loạt
+                </Button>
+                <button
+                  type="button"
+                  className="btn btn--ghost"
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  Bỏ chọn
+                </button>
+              </div>
+            </div>
+          ) : (
+            <span className="kh__bulkhint">
+              Tick vào ô chọn ở đầu mỗi dòng để điều chuyển khách hàng hàng loạt.
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="card kh__tablewrap">
         <table className="kh__table">
           <thead>
             <tr>
+              {canReassign && (
+                <th className="kh__check-col">
+                  <input
+                    type="checkbox"
+                    aria-label="Chọn tất cả trên trang"
+                    checked={allOnPageSelected}
+                    onChange={toggleAllOnPage}
+                  />
+                </th>
+              )}
               <th>
                 <SortBtn label="Khách hàng" col="name" sort={sort} onSort={setSort} />
               </th>
-              <th>Phân loại</th>
               <th>NV phụ trách</th>
               <th className="kh__num">
                 <SortBtn label="Doanh số 12T" col="revenue" sort={sort} onSort={setSort} />
@@ -291,7 +441,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             {loading ? (
               [...Array(6)].map((_, i) => (
                 <tr key={i} className="kh__skelrow">
-                  {[...Array(7)].map((__, j) => (
+                  {[...Array(colCount)].map((__, j) => (
                     <td key={j}>
                       <span className="kh__skel" />
                     </td>
@@ -300,7 +450,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
               ))
             ) : listError ? (
               <tr>
-                <td colSpan={7} className="kh__status">
+                <td colSpan={colCount} className="kh__status">
                   <div className="banner banner--error" role="alert">
                     <span>{listError}</span>
                     <button type="button" className="btn btn--ghost" onClick={() => load()}>
@@ -311,8 +461,8 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={7} className="kh__empty">
-                  {q || tier || saleFilter ? (
+                <td colSpan={colCount} className="kh__empty">
+                  {q || statusFilter || saleFilter ? (
                     <>
                       <p>Không có khách hàng khớp bộ lọc.</p>
                       <button
@@ -320,7 +470,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                         className="btn btn--ghost"
                         onClick={() => {
                           setQ("");
-                          setTier("");
+                          setStatusFilter("");
                           setSaleFilter("");
                           setPage(1);
                         }}
@@ -356,6 +506,16 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                       if (e.key === "Enter") setOpenId(c.id);
                     }}
                   >
+                    {canReassign && (
+                      <td className="kh__check-col" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Chọn ${c.name}`}
+                          checked={selectedIds.has(c.id)}
+                          onChange={() => toggleRow(c.id)}
+                        />
+                      </td>
+                    )}
                     <td>
                       <div className="kh__identity">
                         <span className="kh__name">{c.name}</span>
@@ -369,14 +529,6 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                           )}
                         </span>
                       </div>
-                    </td>
-                    <td>
-                      <TierBadge tier={c.tier} />
-                      {c.credit_limit > 0 && (
-                        <span className="kh__tag" title="Có hạn mức tín dụng">
-                          HM {moneyShort(c.credit_limit)}
-                        </span>
-                      )}
                     </td>
                     <td>{c.sale_name ?? <span className="kh__muted">Chưa gán</span>}</td>
                     <td className="kh__num kh__mono">
@@ -405,9 +557,23 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
 
       {!loading && !listError && rows.length > 0 && (
         <div className="kh__pager">
-          <span className="kh__muted">
-            {total} khách · trang {page}/{totalPages}
-          </span>
+          <div className="kh__pager-left">
+            <span className="kh__muted">
+              {total} khách · trang {page}/{totalPages}
+            </span>
+            <div className="kh__pager-size">
+              <span className="kh__muted">Hiển thị</span>
+              <Select
+                ariaLabel="Số dòng mỗi trang"
+                value={pageSize}
+                onChange={(v) => {
+                  setPageSize(v ?? 25);
+                  setPage(1);
+                }}
+                options={PAGE_SIZES.map((n) => ({ value: n, label: String(n) }))}
+              />
+            </div>
+          </div>
           <div className="kh__pager-btns">
             <button
               type="button"
@@ -485,6 +651,80 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={reassignOpen}
+        title="Điều chuyển khách hàng"
+        message="Chuyển TOÀN BỘ khách hàng đang phụ trách của một nhân viên sang nhân viên khác (dùng khi bàn giao). Kiểm tra kỹ nguồn/đích trước khi xác nhận."
+        confirmLabel="Điều chuyển"
+        danger
+        countdownSeconds={5}
+        busy={reassignBusy}
+        error={reassignError}
+        confirmDisabled={fromSale == null || toSale == null || fromSale === toSale}
+        onConfirm={doReassign}
+        onCancel={() => !reassignBusy && setReassignOpen(false)}
+      >
+        <label className="field">
+          <span className="field__label">Từ nhân viên (nguồn)</span>
+          <Select
+            ariaLabel="Nhân viên nguồn"
+            portal
+            value={fromSale}
+            placeholder="— Chọn nhân viên nguồn —"
+            onChange={(v) => setFromSale(v)}
+            options={[
+              { value: null, label: "— Chọn nhân viên nguồn —" },
+              ...sales.map((s) => ({ value: s.id, label: s.name })),
+            ]}
+          />
+        </label>
+        <label className="field">
+          <span className="field__label">Sang nhân viên (đích)</span>
+          <Select
+            ariaLabel="Nhân viên đích"
+            portal
+            value={toSale}
+            placeholder="— Chọn nhân viên đích —"
+            onChange={(v) => setToSale(v)}
+            options={[
+              { value: null, label: "— Chọn nhân viên đích —" },
+              ...sales
+                .filter((s) => s.id !== fromSale)
+                .map((s) => ({ value: s.id, label: s.name })),
+            ]}
+          />
+        </label>
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={bulkOpen}
+        title={`Chuyển ${selectedIds.size} khách hàng đã chọn`}
+        message="Các khách hàng đang tick sẽ được chuyển sang nhân viên tiếp nhận. Kiểm tra kỹ trước khi xác nhận."
+        confirmLabel="Chuyển"
+        danger
+        countdownSeconds={5}
+        busy={bulkBusy}
+        error={bulkError}
+        confirmDisabled={bulkTarget == null}
+        onConfirm={doBulkReassign}
+        onCancel={() => !bulkBusy && setBulkOpen(false)}
+      >
+        <label className="field">
+          <span className="field__label">Sang nhân viên (đích)</span>
+          <Select
+            ariaLabel="Nhân viên đích"
+            portal
+            value={bulkTarget}
+            placeholder="— Chọn nhân viên đích —"
+            onChange={(v) => setBulkTarget(v)}
+            options={[
+              { value: null, label: "— Chọn nhân viên đích —" },
+              ...sales.map((s) => ({ value: s.id, label: s.name })),
+            ]}
+          />
+        </label>
+      </ConfirmDialog>
     </main>
   );
 }
@@ -741,6 +981,7 @@ function ObjectHeader({
   navigate: NavigateFn;
   onClose: () => void;
 }) {
+  const canDebt = useCan()("khach_hang", "view_debt");
   const rec = dash.receivable;
   // Gauge uy tín thanh toán: chỉ khi Công nợ sẵn sàng; nếu không → seam trung thực.
   const usage = rec.available && rec.usage_pct != null ? rec.usage_pct : null;
@@ -784,7 +1025,14 @@ function ObjectHeader({
         </dl>
       </div>
 
-      <PaymentGauge usage={usage} available={rec.available} balance={rec.balance} limit={rec.credit_limit} />
+      {canDebt ? (
+        <PaymentGauge usage={usage} available={rec.available} balance={rec.balance} limit={rec.credit_limit} />
+      ) : (
+        <div className="kh__gauge card" aria-label="Uy tín thanh toán">
+          <span className="kh__kpi-label">Uy tín thanh toán</span>
+          <span className="kh__seam-note">Bạn không có quyền xem công nợ</span>
+        </div>
+      )}
 
       {/* Action toolbar — drill-through to Báo giá / Đơn hàng with this customer pre-pinned. */}
       <div className="kh__toolbar-actions" role="toolbar" aria-label="Hành động">
@@ -905,16 +1153,22 @@ function DashboardTab({
       </div>
     );
   }
+  const canDebt = useCan()("khach_hang", "view_debt");
   const maxRev = Math.max(1, ...dash.months.map((m) => m.revenue));
   const cards = [
     { label: "Doanh số 12T", value: money(dash.revenue_12m) },
     { label: "Số đơn 12T", value: String(dash.orders_12m) },
     { label: "TB / đơn", value: dash.avg_order_value != null ? money(dash.avg_order_value) : "—" },
-    {
-      label: "Công nợ",
-      value: receivable?.available ? money(receivable.balance) : "chờ Công nợ",
-      muted: !receivable?.available,
-    },
+    // Thẻ Công nợ chỉ hiện khi có quyền chi tiết `view_debt`.
+    ...(canDebt
+      ? [
+          {
+            label: "Công nợ",
+            value: receivable?.available ? money(receivable.balance) : "chờ Công nợ",
+            muted: !receivable?.available,
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -1064,6 +1318,7 @@ function OrdersTab({
   onOpenOrder: (id: number) => void;
 }) {
   const { token } = useAuth();
+  const canExport = useCan()("khach_hang", "export");
   const [rows, setRows] = useState<OrderHistoryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -1115,9 +1370,11 @@ function OrdersTab({
     <div className="kh__histwrap">
       <div className="kh__hist-toolbar">
         <span className="kh__muted">{rows.length} đơn</span>
-        <Button variant="secondary" onClick={exportCsv} loading={exporting}>
-          ⬇ Xuất Excel
-        </Button>
+        {canExport && (
+          <Button variant="secondary" onClick={exportCsv} loading={exporting}>
+            ⬇ Xuất Excel
+          </Button>
+        )}
       </div>
       <table className="kh__table kh__table--tight kh__table--drill">
         <thead>
@@ -1367,6 +1624,10 @@ function CustomerFormDialog({
   onSaved: () => void;
 }) {
   const { token } = useAuth();
+  // Đổi NV phụ trách của KH ĐANG CÓ = quyền chi tiết `reassign` (backend cũng chặn) —
+  // thiếu quyền thì khóa picker khi Sửa; khi Tạo mới vẫn chọn được (gán lần đầu).
+  const canReassign = useCan()("khach_hang", "reassign");
+  const saleLocked = isEdit && !canReassign;
   const [form, setForm] = useState<FormState>(initial);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
@@ -1527,6 +1788,7 @@ function CustomerFormDialog({
                 <select
                   className="input"
                   value={form.sale_user_id}
+                  disabled={saleLocked}
                   onChange={(e) => set("sale_user_id", e.target.value)}
                 >
                   <option value="">— Mặc định (tôi) —</option>
@@ -1536,6 +1798,11 @@ function CustomerFormDialog({
                     </option>
                   ))}
                 </select>
+                {saleLocked && (
+                  <span className="kh__muted">
+                    Cần quyền “Điều chuyển” để đổi người phụ trách.
+                  </span>
+                )}
               </label>
               {isEdit && (
                 <label className="field">

@@ -15,6 +15,8 @@ from .refresh_token import RefreshToken
 from .role import Role, RolePermission
 from .unit_level import UnitLevel
 from .user import User
+from .warehouse import Warehouse
+from .warehouse_item import WarehouseItem
 from .click_ink_rate import ClickInkRate
 from .plate_die_rate import PlateDieRate
 from .norm import Norm
@@ -30,6 +32,8 @@ __all__ = [
     "AuditLog",
     "RefreshToken",
     "UnitLevel",
+    "Warehouse",
+    "WarehouseItem",
     "Customer",
     "Product",
     "ProductComponent",

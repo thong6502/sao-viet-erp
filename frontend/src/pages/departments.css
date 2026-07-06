@@ -39,6 +39,21 @@
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-3);
 }
+/* Khoảng CỐ ĐỊNH trên danh sách nhân sự: luôn giữ chiều cao để thanh thao tác không đẩy
+   danh sách. Chưa chọn → gợi ý mờ; đã chọn → thanh thao tác lấp vào đúng chỗ. */
+.depts__transferslot {
+  display: flex;
+  align-items: center;
+  min-height: 60px;
+  margin: var(--sp-2) 0;
+}
+.depts__transfer-hint {
+  font-size: 13px;
+  color: var(--ash-2);
+}
+.depts__transfer--top {
+  flex: 1;
+}
 /* Staff toolbar: search + status filter. */
 .depts__staff-toolbar {
   display: flex;
@@ -94,6 +109,20 @@
 .depts__transfer-select {
   flex: 1 1 200px;
   min-width: 180px;
+}
+/* Nhóm hành động hàng loạt (gán vai trò / chuyển phòng) trong thanh chọn nhân sự. */
+.depts__bulk-action {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: 1 1 320px;
+  min-width: 260px;
+}
+.depts__bulk-label {
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--rust-deep);
+  white-space: nowrap;
 }
 .depts__title {
   font-size: 26px;
@@ -532,10 +561,20 @@
 .depts__member-user {
   font-family: var(--ff-mono);
 }
-.depts__member-role::before {
+.depts__member-meta > *:not(:first-child)::before {
   content: "·";
   margin-right: var(--sp-2);
   color: var(--rule);
+}
+.depts__member-code {
+  font-family: var(--ff-mono);
+  color: var(--rust-deep);
+}
+.depts__member-status {
+  color: var(--moss);
+}
+.depts__member-status.is-locked {
+  color: var(--rust);
 }
 .depts__badge {
   flex: 0 0 auto;
@@ -807,7 +846,7 @@
 }
 .deptbl__row {
   display: grid;
-  grid-template-columns: minmax(0, 2.4fr) 92px 92px minmax(0, 1.3fr) 120px;
+  grid-template-columns: 76px minmax(0, 2.4fr) 92px 92px minmax(0, 1.3fr) 120px;
   align-items: center;
   gap: var(--sp-3);
   padding: var(--sp-3) var(--sp-4);
@@ -854,6 +893,13 @@
   text-overflow: ellipsis;
 }
 .deptbl__num {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  color: var(--ash);
+  text-align: center;
+}
+/* Cột ID tự sinh của phòng ban — mono, mờ, canh giữa như các cột số. */
+.deptbl__id {
   font-family: var(--ff-mono);
   font-size: 13px;
   color: var(--ash);

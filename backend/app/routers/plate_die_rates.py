@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/plate-die-rates", tags=["plate-die-rates"])
 @router.get(
     "",
     response_model=PlateDieRateListOut,
-    dependencies=[Depends(require_permission("dm_dinh_muc", "read"))],
+    dependencies=[Depends(require_permission("dm_gia_khuon_ban", "read"))],
 )
 def list_rates(
     service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
@@ -49,7 +49,7 @@ def list_rates(
 def create_rate(
     payload: PlateDieRateCreate,
     service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
-    actor: Annotated[CurrentUser, Depends(require_permission("dm_dinh_muc", "create"))],
+    actor: Annotated[CurrentUser, Depends(require_permission("dm_gia_khuon_ban", "create"))],
 ) -> PlateDieRateOut:
     try:
         return service.create_rate(
@@ -74,7 +74,7 @@ def close_rate(
     id: int,
     payload: PlateDieRateClose,
     service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
-    actor: Annotated[CurrentUser, Depends(require_permission("dm_dinh_muc", "update"))],
+    actor: Annotated[CurrentUser, Depends(require_permission("dm_gia_khuon_ban", "update"))],
 ) -> PlateDieRateOut:
     try:
         return service.close_rate(
@@ -95,7 +95,7 @@ def close_rate(
 def delete_rate(
     id: int,
     service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
-    actor: Annotated[CurrentUser, Depends(require_permission("dm_dinh_muc", "delete"))],
+    actor: Annotated[CurrentUser, Depends(require_permission("dm_gia_khuon_ban", "delete"))],
 ) -> Response:
     try:
         service.delete_rate(rate_id=id, actor=actor)

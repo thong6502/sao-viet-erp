@@ -20,6 +20,7 @@ from __future__ import annotations
 import re
 
 from ..models.customer import CUSTOMER_STATUSES, STATUS_ACTIVE, Customer
+from ..models.role import SCOPE_OWN
 from ..ports.customer_finance_port import (
     CustomerReceivablePort,
     default_receivable_port,
@@ -46,6 +47,12 @@ class CustomerNotFound(CustomerError):
 
 class CustomerForbidden(CustomerError):
     """The customer exists but is outside the caller's data scope."""
+
+
+class ReassignForbidden(CustomerError):
+    """Đổi NV phụ trách qua nút Sửa khi không có quyền chi tiết `reassign` (Cách B).
+
+    Chốt ở service để endpoint Sửa chung không thành đường vòng né quyền Điều chuyển."""
 
 
 class ReceivableUnavailable(Exception):
@@ -211,6 +218,75 @@ class CustomerService:
         )
         return customer, duplicate
 
+    def _audit_reassign(self, *, moved: list[Customer], to_sale_user_id: int, actor, summary: str) -> None:
+        """Ghi lịch sử điều chuyển: MỘT dòng cho mỗi khách (target=customer:<id> → hiện trong
+        Nhật ký hồ sơ khách) + MỘT dòng tổng (target=user:<đích>)."""
+        for c in moved:
+            self.audit.create(
+                actor_user_id=actor.id,
+                action="reassign_customer",
+                target=f"customer:{c.id}",
+                detail=f"Điều chuyển phụ trách → Sale {to_sale_user_id}",
+            )
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="reassign_customers",
+            target=f"user:{to_sale_user_id}",
+            detail=summary,
+        )
+
+    def reassign_customers(
+        self, *, from_sale_user_id: int, to_sale_user_id: int, scope: str, actor
+    ) -> int:
+        """Điều chuyển TOÀN BỘ khách hàng của một Sale sang Sale khác (bàn giao khi nhân sự
+        thay đổi). Chỉ cho phép ở scope `department`/`all`; Sale (scope `own`) bị chặn."""
+        if scope == SCOPE_OWN:
+            raise CustomerForbidden(
+                "Bạn không có quyền điều chuyển khách hàng (chỉ trưởng phòng / quản lý)."
+            )
+        if from_sale_user_id == to_sale_user_id:
+            raise CustomerValidationError("Sale nguồn và Sale đích phải khác nhau.")
+
+        moved = self.customers.reassign_sale(
+            from_sale_user_id=from_sale_user_id,
+            to_sale_user_id=to_sale_user_id,
+            scope=scope,
+            actor=actor,
+        )
+        self._audit_reassign(
+            moved=moved,
+            to_sale_user_id=to_sale_user_id,
+            actor=actor,
+            summary=f"Điều chuyển {len(moved)} khách hàng: Sale {from_sale_user_id}→{to_sale_user_id}",
+        )
+        return len(moved)
+
+    def reassign_selected(
+        self, *, customer_ids: list[int], to_sale_user_id: int, scope: str, actor
+    ) -> tuple[int, int]:
+        """Điều chuyển các khách ĐƯỢC CHỌN (checkbox) sang một Sale. Chỉ cho phép ở scope
+        `department`/`all`. Trả về (số đã chuyển, số bị bỏ qua vì ngoài phạm vi)."""
+        if scope == SCOPE_OWN:
+            raise CustomerForbidden(
+                "Bạn không có quyền điều chuyển khách hàng (chỉ trưởng phòng / quản lý)."
+            )
+        if not customer_ids:
+            raise CustomerValidationError("Chưa chọn khách hàng nào để điều chuyển.")
+
+        moved, skipped = self.customers.reassign_by_ids(
+            customer_ids=customer_ids,
+            to_sale_user_id=to_sale_user_id,
+            scope=scope,
+            actor=actor,
+        )
+        self._audit_reassign(
+            moved=moved,
+            to_sale_user_id=to_sale_user_id,
+            actor=actor,
+            summary=f"Điều chuyển {len(moved)} khách hàng đã chọn → Sale {to_sale_user_id}",
+        )
+        return len(moved), skipped
+
     def update_customer(
         self,
         *,
@@ -226,9 +302,13 @@ class CustomerService:
         credit_limit: int | None,
         sale_user_id: int | None,
         status: str | None,
+        allow_reassign: bool = True,
     ) -> tuple[Customer, Customer | None]:
         """Update every field except the code. Records a before→after audit line for
-        Sale-owner and credit-limit changes. Returns (customer, duplicate_or_None)."""
+        Sale-owner and credit-limit changes. Returns (customer, duplicate_or_None).
+
+        Đổi NV phụ trách là quyền chi tiết `reassign` — thiếu `allow_reassign` thì
+        sale_user_id phải giữ nguyên, tránh né quyền Điều chuyển qua nút Sửa."""
         customer = self.get_customer(customer_id=customer_id, scope=scope, actor=actor)
 
         name = self._validate_name(name)
@@ -237,6 +317,10 @@ class CustomerService:
         status = self._validate_status(status)
         if sale_user_id is None:
             sale_user_id = customer.sale_user_id
+        if sale_user_id != customer.sale_user_id and not allow_reassign:
+            raise ReassignForbidden(
+                "Bạn không có quyền điều chuyển người phụ trách khách hàng."
+            )
 
         duplicate = self.customers.find_by_tax_code(tax_code) if tax_code else None
         if duplicate is not None and duplicate.id == customer.id:

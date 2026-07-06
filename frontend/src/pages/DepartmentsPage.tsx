@@ -9,7 +9,6 @@ import {
   type PermissionRow,
   type Role,
   type Scope,
-  type UnitLevel,
   type UserBrief,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -19,7 +18,6 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { InfoHint } from "../components/InfoHint";
 import { Select } from "../components/Select";
-import { UnitLevelsDialog } from "../components/UnitLevelsDialog";
 import {
   PermissionMatrix,
   defaultMatrix,
@@ -67,17 +65,20 @@ export function DepartmentsPage() {
   const canCreateRole = can("vai_tro", "create");
   const canUpdateRole = can("vai_tro", "update");
   const canDeleteRole = can("vai_tro", "delete");
-  const canTransfer = can("nguoi_dung", "update");
+  // Quyền chi tiết nhóm 1: chuyển phòng + gán vai trò (module Người dùng), đặt trưởng phòng (Phòng ban).
+  const canTransfer = can("nguoi_dung", "transfer");
+  const canAssignRole = can("nguoi_dung", "assign_role");
+  const canBulk = canTransfer || canAssignRole;
+  const canSetHead = can("phong_ban", "set_head");
+  const canReparent = can("phong_ban", "reparent");
 
   const [departments, setDepartments] = useState<Department[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [members, setMembers] = useState<DepartmentMember[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [modules, setModules] = useState<ModuleDef[]>([]);
-  // Org tiers (spec-06 / PBI-4009) + who may head the selected unit (its subtree, PBI-4004).
-  const [levels, setLevels] = useState<UnitLevel[]>([]);
+  // Who may head the selected unit (its subtree, PBI-4004).
   const [headCandidates, setHeadCandidates] = useState<UserBrief[]>([]);
-  const [levelsOpen, setLevelsOpen] = useState(false);
   // "Thông tin phòng" edit form now opens in a modal instead of expanding inline.
   const [infoOpen, setInfoOpen] = useState(false);
   // Warn before discarding unsaved edits when closing the modal.
@@ -108,6 +109,18 @@ export function DepartmentsPage() {
   const [transferTarget, setTransferTarget] = useState<number | null>(null);
   const [transferBusy, setTransferBusy] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
+  // Gán vai trò hàng loạt ngay trong màn Phòng ban (không cần qua màn Người dùng).
+  const [assignRoleTarget, setAssignRoleTarget] = useState<number | null>(null);
+  const [assignRoleBusy, setAssignRoleBusy] = useState(false);
+  const [assignRoleError, setAssignRoleError] = useState<string | null>(null);
+  // Popup cảnh báo có đếm ngược 5s cho thao tác hàng loạt (gán vai trò / chuyển phòng).
+  const [pendingBulk, setPendingBulk] = useState<null | {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    danger?: boolean;
+    run: () => void;
+  }>(null);
   // Staff list: search + status filter + pagination.
   const [memberSearch, setMemberSearch] = useState("");
   const [memberStatusFilter, setMemberStatusFilter] = useState<"all" | "active" | "locked">(
@@ -124,7 +137,6 @@ export function DepartmentsPage() {
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
   const [editHead, setEditHead] = useState<number | null>(null);
-  const [editLevelId, setEditLevelId] = useState<number | null>(null);
   const [editParentId, setEditParentId] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -134,7 +146,6 @@ export function DepartmentsPage() {
   const [newName, setNewName] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newParentId, setNewParentId] = useState<number | null>(null);
-  const [newLevelId, setNewLevelId] = useState<number | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
@@ -144,7 +155,6 @@ export function DepartmentsPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | "complete" | "no_head" | "empty">(
     "all",
   );
-  const [levelFilter, setLevelFilter] = useState<number | null>(null);
   // Staff-count range (wireframe): blank bound = open-ended. Kept as strings for the inputs.
   const [staffMin, setStaffMin] = useState("");
   const [staffMax, setStaffMax] = useState("");
@@ -194,7 +204,6 @@ export function DepartmentsPage() {
   const filtersActive =
     search.trim() !== "" ||
     statusFilter !== "all" ||
-    levelFilter != null ||
     staffMin.trim() !== "" ||
     staffMax.trim() !== "";
 
@@ -205,7 +214,6 @@ export function DepartmentsPage() {
       if (!hay.includes(q)) return false;
     }
     if (statusFilter !== "all" && deptStatus(d) !== statusFilter) return false;
-    if (levelFilter != null && d.level_id !== levelFilter) return false;
     const count = d.user_count ?? 0;
     const min = staffMin.trim() === "" ? null : Number(staffMin);
     const max = staffMax.trim() === "" ? null : Number(staffMax);
@@ -230,12 +238,11 @@ export function DepartmentsPage() {
     for (const r of roots) walk(r, 0);
     return rows;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [departments, roots, childrenOf, collapsed, filtersActive, search, statusFilter, levelFilter, staffMin, staffMax]);
+  }, [departments, roots, childrenOf, collapsed, filtersActive, search, statusFilter, staffMin, staffMax]);
 
   function resetFilters() {
     setSearch("");
     setStatusFilter("all");
-    setLevelFilter(null);
     setStaffMin("");
     setStaffMax("");
   }
@@ -276,13 +283,11 @@ export function DepartmentsPage() {
     Promise.all([
       loadDepartments(),
       api.rbac.modules(token).catch(() => [] as ModuleDef[]),
-      api.rbac.unitLevels(token).catch(() => [] as UnitLevel[]),
     ])
-      .then(([list, mods, lvls]) => {
+      .then(([list, mods]) => {
         if (cancelled) return;
         setDepartments(list);
         setModules(mods);
-        setLevels(lvls);
         setSelectedId(null); // start on the list; click a department to configure it
       })
       .catch((err) => {
@@ -310,6 +315,8 @@ export function DepartmentsPage() {
     setSelectedMemberIds(new Set());
     setTransferTarget(null);
     setTransferError(null);
+    setAssignRoleTarget(null);
+    setAssignRoleError(null);
     setMemberSearch("");
     setMemberStatusFilter("all");
     setMemberPage(1);
@@ -317,7 +324,6 @@ export function DepartmentsPage() {
     setEditName(dept?.name ?? "");
     setEditDescription(dept?.description ?? "");
     setEditHead(dept?.head_user_id ?? null);
-    setEditLevelId(dept?.level_id ?? null);
     setEditParentId(dept?.parent_id ?? null);
     if (!token || selectedId == null) {
       setMembers([]);
@@ -366,7 +372,6 @@ export function DepartmentsPage() {
     setEditName(currentDept?.name ?? "");
     setEditDescription(currentDept?.description ?? "");
     setEditHead(currentDept?.head_user_id ?? null);
-    setEditLevelId(currentDept?.level_id ?? null);
     setEditParentId(currentDept?.parent_id ?? null);
     setSaveError(null);
     setDirty(false);
@@ -384,6 +389,7 @@ export function DepartmentsPage() {
       return next;
     });
     setTransferError(null);
+    setAssignRoleError(null);
   }
 
   async function doTransfer() {
@@ -413,6 +419,28 @@ export function DepartmentsPage() {
     }
   }
 
+  async function doAssignRole() {
+    if (!token || assignRoleTarget == null || selectedMemberIds.size === 0 || assignRoleBusy)
+      return;
+    setAssignRoleBusy(true);
+    setAssignRoleError(null);
+    try {
+      await api.rbac.bulkAssignRole(token, [...selectedMemberIds], assignRoleTarget);
+      setSelectedMemberIds(new Set());
+      setAssignRoleTarget(null);
+      // Reload members so the new role shows on each row.
+      if (selectedId != null) setMembers(await api.rbac.departmentUsers(token, selectedId));
+    } catch (err) {
+      if (err instanceof ApiError && err.isForbidden)
+        setAssignRoleError("Bạn không có quyền gán vai trò.");
+      else if (err instanceof ApiError && err.status === 400)
+        setAssignRoleError("Vai trò không hợp lệ với phòng này.");
+      else setAssignRoleError("Không gán được vai trò. Vui lòng thử lại.");
+    } finally {
+      setAssignRoleBusy(false);
+    }
+  }
+
   function toggleCollapse(id: number) {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -426,7 +454,6 @@ export function DepartmentsPage() {
     setNewName("");
     setNewDescription("");
     setNewParentId(null);
-    setNewLevelId(null);
     setCreateError(null);
     setCreateOpen(true);
   }
@@ -447,7 +474,7 @@ export function DepartmentsPage() {
         name,
         newDescription.trim() || null,
         newParentId,
-        newLevelId,
+        null, // cấp đơn vị đã gỡ khỏi form tạo phòng
       );
       setCreateOpen(false);
       await refresh(dept.id);
@@ -473,7 +500,7 @@ export function DepartmentsPage() {
         editName.trim(),
         editHead,
         editDescription.trim() || null,
-        editLevelId,
+        currentDept?.level_id ?? null, // cấp đơn vị đã gỡ khỏi UI; giữ nguyên giá trị cũ
         editParentId,
       );
       await refresh(selectedId);
@@ -665,6 +692,9 @@ export function DepartmentsPage() {
           }
         }}
       >
+        <div className="deptbl__cell deptbl__id">
+          {d.code ? <span className="depts__code">{d.code}</span> : "—"}
+        </div>
         <div className="deptbl__cell deptbl__cell--name" style={{ paddingLeft: depth * 22 }}>
           {hasKids ? (
             <button
@@ -682,7 +712,6 @@ export function DepartmentsPage() {
           ) : (
             <span className="deptbl__toggle deptbl__toggle--leaf" aria-hidden="true" />
           )}
-          {d.code && <span className="depts__code">{d.code}</span>}
           <span className="deptbl__name">{d.name}</span>
         </div>
         <div className="deptbl__cell deptbl__num">{d.user_count ?? 0}</div>
@@ -739,9 +768,6 @@ export function DepartmentsPage() {
           </p>
         </div>
         <div className="depts__head-actions">
-          <Button type="button" variant="ghost" onClick={() => setLevelsOpen(true)}>
-            Cấp đơn vị
-          </Button>
           {canCreateDept && (
             <Button type="button" variant="accent" onClick={openCreate}>
               + Tạo phòng ban
@@ -774,8 +800,6 @@ export function DepartmentsPage() {
                       <h2 className="depts__id-name">{currentDept.name}</h2>
                     </div>
                     <p className="depts__id-meta">
-                      {levels.find((l) => l.id === currentDept.level_id)?.name ?? "Chưa gán cấp"}
-                      {" · "}
                       {parentName(currentDept.parent_id)
                         ? `Thuộc ${parentName(currentDept.parent_id)}`
                         : "Phòng gốc"}
@@ -867,6 +891,7 @@ export function DepartmentsPage() {
                     portal
                     ariaLabel="Trực thuộc"
                     value={editParentId}
+                    disabled={!canReparent}
                     placeholder="— Không (phòng gốc) —"
                     onChange={(v) => {
                       setEditParentId(v);
@@ -880,32 +905,9 @@ export function DepartmentsPage() {
                         .map((d) => ({ value: d.id, label: d.name, hint: d.code || undefined })),
                     ]}
                   />
-                </div>
-
-                <div className="field">
-                  <span className="field__label depts__label">
-                    Cấp đơn vị
-                    <InfoHint label="Tầng trong cơ cấu (Khối · Phòng · Tổ). Quyết định nhãn chức danh người đứng đầu; cấp con phải thấp hơn cấp cha." />
-                  </span>
-                  <Select
-                    portal
-                    ariaLabel="Cấp đơn vị"
-                    value={editLevelId}
-                    placeholder="— Chưa gán cấp —"
-                    onChange={(v) => {
-                      setEditLevelId(v);
-                      setDirty(true);
-                      if (saveError) setSaveError(null);
-                    }}
-                    options={[
-                      { value: null, label: "— Chưa gán cấp —" },
-                      ...levels.map((lv) => ({
-                        value: lv.id,
-                        label: lv.name,
-                        hint: lv.head_title || undefined,
-                      })),
-                    ]}
-                  />
+                  {!canReparent && (
+                    <span className="depts__hint">Cần quyền "Đổi cấp trên" để chuyển cây tổ chức.</span>
+                  )}
                 </div>
 
                 <div className="field depts__field--full">
@@ -917,7 +919,7 @@ export function DepartmentsPage() {
                     portal
                     ariaLabel="Người đứng đầu"
                     value={editHead}
-                    disabled={headCandidates.length === 0}
+                    disabled={headCandidates.length === 0 || !canSetHead}
                     placeholder="— Chưa chỉ định —"
                     onChange={(v) => {
                       setEditHead(v);
@@ -1011,7 +1013,7 @@ export function DepartmentsPage() {
                     <InfoHint
                       label={
                         canTransfer
-                          ? "Người thuộc phòng này. Tích chọn nhiều người rồi chọn phòng đích để chuyển hàng loạt."
+                          ? "Người thuộc phòng này. Tích chọn nhiều người để gán vai trò hàng loạt hoặc chuyển sang phòng khác — thanh thao tác hiện ở cuối danh sách. Chuyển phòng: vai trò cũ bị gỡ, trưởng phòng mới gán lại."
                           : "Người thuộc phòng này."
                       }
                     />
@@ -1030,7 +1032,7 @@ export function DepartmentsPage() {
                   </p>
                 ) : (
                   <>
-                    {/* Toolbar: tìm kiếm + lọc trạng thái. */}
+                    {/* Toolbar: tìm kiếm + lọc trạng thái — LUÔN hiển thị (không bị che). */}
                     <div className="depts__staff-toolbar">
                       <input
                         className="input depts__staff-search"
@@ -1059,58 +1061,114 @@ export function DepartmentsPage() {
                       </div>
                     </div>
 
-                    {/* Thanh chuyển hàng loạt — hiện Ở TRÊN danh sách khi có người được chọn.
-                        Chỉ dành cho người có quyền chuyển nhân sự (checkbox cũng đã ẩn). */}
-                    {canTransfer && selectedMemberIds.size > 0 && (
-                      <div className="depts__transfer">
-                        <span className="depts__transfer-count">
-                          Đã chọn {selectedMemberIds.size} người · chuyển sang
-                        </span>
-                        <div className="depts__transfer-select">
-                          <Select
-                            ariaLabel="Phòng đích"
-                            value={transferTarget}
-                            placeholder="— Chọn phòng đích —"
-                            onChange={(v) => setTransferTarget(v)}
-                            options={[
-                              { value: null, label: "— Chọn phòng đích —" },
-                              ...departments
-                                .filter((d) => d.id !== selectedId)
-                                .map((d) => ({
-                                  value: d.id,
-                                  label: d.name,
-                                  hint: d.code || undefined,
-                                })),
-                            ]}
-                          />
-                        </div>
-                        <Button
-                          type="button"
-                          variant="accent"
-                          loading={transferBusy}
-                          disabled={transferTarget == null || !canTransfer}
-                          onClick={doTransfer}
-                        >
-                          Chuyển
-                        </Button>
-                        <button
-                          type="button"
-                          className="btn btn--ghost"
-                          onClick={() => setSelectedMemberIds(new Set())}
-                        >
-                          Bỏ chọn
-                        </button>
+                    {/* Khoảng CỐ ĐỊNH trên danh sách: luôn giữ chiều cao nên khi tick chọn,
+                        thanh thao tác lấp vào đúng chỗ — danh sách KHÔNG bị đẩy. */}
+                    {canBulk && (
+                      <div className="depts__transferslot">
+                        {selectedMemberIds.size > 0 ? (
+                          <div className="depts__transfer depts__transfer--top">
+                            <span className="depts__transfer-count">
+                              Đã chọn {selectedMemberIds.size} người
+                            </span>
+                            {canAssignRole && roles.length > 0 && (
+                              <div className="depts__bulk-action">
+                                <span className="depts__bulk-label">Gán vai trò</span>
+                                <div className="depts__transfer-select">
+                                  <Select
+                                    ariaLabel="Vai trò"
+                                    value={assignRoleTarget}
+                                    placeholder="— Chọn vai trò —"
+                                    onChange={(v) => setAssignRoleTarget(v)}
+                                    options={[
+                                      { value: null, label: "— Chọn vai trò —" },
+                                      ...roles.map((r) => ({ value: r.id, label: r.name })),
+                                    ]}
+                                  />
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="accent"
+                                  loading={assignRoleBusy}
+                                  disabled={assignRoleTarget == null || !canAssignRole}
+                                  onClick={() =>
+                                    setPendingBulk({
+                                      title: "Xác nhận gán vai trò",
+                                      message:
+                                        `Bạn sắp gán vai trò "${roles.find((r) => r.id === assignRoleTarget)?.name ?? ""}" ` +
+                                        `cho ${selectedMemberIds.size} người đã chọn. Vai trò cũ của họ sẽ bị thay thế. ` +
+                                        "Kiểm tra kỹ trước khi xác nhận.",
+                                      confirmLabel: "Gán vai trò",
+                                      run: doAssignRole,
+                                    })
+                                  }
+                                >
+                                  Gán
+                                </Button>
+                              </div>
+                            )}
+                            {canTransfer && (
+                              <div className="depts__bulk-action">
+                                <span className="depts__bulk-label">Chuyển sang</span>
+                                <div className="depts__transfer-select">
+                                  <Select
+                                    ariaLabel="Phòng đích"
+                                    value={transferTarget}
+                                    placeholder="— Chọn phòng đích —"
+                                    onChange={(v) => setTransferTarget(v)}
+                                    options={[
+                                      { value: null, label: "— Chọn phòng đích —" },
+                                      ...departments
+                                        .filter((d) => d.id !== selectedId)
+                                        .map((d) => ({
+                                          value: d.id,
+                                          label: d.name,
+                                          hint: d.code || undefined,
+                                        })),
+                                    ]}
+                                  />
+                                </div>
+                                <Button
+                                  type="button"
+                                  variant="accent"
+                                  loading={transferBusy}
+                                  disabled={transferTarget == null || !canTransfer}
+                                  onClick={() =>
+                                    setPendingBulk({
+                                      title: "Xác nhận chuyển phòng ban",
+                                      message:
+                                        `Bạn sắp chuyển ${selectedMemberIds.size} người sang phòng ` +
+                                        `"${departments.find((d) => d.id === transferTarget)?.name ?? ""}". ` +
+                                        "Vai trò hiện tại của họ sẽ bị gỡ. Kiểm tra kỹ trước khi xác nhận.",
+                                      confirmLabel: "Chuyển phòng ban",
+                                      danger: true,
+                                      run: doTransfer,
+                                    })
+                                  }
+                                >
+                                  Chuyển
+                                </Button>
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              onClick={() => setSelectedMemberIds(new Set())}
+                            >
+                              Bỏ chọn
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="depts__transfer-hint">
+                            Tick chọn nhân sự để gán vai trò hoặc chuyển sang phòng khác hàng loạt.
+                          </span>
+                        )}
                       </div>
                     )}
-                    {transferError && (
+
+                    {(transferError || assignRoleError) && (
                       <span className="depts__inline-error" role="alert">
-                        {transferError}
+                        {transferError ?? assignRoleError}
                       </span>
-                    )}
-                    {canTransfer && selectedMemberIds.size > 0 && (
-                      <p className="depts__hint">
-                        Vai trò cũ sẽ bị gỡ sau khi chuyển; trưởng phòng mới gán lại.
-                      </p>
                     )}
 
                     {/* Danh sách (trang hiện tại). */}
@@ -1125,7 +1183,7 @@ export function DepartmentsPage() {
                       >
                         {pageMembers.map((m) => (
                           <li key={m.id} className="depts__member">
-                            {canTransfer && (
+                            {canBulk && (
                               <input
                                 type="checkbox"
                                 className="depts__member-check"
@@ -1143,14 +1201,19 @@ export function DepartmentsPage() {
                                 {m.is_head && (
                                   <span className="depts__badge depts__badge--head">Trưởng phòng</span>
                                 )}
-                                {!m.is_active && (
-                                  <span className="depts__badge depts__badge--locked">Đã khóa</span>
-                                )}
                               </span>
                               <span className="depts__member-meta">
-                                <span className="depts__member-user">@{m.username}</span>
+                                {m.code && (
+                                  <span className="depts__member-code">{m.code}</span>
+                                )}
+                                <span className="depts__member-user">{m.username}</span>
                                 <span className="depts__member-role">
                                   {m.role_name ?? "Chưa gán vai trò"}
+                                </span>
+                                <span
+                                  className={`depts__member-status${m.is_active ? "" : " is-locked"}`}
+                                >
+                                  {m.is_active ? "Đang hoạt động" : "Đã khóa"}
                                 </span>
                               </span>
                             </span>
@@ -1209,6 +1272,7 @@ export function DepartmentsPage() {
                         </div>
                       </div>
                     )}
+
                   </>
                 )}
               </div>
@@ -1258,18 +1322,6 @@ export function DepartmentsPage() {
                   ]}
                 />
               </div>
-              <div className="deptbl__filter">
-                <Select
-                  ariaLabel="Lọc theo cấp đơn vị"
-                  value={levelFilter}
-                  placeholder="Tất cả cấp"
-                  onChange={(v) => setLevelFilter(v)}
-                  options={[
-                    { value: null, label: "Tất cả cấp" },
-                    ...levels.map((lv) => ({ value: lv.id, label: lv.name })),
-                  ]}
-                />
-              </div>
               <div className="deptbl__staff">
                 <span className="deptbl__staff-label">Nhân sự:</span>
                 <input
@@ -1313,6 +1365,7 @@ export function DepartmentsPage() {
           ) : (
             <div className="deptbl" role="table">
               <div className="deptbl__row deptbl__row--head" role="row">
+                <div className="deptbl__cell deptbl__id">ID</div>
                 <div className="deptbl__cell deptbl__cell--name">Phòng ban</div>
                 <div className="deptbl__cell deptbl__num">Nhân sự</div>
                 <div className="deptbl__cell deptbl__num">Vai trò</div>
@@ -1392,25 +1445,6 @@ export function DepartmentsPage() {
           </div>
 
           <div className="field">
-            <span className="field__label">Cấp đơn vị</span>
-            <Select
-              portal
-              ariaLabel="Cấp đơn vị"
-              value={newLevelId}
-              placeholder="— Chưa gán cấp —"
-              onChange={(v) => setNewLevelId(v)}
-              options={[
-                { value: null, label: "— Chưa gán cấp —" },
-                ...levels.map((lv) => ({
-                  value: lv.id,
-                  label: lv.name,
-                  hint: lv.head_title || undefined,
-                })),
-              ]}
-            />
-          </div>
-
-          <div className="field">
             <label className="field__label" htmlFor="new-dept-desc">
               Mô tả
             </label>
@@ -1422,8 +1456,6 @@ export function DepartmentsPage() {
               onChange={(e) => setNewDescription(e.target.value)}
             />
           </div>
-
-          <p className="depts__hint">Mã phòng (PB###) sẽ được hệ thống tự sinh.</p>
         </div>
       </ConfirmDialog>
 
@@ -1597,16 +1629,20 @@ export function DepartmentsPage() {
         ) : null}
       </ConfirmDialog>
 
-      {/* Danh mục cấp đơn vị (PBI-4009). Refresh levels + departments so head-title labels update. */}
-      <UnitLevelsDialog
-        open={levelsOpen}
-        token={token}
-        onClose={() => setLevelsOpen(false)}
-        onChanged={() => {
-          if (!token) return;
-          api.rbac.unitLevels(token).then(setLevels).catch(() => {});
-          void refresh(selectedId);
+      {/* Popup cảnh báo có đếm ngược 5s cho gán vai trò / chuyển phòng hàng loạt. */}
+      <ConfirmDialog
+        open={pendingBulk != null}
+        title={pendingBulk?.title ?? ""}
+        message={pendingBulk?.message}
+        confirmLabel={pendingBulk?.confirmLabel ?? "Xác nhận"}
+        danger={pendingBulk?.danger}
+        countdownSeconds={5}
+        onConfirm={() => {
+          const p = pendingBulk;
+          setPendingBulk(null);
+          p?.run();
         }}
+        onCancel={() => setPendingBulk(null)}
       />
     </main>
   );

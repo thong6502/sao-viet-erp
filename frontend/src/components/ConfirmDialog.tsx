@@ -1,7 +1,7 @@
 // Reusable confirmation popup (centered modal over a scrim). Used for actions that need
 // an explicit yes/no — e.g. saving or deleting a department. Esc and scrim-click cancel
 // (unless busy). Pass body content as children (e.g. a list of what will be deleted).
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Button } from "./Button";
 import "./confirm-dialog.css";
 
@@ -16,6 +16,8 @@ interface ConfirmDialogProps {
   busy?: boolean;
   error?: string | null;
   confirmDisabled?: boolean;
+  /** Bắt chờ N giây trước khi cho bấm Xác nhận (thao tác nhạy cảm). Đếm ngược trên nút. */
+  countdownSeconds?: number;
   /** Ẩn hẳn nút xác nhận — dùng khi dialog mở ở chế độ chỉ xem. */
   hideConfirm?: boolean;
   onConfirm: () => void;
@@ -34,11 +36,32 @@ export function ConfirmDialog({
   busy = false,
   error = null,
   confirmDisabled = false,
+  countdownSeconds = 0,
   hideConfirm = false,
   onConfirm,
   onCancel,
   children,
 }: ConfirmDialogProps) {
+  // Đếm ngược: khi mở, khóa nút Xác nhận trong `countdownSeconds` giây (đọc kỹ cảnh báo).
+  const [remaining, setRemaining] = useState(0);
+  useEffect(() => {
+    if (!open || !countdownSeconds) {
+      setRemaining(0);
+      return;
+    }
+    setRemaining(countdownSeconds);
+    const t = setInterval(() => {
+      setRemaining((s) => {
+        if (s <= 1) {
+          clearInterval(t);
+          return 0;
+        }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [open, countdownSeconds]);
+
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
@@ -49,6 +72,10 @@ export function ConfirmDialog({
   }, [open, busy, onCancel]);
 
   if (!open) return null;
+
+  const counting = remaining > 0;
+  const isConfirmDisabled = confirmDisabled || counting;
+  const shownLabel = counting ? `${confirmLabel} (${remaining}s)` : confirmLabel;
 
   return (
     <div className="cdlg-overlay" onMouseDown={() => !busy && onCancel()}>
@@ -80,9 +107,9 @@ export function ConfirmDialog({
               type="button"
               className="btn btn--danger"
               onClick={onConfirm}
-              disabled={busy || confirmDisabled}
+              disabled={busy || isConfirmDisabled}
             >
-              {busy ? "Đang xử lý…" : confirmLabel}
+              {busy ? "Đang xử lý…" : shownLabel}
             </button>
           ) : (
             <Button
@@ -90,9 +117,9 @@ export function ConfirmDialog({
               variant="accent"
               onClick={onConfirm}
               loading={busy}
-              disabled={confirmDisabled}
+              disabled={isConfirmDisabled}
             >
-              {confirmLabel}
+              {shownLabel}
             </Button>
           )}
         </div>

@@ -23,7 +23,14 @@ from ..deps import (
     get_order_service,
     require_permission,
 )
-from ..models.order import ORDER_KINDS, ORDER_STATUSES, ORDER_TYPES, Order
+from ..models.order import (
+    ORDER_KINDS,
+    ORDER_STATUSES,
+    ORDER_TYPES,
+    STATUS_CANCELLED,
+    STATUS_ORDERED,
+    Order,
+)
 from ..models.user import User
 from ..schemas.order import (
     ApprovedQuotationListOut,
@@ -224,9 +231,24 @@ def transition_order(
     payload: TransitionRequest,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> OrderDetailOut:
     scope = _scope_for(authz, user)
+    # Mỗi chuyển trạng thái = một quyền chi tiết riêng (tách khỏi "sửa nội dung đơn"):
+    #   - Chốt đơn (ordered)   → `approve`
+    #   - Hủy đơn (cancelled)  → `cancel`
+    #   - Trạng thái khác      → `manage_status`
+    to_status = payload.to_status
+    if to_status == STATUS_ORDERED:
+        if not authz.can(user, MODULE, "approve"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền chốt đơn.")
+    elif to_status == STATUS_CANCELLED:
+        if not authz.can(user, MODULE, "cancel"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền hủy đơn.")
+    elif not authz.can(user, MODULE, "manage_status"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Bạn không có quyền đổi trạng thái đơn."
+        )
     try:
         order = svc.transition(
             order_id=order_id, to_status=payload.to_status, scope=scope, actor=user,

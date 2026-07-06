@@ -14,6 +14,7 @@ import {
 } from "../api/client";
 import { useCan } from "../auth/permissions";
 import { Button } from "./Button";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { DiscardChangesDialog } from "./DiscardChangesDialog";
 import { Select } from "./Select";
 import "./confirm-dialog.css";
@@ -92,9 +93,24 @@ export function UserDetailDialog({
   const [sideLoading, setSideLoading] = useState(false);
 
   const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Popup cảnh báo có đếm ngược 5s cho các thao tác nhạy cảm (đặt lại MK / thu hồi phiên /
+  // khóa / đổi hồ sơ / đổi vai trò). Bấm nút chỉ mở popup; xác nhận mới chạy thật.
+  const [pending, setPending] = useState<null | {
+    title: string;
+    message: string;
+    confirmLabel: string;
+    danger?: boolean;
+    run: () => void;
+  }>(null);
 
   const can = useCan();
   const canManage = can("nguoi_dung", "update");
+  const canReset = can("nguoi_dung", "reset_password");
+  // Quyền chi tiết nhóm 1 — mỗi thao tác tách riêng.
+  const canLock = can("nguoi_dung", "lock");
+  const canRevoke = can("nguoi_dung", "revoke_sessions");
+  const canAssignRole = can("nguoi_dung", "assign_role");
+  const canTransfer = can("nguoi_dung", "transfer");
 
   const userId = user?.id ?? null;
   const deptId = user?.department_id ?? null;
@@ -297,7 +313,7 @@ export function UserDetailDialog({
                     ariaLabel="Phòng ban"
                     value={editDept}
                     placeholder="— Chọn phòng —"
-                    disabled={!canManage}
+                    disabled={!canManage || !canTransfer}
                     onChange={(v) => {
                       setEditDept(v);
                       if (profileError) setProfileError(null);
@@ -308,6 +324,9 @@ export function UserDetailDialog({
                       hint: d.code || undefined,
                     }))}
                   />
+                  {canManage && !canTransfer && (
+                    <span className="udlg__hint">Cần quyền "Chuyển phòng ban" để đổi phòng.</span>
+                  )}
                 </div>
                 <div className="field udlg__status-field">
                   <span className="field__label">Trạng thái</span>
@@ -323,7 +342,17 @@ export function UserDetailDialog({
                 <div className="udlg__row">
                   <Button
                     variant="accent"
-                    onClick={onSaveProfile}
+                    onClick={() =>
+                      setPending({
+                        title: "Xác nhận đổi thông tin",
+                        message:
+                          "Bạn sắp cập nhật hồ sơ người dùng này" +
+                          (deptChanging ? " (đổi phòng ban sẽ gỡ vai trò hiện tại)" : "") +
+                          ". Kiểm tra kỹ trước khi xác nhận.",
+                        confirmLabel: "Lưu thông tin",
+                        run: onSaveProfile,
+                      })
+                    }
                     disabled={!profileDirty || !editName.trim() || editDept == null}
                     loading={profileSaving}
                   >
@@ -348,7 +377,7 @@ export function UserDetailDialog({
                 ariaLabel="Vai trò trong phòng"
                 value={editRole}
                 placeholder="— Chưa gán —"
-                disabled={rolesLoading || deptId == null || !canManage}
+                disabled={rolesLoading || deptId == null || !canAssignRole}
                 onChange={(v) => {
                   setEditRole(v);
                   setRoleSaved(false);
@@ -362,11 +391,20 @@ export function UserDetailDialog({
               {deptId != null && deptRoles.length === 0 && !rolesLoading && (
                 <span className="udlg__hint">Phòng chưa có vai trò — tạo ở màn Phòng ban.</span>
               )}
-              {canManage && (
+              {canAssignRole && (
                 <div className="udlg__row">
                   <Button
                     variant="accent"
-                    onClick={onSaveRole}
+                    onClick={() =>
+                      setPending({
+                        title: "Xác nhận đổi vai trò",
+                        message:
+                          "Bạn sắp thay đổi vai trò (quyền hạn) của người dùng này. " +
+                          "Kiểm tra kỹ trước khi xác nhận.",
+                        confirmLabel: "Lưu vai trò",
+                        run: onSaveRole,
+                      })
+                    }
                     disabled={!roleDirty}
                     loading={roleSaving}
                   >
@@ -387,33 +425,77 @@ export function UserDetailDialog({
             {/* Thao tác bảo mật (PBI-2006 / PBI-2008). */}
             <section className="udlg__section">
               <p className="eyebrow">Bảo mật</p>
-              {canManage ? (
+              {canReset || canRevoke || canLock ? (
                 <div className="udlg__row">
-                  <Button variant="primary" onClick={onResetPassword} loading={resetBusy}>
-                    Đặt lại mật khẩu
-                  </Button>
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    disabled={revokeBusy}
-                    onClick={onRevokeSessions}
-                  >
-                    Thu hồi mọi phiên
-                  </button>
-                  <button
-                    type="button"
-                    className={`btn ${user.is_active ? "btn--danger" : "btn--primary"}`}
-                    disabled={activeBusy || isSelf}
-                    onClick={onToggleActive}
-                  >
-                    {user.is_active ? "Khóa tài khoản" : "Mở khóa tài khoản"}
-                  </button>
+                  {canReset && (
+                    <Button
+                      variant="primary"
+                      loading={resetBusy}
+                      onClick={() =>
+                        setPending({
+                          title: "Đặt lại mật khẩu?",
+                          message:
+                            "Mật khẩu hiện tại của người dùng sẽ bị hủy và thay bằng mật khẩu " +
+                            "tạm (hiển thị một lần). Mọi phiên đăng nhập của họ cũng bị thu hồi. " +
+                            "Thao tác không thể hoàn tác.",
+                          confirmLabel: "Đặt lại mật khẩu",
+                          danger: true,
+                          run: onResetPassword,
+                        })
+                      }
+                    >
+                      Đặt lại mật khẩu
+                    </Button>
+                  )}
+                  {canRevoke && (
+                    <button
+                      type="button"
+                      className="btn btn--ghost"
+                      disabled={revokeBusy || isSelf}
+                      onClick={() =>
+                        setPending({
+                          title: "Thu hồi mọi phiên?",
+                          message:
+                            "Tất cả phiên đăng nhập của người dùng này sẽ bị đăng xuất ngay lập " +
+                            "tức. Họ sẽ phải đăng nhập lại.",
+                          confirmLabel: "Thu hồi mọi phiên",
+                          danger: true,
+                          run: onRevokeSessions,
+                        })
+                      }
+                    >
+                      Thu hồi mọi phiên
+                    </button>
+                  )}
+                  {canLock && (
+                    <button
+                      type="button"
+                      className={`btn ${user.is_active ? "btn--danger" : "btn--primary"}`}
+                      disabled={activeBusy || isSelf}
+                      onClick={() =>
+                        setPending({
+                          title: user.is_active ? "Khóa tài khoản?" : "Mở khóa tài khoản?",
+                          message: user.is_active
+                            ? "Người dùng sẽ bị đăng xuất và không thể đăng nhập cho tới khi được " +
+                              "mở khóa lại."
+                            : "Người dùng sẽ đăng nhập lại được sau khi mở khóa.",
+                          confirmLabel: user.is_active ? "Khóa tài khoản" : "Mở khóa tài khoản",
+                          danger: user.is_active,
+                          run: onToggleActive,
+                        })
+                      }
+                    >
+                      {user.is_active ? "Khóa tài khoản" : "Mở khóa tài khoản"}
+                    </button>
+                  )}
                 </div>
               ) : (
                 <span className="udlg__hint">Bạn chỉ có quyền xem tài khoản này.</span>
               )}
-              {canManage && isSelf && (
-                <span className="udlg__hint">Không thể tự khóa tài khoản của mình.</span>
+              {(canRevoke || canLock) && isSelf && (
+                <span className="udlg__hint">
+                  Không thể tự khóa hoặc thu hồi phiên của tài khoản chính mình.
+                </span>
               )}
               {actionError && (
                 <span className="udlg__error" role="alert">
@@ -468,7 +550,7 @@ export function UserDetailDialog({
               ) : activity.length === 0 ? (
                 <p className="udlg__muted">Chưa có hoạt động.</p>
               ) : (
-                <ul className="udlg__list">
+                <ul className="udlg__list udlg__list--activity">
                   {activity.map((a) => (
                     <li key={a.id} className="udlg__list-row">
                       <span className="udlg__list-main">{a.action}</span>
@@ -498,6 +580,22 @@ export function UserDetailDialog({
           onClose();
         }}
         onKeepEditing={() => setConfirmDiscard(false)}
+      />
+
+      {/* Popup cảnh báo có đếm ngược 5s cho thao tác nhạy cảm. */}
+      <ConfirmDialog
+        open={pending != null}
+        title={pending?.title ?? ""}
+        message={pending?.message}
+        confirmLabel={pending?.confirmLabel ?? "Xác nhận"}
+        danger={pending?.danger}
+        countdownSeconds={5}
+        onConfirm={() => {
+          const p = pending;
+          setPending(null);
+          p?.run();
+        }}
+        onCancel={() => setPending(null)}
       />
     </>
   );

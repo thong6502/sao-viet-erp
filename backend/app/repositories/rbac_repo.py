@@ -225,6 +225,24 @@ class RoleRepository:
         can_update: bool = False,
         can_delete: bool = False,
         scope: str,
+        can_reassign: bool = False,
+        can_export: bool = False,
+        can_view_debt: bool = False,
+        can_approve: bool = False,
+        can_manage_status: bool = False,
+        can_reset_password: bool = False,
+        can_lock: bool = False,
+        can_revoke_sessions: bool = False,
+        can_assign_role: bool = False,
+        can_transfer: bool = False,
+        can_set_head: bool = False,
+        can_requote: bool = False,
+        can_manage_price: bool = False,
+        can_cancel: bool = False,
+        can_manage_permissions: bool = False,
+        can_clone: bool = False,
+        can_toggle_active: bool = False,
+        can_reparent: bool = False,
     ) -> RolePermission:
         """Upsert the (role, module) permission row."""
         perm = self.get_permission(role_id, module_key)
@@ -236,6 +254,24 @@ class RoleRepository:
         perm.can_update = can_update
         perm.can_delete = can_delete
         perm.scope = scope
+        perm.can_reassign = can_reassign
+        perm.can_export = can_export
+        perm.can_view_debt = can_view_debt
+        perm.can_approve = can_approve
+        perm.can_manage_status = can_manage_status
+        perm.can_reset_password = can_reset_password
+        perm.can_lock = can_lock
+        perm.can_revoke_sessions = can_revoke_sessions
+        perm.can_assign_role = can_assign_role
+        perm.can_transfer = can_transfer
+        perm.can_set_head = can_set_head
+        perm.can_requote = can_requote
+        perm.can_manage_price = can_manage_price
+        perm.can_cancel = can_cancel
+        perm.can_manage_permissions = can_manage_permissions
+        perm.can_clone = can_clone
+        perm.can_toggle_active = can_toggle_active
+        perm.can_reparent = can_reparent
         self.db.commit()
         self.db.refresh(perm)
         return perm

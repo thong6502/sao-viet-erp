@@ -12,8 +12,13 @@ from ..deps import (
     get_quotation_service,
     require_permission,
 )
-from ..models.quotation import QUOTE_STATUSES, Quote, QuoteVersion
-from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT
+from ..models.quotation import (
+    QUOTE_STATUSES,
+    STATUS_ACCEPTED,
+    STATUS_CANCELLED,
+    Quote,
+    QuoteVersion,
+)
 from ..models.user import User
 from ..schemas.quotation import (
     CostingPickerOut,
@@ -63,10 +68,6 @@ STATUS_LABELS = {
 
 def _scope_for(authz: AuthorizationService, user: User) -> str:
     return authz.scope_for(user, MODULE) or "own"
-
-
-def _can_approve(scope: str) -> bool:
-    return scope in (SCOPE_DEPARTMENT, SCOPE_ALL)
 
 
 def _allowed_transitions(current_status: str) -> list[str]:
@@ -126,7 +127,9 @@ def _row(
     )
 
 
-def _detail(svc: QuotationService, q: Quote, scope: str) -> QuotationDetailOut:
+def _detail(
+    svc: QuotationService, q: Quote, scope: str, *, can_approve: bool = False
+) -> QuotationDetailOut:
     ref = svc.customer_display(q)
     customer = (
         CustomerDisplayOut(
@@ -224,7 +227,7 @@ def _detail(svc: QuotationService, q: Quote, scope: str) -> QuotationDetailOut:
         versions=versions_out,
         items=items_out,
         allowed_transitions=_allowed_transitions(q.status),
-        can_approve=_can_approve(scope),
+        can_approve=can_approve,
     )
 
 
@@ -364,7 +367,7 @@ def create_quotation(
         )
     except QuotationValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, q, scope)
+    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"))
 
 
 @router.get("/{quotation_id}", response_model=QuotationDetailOut)
@@ -381,7 +384,7 @@ def get_quotation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
     except QuotationForbidden:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
-    return _detail(svc, q, scope)
+    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"))
 
 
 @router.put("/{quotation_id}", response_model=QuotationDetailOut)
@@ -419,7 +422,7 @@ def update_quotation(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
     except QuotationValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, q, scope)
+    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"))
 
 
 # --- lifecycle transitions ----------------------------------------------------
@@ -430,9 +433,24 @@ def transition_quotation(
     payload: TransitionRequest,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> QuotationDetailOut:
     scope = _scope_for(authz, user)
+    # Mỗi chuyển trạng thái tách thành quyền chi tiết riêng (tách hẳn khỏi "sửa nội dung"):
+    #   - Khách duyệt (accepted)      → `approve`
+    #   - Hủy (cancelled)             → `cancel`
+    #   - Gửi / Từ chối / Hết hạn / … → `manage_status` (thao tác trạng thái chung)
+    to_status = payload.to_status
+    if to_status == STATUS_ACCEPTED:
+        if not authz.can(user, MODULE, "approve"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền duyệt báo giá.")
+    elif to_status == STATUS_CANCELLED:
+        if not authz.can(user, MODULE, "cancel"):
+            raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền hủy báo giá.")
+    elif not authz.can(user, MODULE, "manage_status"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Bạn không có quyền thao tác trạng thái báo giá."
+        )
     try:
         q = svc.transition(
             quotation_id=quotation_id,
@@ -449,7 +467,7 @@ def transition_quotation(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
     except QuotationValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, q, scope)
+    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"))
 
 
 @router.post("/{quotation_id}/requote", response_model=QuotationDetailOut, status_code=status.HTTP_201_CREATED)
@@ -457,7 +475,7 @@ def requote_quotation(
     quotation_id: int,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "requote"))],
 ) -> QuotationDetailOut:
     scope = _scope_for(authz, user)
     try:
@@ -466,7 +484,7 @@ def requote_quotation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
     except QuotationConflict as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
-    return _detail(svc, new_v, scope)
+    return _detail(svc, new_v, scope, can_approve=authz.can(user, MODULE, "approve"))
 
 
 # --- PDF đối ngoại ------------------------------------------------------------
@@ -476,7 +494,7 @@ def quotation_pdf(
     quotation_id: int,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
 ) -> Response:
     scope = _scope_for(authz, user)
     try:

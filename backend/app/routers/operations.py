@@ -24,7 +24,7 @@ from ..services.operation_service import (
 )
 
 router = APIRouter(prefix="/api/operations", tags=["operations"])
-MODULE = "dm_giay_vat_tu"
+MODULE = "dm_cong_doan"
 
 @router.get("", response_model=OperationListOut)
 def list_operations(
@@ -130,7 +130,7 @@ def add_operation_rate(
     operation_id: int,
     payload: OperationRateCreate,
     svc: Annotated[OperationService, Depends(get_operation_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_price"))],
 ) -> OperationRateOut:
     try:
         rate = svc.add_operation_rate(
