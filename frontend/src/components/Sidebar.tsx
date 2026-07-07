@@ -85,6 +85,7 @@ const NAV: NavSection[] = [
     id: "cau-hinh-dm",
     label: "Cấu hình danh mục",
     items: [
+      { id: "quy-tac-binh-bai", label: "Quy tắc bình bài", icon: "calculator", module: "dm_binh_bai" },
       { id: "cau-hinh-kho", label: "Cấu hình kho hàng", icon: "warehouse", module: "dm_kho" },
     ],
   },

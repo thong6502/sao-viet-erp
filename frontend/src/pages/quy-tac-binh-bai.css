@@ -1,0 +1,109 @@
+/* Quy tắc bình bài — màn 3 cột (form | preview | công thức). Bổ sung cho master-data.css. */
+
+.qtbb__topbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+.qtbb__topbar .input { min-width: 180px; }
+
+.qtbb__cols {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.1fr) minmax(300px, 1fr) minmax(280px, 0.9fr);
+  gap: 14px;
+  align-items: start;
+  margin-top: 12px;
+}
+@media (max-width: 1200px) {
+  .qtbb__cols { grid-template-columns: 1fr; }
+}
+
+.qtbb__col { padding: 14px 16px; }
+.qtbb__col h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted, #8a8676);
+  margin: 14px 0 8px;
+  border-bottom: 1px solid var(--rule-hair, #e7e3d8);
+  padding-bottom: 4px;
+}
+.qtbb__col h3:first-child { margin-top: 0; }
+
+.qtbb__form { max-height: calc(100vh - 180px); overflow-y: auto; }
+.qtbb__grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+.field--check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+}
+.field--check input { width: auto; }
+
+/* --- Preview --- */
+.qtbb__preview { position: sticky; top: 12px; }
+.bb-preview__svg {
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--rule-hair, #e7e3d8);
+  border-radius: 6px;
+  background: #fbfaf6;
+}
+.bb-preview__bg { fill: #fbfaf6; }
+.bb-sheet { fill: #fff; stroke: #14130f; stroke-width: 1.2; }
+.bb-sheet--error { stroke: var(--signal, #c0392b); stroke-width: 2; }
+.bb-gripper { fill: #d9d5c8; opacity: 0.85; }
+.bb-tail { fill: #e9d9b8; opacity: 0.7; }
+.bb-side { fill: #eee9dc; opacity: 0.7; }
+.bb-usable { fill: none; stroke: #b8b2a0; stroke-dasharray: 3 3; stroke-width: 0.8; }
+.bb-cell { fill: rgba(160, 120, 40, 0.10); stroke: #a07828; stroke-width: 0.7; }
+.bb-cell--signature { fill: rgba(60, 100, 160, 0.10); stroke: #3c64a0; }
+.bb-cell--repeat_around { fill: rgba(60, 150, 120, 0.10); stroke: #2e8b78; }
+.bb-cell--matrix { fill: url(#hatch); }
+.bb-fold { stroke: #3c64a0; stroke-dasharray: 2 2; stroke-width: 0.6; }
+.bb-lbl { fill: #6b6656; font-size: 7px; font-family: ui-monospace, monospace; }
+.bb-lbl--sm { font-size: 6px; }
+.bb-lbl--cell { fill: #8a6a20; font-size: 8px; }
+.bb-error { fill: var(--signal, #c0392b); font-size: 14px; font-weight: 700; }
+
+.bb-preview__badge {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 15px;
+}
+.bb-preview__badge strong { color: var(--rust, #b0532b); font-size: 20px; }
+.bb-preview__waste { color: var(--muted, #8a8676); font-size: 13px; }
+
+/* --- Formula --- */
+.qtbb__block { margin-bottom: 14px; }
+.qtbb__block-h {
+  font-weight: 700;
+  font-size: 12.5px;
+  margin-bottom: 6px;
+  color: var(--ink, #14130f);
+}
+.qtbb__row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 13px;
+  border-bottom: 1px dotted var(--rule-hair, #e7e3d8);
+}
+.qtbb__row-k { color: var(--muted, #6b6656); }
+.qtbb__row-v { font-family: ui-monospace, monospace; text-align: right; }
+.qtbb__row--hi .qtbb__row-v { color: var(--rust, #b0532b); font-weight: 700; }
+.qtbb__note { font-size: 11px; color: var(--muted, #8a8676); margin-top: 6px; line-height: 1.5; }
+
+.qtbb__warn {
+  font-size: 12.5px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  margin-bottom: 4px;
+  line-height: 1.4;
+}
+.qtbb__warn--warning { background: #fdf6e3; color: #8a6d1a; }
+.qtbb__warn--error { background: #fbe9e7; color: #c0392b; }

@@ -105,7 +105,7 @@ function authHeader(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function authed<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
+export async function authed<T>(path: string, token: string, init: RequestInit = {}): Promise<T> {
   try {
     return await request<T>(path, {
       ...init,

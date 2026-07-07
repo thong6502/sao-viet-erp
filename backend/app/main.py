@@ -38,6 +38,7 @@ from .routers import (
     rbac,
     plate_die_rates,
     norms,
+    quy_tac_binh_bai,
 )
 from .seed import seed_all
 
@@ -98,6 +99,7 @@ app.include_router(warehouses.router)
 app.include_router(warehouse_items.router)
 app.include_router(plate_die_rates.router)
 app.include_router(norms.router)
+app.include_router(quy_tac_binh_bai.router)
 
 
 

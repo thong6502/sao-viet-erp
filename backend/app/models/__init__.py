@@ -32,6 +32,7 @@ from .warehouse import Warehouse
 from .warehouse_item import WarehouseItem
 from .plate_die_rate import PlateDieRate
 from .norm import Norm
+from .quy_tac_binh_bai import FoldingScheme, QuyTacBinhBai, QuyTacBinhBaiVersion
 from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
 
@@ -87,6 +88,9 @@ __all__ = [
     "PieceBatchShare",
     "PlateDieRate",
     "Norm",
+    "QuyTacBinhBai",
+    "QuyTacBinhBaiVersion",
+    "FoldingScheme",
     "DocumentSequence",
     "Estimate",
     "EstimateOption",

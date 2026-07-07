@@ -22,6 +22,7 @@ import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { UsersPage } from "../pages/UsersPage";
 import { NormsCatalogPage } from "../pages/NormsCatalogPage";
+import { QuyTacBinhBaiPage } from "../pages/QuyTacBinhBaiPage";
 import { WarehousesCatalogPage } from "../pages/WarehousesCatalogPage";
 import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
 import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
@@ -203,6 +204,8 @@ export function AppShell() {
         );
       case "dinh-muc-bu-hao":
         return <NormsCatalogPage />;
+      case "quy-tac-binh-bai":
+        return <QuyTacBinhBaiPage />;
       case "cau-hinh-kho":
         return <WarehousesCatalogPage />;
       case "kho-hang":
