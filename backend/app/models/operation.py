@@ -54,7 +54,7 @@ class Operation(Base):
         String(20), nullable=False, server_default="print_sheet_qty"
     )
     allow_manual_quantity: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="0", default=False
+        Boolean, nullable=False, server_default="false", default=False
     )
 
     # --- spec §C: cách tính nội bộ ----------------------------------------
@@ -69,7 +69,7 @@ class Operation(Base):
     )
 
     # --- spec §F: khuôn / tooling -----------------------------------------
-    has_tooling: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", default=False)
+    has_tooling: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
     # tooling_type: khuon_be / khuon_ep_kim / khuon_dap_noi / other
     tooling_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # Link tới bảng giá khuôn ở DM Đơn giá kẽm & khuôn (#5). Khi set, engine lấy giá khuôn
@@ -77,7 +77,7 @@ class Operation(Base):
     tooling_rate_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     # --- spec §G: hao hụt (cờ + default; rule chi tiết ở Định mức & Bù hao) ---
-    has_yield_loss: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0", default=False)
+    has_yield_loss: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
     # default_yield_rate: tỷ lệ đạt mặc định (%), vd 98.00
     default_yield_rate: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
     # default_yield_rule: mã rule bù hao mặc định, vd YIELD_DIECUT

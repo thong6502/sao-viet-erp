@@ -130,7 +130,7 @@ class MaterialCost(Base):
         String(20), nullable=False, server_default="standard", default="standard"
     )
     vat_included: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("0"), default=False
+        Boolean, nullable=False, server_default=text("false"), default=False
     )
     transport_fee: Mapped[int] = mapped_column(
         BigInteger, nullable=False, server_default="0", default=0

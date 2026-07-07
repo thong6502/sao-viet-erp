@@ -89,7 +89,7 @@ class PlateDieRate(Base):
     )
     max_charge: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     allow_manual_price: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default="0", default=False
+        Boolean, nullable=False, server_default="false", default=False
     )
 
     # --- Dùng lại khuôn cũ ------------------------------------------------

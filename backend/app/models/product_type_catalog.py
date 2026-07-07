@@ -72,14 +72,14 @@ class ProductTypeCatalog(Base):
     default_bleed_mm: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, server_default="0")
     default_gutter_mm: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, server_default="0")
     default_trim_mm: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, server_default="0")
-    allow_rotation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
-    allow_custom_size: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
+    allow_rotation: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
+    allow_custom_size: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     # --- §D Số trang / số tay / form --------------------------------------
-    has_page_count: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    has_page_count: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     page_multiple: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")  # 0 = không ràng buộc
     pages_per_signature: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
-    has_cover_body_split: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    has_cover_body_split: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     # --- §E Vật tư mặc định (ID cụ thể) -----------------------------------
     allowed_materials: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)  # material TYPE
@@ -87,27 +87,27 @@ class ProductTypeCatalog(Base):
     default_cover_material_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     default_body_material_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     default_ink_material_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    has_packaging: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    has_packaging: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     default_pack_qty: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
 
     # --- §F Routing / công đoạn mặc định ----------------------------------
     # default_operations = danh sách operation_type CÓ THỨ TỰ (thứ tự routing).
     default_operations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     required_operations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    allow_extra_operations: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
+    allow_extra_operations: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     # --- §G Kiểu bình bài được phép ---------------------------------------
     allowed_imposition_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     default_imposition_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    allow_imposition_change: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="1")
+    allow_imposition_change: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     # --- §H Quy tắc tính đặc thù ------------------------------------------
     compatible_technologies: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     sheet_count_mode: Mapped[str] = mapped_column(String(16), nullable=False, server_default="by_pieces")
     ink_cost_mode: Mapped[str] = mapped_column(String(20), nullable=False, server_default="per_1000")
-    has_tooling: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    has_tooling: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     default_tooling_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    allow_manual_override: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
+    allow_manual_override: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
