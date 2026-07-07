@@ -1,51 +1,30 @@
 """Materials router — spec-20.
+
+Read-only surface: list / detail / cost history / toggle-active. Write/admin CRUD
+(create/update/delete/add-price/convert/price-test/clone) đã gỡ — engine + Báo giá chỉ
+cần đường đọc; ghi dữ liệu qua seed/service trực tiếp.
 """
 from __future__ import annotations
 
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from ..deps import get_authorization_service, get_material_service, require_permission
+from ..deps import get_material_service, require_permission
 from ..models.user import User
 from ..schemas.material import (
-    MaterialConvertInput,
-    MaterialConvertOut,
-    MaterialCostCreate,
     MaterialCostOut,
-    MaterialCreate,
     MaterialDetailOut,
     MaterialListOut,
     MaterialListStats,
-    MaterialPriceTestInput,
-    MaterialPriceTestOut,
     MaterialRow,
-    MaterialUpdate,
 )
 from ..services.material_service import (
-    MaterialDuplicate,
-    MaterialValidationError,
     MaterialNotFound,
-    MaterialError,
     MaterialService,
-    ToggleActiveForbidden,
 )
-from ..services.rbac_service import AuthorizationService
 
 router = APIRouter(prefix="/api/materials", tags=["materials"])
 MODULE = "dm_giay_vat_tu"
-
-# Field vật tư mới (#2) chuyển thẳng service → repo.
-_EXTRA_KEYS = {
-    "material_group", "default_supplier", "base_uom", "purchase_uom", "consumption_uom",
-    "conversion_method", "conversion_factor", "ink_type", "ink_color_system",
-    "ink_color_code", "film_type",
-}
-
-class ClonePaperPayload(BaseModel):
-    gsm: int = Field(ge=0)
-    width_cm: float = Field(ge=0)
-    height_cm: float = Field(ge=0)
 
 @router.get("", response_model=MaterialListOut)
 def list_materials(
@@ -82,138 +61,6 @@ def get_material(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return MaterialDetailOut.model_validate(material)
 
-@router.post("", response_model=MaterialDetailOut, status_code=status.HTTP_201_CREATED)
-def create_material(
-    payload: MaterialCreate,
-    svc: Annotated[MaterialService, Depends(get_material_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-) -> MaterialDetailOut:
-    try:
-        material = svc.create_material(
-            name=payload.name,
-            material_type=payload.material_type,
-            unit=payload.unit,
-            min_fee=payload.min_fee,
-            width_cm=payload.width_cm,
-            height_cm=payload.height_cm,
-            gsm=payload.gsm,
-            thickness_mm=payload.thickness_mm,
-            default_waste_pct=payload.default_waste_pct,
-            min_purchase_qty=payload.min_purchase_qty,
-            paper_family=payload.paper_family,
-            surface=payload.surface,
-            is_active=payload.is_active,
-            actor=user,
-            **payload.model_dump(include=_EXTRA_KEYS),
-        )
-    except MaterialDuplicate as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except MaterialValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
-        ) from None
-    return MaterialDetailOut.model_validate(material)
-
-@router.put("/{material_id}", response_model=MaterialDetailOut)
-def update_material(
-    material_id: int,
-    payload: MaterialUpdate,
-    svc: Annotated[MaterialService, Depends(get_material_service)],
-    authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
-) -> MaterialDetailOut:
-    try:
-        material = svc.update_material(
-            material_id=material_id,
-            name=payload.name,
-            material_type=payload.material_type,
-            unit=payload.unit,
-            min_fee=payload.min_fee,
-            width_cm=payload.width_cm,
-            height_cm=payload.height_cm,
-            gsm=payload.gsm,
-            thickness_mm=payload.thickness_mm,
-            default_waste_pct=payload.default_waste_pct,
-            min_purchase_qty=payload.min_purchase_qty,
-            paper_family=payload.paper_family,
-            surface=payload.surface,
-            is_active=payload.is_active,
-            actor=user,
-            allow_toggle_active=authz.can(user, MODULE, "toggle_active"),
-            **payload.model_dump(include=_EXTRA_KEYS),
-        )
-    except ToggleActiveForbidden as e:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
-    except MaterialNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    except MaterialDuplicate as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except MaterialValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
-        ) from None
-    return MaterialDetailOut.model_validate(material)
-
-@router.delete("/{material_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def delete_material(
-    material_id: int,
-    svc: Annotated[MaterialService, Depends(get_material_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
-) -> Response:
-    try:
-        svc.delete_material(material_id=material_id, actor=user)
-    except MaterialNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    except MaterialValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
-        ) from None
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-@router.patch("/{material_id}/toggle-active", response_model=MaterialDetailOut)
-def toggle_active(
-    material_id: int,
-    svc: Annotated[MaterialService, Depends(get_material_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "toggle_active"))],
-) -> MaterialDetailOut:
-    try:
-        material = svc.toggle_active(material_id=material_id, actor=user)
-    except MaterialNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    return MaterialDetailOut.model_validate(material)
-
-@router.post("/{material_id}/costs", response_model=MaterialCostOut, status_code=status.HTTP_201_CREATED)
-def add_material_price(
-    material_id: int,
-    payload: MaterialCostCreate,
-    svc: Annotated[MaterialService, Depends(get_material_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "manage_price"))],
-) -> MaterialCostOut:
-    try:
-        cost = svc.add_material_price(
-            material_id=material_id,
-            price_unit=payload.price_unit,
-            unit_price=payload.unit_price,
-            effective_from=payload.effective_from,
-            actor=user,
-            supplier=payload.supplier,
-            paper_size_id=payload.paper_size_id,
-            price_type=payload.price_type,
-            vat_included=payload.vat_included,
-            transport_fee=payload.transport_fee,
-            moq=payload.moq,
-            lead_time_days=payload.lead_time_days,
-            quantity_from=payload.quantity_from,
-            quantity_to=payload.quantity_to,
-        )
-    except MaterialNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    except MaterialValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
-        ) from None
-    return MaterialCostOut.model_validate(cost)
-
 @router.get("/{material_id}/costs/history", response_model=list[MaterialCostOut])
 def cost_history(
     material_id: int,
@@ -225,46 +72,3 @@ def cost_history(
     except MaterialNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return [MaterialCostOut.model_validate(r) for r in rows]
-
-@router.post("/convert", response_model=MaterialConvertOut)
-def convert(
-    payload: MaterialConvertInput,
-    svc: Annotated[MaterialService, Depends(get_material_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> MaterialConvertOut:
-    return MaterialConvertOut(**svc.convert(gsm=payload.gsm, width_cm=payload.width_cm, height_cm=payload.height_cm))
-
-@router.post("/price-test", response_model=MaterialPriceTestOut)
-def price_test(
-    payload: MaterialPriceTestInput,
-    svc: Annotated[MaterialService, Depends(get_material_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> MaterialPriceTestOut:
-    return MaterialPriceTestOut(**svc.price_test(payload))
-
-@router.post("/{material_id}/clone", response_model=MaterialDetailOut, status_code=status.HTTP_201_CREATED)
-def clone_paper(
-    material_id: int,
-    payload: ClonePaperPayload,
-    svc: Annotated[MaterialService, Depends(get_material_service)],
-    user: Annotated[User, Depends(require_permission(MODULE, "clone"))],
-) -> MaterialDetailOut:
-    try:
-        material = svc.clone_paper(
-            material_id=material_id,
-            gsm=payload.gsm,
-            width_cm=payload.width_cm,
-            height_cm=payload.height_cm,
-            actor=user,
-        )
-    except MaterialNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    except MaterialDuplicate as e:
-        # #17 — clone tạo tên trùng (đã có "Couche 100gsm 79.0x109.0") → 409 như create/update,
-        # không để lọt ra 500. MaterialDuplicate là sibling của MaterialValidationError nên phải bắt riêng.
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except MaterialValidationError as e:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
-        ) from None
-    return MaterialDetailOut.model_validate(material)

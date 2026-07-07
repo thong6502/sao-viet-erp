@@ -43,7 +43,6 @@ const NAV: NavSection[] = [
     id: "kinh-doanh",
     label: "Kinh doanh",
     items: [
-      { id: "tinh-gia-thanh", label: "Tính giá thành", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
       { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart", module: "don_hang_ban" },
       { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },
@@ -86,15 +85,6 @@ const NAV: NavSection[] = [
     id: "cau-hinh-dm",
     label: "Cấu hình danh mục",
     items: [
-      { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_loai_san_pham" },
-      { id: "vat-lieu", label: "Vật liệu & Giá", icon: "bag", module: "dm_giay_vat_tu" },
-      { id: "thiet-bi-may", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
-      { id: "cong-doan-gc", label: "Công đoạn gia công", icon: "activity", module: "dm_cong_doan" },
-      { id: "gia-khuon-ban", label: "Chi phí chế bản & khuôn", icon: "fileText", module: "dm_gia_khuon_ban" },
-      // "Định mức & Bù hao" đã bỏ khỏi menu — bù hao giờ là ô "% Bù hao" trong Loại sản phẩm.
-      // Trang + route + dữ liệu norm vẫn còn (ẩn), khôi phục được nếu cần.
-      { id: "kho-giay", label: "Khổ giấy chuẩn", icon: "grid", module: "dm_giay_vat_tu" },
-      { id: "kieu-binh-bai", label: "Quy tắc bình bài", icon: "calculator", module: "dm_dinh_muc" },
       { id: "cau-hinh-kho", label: "Cấu hình kho hàng", icon: "warehouse", module: "dm_kho" },
     ],
   },

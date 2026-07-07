@@ -123,9 +123,6 @@ class MaterialCost(Base):
 
     # ---- Tái thiết kế #2: NCC + khổ + loại giá + bậc số lượng + phí ----
     supplier: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    paper_size_id: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("paper_sizes.id", ondelete="SET NULL"), nullable=True
-    )
     price_type: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="standard", default="standard"
     )
@@ -164,8 +161,8 @@ class MaterialCost(Base):
             "effective_to IS NULL OR effective_to > effective_from",
             name="chk_material_effective_dates"
         ),
-        # Chỉ 1 dòng "hiện hành" cho mỗi (vật tư + đơn vị giá + bậc SL + NCC + khổ) — cho phép
-        # nhiều bậc/NCC/khổ cùng lúc (tái thiết kế #2). Migration 0005 thay index cũ (chỉ material+unit).
+        # Chỉ 1 dòng "hiện hành" cho mỗi (vật tư + đơn vị giá + bậc SL + NCC) — cho phép
+        # nhiều bậc/NCC cùng lúc (tái thiết kế #2). Migration 0005 thay index cũ (chỉ material+unit).
         Index(
             "uix_material_costs_current",
             "material_id",
@@ -173,7 +170,6 @@ class MaterialCost(Base):
             text("coalesce(quantity_from, -1)"),
             text("coalesce(quantity_to, -1)"),
             text("coalesce(supplier, '')"),
-            text("coalesce(paper_size_id, 0)"),
             unique=True,
             sqlite_where=text("effective_to IS NULL"),
             postgresql_where=text("effective_to IS NULL")

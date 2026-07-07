@@ -223,9 +223,9 @@ class MaterialRepository:
 
     def get_current_cost_variant(
         self, material_id: int, price_unit: str, *,
-        quantity_from=None, quantity_to=None, supplier=None, paper_size_id=None,
+        quantity_from=None, quantity_to=None, supplier=None,
     ) -> MaterialCost | None:
-        """Dòng giá hiện hành đúng biến thể (bậc + NCC + khổ) — cho versioning nhiều bậc/NCC."""
+        """Dòng giá hiện hành đúng biến thể (bậc + NCC) — cho versioning nhiều bậc/NCC."""
         stmt = (
             select(MaterialCost)
             .where(MaterialCost.material_id == material_id)
@@ -234,7 +234,6 @@ class MaterialRepository:
             .where(MaterialCost.quantity_from.is_(None) if quantity_from is None else MaterialCost.quantity_from == quantity_from)
             .where(MaterialCost.quantity_to.is_(None) if quantity_to is None else MaterialCost.quantity_to == quantity_to)
             .where(MaterialCost.supplier.is_(None) if supplier is None else MaterialCost.supplier == supplier)
-            .where(MaterialCost.paper_size_id.is_(None) if paper_size_id is None else MaterialCost.paper_size_id == paper_size_id)
         )
         return self.db.execute(stmt).scalars().first()
 
@@ -247,7 +246,7 @@ class MaterialRepository:
         effective_from: date,
         **extra,
     ) -> MaterialCost:
-        """Add a cost price version for a material (cùng biến thể bậc/NCC/khổ thì đóng bản cũ).
+        """Add a cost price version for a material (cùng biến thể bậc/NCC thì đóng bản cũ).
 
         Nửa-mở [from, to): đóng bản hiện hành bằng effective_to = effective_from mới.
         """
@@ -255,7 +254,6 @@ class MaterialRepository:
             quantity_from=extra.get("quantity_from"),
             quantity_to=extra.get("quantity_to"),
             supplier=extra.get("supplier"),
-            paper_size_id=extra.get("paper_size_id"),
         )
         current = self.get_current_cost_variant(material_id, price_unit, **variant)
         if current:

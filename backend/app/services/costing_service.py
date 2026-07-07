@@ -165,14 +165,9 @@ class CostingService:
                     raise CostingValidationError(f"Phương án giấy {idx}: {label} không hợp lệ.")
                 return v
 
-            print_size_id = _opt_int("print_sheet_size_id", "khổ tờ in")
-            purchase_size_id = _opt_int("purchase_size_id", "khổ giấy mua")
-
             out.append(
                 PaperOptionInput(
                     sheet_paper_master_id=paper_id,
-                    print_sheet_size_id=print_size_id,
-                    purchase_size_id=purchase_size_id,
                     sheet_w=sheet_w,
                     sheet_h=sheet_h,
                     pieces_per_sheet=pieces,

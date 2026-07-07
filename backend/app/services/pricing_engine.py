@@ -14,7 +14,6 @@ from ..models.plate_die_rate import PlateDieRate
 from ..models.product_type_catalog import ProductTypeCatalog
 from ..models.estimate import EstimateCostLine
 from ..services.norm_service import NormService, NormLookupContext
-from . import imposition_math
 
 # Nhãn tiếng Việt cho mã đơn vị khi nhúng vào mô tả dòng chi phí (hiển thị cho người dùng)
 UNIT_LABELS_VI = {
@@ -224,33 +223,14 @@ class PricingEngine:
         bleed_cm = _dim_cm("bleed_cm", "default_bleed_mm")
         gutter_cm = _dim_cm("gutter_cm", "default_gutter_mm")
 
-        # 1b. Bình bài (imposition) — đọc hệ số từ DM Kiểu bình bài (mục 9). Spec gửi `imposition`
-        # có thể là MÃ (ONE_SIDE, TU_TRO… từ dropdown Tính giá) hoặc TÊN (legacy). Resolve theo
-        # code → name → hiệu lực tại ngày tính → version cao nhất. Không chỉ định → suy từ số mặt.
-        from ..repositories.imposition_type_repo import ImpositionTypeRepository
-        impo_code = input_spec.get("imposition") or input_spec.get("imposition_name")
-        if not impo_code:
-            # Mặc định theo số mặt khi spec không chọn kiểu: dùng MÃ ổn định (tên có thể đổi).
-            impo_code = "ONE_SIDE" if sides == 1 else "AB"
-        impo = ImpositionTypeRepository(self.db).resolve_active(
-            code=impo_code, name=impo_code, at_date=at_date
-        )
-        if impo:
-            finished_factor = float(impo.finished_factor)
-            plate_set_factor = float(impo.plate_set_factor)
-            impo_pass_count = float(impo.pass_count)
-            ink_pass_factor = float(impo.ink_pass_factor)
-            impo_label = impo.name
-            impo_resolved_code = impo.code
-        else:
-            # Fallback khi DM chưa seed: suy từ số mặt = đúng bằng hành vi engine cũ (không đổi kết quả).
-            finished_factor = 1.0
-            plate_set_factor = float(sides)
-            impo_pass_count = 1.0
-            ink_pass_factor = float(sides)
-            impo_label = impo_code
-            impo_resolved_code = None
-            add_warning("warning", "MISSING_IMPOSITION", f"Không tìm thấy kiểu bình bài '{impo_code}' trong danh mục — dùng hệ số suy từ số mặt.")
+        # 1b. Hệ số in ấn suy THUẦN theo số mặt (đã bỏ danh mục Quy tắc bình bài):
+        #   finished_factor = 1  → số con thành phẩm = số con hình học (không quy đổi bình bài),
+        #   plate_set_factor = số mặt (1 mặt → 1 bộ kẽm, 2 mặt → 2 bộ kẽm riêng),
+        #   ink_pass_factor  = số mặt (nuôi tiền mực theo lượt-màu),
+        #   pass_count       = 1 lượt qua máy cơ bản (multi-pass theo số màu/máy tính riêng ở mục Máy).
+        finished_factor = 1.0
+        plate_set_factor = float(sides)
+        ink_pass_factor = float(sides)
 
         # 2. Layout Calculation (pieces_per_sheet)
         pieces_per_sheet = 1
@@ -302,12 +282,8 @@ class PricingEngine:
                     add_warning("blocking_error", "INVALID_DIMENSIONS", "Kích thước khổ không hợp lệ.")
                     pieces_per_sheet = 1
 
-        # Hệ số thành phẩm (bình bài): số con thành phẩm = số con hình học × hệ số (tự trở=½). Mục 9.
-        # Dùng chung helper với endpoint Kiểm thử (imposition_math) — một nguồn công thức, không lệch.
+        # finished_factor = 1 (đã bỏ bình bài) → số con thành phẩm = số con hình học.
         geometric_pieces_per_sheet = pieces_per_sheet
-        pieces_per_sheet = imposition_math.finished_pieces_per_sheet(
-            geometric_pieces_per_sheet, finished_factor
-        )
 
         # 3. Load Material and Price
         material: Material | None = None
@@ -502,11 +478,8 @@ class PricingEngine:
             "qty_final": qty,
             "print_yield": print_yield,
             "print_yield_norm_id": print_yield_norm_id,
-            "imposition": impo_label,
-            "imposition_code": impo_resolved_code,
             "finished_factor": finished_factor,
             "plate_set_factor": plate_set_factor,
-            "impo_pass_count": impo_pass_count,
             "ink_pass_factor": ink_pass_factor,
             "geometric_pieces_per_sheet": geometric_pieces_per_sheet,
             "pieces_per_sheet": pieces_per_sheet,
@@ -668,7 +641,8 @@ class PricingEngine:
             plate_rate = PlateDieRateRepository(self.db).resolve_plate_for_machine(machine_id, at_date)
 
             if plate_rate:
-                plates_count = imposition_math.plates_count(colors, plate_set_factor, forms)
+                # Số bản kẽm = số màu × số bộ kẽm (=số mặt) × số form/tay.
+                plates_count = int(round(colors * plate_set_factor * forms))
                 # Tiền kẽm = số bản × đơn giá + phí setup, sàn theo phí tối thiểu (đơn giá kẽm #5).
                 # Seed hiện setup=min=0 ⇒ no-op, golden khay-carton giữ nguyên số.
                 plate_setup = float(plate_rate.setup_fee or 0)
@@ -681,7 +655,7 @@ class PricingEngine:
 
                 cost_lines.append(EstimateCostLine(
                     category="plate_die",
-                    description=f"Bản kẽm Offset: {plates_count} bản ({colors} màu × {plate_set_factor:g} bộ kẽm × {forms} khuôn — {impo_label})",
+                    description=f"Bản kẽm Offset: {plates_count} bản ({colors} màu × {plate_set_factor:g} bộ kẽm × {forms} khuôn)",
                     source_type="plate_die_rates",
                     source_id=plate_rate.id,
                     source_snapshot_json={
@@ -694,7 +668,6 @@ class PricingEngine:
                         "colors": colors,
                         "sides": sides,
                         "plate_set_factor": plate_set_factor,
-                        "imposition": impo_label,
                         "forms": forms
                     },
                     quantity=float(plates_count),
@@ -711,7 +684,8 @@ class PricingEngine:
         # Đơn giá mực đọc từ DANH MỤC VẬT TƯ (#2): material nhóm 'ink', giá price_unit='nghin_luot'
         # (đ/1.000 lượt). Spec có thể chỉ định ink_material_id; nếu không → mực offset mặc định (id nhỏ nhất).
         if machine and machine_rate and machine.machine_type == "offset":
-            impressions = imposition_math.ink_impressions(total_sheets, colors, ink_pass_factor)
+            # Số lượt-màu = số tờ sản xuất × số màu × số mặt (ink_pass_factor).
+            impressions = int(round(total_sheets * colors * ink_pass_factor))
             ink_material = None
             ink_material_id = input_spec.get("ink_material_id")
             if ink_material_id:
@@ -833,20 +807,10 @@ class PricingEngine:
                 run_time_hours *= passes
                 add_warning("info", "MULTI_PASS", f"Job {colors} màu chạy trên máy {num_ink_units} đơn vị in → {passes} lượt in (giờ máy ×{passes}).", "machine", machine.id)
 
-            # Số lượt qua máy (bình bài): tờ qua máy impo_pass_count lần (2 mặt → 2 lượt). Mục 9.
-            # Máy trở tự động (perfecting) in cả 2 mặt trong 1 lượt qua máy → KHÔNG nhân lượt bình bài.
-            machine_pass = impo_pass_count
-            if getattr(machine, "supports_perfecting", False) and machine_pass and machine_pass > 1:
-                add_warning("info", "PERFECTING", f"Máy {machine.name} in trở tự động (perfecting) — không nhân lượt qua máy dù bình bài '{impo_label}' 2 mặt.", "machine", machine.id)
-                machine_pass = 1.0
-            if machine_pass and machine_pass != 1.0:
-                run_time_hours *= machine_pass
-                add_warning("info", "IMPOSITION_PASS", f"Bình bài '{impo_label}': tờ qua máy ×{machine_pass:g} lượt (giờ máy ×{machine_pass:g}).", "machine", machine.id)
-
             # Setup/canh máy (giờ) — công thức hạt theo DM Máy (spec §D): base + theo màu + theo mặt
             # + vệ sinh + đổi màu×màu + đổi kẽm×số bản + canh màu. Nếu chưa khai (tổng = 0) → FALLBACK
             # về (setup_time_mins + changeover_time_mins)/60 = đúng hành vi cũ (không đổi kết quả job cũ).
-            plates_for_setup = imposition_math.plates_count(colors, plate_set_factor, forms)
+            plates_for_setup = int(round(colors * plate_set_factor * forms))
             setup_gran = (
                 float(getattr(machine, "setup_time_base_hour", 0) or 0)
                 + float(getattr(machine, "setup_time_per_color_hour", 0) or 0) * colors

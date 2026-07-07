@@ -1106,8 +1106,6 @@ export interface ProductTypeCatalogRow {
   required_operations: string[] | null;
   allowed_materials: string[] | null;
   compatible_technologies: string[] | null;
-  allowed_imposition_codes: string[] | null;
-  default_imposition_code: string | null;
   dimension_rule_type: string;
   default_bleed_mm: number;
   default_gutter_mm: number;
@@ -1127,7 +1125,6 @@ export interface ProductTypeCatalogRow {
   default_body_material_id?: number | null;
   default_ink_material_id?: number | null;
   allow_extra_operations?: boolean;
-  allow_imposition_change?: boolean;
   allow_manual_override?: boolean;
   waste_pct?: number;
   sheet_count_mode: string;
@@ -1167,9 +1164,6 @@ export interface ProductTypeCatalogInput {
   default_operations?: string[] | null;
   required_operations?: string[] | null;
   allow_extra_operations?: boolean;
-  allowed_imposition_codes?: string[] | null;
-  default_imposition_code?: string | null;
-  allow_imposition_change?: boolean;
   compatible_technologies?: string[] | null;
   sheet_count_mode?: string;
   ink_cost_mode?: string;
@@ -1187,8 +1181,6 @@ export interface ProductTypePreviewResult {
   required_fields: string[];
   routing: string[];
   required_operations: string[];
-  allowed_imposition_codes: string[];
-  default_imposition_code: string | null;
   dimension_rule_type: string;
   default_bleed_mm: number;
   default_gutter_mm: number;
@@ -1209,204 +1201,6 @@ export interface ProductTypeCatalogListOut {
   size: number;
 }
 
-export type PaperSizeGroup = "cong_nghiep" | "kho_a" | "kho_cat" | "custom";
-
-export interface PaperSizeRow {
-  id: number;
-  code: string;
-  name: string;
-  size_group: string;
-  is_purchase_size: boolean;
-  is_print_sheet_size: boolean;
-  is_cut_size: boolean;
-  size_type: string;
-  note: string | null;
-  width_cm: number;
-  height_cm: number;
-  area_m2: number;
-  allow_rotation: boolean;
-  compatible_machine_ids: number[] | null;
-  default_machine_id: number | null;
-  parent_size_id: number | null;
-  cut_count: number | null;
-  cut_waste_rate: number | null;
-  version: number;
-  effective_from: string | null;
-  effective_to: string | null;
-  used_count: number;
-  /** "Đang dùng trong" = số phiếu tính giá tham chiếu khổ — server tính khi list. */
-  used_in_costings: number;
-  created_by: number | null;
-  updated_by: number | null;
-  is_active: boolean;
-  created_at: string;
-}
-
-export interface PaperSizeDuplicateRef {
-  id: number;
-  code: string;
-  name: string;
-  width_cm: number;
-  height_cm: number;
-  version: number;
-}
-
-export interface PaperSizeDuplicateOut {
-  matched: PaperSizeDuplicateRef | null;
-}
-
-export interface PaperSizeUsageCosting {
-  id: number;
-  code: string;
-  product_name: string | null;
-  qty_final: number;
-  status: string;
-  created_at: string;
-}
-
-export interface PaperSizeUsageOut {
-  paper_size_id: number;
-  code: string;
-  name: string;
-  costing_count: number;
-  costings: PaperSizeUsageCosting[];
-}
-
-export interface PaperSizeInput {
-  code?: string | null;
-  name: string;
-  size_group?: PaperSizeGroup;
-  is_purchase_size?: boolean | null;
-  is_print_sheet_size?: boolean | null;
-  is_cut_size?: boolean | null;
-  size_type?: string | null;
-  note?: string | null;
-  is_active?: boolean | null;
-  width_cm: number;
-  height_cm: number;
-  allow_rotation?: boolean;
-  compatible_machine_ids?: number[] | null;
-  default_machine_id?: number | null;
-  parent_size_id?: number | null;
-  cut_count?: number | null;
-  cut_waste_rate?: number | null;
-  effective_from?: string | null;
-  effective_to?: string | null;
-}
-
-export interface PaperSizeListOut {
-  items: PaperSizeRow[];
-  total: number;
-  page: number;
-  size: number;
-}
-
-export type ImpositionGroupKind = "one_side" | "two_side" | "multi_page" | "custom";
-export type ImpositionAppliesToSides = "any" | "1" | "2" | "multi";
-
-export interface ImpositionTypeRow {
-  id: number;
-  code: string;
-  name: string;
-  group_kind: ImpositionGroupKind;
-  sides: number;
-  finished_factor: number;
-  pass_count: number;
-  plate_set_factor: number;
-  ink_pass_factor: number;
-  allow_rotate: boolean;
-  shared_plate_set: boolean;
-  note: string | null;
-  technology: string;
-  applies_to_sides: ImpositionAppliesToSides;
-  applicable_product_types: string[] | null;
-  applicable_machine_ids: number[] | null;
-  applicable_paper_size_ids: number[] | null;
-  allow_multi_signature: boolean;
-  priority: number;
-  version: number;
-  effective_from: string | null;
-  effective_to: string | null;
-  used_count: number;
-  // "Đang dùng trong" = số TÍNH GIÁ (estimates) đang dùng quy tắc — server tính khi list.
-  estimate_count: number;
-  created_by: number | null;
-  updated_by: number | null;
-  is_active: boolean;
-  created_at: string;
-}
-
-// Kiểm thử nhanh (preview engine) — dùng chung công thức với pricing_engine.
-export interface ImpositionPreviewRequest {
-  finished_factor: number;
-  pass_count: number;
-  plate_set_factor: number;
-  ink_pass_factor: number;
-  geometric_pieces: number;
-  quantity: number;
-  production_sheets: number;
-  colors: number;
-  forms: number;
-  machine_speed: number;
-}
-
-export interface ImpositionPreviewOut {
-  finished_pieces_per_sheet: number;
-  theoretical_sheets: number;
-  machine_sheets: number;
-  run_hours: number;
-  plates: number;
-  ink_impressions: number;
-}
-
-export interface ImpositionUsageEstimate {
-  id: number;
-  estimate_number: string;
-  product_name: string;
-  status: string;
-  created_at: string;
-}
-
-export interface ImpositionUsageOut {
-  code: string;
-  estimate_count: number;
-  estimates: ImpositionUsageEstimate[];
-}
-
-// Create carries `code`; Update omits it (code is immutable — keyed by the version chain).
-// force_version (update only): buộc tạo phiên bản mới kể cả khi chưa dùng.
-export interface ImpositionTypeInput {
-  code?: string;
-  force_version?: boolean;
-  name: string;
-  group_kind: ImpositionGroupKind;
-  sides: number;
-  finished_factor: number;
-  pass_count: number;
-  plate_set_factor: number;
-  ink_pass_factor: number;
-  allow_rotate: boolean;
-  shared_plate_set: boolean;
-  note?: string | null;
-  technology?: string;
-  applies_to_sides: ImpositionAppliesToSides;
-  applicable_product_types?: string[] | null;
-  applicable_machine_ids?: number[] | null;
-  applicable_paper_size_ids?: number[] | null;
-  allow_multi_signature: boolean;
-  priority: number;
-  effective_from?: string | null;
-  effective_to?: string | null;
-  is_active?: boolean;
-}
-
-export interface ImpositionTypeListOut {
-  items: ImpositionTypeRow[];
-  total: number;
-  page: number;
-  size: number;
-}
-
 export type MaterialGroup = "paper" | "ink" | "film" | "glue" | "packaging" | "auxiliary";
 
 export interface MaterialCostRow {
@@ -1415,7 +1209,6 @@ export interface MaterialCostRow {
   price_unit: string;
   unit_price: number;
   supplier: string | null;
-  paper_size_id: number | null;
   price_type: string;
   vat_included: boolean;
   transport_fee: number;
@@ -1434,7 +1227,6 @@ export interface MaterialCostInput {
   unit_price: number;
   effective_from: string;
   supplier?: string | null;
-  paper_size_id?: number | null;
   price_type?: string;
   vat_included?: boolean;
   transport_fee?: number;
@@ -1587,7 +1379,6 @@ interface MachineFields {
   gripper_cm: number;
   side_margin_cm: number;
   top_bottom_margin_cm: number;
-  compatible_paper_size_ids: number[] | null;
   setup_time_mins: number;
   changeover_time_mins: number;
   setup_waste_sheets: number;
@@ -3604,124 +3395,6 @@ export const api = {
     },
   },
 
-  // --- Paper Sizes Catalog --------------------------------------------------
-  paperSizes: {
-    list(
-      token: string,
-      params: CatalogListParams & {
-        size_type?: string | null;
-        size_group?: string | null;
-        machine_id?: number | null;
-        is_active?: boolean | null;
-        current_only?: boolean;
-      } = {},
-    ): Promise<PaperSizeListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.size_type) qs.set("size_type", params.size_type);
-      if (params.size_group) qs.set("size_group", params.size_group);
-      if (params.machine_id != null) qs.set("machine_id", String(params.machine_id));
-      if (params.is_active != null) qs.set("is_active", String(params.is_active));
-      if (params.current_only) qs.set("current_only", "true");
-      if (params.sort) qs.set("sort", params.sort);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<PaperSizeListOut>(`/api/paper-sizes${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<PaperSizeRow> {
-      return authed<PaperSizeRow>(`/api/paper-sizes/${id}`, token);
-    },
-    history(token: string, id: number): Promise<PaperSizeListOut> {
-      return authed<PaperSizeListOut>(`/api/paper-sizes/${id}/history`, token);
-    },
-    usage(token: string, id: number): Promise<PaperSizeUsageOut> {
-      return authed<PaperSizeUsageOut>(`/api/paper-sizes/${id}/usage`, token);
-    },
-    checkDuplicate(
-      token: string,
-      params: { width: number; height: number; excludeId?: number | null },
-    ): Promise<PaperSizeDuplicateOut> {
-      const qs = new URLSearchParams();
-      qs.set("width", String(params.width));
-      qs.set("height", String(params.height));
-      if (params.excludeId != null) qs.set("exclude_id", String(params.excludeId));
-      return authed<PaperSizeDuplicateOut>(`/api/paper-sizes/check-duplicate?${qs.toString()}`, token);
-    },
-    create(token: string, input: PaperSizeInput): Promise<PaperSizeRow> {
-      return authed<PaperSizeRow>("/api/paper-sizes", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    update(token: string, id: number, input: PaperSizeInput): Promise<PaperSizeRow> {
-      return authed<PaperSizeRow>(`/api/paper-sizes/${id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    createVersion(token: string, id: number, input: PaperSizeInput): Promise<PaperSizeRow> {
-      return authed<PaperSizeRow>(`/api/paper-sizes/${id}/version`, token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    clone(token: string, id: number): Promise<PaperSizeRow> {
-      return authed<PaperSizeRow>(`/api/paper-sizes/${id}/clone`, token, { method: "POST" });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/paper-sizes/${id}`, token, { method: "DELETE" });
-    },
-  },
-
-  // --- Imposition Types Catalog (Kiểu bình bài) -----------------------------
-  impositionTypes: {
-    list(
-      token: string,
-      params: CatalogListParams & { current_only?: boolean; is_active?: boolean; code?: string } = {},
-    ): Promise<ImpositionTypeListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.code) qs.set("code", params.code);
-      if (params.sort) qs.set("sort", params.sort);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      if (params.current_only) qs.set("current_only", "true");
-      if (params.is_active !== undefined) qs.set("is_active", String(params.is_active));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<ImpositionTypeListOut>(`/api/imposition-types${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<ImpositionTypeRow> {
-      return authed<ImpositionTypeRow>(`/api/imposition-types/${id}`, token);
-    },
-    create(token: string, input: ImpositionTypeInput): Promise<ImpositionTypeRow> {
-      return authed<ImpositionTypeRow>("/api/imposition-types", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    update(token: string, id: number, input: ImpositionTypeInput): Promise<ImpositionTypeRow> {
-      return authed<ImpositionTypeRow>(`/api/imposition-types/${id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/imposition-types/${id}`, token, { method: "DELETE" });
-    },
-    // Kiểm thử nhanh — engine thật tính qua imposition_math (không lệch client/server).
-    preview(token: string, input: ImpositionPreviewRequest): Promise<ImpositionPreviewOut> {
-      return authed<ImpositionPreviewOut>("/api/imposition-types/preview", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    // "Xem tính giá đã dùng" — danh sách estimates đang dùng quy tắc.
-    usage(token: string, id: number): Promise<ImpositionUsageOut> {
-      return authed<ImpositionUsageOut>(`/api/imposition-types/${id}/usage`, token);
-    },
-  },
-
   // --- Materials Catalog ----------------------------------------------------
   materials: {
     list(token: string, params: CatalogListParams & { material_type?: string | null } = {}): Promise<MaterialListOut> {
@@ -4055,7 +3728,6 @@ export interface PlateDieRateRow {
   plate_width_mm: number | null;
   plate_height_mm: number | null;
   machine_ids: number[] | null;
-  paper_size_ids: number[] | null;
   unit_price: number;
   setup_fee: number;
   min_charge: number;
@@ -4118,7 +3790,6 @@ export interface PlateDieRateInput {
   plate_width_mm?: number | null;
   plate_height_mm?: number | null;
   machine_ids?: number[] | null;
-  paper_size_ids?: number[] | null;
   unit_price?: number;
   setup_fee?: number;
   min_charge?: number;

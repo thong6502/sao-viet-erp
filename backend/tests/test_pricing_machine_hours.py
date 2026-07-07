@@ -14,7 +14,6 @@ import app.models  # noqa: F401
 from app.models.material import Material, MaterialCost
 from app.models.machine import Machine, MachineRate
 from app.models.plate_die_rate import PlateDieRate
-from app.models.imposition_type import ImpositionType
 from app.services.pricing_engine import PricingEngine
 
 
@@ -26,7 +25,6 @@ def _db():
     db.add(m); db.flush()
     db.add(MaterialCost(material_id=m.id, price_unit="to", unit_price=5000, effective_from=date(2025, 1, 1)))
     db.add(PlateDieRate(code="PLATE_T", name="Kẽm test", plate_type="ban_kem_offset", technology="offset", unit="ban", unit_price=100000, effective_from=date(2025, 1, 1)))
-    db.add(ImpositionType(code="ONE_SIDE", name="In 1 mặt", sides=1, finished_factor=1.0, pass_count=1, plate_set_factor=1.0, ink_pass_factor=1.0))
     db.commit()
     return db, m.id
 
@@ -44,7 +42,7 @@ def _machine(db, **over):
 
 def _run(db, mid, mcid, qty=6000):
     spec = dict(product_type="test", colors=4, sides=1, forms=1, material_id=mid, machine_id=mcid,
-                sheet_w=79, sheet_h=109, pieces_per_sheet=1, imposition="ONE_SIDE", operations=[])
+                sheet_w=79, sheet_h=109, pieces_per_sheet=1, operations=[])
     lines, total, warns = PricingEngine(db).calculate_option(spec, qty)
     machine = next(l for l in lines if l.category == "machine")
     return float(machine.calculation_snapshot_json["machine_hours"]), float(machine.calculation_snapshot_json["setup_hours"])

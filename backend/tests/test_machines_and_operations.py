@@ -1,11 +1,20 @@
-"""Tests for Machines and Operations Catalog configs.
+"""Tests for the Operations Catalog config.
+
+The admin/write surface of the operations catalog was removed; the router is
+now read-only (GET list + GET detail) so the pricing engine / Báo giá can still
+read it. Test data is therefore seeded straight through the model instead of the
+(deleted) POST endpoints. The former HTTP CRUD test was deleted with the write
+endpoints.
 """
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
-from datetime import date, timedelta
-from app.models.machine import Machine, MachineRate
+
+from app.db import SessionLocal
 from app.models.operation import Operation, OperationRate
+
 
 @pytest.fixture
 def token(client, seed_credentials) -> str:
@@ -13,127 +22,82 @@ def token(client, seed_credentials) -> str:
     assert resp.status_code == 200
     return resp.json()["access_token"]
 
+
 @pytest.fixture
 def auth_headers(token) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
-# --- Machines tests ---------------------------------------------------------
 
-def test_machines_crud(client, auth_headers):
-    # 1. Create a machine
-    payload = {
-        "name": "KBA Rapida 105",
-        "machine_type": "offset",
-        "process_type": "in",
-        "speed": 15000,
-        "speed_unit": "to/gio",
-        "max_width_cm": 72,
-        "max_height_cm": 105,
-        "min_width_cm": 35,
-        "min_height_cm": 50,
-        "setup_time_mins": 20,
-        "changeover_time_mins": 10,
-        "setup_waste_sheets": 150,
-        "supported_materials": ["paper"],
-        "is_active": True
-    }
-    resp = client.post("/api/machines", json=payload, headers=auth_headers)
-    assert resp.status_code == 201
-    machine_id = resp.json()["id"]
-    # MY### code auto-generation
-    assert resp.json()["code"].startswith("MY")
+def _seed_operation() -> int:
+    """Insert one operation + its current rate directly via the model.
 
-    # 2. Get detail
-    resp = client.get(f"/api/machines/{machine_id}", headers=auth_headers)
+    SessionLocal binds to the same StaticPool connection the app uses, so the
+    committed row is visible to the read endpoints under test.
+    """
+    db = SessionLocal()
+    try:
+        op = Operation(
+            code="CD900",
+            name="Cán màng nhung",
+            operation_type="can_mang",
+            unit="m2",
+            allow_outsource=True,
+            is_active=True,
+        )
+        db.add(op)
+        db.flush()
+        db.add(
+            OperationRate(
+                operation_id=op.id,
+                setup_fee=150000,
+                run_rate=3500,
+                labor_rate=500,
+                min_charge=300000,
+                speed=2000.0,
+                effective_from=date.today(),
+            )
+        )
+        db.commit()
+        return op.id
+    finally:
+        db.close()
+
+
+def test_operations_read_path(client, auth_headers):
+    op_id = _seed_operation()
+
+    # List returns the seeded operation.
+    resp = client.get("/api/operations", headers=auth_headers)
     assert resp.status_code == 200
-    assert resp.json()["name"] == "KBA Rapida 105"
+    body = resp.json()
+    assert body["total"] >= 1
+    assert any(x["id"] == op_id for x in body["items"])
 
-    # 3. Add rate version
-    today = date.today().isoformat()
-    rate_payload = {
-        "hourly_rate": 450000,
-        "min_charge": 1000000,
-        "min_run_time_mins": 30,
-        "effective_from": today
-    }
-    resp = client.post(f"/api/machines/{machine_id}/rates", json=rate_payload, headers=auth_headers)
-    assert resp.status_code == 201
-    assert resp.json()["hourly_rate"] == 450000
-
-    # 4. Check overlapping active rate
-    resp = client.post(f"/api/machines/{machine_id}/rates", json=rate_payload, headers=auth_headers)
-    assert resp.status_code == 422
-    assert "Ngày hiệu lực mới phải sau" in resp.json()["detail"]
-
-    # 5. List
-    resp = client.get("/api/machines", headers=auth_headers)
-    assert resp.status_code == 200
-    assert resp.json()["total"] >= 1
-    assert any(x["id"] == machine_id for x in resp.json()["items"])
-
-    # 6. Delete
-    resp = client.delete(f"/api/machines/{machine_id}", headers=auth_headers)
-    assert resp.status_code == 204
-
-def test_machine_speed_constraint(client, auth_headers):
-    # Try creating machine with speed <= 0
-    payload = {
-        "name": "Bad Machine",
-        "machine_type": "offset",
-        "process_type": "in",
-        "speed": 0,  # Fails speed > 0
-        "speed_unit": "to/gio"
-    }
-    resp = client.post("/api/machines", json=payload, headers=auth_headers)
-    assert resp.status_code == 422
-    assert "greater than 0" in str(resp.json()["detail"])
-
-# --- Operations tests -------------------------------------------------------
-
-def test_operations_crud(client, auth_headers):
-    # 1. Create an operation
-    payload = {
-        "name": "Cán màng nhung",
-        "operation_type": "can_mang",
-        "unit": "m2",
-        "allow_outsource": True,
-        "is_active": True
-    }
-    resp = client.post("/api/operations", json=payload, headers=auth_headers)
-    assert resp.status_code == 201
-    op_id = resp.json()["id"]
-    # CD### code auto-generation
-    assert resp.json()["code"].startswith("CD")
-
-    # 2. Get detail
+    # Detail read works.
     resp = client.get(f"/api/operations/{op_id}", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["name"] == "Cán màng nhung"
 
-    # 3. Add rate version
-    today = date.today().isoformat()
-    rate_payload = {
-        "setup_fee": 150000,
-        "run_rate": 3500,
-        "labor_rate": 500,
-        "min_charge": 300000,
-        "speed": 2000.0,
-        "effective_from": today
-    }
-    resp = client.post(f"/api/operations/{op_id}/rates", json=rate_payload, headers=auth_headers)
-    assert resp.status_code == 201
-    assert resp.json()["run_rate"] == 3500
 
-    # 4. Check overlapping active rate
-    resp = client.post(f"/api/operations/{op_id}/rates", json=rate_payload, headers=auth_headers)
-    assert resp.status_code == 422
-    assert "Ngày hiệu lực mới phải sau" in resp.json()["detail"]
+def test_operations_write_endpoints_removed(client, auth_headers):
+    op_id = _seed_operation()
 
-    # 5. List
-    resp = client.get("/api/operations", headers=auth_headers)
-    assert resp.status_code == 200
-    assert resp.json()["total"] >= 1
+    payload = {"name": "X", "operation_type": "can_mang", "unit": "m2"}
 
-    # 6. Delete
-    resp = client.delete(f"/api/operations/{op_id}", headers=auth_headers)
-    assert resp.status_code == 204
+    # create / update / delete / add-rate / preview are all gone (405 on an
+    # existing path with a dropped verb, 404 on a path that no longer exists).
+    assert client.post(
+        "/api/operations", json=payload, headers=auth_headers
+    ).status_code in (404, 405)
+    assert client.put(
+        f"/api/operations/{op_id}", json=payload, headers=auth_headers
+    ).status_code in (404, 405)
+    assert client.delete(
+        f"/api/operations/{op_id}", headers=auth_headers
+    ).status_code in (404, 405)
+    assert client.post(
+        f"/api/operations/{op_id}/rates", json={}, headers=auth_headers
+    ).status_code in (404, 405)
+    assert client.post(
+        f"/api/operations/{op_id}/preview", json={}, headers=auth_headers
+    ).status_code in (404, 405)

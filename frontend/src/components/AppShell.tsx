@@ -20,16 +20,8 @@ import { NghiPhepPage } from "../pages/NghiPhepPage";
 import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
-import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { UsersPage } from "../pages/UsersPage";
-import { ProductTypesCatalogPage } from "../pages/ProductTypesCatalogPage";
-import { MaterialsCatalogPage } from "../pages/MaterialsCatalogPage";
-import { MachinesCatalogPage } from "../pages/MachinesCatalogPage";
-import { OperationsCatalogPage } from "../pages/OperationsCatalogPage";
-import { PlateDieRatesPage } from "../pages/PlateDieRatesPage";
 import { NormsCatalogPage } from "../pages/NormsCatalogPage";
-import { PaperSizesCatalogPage } from "../pages/PaperSizesCatalogPage";
-import { ImpositionTypesCatalogPage } from "../pages/ImpositionTypesCatalogPage";
 import { WarehousesCatalogPage } from "../pages/WarehousesCatalogPage";
 import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
 import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
@@ -193,8 +185,6 @@ export function AppShell() {
         return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} />;
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
-      case "tinh-gia-thanh":
-        return <TinhGiaPage navigate={navigate} openEstimateId={navParams?.openEstimateId ?? null} />;
       case "bao-gia":
         return (
           <BaoGiaPage
@@ -211,22 +201,8 @@ export function AppShell() {
             openOrderId={navParams?.openOrderId ?? null}
           />
         );
-      case "loai-san-pham":
-        return <ProductTypesCatalogPage />;
-      case "vat-lieu":
-        return <MaterialsCatalogPage />;
-      case "thiet-bi-may":
-        return <MachinesCatalogPage />;
-      case "cong-doan-gc":
-        return <OperationsCatalogPage />;
-      case "gia-khuon-ban":
-        return <PlateDieRatesPage />;
       case "dinh-muc-bu-hao":
         return <NormsCatalogPage />;
-      case "kho-giay":
-        return <PaperSizesCatalogPage />;
-      case "kieu-binh-bai":
-        return <ImpositionTypesCatalogPage />;
       case "cau-hinh-kho":
         return <WarehousesCatalogPage />;
       case "kho-hang":

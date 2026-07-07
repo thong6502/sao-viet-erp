@@ -368,7 +368,6 @@ class MaterialService:
         effective_from: date,
         actor,
         supplier: str | None = None,
-        paper_size_id: int | None = None,
         price_type: str = "standard",
         vat_included: bool = False,
         transport_fee: int = 0,
@@ -400,12 +399,11 @@ class MaterialService:
                 and c.quantity_from == quantity_from
                 and c.quantity_to == quantity_to
                 and (c.supplier or None) == supplier
-                and c.paper_size_id == paper_size_id
             )
 
         current = self.repo.get_current_cost_variant(
             material_id, price_unit, quantity_from=quantity_from, quantity_to=quantity_to,
-            supplier=supplier, paper_size_id=paper_size_id,
+            supplier=supplier,
         )
         if current and effective_from <= current.effective_from:
             raise MaterialValidationError(
@@ -424,7 +422,6 @@ class MaterialService:
             unit_price=unit_price,
             effective_from=effective_from,
             supplier=supplier,
-            paper_size_id=paper_size_id,
             price_type=price_type,
             vat_included=vat_included,
             transport_fee=transport_fee,

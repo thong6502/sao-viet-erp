@@ -21,8 +21,6 @@ from .payroll import (
     SalaryRateRule,
 )
 from .piece_work import PieceBatch, PieceBatchEntry, PieceBatchShare, PieceRate
-from .paper_size import PaperSize
-from .imposition_type import ImpositionType
 from .product import Product, ProductComponent
 from .product_type_catalog import ProductTypeCatalog
 from .quotation import Quote, QuoteVersion, QuoteItem, QuoteAttachment, QuoteActivityLog
@@ -67,8 +65,6 @@ __all__ = [
     "MachineRate",
     "Operation",
     "OperationRate",
-    "PaperSize",
-    "ImpositionType",
     "Quote",
     "QuoteVersion",
     "QuoteItem",

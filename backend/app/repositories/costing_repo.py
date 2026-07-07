@@ -33,8 +33,6 @@ class PaperOptionInput:
     pieces_per_sheet: int
     grain_locked: bool
     selected: bool = False
-    print_sheet_size_id: int | None = None
-    purchase_size_id: int | None = None
 
 
 @dataclass
@@ -209,8 +207,6 @@ class CostingRepository:
     def _to_paper(p: PaperOptionInput) -> CostingPaperOption:
         return CostingPaperOption(
             sheet_paper_master_id=p.sheet_paper_master_id,
-            print_sheet_size_id=p.print_sheet_size_id,
-            purchase_size_id=p.purchase_size_id,
             sheet_w=p.sheet_w,
             sheet_h=p.sheet_h,
             pieces_per_sheet=p.pieces_per_sheet,

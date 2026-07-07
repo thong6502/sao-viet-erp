@@ -13,7 +13,7 @@ from ..models.plate_die_rate import PLATE_KEM, PlateDieRate
 # Field client được phép gán khi tạo/version (audit/effective/used_count do server quản).
 ASSIGNABLE = (
     "name", "plate_type", "technology", "unit", "plate_kind",
-    "plate_width_mm", "plate_height_mm", "machine_ids", "paper_size_ids",
+    "plate_width_mm", "plate_height_mm", "machine_ids",
     "unit_price", "setup_fee", "min_charge",
     "pricing_method", "unit_price_area", "unit_price_perimeter", "max_charge", "allow_manual_price",
     "reusable", "reuse_price_method", "maintenance_fee",

@@ -1665,11 +1665,6 @@ function QuotationDetailView({
                 🔒 <span>{multi ? "Báo giá nhiều dòng" : "Giá vốn"}</span>
                 <span className="mono-tag lock">{multi ? `${d.items.length} phiếu tính giá` : "Khóa từ PTG"}</span>
               </div>
-              {d.estimate_id != null && (
-                <a className="sub-link" onClick={() => navigate?.("tinh-gia-thanh", { openEstimateId: d.estimate_id })}>
-                  ↗ Xem phiếu tính giá
-                </a>
-              )}
             </div>
             <div className="locked-banner">
               🛡️ Giá vốn khóa theo phiếu tính giá đã duyệt · markup riêng từng dòng · giá đã gồm VAT.
@@ -1689,9 +1684,7 @@ function QuotationDetailView({
                         <div className="ln-prod">{it.product_name}</div>
                         {(it.estimate_number || it.product_spec_text) && (
                           <div className="ln-ref">
-                            {it.estimate_number && (
-                              <a onClick={() => navigate?.("tinh-gia-thanh", { openEstimateId: it.estimate_id })}>↳ {it.estimate_number}</a>
-                            )}
+                            {it.estimate_number && <span>↳ {it.estimate_number}</span>}
                             {it.product_spec_text ? ` · ${it.product_spec_text}` : ""}
                           </div>
                         )}

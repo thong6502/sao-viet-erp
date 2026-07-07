@@ -15,7 +15,6 @@ class PlateDieRateBase(BaseModel):
     plate_width_mm: int | None = Field(default=None, ge=0)
     plate_height_mm: int | None = Field(default=None, ge=0)
     machine_ids: list[int] | None = None
-    paper_size_ids: list[int] | None = None
     # Đơn giá chung
     unit_price: int = Field(default=0, ge=0)
     setup_fee: int = Field(default=0, ge=0)
@@ -64,7 +63,6 @@ class PlateDieRateOut(BaseModel):
     plate_width_mm: int | None = None
     plate_height_mm: int | None = None
     machine_ids: list[int] | None = None
-    paper_size_ids: list[int] | None = None
     unit_price: int
     setup_fee: int
     min_charge: int

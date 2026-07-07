@@ -1,6 +1,6 @@
 """Product Type Catalog model — spec-20/21 + spec page #1 (Loại sản phẩm & Quy tắc tính).
 
-Configures dynamic fields, dimension rules, routing, materials, imposition allowlist and
+Configures dynamic fields, dimension rules, routing, materials and
 calculation strategies for product types. Đây là "template nghiệp vụ" điều khiển màn Tính giá:
 khi chọn một loại SP, engine/UI đọc cấu hình ở đây để biết hỏi field nào, gợi ý công đoạn nào,
 dùng bleed/gutter mặc định nào và đi theo nhánh tính nào.
@@ -63,7 +63,7 @@ class ProductTypeCatalog(Base):
     # --- §B Input cần nhập trên màn Tính giá -------------------------------
     # required_fields = tập BẮT BUỘC; shown_fields = tập HIỂN THỊ (superset). Vocab field xem
     # service.VALID_INPUT_FIELDS (finished_w/h/d, spread_w/h, quantity, colors, sides, page_count,
-    # signature_count, spine_width, paper, cover_paper, body_paper, machine, sheet_size, imposition, operations).
+    # signature_count, spine_width, paper, cover_paper, body_paper, machine, sheet_size, operations).
     required_fields: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     shown_fields: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
 
@@ -95,11 +95,6 @@ class ProductTypeCatalog(Base):
     default_operations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     required_operations: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     allow_extra_operations: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
-
-    # --- §G Kiểu bình bài được phép ---------------------------------------
-    allowed_imposition_codes: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
-    default_imposition_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    allow_imposition_change: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
     # --- §H Quy tắc tính đặc thù ------------------------------------------
     compatible_technologies: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

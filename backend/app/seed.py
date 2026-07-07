@@ -727,49 +727,47 @@ def seed_product_types(db: Session) -> None:
     from .models.product_type_catalog import ProductTypeCatalog
 
     # Bộ field hiển thị nền cho ấn phẩm tờ rời (spec §B). required ⊆ shown.
-    SHEET_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "sides", "paper", "machine", "sheet_size", "imposition", "operations"]
-    SHEET_REQ = ["finished_w", "finished_h", "quantity", "paper", "machine", "imposition"]
-    AREA_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "paper", "machine", "imposition", "operations"]
+    SHEET_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "sides", "paper", "machine", "sheet_size", "operations"]
+    SHEET_REQ = ["finished_w", "finished_h", "quantity", "paper", "machine"]
+    AREA_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "paper", "machine", "operations"]
     AREA_REQ = ["finished_w", "finished_h", "quantity", "paper", "machine"]
-    BOX_SHOWN = ["finished_w", "finished_h", "finished_d", "spread_w", "spread_h", "quantity", "colors", "paper", "machine", "sheet_size", "imposition", "operations"]
-    BOX_REQ = ["spread_w", "spread_h", "quantity", "paper", "machine", "imposition"]
-    PAGE_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "page_count", "cover_paper", "body_paper", "machine", "sheet_size", "imposition", "operations"]
+    BOX_SHOWN = ["finished_w", "finished_h", "finished_d", "spread_w", "spread_h", "quantity", "colors", "paper", "machine", "sheet_size", "operations"]
+    BOX_REQ = ["spread_w", "spread_h", "quantity", "paper", "machine"]
+    PAGE_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "page_count", "cover_paper", "body_paper", "machine", "sheet_size", "operations"]
     PAGE_REQ = ["finished_w", "finished_h", "quantity", "page_count", "cover_paper", "body_paper", "machine"]
-
-    ALL_IMPO = ["ONE_SIDE", "AB", "TU_TRO"]
 
     # (code, name, group, strategy, tech, shown, required, default_ops, required_ops, allowed_mats,
     #  comp_techs, dim_rule, bleed, gutter, trim, sheet_mode, has_page, cover_body, has_tooling,
-    #  tooling_type, has_packaging, allowed_impo, default_impo)
+    #  tooling_type, has_packaging)
     types = [
         ("business_card", "Name card", "an_pham", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
-         ["be", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, False, None, True, ["ONE_SIDE", "AB", "TU_TRO"], "AB"),
+         ["be", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, False, None, True),
         ("flyer", "Tờ rơi", "an_pham", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
-         ["be", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True, ["ONE_SIDE", "AB", "TU_TRO"], "TU_TRO"),
+         ["be", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True),
         ("brochure", "Brochure", "an_pham", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
-         ["gap", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True, ["AB", "TU_TRO"], "TU_TRO"),
+         ["gap", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True),
         ("catalogue", "Catalogue", "sach", "page_based", "offset", PAGE_SHOWN, PAGE_REQ,
-         ["dong_cuon", "dong_goi"], ["dong_cuon"], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pages", True, True, False, None, True, ["AB", "TU_TRO"], "AB"),
+         ["dong_cuon", "dong_goi"], ["dong_cuon"], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pages", True, True, False, None, True),
         ("book", "Sách", "sach", "page_based", "offset", PAGE_SHOWN, PAGE_REQ,
-         ["dong_cuon", "dong_goi"], ["dong_cuon"], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pages", True, True, False, None, True, ["AB", "TU_TRO"], "AB"),
+         ["dong_cuon", "dong_goi"], ["dong_cuon"], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pages", True, True, False, None, True),
         ("sticker", "Sticker", "nhan", "area_based", "offset", AREA_SHOWN, AREA_REQ,
-         ["be", "dong_goi"], [], ["decal"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE"], "ONE_SIDE"),
+         ["be", "dong_goi"], [], ["decal"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, True, "khuon_be", True),
         ("label", "Tem nhãn", "nhan", "area_based", "offset", AREA_SHOWN, AREA_REQ,
-         ["be", "dong_goi"], [], ["decal", "pp"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE"], "ONE_SIDE"),
+         ["be", "dong_goi"], [], ["decal", "pp"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, True, "khuon_be", True),
         ("paper_box", "Hộp giấy", "bao_bi", "box_based", "offset", BOX_SHOWN, BOX_REQ,
-         ["be", "dan_hop", "dong_goi"], ["be", "dan_hop"], ["paper", "carton"], ["offset", "flexo"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE", "AB", "TU_TRO"], "TU_TRO"),
+         ["be", "dan_hop", "dong_goi"], ["be", "dan_hop"], ["paper", "carton"], ["offset", "flexo"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True),
         ("paper_bag", "Túi giấy", "bao_bi", "box_based", "offset", BOX_SHOWN, BOX_REQ,
-         ["be", "dan_hop", "dong_goi"], ["be", "dan_hop"], ["paper"], ["offset"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE", "TU_TRO"], "TU_TRO"),
+         ["be", "dan_hop", "dong_goi"], ["be", "dan_hop"], ["paper"], ["offset"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True),
         ("banner", "Banner", "an_pham", "area_based", "large_format", AREA_SHOWN, AREA_REQ,
-         ["dong_goi"], [], ["pp", "canvas"], ["large_format"], "finished", 0, 0, 0, "manual", False, False, False, None, True, ["ONE_SIDE"], "ONE_SIDE"),
+         ["dong_goi"], [], ["pp", "canvas"], ["large_format"], "finished", 0, 0, 0, "manual", False, False, False, None, True),
         ("envelope", "Bao thư", "bao_bi", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
-         ["be", "dan_hop", "dong_goi"], ["dan_hop"], ["paper"], ["offset"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE", "TU_TRO"], "TU_TRO"),
+         ["be", "dan_hop", "dong_goi"], ["dan_hop"], ["paper"], ["offset"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True),
     ]
 
     for row in types:
         (code, name, group, strategy, tech, shown, required, default_ops, required_ops, allowed_mats,
          comp_techs, dim_rule, bleed, gutter, trim, sheet_mode, has_page, cover_body, has_tooling,
-         tooling_type, has_packaging, allowed_impo, default_impo) = row
+         tooling_type, has_packaging) = row
         # box_based dùng khổ trải nhưng nếu dim_rule='spread' thì shown đã có spread_w/h (BOX_SHOWN).
         existing = db.execute(
             select(ProductTypeCatalog).where(ProductTypeCatalog.product_type == code)
@@ -784,7 +782,6 @@ def seed_product_types(db: Session) -> None:
                 default_trim_mm=trim, sheet_count_mode=sheet_mode, has_page_count=has_page,
                 has_cover_body_split=cover_body, has_tooling=has_tooling, default_tooling_type=tooling_type,
                 has_packaging=has_packaging, default_pack_qty=(50 if has_packaging else 0),
-                allowed_imposition_codes=allowed_impo, default_imposition_code=default_impo,
                 is_active=True,
             ))
     db.commit()
@@ -995,103 +992,6 @@ def seed_operations(db: Session) -> None:
         dan_hop = repo.create(name="Dán hộp", operation_type="dan_hop", unit="cai", basis_quantity="cai", pricing_method="theo_sp", process_group="sau_in", default_sequence=60, quantity_formula_type="finished_qty", allow_outsource=False)
         repo.add_operation_rate(operation_id=dan_hop.id, setup_fee=100000, run_rate=300, labor_rate=100, min_charge=200000, speed=1000, setup_time_mins=15, effective_from=date(2026, 1, 1))
 
-        db.commit()
-
-
-def seed_paper_sizes(db: Session) -> None:
-    from sqlalchemy import select
-    from .models.paper_size import PaperSize, summarize_size_type
-    from .repositories.paper_size_repo import PaperSizeRepository
-
-    repo = PaperSizeRepository(db)
-
-    if db.execute(select(PaperSize)).first() is None:
-        # (name, w, h, size_group, is_purchase, is_print, is_cut)
-        sizes = [
-            ("Khổ 79×109", 79, 109, "cong_nghiep", True, True, False),
-            ("Khổ 65×86", 65, 86, "cong_nghiep", True, True, False),
-            ("Khổ 60×84", 60, 84, "cong_nghiep", True, True, False),
-            ("Khổ 68×102", 68, 102, "cong_nghiep", True, True, False),
-            ("Khổ 39×54", 39, 54, "kho_cat", False, True, False),
-            ("Khổ 43×65", 43, 65, "kho_cat", False, True, False),
-        ]
-        for name, w, h, group, is_buy, is_print, is_cut in sizes:
-            repo.create(
-                code=repo._next_code(),
-                name=name,
-                width_cm=w,
-                height_cm=h,
-                size_group=group,
-                is_purchase_size=is_buy,
-                is_print_sheet_size=is_print,
-                is_cut_size=is_cut,
-                size_type=summarize_size_type(is_buy, is_print, is_cut),
-                allow_rotation=True,
-                is_active=True,
-            )
-        db.commit()
-
-
-def seed_imposition_types(db: Session) -> None:
-    from sqlalchemy import select
-    from .models.imposition_type import ImpositionType
-    from .repositories.imposition_type_repo import ImpositionTypeRepository
-
-    repo = ImpositionTypeRepository(db)
-
-    if db.execute(select(ImpositionType)).first() is None:
-        # (code, name, group_kind, applies_to_sides, sides, finished_factor, pass_count,
-        #  plate_set_factor, ink_pass_factor, allow_rotate, shared_plate_set, priority, note).
-        # Mã ngữ nghĩa ổn định — engine resolve theo code (fallback name). TÊN cũng giữ ổn định để
-        # tương thích spec/phiếu cũ tra theo tên.
-        types = [
-            (
-                "ONE_SIDE", "1 mặt", "one_side", "1", 1, 1.0, 1, 1.0, 1.0, True, False, 10,
-                "1 bộ kẽm, tờ qua máy 1 lần.",
-            ),
-            (
-                "AB", "A-B / trước-sau riêng", "two_side", "2", 2, 1.0, 2, 2.0, 2.0, True, False, 20,
-                "A-B: 2 bộ kẽm riêng cho mặt trước/sau, tờ qua máy 2 lượt.",
-            ),
-            (
-                "TU_TRO", "Tự trở", "two_side", "2", 2, 1.0, 2, 1.0, 2.0, True, True, 30,
-                "Work-and-turn: dùng chung 1 bộ kẽm, lật giấy in mặt kia. Con NGUYÊN (mỗi ô tự đủ "
-                "2 mặt nhờ lật) — chỉ khác trở nhíp ở chỗ tiết kiệm nửa tiền kẽm.",
-            ),
-            (
-                "BOI_2_MANH", "Bồi/dán 2 mảnh", "two_side", "2", 2, 0.5, 2, 2.0, 2.0, True, False, 60,
-                "Thẻ bồi/bìa cứng: mỗi sản phẩm ghép từ 2 mảnh giấy in riêng (1 mặt trước + 1 mặt sau "
-                "dán lên lõi cứng) → 2 ô = 1 SP → tỉ lệ con 0.5. KHÁC tự trở (tự trở lật giấy, con nguyên).",
-            ),
-            (
-                "PERFECTING", "In 2 mặt 1 lượt (perfecting)", "two_side", "2", 2, 1.0, 1, 2.0, 2.0,
-                True, False, 50,
-                "Máy trở tự động: in cả 2 mặt trong 1 lượt qua máy (pass=1); 2 bộ kẽm. Giờ máy không nhân lượt.",
-            ),
-            (
-                "CUSTOM", "Tùy chỉnh", "custom", "any", 2, 1.0, 1, 1.0, 1.0, True, False, 100,
-                "Kiểu tự khai — tự nhập toàn bộ hệ số cho job đặc biệt.",
-            ),
-        ]
-        for (
-            code, name, group_kind, applies_to_sides, sides, finished_factor, pass_count,
-            plate_set_factor, ink_pass_factor, allow_rotate, shared_plate_set, priority, note,
-        ) in types:
-            repo.create(
-                code=code,
-                name=name,
-                group_kind=group_kind,
-                applies_to_sides=applies_to_sides,
-                sides=sides,
-                finished_factor=finished_factor,
-                pass_count=pass_count,
-                plate_set_factor=plate_set_factor,
-                ink_pass_factor=ink_pass_factor,
-                allow_rotate=allow_rotate,
-                shared_plate_set=shared_plate_set,
-                priority=priority,
-                note=note,
-            )
         db.commit()
 
 
@@ -1598,8 +1498,6 @@ def seed_all(db: Session) -> None:
     seed_materials(db)
     seed_machines(db)
     seed_operations(db)
-    seed_paper_sizes(db)
-    seed_imposition_types(db)
     if settings.seed_demo:
         seed_kd_staff(db)
         seed_employees(db)

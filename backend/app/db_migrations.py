@@ -25,75 +25,6 @@ def _existing_columns(insp, table: str) -> set[str]:
     return {c["name"] for c in insp.get_columns(table)}
 
 
-def _migrate_imposition_type_full_fields(db: Session) -> None:
-    """Add the full spec A–E columns to imposition_types and swap unique(code) →
-    unique(code, version). No-op where create_all already built the current shape."""
-    bind = db.get_bind()
-    insp = inspect(bind)
-    if "imposition_types" not in insp.get_table_names():
-        return
-    dialect = bind.dialect.name
-
-    # (column, DDL fragment). DEFAULT so pre-existing rows satisfy NOT NULL on ADD COLUMN.
-    # SQLite (>=3.23) and Postgres both accept TRUE/FALSE and JSON here.
-    coldefs = [
-        ("group_kind", "VARCHAR(20) NOT NULL DEFAULT 'custom'"),
-        ("shared_plate_set", "BOOLEAN NOT NULL DEFAULT FALSE"),
-        ("technology", "VARCHAR(20) NOT NULL DEFAULT 'offset'"),
-        ("applies_to_sides", "VARCHAR(10) NOT NULL DEFAULT 'any'"),
-        ("applicable_product_types", "JSON"),
-        ("applicable_machine_ids", "JSON"),
-        ("applicable_paper_size_ids", "JSON"),
-        ("allow_multi_signature", "BOOLEAN NOT NULL DEFAULT TRUE"),
-        ("priority", "INTEGER NOT NULL DEFAULT 100"),
-        ("version", "INTEGER NOT NULL DEFAULT 1"),
-        ("effective_from", "DATE"),
-        ("effective_to", "DATE"),
-        ("used_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("created_by", "INTEGER"),
-        ("updated_by", "INTEGER"),
-    ]
-    existing = _existing_columns(insp, "imposition_types")
-    added_group_kind = False
-    for name, ddl in coldefs:
-        if name not in existing:
-            db.execute(text(f"ALTER TABLE imposition_types ADD COLUMN {name} {ddl}"))
-            if name == "group_kind":
-                added_group_kind = True
-
-    # Backfill Nhóm kiểu from số mặt for rows that predate the column (all default to 'custom').
-    if added_group_kind:
-        db.execute(text(
-            "UPDATE imposition_types "
-            "SET group_kind = CASE WHEN sides = 1 THEN 'one_side' ELSE 'two_side' END"
-        ))
-
-    # note grew from VARCHAR(255) → Text (mô tả tối đa 2000 ký tự). Widen on an existing
-    # Postgres DB so a long description doesn't overflow the old column. SQLite ignores
-    # VARCHAR length (TEXT affinity) so no action needed there.
-    if dialect == "postgresql":
-        db.execute(text("ALTER TABLE imposition_types ALTER COLUMN note TYPE TEXT"))
-
-    # Swap unique(code) → unique(code, version). The OLD model declared `code` as
-    # `unique=True, index=True` → a UNIQUE index `ix_imposition_types_code` (on BOTH dialects,
-    # not a `_code_key` constraint). Drop it, recreate NON-unique, then add the composite
-    # unique index. Both SQLite and Postgres support these `IF [NOT] EXISTS` forms; a no-op on a
-    # fresh DB where create_all already produced the current shape.
-    if dialect == "postgresql":
-        # In case an even older DB used a bare `unique=True` (constraint, not index).
-        db.execute(text(
-            "ALTER TABLE imposition_types DROP CONSTRAINT IF EXISTS imposition_types_code_key"
-        ))
-    db.execute(text("DROP INDEX IF EXISTS ix_imposition_types_code"))
-    db.execute(text("CREATE INDEX IF NOT EXISTS ix_imposition_types_code ON imposition_types (code)"))
-    db.execute(text(
-        "CREATE UNIQUE INDEX IF NOT EXISTS uq_imposition_code_version "
-        "ON imposition_types (code, version)"
-    ))
-
-    db.commit()
-
-
 def _migrate_operation_full_fields(db: Session) -> None:
     """Add spec §A–§G columns to operations + operation_rates (Công đoạn & Đơn giá gia công).
 
@@ -291,7 +222,7 @@ def _migrate_paper_size_full_fields(db: Session) -> None:
             db.execute(text("UPDATE paper_sizes SET is_print_sheet_size = TRUE WHERE size_type = 'in'"))
             db.commit()
 
-        # Swap unique(code) → unique(code, version) — mirror imposition_types.
+        # Swap unique(code) → unique(code, version) — version-chain giá khổ giấy.
         if dialect == "postgresql":
             db.execute(text("ALTER TABLE paper_sizes DROP CONSTRAINT IF EXISTS paper_sizes_code_key"))
         db.execute(text("DROP INDEX IF EXISTS ix_paper_sizes_code"))
@@ -394,7 +325,7 @@ def _migrate_machine_full_fields(db: Session) -> None:
 def _migrate_product_type_full_fields(db: Session) -> None:
     """Loại sản phẩm & Quy tắc tính (page #1) — full spec §A–§H: nhóm/công nghệ/mô tả/version,
     input shown/required, quy tắc kích thước (bleed/gutter/trim/xoay/custom), số trang/tay,
-    vật tư mặc định (ID), routing required/extra, imposition allowlist, cờ tính (sheet/ink mode,
+    vật tư mặc định (ID), routing required/extra, cờ tính (sheet/ink mode,
     tooling, packaging, override).
 
     Default chọn sao cho DB cũ giữ đúng hành vi (engine chưa đọc config này → thêm cột là no-op
@@ -434,9 +365,6 @@ def _migrate_product_type_full_fields(db: Session) -> None:
         ("default_pack_qty", "INTEGER NOT NULL DEFAULT 0"),
         ("required_operations", "JSON"),
         ("allow_extra_operations", "BOOLEAN NOT NULL DEFAULT TRUE"),
-        ("allowed_imposition_codes", "JSON"),
-        ("default_imposition_code", "VARCHAR(32)"),
-        ("allow_imposition_change", "BOOLEAN NOT NULL DEFAULT TRUE"),
         ("sheet_count_mode", "VARCHAR(16) NOT NULL DEFAULT 'by_pieces'"),
         ("ink_cost_mode", "VARCHAR(20) NOT NULL DEFAULT 'per_1000'"),
         ("has_tooling", "BOOLEAN NOT NULL DEFAULT FALSE"),
@@ -788,8 +716,57 @@ def _migrate_product_type_waste_pct(db: Session) -> None:
     db.commit()
 
 
+def _migrate_drop_paper_sizes(db: Session) -> None:
+    """Bỏ HẲN Danh mục Khổ giấy tiêu chuẩn: drop bảng `paper_sizes` + mọi cột tham chiếu.
+      - material_costs.paper_size_id (nằm trong unique index composite → drop index, drop cột,
+        tạo lại index KHÔNG có khổ),
+      - machines.compatible_paper_size_ids / plate_die_rates.paper_size_ids (JSON, không index),
+      - costing_paper_options.print_sheet_size_id / purchase_size_id (có index → drop index trước).
+    Idempotent + best-effort mỗi câu (commit riêng, rollback nếu SQLite từ chối DROP COLUMN — dev.db
+    có thể tạo lại). No-op trên DB fresh (create_all đã ra schema mới, các cột không tồn tại)."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+
+    def has_col(table: str, col: str) -> bool:
+        return table in tables and col in _existing_columns(insp, table)
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    # 1) material_costs.paper_size_id — trong unique index composite uix_material_costs_current.
+    if has_col("material_costs", "paper_size_id"):
+        run("DROP INDEX IF EXISTS uix_material_costs_current")
+        run("ALTER TABLE material_costs DROP COLUMN paper_size_id")
+        run(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uix_material_costs_current ON material_costs "
+            "(material_id, price_unit, coalesce(quantity_from, -1), coalesce(quantity_to, -1), "
+            "coalesce(supplier, '')) WHERE effective_to IS NULL"
+        )
+
+    # 2) JSON cột tham chiếu (không index).
+    if has_col("machines", "compatible_paper_size_ids"):
+        run("ALTER TABLE machines DROP COLUMN compatible_paper_size_ids")
+    if has_col("plate_die_rates", "paper_size_ids"):
+        run("ALTER TABLE plate_die_rates DROP COLUMN paper_size_ids")
+
+    # 3) costing_paper_options: 2 cột có index → drop index trước.
+    if has_col("costing_paper_options", "print_sheet_size_id"):
+        run("DROP INDEX IF EXISTS ix_costing_paper_options_print_sheet_size_id")
+        run("ALTER TABLE costing_paper_options DROP COLUMN print_sheet_size_id")
+    if has_col("costing_paper_options", "purchase_size_id"):
+        run("DROP INDEX IF EXISTS ix_costing_paper_options_purchase_size_id")
+        run("ALTER TABLE costing_paper_options DROP COLUMN purchase_size_id")
+
+    # 4) drop bảng paper_sizes (FK duy nhất từ material_costs đã gỡ ở bước 1).
+    run("DROP TABLE IF EXISTS paper_sizes")
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
-    ("0001_imposition_type_full_fields", _migrate_imposition_type_full_fields),
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
     ("0004_paper_size_full_fields", _migrate_paper_size_full_fields),
@@ -807,6 +784,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0016_attendance_adjust_cols", _migrate_attendance_adjust_cols),
     ("0017_leave_seen_by_employee", _migrate_leave_seen_by_employee),
     ("0018_product_type_waste_pct", _migrate_product_type_waste_pct),
+    ("0019_drop_paper_sizes", _migrate_drop_paper_sizes),
 ]
 
 

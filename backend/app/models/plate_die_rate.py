@@ -62,7 +62,6 @@ class PlateDieRate(Base):
     plate_height_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # list machine id áp dụng (NULL/[]=mọi máy) — engine chọn giá kẽm theo máy.
     machine_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
-    paper_size_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     # --- Đơn giá (chung) --------------------------------------------------
     unit_price: Mapped[int] = mapped_column(

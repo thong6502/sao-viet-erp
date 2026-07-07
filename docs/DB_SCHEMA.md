@@ -591,8 +591,6 @@ looked up via the raising port stub, never fabricated.
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
 | `costing_id` | `Integer` → `INTEGER` | **FK→costings.id**, **IX** | no | — | Parent costing; `ON DELETE CASCADE`. |
 | `sheet_paper_master_id` | `Integer` → `INTEGER` | — | yes | — | **SEAM-07** FK-nullable to PaperMaster (Danh mục Giấy chưa build); no FK constraint yet. |
-| `print_sheet_size_id` | `Integer` → `INTEGER` | **IX** | yes | — | Khổ tờ in chọn từ DM Khổ giấy (`paper_sizes.id`); plain nullable Integer (no FK) — chỉ truy vết + auto-fill `sheet_w/h`; engine tính trên dims đã copy. |
-| `purchase_size_id` | `Integer` → `INTEGER` | **IX** | yes | — | Khổ giấy mua chọn từ DM Khổ giấy (`paper_sizes.id`); plain nullable Integer (no FK). |
 | `sheet_w` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Khổ tờ in rộng (cm). |
 | `sheet_h` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Khổ tờ in cao (cm). |
 | `pieces_per_sheet` | `Integer` → `INTEGER` | — | no | `0` | Số con/khổ NHẬP TAY (>0); gợi ý song song là hình học (§31a), giá trị nhập là chuẩn. |
@@ -828,9 +826,6 @@ client's httpOnly cookie.
 | `default_pack_qty` | `Integer` → `INTEGER` | — | no | `0` | §E Quy cách đóng gói (cái/thùng). |
 | `required_operations` | `JSON` → `TEXT` / `JSONB` | — | yes | — | §F Công đoạn bắt buộc (⊆ default_operations). |
 | `allow_extra_operations` | `Boolean` → `BOOLEAN` | — | no | `true` | §F Cho phép thêm công đoạn ngoài template. |
-| `allowed_imposition_codes` | `JSON` → `TEXT` / `JSONB` | — | yes | — | §G Danh sách mã kiểu bình bài cho phép. |
-| `default_imposition_code` | `String(32)` → `VARCHAR(32)` | — | yes | — | §G Kiểu bình bài mặc định. |
-| `allow_imposition_change` | `Boolean` → `BOOLEAN` | — | no | `true` | §G Cho phép người dùng đổi bình bài. |
 | `sheet_count_mode` | `String(16)` → `VARCHAR(16)` | — | no | `by_pieces` | §H Cách tính số tờ (by_pieces/by_pages/manual). |
 | `ink_cost_mode` | `String(20)` → `VARCHAR(20)` | — | no | `per_1000` | §H Cách tính mực (per_1000/coverage). |
 | `has_tooling` | `Boolean` → `BOOLEAN` | — | no | `false` | §H Có phát sinh khuôn. |
@@ -849,106 +844,6 @@ client's httpOnly cookie.
 **Relationships**
 
 - Referenced as a foreign key by `norms.product_type`.
-
----
-
-### `paper_sizes`
-
-**Purpose:** catalog of standard paper sizes (khổ giấy tiêu chuẩn) — buy sizes (khổ giấy mua), print-sheet sizes (khổ tờ in) and cut sizes (khổ cắt) reused across estimating/costing. Rows are resolved by their stable **`code`** at the calc date, taking the highest `version` whose effective window is open (**Version-chain**, mirror `imposition_types`): editing the DIMENSIONS of a size already used (`used_count > 0`) spins a new version instead of mutating in place.
-
-| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `code` | `String(20)` → `VARCHAR(20)` | **IX** | no | — | Mã khổ — user-entered (A3, K79x109) hoặc auto `KG###` khi bỏ trống. Unique together with `version`. |
-| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Human display name of the paper size (e.g. `Khổ 79×109`). |
-| `size_group` | `String(20)` → `VARCHAR(20)` | **IX** | no | `custom` | Nhóm khổ — `cong_nghiep` / `kho_a` / `kho_cat` / `custom`. |
-| `is_purchase_size` | `Boolean` → `BOOLEAN` | — | no | `false` | Là khổ giấy mua. |
-| `is_print_sheet_size` | `Boolean` → `BOOLEAN` | — | no | `true` | Là khổ tờ in. |
-| `is_cut_size` | `Boolean` → `BOOLEAN` | — | no | `false` | Là khổ cắt (từ khổ cha). |
-| `size_type` | `String(16)` → `VARCHAR(16)` | **IX** | no | `in` | Mã tóm tắt loại khổ — DERIVED từ 3 boolean: `mua` / `in` / `ca_hai` / `cat`. Giữ để lọc & back-compat. |
-| `note` | `String(255)` → `VARCHAR(255)` | — | yes | — | Optional free-text note. |
-| `width_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | — | Width in centimetres (> 0, validated in service). |
-| `height_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | — | Height in centimetres (> 0, validated in service). |
-| `allow_rotation` | `Boolean` → `BOOLEAN` | — | no | `true` | Cho phép xoay chiều khi tính số con hình học. |
-| `compatible_machine_ids` | `JSON` → `JSON` | — | yes | — | List machine id chạy được khổ này. NULL / `[]` = mọi máy. |
-| `default_machine_id` | `Integer` → `INTEGER` | — | yes | — | Là khổ mặc định cho máy nào (gợi ý). |
-| `parent_size_id` | `Integer` → `INTEGER` | **IX** | yes | — | Khổ cha (khi là khổ cắt); plain Integer (no FK, self-ref). |
-| `cut_count` | `Integer` → `INTEGER` | — | yes | — | Số tờ con tạo ra từ khổ cha. |
-| `cut_waste_rate` | `Numeric(5,2)` → `NUMERIC(5,2)` | — | yes | — | % hao hụt cắt giấy. |
-| `version` | `Integer` → `INTEGER` | — | no | `1` | Phiên bản trong version-chain (unique cùng `code`). |
-| `effective_from` | `Date` → `DATE` | — | yes | — | Ngày bắt đầu hiệu lực (NULL = mở). |
-| `effective_to` | `Date` → `DATE` | — | yes | — | Ngày hết hiệu lực (NULL = mở). |
-| `used_count` | `Integer` → `INTEGER` | — | no | `0` | Số phiếu/snapshot đã dùng — khóa sửa kích thước tại chỗ khi > 0. |
-| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tạo; `ON DELETE SET NULL`. |
-| `updated_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người sửa cuối; `ON DELETE SET NULL`. |
-| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status of the paper size. |
-| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
-| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was last updated. |
-
-> `area_m2` (diện tích m²) is a **derived property** (`width_cm × height_cm / 10000`), not a stored column — exposed read-only in the API.
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Unique constraint: `uq_paper_size_code_version` on (`code`, `version`).
-- Index: `ix_paper_sizes_code` on `code`; `ix_paper_sizes_size_type` on `size_type`; `ix_paper_sizes_size_group` on `size_group`; `ix_paper_sizes_parent_size_id` on `parent_size_id`.
-
-**Relationships**
-
-- `created_by` / `updated_by` → `users.id` (`ON DELETE SET NULL`).
-- `parent_size_id` → `paper_sizes.id` (self-ref khổ cắt → khổ cha); plain Integer, guarded in service (no DB FK).
-- Referenced by `costing_paper_options.print_sheet_size_id` / `purchase_size_id` (plain Integer, no FK).
-
----
-
-### `imposition_types`
-
-**Purpose:** catalog of imposition schemes (kiểu bình bài) — 1 mặt, tự trở (work-and-turn), trở nhíp (sheetwise), A-B, perfecting, tùy chỉnh. The pricing engine reads these coefficients to compute finished-piece count, plate sets, machine passes and ink passes. Rows are resolved by their stable **`code`** (fallback `name`) at the calc date, taking the highest `version` whose effective window is open — see **Version-chain** below.
-
-| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `code` | `String(30)` → `VARCHAR(30)` | **IX** | no | — | Semantic, user-entered family code (`ONE_SIDE`, `TU_TRO`, `TRO_NHIP`, `AB`, `PERFECTING`, `CUSTOM`). Uppercased. Stable identifier the engine resolves by; immutable after create. Unique together with `version`. |
-| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Human display name (e.g. `In 1 mặt`, `Tự trở`). Also usable as the engine's name fallback. |
-| `group_kind` | `String(20)` → `VARCHAR(20)` | — | no | `custom` | Nhóm kiểu — `one_side` / `two_side` / `multi_page` / `custom`. |
-| `sides` | `Integer` → `INTEGER` | — | no | `1` | Số mặt in (1 or 2), validated in service. |
-| `finished_factor` | `Numeric(6,3)` → `NUMERIC(6,3)` | — | no | `1.0` | Hệ số thành phẩm — converts geometric piece count → finished piece count (tự trở = 0.5); must be > 0. |
-| `pass_count` | `Numeric(6,3)` → `NUMERIC(6,3)` | — | no | `1` | Số lượt qua máy (config, NOT derived from `sides`); nuôi giờ máy; must be > 0. |
-| `plate_set_factor` | `Numeric(6,3)` → `NUMERIC(6,3)` | — | no | `1.0` | Hệ số bộ kẽm — 1 mặt=1, tự trở=1, trở nhíp=2; nuôi tiền kẽm; must be >= 0. |
-| `ink_pass_factor` | `Numeric(6,3)` → `NUMERIC(6,3)` | — | no | `1.0` | Hệ số lượt in màu (default = số mặt); nuôi tiền mực; must be >= 0. |
-| `allow_rotate` | `Boolean` → `BOOLEAN` | — | no | `true` | Cho phép xoay khi bình bài. |
-| `shared_plate_set` | `Boolean` → `BOOLEAN` | — | no | `false` | Có dùng chung bộ kẽm (2 mặt xài chung 1 bộ — tự trở). Diễn giải nghiệp vụ. |
-| `note` | `Text` → `TEXT` | — | yes | — | Mô tả ngắn / diễn giải (textarea). |
-| `technology` | `String(20)` → `VARCHAR(20)` | — | no | `offset` | Áp dụng cho công nghệ (MVP: offset). |
-| `applies_to_sides` | `String(10)` → `VARCHAR(10)` | — | no | `any` | Áp dụng cho số mặt — `any` / `1` / `2` / `multi` (lọc gợi ý ở Tính giá). |
-| `applicable_product_types` | `JSON` → `JSON` | — | yes | — | List product_type áp dụng. NULL / `[]` = tất cả. |
-| `applicable_machine_ids` | `JSON` → `JSON` | — | yes | — | List machine id áp dụng. NULL / `[]` = tất cả. |
-| `applicable_paper_size_ids` | `JSON` → `JSON` | — | yes | — | List paper_size id áp dụng. NULL / `[]` = tất cả. |
-| `allow_multi_signature` | `Boolean` → `BOOLEAN` | — | no | `true` | Cho phép dùng khi nhiều tay sách. |
-| `priority` | `Integer` → `INTEGER` | — | no | `100` | Thứ tự ưu tiên khi auto-suggest (nhỏ = ưu tiên cao). |
-| `version` | `Integer` → `INTEGER` | **U** | no | `1` | Version number in the code family (unique with `code`). |
-| `effective_from` | `Date` → `DATE` | — | yes | — | Ngày bắt đầu hiệu lực (NULL = mở về quá khứ). |
-| `effective_to` | `Date` → `DATE` | — | yes | — | Ngày hết hiệu lực (NULL = còn hiệu lực). Set khi bị version mới thay thế. |
-| `used_count` | `Integer` → `INTEGER` | — | no | `0` | Số báo giá snapshot đã dùng kiểu này. `> 0` ⇒ sửa hệ số tạo version mới thay vì sửa tại chỗ; không cho xóa. |
-| `created_by` | `Integer` → `INTEGER` | **FK** | yes | — | User who created the row → `users.id` (ON DELETE SET NULL). |
-| `updated_by` | `Integer` → `INTEGER` | **FK** | yes | — | User who last updated the row → `users.id` (ON DELETE SET NULL). |
-| `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status of the imposition type. |
-| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
-| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was last updated. |
-
-**Keys & indexes**
-
-- Primary key: `id`.
-- Unique constraint: `uq_imposition_code_version` on (`code`, `version`).
-- Index: `ix_imposition_types_code` on `code`.
-
-**Relationships**
-
-- `created_by`, `updated_by` → `users.id` (ON DELETE SET NULL). Otherwise standalone master data.
-
-**Version-chain (spec E).** A `code` names a FAMILY. Editing a type whose `used_count > 0` does not mutate its coefficients in place — the current row is closed (`effective_to = today`, `is_active = false`) and a new row with the same `code`, `version + 1`, `effective_from = today` carries the edits. The pricing engine resolves the family by `code` (then `name`) picking the highest `version` whose effective window covers the calc date, so frozen báo giá keep their snapshotted numbers. Lifecycle/condition-only edits (is_active, note, applicable_*, priority…) update in place even when used.
-
-> **Schema evolution:** new columns above are applied to the persistent prod DB by the tracked, idempotent runner in `app/db_migrations.py` (runs at startup after `create_all`; migration `0001_imposition_type_full_fields`). `create_all` never ALTERs existing tables, so this runner is how additive changes reach the live volume. The runner's `schema_migrations` bookkeeping table is created via raw SQL (not an ORM model) and is intentionally absent from this dictionary.
 
 ---
 
@@ -1011,7 +906,6 @@ client's httpOnly cookie.
 | `price_unit` | `String(16)` → `VARCHAR(16)` | — | no | — | Unit this price corresponds to (e.g. `to`, `ram`, `kg`, `m2`). |
 | `unit_price` | `BigInteger` → `BIGINT` | — | no | `0` | Cost price (VND). |
 | `supplier` | `String(150)` → `VARCHAR(150)` | — | yes | — | Nhà cung cấp của mức giá này. |
-| `paper_size_id` | `Integer` → `INTEGER` | **FK→paper_sizes.id** | yes | — | Khổ giấy áp dụng cho mức giá (SET NULL khi khổ bị xoá). |
 | `price_type` | `String(20)` → `VARCHAR(20)` | — | no | `standard` | Loại giá (`standard`...). |
 | `vat_included` | `Boolean` → `BOOLEAN` | — | no | `false` | Giá đã bao gồm VAT hay chưa. |
 | `transport_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Phí vận chuyển (VND). |
@@ -1069,7 +963,6 @@ client's httpOnly cookie.
 | `gripper_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Nhíp máy (cm) — trừ khỏi vùng in khả dụng. |
 | `side_margin_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Lề an toàn ngang (cm). |
 | `top_bottom_margin_cm` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | no | `0` | Lề an toàn dọc (cm). |
-| `compatible_paper_size_ids` | `JSON` → `JSON` | — | yes | — | List paper_size id chạy được. NULL/[] = tất cả. |
 | `min_speed` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Tốc độ tối thiểu. |
 | `max_speed` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Tốc độ tối đa. |
 | `setup_time_base_hour` | `Numeric(8,3)` → `NUMERIC(8,3)` | — | no | `0` | Setup cố định (giờ). Tổng các *_hour = 0 ⇒ engine fallback `(setup_time_mins+changeover)/60`. |
@@ -1239,7 +1132,6 @@ client's httpOnly cookie.
 | `plate_width_mm` | `Integer` → `INTEGER` | — | yes | — | Khổ kẽm rộng (mm). |
 | `plate_height_mm` | `Integer` → `INTEGER` | — | yes | — | Khổ kẽm dài (mm). |
 | `machine_ids` | `JSON` → `JSON` | — | yes | — | List machine id áp dụng (NULL/`[]`=mọi máy); engine chọn giá kẽm theo máy. |
-| `paper_size_ids` | `JSON` → `JSON` | — | yes | — | List paper_size id áp dụng. |
 | `unit_price` | `BigInteger` → `BIGINT` | — | no | — | Đơn giá 1 bản kẽm / khuôn cố định (VND). |
 | `setup_fee` | `BigInteger` → `BIGINT` | — | no | `0` | Phí setup cố định (VND). |
 | `min_charge` | `BigInteger` → `BIGINT` | — | no | `0` | Phí tối thiểu (VND). |

@@ -27,7 +27,7 @@ VALID_INPUT_FIELDS = {
     "finished_w", "finished_h", "finished_d", "spread_w", "spread_h",
     "quantity", "colors", "sides", "page_count", "signature_count", "spine_width",
     "paper", "cover_paper", "body_paper", "ink", "machine", "sheet_size",
-    "imposition", "operations",
+    "operations",
     # giữ back-compat với vocab cũ
     "gsm", "binding_type",
 }
@@ -144,12 +144,6 @@ class ProductTypeCatalogService:
             if mat_type not in VALID_MATERIAL_TYPES:
                 raise ProductTypeCatalogValidationError(f"Loại vật tư '{mat_type}' không hợp lệ.")
 
-        # spec §8 — kiểu bình mặc định phải nằm trong danh sách cho phép (nếu có khai allowlist).
-        allowed_impo = list(cfg.get("allowed_imposition_codes") or [])
-        default_impo = cfg.get("default_imposition_code")
-        if default_impo and allowed_impo and default_impo not in allowed_impo:
-            raise ProductTypeCatalogValidationError("Kiểu bình bài mặc định không nằm trong danh sách cho phép.")
-
         # spec §8 — có phát sinh khuôn thì phải chọn loại khuôn mặc định.
         if cfg.get("has_tooling"):
             tt = cfg.get("default_tooling_type")
@@ -244,7 +238,6 @@ class ProductTypeCatalogService:
             "allowed_materials", "default_paper_material_id", "default_cover_material_id",
             "default_body_material_id", "default_ink_material_id", "has_packaging", "default_pack_qty",
             "default_operations", "required_operations", "allow_extra_operations",
-            "allowed_imposition_codes", "default_imposition_code", "allow_imposition_change",
             "compatible_technologies", "sheet_count_mode", "ink_cost_mode", "has_tooling",
             "default_tooling_type", "allow_manual_override", "waste_pct",
         )}
@@ -289,7 +282,6 @@ class ProductTypeCatalogService:
         required = list(item.required_fields or [])
         routing = list(item.default_operations or [])
         req_ops = list(item.required_operations or [])
-        allowed_impo = list(item.allowed_imposition_codes or [])
         warnings: list[str] = []
         if not shown:
             warnings.append("Chưa khai field hiển thị — màn Tính giá sẽ dùng bộ field mặc định.")
@@ -312,8 +304,6 @@ class ProductTypeCatalogService:
             rules.append("Tính bìa / ruột riêng.")
         if item.has_packaging:
             rules.append(f"Có bao bì (quy cách {item.default_pack_qty or 0} / thùng).")
-        if allowed_impo:
-            rules.append("Kiểu bình bài cho phép: " + ", ".join(allowed_impo) + ".")
 
         return {
             "product_type": item.product_type,
@@ -322,8 +312,6 @@ class ProductTypeCatalogService:
             "required_fields": required,
             "routing": routing,
             "required_operations": req_ops,
-            "allowed_imposition_codes": allowed_impo,
-            "default_imposition_code": item.default_imposition_code,
             "dimension_rule_type": item.dimension_rule_type,
             "default_bleed_mm": float(item.default_bleed_mm),
             "default_gutter_mm": float(item.default_gutter_mm),

@@ -84,22 +84,11 @@ class QuotationService:
         self._estimates = estimates
         self.sequence = sequence
 
-    def _bump_imposition_used(self, estimate) -> None:
-        """Increment used_count of the Kiểu bình bài an estimate resolves to, at snapshot time.
+    def _bump_used_counts(self, estimate) -> None:
+        """Increment used_count of resources an estimate resolves to, at snapshot time.
         Advisory only (mutated in the shared session, committed by the quote flow) — never blocks."""
         try:
-            from datetime import date
-            from ..repositories.imposition_type_repo import ImpositionTypeRepository
-
             spec = estimate.input_spec_json or {}
-            code = spec.get("imposition") or spec.get("imposition_name")
-            if not code:
-                sides = int(spec.get("sides", 2) or 2)
-                code = "ONE_SIDE" if sides == 1 else "AB"
-            repo = ImpositionTypeRepository(self.quotations.db)
-            impo = repo.resolve_active(code=code, name=code, at_date=date.today())
-            if impo:
-                repo.increment_used_count(impo, commit=False)
             # Nuôi used_count của Máy đã dùng (khóa xóa/sửa thông số ảnh hưởng giá).
             mid = spec.get("machine_id")
             if mid:
@@ -393,9 +382,8 @@ class QuotationService:
 
             # Lock the estimate to quote
             estimate.status = "converted_to_quote"
-            # Nuôi used_count của Kiểu bình bài: đây là thời điểm "báo giá snapshot" — kiểu đã dùng
-            # sẽ khóa sửa-tại-chỗ (tạo version mới khi sửa). Không commit riêng: theo transaction quote.
-            self._bump_imposition_used(estimate)
+            # Nuôi used_count của Máy đã dùng (báo giá snapshot). Không commit riêng: theo transaction quote.
+            self._bump_used_counts(estimate)
 
         # Update Version Totals
         version.total_cost_snapshot = total_cost

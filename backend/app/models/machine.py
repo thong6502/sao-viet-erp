@@ -106,9 +106,6 @@ class Machine(Base):
     top_bottom_margin_cm: Mapped[float] = mapped_column(
         Numeric(10, 2), nullable=False, server_default="0", default=0.0
     )
-    # list paper_size id chạy được (rỗng/NULL = không giới hạn theo DM khổ).
-    compatible_paper_size_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
-
     # ---- C. Dải tốc độ (speed = tốc độ chuẩn ở trên) ----
     min_speed: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     max_speed: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)

@@ -94,11 +94,6 @@ class CostingPaperOption(Base):
     # Integer (no FK) until that catalog is built — the giá per-ram/kg + lot_type + ownership
     # are looked up via the raising port stub, never a fabricated paper.
     sheet_paper_master_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Khổ tờ in / khổ mua chọn từ DM Khổ giấy tiêu chuẩn (paper_sizes.id). Plain nullable
-    # Integer (no FK, mirror sheet_paper_master_id) — chỉ để truy vết + auto-fill sheet_w/h;
-    # engine vẫn tính trên sheet_w/sheet_h đã copy (snapshot), KHÔNG resolve lại tại compute.
-    print_sheet_size_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
-    purchase_size_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     # Khổ tờ in (sheet size, cm). Numeric so mm/cm decimals survive SQLite + Postgres.
     sheet_w: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     sheet_h: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)

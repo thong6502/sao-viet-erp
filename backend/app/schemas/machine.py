@@ -65,7 +65,6 @@ class _MachineFields(BaseModel):
     gripper_cm: float = Field(default=0.0, ge=0)
     side_margin_cm: float = Field(default=0.0, ge=0)
     top_bottom_margin_cm: float = Field(default=0.0, ge=0)
-    compatible_paper_size_ids: list[int] | None = None
 
     # D — thời gian (giờ). Cũ (phút) giữ để fallback.
     setup_time_mins: int = Field(default=0, ge=0)
@@ -125,7 +124,6 @@ class MachineRow(BaseModel):
     gripper_cm: float = 0.0
     side_margin_cm: float = 0.0
     top_bottom_margin_cm: float = 0.0
-    compatible_paper_size_ids: list[int] | None = None
     setup_time_mins: int = 0
     changeover_time_mins: int = 0
     setup_waste_sheets: float = 0.0

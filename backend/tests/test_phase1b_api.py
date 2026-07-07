@@ -17,34 +17,40 @@ def auth_headers(token) -> dict[str, str]:
 
 # --- PlateDieRates API tests ------------------------------------------------
 
-def test_plate_die_rates_api_crud(client, auth_headers):
-    # 1. Create a rate
-    payload = {
-        "code": "PLATE_API_T",
-        "name": "Kẽm API test",
-        "plate_type": "ban_kem_offset",
-        "technology": "offset",
-        "unit": "ban",
-        "unit_price": 120000,
-        "setup_fee": 0,
-        "min_charge": 0,
-        "reusable": False,
-        "effective_from": str(date.today() + timedelta(days=5)), # future rate
-    }
-    resp = client.post("/api/plate-die-rates", json=payload, headers=auth_headers)
-    assert resp.status_code == 201
-    rate_id = resp.json()["id"]
-    assert resp.json()["unit_price"] == 120000
+def test_plate_die_rates_api_read(client, auth_headers):
+    # The admin/write surface was removed; seed a rate directly via the model so
+    # the read path (list + get-by-id) still gets exercised.
+    from app.db import SessionLocal
+    from app.models.plate_die_rate import PlateDieRate
 
-    # 2. List rates
+    db = SessionLocal()
+    try:
+        rate = PlateDieRate(
+            code="PLATE_API_T",
+            name="Kẽm API test",
+            plate_type="ban_kem_offset",
+            technology="offset",
+            unit="ban",
+            unit_price=120000,
+            reusable=False,
+            effective_from=date.today() + timedelta(days=5),  # future rate
+        )
+        db.add(rate)
+        db.commit()
+        rate_id = rate.id
+    finally:
+        db.close()
+
+    # 1. List rates — the seeded rate shows up.
     resp = client.get("/api/plate-die-rates?plate_type=ban_kem_offset", headers=auth_headers)
     assert resp.status_code == 200
     items = resp.json()["items"]
     assert len(items) >= 1
 
-    # 3. Delete future rate (should succeed)
-    resp = client.delete(f"/api/plate-die-rates/{rate_id}", headers=auth_headers)
-    assert resp.status_code == 204
+    # 2. Get by id — read path still serves the rate.
+    resp = client.get(f"/api/plate-die-rates/{rate_id}", headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.json()["unit_price"] == 120000
 
 
 # --- Norms API tests --------------------------------------------------------

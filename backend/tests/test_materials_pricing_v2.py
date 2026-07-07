@@ -11,7 +11,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db import Base
+from app.db import Base, SessionLocal
 from app.models.material import Material, MaterialCost
 from app.models.machine import Machine, MachineRate
 from app.services.pricing_engine import PricingEngine
@@ -50,7 +50,7 @@ def test_ink_cost_from_material():
     db.commit()
 
     spec = dict(product_type="tor_roi", colors=4, sides=1, forms=1, material_id=paper.id, machine_id=mc.id,
-                sheet_w=79, sheet_h=109, pieces_per_sheet=4, operations=[], imposition="In 1 mặt")
+                sheet_w=79, sheet_h=109, pieces_per_sheet=4, operations=[])
     lines, total, warns = PricingEngine(db).calculate_option(spec, 1000)
     ink_lines = [l for l in lines if l.category == "ink"]
     assert len(ink_lines) == 1, "phải có 1 dòng mực đọc từ material"
@@ -69,7 +69,7 @@ def test_ink_missing_when_no_ink_material():
     db = _mem_db()
     paper, mc = _base_setup(db)
     spec = dict(product_type="tor_roi", colors=4, sides=1, forms=1, material_id=paper.id, machine_id=mc.id,
-                sheet_w=79, sheet_h=109, pieces_per_sheet=4, operations=[], imposition="In 1 mặt")
+                sheet_w=79, sheet_h=109, pieces_per_sheet=4, operations=[])
     lines, total, warns = PricingEngine(db).calculate_option(spec, 1000)
     assert not any(l.category == "ink" for l in lines)
     assert any(w["code"] == "MISSING_INK_RATE" for w in warns)
@@ -90,7 +90,7 @@ def test_price_band_selection():
 
     # SL nhỏ → số tờ mua nhỏ (≤200) → giá 1200; SL lớn → >200 → giá 900.
     spec = dict(product_type="tor_roi", colors=4, sides=1, forms=1, material_id=paper.id, machine_id=mc.id,
-                sheet_w=79, sheet_h=109, pieces_per_sheet=100, operations=[], imposition="In 1 mặt")
+                sheet_w=79, sheet_h=109, pieces_per_sheet=100, operations=[])
     lines_small, _, _ = PricingEngine(db).calculate_option(spec, 1000)   # ~10 tờ
     lines_large, _, _ = PricingEngine(db).calculate_option(spec, 100000)  # ~1000 tờ
     mat_small = next(l for l in lines_small if l.category == "material")
@@ -100,76 +100,44 @@ def test_price_band_selection():
     db.close()
 
 
-# --- API tests (client fixture; plate_die không seed ở test nên không bị ảnh hưởng) ---
+# --- API tests: chỉ còn đường ĐỌC (list/detail/cost history). CRUD/convert/price-test
+#     đã gỡ khỏi router — dữ liệu ghi trực tiếp qua model rồi kiểm qua GET. ---
 
 def test_api_material_new_fields_and_price_variants(client, seed_credentials):
     tok = client.post("/api/auth/login", json=seed_credentials).json()["access_token"]
     h = {"Authorization": f"Bearer {tok}"}
 
-    # Tạo giấy với field mới.
-    r = client.post("/api/materials", json={
-        "name": "Ivory 250 test #2", "material_type": "paper", "unit": "to",
-        "gsm": 250, "width_cm": 79, "height_cm": 109, "paper_family": "Ivory",
-        "material_group": "paper", "default_supplier": "NCC Giấy A",
-        "base_uom": "kg", "purchase_uom": "kg", "consumption_uom": "to",
-        "conversion_method": "gsm_area",
-    }, headers=h)
-    assert r.status_code == 201, r.text
-    mat = r.json()
-    assert mat["material_group"] == "paper"
-    assert mat["default_supplier"] == "NCC Giấy A"
-    mid = mat["id"]
+    # Ghi thẳng qua model (đường ghi CRUD của router đã gỡ) — vẫn kiểm đường ĐỌC:
+    # detail trả field nhóm/NCC mới + gộp đủ bậc giá; endpoint lịch sử giá còn sống.
+    db = SessionLocal()
+    try:
+        mat = Material(
+            code="GYT250-TEST", name="Ivory 250 test #2", material_type="paper", unit="to",
+            gsm=250, width_cm=79, height_cm=109, paper_family="Ivory",
+            material_group="paper", default_supplier="NCC Giấy A",
+            base_uom="kg", purchase_uom="kg", consumption_uom="to",
+            conversion_method="gsm_area",
+        )
+        db.add(mat)
+        db.flush()
+        mid = mat.id
+        for qf, qt, price in [(0, 100, 32000), (100, None, 30000)]:
+            db.add(MaterialCost(
+                material_id=mid, price_unit="kg", unit_price=price,
+                effective_from=date.today(), supplier="NCC Giấy A",
+                quantity_from=qf, quantity_to=qt, price_type="purchase",
+                transport_fee=300000, moq=100, lead_time_days=2,
+            ))
+        db.commit()
+    finally:
+        db.close()
 
-    # Thêm 2 bậc giá kg (khác bậc) + NCC — không chồng lấn.
-    for qf, qt, price in [(0, 100, 32000), (100, None, 30000)]:
-        r = client.post(f"/api/materials/{mid}/costs", json={
-            "price_unit": "kg", "unit_price": price, "effective_from": str(date.today()),
-            "supplier": "NCC Giấy A", "quantity_from": qf, "quantity_to": qt,
-            "price_type": "purchase", "transport_fee": 300000, "moq": 100, "lead_time_days": 2,
-        }, headers=h)
-        assert r.status_code == 201, r.text
+    # Detail (đọc) trả field mới + 2 bậc giá kg.
     row = client.get(f"/api/materials/{mid}", headers=h).json()
+    assert row["material_group"] == "paper"
+    assert row["default_supplier"] == "NCC Giấy A"
     assert len([c for c in row["costs"] if c["price_unit"] == "kg"]) == 2
 
     # Cost history.
     r = client.get(f"/api/materials/{mid}/costs/history", headers=h)
     assert r.status_code == 200 and len(r.json()) >= 2
-
-
-def test_api_kg_requires_gsm(client, seed_credentials):
-    tok = client.post("/api/auth/login", json=seed_credentials).json()["access_token"]
-    h = {"Authorization": f"Bearer {tok}"}
-    # Giấy KHÔNG có gsm nhưng thêm giá kg → 422 (§12).
-    r = client.post("/api/materials", json={
-        "name": "Giấy no-gsm test", "material_type": "paper", "unit": "to",
-        "width_cm": 79, "height_cm": 109, "paper_family": "Ford",
-    }, headers=h)
-    mid = r.json()["id"]
-    r = client.post(f"/api/materials/{mid}/costs", json={
-        "price_unit": "kg", "unit_price": 30000, "effective_from": str(date.today()),
-    }, headers=h)
-    assert r.status_code == 422
-    assert "gsm" in r.json()["detail"].lower()
-
-
-def test_api_convert_and_price_test(client, seed_credentials):
-    tok = client.post("/api/auth/login", json=seed_credentials).json()["access_token"]
-    h = {"Authorization": f"Bearer {tok}"}
-    # Quy đổi khổ 79×109, gsm 150 → kg/tờ ≈ 0.1292.
-    r = client.post("/api/materials/convert", json={"gsm": 150, "width_cm": 79, "height_cm": 109}, headers=h)
-    assert r.status_code == 200
-    assert abs(r.json()["kg_per_sheet"] - 0.1292) < 0.001
-
-    # Test tiền mực: 2400 lượt, 80.000/1.000 → 3 block × 80.000 = 240.000.
-    r = client.post("/api/materials/price-test", json={
-        "price_unit": "nghin_luot", "unit_price": 80000, "impressions": 2400,
-    }, headers=h)
-    assert r.status_code == 200
-    assert r.json()["total"] == 240000
-
-    # Test tiền giấy theo kg: 500 tờ × 0.1292 × 28.000 ≈ 1.808.800.
-    r = client.post("/api/materials/price-test", json={
-        "price_unit": "kg", "unit_price": 28000, "sheets": 500, "gsm": 150, "width_cm": 79, "height_cm": 109,
-    }, headers=h)
-    assert r.status_code == 200
-    assert abs(r.json()["total"] - 1808800) < 2000

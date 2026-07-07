@@ -9,9 +9,8 @@ class MaterialCostCreate(BaseModel):
     price_unit: str = Field(min_length=1, max_length=16)
     unit_price: int = Field(ge=0)
     effective_from: date
-    # Tái thiết kế #2 — NCC + khổ + loại giá + bậc SL + phí.
+    # Tái thiết kế #2 — NCC + loại giá + bậc SL + phí.
     supplier: str | None = Field(default=None, max_length=150)
-    paper_size_id: int | None = None
     price_type: str = Field(default="standard", max_length=20)
     vat_included: bool = False
     transport_fee: int = Field(default=0, ge=0)
@@ -28,7 +27,6 @@ class MaterialCostOut(BaseModel):
     price_unit: str
     unit_price: int
     supplier: str | None = None
-    paper_size_id: int | None = None
     price_type: str = "standard"
     vat_included: bool = False
     transport_fee: int = 0

@@ -1,21 +1,20 @@
-"""FastAPI router for Plate/Die rates API — Đơn giá kẽm & khuôn (catalog #5)."""
+"""FastAPI router for Plate/Die rates API — Đơn giá kẽm & khuôn (catalog #5).
+
+Read-only: the admin/write surface was removed. GET endpoints remain so the
+pricing engine and read-only consumers keep working.
+"""
 from __future__ import annotations
 
 from typing import Annotated
-from fastapi import APIRouter, Depends, HTTPException, Query, status, Response
-from ..deps import CurrentUser, get_plate_die_rate_service, require_permission
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from ..deps import get_plate_die_rate_service, require_permission
 from ..schemas.plate_die_rate import (
-    PlateDieRateCreate,
-    PlateDieRateVersion,
-    PlateDieRateClose,
     PlateDieRateOut,
     PlateDieRateListOut,
     PlateDieRateUsageOut,
 )
 from ..services.plate_die_rate_service import (
     PlateDieRateService,
-    PlateDieRateValidationError,
-    PlateDieRateDuplicate,
     PlateDieRateNotFoundError,
 )
 
@@ -87,74 +86,3 @@ def get_usage(
         return PlateDieRateUsageOut(**service.usage(id))
     except PlateDieRateNotFoundError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-
-
-@router.post("", response_model=PlateDieRateOut, status_code=status.HTTP_201_CREATED)
-def create_rate(
-    payload: PlateDieRateCreate,
-    service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
-    actor: Annotated[CurrentUser, Depends(require_permission(MODULE, "create"))],
-) -> PlateDieRateOut:
-    try:
-        return service.create_rate(payload.model_dump(), actor=actor)
-    except PlateDieRateDuplicate as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
-    except PlateDieRateValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-
-
-@router.post("/{id}/version", response_model=PlateDieRateOut, status_code=status.HTTP_201_CREATED)
-def create_version(
-    id: int,
-    payload: PlateDieRateVersion,
-    service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
-    actor: Annotated[CurrentUser, Depends(require_permission(MODULE, "update"))],
-) -> PlateDieRateOut:
-    try:
-        return service.create_version(id, payload.model_dump(), actor=actor)
-    except PlateDieRateNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except PlateDieRateValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-
-
-@router.post("/{id}/clone", response_model=PlateDieRateOut, status_code=status.HTTP_201_CREATED)
-def clone_rate(
-    id: int,
-    service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
-    actor: Annotated[CurrentUser, Depends(require_permission(MODULE, "create"))],
-) -> PlateDieRateOut:
-    try:
-        return service.clone_rate(id, actor=actor)
-    except PlateDieRateNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-
-
-@router.post("/{id}/close", response_model=PlateDieRateOut)
-def close_rate(
-    id: int,
-    payload: PlateDieRateClose,
-    service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
-    actor: Annotated[CurrentUser, Depends(require_permission(MODULE, "update"))],
-) -> PlateDieRateOut:
-    try:
-        return service.close_rate(rate_id=id, effective_to=payload.effective_to, actor=actor)
-    except PlateDieRateNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except PlateDieRateValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
-
-
-@router.delete("/{id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def delete_rate(
-    id: int,
-    service: Annotated[PlateDieRateService, Depends(get_plate_die_rate_service)],
-    actor: Annotated[CurrentUser, Depends(require_permission(MODULE, "delete"))],
-) -> Response:
-    try:
-        service.delete_rate(rate_id=id, actor=actor)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except PlateDieRateNotFoundError as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
-    except PlateDieRateValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))

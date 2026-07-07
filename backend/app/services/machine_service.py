@@ -32,7 +32,7 @@ _ASSIGNABLE = (
     "speed", "speed_unit", "min_speed", "max_speed",
     "max_width_cm", "max_height_cm", "min_width_cm", "min_height_cm",
     "max_print_width_cm", "max_print_height_cm", "gripper_cm", "side_margin_cm",
-    "top_bottom_margin_cm", "compatible_paper_size_ids",
+    "top_bottom_margin_cm",
     "setup_time_mins", "changeover_time_mins", "setup_waste_sheets",
     "setup_time_base_hour", "setup_time_per_color_hour", "setup_time_per_side_hour",
     "cleaning_time_hour", "color_change_time_hour", "plate_change_time_per_plate_hour",

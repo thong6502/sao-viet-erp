@@ -197,17 +197,6 @@ def test_cancel_quotation_requires_cancel_permission(client):
     assert r.status_code == 403, r.text
 
 
-def test_manage_price_requires_permission(client):
-    # CÓ quyền Sửa vật liệu nhưng KHÔNG có `manage_price` → thêm giá theo mốc bị 403.
-    token = _user_with_role("fp-price", "dm_giay_vat_tu", can_read=True, can_update=True)
-    r = client.post(
-        "/api/materials/1/costs",
-        json={"price_unit": "ram", "unit_price": 1000, "effective_from": "2026-01-01"},
-        headers=_h(token),
-    )
-    assert r.status_code == 403, r.text
-
-
 def test_transfer_department_via_edit_requires_transfer(client):
     # Đổi TÊN trong cùng phòng chỉ cần `update`; ĐỔI PHÒNG cần `transfer`.
     token = _user_with_role("fp-tf", "nguoi_dung", can_read=True, can_update=True)
@@ -247,24 +236,6 @@ def test_manage_permissions_requires_permission(client):
     assert r.status_code == 403, r.text
 
 
-def test_clone_material_requires_clone_permission(client):
-    # CÓ Thêm vật liệu nhưng KHÔNG `clone` → nhân bản bị 403.
-    token = _user_with_role("fp-clone", "dm_giay_vat_tu", can_read=True, can_create=True)
-    r = client.post(
-        "/api/materials/1/clone",
-        json={"gsm": 200, "width_cm": 65, "height_cm": 86},
-        headers=_h(token),
-    )
-    assert r.status_code == 403, r.text
-
-
-def test_toggle_active_material_requires_permission(client):
-    # CÓ Sửa vật liệu nhưng KHÔNG `toggle_active` → bật/tắt bị 403.
-    token = _user_with_role("fp-toggle", "dm_giay_vat_tu", can_read=True, can_update=True)
-    r = client.patch("/api/materials/1/toggle-active", headers=_h(token))
-    assert r.status_code == 403, r.text
-
-
 def test_customer_edit_cannot_change_sale_without_reassign(client):
     # CÓ Sửa KH nhưng KHÔNG `reassign` → đổi NV phụ trách QUA NÚT SỬA bị 403
     # (bịt đường vòng: endpoint reassign riêng đã chặn nhưng PUT chung thì chưa).
@@ -293,36 +264,6 @@ def test_customer_edit_cannot_change_sale_without_reassign(client):
     # Đổi người phụ trách → 403.
     r = client.put(
         f"/api/customers/{cid}", json={**base, "sale_user_id": other_id}, headers=_h(token)
-    )
-    assert r.status_code == 403, r.text
-
-
-def test_material_edit_cannot_flip_active_without_toggle(client):
-    # CÓ Sửa vật tư nhưng KHÔNG `toggle_active` → đổi is_active QUA NÚT SỬA bị 403
-    # (các field khác vẫn sửa bình thường).
-    token = _user_with_role(
-        "fp-matact", "dm_giay_vat_tu", can_read=True, can_create=True, can_update=True
-    )
-    payload = {
-        "name": "VT fp-active",
-        "material_type": "chemical",
-        "unit": "kg",
-        "min_fee": 0,
-        "default_waste_pct": 0,
-        "min_purchase_qty": 0,
-        "is_active": True,
-    }
-    r = client.post("/api/materials", json=payload, headers=_h(token))
-    assert r.status_code == 201, r.text
-    mid = r.json()["id"]
-    ok = client.put(
-        f"/api/materials/{mid}", json={**payload, "name": "VT fp-active sửa"}, headers=_h(token)
-    )
-    assert ok.status_code == 200, ok.text
-    r = client.put(
-        f"/api/materials/{mid}",
-        json={**payload, "name": "VT fp-active sửa", "is_active": False},
-        headers=_h(token),
     )
     assert r.status_code == 403, r.text
 

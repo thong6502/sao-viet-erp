@@ -41,10 +41,6 @@ class _ProductTypeConfig(BaseModel):
     default_operations: list[str] | None = None
     required_operations: list[str] | None = None
     allow_extra_operations: bool = True
-    # §G
-    allowed_imposition_codes: list[str] | None = None
-    default_imposition_code: str | None = Field(default=None, max_length=32)
-    allow_imposition_change: bool = True
     # §H
     compatible_technologies: list[str] | None = None
     sheet_count_mode: str = Field(default="by_pieces", max_length=16)
@@ -84,8 +80,6 @@ class ProductTypeCatalogRow(BaseModel):
     required_operations: list[str] | None = None
     allowed_materials: list[str] | None = None
     compatible_technologies: list[str] | None = None
-    allowed_imposition_codes: list[str] | None = None
-    default_imposition_code: str | None = None
     dimension_rule_type: str
     default_bleed_mm: float
     default_gutter_mm: float
@@ -122,7 +116,6 @@ class ProductTypeCatalogDetailOut(ProductTypeCatalogRow):
     default_ink_material_id: int | None = None
     default_pack_qty: int = 0
     allow_extra_operations: bool = True
-    allow_imposition_change: bool = True
     default_tooling_type: str | None = None
     allow_manual_override: bool = False
     waste_pct: float = 0
@@ -138,8 +131,6 @@ class ProductTypePreviewOut(BaseModel):
     required_fields: list[str]
     routing: list[str]
     required_operations: list[str]
-    allowed_imposition_codes: list[str]
-    default_imposition_code: str | None
     dimension_rule_type: str
     default_bleed_mm: float
     default_gutter_mm: float

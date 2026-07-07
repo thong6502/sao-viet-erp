@@ -15,9 +15,6 @@ class PaperOptionIn(BaseModel):
 
     # SEAM-07: FK-nullable to PaperMaster — may be null until Danh mục Giấy is built.
     sheet_paper_master_id: int | None = None
-    # Khổ tờ in / khổ mua chọn từ DM Khổ giấy tiêu chuẩn (paper_sizes.id) — auto-fill sheet_w/h.
-    print_sheet_size_id: int | None = None
-    purchase_size_id: int | None = None
     sheet_w: float = Field(default=0, ge=0)
     sheet_h: float = Field(default=0, ge=0)
     # Số con/khổ NHẬP TAY (>0 enforced in the service so we return the domain message).
@@ -53,8 +50,6 @@ class PaperOptionOut(BaseModel):
 
     id: int
     sheet_paper_master_id: int | None
-    print_sheet_size_id: int | None = None
-    purchase_size_id: int | None = None
     # Resolved paper label + price via SEAM-07; None until Danh mục Giấy is built.
     paper_display: str | None = None
     sheet_w: float

@@ -94,7 +94,7 @@ class Norm(Base):
     waste_group: Mapped[str | None] = mapped_column(String(24), index=True, nullable=True)
     calculation_method: Mapped[str | None] = mapped_column(String(24), nullable=True)
 
-    # Phạm vi áp dụng multi-select (mirror imposition_types). NULL/[] = tất cả.
+    # Phạm vi áp dụng multi-select. NULL/[] = tất cả.
     applicable_product_types: Mapped[list | None] = mapped_column(JSON, nullable=True)
     applicable_machine_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
