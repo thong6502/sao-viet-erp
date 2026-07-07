@@ -773,6 +773,21 @@ def _migrate_leave_seen_by_employee(db: Session) -> None:
     db.commit()
 
 
+def _migrate_product_type_waste_pct(db: Session) -> None:
+    """Loại SP: thêm `product_types_catalog.waste_pct` (% bù hao, thay module Định mức cũ).
+    PR #7 lỡ gắn cột này vào coldefs của migration 0006 — vốn đã chạy trên DB cũ nên không
+    được ALTER lại → thiếu cột. Tách migration id RIÊNG để bù cho mọi DB hiện có (bài học:
+    cột mới luôn phải là migration mới). No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "product_types_catalog" not in insp.get_table_names():
+        return
+    if "waste_pct" not in _existing_columns(insp, "product_types_catalog"):
+        db.execute(text(
+            "ALTER TABLE product_types_catalog ADD COLUMN waste_pct NUMERIC(6,2) NOT NULL DEFAULT 0"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0001_imposition_type_full_fields", _migrate_imposition_type_full_fields),
     ("0002_operation_full_fields", _migrate_operation_full_fields),
@@ -791,6 +806,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0015_role_permission_adjust", _migrate_role_permission_adjust),
     ("0016_attendance_adjust_cols", _migrate_attendance_adjust_cols),
     ("0017_leave_seen_by_employee", _migrate_leave_seen_by_employee),
+    ("0018_product_type_waste_pct", _migrate_product_type_waste_pct),
 ]
 
 
