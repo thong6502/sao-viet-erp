@@ -79,6 +79,8 @@ class ModuleCapability(BaseModel):
     can_clone: bool = False
     can_toggle_active: bool = False
     can_reparent: bool = False
+    can_view_salary: bool = False
+    can_adjust: bool = False
 
 
 class PermissionsOut(BaseModel):

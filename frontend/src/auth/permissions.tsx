@@ -27,7 +27,9 @@ export type PermAction =
   | "manage_permissions"
   | "clone"
   | "toggle_active"
-  | "reparent";
+  | "reparent"
+  | "view_salary"
+  | "adjust";
 
 export type Capabilities = Map<string, ModuleCapability>;
 
@@ -78,6 +80,8 @@ export function PermissionsProvider({
     if (action === "clone") return row.can_clone;
     if (action === "toggle_active") return row.can_toggle_active;
     if (action === "reparent") return row.can_reparent;
+    if (action === "view_salary") return row.can_view_salary;
+    if (action === "adjust") return row.can_adjust;
     return false;
   }
   function scopeOf(moduleKey: string): Scope | null {

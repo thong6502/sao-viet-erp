@@ -36,7 +36,9 @@ export type ActionKey =
   | "can_manage_permissions"
   | "can_clone"
   | "can_toggle_active"
-  | "can_reparent";
+  | "can_reparent"
+  | "can_view_salary"
+  | "can_adjust";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -81,6 +83,19 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
   ],
   dm_thiet_bi: [{ key: "can_manage_price", label: "Cập nhật đơn giá" }],
   dm_cong_doan: [{ key: "can_manage_price", label: "Cập nhật đơn giá" }],
+  nhan_su: [
+    { key: "can_view_salary", label: "Xem lương & BHXH (dữ liệu nhạy cảm)" },
+    { key: "can_manage_status", label: "Thao tác vòng đời (chính thức/nghỉ/đình chỉ)" },
+    { key: "can_transfer", label: "Điều chuyển & nâng bậc" },
+    { key: "can_approve", label: "Duyệt yêu cầu cập nhật" },
+    { key: "can_export", label: "Xuất Excel danh sách" },
+    { key: "can_adjust", label: "Chấm công: chấm bù / sửa công" },
+  ],
+  luong: [
+    { key: "can_approve", label: "Duyệt tạm ứng" },
+    { key: "can_lock", label: "Chốt kỳ lương" },
+    { key: "can_export", label: "Xuất bảng lương / file chuyển khoản" },
+  ],
 };
 
 export const SCOPES: { value: Scope; label: string }[] = [
@@ -116,6 +131,8 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_clone: false,
     can_toggle_active: false,
     can_reparent: false,
+    can_view_salary: false,
+    can_adjust: false,
   }));
 }
 

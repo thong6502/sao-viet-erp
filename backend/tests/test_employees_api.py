@@ -56,6 +56,60 @@ def _create(client, token, **over):
     return client.post("/api/employees", json=body, headers=_h(token))
 
 
+# --- self-service "Hồ sơ của tôi" ------------------------------------------
+
+
+def test_my_profile_self_service(client):
+    token = _admin_token(client)
+    _create(client, token, full_name="NV Tự", phone="0900", note="ghi chú nội bộ",
+            payroll_group="van_phong",
+            account={"username": "nvtu", "password": "nvtu12345"})
+    me_tok = client.post("/api/auth/login", json={"username": "nvtu", "password": "nvtu12345"}).json()["access_token"]
+
+    me = client.get("/api/employees/me", headers=_h(me_tok)).json()
+    assert me["has_employee"] is True
+    assert me["employee"]["full_name"] == "NV Tự" and me["employee"]["phone"] == "0900"
+    assert me["employee"]["note"] is None and me["employee"]["payroll_group"] is None  # nội bộ, ẩn
+
+    # tự sửa liên lạc (whitelist): phone đổi được; full_name bị bỏ qua (không whitelist)
+    upd = client.put("/api/employees/me", json={"phone": "0911", "full_name": "HACK"}, headers=_h(me_tok)).json()
+    assert upd["employee"]["phone"] == "0911" and upd["employee"]["full_name"] == "NV Tự"
+
+    # user không gắn hồ sơ → has_employee false
+    assert client.get("/api/employees/me", headers=_h(_sales_token())).json()["has_employee"] is False
+
+
+def test_profile_update_request_flow(client):
+    """NV đề nghị đổi field bảo vệ (số TK) → chỉ field whitelist được ghi nhận; HCNS duyệt
+    → áp thật vào hồ sơ; duyệt lại đơn đã xử lý → 400."""
+    admin = _admin_token(client)
+    _create(client, admin, full_name="NV Yêu Cầu", bank_account="111",
+            account={"username": "nvyc", "password": "nvyc12345"})
+    me_tok = client.post("/api/auth/login", json={"username": "nvyc", "password": "nvyc12345"}).json()["access_token"]
+
+    # đề nghị đổi số TK (được) + phone (không whitelist → bị loại)
+    r = client.post("/api/employees/me/update-requests",
+                    json={"changes": {"bank_account": "999", "phone": "0900"}, "reason": "Đổi NH"},
+                    headers=_h(me_tok))
+    assert r.status_code == 201
+    rid = r.json()["id"]
+    assert r.json()["changes"].get("bank_account") == "999" and "phone" not in r.json()["changes"]
+
+    assert any(x["id"] == rid and x["status"] == "pending"
+               for x in client.get("/api/employees/me/update-requests", headers=_h(me_tok)).json()["items"])
+
+    # HCNS thấy + duyệt
+    listed = client.get("/api/employees/update-requests?status=pending", headers=_h(admin)).json()["items"]
+    assert any(x["id"] == rid and x["employee_name"] == "NV Yêu Cầu" for x in listed)
+    ap = client.post(f"/api/employees/update-requests/{rid}/approve", json={}, headers=_h(admin))
+    assert ap.status_code == 200 and ap.json()["status"] == "approved"
+
+    # áp thật: số TK đã đổi
+    assert client.get("/api/employees/me", headers=_h(me_tok)).json()["employee"]["bank_account"] == "999"
+    # duyệt lại đơn đã xử lý → 400
+    assert client.post(f"/api/employees/update-requests/{rid}/approve", json={}, headers=_h(admin)).status_code == 400
+
+
 # --- create + list ----------------------------------------------------------
 
 

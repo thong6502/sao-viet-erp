@@ -711,6 +711,68 @@ def _migrate_employee_payroll_fields(db: Session) -> None:
     db.commit()
 
 
+def _migrate_payroll_line_khoan(db: Session) -> None:
+    """Lương khoán (nhịp 2): thêm cột `payroll_lines.khoan` (tiền khoán cộng vào gross).
+    No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in insp.get_table_names():
+        return
+    if "khoan" not in _existing_columns(insp, "payroll_lines"):
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN khoan NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_role_permission_view_salary(db: Session) -> None:
+    """Phân quyền: thêm cột `role_permissions.can_view_salary` (xem dữ liệu nhạy cảm hồ sơ:
+    lương/BHXH). No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_view_salary" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text("ALTER TABLE role_permissions ADD COLUMN can_view_salary BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
+def _migrate_role_permission_adjust(db: Session) -> None:
+    """Phân quyền: thêm cột `role_permissions.can_adjust` (Chấm công: điều chỉnh công qua
+    punch nguồn). No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_adjust" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text("ALTER TABLE role_permissions ADD COLUMN can_adjust BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
+def _migrate_attendance_adjust_cols(db: Session) -> None:
+    """Chấm công: thêm cột đánh dấu PUNCH điều chỉnh tay vào `attendance_logs`
+    (is_manual / adjust_reason / fault_party / created_by_user_id). No-op nếu bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "attendance_logs" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "attendance_logs")
+    if "is_manual" not in existing:
+        db.execute(text("ALTER TABLE attendance_logs ADD COLUMN is_manual BOOLEAN NOT NULL DEFAULT FALSE"))
+    if "adjust_reason" not in existing:
+        db.execute(text("ALTER TABLE attendance_logs ADD COLUMN adjust_reason VARCHAR(500)"))
+    if "fault_party" not in existing:
+        db.execute(text("ALTER TABLE attendance_logs ADD COLUMN fault_party VARCHAR(20)"))
+    if "created_by_user_id" not in existing:
+        db.execute(text("ALTER TABLE attendance_logs ADD COLUMN created_by_user_id INTEGER"))
+    db.commit()
+
+
+def _migrate_leave_seen_by_employee(db: Session) -> None:
+    """Nghỉ phép — chuông Topbar: thêm `leave_requests.seen_by_employee_at` (thời điểm NV xem
+    kết quả duyệt/từ chối). Nullable timestamp. No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "leave_requests" not in insp.get_table_names():
+        return
+    if "seen_by_employee_at" not in _existing_columns(insp, "leave_requests"):
+        db.execute(text("ALTER TABLE leave_requests ADD COLUMN seen_by_employee_at TIMESTAMP"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0001_imposition_type_full_fields", _migrate_imposition_type_full_fields),
     ("0002_operation_full_fields", _migrate_operation_full_fields),
@@ -724,6 +786,11 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0010_norms_version_by_code", _migrate_norms_version_by_code),
     ("0011_employee_default_shift", _migrate_employee_default_shift),
     ("0012_employee_payroll_fields", _migrate_employee_payroll_fields),
+    ("0013_payroll_line_khoan", _migrate_payroll_line_khoan),
+    ("0014_role_permission_view_salary", _migrate_role_permission_view_salary),
+    ("0015_role_permission_adjust", _migrate_role_permission_adjust),
+    ("0016_attendance_adjust_cols", _migrate_attendance_adjust_cols),
+    ("0017_leave_seen_by_employee", _migrate_leave_seen_by_employee),
 ]
 
 

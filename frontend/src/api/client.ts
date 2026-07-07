@@ -272,6 +272,8 @@ export interface ModuleCapability {
   can_clone: boolean;
   can_toggle_active: boolean;
   can_reparent: boolean;
+  can_view_salary: boolean;
+  can_adjust: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -314,6 +316,8 @@ export interface PermissionRow {
   can_clone: boolean;
   can_toggle_active: boolean;
   can_reparent: boolean;
+  can_view_salary: boolean;
+  can_adjust: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 ----------------------------------------------
@@ -1781,6 +1785,7 @@ export interface EmployeeRow {
   user_id: number | null;
   account_username: string | null;
   photo_url: string | null;
+  default_shift_id: number | null;
   created_at: string | null;
 }
 
@@ -1939,6 +1944,35 @@ export interface EmployeeListParams {
   size?: number;
 }
 
+// --- "Hồ sơ của tôi" (self-service, nhân viên thường) ---
+export interface MyProfile {
+  has_employee: boolean;
+  employee: EmployeeDetail | null;
+}
+export interface MyContactInput {
+  phone?: string | null;
+  email?: string | null;
+  current_address?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_contact_phone?: string | null;
+}
+
+// Yêu cầu cập nhật hồ sơ (NV đề nghị → HCNS duyệt).
+export interface UpdateRequest {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  changes: Record<string, string | number | null>;
+  reason: string | null;
+  status: string;
+  decision_note: string | null;
+  created_at: string;
+}
+export interface UpdateRequestInput {
+  changes: Record<string, string | number | null>;
+  reason?: string | null;
+}
+
 // --- Chấm công GPS (nhan_su) ------------------------------------------------
 
 export interface WorkLocation {
@@ -1992,12 +2026,44 @@ export interface CheckResult {
   log: AttendanceLog | null;
 }
 
+export interface AttendancePreview {
+  locations_configured: boolean;
+  within_range: boolean;
+  distance_m: number | null;
+  meters_out: number | null;   // còn cách bao nhiêu mét mới vào vùng (0 nếu đã trong)
+  nearest_name: string | null;
+  radius_m: number | null;
+  next_action: string | null;  // "in" | "out"
+  message: string;
+}
+
+export interface MyShift {
+  id: number;
+  name: string;
+  start_time: string;   // "HH:MM"
+  end_time: string;
+  is_overnight: boolean;
+  night_shift: boolean;
+}
+
+export interface TodaySummary {
+  first_in: string | null;   // "HH:MM"
+  last_out: string | null;
+  cong: number | null;       // công dự kiến hôm nay theo ca
+  reason: string | null;     // lý do khi công chưa đủ (thiếu chấm RA / vào trễ / về sớm…)
+  late: boolean;
+  early: boolean;
+  ot_minutes: number;
+}
+
 export interface AttendanceStatus {
   has_employee: boolean;
   employee_name: string | null;
   next_action: string | null;
   last_check: AttendanceLog | null;
   locations_configured: boolean;
+  shift: MyShift | null;         // ca mặc định của NV (nếu đã gán)
+  today: TodaySummary | null;    // tóm tắt "Hôm nay của tôi"
 }
 
 export interface WorkShift {
@@ -2095,11 +2161,31 @@ export interface LeaveRequestInput {
   reason?: string | null;
 }
 
+export interface LeaveQuota {
+  leave_type_id: number;
+  name: string;
+  annual_quota: number;
+  used: number;       // ngày làm việc đã dùng + đang chờ (năm dương lịch)
+  remaining: number;
+}
+
 export interface MyLeave {
   has_employee: boolean;
   employee_name: string | null;
   items: LeaveRequest[];
+  quotas: LeaveQuota[];
 }
+
+export interface LeaveSummary {
+  /** Số đơn chờ duyệt trong scope; null nếu người gọi không có quyền duyệt (ẩn badge). */
+  pending_in_scope: number | null;
+  /** Số đơn của tôi vừa được quyết mà tôi chưa xem → chuông Topbar. */
+  my_decided_unseen: number;
+}
+
+export interface LeaveCalendarDay { status: string; leave_type_name: string; is_paid: boolean; }
+export interface LeaveCalendarEmp { employee_id: number; employee_name: string; days: Record<string, LeaveCalendarDay>; }
+export interface LeaveCalendar { year: number; month: number; days_in_month: number; employees: LeaveCalendarEmp[]; }
 
 // --- Lương (module `luong`, Phase 1) ----------------------------------------
 export interface PayrollParams {
@@ -2216,6 +2302,7 @@ export interface PayrollLine {
   luong_cong: number;
   chuyen_can: number;
   allowance: number;
+  khoan: number;
   vi_pham: number;
   other_bonus: number;
   gross: number;
@@ -2244,11 +2331,150 @@ export interface MyPayslip {
   line: PayrollLine | null;
 }
 
+// --- Lương khoán (nhịp 2) ---------------------------------------------------
+export interface PieceRate {
+  id: number;
+  group_name: string;
+  code: string | null;
+  name: string;
+  unit: string;
+  unit_price: number;
+  note: string | null;
+  is_active: boolean;
+}
+export interface PieceRateInput {
+  group_name: string;
+  code?: string | null;
+  name: string;
+  unit: string;
+  unit_price: number;
+  note?: string | null;
+  is_active?: boolean;
+}
+export interface PieceBatch {
+  id: number;
+  year: number;
+  month: number;
+  group_name: string;
+  leader_employee_id: number | null;
+  leader_pct: number;
+  min_guarantee: number;
+  over_target: number;
+  over_bonus_pct: number;
+  note: string | null;
+}
+export interface PieceBatchConfig {
+  leader_employee_id?: number | null;
+  leader_pct?: number | null;
+  min_guarantee?: number | null;
+  over_target?: number | null;
+  over_bonus_pct?: number | null;
+  note?: string | null;
+}
+export interface PieceEntry {
+  id: number;
+  batch_id: number;
+  piece_rate_id: number | null;
+  work_name: string;
+  unit: string;
+  unit_price: number;
+  quantity: number;
+  amount: number;
+  note: string | null;
+}
+export interface PieceEntryInput {
+  piece_rate_id?: number | null;
+  work_name?: string | null;
+  unit?: string | null;
+  unit_price?: number | null;
+  quantity: number;
+  note?: string | null;
+}
+export interface PieceShare {
+  id: number;
+  batch_id: number;
+  employee_id: number;
+  employee_name: string | null;
+  weight: number;
+  amount: number;
+  note: string | null;
+}
+export interface PieceSheetMeta {
+  revenue: number;
+  total: number;
+  leader_cut: number;
+  pool: number;
+}
+export interface PieceSheet {
+  batch: PieceBatch | null;
+  entries: PieceEntry[];
+  shares: PieceShare[];
+  meta: PieceSheetMeta | null;
+}
+
 export interface Timesheet {
   year: number;
   month: number;
   days_in_month: number;
   rows: TimesheetRow[];
+}
+
+export interface DayPunch {
+  id: number;
+  time: string;              // "HH:MM"
+  check_type: string;        // in | out
+  is_manual: boolean;
+  adjust_reason: string | null;
+  fault_party: string | null;
+  distance_m: number | null;
+}
+
+export interface DayDetail {
+  employee_id: number;
+  employee_name: string;
+  date: string;              // "YYYY-MM-DD"
+  shift_name: string | null;
+  cong: number | null;
+  reason: string | null;
+  punches: DayPunch[];
+}
+
+export interface AdjustInput {
+  employee_id: number;
+  date: string;              // "YYYY-MM-DD"
+  check_type: string;        // in | out
+  time: string;              // "HH:MM"
+  reason: string;
+  fault_party: string | null;
+}
+
+export interface TodayKpi {
+  present_now: number;
+  missing_out: number;
+  late_today: number;
+  pending_requests: number;
+}
+
+export interface AdjustRequest {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  work_date: string;
+  check_type: string;
+  suggested_time: string | null;
+  reason: string;
+  fault_party: string | null;
+  status: string;            // pending | approved | rejected | cancelled
+  decided_at: string | null;
+  decision_note: string | null;
+  decided_by_name: string | null;
+}
+
+export interface RequestAdjustInput {
+  date: string;
+  check_type: string;
+  suggested_time: string | null;
+  reason: string;
 }
 
 // --- Cấu hình kho hàng (warehouse master data) ------------------------------
@@ -2701,6 +2927,13 @@ export const api = {
         body: JSON.stringify(input),
       });
     },
+    /** Gán ca mặc định (an toàn — chỉ đụng default_shift_id). Dùng cho panel Gán ca ở Chấm công. */
+    setShift(token: string, id: number, shiftId: number | null): Promise<{ ok: boolean; employee_id: number; default_shift_id: number | null }> {
+      return authed(`/api/employees/${id}/shift`, token, {
+        method: "PUT",
+        body: JSON.stringify({ default_shift_id: shiftId }),
+      });
+    },
     transition(token: string, id: number, input: EmployeeTransitionInput): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}/transitions`, token, {
         method: "POST",
@@ -2729,6 +2962,36 @@ export const api = {
       return authed<void>(`/api/employees/${id}/attachments/${attachmentId}`, token, {
         method: "DELETE",
       });
+    },
+    // --- "Hồ sơ của tôi" (self-service) ---
+    me(token: string): Promise<MyProfile> {
+      return authed<MyProfile>("/api/employees/me", token);
+    },
+    updateMe(token: string, input: MyContactInput): Promise<MyProfile> {
+      return authed<MyProfile>("/api/employees/me", token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    myEvents(token: string): Promise<{ items: EmployeeEvent[] }> {
+      return authed<{ items: EmployeeEvent[] }>("/api/employees/me/events", token);
+    },
+    myAttachments(token: string): Promise<{ items: EmployeeAttachment[] }> {
+      return authed<{ items: EmployeeAttachment[] }>("/api/employees/me/attachments", token);
+    },
+    // Yêu cầu cập nhật hồ sơ (NV đề nghị → HCNS duyệt)
+    createMyRequest(token: string, input: UpdateRequestInput): Promise<UpdateRequest> {
+      return authed<UpdateRequest>("/api/employees/me/update-requests", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    myRequests(token: string): Promise<{ items: UpdateRequest[] }> {
+      return authed<{ items: UpdateRequest[] }>("/api/employees/me/update-requests", token);
+    },
+    updateRequests(token: string, status?: string): Promise<{ items: UpdateRequest[] }> {
+      const s = status ? `?status=${encodeURIComponent(status)}` : "";
+      return authed<{ items: UpdateRequest[] }>(`/api/employees/update-requests${s}`, token);
+    },
+    approveRequest(token: string, id: number, note?: string): Promise<UpdateRequest> {
+      return authed<UpdateRequest>(`/api/employees/update-requests/${id}/approve`, token, { method: "POST", body: JSON.stringify({ note: note ?? null }) });
+    },
+    rejectRequest(token: string, id: number, note?: string): Promise<UpdateRequest> {
+      return authed<UpdateRequest>(`/api/employees/update-requests/${id}/reject`, token, { method: "POST", body: JSON.stringify({ note: note ?? null }) });
     },
     linkAccount(token: string, id: number, userId: number): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}/account`, token, {
@@ -2770,8 +3033,66 @@ export const api = {
         body: JSON.stringify({ latitude, longitude }),
       });
     },
+    /** Dry-run geofence (không ghi log) cho card chấm "sống". */
+    preview(token: string, latitude: number, longitude: number): Promise<AttendancePreview> {
+      return authed<AttendancePreview>("/api/attendance/me/preview", token, {
+        method: "POST",
+        body: JSON.stringify({ latitude, longitude }),
+      });
+    },
     myLogs(token: string): Promise<{ items: AttendanceLog[] }> {
       return authed<{ items: AttendanceLog[] }>("/api/attendance/me/logs", token);
+    },
+    /** Bảng công tháng CỦA CHÍNH NV (self-service, không cần quyền module). */
+    myTimesheet(token: string, year: number, month: number): Promise<Timesheet> {
+      const qs = new URLSearchParams({ year: String(year), month: String(month) });
+      return authed<Timesheet>(`/api/attendance/me/timesheet?${qs.toString()}`, token);
+    },
+    /** "Ô biết nói": punch thật + công của 1 NV trong 1 ngày (HR, theo scope). */
+    day(token: string, employeeId: number, date: string): Promise<DayDetail> {
+      const qs = new URLSearchParams({ employee_id: String(employeeId), date });
+      return authed<DayDetail>(`/api/attendance/day?${qs.toString()}`, token);
+    },
+    /** Chấm bù / sửa: thêm 1 punch điều chỉnh tay (cần quyền nhan_su.adjust). */
+    adjust(token: string, input: AdjustInput): Promise<DayDetail> {
+      return authed<DayDetail>("/api/attendance/adjust", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Xóa 1 punch điều chỉnh tay (hoàn tác chấm bù). */
+    deleteManualLog(token: string, logId: number, employeeId: number, date: string): Promise<DayDetail> {
+      const qs = new URLSearchParams({ employee_id: String(employeeId), date });
+      return authed<DayDetail>(`/api/attendance/logs/${logId}?${qs.toString()}`, token, { method: "DELETE" });
+    },
+    /** KPI giám sát hôm nay (HR, theo scope). */
+    kpi(token: string): Promise<TodayKpi> {
+      return authed<TodayKpi>("/api/attendance/kpi", token);
+    },
+    // --- Yêu cầu chỉnh công ---
+    createAdjustRequest(token: string, input: RequestAdjustInput): Promise<AdjustRequest> {
+      return authed<AdjustRequest>("/api/attendance/me/adjust-request", token, {
+        method: "POST", body: JSON.stringify(input),
+      });
+    },
+    myAdjustRequests(token: string): Promise<{ items: AdjustRequest[] }> {
+      return authed<{ items: AdjustRequest[] }>("/api/attendance/me/adjust-requests", token);
+    },
+    cancelAdjustRequest(token: string, id: number): Promise<AdjustRequest> {
+      return authed<AdjustRequest>(`/api/attendance/me/adjust-requests/${id}/cancel`, token, { method: "POST" });
+    },
+    listAdjustRequests(token: string, status = "pending"): Promise<{ items: AdjustRequest[] }> {
+      return authed<{ items: AdjustRequest[] }>(`/api/attendance/adjust-requests?status=${status}`, token);
+    },
+    approveAdjustRequest(token: string, id: number, input: { time?: string | null; fault_party?: string | null; note?: string | null }): Promise<AdjustRequest> {
+      return authed<AdjustRequest>(`/api/attendance/adjust-requests/${id}/approve`, token, {
+        method: "POST", body: JSON.stringify(input),
+      });
+    },
+    rejectAdjustRequest(token: string, id: number, note: string): Promise<AdjustRequest> {
+      return authed<AdjustRequest>(`/api/attendance/adjust-requests/${id}/reject`, token, {
+        method: "POST", body: JSON.stringify({ note }),
+      });
     },
     logs(token: string, employeeId?: number): Promise<{ items: AttendanceLog[] }> {
       const suffix = employeeId != null ? `?employee_id=${employeeId}` : "";
@@ -2847,6 +3168,23 @@ export const api = {
     reject(token: string, id: number, note: string): Promise<LeaveRequest> {
       return authed<LeaveRequest>(`/api/leaves/${id}/reject`, token, { method: "POST", body: JSON.stringify({ note }) });
     },
+    /** Số đơn chờ duyệt (nuôi badge sidebar). pending_in_scope=null nếu không có quyền duyệt. */
+    summary(token: string): Promise<LeaveSummary> {
+      return authed<LeaveSummary>("/api/leaves/summary", token);
+    },
+    bulkApprove(token: string, ids: number[]): Promise<{ done: number[]; skipped: number[] }> {
+      return authed<{ done: number[]; skipped: number[] }>("/api/leaves/bulk-approve", token, { method: "POST", body: JSON.stringify({ ids }) });
+    },
+    bulkReject(token: string, ids: number[], note: string): Promise<{ done: number[]; skipped: number[] }> {
+      return authed<{ done: number[]; skipped: number[] }>("/api/leaves/bulk-reject", token, { method: "POST", body: JSON.stringify({ ids, note }) });
+    },
+    calendar(token: string, year: number, month: number): Promise<LeaveCalendar> {
+      return authed<LeaveCalendar>(`/api/leaves/calendar?year=${year}&month=${month}`, token);
+    },
+    /** NV xác nhận đã xem kết quả các đơn của mình (đóng chuông Topbar). */
+    markSeen(token: string): Promise<void> {
+      return authed<void>("/api/leaves/mark-seen", token, { method: "POST" });
+    },
   },
 
   // --- Lương (module `luong`, Phase 1) --------------------------------------
@@ -2920,6 +3258,46 @@ export const api = {
     },
     myPayslip(token: string): Promise<MyPayslip> {
       return authed<MyPayslip>("/api/luong/payslip/me", token);
+    },
+    // --- Lương khoán (nhịp 2) ---
+    khoanRates(token: string): Promise<{ items: PieceRate[] }> {
+      return authed<{ items: PieceRate[] }>("/api/luong/khoan/rates", token);
+    },
+    createKhoanRate(token: string, input: PieceRateInput): Promise<PieceRate> {
+      return authed<PieceRate>("/api/luong/khoan/rates", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateKhoanRate(token: string, id: number, input: PieceRateInput): Promise<PieceRate> {
+      return authed<PieceRate>(`/api/luong/khoan/rates/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteKhoanRate(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/luong/khoan/rates/${id}`, token, { method: "DELETE" });
+    },
+    khoanBatches(token: string, year: number, month: number): Promise<{ items: PieceBatch[] }> {
+      return authed<{ items: PieceBatch[] }>(`/api/luong/khoan/batches?year=${year}&month=${month}`, token);
+    },
+    khoanSheet(token: string, year: number, month: number, group: string): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/sheet?year=${year}&month=${month}&group_name=${encodeURIComponent(group)}`, token);
+    },
+    openKhoanSheet(token: string, year: number, month: number, group: string): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/sheet?year=${year}&month=${month}&group_name=${encodeURIComponent(group)}`, token, { method: "POST" });
+    },
+    updateKhoanConfig(token: string, batchId: number, cfg: PieceBatchConfig): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/config`, token, { method: "PUT", body: JSON.stringify(cfg) });
+    },
+    addKhoanEntry(token: string, batchId: number, input: PieceEntryInput): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/entries`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateKhoanEntry(token: string, entryId: number, input: { quantity?: number; unit_price?: number; note?: string | null }): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/entries/${entryId}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteKhoanEntry(token: string, entryId: number): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/entries/${entryId}`, token, { method: "DELETE" });
+    },
+    setKhoanShare(token: string, batchId: number, input: { employee_id: number; weight: number; note?: string | null }): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/shares`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    deleteKhoanShare(token: string, shareId: number): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/shares/${shareId}`, token, { method: "DELETE" });
     },
   },
 

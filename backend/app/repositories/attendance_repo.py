@@ -5,7 +5,13 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..models.attendance import AttendanceLog, WorkLocation, WorkShift
+from ..models.attendance import (
+    AttendanceAdjustRequest,
+    AttendanceLog,
+    REQ_PENDING,
+    WorkLocation,
+    WorkShift,
+)
 
 
 class AttendanceRepository:
@@ -97,6 +103,24 @@ class AttendanceRepository:
             ).scalars()
         )
 
+    def get_log(self, log_id: int) -> AttendanceLog | None:
+        return self.db.get(AttendanceLog, log_id)
+
+    def delete_log(self, log: AttendanceLog) -> None:
+        self.db.delete(log)
+        self.db.commit()
+
+    def list_by_employee_in_range(self, employee_id: int, start, end) -> list[AttendanceLog]:
+        """Punch của 1 NV trong [start,end) UTC, cũ→mới — cho 'ô biết nói' (chi tiết 1 ngày)."""
+        return list(
+            self.db.execute(
+                select(AttendanceLog)
+                .where(AttendanceLog.employee_id == employee_id,
+                       AttendanceLog.checked_at >= start, AttendanceLog.checked_at < end)
+                .order_by(AttendanceLog.checked_at.asc(), AttendanceLog.id.asc())
+            ).scalars()
+        )
+
     def logs_in_range(self, start, end) -> list[AttendanceLog]:
         """All logs with checked_at in [start, end) (UTC), oldest first — for the monthly
         timesheet aggregation."""
@@ -108,9 +132,58 @@ class AttendanceRepository:
             ).scalars()
         )
 
-    def list_all(self, *, employee_id: int | None = None, limit: int = 100) -> list[AttendanceLog]:
+    # --- attendance_adjust_requests (yêu cầu chỉnh công) --------------------
+
+    def create_request(self, **fields) -> AttendanceAdjustRequest:
+        r = AttendanceAdjustRequest(**fields)
+        self.db.add(r)
+        self.db.commit()
+        self.db.refresh(r)
+        return r
+
+    def get_request(self, request_id: int) -> AttendanceAdjustRequest | None:
+        return self.db.get(AttendanceAdjustRequest, request_id)
+
+    def update_request(self, req: AttendanceAdjustRequest, **fields) -> AttendanceAdjustRequest:
+        for k, v in fields.items():
+            setattr(req, k, v)
+        self.db.commit()
+        self.db.refresh(req)
+        return req
+
+    def requests_by_employee(self, employee_id: int, *, limit: int = 100) -> list[AttendanceAdjustRequest]:
+        return list(self.db.execute(
+            select(AttendanceAdjustRequest)
+            .where(AttendanceAdjustRequest.employee_id == employee_id)
+            .order_by(AttendanceAdjustRequest.created_at.desc(), AttendanceAdjustRequest.id.desc())
+            .limit(limit)
+        ).scalars())
+
+    def list_requests(self, *, status: str | None = None, employee_ids: set[int] | None = None,
+                      limit: int = 200) -> list[AttendanceAdjustRequest]:
+        stmt = select(AttendanceAdjustRequest)
+        if status is not None:
+            stmt = stmt.where(AttendanceAdjustRequest.status == status)
+        if employee_ids is not None:
+            stmt = stmt.where(AttendanceAdjustRequest.employee_id.in_(employee_ids))
+        stmt = stmt.order_by(AttendanceAdjustRequest.created_at.desc(), AttendanceAdjustRequest.id.desc()).limit(limit)
+        return list(self.db.execute(stmt).scalars())
+
+    def count_pending_requests(self, *, employee_ids: set[int] | None = None) -> int:
+        from sqlalchemy import func
+        stmt = select(func.count()).select_from(AttendanceAdjustRequest).where(
+            AttendanceAdjustRequest.status == REQ_PENDING)
+        if employee_ids is not None:
+            stmt = stmt.where(AttendanceAdjustRequest.employee_id.in_(employee_ids))
+        return self.db.execute(stmt).scalar_one()
+
+    def list_all(
+        self, *, employee_ids: set[int] | None = None, limit: int = 100
+    ) -> list[AttendanceLog]:
+        """Logs mới nhất. `employee_ids=None` = mọi nhân viên; tập rỗng = không ai (an toàn
+        cho scope không thấy NV nào); tập có phần tử = chỉ các NV đó (dùng cho lọc scope)."""
         stmt = select(AttendanceLog)
-        if employee_id is not None:
-            stmt = stmt.where(AttendanceLog.employee_id == employee_id)
+        if employee_ids is not None:
+            stmt = stmt.where(AttendanceLog.employee_id.in_(employee_ids))
         stmt = stmt.order_by(AttendanceLog.checked_at.desc(), AttendanceLog.id.desc()).limit(limit)
         return list(self.db.execute(stmt).scalars())

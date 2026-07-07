@@ -12,6 +12,7 @@ from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.employee import Employee, EmployeeAttachment, EmployeeEvent
+from ..models.profile_request import ProfileUpdateRequest
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 
 # Columns a caller may sort by (whitelist — never interpolate a raw sort key).
@@ -233,3 +234,37 @@ class EmployeeRepository:
     def delete_attachment(self, attachment: EmployeeAttachment) -> None:
         self.db.delete(attachment)
         self.db.commit()
+
+    # --- profile update requests (NV đề nghị → HCNS duyệt) ------------------
+
+    def create_update_request(self, **fields) -> ProfileUpdateRequest:
+        req = ProfileUpdateRequest(**fields)
+        self.db.add(req)
+        self.db.commit()
+        self.db.refresh(req)
+        return req
+
+    def get_update_request(self, request_id: int) -> ProfileUpdateRequest | None:
+        return self.db.get(ProfileUpdateRequest, request_id)
+
+    def update_update_request(self, req: ProfileUpdateRequest, **fields) -> ProfileUpdateRequest:
+        for k, v in fields.items():
+            setattr(req, k, v)
+        self.db.commit()
+        self.db.refresh(req)
+        return req
+
+    def list_update_requests_by_employee(self, employee_id: int) -> list[ProfileUpdateRequest]:
+        return list(self.db.execute(
+            select(ProfileUpdateRequest)
+            .where(ProfileUpdateRequest.employee_id == employee_id)
+            .order_by(ProfileUpdateRequest.id.desc())
+        ).scalars())
+
+    def list_update_requests(self, *, status: str | None = None) -> list[ProfileUpdateRequest]:
+        stmt = select(ProfileUpdateRequest)
+        if status is not None:
+            stmt = stmt.where(ProfileUpdateRequest.status == status)
+        return list(self.db.execute(
+            stmt.order_by(ProfileUpdateRequest.status.asc(), ProfileUpdateRequest.id.desc())
+        ).scalars())

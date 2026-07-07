@@ -190,6 +190,7 @@ class LineOut(BaseModel):
     luong_cong: float
     chuyen_can: float
     allowance: float
+    khoan: float = 0
     vi_pham: float
     other_bonus: float
     gross: float

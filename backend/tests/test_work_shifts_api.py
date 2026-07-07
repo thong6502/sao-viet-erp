@@ -89,6 +89,25 @@ def test_compute_day_cong_examples():
     assert r["cong"] == 0.0 and r["incomplete"] is True
 
 
+def test_compute_day_cong_overnight():
+    """Ca đêm 22:00→06:00: giờ RA rạng sáng ánh xạ lên trục ca (theo ngày VÀO)."""
+    def night(fin, fout):
+        return compute_day_cong(start_min=22 * 60, end_min=6 * 60, is_overnight=True, grace_min=5,
+                                first_in_min=fin, last_out_min=fout)
+    # VÀO 22:00, RA 06:00 → đủ ca = 1,00
+    r = night(22 * 60, 6 * 60)
+    assert r["cong"] == 1.0 and not r["late"] and not r["early"] and not r["incomplete"]
+    # vào trễ 30' (22:30) → 0,94
+    r = night(22 * 60 + 30, 6 * 60)
+    assert r["cong"] == 0.94 and r["late"] is True
+    # về sớm (RA 05:00) → early, công < 1,00
+    r = night(22 * 60, 5 * 60)
+    assert r["early"] is True and 0 < r["cong"] < 1.0
+    # thiếu chấm RA → 0 công, incomplete
+    r = night(22 * 60, None)
+    assert r["cong"] == 0.0 and r["incomplete"] is True
+
+
 # --- shift CRUD + validation + RBAC -----------------------------------------
 
 
@@ -182,3 +201,27 @@ def test_assign_shift_and_timesheet_cong(client):
     assert row["total_cong"] is not None
     day = next(iter(row["days"].values()))
     assert "cong" in day  # ô ngày có trường công theo ca
+
+
+def test_assign_shift_endpoint_does_not_clobber(client):
+    """PUT /employees/{id}/shift chỉ đụng default_shift_id — KHÔNG xóa field khác."""
+    token = _admin_token(client)
+    shift = client.post(
+        "/api/attendance/shifts",
+        json={"name": "Ca 1", "start_time": "06:00", "end_time": "14:00"},
+        headers=_h(token),
+    ).json()
+    emp = client.post(
+        "/api/employees",
+        json={"full_name": "NV X", "department_id": _dept_id("Hành chính nhân sự"),
+              "hire_date": "2020-01-01", "position": "Thợ in"},
+        headers=_h(token),
+    ).json()["employee"]
+
+    r = client.put(f"/api/employees/{emp['id']}/shift", json={"default_shift_id": shift["id"]}, headers=_h(token))
+    assert r.status_code == 200 and r.json()["default_shift_id"] == shift["id"]
+    detail = client.get(f"/api/employees/{emp['id']}", headers=_h(token)).json()
+    assert detail["default_shift_id"] == shift["id"] and detail["position"] == "Thợ in"  # không bị clobber
+
+    r2 = client.put(f"/api/employees/{emp['id']}/shift", json={"default_shift_id": None}, headers=_h(token))
+    assert r2.status_code == 200 and r2.json()["default_shift_id"] is None

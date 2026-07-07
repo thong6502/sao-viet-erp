@@ -34,7 +34,10 @@ const NAV: NavSection[] = [
   {
     id: "tong-quan",
     label: "Tổng quan",
-    items: [{ id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" }],
+    items: [
+      { id: "dashboard", label: "Dashboard", icon: "grid", module: "dashboard" },
+      { id: "ho-so-cua-toi", label: "Hồ sơ của tôi", icon: "users", module: "dashboard" },
+    ],
   },
   {
     id: "kinh-doanh",
@@ -101,7 +104,7 @@ const NAV: NavSection[] = [
     items: [
       { id: "nhan-su", label: "Hồ sơ nhân sự", icon: "users", module: "nhan_su" },
       { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su" },
-      { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nhan_su" },
+      { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nghi_phep" },
       { id: "luong", label: "Lương", icon: "calculator", module: "luong" },
     ],
   },
@@ -127,9 +130,11 @@ interface SidebarProps {
   readable: ReadonlySet<string>;
   /** Menu con ĐỘNG theo item id (vd các kho đã cấu hình dưới "Kho hàng"). */
   itemChildren?: Record<string, NavChild[]>;
+  /** Badge số (đỏ) theo item id — vd "nghi-phep": số đơn chờ duyệt. Ẩn khi ≤0/absent. */
+  badges?: Record<string, number>;
 }
 
-export function Sidebar({ activeId, onSelect, readable, itemChildren }: SidebarProps) {
+export function Sidebar({ activeId, onSelect, readable, itemChildren, badges }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -199,6 +204,7 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren }: SidebarP
                       item={item}
                       activeId={activeId}
                       isOpen={expanded.has(item.id)}
+                      badge={badges?.[item.id] ?? 0}
                       onSelect={onSelect}
                       onToggle={() => setExpanded((s) => toggle(s, item.id))}
                     />
@@ -217,11 +223,12 @@ interface NavRowProps {
   item: NavItem;
   activeId: string;
   isOpen: boolean;
+  badge?: number;
   onSelect: (id: string) => void;
   onToggle: () => void;
 }
 
-function NavRow({ item, activeId, isOpen, onSelect, onToggle }: NavRowProps) {
+function NavRow({ item, activeId, isOpen, badge, onSelect, onToggle }: NavRowProps) {
   const hasChildren = !!item.children?.length;
   const childActive = item.children?.some((c) => c.id === activeId) ?? false;
   const active = activeId === item.id || (childActive && !isOpen);
@@ -237,6 +244,9 @@ function NavRow({ item, activeId, isOpen, onSelect, onToggle }: NavRowProps) {
       >
         <Icon name={item.icon} className="sidebar__icon" />
         <span className="sidebar__label">{item.label}</span>
+        {badge != null && badge > 0 && (
+          <span className="sidebar__badge" aria-label={`${badge} chờ xử lý`}>{badge > 99 ? "99+" : badge}</span>
+        )}
         {hasChildren && (
           <Icon
             name="chevron"

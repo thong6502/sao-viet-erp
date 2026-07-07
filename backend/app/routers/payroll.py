@@ -14,6 +14,7 @@ from ..deps import (
     get_department_repository,
     get_employee_repository,
     get_payroll_service,
+    get_piece_work_service,
     require_permission,
 )
 from ..models.user import User
@@ -42,6 +43,21 @@ from ..schemas.payroll import (
     SalaryPreviewOut,
     TableOut,
 )
+from ..schemas.piece_work import (
+    BatchConfigIn,
+    BatchesOut,
+    BatchOut,
+    EntryIn,
+    EntryOut,
+    EntryUpdateIn,
+    RateIn,
+    RateOut,
+    RatesOut,
+    ShareIn,
+    ShareOut,
+    SheetMeta,
+    SheetOut,
+)
 from ..services.payroll_service import (
     PayrollError,
     PayrollLocked,
@@ -49,24 +65,56 @@ from ..services.payroll_service import (
     PayrollService,
     PayrollValidationError,
 )
+from ..services.piece_work_service import (
+    PieceWorkError,
+    PieceWorkNotFound,
+    PieceWorkService,
+    PieceWorkValidationError,
+)
 
 router = APIRouter(prefix="/api/luong", tags=["luong"])
 
 MODULE = "luong"
 
 Service = Annotated[PayrollService, Depends(get_payroll_service)]
+PieceService = Annotated[PieceWorkService, Depends(get_piece_work_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Departments = Annotated[DepartmentRepository, Depends(get_department_repository)]
 
 
 def _raise(exc: Exception) -> None:
-    if isinstance(exc, PayrollNotFound):
+    if isinstance(exc, (PayrollNotFound, PieceWorkNotFound)):
         raise HTTPException(status_code=404, detail=str(exc))
     if isinstance(exc, PayrollLocked):
         raise HTTPException(status_code=409, detail=str(exc))
-    if isinstance(exc, PayrollValidationError):
+    if isinstance(exc, (PayrollValidationError, PieceWorkValidationError)):
         raise HTTPException(status_code=400, detail=str(exc))
     raise exc
+
+
+def _sheet_out(sheet: dict, employees: EmployeeRepository) -> SheetOut:
+    b = sheet["batch"]
+    if b is None:
+        return SheetOut()
+    names = {}
+    for s in sheet["shares"]:
+        emp = employees.get_by_id(s.employee_id)
+        names[s.employee_id] = emp.full_name if emp is not None else None
+    shares = []
+    for s in sheet["shares"]:
+        o = ShareOut.model_validate(s)
+        o.employee_name = names.get(s.employee_id)
+        shares.append(o)
+    return SheetOut(
+        batch=BatchOut.model_validate(b),
+        entries=[EntryOut.model_validate(e) for e in sheet["entries"]],
+        shares=shares,
+        meta=SheetMeta(**sheet["meta"]) if sheet["meta"] else None,
+    )
+
+
+def _sheet_for_batch(svc: PieceWorkService, employees: EmployeeRepository, batch) -> SheetOut:
+    return _sheet_out(svc.get_sheet(year=batch.year, month=batch.month, group_name=batch.group_name), employees)
 
 
 def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepository) -> list[LineOut]:
@@ -330,3 +378,130 @@ def my_payslip(svc: Service, employees: Employees, departments: Departments, use
     period = PeriodOut.model_validate(res["period"]) if res["period"] is not None else None
     return PayslipOut(has_employee=res["has_employee"], employee_name=res["employee_name"],
                       period=period, line=line)
+
+
+# --- Lương khoán (nhịp 2) ---------------------------------------------------
+
+
+@router.get("/khoan/rates", response_model=RatesOut)
+def list_rates(svc: PieceService, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> RatesOut:
+    return RatesOut(items=[RateOut.model_validate(r) for r in svc.list_rates()])
+
+
+@router.post("/khoan/rates", response_model=RateOut, status_code=status.HTTP_201_CREATED)
+def create_rate(body: RateIn, svc: PieceService,
+                user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> RateOut:
+    try:
+        return RateOut.model_validate(svc.create_rate(**body.model_dump()))
+    except PieceWorkError as exc:
+        _raise(exc)
+
+
+@router.put("/khoan/rates/{rate_id}", response_model=RateOut)
+def update_rate(rate_id: int, body: RateIn, svc: PieceService,
+                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> RateOut:
+    try:
+        return RateOut.model_validate(svc.update_rate(rate_id, **body.model_dump()))
+    except PieceWorkError as exc:
+        _raise(exc)
+
+
+@router.delete("/khoan/rates/{rate_id}", status_code=204)
+def delete_rate(rate_id: int, svc: PieceService,
+                user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
+    try:
+        svc.delete_rate(rate_id)
+    except PieceWorkError as exc:
+        _raise(exc)
+
+
+@router.get("/khoan/batches", response_model=BatchesOut)
+def list_batches(svc: PieceService, user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                 year: int = Query(...), month: int = Query(...)) -> BatchesOut:
+    return BatchesOut(items=[BatchOut.model_validate(b) for b in svc.list_batches(year, month)])
+
+
+@router.get("/khoan/sheet", response_model=SheetOut)
+def get_sheet(svc: PieceService, employees: Employees,
+              user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+              year: int = Query(...), month: int = Query(...), group_name: str = Query(...)) -> SheetOut:
+    return _sheet_out(svc.get_sheet(year=year, month=month, group_name=group_name), employees)
+
+
+@router.post("/khoan/sheet", response_model=SheetOut)
+def open_sheet(svc: PieceService, employees: Employees,
+               user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+               year: int = Query(...), month: int = Query(...), group_name: str = Query(...)) -> SheetOut:
+    try:
+        batch = svc.get_or_create_batch(year=year, month=month, group_name=group_name)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, batch)
+
+
+@router.put("/khoan/batches/{batch_id}/config", response_model=SheetOut)
+def update_batch_config(batch_id: int, body: BatchConfigIn, svc: PieceService, employees: Employees,
+                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    try:
+        batch = svc.update_batch(batch_id, **body.model_dump(exclude_none=True))
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, batch)
+
+
+@router.post("/khoan/batches/{batch_id}/entries", response_model=SheetOut)
+def add_entry(batch_id: int, body: EntryIn, svc: PieceService, employees: Employees,
+              user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    try:
+        e = svc.add_entry(batch_id=batch_id, **body.model_dump())
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, svc.piece.get_batch(e.batch_id))
+
+
+@router.put("/khoan/entries/{entry_id}", response_model=SheetOut)
+def update_entry(entry_id: int, body: EntryUpdateIn, svc: PieceService, employees: Employees,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    try:
+        e = svc.update_entry(entry_id, **body.model_dump())
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, svc.piece.get_batch(e.batch_id))
+
+
+@router.delete("/khoan/entries/{entry_id}", response_model=SheetOut)
+def delete_entry(entry_id: int, svc: PieceService, employees: Employees,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    e = svc.piece.get_entry(entry_id)
+    if e is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy dòng sản lượng.")
+    batch = svc.piece.get_batch(e.batch_id)
+    try:
+        svc.delete_entry(entry_id)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, batch)
+
+
+@router.post("/khoan/batches/{batch_id}/shares", response_model=SheetOut)
+def set_share(batch_id: int, body: ShareIn, svc: PieceService, employees: Employees,
+              user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    try:
+        s = svc.set_share(batch_id=batch_id, employee_id=body.employee_id, weight=body.weight, note=body.note)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, svc.piece.get_batch(s.batch_id))
+
+
+@router.delete("/khoan/shares/{share_id}", response_model=SheetOut)
+def delete_share(share_id: int, svc: PieceService, employees: Employees,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    s = svc.piece.get_share(share_id)
+    if s is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy phần chia.")
+    batch = svc.piece.get_batch(s.batch_id)
+    try:
+        svc.delete_share(share_id)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, batch)

@@ -160,6 +160,8 @@ gets on that module.
 | `can_clone` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — nhân bản giấy (vật liệu). |
 | `can_toggle_active` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — bật/tắt hoạt động vật liệu. |
 | `can_reparent` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đổi cấp trên phòng ban (tái cấu trúc cây tổ chức). |
+| `can_view_salary` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su) — xem dữ liệu nhạy cảm của hồ sơ (lương/BHXH/MST/số phụ thuộc/TK ngân hàng/nhóm-bậc lương). Thiếu quyền → các field đó bị ẩn. Thêm qua migration 0014. |
+| `can_adjust` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su · Chấm công) — chấm bù / sửa công qua punch nguồn (`attendance_logs.is_manual`), tách khỏi `can_update`. Thêm qua migration 0015. |
 
 **Keys & indexes**
 
@@ -1512,6 +1514,10 @@ mét quanh BẤT KỲ điểm `is_active` nào (kiểm khoảng cách Haversine 
 | `distance_m` | `Numeric(10,2)` → `NUMERIC(10,2)` | — | yes | — | Khoảng cách (mét) tới điểm khớp. |
 | `within_range` | `Boolean` → `BOOLEAN` | — | no | `true` | Trong bán kính hay không (chặn cứng ⇒ luôn true khi ghi). |
 | `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú. |
+| `is_manual` | `Boolean` → `BOOLEAN` | — | no | `false` | Punch ĐIỀU CHỈNH TAY (HCNS chấm bù/sửa qua quyền `nhan_su.adjust`); công tự tính lại từ punch. Thêm qua migration 0016. |
+| `adjust_reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do điều chỉnh (bắt buộc khi `is_manual`). Migration 0016. |
+| `fault_party` | `String(20)` → `VARCHAR(20)` | — | yes | — | Nguyên nhân chấm bù: `nv_quen`/`may_hong`/`duyet`/`khac`. Migration 0016. |
+| `created_by_user_id` | `Integer` → `INTEGER` | — | yes | — | User (HCNS) thực hiện điều chỉnh. Migration 0016. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi ghi máy. |
 
 **Keys & indexes**
@@ -1523,6 +1529,39 @@ mét quanh BẤT KỲ điểm `is_active` nào (kiểm khoảng cách Haversine 
 **Relationships**
 
 - Many logs belong to one `employees` (cascade delete) and reference one `work_locations`.
+
+---
+
+### `attendance_adjust_requests`
+
+Yêu cầu chỉnh công: NV tự gửi (giải trình 1 ngày công) → HCNS duyệt/từ chối. Duyệt ⇒ sinh 1 punch điều chỉnh tay (`attendance_logs.is_manual`) → công tự tính lại. Bảng mới do `create_all` tạo (không migration).
+
+| Column | Type (Py → SQL) | Key | Null | Default | Notes |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` | **PK** | no | auto | Khóa chính. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id, IX** | no | — | NV gửi yêu cầu (ON DELETE CASCADE). |
+| `work_date` | `Date` → `DATE` | — | no | — | Ngày công cần chỉnh (giờ VN). |
+| `check_type` | `String(8)` → `VARCHAR(8)` | — | no | — | Punch NV đề nghị bù: `in`/`out`. |
+| `suggested_time` | `String(5)` → `VARCHAR(5)` | — | yes | — | Giờ gợi ý "HH:MM". |
+| `reason` | `String(500)` → `VARCHAR(500)` | — | no | — | NV giải trình. |
+| `fault_party` | `String(20)` → `VARCHAR(20)` | — | yes | — | `nv_quen`/`may_hong`/`duyet`/`khac`. |
+| `status` | `String(16)` → `VARCHAR(16)` | **IX** | no | `pending` | pending/approved/rejected/cancelled. |
+| `decided_by` | `Integer` → `INTEGER` | — | yes | — | HCNS duyệt/từ chối (user id). |
+| `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm quyết. |
+| `decision_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú / lý do từ chối. |
+| `resulting_log_id` | `Integer` → `INTEGER` | — | yes | — | Punch sinh ra khi duyệt (`attendance_logs.id`). |
+| `created_by_user_id` | `Integer` → `INTEGER` | — | yes | — | User tạo yêu cầu. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi gửi. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_attendance_adjust_requests_employee_id`, `ix_attendance_adjust_requests_status`.
+- Foreign keys: `employee_id FK→employees.id` (CASCADE).
+
+**Relationships**
+
+- Many requests belong to one `employees` (cascade delete). Approval writes a manual `attendance_logs` row.
 
 ---
 
@@ -1649,6 +1688,7 @@ công tháng (có lương = 1 công "P"; không lương = 0 công "KL").
 | `decision_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do từ chối / ghi chú duyệt. |
 | `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tạo đơn. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo đơn. |
+| `seen_by_employee_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm NV mở Nghỉ phép (mark-seen) — đơn đã quyết mà chưa xem thì đếm vào chuông. Timestamp (không Boolean, né gotcha server_default Postgres). |
 
 **Keys & indexes**
 
@@ -1778,6 +1818,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `luong_cong` | `Numeric(14,2)` | — | no | `0` | Lương theo công. |
 | `chuyen_can` | `Numeric(14,2)` | — | no | `0` | Thưởng chuyên cần. |
 | `allowance` | `Numeric(14,2)` | — | no | `0` | Phụ cấp cố định. |
+| `khoan` | `Numeric(14,2)` | — | no | `0` | Lương khoán (nhịp 2, từ sổ khoán). Thêm qua migration 0013. |
 | `vi_pham` | `Numeric(14,2)` | — | no | `0` | Trừ vi phạm (nhập tay). |
 | `other_bonus` | `Numeric(14,2)` | — | no | `0` | Thưởng/hoa hồng (nhập tay). |
 | `gross` | `Numeric(14,2)` | — | no | `0` | Tổng thu nhập trước khấu trừ. |
@@ -1788,6 +1829,96 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `net_pay` | `Numeric(14,2)` | — | no | `0` | Thực lĩnh. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
 | `updated_at` | `DateTime(tz)` | — | no | now | Lần cập nhật. |
+
+---
+
+### `piece_rates`
+
+**Purpose:** đơn giá khoán (Lương khoán nhịp 2) theo tổ + đơn vị (m²/bài in/tấn/cuốn/lượt/hộp).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `group_name` | `String(40)` | **IX** | no | — | Tổ khoán (to_boi/to_cat/may_in_5mau…). |
+| `code` | `String(20)` | — | yes | — | Mã (A–F cho máy in). |
+| `name` | `String(255)` | — | no | — | Tên công việc. |
+| `unit` | `String(12)` | — | no | `khac` | Đơn vị (m2/bai_in/tan/cuon/luot/hop/to/khac). |
+| `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá/đơn vị. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `is_active` | `Boolean` | — | no | `true` | Đang dùng. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+
+---
+
+### `piece_batches`
+
+**Purpose:** sổ khoán 1 tổ / 1 kỳ. UNIQUE(`year`,`month`,`group_name`). Cấu hình %tổ trưởng/bù lỗ/thưởng vượt.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `year` | `Integer` | **IX, UQ** | no | — | Năm. |
+| `month` | `Integer` | **IX, UQ** | no | — | Tháng. |
+| `group_name` | `String(40)` | **UQ** | no | — | Tổ khoán. |
+| `leader_employee_id` | `Integer` | — | yes | — | Tổ trưởng (logical link, nhận % trước). |
+| `leader_pct` | `Numeric(5,4)` | — | no | `0.05` | % tổ trưởng lấy trước. |
+| `min_guarantee` | `Numeric(14,2)` | — | no | `0` | Bù lỗ (mức tối thiểu đảm bảo). |
+| `over_target` | `Numeric(14,2)` | — | no | `0` | Mốc vượt năng suất. |
+| `over_bonus_pct` | `Numeric(5,4)` | — | no | `0` | % thưởng phần vượt mốc. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+
+---
+
+### `piece_batch_entries`
+
+**Purpose:** dòng sản lượng trong sổ khoán (khối lượng × đơn giá = tiền).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `batch_id` | `Integer` | **FK→piece_batches.id**, **IX** | no | — | Sổ khoán; `ON DELETE CASCADE`. |
+| `piece_rate_id` | `Integer` | **FK→piece_rates.id** | yes | — | Đơn giá nguồn; `ON DELETE SET NULL`. |
+| `work_name` | `String(255)` | — | no | — | Tên công việc (snapshot). |
+| `unit` | `String(12)` | — | no | `khac` | Đơn vị (snapshot). |
+| `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá (snapshot). |
+| `quantity` | `Numeric(14,2)` | — | no | `0` | Khối lượng làm được. |
+| `amount` | `Numeric(14,2)` | — | no | `0` | Thành tiền = qty × price. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+
+---
+
+### `piece_batch_shares`
+
+**Purpose:** chia quỹ khoán về 1 thành viên theo hệ số. UNIQUE(`batch_id`,`employee_id`).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `batch_id` | `Integer` | **FK→piece_batches.id**, **IX** | no | — | Sổ khoán; `ON DELETE CASCADE`. |
+| `employee_id` | `Integer` | **FK→employees.id**, **IX** | no | — | Thành viên; `ON DELETE CASCADE`. |
+| `weight` | `Numeric(10,2)` | — | no | `1` | Hệ số chia (tỷ lệ nhóm thỏa thuận). |
+| `amount` | `Numeric(14,2)` | — | no | `0` | Tiền khoán tính được. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+
+---
+
+### `profile_update_requests`
+
+**Purpose:** yêu cầu cập nhật hồ sơ (nhan_su) — NV đề nghị sửa field định danh/pháp lý/ngân
+hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `employee_id` | `Integer` | **FK→employees.id**, **IX** | no | — | NV đề nghị; `ON DELETE CASCADE`. |
+| `changes` | `JSON` | — | no | — | {field: giá trị mới} — whitelist REQUESTABLE_FIELDS. |
+| `reason` | `String(500)` | — | yes | — | Lý do đề nghị. |
+| `status` | `String(12)` | **IX** | no | `pending` | pending/approved/rejected. |
+| `decided_by` | `Integer` | **FK→users.id** | yes | — | HCNS duyệt/từ chối. |
+| `decided_at` | `DateTime(tz)` | — | yes | — | Thời điểm quyết định. |
+| `decision_note` | `String(500)` | — | yes | — | Ghi chú duyệt/lý do từ chối. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi gửi. |
 
 ---
 

@@ -80,6 +80,10 @@ class LinkAccountIn(BaseModel):
     user_id: int
 
 
+class AssignShiftIn(BaseModel):
+    default_shift_id: int | None = None   # null = bỏ gán ca
+
+
 # --- responses --------------------------------------------------------------
 
 
@@ -109,6 +113,7 @@ class EmployeeRow(BaseModel):
     user_id: int | None = None
     account_username: str | None = None
     photo_url: str | None = None
+    default_shift_id: int | None = None   # ca mặc định (cho panel gán ca ở Chấm công)
     created_at: datetime | None = None
 
 
@@ -172,6 +177,51 @@ class EmployeeUpdateOut(BaseModel):
     employee: EmployeeOut
     duplicate_national_id: DuplicateRef | None = None
     duplicate_social_insurance: DuplicateRef | None = None
+
+
+# --- self-service "Hồ sơ của tôi" (nhân viên thường) -----------------------
+
+
+class MyProfileOut(BaseModel):
+    has_employee: bool
+    employee: EmployeeOut | None = None
+
+
+class MyContactIn(BaseModel):
+    phone: str | None = Field(default=None, max_length=30)
+    email: str | None = Field(default=None, max_length=255)
+    current_address: str | None = Field(default=None, max_length=500)
+    emergency_contact_name: str | None = Field(default=None, max_length=255)
+    emergency_contact_phone: str | None = Field(default=None, max_length=30)
+
+
+# --- yêu cầu cập nhật hồ sơ (NV đề nghị → HCNS duyệt) ----------------------
+
+
+class UpdateRequestIn(BaseModel):
+    changes: dict[str, object]  # {field: giá trị mới} — service whitelist REQUESTABLE_FIELDS
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class RequestDecisionIn(BaseModel):
+    note: str | None = Field(default=None, max_length=500)
+
+
+class UpdateRequestOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    employee_id: int
+    employee_name: str | None = None       # router fills (HCNS list)
+    changes: dict
+    reason: str | None = None
+    status: str
+    decision_note: str | None = None
+    created_at: datetime
+
+
+class UpdateRequestsOut(BaseModel):
+    items: list[UpdateRequestOut]
 
 
 class EmployeeEventOut(BaseModel):

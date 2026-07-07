@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from ..deps import (
     CurrentUser,
     get_attendance_service,
+    get_authorization_service,
     get_department_repository,
     get_employee_repository,
     require_permission,
@@ -23,15 +24,26 @@ from ..models.user import User
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
 from ..schemas.attendance import (
+    AdjustIn,
+    AdjustRequestOut,
+    AdjustRequestsOut,
+    ApproveRequestIn,
     AttendanceLogOut,
     AttendanceLogsOut,
     CheckIn,
     CheckResultOut,
+    DayDetailOut,
+    MyShiftOut,
     MyStatusOut,
     NearestLocationOut,
+    PreviewOut,
+    RejectRequestIn,
+    RequestAdjustIn,
+    TodayKpiOut,
     TimesheetDay,
     TimesheetOut,
     TimesheetRow,
+    TodaySummaryOut,
     WorkLocationIn,
     WorkLocationOut,
     WorkLocationsOut,
@@ -39,6 +51,7 @@ from ..schemas.attendance import (
     WorkShiftOut,
     WorkShiftsOut,
 )
+from ..services.rbac_service import AuthorizationService
 from ..services.attendance_service import (
     AttendanceError,
     AttendanceNotFound,
@@ -55,6 +68,12 @@ MODULE = "nhan_su"
 Service = Annotated[AttendanceService, Depends(get_attendance_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Depts = Annotated[DepartmentRepository, Depends(get_department_repository)]
+Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
+
+
+def _scope_for(authz: AuthorizationService, user: User) -> str:
+    """Phạm vi dữ liệu của người gọi trên nhan_su (own/department/all). Mặc định own (an toàn)."""
+    return authz.scope_for(user, MODULE) or "own"
 
 
 def _raise(exc: Exception) -> None:
@@ -202,13 +221,31 @@ def delete_location(
 def my_status(svc: Service, user: CurrentUser) -> MyStatusOut:
     st = svc.my_status(user=user)
     last = st.get("last_check")
+    shift = st.get("shift")
+    today = st.get("today")
     return MyStatusOut(
         has_employee=st["has_employee"],
         employee_name=st.get("employee_name"),
         next_action=st.get("next_action"),
         last_check=AttendanceLogOut.model_validate(last) if last is not None else None,
         locations_configured=st["locations_configured"],
+        shift=(MyShiftOut(id=shift.id, name=shift.name,
+                          start_time=min_to_hhmm(shift.start_minute),
+                          end_time=min_to_hhmm(shift.end_minute),
+                          is_overnight=shift.is_overnight, night_shift=shift.night_shift)
+               if shift is not None else None),
+        today=TodaySummaryOut(**today) if today is not None else None,
     )
+
+
+@router.post("/me/preview", response_model=PreviewOut)
+def preview(body: CheckIn, svc: Service, user: CurrentUser) -> PreviewOut:
+    """Dry-run geofence (không ghi log) cho card chấm 'sống' — self-service."""
+    try:
+        res = svc.preview(user=user, latitude=body.latitude, longitude=body.longitude)
+    except AttendanceError as exc:
+        _raise(exc)
+    return PreviewOut(**res)
 
 
 @router.post("/check", response_model=CheckResultOut)
@@ -242,6 +279,25 @@ def my_logs(svc: Service, user: CurrentUser) -> AttendanceLogsOut:
     return AttendanceLogsOut(items=[_log_out(l, emp_names, loc_names) for l in logs])
 
 
+@router.get("/me/timesheet", response_model=TimesheetOut)
+def my_timesheet(
+    svc: Service,
+    depts: Depts,
+    user: CurrentUser,
+    year: int = Query(ge=2000, le=2100),
+    month: int = Query(ge=1, le=12),
+) -> TimesheetOut:
+    """Bảng công tháng CỦA CHÍNH NV (self-service — chỉ cần login + hồ sơ NV, không cần quyền)."""
+    try:
+        data = svc.my_timesheet(user=user, year=year, month=month)
+    except AttendanceError as exc:
+        _raise(exc)
+    return TimesheetOut(
+        year=data["year"], month=data["month"], days_in_month=data["days_in_month"],
+        rows=_timesheet_rows(svc, depts, data),
+    )
+
+
 # --- all logs (HR) ----------------------------------------------------------
 
 
@@ -249,10 +305,11 @@ def my_logs(svc: Service, user: CurrentUser) -> AttendanceLogsOut:
 def list_logs(
     svc: Service,
     employees: Employees,
+    authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     employee_id: int | None = Query(default=None),
 ) -> AttendanceLogsOut:
-    logs = svc.list_logs(employee_id=employee_id)
+    logs = svc.list_logs(scope=_scope_for(authz, user), actor=user, employee_id=employee_id)
     loc_names = {l.id: l.name for l in svc.list_locations()}
     emp_names: dict[int, str] = {}
     for eid in {l.employee_id for l in logs}:
@@ -291,13 +348,15 @@ def _timesheet_rows(svc: AttendanceService, depts: DepartmentRepository, data: d
 def timesheet(
     svc: Service,
     depts: Depts,
+    authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     year: int = Query(ge=2000, le=2100),
     month: int = Query(ge=1, le=12),
     department_id: int | None = Query(default=None),
 ) -> TimesheetOut:
     try:
-        data = svc.monthly_timesheet(year=year, month=month, department_id=department_id)
+        data = svc.monthly_timesheet(year=year, month=month, department_id=department_id,
+                                     scope=_scope_for(authz, user), actor=user)
     except AttendanceError as exc:
         _raise(exc)
     return TimesheetOut(
@@ -310,13 +369,15 @@ def timesheet(
 def timesheet_csv(
     svc: Service,
     depts: Depts,
+    authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     year: int = Query(ge=2000, le=2100),
     month: int = Query(ge=1, le=12),
     department_id: int | None = Query(default=None),
 ) -> Response:
     try:
-        data = svc.monthly_timesheet(year=year, month=month, department_id=department_id)
+        data = svc.monthly_timesheet(year=year, month=month, department_id=department_id,
+                                     scope=_scope_for(authz, user), actor=user)
     except AttendanceError as exc:
         _raise(exc)
     rows = _timesheet_rows(svc, depts, data)
@@ -349,3 +410,147 @@ def timesheet_csv(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="bang-cong-{year}-{month:02d}.csv"'},
     )
+
+
+# --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch (HR) -------------------
+
+
+@router.get("/day", response_model=DayDetailOut)
+def day_detail(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    employee_id: int = Query(),
+    date: str = Query(description="YYYY-MM-DD"),
+) -> DayDetailOut:
+    try:
+        data = svc.day_detail(scope=_scope_for(authz, user), actor=user, employee_id=employee_id, date_str=date)
+    except AttendanceError as exc:
+        _raise(exc)
+    return DayDetailOut(**data)
+
+
+@router.post("/adjust", response_model=DayDetailOut)
+def adjust(
+    body: AdjustIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "adjust"))],
+) -> DayDetailOut:
+    try:
+        data = svc.adjust(
+            actor=user, scope=_scope_for(authz, user), employee_id=body.employee_id,
+            date_str=body.date, check_type=body.check_type, time_hhmm=body.time,
+            reason=body.reason, fault_party=body.fault_party,
+        )
+    except AttendanceError as exc:
+        _raise(exc)
+    return DayDetailOut(**data)
+
+
+@router.delete("/logs/{log_id}", response_model=DayDetailOut)
+def delete_manual_log(
+    log_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "adjust"))],
+    employee_id: int = Query(),
+    date: str = Query(description="YYYY-MM-DD"),
+) -> DayDetailOut:
+    try:
+        data = svc.delete_manual(
+            actor=user, scope=_scope_for(authz, user), log_id=log_id,
+            employee_id=employee_id, date_str=date,
+        )
+    except AttendanceError as exc:
+        _raise(exc)
+    return DayDetailOut(**data)
+
+
+# --- KPI giám sát hôm nay (HR) ----------------------------------------------
+
+
+@router.get("/kpi", response_model=TodayKpiOut)
+def today_kpi(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> TodayKpiOut:
+    return TodayKpiOut(**svc.today_kpi(scope=_scope_for(authz, user), actor=user))
+
+
+# --- yêu cầu chỉnh công: NV tự gửi (self-service) ---------------------------
+
+
+@router.post("/me/adjust-request", response_model=AdjustRequestOut)
+def create_adjust_request(body: RequestAdjustIn, svc: Service, user: CurrentUser) -> AdjustRequestOut:
+    try:
+        data = svc.request_adjust(user=user, date_str=body.date, check_type=body.check_type,
+                                  suggested_time=body.suggested_time, reason=body.reason)
+    except AttendanceError as exc:
+        _raise(exc)
+    return AdjustRequestOut(**data)
+
+
+@router.get("/me/adjust-requests", response_model=AdjustRequestsOut)
+def my_adjust_requests(svc: Service, user: CurrentUser) -> AdjustRequestsOut:
+    try:
+        items = svc.my_requests(user=user)
+    except AttendanceError as exc:
+        _raise(exc)
+    return AdjustRequestsOut(items=[AdjustRequestOut(**r) for r in items])
+
+
+@router.post("/me/adjust-requests/{request_id}/cancel", response_model=AdjustRequestOut)
+def cancel_adjust_request(request_id: int, svc: Service, user: CurrentUser) -> AdjustRequestOut:
+    try:
+        data = svc.cancel_request(user=user, request_id=request_id)
+    except AttendanceError as exc:
+        _raise(exc)
+    return AdjustRequestOut(**data)
+
+
+# --- yêu cầu chỉnh công: HCNS duyệt -----------------------------------------
+
+
+@router.get("/adjust-requests", response_model=AdjustRequestsOut)
+def list_adjust_requests(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    status: str | None = Query(default="pending"),
+) -> AdjustRequestsOut:
+    items = svc.list_requests(scope=_scope_for(authz, user), actor=user,
+                              status=None if status in (None, "all") else status)
+    return AdjustRequestsOut(items=[AdjustRequestOut(**r) for r in items])
+
+
+@router.post("/adjust-requests/{request_id}/approve", response_model=AdjustRequestOut)
+def approve_adjust_request(
+    request_id: int,
+    body: ApproveRequestIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "adjust"))],
+) -> AdjustRequestOut:
+    try:
+        data = svc.approve_request(actor=user, scope=_scope_for(authz, user), request_id=request_id,
+                                   time_hhmm=body.time, fault_party=body.fault_party, note=body.note)
+    except AttendanceError as exc:
+        _raise(exc)
+    return AdjustRequestOut(**data)
+
+
+@router.post("/adjust-requests/{request_id}/reject", response_model=AdjustRequestOut)
+def reject_adjust_request(
+    request_id: int,
+    body: RejectRequestIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "adjust"))],
+) -> AdjustRequestOut:
+    try:
+        data = svc.reject_request(actor=user, scope=_scope_for(authz, user), request_id=request_id, note=body.note)
+    except AttendanceError as exc:
+        _raise(exc)
+    return AdjustRequestOut(**data)

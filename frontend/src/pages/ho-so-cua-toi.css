@@ -1,0 +1,36 @@
+/* "Hồ sơ của tôi" — self-service. Dùng chung tokens + nhan-su.css. */
+
+.mine { max-width: 900px; margin: 0 auto; }
+
+/* Hero tối (trang trọng, khác bảng HCNS sáng) */
+.mine__hero {
+  display: flex; align-items: center; gap: var(--sp-5);
+  background: var(--ink); color: var(--paper); border-top: 3px solid var(--rust);
+  border-radius: var(--r-5); padding: var(--sp-6); margin-bottom: var(--sp-5);
+}
+.ns-avatar--xl {
+  width: 72px; height: 72px; flex: none; border-radius: var(--r-5);
+  background: var(--rust-soft); color: var(--rust-deep);
+  display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: var(--fw-bold);
+  overflow: hidden;
+}
+.ns-avatar--xl img { width: 100%; height: 100%; object-fit: cover; }
+.mine__heroid { flex: 1; min-width: 0; }
+.mine__heroid h1 { margin: 0 0 4px; font-size: 22px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.mine__heroid p { margin: 2px 0; color: rgba(255, 255, 255, .8); font-size: 14px; }
+.mine__herosub { font-family: var(--ff-mono); font-size: 12.5px; color: rgba(255, 255, 255, .55) !important; }
+
+/* Thẻ self-service */
+.mine__cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); }
+.mine__card {
+  position: relative; background: var(--canvas); border: 1px solid var(--rule);
+  border-radius: var(--r-5); padding: var(--sp-5);
+}
+.mine__wide { margin-bottom: var(--sp-4); }
+.mine__editbtn { margin-top: var(--sp-3); }
+.mine__reqhead { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); margin-bottom: 4px; }
+.mine__lock { font-family: var(--ff-mono); font-size: 10.5px; text-transform: none; color: var(--ash-2); font-weight: normal; margin-left: 6px; }
+
+@media (max-width: 640px) {
+  .mine__hero { flex-direction: column; text-align: center; align-items: center; }
+}

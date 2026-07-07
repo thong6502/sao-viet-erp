@@ -243,6 +243,8 @@ class RoleRepository:
         can_clone: bool = False,
         can_toggle_active: bool = False,
         can_reparent: bool = False,
+        can_view_salary: bool = False,
+        can_adjust: bool = False,
     ) -> RolePermission:
         """Upsert the (role, module) permission row."""
         perm = self.get_permission(role_id, module_key)
@@ -272,6 +274,8 @@ class RoleRepository:
         perm.can_clone = can_clone
         perm.can_toggle_active = can_toggle_active
         perm.can_reparent = can_reparent
+        perm.can_view_salary = can_view_salary
+        perm.can_adjust = can_adjust
         self.db.commit()
         self.db.refresh(perm)
         return perm

@@ -82,9 +82,9 @@ def test_leave_type_crud_and_rbac(client):
     # tên rỗng → 422 (schema)
     assert client.post("/api/leaves/types", json={"name": ""}, headers=_h(token)).status_code == 422
 
-    # NV Sales không có quyền
+    # NV Sales (self-service): ĐỌC được loại nghỉ (đổ dropdown tạo đơn) nhưng KHÔNG quản (tạo).
     stoken = _sales_token()
-    assert client.get("/api/leaves/types", headers=_h(stoken)).status_code == 403
+    assert client.get("/api/leaves/types", headers=_h(stoken)).status_code == 200
     assert client.post("/api/leaves/types", json={"name": "x"}, headers=_h(stoken)).status_code == 403
 
 
@@ -125,7 +125,8 @@ def test_reject_requires_note_and_cancel(client):
     tid = _make_type(client, token)
     _link_admin_employee(client, token)
 
-    rid = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-01", "end_date": "2026-08-01"}, headers=_h(token)).json()["id"]
+    # Thứ Hai 2026-08-03 (ngày làm việc — tránh cuối tuần bị chặn).
+    rid = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-03", "end_date": "2026-08-03"}, headers=_h(token)).json()["id"]
     # từ chối thiếu lý do → 400
     assert client.post(f"/api/leaves/{rid}/reject", json={}, headers=_h(token)).status_code == 400
     ok = client.post(f"/api/leaves/{rid}/reject", json={"note": "Bận việc gấp"}, headers=_h(token))
@@ -143,6 +144,104 @@ def test_start_after_end_rejected(client):
     _link_admin_employee(client, token)
     bad = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-10", "end_date": "2026-08-05"}, headers=_h(token))
     assert bad.status_code == 400
+
+
+def test_weekend_only_request_rejected(client):
+    """Khoảng nghỉ rơi hết vào cuối tuần (không ngày làm việc) → 400."""
+    token = _admin_token(client)
+    tid = _make_type(client, token)
+    _link_admin_employee(client, token)
+    # 2026-08-01 T7, 2026-08-02 CN.
+    bad = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-01", "end_date": "2026-08-02"}, headers=_h(token))
+    assert bad.status_code == 400
+
+
+def test_quota_block_when_exceeding(client):
+    """Hạn mức phép năm chặn theo NGÀY LÀM VIỆC (loại T7/CN), reset dương lịch."""
+    token = _admin_token(client)
+    tid = client.post(
+        "/api/leaves/types",
+        json={"name": "Phép ít", "is_paid": True, "annual_quota": 2},
+        headers=_h(token),
+    ).json()["id"]
+    _link_admin_employee(client, token)
+    # Thứ Hai→Thứ Tư 2026-08-03..05 = 3 ngày làm việc > hạn mức 2 → 400.
+    bad = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-03", "end_date": "2026-08-05"}, headers=_h(token))
+    assert bad.status_code == 400
+    # Thứ Hai→Thứ Ba 2026-08-10..11 = 2 ngày = hạn mức → 201.
+    ok = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-10", "end_date": "2026-08-11"}, headers=_h(token))
+    assert ok.status_code == 201
+    # Còn lại 0 → thêm 1 ngày làm việc nữa (Thứ Tư 2026-08-12) phải bị chặn.
+    more = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-12", "end_date": "2026-08-12"}, headers=_h(token))
+    assert more.status_code == 400
+    # /me phản ánh hạn mức: đã dùng 2 / còn 0.
+    me = client.get("/api/leaves/me", headers=_h(token)).json()
+    q = next(x for x in me["quotas"] if x["leave_type_id"] == tid)
+    assert q["used"] == 2 and q["remaining"] == 0
+
+
+def test_bulk_approve_and_reject(client):
+    """Duyệt/từ chối hàng loạt: bỏ qua đơn không-chờ; từ chối bulk bắt lý do."""
+    token = _admin_token(client)
+    tid = _make_type(client, token, name="Nghỉ ốm")  # quota 12 nhưng ốm ít ngày → không chạm hạn mức
+    _link_admin_employee(client, token)
+    mk = lambda s, e: client.post("/api/leaves", json={"leave_type_id": tid, "start_date": s, "end_date": e}, headers=_h(token)).json()["id"]
+    a, b = mk("2026-09-07", "2026-09-07"), mk("2026-09-08", "2026-09-08")  # T2, T3
+    res = client.post("/api/leaves/bulk-approve", json={"ids": [a, b]}, headers=_h(token)).json()
+    assert set(res["done"]) == {a, b} and res["skipped"] == []
+    # duyệt lại (đã duyệt) → skip, không vỡ
+    assert client.post("/api/leaves/bulk-approve", json={"ids": [a, b]}, headers=_h(token)).json()["skipped"] == [a, b]
+    c = mk("2026-09-09", "2026-09-09")
+    assert client.post("/api/leaves/bulk-reject", json={"ids": [c]}, headers=_h(token)).status_code == 422  # thiếu note
+    rej = client.post("/api/leaves/bulk-reject", json={"ids": [c], "note": "Thiếu người trực"}, headers=_h(token)).json()
+    assert rej["done"] == [c]
+
+
+def test_bell_unseen_and_mark_seen(client):
+    """Chuông Topbar: đơn được quyết → my_decided_unseen tăng; mark-seen → về 0."""
+    token = _admin_token(client)
+    tid = _make_type(client, token)
+    _link_admin_employee(client, token)
+    rid = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-10", "end_date": "2026-08-11"}, headers=_h(token)).json()["id"]
+    assert client.get("/api/leaves/summary", headers=_h(token)).json()["my_decided_unseen"] == 0  # còn pending
+    client.post(f"/api/leaves/{rid}/approve", json={}, headers=_h(token))
+    assert client.get("/api/leaves/summary", headers=_h(token)).json()["my_decided_unseen"] == 1  # đã quyết, chưa xem
+    assert client.post("/api/leaves/mark-seen", headers=_h(token)).status_code == 204
+    assert client.get("/api/leaves/summary", headers=_h(token)).json()["my_decided_unseen"] == 0  # đã xem
+
+
+def test_calendar_shows_approved_and_pending(client):
+    token = _admin_token(client)
+    tid = _make_type(client, token)
+    _link_admin_employee(client, token)
+    rid = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-09-07", "end_date": "2026-09-09"}, headers=_h(token)).json()["id"]
+    client.post(f"/api/leaves/{rid}/approve", json={}, headers=_h(token))
+    # thêm 1 đơn CHỜ để lịch có cả amber
+    client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-09-14", "end_date": "2026-09-14"}, headers=_h(token))
+    cal = client.get("/api/leaves/calendar?year=2026&month=9", headers=_h(token)).json()
+    assert cal["days_in_month"] == 30
+    emp = next(e for e in cal["employees"] if e["employee_name"] == "NV Nghỉ")
+    assert emp["days"]["7"]["status"] == "approved" and emp["days"]["9"]["status"] == "approved"
+    assert emp["days"]["14"]["status"] == "pending"
+    # NV Sales (không quyền duyệt) → 403
+    assert client.get("/api/leaves/calendar?year=2026&month=9", headers=_h(_sales_token())).status_code == 403
+
+
+def test_summary_badge_gating_and_scope(client):
+    """Badge = số đơn chờ trong scope; None nếu không có quyền duyệt; NV thấy theo scope own."""
+    token = _admin_token(client)
+    tid = _make_type(client, token)
+    _link_admin_employee(client, token)
+    # Thứ Hai 2026-08-17.
+    client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-17", "end_date": "2026-08-17"}, headers=_h(token))
+    # Admin (có approve, scope all) → con số.
+    s = client.get("/api/leaves/summary", headers=_h(token)).json()
+    assert isinstance(s["pending_in_scope"], int) and s["pending_in_scope"] >= 1
+    # NV Sales (không có approve) → None (ẩn badge, chống lộ số).
+    stoken = _sales_token()
+    assert client.get("/api/leaves/summary", headers=_h(stoken)).json()["pending_in_scope"] is None
+    # NV Sales scope own (không hồ sơ NV) → danh sách rỗng, không thấy đơn người khác.
+    assert client.get("/api/leaves", headers=_h(stoken)).json()["items"] == []
 
 
 # --- tích hợp Bảng công tháng ----------------------------------------------

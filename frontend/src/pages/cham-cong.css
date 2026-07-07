@@ -4,6 +4,21 @@
 .cc-toolbar { margin-bottom: var(--sp-3); }
 .cc-rowact { display: flex; gap: var(--sp-2); }
 
+/* Băng "đang lọc theo NV này" khi liên thông từ Hồ sơ nhân sự. */
+.cc-focus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--rust);
+  border-radius: var(--r-4);
+  font-size: 14px;
+}
+
 .cc-grid { display: grid; grid-template-columns: minmax(280px, 360px) 1fr; gap: var(--sp-6); align-items: start; }
 
 .cc-card {
@@ -31,6 +46,51 @@
 .cc-bigbtn:disabled { opacity: .55; cursor: not-allowed; }
 .cc-bigbtn--in { background: var(--moss); }
 .cc-bigbtn--out { background: var(--rust); }
+.cc-bigbtn--locked { background: var(--ash-2); }
+
+/* Vòng geofence "sống" trên card chấm. */
+.cc-geo {
+  display: flex; align-items: center; gap: var(--sp-2); justify-content: space-between;
+  margin: 0 0 var(--sp-3); padding: 8px 12px;
+  border: 1px solid var(--rule); border-radius: var(--r-3);
+  font-size: 13px; text-align: left;
+}
+.cc-geo__text { min-width: 0; }
+.cc-geo--in { background: var(--moss-soft); color: var(--moss-deep); border-color: var(--moss); }
+.cc-geo--out { background: var(--signal-soft); color: var(--signal); border-color: var(--signal); }
+.cc-geo--wait { background: var(--amber-soft); color: var(--amber-deep); border-color: var(--amber); }
+.cc-geo__refresh { border: none; background: transparent; cursor: pointer; font-size: 16px; line-height: 1; }
+.cc-geo__refresh:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Đồng hồ LIVE khi đang trong ca. */
+.cc-timer {
+  margin: 0 0 var(--sp-3); font-size: 14px; color: var(--moss-deep);
+  font-variant-numeric: tabular-nums;
+}
+.cc-timer b { font-size: 18px; font-weight: var(--fw-bold); }
+
+.cc-leavebtn { width: 100%; margin-top: var(--sp-3); }
+
+/* Dải KPI giám sát hôm nay. */
+.cc-kpi { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-bottom: var(--sp-4); }
+.cc-kpi__card {
+  min-width: 120px; padding: var(--sp-3) var(--sp-4); border: 1px solid var(--rule);
+  border-radius: var(--r-4); background: var(--canvas);
+}
+.cc-kpi__value { font-size: 26px; font-weight: var(--fw-bold); line-height: 1.1; }
+.cc-kpi__label { font-size: 12px; color: var(--ash-2); margin-top: 2px; }
+.cc-kpi--in .cc-kpi__value { color: var(--moss-deep); }
+.cc-kpi--out .cc-kpi__value { color: var(--signal); }
+.cc-kpi--late .cc-kpi__value { color: var(--amber-deep); }
+.cc-kpi--pending .cc-kpi__value { color: var(--steel); }
+
+/* "Ô biết nói" — form chấm bù trong modal chi tiết ngày. */
+.cc-timesheet .cc-day[role="button"]:hover { outline: 2px solid var(--moss); outline-offset: -2px; }
+.cc-adjust { margin-top: var(--sp-5); padding-top: var(--sp-4); border-top: 1px dashed var(--rule); }
+.cc-adjust select, .cc-adjust input[type="time"], .cc-adjust input[type="text"], .cc-adjust .ns-field input {
+  padding: 6px 10px; border: 1px solid var(--rule); border-radius: var(--r-3);
+  background: var(--canvas); font: inherit; color: var(--ink);
+}
 
 .cc-note { color: var(--ash-2); font-size: 12px; margin-top: var(--sp-4); }
 
@@ -67,6 +127,31 @@
 .cc-ot { color: var(--moss); font-weight: var(--fw-bold); }
 .cc-ts-legend .cc-late, .cc-ts-legend .cc-early { min-width: auto; padding: 1px 6px; }
 .cc-total { text-align: center; font-weight: var(--fw-bold); }
+
+/* Khối "Hôm nay của tôi" trên card chấm. */
+.cc-today {
+  display: flex; flex-direction: column; gap: 5px; align-items: center;
+  margin: 0 0 var(--sp-5); padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--rule); border-radius: var(--r-3); font-size: 13px;
+}
+.cc-today__shift { font-weight: var(--fw-medium); color: var(--ink); }
+.cc-today__shift--none, .cc-today__cong--none { color: var(--ash-2); }
+.cc-today__cong { color: var(--ash); }
+.cc-chip {
+  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  font-size: 12px; font-weight: var(--fw-medium);
+}
+.cc-chip--warn { background: var(--amber-soft); color: var(--amber-deep); }
+.cc-chip--muted { background: var(--steel-soft); color: var(--steel); }
+
+/* Panel gán ca mặc định (trong tab Khai ca). */
+.cc-assign { margin-top: var(--sp-6); padding-top: var(--sp-5); border-top: 1px solid var(--rule); }
+.cc-assign__bar { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; }
+.cc-assign__msg { color: var(--moss-deep); font-size: 13px; }
+.cc-assign__bar select, .cc-ts-toolbar select, .cc-assign .ns__table select {
+  padding: 6px 10px; border: 1px solid var(--rule); border-radius: var(--r-3);
+  background: var(--canvas); font: inherit; color: var(--ink);
+}
 
 @media (max-width: 720px) {
   .cc-grid { grid-template-columns: 1fr; }

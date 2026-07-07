@@ -5,6 +5,7 @@ from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
 from .department import Department
 from .employee import Employee, EmployeeAttachment, EmployeeEvent
+from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
 from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
@@ -19,6 +20,7 @@ from .payroll import (
     SalaryAdvance,
     SalaryRateRule,
 )
+from .piece_work import PieceBatch, PieceBatchEntry, PieceBatchShare, PieceRate
 from .paper_size import PaperSize
 from .imposition_type import ImpositionType
 from .product import Product, ProductComponent
@@ -47,6 +49,7 @@ __all__ = [
     "Employee",
     "EmployeeEvent",
     "EmployeeAttachment",
+    "ProfileUpdateRequest",
     "WorkLocation",
     "WorkShift",
     "AttendanceLog",
@@ -82,6 +85,10 @@ __all__ = [
     "SalaryAdvance",
     "PayrollPeriod",
     "PayrollLine",
+    "PieceRate",
+    "PieceBatch",
+    "PieceBatchEntry",
+    "PieceBatchShare",
     "PlateDieRate",
     "Norm",
     "DocumentSequence",

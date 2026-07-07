@@ -121,3 +121,88 @@
   .ns-grid, .ns-section__grid { grid-template-columns: 1fr; }
   .ns-modal__box--wide { width: 100%; }
 }
+
+/* ===== Master–detail (ns2) — dựng lại Hồ sơ nhân sự ===== */
+.ns2__grid { display: grid; grid-template-columns: 380px 1fr; gap: var(--sp-5); align-items: start; }
+.ns2__list { min-width: 0; position: sticky; top: var(--sp-4); }
+.ns2__kpis { margin-bottom: var(--sp-4); }
+.ns2__headact { display: flex; gap: var(--sp-3); align-items: center; }
+.ns2-reqbtn--on { border-color: var(--rust); color: var(--rust-deep); background: var(--rust-soft); }
+.ns2-kpibtn { cursor: pointer; text-align: left; }
+.ns2-kpibtn:hover { border-color: var(--amber); }
+
+.ns2__toolbar { display: flex; flex-direction: column; gap: var(--sp-3); margin-bottom: var(--sp-3); }
+.ns2__filters { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.ns2__filters select {
+  padding: 7px 10px; border: 1px solid var(--rule); border-radius: var(--r-3);
+  background: var(--canvas); font: inherit; color: var(--ink); flex: 1; min-width: 130px;
+}
+.ns2-chip {
+  border: 1px solid var(--rust); background: var(--rust-soft); color: var(--rust-deep);
+  padding: 5px 10px; border-radius: var(--r-pill); font-size: 12px; cursor: pointer;
+}
+
+/* Danh sách dòng */
+.ns2__rows { border: 1px solid var(--rule); border-radius: var(--r-5); overflow: hidden; background: var(--canvas); }
+.ns2-row {
+  display: flex; align-items: center; gap: var(--sp-3); width: 100%; text-align: left;
+  padding: 9px var(--sp-3); border: none; border-bottom: 1px solid var(--rule-hair);
+  background: transparent; cursor: pointer; font: inherit; color: var(--ink);
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+.ns2-row:last-child { border-bottom: none; }
+.ns2-row:hover { background: var(--rust-soft); }
+.ns2-row.is-active { background: var(--rust-soft); box-shadow: inset 3px 0 0 var(--rust); }
+.ns2-row.is-active .ns2-row__name { font-weight: var(--fw-bold); }
+.ns2-row.is-soon { box-shadow: inset 2px 0 0 var(--amber); }
+.ns2-row__av {
+  width: 32px; height: 32px; flex: none; border-radius: var(--r-3);
+  background: var(--rust-soft); color: var(--rust-deep);
+  display: flex; align-items: center; justify-content: center; font-weight: var(--fw-bold); font-size: 14px;
+}
+.ns2-row__body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.ns2-row__name { display: flex; align-items: center; gap: 5px; font-weight: var(--fw-medium); font-size: 14px; }
+.ns2-row__sub { font-family: var(--ff-mono); font-size: 11.5px; color: var(--ash-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Chip trạng thái dạng chấm (danh sách) */
+.ns2-status { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--ash); flex: none; }
+.ns2-status__dot { width: 7px; height: 7px; border-radius: 50%; background: var(--ash); }
+.ns2-status--probation .ns2-status__dot { background: var(--amber); }
+.ns2-status--probation .ns2-status__txt { color: var(--amber-deep); }
+.ns2-status--active .ns2-status__dot { background: var(--moss); }
+.ns2-status--on_leave .ns2-status__dot { background: var(--steel); }
+.ns2-status--suspended .ns2-status__dot { background: var(--ash); }
+.ns2-status--resigned .ns2-status__dot { background: var(--signal); }
+
+/* Panel chi tiết */
+.ns2__detail { background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-5); min-height: 420px; }
+.ns2-detail__loading { padding: var(--sp-7); text-align: center; color: var(--ash); }
+.ns2-blank { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 420px; color: var(--ash); gap: 6px; }
+.ns2-blank__icon { font-size: 40px; opacity: .35; }
+.ns2-blank__hint { font-family: var(--ff-mono); font-size: 12px; color: var(--ash-2); }
+
+.ns2-detail { display: flex; flex-direction: column; }
+.ns2-detail__head { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-5); border-bottom: 1px solid var(--rule); }
+.ns2-detail__back { display: none; border: none; background: transparent; font-size: 24px; color: var(--ash); cursor: pointer; padding: 0 6px; }
+.ns-avatar--lg { width: 60px; height: 60px; font-size: 24px; border-radius: var(--r-5); flex: none; }
+.ns2-detail__id h2 { margin: 0 0 4px; font-size: 19px; display: flex; align-items: center; gap: 8px; }
+.ns2-detail__tabs { padding: 0 var(--sp-5); border-bottom: 1px solid var(--rule); }
+.ns2-detail__body { padding: var(--sp-5); }
+.ns2-editfoot { display: flex; justify-content: flex-end; gap: var(--sp-3); margin-top: var(--sp-4); }
+.ns-detail__actions { display: flex; flex-wrap: wrap; gap: var(--sp-2); padding: var(--sp-3) var(--sp-5); border-bottom: 1px solid var(--rule-soft); }
+.ns2-detail__links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-3) var(--sp-5); background: var(--paper); border-bottom: 1px solid var(--rule-soft); }
+.ns2-detail__linkslabel { font-family: var(--ff-mono); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--ash-2); margin-right: 4px; }
+
+/* Timeline — màu chấm theo loại sự kiện */
+.tline__item--tone-rust .tline__dot { background: var(--rust); }
+.tline__item--tone-moss .tline__dot { background: var(--moss); }
+.tline__item--tone-steel .tline__dot { background: var(--steel); }
+.tline__item--tone-signal .tline__dot { background: var(--signal); }
+
+@media (max-width: 900px) {
+  .ns2__grid { grid-template-columns: 1fr; }
+  .ns2__list { position: static; }
+  .ns2__detail { position: fixed; inset: 0; z-index: 40; border-radius: 0; overflow-y: auto; }
+  .ns2__detail:not(.is-open) { display: none; }
+  .ns2-detail__back { display: block; }
+}

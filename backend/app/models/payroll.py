@@ -186,6 +186,7 @@ class PayrollLine(Base):
     luong_cong: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     chuyen_can: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     allowance: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    khoan: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # lương khoán (nhịp 2)
     vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay
     other_bonus: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # tay (thưởng/hoa hồng)
     gross: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")

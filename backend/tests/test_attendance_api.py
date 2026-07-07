@@ -129,6 +129,20 @@ def test_check_in_out_toggle_and_hard_block(client):
     assert {l["check_type"] for l in logs} == {"in", "out"}
 
 
+def test_me_preview_dry_run(client):
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    _link_admin_employee(client, token)
+    # trong vùng
+    p = client.post("/api/attendance/me/preview", json={"latitude": 10.0, "longitude": 106.0}, headers=_h(token)).json()
+    assert p["within_range"] is True and p["meters_out"] == 0.0 and p["next_action"] == "in"
+    # ngoài vùng
+    p2 = client.post("/api/attendance/me/preview", json={"latitude": 11.0, "longitude": 107.0}, headers=_h(token)).json()
+    assert p2["within_range"] is False and p2["meters_out"] > 0
+    # preview KHÔNG ghi log
+    assert client.get("/api/attendance/me/logs", headers=_h(token)).json()["items"] == []
+
+
 def test_check_without_linked_employee_is_400(client):
     token = _admin_token(client)
     _make_location(client, token)
@@ -196,6 +210,185 @@ def test_timesheet_forbidden_without_permission(client):
     token = _sales_token()
     year, month = _vn_year_month()
     assert client.get(f"/api/attendance/timesheet?year={year}&month={month}", headers=_h(token)).status_code == 403
+
+
+# --- self-service "Công của tôi" + scope theo phòng -------------------------
+
+
+def _make_worker(username: str, dept_id: int) -> int:
+    """User active, KHÔNG có quyền module — chấm công tự phục vụ sau khi nối hồ sơ NV."""
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        u = users.get_by_username(username) or users.create(
+            username=username, name=username, password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=dept_id, role_id=None, is_active=True)
+        return u.id
+    finally:
+        db.close()
+
+
+def _dept_hr_token(dept_name: str) -> str:
+    """User trong phòng `dept_name` với nhan_su READ scope=department (HR của phòng đó)."""
+    db = SessionLocal()
+    try:
+        dept = DepartmentRepository(db).get_by_name(dept_name)
+        roles = RoleRepository(db)
+        role = roles.get_by_name_and_department("HR-scope", dept.id) or roles.create(
+            name="HR-scope", department_id=dept.id)
+        roles.set_permission(role_id=role.id, module_key="nhan_su", can_read=True, scope="department")
+        users = UserRepository(db)
+        u = users.get_by_username(f"hr-{dept.id}") or users.create(
+            username=f"hr-{dept.id}", name="HR", password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
+        return create_access_token(str(u.id))
+    finally:
+        db.close()
+
+
+def _link_employee(client, token, *, full_name, dept_id, user_id) -> int:
+    emp = client.post(
+        "/api/employees",
+        json={"full_name": full_name, "department_id": dept_id, "hire_date": "2020-01-01"},
+        headers=_h(token),
+    ).json()["employee"]
+    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": user_id}, headers=_h(token))
+    return emp["id"]
+
+
+def test_me_timesheet_self_service(client):
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    dept_a = _dept_id("Hành chính nhân sự")
+    worker = _make_worker("worker-me", dept_a)
+    _link_employee(client, token, full_name="NV Worker", dept_id=dept_a, user_id=worker)
+    wt = create_access_token(str(worker))
+    assert client.post("/api/attendance/check", json={"latitude": 10.0, "longitude": 106.0}, headers=_h(wt)).json()["success"]
+
+    year, month = _vn_year_month()
+    # NV thường (KHÔNG có quyền nhan_su) vẫn xem được công CỦA MÌNH
+    mine = client.get(f"/api/attendance/me/timesheet?year={year}&month={month}", headers=_h(wt))
+    assert mine.status_code == 200
+    rows = mine.json()["rows"]
+    assert len(rows) == 1 and rows[0]["employee_name"] == "NV Worker"
+    # nhưng KHÔNG xem được bảng công toàn xưởng
+    assert client.get(f"/api/attendance/timesheet?year={year}&month={month}", headers=_h(wt)).status_code == 403
+    # tài khoản chưa nối hồ sơ NV (admin) gọi /me/timesheet → 400
+    assert client.get(f"/api/attendance/me/timesheet?year={year}&month={month}", headers=_h(token)).status_code == 400
+
+
+def test_logs_and_timesheet_department_scope(client):
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    dept_a = _dept_id("Hành chính nhân sự")
+    dept_b = _dept_id("Kinh doanh")
+
+    ua = _make_worker("wa", dept_a)
+    _link_employee(client, token, full_name="NV A", dept_id=dept_a, user_id=ua)
+    client.post("/api/attendance/check", json={"latitude": 10.0, "longitude": 106.0}, headers=_h(create_access_token(str(ua))))
+
+    ub = _make_worker("wb", dept_b)
+    eb_id = _link_employee(client, token, full_name="NV B", dept_id=dept_b, user_id=ub)
+    client.post("/api/attendance/check", json={"latitude": 10.0, "longitude": 106.0}, headers=_h(create_access_token(str(ub))))
+
+    year, month = _vn_year_month()
+    hr = _dept_hr_token("Hành chính nhân sự")  # HR phòng A, scope=department
+
+    # /logs: chỉ thấy NV phòng A
+    names = {l["employee_name"] for l in client.get("/api/attendance/logs", headers=_h(hr)).json()["items"]}
+    assert "NV A" in names and "NV B" not in names
+    # chỉ định employee_id ngoài scope cũng KHÔNG rò
+    assert client.get(f"/api/attendance/logs?employee_id={eb_id}", headers=_h(hr)).json()["items"] == []
+    # /timesheet: chỉ thấy NV phòng A
+    ts_names = {r["employee_name"] for r in client.get(f"/api/attendance/timesheet?year={year}&month={month}", headers=_h(hr)).json()["rows"]}
+    assert "NV A" in ts_names and "NV B" not in ts_names
+
+    # admin (scope=all) thấy cả hai
+    all_names = {l["employee_name"] for l in client.get("/api/attendance/logs", headers=_h(token)).json()["items"]}
+    assert {"NV A", "NV B"} <= all_names
+
+
+def _vn_today_str() -> str:
+    from datetime import datetime, timedelta, timezone
+    return datetime.now(timezone(timedelta(hours=7))).strftime("%Y-%m-%d")
+
+
+def test_adjust_punch_recompute_and_rbac(client):
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    shift = client.post("/api/attendance/shifts",
+                        json={"name": "HC", "start_time": "08:00", "end_time": "17:00"},
+                        headers=_h(token)).json()
+    emp_id = _link_admin_employee(client, token)
+    client.put(f"/api/employees/{emp_id}/shift", json={"default_shift_id": shift["id"]}, headers=_h(token))
+    client.post("/api/attendance/check", json={"latitude": 10.0, "longitude": 106.0}, headers=_h(token))  # VÀO, thiếu RA
+
+    today = _vn_today_str()
+    d = client.get(f"/api/attendance/day?employee_id={emp_id}&date={today}", headers=_h(token)).json()
+    assert len(d["punches"]) == 1  # chỉ có VÀO thật
+
+    # HCNS (admin) chấm bù RA 17:00 với fault_party
+    adj = client.post("/api/attendance/adjust", json={
+        "employee_id": emp_id, "date": today, "check_type": "out", "time": "17:00",
+        "reason": "NV quên chấm ra", "fault_party": "nv_quen"}, headers=_h(token)).json()
+    manual = [p for p in adj["punches"] if p["is_manual"]]
+    assert len(adj["punches"]) == 2 and len(manual) == 1
+    assert manual[0]["fault_party"] == "nv_quen" and manual[0]["adjust_reason"] == "NV quên chấm ra"
+
+    # reason bắt buộc → bị chặn (422 schema / 400 service)
+    assert client.post("/api/attendance/adjust", json={
+        "employee_id": emp_id, "date": today, "check_type": "out", "time": "18:00",
+        "reason": ""}, headers=_h(token)).status_code in (400, 422)
+
+    # RBAC: user không có quyền adjust → 403
+    st = _sales_token()
+    assert client.post("/api/attendance/adjust", json={
+        "employee_id": emp_id, "date": today, "check_type": "out", "time": "17:00",
+        "reason": "x"}, headers=_h(st)).status_code == 403
+
+    # xóa punch bù → còn 1 punch
+    dele = client.delete(f"/api/attendance/logs/{manual[0]['id']}?employee_id={emp_id}&date={today}", headers=_h(token))
+    assert dele.status_code == 200 and len(dele.json()["punches"]) == 1
+    # không xóa được punch GPS gốc (không phải manual) → 400
+    gps_id = dele.json()["punches"][0]["id"]
+    assert client.delete(f"/api/attendance/logs/{gps_id}?employee_id={emp_id}&date={today}", headers=_h(token)).status_code == 400
+
+
+def test_adjust_request_flow_and_kpi(client):
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    dept_a = _dept_id("Hành chính nhân sự")
+    worker = _make_worker("wreq", dept_a)
+    emp_id = _link_employee(client, token, full_name="NV Req", dept_id=dept_a, user_id=worker)
+    wt = create_access_token(str(worker))
+    today = _vn_today_str()
+
+    # NV gửi yêu cầu chỉnh công (self-service, không cần quyền)
+    r = client.post("/api/attendance/me/adjust-request", json={
+        "date": today, "check_type": "out", "suggested_time": "17:00", "reason": "Quên chấm ra"}, headers=_h(wt))
+    assert r.status_code == 200 and r.json()["status"] == "pending"
+    req_id = r.json()["id"]
+    assert any(x["id"] == req_id for x in client.get("/api/attendance/me/adjust-requests", headers=_h(wt)).json()["items"])
+
+    # HCNS thấy trong danh sách chờ + KPI pending ≥ 1
+    assert any(x["id"] == req_id for x in client.get("/api/attendance/adjust-requests", headers=_h(token)).json()["items"])
+    assert client.get("/api/attendance/kpi", headers=_h(token)).json()["pending_requests"] >= 1
+
+    # NV không có quyền adjust → không duyệt được
+    assert client.post(f"/api/attendance/adjust-requests/{req_id}/approve",
+                       json={"fault_party": "nv_quen"}, headers=_h(wt)).status_code == 403
+
+    # HCNS duyệt → sinh punch chấm bù, status approved
+    ap = client.post(f"/api/attendance/adjust-requests/{req_id}/approve",
+                     json={"fault_party": "nv_quen"}, headers=_h(token))
+    assert ap.status_code == 200 and ap.json()["status"] == "approved"
+    d = client.get(f"/api/attendance/day?employee_id={emp_id}&date={today}", headers=_h(token)).json()
+    assert any(p["is_manual"] and p["check_type"] == "out" for p in d["punches"])
+    assert client.get("/api/attendance/kpi", headers=_h(token)).json()["pending_requests"] == 0
+
+    # duyệt lại yêu cầu đã xử lý → 400
+    assert client.post(f"/api/attendance/adjust-requests/{req_id}/approve",
+                       json={"fault_party": "nv_quen"}, headers=_h(token)).status_code == 400
 
 
 # --- RBAC -------------------------------------------------------------------

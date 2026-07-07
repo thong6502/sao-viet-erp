@@ -23,6 +23,7 @@ from fastapi import (
 )
 
 from ..deps import (
+    CurrentUser,
     get_audit_repository,
     get_authorization_service,
     get_department_repository,
@@ -35,6 +36,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas.employee import (
+    AssignShiftIn,
     AttachmentOut,
     AttachmentsOut,
     DepartmentOption,
@@ -53,7 +55,13 @@ from ..schemas.employee import (
     EmployeeUpdate,
     EmployeeUpdateOut,
     LinkAccountIn,
+    MyContactIn,
+    MyProfileOut,
+    RequestDecisionIn,
     TransitionIn,
+    UpdateRequestIn,
+    UpdateRequestOut,
+    UpdateRequestsOut,
     UserOption,
 )
 from ..services.employee_service import (
@@ -129,6 +137,19 @@ def _full(employee, depts: DepartmentRepository, users: UserRepository) -> Emplo
     if employee.user_id is not None:
         u = users.get_by_id(employee.user_id)
         out.account_username = u.username if u is not None else None
+    return out
+
+
+# Dữ liệu nhạy cảm — ẩn với người KHÔNG có quyền `nhan_su:view_salary` (lương/BHXH).
+_SALARY_FIELDS = (
+    "social_insurance_no", "pit_tax_code", "bank_account", "bank_name",
+    "payroll_group", "pay_grade_key",
+)
+
+
+def _mask_salary(out: EmployeeOut) -> EmployeeOut:
+    for f in _SALARY_FIELDS:
+        setattr(out, f, None)
     return out
 
 
@@ -248,6 +269,110 @@ def create_employee(
     )
 
 
+# --- self-service "Hồ sơ của tôi" (chỉ cần đăng nhập; KHÔNG cần quyền nhan_su) ------
+# Phải khai TRƯỚC route "/{employee_id}" để "me" không bị hiểu là id.
+
+# Field nội bộ HCNS — ẩn khỏi self-view của chính nhân viên.
+_MY_HIDDEN = ("note", "payroll_group", "pay_grade_key")
+
+
+def _my_out(employee, depts: DepartmentRepository, users: UserRepository) -> EmployeeOut:
+    out = _full(employee, depts, users)
+    for f in _MY_HIDDEN:
+        setattr(out, f, None)
+    return out
+
+
+@router.get("/me", response_model=MyProfileOut)
+def my_profile(svc: Service, depts: Depts, users: Users, user: CurrentUser) -> MyProfileOut:
+    emp = svc.my_employee(user=user)
+    if emp is None:
+        return MyProfileOut(has_employee=False, employee=None)
+    return MyProfileOut(has_employee=True, employee=_my_out(emp, depts, users))
+
+
+@router.put("/me", response_model=MyProfileOut)
+def update_my_profile(body: MyContactIn, svc: Service, depts: Depts, users: Users, user: CurrentUser) -> MyProfileOut:
+    try:
+        emp = svc.update_my_contact(user=user, fields=body.model_dump(exclude_unset=True))
+    except EmployeeError as exc:
+        _raise(exc)
+    return MyProfileOut(has_employee=True, employee=_my_out(emp, depts, users))
+
+
+@router.get("/me/events", response_model=EmployeeEventsOut)
+def my_events(svc: Service, users: Users, user: CurrentUser) -> EmployeeEventsOut:
+    items = []
+    for ev in svc.my_events(user=user):
+        row = EmployeeEventOut.model_validate(ev)
+        if ev.actor_user_id is not None:
+            u = users.get_by_id(ev.actor_user_id)
+            row.actor_name = (u.name or u.username) if u is not None else None
+        items.append(row)
+    return EmployeeEventsOut(items=items)
+
+
+@router.get("/me/attachments", response_model=AttachmentsOut)
+def my_attachments(svc: Service, user: CurrentUser) -> AttachmentsOut:
+    return AttachmentsOut(items=[AttachmentOut.model_validate(a) for a in svc.my_attachments(user=user)])
+
+
+def _req_out(req, emp_names: dict[int, str]) -> UpdateRequestOut:
+    out = UpdateRequestOut.model_validate(req)
+    out.employee_name = emp_names.get(req.employee_id)
+    return out
+
+
+@router.post("/me/update-requests", response_model=UpdateRequestOut, status_code=201)
+def create_my_request(body: UpdateRequestIn, svc: Service, user: CurrentUser) -> UpdateRequestOut:
+    try:
+        req = svc.create_update_request(user=user, changes=body.changes, reason=body.reason)
+    except EmployeeError as exc:
+        _raise(exc)
+    return UpdateRequestOut.model_validate(req)
+
+
+@router.get("/me/update-requests", response_model=UpdateRequestsOut)
+def my_requests(svc: Service, user: CurrentUser) -> UpdateRequestsOut:
+    return UpdateRequestsOut(items=[UpdateRequestOut.model_validate(r) for r in svc.my_update_requests(user=user)])
+
+
+# --- HCNS duyệt yêu cầu cập nhật (quyền chi tiết `approve`) ------------------
+
+
+@router.get("/update-requests", response_model=UpdateRequestsOut)
+def list_requests(svc: Service, users: Users,
+                  user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                  status_filter: str | None = Query(default=None, alias="status")) -> UpdateRequestsOut:
+    reqs = svc.list_update_requests(status=status_filter)
+    emp_names: dict[int, str] = {}
+    for eid in {r.employee_id for r in reqs}:
+        emp = svc.employees.get_by_id(eid)
+        if emp is not None:
+            emp_names[eid] = emp.full_name
+    return UpdateRequestsOut(items=[_req_out(r, emp_names) for r in reqs])
+
+
+@router.post("/update-requests/{request_id}/approve", response_model=UpdateRequestOut)
+def approve_request(request_id: int, body: RequestDecisionIn, svc: Service,
+                    user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
+    try:
+        req = svc.decide_update_request(request_id=request_id, actor=user, approve=True, note=body.note)
+    except EmployeeError as exc:
+        _raise(exc)
+    return UpdateRequestOut.model_validate(req)
+
+
+@router.post("/update-requests/{request_id}/reject", response_model=UpdateRequestOut)
+def reject_request(request_id: int, body: RequestDecisionIn, svc: Service,
+                   user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
+    try:
+        req = svc.decide_update_request(request_id=request_id, actor=user, approve=False, note=body.note)
+    except EmployeeError as exc:
+        _raise(exc)
+    return UpdateRequestOut.model_validate(req)
+
+
 # --- detail / edit ----------------------------------------------------------
 
 
@@ -264,7 +389,10 @@ def get_employee(
         employee = svc.get_employee(employee_id=employee_id, scope=_scope_for(authz, user), actor=user)
     except EmployeeError as exc:
         _raise(exc)
-    return _full(employee, depts, users)
+    out = _full(employee, depts, users)
+    if not authz.can(user, MODULE, "view_salary"):
+        _mask_salary(out)
+    return out
 
 
 @router.put("/{employee_id}", response_model=EmployeeUpdateOut)
@@ -289,6 +417,25 @@ def update_employee(
         duplicate_national_id=_dup(dup_nid),
         duplicate_social_insurance=_dup(dup_si),
     )
+
+
+@router.put("/{employee_id}/shift")
+def assign_default_shift(
+    employee_id: int,
+    body: AssignShiftIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> dict:
+    """Gán ca mặc định cho NV (an toàn, chỉ đụng default_shift_id) — panel Gán ca ở Chấm công."""
+    try:
+        emp = svc.set_default_shift(
+            employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
+            shift_id=body.default_shift_id,
+        )
+    except EmployeeError as exc:
+        _raise(exc)
+    return {"ok": True, "employee_id": emp.id, "default_shift_id": emp.default_shift_id}
 
 
 # --- transitions (stage changes) -------------------------------------------

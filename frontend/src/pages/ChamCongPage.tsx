@@ -3,12 +3,17 @@
 //   • Điểm chấm công (HR) — khai toạ độ + bán kính; "Lấy vị trí hiện tại" để điền nhanh.
 //   • Bảng chấm công (HR) — toàn bộ log.
 // Server là cổng geofence thật (Haversine); ngoài phạm vi bị chặn cứng.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type AttendanceLog,
+  type AdjustRequest,
+  type AttendancePreview,
   type AttendanceStatus,
   type CheckResult,
+  type DayDetail,
+  type EmployeeRow,
+  type TodayKpi,
   type Timesheet,
   type TimesheetRow,
   type WorkLocation,
@@ -16,12 +21,21 @@ import {
   type WorkShift,
   type WorkShiftInput,
 } from "../api/client";
+import type { NavigateFn } from "../components/AppShell";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import "./nhan-su.css";
 import "./cham-cong.css";
 
-type Tab = "me" | "locations" | "khai-ca" | "logs" | "timesheet";
+type Tab = "me" | "my-timesheet" | "locations" | "khai-ca" | "logs" | "timesheet" | "yeu-cau";
+
+const FAULT_OPTIONS: { value: string; label: string }[] = [
+  { value: "nv_quen", label: "NV quên chấm" },
+  { value: "may_hong", label: "Máy hỏng / mất điện" },
+  { value: "duyet", label: "Được duyệt (công tác/họp)" },
+  { value: "khac", label: "Khác" },
+];
+const FAULT_LABEL: Record<string, string> = Object.fromEntries(FAULT_OPTIONS.map((o) => [o.value, o.label]));
 
 function fmtDateTime(s: string | null | undefined): string {
   if (!s) return "—";
@@ -32,6 +46,18 @@ function fmtDateTime(s: string | null | undefined): string {
   return Number.isNaN(d.getTime())
     ? s
     : d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+
+/** "HH:MM:SS" đã trôi kể từ mốc `fromIso` (coi chuỗi thiếu nhãn là UTC như fmtDateTime). */
+function fmtElapsed(fromIso: string | null | undefined, now: number): string {
+  if (!fromIso) return "00:00:00";
+  const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(fromIso);
+  const start = new Date(hasTz ? fromIso : `${fromIso}Z`).getTime();
+  let s = Math.max(0, Math.floor((now - start) / 1000));
+  const h = Math.floor(s / 3600); s -= h * 3600;
+  const m = Math.floor(s / 60); s -= m * 60;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(h)}:${p(m)}:${p(s)}`;
 }
 
 /** Promise wrapper quanh navigator.geolocation. */
@@ -58,11 +84,17 @@ function geoErrText(e: unknown): string {
   return "Không lấy được vị trí.";
 }
 
-export function ChamCongPage() {
+export function ChamCongPage({ navigate, focusEmployeeId }: { navigate?: NavigateFn; focusEmployeeId?: number }) {
   const { token } = useAuth();
   const can = useCan();
-  const canConfig = can("nhan_su", "update");
+  const canConfig = can("nhan_su", "update");   // cấu hình điểm/ca
+  const canView = can("nhan_su", "read");       // xem toàn xưởng (theo scope)
   const [tab, setTab] = useState<Tab>("me");
+
+  // Liên thông từ Hồ sơ NV → mở "Bảng chấm công" lọc đúng NV đó.
+  useEffect(() => {
+    if (focusEmployeeId && canView) setTab("logs");
+  }, [focusEmployeeId, canView]);
 
   return (
     <main className="ns">
@@ -75,29 +107,38 @@ export function ChamCongPage() {
 
       <nav className="ns-tabs cc-tabs">
         <button className={tab === "me" ? "is-active" : ""} onClick={() => setTab("me")}>Chấm công của tôi</button>
+        <button className={tab === "my-timesheet" ? "is-active" : ""} onClick={() => setTab("my-timesheet")}>Công của tôi</button>
         {canConfig && <button className={tab === "locations" ? "is-active" : ""} onClick={() => setTab("locations")}>Điểm chấm công</button>}
         {canConfig && <button className={tab === "khai-ca" ? "is-active" : ""} onClick={() => setTab("khai-ca")}>Khai ca</button>}
-        <button className={tab === "logs" ? "is-active" : ""} onClick={() => setTab("logs")}>Bảng chấm công</button>
-        <button className={tab === "timesheet" ? "is-active" : ""} onClick={() => setTab("timesheet")}>Bảng công tháng</button>
+        {canView && <button className={tab === "logs" ? "is-active" : ""} onClick={() => setTab("logs")}>Bảng chấm công</button>}
+        {canView && <button className={tab === "timesheet" ? "is-active" : ""} onClick={() => setTab("timesheet")}>Bảng công tháng</button>}
+        {canView && <button className={tab === "yeu-cau" ? "is-active" : ""} onClick={() => setTab("yeu-cau")}>Yêu cầu chỉnh công</button>}
       </nav>
 
-      {tab === "me" && <MyCheckIn token={token!} canConfig={canConfig} />}
+      {tab === "me" && <MyCheckIn token={token!} canConfig={canConfig} navigate={navigate} />}
+      {tab === "my-timesheet" && <MyTimesheetTab token={token!} />}
       {tab === "locations" && canConfig && <LocationsTab token={token!} />}
       {tab === "khai-ca" && canConfig && <ShiftsTab token={token!} />}
-      {tab === "logs" && <LogsTab token={token!} />}
-      {tab === "timesheet" && <TimesheetTab token={token!} />}
+      {tab === "logs" && canView && <LogsTab token={token!} focusEmployeeId={focusEmployeeId} />}
+      {tab === "timesheet" && canView && <TimesheetTab token={token!} canAdjust={can("nhan_su", "adjust")} />}
+      {tab === "yeu-cau" && canView && <AdjustRequestsTab token={token!} canAdjust={can("nhan_su", "adjust")} />}
     </main>
   );
 }
 
 // --- Tab: Chấm công của tôi -------------------------------------------------
 
-function MyCheckIn({ token, canConfig }: { token: string; canConfig: boolean }) {
+function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: boolean; navigate?: NavigateFn }) {
   const [status, setStatus] = useState<AttendanceStatus | null>(null);
   const [logs, setLogs] = useState<AttendanceLog[]>([]);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
   const [geoErr, setGeoErr] = useState<string | null>(null);
+  const [preview, setPreview] = useState<AttendancePreview | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
 
   const load = useCallback(() => {
     api.attendance.myStatus(token).then(setStatus).catch(() => setStatus(null));
@@ -105,7 +146,34 @@ function MyCheckIn({ token, canConfig }: { token: string; canConfig: boolean }) 
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
+  // Vòng geofence "sống": lấy GPS + dry-run tới server (không ghi log) để biết trong/ngoài vùng.
+  const refreshPreview = useCallback(async () => {
+    setLocating(true); setGeoErr(null);
+    try {
+      const pos = await getPosition();
+      const p = await api.attendance.preview(token, pos.coords.latitude, pos.coords.longitude);
+      if (mounted.current) setPreview(p);
+    } catch (e) {
+      if (mounted.current) setGeoErr(geoErrText(e));
+    } finally {
+      if (mounted.current) setLocating(false);
+    }
+  }, [token]);
+  useEffect(() => {
+    if (status?.has_employee && status.locations_configured) refreshPreview();
+  }, [status?.has_employee, status?.locations_configured, refreshPreview]);
+
+  // Đồng hồ LIVE khi đang trong ca (lần chấm gần nhất là VÀO → next_action = "out").
+  useEffect(() => {
+    if (status?.next_action !== "out") return;
+    const t = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [status?.next_action]);
+
   async function doCheck() {
+    const isOut = status?.next_action === "out";
+    // Chống bấm nhầm: xác nhận trước khi chấm RA (kết thúc ca).
+    if (isOut && !window.confirm("Bạn sắp chấm RA (kết thúc ca) — đúng không?")) return;
     setChecking(true);
     setResult(null);
     setGeoErr(null);
@@ -114,6 +182,7 @@ function MyCheckIn({ token, canConfig }: { token: string; canConfig: boolean }) 
       const res = await api.attendance.check(token, pos.coords.latitude, pos.coords.longitude);
       setResult(res);
       load();
+      refreshPreview();
     } catch (e) {
       setGeoErr(geoErrText(e));
     } finally {
@@ -158,6 +227,13 @@ function MyCheckIn({ token, canConfig }: { token: string; canConfig: boolean }) 
   }
 
   const isIn = status.next_action === "in";
+  const outside = preview != null && !preview.within_range;
+  const showTimer = status.next_action === "out" && status.last_check?.check_type === "in";
+  const btnDisabled = checking || locating || !status.locations_configured || outside;
+  const btnLabel = checking ? "Đang chấm…"
+    : locating ? "Đang lấy vị trí…"
+    : outside ? `Ngoài vùng — còn ${Math.round(preview!.meters_out ?? 0)} m`
+    : isIn ? "📍 Chấm VÀO" : "📍 Chấm RA";
   return (
     <div className="cc-grid">
       <div className="cc-card">
@@ -168,16 +244,56 @@ function MyCheckIn({ token, canConfig }: { token: string; canConfig: boolean }) 
             : "Chưa có lần chấm công nào."}
         </div>
 
+        {showTimer && (
+          <div className="cc-timer">⏱ Đang làm <b>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b></div>
+        )}
+
+        <div className="cc-today">
+          {status.shift ? (
+            <span className="cc-today__shift">🕒 Ca {status.shift.name} · {status.shift.start_time}–{status.shift.end_time}{status.shift.is_overnight ? " (qua đêm)" : ""}</span>
+          ) : (
+            <span className="cc-today__shift cc-today__shift--none">Chưa gán ca làm việc</span>
+          )}
+          {status.today ? (
+            <span className="cc-today__cong">
+              Hôm nay {status.today.first_in ?? "—"}–{status.today.last_out ?? "…"}
+              {status.today.cong != null ? <> · công dự kiến <b>{status.today.cong}</b></> : null}
+              {status.today.ot_minutes ? <> · OT {status.today.ot_minutes}′</> : null}
+            </span>
+          ) : (
+            <span className="cc-today__cong cc-today__cong--none">Hôm nay chưa có lượt chấm.</span>
+          )}
+          {status.today?.reason && <span className="cc-chip cc-chip--warn">⚠ {status.today.reason}</span>}
+        </div>
+
+        {status.locations_configured && (
+          <div className={`cc-geo ${locating ? "cc-geo--wait" : preview?.within_range ? "cc-geo--in" : preview ? "cc-geo--out" : ""}`}>
+            <span className="cc-geo__text">
+              {locating ? "📡 Đang lấy vị trí…"
+                : preview?.within_range ? `✓ Trong phạm vi “${preview.nearest_name}” · cách ${Math.round(preview.distance_m ?? 0)} m`
+                : preview ? `⊘ Ngoài phạm vi “${preview.nearest_name}” · còn cách ${Math.round(preview.meters_out ?? 0)} m`
+                : "Bấm 🔄 để kiểm tra phạm vi."}
+            </span>
+            <button className="cc-geo__refresh" onClick={refreshPreview} disabled={locating} title="Cập nhật vị trí">🔄</button>
+          </div>
+        )}
+
         <button
-          className={`cc-bigbtn ${isIn ? "cc-bigbtn--in" : "cc-bigbtn--out"}`}
+          className={`cc-bigbtn ${outside ? "cc-bigbtn--locked" : isIn ? "cc-bigbtn--in" : "cc-bigbtn--out"}`}
           onClick={doCheck}
-          disabled={checking || !status.locations_configured}
+          disabled={btnDisabled}
         >
-          {checking ? "Đang lấy vị trí…" : isIn ? "📍 Chấm VÀO" : "📍 Chấm RA"}
+          {btnLabel}
         </button>
 
         {!status.locations_configured && (
           <p className="cc-note">Chưa có điểm chấm công nào được khai — liên hệ HCNS.</p>
+        )}
+
+        {navigate && (
+          <button className="btn btn--ghost cc-leavebtn" onClick={() => navigate("nghi-phep")}>
+            🏖 Xin nghỉ phép
+          </button>
         )}
 
         {geoErr && <div className="banner banner--error" style={{ marginTop: 12 }}>{geoErr}</div>}
@@ -205,6 +321,154 @@ function MyCheckIn({ token, canConfig }: { token: string; canConfig: boolean }) 
       <div className="cc-logs">
         <h4 className="ns-section__title">Lịch sử của tôi</h4>
         <AttendanceTable logs={logs} showEmployee={false} />
+      </div>
+    </div>
+  );
+}
+
+// --- Tab: Công của tôi (self-service timesheet) -----------------------------
+
+function MyTimesheetTab({ token }: { token: string }) {
+  const [ym, setYm] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [data, setData] = useState<Timesheet | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [reqs, setReqs] = useState<AdjustRequest[]>([]);
+  const [reqDate, setReqDate] = useState<string | null>(null);   // ngày đang xin chỉnh (mở modal)
+  const [year, month] = ym.split("-").map(Number);
+
+  useEffect(() => {
+    setLoading(true);
+    api.attendance.myTimesheet(token, year, month)
+      .then(setData).catch(() => setData(null)).finally(() => setLoading(false));
+  }, [token, year, month]);
+
+  const loadReqs = useCallback(() => {
+    api.attendance.myAdjustRequests(token).then((r) => setReqs(r.items)).catch(() => setReqs([]));
+  }, [token]);
+  useEffect(() => { loadReqs(); }, [loadReqs]);
+
+  function openReq(dayNum: number) {
+    setReqDate(`${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`);
+  }
+
+  const days = data ? Array.from({ length: data.days_in_month }, (_, i) => i + 1) : [];
+  const row = data?.rows[0] ?? null;
+  return (
+    <div>
+      <div className="cc-toolbar cc-ts-toolbar">
+        <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+        <span className="cc-ts-legend">
+          Ô = <b>công theo ca</b> (0,94…) hoặc số giờ nếu chưa gán ca ·
+          <span className="cc-day cc-day--on cc-late">muộn</span>
+          <span className="cc-day cc-day--on cc-early">sớm</span>
+          <span className="cc-day cc-day--on">•<sup className="cc-ot">+</sup></span>OT ·
+          <span className="cc-day cc-day--on cc-leave">P</span>nghỉ · <b>bấm ô</b> để xin chỉnh công
+        </span>
+      </div>
+      {loading && <p className="ns__empty">Đang tải…</p>}
+      {!loading && !row && <p className="ns__empty">Tháng này bạn chưa có dữ liệu chấm công.</p>}
+      {!loading && row && (
+        <div className="ns__tablewrap cc-timesheet">
+          <table className="ns__table">
+            <thead>
+              <tr>
+                <th>Mã</th><th>Họ tên</th><th>Ca</th>
+                {days.map((d) => <th key={d} className="cc-day">{d}</th>)}
+                <th className="cc-total">Công</th><th className="cc-total">Giờ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <TimesheetRowView row={row} days={days} onCellClick={openReq} />
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {reqs.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h4 className="ns-section__title">Yêu cầu chỉnh công của tôi</h4>
+          <div className="ns__tablewrap">
+            <table className="ns__table">
+              <thead><tr><th>Ngày</th><th>Chấm</th><th>Giờ</th><th>Lý do</th><th>Trạng thái</th><th></th></tr></thead>
+              <tbody>
+                {reqs.map((r) => (
+                  <tr key={r.id}>
+                    <td>{r.work_date}</td>
+                    <td>{r.check_type === "in" ? "VÀO" : "RA"}</td>
+                    <td>{r.suggested_time ?? "—"}</td>
+                    <td>{r.reason}{r.decision_note ? ` · (${r.decision_note})` : ""}</td>
+                    <td>{statusBadge(r.status)}</td>
+                    <td>{r.status === "pending" && (
+                      <button className="btn btn--ghost" onClick={() => api.attendance.cancelAdjustRequest(token, r.id).then(loadReqs)}>Hủy</button>
+                    )}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {reqDate && (
+        <RequestAdjustModal token={token} date={reqDate}
+          onClose={() => setReqDate(null)} onSaved={() => { setReqDate(null); loadReqs(); }} />
+      )}
+    </div>
+  );
+}
+
+// NV gửi yêu cầu chỉnh công cho 1 ngày (self-service).
+function RequestAdjustModal({ token, date, onClose, onSaved }: {
+  token: string; date: string; onClose: () => void; onSaved: () => void;
+}) {
+  const [checkType, setCheckType] = useState<"in" | "out">("out");
+  const [time, setTime] = useState("");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit() {
+    if (!reason.trim()) { setError("Phải nhập lý do."); return; }
+    setBusy(true); setError(null);
+    try {
+      await api.attendance.createAdjustRequest(token, {
+        date, check_type: checkType, suggested_time: time || null, reason: reason.trim(),
+      });
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Lỗi khi gửi yêu cầu.");
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box">
+        <header className="ns-modal__head">
+          <h2>Xin chỉnh công · {date}</h2>
+          <button className="ns-modal__x" onClick={onClose}>×</button>
+        </header>
+        <div className="ns-modal__body">
+          {error && <div className="banner banner--error">{error}</div>}
+          <div className="ns-grid">
+            <label className="ns-field"><span className="ns-field__label">Chấm còn thiếu</span>
+              <select value={checkType} onChange={(e) => setCheckType(e.target.value as "in" | "out")}>
+                <option value="in">VÀO</option><option value="out">RA</option>
+              </select></label>
+            <label className="ns-field"><span className="ns-field__label">Giờ (gợi ý, không bắt buộc)</span>
+              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></label>
+          </div>
+          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Lý do (bắt buộc)</span>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="vd: Quên chấm ra vì máy hết pin…" /></label>
+          <p className="cc-note">Yêu cầu sẽ gửi HCNS duyệt. Được duyệt thì công tự cập nhật.</p>
+        </div>
+        <footer className="ns-modal__foot">
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn--primary" onClick={submit} disabled={busy}>{busy ? "Đang gửi…" : "Gửi yêu cầu"}</button>
+        </footer>
       </div>
     </div>
   );
@@ -350,13 +614,51 @@ function LocationForm({ token, location, onClose, onSaved }: {
 
 // --- Tab: Bảng chấm công (HR) -----------------------------------------------
 
-function LogsTab({ token }: { token: string }) {
+function LogsTab({ token, focusEmployeeId }: { token: string; focusEmployeeId?: number }) {
   const [items, setItems] = useState<AttendanceLog[] | null>(null);
+  const [focus, setFocus] = useState<number | undefined>(focusEmployeeId);
+  useEffect(() => setFocus(focusEmployeeId), [focusEmployeeId]);
   useEffect(() => {
-    api.attendance.logs(token).then((r) => setItems(r.items)).catch(() => setItems([]));
+    api.attendance.logs(token, focus).then((r) => setItems(r.items)).catch(() => setItems([]));
+  }, [token, focus]);
+  const focusName = focus ? items?.find((l) => l.employee_id === focus)?.employee_name : undefined;
+  return (
+    <div>
+      {focus != null && (
+        <div className="cc-focus">
+          <span>Đang xem chấm công của <b>{focusName ?? `NV #${focus}`}</b></span>
+          <button type="button" className="btn btn--ghost" onClick={() => setFocus(undefined)}>✕ Bỏ lọc — xem cả xưởng</button>
+        </div>
+      )}
+      {focus == null && <KpiStrip token={token} />}
+      {!items ? <p className="ns__empty">Đang tải…</p> : <AttendanceTable logs={items} showEmployee={focus == null} />}
+    </div>
+  );
+}
+
+// Dải KPI giám sát hôm nay (theo scope): đang có mặt / quên chấm RA / đi muộn / YC chờ duyệt.
+function KpiStrip({ token }: { token: string }) {
+  const [kpi, setKpi] = useState<TodayKpi | null>(null);
+  useEffect(() => {
+    api.attendance.kpi(token).then(setKpi).catch(() => setKpi(null));
   }, [token]);
-  if (!items) return <p className="ns__empty">Đang tải…</p>;
-  return <AttendanceTable logs={items} showEmployee />;
+  if (!kpi) return null;
+  const cards: { label: string; value: number; tone: string }[] = [
+    { label: "Đang có mặt", value: kpi.present_now, tone: "in" },
+    { label: "Quên chấm RA", value: kpi.missing_out, tone: "out" },
+    { label: "Đi muộn hôm nay", value: kpi.late_today, tone: "late" },
+    { label: "YC chờ duyệt", value: kpi.pending_requests, tone: "pending" },
+  ];
+  return (
+    <div className="cc-kpi">
+      {cards.map((c) => (
+        <div key={c.label} className={`cc-kpi__card cc-kpi--${c.tone}`}>
+          <div className="cc-kpi__value">{c.value}</div>
+          <div className="cc-kpi__label">{c.label}</div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // --- Tab: Bảng công tháng (HR) ----------------------------------------------
@@ -404,10 +706,100 @@ function ShiftsTab({ token }: { token: string }) {
           </tbody>
         </table>
       </div>
+      <AssignShiftPanel token={token} shifts={items ?? []} />
+
       {editing && (
         <ShiftForm token={token} shift={editing === "new" ? null : editing}
           onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       )}
+    </div>
+  );
+}
+
+// Gán ca mặc định cho nhân viên (đơn lẻ auto-save + gán hàng loạt theo bộ lọc).
+function AssignShiftPanel({ token, shifts }: { token: string; shifts: WorkShift[] }) {
+  const [emps, setEmps] = useState<EmployeeRow[] | null>(null);
+  const [deptFilter, setDeptFilter] = useState<number | "">("");
+  const [bulkShift, setBulkShift] = useState<number | "">("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api.employees.list(token, { size: 200, sort: "code" })
+      .then((r) => setEmps(r.items)).catch(() => setEmps([]));
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+
+  const depts = Array.from(
+    new Map((emps ?? []).filter((e) => e.department_id != null)
+      .map((e) => [e.department_id!, e.department_name ?? `Phòng #${e.department_id}`])).entries()
+  );
+  const shown = (emps ?? []).filter((e) => deptFilter === "" || e.department_id === deptFilter);
+
+  async function assignOne(id: number, shiftId: number | null) {
+    setMsg(null);
+    await api.employees.setShift(token, id, shiftId);
+    setEmps((list) => (list ?? []).map((e) => (e.id === id ? { ...e, default_shift_id: shiftId } : e)));
+  }
+
+  async function applyBulk() {
+    if (bulkShift === "" || !shown.length) return;
+    setBusy(true); setMsg(null);
+    try {
+      for (const e of shown) await assignOne(e.id, bulkShift);
+      setMsg(`Đã gán ca cho ${shown.length} nhân viên.`);
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Lỗi khi gán ca.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="cc-assign">
+      <h4 className="ns-section__title">Gán ca mặc định</h4>
+      <p className="cc-note">Ca mặc định dùng để tính công ở Bảng công tháng. Chọn ca ở từng dòng để lưu ngay,
+        hoặc lọc theo phòng/tổ rồi “Gán hàng loạt”.</p>
+      <div className="cc-toolbar cc-assign__bar">
+        <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value === "" ? "" : Number(e.target.value))}>
+          <option value="">Tất cả phòng/tổ</option>
+          {depts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        </select>
+        <select value={bulkShift} onChange={(e) => setBulkShift(e.target.value === "" ? "" : Number(e.target.value))}>
+          <option value="">— chọn ca để gán hàng loạt —</option>
+          {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time}–{s.end_time})</option>)}
+        </select>
+        <button className="btn btn--ghost" onClick={applyBulk} disabled={busy || bulkShift === "" || !shown.length}>
+          {busy ? "Đang gán…" : `Gán hàng loạt (${shown.length})`}
+        </button>
+        {msg && <span className="cc-assign__msg">{msg}</span>}
+      </div>
+      <div className="ns__tablewrap">
+        <table className="ns__table">
+          <thead>
+            <tr><th>Mã</th><th>Họ tên</th><th>Phòng/Tổ</th><th>Ca mặc định</th></tr>
+          </thead>
+          <tbody>
+            {shown.map((e) => (
+              <tr key={e.id}>
+                <td className="ns__code">{e.code}</td>
+                <td>{e.full_name}</td>
+                <td>{e.department_name ?? "—"}</td>
+                <td>
+                  <select
+                    value={e.default_shift_id ?? ""}
+                    onChange={(ev) => assignOne(e.id, ev.target.value === "" ? null : Number(ev.target.value))}
+                  >
+                    <option value="">— chưa gán —</option>
+                    {shifts.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+            {emps && shown.length === 0 && <tr><td colSpan={4} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -474,7 +866,7 @@ function ShiftForm({ token, shift, onClose, onSaved }: {
   );
 }
 
-function TimesheetTab({ token }: { token: string }) {
+function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean }) {
   const [ym, setYm] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -482,18 +874,31 @@ function TimesheetTab({ token }: { token: string }) {
   const [data, setData] = useState<Timesheet | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [deptId, setDeptId] = useState<number | "">("");
+  const [depts, setDepts] = useState<{ id: number; name: string }[]>([]);
+  const [openDay, setOpenDay] = useState<{ employeeId: number; employeeName: string; date: string } | null>(null);
   const [year, month] = ym.split("-").map(Number);
 
   useEffect(() => {
+    api.employees.meta(token).then((m) => setDepts(m.departments)).catch(() => setDepts([]));
+  }, [token]);
+
+  const reload = useCallback(() => {
     setLoading(true);
-    api.attendance.timesheet(token, year, month)
+    api.attendance.timesheet(token, year, month, deptId === "" ? null : deptId)
       .then(setData).catch(() => setData(null)).finally(() => setLoading(false));
-  }, [token, year, month]);
+  }, [token, year, month, deptId]);
+  useEffect(() => { reload(); }, [reload]);
+
+  function openCell(employeeId: number, employeeName: string, dayNum: number) {
+    const date = `${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+    setOpenDay({ employeeId, employeeName, date });
+  }
 
   async function exportCsv() {
     setDownloading(true);
     try {
-      const url = await api.attendance.timesheetCsvBlobUrl(token, year, month);
+      const url = await api.attendance.timesheetCsvBlobUrl(token, year, month, deptId === "" ? null : deptId);
       const a = document.createElement("a");
       a.href = url;
       a.download = `bang-cong-${year}-${String(month).padStart(2, "0")}.csv`;
@@ -511,6 +916,10 @@ function TimesheetTab({ token }: { token: string }) {
     <div>
       <div className="cc-toolbar cc-ts-toolbar">
         <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+        <select value={deptId} onChange={(e) => setDeptId(e.target.value === "" ? "" : Number(e.target.value))}>
+          <option value="">Tất cả phòng/tổ</option>
+          {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
         <button className="btn btn--ghost" onClick={exportCsv} disabled={downloading || !data?.rows.length}>
           {downloading ? "Đang xuất…" : "⬇ Xuất CSV"}
         </button>
@@ -519,6 +928,7 @@ function TimesheetTab({ token }: { token: string }) {
           <span className="cc-day cc-day--on cc-late">muộn</span>
           <span className="cc-day cc-day--on cc-early">sớm</span>
           <span className="cc-day cc-day--on">•<sup className="cc-ot">+</sup></span>OT
+          {canAdjust && <> · <b>bấm vào ô</b> để xem/chấm bù</>}
         </span>
       </div>
       {loading && <p className="ns__empty">Đang tải…</p>}
@@ -533,7 +943,10 @@ function TimesheetTab({ token }: { token: string }) {
               </tr>
             </thead>
             <tbody>
-              {data.rows.map((r) => <TimesheetRowView key={r.employee_id} row={r} days={days} />)}
+              {data.rows.map((r) => (
+                <TimesheetRowView key={r.employee_id} row={r} days={days}
+                  onCellClick={(dayNum) => openCell(r.employee_id, r.employee_name, dayNum)} />
+              ))}
               {data.rows.length === 0 && (
                 <tr><td colSpan={days.length + 5} className="ns__empty">Chưa có dữ liệu chấm công tháng này.</td></tr>
               )}
@@ -541,11 +954,25 @@ function TimesheetTab({ token }: { token: string }) {
           </table>
         </div>
       )}
+      {openDay && (
+        <DayDetailModal
+          token={token} canAdjust={canAdjust}
+          employeeId={openDay.employeeId} employeeName={openDay.employeeName} date={openDay.date}
+          onClose={() => setOpenDay(null)}
+          onChanged={reload}
+        />
+      )}
     </div>
   );
 }
 
-function TimesheetRowView({ row, days }: { row: TimesheetRow; days: number[] }) {
+function TimesheetRowView({ row, days, onCellClick }: {
+  row: TimesheetRow; days: number[]; onCellClick?: (dayNum: number) => void;
+}) {
+  const clickable = !!onCellClick;
+  const cellProps = (d: number) => clickable
+    ? { role: "button" as const, tabIndex: 0, onClick: () => onCellClick!(d), style: { cursor: "pointer" } }
+    : {};
   return (
     <tr>
       <td className="ns__code">{row.employee_code}</td>
@@ -553,10 +980,10 @@ function TimesheetRowView({ row, days }: { row: TimesheetRow; days: number[] }) 
       <td>{row.shift_name ?? "—"}</td>
       {days.map((d) => {
         const day = row.days[String(d)];
-        if (!day) return <td key={d} className="cc-day" />;
+        if (!day) return <td key={d} className="cc-day" {...cellProps(d)} />;
         if (day.leave) {
           return (
-            <td key={d} className="cc-day cc-day--on cc-leave" title={`Nghỉ: ${day.leave}`}>
+            <td key={d} className="cc-day cc-day--on cc-leave" title={`Nghỉ: ${day.leave}`} {...cellProps(d)}>
               {day.leave_paid ? "P" : "KL"}
             </td>
           );
@@ -568,7 +995,7 @@ function TimesheetRowView({ row, days }: { row: TimesheetRow; days: number[] }) 
           + (day.late ? " · đi muộn" : "") + (day.early ? " · về sớm" : "")
           + (day.ot_minutes ? ` · OT ${day.ot_minutes}′` : "") + (day.night ? " · ca đêm" : "");
         return (
-          <td key={d} className={cls} title={tip}>
+          <td key={d} className={cls} title={tip} {...cellProps(d)}>
             {label}{day.ot_minutes ? <sup className="cc-ot">+</sup> : null}
           </td>
         );
@@ -576,6 +1003,217 @@ function TimesheetRowView({ row, days }: { row: TimesheetRow; days: number[] }) 
       <td className="cc-total">{row.total_cong != null ? row.total_cong : row.total_days}</td>
       <td className="cc-total">{row.total_hours}h</td>
     </tr>
+  );
+}
+
+// "Ô biết nói": chi tiết punch 1 ngày của 1 NV + chấm bù/sửa (fault_party) có audit.
+
+function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onClose, onChanged }: {
+  token: string; canAdjust: boolean; employeeId: number; employeeName: string; date: string;
+  onClose: () => void; onChanged: () => void;
+}) {
+  const [detail, setDetail] = useState<DayDetail | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [checkType, setCheckType] = useState<"in" | "out">("in");
+  const [time, setTime] = useState("08:00");
+  const [fault, setFault] = useState("nv_quen");
+  const [reason, setReason] = useState("");
+
+  const load = useCallback(() => {
+    api.attendance.day(token, employeeId, date).then(setDetail).catch(() => setDetail(null));
+  }, [token, employeeId, date]);
+  useEffect(() => { load(); }, [load]);
+
+  async function addPunch() {
+    if (!reason.trim()) { setError("Phải nhập lý do."); return; }
+    setBusy(true); setError(null);
+    try {
+      const d = await api.attendance.adjust(token, {
+        employee_id: employeeId, date, check_type: checkType, time, reason: reason.trim(), fault_party: fault,
+      });
+      setDetail(d); setReason(""); onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Lỗi khi chấm bù.");
+    } finally { setBusy(false); }
+  }
+
+  async function removePunch(logId: number) {
+    setBusy(true); setError(null);
+    try {
+      const d = await api.attendance.deleteManualLog(token, logId, employeeId, date);
+      setDetail(d); onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Lỗi khi xóa.");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box">
+        <header className="ns-modal__head">
+          <h2>Chi tiết chấm công · {employeeName} · {date}</h2>
+          <button className="ns-modal__x" onClick={onClose}>×</button>
+        </header>
+        <div className="ns-modal__body">
+          {error && <div className="banner banner--error">{error}</div>}
+          {!detail ? <p className="ns__empty">Đang tải…</p> : (
+            <>
+              <p className="cc-note" style={{ marginTop: 0 }}>
+                Ca: <b>{detail.shift_name ?? "chưa gán"}</b> · Công:{" "}
+                <b>{detail.cong != null ? detail.cong : "—"}</b>
+                {detail.reason && <span className="cc-chip cc-chip--warn" style={{ marginLeft: 8 }}>⚠ {detail.reason}</span>}
+              </p>
+              <div className="ns__tablewrap">
+                <table className="ns__table">
+                  <thead><tr><th>Giờ</th><th>Chấm</th><th>Nguồn</th><th>Lý do / nguyên nhân</th><th></th></tr></thead>
+                  <tbody>
+                    {detail.punches.map((p) => (
+                      <tr key={p.id}>
+                        <td>{p.time}</td>
+                        <td>
+                          <span className={`ns-badge ${p.check_type === "in" ? "ns-badge--ok" : "ns-badge--info"}`}>
+                            {p.check_type === "in" ? "VÀO" : "RA"}
+                          </span>
+                        </td>
+                        <td>{p.is_manual ? <span className="ns-badge ns-badge--muted">Chấm bù</span> : "GPS"}</td>
+                        <td>{p.is_manual ? `${p.fault_party ? `[${FAULT_LABEL[p.fault_party] ?? p.fault_party}] ` : ""}${p.adjust_reason ?? ""}` : "—"}</td>
+                        <td>{p.is_manual && canAdjust && (
+                          <button className="btn btn--ghost ns-danger" onClick={() => removePunch(p.id)} disabled={busy}>Xóa</button>
+                        )}</td>
+                      </tr>
+                    ))}
+                    {detail.punches.length === 0 && <tr><td colSpan={5} className="ns__empty">Ngày này chưa có lượt chấm nào.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+
+              {canAdjust && (
+                <div className="cc-adjust">
+                  <h4 className="ns-section__title">Chấm bù / sửa</h4>
+                  <div className="ns-grid">
+                    <label className="ns-field"><span className="ns-field__label">Loại chấm</span>
+                      <select value={checkType} onChange={(e) => setCheckType(e.target.value as "in" | "out")}>
+                        <option value="in">VÀO</option><option value="out">RA</option>
+                      </select></label>
+                    <label className="ns-field"><span className="ns-field__label">Giờ</span>
+                      <input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></label>
+                    <label className="ns-field"><span className="ns-field__label">Nguyên nhân</span>
+                      <select value={fault} onChange={(e) => setFault(e.target.value)}>
+                        {FAULT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select></label>
+                  </div>
+                  <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Lý do (bắt buộc, ghi vào nhật ký)</span>
+                    <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="vd: NV quên chấm ra, đã xác minh…" /></label>
+                  <button className="btn btn--primary" style={{ marginTop: 12 }} onClick={addPunch} disabled={busy}>
+                    {busy ? "Đang lưu…" : "➕ Thêm punch chấm bù"}
+                  </button>
+                  <p className="cc-note">Công được TÍNH LẠI từ các punch — không ghi đè con số. Mọi thao tác ghi nhật ký.</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <footer className="ns-modal__foot">
+          <button className="btn btn--ghost" onClick={onClose}>Đóng</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+// --- Tab: Yêu cầu chỉnh công (HCNS duyệt) -----------------------------------
+
+function statusBadge(s: string) {
+  const map: Record<string, [string, string]> = {
+    pending: ["ns-badge--info", "Chờ duyệt"],
+    approved: ["ns-badge--ok", "Đã duyệt"],
+    rejected: ["ns-badge--muted", "Từ chối"],
+    cancelled: ["ns-badge--muted", "Đã hủy"],
+  };
+  const [cls, label] = map[s] ?? ["ns-badge--muted", s];
+  return <span className={`ns-badge ${cls}`}>{label}</span>;
+}
+
+function AdjustRequestsTab({ token, canAdjust }: { token: string; canAdjust: boolean }) {
+  const [items, setItems] = useState<AdjustRequest[] | null>(null);
+  const [status, setStatus] = useState("pending");
+  const [faults, setFaults] = useState<Record<number, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    api.attendance.listAdjustRequests(token, status).then((r) => setItems(r.items)).catch(() => setItems([]));
+  }, [token, status]);
+  useEffect(() => { load(); }, [load]);
+
+  async function approve(r: AdjustRequest) {
+    setBusy(true); setErr(null);
+    try {
+      await api.attendance.approveAdjustRequest(token, r.id, { fault_party: faults[r.id] ?? r.fault_party ?? "nv_quen" });
+      load();
+    } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi khi duyệt."); }
+    finally { setBusy(false); }
+  }
+  async function reject(r: AdjustRequest) {
+    const note = window.prompt("Lý do từ chối yêu cầu:");
+    if (!note) return;
+    setBusy(true); setErr(null);
+    try { await api.attendance.rejectAdjustRequest(token, r.id, note); load(); }
+    catch (e) { setErr(e instanceof Error ? e.message : "Lỗi khi từ chối."); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div>
+      <div className="cc-toolbar cc-ts-toolbar">
+        <select value={status} onChange={(e) => setStatus(e.target.value)}>
+          <option value="pending">Chờ duyệt</option>
+          <option value="approved">Đã duyệt</option>
+          <option value="rejected">Từ chối</option>
+          <option value="all">Tất cả</option>
+        </select>
+        <span className="cc-note">Duyệt = sinh punch chấm bù, công tự tính lại (có nhật ký).</span>
+      </div>
+      {err && <div className="banner banner--error">{err}</div>}
+      {!items ? <p className="ns__empty">Đang tải…</p> : (
+        <div className="ns__tablewrap">
+          <table className="ns__table">
+            <thead>
+              <tr><th>Nhân viên</th><th>Ngày</th><th>Chấm</th><th>Giờ</th><th>Lý do</th><th>Trạng thái</th>
+                {canAdjust && <th>Xử lý</th>}</tr>
+            </thead>
+            <tbody>
+              {items.map((r) => (
+                <tr key={r.id}>
+                  <td>{r.employee_name ?? `NV#${r.employee_id}`}</td>
+                  <td>{r.work_date}</td>
+                  <td><span className={`ns-badge ${r.check_type === "in" ? "ns-badge--ok" : "ns-badge--info"}`}>{r.check_type === "in" ? "VÀO" : "RA"}</span></td>
+                  <td>{r.suggested_time ?? "—"}</td>
+                  <td>{r.reason}{r.decision_note ? ` · (${r.decision_note})` : ""}</td>
+                  <td>{statusBadge(r.status)}</td>
+                  {canAdjust && (
+                    <td className="cc-rowact">
+                      {r.status === "pending" ? (
+                        <>
+                          <select value={faults[r.id] ?? r.fault_party ?? "nv_quen"}
+                            onChange={(e) => setFaults((f) => ({ ...f, [r.id]: e.target.value }))}>
+                            {FAULT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                          </select>
+                          <button className="btn btn--primary" onClick={() => approve(r)} disabled={busy}>Duyệt</button>
+                          <button className="btn btn--ghost ns-danger" onClick={() => reject(r)} disabled={busy}>Từ chối</button>
+                        </>
+                      ) : "—"}
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {items.length === 0 && <tr><td colSpan={canAdjust ? 7 : 6} className="ns__empty">Không có yêu cầu nào.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 

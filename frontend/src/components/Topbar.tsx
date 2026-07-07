@@ -12,11 +12,27 @@ import "./topbar.css";
 interface TopbarProps {
   /** Open a profile panel by key (feat-019..022 wire these). */
   onProfileAction?: (action: "info" | "name" | "avatar" | "password") => void;
+  /** Chuông: số đơn nghỉ của tôi vừa được quyết mà chưa xem. */
+  leaveUnseen?: number;
+  /** Bấm chuông → mở Nghỉ phép (Đơn của tôi) + đánh dấu đã xem. */
+  onOpenLeave?: () => void;
 }
 
-export function Topbar({ onProfileAction }: TopbarProps) {
+export function Topbar({ onProfileAction, leaveUnseen = 0, onOpenLeave }: TopbarProps) {
   return (
     <header className="topbar">
+      {onOpenLeave && (
+        <button
+          type="button"
+          className="tb-bell"
+          aria-label={leaveUnseen > 0 ? `${leaveUnseen} thông báo nghỉ phép mới` : "Thông báo"}
+          title={leaveUnseen > 0 ? `${leaveUnseen} đơn nghỉ vừa được duyệt/từ chối` : "Thông báo"}
+          onClick={onOpenLeave}
+        >
+          <Icon name="bell" size={18} />
+          {leaveUnseen > 0 && <span className="tb-bell__badge">{leaveUnseen > 9 ? "9+" : leaveUnseen}</span>}
+        </button>
+      )}
       <UserWidget onProfileAction={onProfileAction} />
     </header>
   );

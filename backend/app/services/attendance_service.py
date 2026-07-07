@@ -14,7 +14,19 @@ import calendar
 import math
 from datetime import date, datetime, timedelta, timezone
 
-from ..models.attendance import CHECK_IN, CHECK_OUT, WorkLocation, WorkShift
+from ..models.attendance import (
+    CHECK_IN,
+    CHECK_OUT,
+    CHECK_TYPES,
+    FAULT_PARTIES,
+    REQ_APPROVED,
+    REQ_CANCELLED,
+    REQ_PENDING,
+    REQ_REJECTED,
+    WorkLocation,
+    WorkShift,
+)
+from ..models.role import SCOPE_ALL
 from ..repositories.attendance_repo import AttendanceRepository
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
@@ -65,19 +77,27 @@ def compute_day_cong(
       • Đủ giờ (đúng giờ + ra ≥ giờ ca) ⇒ 1,00. Đi muộn/về sớm ⇒ giảm theo tỷ lệ (0,94…).
       • Thiếu chấm ra ⇒ 0 công (đánh dấu incomplete).
       • OT = phút ra vượt giờ ca (tính riêng, KHÔNG cộng vào công).
-    `*_min` = phút-từ-nửa-đêm (giờ VN). Ca qua đêm chỉ gần đúng (in/out khác ngày lịch)."""
-    window = (1440 - start_min + end_min) if is_overnight else (end_min - start_min)
+    `*_min` = phút-từ-nửa-đêm (giờ VN). Ca qua đêm: giờ RA/vào sau nửa đêm được ánh xạ +1440 lên
+    trục thời gian tuyến tính của ca (ra 06:00 → 1800) để tính đúng theo NGÀY VÀO ca."""
+    end_ref = (end_min + 1440) if is_overnight else end_min
+    window = end_ref - start_min
     if window <= 0:
         return {"cong": 0.0, "late": False, "early": False, "ot_minutes": 0, "incomplete": True}
 
-    late = first_in_min > start_min + grace_min
-    effective_in = start_min if first_in_min <= start_min + grace_min else first_in_min
+    def _lin(m: int) -> int:
+        # Ca đêm: mốc rơi vào rạng sáng (≤ giờ RA) thuộc phần sau nửa đêm của ca → +1440.
+        return m + 1440 if (is_overnight and m <= end_min) else m
+
+    fin = _lin(first_in_min)
+    late = fin > start_min + grace_min
+    effective_in = start_min if fin <= start_min + grace_min else fin
     if last_out_min is None:
         return {"cong": 0.0, "late": late, "early": False, "ot_minutes": 0, "incomplete": True}
 
-    early = last_out_min < end_min
-    ot_minutes = max(0, last_out_min - end_min)
-    worked = min(last_out_min, end_min) - max(effective_in, start_min)
+    lout = _lin(last_out_min)
+    early = lout < end_ref
+    ot_minutes = max(0, lout - end_ref)
+    worked = min(lout, end_ref) - max(effective_in, start_min)
     worked = max(0, min(worked, window))
     cong = min(1.0, round(worked / window, 2))
     return {"cong": cong, "late": late, "early": early, "ot_minutes": ot_minutes, "incomplete": False}
@@ -241,15 +261,57 @@ class AttendanceService:
         last = self.attendance.last_log(employee_id)
         return CHECK_OUT if (last is not None and last.check_type == CHECK_IN) else CHECK_IN
 
+    def _today_summary(self, emp, shift) -> dict | None:
+        """Tóm tắt chấm công HÔM NAY (giờ VN) của NV cho khối 'Hôm nay của tôi': giờ vào/ra,
+        công dự kiến, và LÝ DO khi công < đủ (thiếu chấm RA / vào trễ / về sớm / chưa gán ca)."""
+        today = datetime.now(timezone.utc).astimezone(VN_TZ).date()
+        entries = []
+        for lg in self.attendance.list_by_employee(emp.id, limit=20):
+            local = _as_utc(lg.checked_at).astimezone(VN_TZ)
+            wd = local.date()
+            if shift is not None and shift.is_overnight and (local.hour * 60 + local.minute) <= shift.end_minute:
+                wd = (local - timedelta(days=1)).date()
+            if wd == today:
+                entries.append((local, lg.check_type))
+        if not entries:
+            return None
+        entries.sort(key=lambda x: x[0])
+        ins = [t for t, ct in entries if ct == CHECK_IN]
+        outs = [t for t, ct in entries if ct == CHECK_OUT]
+        first_in = ins[0] if ins else entries[0][0]
+        last_out = outs[-1] if outs else None
+        out = {"first_in": first_in.strftime("%H:%M"),
+               "last_out": last_out.strftime("%H:%M") if last_out else None,
+               "cong": None, "late": False, "early": False, "ot_minutes": 0, "reason": None}
+        if shift is None:
+            out["reason"] = "Chưa gán ca làm việc"
+            return out
+        info = compute_day_cong(
+            start_min=shift.start_minute, end_min=shift.end_minute,
+            is_overnight=shift.is_overnight, grace_min=shift.grace_minutes,
+            first_in_min=first_in.hour * 60 + first_in.minute,
+            last_out_min=(last_out.hour * 60 + last_out.minute) if last_out else None,
+        )
+        out.update(cong=info["cong"], late=info["late"], early=info["early"], ot_minutes=info["ot_minutes"])
+        if info["incomplete"]:
+            out["reason"] = "Chưa chấm RA"
+        elif info["cong"] < 1.0:
+            out["reason"] = ("Vào trễ và về sớm" if info["late"] and info["early"]
+                             else "Vào trễ quá dung sai" if info["late"]
+                             else "Về sớm" if info["early"] else None)
+        return out
+
     def my_status(self, *, user) -> dict:
         """What the self-check-in card needs: linked employee, next action, last check,
-        whether any location is configured."""
+        whether any location is configured, ca hôm nay + tóm tắt công hôm nay."""
         emp = self.employees.get_by_user_id(user.id)
         locations = self.attendance.list_locations(active_only=True)
         if emp is None:
             return {"has_employee": False, "employee_name": None, "next_action": None,
-                    "last_check": None, "locations_configured": len(locations) > 0}
+                    "last_check": None, "locations_configured": len(locations) > 0,
+                    "shift": None, "today": None}
         last = self.attendance.last_log(emp.id)
+        shift = self.attendance.get_shift(emp.default_shift_id) if emp.default_shift_id else None
         return {
             "has_employee": True,
             "employee_id": emp.id,
@@ -257,6 +319,38 @@ class AttendanceService:
             "next_action": self._next_check_type(emp.id),
             "last_check": last,
             "locations_configured": len(locations) > 0,
+            "shift": shift,
+            "today": self._today_summary(emp, shift),
+        }
+
+    def preview(self, *, user, latitude, longitude) -> dict:
+        """Dry-run geofence cho card chấm 'sống': tính điểm gần nhất + trong/ngoài phạm vi +
+        còn cách bao nhiêu — KHÔNG ghi log. Dùng để vẽ vòng geofence realtime cho NV."""
+        emp = self._employee_for_user(user)  # chỉ NV có hồ sơ mới preview (self-service)
+        try:
+            lat, lon = float(latitude), float(longitude)
+        except (TypeError, ValueError):
+            raise AttendanceValidationError("Toạ độ gửi lên không hợp lệ.")
+        locations = self.attendance.list_locations(active_only=True)
+        if not locations:
+            return {"locations_configured": False, "within_range": False, "distance_m": None,
+                    "meters_out": None, "nearest_name": None, "radius_m": None,
+                    "next_action": self._next_check_type(emp.id),
+                    "message": "Chưa cấu hình điểm chấm công nào."}
+        nearest, best = None, None
+        for loc in locations:
+            d = haversine_m(lat, lon, float(loc.latitude), float(loc.longitude))
+            if best is None or d < best:
+                best, nearest = d, loc
+        distance = round(best, 1)
+        within = distance <= nearest.radius_m
+        meters_out = 0.0 if within else round(distance - nearest.radius_m, 1)
+        return {
+            "locations_configured": True, "within_range": within, "distance_m": distance,
+            "meters_out": meters_out, "nearest_name": nearest.name, "radius_m": nearest.radius_m,
+            "next_action": self._next_check_type(emp.id),
+            "message": (f"Trong phạm vi '{nearest.name}' (cách {distance:.0f} m)." if within
+                        else f"Ngoài phạm vi '{nearest.name}' — còn cách {meters_out:.0f} m."),
         }
 
     def check(self, *, user, latitude, longitude) -> dict:
@@ -309,33 +403,73 @@ class AttendanceService:
         emp = self._employee_for_user(user)
         return self.attendance.list_by_employee(emp.id, limit=limit)
 
-    def list_logs(self, *, employee_id: int | None = None, limit: int = 100):
-        return self.attendance.list_all(employee_id=employee_id, limit=limit)
+    def _allowed_employee_ids(self, scope, actor) -> set[int] | None:
+        """Tập employee_id mà `actor` được phép xem theo scope. None = không giới hạn (all).
+        department/own → dùng lại EmployeeRepository (đã xử lý actor không có phòng → thu về own)."""
+        if scope is None or scope == SCOPE_ALL:
+            return None
+        return {e.id for e in self.employees.list_scoped_all(scope=scope, actor=actor)}
+
+    def list_logs(self, *, scope=None, actor=None, employee_id: int | None = None, limit: int = 100):
+        """Log chấm công, LỌC THEO SCOPE của người gọi (own/department/all). `employee_id` do
+        client truyền chỉ được chấp nhận nếu nằm trong tập cho phép (ngoài → rỗng, không rò)."""
+        allowed = self._allowed_employee_ids(scope, actor)
+        if employee_id is not None:
+            if allowed is not None and employee_id not in allowed:
+                return []
+            return self.attendance.list_all(employee_ids={employee_id}, limit=limit)
+        return self.attendance.list_all(employee_ids=allowed, limit=limit)
 
     # --- bảng công tháng ----------------------------------------------------
 
-    def monthly_timesheet(self, *, year: int, month: int, department_id: int | None = None) -> dict:
+    def monthly_timesheet(self, *, year: int, month: int, department_id: int | None = None,
+                          scope=None, actor=None, only_employee_id: int | None = None) -> dict:
         """Gom attendance_logs của 1 tháng thành lưới NV × ngày (giờ VN). Mỗi ô ngày:
-        giờ VÀO đầu tiên, giờ RA cuối cùng, số giờ (nếu đủ vào-ra). Không cần bảng mới."""
+        giờ VÀO đầu tiên, giờ RA cuối cùng, số giờ (nếu đủ vào-ra). Không cần bảng mới.
+
+        LỌC THEO SCOPE: `only_employee_id` (self-timesheet) > `scope/actor` (own/department/all).
+        CA ĐÊM: lượt RA rạng sáng ngày N+1 được quy về NGÀY VÀO ca (ngày N)."""
         if not (1 <= month <= 12):
             raise AttendanceValidationError("Tháng phải trong khoảng 1–12.")
         days_in_month = calendar.monthrange(year, month)[1]
 
-        # Mốc tháng theo giờ VN → quy về UTC để truy vấn.
+        if only_employee_id is not None:
+            allowed: set[int] | None = {only_employee_id}
+        else:
+            allowed = self._allowed_employee_ids(scope, actor)
+
+        # Mốc tháng theo giờ VN → quy về UTC để truy vấn. Nới thêm +12h cuối để lấy lượt RA rạng
+        # sáng ngày đầu tháng sau (thuộc ca đêm VÀO ngày cuối tháng này); lượt thừa được lọc theo
+        # "ngày công" ở dưới nên không trùng đếm sang tháng sau.
         start_vn = datetime(year, month, 1, tzinfo=VN_TZ)
         end_vn = (datetime(year + 1, 1, 1, tzinfo=VN_TZ) if month == 12
                   else datetime(year, month + 1, 1, tzinfo=VN_TZ))
         logs = self.attendance.logs_in_range(
-            start_vn.astimezone(timezone.utc), end_vn.astimezone(timezone.utc)
+            start_vn.astimezone(timezone.utc), (end_vn + timedelta(hours=12)).astimezone(timezone.utc)
         )
 
-        # employee_id → { day(int) → [(local_dt, check_type)] }
+        shifts = {s.id: s for s in self.attendance.list_shifts()}
+
+        def _work_day(local: datetime, shift) -> date:
+            """Ngày CÔNG của một lượt chấm: bình thường = ngày lịch; ca đêm + rơi vào rạng sáng
+            (≤ giờ RA của ca) → thuộc ngày VÀO ca liền trước (lùi 1 ngày)."""
+            if shift is not None and shift.is_overnight:
+                if local.hour * 60 + local.minute <= shift.end_minute:
+                    return (local - timedelta(days=1)).date()
+            return local.date()
+
+        # employee_id → { day(int) → [(local_dt, check_type)] } theo NGÀY CÔNG, chỉ trong tháng này.
         by_emp: dict[int, dict[int, list]] = {}
         for lg in logs:
+            if allowed is not None and lg.employee_id not in allowed:
+                continue
+            emp0 = self.employees.get_by_id(lg.employee_id)
+            shift0 = shifts.get(emp0.default_shift_id) if (emp0 and emp0.default_shift_id) else None
             local = _as_utc(lg.checked_at).astimezone(VN_TZ)
-            by_emp.setdefault(lg.employee_id, {}).setdefault(local.day, []).append((local, lg.check_type))
-
-        shifts = {s.id: s for s in self.attendance.list_shifts()}
+            wd = _work_day(local, shift0)
+            if wd.year != year or wd.month != month:
+                continue  # lượt thuộc tháng khác (vd RA rạng sáng ngày 1 → thuộc tháng trước)
+            by_emp.setdefault(lg.employee_id, {}).setdefault(wd.day, []).append((local, lg.check_type))
 
         # Ngày NGHỈ ĐÃ DUYỆT trong tháng: {emp_id → {day → {name, is_paid}}}.
         leave_map: dict[int, dict[int, dict]] = {}
@@ -344,6 +478,8 @@ class AttendanceService:
             last = date(year, month, days_in_month)
             ltypes = {t.id: t for t in self.leaves.list_types()}
             for r in self.leaves.approved_in_range(first, last):
+                if allowed is not None and r.employee_id not in allowed:
+                    continue  # lọc theo scope: chỉ ngày nghỉ của NV trong tầm nhìn người gọi
                 lt = ltypes.get(r.leave_type_id)
                 nm = lt.name if lt is not None else "Nghỉ"
                 paid = lt.is_paid if lt is not None else True
@@ -417,3 +553,271 @@ class AttendanceService:
             })
         rows.sort(key=lambda r: r["employee_code"])
         return {"year": year, "month": month, "days_in_month": days_in_month, "rows": rows}
+
+    def my_timesheet(self, *, user, year: int, month: int) -> dict:
+        """Bảng công tháng CỦA CHÍNH NV đăng nhập (self-service, không cần quyền module).
+        Tái dùng monthly_timesheet với chỉ hồ sơ NV của người gọi."""
+        emp = self._employee_for_user(user)
+        return self.monthly_timesheet(year=year, month=month, only_employee_id=emp.id)
+
+    # --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch nguồn -------------
+
+    def _employee_in_scope(self, employee_id: int, scope, actor):
+        allowed = self._allowed_employee_ids(scope, actor)
+        if allowed is not None and employee_id not in allowed:
+            raise AttendanceNotFound("Nhân viên ngoài phạm vi của bạn.")
+        emp = self.employees.get_by_id(employee_id)
+        if emp is None:
+            raise AttendanceNotFound("Không tìm thấy nhân viên.")
+        return emp
+
+    @staticmethod
+    def _parse_ymd(date_str: str) -> date:
+        try:
+            y, m, d = (int(x) for x in str(date_str).split("-"))
+            return date(y, m, d)
+        except (ValueError, AttributeError):
+            raise AttendanceValidationError("Ngày phải dạng YYYY-MM-DD.")
+
+    def _day_punches(self, emp, shift, the_day: date) -> list:
+        """Các punch thuộc NGÀY CÔNG `the_day` (giờ VN, gồm gộp ca đêm), cũ→mới."""
+        start = datetime(the_day.year, the_day.month, the_day.day, tzinfo=VN_TZ).astimezone(timezone.utc)
+        end = (datetime(the_day.year, the_day.month, the_day.day, tzinfo=VN_TZ)
+               + timedelta(days=1, hours=12)).astimezone(timezone.utc)
+        out = []
+        for lg in self.attendance.list_by_employee_in_range(emp.id, start, end):
+            local = _as_utc(lg.checked_at).astimezone(VN_TZ)
+            wd = local.date()
+            if shift is not None and shift.is_overnight and (local.hour * 60 + local.minute) <= shift.end_minute:
+                wd = (local - timedelta(days=1)).date()
+            if wd == the_day:
+                out.append((local, lg))
+        out.sort(key=lambda x: x[0])
+        return out
+
+    def day_detail(self, *, scope, actor, employee_id: int, date_str: str) -> dict:
+        """'Ô biết nói': punch thật của 1 NV trong 1 ngày + công tính lại + lý do."""
+        emp = self._employee_in_scope(employee_id, scope, actor)
+        the_day = self._parse_ymd(date_str)
+        shift = self.attendance.get_shift(emp.default_shift_id) if emp.default_shift_id else None
+        punches = self._day_punches(emp, shift, the_day)
+        ins = [lc for lc, lg in punches if lg.check_type == CHECK_IN]
+        outs = [lc for lc, lg in punches if lg.check_type == CHECK_OUT]
+        first_in = ins[0] if ins else (punches[0][0] if punches else None)
+        last_out = outs[-1] if outs else None
+        cong = reason = None
+        if shift is not None and first_in is not None:
+            info = compute_day_cong(
+                start_min=shift.start_minute, end_min=shift.end_minute,
+                is_overnight=shift.is_overnight, grace_min=shift.grace_minutes,
+                first_in_min=first_in.hour * 60 + first_in.minute,
+                last_out_min=(last_out.hour * 60 + last_out.minute) if last_out else None,
+            )
+            cong = info["cong"]
+            if info["incomplete"]:
+                reason = "Chưa chấm RA"
+            elif info["cong"] < 1.0:
+                reason = ("Vào trễ và về sớm" if info["late"] and info["early"]
+                          else "Vào trễ quá dung sai" if info["late"]
+                          else "Về sớm" if info["early"] else None)
+        elif shift is None:
+            reason = "Chưa gán ca làm việc"
+        return {
+            "employee_id": emp.id, "employee_name": emp.full_name, "date": date_str,
+            "shift_name": shift.name if shift is not None else None,
+            "cong": cong, "reason": reason,
+            "punches": [{
+                "id": lg.id, "time": lc.strftime("%H:%M"), "check_type": lg.check_type,
+                "is_manual": lg.is_manual, "adjust_reason": lg.adjust_reason,
+                "fault_party": lg.fault_party, "distance_m": float(lg.distance_m) if lg.distance_m is not None else None,
+            } for lc, lg in punches],
+        }
+
+    def _create_manual_punch(self, *, actor, emp, the_day: date, check_type: str,
+                             time_hhmm: str, reason: str, fault_party: str | None):
+        """Tạo 1 punch điều chỉnh tay (dùng chung cho chấm bù trực tiếp & duyệt YC)."""
+        if check_type not in CHECK_TYPES:
+            raise AttendanceValidationError("Loại chấm phải là VÀO hoặc RA.")
+        reason = (reason or "").strip()
+        if not reason:
+            raise AttendanceValidationError("Phải nhập lý do điều chỉnh.")
+        if fault_party is not None and fault_party not in FAULT_PARTIES:
+            raise AttendanceValidationError("Nguyên nhân không hợp lệ.")
+        hh, mm = divmod(_hhmm_to_min(time_hhmm), 60)
+        when_utc = datetime(the_day.year, the_day.month, the_day.day, hh, mm, tzinfo=VN_TZ).astimezone(timezone.utc)
+        log = self.attendance.create_log(
+            employee_id=emp.id, work_location_id=None, check_type=check_type,
+            checked_at=when_utc, within_range=True, is_manual=True,
+            adjust_reason=reason, fault_party=fault_party, created_by_user_id=actor.id,
+        )
+        self.audit.create(
+            actor_user_id=actor.id, action="adjust_attendance",
+            target=f"attendance_log:{log.id}",
+            detail=f"{emp.code} {the_day.isoformat()} {time_hhmm} {check_type} ({fault_party or '-'}): {reason}",
+        )
+        return log
+
+    def adjust(self, *, actor, scope, employee_id: int, date_str: str, check_type: str,
+               time_hhmm: str, reason: str, fault_party: str | None) -> dict:
+        """HCNS thêm 1 PUNCH điều chỉnh tay (chấm bù/sửa) — công tự tính lại từ punch.
+        KHÔNG ghi đè số công. Bắt buộc lý do; ghi audit + người thực hiện."""
+        emp = self._employee_in_scope(employee_id, scope, actor)
+        self._create_manual_punch(actor=actor, emp=emp, the_day=self._parse_ymd(date_str),
+                                  check_type=check_type, time_hhmm=time_hhmm, reason=reason,
+                                  fault_party=fault_party)
+        return self.day_detail(scope=scope, actor=actor, employee_id=emp.id, date_str=date_str)
+
+    def delete_manual(self, *, actor, scope, log_id: int, date_str: str, employee_id: int) -> dict:
+        """Xóa 1 punch ĐIỀU CHỈNH TAY (chỉ manual, trong phạm vi) — hoàn tác chấm bù."""
+        log = self.attendance.get_log(log_id)
+        if log is None:
+            raise AttendanceNotFound("Không tìm thấy bản ghi chấm công.")
+        if not log.is_manual:
+            raise AttendanceValidationError("Chỉ được xóa punch điều chỉnh tay (không xóa chấm GPS gốc).")
+        self._employee_in_scope(log.employee_id, scope, actor)
+        self.attendance.delete_log(log)
+        self.audit.create(
+            actor_user_id=actor.id, action="delete_manual_attendance",
+            target=f"attendance_log:{log_id}", detail=f"xóa punch bù #{log_id}",
+        )
+        return self.day_detail(scope=scope, actor=actor, employee_id=employee_id, date_str=date_str)
+
+    # --- yêu cầu chỉnh công (NV gửi → HCNS duyệt) --------------------------
+
+    @staticmethod
+    def _req_out(r, emp_name: str | None = None, decider_name: str | None = None) -> dict:
+        return {
+            "id": r.id, "employee_id": r.employee_id, "employee_name": emp_name,
+            "work_date": r.work_date.isoformat(), "check_type": r.check_type,
+            "suggested_time": r.suggested_time, "reason": r.reason, "fault_party": r.fault_party,
+            "status": r.status, "decided_at": r.decided_at, "decision_note": r.decision_note,
+            "decided_by_name": decider_name,
+        }
+
+    def request_adjust(self, *, user, date_str: str, check_type: str, suggested_time: str | None,
+                       reason: str) -> dict:
+        """NV tự gửi yêu cầu chỉnh công cho 1 ngày (self-service)."""
+        emp = self._employee_for_user(user)
+        if check_type not in CHECK_TYPES:
+            raise AttendanceValidationError("Loại chấm phải là VÀO hoặc RA.")
+        reason = (reason or "").strip()
+        if not reason:
+            raise AttendanceValidationError("Phải nhập lý do.")
+        the_day = self._parse_ymd(date_str)
+        if suggested_time:
+            _hhmm_to_min(suggested_time)  # validate format
+        r = self.attendance.create_request(
+            employee_id=emp.id, work_date=the_day, check_type=check_type,
+            suggested_time=suggested_time or None, reason=reason,
+            status=REQ_PENDING, created_by_user_id=user.id,
+        )
+        return self._req_out(r, emp_name=emp.full_name)
+
+    def my_requests(self, *, user) -> list[dict]:
+        emp = self._employee_for_user(user)
+        return [self._req_out(r, emp_name=emp.full_name)
+                for r in self.attendance.requests_by_employee(emp.id)]
+
+    def cancel_request(self, *, user, request_id: int) -> dict:
+        emp = self._employee_for_user(user)
+        r = self.attendance.get_request(request_id)
+        if r is None or r.employee_id != emp.id:
+            raise AttendanceNotFound("Không tìm thấy yêu cầu.")
+        if r.status != REQ_PENDING:
+            raise AttendanceValidationError("Chỉ hủy được yêu cầu đang chờ duyệt.")
+        self.attendance.update_request(r, status=REQ_CANCELLED)
+        return self._req_out(r, emp_name=emp.full_name)
+
+    def list_requests(self, *, scope, actor, status: str | None = REQ_PENDING) -> list[dict]:
+        """HCNS xem yêu cầu chỉnh công theo scope."""
+        allowed = self._allowed_employee_ids(scope, actor)
+        rows = self.attendance.list_requests(status=status, employee_ids=allowed)
+        out = []
+        for r in rows:
+            emp = self.employees.get_by_id(r.employee_id)
+            out.append(self._req_out(r, emp_name=emp.full_name if emp else None))
+        return out
+
+    def approve_request(self, *, actor, scope, request_id: int, time_hhmm: str | None,
+                        fault_party: str | None, note: str | None = None) -> dict:
+        """Duyệt YC → sinh 1 punch điều chỉnh tay (công tự tính lại) + đánh dấu approved."""
+        r = self.attendance.get_request(request_id)
+        if r is None:
+            raise AttendanceNotFound("Không tìm thấy yêu cầu.")
+        emp = self._employee_in_scope(r.employee_id, scope, actor)
+        if r.status != REQ_PENDING:
+            raise AttendanceValidationError("Yêu cầu đã được xử lý.")
+        time_val = time_hhmm or r.suggested_time
+        if not time_val:
+            raise AttendanceValidationError("Cần nhập giờ cho punch chấm bù.")
+        log = self._create_manual_punch(
+            actor=actor, emp=emp, the_day=r.work_date, check_type=r.check_type,
+            time_hhmm=time_val, reason=f"[Duyệt YC #{r.id}] {r.reason}", fault_party=fault_party or r.fault_party,
+        )
+        self.attendance.update_request(
+            r, status=REQ_APPROVED, decided_by=actor.id, decided_at=datetime.now(timezone.utc),
+            decision_note=(note or "").strip() or None, resulting_log_id=log.id,
+            fault_party=fault_party or r.fault_party,
+        )
+        return self._req_out(r, emp_name=emp.full_name)
+
+    def reject_request(self, *, actor, scope, request_id: int, note: str) -> dict:
+        r = self.attendance.get_request(request_id)
+        if r is None:
+            raise AttendanceNotFound("Không tìm thấy yêu cầu.")
+        emp = self._employee_in_scope(r.employee_id, scope, actor)
+        if r.status != REQ_PENDING:
+            raise AttendanceValidationError("Yêu cầu đã được xử lý.")
+        note = (note or "").strip()
+        if not note:
+            raise AttendanceValidationError("Phải ghi lý do từ chối.")
+        self.attendance.update_request(
+            r, status=REQ_REJECTED, decided_by=actor.id, decided_at=datetime.now(timezone.utc),
+            decision_note=note,
+        )
+        return self._req_out(r, emp_name=emp.full_name)
+
+    # --- KPI giám sát hôm nay (HR) -----------------------------------------
+
+    def today_kpi(self, *, scope, actor) -> dict:
+        """Đếm nhanh cho dải KPI: đang có mặt / quên chấm RA / đi muộn hôm nay / YC chờ duyệt.
+        Theo scope người gọi. Xấp xỉ (không xử lý ca đêm) — đủ cho giám sát trong ngày."""
+        allowed = self._allowed_employee_ids(scope, actor)
+        now_vn = datetime.now(timezone.utc).astimezone(VN_TZ)
+        today = now_vn.date()
+        # Quét log 3 ngày gần nhất để suy trạng thái mới nhất mỗi NV.
+        start = (datetime(today.year, today.month, today.day, tzinfo=VN_TZ) - timedelta(days=3)).astimezone(timezone.utc)
+        end = (datetime(today.year, today.month, today.day, tzinfo=VN_TZ) + timedelta(days=1)).astimezone(timezone.utc)
+        shifts = {s.id: s for s in self.attendance.list_shifts()}
+        last: dict[int, tuple] = {}          # emp_id → (local_dt, check_type)
+        first_in_today: dict[int, datetime] = {}
+        for lg in self.attendance.logs_in_range(start, end):
+            if allowed is not None and lg.employee_id not in allowed:
+                continue
+            local = _as_utc(lg.checked_at).astimezone(VN_TZ)
+            prev = last.get(lg.employee_id)
+            if prev is None or local >= prev[0]:
+                last[lg.employee_id] = (local, lg.check_type)
+            if local.date() == today and lg.check_type == CHECK_IN:
+                cur = first_in_today.get(lg.employee_id)
+                if cur is None or local < cur:
+                    first_in_today[lg.employee_id] = local
+        present_now = missing_out = 0
+        for emp_id, (local, ct) in last.items():
+            if ct == CHECK_IN:
+                if local.date() == today:
+                    present_now += 1
+                else:
+                    missing_out += 1
+        late_today = 0
+        for emp_id, fin in first_in_today.items():
+            emp = self.employees.get_by_id(emp_id)
+            shift = shifts.get(emp.default_shift_id) if (emp and emp.default_shift_id) else None
+            if shift is not None and (fin.hour * 60 + fin.minute) > shift.start_minute + shift.grace_minutes:
+                late_today += 1
+        return {
+            "present_now": present_now,
+            "missing_out": missing_out,
+            "late_today": late_today,
+            "pending_requests": self.attendance.count_pending_requests(employee_ids=allowed),
+        }

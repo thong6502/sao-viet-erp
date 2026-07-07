@@ -12,6 +12,43 @@
   border-bottom: 1px solid var(--rule);
 }
 
+/* ---- Chuông thông báo (Nghỉ phép) ----------------------------------------- */
+.tb-bell {
+  position: relative;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--ash);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--easing-standard), color var(--duration-base) var(--easing-standard);
+}
+.tb-bell:hover { background: var(--rust-soft); color: var(--ink); }
+.tb-bell:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+.tb-bell__badge {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--signal);
+  color: #fff;
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  border-radius: var(--r-pill);
+}
+
 /* ---- User widget ---------------------------------------------------------- */
 .tb-user {
   position: relative;

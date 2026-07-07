@@ -46,6 +46,7 @@ MODULES: list[tuple[str, str]] = [
     ("dm_gia_khuon_ban", "Bảng giá Khuôn & Bản"),
     ("dm_dinh_muc", "Định mức & Bù hao"),
     ("nhan_su", "Nhân sự"),
+    ("nghi_phep", "Nghỉ phép"),
     ("luong", "Lương"),
     ("dm_kho", "Cấu hình kho hàng"),
 ]
@@ -100,6 +101,8 @@ def _full(scope: str) -> dict:
         can_clone=True,
         can_toggle_active=True,
         can_reparent=True,
+        can_view_salary=True,
+        can_adjust=True,
     )
 
 
@@ -113,6 +116,24 @@ def _read(scope: str) -> dict:
     )
 
 
+def _leave_self(scope: str = SCOPE_OWN) -> dict:
+    """Quyền self-service Nghỉ phép cho MỌI nhân viên: xem đơn của mình (scope own),
+    tự tạo + tự hủy đơn. KHÔNG duyệt, KHÔNG quản loại nghỉ (những cái đó gate `approve`)."""
+    return dict(
+        can_read=True, can_create=True, can_update=False, can_delete=False,
+        scope=scope, can_cancel=True,
+    )
+
+
+def _leave_admin(scope: str = SCOPE_ALL) -> dict:
+    """Quyền quản trị Nghỉ phép (HCNS): xem mọi đơn theo scope + duyệt/từ chối +
+    quản loại nghỉ (`can_approve` = cờ 'leave admin' gate cả duyệt lẫn CRUD loại nghỉ)."""
+    return dict(
+        can_read=True, can_create=True, can_update=True, can_delete=True,
+        scope=scope, can_approve=True, can_cancel=True,
+    )
+
+
 # Roles: (department_name, role_name, {module_key: permission}). The minimal default
 # role ("Nhân viên") is Read-only on Dashboard, scope own.
 ROLES: list[tuple[str, str, dict[str, dict]]] = [
@@ -122,7 +143,19 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Trưởng phòng HCNS",
         {
             "dashboard": _read(SCOPE_ALL),
-            "nhan_su": _rcu(SCOPE_ALL),
+            # HCNS quản trị nhân sự trọn: CRU + quyền chi tiết (xem lương/BHXH, vòng đời,
+            # điều chuyển, duyệt yêu cầu cập nhật, xuất Excel).
+            "nhan_su": {
+                **_rcu(SCOPE_ALL),
+                "can_view_salary": True,
+                "can_manage_status": True,
+                "can_transfer": True,
+                "can_approve": True,
+                "can_export": True,
+                "can_adjust": True,   # Chấm công: chấm bù / sửa công qua punch nguồn
+            },
+            # Nghỉ phép: HCNS là nơi DUYỆT tập trung (mọi đơn toàn công ty) + quản loại nghỉ.
+            "nghi_phep": _leave_admin(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
@@ -140,8 +173,13 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "activity_log": _read(SCOPE_ALL),
         },
     ),
-    ("Hành chính nhân sự", "Nhân viên", {"dashboard": _read(SCOPE_OWN)}),
-    ("Kinh doanh", "Trưởng phòng KD", {k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS}),
+    # Vai "Nhân viên" tối thiểu: Dashboard + tự phục vụ Nghỉ phép (cửa vào self-service).
+    ("Hành chính nhân sự", "Nhân viên", {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self()}),
+    (
+        "Kinh doanh",
+        "Trưởng phòng KD",
+        {**{k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS}, "nghi_phep": _leave_self()},
+    ),
     (
         "Kinh doanh",
         "NV Sales",
@@ -150,6 +188,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "khach_hang": _rcu(SCOPE_OWN),
             "don_hang_ban": _rcu(SCOPE_OWN),
             "bao_gia": _rcu(SCOPE_OWN),
+            "nghi_phep": _leave_self(),
         },
     ),
 ]
@@ -1496,6 +1535,51 @@ def seed_payroll(db: Session) -> None:
                             amount=1_500_000, reason="Ứng đợt 2 (chờ duyệt)")
 
 
+def seed_piece_work(db: Session) -> None:
+    """Seed đơn giá khoán demo (Lương khoán nhịp 2) — số hóa các bảng CÔNG KHOÁN thật +
+    1 sổ khoán demo Tổ Bồi kỳ hiện tại. Idempotent: bỏ qua nếu đã có đơn giá."""
+    from datetime import date
+
+    from .models.employee import Employee
+    from .repositories.employee_repo import EmployeeRepository
+    from .repositories.piece_work_repo import PieceWorkRepository
+    from .services.piece_work_service import PieceWorkService
+
+    repo = PieceWorkRepository(db)
+    if repo.list_rates():
+        return
+    # (group, code, name, unit, price)
+    rates = [
+        ("to_boi", None, "Bồi carton 3 lớp E,B", "m2", 170),
+        ("to_boi", None, "Bồi carton 5 lớp BE,BC", "m2", 200),
+        ("to_boi", None, "Bồi tay", "m2", 250),
+        ("to_can_phu", None, "Cán bóng / mờ / phủ UV", "m2", 150),
+        ("to_can_phu", None, "Ghép màng matelize", "m2", 250),
+        ("to_cat", None, "Cắt giấy cuộn", "tan", 100_000),
+        ("to_cat", None, "Cắt tờ / cắt sóng", "tan", 120_000),
+        ("to_cat", None, "Cắt demi", "luot", 40),
+        ("to_cat", None, "Gỡ hàng hộp (carton 3 lớp)", "hop", 20),
+        ("may_in_5mau", "A", "Bài in 1–2 màu", "bai_in", 120_000),
+        ("may_in_5mau", "B", "Bài in 3–4 màu", "bai_in", 150_000),
+        ("may_in_5mau", "C", "Bài in 4 màu có màu pha", "bai_in", 175_000),
+    ]
+    for g, code, name, unit, price in rates:
+        repo.create_rate(group_name=g, code=code, name=name, unit=unit, unit_price=price,
+                         note="Đơn giá khoán demo")
+
+    # Sổ khoán demo: Tổ Bồi, kỳ hiện tại, 1 dòng sản lượng + chia cho 2 NV sản xuất.
+    prod = db.query(Employee).filter(Employee.payroll_group == "san_xuat").limit(2).all()
+    if len(prod) >= 2:
+        svc = PieceWorkService(repo, EmployeeRepository(db))
+        today = date.today()
+        batch = svc.get_or_create_batch(year=today.year, month=today.month, group_name="to_boi")
+        svc.update_batch(batch.id, leader_employee_id=prod[0].id, leader_pct=0.05)
+        boi_rate = next(r for r in repo.list_rates() if r.name.startswith("Bồi carton 3"))
+        svc.add_entry(batch_id=batch.id, piece_rate_id=boi_rate.id, quantity=30_000)  # 30.000 m² × 170
+        svc.set_share(batch_id=batch.id, employee_id=prod[0].id, weight=1)
+        svc.set_share(batch_id=batch.id, employee_id=prod[1].id, weight=1)
+
+
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -1524,6 +1608,7 @@ def seed_all(db: Session) -> None:
         seed_attendance(db)
         seed_leaves(db)
         seed_payroll(db)
+        seed_piece_work(db)
         seed_customers(db)
         seed_products(db)
         seed_sales_history(db)

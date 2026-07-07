@@ -121,12 +121,45 @@ class CheckResultOut(BaseModel):
     log: AttendanceLogOut | None = None
 
 
+class PreviewOut(BaseModel):
+    """Dry-run geofence cho card chấm 'sống' (không ghi log)."""
+    locations_configured: bool = False
+    within_range: bool = False
+    distance_m: float | None = None
+    meters_out: float | None = None       # còn cách bao nhiêu mét mới vào vùng (0 nếu đã trong)
+    nearest_name: str | None = None
+    radius_m: int | None = None
+    next_action: str | None = None        # "in" | "out" — nhãn nút kế tiếp
+    message: str
+
+
+class MyShiftOut(BaseModel):
+    id: int
+    name: str
+    start_time: str          # "HH:MM"
+    end_time: str
+    is_overnight: bool = False
+    night_shift: bool = False
+
+
+class TodaySummaryOut(BaseModel):
+    first_in: str | None = None    # "HH:MM"
+    last_out: str | None = None
+    cong: float | None = None      # công dự kiến hôm nay theo ca
+    reason: str | None = None      # lý do khi công chưa đủ (thiếu chấm RA / vào trễ / về sớm…)
+    late: bool = False
+    early: bool = False
+    ot_minutes: int = 0
+
+
 class MyStatusOut(BaseModel):
     has_employee: bool
     employee_name: str | None = None
     next_action: str | None = None          # "in" | "out"
     last_check: AttendanceLogOut | None = None
     locations_configured: bool = False
+    shift: MyShiftOut | None = None          # ca mặc định của NV (nếu đã gán)
+    today: TodaySummaryOut | None = None     # tóm tắt "Hôm nay của tôi"
 
 
 # --- bảng công tháng --------------------------------------------------------
@@ -167,3 +200,84 @@ class TimesheetOut(BaseModel):
     month: int
     days_in_month: int
     rows: list[TimesheetRow]
+
+
+# --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch ----------------------
+
+
+class DayPunchOut(BaseModel):
+    id: int
+    time: str                 # "HH:MM" (giờ VN)
+    check_type: str           # in | out
+    is_manual: bool = False   # punch điều chỉnh tay
+    adjust_reason: str | None = None
+    fault_party: str | None = None
+    distance_m: float | None = None
+
+
+class DayDetailOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    date: str
+    shift_name: str | None = None
+    cong: float | None = None
+    reason: str | None = None
+    punches: list[DayPunchOut]
+
+
+class AdjustIn(BaseModel):
+    employee_id: int
+    date: str                                   # "YYYY-MM-DD"
+    check_type: str                             # in | out
+    time: str = Field(min_length=3, max_length=5)  # "HH:MM"
+    reason: str = Field(min_length=1, max_length=500)
+    fault_party: str | None = None              # nv_quen | may_hong | duyet | khac
+
+
+# --- KPI giám sát hôm nay ---------------------------------------------------
+
+
+class TodayKpiOut(BaseModel):
+    present_now: int = 0        # đang trong ca (chấm VÀO chưa RA hôm nay)
+    missing_out: int = 0        # quên chấm RA (VÀO từ ngày trước, chưa RA)
+    late_today: int = 0         # đi muộn hôm nay
+    pending_requests: int = 0   # yêu cầu chỉnh công chờ duyệt
+
+
+# --- yêu cầu chỉnh công (NV gửi → HCNS duyệt) ------------------------------
+
+
+class AdjustRequestOut(BaseModel):
+    id: int
+    employee_id: int
+    employee_name: str | None = None
+    work_date: str
+    check_type: str
+    suggested_time: str | None = None
+    reason: str
+    fault_party: str | None = None
+    status: str
+    decided_at: datetime | None = None
+    decision_note: str | None = None
+    decided_by_name: str | None = None
+
+
+class AdjustRequestsOut(BaseModel):
+    items: list[AdjustRequestOut]
+
+
+class RequestAdjustIn(BaseModel):
+    date: str                                   # "YYYY-MM-DD"
+    check_type: str                             # in | out (punch NV đề nghị bù)
+    suggested_time: str | None = Field(default=None, max_length=5)  # "HH:MM"
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class ApproveRequestIn(BaseModel):
+    time: str | None = Field(default=None, max_length=5)  # ghi đè giờ (mặc định = suggested_time)
+    fault_party: str | None = None
+    note: str | None = Field(default=None, max_length=500)
+
+
+class RejectRequestIn(BaseModel):
+    note: str = Field(min_length=1, max_length=500)

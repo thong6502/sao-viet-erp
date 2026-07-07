@@ -12,6 +12,8 @@ import {
   type PayrollLine,
   type PayrollParams,
   type PayrollPeriod,
+  type PieceRate,
+  type PieceSheet,
   type SalaryAdvance,
   type SalaryPreview,
   type SalaryRule,
@@ -21,7 +23,21 @@ import { useCan } from "../auth/permissions";
 import "./nhan-su.css";
 import "./luong.css";
 
-type Tab = "bang" | "nhanvien" | "tamung" | "quytac" | "phieu";
+type Tab = "bang" | "nhanvien" | "khoan" | "tamung" | "quytac" | "phieu";
+
+// Tổ khoán (đơn giá theo tổ) + đơn vị tính.
+const KHOAN_GROUPS: { key: string; label: string }[] = [
+  { key: "to_boi", label: "Tổ Bồi" },
+  { key: "to_can_phu", label: "Tổ Cán/Phủ" },
+  { key: "to_cat", label: "Tổ Cắt" },
+  { key: "may_in_5mau", label: "Máy in 5 màu" },
+  { key: "may_in_2mau", label: "Máy in 2 màu" },
+  { key: "to_thanh_pham", label: "Tổ Thành phẩm" },
+];
+const KHOAN_GROUP_LABEL: Record<string, string> = Object.fromEntries(KHOAN_GROUPS.map((g) => [g.key, g.label]));
+const UNIT_LABEL: Record<string, string> = {
+  m2: "m²", bai_in: "bài in", tan: "tấn", cuon: "cuốn", luot: "lượt", hop: "hộp", to: "tờ", khac: "khác",
+};
 
 const GROUP_LABEL: Record<string, string> = {
   to_in: "Tổ In", san_xuat: "Sản xuất", van_phong: "Văn phòng",
@@ -46,11 +62,16 @@ function errText(e: unknown): string {
   return e instanceof Error ? e.message : "Có lỗi xảy ra.";
 }
 
-export function LuongPage() {
+export function LuongPage({ focusEmployeeId }: { focusEmployeeId?: number }) {
   const { token } = useAuth();
   const can = useCan();
   const canManage = can("luong", "update");
   const [tab, setTab] = useState<Tab>(canManage ? "bang" : "phieu");
+
+  // Liên thông từ Hồ sơ nhân sự → mở tab "Lương nhân viên" tại đúng NV.
+  useEffect(() => {
+    if (focusEmployeeId && canManage) setTab("nhanvien");
+  }, [focusEmployeeId, canManage]);
 
   return (
     <main className="ns">
@@ -64,13 +85,15 @@ export function LuongPage() {
       <nav className="ns-tabs cc-tabs">
         {canManage && <button className={tab === "bang" ? "is-active" : ""} onClick={() => setTab("bang")}>Bảng lương tháng</button>}
         {canManage && <button className={tab === "nhanvien" ? "is-active" : ""} onClick={() => setTab("nhanvien")}>Lương nhân viên</button>}
+        {canManage && <button className={tab === "khoan" ? "is-active" : ""} onClick={() => setTab("khoan")}>Lương khoán</button>}
         {canManage && <button className={tab === "tamung" ? "is-active" : ""} onClick={() => setTab("tamung")}>Tạm ứng</button>}
         {canManage && <button className={tab === "quytac" ? "is-active" : ""} onClick={() => setTab("quytac")}>Quy tắc lương</button>}
         <button className={tab === "phieu" ? "is-active" : ""} onClick={() => setTab("phieu")}>Phiếu lương của tôi</button>
       </nav>
 
       {tab === "bang" && canManage && <BangLuongTab token={token!} />}
-      {tab === "nhanvien" && canManage && <NhanVienTab token={token!} />}
+      {tab === "nhanvien" && canManage && <NhanVienTab token={token!} focusEmployeeId={focusEmployeeId} />}
+      {tab === "khoan" && canManage && <KhoanTab token={token!} />}
       {tab === "tamung" && canManage && <TamUngTab token={token!} />}
       {tab === "quytac" && canManage && <QuyTacTab token={token!} />}
       {tab === "phieu" && <PhieuLuongTab token={token!} />}
@@ -110,14 +133,14 @@ function BangLuongTab({ token }: { token: string }) {
     const rows: string[][] = [];
     if (kind === "full") {
       rows.push(["Mã", "Họ tên", "Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-        "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN", "Tạm ứng", "Thực lĩnh"]);
+        "Khoán", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN", "Tạm ứng", "Thực lĩnh"]);
       for (const l of shown) rows.push([
         l.employee_code ?? "", l.employee_name ?? "", GROUP_LABEL[l.payroll_group ?? ""] ?? (l.payroll_group ?? ""),
         l.is_probation ? "Thử việc" : "Chính thức", String(l.actual_cong),
         String(Math.round(l.luong_cong)), String(Math.round(l.chuyen_can)), String(Math.round(l.allowance)),
-        String(Math.round(l.vi_pham)), String(Math.round(l.other_bonus)), String(Math.round(l.gross)),
-        String(Math.round(l.bhxh)), String(Math.round(l.pit)), String(Math.round(l.advance_total)),
-        String(Math.round(l.net_pay)),
+        String(Math.round(l.khoan)), String(Math.round(l.vi_pham)), String(Math.round(l.other_bonus)),
+        String(Math.round(l.gross)), String(Math.round(l.bhxh)), String(Math.round(l.pit)),
+        String(Math.round(l.advance_total)), String(Math.round(l.net_pay)),
       ]);
     } else {
       rows.push(["Mã", "Họ tên", "Số tài khoản", "Ngân hàng", "Thực lĩnh"]);
@@ -169,7 +192,7 @@ function BangLuongTab({ token }: { token: string }) {
               <tr>
                 <th>Mã</th><th>Họ tên</th><th>Tổ</th><th className="lg-num">Công</th>
                 <th className="lg-num">Lương công</th><th className="lg-num">Chuyên cần</th>
-                <th className="lg-num">Phụ cấp</th><th className="lg-num">Vi phạm</th>
+                <th className="lg-num">Phụ cấp</th><th className="lg-num">Khoán</th><th className="lg-num">Vi phạm</th>
                 <th className="lg-num">Thưởng</th><th className="lg-num">BHXH</th>
                 <th className="lg-num">Tạm ứng</th><th className="lg-num lg-net">Thực lĩnh</th><th></th>
               </tr>
@@ -184,6 +207,7 @@ function BangLuongTab({ token }: { token: string }) {
                   <td className="lg-num">{money(l.luong_cong)}</td>
                   <td className="lg-num">{money(l.chuyen_can)}</td>
                   <td className="lg-num">{money(l.allowance)}</td>
+                  <td className="lg-num">{l.khoan ? money(l.khoan) : "—"}</td>
                   <td className={`lg-num ${l.vi_pham ? "lg-minus" : ""}`}>{l.vi_pham ? "−" + money(l.vi_pham) : "—"}</td>
                   <td className="lg-num">{l.other_bonus ? money(l.other_bonus) : "—"}</td>
                   <td className="lg-num lg-minus">{l.bhxh ? "−" + money(l.bhxh) : "—"}</td>
@@ -192,11 +216,11 @@ function BangLuongTab({ token }: { token: string }) {
                   <td>{!locked && <button className="btn btn--ghost" onClick={() => setEditing(l)}>Sửa</button>}</td>
                 </tr>
               ))}
-              {shown.length === 0 && <tr><td colSpan={13} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
+              {shown.length === 0 && <tr><td colSpan={14} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
             </tbody>
             <tfoot>
               <tr className="lg-foot">
-                <td colSpan={11}>Tổng thực lĩnh ({shown.length} người)</td>
+                <td colSpan={12}>Tổng thực lĩnh ({shown.length} người)</td>
                 <td className="lg-num lg-net">{money(totalNet)}</td><td></td>
               </tr>
             </tfoot>
@@ -263,7 +287,7 @@ function LineEditModal({ token, line, onClose, onSaved }: {
 
 // --- Tab: Lương nhân viên ---------------------------------------------------
 
-function NhanVienTab({ token }: { token: string }) {
+function NhanVienTab({ token, focusEmployeeId }: { token: string; focusEmployeeId?: number }) {
   const [emps, setEmps] = useState<EmployeeRow[]>([]);
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<EmployeeRow | null>(null);
@@ -273,6 +297,14 @@ function NhanVienTab({ token }: { token: string }) {
       .then((r) => setEmps(r.items)).catch(() => setEmps([]));
   }, [token]);
   useEffect(() => { load(); }, [load]);
+
+  // Liên thông: khi mở từ Hồ sơ NV, tự bật modal lương của NV đó khi danh sách sẵn sàng.
+  useEffect(() => {
+    if (focusEmployeeId && emps.length) {
+      const e = emps.find((x) => x.id === focusEmployeeId);
+      if (e) setPicked(e);
+    }
+  }, [focusEmployeeId, emps]);
 
   const shown = emps.filter((e) => !q || e.full_name.toLowerCase().includes(q.toLowerCase()) || e.code.includes(q));
 
@@ -446,6 +478,287 @@ function SalaryModal({ token, emp, onClose }: { token: string; emp: EmployeeRow;
         </div>
         <footer className="ns-modal__foot">
           <button className="btn btn--ghost" onClick={onClose}>Đóng</button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+// --- Tab: Lương khoán -------------------------------------------------------
+
+function KhoanTab({ token }: { token: string }) {
+  const [sub, setSub] = useState<"sheet" | "rates">("sheet");
+  return (
+    <div>
+      <div className="lg-subtabs">
+        <button className={sub === "sheet" ? "is-active" : ""} onClick={() => setSub("sheet")}>Sổ khoán tháng</button>
+        <button className={sub === "rates" ? "is-active" : ""} onClick={() => setSub("rates")}>Đơn giá khoán</button>
+      </div>
+      {sub === "sheet" ? <KhoanSheet token={token} /> : <KhoanRates token={token} />}
+    </div>
+  );
+}
+
+function KhoanSheet({ token }: { token: string }) {
+  const [ym, setYm] = useState(curYm);
+  const [group, setGroup] = useState(KHOAN_GROUPS[0].key);
+  const [sheet, setSheet] = useState<PieceSheet | null>(null);
+  const [emps, setEmps] = useState<EmployeeRow[]>([]);
+  const [rates, setRates] = useState<PieceRate[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const [year, month] = ym.split("-").map(Number);
+
+  const load = useCallback(() => {
+    api.luong.khoanSheet(token, year, month, group).then(setSheet).catch(() => setSheet(null));
+  }, [token, year, month, group]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    api.employees.list(token, { size: 200, sort: "code" }).then((r) => setEmps(r.items)).catch(() => setEmps([]));
+    api.luong.khoanRates(token).then((r) => setRates(r.items)).catch(() => setRates([]));
+  }, [token]);
+
+  async function run(fn: () => Promise<PieceSheet>) {
+    setErr(null);
+    try { setSheet(await fn()); } catch (e) { setErr(errText(e)); }
+  }
+  const batch = sheet?.batch ?? null;
+  const groupRates = rates.filter((r) => r.group_name === group && r.is_active);
+  const empName = (id: number) => emps.find((e) => e.id === id)?.full_name ?? `NV#${id}`;
+
+  return (
+    <div>
+      <div className="cc-toolbar cc-ts-toolbar">
+        <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+        <select value={group} onChange={(e) => setGroup(e.target.value)}>
+          {KHOAN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+        </select>
+        {!batch && <button className="btn btn--primary" onClick={() => run(() => api.luong.openKhoanSheet(token, year, month, group))}>Mở sổ khoán tổ này</button>}
+      </div>
+      {err && <div className="banner banner--error" style={{ marginBottom: 12 }}>{err}</div>}
+
+      {!batch ? (
+        <p className="ns__empty">Chưa mở sổ khoán cho <b>{KHOAN_GROUP_LABEL[group]}</b> tháng này. Bấm <b>“Mở sổ khoán tổ này”</b>.</p>
+      ) : (
+        <>
+          {sheet?.meta && (
+            <div className="lg-khoan-meta">
+              <span>Quỹ khoán: <b>{money(sheet.meta.revenue)}</b></span>
+              <span>Sau bù lỗ/thưởng: <b>{money(sheet.meta.total)}</b></span>
+              <span>Tổ trưởng lấy: <b>{money(sheet.meta.leader_cut)}</b></span>
+              <span>Còn chia nhóm: <b className="lg-net">{money(sheet.meta.pool)}</b></span>
+            </div>
+          )}
+
+          <KhoanConfig token={token} batch={batch} emps={emps} onSaved={run} />
+
+          <h4 className="ns-section__title" style={{ marginTop: 16 }}>Sản lượng (nhập tay)</h4>
+          <div className="ns__tablewrap">
+            <table className="ns__table">
+              <thead><tr><th>Công việc</th><th>Đơn vị</th><th className="lg-num">Đơn giá</th><th className="lg-num">Khối lượng</th><th className="lg-num">Thành tiền</th><th></th></tr></thead>
+              <tbody>
+                {sheet?.entries.map((en) => (
+                  <tr key={en.id}>
+                    <td>{en.work_name}</td>
+                    <td>{UNIT_LABEL[en.unit] ?? en.unit}</td>
+                    <td className="lg-num">{money(en.unit_price)}</td>
+                    <td className="lg-num">{Number(en.quantity).toLocaleString("vi-VN")}</td>
+                    <td className="lg-num lg-net">{money(en.amount)}</td>
+                    <td><button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanEntry(token, en.id))}>Xóa</button></td>
+                  </tr>
+                ))}
+                {sheet?.entries.length === 0 && <tr><td colSpan={6} className="ns__empty">Chưa có dòng sản lượng.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <AddEntryRow token={token} batchId={batch.id} rates={groupRates} onAdded={run} />
+
+          <h4 className="ns-section__title" style={{ marginTop: 16 }}>Chia về người (hệ số nhóm tự thỏa thuận)</h4>
+          <div className="ns__tablewrap">
+            <table className="ns__table">
+              <thead><tr><th>Nhân viên</th><th className="lg-num">Hệ số</th><th className="lg-num">Tiền khoán</th><th></th></tr></thead>
+              <tbody>
+                {sheet?.shares.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.employee_name ?? empName(s.employee_id)} {batch.leader_employee_id === s.employee_id && <span className="ns-badge ns-badge--ok">Tổ trưởng</span>}</td>
+                    <td className="lg-num">{s.weight}</td>
+                    <td className="lg-num lg-net">{money(s.amount)}</td>
+                    <td><button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanShare(token, s.id))}>Xóa</button></td>
+                  </tr>
+                ))}
+                {sheet?.shares.length === 0 && <tr><td colSpan={4} className="ns__empty">Chưa chia cho ai.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          <AddShareRow token={token} batchId={batch.id} emps={emps} onAdded={run} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function KhoanConfig({ token, batch, emps, onSaved }: {
+  token: string; batch: NonNullable<PieceSheet["batch"]>; emps: EmployeeRow[];
+  onSaved: (fn: () => Promise<PieceSheet>) => void;
+}) {
+  const [leader, setLeader] = useState<number | "">(batch.leader_employee_id ?? "");
+  const [pct, setPct] = useState(batch.leader_pct);
+  const [minG, setMinG] = useState(batch.min_guarantee);
+  const [overT, setOverT] = useState(batch.over_target);
+  const [overP, setOverP] = useState(batch.over_bonus_pct);
+  return (
+    <div className="lg-khoan-config">
+      <label className="ns-field"><span className="ns-field__label">Tổ trưởng</span>
+        <select value={leader} onChange={(e) => setLeader(e.target.value ? Number(e.target.value) : "")}>
+          <option value="">— không —</option>
+          {emps.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+        </select></label>
+      <label className="ns-field"><span className="ns-field__label">% tổ trưởng</span>
+        <input type="number" step={0.01} value={pct} onChange={(e) => setPct(Number(e.target.value))} /></label>
+      <label className="ns-field"><span className="ns-field__label">Bù lỗ (min)</span>
+        <input type="number" value={minG} onChange={(e) => setMinG(Number(e.target.value))} /></label>
+      <label className="ns-field"><span className="ns-field__label">Mốc vượt</span>
+        <input type="number" value={overT} onChange={(e) => setOverT(Number(e.target.value))} /></label>
+      <label className="ns-field"><span className="ns-field__label">% thưởng vượt</span>
+        <input type="number" step={0.05} value={overP} onChange={(e) => setOverP(Number(e.target.value))} /></label>
+      <button className="btn btn--ghost" onClick={() => onSaved(() => api.luong.updateKhoanConfig(token, batch.id, {
+        leader_employee_id: leader === "" ? null : Number(leader), leader_pct: pct,
+        min_guarantee: minG, over_target: overT, over_bonus_pct: overP,
+      }))}>Lưu cấu hình tổ</button>
+    </div>
+  );
+}
+
+function AddEntryRow({ token, batchId, rates, onAdded }: {
+  token: string; batchId: number; rates: PieceRate[]; onAdded: (fn: () => Promise<PieceSheet>) => void;
+}) {
+  const [rateId, setRateId] = useState<number | "">("");
+  const [qty, setQty] = useState(0);
+  const rate = rates.find((r) => r.id === Number(rateId));
+  return (
+    <div className="lg-addrow">
+      <select value={rateId} onChange={(e) => setRateId(e.target.value ? Number(e.target.value) : "")}>
+        <option value="">— chọn công việc (đơn giá) —</option>
+        {rates.map((r) => <option key={r.id} value={r.id}>{r.name} · {money(r.unit_price)}/{UNIT_LABEL[r.unit] ?? r.unit}</option>)}
+      </select>
+      <input type="number" min={0} placeholder="Khối lượng" value={qty || ""} onChange={(e) => setQty(Number(e.target.value))} />
+      {rate && <span className="cc-note">= {money((rate.unit_price) * qty)}</span>}
+      <button className="btn btn--primary" disabled={!rateId || qty <= 0}
+        onClick={() => { onAdded(() => api.luong.addKhoanEntry(token, batchId, { piece_rate_id: Number(rateId), quantity: qty })); setRateId(""); setQty(0); }}>
+        + Thêm sản lượng
+      </button>
+    </div>
+  );
+}
+
+function AddShareRow({ token, batchId, emps, onAdded }: {
+  token: string; batchId: number; emps: EmployeeRow[]; onAdded: (fn: () => Promise<PieceSheet>) => void;
+}) {
+  const [empId, setEmpId] = useState<number | "">("");
+  const [weight, setWeight] = useState(1);
+  return (
+    <div className="lg-addrow">
+      <select value={empId} onChange={(e) => setEmpId(e.target.value ? Number(e.target.value) : "")}>
+        <option value="">— chọn nhân viên —</option>
+        {emps.map((e) => <option key={e.id} value={e.id}>{e.code} · {e.full_name}</option>)}
+      </select>
+      <input type="number" min={0} step={0.5} placeholder="Hệ số" value={weight} onChange={(e) => setWeight(Number(e.target.value))} />
+      <button className="btn btn--primary" disabled={!empId}
+        onClick={() => { onAdded(() => api.luong.setKhoanShare(token, batchId, { employee_id: Number(empId), weight })); setEmpId(""); setWeight(1); }}>
+        + Thêm người
+      </button>
+    </div>
+  );
+}
+
+function KhoanRates({ token }: { token: string }) {
+  const [rates, setRates] = useState<PieceRate[]>([]);
+  const [editing, setEditing] = useState<PieceRate | "new" | null>(null);
+  const load = useCallback(() => {
+    api.luong.khoanRates(token).then((r) => setRates(r.items)).catch(() => setRates([]));
+  }, [token]);
+  useEffect(() => { load(); }, [load]);
+  async function remove(id: number) { await api.luong.deleteKhoanRate(token, id); load(); }
+
+  return (
+    <div>
+      <div className="cc-toolbar">
+        <h4 className="ns-section__title" style={{ margin: 0, flex: 1 }}>Đơn giá khoán theo tổ</h4>
+        <button className="btn btn--primary" onClick={() => setEditing("new")}>+ Thêm đơn giá</button>
+      </div>
+      <div className="ns__tablewrap">
+        <table className="ns__table">
+          <thead><tr><th>Tổ</th><th>Mã</th><th>Công việc</th><th>Đơn vị</th><th className="lg-num">Đơn giá</th><th></th></tr></thead>
+          <tbody>
+            {rates.map((r) => (
+              <tr key={r.id}>
+                <td>{KHOAN_GROUP_LABEL[r.group_name] ?? r.group_name}</td>
+                <td>{r.code ?? "—"}</td>
+                <td>{r.name}</td>
+                <td>{UNIT_LABEL[r.unit] ?? r.unit}</td>
+                <td className="lg-num">{money(r.unit_price)}</td>
+                <td className="cc-rowact">
+                  <button className="btn btn--ghost" onClick={() => setEditing(r)}>Sửa</button>
+                  <button className="btn btn--ghost ns-danger" onClick={() => remove(r.id)}>Xóa</button>
+                </td>
+              </tr>
+            ))}
+            {rates.length === 0 && <tr><td colSpan={6} className="ns__empty">Chưa có đơn giá khoán nào.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {editing && <KhoanRateModal token={token} rate={editing === "new" ? null : editing}
+        onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+    </div>
+  );
+}
+
+function KhoanRateModal({ token, rate, onClose, onSaved }: {
+  token: string; rate: PieceRate | null; onClose: () => void; onSaved: () => void;
+}) {
+  const [group, setGroup] = useState(rate?.group_name ?? KHOAN_GROUPS[0].key);
+  const [code, setCode] = useState(rate?.code ?? "");
+  const [name, setName] = useState(rate?.name ?? "");
+  const [unit, setUnit] = useState(rate?.unit ?? "m2");
+  const [price, setPrice] = useState(rate?.unit_price ?? 0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true); setErr(null);
+    const input = { group_name: group, code: code || null, name, unit, unit_price: price, is_active: true };
+    try {
+      if (rate) await api.luong.updateKhoanRate(token, rate.id, input);
+      else await api.luong.createKhoanRate(token, input);
+      onSaved();
+    } catch (e) { setErr(errText(e)); setBusy(false); }
+  }
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box">
+        <header className="ns-modal__head"><h2>{rate ? "Sửa đơn giá khoán" : "Thêm đơn giá khoán"}</h2>
+          <button className="ns-modal__x" onClick={onClose}>×</button></header>
+        <div className="ns-modal__body">
+          {err && <div className="banner banner--error">{err}</div>}
+          <div className="ns-grid">
+            <label className="ns-field"><span className="ns-field__label">Tổ *</span>
+              <select value={group} onChange={(e) => setGroup(e.target.value)}>
+                {KHOAN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+              </select></label>
+            <label className="ns-field"><span className="ns-field__label">Mã (A–F, nếu có)</span>
+              <input value={code} onChange={(e) => setCode(e.target.value)} /></label>
+            <label className="ns-field"><span className="ns-field__label">Đơn vị</span>
+              <select value={unit} onChange={(e) => setUnit(e.target.value)}>
+                {Object.entries(UNIT_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select></label>
+            <label className="ns-field"><span className="ns-field__label">Đơn giá/đơn vị *</span>
+              <input type="number" min={0} value={price} onChange={(e) => setPrice(Number(e.target.value))} /></label>
+          </div>
+          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Công việc *</span>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="vd: Bồi carton 3 lớp E,B" /></label>
+        </div>
+        <footer className="ns-modal__foot">
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? "Đang lưu…" : "Lưu"}</button>
         </footer>
       </div>
     </div>
@@ -724,7 +1037,7 @@ function PhieuLuongTab({ token }: { token: string }) {
 
   const rows: [string, number, boolean?][] = [
     ["Lương theo công", l.luong_cong], ["Chuyên cần", l.chuyen_can], ["Phụ cấp", l.allowance],
-    ["Thưởng / hoa hồng", l.other_bonus], ["Vi phạm", -l.vi_pham, true],
+    ["Lương khoán", l.khoan], ["Thưởng / hoa hồng", l.other_bonus], ["Vi phạm", -l.vi_pham, true],
     ["Tổng thu nhập", l.gross], ["BHXH/BHYT/BHTN", -l.bhxh, true], ["Thuế TNCN", -l.pit, true],
     ["Tạm ứng đã nhận", -l.advance_total, true],
   ];

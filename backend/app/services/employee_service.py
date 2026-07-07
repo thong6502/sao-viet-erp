@@ -12,7 +12,7 @@ Framework-agnostic: raises domain errors the router maps to HTTP. Enforces:
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 from ..models.employee import (
     ATTACHMENT_DOC_KINDS,
@@ -58,6 +58,18 @@ EDITABLE_FIELDS = (
     "emergency_contact_phone", "social_insurance_no", "pit_tax_code",
     "dependents_count", "bank_account", "bank_name", "default_shift_id",
     "payroll_group", "pay_grade_key", "photo_url", "note",
+)
+
+# Nhân viên tự sửa ("Hồ sơ của tôi") — CHỈ các field liên lạc, không đụng định danh/pháp
+# lý/tiền. Backend là cổng thật: whitelist cứng, không tin FE.
+SELF_EDITABLE_FIELDS = (
+    "phone", "email", "current_address", "emergency_contact_name", "emergency_contact_phone",
+)
+
+# NV chỉ được ĐỀ NGHỊ đổi (HCNS duyệt mới áp) — các field định danh/pháp lý/ngân hàng.
+REQUESTABLE_FIELDS = (
+    "full_name", "date_of_birth", "national_id", "national_id_date", "national_id_place",
+    "permanent_address", "bank_account", "bank_name", "dependents_count",
 )
 
 
@@ -257,6 +269,88 @@ class EmployeeService:
             detail=f"{employee.code} sửa hồ sơ",
         )
         return employee, dup_nid, dup_si
+
+    def set_default_shift(self, *, employee_id: int, scope: str, actor, shift_id: int | None) -> Employee:
+        """Gán ca làm việc mặc định cho NV — AN TOÀN: chỉ đụng default_shift_id (không clobber
+        field khác như PUT hồ sơ đầy đủ). Dùng cho panel 'Gán ca' ở Chấm công (kể cả hàng loạt)."""
+        employee = self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
+        self.employees.update(employee, default_shift_id=shift_id)
+        self.audit.create(
+            actor_user_id=actor.id, action="assign_default_shift",
+            target=f"employee:{employee.id}",
+            detail=(f"{employee.code} → ca #{shift_id}" if shift_id else f"{employee.code} → bỏ ca"),
+        )
+        return employee
+
+    # --- self-service "Hồ sơ của tôi" (nhân viên thường) --------------------
+
+    def my_employee(self, *, user) -> Employee | None:
+        """Hồ sơ gắn với tài khoản đang đăng nhập (qua employees.user_id), hoặc None."""
+        return self.employees.get_by_user_id(user.id)
+
+    def my_events(self, *, user):
+        emp = self.employees.get_by_user_id(user.id)
+        return self.employees.list_events(emp.id) if emp is not None else []
+
+    def my_attachments(self, *, user):
+        emp = self.employees.get_by_user_id(user.id)
+        return self.employees.list_attachments(emp.id) if emp is not None else []
+
+    def update_my_contact(self, *, user, fields: dict) -> Employee:
+        """NV tự cập nhật liên lạc của CHÍNH MÌNH — whitelist SELF_EDITABLE_FIELDS."""
+        emp = self.employees.get_by_user_id(user.id)
+        if emp is None:
+            raise EmployeeValidationError("Tài khoản chưa gắn hồ sơ nhân viên.")
+        clean = self._clean_fields({k: v for k, v in fields.items() if k in SELF_EDITABLE_FIELDS})
+        self.employees.update(emp, **clean)
+        self.audit.create(
+            actor_user_id=user.id, action="update_my_contact",
+            target=f"employee:{emp.id}", detail=f"{emp.code} tự cập nhật liên lạc",
+        )
+        return emp
+
+    # --- yêu cầu cập nhật hồ sơ (NV đề nghị → HCNS duyệt) -------------------
+
+    def create_update_request(self, *, user, changes: dict, reason=None):
+        emp = self.employees.get_by_user_id(user.id)
+        if emp is None:
+            raise EmployeeValidationError("Tài khoản chưa gắn hồ sơ nhân viên.")
+        clean = self._clean_fields({k: v for k, v in (changes or {}).items() if k in REQUESTABLE_FIELDS})
+        if not clean:
+            raise EmployeeValidationError("Không có thay đổi hợp lệ để đề nghị.")
+        # date/int về dạng chuỗi để JSON lưu gọn.
+        payload = {k: (v.isoformat() if isinstance(v, date) else v) for k, v in clean.items()}
+        return self.employees.create_update_request(
+            employee_id=emp.id, changes=payload, reason=_clean(reason),
+        )
+
+    def my_update_requests(self, *, user):
+        emp = self.employees.get_by_user_id(user.id)
+        return self.employees.list_update_requests_by_employee(emp.id) if emp is not None else []
+
+    def list_update_requests(self, *, status=None):
+        return self.employees.list_update_requests(status=status)
+
+    def decide_update_request(self, *, request_id: int, actor, approve: bool, note=None):
+        req = self.employees.get_update_request(request_id)
+        if req is None:
+            raise EmployeeNotFound("Không tìm thấy yêu cầu cập nhật.")
+        if req.status != "pending":
+            raise EmployeeValidationError("Yêu cầu đã được xử lý.")
+        if approve:
+            emp = self.employees.get_by_id(req.employee_id)
+            if emp is None:
+                raise EmployeeNotFound("Không tìm thấy nhân viên.")
+            clean = self._clean_fields({k: v for k, v in req.changes.items() if k in REQUESTABLE_FIELDS})
+            self.employees.update(emp, **clean)
+            self.audit.create(
+                actor_user_id=actor.id, action="approve_profile_request",
+                target=f"employee:{emp.id}", detail=f"{emp.code} duyệt yêu cầu #{req.id}",
+            )
+        return self.employees.update_update_request(
+            req, status="approved" if approve else "rejected",
+            decided_by=actor.id, decided_at=datetime.now(timezone.utc), decision_note=_clean(note),
+        )
 
     # --- transitions (stage changes) ---------------------------------------
 

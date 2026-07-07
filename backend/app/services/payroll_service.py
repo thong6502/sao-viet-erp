@@ -62,10 +62,11 @@ def _seniority_band(hire_date: date | None, on: date) -> str | None:
 
 
 class PayrollService:
-    def __init__(self, payroll, employees, attendance, audit=None) -> None:
+    def __init__(self, payroll, employees, attendance, audit=None, piece=None) -> None:
         self.payroll = payroll
         self.employees = employees
         self.attendance = attendance   # AttendanceService — nguồn số CÔNG
+        self.piece = piece             # PieceWorkService — nguồn tiền KHOÁN (nhịp 2)
         self.audit = audit
 
     # --- params -------------------------------------------------------------
@@ -249,7 +250,7 @@ class PayrollService:
     # --- engine tính 1 dòng -------------------------------------------------
 
     def _compute(self, *, employee, salary, params, actual_cong, standard_cong,
-                 vi_pham=0.0, other_bonus=0.0, pit=0.0, on: date) -> dict:
+                 vi_pham=0.0, other_bonus=0.0, pit=0.0, khoan=0.0, on: date) -> dict:
         is_probation = employee.status == STATUS_PROBATION
         ratio = float(params.probation_ratio) if is_probation else 1.0
         res = self._resolve_salary(employee, salary, params, on)
@@ -261,7 +262,7 @@ class PayrollService:
         chuyen_can = res["chuyen_can_amt"] if float(actual_cong) >= float(standard_cong) else 0.0
         allowance = float(salary.allowance) if salary else 0.0
 
-        gross = luong_cong + chuyen_can + allowance + float(other_bonus) - float(vi_pham)
+        gross = luong_cong + chuyen_can + allowance + float(khoan) + float(other_bonus) - float(vi_pham)
 
         if salary is not None and salary.insurance_base is not None:
             insurance_base = float(salary.insurance_base)
@@ -276,6 +277,7 @@ class PayrollService:
             "luong_cong": _round(luong_cong),
             "chuyen_can": _round(chuyen_can),
             "allowance": _round(allowance),
+            "khoan": _round(khoan),
             "vi_pham": _round(vi_pham),
             "other_bonus": _round(other_bonus),
             "gross": _round(gross),
@@ -317,6 +319,7 @@ class PayrollService:
         cong_map = self._cong_map(year, month)
         advance_map = self.payroll.approved_advance_map(year, month)
         salary_map = self.payroll.latest_salaries_map(on)
+        khoan_map = self.piece.khoan_map(year, month) if self.piece is not None else {}
         std = float(period.standard_cong)
 
         employees = self.employees.list_scoped_all(scope=scope, actor=actor)
@@ -331,9 +334,10 @@ class PayrollService:
 
             salary = salary_map.get(emp.id)
             actual_cong = cong_map.get(emp.id, 0.0)
+            khoan = khoan_map.get(emp.id, 0.0)
             vals = self._compute(
                 employee=emp, salary=salary, params=params, actual_cong=actual_cong,
-                standard_cong=std, vi_pham=vi_pham, other_bonus=other_bonus, pit=pit, on=on,
+                standard_cong=std, vi_pham=vi_pham, other_bonus=other_bonus, pit=pit, khoan=khoan, on=on,
             )
             advance_total = _round(advance_map.get(emp.id, 0.0))
             net = vals["gross"] - vals["bhxh"] - vals["pit"] - advance_total
@@ -341,10 +345,11 @@ class PayrollService:
             fields = dict(
                 is_probation=vals["is_probation"], actual_cong=actual_cong, standard_cong=std,
                 monthly_salary=vals["monthly_salary"], luong_cong=vals["luong_cong"],
-                chuyen_can=vals["chuyen_can"], allowance=vals["allowance"], vi_pham=vals["vi_pham"],
-                other_bonus=vals["other_bonus"], gross=vals["gross"], insurance_base=vals["insurance_base"],
-                bhxh=vals["bhxh"], pit=vals["pit"], advance_total=advance_total, net_pay=_round(net),
-                note=note, updated_at=datetime.now(timezone.utc),
+                chuyen_can=vals["chuyen_can"], allowance=vals["allowance"], khoan=vals["khoan"],
+                vi_pham=vals["vi_pham"], other_bonus=vals["other_bonus"], gross=vals["gross"],
+                insurance_base=vals["insurance_base"], bhxh=vals["bhxh"], pit=vals["pit"],
+                advance_total=advance_total, net_pay=_round(net), note=note,
+                updated_at=datetime.now(timezone.utc),
             )
             if existing:
                 self.payroll.update_line(existing, **fields)
@@ -385,7 +390,7 @@ class PayrollService:
             ln.note = note
 
         ln.gross = _round(float(ln.luong_cong) + float(ln.chuyen_can) + float(ln.allowance)
-                          + float(ln.other_bonus) - float(ln.vi_pham))
+                          + float(ln.khoan) + float(ln.other_bonus) - float(ln.vi_pham))
         ln.net_pay = _round(float(ln.gross) - float(ln.bhxh) - float(ln.pit) - float(ln.advance_total))
         ln.updated_at = datetime.now(timezone.utc)
         return self.payroll.update_line(ln)

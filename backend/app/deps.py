@@ -19,6 +19,7 @@ from .repositories.costing_repo import CostingRepository
 from .repositories.attendance_repo import AttendanceRepository
 from .repositories.leave_repo import LeaveRepository
 from .repositories.payroll_repo import PayrollRepository
+from .repositories.piece_work_repo import PieceWorkRepository
 from .repositories.customer_repo import CustomerRepository
 from .repositories.employee_repo import EmployeeRepository
 from .repositories.machine_repo import MachineRepository
@@ -53,6 +54,7 @@ from .services.customer_analytics import CustomerAnalyticsService
 from .services.attendance_service import AttendanceService
 from .services.leave_service import LeaveService
 from .services.payroll_service import PayrollService
+from .services.piece_work_service import PieceWorkService
 from .services.customer_service import CustomerService
 from .services.department_service import DepartmentService
 from .services.employee_service import EmployeeService
@@ -295,14 +297,28 @@ def get_payroll_repository(
     return PayrollRepository(db)
 
 
+def get_piece_work_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> PieceWorkRepository:
+    return PieceWorkRepository(db)
+
+
+def get_piece_work_service(
+    piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+) -> PieceWorkService:
+    return PieceWorkService(piece, employees)
+
+
 def get_payroll_service(
     payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     attendance: Annotated[AttendanceService, Depends(get_attendance_service)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    piece: Annotated[PieceWorkService, Depends(get_piece_work_service)],
 ) -> PayrollService:
-    # attendance injected để engine lấy số CÔNG từ Bảng công tháng.
-    return PayrollService(payroll, employees, attendance, audit=audit)
+    # attendance → số CÔNG; piece → tiền KHOÁN (nhịp 2).
+    return PayrollService(payroll, employees, attendance, audit=audit, piece=piece)
 
 
 def get_product_repository(

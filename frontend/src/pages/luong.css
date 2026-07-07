@@ -35,6 +35,30 @@
 .lg-params-grid { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 720px) { .lg-params-grid { grid-template-columns: repeat(2, 1fr); } }
 
+/* Lương khoán */
+.lg-subtabs { display: inline-flex; gap: var(--sp-2); margin-bottom: var(--sp-4); }
+.lg-subtabs button {
+  border: 1px solid var(--rule); background: var(--canvas); color: var(--ash);
+  padding: 6px 14px; border-radius: var(--r-3); font: inherit; cursor: pointer;
+}
+.lg-subtabs button.is-active { background: var(--ink); color: #fff; border-color: var(--ink); }
+.lg-khoan-meta {
+  display: flex; flex-wrap: wrap; gap: var(--sp-5); padding: 10px 14px; margin-bottom: var(--sp-4);
+  background: var(--moss-soft); color: var(--moss-deep); border: 1px solid var(--moss); border-radius: var(--r-3);
+}
+.lg-khoan-config {
+  display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: end;
+  padding: var(--sp-4); background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-3);
+}
+.lg-khoan-config .ns-field { min-width: 130px; }
+.lg-addrow { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; margin-top: var(--sp-3); }
+.lg-addrow select, .lg-addrow input {
+  padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--r-3);
+  background: var(--canvas); font: inherit; color: var(--ink);
+}
+.lg-addrow select { min-width: 260px; }
+.lg-addrow input { width: 140px; }
+
 /* Phiếu lương */
 .lg-payslip { display: flex; justify-content: center; padding-top: var(--sp-4); }
 .lg-payslip__card {

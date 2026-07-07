@@ -70,7 +70,60 @@ class LeaveRequestsOut(BaseModel):
     items: list[LeaveRequestOut]
 
 
+class LeaveQuotaOut(BaseModel):
+    leave_type_id: int
+    name: str
+    annual_quota: int
+    used: int          # ngày làm việc đã dùng + đang chờ (năm dương lịch)
+    remaining: int
+
+
 class MyLeaveOut(BaseModel):
     has_employee: bool
     employee_name: str | None = None
     items: list[LeaveRequestOut]
+    quotas: list[LeaveQuotaOut] = []
+
+
+class LeaveBulkIn(BaseModel):
+    ids: list[int] = Field(min_length=1)
+
+
+class LeaveBulkRejectIn(BaseModel):
+    ids: list[int] = Field(min_length=1)
+    note: str = Field(min_length=1, max_length=500)
+
+
+class LeaveBulkResultOut(BaseModel):
+    done: list[int]
+    skipped: list[int]
+
+
+class LeaveSummaryOut(BaseModel):
+    # Số đơn CHỜ DUYỆT trong scope người gọi (nuôi badge sidebar). None nếu người gọi
+    # KHÔNG có quyền duyệt → client ẩn badge (chống lộ số cho người không phận sự).
+    pending_in_scope: int | None = None
+    # Số đơn CỦA TÔI vừa được quyết (duyệt/từ chối) mà tôi chưa xem → chuông Topbar (mọi NV).
+    my_decided_unseen: int = 0
+
+
+# --- lịch nghỉ (toàn công ty) -----------------------------------------------
+
+
+class LeaveCalendarDayOut(BaseModel):
+    status: str
+    leave_type_name: str
+    is_paid: bool
+
+
+class LeaveCalendarEmpOut(BaseModel):
+    employee_id: int
+    employee_name: str
+    days: dict[str, LeaveCalendarDayOut]   # "12" → ô ngày 12
+
+
+class LeaveCalendarOut(BaseModel):
+    year: int
+    month: int
+    days_in_month: int
+    employees: list[LeaveCalendarEmpOut]

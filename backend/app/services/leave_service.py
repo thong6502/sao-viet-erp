@@ -50,6 +50,21 @@ def _clean(v: str | None) -> str | None:
     return v or None
 
 
+def _working_days(start: date, end: date) -> int:
+    """Số NGÀY LÀM VIỆC trong [start, end] (loại Thứ Bảy + Chủ Nhật). Là đơn vị TRỪ hạn
+    mức phép năm (theo quyết định: cuối tuần không trừ phép; ngày lễ + ca cuối tuần → P2).
+    KHÁC `days` lưu trên đơn (số ngày lịch, giữ nguyên để không đổi hợp đồng leave_day_map)."""
+    if end < start:
+        return 0
+    n = 0
+    d = start
+    while d <= end:
+        if d.weekday() < 5:  # Mon..Fri = 0..4
+            n += 1
+        d = date.fromordinal(d.toordinal() + 1)
+    return n
+
+
 class LeaveService:
     def __init__(
         self,
@@ -131,7 +146,22 @@ class LeaveService:
         lt = self.leaves.get_type(leave_type_id)
         if lt is None or not lt.is_active:
             raise LeaveValidationError("Loại nghỉ không hợp lệ.")
-        days = (end_date - start_date).days + 1
+        if _working_days(start_date, end_date) == 0:
+            raise LeaveValidationError("Khoảng nghỉ rơi hết vào cuối tuần, không có ngày làm việc.")
+        days = (end_date - start_date).days + 1  # số ngày LỊCH (giữ hợp đồng leave_day_map)
+
+        # Hạn mức phép năm: loại có annual_quota > 0 mới bị trừ dần + chặn khi vượt (theo
+        # NGÀY LÀM VIỆC, reset dương lịch, KHÔNG cộng dồn). Loại quota=0 (ốm/không lương) bỏ qua.
+        if lt.annual_quota and lt.annual_quota > 0:
+            year = start_date.year
+            used = self._used_working_days(emp.id, leave_type_id, year)
+            want = _working_days(start_date, end_date)
+            if used + want > lt.annual_quota:
+                remaining = max(lt.annual_quota - used, 0)
+                raise LeaveValidationError(
+                    f"Vượt hạn mức {lt.name} năm {year}: đã dùng/đang chờ {used} ngày, "
+                    f"còn {remaining} ngày, đơn này {want} ngày làm việc."
+                )
 
         r = self.leaves.create_request(
             employee_id=emp.id, leave_type_id=leave_type_id, start_date=start_date,
@@ -147,8 +177,55 @@ class LeaveService:
         emp = self._employee_for_user(user)
         return self.leaves.list_by_employee(emp.id, limit=limit)
 
-    def list_requests(self, *, status: str | None = None, limit: int = 200) -> list[LeaveRequest]:
-        return self.leaves.list_all(status=status, limit=limit)
+    def list_requests(self, *, scope: str, actor, status: str | None = None, limit: int = 200) -> list[LeaveRequest]:
+        """Danh sách đơn theo DATA-SCOPE người gọi (own = của mình / department = của phòng /
+        all = tất cả). Duyệt tập trung: HCNS/Admin scope=all thấy mọi đơn."""
+        return self.leaves.list_scoped(scope=scope, actor=actor, status=status, limit=limit)
+
+    def count_pending(self, *, scope: str, actor) -> int:
+        """Số đơn chờ duyệt trong scope — nuôi badge sidebar."""
+        return self.leaves.count_pending_scoped(scope=scope, actor=actor)
+
+    def my_unseen_count(self, *, user) -> int:
+        """Số đơn của tôi vừa được quyết mà tôi chưa xem — nuôi chuông Topbar."""
+        emp = self.employees.get_by_user_id(user.id)
+        return self.leaves.count_my_unseen(emp.id) if emp is not None else 0
+
+    def mark_seen(self, *, user) -> None:
+        """NV xác nhận đã xem kết quả các đơn của mình → đóng chuông."""
+        emp = self.employees.get_by_user_id(user.id)
+        if emp is not None:
+            self.leaves.mark_my_seen(emp.id)
+
+    # --- hạn mức phép năm ----------------------------------------------------
+
+    def _used_working_days(self, employee_id: int, leave_type_id: int, year: int) -> int:
+        """Tổng NGÀY LÀM VIỆC đã dùng + đang giữ (approved + pending) của 1 loại nghỉ trong
+        năm dương lịch — mẫu số kiểm hạn mức."""
+        total = 0
+        for r in self.leaves.list_for_quota(employee_id, leave_type_id, year):
+            total += _working_days(r.start_date, r.end_date)
+        return total
+
+    def my_quotas(self, *, user, year: int) -> list[dict]:
+        """Tình hình hạn mức của NV đăng nhập (chỉ loại có annual_quota > 0): đã dùng / còn
+        lại theo ngày làm việc. Trả rỗng nếu tài khoản chưa gắn hồ sơ NV."""
+        emp = self.employees.get_by_user_id(user.id)
+        if emp is None:
+            return []
+        out: list[dict] = []
+        for t in self.leaves.list_types(active_only=True):
+            if not t.annual_quota or t.annual_quota <= 0:
+                continue
+            used = self._used_working_days(emp.id, t.id, year)
+            out.append({
+                "leave_type_id": t.id,
+                "name": t.name,
+                "annual_quota": t.annual_quota,
+                "used": used,
+                "remaining": max(t.annual_quota - used, 0),
+            })
+        return out
 
     def _decide(self, *, actor, request_id, new_status, note) -> LeaveRequest:
         r = self.leaves.get_request(request_id)
@@ -173,6 +250,31 @@ class LeaveService:
             raise LeaveValidationError("Cần nhập lý do từ chối.")
         return self._decide(actor=actor, request_id=request_id, new_status=STATUS_REJECTED, note=note)
 
+    def bulk_approve(self, *, actor, ids: list[int]) -> dict:
+        """Duyệt hàng loạt: bỏ qua (skip) đơn không-chờ thay vì vỡ cả mẻ."""
+        done, skipped = [], []
+        for i in ids:
+            try:
+                self.approve(actor=actor, request_id=i)
+                done.append(i)
+            except LeaveError:
+                skipped.append(i)
+        return {"done": done, "skipped": skipped}
+
+    def bulk_reject(self, *, actor, ids: list[int], note) -> dict:
+        """Từ chối hàng loạt với 1 lý do chung (bắt buộc)."""
+        note = _clean(note)
+        if not note:
+            raise LeaveValidationError("Cần nhập lý do từ chối.")
+        done, skipped = [], []
+        for i in ids:
+            try:
+                self._decide(actor=actor, request_id=i, new_status=STATUS_REJECTED, note=note)
+                done.append(i)
+            except LeaveError:
+                skipped.append(i)
+        return {"done": done, "skipped": skipped}
+
     def cancel(self, *, actor, request_id, is_hr: bool = False) -> LeaveRequest:
         r = self.leaves.get_request(request_id)
         if r is None:
@@ -186,6 +288,44 @@ class LeaveService:
         self.audit.create(actor_user_id=actor.id, action="leave_cancelled",
                           target=f"leave_request:{r.id}", detail="hủy đơn")
         return r
+
+    # --- lịch nghỉ (toàn công ty) ------------------------------------------
+
+    def calendar(self, *, year: int, month: int) -> dict:
+        """Lịch nghỉ tháng: mỗi NV có đơn ĐÃ DUYỆT hoặc ĐANG CHỜ giao với tháng → các ngày
+        nghỉ + trạng thái (để HR tránh duyệt trùng người). Bao gồm cả ngày cuối tuần trong
+        khoảng (phản chiếu đúng đơn)."""
+        import calendar as _cal
+
+        first = date(year, month, 1)
+        last = date(year, month, _cal.monthrange(year, month)[1])
+        reqs = self.leaves.list_overlapping(first, last, (STATUS_APPROVED, STATUS_PENDING))
+        types = {t.id: t for t in self.leaves.list_types()}
+        out: dict[int, dict] = {}
+        for r in reqs:
+            lt = types.get(r.leave_type_id)
+            if r.employee_id not in out:
+                emp = self.employees.get_by_id(r.employee_id)
+                out[r.employee_id] = {
+                    "employee_id": r.employee_id,
+                    "employee_name": emp.full_name if emp is not None else f"NV#{r.employee_id}",
+                    "days": {},
+                }
+            d, end = max(r.start_date, first), min(r.end_date, last)
+            while d <= end:
+                # pending không đè lên approved cùng ngày (approved thắng để HR thấy chắc chắn).
+                cur = out[r.employee_id]["days"].get(str(d.day))
+                if cur is None or (cur["status"] != STATUS_APPROVED):
+                    out[r.employee_id]["days"][str(d.day)] = {
+                        "status": r.status,
+                        "leave_type_name": lt.name if lt is not None else "Nghỉ",
+                        "is_paid": lt.is_paid if lt is not None else True,
+                    }
+                d = date.fromordinal(d.toordinal() + 1)
+        return {
+            "year": year, "month": month, "days_in_month": last.day,
+            "employees": sorted(out.values(), key=lambda e: e["employee_name"]),
+        }
 
     # --- helper cho Bảng công tháng ----------------------------------------
 

@@ -130,3 +130,13 @@ class RolePermission(Base):
     can_manage_price: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # nhan_su: xem DỮ LIỆU NHẠY CẢM của hồ sơ (lương/BHXH/MST/số phụ thuộc/tài khoản NH/
+    # nhóm-bậc lương) — tách khỏi "xem hồ sơ" cơ bản. Thiếu quyền này thì các field đó bị ẩn.
+    can_view_salary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # nhan_su (Chấm công): điều chỉnh CÔNG bằng cách thêm/xóa PUNCH NGUỒN (chấm bù, sửa)
+    # — tách khỏi "sửa hồ sơ" (update). Người khai ca chưa chắc được sửa công NV.
+    can_adjust: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

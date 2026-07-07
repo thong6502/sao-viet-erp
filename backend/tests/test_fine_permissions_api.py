@@ -44,6 +44,34 @@ def _user_with_role(username: str, module_key: str, **perm) -> str:
         db.close()
 
 
+def test_employee_salary_fields_masked_without_view_salary(client):
+    """nhan_su: role có `read` nhưng THIẾU `view_salary` → field nhạy cảm (BHXH/TK NH/
+    nhóm lương) bị ẩn (None); có `view_salary` thì thấy lại. Field thường luôn thấy."""
+    admin = client.post("/api/auth/login", json={"username": "admin", "password": "admin123"}).json()["access_token"]
+    db = SessionLocal()
+    try:
+        hcns = DepartmentRepository(db).get_by_name("Hành chính nhân sự").id
+    finally:
+        db.close()
+    eid = client.post("/api/employees", json={
+        "full_name": "NV Mật", "department_id": hcns, "hire_date": "2020-01-01",
+        "social_insurance_no": "SI123", "bank_account": "9999", "payroll_group": "van_phong",
+    }, headers=_h(admin)).json()["employee"]["id"]
+
+    # admin có view_salary → thấy đủ
+    full = client.get(f"/api/employees/{eid}", headers=_h(admin)).json()
+    assert full["bank_account"] == "9999" and full["social_insurance_no"] == "SI123" and full["payroll_group"] == "van_phong"
+
+    # role chỉ read, KHÔNG view_salary → ẩn
+    masked = client.get(f"/api/employees/{eid}", headers=_h(_user_with_role("nv-no-salary", "nhan_su", can_read=True))).json()
+    assert masked["bank_account"] is None and masked["social_insurance_no"] is None and masked["payroll_group"] is None
+    assert masked["full_name"] == "NV Mật"  # field thường vẫn thấy
+
+    # role read + view_salary → thấy lại
+    seen = client.get(f"/api/employees/{eid}", headers=_h(_user_with_role("nv-has-salary", "nhan_su", can_read=True, can_view_salary=True))).json()
+    assert seen["bank_account"] == "9999" and seen["payroll_group"] == "van_phong"
+
+
 def test_quotation_approve_requires_approve_permission(client):
     # Vai trò CÓ update báo giá nhưng KHÔNG có `approve` → duyệt (accepted) bị 403.
     # Chốt approve nằm TRƯỚC lookup nên không cần báo giá thật để chứng minh gate.

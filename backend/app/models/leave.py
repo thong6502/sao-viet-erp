@@ -83,3 +83,9 @@ class LeaveRequest(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
+    # Chuông Topbar: thời điểm NGƯỜI NỘP đã xem kết quả (duyệt/từ chối). NULL = chưa xem →
+    # đếm vào chuông. Set khi NV mở Nghỉ phép (mark-seen). Timestamp, KHÔNG Boolean (né gotcha
+    # server_default vỡ Postgres — xem [[postgres-boolean-server-default]]).
+    seen_by_employee_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

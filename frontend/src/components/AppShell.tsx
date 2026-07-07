@@ -18,6 +18,7 @@ import { KhachHangPage } from "../pages/KhachHangPage";
 import { ChamCongPage } from "../pages/ChamCongPage";
 import { NghiPhepPage } from "../pages/NghiPhepPage";
 import { LuongPage } from "../pages/LuongPage";
+import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { UsersPage } from "../pages/UsersPage";
@@ -48,6 +49,8 @@ export interface NavParams {
   estimateId?: number;
   /** Open this estimate's detail on the Tính giá screen. */
   openEstimateId?: number | null;
+  /** Liên thông: mở Chấm công / Nghỉ phép / Lương lọc theo đúng nhân viên này. */
+  focusEmployeeId?: number;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -67,6 +70,10 @@ export function AppShell() {
   const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
   // Các kho admin đã cấu hình → menu con động dưới "Kho hàng" trong sidebar.
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  // Badge số theo nav id (vd "nghi-phep": số đơn chờ duyệt) — chỉ người có quyền duyệt.
+  const [badges, setBadges] = useState<Record<string, number>>({});
+  // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
+  const [leaveUnseen, setLeaveUnseen] = useState(0);
 
   // Single navigation entrypoint: switches the active screen AND carries an optional
   // payload (pinned customer / document to open). Every param object is fresh so the
@@ -110,6 +117,31 @@ export function AppShell() {
     };
   }, [token, readable, activeId]);
 
+  // Badge Nghỉ phép: số đơn chờ duyệt (endpoint tự trả null nếu người gọi không có quyền
+  // duyệt → không hiện badge). NghiPhepPage gọi lại sau mỗi thao tác để badge cập nhật ngay.
+  const reloadBadges = useCallback(() => {
+    if (!token || readable === null || !readable.has("nghi_phep")) return;
+    api.leaves
+      .summary(token)
+      .then((s) => {
+        setBadges((prev) => ({
+          ...prev,
+          "nghi-phep": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
+        }));
+        setLeaveUnseen(s.my_decided_unseen ?? 0);
+      })
+      .catch(() => {});
+  }, [token, readable]);
+  useEffect(() => {
+    reloadBadges();
+  }, [reloadBadges]);
+
+  // Bấm chuông → mở Nghỉ phép (Đơn của tôi) + đánh dấu đã xem → đóng chuông.
+  const openLeaveFromBell = useCallback(() => {
+    navigate("nghi-phep");
+    if (token) api.leaves.markSeen(token).then(reloadBadges).catch(() => {});
+  }, [navigate, token, reloadBadges]);
+
   if (readable === null) {
     return (
       <div className="shell__center" role="status" aria-live="polite">
@@ -150,13 +182,15 @@ export function AppShell() {
       case "nguoi-dung":
         return <UsersPage />;
       case "nhan-su":
-        return <NhanSuPage />;
+        return <NhanSuPage navigate={navigate} />;
+      case "ho-so-cua-toi":
+        return <HoSoCuaToiPage />;
       case "cham-cong":
-        return <ChamCongPage />;
+        return <ChamCongPage navigate={navigate} focusEmployeeId={navParams?.focusEmployeeId} />;
       case "nghi-phep":
-        return <NghiPhepPage />;
+        return <NghiPhepPage onChanged={reloadBadges} focusEmployeeId={navParams?.focusEmployeeId} />;
       case "luong":
-        return <LuongPage />;
+        return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} />;
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
       case "tinh-gia-thanh":
@@ -214,9 +248,10 @@ export function AppShell() {
           onSelect={(id) => navigate(id)}
           readable={readable}
           itemChildren={itemChildren}
+          badges={badges}
         />
         <div className="shell__main">
-          <Topbar onProfileAction={setProfileAction} />
+          <Topbar onProfileAction={setProfileAction} leaveUnseen={leaveUnseen} onOpenLeave={openLeaveFromBell} />
           <div className="shell__content">{renderContent()}</div>
         </div>
         <ProfileDialog action={profileAction} onClose={() => setProfileAction(null)} />
