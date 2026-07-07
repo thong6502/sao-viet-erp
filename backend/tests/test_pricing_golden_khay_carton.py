@@ -2,7 +2,8 @@
 
 Đóng băng công thức tính giá theo phiếu thật đã nghiệm thu tay
 (xem docs/NGHIEM_THU_KHAY_CARTON.md). Assert theo GIÁ TRỊ CHUẨN SVN:
-quyết định #1 (số tờ luôn ceil) ⇒ 6.917 tờ, lệch NextPrint đúng 1 tờ (cố ý).
+quyết định #1 (số tờ luôn ceil) ⇒ 6.667 tờ. Bù hao theo mô hình mới
+(waste_pct ở Loại SP; ca này = 0) nên không cộng makeready.
 
 Ca này: 6 màu / 1 mặt, giấy Duplex D400 khổ 68×101,50, gia công theo tờ.
 Vì in 1 mặt nên số kẽm = màu×1×1 = 6 (trùng công thức cũ); công in đơn giá 0.
@@ -128,10 +129,11 @@ def test_golden_khay_carton(golden_setup):
     for l in cost_lines:
         by_cat.setdefault(l.category, []).append(l)
 
-    # --- Giấy: tổng tờ = ceil(20.000/3)=6.667 + makeready 250 = 6.917 (giá trị chuẩn SVN) ---
+    # --- Giấy: mô hình bù hao mới (waste_pct ở Loại SP; ca này = 0) ⇒ không cộng
+    #     makeready. Tổng tờ = ceil(20.000/3) = 6.667 (bằng số tờ tốt). ---
     mat = by_cat["material"][0]
-    assert int(mat.quantity) == 6917, f"số tờ = {mat.quantity}"
-    assert float(mat.total_cost) == 6917 * 5384  # 37.241.128
+    assert int(mat.quantity) == 6667, f"số tờ = {mat.quantity}"
+    assert float(mat.total_cost) == 6667 * 5384  # 35.895.928
 
     # --- Kẽm: màu(6) × mặt(1) × form(1) = 6 bản × 100.000 = 600.000 ---
     plate = by_cat["plate_die"][0]
@@ -148,5 +150,5 @@ def test_golden_khay_carton(golden_setup):
     assert float(ops_by_name["TB-Bế cấn hộp"].total_cost) == 6667 * 250     # 1.666.750
 
     # --- Tổng giá vốn ---
-    expected_total = 6917 * 5384 + 600000 + 0 + 6667 * 1000 + 6667 * 250
-    assert float(total) == expected_total  # 46.174.878
+    expected_total = 6667 * 5384 + 600000 + 0 + 6667 * 1000 + 6667 * 250
+    assert float(total) == expected_total  # 44.829.678

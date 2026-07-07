@@ -1125,6 +1125,7 @@ export interface ProductTypeCatalogRow {
   allow_extra_operations?: boolean;
   allow_imposition_change?: boolean;
   allow_manual_override?: boolean;
+  waste_pct?: number;
   sheet_count_mode: string;
   ink_cost_mode: string;
   is_active: boolean;
@@ -1171,6 +1172,7 @@ export interface ProductTypeCatalogInput {
   has_tooling?: boolean;
   default_tooling_type?: string | null;
   allow_manual_override?: boolean;
+  waste_pct?: number;
   is_active?: boolean;
 }
 

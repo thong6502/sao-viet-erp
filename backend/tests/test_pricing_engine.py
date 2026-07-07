@@ -268,61 +268,39 @@ def test_geometric_layout_fit(test_setup):
     assert not any(w["code"] == "PIECES_PER_SHEET_ZERO" for w in warnings_res)
 
 
-def test_reverse_waste_chain_sorting(test_setup):
+def test_waste_pct_from_product_type(test_setup):
+    """Mô hình BÙ HAO mới: một % duy nhất khai ở Loại sản phẩm áp thẳng vào số tờ sản xuất
+    (đội giấy/mực/máy). Norm cũ KHÔNG còn tác động. Công đoạn dùng đúng số lượng đặt."""
     service, db, actor, paper_id, offset_id, be_id, lam_id, pack_id, decal_id, digital_id = test_setup
-    
-    # Create estimate with operations in wrong order sequence-wise
-    # In -> Cán màng (seq 10) -> Bế (seq 20) -> Đóng gói (seq 30)
-    # Reverse Waste Chain must sort sequence DESC: Đóng gói (30) -> Bế (20) -> Cán màng (10)
+
+    # Đặt % bù hao cho loại SP brochure = 20% (thay cả chuỗi norm cũ).
+    pt = db.query(ProductTypeCatalog).filter_by(product_type="brochure").one()
+    pt.waste_pct = 20
+    db.commit()
+
     input_spec = {
-        "material_id": paper_id,
-        "machine_id": offset_id,
-        "sheet_w": 65.0,
-        "sheet_h": 86.0,
-        "pieces_per_sheet": 4,
-        "colors": 4,
-        "sides": 2,
-        "forms": 1,
+        "material_id": paper_id, "machine_id": offset_id,
+        "sheet_w": 65.0, "sheet_h": 86.0, "pieces_per_sheet": 4,
+        "colors": 4, "sides": 2, "forms": 1,
         "operations": [
             {"operation_id": be_id, "sequence": 20, "execution_mode": "internal"},
-            {"operation_id": lam_id, "sequence": 10, "execution_mode": "internal"},
-            {"operation_id": pack_id, "sequence": 30, "execution_mode": "internal"}
-        ]
+            {"operation_id": pack_id, "sequence": 30, "execution_mode": "internal"},
+        ],
     }
-
-    # Execute service call
     est = service.create_estimate(
-        product_type="brochure",
-        product_name="Brochure A4",
-        quantity_list=[1000],
-        input_spec=input_spec,
-        actor_id=actor.id,
-        status="calculated"
+        product_type="brochure", product_name="Brochure A4",
+        quantity_list=[1000], input_spec=input_spec, actor_id=actor.id, status="calculated",
     )
-
-    assert est.status == "calculated"
-    assert len(est.options) == 1
     option = est.options[0]
-    
-    # Audit calculation snapshot to verify sequence order of reverse waste chain
-    # It must be packing -> be -> can_mang
     cost_lines = option.cost_lines
-    machine_lines = [l for l in cost_lines if l.category == "machine"]
-    assert len(machine_lines) == 1
-    
-    # Verify print waste calculations (chuỗi mới — tỷ lệ đạt CĐ + running CỘNG thêm):
-    # 1. targetFinished: 1000
-    # 2. packing: đạt 100% -> ceil(1000 / 1.0) = 1000
-    # 3. be: đạt 98% -> ceil(1000 / 0.98) = 1021
-    # 4. can_mang: đạt 97% -> ceil(1021 / 0.97) = 1053
-    # 5. printed_sheets = ceil(1053 / 4) = 264 (tỷ lệ đạt in mặc định 1.0)
-    # 6. running_add = ceil(264 × 2%) = 6  → tờ chạy = 264 + 6 = 270
-    # 7. makeready_sheets = 15 * 4 * 2 * 1 = 120
-    # 8. total_sheets = 264 + 120 + 6 = 390
-    
-    # Let's assert total sheets matches 390!
-    mat_line = [l for l in cost_lines if l.category == "material"][0]
-    assert int(mat_line.quantity) == 390
+    mat = [l for l in cost_lines if l.category == "material"][0]
+    # printed = ceil(1000/4) = 250; sản xuất = ceil(250 × 1.20) = 300 (norm cũ bị bỏ qua).
+    assert int(mat.quantity) == 300, mat.quantity
+    assert mat.calculation_snapshot_json["sheets_after_yield"] == 250   # không còn tỷ lệ đạt
+    assert mat.calculation_snapshot_json["total_sheets"] == 300
+    # Công đoạn (bế) dùng ĐÚNG số lượng đặt, không inflate theo yield.
+    op_line = next(l for l in cost_lines if l.category in ("operation", "packing"))
+    assert op_line.calculation_snapshot_json["qty_at_op"] == 1000
 
 
 def test_offset_plates_multiplier(test_setup):

@@ -95,7 +95,7 @@ class QuotationService:
             code = spec.get("imposition") or spec.get("imposition_name")
             if not code:
                 sides = int(spec.get("sides", 2) or 2)
-                code = "ONE_SIDE" if sides == 1 else "TRO_NHIP_2_KEM"
+                code = "ONE_SIDE" if sides == 1 else "AB"
             repo = ImpositionTypeRepository(self.quotations.db)
             impo = repo.resolve_active(code=code, name=code, at_date=date.today())
             if impo:

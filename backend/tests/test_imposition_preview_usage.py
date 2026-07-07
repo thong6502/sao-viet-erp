@@ -109,13 +109,13 @@ def test_estimate_counts_by_resolved_code():
     _est(db, "E2", {"imposition": "tu_tro", "sides": 2})        # khác hoa/thường → cùng mã
     _est(db, "E3", {"imposition_name": "ONE_SIDE", "sides": 1})  # legacy field
     _est(db, "E4", {"sides": 1})                                 # không chỉ định → ONE_SIDE
-    _est(db, "E5", {"sides": 2})                                 # không chỉ định → TRO_NHIP_2_KEM
+    _est(db, "E5", {"sides": 2})                                 # không chỉ định → AB (default 2 mặt)
     _est(db, "E6", {"imposition": "TU_TRO"}, status="cancelled") # cancelled bị loại
 
     counts = repo.estimate_code_counts()
     assert counts.get("TU_TRO") == 2
     assert counts.get("ONE_SIDE") == 2         # E3 (name) + E4 (default sides=1)
-    assert counts.get("TRO_NHIP_2_KEM") == 1   # E5 default sides=2
+    assert counts.get("AB") == 1               # E5 default sides=2
 
 
 def test_list_estimates_by_code_newest_first():

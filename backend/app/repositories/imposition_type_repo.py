@@ -74,11 +74,16 @@ class ImpositionTypeRepository:
         self, *, code: str | None = None, name: str | None = None, at_date: date
     ) -> ImpositionType | None:
         """Resolve the current row for the pricing engine: by code first, then name,
-        picking the effective-at-`at_date` row with the highest version."""
+        picking the effective-at-`at_date` row with the highest version.
+
+        Kiểu đã TẮT (is_active=False) không được resolve — tránh việc "Kiểu bình mặc định"
+        của Loại SP vẫn âm thầm tính giá bằng kiểu đã tắt trong khi dropdown không hiển thị
+        nó; engine sẽ fallback hệ số suy từ số mặt + cảnh báo MISSING_IMPOSITION."""
         if code and code.strip():
             row = self.db.execute(
                 select(ImpositionType)
                 .where(func.upper(ImpositionType.code) == code.strip().upper())
+                .where(ImpositionType.is_active.is_(True))
                 .where(_effective_at(at_date))
                 .order_by(ImpositionType.version.desc())
             ).scalars().first()
@@ -88,6 +93,7 @@ class ImpositionTypeRepository:
             row = self.db.execute(
                 select(ImpositionType)
                 .where(func.lower(ImpositionType.name) == name.strip().lower())
+                .where(ImpositionType.is_active.is_(True))
                 .where(_effective_at(at_date))
                 .order_by(ImpositionType.version.desc())
             ).scalars().first()
@@ -213,7 +219,7 @@ class ImpositionTypeRepository:
             sides = int(spec.get("sides", 2) or 2)
         except (TypeError, ValueError):
             sides = 2
-        return "ONE_SIDE" if sides == 1 else "TRO_NHIP_2_KEM"
+        return "ONE_SIDE" if sides == 1 else "AB"
 
     def estimate_code_counts(self, *, include_cancelled: bool = False) -> dict[str, int]:
         """Đếm số estimates (tính giá) theo mã bình bài đã resolve. Một lượt quét, trả {CODE: n}."""

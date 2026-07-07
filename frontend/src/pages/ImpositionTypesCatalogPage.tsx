@@ -8,13 +8,11 @@ import {
   type ImpositionAppliesToSides,
   type ImpositionPreviewOut,
   type ImpositionUsageEstimate,
-  type ProductTypeCatalogRow,
-  type MachineRow,
-  type PaperSizeRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ImpositionSchematic } from "../components/ImpositionSchematic";
+import { InfoHint } from "../components/InfoHint";
 import "./master-data.css";
 import "./imposition-rules.css";
 
@@ -43,8 +41,10 @@ const APPLIES_SIDES_LABEL: Record<string, string> = Object.fromEntries(
   APPLIES_SIDES_OPTIONS.map((o) => [o.value, o.label]),
 );
 
-const STEPS = ["Thông tin", "Công thức", "Điều kiện", "Kiểm thử"];
-type ListTab = "all" | "preset" | "custom" | "inactive" | "conflict";
+// Bước "Điều kiện" đã bỏ: phạm vi áp dụng theo loại SP quản lý MỘT NƠI ở danh mục
+// Loại sản phẩm (tab Bình bài & quy tắc); "áp dụng cho số mặt" tự suy từ Nhóm kiểu.
+const STEPS = ["Thông tin", "Công thức", "Kiểm thử"];
+type ListTab = "all" | "preset" | "custom" | "inactive";
 
 // ---------------------------------------------------------------------------
 // Tiện ích thuần
@@ -55,10 +55,38 @@ function fmt(n: number): string {
 function isPreset(row: ImpositionTypeRow): boolean {
   return row.group_kind !== "custom";
 }
-function prioBucket(priority: number): { cls: string; label: string } {
-  if (priority <= 20) return { cls: "ir-prio--hi", label: "Ưu tiên cao" };
-  if (priority <= 60) return { cls: "ir-prio--mid", label: "Trung bình" };
-  return { cls: "ir-prio--lo", label: "Thấp" };
+
+// --- Bộ chọn "cách in" → suy 4 hệ số (form Công thức hướng dẫn) -----------------
+// Người dùng khai CÁCH IN THẬT (mấy mặt · chung/riêng kẽm · perfecting · bồi 2 mảnh),
+// hệ thống tự suy 4 hệ số — luôn nhất quán, không tạo được tổ hợp mâu thuẫn.
+type PlateMode = "shared" | "separate";
+interface ImpoChoice {
+  printSides: number;   // 1 | 2
+  plateMode: PlateMode; // chung 1 bộ / riêng 2 bộ (chỉ khi 2 mặt)
+  perfecting: boolean;  // máy in trở tự động (chỉ khi 2 mặt)
+  twoPiece: boolean;    // sản phẩm bồi/dán 2 mảnh → con ÷2
+}
+interface ImpoCoef { sides: number; finished: number; pass: number; plate: number; ink: number }
+
+function deriveCoef(c: ImpoChoice): ImpoCoef {
+  const twoSide = c.printSides === 2;
+  return {
+    sides: c.printSides,
+    ink: c.printSides,                                    // in mấy mặt = lăn mực mấy lần
+    pass: !twoSide ? 1 : c.perfecting ? 1 : 2,            // perfecting: 2 mặt 1 lượt máy
+    plate: !twoSide ? 1 : c.plateMode === "shared" ? 1 : 2,
+    finished: c.twoPiece ? 0.5 : 1.0,                    // bồi 2 mảnh mới chia đôi con
+  };
+}
+
+/** Suy ngược lựa chọn từ 4 hệ số đã lưu (mở kiểu cũ). */
+function choiceFromCoef(sides: number, finished: number, pass: number, plate: number): ImpoChoice {
+  return {
+    printSides: sides === 2 ? 2 : 1,
+    plateMode: plate >= 2 ? "separate" : "shared",
+    perfecting: sides === 2 && pass === 1,
+    twoPiece: finished < 1,
+  };
 }
 
 /** Chip tóm tắt "cách tính giá" — suy từ hệ số, ×1 làm mờ cho đỡ rối. */
@@ -77,55 +105,6 @@ function appliesLabel(row: ImpositionTypeRow, ptName: Record<string, string>): s
   if (!pts || pts.length === 0) return "mọi loại SP";
   if (pts.length <= 2) return pts.map((c) => ptName[c] ?? c).join(", ");
   return `${pts.length} loại SP`;
-}
-
-// ---- Phát hiện xung đột rule (thuần client trên tập phiên bản đang hiệu lực) ----
-function overlapNums(a: number[] | null, b: number[] | null): boolean {
-  const aAll = !a || a.length === 0;
-  const bAll = !b || b.length === 0;
-  if (aAll || bAll) return true;
-  return a!.some((x) => b!.includes(x));
-}
-function overlapStrs(a: string[] | null, b: string[] | null): boolean {
-  const aAll = !a || a.length === 0;
-  const bAll = !b || b.length === 0;
-  if (aAll || bAll) return true;
-  return a!.some((x) => b!.includes(x));
-}
-function sidesOverlap(a: ImpositionAppliesToSides, b: ImpositionAppliesToSides): boolean {
-  if (a === "any" || b === "any") return true;
-  return a === b;
-}
-function rulesConflict(a: ImpositionTypeRow, b: ImpositionTypeRow): boolean {
-  if (!a.is_active || !b.is_active) return false;
-  if (a.code === b.code) return false; // cùng mã = version-chain, không phải xung đột
-  // Xung đột THỰC SỰ = trùng ưu tiên + trùng phạm vi ⇒ engine không có winner rõ ràng.
-  // Khác ưu tiên thì thang ưu tiên đã tự phân xử (số nhỏ thắng) nên không coi là cảnh báo.
-  if (a.priority !== b.priority) return false;
-  if ((a.technology || "") !== (b.technology || "")) return false;
-  if (!sidesOverlap(a.applies_to_sides, b.applies_to_sides)) return false;
-  if (!overlapStrs(a.applicable_product_types, b.applicable_product_types)) return false;
-  if (!overlapNums(a.applicable_machine_ids, b.applicable_machine_ids)) return false;
-  if (!overlapNums(a.applicable_paper_size_ids, b.applicable_paper_size_ids)) return false;
-  return true;
-}
-type ConflictPair = { a: ImpositionTypeRow; b: ImpositionTypeRow; samePriority: boolean };
-function computeConflicts(rows: ImpositionTypeRow[]): {
-  pairs: ConflictPair[];
-  ids: Set<number>;
-} {
-  const pairs: ConflictPair[] = [];
-  const ids = new Set<number>();
-  for (let i = 0; i < rows.length; i++) {
-    for (let j = i + 1; j < rows.length; j++) {
-      if (rulesConflict(rows[i], rows[j])) {
-        pairs.push({ a: rows[i], b: rows[j], samePriority: rows[i].priority === rows[j].priority });
-        ids.add(rows[i].id);
-        ids.add(rows[j].id);
-      }
-    }
-  }
-  return { pairs, ids };
 }
 
 // ---------------------------------------------------------------------------
@@ -175,8 +154,6 @@ export function ImpositionTypesCatalogPage() {
       .catch(() => {});
   }, [token]);
 
-  const { pairs: conflictPairs, ids: conflictIds } = useMemo(() => computeConflicts(rows), [rows]);
-
   const techOptions = useMemo(
     () => Array.from(new Set(rows.map((r) => r.technology).filter(Boolean))).sort(),
     [rows],
@@ -188,9 +165,8 @@ export function ImpositionTypesCatalogPage() {
       preset: rows.filter(isPreset).length,
       custom: rows.filter((r) => !isPreset(r)).length,
       inactive: rows.filter((r) => !r.is_active).length,
-      conflict: conflictIds.size,
     }),
-    [rows, conflictIds],
+    [rows],
   );
 
   const filtered = useMemo(() => {
@@ -199,13 +175,12 @@ export function ImpositionTypesCatalogPage() {
       if (tab === "preset" && !isPreset(r)) return false;
       if (tab === "custom" && isPreset(r)) return false;
       if (tab === "inactive" && r.is_active) return false;
-      if (tab === "conflict" && !conflictIds.has(r.id)) return false;
       if (techFilter && r.technology !== techFilter) return false;
       if (groupFilter && r.group_kind !== groupFilter) return false;
       if (needle && !(`${r.code} ${r.name}`.toLowerCase().includes(needle))) return false;
       return true;
     });
-  }, [rows, tab, techFilter, groupFilter, q, conflictIds]);
+  }, [rows, tab, techFilter, groupFilter, q]);
 
   const toggleActive = useCallback(
     async (row: ImpositionTypeRow) => {
@@ -287,16 +262,15 @@ export function ImpositionTypesCatalogPage() {
 
       <div className="ir-tabs">
         {([
-          ["all", "Tất cả", counts.all, false],
-          ["preset", "Preset hệ thống", counts.preset, false],
-          ["custom", "Tùy chỉnh", counts.custom, false],
-          ["inactive", "Đang ngừng", counts.inactive, false],
-          ["conflict", "⚠ Có cảnh báo", counts.conflict, true],
-        ] as [ListTab, string, number, boolean][]).map(([key, label, n, warn]) => (
+          ["all", "Tất cả", counts.all],
+          ["preset", "Preset hệ thống", counts.preset],
+          ["custom", "Tùy chỉnh", counts.custom],
+          ["inactive", "Đang ngừng", counts.inactive],
+        ] as [ListTab, string, number][]).map(([key, label, n]) => (
           <button
             key={key}
             type="button"
-            className={`ir-tab${tab === key ? " ir-tab--active" : ""}${warn ? " ir-tab--warn" : ""}`}
+            className={`ir-tab${tab === key ? " ir-tab--active" : ""}`}
             onClick={() => setTab(key)}
           >
             {label}
@@ -304,19 +278,6 @@ export function ImpositionTypesCatalogPage() {
           </button>
         ))}
       </div>
-
-      {conflictPairs.length > 0 && (tab === "all" || tab === "conflict") && (
-        <div className="ir-warn" role="status">
-          {conflictPairs.slice(0, 4).map((p, i) => (
-            <div key={i}>
-              <strong>"{p.a.name}"</strong> và <strong>"{p.b.name}"</strong> cùng áp dụng (
-              {p.a.technology} · {APPLIES_SIDES_LABEL[p.a.applies_to_sides] ?? p.a.applies_to_sides}){" "}
-              và <strong>cùng ưu tiên {p.a.priority}</strong> — engine không có thứ tự rõ ràng, nên chỉnh ưu tiên để tránh nhập nhằng.
-            </div>
-          ))}
-          {conflictPairs.length > 4 && <div>… và {conflictPairs.length - 4} cặp khác.</div>}
-        </div>
-      )}
 
       {error && (
         <div className="banner banner--error" role="alert">
@@ -332,7 +293,6 @@ export function ImpositionTypesCatalogPage() {
               <th>Quy tắc</th>
               <th>Áp dụng cho</th>
               <th>Cách tính giá</th>
-              <th>Ưu tiên</th>
               <th>Phiên bản</th>
               <th>Đang dùng</th>
               <th>Trạng thái</th>
@@ -341,12 +301,11 @@ export function ImpositionTypesCatalogPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} className="md-page__status" role="status">Đang tải dữ liệu…</td></tr>
+              <tr><td colSpan={7} className="md-page__status" role="status">Đang tải dữ liệu…</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={8} className="md-page__empty">Không có quy tắc nào khớp bộ lọc.</td></tr>
+              <tr><td colSpan={7} className="md-page__empty">Không có quy tắc nào khớp bộ lọc.</td></tr>
             ) : (
               filtered.map((row) => {
-                const prio = prioBucket(row.priority);
                 const used = row.used_count > 0;
                 return (
                   <tr key={row.id} className="md-page__row" onClick={() => openRow(row)}>
@@ -367,11 +326,6 @@ export function ImpositionTypesCatalogPage() {
                         ))}
                       </div>
                     </td>
-                    <td>
-                      <span className={`ir-prio ${prio.cls}`} title={`priority = ${row.priority} (nhỏ = ưu tiên cao)`}>
-                        {prio.label}
-                      </span>
-                    </td>
                     <td className="md-page__mono">v{row.version}</td>
                     <td onClick={(e) => e.stopPropagation()}>
                       {row.estimate_count > 0 ? (
@@ -381,7 +335,6 @@ export function ImpositionTypesCatalogPage() {
                       ) : (
                         <span className="ir-usage-zero">0 tính giá</span>
                       )}
-                      {conflictIds.has(row.id) && <span className="ir-conflict-flag" title="Có cảnh báo xung đột">⚠</span>}
                     </td>
                     <td>
                       <span className={`md-page__status-badge ${row.is_active ? "is-active" : "is-inactive"}`}>
@@ -538,34 +491,60 @@ function RuleDrawer({
   const [passCount, setPassCount] = useState(source ? String(source.pass_count) : "1");
   const [plateSetFactor, setPlateSetFactor] = useState(source ? String(source.plate_set_factor) : "1");
   const [inkPassFactor, setInkPassFactor] = useState(source ? String(source.ink_pass_factor) : "1");
-  const [allowRotate, setAllowRotate] = useState(source?.allow_rotate ?? true);
-  const [sharedPlateSet, setSharedPlateSet] = useState(source?.shared_plate_set ?? false);
+  // 2 cờ này đã bỏ khỏi UI (không tác động giá — engine chỉ đọc 4 hệ số số). Giữ giá trị
+  // cũ từ bản ghi để không mất dữ liệu; sơ đồ minh họa suy "dùng chung kẽm" từ số bộ kẽm.
+  const [allowRotate] = useState(source?.allow_rotate ?? true);
+  const sharedPlateSet = Number(plateSetFactor) <= 1;
 
-  const [technology, setTechnology] = useState(source?.technology ?? "offset");
-  const [appliesToSides, setAppliesToSides] = useState<ImpositionAppliesToSides>(source?.applies_to_sides ?? "any");
-  const [productTypes, setProductTypes] = useState<string[]>(source?.applicable_product_types ?? []);
-  const [machineIds, setMachineIds] = useState<number[]>(source?.applicable_machine_ids ?? []);
-  const [paperSizeIds, setPaperSizeIds] = useState<number[]>(source?.applicable_paper_size_ids ?? []);
-  const [allowMultiSignature, setAllowMultiSignature] = useState(source?.allow_multi_signature ?? true);
-  const [priority, setPriority] = useState(source ? String(source.priority) : "100");
+  // --- Form Công thức hướng dẫn: chọn cách in → tự suy 4 hệ số ---------------
+  // Suy ngược lựa chọn từ bản ghi (kiểu mới mặc định 1 mặt).
+  const initChoice = choiceFromCoef(
+    source ? source.sides : 1,
+    source ? Number(source.finished_factor) : 1,
+    source ? Number(source.pass_count) : 1,
+    source ? Number(source.plate_set_factor) : 1,
+  );
+  const [printSides, setPrintSides] = useState(initChoice.printSides);
+  const [plateMode, setPlateMode] = useState<PlateMode>(initChoice.plateMode);
+  const [perfecting, setPerfecting] = useState(initChoice.perfecting);
+  const [twoPiece, setTwoPiece] = useState(initChoice.twoPiece);
+  // Chế độ nhập tay 4 hệ số (nâng cao). Bật sẵn nếu hệ số cũ KHÔNG khớp bộ suy —
+  // để không âm thầm đổi số của kiểu lạ (VD CUSTOM ink=1).
+  const [advancedCoef, setAdvancedCoef] = useState(() => {
+    if (!source) return false;
+    const d = deriveCoef(initChoice);
+    return !(
+      d.sides === source.sides &&
+      d.finished === Number(source.finished_factor) &&
+      d.pass === Number(source.pass_count) &&
+      d.plate === Number(source.plate_set_factor) &&
+      d.ink === Number(source.ink_pass_factor)
+    );
+  });
+
+  // Ở chế độ hướng dẫn: đổi lựa chọn → ghi 4 hệ số + số mặt.
+  useEffect(() => {
+    if (advancedCoef) return;
+    const d = deriveCoef({ printSides, plateMode, perfecting, twoPiece });
+    setSides(d.sides);
+    setFinishedFactor(String(d.finished));
+    setPassCount(String(d.pass));
+    setPlateSetFactor(String(d.plate));
+    setInkPassFactor(String(d.ink));
+  }, [advancedCoef, printSides, plateMode, perfecting, twoPiece]);
+
+  // Bước "Điều kiện" đã bỏ — technology/allow_multi_signature/applicable_* gửi lại như cũ.
+  const [technology] = useState(source?.technology ?? "offset");
+  const [allowMultiSignature] = useState(source?.allow_multi_signature ?? true);
+  // Priority đã bỏ khỏi UI (không cần — chọn kiểu ở Loại SP). Giữ giá trị cũ để sắp dropdown.
+  const [priority] = useState(source ? String(source.priority) : "100");
 
   const [effectiveFrom, setEffectiveFrom] = useState(isVersion ? "" : source?.effective_from ?? "");
   const [effectiveTo, setEffectiveTo] = useState(isVersion ? "" : source?.effective_to ?? "");
 
-  const [ptOptions, setPtOptions] = useState<ProductTypeCatalogRow[]>([]);
-  const [machineOptions, setMachineOptions] = useState<MachineRow[]>([]);
-  const [paperOptions, setPaperOptions] = useState<PaperSizeRow[]>([]);
-
   const [saving, setSaving] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [testedOk, setTestedOk] = useState(false);
-
-  useEffect(() => {
-    if (!token) return;
-    api.productTypesCatalog.list(token, { size: 200 }).then((r) => setPtOptions(r.items)).catch(() => {});
-    api.machines.list(token, { machine_type: "offset", size: 200 }).then((r) => setMachineOptions(r.items)).catch(() => {});
-    api.paperSizes.list(token, { size: 200 }).then((r) => setPaperOptions(r.items)).catch(() => {});
-  }, [token]);
 
   const ff = Number(finishedFactor);
   const pc = Number(passCount);
@@ -576,7 +555,15 @@ function RuleDrawer({
   const softInfos: string[] = [];
   if (sides === 1 && Number.isFinite(ipf) && ipf > 1) softWarnings.push("Số mặt = 1 nhưng số lần lăn mực > 1 — thường không hợp lý.");
   if (sides === 2 && Number.isFinite(pc) && pc === 1) softWarnings.push("Số mặt = 2 mà số lần chạy máy = 1 — có phải máy perfecting (in trở tự động)?");
-  if (Number.isFinite(ff) && ff === 0.5) softInfos.push("Tỉ lệ con lấy được/tờ 0.5 sẽ giảm một nửa số con mỗi tờ (cần gấp đôi số tờ in).");
+  // Tổ hợp mâu thuẫn vật lý: kẽm RIÊNG (≥2) thì mỗi ô tự đủ 2 mặt → con phải NGUYÊN (1.0);
+  // kẽm CHUNG (1) cho 2 mặt thì con phải ÷2. Trộn ngược = vừa tốn kẽm vừa tốn giấy.
+  if (Number.isFinite(psf) && psf >= 2 && Number.isFinite(ff) && ff < 1) {
+    softWarnings.push("Kẽm riêng (≥2 bộ) thì mỗi ô tự đủ 2 mặt — tỉ lệ con thường = 1. Tổ hợp '2 kẽm + tỉ lệ < 1' vừa tốn kẽm vừa tốn giấy, gần như chắc chắn nhập nhầm.");
+  }
+  if (sides === 2 && Number.isFinite(psf) && psf <= 1 && Number.isFinite(ff) && ff >= 1) {
+    softWarnings.push("2 mặt dùng CHUNG 1 bộ kẽm thì thường phải chia đôi số con (tỉ lệ 0.5) — kiểm tra lại tỉ lệ con nếu đây là kiểu tự trở/trở nhíp 1 kẽm.");
+  }
+  if (Number.isFinite(ff) && ff === 0.5) softInfos.push("Tỉ lệ con 0.5 = 2 ô ghép 1 sản phẩm → cần gấp đôi số tờ in (giấy vẫn in kín, không bỏ trắng nửa nào).");
   if (source && source.estimate_count > 0 && (mode.kind === "edit")) {
     softInfos.push(`Quy tắc đang dùng trong ${source.estimate_count} tính giá — sửa tại chỗ sẽ ảnh hưởng lần tính lại sau.`);
   }
@@ -603,10 +590,10 @@ function RuleDrawer({
     if (!Number.isFinite(psf) || psf < 0) return fail("Số bộ kẽm không được âm.", 1);
     if (!Number.isFinite(ipf) || ipf < 0) return fail("Số lần lăn mực không được âm.", 1);
     const prio = Number(priority);
-    if (!Number.isFinite(prio) || prio < 0) return fail("Thứ tự ưu tiên không được âm.", 2);
+    if (!Number.isFinite(prio) || prio < 0) return fail("Thứ tự ưu tiên không được âm.", 0);
     if (effectiveFrom && effectiveTo && effectiveTo <= effectiveFrom) return fail("Ngày hết hiệu lực phải sau ngày bắt đầu.", 0);
     // Gate kiểm thử: lưu Active phải chạy thử ít nhất 1 lần với bộ hệ số hiện tại.
-    if (isActive && !testedOk) return fail("Hãy chạy Kiểm thử ít nhất 1 lần trước khi lưu quy tắc ở trạng thái Active.", 3);
+    if (isActive && !testedOk) return fail("Hãy chạy Kiểm thử ít nhất 1 lần trước khi lưu quy tắc ở trạng thái Active.", 2);
 
     const payload: ImpositionTypeInput = {
       name: name.trim(),
@@ -620,10 +607,18 @@ function RuleDrawer({
       shared_plate_set: sharedPlateSet,
       note: note.trim() ? note.trim() : null,
       technology: technology.trim() || "offset",
-      applies_to_sides: appliesToSides,
-      applicable_product_types: productTypes.length ? productTypes : null,
-      applicable_machine_ids: machineIds.length ? machineIds : null,
-      applicable_paper_size_ids: paperSizeIds.length ? paperSizeIds : null,
+      // "Áp dụng cho số mặt" suy thẳng từ Nhóm kiểu — hết cảnh 2 field lệch nhau
+      // (VD kiểu "1 mặt" mà điều kiện lại ghi "chỉ 2 mặt").
+      applies_to_sides:
+        groupKind === "one_side" ? "1"
+        : groupKind === "two_side" ? "2"
+        : groupKind === "multi_page" ? "multi"
+        : "any",
+      // Phạm vi loại SP / máy / khổ giấy quản lý MỘT NƠI ở danh mục Loại sản phẩm
+      // (tab Bình bài & quy tắc) — lưu từ form này luôn về "áp dụng tất cả".
+      applicable_product_types: null,
+      applicable_machine_ids: null,
+      applicable_paper_size_ids: null,
       allow_multi_signature: allowMultiSignature,
       priority: prio,
       effective_from: effectiveFrom || null,
@@ -742,43 +737,112 @@ function RuleDrawer({
             </div>
           )}
 
-          {/* BƯỚC 2 — Công thức + panel Ảnh hưởng đến giá */}
+          {/* BƯỚC 2 — Công thức: chọn CÁCH IN → tự suy 4 hệ số */}
           {step === 1 && (
             <div className="ir-split">
-              <div className="ir-split__form md-page__form-grid">
-                <label className="field">
-                  <span className="field__label">Số mặt in</span>
-                  <select className="input" value={sides} disabled={disabled}
-                    onChange={(e) => setSides(Number(e.target.value))}>
-                    {SIDES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                  </select>
-                </label>
-                <NumField label="Tỉ lệ con lấy được/tờ *" value={finishedFactor} set={setFinishedFactor} disabled={disabled}
-                  hint="1 = đủ số con như in 1 mặt · 0.5 = còn một nửa (tự trở)" />
-                <NumField label="Số lần chạy máy (mỗi tờ) *" value={passCount} set={setPassCount} disabled={disabled} integer
-                  hint="Mỗi tờ qua máy mấy lần — in 2 mặt thường 2" />
-                <NumField label="Số bộ kẽm *" value={plateSetFactor} set={setPlateSetFactor} disabled={disabled} integer
-                  hint="1 = chung 1 bộ · 2 = mặt trước/sau làm kẽm riêng" />
-                <NumField label="Số lần lăn mực (mỗi tờ) *" value={inkPassFactor} set={setInkPassFactor} disabled={disabled} integer
-                  hint="Mỗi tờ lăn mực mấy lần — in 2 mặt thường 2" />
-                <label className="field">
-                  <span className="field__label">Cho xoay bài khi bình</span>
-                  <div className="md-page__toggle-wrap">
-                    <input type="checkbox" id="ir-rotate" checked={allowRotate} disabled={disabled}
-                      onChange={(e) => setAllowRotate(e.target.checked)} />
-                    <label htmlFor="ir-rotate">Cho phép xoay</label>
+              <div className="ir-split__form">
+                {!advancedCoef ? (
+                  <div className="ir-choice">
+                    {/* 1 — số mặt */}
+                    <div className="ir-choice__q">
+                      <span className="ir-choice__label">Sản phẩm in mấy mặt?</span>
+                      <div className="ir-choice__opts">
+                        <button type="button" disabled={disabled}
+                          className={`ir-opt${printSides === 1 ? " is-on" : ""}`}
+                          onClick={() => { setPrintSides(1); setTwoPiece(false); }}>1 mặt</button>
+                        <button type="button" disabled={disabled}
+                          className={`ir-opt${printSides === 2 ? " is-on" : ""}`}
+                          onClick={() => setPrintSides(2)}>2 mặt</button>
+                      </div>
+                    </div>
+
+                    {/* 2 — chung/riêng kẽm (chỉ khi 2 mặt) */}
+                    {printSides === 2 && (
+                      <div className="ir-choice__q">
+                        <span className="ir-choice__label">
+                          Làm khuôn kẽm kiểu nào?
+                          <InfoHint label="Chung 1 bộ (tự trở): rẻ kẽm, lật giấy in mặt kia — con vẫn nguyên. Riêng 2 bộ (trở nhíp/A-B): tốn gấp đôi kẽm, hợp sản phẩm lớn/đơn to." />
+                        </span>
+                        <div className="ir-choice__opts ir-choice__opts--col">
+                          <button type="button" disabled={disabled}
+                            className={`ir-opt${plateMode === "shared" ? " is-on" : ""}`}
+                            onClick={() => setPlateMode("shared")}>Chung 1 bộ kẽm (tự trở) — rẻ kẽm</button>
+                          <button type="button" disabled={disabled}
+                            className={`ir-opt${plateMode === "separate" ? " is-on" : ""}`}
+                            onClick={() => setPlateMode("separate")}>Riêng 2 bộ kẽm (trở nhíp / A-B)</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 3 — perfecting (chỉ khi 2 mặt) */}
+                    {printSides === 2 && (
+                      <label className="ir-choice__toggle">
+                        <input type="checkbox" checked={perfecting} disabled={disabled}
+                          onChange={(e) => setPerfecting(e.target.checked)} />
+                        <span>Máy in trở tự động (perfecting) — in 2 mặt trong 1 lượt qua máy
+                          <InfoHint label="Máy có bộ lật tự động: in cả 2 mặt trong 1 lần tờ chạy qua → giờ máy KHÔNG nhân 2. Máy thường thì bỏ trống." />
+                        </span>
+                      </label>
+                    )}
+
+                    {/* 4 — bồi 2 mảnh (chỉ có nghĩa khi 2 mặt: 1 mảnh trước + 1 mảnh sau) */}
+                    {printSides === 2 && (
+                      <label className="ir-choice__toggle">
+                        <input type="checkbox" checked={twoPiece} disabled={disabled}
+                          onChange={(e) => setTwoPiece(e.target.checked)} />
+                        <span>Sản phẩm ghép từ 2 mảnh giấy in riêng (thẻ bồi / bìa cứng)
+                          <InfoHint label="Loại có lõi cứng ở giữa, không lật in được: 1 mảnh in mặt trước, 1 mảnh in mặt sau, dán lại → 2 ô = 1 SP → con ÷2. Card/tờ rơi thường (in 2 mặt lật giấy) thì BỎ TRỐNG." />
+                        </span>
+                      </label>
+                    )}
+
+                    {/* Hệ số suy ra (chỉ đọc, minh bạch) */}
+                    <div className="ir-derived">
+                      <span className="ir-derived__title">Hệ số suy ra (tự động)</span>
+                      <div className="ir-derived__grid">
+                        <span>Tỉ lệ con: <strong>{fmt(ff)}</strong></span>
+                        <span>Số bộ kẽm: <strong>{fmt(psf)}</strong></span>
+                        <span>Lượt máy: <strong>{fmt(pc)}</strong></span>
+                        <span>Lượt mực: <strong>{fmt(ipf)}</strong></span>
+                      </div>
+                    </div>
+
+                    <button type="button" className="ir-adv-toggle" disabled={disabled}
+                      onClick={() => setAdvancedCoef(true)}>
+                      Nhập tay hệ số (nâng cao) →
+                    </button>
                   </div>
-                  <span className="field__hint">Xoay bài 90° để kê được nhiều con hơn</span>
-                </label>
-                <label className="field">
-                  <span className="field__label">Dùng chung bộ kẽm</span>
-                  <div className="md-page__toggle-wrap">
-                    <input type="checkbox" id="ir-shared" checked={sharedPlateSet} disabled={disabled}
-                      onChange={(e) => setSharedPlateSet(e.target.checked)} />
-                    <label htmlFor="ir-shared">2 mặt xài chung 1 bộ kẽm</label>
+                ) : (
+                  <div className="ir-adv">
+                    <div className="ir-adv__head">
+                      <span className="ir-test-badge ir-test-badge--todo">✎ Nhập tay hệ số</span>
+                      <button type="button" className="ir-adv-toggle" disabled={disabled}
+                        onClick={() => setAdvancedCoef(false)}>← Quay lại chọn cách in</button>
+                    </div>
+                    <p className="ir-adv__note">
+                      Chế độ nâng cao — bạn tự điền 4 hệ số và tự chịu trách nhiệm tính nhất quán
+                      (engine không kiểm tra chéo). Dùng khi cách in không khớp các lựa chọn sẵn.
+                    </p>
+                    <div className="ir-adv__grid">
+                      <label className="field">
+                        <span className="field__label">Số mặt in</span>
+                        <select className="input" value={sides} disabled={disabled}
+                          onChange={(e) => setSides(Number(e.target.value))}>
+                          {SIDES_OPTIONS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                        </select>
+                        <span className="ir-adv__feeds">dữ liệu gốc</span>
+                      </label>
+                      <NumField label="Tỉ lệ con lấy được/tờ *" value={finishedFactor} set={setFinishedFactor} disabled={disabled}
+                        hint="1 = mỗi ô 1 SP · 0.5 = 2 ô ghép 1 SP (bồi 2 mảnh)." feeds="TIỀN GIẤY" />
+                      <NumField label="Số lần chạy máy (mỗi tờ) *" value={passCount} set={setPassCount} disabled={disabled} integer
+                        hint="Tờ qua máy mấy lượt → GIỜ MÁY. 2 mặt = 2 · perfecting = 1." feeds="GIỜ MÁY" />
+                      <NumField label="Số bộ kẽm *" value={plateSetFactor} set={setPlateSetFactor} disabled={disabled} integer
+                        hint="Chung kẽm = 1 · kẽm riêng = 2 · 1 mặt = 1." feeds="TIỀN KẼM" />
+                      <NumField label="Số lần lăn mực (mỗi tờ) *" value={inkPassFactor} set={setInkPassFactor} disabled={disabled} integer
+                        hint="= số mặt (1 hoặc 2)." feeds="TIỀN MỰC" />
+                    </div>
                   </div>
-                  <span className="field__hint">Cả 2 mặt in bằng 1 bộ kẽm (kiểu tự trở)</span>
-                </label>
+                )}
               </div>
               <div className="ir-split__aside">
                 <div className="ir-panel">
@@ -795,11 +859,16 @@ function RuleDrawer({
                 </div>
                 <div className="ir-panel" style={{ marginTop: 8 }}>
                   <span className="ir-panel__title">Ảnh hưởng đến giá</span>
-                  <div className="ir-panel__row">Số con thành phẩm mỗi tờ = số con xếp được trên tờ × <strong>{fmt(ff)}</strong></div>
+                  <div className="ir-panel__row" style={{ fontWeight: 600 }}>
+                    Đọc nhanh: {ff === 0.5 ? "2 ô ghép 1 sản phẩm (con ÷2)" : ff === 1 ? "mỗi ô ra 1 sản phẩm" : `mỗi ô ra ${fmt(ff)} sản phẩm`}
+                    {" · "}{psf <= 1 ? "chung 1 bộ kẽm" : `${fmt(psf)} bộ kẽm riêng`}
+                    {" · "}tờ qua máy {fmt(pc)} lượt · mực {fmt(ipf)} lần/tờ
+                  </div>
+                  <div className="ir-panel__row">Số con thành phẩm mỗi tờ = số con xếp được trên tờ × <strong>{fmt(ff)}</strong> → quyết định TIỀN GIẤY</div>
                   <div className="ir-panel__row">Số tờ sản xuất = số lượng thành phẩm ÷ số con thành phẩm/tờ</div>
-                  <div className="ir-panel__row">Số lần in = số tờ in thực tế × <strong>{fmt(pc)}</strong></div>
-                  <div className="ir-panel__row">Số bản kẽm = số màu × <strong>{fmt(psf)}</strong> × số tay sách</div>
-                  <div className="ir-panel__row">Số lần lăn mực = số tờ in thực tế × số màu × <strong>{fmt(ipf)}</strong></div>
+                  <div className="ir-panel__row">Số lần in = số tờ in thực tế × <strong>{fmt(pc)}</strong> → TIỀN GIỜ MÁY</div>
+                  <div className="ir-panel__row">Số bản kẽm = số màu × <strong>{fmt(psf)}</strong> × số tay sách → TIỀN KẼM (làm 1 lần cho cả đơn)</div>
+                  <div className="ir-panel__row">Số lần lăn mực = số tờ in thực tế × số màu × <strong>{fmt(ipf)}</strong> → TIỀN MỰC</div>
                 </div>
                 {softWarnings.map((w, i) => (
                   <div key={`w${i}`} className="banner banner--error" role="alert" style={{ marginTop: 8 }}>⚠️ {w}</div>
@@ -812,77 +881,8 @@ function RuleDrawer({
           )}
 
           {/* BƯỚC 3 — Điều kiện áp dụng (rule builder) */}
+          {/* BƯỚC 3 — Kiểm thử (gọi engine thật) */}
           {step === 2 && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
-              <div className="md-page__form-grid">
-                <label className="field">
-                  <span className="field__label">Công nghệ</span>
-                  <input className="input" value={technology} disabled={disabled}
-                    onChange={(e) => setTechnology(e.target.value)} placeholder="offset" />
-                </label>
-                <label className="field">
-                  <span className="field__label">Áp dụng cho số mặt</span>
-                  <select className="input" value={appliesToSides} disabled={disabled}
-                    onChange={(e) => setAppliesToSides(e.target.value as ImpositionAppliesToSides)}>
-                    {APPLIES_SIDES_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                  </select>
-                </label>
-                <label className="field">
-                  <span className="field__label">Thứ tự ưu tiên</span>
-                  <input className="input" type="number" min="0" step="1" value={priority} disabled={disabled}
-                    onChange={(e) => setPriority(e.target.value)} />
-                  <span className="field__hint">Nhỏ = ưu tiên cao. {(() => { const p = prioBucket(Number(priority) || 0); return p.label; })()}</span>
-                </label>
-                <label className="field">
-                  <span className="field__label">Nhiều tay sách</span>
-                  <div className="md-page__toggle-wrap">
-                    <input type="checkbox" id="ir-multisig" checked={allowMultiSignature} disabled={disabled}
-                      onChange={(e) => setAllowMultiSignature(e.target.checked)} />
-                    <label htmlFor="ir-multisig">Cho phép khi nhiều tay sách</label>
-                  </div>
-                </label>
-              </div>
-
-              <div className="field">
-                <span className="field__label">Áp dụng loại sản phẩm (trống = tất cả)</span>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", marginTop: 4 }}>
-                  {ptOptions.map((p) => (
-                    <label key={p.product_type} className="md-page__checkbox-label">
-                      <input type="checkbox" checked={productTypes.includes(p.product_type)} disabled={disabled}
-                        onChange={(e) => setProductTypes((prev) => e.target.checked ? [...prev, p.product_type] : prev.filter((x) => x !== p.product_type))} />
-                      {p.name}
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="ir-split">
-                <div className="ir-split__form">
-                  <span className="field__label">Áp dụng cho máy (offset)</span>
-                  <MultiSelectSearch
-                    options={machineOptions.map((m) => ({ key: m.id, label: m.name }))}
-                    selected={machineIds}
-                    onChange={(keys) => setMachineIds(keys as number[])}
-                    placeholder="Tìm máy…"
-                    disabled={disabled}
-                  />
-                </div>
-                <div className="ir-split__form">
-                  <span className="field__label">Áp dụng cho khổ giấy</span>
-                  <MultiSelectSearch
-                    options={paperOptions.map((p) => ({ key: p.id, label: `${p.name} (${p.width_cm}×${p.height_cm})` }))}
-                    selected={paperSizeIds}
-                    onChange={(keys) => setPaperSizeIds(keys as number[])}
-                    placeholder="Tìm khổ giấy…"
-                    disabled={disabled}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* BƯỚC 4 — Kiểm thử (gọi engine thật) */}
-          {step === 3 && (
             <QuickTest
               token={token}
               ff={ff} pc={pc} psf={psf} ipf={ipf}
@@ -938,10 +938,15 @@ function sanitizeInt(raw: string): string {
   const n = Math.trunc(Number(raw.replace(",", ".")));
   return Number.isFinite(n) ? String(n) : "";
 }
-function NumField({ label, value, set, disabled, hint, integer }: { label: string; value: string; set: (s: string) => void; disabled?: boolean; hint?: string; integer?: boolean }) {
+function NumField({ label, value, set, disabled, hint, integer, feeds }: { label: string; value: string; set: (s: string) => void; disabled?: boolean; hint?: string; integer?: boolean; feeds?: string }) {
+  // Chú thích dài để trong tooltip hover (ⓘ) — form gọn, cần mới đọc.
+  // `feeds` = khoản tiền hệ số này nuôi (hiện dạng tag nhỏ dưới ô).
   return (
     <label className="field">
-      <span className="field__label">{label}</span>
+      <span className="field__label">
+        {label}
+        {hint ? <InfoHint label={hint} /> : null}
+      </span>
       <input
         className="input"
         type="number"
@@ -953,83 +958,13 @@ function NumField({ label, value, set, disabled, hint, integer }: { label: strin
         onChange={(e) => set(e.target.value)}
         onBlur={integer ? () => set(sanitizeInt(value)) : undefined}
       />
-      {hint ? <span className="field__hint">{hint}</span> : null}
+      {feeds ? <span className="ir-adv__feeds">→ nuôi {feeds}</span> : null}
     </label>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Multi-select có tìm kiếm + chọn tất cả + đếm
-// ---------------------------------------------------------------------------
-function MultiSelectSearch({
-  options,
-  selected,
-  onChange,
-  placeholder,
-  disabled,
-}: {
-  options: { key: string | number; label: string }[];
-  selected: (string | number)[];
-  onChange: (keys: (string | number)[]) => void;
-  placeholder?: string;
-  disabled?: boolean;
-}) {
-  const [needle, setNeedle] = useState("");
-  const selectedSet = new Set(selected);
-  const shown = options.filter((o) => o.label.toLowerCase().includes(needle.trim().toLowerCase()));
-  const allShownSelected = shown.length > 0 && shown.every((o) => selectedSet.has(o.key));
-
-  function toggle(key: string | number) {
-    if (disabled) return;
-    onChange(selectedSet.has(key) ? selected.filter((k) => k !== key) : [...selected, key]);
-  }
-  function toggleAllShown() {
-    if (disabled) return;
-    if (allShownSelected) {
-      const shownKeys = new Set(shown.map((o) => o.key));
-      onChange(selected.filter((k) => !shownKeys.has(k)));
-    } else {
-      const merged = new Set(selected);
-      shown.forEach((o) => merged.add(o.key));
-      onChange(Array.from(merged));
-    }
-  }
-
-  return (
-    <>
-      <div className="ir-ms">
-        <div className="ir-ms__bar">
-          <span aria-hidden>🔍</span>
-          <input className="ir-ms__search" placeholder={placeholder ?? "Tìm…"} value={needle}
-            disabled={disabled} onChange={(e) => setNeedle(e.target.value)} />
-          {shown.length > 0 && !disabled && (
-            <button type="button" className="ir-ms__act" onClick={toggleAllShown}>
-              {allShownSelected ? "Bỏ chọn" : "Chọn tất cả"}
-            </button>
-          )}
-        </div>
-        <div className="ir-ms__list">
-          {shown.length === 0 ? (
-            <div className="ir-ms__empty">Không có mục nào.</div>
-          ) : (
-            shown.map((o) => (
-              <label key={o.key} className="ir-ms__opt">
-                <input type="checkbox" checked={selectedSet.has(o.key)} disabled={disabled} onChange={() => toggle(o.key)} />
-                {o.label}
-              </label>
-            ))
-          )}
-        </div>
-      </div>
-      <div className="ir-ms__count">
-        {selected.length > 0 ? `Đã chọn ${selected.length}/${options.length}` : `Trống = áp dụng tất cả (${options.length})`}
-      </div>
-    </>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Bước 4 — Kiểm thử: gọi engine thật (POST /preview)
+// Bước 3 — Kiểm thử: gọi engine thật (POST /preview)
 // ---------------------------------------------------------------------------
 function QuickTest({
   token,

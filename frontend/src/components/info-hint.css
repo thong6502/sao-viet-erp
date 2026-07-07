@@ -31,14 +31,17 @@
   outline: none;
 }
 
+/* Bubble mở XUỐNG DƯỚI + neo cạnh trái icon: không bị mép trên drawer/dialog
+   cắt mất, không tràn ngang khi icon nằm trong cột hẹp. */
 .hint-tip__bubble {
   position: absolute;
   z-index: 60;
-  bottom: calc(100% + 8px);
-  left: 50%;
-  transform: translateX(-50%) translateY(4px);
+  top: calc(100% + 8px);
+  left: -6px;
+  transform: translateY(-4px);
   width: max-content;
-  max-width: 240px;
+  max-width: 280px;
+  white-space: normal;
   padding: 8px 10px;
   background: var(--ink);
   color: var(--paper);
@@ -54,19 +57,22 @@
   transition: opacity var(--duration-base) var(--easing-standard),
     transform var(--duration-base) var(--easing-standard);
 }
-/* Little pointer under the bubble. */
+/* Little pointer above the bubble, aligned with the icon. */
 .hint-tip__bubble::after {
   content: "";
   position: absolute;
-  top: 100%;
-  left: 50%;
-  transform: translateX(-50%);
+  bottom: 100%;
+  left: 12px;
   border: 5px solid transparent;
-  border-top-color: var(--ink);
+  border-bottom-color: var(--ink);
 }
 .hint-tip__btn:hover + .hint-tip__bubble,
 .hint-tip__btn:focus-visible + .hint-tip__bubble,
 .hint-tip:hover .hint-tip__bubble {
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
+  transform: translateY(0);
+}
+/* Icon đứng cạnh nhãn field: cách chữ một nhịp nhỏ. */
+.field__label .hint-tip {
+  margin-left: 6px;
 }

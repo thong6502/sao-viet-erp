@@ -53,6 +53,7 @@ _PT_CONFIG_FIELDS = (
     "has_tooling",
     "default_tooling_type",
     "allow_manual_override",
+    "waste_pct",
 )
 
 class ProductTypeCatalogRepository:

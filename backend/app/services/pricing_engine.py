@@ -11,6 +11,7 @@ from ..models.material import Material, MaterialCost
 from ..models.machine import Machine, MachineRate
 from ..models.operation import Operation, OperationRate
 from ..models.plate_die_rate import PlateDieRate
+from ..models.product_type_catalog import ProductTypeCatalog
 from ..models.estimate import EstimateCostLine
 from ..services.norm_service import NormService, NormLookupContext
 from . import imposition_math
@@ -230,7 +231,7 @@ class PricingEngine:
         impo_code = input_spec.get("imposition") or input_spec.get("imposition_name")
         if not impo_code:
             # Mặc định theo số mặt khi spec không chọn kiểu: dùng MÃ ổn định (tên có thể đổi).
-            impo_code = "ONE_SIDE" if sides == 1 else "TRO_NHIP_2_KEM"
+            impo_code = "ONE_SIDE" if sides == 1 else "AB"
         impo = ImpositionTypeRepository(self.db).resolve_active(
             code=impo_code, name=impo_code, at_date=at_date
         )
@@ -394,103 +395,48 @@ class PricingEngine:
         
         operations_list.sort(key=get_seq, reverse=True)
 
-        # 6. Chuỗi ngược qua công đoạn sau in (danh mục #7 — Định mức & Bù hao).
-        # Mỗi CĐ: số cần TRƯỚC = ceil(số cần SAU / tỷ_lệ_đạt) + bù_hao_setup. Chỉ áp tỷ lệ đạt/setup
-        # RIÊNG của công đoạn; norm khâu in / chung KHÔNG rớt xuống đây (xem _op_yield/_op_setup).
+        # 6. BÙ HAO — mô hình mới: một con số % duy nhất khai ở Loại sản phẩm (waste_pct),
+        # thay cả module Định mức cũ (yield/makeready/running/paper_extra). Áp thẳng vào SỐ TỜ
+        # SẢN XUẤT → đội giấy + mực + giờ máy; KHÔNG đội kẽm (kẽm làm 1 lần, không hao theo tờ).
+        # Công đoạn dùng đúng số lượng đặt (không còn chuỗi ngược theo tỷ lệ đạt).
         current_qty = int(qty)
-        reverse_snaps = []
-        for op, op_rate, op_spec in operations_list:
-            op_ctx = NormLookupContext(
-                product_type=product_type,
-                operation_id=op.id,
-                operation_key=op.operation_type,
-                quantity=current_qty,
-                at_date=at_date,
-            )
+        reverse_snaps = [
+            {
+                "operation_name": op.name, "operation_type": op.operation_type,
+                "norm_id": None, "setup_norm_id": None, "yield_rate": 1.0,
+                "setup_sheets": 0, "waste_pct": 0.0,
+                "qty_after": current_qty, "qty_before": current_qty,
+            }
+            for op, _op_rate, _op_spec in operations_list
+        ]
 
-            yield_op, yield_norm_id = self._op_yield(op, op_ctx)
-            setup_op, setup_norm_id = self._op_setup(op_ctx, colors, sides)
-
-            prev_qty = current_qty
-            current_qty = int(math.ceil(prev_qty / yield_op)) + int(round(setup_op))
-
-            reverse_snaps.append({
-                "operation_name": op.name,
-                "operation_type": op.operation_type,
-                "norm_id": yield_norm_id,
-                "setup_norm_id": setup_norm_id,
-                "yield_rate": round(yield_op, 4),
-                "setup_sheets": int(round(setup_op)),
-                # giữ khóa cũ cho diễn giải FE: %hao tương đương = 1 − tỷ lệ đạt
-                "waste_pct": round(1 - yield_op, 4),
-                "qty_after": prev_qty,
-                "qty_before": current_qty,
-            })
-
-        # Số tờ cần sau in (đạt) = số cần trước in ÷ số con.
+        # Số tờ cần in (lý thuyết) = số lượng ÷ số con/tờ.
         printed_sheets = int(math.ceil(current_qty / pieces_per_sheet))
 
-        # Định mức khâu in (không gắn công đoạn): tỷ lệ đạt in, makeready, running.
-        print_ctx = NormLookupContext(
-            product_type=product_type,
-            machine_id=machine_id,
-            colors=colors,
-            sides=sides,
-            quantity=qty,
-            at_date=at_date
-        )
+        # % bù hao lấy từ Loại sản phẩm.
+        waste_pct = 0.0
+        if product_type:
+            pt_row = self.db.execute(
+                select(ProductTypeCatalog).where(ProductTypeCatalog.product_type == product_type)
+            ).scalars().first()
+            if pt_row is not None and getattr(pt_row, "waste_pct", None):
+                waste_pct = max(0.0, float(pt_row.waste_pct))
 
-        # Tỷ lệ đạt khâu in → số tờ phải chạy = ceil(tờ cần / đạt). Chỉ nhận norm KHÔNG gắn CĐ.
+        # Số tờ 3 lớp: lý thuyết (printed_sheets) → sản xuất (×(1+hao%)) → mua.
         print_yield = 1.0
         print_yield_norm_id = None
         print_yield_rule = None
-        try:
-            rec = self.norm_service._find_norm_candidate("yield_rate", print_ctx)
-            if rec is not None and rec.operation_id is None and rec.operation_key is None:
-                v = float(rec.value or 0)
-                if 0 < v <= 1:
-                    print_yield = v
-                    print_yield_norm_id = rec.id
-                    print_yield_rule = _rule_label(rec)
-        except Exception:
-            pass
-        sheets_after_yield = int(math.ceil(printed_sheets / print_yield))
-
-        # Makeready (bù hao setup in) — CỘNG thêm; clamp min/max; sàn theo máy (#5).
+        sheets_after_yield = printed_sheets
         makeready_sheets = 0
         makeready_norm_id = None
         makeready_rule = None
-        makeready_per_color_side = 0.0  # giữ cho snapshot / đơn giá quy đổi
-        try:
-            rec = self.norm_service._find_norm_candidate("makeready_per_color_side", print_ctx)
-            if rec is not None and rec.operation_id is None and rec.operation_key is None:
-                makeready_sheets = int(math.ceil(_compute_setup_sheets(rec, colors, sides) * forms))
-                makeready_norm_id = rec.id
-                makeready_rule = _rule_label(rec)
-                makeready_per_color_side = float(rec.value or 0)
-        except Exception:
-            pass
-        if machine is not None:
-            makeready_sheets = max(makeready_sheets, int(float(machine.setup_waste_sheets or 0)))
-
-        # Running waste (bù hao chạy máy in) — CỘNG thêm ceil(base × %); clamp min/max.
-        running_add = 0
-        printing_waste_pct = 0.0
+        makeready_per_color_side = 0.0
         print_waste_norm_id = None
-        running_rule = None
-        try:
-            rec = self.norm_service._find_norm_candidate("running_waste_pct", print_ctx)
-            if rec is not None:
-                running_add = int(_compute_running_sheets(rec, sheets_after_yield))
-                printing_waste_pct = float(rec.value or 0)
-                print_waste_norm_id = rec.id
-                running_rule = _rule_label(rec)
-        except Exception:
-            pass
-
-        # 3 lớp: printed_sheets (lý thuyết/đạt) → total_sheets (sản xuất) → purchase (mua).
-        running_sheets = sheets_after_yield + running_add  # tờ chạy (nền + bù hao)
-        total_sheets = sheets_after_yield + makeready_sheets + running_add
+        printing_waste_pct = waste_pct / 100.0
+        running_rule = f"Bù hao {waste_pct:g}% (Loại SP)" if waste_pct > 0 else None
+        total_sheets = int(math.ceil(printed_sheets * (1.0 + waste_pct / 100.0)))
+        running_add = total_sheets - printed_sheets  # phần tờ hao thêm
+        running_sheets = total_sheets
 
         # §12 nâng cao — override SỐ TỜ SẢN XUẤT (kèm lý do). Áp trước khi tính giấy/mực/công in
         # (cascade). input_spec["override_production_sheets"] = {value, reason}.
@@ -509,44 +455,21 @@ class PricingEngine:
                 except (ValueError, TypeError):
                     add_warning("warning", "OVERRIDE_INVALID", "Override số tờ sản xuất không hợp lệ.")
 
-        # Hao giấy riêng (PAPER_EXTRA_WASTE) — cộng vào số tờ SX để ra tờ cần MUA (trước khi quy đổi khổ mua).
+        # Không còn "hao giấy riêng" theo norm — % hao đã gộp hết vào total_sheets.
         paper_extra_sheets = 0
         paper_extra_norm_id = None
         paper_rule = None
-        try:
-            rec = self.norm_service._find_norm_candidate("paper_extra_waste", print_ctx)
-            if rec is not None and bool(getattr(rec, "paper_add_to_purchase", True)):
-                paper_extra_sheets = int(_compute_paper_extra(rec, total_sheets))
-                paper_extra_norm_id = rec.id
-                paper_rule = _rule_label(rec)
-        except Exception:
-            pass
-        sheets_to_buy = total_sheets + paper_extra_sheets
+        sheets_to_buy = total_sheets
 
-        # Diễn giải "Định mức & Bù hao áp dụng" cho màn Tính giá (mỗi bước nêu rule đang dùng).
-        # Mỗi dòng kèm "norm_id" (nếu có) để màn Tính giá link "Xem quy tắc" về đúng định mức.
+        # Diễn giải "Bù hao áp dụng" cho màn Tính giá.
         norms_applied: list[dict] = []
-        for snap in reverse_snaps:
-            if snap["yield_rate"] != 1.0 or snap["setup_sheets"]:
-                norms_applied.append({
-                    "label": f"Tỷ lệ đạt {snap['operation_name']}",
-                    "detail": f"{snap['yield_rate'] * 100:.1f}% → cần {snap['qty_before']:,} (từ {snap['qty_after']:,})".replace(",", "."),
-                    "rule": snap["operation_type"],
-                    "norm_id": snap.get("norm_id") or snap.get("setup_norm_id"),
-                })
-        if print_yield != 1.0:
-            norms_applied.append({
-                "label": "Tỷ lệ đạt in", "rule": print_yield_rule,
-                "detail": f"{print_yield * 100:.1f}% → {sheets_after_yield:,} tờ".replace(",", "."),
-                "norm_id": print_yield_norm_id,
-            })
-        if makeready_sheets:
-            norms_applied.append({"label": "Makeready", "rule": makeready_rule, "detail": f"{makeready_sheets:,} tờ".replace(",", "."), "norm_id": makeready_norm_id})
+        norms_applied.append({"label": "Số tờ lý thuyết", "rule": None, "detail": f"{printed_sheets:,} tờ".replace(",", "."), "norm_id": None})
         if running_add:
-            norms_applied.append({"label": "Running waste", "rule": running_rule, "detail": f"{running_add:,} tờ ({printing_waste_pct * 100:.2f}%)".replace(",", "."), "norm_id": print_waste_norm_id})
+            norms_applied.append({
+                "label": "Bù hao", "rule": running_rule,
+                "detail": f"+{running_add:,} tờ ({waste_pct:g}%)".replace(",", "."), "norm_id": None,
+            })
         norms_applied.append({"label": "Số tờ sản xuất", "rule": None, "detail": f"{total_sheets:,} tờ".replace(",", "."), "norm_id": None})
-        if paper_extra_sheets:
-            norms_applied.append({"label": "Hao giấy riêng", "rule": paper_rule, "detail": f"{paper_extra_sheets:,} tờ".replace(",", "."), "norm_id": paper_extra_norm_id})
 
         # Số tờ 3 lớp: lý thuyết (printed_sheets) → sản xuất (total_sheets) → MUA GIẤY (purchase_sheets).
         # Mua giấy dùng Khổ giấy: nếu spec chỉ định khổ giấy mua (purchase_sheet_w/h) lớn hơn khổ tờ in,

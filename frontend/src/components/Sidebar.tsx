@@ -88,7 +88,8 @@ const NAV: NavSection[] = [
       { id: "thiet-bi-may", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan-gc", label: "Công đoạn gia công", icon: "activity", module: "dm_cong_doan" },
       { id: "gia-khuon-ban", label: "Chi phí chế bản & khuôn", icon: "fileText", module: "dm_gia_khuon_ban" },
-      { id: "dinh-muc-bu-hao", label: "Định mức & Bù hao", icon: "activity", module: "dm_dinh_muc" },
+      // "Định mức & Bù hao" đã bỏ khỏi menu — bù hao giờ là ô "% Bù hao" trong Loại sản phẩm.
+      // Trang + route + dữ liệu norm vẫn còn (ẩn), khôi phục được nếu cần.
       { id: "kho-giay", label: "Khổ giấy chuẩn", icon: "grid", module: "dm_giay_vat_tu" },
       { id: "kieu-binh-bai", label: "Quy tắc bình bài", icon: "calculator", module: "dm_dinh_muc" },
       { id: "cau-hinh-kho", label: "Cấu hình kho hàng", icon: "warehouse", module: "dm_kho" },

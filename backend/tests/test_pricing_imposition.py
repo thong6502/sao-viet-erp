@@ -111,3 +111,26 @@ def test_perfecting_press_no_side_pass():
     _, _, cost_normal = _run(db, mid, mcid, "Trở nhíp", 2)   # máy thường: giờ máy ×2 lượt
     _, _, cost_perf = _run(db, mid, mp.id, "Trở nhíp", 2)    # máy perfecting: ×1 lượt
     assert cost_perf < cost_normal
+
+
+def test_inactive_imposition_not_resolved():
+    """Kiểu bình bài đã TẮT (is_active=False) không được engine dùng — kể cả khi spec chỉ
+    định thẳng mã (VD default của Loại SP còn trỏ tới kiểu đã tắt). Engine phải fallback
+    hệ số suy từ số mặt + cảnh báo MISSING_IMPOSITION, thay vì âm thầm tính theo kiểu tắt."""
+    db, mid, mcid = _build_db()
+    # Tắt "Tự trở" (KB002 — plate_set_factor=1.0). Nếu bug cũ còn, kẽm sẽ = 4×1×1 = 4.
+    tu_tro = db.query(ImpositionType).filter(ImpositionType.code == "KB002").one()
+    tu_tro.is_active = False
+    db.commit()
+
+    spec = dict(product_type="test", colors=4, sides=2, forms=1,
+                material_id=mid, machine_id=mcid, sheet_w=79, sheet_h=109,
+                pieces_per_sheet=4, imposition="KB002", operations=[])
+    lines, _, warns = PricingEngine(db).calculate_option(spec, 10000)
+
+    plate = next((l for l in lines if l.category == "plate_die"), None)
+    assert plate is not None
+    # Fallback theo số mặt (2 mặt): plate_set_factor = 2 → 4 màu × 2 × 1 = 8 bản,
+    # KHÔNG phải 4 bản của kiểu Tự trở đã tắt.
+    assert int(plate.quantity) == 8, plate.quantity
+    assert any(w.get("code") == "MISSING_IMPOSITION" for w in warns), warns
