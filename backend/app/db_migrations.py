@@ -442,6 +442,8 @@ def _migrate_product_type_full_fields(db: Session) -> None:
         ("has_tooling", "BOOLEAN NOT NULL DEFAULT FALSE"),
         ("default_tooling_type", "VARCHAR(20)"),
         ("allow_manual_override", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        # % bù hao (thay cả module Định mức cũ): áp thẳng vào số tờ sản xuất.
+        ("waste_pct", "NUMERIC(6,2) NOT NULL DEFAULT 0"),
     ]
     existing = _existing_columns(insp, "product_types_catalog")
     added_shown = False

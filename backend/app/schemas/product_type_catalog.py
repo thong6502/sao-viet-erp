@@ -52,6 +52,8 @@ class _ProductTypeConfig(BaseModel):
     has_tooling: bool = False
     default_tooling_type: str | None = Field(default=None, max_length=20)
     allow_manual_override: bool = False
+    # Bù hao: % áp thẳng vào số tờ sản xuất (đội giấy/mực/máy, không đội kẽm).
+    waste_pct: float = Field(default=0, ge=0, le=100)
     is_active: bool = True
 
 
@@ -123,6 +125,7 @@ class ProductTypeCatalogDetailOut(ProductTypeCatalogRow):
     allow_imposition_change: bool = True
     default_tooling_type: str | None = None
     allow_manual_override: bool = False
+    waste_pct: float = 0
     updated_at: datetime
 
 

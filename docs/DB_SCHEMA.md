@@ -834,6 +834,7 @@ client's httpOnly cookie.
 | `has_tooling` | `Boolean` → `BOOLEAN` | — | no | `false` | §H Có phát sinh khuôn. |
 | `default_tooling_type` | `String(20)` → `VARCHAR(20)` | — | yes | — | §H Loại khuôn mặc định. |
 | `allow_manual_override` | `Boolean` → `BOOLEAN` | — | no | `false` | §H Cho phép override công thức. |
+| `waste_pct` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | §H % bù hao đội vào số tờ in (giấy+mực+giờ máy, không đội kẽm); thay module Định mức & Bù hao cũ. |
 | `is_active` | `Boolean` → `BOOLEAN` | — | no | `true` | Active status of the product type configuration. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
 | `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was last updated. |

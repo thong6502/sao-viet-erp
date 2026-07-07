@@ -72,37 +72,54 @@ export function ImpositionSchematic({
 }: ImpositionSchematicProps) {
   const ff = Number.isFinite(finishedFactor) && finishedFactor > 0 ? finishedFactor : 1;
   const twoSide = sides === 2;
+  const twoPiece = ff < 1; // bồi 2 mảnh: 2 ô ghép 1 SP
   const shared = sharedPlateSet || !(Number.isFinite(plateSetFactor) && plateSetFactor > 1);
-  const split = twoSide && (shared || ff < 1); // 1 tờ chia T|S (tự trở)
-  const mode: "one" | "turn" | "ab" = !twoSide ? "one" : split ? "turn" : "ab";
+  // one   = 1 mặt · glue = bồi 2 mảnh (2 ô = 1 SP) · turn = tự trở (mỗi ô tự đủ 2 mặt nhờ lật)
+  // ab    = trở nhíp 2 kẽm riêng (2 tờ).
+  const mode: "one" | "glue" | "turn" | "ab" =
+    !twoSide ? "one" : twoPiece ? "glue" : shared ? "turn" : "ab";
   const piecesPerSheet = Math.max(1, Math.round(GEO * ff));
 
   const nSheets = mode === "ab" ? 2 : 1;
-  const topGap = twoSide ? 15 : 7;
+  const topGap = mode === "turn" ? 15 : 7;
   const labelH = 12;
   const vbW = M * 2 + SHEET_W * nSheets + GAP * (nSheets - 1);
   const vbH = M + topGap + SHEET_H + labelH + M;
   const sheetY = M + topGap;
 
   function sideAt(sheetIdx: number, col: number) {
-    if (mode === "one") return FRONT;
     if (mode === "ab") return sheetIdx === 0 ? FRONT : BACK;
-    return col < COLS / 2 ? FRONT : BACK; // turn: nửa trái trước, nửa phải sau
+    if (mode === "glue") return col < COLS / 2 ? FRONT : BACK; // nửa trái T, nửa phải S
+    return FRONT; // one
   }
 
   function renderSheet(sheetIdx: number, originX: number, label: string) {
     const cells = [];
     for (let r = 0; r < ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        const s = sideAt(sheetIdx, c);
         const x = originX + PAD + c * (CELL_W + CGAP);
         const y = sheetY + PAD + r * (CELL_H + CGAP);
-        cells.push(
-          <g key={`${sheetIdx}-${r}-${c}`}>
-            <rect x={x} y={y} width={CELL_W} height={CELL_H} rx={1.5} fill={s.fill} stroke={s.stroke} strokeWidth={0.4} />
-            <text x={x + CELL_W / 2} y={y + CELL_H / 2 + 3.2} fontSize={8.5} fill={s.ink} textAnchor="middle" fontFamily="var(--ff-mono)">{s.letter}</text>
-          </g>,
-        );
+        if (mode === "turn") {
+          // Tự trở: MỖI ô là 1 sản phẩm 2 mặt — nửa trên T (mặt trước), nửa dưới S (mặt sau).
+          const hy = CELL_H / 2;
+          cells.push(
+            <g key={`${sheetIdx}-${r}-${c}`}>
+              <rect x={x} y={y} width={CELL_W} height={hy} fill={FRONT.fill} stroke={FRONT.stroke} strokeWidth={0.3} />
+              <rect x={x} y={y + hy} width={CELL_W} height={hy} fill={BACK.fill} stroke={BACK.stroke} strokeWidth={0.3} />
+              <rect x={x} y={y} width={CELL_W} height={CELL_H} rx={1.5} fill="none" stroke="var(--ink)" strokeWidth={0.5} />
+              <text x={x + CELL_W / 2} y={y + hy * 0.72} fontSize={5.5} fill={FRONT.ink} textAnchor="middle" fontFamily="var(--ff-mono)">T</text>
+              <text x={x + CELL_W / 2} y={y + hy + hy * 0.78} fontSize={5.5} fill={BACK.ink} textAnchor="middle" fontFamily="var(--ff-mono)">S</text>
+            </g>,
+          );
+        } else {
+          const s = sideAt(sheetIdx, c);
+          cells.push(
+            <g key={`${sheetIdx}-${r}-${c}`}>
+              <rect x={x} y={y} width={CELL_W} height={CELL_H} rx={1.5} fill={s.fill} stroke={s.stroke} strokeWidth={0.4} />
+              <text x={x + CELL_W / 2} y={y + CELL_H / 2 + 3.2} fontSize={8.5} fill={s.ink} textAnchor="middle" fontFamily="var(--ff-mono)">{s.letter}</text>
+            </g>,
+          );
+        }
       }
     }
     return (
@@ -114,9 +131,14 @@ export function ImpositionSchematic({
     );
   }
 
+  const SHEET_LABEL: Record<string, string> = {
+    one: "In 1 mặt",
+    turn: "Tự trở — mỗi ô đủ 2 mặt",
+    glue: "Bồi 2 mảnh — 2 ô ghép 1 SP",
+  };
   const sheets = mode === "ab"
     ? [renderSheet(0, M, "Kẽm mặt trước"), renderSheet(1, M + SHEET_W + GAP, "Kẽm mặt sau")]
-    : [renderSheet(0, M, mode === "one" ? "In 1 mặt" : "Tự trở (2 mặt)")];
+    : [renderSheet(0, M, SHEET_LABEL[mode])];
 
   return (
     <div className="imp-schem">
@@ -151,6 +173,9 @@ export function ImpositionSchematic({
       </div>
       <div className="imp-schem__note">
         T = mặt trước · S = mặt sau{allowRotate ? " · ⟳ cho xoay bài" : ""}
+      </div>
+      <div className="imp-schem__note">
+        (8 ô chỉ là hình minh họa — số con thật do khổ giấy ÷ khổ sản phẩm quyết định ở màn Tính giá)
       </div>
     </div>
   );

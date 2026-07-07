@@ -109,6 +109,10 @@ class ProductTypeCatalog(Base):
     default_tooling_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     allow_manual_override: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="0")
 
+    # --- Bù hao (thay module Định mức cũ) — % áp thẳng vào SỐ TỜ SẢN XUẤT --------
+    # Đội giấy + mực + giờ máy (không đội kẽm). VD 5 = +5% số tờ. 0 = không hao.
+    waste_pct: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, server_default="0", default=0)
+
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

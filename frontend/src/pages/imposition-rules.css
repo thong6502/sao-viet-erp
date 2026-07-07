@@ -214,6 +214,134 @@
 .ir-split { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
 .ir-split__form { flex: 1 1 320px; min-width: 280px; }
 .ir-split__aside { flex: 1 1 260px; min-width: 240px; }
+/* Bước Công thức trong drawer hẹp: cột form xếp 1 cột, hàng sát nhau — nhãn dài
+   tiếng Việt không gãy dòng lệch hàng như lưới 2 cột; hint đã dời vào tooltip ⓘ. */
+.ir-split__form.md-page__form-grid {
+  grid-template-columns: 1fr;
+  gap: var(--sp-3);
+  align-content: start;
+}
+
+/* ---- Bước Công thức: bộ chọn "cách in" hướng dẫn ---- */
+.ir-choice { display: flex; flex-direction: column; gap: var(--sp-4); }
+.ir-choice__q { display: flex; flex-direction: column; gap: 6px; }
+.ir-choice__label {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash);
+  display: flex;
+  align-items: center;
+}
+.ir-choice__opts { display: flex; gap: 8px; flex-wrap: wrap; }
+.ir-choice__opts--col { flex-direction: column; }
+.ir-opt {
+  flex: 1 1 auto;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    background var(--duration-fast) var(--easing-standard);
+}
+.ir-opt:hover:not(:disabled) { border-color: var(--rust); }
+.ir-opt.is-on {
+  border-color: var(--rust);
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+}
+.ir-opt:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.ir-choice__toggle {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 13px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.ir-choice__toggle input { margin-top: 3px; flex: none; }
+
+.ir-derived {
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+  padding: 10px 12px;
+  background: var(--paper);
+}
+.ir-derived__title {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.ir-derived__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 16px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+.ir-adv-toggle {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 4px 0;
+  color: var(--rust-deep);
+  font-size: 12px;
+  cursor: pointer;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+.ir-adv-toggle:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* ---- Chế độ nhập tay hệ số (nâng cao) ---- */
+.ir-adv {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: var(--sp-4);
+  background: var(--paper);
+}
+.ir-adv__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ir-adv__note {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ash);
+}
+.ir-adv__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3) var(--sp-4);
+}
+.ir-adv__grid .field { gap: 4px; }
+.ir-adv__feeds {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--rust-deep);
+}
+@media (max-width: 640px) {
+  .ir-adv__grid { grid-template-columns: 1fr; }
+}
 .ir-panel {
   background: var(--paper);
   border: 1px solid var(--rule-soft);

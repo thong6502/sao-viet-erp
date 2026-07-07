@@ -506,6 +506,11 @@
   border-color: var(--amber);
   color: var(--amber-deep);
 }
+.tg__warning-alert--info {
+  background: var(--steel-soft);
+  border-color: var(--steel);
+  color: var(--steel-deep);
+}
 .tg__warning-title {
   font-weight: var(--fw-bold);
   margin: 0;
@@ -573,6 +578,108 @@
   font-size: 20px;
   font-weight: var(--fw-bold);
   color: var(--rust);
+}
+
+/* ---- Thông số sản xuất — tile dạng dashboard ---- */
+.tg__prod {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--paper);
+  padding: var(--sp-3) var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.tg__prod__title {
+  display: block;
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ash);
+  margin-bottom: var(--sp-3);
+}
+.tg__prod__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--sp-3) var(--sp-4);
+}
+.tg__prod__tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 2px solid var(--rule);
+}
+.tg__prod__label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ash);
+}
+.tg__prod__val {
+  font-family: var(--ff-mono);
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* ---- Header nhóm trong bảng phân rã chi phí ---- */
+.tgroup__head td {
+  background: var(--rule-hair);
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ash);
+  padding: var(--sp-1) var(--sp-3) !important;
+}
+
+/* ---- Footer kết quả: card trạng thái + tổng giá vốn ---- */
+.tg__result-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  margin-top: var(--sp-4);
+  padding: var(--sp-4) var(--sp-5);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--paper);
+}
+.tg__result-foot__status {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  flex: 1 1 320px;
+}
+.tg__result-foot__status-cap {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ash);
+}
+.tg__result-foot__total {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+.tg__result-foot__total-cap {
+  font-size: 11px;
+  color: var(--ash);
+}
+.tg__result-foot__total-amt {
+  font-family: var(--ff-mono);
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  color: var(--rust);
+  line-height: 1.1;
 }
 
 .tg__badge--error {
@@ -742,6 +849,34 @@
   color: var(--ash);
   min-width: 28px;
   text-align: right;
+}
+/* Thành tiền căn phải, mono, rộng cố định → các dòng thẳng cột tiền. */
+.tg__cost-bar-container strong {
+  font-family: var(--ff-mono);
+  min-width: 96px;
+  text-align: right;
+}
+
+/* ---- Bảng so sánh mức số lượng ---- */
+.tg__qty-row {
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+.tg__qty-row:hover {
+  background: rgba(20, 19, 15, 0.025);
+}
+.tg__qty-row.is-selected {
+  background: var(--rust-soft);
+  box-shadow: inset 3px 0 0 var(--rust);
+}
+.tg__qty-ok {
+  color: var(--moss-deep);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+.tg__qty-blocked {
+  color: var(--signal);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
 }
 
 /* Enhancing existing dialog header */

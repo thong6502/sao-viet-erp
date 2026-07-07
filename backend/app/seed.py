@@ -694,7 +694,7 @@ def seed_product_types(db: Session) -> None:
     PAGE_SHOWN = ["finished_w", "finished_h", "quantity", "colors", "page_count", "cover_paper", "body_paper", "machine", "sheet_size", "imposition", "operations"]
     PAGE_REQ = ["finished_w", "finished_h", "quantity", "page_count", "cover_paper", "body_paper", "machine"]
 
-    ALL_IMPO = ["ONE_SIDE", "AB", "TU_TRO", "TRO_NHIP_2_KEM", "TRO_NHIP_1_KEM"]
+    ALL_IMPO = ["ONE_SIDE", "AB", "TU_TRO"]
 
     # (code, name, group, strategy, tech, shown, required, default_ops, required_ops, allowed_mats,
     #  comp_techs, dim_rule, bleed, gutter, trim, sheet_mode, has_page, cover_body, has_tooling,
@@ -703,9 +703,9 @@ def seed_product_types(db: Session) -> None:
         ("business_card", "Name card", "an_pham", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
          ["be", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, False, None, True, ["ONE_SIDE", "AB", "TU_TRO"], "AB"),
         ("flyer", "Tờ rơi", "an_pham", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
-         ["be", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True, ["ONE_SIDE", "AB", "TU_TRO", "TRO_NHIP_2_KEM"], "TU_TRO"),
+         ["be", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True, ["ONE_SIDE", "AB", "TU_TRO"], "TU_TRO"),
         ("brochure", "Brochure", "an_pham", "sheet_based", "offset", SHEET_SHOWN, SHEET_REQ,
-         ["gap", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True, ["AB", "TU_TRO", "TRO_NHIP_2_KEM"], "TU_TRO"),
+         ["gap", "dong_goi"], [], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pieces", False, False, False, None, True, ["AB", "TU_TRO"], "TU_TRO"),
         ("catalogue", "Catalogue", "sach", "page_based", "offset", PAGE_SHOWN, PAGE_REQ,
          ["dong_cuon", "dong_goi"], ["dong_cuon"], ["paper"], ["offset", "digital"], "finished", 3, 3, 5, "by_pages", True, True, False, None, True, ["AB", "TU_TRO"], "AB"),
         ("book", "Sách", "sach", "page_based", "offset", PAGE_SHOWN, PAGE_REQ,
@@ -715,7 +715,7 @@ def seed_product_types(db: Session) -> None:
         ("label", "Tem nhãn", "nhan", "area_based", "offset", AREA_SHOWN, AREA_REQ,
          ["be", "dong_goi"], [], ["decal", "pp"], ["offset", "digital"], "finished", 2, 2, 3, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE"], "ONE_SIDE"),
         ("paper_box", "Hộp giấy", "bao_bi", "box_based", "offset", BOX_SHOWN, BOX_REQ,
-         ["be", "dan_hop", "dong_goi"], ["be", "dan_hop"], ["paper", "carton"], ["offset", "flexo"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE", "TU_TRO", "TRO_NHIP_2_KEM"], "TU_TRO"),
+         ["be", "dan_hop", "dong_goi"], ["be", "dan_hop"], ["paper", "carton"], ["offset", "flexo"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE", "AB", "TU_TRO"], "TU_TRO"),
         ("paper_bag", "Túi giấy", "bao_bi", "box_based", "offset", BOX_SHOWN, BOX_REQ,
          ["be", "dan_hop", "dong_goi"], ["be", "dan_hop"], ["paper"], ["offset"], "spread", 3, 3, 5, "by_pieces", False, False, True, "khuon_be", True, ["ONE_SIDE", "TU_TRO"], "TU_TRO"),
         ("banner", "Banner", "an_pham", "area_based", "large_format", AREA_SHOWN, AREA_REQ,
@@ -1012,17 +1012,14 @@ def seed_imposition_types(db: Session) -> None:
                 "A-B: 2 bộ kẽm riêng cho mặt trước/sau, tờ qua máy 2 lượt.",
             ),
             (
-                "TU_TRO", "Tự trở", "two_side", "2", 2, 0.5, 2, 1.0, 2.0, True, True, 30,
-                "Work-and-turn: dùng chung 1 bộ kẽm, lật giấy in mặt kia; con÷2, lượt×2 — công thức "
-                "tạm, chờ phiếu NextPrint thật đối chiếu.",
+                "TU_TRO", "Tự trở", "two_side", "2", 2, 1.0, 2, 1.0, 2.0, True, True, 30,
+                "Work-and-turn: dùng chung 1 bộ kẽm, lật giấy in mặt kia. Con NGUYÊN (mỗi ô tự đủ "
+                "2 mặt nhờ lật) — chỉ khác trở nhíp ở chỗ tiết kiệm nửa tiền kẽm.",
             ),
             (
-                "TRO_NHIP_2_KEM", "Trở nhíp (2 kẽm)", "two_side", "2", 2, 1.0, 2, 2.0, 2.0, True, False, 40,
-                "Sheetwise cổ điển: 2 bộ kẽm, con nguyên, tờ qua máy 2 lượt.",
-            ),
-            (
-                "TRO_NHIP_1_KEM", "Trở nhíp (1 kẽm)", "two_side", "2", 2, 0.5, 2, 1.0, 2.0, True, True, 45,
-                "Trở nhíp dùng chung 1 bộ kẽm: con÷2, lượt×2 (biến thể tiết kiệm kẽm).",
+                "BOI_2_MANH", "Bồi/dán 2 mảnh", "two_side", "2", 2, 0.5, 2, 2.0, 2.0, True, False, 60,
+                "Thẻ bồi/bìa cứng: mỗi sản phẩm ghép từ 2 mảnh giấy in riêng (1 mặt trước + 1 mặt sau "
+                "dán lên lõi cứng) → 2 ô = 1 SP → tỉ lệ con 0.5. KHÁC tự trở (tự trở lật giấy, con nguyên).",
             ),
             (
                 "PERFECTING", "In 2 mặt 1 lượt (perfecting)", "two_side", "2", 2, 1.0, 1, 2.0, 2.0,

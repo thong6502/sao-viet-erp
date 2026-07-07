@@ -13,6 +13,7 @@ from app.db import Base
 from app.models.material import Material, MaterialCost
 from app.models.machine import Machine, MachineRate
 from app.models.norm import Norm
+from app.models.product_type_catalog import ProductTypeCatalog
 from app.repositories.norm_repo import NormRepository
 from app.repositories.audit_repo import AuditLogRepository
 from app.services.norm_service import NormService, NormLookupContext
@@ -107,26 +108,27 @@ def test_full_chain_matches_spec_example():
                 value=0.01, context_key="{}", effective_from=date(2025, 1, 1), code="PAPER"))
     db.commit()
 
+    # Mô hình mới: engine BỎ QUA norm. Bù hao lấy từ waste_pct của Loại sản phẩm.
+    db.add(ProductTypeCatalog(product_type="tor_roi", name="Tờ rơi",
+                              calculation_strategy="sheet_based", is_active=True, waste_pct=5))
+    db.commit()
+
     spec = dict(product_type="tor_roi", colors=4, sides=2, forms=1, material_id=paper.id, machine_id=mc.id,
                 sheet_w=79, sheet_h=109, pieces_per_sheet=4, operations=[])
     lines, total, warns = PricingEngine(db).calculate_option(spec, 1000)
     assert not any(w["severity"] == "blocking_error" for w in warns), warns
     mat = next(l for l in lines if l.category == "material")
     snap = mat.calculation_snapshot_json
-    # printed = ceil(1000/4) = 250; sau đạt = ceil(250/0.97) = 258
-    assert snap["sheets_after_yield"] == 258
-    # makeready = 100 + 30×4 = 220
-    assert snap["makeready_sheets"] == 220
-    # running = ceil(258 × 3%) = 8
-    assert snap["running_waste_sheets"] == 8
-    # SX = 258 + 220 + 8 = 486
-    assert snap["production_sheets"] == 486
-    # hao giấy = ceil(486 × 1%) = 5 → mua = 491
-    assert snap["paper_extra_sheets"] == 5
-    assert snap["purchase_sheets"] == 491
-    # có diễn giải nêu rule
+    # printed = ceil(1000/4) = 250. Norm (yield/makeready/running/paper) KHÔNG áp nữa.
+    assert snap["sheets_after_yield"] == 250   # không còn tỷ lệ đạt norm
+    assert snap["makeready_sheets"] == 0       # không còn makeready norm
+    # Bù hao chỉ từ Loại SP: SX = ceil(250 × 1.05) = 263.
+    assert snap["production_sheets"] == 263
+    assert snap["paper_extra_sheets"] == 0
+    assert snap["purchase_sheets"] == 263
+    # Diễn giải mới: lý thuyết → bù hao → sản xuất (không còn dòng Makeready norm).
     labels = [n["label"] for n in snap["norms_applied"]]
-    assert "Makeready" in labels and "Số tờ mua giấy" not in labels  # mua giấy nằm ngoài (block riêng)
+    assert "Bù hao" in labels and "Số tờ sản xuất" in labels
     db.close()
 
 

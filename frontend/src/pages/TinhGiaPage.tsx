@@ -18,7 +18,7 @@ import {
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
-import { DarkSummaryPanel } from "../components/DarkSummaryPanel";
+import { DarkSummaryPanel, type DarkPanelRow } from "../components/DarkSummaryPanel";
 import { ImpositionDiagram, computeImposition } from "../components/ImpositionDiagram";
 import "./tinh-gia.css";
 
@@ -26,6 +26,7 @@ const PAGE_SIZE = 10;
 
 interface OpForm {
   key: string;
+  id: number | null;
   name: string;
   execution_mode: string;
   sequence: number;
@@ -264,6 +265,11 @@ export function TinhGiaPage({
   // Khổ tờ in chọn từ DM Khổ giấy tiêu chuẩn (ghi đè khổ tờ từ vật tư khi được chọn).
   const [paperSizes, setPaperSizes] = useState<PaperSizeRow[]>([]);
   const [printSizeId, setPrintSizeId] = useState<number | null>(null);
+  // Tự nhập khổ tờ in tùy chỉnh (khi không có khổ chuẩn phù hợp). Khi bật, ghi đè
+  // cả khổ chuẩn lẫn khổ vật tư bằng kích thước gõ tay.
+  const [manualSheet, setManualSheet] = useState(false);
+  const [manualSheetW, setManualSheetW] = useState("");
+  const [manualSheetH, setManualSheetH] = useState("");
 
   // Machine
   const [machineId, setMachineId] = useState<number | null>(null);
@@ -386,9 +392,11 @@ export function TinhGiaPage({
 
     let cancelled = false;
     const psz = paperSizes.find(s => s.id === printSizeId);
+    const sheetW = manualSheet ? (Number(manualSheetW) || 0) : (psz?.width_cm ?? mat.width_cm);
+    const sheetH = manualSheet ? (Number(manualSheetH) || 0) : (psz?.height_cm ?? mat.height_cm);
     api.costings.suggestPieces(token, {
-      sheet_w: psz?.width_cm ?? mat.width_cm,
-      sheet_h: psz?.height_cm ?? mat.height_cm,
+      sheet_w: sheetW,
+      sheet_h: sheetH,
       piece_w: pw,
       piece_h: ph,
       grain_locked: grainLocked,
@@ -407,7 +415,7 @@ export function TinhGiaPage({
     return () => {
       cancelled = true;
     };
-  }, [token, materialId, printSizeId, paperSizes, finishedWidth, finishedHeight, boxLength, boxWidth, largeWidth, largeHeight, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, productType, overridePieces, materials]);
+  }, [token, materialId, printSizeId, paperSizes, manualSheet, manualSheetW, manualSheetH, finishedWidth, finishedHeight, boxLength, boxWidth, largeWidth, largeHeight, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, productType, overridePieces, materials]);
 
   // Live preview giá vốn: gọi engine (không lưu) khi đã đủ giấy + máy + số lượng — debounce
   // 700ms để không dội API theo từng phím. Kết quả hiện ở sidebar (mức SL đầu tiên).
@@ -440,9 +448,9 @@ export function TinhGiaPage({
         width: largeWidth ? Number(largeWidth) : null,
         height: largeHeight ? Number(largeHeight) : null,
         material_id: materialId,
-        print_sheet_size_id: printSizeId,
-        sheet_w: psz?.width_cm ?? (mat?.width_cm || 0),
-        sheet_h: psz?.height_cm ?? (mat?.height_cm || 0),
+        print_sheet_size_id: manualSheet ? null : printSizeId,
+        sheet_w: manualSheet ? (Number(manualSheetW) || 0) : (psz?.width_cm ?? (mat?.width_cm || 0)),
+        sheet_h: manualSheet ? (Number(manualSheetH) || 0) : (psz?.height_cm ?? (mat?.height_cm || 0)),
         grain_locked: grainLocked,
         gripper_cm: Number(gripperCm) || 0,
         edge_trim_cm: Number(edgeTrimCm) || 0,
@@ -450,6 +458,7 @@ export function TinhGiaPage({
         gutter_cm: Number(gutterCm) || 0,
         machine_id: machineId,
         operations: operations.map((o) => ({
+          operation_id: o.id,
           operation_key: o.name.trim(),
           sequence: o.sequence,
           execution_mode: o.execution_mode,
@@ -475,7 +484,7 @@ export function TinhGiaPage({
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, mode, materialId, printSizeId, paperSizes, machineId, quantityList, colors, sides, imposition, overrides, ovProdSheets, ovMatPrice, pageCount, forms, overridePieces, piecesPerSheet, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, operations, productType, finishedWidth, finishedHeight, boxLength, boxWidth, boxHeight, largeWidth, largeHeight]);
+  }, [token, mode, materialId, printSizeId, paperSizes, manualSheet, manualSheetW, manualSheetH, machineId, quantityList, colors, sides, imposition, overrides, ovProdSheets, ovMatPrice, pageCount, forms, overridePieces, piecesPerSheet, grainLocked, gripperCm, edgeTrimCm, bleedCm, gutterCm, operations, productType, finishedWidth, finishedHeight, boxLength, boxWidth, boxHeight, largeWidth, largeHeight]);
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
@@ -589,6 +598,7 @@ export function TinhGiaPage({
       if (spec.operations) {
         setOperations(spec.operations.map((o: any, idx: number) => ({
           key: `op-${idx}-${Date.now()}`,
+          id: o.operation_id ?? null,
           name: o.operation_key || o.name || "",
           execution_mode: o.execution_mode || "internal",
           sequence: o.sequence || (idx + 1) * 10
@@ -692,6 +702,7 @@ export function TinhGiaPage({
           .filter((o): o is OperationCatalogRow => !!o)
           .map((o, idx) => ({
             key: `op-tpl-${o.id}-${idx}`,
+            id: o.id,
             name: o.name,
             execution_mode: (o.allow_outsource ? "outsource" : "internal") as "outsource" | "internal",
             sequence: (idx + 1) * 10,
@@ -732,6 +743,7 @@ export function TinhGiaPage({
     
     setOperations([...operations, {
       key: `op-new-${Date.now()}`,
+      id: opCat?.id ?? null,
       name,
       execution_mode,
       sequence: nextSeq
@@ -883,11 +895,11 @@ export function TinhGiaPage({
       eyelet_required: eyeletRequired,
 
       material_id: materialId,
-      print_sheet_size_id: printSizeId,
+      print_sheet_size_id: manualSheet ? null : printSizeId,
       override_pieces: overridePieces,
       pieces_per_sheet: finalPieces,
-      sheet_w: chosenPrintSize?.width_cm ?? (mat?.width_cm || 0),
-      sheet_h: chosenPrintSize?.height_cm ?? (mat?.height_cm || 0),
+      sheet_w: manualSheet ? (Number(manualSheetW) || 0) : (chosenPrintSize?.width_cm ?? (mat?.width_cm || 0)),
+      sheet_h: manualSheet ? (Number(manualSheetH) || 0) : (chosenPrintSize?.height_cm ?? (mat?.height_cm || 0)),
       grain_locked: grainLocked,
       gripper_cm: Number(gripperCm) || 0,
       edge_trim_cm: Number(edgeTrimCm) || 0,
@@ -896,6 +908,7 @@ export function TinhGiaPage({
 
       machine_id: machineId,
       operations: operations.map((o) => ({
+        operation_id: o.id,
         operation_key: o.name.trim(),
         sequence: o.sequence,
         execution_mode: o.execution_mode,
@@ -1579,40 +1592,87 @@ export function TinhGiaPage({
                   })()}
                 </label>
 
-                <label className="field tg__form-wide">
-                  <span className="field__label">Khổ tờ in (chuẩn)</span>
-                  <select
-                    className="input"
-                    value={printSizeId || ""}
-                    onChange={(e) => setPrintSizeId(e.target.value ? Number(e.target.value) : null)}
-                  >
-                    <option value="">— Dùng khổ của vật tư —</option>
-                    {paperSizes
-                      .filter(s => machineId === null || !s.compatible_machine_ids || s.compatible_machine_ids.length === 0 || s.compatible_machine_ids.includes(machineId))
-                      .map(s => (
-                        <option key={s.id} value={s.id}>
-                          {s.code} · {s.name} ({s.width_cm}×{s.height_cm} cm)
-                        </option>
-                      ))}
-                  </select>
-                  {printSizeId !== null && (() => {
-                    const psz = paperSizes.find(s => s.id === printSizeId);
+                <div className="field tg__form-wide">
+                  <div className="field__label" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                    <span>Khổ tờ in {manualSheet ? "(tự nhập)" : "(chuẩn)"}</span>
+                    <label className="tg__toggle" style={{ margin: 0, fontWeight: 400 }}>
+                      <input
+                        type="checkbox"
+                        checked={manualSheet}
+                        onChange={(e) => setManualSheet(e.target.checked)}
+                      />
+                      <span className="tg__toggle-text">Tự nhập khổ</span>
+                    </label>
+                  </div>
+
+                  {!manualSheet ? (
+                    <select
+                      className="input"
+                      value={printSizeId || ""}
+                      onChange={(e) => setPrintSizeId(e.target.value ? Number(e.target.value) : null)}
+                    >
+                      <option value="">— Dùng khổ của vật tư —</option>
+                      {paperSizes
+                        .map(s => (
+                          <option key={s.id} value={s.id}>
+                            {s.code} · {s.name} ({s.width_cm}×{s.height_cm} cm)
+                          </option>
+                        ))}
+                    </select>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        placeholder="Rộng"
+                        value={manualSheetW}
+                        onChange={(e) => setManualSheetW(e.target.value)}
+                        style={{ flex: 1 }}
+                      />
+                      <span style={{ color: "var(--ash)" }}>×</span>
+                      <input
+                        className="input"
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        placeholder="Cao"
+                        value={manualSheetH}
+                        onChange={(e) => setManualSheetH(e.target.value)}
+                        style={{ flex: 1 }}
+                      />
+                      <span style={{ color: "var(--ash)" }}>cm</span>
+                    </div>
+                  )}
+
+                  {(() => {
                     const mac = machines.find(m => m.id === machineId);
-                    if (!psz) return null;
+                    let w: number | null = null, h: number | null = null, allowRot = false;
+                    if (manualSheet) {
+                      w = Number(manualSheetW) || 0;
+                      h = Number(manualSheetH) || 0;
+                      if (w <= 0 || h <= 0) return null;
+                    } else {
+                      if (printSizeId === null) return null;
+                      const psz = paperSizes.find(s => s.id === printSizeId);
+                      if (!psz) return null;
+                      w = psz.width_cm; h = psz.height_cm; allowRot = psz.allow_rotation;
+                    }
                     let warn: string | null = null;
                     if (mac && mac.max_width_cm != null && mac.max_height_cm != null) {
-                      const w = psz.width_cm, h = psz.height_cm, mw = mac.max_width_cm, mh = mac.max_height_cm;
-                      const fits = (w <= mw && h <= mh) || (psz.allow_rotation && h <= mw && w <= mh);
+                      const mw = mac.max_width_cm, mh = mac.max_height_cm;
+                      const fits = (w <= mw && h <= mh) || (allowRot && h <= mw && w <= mh);
                       if (!fits) warn = `⚠️ Khổ ${w}×${h} vượt khổ in tối đa của ${mac.name} (${mw}×${mh}).`;
                     }
                     return (
                       <span className="tg__suggest" style={{ display: "block", marginTop: "4px" }}>
-                        Khổ tờ in: <strong>{psz.width_cm} × {psz.height_cm} cm</strong> — ghi đè khổ từ vật tư.
+                        Khổ tờ in: <strong>{w} × {h} cm</strong> — ghi đè khổ từ vật tư.
                         {warn && <span style={{ color: "var(--signal)", fontWeight: "bold", display: "block" }}>{warn}</span>}
                       </span>
                     );
                   })()}
-                </label>
+                </div>
 
                 <label className="tg__toggle" style={{ marginTop: "8px" }}>
                   <input
@@ -1649,18 +1709,6 @@ export function TinhGiaPage({
                     </span>
                   </div>
                 )}
-
-                <label className="tg__toggle">
-                  <input
-                    type="checkbox"
-                    checked={grainLocked}
-                    onChange={(e) => setGrainLocked(e.target.checked)}
-                  />
-                  <span className="tg__toggle-text">
-                    Ràng buộc thớ giấy (Grain locked)
-                    <small>Bỏ nhánh xoay giấy — giữ đúng chiều thớ khi dàn con.</small>
-                  </span>
-                </label>
 
                 {/* #4 — tham số bình bản CHỈ áp cho thuật toán tự tính số con/khổ; khi
                     "Tự nhập số con" bật, engine dùng số nhập tay nên ẩn để khỏi gây hiểu lầm. */}
@@ -2119,23 +2167,33 @@ export function TinhGiaPage({
                     : null;
                 if (!preview && !previewLoading && !savedRange) return null;
 
+                // Tách từng khoản để thấy rõ "cộng những gì ra tổng" — kèm % tỉ trọng.
                 const GROUPS: Array<[string, string[]]> = [
-                  ["Vật tư (giấy + mực)", ["material", "ink"]],
-                  ["Khuôn · Bản · Click", ["plate_die", "click_ink"]],
+                  ["Giấy in", ["material"]],
+                  ["Mực", ["ink"]],
+                  ["Kẽm · bản", ["plate_die"]],
+                  ["Click (KTS)", ["click_ink"]],
                   ["Chạy máy", ["machine"]],
                   ["Gia công", ["operation", "packing"]],
                   ["Phí khác", ["outsource", "delivery", "other"]],
                 ];
-                const rows = preview
-                  ? GROUPS.map(([label, cats]) => {
-                      const sum = preview.cost_lines
-                        .filter((l) => cats.includes(l.category))
-                        .reduce((acc, l) => acc + l.total_cost, 0);
-                      return { label, value: `${Math.round(sum).toLocaleString("vi-VN")} đ`, sum };
-                    })
-                      .filter((r) => r.sum > 0)
-                      .map(({ label, value }) => ({ label, value }))
-                  : undefined;
+                let rows: DarkPanelRow[] | undefined;
+                if (preview) {
+                  const total = preview.total_cost || 0;
+                  const parts = GROUPS.map(([label, cats]) => {
+                    const sum = preview.cost_lines
+                      .filter((l) => cats.includes(l.category))
+                      .reduce((acc, l) => acc + l.total_cost, 0);
+                    return { label, sum };
+                  }).filter((r) => r.sum > 0);
+                  rows = parts.map(({ label, sum }) => ({
+                    label,
+                    value: `${Math.round(sum).toLocaleString("vi-VN")} đ${total > 0 ? ` · ${Math.round((sum / total) * 100)}%` : ""}`,
+                  }));
+                  // Dòng tổng để thấy các khoản trên CỘNG LẠI ra đây.
+                  if (rows.length > 0)
+                    rows.push({ label: "= Tổng giá vốn", value: `${Math.round(total).toLocaleString("vi-VN")} đ`, total: true });
+                }
 
                 const qty = quantityList[0];
                 const blocking = preview?.warnings.filter((w) => w.severity === "blocking_error").length ?? 0;
@@ -2256,7 +2314,7 @@ export function TinhGiaPage({
               </thead>
               <tbody>
                 {editing?.options?.map((opt, idx) => (
-                  <tr key={opt.id} className={activeQtyTab === idx ? "tg__row-cat-material" : ""} style={{ cursor: "pointer" }} onClick={() => setActiveQtyTab(idx)}>
+                  <tr key={opt.id} className={`tg__qty-row${activeQtyTab === idx ? " is-selected" : ""}`} style={{ cursor: "pointer" }} onClick={() => setActiveQtyTab(idx)}>
                     <td className="tg__num tg__mono"><strong>{opt.quantity.toLocaleString("vi-VN")}</strong></td>
                     <td className="tg__num tg__mono" style={{ color: "var(--rust)" }}><strong>{opt.total_cost.toLocaleString("vi-VN")} đ</strong></td>
                     <td className="tg__num tg__mono">{Math.round(opt.total_cost / opt.quantity).toLocaleString("vi-VN")} đ</td>
@@ -2277,9 +2335,9 @@ export function TinhGiaPage({
                     </td>
                     <td>
                       {opt.can_create_quote ? (
-                        <span style={{ color: "#0e9f6e" }}>🟢 Sẵn sàng</span>
+                        <span className="tg__qty-ok">🟢 Sẵn sàng</span>
                       ) : (
-                        <span style={{ color: "#c81e1e" }}>🔴 Bị chặn (Thiếu cấu hình)</span>
+                        <span className="tg__qty-blocked">🔴 Bị chặn (thiếu cấu hình)</span>
                       )}
                     </td>
                     <td>
@@ -2348,8 +2406,8 @@ export function TinhGiaPage({
                       )}
 
                       {currentOption.warnings_json.filter(w => w.severity === "info").length > 0 && (
-                        <div className="tg__warning-alert" style={{ borderLeft: "3px solid #1c64f2", background: "#eef4ff" }}>
-                          <p className="tg__warning-title" style={{ color: "#1a56db" }}>ℹ️ Ghi chú tính toán:</p>
+                        <div className="tg__warning-alert tg__warning-alert--info">
+                          <p className="tg__warning-title">ℹ️ Ghi chú tính toán:</p>
                           <ul className="tg__warning-list">
                             {currentOption.warnings_json.filter(w => w.severity === "info").map((w, idx) => (
                               <li key={idx}>{w.message}</li>
@@ -2385,15 +2443,13 @@ export function TinhGiaPage({
                     if (facts.length === 0) return null;
 
                     return (
-                      <div style={{ background: "var(--paper)", border: "1px solid var(--rule-soft)", borderRadius: "8px", padding: "12px 16px", marginBottom: "16px" }}>
-                        <span className="tg__summary-label" style={{ fontWeight: "bold", fontSize: "11px", display: "block", marginBottom: "8px" }}>
-                          ⚙ THÔNG SỐ SẢN XUẤT
-                        </span>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: "6px 20px" }}>
+                      <div className="tg__prod">
+                        <span className="tg__prod__title">⚙ Thông số sản xuất</span>
+                        <div className="tg__prod__grid">
                           {facts.map(([label, value]) => (
-                            <div key={label} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "12.5px" }}>
-                              <span className="tg__summary-label">{label}</span>
-                              <span className="tg__mono" style={{ whiteSpace: "nowrap" }}>{value}</span>
+                            <div key={label} className="tg__prod__tile">
+                              <span className="tg__prod__label">{label}</span>
+                              <span className="tg__prod__val">{value}</span>
                             </div>
                           ))}
                         </div>
@@ -2500,16 +2556,16 @@ export function TinhGiaPage({
                     </table>
                   </div>
 
-                  <div className="tg__cost-summary" style={{ borderTop: "1px solid var(--rule)", paddingTop: "16px", marginTop: "16px" }}>
-                    <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
-                      <span>Trạng thái chuyển Báo giá:</span>
+                  <div className="tg__result-foot">
+                    <div className="tg__result-foot__status">
+                      <span className="tg__result-foot__status-cap">Trạng thái chuyển Báo giá</span>
                       {currentOption.can_create_quote ? (
                         <>
                           <span className="tg__badge tg__badge--ready" style={{ textTransform: "none", letterSpacing: 0 }}>
                             🟢 Sẵn sàng chuyển Báo giá
                           </span>
                           <span className="tg__muted" style={{ fontSize: "12px" }}>
-                            — sang trang "Báo giá in ấn", tạo báo giá mới và chọn mã tính giá này
+                            Sang trang “Báo giá in ấn”, tạo báo giá mới và chọn mã tính giá này.
                           </span>
                         </>
                       ) : (
@@ -2518,14 +2574,14 @@ export function TinhGiaPage({
                             🔴 Bị chặn chuyển Báo giá
                           </span>
                           <span className="tg__muted" style={{ fontSize: "12px" }}>
-                            — xử lý các lỗi chặn ở trên rồi tính lại
+                            Xử lý các lỗi chặn ở trên rồi tính lại.
                           </span>
                         </>
                       )}
                     </div>
-                    <div>
-                      <span style={{ fontSize: "16px" }}>Tổng giá vốn nội bộ đề xuất: </span>
-                      <span className="tg__cost-total-amount" style={{ fontSize: "24px" }}>
+                    <div className="tg__result-foot__total">
+                      <span className="tg__result-foot__total-cap">Tổng giá vốn nội bộ đề xuất</span>
+                      <span className="tg__result-foot__total-amt">
                         {currentOption.total_cost.toLocaleString("vi-VN")} đ
                       </span>
                     </div>
@@ -2561,7 +2617,7 @@ export function TinhGiaPage({
                           )
                         : 0;
                       return (
-                        <div style={{ background: "#f8f4ec", border: "1px solid var(--rule-hair)", borderRadius: "6px", padding: "10px", margin: "10px 0", lineHeight: 1.7 }}>
+                        <div style={{ background: "var(--rule-hair)", border: "1px solid var(--rule-hair)", borderRadius: "6px", padding: "10px", margin: "10px 0", lineHeight: 1.7 }}>
                           <div style={{ fontWeight: "bold", fontSize: "11px", marginBottom: "4px" }}>THÀNH TIỀN TÍNH THẾ NÀO?</div>
                           {inkRate > 0 ? (
                             <div>
@@ -2628,7 +2684,7 @@ export function TinhGiaPage({
                     {/* Định mức & Bù hao áp dụng (mỗi bước nêu rule) — danh mục #7 */}
                     {Array.isArray(auditLine.calculation_snapshot_json?.norms_applied) &&
                       auditLine.calculation_snapshot_json.norms_applied.length > 0 && (
-                        <div style={{ background: "#f8f4ec", border: "1px solid var(--rule-hair)", borderRadius: "6px", padding: "10px", margin: "6px 0" }}>
+                        <div style={{ background: "var(--rule-hair)", border: "1px solid var(--rule-hair)", borderRadius: "6px", padding: "10px", margin: "6px 0" }}>
                           <div style={{ fontWeight: "bold", fontSize: "11px", marginBottom: "4px" }}>ĐỊNH MỨC & BÙ HAO ÁP DỤNG</div>
                           {auditLine.calculation_snapshot_json.norms_applied.map((n: { label: string; detail: string; rule: string | null; norm_id?: number | null }, i: number) => (
                             <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: "8px", fontSize: "11px", padding: "1px 0" }}>

@@ -246,7 +246,7 @@ class ProductTypeCatalogService:
             "default_operations", "required_operations", "allow_extra_operations",
             "allowed_imposition_codes", "default_imposition_code", "allow_imposition_change",
             "compatible_technologies", "sheet_count_mode", "ink_cost_mode", "has_tooling",
-            "default_tooling_type", "allow_manual_override",
+            "default_tooling_type", "allow_manual_override", "waste_pct",
         )}
         item = self.create_item(product_type=new_product_type, name=new_name, actor=actor, **cfg)
         # bump version metadata trên bản clone.

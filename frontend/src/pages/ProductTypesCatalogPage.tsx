@@ -382,6 +382,7 @@ function ProductTypeFormDialog({ existing, onClose, onSaved }: {
   const [hasTooling, setHasTooling] = useState(existing?.has_tooling ?? false);
   const [toolingType, setToolingType] = useState(existing?.default_tooling_type ?? "khuon_be");
   const [allowOverride, setAllowOverride] = useState(existing?.allow_manual_override ?? false);
+  const [wastePct, setWastePct] = useState(existing?.waste_pct != null ? String(existing.waste_pct) : "0");
   // compatible_technologies (multi) giữ nguyên từ bản ghi; công nghệ chính khai ở `technology`.
   const [comps] = useState<string[]>(existing?.compatible_technologies ?? []);
 
@@ -469,6 +470,7 @@ function ProductTypeFormDialog({ existing, onClose, onSaved }: {
       has_tooling: hasTooling,
       default_tooling_type: hasTooling ? toolingType : null,
       allow_manual_override: allowOverride,
+      waste_pct: Math.max(0, Math.min(100, Number(wastePct) || 0)),
       is_active: isActive,
     };
   }
@@ -679,6 +681,10 @@ function ProductTypeFormDialog({ existing, onClose, onSaved }: {
               <label className="field"><span className="field__label">Cách tính số tờ</span>
                 <select className="input" value={sheetMode} onChange={(e) => setSheetMode(e.target.value)}>
                   {SHEET_MODES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
+              <label className="field"><span className="field__label">% Bù hao</span>
+                <input className="input" type="number" min="0" max="100" step="0.5" value={wastePct}
+                  onChange={(e) => setWastePct(e.target.value)} placeholder="VD: 5" />
+                <span className="md-page__hint">Cộng thẳng vào SỐ TỜ SẢN XUẤT (đội giấy + mực + giờ máy, KHÔNG đội kẽm). 0 = không hao. Thay cả module Định mức cũ.</span></label>
               <label className="field"><span className="field__label">Cách tính mực</span>
                 <select className="input" value={inkMode} onChange={(e) => setInkMode(e.target.value)}>
                   {INK_MODES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}</select></label>
