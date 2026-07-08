@@ -23,6 +23,9 @@ import { NhanSuPage } from "../pages/NhanSuPage";
 import { UsersPage } from "../pages/UsersPage";
 import { NormsCatalogPage } from "../pages/NormsCatalogPage";
 import { QuyTacBinhBaiPage } from "../pages/QuyTacBinhBaiPage";
+import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
+// Danh mục rebuild (config .tsx — render pill JSX)
+import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
 import { WarehousesCatalogPage } from "../pages/WarehousesCatalogPage";
 import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
 import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
@@ -168,6 +171,10 @@ export function AppShell() {
           </div>
         </main>
       );
+    }
+    // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP) — 1 trang generic theo config.
+    if (REBUILD_CONFIGS[baseId]) {
+      return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
     }
     switch (baseId) {
       case "phong-ban":

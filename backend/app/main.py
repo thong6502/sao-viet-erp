@@ -39,6 +39,10 @@ from .routers import (
     plate_die_rates,
     norms,
     quy_tac_binh_bai,
+    may_thiet_bi,
+    vat_lieu_kho,
+    cong_doan,
+    loai_san_pham,
 )
 from .seed import seed_all
 
@@ -100,6 +104,10 @@ app.include_router(warehouse_items.router)
 app.include_router(plate_die_rates.router)
 app.include_router(norms.router)
 app.include_router(quy_tac_binh_bai.router)
+app.include_router(may_thiet_bi.router)
+app.include_router(vat_lieu_kho.router)
+app.include_router(cong_doan.router)
+app.include_router(loai_san_pham.router)
 
 
 

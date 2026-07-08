@@ -86,6 +86,12 @@ const NAV: NavSection[] = [
     label: "Cấu hình danh mục",
     items: [
       { id: "quy-tac-binh-bai", label: "Quy tắc bình bài", icon: "calculator", module: "dm_binh_bai" },
+      { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_loai_san_pham" },
+      { id: "may-thiet-bi", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
+      { id: "cong-doan", label: "Công đoạn gia công", icon: "activity", module: "dm_cong_doan" },
+      { id: "vl-giay", label: "Kho · Giấy nguyên", icon: "bag", module: "kho" },
+      { id: "vl-muc", label: "Kho · Mực", icon: "bag", module: "kho" },
+      { id: "vl-ban-kem", label: "Kho · Bản kẽm", icon: "fileText", module: "kho" },
       { id: "cau-hinh-kho", label: "Cấu hình kho hàng", icon: "warehouse", module: "dm_kho" },
     ],
   },

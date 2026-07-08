@@ -1905,6 +1905,62 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 ---
 
+## Pipeline in-ấn (rebuild) — master data mới
+
+> 4 module master mới (strangler, song song bảng cũ) nuôi engine bình bài + tính giá:
+> `may_thiet_bi` · `giay_nguyen`/`muc`/`ban_kem` (vật liệu Kho) · `cong_doan` · `loai_san_pham`.
+> Specs: `docs/spec-may-thiet-bi.md`, `spec-cong-doan.md`, `spec-san-pham.md`, `spec-tinh-gia.md`.
+
+### `may_thiet_bi`
+
+**Purpose:** máy sản xuất = cost center (BHR) + spec năng lực (khổ/nhíp/units). Một row = một máy. Field theo `loai_may` gói trong JSON `fields_theo_loai`; các field engine dùng nhiều được promote thành cột thật.
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | `Integer` PK | khóa chính. |
+| `ma` | `String(30)` U | mã máy (VD `OFF-74-4C`). |
+| `ten` | `String(150)` | tên. |
+| `loai_may` | `String` IX | discriminator (press_offset_sheet / digital / ctp / finishing / thue_ngoai…). |
+| `trang_thai` | `String` | active / maintenance / retired (không có cột `active` riêng). |
+| `khoa_class` | `String` | lớp khổ máy → tra giá kẽm (`ban_kem.khoa_class`). |
+| `gripper_mm` `so_units` `kho_max_dai/rong` `kho_min_dai/rong` | | seam bình bài. |
+| BHR (`von_dau_tu` `nam_khau_hao` `gio_lam_nam` `availability_pct` `productivity_pct` …) | | công thức đơn giá giờ máy (spec §4). |
+| `fields_theo_loai` | `JSON` | field đặc thù theo `loai_may`. |
+
+**Tất cả cột:** `id`, `ma`, `ten`, `loai_may`, `finishing_subtype`, `nhom_cost_center`, `phong_ban_id`, `dia_diem`, `hang_san_xuat`, `model`, `so_seri`, `trang_thai`, `ghi_chu`, `ma_tai_san`, `ma_TK_cost_center`, `nha_cung_cap`, `ngay_dua_vao_su_dung`, `het_han_bao_hanh`, `phuong_phap_khau_hao`, `nguon_bhr`, `don_gia_gio_BHR`, `von_dau_tu`, `gia_tri_thu_hoi`, `nam_khau_hao`, `lai_von_pct`, `gio_lam_nam`, `availability_pct`, `productivity_pct`, `efficiency_pct`, `so_nhan_cong`, `luong_gio`, `luong_burden_pct`, `cong_suat_kW`, `he_so_tai_dien`, `don_gia_dien`, `bao_hiem_nam`, `dien_tich_san_m2`, `don_gia_thue_m2_nam`, `bao_tri_gio`, `overhead_gio`, `markup_pct`, `ngay_cap_nhat_bhr`, `toc_do`, `don_vi_toc_do`, `makeready_time_default`, `thoi_gian_rua_muc`, `min_stock_gsm`, `max_stock_gsm`, `vat_lieu_ho_tro_class`, `so_may_song_song`, `so_ca`, `chi_so_dem_luot`, `ngay_bao_tri_gan_nhat`, `chu_ky_bao_tri`, `chu_ky_bao_tri_don_vi`, `ngay_bao_tri_ke_tiep`, `kho_max_dai`, `kho_max_rong`, `kho_min_dai`, `kho_min_rong`, `gripper_mm`, `le_hong_mm`, `duoi_thang_mau_mm`, `so_units`, `units_truoc`, `units_sau`, `khoa_class`, `co_tro_mat`, `cho_phep_tu_tro`, `cho_phep_tro_dau_duoi`, `bu_hao_canh_may_per_mau`, `bu_hao_chay_pct`, `ho_tro_cip3`, `fields_theo_loai`, `created_at`, `updated_at`.
+
+### `giay_nguyen`
+
+**Purpose:** tờ giấy nguyên (khổ mua) — mặt hàng Kho engine tính giá đọc (spec-tinh-gia §3.1). Một row = một loại giấy.
+
+**Tất cả cột:** `id`, `ma`, `ten`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `ton`, `active`, `created_at`, `updated_at`.
+
+### `muc`
+
+**Purpose:** mực in — mặt hàng Kho. Một row = một loại mực (process/pantone/special). Giá theo 1000 lượt.
+
+**Tất cả cột:** `id`, `ma`, `ten`, `loai_muc`, `ma_pantone`, `don_gia`, `coverage_tiers`, `active`, `created_at`, `updated_at`.
+
+### `ban_kem`
+
+**Purpose:** bản kẽm — mặt hàng Kho. Giá tra theo `khoa_class` (khớp `may_thiet_bi.khoa_class`) → nuôi kem_line.
+
+**Tất cả cột:** `id`, `ma`, `ten`, `khoa_class`, `don_gia_kem`, `ton`, `active`, `created_at`, `updated_at`.
+
+### `cong_doan`
+
+**Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job (`routing_step`) = Phase D. `may_id` soft int → `may_thiet_bi`.
+
+**Tất cả cột:** `id`, `ma`, `ten`, `nhom`, `may_id`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+### `loai_san_pham`
+
+**Purpose:** template loại sản phẩm (spec-san-pham §2) — gán `imposition_rule_id` (soft → `quy_tac_binh_bai`) + `routing_template` (JSON list `cong_doan.id`) + VAT. `jobspec`/`component` = Phase D.
+
+**Tất cả cột:** `id`, `ma`, `ten`, `structural_type`, `box_sub_type`, `imposition_rule_id`, `default_so_mat`, `has_cover`, `cover_type`, `default_binding`, `default_stock_class`, `routing_template`, `vat_rate`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+---
+
 ## Template for a new table (copy when adding one)
 
 

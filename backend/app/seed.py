@@ -1567,6 +1567,8 @@ def seed_all(db: Session) -> None:
         seed_plate_die_rates(db)
         seed_norms(db)
         seed_quy_tac_binh_bai(db)
+        from .seed_rebuild import seed_rebuild_catalog
+        seed_rebuild_catalog(db)
         seed_document_sequences(db)
     backfill_user_codes(db)
 
