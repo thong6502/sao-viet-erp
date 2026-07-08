@@ -144,8 +144,9 @@ class TinhGiaService:
             cong_doan_in=cong_doan_in, routing_steps=steps,
         )
         quote = dict(data.get("quote") or {})
-        if sp is not None and "vat_rate" not in quote:
-            quote["vat_rate"] = _f(sp.vat_rate, 8)
+        # VAT: FE gửi None khi để trống → lấy theo Loại SP (fallback 8%).
+        if quote.get("vat_rate") is None:
+            quote["vat_rate"] = _f(sp.vat_rate, 8) if sp is not None else 8
         out = ce.compute_costing(
             components=[comp], chi_phi_khac=_f(data.get("chi_phi_khac")),
             so_luong=int(data.get("so_luong", 0)), quote=quote,

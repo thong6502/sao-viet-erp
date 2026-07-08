@@ -47,6 +47,20 @@ def test_preview_name_card_end_to_end():
     assert out["may"] == "Offset 4 màu khổ 74"
 
 
+def test_preview_vat_defaults_to_product():
+    # Bỏ trống vat_rate (None) → lấy theo Loại SP (NAMECARD = 8%), KHÔNG rơi về 0.
+    db = _db()
+    sp = db.execute(select(LoaiSanPham).where(LoaiSanPham.ma == "NAMECARD")).scalars().first()
+    may = db.execute(select(MayThietBi).where(MayThietBi.ma == "OFF-74-4C")).scalars().first()
+    giay = db.execute(select(GiayNguyen).where(GiayNguyen.ma == "COUCHE-300-65x86")).scalars().first()
+    out = TinhGiaService(db).preview({
+        "loai_san_pham_id": sp.id, "may_id": may.id, "giay_id": giay.id,
+        "so_luong": 10000, "so_mau_truoc": 4, "so_mau_sau": 4, "rong_tp": 53, "dai_tp": 90,
+        "quote": {"vat_rate": None},
+    })
+    assert out["vat_rate"] == 8 and out["vat"] > 0
+
+
 def test_preview_missing_machine_errors():
     db = _db()
     giay = db.execute(select(GiayNguyen)).scalars().first()
