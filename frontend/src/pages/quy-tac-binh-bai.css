@@ -9,42 +9,127 @@
 }
 .qtbb__topbar .input { min-width: 180px; }
 
+.qtbb__head-left { display: flex; align-items: center; gap: 12px; }
+
+/* Danh sách bản ghi: dòng click được */
+.md-page__row--click { cursor: pointer; }
+.md-page__row--click:hover { background: var(--paper-hover, #f2efe6); }
+.md-page__empty { text-align: center; color: var(--muted, #8a8676); padding: 24px 0; }
+
+/* 2 zone: form (trái, co giãn) + kết quả (phải, sticky) */
 .qtbb__cols {
   display: grid;
-  grid-template-columns: minmax(320px, 1.1fr) minmax(300px, 1fr) minmax(280px, 0.9fr);
-  gap: 14px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 16px;
   align-items: start;
   margin-top: 12px;
 }
-@media (max-width: 1200px) {
+@media (max-width: 1100px) {
   .qtbb__cols { grid-template-columns: 1fr; }
+  .qtbb__outputs { position: static !important; }
 }
 
-.qtbb__col { padding: 14px 16px; }
-.qtbb__col h3 {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--muted, #8a8676);
-  margin: 14px 0 8px;
+.qtbb__formzone { min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+/* Cấu hình: 1 cột thẻ (ô trong thẻ vẫn dàn ngang cho đỡ dài) */
+.qtbb__config { display: flex; flex-direction: column; gap: 16px; }
+/* Cụm ô dàn ngang trong 1 thẻ */
+.qtbb__fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px 14px;
+}
+
+/* Thẻ nhóm */
+.qtbb__card {
+  border: 1px solid var(--rule-hair, #e7e3d8);
+  border-radius: 8px;
+  padding: 12px 14px;
+  background: var(--card, #fdfcf8);
+}
+.qtbb__card h3 {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink, #14130f);
+  margin: 0;
+}
+
+/* Kết quả bên phải: sơ đồ + công thức, dính khi cuộn */
+.qtbb__outputs {
+  position: sticky;
+  top: 12px;
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(100vh - 90px);
+  overflow-y: auto;
+}
+
+/* Bảng thử: thẻ rộng, field dàn ngang nhiều cột */
+.qtbb__benchgrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 14px;
+}
+/* Section = tiêu đề + mô tả 1 dòng (thân thiện, không viết hoa jargon) */
+.qtbb__section-head {
+  margin: 18px 0 10px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--rule-hair, #e7e3d8);
-  padding-bottom: 4px;
 }
-.qtbb__col h3:first-child { margin-top: 0; }
+.qtbb__section-head:first-child { margin-top: 0; }
+.qtbb__section-desc {
+  margin: 3px 0 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--muted, #8a8676);
+}
+.qtbb__preview h3, .qtbb__formula h3 {
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule-hair, #e7e3d8);
+}
 
-.qtbb__form { max-height: calc(100vh - 180px); overflow-y: auto; }
-.qtbb__grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+/* Nhãn field: sentence-case, dễ đọc (bỏ ALL-CAPS jargon cho màn nhập liệu dày) */
+.qtbb .field__label {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink, #2a2822);
+}
+/* Chú thích dưới mỗi ô — giải thích + ảnh hưởng giá */
+.qtbb .field__hint {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--muted, #8a8676);
+}
+/* Nhãn nhóm nhỏ trong Bảng thử */
+.qtbb__group-label {
+  margin: 12px 0 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--rust, #b0532b);
+}
+
+.qtbb__card .field { margin-bottom: 9px; }
+.qtbb__card .field:last-child { margin-bottom: 0; }
 
 .field--check {
   flex-direction: row;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
-  margin: 6px 0;
+  margin: 10px 0;
+  font-size: 12.5px;
+  line-height: 1.4;
 }
-.field--check input { width: auto; }
+.field--check input { width: auto; margin-top: 2px; flex-shrink: 0; }
 
 /* --- Preview --- */
-.qtbb__preview { position: sticky; top: 12px; }
 .bb-preview__svg {
   width: 100%;
   height: auto;
@@ -67,7 +152,9 @@
 .bb-lbl { fill: #6b6656; font-size: 7px; font-family: ui-monospace, monospace; }
 .bb-lbl--sm { font-size: 6px; }
 .bb-lbl--cell { fill: #8a6a20; font-size: 8px; }
-.bb-error { fill: var(--signal, #c0392b); font-size: 14px; font-weight: 700; }
+.bb-error { fill: var(--signal, #c0392b); font-size: 13px; font-weight: 700; }
+.bb-guide { fill: var(--muted, #8a8676); font-size: 12px; font-weight: 500; }
+.bb-preview__err { color: var(--signal, #c0392b); font-size: 13px; font-weight: 600; }
 
 .bb-preview__badge {
   margin-top: 10px;

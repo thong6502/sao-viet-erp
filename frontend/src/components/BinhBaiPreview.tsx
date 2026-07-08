@@ -22,9 +22,12 @@ function fit1d(usable: number, cell: number, gutter: number): number {
 
 export function BinhBaiPreview({ config, bench, preview, error }: Props) {
   const model = useMemo(() => buildModel(config, bench, preview), [config, bench, preview]);
-  const hasError = !!error || (preview?.warnings ?? []).some((w) => w.severity === "error");
-  const errMsg =
-    error || preview?.warnings.find((w) => w.severity === "error")?.message || "Không vừa khổ máy";
+  const errWarn = preview?.warnings.find((w) => w.severity === "error");
+  // Thiếu số liệu (E-MODE-REQ) = hướng dẫn nhẹ; còn lại (không vừa khổ) = lỗi đỏ.
+  const isMissing = !error && !!errWarn && errWarn.code === "E-MODE-REQ";
+  const hasError = !!error || (!!errWarn && !isMissing);
+  const errMsg = error || errWarn?.message || "Không vừa khổ máy";
+  const guideMsg = isMissing ? errWarn!.message : (!preview ? "Nhập số liệu ở Bảng thử để xem sơ đồ." : "");
 
   return (
     <div className="bb-preview">
@@ -87,11 +90,16 @@ export function BinhBaiPreview({ config, bench, preview, error }: Props) {
             {errMsg}
           </text>
         )}
+        {isMissing && (
+          <text x={AREA_W / 2} y={AREA_H / 2} className="bb-guide" textAnchor="middle">
+            <tspan x={AREA_W / 2}>✎ Cần thêm số liệu ở Bảng thử</tspan>
+          </text>
+        )}
       </svg>
 
       {/* badge tổng */}
       <div className="bb-preview__badge">
-        {preview && !hasError ? (
+        {preview && !hasError && !isMissing ? (
           <>
             <strong>{preview.don_vi_per_to_in}</strong>{" "}
             {unitLabel(preview.layout_mode)}/tờ in
@@ -99,8 +107,10 @@ export function BinhBaiPreview({ config, bench, preview, error }: Props) {
               <span className="bb-preview__waste"> · hao {(preview.hao_hinh_hoc_pct * 100).toFixed(0)}%</span>
             )}
           </>
+        ) : hasError ? (
+          <span className="bb-preview__err">⚠ {errMsg}</span>
         ) : (
-          <span className="bb-preview__waste">{hasError ? errMsg : "Nhập bảng thử để xem sơ đồ"}</span>
+          <span className="bb-preview__waste">{guideMsg}</span>
         )}
       </div>
     </div>
