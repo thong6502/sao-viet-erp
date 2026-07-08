@@ -105,4 +105,16 @@
 
 .rc-drawer__foot { display: flex; justify-content: flex-end; gap: var(--sp-3); padding: var(--sp-4) var(--sp-6); border-top: 1px solid var(--rule); background: var(--paper); }
 
+/* --- Polish (ui-ux-pro-max: data-dense · tabular số · affordance ô trống/read-only) --- */
+.rc-input::placeholder { color: color-mix(in srgb, var(--ash) 50%, transparent); }
+.rc-input--num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Ô số trống không còn là "hộp rỗng vô nghĩa": placeholder 0 mờ + canh phải. */
+.rc-input--ro { background: transparent; border-style: dashed; color: var(--ash); }
+.rc-input--ro:focus { box-shadow: none; border-color: var(--rule); }
+/* Số trong bảng danh sách canh cột đều (giá/đếm). */
+.rc__table td { font-variant-numeric: tabular-nums; }
+/* Section header có gạch rust → phân tầng rõ, on-brand. */
+.rc-sec__title { display: flex; align-items: center; gap: 8px; }
+.rc-sec__title::before { content: ""; width: 3px; height: 13px; background: var(--rust); border-radius: 2px; flex: none; }
+
 @media (max-width: 640px) { .rc-grid { grid-template-columns: 1fr; } }

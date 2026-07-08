@@ -218,8 +218,9 @@ function CatalogDrawer({ config, existing, onClose, onSaved }: {
             <div className="rc-grid">
               <label className="rc-field">
                 <span className="rc-field__label">Mã <em>*</em></span>
-                <input className="rc-input rc-mono" value={String(form.ma ?? "")} disabled={isEdit}
-                  onChange={(e) => set("ma", e.target.value)} required placeholder="VD: OFF-74-4C" />
+                <input className={`rc-input rc-mono${isEdit ? " rc-input--ro" : ""}`} value={String(form.ma ?? "")}
+                  disabled={isEdit} onChange={(e) => set("ma", e.target.value)} required placeholder="VD: OFF-74-4C" />
+                {isEdit && <span className="rc-field__hint">Mã không đổi sau khi tạo.</span>}
               </label>
               <label className="rc-field">
                 <span className="rc-field__label">Tên <em>*</em></span>
@@ -250,7 +251,9 @@ function CatalogDrawer({ config, existing, onClose, onSaved }: {
                         value={typeof form[f.key] === "string" ? String(form[f.key]) : JSON.stringify(form[f.key] ?? "")}
                         onChange={(e) => set(f.key, e.target.value)} />
                     ) : (
-                      <input className="rc-input" type={f.type === "number" ? "number" : "text"} step="any"
+                      <input className={`rc-input${f.type === "number" ? " rc-input--num" : ""}`}
+                        type={f.type === "number" ? "number" : "text"} step="any" inputMode={f.type === "number" ? "decimal" : undefined}
+                        placeholder={f.type === "number" ? "0" : (f.hint ?? "")}
                         value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} />
                     )}
                     {f.hint && <span className="rc-field__hint">{f.hint}</span>}
