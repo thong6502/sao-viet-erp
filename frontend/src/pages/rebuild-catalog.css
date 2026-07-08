@@ -1,12 +1,12 @@
 /* Danh mục rebuild — dùng chung cho 6 module. On-brand tokens (rust/ink/paper). */
 
-.rc { max-width: 1180px; }
+.rc { max-width: 1180px; padding: var(--sp-6) var(--sp-7); }
 
 /* --- Header --- */
 .rc__head { margin-bottom: var(--sp-5); }
 .rc__eyebrow {
   font-size: 11px; font-weight: var(--fw-bold); letter-spacing: .12em; text-transform: uppercase;
-  color: var(--rust); margin: 0 0 6px;
+  color: var(--ash); margin: 0 0 6px;
 }
 .rc__headrow { display: flex; align-items: center; gap: var(--sp-3); }
 .rc__title { font-size: 26px; font-weight: var(--fw-bold); color: var(--ink); margin: 0; letter-spacing: -.01em; }
@@ -23,7 +23,7 @@
   width: 280px; max-width: 45vw; padding: 9px 12px; font: inherit; color: var(--ink);
   background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-4);
 }
-.rc__search:focus { outline: none; border-color: var(--rust); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 18%, transparent); }
+.rc__search:focus { outline: none; border-color: var(--ink); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 18%, transparent); }
 
 /* --- Filter tabs --- */
 .rc__tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: var(--sp-4); }
@@ -51,7 +51,7 @@
 .rc__table tbody tr:last-child td { border-bottom: none; }
 .rc__row { cursor: pointer; transition: background .1s ease; }
 .rc__row:hover { background: var(--paper); }
-.rc__mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--rust); font-weight: var(--fw-medium); }
+.rc__mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--ink); font-weight: var(--fw-medium); }
 .rc__name { font-weight: var(--fw-medium); }
 .rc__msg { text-align: center; color: var(--ash); padding: 40px 16px !important; font-size: 14px; }
 .rc__actcol { text-align: right; white-space: nowrap; width: 1%; }
@@ -70,7 +70,7 @@
   display: flex; justify-content: flex-end; z-index: 60; animation: rc-fade .15s ease;
 }
 .rc-drawer {
-  width: min(560px, 94vw); height: 100%; background: var(--canvas); border-left: 3px solid var(--rust);
+  width: min(560px, 94vw); height: 100%; background: var(--canvas); border-left: 3px solid var(--ink);
   display: flex; flex-direction: column; box-shadow: -12px 0 40px rgba(0,0,0,.18); animation: rc-slide .2s cubic-bezier(.2,.7,.3,1);
 }
 @keyframes rc-fade { from { opacity: 0; } }
@@ -79,7 +79,7 @@
   display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3);
   padding: var(--sp-5) var(--sp-6); border-bottom: 1px solid var(--rule);
 }
-.rc-drawer__kicker { font-size: 11px; font-weight: var(--fw-bold); letter-spacing: .1em; text-transform: uppercase; color: var(--rust); }
+.rc-drawer__kicker { font-size: 11px; font-weight: var(--fw-bold); letter-spacing: .1em; text-transform: uppercase; color: var(--ash); }
 .rc-drawer__title { font-size: 19px; font-weight: var(--fw-bold); color: var(--ink); margin: 3px 0 0; }
 .rc-drawer__x { background: none; border: none; cursor: pointer; font-size: 18px; color: var(--ash); padding: 4px 8px; border-radius: var(--r-3); }
 .rc-drawer__x:hover { background: var(--rule); color: var(--ink); }
@@ -92,13 +92,13 @@
 .rc-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .rc-field--check { justify-content: flex-end; }
 .rc-field__label { font-size: 12.5px; color: var(--ash); font-weight: var(--fw-medium); }
-.rc-field__label em { color: var(--rust); font-style: normal; }
+.rc-field__label em { color: var(--ink); font-style: normal; }
 .rc-field__hint { font-size: 11.5px; color: var(--ash-2, var(--ash)); }
 .rc-input {
   padding: 8px 11px; font: inherit; font-size: 14px; color: var(--ink);
   background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-3); width: 100%;
 }
-.rc-input:focus { outline: none; border-color: var(--rust); background: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent); }
+.rc-input:focus { outline: none; border-color: var(--ink); background: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--ink) 15%, transparent); }
 .rc-input:disabled { opacity: .6; }
 .rc-mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
 .rc-check { display: inline-flex; align-items: center; gap: 8px; height: 36px; font-size: 14px; color: var(--ink); }
@@ -115,6 +115,6 @@
 .rc__table td { font-variant-numeric: tabular-nums; }
 /* Section header có gạch rust → phân tầng rõ, on-brand. */
 .rc-sec__title { display: flex; align-items: center; gap: 8px; }
-.rc-sec__title::before { content: ""; width: 3px; height: 13px; background: var(--rust); border-radius: 2px; flex: none; }
+.rc-sec__title::before { content: ""; width: 3px; height: 13px; background: var(--ink); border-radius: 2px; flex: none; }
 
 @media (max-width: 640px) { .rc-grid { grid-template-columns: 1fr; } }
