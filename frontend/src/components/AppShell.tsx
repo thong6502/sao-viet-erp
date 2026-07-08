@@ -21,6 +21,7 @@ import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { UsersPage } from "../pages/UsersPage";
+import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { NormsCatalogPage } from "../pages/NormsCatalogPage";
 import { QuyTacBinhBaiPage } from "../pages/QuyTacBinhBaiPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
@@ -191,6 +192,8 @@ export function AppShell() {
         return <NghiPhepPage onChanged={reloadBadges} focusEmployeeId={navParams?.focusEmployeeId} />;
       case "luong":
         return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} />;
+      case "tinh-gia-thanh":
+        return <TinhGiaPage />;
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
       case "bao-gia":

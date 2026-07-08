@@ -1,0 +1,40 @@
+/* Tính giá thành (engine mới) — on-brand tokens. */
+.tg2 { max-width: 1120px; }
+.tg2__head { margin-bottom: var(--sp-5); }
+.tg2__eyebrow { font-size: 11px; font-weight: var(--fw-bold); letter-spacing: .12em; text-transform: uppercase; color: var(--rust); margin: 0 0 6px; }
+.tg2__title { font-size: 26px; font-weight: var(--fw-bold); color: var(--ink); margin: 0; }
+.tg2__sub { color: var(--ash); font-size: 14px; margin: 6px 0 0; }
+
+.tg2__grid { display: grid; grid-template-columns: minmax(320px, 420px) 1fr; gap: var(--sp-5); align-items: start; }
+.card { background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-5); }
+
+.tg2__form { padding: var(--sp-5); display: flex; flex-direction: column; gap: var(--sp-3); }
+.tg2-sec { font-size: 11px; font-weight: var(--fw-bold); letter-spacing: .06em; text-transform: uppercase; color: var(--ash); margin-top: var(--sp-3); padding-top: var(--sp-3); border-top: 1px dashed var(--rule); }
+.tg2-sec:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+.tg2-row2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
+.tg2-f { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.tg2-f > span { font-size: 12.5px; color: var(--ash); font-weight: var(--fw-medium); }
+.tg2-f input, .tg2-f select {
+  padding: 8px 11px; font: inherit; font-size: 14px; color: var(--ink);
+  background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-3); width: 100%;
+}
+.tg2-f input:focus, .tg2-f select:focus { outline: none; border-color: var(--rust); background: #fff; box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent); }
+
+.tg2__result { display: flex; flex-direction: column; gap: var(--sp-4); }
+.tg2__empty { padding: 48px var(--sp-5); text-align: center; color: var(--ash); font-size: 14px; }
+
+.tg2__price { padding: var(--sp-5) var(--sp-6); background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.tg2__price-label { font-size: 12px; letter-spacing: .04em; text-transform: uppercase; opacity: .75; }
+.tg2__price-big { font-size: 40px; font-weight: var(--fw-bold); line-height: 1.1; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.tg2__price-big span { font-size: 16px; font-weight: var(--fw-medium); opacity: .7; margin-left: 8px; }
+.tg2__price-total { font-size: 13px; opacity: .8; margin-top: 8px; }
+
+.tg2__card { padding: var(--sp-4) var(--sp-5); }
+.tg2__cardhead { font-size: 12px; font-weight: var(--fw-bold); color: var(--ash); text-transform: uppercase; letter-spacing: .04em; margin-bottom: var(--sp-3); }
+.tg2__tbl { width: 100%; border-collapse: collapse; }
+.tg2__tbl td { padding: 7px 0; font-size: 14px; color: var(--ink); border-bottom: 1px solid color-mix(in srgb, var(--rule) 55%, transparent); }
+.tg2__tbl tr:last-child td { border-bottom: none; }
+.tg2__num { text-align: right; font-variant-numeric: tabular-nums; }
+.tg2__sum td { font-weight: var(--fw-bold); border-top: 2px solid var(--rule); border-bottom: none; padding-top: 9px; color: var(--rust); }
+
+@media (max-width: 820px) { .tg2__grid { grid-template-columns: 1fr; } }

@@ -43,6 +43,7 @@ from .routers import (
     vat_lieu_kho,
     cong_doan,
     loai_san_pham,
+    tinh_gia,
 )
 from .seed import seed_all
 
@@ -108,6 +109,7 @@ app.include_router(may_thiet_bi.router)
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(loai_san_pham.router)
+app.include_router(tinh_gia.router)
 
 
 
