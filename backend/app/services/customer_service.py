@@ -19,15 +19,25 @@ from __future__ import annotations
 
 import re
 
+from datetime import date, datetime, timezone
+
 from ..models.customer import (
+    CARE_KHAC,
+    CARE_KINDS,
+    CARE_TASK_STATUSES,
     CUSTOMER_DOC_KINDS,
     CUSTOMER_STATUSES,
     DOC_KHAC,
     PAYMENT_TERM_TYPES,
     STATUS_ACTIVE,
+    TASK_CANCELLED,
+    TASK_DONE,
+    TASK_OPEN,
     Customer,
     CustomerAddress,
     CustomerAttachment,
+    CustomerCareEvent,
+    CustomerCareTask,
     CustomerContact,
 )
 from ..models.role import SCOPE_OWN
@@ -602,6 +612,125 @@ class CustomerService:
             target=f"customer:{customer_id}",
             detail=f"Xóa tài liệu: {att.file_name}",
         )
+
+    # --- chăm sóc khách hàng (#20/#27/#28) --------------------------------------
+
+    @staticmethod
+    def _as_date(value) -> date:
+        if isinstance(value, datetime):
+            return value.date()
+        return value
+
+    @classmethod
+    def remind_level(cls, due_date, today: date | None = None) -> tuple[int, int]:
+        """(mức nhắc, số ngày quá hạn) TÍNH từ ngày đến hạn (#28) — không lưu, không cron:
+        chưa đến hạn = 0; đến hạn/quá <2 ngày = lần 1; quá ≥2 ngày = lần 2; quá ≥5 ngày = lần 3."""
+        today = today or datetime.now(timezone.utc).date()
+        overdue = (today - cls._as_date(due_date)).days
+        if overdue < 0:
+            return 0, 0
+        if overdue < 2:
+            return 1, overdue
+        if overdue < 5:
+            return 2, overdue
+        return 3, overdue
+
+    def list_care_events(
+        self, *, customer_id: int, scope: str, actor
+    ) -> list[CustomerCareEvent]:
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        return self.customers.list_care_events(customer_id)
+
+    def add_care_event(
+        self, *, customer_id: int, scope: str, actor, kind: str, note: str,
+        happened_at: datetime | None = None,
+    ) -> CustomerCareEvent:
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        note = (note or "").strip()
+        if not note:
+            raise CustomerValidationError("Nội dung chăm sóc là bắt buộc.")
+        if kind not in CARE_KINDS:
+            kind = CARE_KHAC
+        fields = dict(kind=kind, note=note, created_by=actor.id)
+        if happened_at is not None:
+            fields["happened_at"] = happened_at
+        return self.customers.add_care_event(customer_id, **fields)
+
+    def list_care_tasks(
+        self, *, customer_id: int, scope: str, actor
+    ) -> list[CustomerCareTask]:
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        return self.customers.list_care_tasks(customer_id)
+
+    def add_care_task(
+        self, *, customer_id: int, scope: str, actor, note: str, due_date: datetime,
+        assignee_user_id: int | None = None,
+    ) -> CustomerCareTask:
+        customer = self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        note = (note or "").strip()
+        if not note:
+            raise CustomerValidationError("Nội dung việc chăm sóc là bắt buộc.")
+        # Mặc định người phụ trách việc = Sale phụ trách khách, không có thì người tạo.
+        if assignee_user_id is None:
+            assignee_user_id = customer.sale_user_id or actor.id
+        return self.customers.add_care_task(
+            customer_id,
+            note=note, due_date=due_date, assignee_user_id=assignee_user_id,
+            created_by=actor.id,
+        )
+
+    def set_care_task_status(
+        self, *, customer_id: int, task_id: int, scope: str, actor, status: str,
+        log_kind: str | None = None, log_note: str | None = None,
+    ) -> CustomerCareTask:
+        """Đổi trạng thái việc (done/cancelled/open-lại). Hoàn thành có thể ghi kèm một
+        dòng nhật ký chăm sóc (log_kind + log_note) trong cùng thao tác."""
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        task = self.customers.get_care_task(task_id)
+        if task is None or task.customer_id != customer_id:
+            raise CustomerNotFound("Không tìm thấy việc chăm sóc.")
+        if status not in CARE_TASK_STATUSES:
+            raise CustomerValidationError("Trạng thái việc không hợp lệ.")
+        fields: dict = {"status": status}
+        if status == TASK_DONE:
+            fields["done_at"] = datetime.now(timezone.utc)
+        elif status in (TASK_OPEN, TASK_CANCELLED):
+            fields["done_at"] = None
+        task = self.customers.update_care_task(task, **fields)
+        if status == TASK_DONE and (log_note or "").strip():
+            self.add_care_event(
+                customer_id=customer_id, scope=scope, actor=actor,
+                kind=log_kind or CARE_KHAC, note=log_note or "",
+            )
+        return task
+
+    def list_due_followups(self, *, scope: str, actor) -> list[tuple[CustomerCareTask, Customer, int, int]]:
+        """Việc đang mở đã đến hạn (tính đến HẾT hôm nay) trong scope, kèm (mức nhắc,
+        ngày quá hạn) — nguồn panel "Cần chăm sóc"."""
+        end_of_today = datetime.now(timezone.utc).replace(
+            hour=23, minute=59, second=59, microsecond=0
+        )
+        rows = self.customers.list_due_followups(
+            scope=scope, actor=actor, due_before=end_of_today
+        )
+        out = []
+        for task, customer in rows:
+            level, overdue = self.remind_level(task.due_date)
+            out.append((task, customer, level, overdue))
+        return out
+
+    def care_stats(self, tasks: list[CustomerCareTask]) -> tuple[int, int, int]:
+        """(xong đúng hạn, xong trễ, đang quá hạn) — đánh giá chăm sóc (#28), số thật."""
+        on_time = late = overdue_open = 0
+        for t in tasks:
+            if t.status == TASK_DONE and t.done_at is not None:
+                if self._as_date(t.done_at) <= self._as_date(t.due_date):
+                    on_time += 1
+                else:
+                    late += 1
+            elif t.status == TASK_OPEN and self.remind_level(t.due_date)[0] >= 1:
+                overdue_open += 1
+        return on_time, late, overdue_open
 
     # --- import CSV (#23) -----------------------------------------------------
 

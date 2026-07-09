@@ -42,9 +42,18 @@ from ..schemas.customer import (
     AddressIn,
     AddressOut,
     AddressesOut,
+    CareEventIn,
+    CareEventOut,
+    CareEventsOut,
+    CareTaskIn,
+    CareTaskOut,
+    CareTaskStatusIn,
+    CareTasksOut,
     ContactIn,
     ContactOut,
     ContactsOut,
+    FollowupRow,
+    FollowupsOut,
     CustomerAttachmentOut,
     CustomerAttachmentsOut,
     CustomerAuditOut,
@@ -351,6 +360,41 @@ def check_duplicate(
     )
 
 
+# --- panel "Cần chăm sóc" (#28: việc đến hạn / quá hạn, nhắc lần 1-2-3) --------
+
+
+@router.get("/care-followups", response_model=FollowupsOut)
+def care_followups(
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> FollowupsOut:
+    """Việc chăm sóc đang mở đã đến hạn (tính đến hết hôm nay) trên các khách trong scope
+    của người gọi — mức nhắc 1/2/3 tính từ số ngày quá hạn, không bịa."""
+    scope = _scope_for(authz, user)
+    rows = svc.list_due_followups(scope=scope, actor=user)
+    names = _sale_names(
+        users, {t.assignee_user_id for t, _, _, _ in rows if t.assignee_user_id}
+    )
+    return FollowupsOut(
+        items=[
+            FollowupRow(
+                id=t.id,
+                customer_id=c.id,
+                customer_code=c.code,
+                customer_name=c.name,
+                note=t.note,
+                due_date=t.due_date,
+                remind_level=level,
+                overdue_days=overdue,
+                assignee_name=names.get(t.assignee_user_id) if t.assignee_user_id else None,
+            )
+            for t, c, level, overdue in rows
+        ]
+    )
+
+
 # --- import / export danh bạ (#23) -------------------------------------------
 
 _EXPORT_STATUS_LABELS = {"lead": "Tiềm năng", "active": "Đang giao dịch", "inactive": "Ngừng giao dịch"}
@@ -646,6 +690,13 @@ _PROFILE_ACTION_LABELS = {
     "update_customer": "Cập nhật hồ sơ",
     "reassign_customer": "Điều chuyển phụ trách",
 }
+_CARE_KIND_LABELS = {
+    "goi_dien": "Gọi điện",
+    "nhan_tin": "Nhắn tin",
+    "email": "Email",
+    "gap_truc_tiep": "Gặp trực tiếp",
+    "khac": "Chăm sóc khác",
+}
 
 
 @router.get("/{customer_id}/audit", response_model=CustomerAuditOut)
@@ -699,7 +750,21 @@ def customer_audit(
             )
         )
 
-    # 3) Real quotation events.
+    # 3) Care events (#20) — hoạt động chăm sóc gộp vào cùng dòng thời gian.
+    for ev in svc.list_care_events(customer_id=customer_id, scope=scope, actor=user):
+        actor_u = users.get_by_id(ev.created_by) if ev.created_by is not None else None
+        items.append(
+            CustomerAuditRowOut(
+                at=ev.happened_at,
+                kind="care",
+                action="care_event",
+                title=_CARE_KIND_LABELS.get(ev.kind, ev.kind),
+                detail=ev.note,
+                actor_name=(actor_u.name or actor_u.username) if actor_u else None,
+            )
+        )
+
+    # 4) Real quotation events.
     for qh in analytics.quote_history(customer_id):
         items.append(
             CustomerAuditRowOut(
@@ -969,6 +1034,140 @@ def delete_address(
         )
     except (CustomerNotFound, CustomerForbidden):
         raise _not_found() from None
+
+
+# --- chăm sóc: nhật ký + lịch hẹn (#20/#27/#28) --------------------------------
+
+
+def _care_event_out(ev, names: dict[int, str]) -> CareEventOut:
+    out = CareEventOut.model_validate(ev)
+    if ev.created_by is not None:
+        out.actor_name = names.get(ev.created_by)
+    return out
+
+
+def _care_task_out(svc: CustomerService, t, names: dict[int, str]) -> CareTaskOut:
+    out = CareTaskOut.model_validate(t)
+    if t.assignee_user_id is not None:
+        out.assignee_name = names.get(t.assignee_user_id)
+    if t.status == "open":
+        out.remind_level, out.overdue_days = svc.remind_level(t.due_date)
+    return out
+
+
+@router.get("/{customer_id}/care", response_model=CareEventsOut)
+def list_care_events(
+    customer_id: int,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> CareEventsOut:
+    try:
+        items = svc.list_care_events(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    names = _sale_names(users, {e.created_by for e in items if e.created_by})
+    return CareEventsOut(items=[_care_event_out(e, names) for e in items])
+
+
+@router.post("/{customer_id}/care", response_model=CareEventOut, status_code=201)
+def add_care_event(
+    customer_id: int,
+    payload: CareEventIn,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> CareEventOut:
+    try:
+        ev = svc.add_care_event(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user,
+            kind=payload.kind, note=payload.note, happened_at=payload.happened_at,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    names = _sale_names(users, {ev.created_by} if ev.created_by else set())
+    return _care_event_out(ev, names)
+
+
+@router.get("/{customer_id}/care-tasks", response_model=CareTasksOut)
+def list_care_tasks(
+    customer_id: int,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> CareTasksOut:
+    try:
+        items = svc.list_care_tasks(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    names = _sale_names(users, {t.assignee_user_id for t in items if t.assignee_user_id})
+    on_time, late, overdue_open = svc.care_stats(items)
+    return CareTasksOut(
+        items=[_care_task_out(svc, t, names) for t in items],
+        done_on_time=on_time,
+        done_late=late,
+        overdue_open=overdue_open,
+    )
+
+
+@router.post("/{customer_id}/care-tasks", response_model=CareTaskOut, status_code=201)
+def add_care_task(
+    customer_id: int,
+    payload: CareTaskIn,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> CareTaskOut:
+    try:
+        task = svc.add_care_task(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user,
+            note=payload.note, due_date=payload.due_date,
+            assignee_user_id=payload.assignee_user_id,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    names = _sale_names(
+        users, {task.assignee_user_id} if task.assignee_user_id else set()
+    )
+    return _care_task_out(svc, task, names)
+
+
+@router.put("/{customer_id}/care-tasks/{task_id}/status", response_model=CareTaskOut)
+def set_care_task_status(
+    customer_id: int,
+    task_id: int,
+    payload: CareTaskStatusIn,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> CareTaskOut:
+    try:
+        task = svc.set_care_task_status(
+            customer_id=customer_id, task_id=task_id,
+            scope=_scope_for(authz, user), actor=user,
+            status=payload.status, log_kind=payload.log_kind, log_note=payload.log_note,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    names = _sale_names(
+        users, {task.assignee_user_id} if task.assignee_user_id else set()
+    )
+    return _care_task_out(svc, task, names)
 
 
 # --- tài liệu đính kèm (#21) ------------------------------------------------------

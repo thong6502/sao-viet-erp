@@ -363,3 +363,106 @@ def test_parent_dept_head_sees_child_team_customers(client):
         "/api/customers", headers=_h(other)
     ).json()["items"]}
     assert "Cty Của Team Con" not in names_other
+
+
+# --- Nhóm B: chăm sóc khách hàng (#20/#27/#28) --------------------------------
+
+
+def test_care_log_and_timeline_merge(client):
+    token = _admin_token(client)
+    cid = _create(client, token, name="Cty Cham Soc")["customer"]["id"]
+
+    r = client.post(f"/api/customers/{cid}/care", json={
+        "kind": "goi_dien", "note": "Gọi hỏi nhu cầu quý 3, khách hẹn gửi maquette.",
+    }, headers=_h(token))
+    assert r.status_code == 201, r.text
+    assert r.json()["kind"] == "goi_dien"
+
+    # Nội dung trống → 422.
+    r = client.post(f"/api/customers/{cid}/care", json={"kind": "email", "note": "  "},
+                    headers=_h(token))
+    assert r.status_code == 422
+
+    items = client.get(f"/api/customers/{cid}/care", headers=_h(token)).json()["items"]
+    assert len(items) == 1 and items[0]["actor_name"]
+
+    # Gộp vào timeline Nhật ký (kind=care, số thật).
+    audit = client.get(f"/api/customers/{cid}/audit", headers=_h(token)).json()["items"]
+    care_rows = [a for a in audit if a["kind"] == "care"]
+    assert len(care_rows) == 1 and care_rows[0]["title"] == "Gọi điện"
+
+
+def test_care_task_lifecycle_and_remind_levels(client):
+    from datetime import datetime, timedelta, timezone
+
+    token = _admin_token(client)
+    cid = _create(client, token, name="Cty Follow Up")["customer"]["id"]
+    now = datetime.now(timezone.utc)
+
+    def mk(days_offset: int) -> dict:
+        r = client.post(f"/api/customers/{cid}/care-tasks", json={
+            "note": f"Gọi lại ({days_offset:+d} ngày)",
+            "due_date": (now + timedelta(days=days_offset)).isoformat(),
+        }, headers=_h(token))
+        assert r.status_code == 201, r.text
+        return r.json()
+
+    future = mk(+3)   # chưa đến hạn → nhắc 0
+    due_now = mk(0)   # đến hạn hôm nay → nhắc 1
+    late2 = mk(-3)    # quá 3 ngày → nhắc 2
+    late3 = mk(-7)    # quá 7 ngày → nhắc 3
+    assert future["remind_level"] == 0
+    assert due_now["remind_level"] == 1
+    assert late2["remind_level"] == 2 and late2["overdue_days"] == 3
+    assert late3["remind_level"] == 3
+
+    # Panel "Cần chăm sóc": chỉ các việc đã đến hạn (3 việc, sớm nhất trước).
+    fu = client.get("/api/customers/care-followups", headers=_h(token)).json()["items"]
+    fu_cid = [f for f in fu if f["customer_id"] == cid]
+    assert [f["remind_level"] for f in fu_cid] == [3, 2, 1]
+
+    # Hoàn thành việc quá hạn kèm ghi log chăm sóc trong cùng thao tác.
+    r = client.put(
+        f"/api/customers/{cid}/care-tasks/{late3['id']}/status",
+        json={"status": "done", "log_kind": "goi_dien", "log_note": "Đã gọi, khách chốt."},
+        headers=_h(token),
+    )
+    assert r.status_code == 200
+    assert r.json()["status"] == "done" and r.json()["done_at"]
+
+    tasks = client.get(f"/api/customers/{cid}/care-tasks", headers=_h(token)).json()
+    # Đánh giá #28: 1 việc xong (trễ — done sau due 7 ngày), 2 việc đang quá hạn.
+    assert tasks["done_late"] == 1 and tasks["done_on_time"] == 0
+    assert tasks["overdue_open"] == 2
+    # Log đi kèm đã vào nhật ký chăm sóc.
+    care = client.get(f"/api/customers/{cid}/care", headers=_h(token)).json()["items"]
+    assert any("khách chốt" in e["note"] for e in care)
+
+
+def test_care_followups_scoped_to_caller(client):
+    from datetime import datetime, timedelta, timezone
+
+    _seed_demo()
+    admin = _admin_token(client)
+    db = SessionLocal()
+    try:
+        sale1 = UserRepository(db).get_by_username("sale1")
+        sale2 = UserRepository(db).get_by_username("sale2")
+    finally:
+        db.close()
+
+    cid = _create(client, admin, name="Cty Cua Sale1", sale_user_id=sale1.id)["customer"]["id"]
+    client.post(f"/api/customers/{cid}/care-tasks", json={
+        "note": "Gọi chốt hợp đồng",
+        "due_date": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
+    }, headers=_h(admin))
+
+    # sale1 (scope own) thấy việc trên khách của mình; sale2 không thấy.
+    t1 = create_access_token(str(sale1.id))
+    t2 = create_access_token(str(sale2.id))
+    fu1 = client.get("/api/customers/care-followups", headers=_h(t1)).json()["items"]
+    fu2 = client.get("/api/customers/care-followups", headers=_h(t2)).json()["items"]
+    assert any(f["customer_name"] == "Cty Cua Sale1" for f in fu1)
+    assert not any(f["customer_name"] == "Cty Cua Sale1" for f in fu2)
+    # Việc mặc định gán cho Sale phụ trách khách.
+    assert fu1[0]["assignee_name"]

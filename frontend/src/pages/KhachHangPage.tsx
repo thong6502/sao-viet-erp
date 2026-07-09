@@ -11,6 +11,8 @@ import {
   type CustomerAddressInput,
   type CustomerAttachment,
   type CustomerAuditRow,
+  type CareEvent,
+  type CareTask,
   type CustomerContact,
   type CustomerContactInput,
   type CustomerDashboard,
@@ -19,6 +21,7 @@ import {
   type CustomerRow,
   type CustomerTier,
   type DuplicateWarn,
+  type FollowupRow,
   type ImportResultOut,
   type OrderHistoryRow,
   type PinnedCustomer,
@@ -178,6 +181,22 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
   // Import / export danh bạ (#23).
   const [importOpen, setImportOpen] = useState(false);
   const [exportingBook, setExportingBook] = useState(false);
+
+  // Panel "Cần chăm sóc" (#28): việc đến hạn/quá hạn trong scope của tôi.
+  const [followups, setFollowups] = useState<FollowupRow[]>([]);
+  const [followupsOpen, setFollowupsOpen] = useState(false);
+
+  const loadFollowups = useCallback(() => {
+    if (!token) return;
+    api.customers
+      .careFollowups(token)
+      .then((r) => setFollowups(r.items))
+      .catch(() => setFollowups([]));
+  }, [token]);
+
+  useEffect(() => {
+    loadFollowups();
+  }, [loadFollowups]);
 
   async function exportBook() {
     if (!token || exportingBook) return;
@@ -411,6 +430,45 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
 
       {/* KPI header strip — số thật từ đơn hàng */}
       <KpiStrip kpis={kpis} loading={loading && !kpis} />
+
+      {/* Cần chăm sóc (#28): việc đến hạn/quá hạn, nhắc lần 1-2-3 — bấm mở hồ sơ khách. */}
+      {followups.length > 0 && (
+        <div className="kh__followups card">
+          <button
+            type="button"
+            className="kh__followups-head"
+            onClick={() => setFollowupsOpen((v) => !v)}
+            aria-expanded={followupsOpen}
+          >
+            <span aria-hidden="true">⏰</span>
+            <strong>Cần chăm sóc: {followups.length} việc đến hạn / quá hạn</strong>
+            <span className="kh__muted">
+              {followups.filter((f) => f.remind_level >= 3).length > 0
+                ? ` · ${followups.filter((f) => f.remind_level >= 3).length} việc nhắc lần 3`
+                : ""}
+            </span>
+            <span className="kh__followups-caret" aria-hidden="true">
+              {followupsOpen ? "▴" : "▾"}
+            </span>
+          </button>
+          {followupsOpen && (
+            <ul className="kh__followups-list">
+              {followups.map((f) => (
+                <li key={f.id}>
+                  <button type="button" className="kh__followups-row" onClick={() => setOpenId(f.customer_id)}>
+                    <RemindBadge level={f.remind_level} days={f.overdue_days} />
+                    <span className="kh__name">{f.customer_name}</span>
+                    <span className="kh__mono kh__muted">{f.customer_code}</span>
+                    <span className="kh__followups-note">{f.note}</span>
+                    <span className="kh__mono kh__muted">hạn {fmtDate(f.due_date)}</span>
+                    {f.assignee_name && <span className="kh__muted">· {f.assignee_name}</span>}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="kh__toolbar">
         <form className="kh__search" onSubmit={onSearch} role="search">
@@ -916,7 +974,7 @@ function SortBtn({
 // Object-page slide-over
 // =============================================================================
 
-type Tab = "dashboard" | "orders" | "quotes" | "contacts" | "addresses" | "files" | "audit";
+type Tab = "dashboard" | "orders" | "quotes" | "care" | "contacts" | "addresses" | "files" | "audit";
 
 function CustomerObjectPage({
   customerId,
@@ -1033,6 +1091,7 @@ function CustomerObjectPage({
                   ["dashboard", "Dashboard"],
                   ["orders", "Lịch sử mua hàng"],
                   ["quotes", "Lịch sử báo giá"],
+                  ["care", "Chăm sóc"],
                   ["contacts", "Liên hệ"],
                   ["addresses", "Giao hàng"],
                   ["files", "Tài liệu"],
@@ -1072,6 +1131,7 @@ function CustomerObjectPage({
                   }}
                 />
               )}
+              {tab === "care" && <CareTab customerId={customerId} />}
               {tab === "contacts" && <ContactsTab customerId={customerId} />}
               {tab === "addresses" && <AddressesTab customerId={customerId} />}
               {tab === "files" && <AttachmentsTab customerId={customerId} />}
@@ -1642,6 +1702,7 @@ const AUDIT_KIND_META: Record<CustomerAuditRow["kind"], { icon: string; label: s
   profile: { icon: "✎", label: "Hồ sơ", cls: "kh__tl--profile" },
   order: { icon: "📦", label: "Đơn hàng", cls: "kh__tl--order" },
   quote: { icon: "🧮", label: "Báo giá", cls: "kh__tl--quote" },
+  care: { icon: "🤝", label: "Chăm sóc", cls: "kh__tl--care" },
 };
 
 function AuditTab({
@@ -1717,6 +1778,271 @@ function AuditTab({
           );
         })}
       </ol>
+    </div>
+  );
+}
+
+// --- Chăm sóc tab (#20/#27/#28: nhật ký + lịch hẹn follow-up, nhắc 1-2-3) ------
+
+const CARE_KIND_LABELS: Record<string, string> = {
+  goi_dien: "Gọi điện",
+  nhan_tin: "Nhắn tin",
+  email: "Email",
+  gap_truc_tiep: "Gặp trực tiếp",
+  khac: "Khác",
+};
+
+function RemindBadge({ level, days }: { level: number; days: number }) {
+  if (level <= 0) return <span className="kh__badge">Chưa đến hạn</span>;
+  const cls = level >= 3 ? " kh__badge--off" : level === 2 ? " kh__badge--warn" : " kh__badge--lead";
+  return (
+    <span className={`kh__badge${cls}`} title={days > 0 ? `Quá hạn ${days} ngày` : "Đến hạn hôm nay"}>
+      Nhắc lần {level}
+    </span>
+  );
+}
+
+function CareTab({ customerId }: { customerId: number }) {
+  const { token } = useAuth();
+  const canUpdate = useCan()("khach_hang", "update");
+  const [events, setEvents] = useState<CareEvent[] | null>(null);
+  const [tasks, setTasks] = useState<CareTask[] | null>(null);
+  const [stats, setStats] = useState<{ on_time: number; late: number; overdue: number }>({
+    on_time: 0,
+    late: 0,
+    overdue: 0,
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  // Ghi hoạt động chăm sóc.
+  const [logKind, setLogKind] = useState("goi_dien");
+  const [logNote, setLogNote] = useState("");
+  const [logBusy, setLogBusy] = useState(false);
+
+  // Tạo lịch hẹn.
+  const [taskNote, setTaskNote] = useState("");
+  const [taskDue, setTaskDue] = useState("");
+  const [taskBusy, setTaskBusy] = useState(false);
+  const [showDone, setShowDone] = useState(false);
+
+  const reload = useCallback(() => {
+    if (!token) return;
+    Promise.all([
+      api.customers.careEvents(token, customerId),
+      api.customers.careTasks(token, customerId),
+    ])
+      .then(([ev, t]) => {
+        setEvents(ev.items);
+        setTasks(t.items);
+        setStats({ on_time: t.done_on_time, late: t.done_late, overdue: t.overdue_open });
+      })
+      .catch(() => setError("Không tải được dữ liệu chăm sóc."));
+  }, [token, customerId]);
+
+  useEffect(() => {
+    setEvents(null);
+    setTasks(null);
+    setError(null);
+    reload();
+  }, [reload]);
+
+  async function logCare() {
+    if (!token || logBusy || !logNote.trim()) return;
+    setLogBusy(true);
+    try {
+      await api.customers.addCareEvent(token, customerId, { kind: logKind, note: logNote.trim() });
+      setLogNote("");
+      reload();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Ghi chăm sóc không thành công.");
+    } finally {
+      setLogBusy(false);
+    }
+  }
+
+  async function addTask() {
+    if (!token || taskBusy || !taskNote.trim() || !taskDue) return;
+    setTaskBusy(true);
+    try {
+      await api.customers.addCareTask(token, customerId, {
+        note: taskNote.trim(),
+        due_date: new Date(`${taskDue}T09:00:00`).toISOString(),
+      });
+      setTaskNote("");
+      setTaskDue("");
+      reload();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Tạo lịch hẹn không thành công.");
+    } finally {
+      setTaskBusy(false);
+    }
+  }
+
+  async function setTaskStatus(t: CareTask, status: string) {
+    if (!token) return;
+    try {
+      await api.customers.setCareTaskStatus(token, customerId, t.id, { status });
+      reload();
+    } catch {
+      setError("Cập nhật việc không thành công.");
+    }
+  }
+
+  if (error && events == null) return <div className="banner banner--error" role="alert">{error}</div>;
+  if (events == null || tasks == null) return <TableSkeleton cols={3} />;
+
+  const openTasks = tasks.filter((t) => t.status === "open");
+  const closedTasks = tasks.filter((t) => t.status !== "open");
+
+  return (
+    <div className="kh__care">
+      {error && <div className="banner banner--error" role="alert">{error}</div>}
+
+      {/* Đánh giá chăm sóc (#28) — số thật từ việc đã xong/đang quá hạn. */}
+      <div className="kh__kpis">
+        <div className="kh__kpi card">
+          <span className="kh__kpi-label">Xong đúng hạn</span>
+          <span className="kh__kpi-value">{stats.on_time}</span>
+        </div>
+        <div className="kh__kpi card">
+          <span className="kh__kpi-label">Xong trễ hạn</span>
+          <span className="kh__kpi-value">{stats.late}</span>
+        </div>
+        <div className="kh__kpi card">
+          <span className="kh__kpi-label">Đang quá hạn</span>
+          <span className={`kh__kpi-value${stats.overdue > 0 ? " kh__kpi-value--alert" : ""}`}>
+            {stats.overdue}
+          </span>
+        </div>
+      </div>
+
+      {/* Lịch hẹn / follow-up (#27–#28) */}
+      <section className="card kh__chart">
+        <div className="kh__chart-head">
+          <h3>Lịch hẹn chăm sóc</h3>
+          <span className="kh__muted">quá hạn sẽ nhắc lần 1 → 2 (≥2 ngày) → 3 (≥5 ngày)</span>
+        </div>
+        {canUpdate && (
+          <div className="kh__care-addtask">
+            <input
+              className="input"
+              placeholder="Việc cần làm — VD: gọi lại hỏi maquette"
+              value={taskNote}
+              onChange={(e) => setTaskNote(e.target.value)}
+            />
+            <input
+              className="input kh__care-date"
+              type="date"
+              value={taskDue}
+              onChange={(e) => setTaskDue(e.target.value)}
+              aria-label="Hạn thực hiện"
+            />
+            <Button variant="secondary" onClick={addTask} loading={taskBusy} disabled={!taskNote.trim() || !taskDue}>
+              + Hẹn
+            </Button>
+          </div>
+        )}
+        {openTasks.length === 0 ? (
+          <p className="kh__muted kh__chart-empty">Không có việc đang chờ.</p>
+        ) : (
+          <ul className="kh__care-tasks">
+            {openTasks.map((t) => (
+              <li key={t.id} className="kh__care-task">
+                <RemindBadge level={t.remind_level} days={t.overdue_days} />
+                <span className="kh__care-tasknote">{t.note}</span>
+                <span className="kh__mono kh__muted">hạn {fmtDate(t.due_date)}</span>
+                {t.assignee_name && <span className="kh__muted">· {t.assignee_name}</span>}
+                {canUpdate && (
+                  <span className="kh__care-taskbtns">
+                    <button type="button" className="btn btn--ghost" onClick={() => setTaskStatus(t, "done")}>
+                      ✓ Xong
+                    </button>
+                    <button type="button" className="btn btn--ghost" onClick={() => setTaskStatus(t, "cancelled")}>
+                      Hủy
+                    </button>
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {closedTasks.length > 0 && (
+          <>
+            <button type="button" className="kh__linkbtn" onClick={() => setShowDone((v) => !v)}>
+              {showDone ? "Ẩn" : "Xem"} {closedTasks.length} việc đã xong/hủy
+            </button>
+            {showDone && (
+              <ul className="kh__care-tasks kh__care-tasks--closed">
+                {closedTasks.map((t) => (
+                  <li key={t.id} className="kh__care-task">
+                    <span className={`kh__badge${t.status === "done" ? "" : " kh__badge--off"}`}>
+                      {t.status === "done" ? "Đã xong" : "Đã hủy"}
+                    </span>
+                    <span className="kh__care-tasknote">{t.note}</span>
+                    <span className="kh__mono kh__muted">
+                      hạn {fmtDate(t.due_date)}
+                      {t.done_at ? ` · xong ${fmtDate(t.done_at)}` : ""}
+                    </span>
+                    {canUpdate && (
+                      <button type="button" className="btn btn--ghost" onClick={() => setTaskStatus(t, "open")}>
+                        Mở lại
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* Nhật ký chăm sóc (#20/#27) */}
+      <section className="card kh__chart">
+        <div className="kh__chart-head">
+          <h3>Nhật ký chăm sóc</h3>
+          <span className="kh__muted">{events.length} hoạt động — gộp cả vào tab Nhật ký</span>
+        </div>
+        {canUpdate && (
+          <div className="kh__care-addtask">
+            <Select
+              ariaLabel="Hình thức chăm sóc"
+              value={logKind}
+              onChange={(v) => setLogKind(v ?? "khac")}
+              options={Object.entries(CARE_KIND_LABELS).map(([value, label]) => ({ value, label }))}
+            />
+            <input
+              className="input"
+              placeholder="Trao đổi gì, kết quả, hẹn tiếp theo…"
+              value={logNote}
+              onChange={(e) => setLogNote(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && logCare()}
+            />
+            <Button variant="secondary" onClick={logCare} loading={logBusy} disabled={!logNote.trim()}>
+              Ghi
+            </Button>
+          </div>
+        )}
+        {events.length === 0 ? (
+          <p className="kh__muted kh__chart-empty">
+            Chưa có hoạt động chăm sóc nào — ghi lại mỗi lần gọi/nhắn/gặp để cả team nắm được.
+          </p>
+        ) : (
+          <ul className="kh__care-log">
+            {events.map((e) => (
+              <li key={e.id} className="kh__care-logitem">
+                <span className="kh__badge">{CARE_KIND_LABELS[e.kind] ?? e.kind}</span>
+                <div className="kh__care-logbody">
+                  <p>{e.note}</p>
+                  <span className="kh__muted">
+                    {fmtDateTime(e.happened_at)}
+                    {e.actor_name ? ` · ${e.actor_name}` : ""}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

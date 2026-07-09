@@ -12,9 +12,12 @@ from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.customer import (
+    TASK_OPEN,
     Customer,
     CustomerAddress,
     CustomerAttachment,
+    CustomerCareEvent,
+    CustomerCareTask,
     CustomerContact,
 )
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
@@ -372,6 +375,64 @@ class CustomerRepository:
     def delete_address(self, address: CustomerAddress) -> None:
         self.db.delete(address)
         self.db.commit()
+
+    # --- chăm sóc: nhật ký + lịch hẹn (#20/#27/#28) -----------------------------
+
+    def list_care_events(self, customer_id: int) -> list[CustomerCareEvent]:
+        return list(self.db.execute(
+            select(CustomerCareEvent)
+            .where(CustomerCareEvent.customer_id == customer_id)
+            .order_by(CustomerCareEvent.happened_at.desc(), CustomerCareEvent.id.desc())
+        ).scalars())
+
+    def add_care_event(self, customer_id: int, **fields) -> CustomerCareEvent:
+        ev = CustomerCareEvent(customer_id=customer_id, **fields)
+        self.db.add(ev)
+        self.db.commit()
+        self.db.refresh(ev)
+        return ev
+
+    def list_care_tasks(self, customer_id: int) -> list[CustomerCareTask]:
+        # Việc mở trước (đến hạn sớm lên đầu), việc đã xong/hủy sau (mới nhất trước).
+        rows = list(self.db.execute(
+            select(CustomerCareTask).where(CustomerCareTask.customer_id == customer_id)
+        ).scalars())
+        rows.sort(key=lambda t: (t.status != TASK_OPEN, t.due_date, t.id))
+        return rows
+
+    def get_care_task(self, task_id: int) -> CustomerCareTask | None:
+        return self.db.get(CustomerCareTask, task_id)
+
+    def add_care_task(self, customer_id: int, **fields) -> CustomerCareTask:
+        task = CustomerCareTask(customer_id=customer_id, **fields)
+        self.db.add(task)
+        self.db.commit()
+        self.db.refresh(task)
+        return task
+
+    def update_care_task(self, task: CustomerCareTask, **fields) -> CustomerCareTask:
+        for key, value in fields.items():
+            setattr(task, key, value)
+        self.db.commit()
+        self.db.refresh(task)
+        return task
+
+    def list_due_followups(
+        self, *, scope: str, actor, due_before
+    ) -> list[tuple[CustomerCareTask, Customer]]:
+        """Việc chăm sóc ĐANG MỞ đã đến hạn (due_date ≤ due_before) trên các khách trong
+        scope của người gọi — nguồn của panel "Cần chăm sóc" (#28). Đến hạn sớm nhất trước."""
+        stmt = (
+            select(CustomerCareTask, Customer)
+            .join(Customer, CustomerCareTask.customer_id == Customer.id)
+            .where(CustomerCareTask.status == TASK_OPEN)
+            .where(CustomerCareTask.due_date <= due_before)
+        )
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        stmt = stmt.order_by(CustomerCareTask.due_date.asc(), CustomerCareTask.id.asc())
+        return [(t, c) for t, c in self.db.execute(stmt).all()]
 
     # --- tài liệu đính kèm (#21) -------------------------------------------------
 

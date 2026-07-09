@@ -208,6 +208,88 @@ class CustomerAttachmentsOut(BaseModel):
     items: list[CustomerAttachmentOut]
 
 
+# --- Chăm sóc khách hàng (#20/#27/#28) -----------------------------------------
+
+
+class CareEventIn(BaseModel):
+    kind: str = Field(default="khac", max_length=24)
+    note: str = Field(min_length=1, max_length=1000)
+    # Cho phép ghi bù (buổi gặp hôm qua); bỏ trống = bây giờ.
+    happened_at: datetime | None = None
+
+
+class CareEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    kind: str
+    note: str
+    happened_at: datetime
+    actor_name: str | None = None
+
+
+class CareEventsOut(BaseModel):
+    items: list[CareEventOut]
+
+
+class CareTaskIn(BaseModel):
+    note: str = Field(min_length=1, max_length=500)
+    due_date: datetime
+    assignee_user_id: int | None = None
+
+
+class CareTaskOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    note: str
+    due_date: datetime
+    status: str
+    assignee_user_id: int | None = None
+    assignee_name: str | None = None
+    done_at: datetime | None = None
+    # Mức nhắc TÍNH TỪ số ngày quá hạn (#28): 0 = chưa đến hạn, 1 = đến hạn/quá <2 ngày,
+    # 2 = quá ≥2 ngày, 3 = quá ≥5 ngày. Chỉ có nghĩa với việc đang mở.
+    remind_level: int = 0
+    overdue_days: int = 0
+
+
+class CareTasksOut(BaseModel):
+    items: list[CareTaskOut]
+    # Đánh giá chăm sóc (#28 — "nhắc lần 1,2,3 sẽ đánh giá tiêu chuẩn chăm sóc"):
+    # đếm việc đã xong đúng hạn / xong trễ / đang quá hạn — số thật từ tasks.
+    done_on_time: int = 0
+    done_late: int = 0
+    overdue_open: int = 0
+
+
+class CareTaskStatusIn(BaseModel):
+    """Đổi trạng thái việc chăm sóc: done | cancelled | open (mở lại)."""
+
+    status: str
+    # Khi hoàn thành có thể ghi luôn một dòng nhật ký chăm sóc (kind + note).
+    log_kind: str | None = Field(default=None, max_length=24)
+    log_note: str | None = Field(default=None, max_length=1000)
+
+
+class FollowupRow(BaseModel):
+    """Một việc đến hạn/quá hạn trong panel "Cần chăm sóc" trên danh bạ."""
+
+    id: int
+    customer_id: int
+    customer_code: str
+    customer_name: str
+    note: str
+    due_date: datetime
+    remind_level: int
+    overdue_days: int
+    assignee_name: str | None = None
+
+
+class FollowupsOut(BaseModel):
+    items: list[FollowupRow]
+
+
 # --- Import CSV (#23) ---------------------------------------------------------
 
 

@@ -431,7 +431,7 @@ export interface QuoteHistoryRow {
 
 export interface CustomerAuditRow {
   at: string;
-  kind: "profile" | "order" | "quote";
+  kind: "profile" | "order" | "quote" | "care";
   action: string;
   title: string;
   detail: string;
@@ -515,6 +515,49 @@ export interface CustomerAttachment {
   file_url: string;
   file_type: string | null;
   uploaded_at: string;
+}
+
+// --- Chăm sóc khách hàng (#20/#27/#28) ---------------------------------------
+
+export interface CareEvent {
+  id: number;
+  kind: string;
+  note: string;
+  happened_at: string;
+  actor_name: string | null;
+}
+
+export interface CareTask {
+  id: number;
+  note: string;
+  due_date: string;
+  status: "open" | "done" | "cancelled";
+  assignee_user_id: number | null;
+  assignee_name: string | null;
+  done_at: string | null;
+  /** Mức nhắc tính từ số ngày quá hạn: 0 chưa đến hạn, 1/2/3 = nhắc lần 1/2/3. */
+  remind_level: number;
+  overdue_days: number;
+}
+
+export interface CareTasksOut {
+  items: CareTask[];
+  done_on_time: number;
+  done_late: number;
+  overdue_open: number;
+}
+
+/** Một việc đến hạn/quá hạn trong panel "Cần chăm sóc" trên danh bạ. */
+export interface FollowupRow {
+  id: number;
+  customer_id: number;
+  customer_code: string;
+  customer_name: string;
+  note: string;
+  due_date: string;
+  remind_level: number;
+  overdue_days: number;
+  assignee_name: string | null;
 }
 
 /** Kết quả import CSV (#23): dry_run=true → chỉ xem trước, chưa ghi. */
@@ -2841,6 +2884,48 @@ export const api = {
       return authed<void>(`/api/customers/${id}/addresses/${addressId}`, token, {
         method: "DELETE",
       });
+    },
+    // --- chăm sóc (#20/#27/#28) ---
+    careEvents(token: string, id: number): Promise<{ items: CareEvent[] }> {
+      return authed<{ items: CareEvent[] }>(`/api/customers/${id}/care`, token);
+    },
+    addCareEvent(
+      token: string,
+      id: number,
+      input: { kind: string; note: string; happened_at?: string | null },
+    ): Promise<CareEvent> {
+      return authed<CareEvent>(`/api/customers/${id}/care`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    careTasks(token: string, id: number): Promise<CareTasksOut> {
+      return authed<CareTasksOut>(`/api/customers/${id}/care-tasks`, token);
+    },
+    addCareTask(
+      token: string,
+      id: number,
+      input: { note: string; due_date: string; assignee_user_id?: number | null },
+    ): Promise<CareTask> {
+      return authed<CareTask>(`/api/customers/${id}/care-tasks`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    setCareTaskStatus(
+      token: string,
+      id: number,
+      taskId: number,
+      input: { status: string; log_kind?: string | null; log_note?: string | null },
+    ): Promise<CareTask> {
+      return authed<CareTask>(`/api/customers/${id}/care-tasks/${taskId}/status`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Panel "Cần chăm sóc": việc đến hạn/quá hạn trong scope của tôi. */
+    careFollowups(token: string): Promise<{ items: FollowupRow[] }> {
+      return authed<{ items: FollowupRow[] }>("/api/customers/care-followups", token);
     },
     // --- tài liệu đính kèm (#21) ---
     attachments(token: string, id: number): Promise<{ items: CustomerAttachment[] }> {

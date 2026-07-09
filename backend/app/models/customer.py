@@ -146,6 +146,78 @@ DOC_KHAC = "khac"
 CUSTOMER_DOC_KINDS = (DOC_HOP_DONG, DOC_GPKD, DOC_THIET_KE, DOC_KHAC)
 
 
+# Hình thức chăm sóc (khảo sát #27: gọi điện, nhắn tin, email, gặp trực tiếp…).
+CARE_GOI_DIEN = "goi_dien"
+CARE_NHAN_TIN = "nhan_tin"
+CARE_EMAIL = "email"
+CARE_GAP = "gap_truc_tiep"
+CARE_KHAC = "khac"
+CARE_KINDS = (CARE_GOI_DIEN, CARE_NHAN_TIN, CARE_EMAIL, CARE_GAP, CARE_KHAC)
+
+
+class CustomerCareEvent(Base):
+    """Một lần chăm sóc ĐÃ THỰC HIỆN (khảo sát #20: "đã quy định làm việc trên một nền
+    tảng số" — ngày nào gọi, trao đổi gì). Hiện trong tab Chăm sóc và gộp vào timeline
+    Nhật ký của khách."""
+
+    __tablename__ = "customer_care_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customers.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    kind: Mapped[str] = mapped_column(
+        String(24), nullable=False, default=CARE_KHAC, server_default=CARE_KHAC
+    )
+    note: Mapped[str] = mapped_column(String(1000), nullable=False)
+    # Thời điểm chăm sóc thật (cho phép ghi bù buổi gặp hôm qua) — mặc định lúc ghi.
+    happened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
+# Trạng thái việc chăm sóc (lịch hẹn / follow-up).
+TASK_OPEN = "open"
+TASK_DONE = "done"
+TASK_CANCELLED = "cancelled"
+CARE_TASK_STATUSES = (TASK_OPEN, TASK_DONE, TASK_CANCELLED)
+
+
+class CustomerCareTask(Base):
+    """Một việc chăm sóc CẦN LÀM (khảo sát #27–#28: "hẹn ngày 15 gọi lại"; hệ thống nhắc
+    lần 1/2/3 khi quá hạn). Mức nhắc KHÔNG lưu — tính từ số ngày quá hạn khi đọc (lần 1 =
+    đến hạn, lần 2 = quá ≥2 ngày, lần 3 = quá ≥5 ngày) để con số luôn thật, không cần cron."""
+
+    __tablename__ = "customer_care_tasks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customers.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    note: Mapped[str] = mapped_column(String(500), nullable=False)  # việc cần làm
+    due_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=TASK_OPEN, server_default=TASK_OPEN, index=True
+    )
+    # Người phụ trách việc — mặc định Sale phụ trách khách (panel "Cần chăm sóc" lọc theo đây).
+    assignee_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), index=True, nullable=True
+    )
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
 class CustomerAttachment(Base):
     """File đính kèm hồ sơ khách hàng. Bytes nằm dưới <backend>/static/crm và được serve
     read-only tại /static; chỉ lưu path ở đây (mirror employee_attachments)."""

@@ -325,6 +325,54 @@ giao hàng"). CHỖ NỐI Tính giá: phí giao hàng theo điểm giao sẽ đ�
 
 ---
 
+### `customer_care_events`
+
+**Purpose:** nhật ký chăm sóc khách (khảo sát #20/#27: ngày nào gọi/nhắn/email/gặp, trao
+đổi gì). Hiện trong tab Chăm sóc và gộp vào timeline Nhật ký của khách (kind `care`).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id** (CASCADE), **IX** | no | — | Khách hàng được chăm sóc. |
+| `kind` | `String(24)` → `VARCHAR(24)` | — | no | `khac` | Hình thức: `goi_dien` / `nhan_tin` / `email` / `gap_truc_tiep` / `khac`. |
+| `note` | `String(1000)` → `VARCHAR(1000)` | — | no | — | Nội dung trao đổi (bắt buộc). |
+| `happened_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm chăm sóc thật (cho ghi bù). |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người ghi. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm ghi. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `ix_customer_care_events_customer_id` on `customer_id`.
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE CASCADE), `created_by FK→users.id`.
+
+---
+
+### `customer_care_tasks`
+
+**Purpose:** việc chăm sóc CẦN LÀM / lịch hẹn follow-up (khảo sát #27–#28: "hẹn ngày 15
+gọi lại", nhắc lần 1/2/3). Mức nhắc KHÔNG lưu — tính từ số ngày quá hạn khi đọc (lần 1 =
+đến hạn, lần 2 = quá ≥2 ngày, lần 3 = quá ≥5 ngày) nên không cần cron và số luôn thật.
+Panel "Cần chăm sóc" trên danh bạ đọc các việc `open` đã đến hạn trong scope người xem.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id** (CASCADE), **IX** | no | — | Khách hàng. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | no | — | Việc cần làm (bắt buộc). |
+| `due_date` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | — | Hạn thực hiện. |
+| `status` | `String(16)` → `VARCHAR(16)` | **IX** | no | `open` | `open` / `done` / `cancelled`. |
+| `assignee_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Người phụ trách việc — mặc định Sale phụ trách khách. |
+| `done_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Lúc hoàn thành (so với `due_date` → đúng hạn/trễ, đánh giá #28). |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tạo việc. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm tạo. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `ix_customer_care_tasks_customer_id`, `ix_customer_care_tasks_status`, `ix_customer_care_tasks_assignee_user_id`.
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE CASCADE), `assignee_user_id FK→users.id`, `created_by FK→users.id`.
+
+---
+
 ### `customer_attachments`
 
 **Purpose:** tài liệu đính kèm hồ sơ khách (khảo sát #21: hợp đồng, GPKD, file thiết kế…).
