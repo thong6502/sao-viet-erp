@@ -285,59 +285,10 @@ class PricingEngine:
         # finished_factor = 1 (đã bỏ bình bài) → số con thành phẩm = số con hình học.
         geometric_pieces_per_sheet = pieces_per_sheet
 
-        # 2b. Quy tắc bình bài — nếu spec khai `imposition_rule_id` (sản phẩm gán rule) thì dùng
-        # engine bình bài (imposition_engine) thay số con/kẽm suy thô. GATE: không rule → giữ nguyên
-        # hành vi hiện tại (golden khay-carton/QUO-049 không đổi số). Lỗi bình bài KHÔNG chặn tính giá.
+        # Số kẽm/tay/ghép mặc định — bình bài đã bỏ, không còn override từ quy tắc.
         so_kem_override: int | None = None
-        imposition_rule_id = input_spec.get("imposition_rule_id")
-        if imposition_rule_id and sheet_w and sheet_h and finished_w and finished_h:
-            try:
-                from decimal import Decimal as _Dec
-                from ..repositories.quy_tac_binh_bai_repo import QuyTacBinhBaiRepository, VERSION_FIELDS
-                from . import imposition_engine as _IE
-
-                _rv = QuyTacBinhBaiRepository(self.db).current_version(int(imposition_rule_id))
-                if _rv is not None:
-                    _cfg = {}
-                    for _f in VERSION_FIELDS:
-                        _v = getattr(_rv, _f, None)
-                        _cfg[_f] = float(_v) if isinstance(_v, _Dec) else _v
-                    _rule = _IE.RuleVersion(**{k: v for k, v in _cfg.items()
-                                               if k in _IE.RuleVersion.__dataclass_fields__})
-                    _mrow = self.db.get(Machine, machine_id) if machine_id else None
-                    _grip_mm = ((float(getattr(_mrow, "gripper_cm", 0) or 0)) or gripper_cm) * 10.0
-                    _mach = _IE.Machine(
-                        gripper_mm=_grip_mm,
-                        max_w=float(getattr(_mrow, "max_width_cm", 0) or 0) * 10.0,
-                        max_h=float(getattr(_mrow, "max_height_cm", 0) or 0) * 10.0,
-                    )
-                    _prod = _IE.Product(
-                        rong_tp=float(finished_w) * 10.0, dai_tp=float(finished_h) * 10.0,
-                        bleed_mm=(bleed_cm * 10.0 if bleed_cm > 0 else None), so_trang=page_count,
-                        blank_w=float(finished_w) * 10.0, blank_h=float(finished_h) * 10.0,
-                    )
-                    _ps = _IE.PrintSheet(rong=float(sheet_w) * 10.0, dai=float(sheet_h) * 10.0,
-                                         kieu_cat="1x1", per_nguyen=1)
-                    _res = _IE.resolve(
-                        _rule, _mach, _prod,
-                        _IE.RawSheet(rong_ng=float(sheet_w) * 10.0, dai_ng=float(sheet_h) * 10.0),
-                        so_luong=0, so_mau_truoc=colors, so_mau_sau=(colors if sides >= 2 else 0),
-                        print_sheet=_ps,
-                    )
-                    _mode = _cfg.get("layout_mode")
-                    if not _res.has_error and _res.don_vi_per_to_in > 0 and _mode in ("step_repeat", "nesting"):
-                        # con/blank trên tờ in ↔ pieces_per_sheet. Input tường minh vẫn thắng.
-                        if pieces_per_sheet_input is None:
-                            pieces_per_sheet = _res.don_vi_per_to_in
-                            geometric_pieces_per_sheet = pieces_per_sheet
-                        so_kem_override = _res.so_kem
-                        add_warning("info", "IMPOSITION_RULE",
-                                    f"Áp quy tắc bình bài: {_res.don_vi_per_to_in} con/tờ · {_res.so_kem} kẽm.")
-                    elif _mode == "signature":
-                        add_warning("info", "IMPOSITION_MODE_PENDING",
-                                    f"Bình bài kiểu {_mode} chưa nối đủ vào tính giá — tạm dùng số con hình học.")
-            except Exception:
-                pass  # bình bài lỗi không được chặn đường tính giá
+        sig_so_tay: int | None = None      # bình tay sách: số tay/cuốn (mỗi tay = 1 tờ in)
+        sig_per_nguyen: int = 1            # số tờ in ghép trên 1 tờ nguyên
 
         # 3. Load Material and Price
         material: Material | None = None
@@ -441,7 +392,11 @@ class PricingEngine:
         ]
 
         # Số tờ cần in (lý thuyết) = số lượng ÷ số con/tờ.
-        printed_sheets = int(math.ceil(current_qty / pieces_per_sheet))
+        # Bình tay sách: mỗi cuốn cần so_tay tay in, mỗi tay = 1 tờ in (chia per_nguyen nếu ghép tay).
+        if sig_so_tay is not None:
+            printed_sheets = int(math.ceil(current_qty * sig_so_tay / max(1, sig_per_nguyen)))
+        else:
+            printed_sheets = int(math.ceil(current_qty / pieces_per_sheet))
 
         # % bù hao lấy từ Loại sản phẩm.
         waste_pct = 0.0

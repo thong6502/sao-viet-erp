@@ -43,7 +43,6 @@ const NAV: NavSection[] = [
     id: "kinh-doanh",
     label: "Kinh doanh",
     items: [
-      { id: "tinh-gia-thanh", label: "Tính giá thành", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
       { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart", module: "don_hang_ban" },
       { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },
@@ -86,7 +85,6 @@ const NAV: NavSection[] = [
     id: "cau-hinh-dm",
     label: "Cấu hình danh mục",
     items: [
-      { id: "quy-tac-binh-bai", label: "Quy tắc bình bài", icon: "calculator", module: "dm_binh_bai" },
       { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_loai_san_pham" },
       { id: "may-thiet-bi", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
       { id: "cong-doan", label: "Công đoạn gia công", icon: "activity", module: "dm_cong_doan" },

@@ -18,6 +18,8 @@ export interface FieldDef {
   hint?: string;
   group?: string;               // nhóm section trong drawer
   showIf?: (form: Record<string, unknown>) => boolean;  // ẩn/hiện field theo giá trị khác
+  default?: unknown;            // prefill khi TẠO MỚI (giá trị thật, không phải placeholder "0")
+  jsonKey?: string;             // field lưu LỒNG trong cột JSON này (vd "fields_theo_loai")
 }
 export interface ColumnDef {
   key: string;
@@ -35,6 +37,7 @@ export interface CatalogConfig {
   columns: ColumnDef[];
   fields: FieldDef[];
   facet?: FacetDef;             // tab lọc phía trên (tùy chọn)
+  renderExtra?: (form: Record<string, unknown>) => ReactNode;  // block phụ cuối drawer (vd preview BHR)
 }
 
 export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
@@ -271,8 +274,12 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       if (f.type === "ref-multi") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
+      } else if (f.jsonKey) {
+        // field lồng trong cột JSON (vd fields_theo_loai.click_mau)
+        const box = existing?.[f.jsonKey] as Record<string, unknown> | undefined;
+        init[f.key] = existing ? box?.[f.key] ?? "" : f.default ?? "";
       } else {
-        init[f.key] = existing ? existing[f.key] ?? "" : "";
+        init[f.key] = existing ? existing[f.key] ?? "" : f.default ?? "";
       }
     }
     return init;
@@ -345,6 +352,14 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       if (f.type === "json" && typeof v === "string" && v.trim()) {
         try { v = JSON.parse(v); } catch { setErr(`${f.label}: JSON không hợp lệ.`); setSaving(false); return; }
       }
+      if (f.jsonKey) {
+        // gom vào cột JSON, GIỮ key lạ đã có (vd seed đặt thêm) — không ghi đè cả object
+        const box = (body[f.jsonKey] as Record<string, unknown>) ??
+          { ...((existing?.[f.jsonKey] as Record<string, unknown>) ?? {}) };
+        box[f.key] = v;
+        body[f.jsonKey] = box;
+        continue;
+      }
       body[f.key] = v;
     }
     try {
@@ -372,27 +387,9 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             <div className="rc-grid">
               <label className="rc-field">
                 <span className="rc-field__label">Mã <em>*</em></span>
-                <div style={{ display: "flex", gap: "6px" }}>
-                  <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`} style={{ flex: 1 }}>
-                    <input className="rc-input rc-mono" value={String(form.ma ?? "")}
-                      disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
-                  </div>
-                  {!isEdit && (
-                    <button type="button" className="btn btn--secondary" style={{ height: "30px", padding: "0 10px", fontSize: "11.5px", whiteSpace: "nowrap" }}
-                      onClick={() => {
-                        if (!typedMa) {
-                          alert("Vui lòng nhập mã để kiểm tra.");
-                          return;
-                        }
-                        if (isMaDuplicate) {
-                          alert(`❌ Mã "${typedMa}" đã tồn tại! Vui lòng chọn mã khác.`);
-                        } else {
-                          alert(`✅ Mã "${typedMa}" hợp lệ và có thể sử dụng!`);
-                        }
-                      }}>
-                      Check trùng
-                    </button>
-                  )}
+                <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
+                  <input className="rc-input rc-mono" value={String(form.ma ?? "")}
+                    disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
                 </div>
                 {!isEdit && typedMa && (
                   <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
@@ -475,7 +472,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                             <div className="rc-input-wrapper">
                               <input className={`rc-input${f.type === "number" ? " rc-input--num" : ""}`}
                                 type={f.type === "number" ? "number" : "text"} step="any" inputMode={f.type === "number" ? "decimal" : undefined}
-                                placeholder={f.type === "number" ? "0" : (f.hint ?? "")}
+                                placeholder={f.type === "number" ? (f.default != null ? String(f.default) : "0") : (f.hint ?? "")}
                                 value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} />
                               {suffix && <span className="rc-input-suffix">{suffix}</span>}
                             </div>
@@ -488,6 +485,8 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                 </section>
               ))}
           </div>
+
+          {config.renderExtra?.(form)}
         </form>
 
         <footer className="rc-drawer__foot">

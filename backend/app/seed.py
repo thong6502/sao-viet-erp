@@ -1482,57 +1482,6 @@ def seed_piece_work(db: Session) -> None:
         svc.set_share(batch_id=batch.id, employee_id=prod[1].id, weight=1)
 
 
-def seed_quy_tac_binh_bai(db: Session) -> None:
-    """Seed Quy tắc bình bài (§11): 5 rule (mỗi rule v1 is_current) + folding_scheme F4/F8/F16/F32.
-    Idempotent — chỉ seed khi bảng rỗng."""
-    from sqlalchemy import select
-    from .models.quy_tac_binh_bai import (
-        FoldingScheme,
-        QuyTacBinhBai,
-        QuyTacBinhBaiVersion,
-    )
-
-    if db.execute(select(QuyTacBinhBai)).first() is None:
-        # (ma, ten, layout_mode, config-override dict)
-        rules = [
-            ("BB-0001", "Ấn phẩm phẳng n-up", "step_repeat",
-             dict(allow_gang=True, gutter_mm=4, side_margin_mm=5, tail_colorbar_mm=8)),
-            ("BB-0002", "Sách đóng keo tay 16", "signature",
-             dict(pages_per_sig=16, work_style="sheetwise", grain_constraint="song_song_gay", min_pages=40)),
-            ("BB-0003", "Sách đóng ghim tay 8", "signature",
-             dict(pages_per_sig=8, work_style="sheetwise", max_pages=64)),
-            ("BB-0004", "Hộp giấy dàn khuôn", "nesting",
-             dict(matrix_allowance_mm=5)),
-        ]
-        for ma, ten, mode, cfg in rules:
-            header = QuyTacBinhBai(ma=ma, ten=ten, trang_thai="active")
-            db.add(header)
-            db.flush()
-            db.add(QuyTacBinhBaiVersion(rule_id=header.id, version_no=1, is_current=True,
-                                        layout_mode=mode, **cfg))
-        db.commit()
-
-    if db.execute(select(FoldingScheme)).first() is None:
-        # F8 đầy đủ theo ví dụ spec §3.3 (mặt trước 2×2 [5|4]/[8|1], sau [3|6]/[2|7], hàng trên xoay 180°).
-        f8_pos = {"front": {"5": [0, 0], "4": [0, 1], "8": [1, 0], "1": [1, 1]},
-                  "back": {"3": [0, 0], "6": [0, 1], "2": [1, 0], "7": [1, 1]}}
-        f8_rot = {"5": 180, "4": 180, "3": 180, "6": 180}
-        # F16 (3 gấp, 8 trang/mặt 4×2) — map hợp lý; FE preview đánh số theo vị trí.
-        f16_pos = {"front": {str(2 * i + 1): [i // 4, i % 4] for i in range(8)},
-                   "back": {str(2 * i + 2): [i // 4, i % 4] for i in range(8)}}
-        f16_rot = {str(k): 180 for k in range(1, 9)}
-        schemes = [
-            ("F4", 1, {"front": {"1": [0, 0], "4": [0, 1]}, "back": {"2": [0, 0], "3": [0, 1]}}, {}, "sheetwise"),
-            ("F8", 2, f8_pos, f8_rot, "sheetwise"),
-            ("F16", 3, f16_pos, f16_rot, "sheetwise"),
-            ("F32", 4, {}, {}, "sheetwise"),
-        ]
-        for code, folds, pos, rot, ws in schemes:
-            db.add(FoldingScheme(scheme_code=code, folds=folds, page_position_map=pos,
-                                 rotation_map=rot, work_style=ws))
-        db.commit()
-
-
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -1565,7 +1514,6 @@ def seed_all(db: Session) -> None:
         seed_sales_history(db)
         seed_plate_die_rates(db)
         seed_norms(db)
-        seed_quy_tac_binh_bai(db)
         from .seed_rebuild import seed_rebuild_catalog
         seed_rebuild_catalog(db)
         seed_document_sequences(db)

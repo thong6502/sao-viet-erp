@@ -325,6 +325,28 @@ giao hàng"). CHỖ NỐI Tính giá: phí giao hàng theo điểm giao sẽ đ�
 
 ---
 
+### `customer_tags`
+
+**Purpose:** nhãn phân loại do SALES GÁN TAY (khảo sát #7: khách lẻ / doanh nghiệp / đại
+lý / VIP… "rất cần để phân loại chăm sóc"). Nhãn tự do, một khách nhiều nhãn; service
+chặn trùng nhãn (case-insensitive) trong cùng khách. Chạy song song với tier tự động
+(nhãn = người nói, tier = dữ liệu nói). Gán/gỡ ghi audit vào Nhật ký khách.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id** (CASCADE), **IX** | no | — | Khách hàng mang nhãn. |
+| `label` | `String(50)` → `VARCHAR(50)` | **IX** | no | — | Nội dung nhãn (đã chuẩn hóa khoảng trắng). |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người gán. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm gán. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `ix_customer_tags_customer_id`, `ix_customer_tags_label` (lọc theo nhãn).
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE CASCADE), `created_by FK→users.id`.
+
+---
+
 ### `customer_care_events`
 
 **Purpose:** nhật ký chăm sóc khách (khảo sát #20/#27: ngày nào gọi/nhắn/email/gặp, trao
@@ -1943,99 +1965,12 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 ---
 
-### `quy_tac_binh_bai`
-
-**Purpose:** HEADER quy tắc bình bài (Imposition Rule) — danh tính; mọi cấu hình nằm ở `quy_tac_binh_bai_version`. Một row = một quy tắc tái dùng cho nhiều sản phẩm (spec `docs/spec-quy-tac-binh-bai.md` §3.1).
-
-| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `ma` | `String(30)` → `VARCHAR(30)` | **U**, **IX** | no | — | Mã nghiệp vụ viết hoa, bất biến sau tạo. |
-| `ten` | `String(150)` → `VARCHAR(150)` | — | no | — | Tên hiển thị. |
-| `mo_ta` | `Text` → `TEXT` | — | yes | — | Ghi chú cách dùng. |
-| `trang_thai` | `String(10)` → `VARCHAR(10)` | — | no | `active` | `active` \| `inactive` (ẩn khi gán; không xoá nếu đang tham chiếu). |
-| `created_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
-| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tạo (ON DELETE SET NULL). |
-| `updated_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Cập nhật khi sửa header. |
-
-**Keys & indexes**
-
-- Primary key: `id`. Unique index `ix_quy_tac_binh_bai_ma` on `ma`.
-
-**Relationships**
-
-- 1..n `quy_tac_binh_bai_version` (cascade delete). Được `product_type_catalog.imposition_rule_id` trỏ tới (khi build P6).
-
----
-
-### `quy_tac_binh_bai_version`
-
-**Purpose:** VERSION — toàn bộ cấu hình bình bài của một quy tắc; version-chain `is_current`. Sửa cấu hình = đẻ version mới (spec §3.2/§4). `unique(rule_id, version_no)`.
-
-| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `rule_id` | `Integer` → `INTEGER` | **FK→quy_tac_binh_bai.id**, **IX** | no | — | Header (ON DELETE CASCADE). |
-| `version_no` | `Integer` → `INTEGER` | **U** | no | — | 1,2,3… (unique với `rule_id`). |
-| `is_current` | `Boolean` → `BOOLEAN` | — | no | `true` | Đúng 1 dòng true mỗi rule. |
-| `ghi_chu_version` | `String(255)` → `VARCHAR(255)` | — | yes | — | Lý do đổi version. |
-| `layout_mode` | `String(20)` → `VARCHAR(20)` | — | no | `step_repeat` | `step_repeat`\|`signature`\|`nesting`. |
-| `side_margin_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `5` | Lề hông 2 bên tờ in. |
-| `tail_colorbar_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `8` | Dải thang màu đuôi tờ. |
-| `gutter_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `4` | Rãnh giữa 2 con. |
-| `allow_rotate` | `Boolean` → `BOOLEAN` | — | no | `true` | Xét con cả 2 hướng. |
-| `grain_constraint` | `String(20)` → `VARCHAR(20)` | — | no | `none` | `none`\|`canh_dai`\|`canh_ngan`\|`song_song_gay`. Grain ≠ none ⇒ khoá xoay 90°. |
-| `bleed_default_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `3` | Bleed mặc định nếu SP không khai. |
-| `allow_gang` | `Boolean` → `BOOLEAN` | — | no | `false` | (step_repeat) cho ghép nhiều job. |
-| `min_gutter_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `4` | (step_repeat) rãnh tối thiểu khi ghép. |
-| `pages_per_sig` | `Integer` → `INTEGER` | — | yes | — | (signature) 4/8/16/32; NULL = auto. |
-| `work_style` | `String(16)` → `VARCHAR(16)` | — | no | `sheetwise` | (signature) `sheetwise`\|`work_turn`. |
-| `matrix_allowance_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `5` | (nesting) chừa khung thải matrix. |
-| `min_pages` | `Integer` → `INTEGER` | — | yes | — | Guardrail cảnh báo trang tối thiểu. |
-| `max_pages` | `Integer` → `INTEGER` | — | yes | — | Guardrail cảnh báo/chặn trang tối đa. |
-| `min_spine_mm` | `Numeric(7,2)` → `NUMERIC` | — | yes | — | Guardrail gáy quá mỏng. |
-| `warn_on_grain_violation` | `Boolean` → `BOOLEAN` | — | no | `true` | Bật cảnh báo khi vi phạm thớ. |
-| `created_at` | `DateTime(tz)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo version. |
-| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tạo version (ON DELETE SET NULL). |
-
-**Keys & indexes**
-
-- Primary key: `id`. Unique constraint `uq_qtbb_rule_version` on (`rule_id`, `version_no`). Index on `rule_id`.
-
-**Relationships**
-
-- Nhiều version thuộc một `quy_tac_binh_bai`.
-
----
-
-### `folding_scheme`
-
-**Purpose:** Sơ đồ gấp tay sách (§3.3) — cấp dữ liệu cho preview mode signature. Một row = một sơ đồ gấp (F4/F8/F16/F32) cho một kiểu trở.
-
-| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `scheme_code` | `String(8)` → `VARCHAR(8)` | **U** | no | — | `F4`\|`F8`\|`F16`\|`F32`. |
-| `folds` | `Integer` → `INTEGER` | — | no | — | Số lần gấp (F16=3). |
-| `page_position_map` | `JSON` → `JSON` / `JSONB` | — | yes | — | Ánh xạ trang → vị trí ô mỗi mặt. |
-| `rotation_map` | `JSON` → `JSON` / `JSONB` | — | yes | — | Góc xoay từng trang (0/180). |
-| `work_style` | `String(16)` → `VARCHAR(16)` | **U** | no | `sheetwise` | Sơ đồ áp cho kiểu trở nào. |
-
-**Keys & indexes**
-
-- Primary key: `id`. Unique constraint `uq_folding_scheme_code_style` on (`scheme_code`, `work_style`).
-
-**Relationships**
-
-- Reference data độc lập (tra cứu bởi engine/preview mode signature).
-
----
-
 ## Pipeline in-ấn (rebuild) — master data mới
 
-> 4 module master mới (strangler, song song bảng cũ) nuôi engine bình bài + tính giá:
+> 4 module master mới (strangler, song song bảng cũ) — danh mục cấu hình sản xuất:
 > `may_thiet_bi` · `giay_nguyen`/`muc`/`ban_kem` (vật liệu Kho) · `cong_doan` · `loai_san_pham`.
-> Specs: `docs/spec-may-thiet-bi.md`, `spec-cong-doan.md`, `spec-san-pham.md`, `spec-tinh-gia.md`.
+> Specs: `docs/spec-may-thiet-bi.md`, `spec-cong-doan.md`, `spec-san-pham.md`.
+> (Quy tắc bình bài + Tính giá thành đã bỏ — xem git tag `backup/pre-remove-binhbai-tinhgia`.)
 
 ### `may_thiet_bi`
 

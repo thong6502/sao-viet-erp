@@ -49,18 +49,6 @@ export const giay = crud("/api/vat-lieu-kho/giay");
 export const muc = crud("/api/vat-lieu-kho/muc");
 export const banKem = crud("/api/vat-lieu-kho/ban-kem");
 
-// Tính giá preview — resolve danh mục + costing_engine → breakdown.
-export interface TinhGiaResult {
-  gia_von: number; gia_thanh: number; gia_net: number; vat: number; vat_rate: number;
-  gia_ban: number; don_gia_ban: number; moq_applied: boolean;
-  loai_san_pham?: string | null; may?: string;
-  components: Array<Record<string, unknown>>;
-  chi_phi_khac: number;
-}
-export function tinhGiaPreview(token: string, body: Record<string, unknown>): Promise<TinhGiaResult> {
-  return authed<TinhGiaResult>("/api/tinh-gia/preview", token, { method: "POST", body: JSON.stringify(body) });
-}
-
 // BHR preview cho Máy.
 export function mayBhr(token: string, id: number): Promise<{
   gio_tinh_phi: number | null; breakdown: Record<string, number>; BHR: number; don_gia_ban_gio: number;

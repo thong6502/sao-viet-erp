@@ -793,6 +793,24 @@ def _migrate_customer_crm_fields(db: Session) -> None:
     db.commit()
 
 
+def _migrate_drop_quy_tac_binh_bai(db: Session) -> None:
+    """Bỏ HẲN module Quy tắc bình bài + Tính giá thành: drop 3 bảng
+    `quy_tac_binh_bai_version` (FK → header) → `quy_tac_binh_bai` → `folding_scheme`.
+    Best-effort mỗi câu (commit riêng, rollback nếu lỗi). No-op trên DB fresh (bảng không còn
+    trong create_all vì model đã xóa). Cột `loai_san_pham.imposition_rule_id` giữ nguyên như
+    số nguyên vô hại (không còn ai resolve)."""
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    run("DROP TABLE IF EXISTS quy_tac_binh_bai_version")
+    run("DROP TABLE IF EXISTS quy_tac_binh_bai")
+    run("DROP TABLE IF EXISTS folding_scheme")
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -813,6 +831,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0018_product_type_waste_pct", _migrate_product_type_waste_pct),
     ("0019_drop_paper_sizes", _migrate_drop_paper_sizes),
     ("0020_customer_crm_fields", _migrate_customer_crm_fields),
+    ("0021_drop_quy_tac_binh_bai", _migrate_drop_quy_tac_binh_bai),
 ]
 
 
