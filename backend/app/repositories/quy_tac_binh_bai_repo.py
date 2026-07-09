@@ -13,7 +13,7 @@ from ..models.quy_tac_binh_bai import QuyTacBinhBai, QuyTacBinhBaiVersion
 VERSION_FIELDS = (
     "layout_mode", "side_margin_mm", "tail_colorbar_mm", "gutter_mm", "allow_rotate",
     "grain_constraint", "bleed_default_mm", "allow_gang", "min_gutter_mm", "pages_per_sig",
-    "work_style", "nest_method", "matrix_allowance_mm", "lanes", "gap_around_mm",
+    "work_style", "matrix_allowance_mm",
     "min_pages", "max_pages", "min_spine_mm", "warn_on_grain_violation",
 )
 

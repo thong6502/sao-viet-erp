@@ -22,8 +22,8 @@ def _db():
 
 def test_preview_name_card_end_to_end():
     db = _db()
-    sp = db.execute(select(LoaiSanPham).where(LoaiSanPham.ma == "NAMECARD")).scalars().first()
-    may = db.execute(select(MayThietBi).where(MayThietBi.ma == "OFF-74-4C")).scalars().first()
+    sp = db.execute(select(LoaiSanPham).where(LoaiSanPham.ma == "LSP-0001")).scalars().first()
+    may = db.execute(select(MayThietBi).where(MayThietBi.ma == "TB-0001")).scalars().first()
     giay = db.execute(select(GiayNguyen).where(GiayNguyen.ma == "COUCHE-300-65x86")).scalars().first()
     assert sp and may and giay
 
@@ -50,8 +50,8 @@ def test_preview_name_card_end_to_end():
 def test_preview_vat_defaults_to_product():
     # Bỏ trống vat_rate (None) → lấy theo Loại SP (NAMECARD = 8%), KHÔNG rơi về 0.
     db = _db()
-    sp = db.execute(select(LoaiSanPham).where(LoaiSanPham.ma == "NAMECARD")).scalars().first()
-    may = db.execute(select(MayThietBi).where(MayThietBi.ma == "OFF-74-4C")).scalars().first()
+    sp = db.execute(select(LoaiSanPham).where(LoaiSanPham.ma == "LSP-0001")).scalars().first()
+    may = db.execute(select(MayThietBi).where(MayThietBi.ma == "TB-0001")).scalars().first()
     giay = db.execute(select(GiayNguyen).where(GiayNguyen.ma == "COUCHE-300-65x86")).scalars().first()
     out = TinhGiaService(db).preview({
         "loai_san_pham_id": sp.id, "may_id": may.id, "giay_id": giay.id,

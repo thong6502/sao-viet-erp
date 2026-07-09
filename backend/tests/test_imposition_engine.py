@@ -69,40 +69,31 @@ def test_step_repeat_efit0():
     assert any(w.code == "E-FIT-0" and w.severity == "error" for w in lo.warnings)
 
 
-def test_grain_warning_when_rotated_wins():
-    # con hẹp-dài để hướng xoay thắng, có ràng buộc thớ → W-GRAIN
-    rule = E.RuleVersion(layout_mode="step_repeat", side_margin_mm=5, tail_colorbar_mm=8,
-                         gutter_mm=4, allow_rotate=True, bleed_default_mm=0,
-                         grain_constraint="canh_dai", warn_on_grain_violation=True)
+def test_grain_locks_orientation():
+    # C1: con dài, xoay 90° cho nhiều con hơn — nhưng ràng buộc thớ ⇒ CẤM xoay ⇒ giữ hướng gốc (ít hơn).
+    base = dict(layout_mode="step_repeat", side_margin_mm=0, tail_colorbar_mm=0,
+                gutter_mm=4, bleed_default_mm=0)
     machine = E.Machine(gripper_mm=0)
-    product = E.Product(rong_tp=300, dai_tp=50)  # thắng khi xoay trên tờ vuông-ish
-    lo = E.layout_step_repeat(400, 400, rule, machine, product)
-    if lo.rotated:
-        assert any(w.code == "W-GRAIN" for w in lo.warnings)
+    product = E.Product(rong_tp=250, dai_tp=40)
+    free = E.layout_step_repeat(600, 300, E.RuleVersion(allow_rotate=True, grain_constraint="none", **base),
+                                machine, product)
+    locked = E.layout_step_repeat(600, 300, E.RuleVersion(allow_rotate=True, grain_constraint="canh_dai", **base),
+                                  machine, product)
+    assert free.rotated and free.don_vi == 13    # tự do xoay → 13
+    assert not locked.rotated and locked.don_vi == 12   # thớ khoá hướng → 12
 
 
 # ---------- §5.3 nesting ----------
 def test_nesting_golden_12():
     """§5.3: blank 250×180, tờ in 720×1020, grid, matrix 5 → 12 blank."""
     rule = E.RuleVersion(layout_mode="nesting", side_margin_mm=0, tail_colorbar_mm=0,
-                         matrix_allowance_mm=5, allow_rotate=True, nest_method="grid")
+                         matrix_allowance_mm=5, allow_rotate=True)
     machine = E.Machine(gripper_mm=0)
     product = E.Product(blank_w=250, blank_h=180)
     # tờ in 1020×720 (rong=1020, dai=720) để usable = full sheet
     lo = E.layout_nesting(1020, 720, rule, machine, product)
     assert lo.don_vi == 12
     assert 0.25 < lo.hao_pct < 0.27       # ~26%
-
-
-def test_nesting_true_shape_ge_grid():
-    rule = E.RuleVersion(layout_mode="nesting", side_margin_mm=0, tail_colorbar_mm=0,
-                         matrix_allowance_mm=5, allow_rotate=True)
-    machine = E.Machine(gripper_mm=0)
-    product = E.Product(blank_w=250, blank_h=180)
-    grid = E.layout_nesting(1020, 720, rule, machine, product).don_vi
-    rule.nest_method = "true_shape"
-    ts = E.layout_nesting(1020, 720, rule, machine, product).don_vi
-    assert ts >= grid
 
 
 def test_nesting_missing_blank():
@@ -151,22 +142,6 @@ def test_signature_pages_max_warns():
 def test_signature_missing_pages():
     rule = E.RuleVersion(layout_mode="signature", pages_per_sig=8)
     lo = E.layout_signature(650, 900, rule, E.Machine(), E.Product(rong_tp=148, dai_tp=210), so_mau=4)
-    assert any(w.code == "E-MODE-REQ" for w in lo.warnings)
-
-
-# ---------- §5.4 repeat_around ----------
-def test_repeat_around_formula():
-    rule = E.RuleVersion(layout_mode="repeat_around", gap_around_mm=3, lanes=None, bleed_default_mm=0)
-    machine = E.Machine(teeth=100, pitch_mm=3.175)   # repeat_length = 317.5mm
-    product = E.Product(rong_tp=40, dai_tp=60)        # tem 40×60
-    lo = E.layout_repeat_around(rule, machine, product, web_width_mm=250)
-    # around = ⌊317.5/(60+3)⌋ = 5 ; lanes = ⌊250/(40+3)⌋ = 5 → 25 tem/vòng
-    assert lo.don_vi == 25
-
-
-def test_repeat_around_missing_truc():
-    rule = E.RuleVersion(layout_mode="repeat_around")
-    lo = E.layout_repeat_around(rule, E.Machine(), E.Product(rong_tp=40, dai_tp=60), 250)
     assert any(w.code == "E-MODE-REQ" for w in lo.warnings)
 
 

@@ -32,7 +32,7 @@ STRUCT_LAYOUT_MATRIX = {
     "flat": ("step_repeat", "nesting"),
     "multipage": ("signature",),
     "box": ("nesting", "step_repeat"),
-    "label": ("step_repeat", "repeat_around"),
+    "label": ("step_repeat",),
 }
 
 

@@ -32,7 +32,7 @@ def _f(v, d: float = 0.0) -> float:
 _RULE_FIELDS = (
     "layout_mode", "side_margin_mm", "tail_colorbar_mm", "gutter_mm", "allow_rotate",
     "grain_constraint", "bleed_default_mm", "allow_gang", "min_gutter_mm", "pages_per_sig",
-    "work_style", "nest_method", "matrix_allowance_mm", "lanes", "gap_around_mm",
+    "work_style", "matrix_allowance_mm",
     "min_pages", "max_pages", "min_spine_mm", "warn_on_grain_violation",
 )
 
@@ -57,11 +57,11 @@ class TinhGiaService:
             if val is None:
                 continue
             # số → float; bool/str giữ nguyên
-            if f in ("layout_mode", "grain_constraint", "work_style", "nest_method"):
+            if f in ("layout_mode", "grain_constraint", "work_style"):
                 kw[f] = val
             elif f in ("allow_rotate", "allow_gang", "warn_on_grain_violation"):
                 kw[f] = bool(val)
-            elif f in ("pages_per_sig", "lanes", "min_pages", "max_pages"):
+            elif f in ("pages_per_sig", "min_pages", "max_pages"):
                 kw[f] = int(val)
             else:
                 kw[f] = _f(val)

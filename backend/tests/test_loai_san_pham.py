@@ -54,11 +54,11 @@ def test_validate_box_cover_vat():
 
 
 def test_layout_compat_matrix():
-    # §5.1: flat ~ step_repeat/nesting ; multipage ~ signature ; box ~ nesting/step_repeat ; label ~ step/repeat_around
+    # §5.1: flat ~ step_repeat/nesting ; multipage ~ signature ; box ~ nesting/step_repeat ; label ~ step_repeat
     assert is_layout_compatible("flat", "step_repeat")
     assert is_layout_compatible("multipage", "signature")
     assert not is_layout_compatible("multipage", "step_repeat")
-    assert is_layout_compatible("label", "repeat_around")
+    assert is_layout_compatible("label", "step_repeat")
     assert not is_layout_compatible("flat", "signature")
 
 

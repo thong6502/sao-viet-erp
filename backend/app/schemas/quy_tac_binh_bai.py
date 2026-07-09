@@ -23,11 +23,7 @@ class VersionConfig(BaseModel):
     pages_per_sig: int | None = None
     work_style: str = "sheetwise"
     # nesting
-    nest_method: str = "grid"
     matrix_allowance_mm: float = 5
-    # repeat_around (None = auto)
-    lanes: int | None = None
-    gap_around_mm: float = 3
     # guardrails
     min_pages: int | None = None
     max_pages: int | None = None
@@ -112,9 +108,6 @@ class TestBench(BaseModel):
     max_h: float = 0
     min_w: float = 0
     min_h: float = 0
-    teeth: int | None = None
-    pitch_mm: float | None = None
-    dia_mm: float | None = None
     # số lượng + màu
     so_luong: int = 0
     so_mau_truoc: int = 4

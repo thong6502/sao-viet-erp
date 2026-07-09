@@ -22,27 +22,27 @@ def seed_rebuild_catalog(db: Session) -> None:
     # --- Máy (spec-may-thiet-bi §7) ---
     if _empty(db, MayThietBi):
         db.add_all([
-            MayThietBi(ma="OFF-74-4C", ten="Offset 4 màu khổ 74", loai_may="press_offset_sheet",
+            MayThietBi(ma="TB-0001", ten="Offset 4 màu khổ 74", loai_may="press_offset_sheet",
                        trang_thai="active", khoa_class="74", kho_max_dai=740, kho_max_rong=530,
                        kho_min_dai=280, kho_min_rong=210, gripper_mm=12, so_units=4,
                        von_dau_tu=4_000_000_000, gia_tri_thu_hoi=400_000_000, nam_khau_hao=8,
                        lai_von_pct=10, gio_lam_nam=2000, availability_pct=90, productivity_pct=83,
                        so_nhan_cong=2, luong_gio=60000, cong_suat_kW=80, don_gia_dien=3000,
                        toc_do=13000, don_vi_toc_do="to_gio", markup_pct=15),
-            MayThietBi(ma="OFF-102-5C", ten="Offset 5 màu khổ 102 (perfector)", loai_may="press_offset_sheet",
+            MayThietBi(ma="TB-0002", ten="Offset 5 màu khổ 102 (perfector)", loai_may="press_offset_sheet",
                        trang_thai="active", khoa_class="102", kho_max_dai=1020, kho_max_rong=720,
                        kho_min_dai=350, kho_min_rong=250, gripper_mm=12, so_units=5, toc_do=15000,
                        don_vi_toc_do="to_gio", von_dau_tu=9_000_000_000, nam_khau_hao=8),
-            MayThietBi(ma="DIG-SRA3", ten="Kỹ thuật số SRA3 (toner)", loai_may="press_digital",
+            MayThietBi(ma="TB-0003", ten="Kỹ thuật số SRA3 (toner)", loai_may="press_digital",
                        trang_thai="active", kho_max_dai=487, kho_max_rong=330, toc_do=4000,
                        don_vi_toc_do="to_gio"),
-            MayThietBi(ma="CTP-B1", ten="Ghi kẽm CTP khổ B1", loai_may="prepress_ctp",
+            MayThietBi(ma="TB-0004", ten="Ghi kẽm CTP khổ B1", loai_may="prepress_ctp",
                        trang_thai="active", toc_do=20, don_vi_toc_do="to_gio"),
-            MayThietBi(ma="XEN-115", ten="Máy xén 1150", loai_may="finishing",
+            MayThietBi(ma="TB-0005", ten="Máy xén 1150", loai_may="finishing",
                        finishing_subtype="guillotine", trang_thai="active"),
-            MayThietBi(ma="CAN-BONG", ten="Máy cán màng bóng", loai_may="finishing",
+            MayThietBi(ma="TB-0006", ten="Máy cán màng bóng", loai_may="finishing",
                        finishing_subtype="laminator", trang_thai="active"),
-            MayThietBi(ma="GC-CANMANG", ten="Gia công cán màng (thuê ngoài)", loai_may="thue_ngoai",
+            MayThietBi(ma="TB-0007", ten="Gia công cán màng (thuê ngoài)", loai_may="thue_ngoai",
                        trang_thai="active"),
         ])
         db.commit()
@@ -80,22 +80,22 @@ def seed_rebuild_catalog(db: Session) -> None:
     if _empty(db, CongDoan):
         may = {m.ma: m.id for m in db.execute(select(MayThietBi)).scalars()}
         db.add_all([
-            CongDoan(ma="GHI-KEM", ten="Ghi kẽm CTP", nhom="prepress", may_id=may.get("CTP-B1"),
+            CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", may_id=may.get("TB-0004"),
                      che_do_tinh="theo_gio", setup_time=10),
-            CongDoan(ma="IN", ten="In offset", nhom="print", may_id=may.get("OFF-74-4C"),
+            CongDoan(ma="CD-0002", ten="In offset", nhom="print", may_id=may.get("TB-0001"),
                      che_do_tinh="theo_san_luong", pricing_basis="per_1000_luot", run_rate=8000,
                      first_unit_floor=350000, requires_tooling=True, tooling_type="kem"),
-            CongDoan(ma="XEN", ten="Cắt xén", nhom="finishing", may_id=may.get("XEN-115"),
+            CongDoan(ma="CD-0003", ten="Cắt xén", nhom="finishing", may_id=may.get("TB-0005"),
                      che_do_tinh="theo_san_luong", pricing_basis="per_ram", run_rate=60000, min_charge=60000),
-            CongDoan(ma="CAN-BONG", ten="Cán màng bóng", nhom="finishing", may_id=may.get("CAN-BONG"),
+            CongDoan(ma="CD-0004", ten="Cán màng bóng", nhom="finishing", may_id=may.get("TB-0006"),
                      che_do_tinh="theo_san_luong", pricing_basis="per_m2", run_rate=2200, min_charge=110000),
-            CongDoan(ma="BE", ten="Bế", nhom="finishing", che_do_tinh="theo_san_luong",
+            CongDoan(ma="CD-0005", ten="Bế", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_pass", run_rate=180, requires_tooling=True, tooling_type="khuon_be"),
-            CongDoan(ma="EP-KIM", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
+            CongDoan(ma="CD-0006", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_pass", run_rate=400, requires_tooling=True, tooling_type="khuon_ep"),
-            CongDoan(ma="DONG-KEO", ten="Đóng keo (vào bìa)", nhom="finishing",
+            CongDoan(ma="CD-0007", ten="Đóng keo (vào bìa)", nhom="finishing",
                      che_do_tinh="theo_san_luong", pricing_basis="per_book", run_rate=180),
-            CongDoan(ma="SO-NHAY", ten="Đánh số nhảy", nhom="finishing", che_do_tinh="theo_san_luong",
+            CongDoan(ma="CD-0008", ten="Đánh số nhảy", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_number", run_rate=10),
         ])
         db.commit()
@@ -103,22 +103,22 @@ def seed_rebuild_catalog(db: Session) -> None:
     # --- Loại sản phẩm (spec-san-pham §7) ---
     if _empty(db, LoaiSanPham):
         cd = {c.ma: c.id for c in db.execute(select(CongDoan)).scalars()}
-        rt_flat = [cd.get("GHI-KEM"), cd.get("IN"), cd.get("BE"), cd.get("XEN")]
-        rt_book = [cd.get("GHI-KEM"), cd.get("IN"), cd.get("CAN-BONG"), cd.get("DONG-KEO"), cd.get("XEN")]
+        rt_flat = [cd.get("CD-0001"), cd.get("CD-0002"), cd.get("CD-0005"), cd.get("CD-0003")]
+        rt_book = [cd.get("CD-0001"), cd.get("CD-0002"), cd.get("CD-0004"), cd.get("CD-0007"), cd.get("CD-0003")]
         db.add_all([
-            LoaiSanPham(ma="NAMECARD", ten="Name card", structural_type="flat", default_so_mat=2,
+            LoaiSanPham(ma="LSP-0001", ten="Name card", structural_type="flat", default_so_mat=2,
                         vat_rate=8, routing_template=[x for x in rt_flat if x]),
-            LoaiSanPham(ma="TORPHOI", ten="Tờ phơi / brochure gấp", structural_type="flat",
+            LoaiSanPham(ma="LSP-0002", ten="Tờ phơi / brochure gấp", structural_type="flat",
                         default_so_mat=2, vat_rate=8),
-            LoaiSanPham(ma="CATALOGUE", ten="Catalogue đóng keo", structural_type="multipage",
+            LoaiSanPham(ma="LSP-0003", ten="Catalogue đóng keo", structural_type="multipage",
                         has_cover=True, cover_type="bia_roi", default_binding="keo", vat_rate=5,
                         routing_template=[x for x in rt_book if x]),
-            LoaiSanPham(ma="SACH-GHIM", ten="Sách đóng ghim", structural_type="multipage",
+            LoaiSanPham(ma="LSP-0004", ten="Sách đóng ghim", structural_type="multipage",
                         has_cover=True, cover_type="tu_bia", default_binding="ghim", vat_rate=5),
-            LoaiSanPham(ma="HOP-IVORY", ten="Hộp giấy Ivory", structural_type="box",
+            LoaiSanPham(ma="LSP-0005", ten="Hộp giấy Ivory", structural_type="box",
                         box_sub_type="folding_carton", vat_rate=8),
-            LoaiSanPham(ma="THUNG-SONG", ten="Thùng carton sóng", structural_type="box",
+            LoaiSanPham(ma="LSP-0006", ten="Thùng carton sóng", structural_type="box",
                         box_sub_type="corrugated", vat_rate=8),
-            LoaiSanPham(ma="TEM-DECAL", ten="Tem decal cuộn", structural_type="label", vat_rate=8),
+            LoaiSanPham(ma="LSP-0007", ten="Tem decal cuộn", structural_type="label", vat_rate=8),
         ])
         db.commit()

@@ -333,7 +333,7 @@ class PricingEngine:
                         so_kem_override = _res.so_kem
                         add_warning("info", "IMPOSITION_RULE",
                                     f"Áp quy tắc bình bài: {_res.don_vi_per_to_in} con/tờ · {_res.so_kem} kẽm.")
-                    elif _mode in ("signature", "repeat_around"):
+                    elif _mode == "signature":
                         add_warning("info", "IMPOSITION_MODE_PENDING",
                                     f"Bình bài kiểu {_mode} chưa nối đủ vào tính giá — tạm dùng số con hình học.")
             except Exception:

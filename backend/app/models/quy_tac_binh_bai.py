@@ -30,11 +30,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db import Base
 
 # Enum values (khớp engine imposition_engine)
-LAYOUT_MODES = ("step_repeat", "signature", "nesting", "repeat_around")
+LAYOUT_MODES = ("step_repeat", "signature", "nesting")
 TRANG_THAI = ("active", "inactive")
-GRAIN_CONSTRAINTS = ("none", "canh_dai", "song_song_gay", "theo_song")
+GRAIN_CONSTRAINTS = ("none", "canh_dai", "canh_ngan", "song_song_gay")
 WORK_STYLES = ("sheetwise", "work_turn")
-NEST_METHODS = ("grid", "true_shape")
 SCHEME_CODES = ("F4", "F8", "F16", "F32")
 
 
@@ -104,17 +103,12 @@ class QuyTacBinhBaiVersion(Base):
     allow_gang: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_false(), default=False)
     min_gutter_mm: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, server_default="4", default=4)
 
-    # --- B. signature --- (pages_per_sig/lanes NULL = auto)
+    # --- B. signature --- (pages_per_sig NULL = auto)
     pages_per_sig: Mapped[int | None] = mapped_column(Integer, nullable=True)
     work_style: Mapped[str] = mapped_column(String(16), nullable=False, server_default="sheetwise", default="sheetwise")
 
     # --- C. nesting ---
-    nest_method: Mapped[str] = mapped_column(String(16), nullable=False, server_default="grid", default="grid")
     matrix_allowance_mm: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, server_default="5", default=5)
-
-    # --- D. repeat_around ---
-    lanes: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    gap_around_mm: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, server_default="3", default=3)
 
     # --- Guardrails ---
     min_pages: Mapped[int | None] = mapped_column(Integer, nullable=True)

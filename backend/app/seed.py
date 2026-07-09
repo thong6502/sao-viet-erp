@@ -1494,16 +1494,14 @@ def seed_quy_tac_binh_bai(db: Session) -> None:
     if db.execute(select(QuyTacBinhBai)).first() is None:
         # (ma, ten, layout_mode, config-override dict)
         rules = [
-            ("PHANG-NUP", "Ấn phẩm phẳng n-up", "step_repeat",
+            ("BB-0001", "Ấn phẩm phẳng n-up", "step_repeat",
              dict(allow_gang=True, gutter_mm=4, side_margin_mm=5, tail_colorbar_mm=8)),
-            ("SACH-KEO-16", "Sách đóng keo tay 16", "signature",
+            ("BB-0002", "Sách đóng keo tay 16", "signature",
              dict(pages_per_sig=16, work_style="sheetwise", grain_constraint="song_song_gay", min_pages=40)),
-            ("SACH-GHIM-8", "Sách đóng ghim tay 8", "signature",
+            ("BB-0003", "Sách đóng ghim tay 8", "signature",
              dict(pages_per_sig=8, work_style="sheetwise", max_pages=64)),
-            ("HOP-BE", "Hộp giấy dàn khuôn", "nesting",
-             dict(nest_method="grid", matrix_allowance_mm=5, grain_constraint="theo_song")),
-            ("TEM-CUON", "Tem nhãn cuộn", "repeat_around",
-             dict(gap_around_mm=3, lanes=None)),
+            ("BB-0004", "Hộp giấy dàn khuôn", "nesting",
+             dict(matrix_allowance_mm=5)),
         ]
         for ma, ten, mode, cfg in rules:
             header = QuyTacBinhBai(ma=ma, ten=ten, trang_thai="active")

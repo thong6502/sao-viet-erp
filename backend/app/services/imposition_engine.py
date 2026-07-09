@@ -19,10 +19,9 @@ from math import ceil, floor
 from typing import Optional
 
 # --- Enums (khớp cột model version) ---------------------------------------
-LAYOUT_MODES = ("step_repeat", "signature", "nesting", "repeat_around")
-GRAIN_CONSTRAINTS = ("none", "canh_dai", "song_song_gay", "theo_song")
+LAYOUT_MODES = ("step_repeat", "signature", "nesting")
+GRAIN_CONSTRAINTS = ("none", "canh_dai", "canh_ngan", "song_song_gay")
 WORK_STYLES = ("sheetwise", "work_turn")
-NEST_METHODS = ("grid", "true_shape")
 # binding (đến từ Sản phẩm) — quyết cách xếp tay + creep
 BINDINGS = ("saddle", "perfect", "sewn")
 
@@ -46,11 +45,7 @@ class RuleVersion:
     pages_per_sig: Optional[int] = None  # None = auto
     work_style: str = "sheetwise"
     # C. nesting
-    nest_method: str = "grid"
     matrix_allowance_mm: float = 5.0
-    # D. repeat_around
-    lanes: Optional[int] = None  # None = auto
-    gap_around_mm: float = 3.0
     # Guardrails
     min_pages: Optional[int] = None
     max_pages: Optional[int] = None
@@ -66,10 +61,6 @@ class Machine:
     max_h: float = 0.0
     min_w: float = 0.0
     min_h: float = 0.0
-    # Trục (repeat_around)
-    teeth: Optional[int] = None
-    pitch_mm: Optional[float] = None
-    dia_mm: Optional[float] = None
 
 
 @dataclass
@@ -188,6 +179,12 @@ def _bleed(rule: RuleVersion, product: Product) -> float:
     return product.bleed_mm if product.bleed_mm is not None else rule.bleed_default_mm
 
 
+def _rotate_allowed(rule: RuleVersion) -> bool:
+    """Ràng buộc thớ (≠ none) ⇒ KHOÁ hướng đặt, không xoay 90° (grain thật, C1).
+    Con phải nằm đúng chiều thớ → nếu chiều đó ít con hơn thì số con tụt thật."""
+    return rule.allow_rotate and rule.grain_constraint == "none"
+
+
 # --- Xả giấy: tờ nguyên → các khổ tờ in ứng viên --------------------------
 def derive_print_sheets(raw: RawSheet, machine: Machine, max_div: int = 8) -> list[PrintSheet]:
     """Liệt kê ứng viên khổ tờ in bằng cách xả tờ nguyên thành lưới nx×ny tờ bằng nhau,
@@ -233,11 +230,9 @@ def layout_step_repeat(psheet_w: float, psheet_h: float, rule: RuleVersion,
     cell_h = product.dai_tp + 2 * bleed
     Wu, Lu = usable_area(psheet_w, psheet_h, machine.gripper_mm,
                          rule.side_margin_mm, rule.tail_colorbar_mm)
-    count, rotated = fit_count(Wu, Lu, cell_w, cell_h, rule.gutter_mm, rule.allow_rotate)
+    count, rotated = fit_count(Wu, Lu, cell_w, cell_h, rule.gutter_mm, _rotate_allowed(rule))
     if count <= 0:
         warns.append(Warning("E-FIT-0", "Con lớn hơn vùng in được — không xếp được con nào.", "error"))
-    if (rule.grain_constraint != "none" and rule.warn_on_grain_violation and rotated):
-        warns.append(Warning("W-GRAIN", "Hướng đặt (xoay 90°) có thể vi phạm ràng buộc thớ giấy.", "warning"))
     hao = waste_pct(count, cell_w * cell_h, psheet_w * psheet_h)
     return _LayoutOut(don_vi=count, hao_pct=hao, rotated=rotated, warnings=warns)
 
@@ -255,12 +250,9 @@ def layout_nesting(psheet_w: float, psheet_h: float, rule: RuleVersion,
     matrix = rule.matrix_allowance_mm
     # Nesting: floor(Wu/(blank+matrix)) — KHÔNG cộng matrix vào tử (khác step_repeat). 2 hướng.
     n0 = (_nest_1d(Wu, bw, matrix) * _nest_1d(Lu, bh, matrix))
-    n90 = (_nest_1d(Wu, bh, matrix) * _nest_1d(Lu, bw, matrix)) if rule.allow_rotate else 0
+    n90 = (_nest_1d(Wu, bh, matrix) * _nest_1d(Lu, bw, matrix)) if _rotate_allowed(rule) else 0
     rotated = n90 > n0
     blanks = max(n0, n90)
-    if rule.nest_method == "true_shape" and blanks > 0:
-        # true_shape nest so le/xoay: tiết kiệm hơn grid ~ +8% (xấp xỉ; nest thật cần solver).
-        blanks = int(blanks * 1.08)
     if blanks <= 0:
         warns.append(Warning("E-FIT-0", "Blank lớn hơn vùng in được — không xếp được blank nào.", "error"))
     hao = waste_pct(blanks, bw * bh, psheet_w * psheet_h)
@@ -272,40 +264,6 @@ def _nest_1d(usable: float, blank: float, matrix: float) -> int:
     if usable <= 0 or denom <= 0:
         return 0
     return max(0, int(floor(usable / denom)))
-
-
-def layout_repeat_around(rule: RuleVersion, machine: Machine, product: Product,
-                         web_width_mm: float) -> _LayoutOut:
-    """§5.4 — lặp theo trục (tem nhãn cuộn, flexo). Cần trục máy (teeth×pitch)."""
-    warns: list[Warning] = []
-    if not machine.teeth or not machine.pitch_mm:
-        warns.append(Warning("E-MODE-REQ", "Thiếu thông số trục (số răng × bước răng) của máy in cuộn.", "error"))
-        return _LayoutOut(don_vi=0, hao_pct=0.0, warnings=warns)
-    if product.rong_tp <= 0 or product.dai_tp <= 0:
-        warns.append(Warning("E-MODE-REQ", "Thiếu kích thước tem.", "error"))
-        return _LayoutOut(don_vi=0, hao_pct=0.0, warnings=warns)
-    bleed = _bleed(rule, product)
-    tem_w = product.rong_tp + 2 * bleed
-    tem_h = product.dai_tp + 2 * bleed
-    repeat_length = machine.teeth * machine.pitch_mm
-    around = _floor_gap(repeat_length, tem_h, rule.gap_around_mm)
-    if rule.lanes is not None:
-        lanes = rule.lanes
-    else:
-        lanes = _floor_gap(web_width_mm, tem_w, rule.gap_around_mm)
-    per_vong = lanes * around
-    if per_vong <= 0:
-        warns.append(Warning("E-FIT-0", "Tem không vừa chu vi trục / khổ cuộn.", "error"))
-    hao = waste_pct(per_vong, tem_w * tem_h, web_width_mm * repeat_length)
-    return _LayoutOut(don_vi=per_vong, hao_pct=hao, warnings=warns)
-
-
-def _floor_gap(span: float, size: float, gap: float) -> int:
-    """⌊span/(size+gap)⌋ — dùng cho repeat_around (khoảng cách gap giữa tem)."""
-    denom = size + gap
-    if span <= 0 or denom <= 0:
-        return 0
-    return max(0, int(floor(span / denom)))
 
 
 def layout_signature(psheet_w: float, psheet_h: float, rule: RuleVersion,
@@ -374,7 +332,7 @@ def _auto_pages_per_sig(psheet_w: float, psheet_h: float, rule: RuleVersion,
     Wu, Lu = usable_area(psheet_w, psheet_h, machine.gripper_mm,
                          rule.side_margin_mm, rule.tail_colorbar_mm)
     for pps in (32, 16, 8, 4):
-        fit, _ = fit_count(Wu, Lu, page_w, page_h, rule.gutter_mm, rule.allow_rotate)
+        fit, _ = fit_count(Wu, Lu, page_w, page_h, rule.gutter_mm, _rotate_allowed(rule))
         if fit >= pps // 2:
             return pps
     return 0
@@ -386,7 +344,7 @@ def compute_so_kem(layout_mode: str, so_mau_truoc: int, so_mau_sau: int,
     """Số kẽm rule emit (TỔNG — thay cả biểu thức pricing).
 
     - signature: số_tay × số_màu × (sheetwise?2:1). work_turn dùng chung 1 bộ kẽm cả 2 mặt.
-    - phẳng (step_repeat/nesting/repeat_around): 1 bộ kẽm mỗi mặt in → màu_trước + màu_sau.
+    - phẳng (step_repeat/nesting): 1 bộ kẽm mỗi mặt in → màu_trước + màu_sau.
     """
     if layout_mode == "signature" and so_tay:
         mau = max(int(so_mau_truoc or 0), int(so_mau_sau or 0))
@@ -473,8 +431,5 @@ def _run_layout(ps: PrintSheet, rule: RuleVersion, machine: Machine, product: Pr
         return layout_nesting(ps.rong, ps.dai, rule, machine, product)
     if mode == "signature":
         return layout_signature(ps.rong, ps.dai, rule, machine, product, so_mau, so_luong)
-    if mode == "repeat_around":
-        # Với tem cuộn, "tờ in" = khổ cuộn; web_width = chiều rộng cuộn (rong tờ in).
-        return layout_repeat_around(rule, machine, product, ps.rong)
     return _LayoutOut(don_vi=0, hao_pct=0.0,
                       warnings=[Warning("E-MODE-REQ", f"layout_mode không hợp lệ: {mode}", "error")])

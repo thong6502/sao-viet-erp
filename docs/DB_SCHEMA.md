@@ -1850,21 +1850,18 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 | `version_no` | `Integer` → `INTEGER` | **U** | no | — | 1,2,3… (unique với `rule_id`). |
 | `is_current` | `Boolean` → `BOOLEAN` | — | no | `true` | Đúng 1 dòng true mỗi rule. |
 | `ghi_chu_version` | `String(255)` → `VARCHAR(255)` | — | yes | — | Lý do đổi version. |
-| `layout_mode` | `String(20)` → `VARCHAR(20)` | — | no | `step_repeat` | `step_repeat`\|`signature`\|`nesting`\|`repeat_around`. |
+| `layout_mode` | `String(20)` → `VARCHAR(20)` | — | no | `step_repeat` | `step_repeat`\|`signature`\|`nesting`. |
 | `side_margin_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `5` | Lề hông 2 bên tờ in. |
 | `tail_colorbar_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `8` | Dải thang màu đuôi tờ. |
 | `gutter_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `4` | Rãnh giữa 2 con. |
 | `allow_rotate` | `Boolean` → `BOOLEAN` | — | no | `true` | Xét con cả 2 hướng. |
-| `grain_constraint` | `String(20)` → `VARCHAR(20)` | — | no | `none` | `none`\|`canh_dai`\|`song_song_gay`\|`theo_song`. |
+| `grain_constraint` | `String(20)` → `VARCHAR(20)` | — | no | `none` | `none`\|`canh_dai`\|`canh_ngan`\|`song_song_gay`. Grain ≠ none ⇒ khoá xoay 90°. |
 | `bleed_default_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `3` | Bleed mặc định nếu SP không khai. |
 | `allow_gang` | `Boolean` → `BOOLEAN` | — | no | `false` | (step_repeat) cho ghép nhiều job. |
 | `min_gutter_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `4` | (step_repeat) rãnh tối thiểu khi ghép. |
 | `pages_per_sig` | `Integer` → `INTEGER` | — | yes | — | (signature) 4/8/16/32; NULL = auto. |
 | `work_style` | `String(16)` → `VARCHAR(16)` | — | no | `sheetwise` | (signature) `sheetwise`\|`work_turn`. |
-| `nest_method` | `String(16)` → `VARCHAR(16)` | — | no | `grid` | (nesting) `grid`\|`true_shape`. |
 | `matrix_allowance_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `5` | (nesting) chừa khung thải matrix. |
-| `lanes` | `Integer` → `INTEGER` | — | yes | — | (repeat_around) số làn; NULL = auto. |
-| `gap_around_mm` | `Numeric(7,2)` → `NUMERIC` | — | no | `3` | (repeat_around) gap giữa tem. |
 | `min_pages` | `Integer` → `INTEGER` | — | yes | — | Guardrail cảnh báo trang tối thiểu. |
 | `max_pages` | `Integer` → `INTEGER` | — | yes | — | Guardrail cảnh báo/chặn trang tối đa. |
 | `min_spine_mm` | `Numeric(7,2)` → `NUMERIC` | — | yes | — | Guardrail gáy quá mỏng. |

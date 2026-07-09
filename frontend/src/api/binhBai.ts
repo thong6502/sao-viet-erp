@@ -3,11 +3,10 @@
 import { authed } from "./client";
 
 // --- Types (mirror backend schemas/quy_tac_binh_bai.py) --------------------
-export type LayoutMode = "step_repeat" | "signature" | "nesting" | "repeat_around";
+export type LayoutMode = "step_repeat" | "signature" | "nesting";
 export type TrangThai = "active" | "inactive";
-export type GrainConstraint = "none" | "canh_dai" | "song_song_gay" | "theo_song";
+export type GrainConstraint = "none" | "canh_dai" | "canh_ngan" | "song_song_gay";
 export type WorkStyle = "sheetwise" | "work_turn";
-export type NestMethod = "grid" | "true_shape";
 
 export interface VersionConfig {
   layout_mode: LayoutMode;
@@ -21,10 +20,7 @@ export interface VersionConfig {
   min_gutter_mm: number;
   pages_per_sig: number | null;
   work_style: WorkStyle;
-  nest_method: NestMethod;
   matrix_allowance_mm: number;
-  lanes: number | null;
-  gap_around_mm: number;
   min_pages: number | null;
   max_pages: number | null;
   min_spine_mm: number | null;
@@ -83,9 +79,6 @@ export interface TestBench {
   max_h: number;
   min_w: number;
   min_h: number;
-  teeth: number | null;
-  pitch_mm: number | null;
-  dia_mm: number | null;
   so_luong: number;
   so_mau_truoc: number;
   so_mau_sau: number;
@@ -133,10 +126,7 @@ export const DEFAULT_CONFIG: VersionConfig = {
   min_gutter_mm: 4,
   pages_per_sig: null,
   work_style: "sheetwise",
-  nest_method: "grid",
   matrix_allowance_mm: 5,
-  lanes: null,
-  gap_around_mm: 3,
   min_pages: null,
   max_pages: null,
   min_spine_mm: null,
@@ -147,7 +137,7 @@ export const DEFAULT_BENCH: TestBench = {
   rong_tp: 90, dai_tp: 53, bleed_mm: 2, so_trang: null, binding: null, cover_separate: false,
   blank_w: null, blank_h: null, caliper_mm: null,
   rong_ng: 430, dai_ng: 650, gsm: 150, gia_kg: 30000, tho: "none",
-  gripper_mm: 12, max_w: 0, max_h: 0, min_w: 0, min_h: 0, teeth: null, pitch_mm: null, dia_mm: null,
+  gripper_mm: 12, max_w: 0, max_h: 0, min_w: 0, min_h: 0,
   so_luong: 10000, so_mau_truoc: 4, so_mau_sau: 4,
 };
 

@@ -7,7 +7,6 @@ from __future__ import annotations
 from ..models.quy_tac_binh_bai import (
     GRAIN_CONSTRAINTS,
     LAYOUT_MODES,
-    NEST_METHODS,
     TRANG_THAI,
     WORK_STYLES,
 )
@@ -16,7 +15,7 @@ from ..repositories.quy_tac_binh_bai_repo import QuyTacBinhBaiRepository
 from . import imposition_engine as E
 
 _NON_NEG = ("side_margin_mm", "tail_colorbar_mm", "gutter_mm", "bleed_default_mm",
-           "min_gutter_mm", "matrix_allowance_mm", "gap_around_mm")
+           "min_gutter_mm", "matrix_allowance_mm")
 
 
 class QuyTacBinhBaiError(Exception):
@@ -57,8 +56,6 @@ class QuyTacBinhBaiService:
             raise ValidationError("Ràng buộc thớ không hợp lệ.")
         if cfg.get("work_style", "sheetwise") not in WORK_STYLES:
             raise ValidationError("Kiểu trở (work_style) không hợp lệ.")
-        if cfg.get("nest_method", "grid") not in NEST_METHODS:
-            raise ValidationError("Phương pháp dàn khuôn không hợp lệ.")
         pps = cfg.get("pages_per_sig")
         if pps is not None and int(pps) not in (4, 8, 16, 32):
             raise ValidationError("Trang mỗi tay phải là 4/8/16/32 (hoặc để trống = auto).")
@@ -141,8 +138,6 @@ class QuyTacBinhBaiService:
         machine = E.Machine(
             gripper_mm=_f(bench.get("gripper_mm"), 12), max_w=_f(bench.get("max_w")),
             max_h=_f(bench.get("max_h")), min_w=_f(bench.get("min_w")), min_h=_f(bench.get("min_h")),
-            teeth=_i_opt(bench.get("teeth")), pitch_mm=_f_opt(bench.get("pitch_mm")),
-            dia_mm=_f_opt(bench.get("dia_mm")),
         )
         product = E.Product(
             rong_tp=_f(bench.get("rong_tp")), dai_tp=_f(bench.get("dai_tp")),

@@ -120,7 +120,6 @@ export function BinhBaiPreview({ config, bench, preview, error }: Props) {
 function unitLabel(mode: string): string {
   if (mode === "signature") return "tay";
   if (mode === "nesting") return "blank";
-  if (mode === "repeat_around") return "tem";
   return "con";
 }
 
@@ -168,11 +167,6 @@ function buildModel(config: VersionConfig, bench: TestBench, preview: PreviewOut
     if (bw > 0 && bh > 0) {
       placeGrid(cells, ux, uy, uw, uh, bw, bh, config.matrix_allowance_mm, scale, true, "");
     }
-  } else if (config.layout_mode === "repeat_around") {
-    // Trục trải phẳng: lanes (ngang) × around (dọc). Ước lượng để VẼ.
-    const temW = (bench.rong_tp + 2 * bleed), temH = (bench.dai_tp + 2 * bleed);
-    placeGrid(cells, ux, uy, uw, uh, temW, temH, config.gap_around_mm, scale, false, "tem");
-    kind = "repeat_around";
   } else if (config.layout_mode === "signature") {
     // 1 mặt tờ in: pps/2 trang, đánh số + đường gấp.
     const pps = preview?.danh_sach_tay?.[0]?.pages_per_sig ?? config.pages_per_sig ?? 8;

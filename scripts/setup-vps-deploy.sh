@@ -85,6 +85,11 @@ fi
 c_info "Chuẩn bị $SSH_DIR ..."
 mkdir -p "$SSH_DIR"
 touch "$SSH_DIR/authorized_keys" "$SSH_DIR/config"
+# QUAN TRỌNG: các bước keygen (mục 4/5) chạy BẰNG user deploy (sudo -u),
+# nhưng .ssh vừa tạo bằng ROOT → deploy không ghi được key => "Permission denied".
+# Phải chown về deploy NGAY ĐÂY (trước keygen), không chờ tới mục 6.
+chown -R "$DEPLOY_USER:$DEPLOY_USER" "/home/${DEPLOY_USER}"
+chmod 700 "$SSH_DIR"
 
 gen_key() {  # $1 = path , $2 = comment  → tạo nếu chưa có, hỏi khi đã tồn tại
   local path="$1" comment="$2"
