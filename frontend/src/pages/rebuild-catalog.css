@@ -115,4 +115,28 @@
 .rc__table td { font-variant-numeric: tabular-nums; }
 /* Section header: chữ hoa xám gọn, KHÔNG gạch màu (bỏ đen theo yêu cầu). */
 
+/* --- Routing picker (ref-multi): chọn công đoạn có thứ tự, không gõ id --- */
+.rc-rt { display: flex; flex-direction: column; gap: 6px; }
+.rc-rt__empty { font-size: 12.5px; color: var(--ash); padding: 4px 2px; }
+.rc-rt__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rc-rt__item {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: var(--r-3);
+}
+.rc-rt__idx {
+  display: inline-grid; place-items: center; width: 20px; height: 20px; flex: none;
+  background: var(--rule); color: var(--ash); border-radius: 999px;
+  font-size: 11px; font-weight: var(--fw-bold); font-variant-numeric: tabular-nums;
+}
+.rc-rt__name { flex: 1; min-width: 0; font-size: 13.5px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rc-rt__ops { display: inline-flex; gap: 2px; flex: none; }
+.rc-rt__ops button {
+  background: none; border: none; cursor: pointer; color: var(--ash);
+  font-size: 12px; line-height: 1; padding: 3px 5px; border-radius: var(--r-2);
+}
+.rc-rt__ops button:hover:not(:disabled) { background: var(--rule); color: var(--ink); }
+.rc-rt__ops button:disabled { opacity: .3; cursor: default; }
+.rc-rt__del:hover:not(:disabled) { color: var(--signal, #c0392b) !important; background: transparent !important; }
+.rc-rt__add { margin-top: 2px; }
+
 @media (max-width: 640px) { .rc-grid { grid-template-columns: 1fr; } }
