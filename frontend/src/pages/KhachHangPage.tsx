@@ -34,6 +34,27 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Select } from "../components/Select";
+import {
+  AlarmClock,
+  CalendarClock,
+  Download,
+  FileText,
+  Gauge,
+  HeartHandshake,
+  History,
+  Mail,
+  MapPin,
+  MessageCircle,
+  Package,
+  Paperclip,
+  PencilLine,
+  Phone,
+  ReceiptText,
+  Search,
+  ShoppingBag,
+  Tags,
+  Users,
+} from "lucide-react";
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
 
@@ -588,7 +609,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             onClick={() => setFollowupsOpen((v) => !v)}
             aria-expanded={followupsOpen}
           >
-            <span aria-hidden="true">⏰</span>
+            <span aria-hidden="true" className="kh__followups-ic"><AlarmClock size={15} /></span>
             <strong>Cần chăm sóc: {followups.length} việc đến hạn / quá hạn</strong>
             <span className="kh__muted">
               {followups.filter((f) => f.remind_level >= 3).length > 0
@@ -622,7 +643,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
         {/* Enter để tìm (mockup không có nút Tìm riêng — đỡ một control). */}
         <form className="kh__search" onSubmit={onSearch} role="search">
           <div className="kh__search-input-wrap">
-            <span className="kh__search-icon" aria-hidden="true">🔍</span>
+            <span className="kh__search-icon" aria-hidden="true"><Search size={14} /></span>
             <input
               className="input kh__search-input"
               placeholder="Tìm theo tên / MST / điện thoại…  ↵"
@@ -677,7 +698,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
               }}
               options={[
                 { value: "", label: "Tất cả nhãn" },
-                ...tagLabels.map((t) => ({ value: t, label: `🏷 ${t}` })),
+                ...tagLabels.map((t) => ({ value: t, label: t })),
               ]}
             />
           </div>
@@ -734,7 +755,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             setPage(1);
           }}
         >
-          ⏰ Cần theo dõi <span className="kh__sub-tab-count">{followups.length}</span>
+          <AlarmClock size={13} /> Cần theo dõi <span className="kh__sub-tab-count">{followups.length}</span>
         </button>
       </div>
 
@@ -1330,20 +1351,21 @@ function CustomerObjectPage({
               onEdit={() => onEdit(customer)}
               navigate={navigate}
               onClose={onClose}
+              onSchedule={() => setTab("care")}
             />
             <nav className="kh__so-tabs" aria-label="Nội dung">
               {(
                 [
-                  ["dashboard", "Dashboard"],
-                  ["orders", `Lịch sử mua hàng (${dash.orders_12m})`],
-                  ["quotes", "Lịch sử báo giá"],
-                  ["care", "Chăm sóc"],
-                  ["contacts", "Liên hệ"],
-                  ["addresses", "Giao hàng"],
-                  ["files", "Tài liệu"],
-                  ["audit", "Nhật ký"],
-                ] as [Tab, string][]
-              ).map(([key, label]) => (
+                  ["dashboard", "Dashboard", <Gauge size={14} key="i" />, null],
+                  ["orders", "Lịch sử mua hàng", <ReceiptText size={14} key="i" />, dash.orders_total],
+                  ["quotes", "Lịch sử báo giá", <FileText size={14} key="i" />, dash.quotes_total],
+                  ["care", "Chăm sóc", <HeartHandshake size={14} key="i" />, null],
+                  ["contacts", "Liên hệ", <Users size={14} key="i" />, null],
+                  ["addresses", "Giao hàng", <MapPin size={14} key="i" />, null],
+                  ["files", "Tài liệu", <Paperclip size={14} key="i" />, null],
+                  ["audit", "Nhật ký", <History size={14} key="i" />, null],
+                ] as [Tab, string, JSX.Element, number | null][]
+              ).map(([key, label, icon, count]) => (
                 <button
                   key={key}
                   type="button"
@@ -1351,7 +1373,8 @@ function CustomerObjectPage({
                   aria-current={tab === key ? "true" : undefined}
                   onClick={() => setTab(key)}
                 >
-                  {label}
+                  {icon} {label}
+                  {count != null && count > 0 && <span className="chip-count">{count}</span>}
                 </button>
               ))}
             </nav>
@@ -1405,12 +1428,14 @@ function ObjectHeader({
   onEdit,
   navigate,
   onClose,
+  onSchedule,
 }: {
   customer: CustomerRow;
   dash: CustomerDashboard;
   onEdit: () => void;
   navigate: NavigateFn;
   onClose: () => void;
+  onSchedule: () => void;
 }) {
   // const canDebt = useCan()("khach_hang", "view_debt");
   // const rec = dash.receivable;
@@ -1432,10 +1457,8 @@ function ObjectHeader({
           </span>
           <h2>{customer.name}</h2>
           <div className="kh__so-badges">
-            {customer.tier === "loyal" && <span className="kh__badge-tag kh__badge-tag--loyal">Đối tác lâu năm</span>}
-            {mockAR.creditScore >= 80 && <span className="kh__badge-tag kh__badge-tag--success">Trả đúng hạn</span>}
-            {/* Nhãn thủ công (#7) — sales gán/gỡ tay ngay tại đây. */}
-            <TagEditor customerId={customer.id} />
+            {/* Nhãn thủ công (#7) — sales gán/gỡ trong modal Gắn thẻ. */}
+            <TagChips customerId={customer.id} />
             <button type="button" className="kh__btn-tag" onClick={onEdit}>Sửa</button>
           </div>
         </div>
@@ -1454,42 +1477,50 @@ function ObjectHeader({
       </div>
 
       <div className="kh__toolbar-actions" role="toolbar" aria-label="Hành động">
-        <a className={`btn btn--call${tel ? "" : " is-disabled"}`} href={tel} aria-disabled={!tel}>
-          📞 Gọi
+        <a className={`btn btn--accent${tel ? "" : " is-disabled"}`} href={tel} aria-disabled={!tel}>
+          <Phone size={15} strokeWidth={2} /> Gọi
         </a>
-        <a className={`btn btn--email${mail ? "" : " is-disabled"}`} href={mail} aria-disabled={!mail}>
-          ✉ Email
+        <a className={`btn kh__btn-dark${mail ? "" : " is-disabled"}`} href={mail} aria-disabled={!mail}>
+          <Mail size={15} strokeWidth={2} /> Email
         </a>
         <a
-          className={`btn btn--zalo${zalo ? "" : " is-disabled"}`}
+          className={`btn kh__btn-dark${zalo ? "" : " is-disabled"}`}
           href={zalo}
           target="_blank"
           rel="noreferrer"
           aria-disabled={!zalo}
         >
-          💬 Zalo
+          <MessageCircle size={15} strokeWidth={2} /> Zalo
         </a>
         <button
           type="button"
-          className="btn btn--secondary"
+          className="btn kh__btn-dark"
           title={`Mở màn Báo giá và ghim khách ${customer.name} (${customer.code})`}
           onClick={() => {
             onClose();
             navigate("bao-gia", { customer: pinOf(customer) });
           }}
         >
-          📄 Tạo báo giá
+          <FileText size={15} strokeWidth={2} /> Tạo báo giá
         </button>
         <button
           type="button"
-          className="btn btn--secondary"
+          className="btn kh__btn-dark"
           title={`Mở màn Đơn hàng bán và ghim khách ${customer.name} (${customer.code})`}
           onClick={() => {
             onClose();
             navigate("don-hang-ban", { customer: pinOf(customer) });
           }}
         >
-          🛍️ Tạo đơn hàng
+          <ShoppingBag size={15} strokeWidth={2} /> Tạo đơn hàng
+        </button>
+        <button
+          type="button"
+          className="btn kh__btn-dark"
+          title="Mở tab Chăm sóc để tạo lịch hẹn follow-up"
+          onClick={onSchedule}
+        >
+          <CalendarClock size={15} strokeWidth={2} /> Lịch hẹn
         </button>
       </div>
     </header>
@@ -1901,7 +1932,7 @@ function OrdersTab({
         </div>
         {canExport && (
           <Button variant="secondary" onClick={exportCsv} loading={exporting}>
-            📥 Xuất Excel
+            <Download size={15} /> Xuất Excel
           </Button>
         )}
       </div>
@@ -2121,11 +2152,11 @@ function fmtDateTime(iso: string): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("vi-VN");
 }
 
-const AUDIT_KIND_META: Record<CustomerAuditRow["kind"], { icon: string; label: string; cls: string }> = {
-  profile: { icon: "✎", label: "Hồ sơ", cls: "kh__tl--profile" },
-  order: { icon: "📦", label: "Đơn hàng", cls: "kh__tl--order" },
-  quote: { icon: "🧮", label: "Báo giá", cls: "kh__tl--quote" },
-  care: { icon: "🤝", label: "Chăm sóc", cls: "kh__tl--care" },
+const AUDIT_KIND_META: Record<CustomerAuditRow["kind"], { icon: JSX.Element; label: string; cls: string }> = {
+  profile: { icon: <PencilLine size={13} />, label: "Hồ sơ", cls: "kh__tl--profile" },
+  order: { icon: <Package size={13} />, label: "Đơn hàng", cls: "kh__tl--order" },
+  quote: { icon: <FileText size={13} />, label: "Báo giá", cls: "kh__tl--quote" },
+  care: { icon: <HeartHandshake size={13} />, label: "Chăm sóc", cls: "kh__tl--care" },
 };
 
 function AuditTab({
@@ -2207,14 +2238,25 @@ function AuditTab({
 
 // --- Nhãn thủ công (#7: sales gán tay để phân loại chăm sóc) --------------------
 
-function TagEditor({ customerId }: { customerId: number }) {
+// Kho thẻ gợi ý mặc định (mockup) — hợp nhất với các nhãn đã dùng trong scope.
+const DEFAULT_TAG_PRESETS = [
+  "Tiềm năng", "Ưu tiên", "Đối tác lâu năm", "Trả đúng hạn", "Hay trễ hẹn",
+  "Khó tính", "Nhạy giá", "Ưa giao nhanh", "Cần chăm sóc", "Tái ký HĐ",
+];
+const TAG_TONES = ["rust", "plum", "moss", "amber"] as const;
+/** Màu thẻ ổn định theo nội dung nhãn (hash) — cùng nhãn luôn cùng màu ở mọi nơi. */
+function tagTone(label: string): (typeof TAG_TONES)[number] {
+  let h = 0;
+  for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return TAG_TONES[h % TAG_TONES.length];
+}
+
+/** Chips nhãn trên header hồ sơ + nút mở modal Gắn thẻ (mockup: toggle preset, Lưu một lần). */
+function TagChips({ customerId }: { customerId: number }) {
   const { token } = useAuth();
   const canUpdate = useCan()("khach_hang", "update");
   const [tags, setTags] = useState<{ id: number; label: string }[]>([]);
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -2223,86 +2265,194 @@ function TagEditor({ customerId }: { customerId: number }) {
       .tags(token, customerId)
       .then((r) => !cancelled && setTags(r.items))
       .catch(() => !cancelled && setTags([]));
-    api.customers
-      .tagLabels(token)
-      .then((r) => !cancelled && setSuggestions(r))
-      .catch(() => !cancelled && setSuggestions([]));
     return () => {
       cancelled = true;
     };
   }, [token, customerId]);
 
-  async function add() {
-    const label = draft.trim();
-    if (!token || busy || !label) return;
+  return (
+    <>
+      {tags.map((t) => (
+        <span key={t.id} className={`kh__tagchip kh__tagchip--${tagTone(t.label)}`}>
+          {t.label}
+        </span>
+      ))}
+      {canUpdate && (
+        <button type="button" className="kh__btn-tag" onClick={() => setOpen(true)}>
+          <Tags size={13} /> Gắn thẻ
+        </button>
+      )}
+      {open && (
+        <TagModal
+          customerId={customerId}
+          current={tags}
+          onClose={() => setOpen(false)}
+          onSaved={(next) => {
+            setTags(next);
+            setOpen(false);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+/** Modal "Gắn thẻ" (mockup): pill toggle chọn/bỏ, tạo thẻ mới rồi Enter, Lưu MỘT lần
+ *  (diff gán/gỡ so với hiện tại — không lưu từng click). */
+function TagModal({
+  customerId,
+  current,
+  onClose,
+  onSaved,
+}: {
+  customerId: number;
+  current: { id: number; label: string }[];
+  onClose: () => void;
+  onSaved: (next: { id: number; label: string }[]) => void;
+}) {
+  const { token } = useAuth();
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [customs, setCustoms] = useState<string[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(current.map((t) => t.label)),
+  );
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    api.customers.tagLabels(token).then(setSuggestions).catch(() => setSuggestions([]));
+  }, [token]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Kho pill: preset mặc định ∪ nhãn đã dùng trong scope ∪ nhãn đang gắn ∪ nhãn vừa tạo.
+  const all = useMemo(() => {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const l of [
+      ...DEFAULT_TAG_PRESETS,
+      ...suggestions,
+      ...current.map((t) => t.label),
+      ...customs,
+    ]) {
+      const key = l.toLowerCase();
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push(l);
+      }
+    }
+    return out;
+  }, [suggestions, current, customs]);
+
+  function toggle(label: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }
+
+  function onDraftEnter() {
+    const label = draft.trim().replace(/\s+/g, " ");
+    if (!label) return;
+    if (label.length > 50) {
+      setError("Nhãn tối đa 50 ký tự.");
+      return;
+    }
+    setError(null);
+    // Trùng (case-insensitive) nhãn đã có trong kho → chỉ chọn nhãn đó, không tạo đúp.
+    const existing = all.find((l) => l.toLowerCase() === label.toLowerCase());
+    if (!existing) setCustoms((prev) => [...prev, label]);
+    setSelected((prev) => new Set(prev).add(existing ?? label));
+    setDraft("");
+  }
+
+  async function save() {
+    if (!token || busy) return;
     setBusy(true);
+    setError(null);
     try {
-      const tag = await api.customers.addTag(token, customerId, label);
-      setTags((prev) => (prev.some((t) => t.id === tag.id) ? prev : [...prev, tag]));
-      setDraft("");
-      setAdding(false);
-    } catch {
-      /* nhãn lỗi (quá dài…) — giữ input để sửa */
-    } finally {
+      const currentByLower = new Map(current.map((t) => [t.label.toLowerCase(), t]));
+      const selectedLower = new Set([...selected].map((l) => l.toLowerCase()));
+      // Diff: gỡ nhãn bỏ chọn trước, rồi gán nhãn mới — backend dedup nên an toàn.
+      for (const t of current) {
+        if (!selectedLower.has(t.label.toLowerCase())) {
+          await api.customers.deleteTag(token, customerId, t.id);
+        }
+      }
+      for (const label of selected) {
+        if (!currentByLower.has(label.toLowerCase())) {
+          await api.customers.addTag(token, customerId, label);
+        }
+      }
+      const fresh = await api.customers.tags(token, customerId);
+      onSaved(fresh.items);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Lưu thẻ không thành công.");
       setBusy(false);
     }
   }
 
-  async function remove(tagId: number) {
-    if (!token) return;
-    try {
-      await api.customers.deleteTag(token, customerId, tagId);
-      setTags((prev) => prev.filter((t) => t.id !== tagId));
-    } catch {
-      /* ignore */
-    }
-  }
-
   return (
-    <>
-      {tags.map((t) => (
-        <span key={t.id} className="kh__badge-tag kh__badge-tag--manual">
-          🏷 {t.label}
-          {canUpdate && (
-            <button
-              type="button"
-              className="kh__tag-x"
-              aria-label={`Gỡ nhãn ${t.label}`}
-              onClick={() => remove(t.id)}
-            >
-              ×
-            </button>
-          )}
-        </span>
-      ))}
-      {canUpdate &&
-        (adding ? (
-          <span className="kh__tag-add">
-            <input
-              className="input kh__tag-input"
-              value={draft}
-              autoFocus
-              list={`kh-tag-suggest-${customerId}`}
-              placeholder="Nhãn mới…"
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") add();
-                if (e.key === "Escape") setAdding(false);
-              }}
-              onBlur={() => (draft.trim() ? add() : setAdding(false))}
-            />
-            <datalist id={`kh-tag-suggest-${customerId}`}>
-              {suggestions.map((sug) => (
-                <option key={sug} value={sug} />
-              ))}
-            </datalist>
-          </span>
-        ) : (
-          <button type="button" className="kh__btn-tag" onClick={() => setAdding(true)}>
-            + Gắn nhãn
+    <div className="kh__overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="kh__dialog card kh__tagmodal" role="dialog" aria-modal="true" aria-label="Gắn thẻ khách hàng">
+        <div className="kh__dialog-head">
+          <h2>Gắn thẻ</h2>
+          <button type="button" className="kh__close" aria-label="Đóng" onClick={onClose}>
+            ✕
           </button>
-        ))}
-    </>
+        </div>
+        <div className="kh__dialog-body">
+          <div className="kh__tagrow">
+            {all.map((label) => {
+              const on = [...selected].some((l) => l.toLowerCase() === label.toLowerCase());
+              return (
+                <button
+                  key={label}
+                  type="button"
+                  className={`kh__tagpill${on ? ` is-on kh__tagpill--${tagTone(label)}` : ""}`}
+                  aria-pressed={on}
+                  onClick={() => toggle(label)}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <input
+            className="input"
+            placeholder="Tạo thẻ mới rồi Enter…"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onDraftEnter();
+              }
+            }}
+          />
+          <p className="kh__muted kh__tagmodal-hint">
+            Bấm để chọn / bỏ chọn. Thẻ giúp lọc &amp; nhận diện nhanh nhóm khách.
+          </p>
+          {error && <div className="banner banner--error" role="alert">{error}</div>}
+          <div className="kh__dialog-actions">
+            <Button variant="ghost" onClick={onClose}>
+              Huỷ
+            </Button>
+            <Button variant="primary" onClick={save} loading={busy}>
+              Lưu thẻ
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

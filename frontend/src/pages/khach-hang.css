@@ -648,33 +648,10 @@
   gap: var(--sp-2);
   align-items: center;
 }
-/* Gọi, Email, Zalo styled individually */
-.kh__toolbar-actions .btn:nth-child(1) { /* Gọi */
-  background: #eaf6ec;
-  color: #2e7d32;
-  border-color: #c8e6c9;
-}
-.kh__toolbar-actions .btn:nth-child(1):hover:not(.is-disabled) {
-  background: #c8e6c9;
-  color: #1b5e20;
-}
-.kh__toolbar-actions .btn:nth-child(2) { /* Email */
-  background: #fbfaf5;
-  color: var(--ash);
-  border-color: var(--rule);
-}
-.kh__toolbar-actions .btn:nth-child(2):hover:not(.is-disabled) {
-  background: var(--rule-soft);
-  color: var(--ink);
-}
-.kh__toolbar-actions .btn:nth-child(3) { /* Zalo */
-  background: #e3f2fd;
-  color: #0d47a1;
-  border-color: #bbdefb;
-}
-.kh__toolbar-actions .btn:nth-child(3):hover:not(.is-disabled) {
-  background: #bbdefb;
-  color: #0a3d8c;
+/* Nút hành động (mockup): Gọi = rust đặc, còn lại nút tối .kh__btn-dark — bỏ hết
+   nền màu mè theo nth-child cũ. Anchor trong toolbar không gạch chân/không màu link. */
+.kh__toolbar-actions a.btn {
+  text-decoration: none;
 }
 .kh__toolbar-actions .btn--accent {
   background: var(--rust);
@@ -2050,4 +2027,112 @@
 .kh__chart-head {
   flex-wrap: wrap;
   row-gap: 4px;
+}
+
+/* --- Header tối: nút hành động + chips thẻ + modal Gắn thẻ (mockup) --- */
+.kh__btn-dark {
+  background: var(--charcoal-2);
+  color: var(--on-charcoal);
+  border-color: #3a362f;
+}
+.kh__btn-dark:hover:not(:disabled) {
+  background: #33302a;
+  border-color: #4a453c;
+}
+.kh__btn-dark.is-disabled,
+.kh__btn-dark[aria-disabled="true"] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.kh__toolbar-actions .btn svg,
+.kh__btn-tag svg {
+  flex: 0 0 auto;
+}
+
+/* Chip thẻ trên header (nền tối) — màu đặc theo tone hash của nhãn. */
+.kh__tagchip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  border-radius: var(--r-2);
+  padding: 3px 10px;
+  white-space: nowrap;
+  color: var(--on-charcoal);
+}
+.kh__tagchip--rust { background: var(--rust); }
+.kh__tagchip--plum { background: var(--plum); }
+.kh__tagchip--moss { background: var(--moss); }
+.kh__tagchip--amber { background: var(--amber); }
+
+/* Pill trong modal Gắn thẻ: outline → bật màu đặc khi chọn. */
+.kh__tagrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.kh__tagpill {
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background-color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard),
+    color var(--duration-base) var(--easing-standard);
+}
+.kh__tagpill:hover {
+  border-color: var(--ash);
+}
+.kh__tagpill:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.kh__tagpill.is-on {
+  color: var(--on-charcoal);
+  font-weight: var(--fw-medium);
+}
+.kh__tagpill--rust.is-on, .kh__tagpill.is-on.kh__tagpill--rust { background: var(--rust); border-color: var(--rust); }
+.kh__tagpill.is-on.kh__tagpill--plum { background: var(--plum); border-color: var(--plum); }
+.kh__tagpill.is-on.kh__tagpill--moss { background: var(--moss); border-color: var(--moss); }
+.kh__tagpill.is-on.kh__tagpill--amber { background: var(--amber); border-color: var(--amber); }
+.kh__tagmodal {
+  max-width: 640px;
+}
+.kh__tagmodal-hint {
+  margin: var(--sp-2) 0 0;
+  font-size: 12px;
+}
+
+/* Tab hồ sơ: icon + label + chip đếm thẳng hàng. */
+.kh__so-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.kh__so-tab svg {
+  flex: 0 0 auto;
+  opacity: 0.75;
+}
+.kh__so-tab.is-active svg {
+  opacity: 1;
+}
+
+/* Icon panel Cần chăm sóc. */
+.kh__followups-ic {
+  display: inline-flex;
+  color: var(--rust);
+}
+.kh__sub-tab svg {
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+/* Modal render bên trong header tối → phải reset lại màu chữ ink. */
+.kh__tagmodal,
+.kh__tagmodal .kh__dialog-head h2 {
+  color: var(--ink);
 }
