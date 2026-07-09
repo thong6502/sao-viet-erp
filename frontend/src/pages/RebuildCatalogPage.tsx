@@ -174,7 +174,7 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
       </div>
 
       {editing && (
-        <CatalogDrawer config={config} existing={editing === "new" ? null : editing}
+        <CatalogDrawer config={config} existing={editing === "new" ? null : editing} allRows={rows}
           onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       )}
     </main>
@@ -192,6 +192,29 @@ function parseLabelAndSuffix(label: string): { cleanLabel: string; suffix: strin
     return { cleanLabel: label.replace(percentMatch[0], "").trim(), suffix: "%" };
   }
   return { cleanLabel: label, suffix: null };
+}
+
+// ── UTILITY: SUGGEST NEXT SEQUENTIAL CODE ─────────────────────────────────────────
+function suggestNextCode(prefix: string, rows: Row[]): string {
+  let codePrefix = "MA-";
+  if (prefix.includes("loai-san-pham")) codePrefix = "LSP-";
+  else if (prefix.includes("may-thiet-bi")) codePrefix = "TB-";
+  else if (prefix.includes("cong-doan")) codePrefix = "CD-";
+  else if (prefix.includes("giay")) codePrefix = "GL-";
+  else if (prefix.includes("muc")) codePrefix = "MUC-";
+  else if (prefix.includes("ban-kem")) codePrefix = "KEM-";
+  else if (prefix.includes("quy-tac-binh-bai")) codePrefix = "BB-";
+
+  const numRegex = new RegExp(`^${codePrefix}(\\d+)$`);
+  let maxNum = 0;
+  for (const r of rows) {
+    const m = String(r.ma).trim().toUpperCase().match(numRegex);
+    if (m) {
+      const val = parseInt(m[1], 10);
+      if (val > maxNum) maxNum = val;
+    }
+  }
+  return `${codePrefix}${String(maxNum + 1).padStart(4, "0")}`;
 }
 
 // ── INLINE SVG ICONS ─────────────────────────────────────────────────────────────
@@ -233,14 +256,17 @@ const TrashIcon = () => (
 );
 
 // ── DRAWER COMPONENT ─────────────────────────────────────────────────────────────
-function CatalogDrawer({ config, existing, onClose, onSaved }: {
-  config: CatalogConfig; existing: Row | null; onClose: () => void; onSaved: () => void;
+function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
+  config: CatalogConfig; existing: Row | null; allRows: Row[]; onClose: () => void; onSaved: () => void;
 }) {
   const { token } = useAuth();
   const api = useMemo(() => crud(config.prefix), [config.prefix]);
   const isEdit = existing != null;
   const [form, setForm] = useState<Record<string, unknown>>(() => {
-    const init: Record<string, unknown> = { ma: existing?.ma ?? "", ten: existing?.ten ?? "" };
+    const init: Record<string, unknown> = {
+      ma: existing?.ma ?? suggestNextCode(config.prefix, allRows),
+      ten: existing?.ten ?? ""
+    };
     for (const f of config.fields) {
       if (f.type === "ref-multi") {
         const ev = existing?.[f.key];
@@ -287,20 +313,28 @@ function CatalogDrawer({ config, existing, onClose, onSaved }: {
     return order.map((g) => ({ name: g, fields: map.get(g)! }));
   }, [visibleFields]);
 
-  // Quản lý Tab hoạt động trong Form Drawer
+  // Quản lý Tab hoạt động trong Form Drawer (chỉ chia tab khi danh mục phức tạp > 12 fields)
+  const useTabs = config.fields.length > 12;
   const [activeTab, setActiveTab] = useState<string>("");
   useEffect(() => {
-    if (groups.length > 0) {
+    if (useTabs && groups.length > 0) {
       const names = groups.map((g) => g.name);
       if (!names.includes(activeTab)) {
         setActiveTab(names[0]);
       }
     }
-  }, [groups, activeTab]);
+  }, [groups, activeTab, useTabs]);
+
+  // Kiểm tra trùng mã (Live validation)
+  const typedMa = String(form.ma ?? "").trim().toUpperCase();
+  const isMaDuplicate = useMemo(() => {
+    if (isEdit || !typedMa) return false;
+    return allRows.some((r) => String(r.ma).trim().toUpperCase() === typedMa);
+  }, [isEdit, typedMa, allRows]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    if (!token) return;
+    if (!token || isMaDuplicate) return;
     setSaving(true); setErr(null);
     const body: Record<string, unknown> = { ma: form.ma, ten: form.ten };
     for (const f of visibleFields) {
@@ -338,10 +372,33 @@ function CatalogDrawer({ config, existing, onClose, onSaved }: {
             <div className="rc-grid">
               <label className="rc-field">
                 <span className="rc-field__label">Mã <em>*</em></span>
-                <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
-                  <input className="rc-input rc-mono" value={String(form.ma ?? "")}
-                    disabled={isEdit} onChange={(e) => set("ma", e.target.value)} required placeholder="VD: OFF-74-4C" />
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`} style={{ flex: 1 }}>
+                    <input className="rc-input rc-mono" value={String(form.ma ?? "")}
+                      disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
+                  </div>
+                  {!isEdit && (
+                    <button type="button" className="btn btn--secondary" style={{ height: "30px", padding: "0 10px", fontSize: "11.5px", whiteSpace: "nowrap" }}
+                      onClick={() => {
+                        if (!typedMa) {
+                          alert("Vui lòng nhập mã để kiểm tra.");
+                          return;
+                        }
+                        if (isMaDuplicate) {
+                          alert(`❌ Mã "${typedMa}" đã tồn tại! Vui lòng chọn mã khác.`);
+                        } else {
+                          alert(`✅ Mã "${typedMa}" hợp lệ và có thể sử dụng!`);
+                        }
+                      }}>
+                      Check trùng
+                    </button>
+                  )}
                 </div>
+                {!isEdit && typedMa && (
+                  <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
+                    {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
+                  </span>
+                )}
                 {isEdit && <span className="rc-field__hint">Mã không đổi sau khi tạo.</span>}
               </label>
               <label className="rc-field">
@@ -353,7 +410,7 @@ function CatalogDrawer({ config, existing, onClose, onSaved }: {
             </div>
           </section>
 
-          {groups.length > 1 && (
+          {useTabs && groups.length > 1 && (
             <div className="rc-drawer__tabs">
               {groups.map((g) => (
                 <button
@@ -370,10 +427,10 @@ function CatalogDrawer({ config, existing, onClose, onSaved }: {
 
           <div className="rc-drawer__fields-container">
             {groups
-              .filter((g) => groups.length <= 1 || g.name === activeTab)
+              .filter((g) => !useTabs || groups.length <= 1 || g.name === activeTab)
               .map((g) => (
                 <section className="rc-sec" key={g.name}>
-                  {groups.length <= 1 && <div className="rc-sec__title">{g.name}</div>}
+                  {(!useTabs || groups.length <= 1) && <div className="rc-sec__title">{g.name}</div>}
                   <div className="rc-grid">
                     {g.fields.map((f) => {
                       const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
@@ -435,7 +492,7 @@ function CatalogDrawer({ config, existing, onClose, onSaved }: {
 
         <footer className="rc-drawer__foot">
           <Button type="button" variant="ghost" onClick={onClose}>Hủy</Button>
-          <Button type="button" variant="primary" loading={saving} onClick={() => submit(new Event("submit") as unknown as FormEvent)}>
+          <Button type="button" variant="primary" loading={saving} disabled={isMaDuplicate || (!isEdit && !typedMa)} onClick={() => submit(new Event("submit") as unknown as FormEvent)}>
             {isEdit ? "Lưu thay đổi" : "Tạo mới"}
           </Button>
         </footer>

@@ -47,6 +47,21 @@ function parseLabelAndSuffix(label: string): { cleanLabel: string; suffix: strin
   return { cleanLabel: label, suffix: null };
 }
 
+// ── UTILITY: SUGGEST NEXT SEQUENTIAL CODE ─────────────────────────────────────────
+function suggestNextCode(rows: RuleRow[]): string {
+  let codePrefix = "BB-";
+  const numRegex = new RegExp(`^${codePrefix}(\\d+)$`);
+  let maxNum = 0;
+  for (const r of rows) {
+    const m = String(r.ma).trim().toUpperCase().match(numRegex);
+    if (m) {
+      const val = parseInt(m[1], 10);
+      if (val > maxNum) maxNum = val;
+    }
+  }
+  return `${codePrefix}${String(maxNum + 1).padStart(4, "0")}`;
+}
+
 // ── INLINE SEARCH ICON ────────────────────────────────────────────────────────────
 const SearchIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="rc__search-icon">
@@ -109,7 +124,8 @@ export function QuyTacBinhBaiPage() {
 
   const newRule = () => {
     setSelectedId(null); setVersions([]); setViewVersionId(null);
-    setMa(""); setTen(""); setMoTa(""); setConfig(DEFAULT_CONFIG); setSaveErr(null);
+    setMa(suggestNextCode(rules));
+    setTen(""); setMoTa(""); setConfig(DEFAULT_CONFIG); setSaveErr(null);
     setView("editor");
   };
 
@@ -133,9 +149,16 @@ export function QuyTacBinhBaiPage() {
     return () => window.clearTimeout(timer.current);
   }, [token, config, bench, view]);
 
+  // Kiểm tra trùng mã (Live validation)
+  const typedMa = ma.trim().toUpperCase();
+  const isMaDuplicate = useMemo(() => {
+    if (!isNew || !typedMa) return false;
+    return rules.some((r) => r.ma.trim().toUpperCase() === typedMa);
+  }, [isNew, typedMa, rules]);
+
   // --- save (đẻ version mới hoặc tạo rule) ---
   const save = async () => {
-    if (!token) return;
+    if (!token || isMaDuplicate) return;
     setSaving(true); setSaveErr(null);
     try {
       if (isNew) {
@@ -258,7 +281,7 @@ export function QuyTacBinhBaiPage() {
           </div>
         )}
         <div style={{ display: "flex", gap: "8px", marginLeft: "auto" }}>
-          <Button variant="primary" onClick={save} disabled={saving}>
+          <Button variant="primary" onClick={save} disabled={saving || isMaDuplicate || (isNew && !typedMa)}>
             {isNew ? "Tạo quy tắc" : "Lưu → đẻ version mới"}
           </Button>
           {!isNew && <Button variant="ghost" onClick={removeRule}>Xoá</Button>}
@@ -277,10 +300,33 @@ export function QuyTacBinhBaiPage() {
               <div className="rc-grid" style={{ marginBottom: "14px" }}>
                 <label className="rc-field">
                   <span className="rc-field__label">Mã quy tắc *</span>
-                  <div className={`rc-input-wrapper${!isNew ? " rc-input-wrapper--ro" : ""}`}>
-                    <input className="rc-input rc-mono" value={ma} disabled={!isNew}
-                      onChange={(e) => setMa(e.target.value.toUpperCase())} placeholder="VD: BB-0001" />
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <div className={`rc-input-wrapper${!isNew ? " rc-input-wrapper--ro" : ""}`} style={{ flex: 1 }}>
+                      <input className="rc-input rc-mono" value={ma} disabled={!isNew}
+                        onChange={(e) => setMa(e.target.value.toUpperCase())} placeholder="VD: BB-0001" />
+                    </div>
+                    {isNew && (
+                      <button type="button" className="btn btn--secondary" style={{ height: "30px", padding: "0 10px", fontSize: "11.5px", whiteSpace: "nowrap" }}
+                        onClick={() => {
+                          if (!typedMa) {
+                            alert("Vui lòng nhập mã để kiểm tra.");
+                            return;
+                          }
+                          if (isMaDuplicate) {
+                            alert(`❌ Mã "${typedMa}" đã tồn tại! Vui lòng chọn mã khác.`);
+                          } else {
+                            alert(`✅ Mã "${typedMa}" hợp lệ và có thể sử dụng!`);
+                          }
+                        }}>
+                        Check trùng
+                      </button>
+                    )}
                   </div>
+                  {isNew && typedMa && (
+                    <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
+                      {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
+                    </span>
+                  )}
                   {isNew && <span className="rc-field__hint">Viết hoa, không dấu. Không sửa được sau khi tạo.</span>}
                 </label>
                 <label className="rc-field">
