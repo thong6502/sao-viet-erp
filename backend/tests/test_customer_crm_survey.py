@@ -466,3 +466,47 @@ def test_care_followups_scoped_to_caller(client):
     assert not any(f["customer_name"] == "Cty Cua Sale1" for f in fu2)
     # Việc mặc định gán cho Sale phụ trách khách.
     assert fu1[0]["assignee_name"]
+
+
+# --- Nhãn thủ công (#7: sales gán tay) -----------------------------------------
+
+
+def test_tags_manual_assign_dedup_filter(client):
+    token = _admin_token(client)
+    cid = _create(client, token, name="Cty Gan Nhan")["customer"]["id"]
+    cid2 = _create(client, token, name="Cty Khong Nhan")["customer"]["id"]
+
+    # Gán 2 nhãn; gán lại nhãn cũ (khác hoa thường) → không tạo đúp.
+    r = client.post(f"/api/customers/{cid}/tags", json={"label": "Đại lý"}, headers=_h(token))
+    assert r.status_code == 201
+    tag_id = r.json()["id"]
+    client.post(f"/api/customers/{cid}/tags", json={"label": "Khách sự kiện"}, headers=_h(token))
+    r = client.post(f"/api/customers/{cid}/tags", json={"label": "đại lý"}, headers=_h(token))
+    assert r.json()["id"] == tag_id  # trả nhãn có sẵn, không đúp
+
+    tags = client.get(f"/api/customers/{cid}/tags", headers=_h(token)).json()["items"]
+    assert sorted(t["label"] for t in tags) == ["Khách sự kiện", "Đại lý"] or len(tags) == 2
+
+    # Nhãn trống → 422.
+    r = client.post(f"/api/customers/{cid}/tags", json={"label": "   "}, headers=_h(token))
+    assert r.status_code == 422
+
+    # Chips trong danh bạ + lọc theo nhãn (case-insensitive).
+    rows = client.get("/api/customers", params={"tag": "ĐẠI LÝ", "size": 200},
+                      headers=_h(token)).json()["items"]
+    ids = {c["id"] for c in rows}
+    assert cid in ids and cid2 not in ids
+    me = next(c for c in rows if c["id"] == cid)
+    assert "Đại lý" in me["tags"]
+
+    # Gợi ý nhãn đã dùng trong scope.
+    labels = client.get("/api/customers/tags", headers=_h(token)).json()
+    assert "Đại lý" in labels and "Khách sự kiện" in labels
+
+    # Gỡ nhãn + audit ghi vào Nhật ký.
+    assert client.delete(
+        f"/api/customers/{cid}/tags/{tag_id}", headers=_h(token)
+    ).status_code == 204
+    audit = client.get(f"/api/customers/{cid}/audit", headers=_h(token)).json()["items"]
+    details = " | ".join(a["detail"] for a in audit if a["kind"] == "profile")
+    assert "Gán nhãn: Đại lý" in details and "Gỡ nhãn: Đại lý" in details

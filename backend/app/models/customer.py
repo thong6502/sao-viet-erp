@@ -146,6 +146,27 @@ DOC_KHAC = "khac"
 CUSTOMER_DOC_KINDS = (DOC_HOP_DONG, DOC_GPKD, DOC_THIET_KE, DOC_KHAC)
 
 
+class CustomerTag(Base):
+    """Nhãn phân loại do SALES GÁN TAY (khảo sát #7: khách lẻ / doanh nghiệp / đại lý /
+    VIP… "rất cần để phân loại chăm sóc"). Nhãn tự do, một khách nhiều nhãn; service
+    chặn trùng nhãn (case-insensitive) trong cùng một khách. Chạy SONG SONG với tier
+    tự động — nhãn là người nói, tier là dữ liệu nói."""
+
+    __tablename__ = "customer_tags"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customers.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    label: Mapped[str] = mapped_column(String(50), index=True, nullable=False)
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
 # Hình thức chăm sóc (khảo sát #27: gọi điện, nhắn tin, email, gặp trực tiếp…).
 CARE_GOI_DIEN = "goi_dien"
 CARE_NHAN_TIN = "nhan_tin"

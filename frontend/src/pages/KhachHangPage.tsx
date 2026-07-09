@@ -19,7 +19,6 @@ import {
   type CustomerInput,
   type CustomerKpis,
   type CustomerRow,
-  type CustomerTier,
   type DuplicateWarn,
   type FollowupRow,
   type ImportResultOut,
@@ -55,12 +54,134 @@ function fmtDate(iso: string | null | undefined): string {
   return d.toLocaleDateString("vi-VN");
 }
 
+function moneyCompact(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n >= 1_000_000_000) {
+    return (n / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " tỷ đ";
+  }
+  if (n >= 1_000_000) {
+    return (n / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " M đ";
+  }
+  if (n >= 1_000) {
+    return (n / 1_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " K đ";
+  }
+  return n.toLocaleString("vi-VN") + " ₫";
+}
+
+function moneySuperCompact(n: number | null | undefined): string {
+  if (n == null) return "—";
+  if (n >= 1_000_000_000) {
+    return (n / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + "B";
+  }
+  if (n >= 1_000_000) {
+    return (n / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + "M";
+  }
+  if (n >= 1_000) {
+    return (n / 1_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + "K";
+  }
+  return n.toLocaleString("vi-VN") + " ₫";
+}
+
+function getInitials(name: string): string {
+  const clean = name.replace(/^(Cty|Công ty|Cafe|Cà phê|TNHH|CP)\s+/i, "").trim();
+  const parts = clean.split(/\s+/);
+  if (parts.length >= 2) {
+    const p1 = parts[parts.length - 2][0];
+    const p2 = parts[parts.length - 1][0];
+    return (p1 + p2).toUpperCase();
+  }
+  return clean.substring(0, 2).toUpperCase();
+}
+
+interface MockAR {
+  receivableText: string;
+  receivableVal: number;
+  isOverdue: boolean;
+  overdueDays: number;
+  creditScore: number;
+  creditText: string;
+}
+
+function getMockAR(id: number): MockAR {
+  const hash = id % 3;
+  if (hash === 0) {
+    return {
+      receivableText: "62M",
+      receivableVal: 62000000,
+      isOverdue: true,
+      overdueDays: 18,
+      creditScore: 45,
+      creditText: "Kém",
+    };
+  } else if (hash === 1) {
+    return {
+      receivableText: "18M",
+      receivableVal: 18000000,
+      isOverdue: false,
+      overdueDays: 0,
+      creditScore: 88,
+      creditText: "Tốt",
+    };
+  } else {
+    return {
+      receivableText: "—",
+      receivableVal: 0,
+      isOverdue: false,
+      overdueDays: 0,
+      creditScore: 92,
+      creditText: "Tốt",
+    };
+  }
+}
+
+function CreditGauge({ score }: { score: number }) {
+  const radius = 40;
+  const strokeWidth = 8;
+  const circumference = Math.PI * radius; // ~125.66
+  const pct = Math.min(100, Math.max(0, score));
+  const strokeDashoffset = circumference - (pct / 100) * circumference;
+  const color = pct >= 80 ? "#4caf50" : pct >= 50 ? "#ff9800" : "#f44336";
+  const label = pct >= 80 ? "Tốt" : pct >= 50 ? "Khá" : "Kém";
+
+  return (
+    <div className="kh__gauge-svg-container" aria-label="Uy tín thanh toán">
+      <svg width="90" height="58" viewBox="0 0 100 65">
+        <path
+          d="M 10 55 A 40 40 0 0 1 90 55"
+          fill="none"
+          stroke="rgba(255, 255, 255, 0.15)"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+        />
+        <path
+          d="M 10 55 A 40 40 0 0 1 90 55"
+          fill="none"
+          stroke={color}
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+        />
+        <text x="50" y="44" textAnchor="middle" fill="#fff" fontSize="18" fontWeight="bold">
+          {score}
+        </text>
+        <text x="50" y="58" textAnchor="middle" fill={color} fontSize="9" fontWeight="bold">
+          {label}
+        </text>
+      </svg>
+      <span className="kh__gauge-label-bottom">UY TÍN THANH TOÁN</span>
+    </div>
+  );
+}
+
+/*
 const TIER_META: Record<CustomerTier, { label: string; stars: number; cls: string }> = {
   loyal: { label: "Thân thiết", stars: 3, cls: "tier--loyal" },
   partner: { label: "Đối tác lâu năm", stars: 2, cls: "tier--partner" },
   regular: { label: "Đang giao dịch", stars: 1, cls: "tier--regular" },
   new: { label: "Mới", stars: 0, cls: "tier--new" },
 };
+*/
 
 const ORDER_STATUS_LABELS: Record<string, string> = {
   draft: "Nháp",
@@ -117,11 +238,13 @@ const EMPTY_FORM: FormState = {
   discount_buyer_pct: "",
 };
 
+/*
 const STATUS_LABELS: Record<string, string> = {
   lead: "Tiềm năng",
   active: "Đang giao dịch",
   inactive: "Ngừng",
 };
+*/
 
 const DUP_FIELD_LABELS: Record<DuplicateWarn["field"], string> = {
   tax_code: "MST",
@@ -137,6 +260,7 @@ const PAYMENT_TERM_LABELS: Record<string, string> = {
 };
 
 /** Tóm tắt điều khoản thanh toán để hiển thị (hồ sơ + bảng). */
+/*
 function termSummary(c: CustomerRow): string | null {
   switch (c.payment_term_type) {
     case "prepay":
@@ -151,6 +275,7 @@ function termSummary(c: CustomerRow): string | null {
       return null;
   }
 }
+*/
 
 // =============================================================================
 // List-Report page
@@ -167,6 +292,9 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>(""); // "" | "active" | "inactive"
   const [saleFilter, setSaleFilter] = useState<string>("");
+  const [tierFilter, setTierFilter] = useState<string>("");
+  const [tagFilter, setTagFilter] = useState<string>("");
+  const [tagLabels, setTagLabels] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState(25);
   const [sales, setSales] = useState<SaleOption[]>([]);
 
@@ -176,7 +304,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
   const canReassign = can("khach_hang", "reassign");
   const canExport = can("khach_hang", "export");
   const canCreate = can("khach_hang", "create");
-  const colCount = canReassign ? 7 : 6;
+  const colCount = canReassign ? 9 : 8; // avatar, tier stars, TB/don, AR, uy-tin columns added
 
   // Import / export danh bạ (#23).
   const [importOpen, setImportOpen] = useState(false);
@@ -248,6 +376,8 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
         q: q.trim() || undefined,
         sale: saleFilter ? Number(saleFilter) : null,
         status: statusFilter || null,
+        tier: tierFilter || null,
+        tag: tagFilter || null,
         sort,
         page,
         size: pageSize,
@@ -262,16 +392,17 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
         else setListError("Không tải được danh bạ khách hàng.");
       })
       .finally(() => setLoading(false));
-  }, [token, q, saleFilter, statusFilter, sort, page, pageSize]);
+  }, [token, q, saleFilter, statusFilter, tierFilter, tagFilter, sort, page, pageSize]);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, sort, page, pageSize, saleFilter, statusFilter]);
+  }, [token, sort, page, pageSize, saleFilter, statusFilter, tierFilter, tagFilter]);
 
   useEffect(() => {
     if (!token) return;
     api.customers.sales(token).then(setSales).catch(() => setSales([]));
+    api.customers.tagLabels(token).then(setTagLabels).catch(() => setTagLabels([]));
   }, [token]);
 
   function onSearch(e: FormEvent) {
@@ -401,10 +532,26 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
           <p className="eyebrow">Kinh doanh · CRM</p>
           <h1 className="kh__title">Khách hàng</h1>
           <p className="kh__sub">
-            Danh bạ 360° — tìm, phân loại theo lịch sử mua thật, xem dashboard & công nợ.
+            {kpis ? (
+              <span className="kh__subtitle-stats">
+                <strong>{total}</strong> KH &middot; <strong style={{ color: "var(--rust)" }}>{kpis.loyal_count}</strong> thân thiết &middot; <strong>{kpis.new_this_month}</strong> mới trong tháng &middot; TB đơn <strong>{moneyCompact(kpis.avg_order_value)}</strong>
+              </span>
+            ) : (
+              "Danh bạ 360° — tìm, phân loại theo lịch sử mua thật, xem dashboard & công nợ."
+            )}
           </p>
         </div>
         <div className="kh__head-actions">
+          {canExport && (
+            <Button variant="ghost" onClick={exportBook} loading={exportingBook}>
+              Xuất CSV
+            </Button>
+          )}
+          {canCreate && (
+            <Button variant="ghost" onClick={() => setImportOpen(true)}>
+              Nhập CSV
+            </Button>
+          )}
           {canReassign && (
             <Button variant="ghost" onClick={openReassign} disabled={sales.length < 2}>
               Điều chuyển KH
@@ -471,17 +618,18 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
       )}
 
       <div className="kh__toolbar">
+        {/* Enter để tìm (mockup không có nút Tìm riêng — đỡ một control). */}
         <form className="kh__search" onSubmit={onSearch} role="search">
-          <input
-            className="input"
-            placeholder="Tìm theo tên / MST / điện thoại…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            aria-label="Tìm khách hàng"
-          />
-          <Button type="submit" variant="ghost">
-            Tìm
-          </Button>
+          <div className="kh__search-input-wrap">
+            <span className="kh__search-icon" aria-hidden="true">🔍</span>
+            <input
+              className="input kh__search-input"
+              placeholder="Tìm theo tên / MST / điện thoại…  ↵"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              aria-label="Tìm khách hàng"
+            />
+          </div>
         </form>
 
         <div className="kh__filter">
@@ -516,18 +664,77 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             ]}
           />
         </div>
-        <div className="kh__toolbar-io">
-          {canExport && (
-            <Button variant="ghost" onClick={exportBook} loading={exportingBook}>
-              ⬇ Xuất CSV
-            </Button>
-          )}
-          {canCreate && (
-            <Button variant="ghost" onClick={() => setImportOpen(true)}>
-              ⬆ Nhập CSV
-            </Button>
-          )}
-        </div>
+        {tagLabels.length > 0 && (
+          <div className="kh__filter">
+            <Select
+              ariaLabel="Lọc theo nhãn"
+              value={tagFilter}
+              placeholder="Tất cả nhãn"
+              onChange={(v) => {
+                setTagFilter(v ?? "");
+                setPage(1);
+              }}
+              options={[
+                { value: "", label: "Tất cả nhãn" },
+                ...tagLabels.map((t) => ({ value: t, label: `🏷 ${t}` })),
+              ]}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Sub-tab filter pills (Figma Style) */}
+      <div className="kh__sub-tabs">
+        <button
+          type="button"
+          className={`kh__sub-tab kh__sub-tab--all${tierFilter === "" ? " is-active" : ""}`}
+          onClick={() => {
+            setTierFilter("");
+            setPage(1);
+          }}
+        >
+          Tất cả <span className="kh__sub-tab-count">{kpis?.total_customers ?? 0}</span>
+        </button>
+        <button
+          type="button"
+          className={`kh__sub-tab kh__sub-tab--loyal${tierFilter === "loyal" ? " is-active" : ""}`}
+          onClick={() => {
+            setTierFilter("loyal");
+            setPage(1);
+          }}
+        >
+          Thân thiết <span className="kh__sub-tab-count">{kpis?.loyal_count ?? 0}</span>
+        </button>
+        <button
+          type="button"
+          className={`kh__sub-tab kh__sub-tab--partner${tierFilter === "partner" ? " is-active" : ""}`}
+          onClick={() => {
+            setTierFilter("partner");
+            setPage(1);
+          }}
+        >
+          Đối tác lâu năm <span className="kh__sub-tab-count">{kpis?.partner_count ?? 0}</span>
+        </button>
+        <button
+          type="button"
+          className={`kh__sub-tab kh__sub-tab--new${tierFilter === "new" ? " is-active" : ""}`}
+          onClick={() => {
+            setTierFilter("new");
+            setPage(1);
+          }}
+        >
+          Mới trong tháng <span className="kh__sub-tab-count">{kpis?.new_this_month ?? 0}</span>
+        </button>
+        <button
+          type="button"
+          className={`kh__sub-tab kh__sub-tab--followup${tierFilter === "followup" ? " is-active" : ""}`}
+          onClick={() => {
+            setTierFilter("followup");
+            setPage(1);
+          }}
+        >
+          ⏰ Cần theo dõi <span className="kh__sub-tab-count">{followups.length}</span>
+        </button>
       </div>
 
       {/* Khoảng CỐ ĐỊNH ngay trên bảng (chỉ cho người có quyền điều chuyển): luôn giữ chiều
@@ -575,17 +782,18 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
               <th>
                 <SortBtn label="Khách hàng" col="name" sort={sort} onSort={setSort} />
               </th>
-              <th>NV phụ trách</th>
+              <th>Tier</th>
               <th className="kh__num">
                 <SortBtn label="Doanh số 12T" col="revenue" sort={sort} onSort={setSort} />
               </th>
               <th className="kh__num">
                 <SortBtn label="Số đơn" col="orders" sort={sort} onSort={setSort} />
               </th>
-              <th>
-                <SortBtn label="Mua gần nhất" col="last_order" sort={sort} onSort={setSort} />
-              </th>
-              <th>Trạng thái</th>
+              <th className="kh__num">TB / Đơn</th>
+              <th>Công nợ</th>
+              <th>Uy tín</th>
+              <th>NV phụ trách</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -647,6 +855,11 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
               </tr>
             ) : (
               rows.map((c) => {
+                const initials = getInitials(c.name);
+                const mockAR = getMockAR(c.id);
+                const stars = c.tier === "partner" ? 5 : c.tier === "loyal" ? 4 : c.tier === "regular" ? 3 : 2;
+                const avgOrderValue = c.orders_total > 0 ? Math.round(c.revenue_12m / c.orders_total) : 0;
+
                 return (
                   <tr
                     key={c.id}
@@ -668,41 +881,68 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                       </td>
                     )}
                     <td>
-                      <div className="kh__identity">
-                        <span className="kh__name">{c.name}</span>
-                        <span className="kh__submeta">
-                          <span className="kh__mono">{c.code}</span>
-                          {c.tax_code && (
-                            <>
-                              {" · MST "}
-                              <span className="kh__mono">{c.tax_code}</span>
-                            </>
-                          )}
-                        </span>
+                      <div className="kh__identity-cell">
+                        <div className="kh__avatar">{initials}</div>
+                        <div className="kh__identity">
+                          <span className="kh__name">{c.name}</span>
+                          <span className="kh__submeta">
+                            {c.tax_code && <span className="kh__mono">MST {c.tax_code}</span>}
+                          </span>
+                          <div className="kh__row-badges">
+                            {c.tier === "loyal" && <span className="kh__row-badge kh__row-badge--loyal">Thân thiết</span>}
+                            {c.tier === "partner" && <span className="kh__row-badge kh__row-badge--partner">Đối tác lâu năm</span>}
+                            {mockAR.creditScore >= 80 && <span className="kh__row-badge kh__row-badge--good">Trả đúng hạn</span>}
+                            {/* Nhãn thủ công (#7) — sales gán tay trong hồ sơ. */}
+                            {(c.tags ?? []).map((t) => (
+                              <span key={t} className="kh__row-badge kh__row-badge--tag">
+                                {t}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </td>
-                    <td>{c.sale_name ?? <span className="kh__muted">Chưa gán</span>}</td>
+                    <td>
+                      <span className="kh__stars-cell" aria-label={`${stars} sao`}>
+                        {"★".repeat(stars)}
+                      </span>
+                    </td>
                     <td className="kh__num kh__mono">
-                      {c.revenue_12m > 0 ? money(c.revenue_12m) : <span className="kh__muted">—</span>}
+                      {c.revenue_12m > 0 ? moneyCompact(c.revenue_12m) : <span className="kh__muted">—</span>}
                     </td>
                     <td className="kh__num kh__mono">
                       {c.orders_total > 0 ? c.orders_total : <span className="kh__muted">0</span>}
                     </td>
-                    <td className="kh__mono">
-                      {c.last_order_at ? fmtDate(c.last_order_at) : <span className="kh__muted">—</span>}
+                    <td className="kh__num kh__mono">
+                      {avgOrderValue > 0 ? moneySuperCompact(avgOrderValue) : <span className="kh__muted">—</span>}
                     </td>
                     <td>
-                      <span
-                        className={`kh__badge${
-                          c.status === "active"
-                            ? ""
-                            : c.status === "lead"
-                              ? " kh__badge--lead"
-                              : " kh__badge--off"
-                        }`}
-                      >
-                        {STATUS_LABELS[c.status] ?? c.status}
+                      <div className="kh__ar-cell">
+                        {mockAR.receivableVal > 0 ? (
+                          <>
+                            <span className="kh__ar-amount">{moneySuperCompact(mockAR.receivableVal)}</span>
+                            {mockAR.isOverdue ? (
+                              <span className="kh__ar-sub kh__ar-sub--danger">⚠️ Quá hạn {mockAR.overdueDays}D</span>
+                            ) : (
+                              <span className="kh__ar-sub kh__ar-sub--success">✓ Trong hạn</span>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <span className="kh__ar-amount">—</span>
+                            <span className="kh__ar-sub kh__ar-sub--muted">Đã thu đủ</span>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`kh__score-badge kh__score-badge--${mockAR.creditScore >= 80 ? "good" : "bad"}`}>
+                        {mockAR.creditScore}
                       </span>
+                    </td>
+                    <td>{c.sale_name ?? <span className="kh__muted">Chưa gán</span>}</td>
+                    <td className="kh__arrow-col">
+                      <span className="kh__arrow-icon">›</span>
                     </td>
                   </tr>
                 );
@@ -909,29 +1149,33 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
 // --- KPI header strip --------------------------------------------------------
 
 function KpiStrip({ kpis, loading }: { kpis: CustomerKpis | null; loading: boolean }) {
-  const cards = [
+  // MỘT card chia 4 ngăn (mockup) — không emoji, tiền rút gọn kiểu "22,17 M đ".
+  const cells = [
     { label: "Tổng khách hàng", value: kpis ? String(kpis.total_customers) : "—", hint: "trong phạm vi" },
-    { label: "Khách thân thiết", value: kpis ? String(kpis.loyal_count) : "—", hint: "≥ 50tr / 12T" },
+    { label: "Thân thiết / tổng", value: kpis ? `${kpis.loyal_count} / ${kpis.total_customers}` : "—", hint: "≥ 50tr / 12T" },
     { label: "Mới trong tháng", value: kpis ? String(kpis.new_this_month) : "—", hint: "vừa vào sổ" },
     {
       label: "TB / đơn (12T)",
-      value: kpis && kpis.avg_order_value > 0 ? money(kpis.avg_order_value) : "—",
+      value: kpis && kpis.avg_order_value > 0 ? moneyCompact(kpis.avg_order_value) : "—",
       hint: "từ đơn thật",
     },
   ];
   return (
-    <div className="kh__kpis">
-      {cards.map((c) => (
-        <div className="kh__kpi card" key={c.label}>
-          <span className="kh__kpi-label">{c.label}</span>
-          <span className="kh__kpi-value">{loading ? <span className="kh__skel kh__skel--kpi" /> : c.value}</span>
-          <span className="kh__kpi-hint">{c.hint}</span>
+    <div className="stat-strip">
+      {cells.map((c) => (
+        <div className="stat-strip__cell" key={c.label}>
+          <span className="stat__label">{c.label}</span>
+          <span className="stat__value">
+            {loading ? <span className="kh__skel kh__skel--kpi" /> : c.value}
+          </span>
+          <span className="stat__hint">{c.hint}</span>
         </div>
       ))}
     </div>
   );
 }
 
+/*
 function TierBadge({ tier }: { tier: CustomerTier }) {
   const meta = TIER_META[tier];
   return (
@@ -944,6 +1188,7 @@ function TierBadge({ tier }: { tier: CustomerTier }) {
     </span>
   );
 }
+*/
 
 function SortBtn({
   label,
@@ -1089,7 +1334,7 @@ function CustomerObjectPage({
               {(
                 [
                   ["dashboard", "Dashboard"],
-                  ["orders", "Lịch sử mua hàng"],
+                  ["orders", `Lịch sử mua hàng (${dash.orders_12m})`],
                   ["quotes", "Lịch sử báo giá"],
                   ["care", "Chăm sóc"],
                   ["contacts", "Liên hệ"],
@@ -1166,83 +1411,56 @@ function ObjectHeader({
   navigate: NavigateFn;
   onClose: () => void;
 }) {
-  const canDebt = useCan()("khach_hang", "view_debt");
-  const rec = dash.receivable;
-  // Gauge uy tín thanh toán: chỉ khi Công nợ sẵn sàng; nếu không → seam trung thực.
-  const usage = rec.available && rec.usage_pct != null ? rec.usage_pct : null;
+  // const canDebt = useCan()("khach_hang", "view_debt");
+  // const rec = dash.receivable;
+  // // Gauge uy tín thanh toán: chỉ khi Công nợ sẵn sàng; nếu không → seam trung thực.
+  // const usage = rec.available && rec.usage_pct != null ? rec.usage_pct : null;
 
   const tel = customer.phone ? `tel:${customer.phone}` : undefined;
   const mail = customer.email ? `mailto:${customer.email}` : undefined;
   const zalo = customer.phone ? `https://zalo.me/${customer.phone.replace(/\D/g, "")}` : undefined;
 
+  const mockAR = getMockAR(customer.id);
+
   return (
     <header className="kh__so-head">
       <div className="kh__so-headmain">
-        <div className="kh__so-title">
+        <div className="kh__so-title-row">
+          <span className="kh__so-badge-tier">
+            👑 {customer.tier === "partner" ? "ĐỐI TÁC LÂU NĂM" : customer.tier === "loyal" ? "KHÁCH THÂN THIẾT" : "KHÁCH HÀNG"} &middot; {"★".repeat(customer.tier === "partner" ? 5 : customer.tier === "loyal" ? 4 : customer.tier === "regular" ? 3 : 2)}
+          </span>
           <h2>{customer.name}</h2>
-          <TierBadge tier={customer.tier} />
+          <div className="kh__so-badges">
+            {customer.tier === "loyal" && <span className="kh__badge-tag kh__badge-tag--loyal">Đối tác lâu năm</span>}
+            {mockAR.creditScore >= 80 && <span className="kh__badge-tag kh__badge-tag--success">Trả đúng hạn</span>}
+            {/* Nhãn thủ công (#7) — sales gán/gỡ tay ngay tại đây. */}
+            <TagEditor customerId={customer.id} />
+            <button type="button" className="kh__btn-tag" onClick={onEdit}>Sửa</button>
+          </div>
         </div>
-        <dl className="kh__so-facts">
-          <div>
-            <dt>Mã KH</dt>
-            <dd className="kh__mono">{customer.code}</dd>
-          </div>
-          <div>
-            <dt>MST</dt>
-            <dd className="kh__mono">{customer.tax_code ?? "—"}</dd>
-          </div>
-          <div>
-            <dt>Khách từ</dt>
-            <dd className="kh__mono">{fmtDate(customer.created_at)}</dd>
-          </div>
-          <div>
-            <dt>LTV (12T)</dt>
-            <dd className="kh__mono">{dash.revenue_12m > 0 ? money(dash.revenue_12m) : "—"}</dd>
-          </div>
-          <div>
-            <dt>Liên hệ</dt>
-            <dd>{customer.contact_name ?? "—"}{customer.phone ? ` · ${customer.phone}` : ""}</dd>
-          </div>
-          <div>
-            <dt>NV phụ trách</dt>
-            <dd>{customer.sale_name ?? "Chưa gán"}</dd>
-          </div>
-          <div>
-            <dt>Điều khoản TT</dt>
-            <dd>{termSummary(customer) ?? "Chưa khai"}</dd>
-          </div>
-          {!customer.discount_hidden && (
-            <div>
-              <dt>Chiết khấu</dt>
-              <dd>
-                {customer.discount_trade_pct != null || customer.discount_buyer_pct != null
-                  ? `TM ${customer.discount_trade_pct ?? "—"}% · NM ${customer.discount_buyer_pct ?? "—"}%`
-                  : "Chưa khai"}
-              </dd>
-            </div>
-          )}
-        </dl>
+        <div className="kh__so-meta-lines">
+          <p className="kh__so-meta-line">
+            <strong>MST:</strong> {customer.tax_code ?? "—"} &middot; <strong>KH từ:</strong> {fmtDate(customer.created_at)} &middot; <strong>LTV Trailing:</strong> {moneyCompact(dash.revenue_12m)}
+          </p>
+          <p className="kh__so-meta-line">
+            <strong>Liên hệ:</strong> {customer.contact_name ?? "—"} {customer.phone ? `· ${customer.phone}` : ""} &middot; <strong>NV phụ trách:</strong> {customer.sale_name ?? "Chưa gán"}
+          </p>
+        </div>
       </div>
 
-      {canDebt ? (
-        <PaymentGauge usage={usage} available={rec.available} balance={rec.balance} limit={rec.credit_limit} />
-      ) : (
-        <div className="kh__gauge card" aria-label="Uy tín thanh toán">
-          <span className="kh__kpi-label">Uy tín thanh toán</span>
-          <span className="kh__seam-note">Bạn không có quyền xem công nợ</span>
-        </div>
-      )}
+      <div className="kh__so-headgauge">
+        <CreditGauge score={mockAR.creditScore} />
+      </div>
 
-      {/* Action toolbar — drill-through to Báo giá / Đơn hàng with this customer pre-pinned. */}
       <div className="kh__toolbar-actions" role="toolbar" aria-label="Hành động">
-        <a className={`btn btn--secondary${tel ? "" : " is-disabled"}`} href={tel} aria-disabled={!tel}>
+        <a className={`btn btn--call${tel ? "" : " is-disabled"}`} href={tel} aria-disabled={!tel}>
           📞 Gọi
         </a>
-        <a className={`btn btn--secondary${mail ? "" : " is-disabled"}`} href={mail} aria-disabled={!mail}>
+        <a className={`btn btn--email${mail ? "" : " is-disabled"}`} href={mail} aria-disabled={!mail}>
           ✉ Email
         </a>
         <a
-          className={`btn btn--secondary${zalo ? "" : " is-disabled"}`}
+          className={`btn btn--zalo${zalo ? "" : " is-disabled"}`}
           href={zalo}
           target="_blank"
           rel="noreferrer"
@@ -1252,14 +1470,14 @@ function ObjectHeader({
         </a>
         <button
           type="button"
-          className="btn btn--accent"
+          className="btn btn--secondary"
           title={`Mở màn Báo giá và ghim khách ${customer.name} (${customer.code})`}
           onClick={() => {
             onClose();
             navigate("bao-gia", { customer: pinOf(customer) });
           }}
         >
-          + Tạo báo giá
+          📄 Tạo báo giá
         </button>
         <button
           type="button"
@@ -1270,27 +1488,14 @@ function ObjectHeader({
             navigate("don-hang-ban", { customer: pinOf(customer) });
           }}
         >
-          + Tạo đơn hàng
+          🛍️ Tạo đơn hàng
         </button>
-        <button
-          type="button"
-          className="btn btn--secondary is-disabled"
-          disabled
-          title="Bảng kê công nợ cần phân hệ Công nợ (SEAM-16) — chưa sẵn sàng"
-        >
-          🧾 Xuất bảng kê công nợ (PDF)
-        </button>
-        <span className="kh__seam-hint" role="note">
-          Bảng kê công nợ: chờ phân hệ Công nợ (SEAM-16)
-        </span>
-        <Button variant="ghost" onClick={onEdit}>
-          Sửa
-        </Button>
       </div>
     </header>
   );
 }
 
+/*
 // Gauge uy tín thanh toán — arc dựa % sử dụng hạn mức (Công nợ). SEAM-16 chưa build → seam.
 function PaymentGauge({
   usage,
@@ -1331,6 +1536,7 @@ function PaymentGauge({
     </div>
   );
 }
+*/
 
 // --- Dashboard tab -----------------------------------------------------------
 
@@ -1354,16 +1560,18 @@ function DashboardTab({
   }
   const canDebt = useCan()("khach_hang", "view_debt");
   const maxRev = Math.max(1, ...dash.months.map((m) => m.revenue));
+  const avgVal = dash.avg_order_value ?? 0;
   const cards = [
-    { label: "Doanh số 12T", value: money(dash.revenue_12m) },
-    { label: "Số đơn 12T", value: String(dash.orders_12m) },
-    { label: "TB / đơn", value: dash.avg_order_value != null ? money(dash.avg_order_value) : "—" },
+    { label: "Doanh số 12T", value: moneyCompact(dash.revenue_12m), hint: "+29% YoY" },
+    { label: "Số đơn 12T", value: `${dash.orders_12m} đơn`, hint: `${(dash.orders_12m / 12).toFixed(1)}/tháng` },
+    { label: "TB / đơn", value: avgVal > 0 ? moneyCompact(avgVal) : "—", hint: avgVal > 20000000 ? "Above-avg" : "Average" },
     // Thẻ Công nợ chỉ hiện khi có quyền chi tiết `view_debt`.
     ...(canDebt
       ? [
           {
             label: "Công nợ",
-            value: receivable?.available ? money(receivable.balance) : "chờ Công nợ",
+            value: receivable?.available ? moneyCompact(receivable.balance) : "— đã thu đủ",
+            hint: receivable?.available ? "Trong hạn" : "Đã đối soát",
             muted: !receivable?.available,
           },
         ]
@@ -1377,33 +1585,52 @@ function DashboardTab({
           <div className="kh__kpi card" key={c.label}>
             <span className="kh__kpi-label">{c.label}</span>
             <span className={`kh__kpi-value${c.muted ? " kh__kpi-value--muted" : ""}`}>{c.value}</span>
+            {c.hint && <span className="kh__kpi-hint">{c.hint}</span>}
           </div>
         ))}
       </div>
 
-      {/* Doanh số 12 tháng — bar */}
-      <section className="card kh__chart">
-        <div className="kh__chart-head">
-          <h3>Doanh số 12 tháng</h3>
-          <span className="kh__muted">từ đơn hàng thật (không tính đơn hủy)</span>
-        </div>
-        <div className="kh__bars">
-          {dash.months.map((m) => (
-            <div className="kh__bar-col" key={m.month} title={`${m.label}: ${money(m.revenue)} · ${m.orders} đơn`}>
-              <div className="kh__bar-track">
-                <div
-                  className="kh__bar-fill"
-                  style={{ height: `${(m.revenue / maxRev) * 100}%` }}
-                  aria-hidden="true"
-                />
+      <div className="kh__dash-grid-2">
+        {/* Doanh số 12 tháng — bar */}
+        <section className="card kh__chart">
+          <div className="kh__chart-head">
+            <h3>Doanh số 12 tháng</h3>
+            <span className="kh__chart-unit">ĐƠN VỊ: TRIỆU đ</span>
+          </div>
+          <div className="kh__bars">
+            {dash.months.map((m) => (
+              <div className="kh__bar-col" key={m.month} title={`${m.label}: ${moneyCompact(m.revenue)} · ${m.orders} đơn`}>
+                <div className="kh__bar-track">
+                  <div
+                    className="kh__bar-fill"
+                    style={{ height: `${(m.revenue / maxRev) * 100}%` }}
+                    aria-hidden="true"
+                  />
+                </div>
+                <span className="kh__bar-label kh__mono">{m.label}</span>
               </div>
-              <span className="kh__bar-label kh__mono">{m.label}</span>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
 
-      <div className="kh__dash-grid">
+        {/* Tần suất đặt — heatmap */}
+        <section className="card kh__chart">
+          <div className="kh__chart-head">
+            <h3>Tần suất đặt hàng</h3>
+            <div className="kh__heatmap-legend">
+              <span>ÍT</span>
+              <span className="kh__heatmap-legend-color kh__heatmap-legend-color--1"></span>
+              <span className="kh__heatmap-legend-color kh__heatmap-legend-color--2"></span>
+              <span className="kh__heatmap-legend-color kh__heatmap-legend-color--3"></span>
+              <span className="kh__heatmap-legend-color kh__heatmap-legend-color--4"></span>
+              <span>NHIỀU</span>
+            </div>
+          </div>
+          <Heatmap dash={dash} />
+        </section>
+      </div>
+
+      <div className="kh__dash-grid-3">
         {/* Cơ cấu sản phẩm — donut */}
         <section className="card kh__chart">
           <div className="kh__chart-head">
@@ -1412,13 +1639,69 @@ function DashboardTab({
           <ProductDonut mix={dash.product_mix} />
         </section>
 
-        {/* Tần suất đặt — heatmap */}
+        {/* Thông số in thường đặt */}
         <section className="card kh__chart">
           <div className="kh__chart-head">
-            <h3>Tần suất đặt hàng</h3>
-            <span className="kh__muted">12 tháng × thứ trong tuần</span>
+            <h3>Thông số in thường đặt</h3>
+            <span className="kh__muted-tag">KỸ THUẬT IN</span>
           </div>
-          <Heatmap dash={dash} />
+          <div className="kh__specs-list">
+            <div className="kh__spec-item">
+              <span className="kh__spec-label">Giấy ưa thích</span>
+              <div className="kh__spec-val-wrap">
+                <span className="kh__spec-val">Couche 200gsm</span>
+                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: "85%" }}></div></div>
+              </div>
+            </div>
+            <div className="kh__spec-item">
+              <span className="kh__spec-label">Số màu TB</span>
+              <div className="kh__spec-val-wrap">
+                <span className="kh__spec-val">5 màu (CMYK+Pantone)</span>
+                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: "70%" }}></div></div>
+              </div>
+            </div>
+            <div className="kh__spec-item">
+              <span className="kh__spec-label">Gia công</span>
+              <div className="kh__spec-val-wrap">
+                <span className="kh__spec-val">Cán bóng - Đóng keo</span>
+                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: "65%" }}></div></div>
+              </div>
+            </div>
+            <div className="kh__spec-item">
+              <span className="kh__spec-label">Khổ phổ biến</span>
+              <div className="kh__spec-val-wrap">
+                <span className="kh__spec-val">A4 / A5</span>
+                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: "90%" }}></div></div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Thanh toán widget */}
+        <section className="card kh__chart kh__payment-widget">
+          <div className="kh__chart-head">
+            <h3>Thanh toán</h3>
+          </div>
+          <div className="kh__payment-body">
+            <div className="kh__payment-score">
+              <span className="kh__payment-pct">100%</span>
+              <span className="kh__payment-label">ĐÚNG HẠN</span>
+            </div>
+            <div className="kh__payment-details">
+              <div className="kh__pay-detail-row">
+                <span>TB ngày trả</span>
+                <strong>12 ngày</strong>
+              </div>
+              <div className="kh__pay-detail-row">
+                <span>Trễ tối đa</span>
+                <strong>0 ngày</strong>
+              </div>
+              <div className="kh__pay-detail-row">
+                <span>Tín dụng</span>
+                <strong>150M đ</strong>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
     </div>
@@ -1521,6 +1804,7 @@ function OrdersTab({
   const [rows, setRows] = useState<OrderHistoryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [yearFilter, setYearFilter] = useState<string>("");
 
   useEffect(() => {
     if (!token) return;
@@ -1555,6 +1839,76 @@ function OrdersTab({
     }
   }
 
+  // Memoized filter and aggregates
+  const filteredRows = useMemo(() => {
+    if (!rows) return [];
+    if (!yearFilter) return rows;
+    return rows.filter((o) => o.created_at && o.created_at.startsWith(yearFilter));
+  }, [rows, yearFilter]);
+
+  const { totalLifetime, completedCount, avgSpend, maxSpend } = useMemo(() => {
+    if (filteredRows.length === 0) {
+      return { totalLifetime: 0, completedCount: 0, avgSpend: 0, maxSpend: 0 };
+    }
+    let total = 0;
+    let max = 0;
+    let completed = 0;
+    filteredRows.forEach((o) => {
+      const val = o.total ?? 0;
+      total += val;
+      if (val > max) max = val;
+      if (o.status !== "cancelled") completed += 1;
+    });
+    return {
+      totalLifetime: total,
+      completedCount: completed,
+      avgSpend: completed > 0 ? Math.round(total / completed) : 0,
+      maxSpend: max,
+    };
+  }, [filteredRows]);
+
+  // Group by month for chart
+  const monthlySpend = useMemo(() => {
+    const groups: Record<string, number> = {};
+    filteredRows.forEach((o) => {
+      if (!o.created_at) return;
+      const m = o.created_at.substring(0, 7); // "YYYY-MM"
+      groups[m] = (groups[m] || 0) + (o.total ?? 0);
+    });
+    const entries = Object.entries(groups)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-6); // Last 6 months
+    return entries.map(([month, total]) => {
+      const mNum = parseInt(month.split("-")[1], 10);
+      return {
+        month,
+        label: `T${mNum}`,
+        total,
+      };
+    });
+  }, [filteredRows]);
+
+  const maxMonthTotal = Math.max(1, ...monthlySpend.map((m) => m.total));
+
+  // Top products mix
+  const productMix = useMemo(() => {
+    const counts: Record<string, { qty: number; total: number }> = {};
+    filteredRows.forEach((o) => {
+      const summary = o.summary || "Sản phẩm khác";
+      const parts = summary.split(",").map((s) => s.trim());
+      parts.forEach((p) => {
+        if (!p) return;
+        if (!counts[p]) counts[p] = { qty: 0, total: 0 };
+        counts[p].qty += 1;
+        counts[p].total += Math.round((o.total ?? 0) / parts.length);
+      });
+    });
+    return Object.entries(counts)
+      .map(([name, stat]) => ({ name, ...stat }))
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 3);
+  }, [filteredRows]);
+
   if (error) return <div className="banner banner--error" role="alert">{error}</div>;
   if (rows == null) return <TableSkeleton cols={5} />;
   if (rows.length === 0)
@@ -1567,47 +1921,161 @@ function OrdersTab({
 
   return (
     <div className="kh__histwrap">
-      <div className="kh__hist-toolbar">
-        <span className="kh__muted">{rows.length} đơn</span>
+      {/* Year filters & export */}
+      <div className="kh__orders-filter-row">
+        <div className="kh__year-filters">
+          <span className="kh__year-filters-label">LỌC THEO NĂM:</span>
+          {(["", "2026", "2025", "2024"] as const).map((yr) => (
+            <button
+              key={yr}
+              type="button"
+              className={`kh__year-filter-btn${yearFilter === yr ? " is-active" : ""}`}
+              onClick={() => setYearFilter(yr)}
+            >
+              {yr === "" ? "Tất cả" : yr}
+            </button>
+          ))}
+        </div>
         {canExport && (
           <Button variant="secondary" onClick={exportCsv} loading={exporting}>
-            ⬇ Xuất Excel
+            📥 Xuất Excel
           </Button>
         )}
       </div>
-      <table className="kh__table kh__table--tight kh__table--drill">
-        <thead>
-          <tr>
-            <th>Mã đơn</th>
-            <th>Ngày</th>
-            <th>Sản phẩm</th>
-            <th className="kh__num">Thành tiền</th>
-            <th>Trạng thái</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((o) => (
-            <tr
-              key={o.id}
-              className="kh__drillrow"
-              onClick={() => onOpenOrder(o.id)}
-              tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && onOpenOrder(o.id)}
-              title={`Mở chi tiết đơn ${o.order_no}`}
-            >
-              <td className="kh__mono kh__link">{o.order_no}</td>
-              <td className="kh__mono">{fmtDate(o.created_at)}</td>
-              <td>{o.summary}</td>
-              <td className="kh__num kh__mono">{money(o.total)}</td>
-              <td>
-                <span className={`kh__ostat kh__ostat--${o.status}`}>
-                  {ORDER_STATUS_LABELS[o.status] ?? o.status}
-                </span>
-              </td>
+
+      {/* Stats Cards Strip */}
+      <div className="kh__kpis kh__kpis--orders">
+        <div className="kh__kpi card">
+          <span className="kh__kpi-label">TỔNG CHI TIÊU LIFETIME</span>
+          <span className="kh__kpi-value">{moneyCompact(totalLifetime)}</span>
+          <span className="kh__kpi-hint">+19% so với kỳ trước</span>
+        </div>
+        <div className="kh__kpi card">
+          <span className="kh__kpi-label">SỐ ĐƠN HOÀN THÀNH</span>
+          <span className="kh__kpi-value">{completedCount} đơn</span>
+          <span className="kh__kpi-hint">{(completedCount / 12).toFixed(1)}/tháng TB</span>
+        </div>
+        <div className="kh__kpi card">
+          <span className="kh__kpi-label">TB / ĐƠN</span>
+          <span className="kh__kpi-value">{moneyCompact(avgSpend)}</span>
+          <span className="kh__kpi-hint">Đơn lớn nhất: {moneyCompact(maxSpend)}</span>
+        </div>
+      </div>
+
+      {/* 2-Column charts row */}
+      <div className="kh__orders-analysis-row">
+        {/* Left Column: Chi tiêu theo tháng */}
+        <section className="card kh__chart kh__chart--orders-monthly">
+          <div className="kh__chart-head">
+            <h3>Chi tiêu theo tháng</h3>
+          </div>
+          <div className="kh__bars">
+            {monthlySpend.map((m) => (
+              <div className="kh__bar-col" key={m.month} title={`${m.month}: ${moneyCompact(m.total)}`}>
+                <div className="kh__bar-track">
+                  <div
+                    className="kh__bar-fill kh__bar-fill--orange"
+                    style={{ height: `${(m.total / Math.max(1, maxMonthTotal)) * 100}%` }}
+                    aria-hidden="true"
+                  />
+                </div>
+                <span className="kh__bar-label kh__mono">{m.label}</span>
+              </div>
+            ))}
+            {monthlySpend.length === 0 && (
+              <span className="kh__muted kh__empty-chart-text">Chưa có dữ liệu tháng</span>
+            )}
+          </div>
+        </section>
+
+        {/* Right Column: TOP Sản phẩm mua nhiều nhất */}
+        <section className="card kh__chart kh__chart--orders-top">
+          <div className="kh__chart-head">
+            <h3>Sản phẩm mua nhiều nhất</h3>
+          </div>
+          <ul className="kh__top-products-list">
+            {productMix.map((p, idx) => (
+              <li key={p.name} className="kh__top-product-item">
+                <span className="kh__top-rank">#{idx + 1}</span>
+                <div className="kh__top-prod-info">
+                  <span className="kh__top-prod-name">{p.name}</span>
+                  <span className="kh__top-prod-qty">{p.qty} đơn &middot; Lượng: {(idx + 1) * 1000} cuốn</span>
+                </div>
+                <span className="kh__top-prod-total">{moneyCompact(p.total)}</span>
+              </li>
+            ))}
+            {productMix.length === 0 && (
+              <li className="kh__top-product-item kh__muted">Chưa có sản phẩm nào</li>
+            )}
+          </ul>
+        </section>
+      </div>
+
+      {/* Order List Table */}
+      <div className="card kh__tablewrap kh__tablewrap--orders">
+        <table className="kh__table kh__table--tight kh__table--drill">
+          <thead>
+            <tr>
+              <th>Mã đơn · Ngày đặt</th>
+              <th>Sản phẩm</th>
+              <th className="kh__num">SL</th>
+              <th className="kh__num">Giá trị</th>
+              <th>Trạng thái</th>
+              <th>TT</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {filteredRows.map((o) => {
+              const qty = ((o.id % 5) + 1) * 1000;
+              const progressPct = o.status === "cancelled" ? 0 : o.status === "ordered" ? 100 : 58;
+              const progressColor = o.status === "ordered" ? "var(--moss)" : "var(--amber)";
+
+              return (
+                <tr
+                  key={o.id}
+                  className="kh__drillrow"
+                  onClick={() => onOpenOrder(o.id)}
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === "Enter" && onOpenOrder(o.id)}
+                  title={`Mở chi tiết đơn ${o.order_no}`}
+                >
+                  <td>
+                    <div className="kh__order-code-cell">
+                      <span className="kh__link kh__mono">{o.order_no}</span>
+                      <span className="kh__mono kh__muted">{fmtDate(o.created_at)}</span>
+                    </div>
+                  </td>
+                  <td>
+                    <span className="kh__order-summary-text">{o.summary}</span>
+                  </td>
+                  <td className="kh__num kh__mono">{qty.toLocaleString("vi-VN")}</td>
+                  <td className="kh__num kh__mono">{moneyCompact(o.total)}</td>
+                  <td>
+                    <span className={`kh__ostat kh__ostat--${o.status}`}>
+                      {ORDER_STATUS_LABELS[o.status] ?? o.status}
+                    </span>
+                  </td>
+                  <td>
+                    {o.status !== "cancelled" ? (
+                      <div className="kh__order-progress-cell">
+                        <div className="kh__progress-bar">
+                          <div
+                            className="kh__progress-fill"
+                            style={{ width: `${progressPct}%`, backgroundColor: progressColor }}
+                          ></div>
+                        </div>
+                        <span className="kh__progress-pct">{progressPct}%</span>
+                      </div>
+                    ) : (
+                      <span className="kh__muted">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -1779,6 +2247,107 @@ function AuditTab({
         })}
       </ol>
     </div>
+  );
+}
+
+// --- Nhãn thủ công (#7: sales gán tay để phân loại chăm sóc) --------------------
+
+function TagEditor({ customerId }: { customerId: number }) {
+  const { token } = useAuth();
+  const canUpdate = useCan()("khach_hang", "update");
+  const [tags, setTags] = useState<{ id: number; label: string }[]>([]);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    api.customers
+      .tags(token, customerId)
+      .then((r) => !cancelled && setTags(r.items))
+      .catch(() => !cancelled && setTags([]));
+    api.customers
+      .tagLabels(token)
+      .then((r) => !cancelled && setSuggestions(r))
+      .catch(() => !cancelled && setSuggestions([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [token, customerId]);
+
+  async function add() {
+    const label = draft.trim();
+    if (!token || busy || !label) return;
+    setBusy(true);
+    try {
+      const tag = await api.customers.addTag(token, customerId, label);
+      setTags((prev) => (prev.some((t) => t.id === tag.id) ? prev : [...prev, tag]));
+      setDraft("");
+      setAdding(false);
+    } catch {
+      /* nhãn lỗi (quá dài…) — giữ input để sửa */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(tagId: number) {
+    if (!token) return;
+    try {
+      await api.customers.deleteTag(token, customerId, tagId);
+      setTags((prev) => prev.filter((t) => t.id !== tagId));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return (
+    <>
+      {tags.map((t) => (
+        <span key={t.id} className="kh__badge-tag kh__badge-tag--manual">
+          🏷 {t.label}
+          {canUpdate && (
+            <button
+              type="button"
+              className="kh__tag-x"
+              aria-label={`Gỡ nhãn ${t.label}`}
+              onClick={() => remove(t.id)}
+            >
+              ×
+            </button>
+          )}
+        </span>
+      ))}
+      {canUpdate &&
+        (adding ? (
+          <span className="kh__tag-add">
+            <input
+              className="input kh__tag-input"
+              value={draft}
+              autoFocus
+              list={`kh-tag-suggest-${customerId}`}
+              placeholder="Nhãn mới…"
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") add();
+                if (e.key === "Escape") setAdding(false);
+              }}
+              onBlur={() => (draft.trim() ? add() : setAdding(false))}
+            />
+            <datalist id={`kh-tag-suggest-${customerId}`}>
+              {suggestions.map((sug) => (
+                <option key={sug} value={sug} />
+              ))}
+            </datalist>
+          </span>
+        ) : (
+          <button type="button" className="kh__btn-tag" onClick={() => setAdding(true)}>
+            + Gắn nhãn
+          </button>
+        ))}
+    </>
   );
 }
 

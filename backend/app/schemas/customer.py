@@ -107,6 +107,8 @@ class CustomerRow(BaseModel):
     discount_trade_pct: float | None = None
     discount_buyer_pct: float | None = None
     discount_hidden: bool = False
+    # --- Nhãn thủ công (#7) — sales gán tay, chips trên danh bạ ---
+    tags: list[str] = []
 
 
 class CustomerKpis(BaseModel):
@@ -116,6 +118,8 @@ class CustomerKpis(BaseModel):
     loyal_count: int
     new_this_month: int
     avg_order_value: int
+    partner_count: int = 0
+    total_revenue: int = 0
 
 
 class CustomerListOut(BaseModel):
@@ -206,6 +210,24 @@ class CustomerAttachmentOut(BaseModel):
 
 class CustomerAttachmentsOut(BaseModel):
     items: list[CustomerAttachmentOut]
+
+
+# --- Nhãn thủ công (#7: sales gán tay để phân loại chăm sóc) --------------------
+
+
+class TagIn(BaseModel):
+    label: str = Field(min_length=1, max_length=50)
+
+
+class TagOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    label: str
+
+
+class TagsOut(BaseModel):
+    items: list[TagOut]
 
 
 # --- Chăm sóc khách hàng (#20/#27/#28) -----------------------------------------

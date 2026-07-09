@@ -81,6 +81,9 @@ from ..schemas.customer import (
     QuoteHistoryRowOut,
     ReceivableCard,
     SaleOption,
+    TagIn,
+    TagOut,
+    TagsOut,
 )
 from ..services.customer_analytics import CustomerAnalyticsService, CustomerStat
 from ..services.customer_service import (
@@ -119,8 +122,10 @@ def _row(
     stat: CustomerStat | None = None,
     *,
     show_discount: bool = False,
+    tags: list[str] | None = None,
 ) -> CustomerRow:
     row = CustomerRow.model_validate(customer)
+    row.tags = tags or []
     if customer.sale_user_id is not None:
         row.sale_name = sale_names.get(customer.sale_user_id)
     # Công nợ chỉ-đọc: chưa build → None + no_ar_module=True (KHÔNG số 0 giả).
@@ -169,6 +174,7 @@ def list_customers(
     sale: int | None = Query(default=None),
     tier: str | None = Query(default=None),
     status: str | None = Query(default=None),
+    tag: str | None = Query(default=None),
     sort: str = Query(default="code"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
@@ -193,10 +199,18 @@ def list_customers(
         ]
     if sale is not None:
         filtered = [c for c in filtered if c.sale_user_id == sale]
-    if tier:
+    if tier == "followup":
+        due_followups = svc.list_due_followups(scope=scope, actor=user)
+        followup_customer_ids = {c.id for _, c, _, _ in due_followups}
+        filtered = [c for c in filtered if c.id in followup_customer_ids]
+    elif tier:
         filtered = [c for c in filtered if stats.per_customer[c.id].tier == tier]
     if status in ("lead", "active", "inactive"):
         filtered = [c for c in filtered if c.status == status]
+    if tag and tag.strip():
+        # Lọc theo nhãn thủ công (#7) — case-insensitive.
+        tagged_ids = svc.customers.ids_with_label(tag)
+        filtered = [c for c in filtered if c.id in tagged_ids]
 
     key, is_desc = _sort_key(sort or "code")
     derived = {"revenue": "revenue_12m", "orders": "orders_total"}
@@ -223,9 +237,13 @@ def list_customers(
     sale_ids = {c.sale_user_id for c in page_rows if c.sale_user_id is not None}
     names = _sale_names(users, sale_ids)
     show_disc = authz.can(user, MODULE, "view_discount")
+    tag_map = svc.customers.tags_for([c.id for c in page_rows])
     return CustomerListOut(
         items=[
-            _row(c, names, stats.per_customer.get(c.id), show_discount=show_disc)
+            _row(
+                c, names, stats.per_customer.get(c.id),
+                show_discount=show_disc, tags=tag_map.get(c.id),
+            )
             for c in page_rows
         ],
         total=total,
@@ -236,6 +254,8 @@ def list_customers(
             loyal_count=stats.loyal_count,
             new_this_month=stats.new_this_month,
             avg_order_value=stats.avg_order_value,
+            partner_count=stats.partner_count,
+            total_revenue=stats.total_revenue,
         ),
     )
 
@@ -358,6 +378,72 @@ def check_duplicate(
             exclude_id=exclude_id,
         )
     )
+
+
+# --- nhãn thủ công (#7: sales gán tay) -------------------------------------------
+
+
+@router.get("/tags", response_model=list[str])
+def list_tag_labels(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[str]:
+    """Mọi nhãn đã dùng trên các khách trong scope — gợi ý khi gõ + option lọc."""
+    return svc.customers.distinct_labels(scope=_scope_for(authz, user), actor=user)
+
+
+@router.get("/{customer_id}/tags", response_model=TagsOut)
+def list_customer_tags(
+    customer_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> TagsOut:
+    try:
+        items = svc.list_tags(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return TagsOut(items=[TagOut.model_validate(t) for t in items])
+
+
+@router.post("/{customer_id}/tags", response_model=TagOut, status_code=201)
+def add_customer_tag(
+    customer_id: int,
+    payload: TagIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> TagOut:
+    try:
+        tag = svc.add_tag(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user,
+            label=payload.label,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return TagOut.model_validate(tag)
+
+
+@router.delete("/{customer_id}/tags/{tag_id}", status_code=204)
+def delete_customer_tag(
+    customer_id: int,
+    tag_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        svc.remove_tag(
+            customer_id=customer_id, tag_id=tag_id,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
 
 
 # --- panel "Cần chăm sóc" (#28: việc đến hạn / quá hạn, nhắc lần 1-2-3) --------
@@ -589,10 +675,12 @@ def get_customer(
         users, {customer.sale_user_id} if customer.sale_user_id else set()
     )
     stat = analytics.list_stats([customer]).per_customer.get(customer.id)
+    tag_map = svc.customers.tags_for([customer.id])
     return CustomerDetailOut(
         customer=_row(
             customer, names, stat,
             show_discount=authz.can(user, MODULE, "view_discount"),
+            tags=tag_map.get(customer.id),
         ),
         receivable=_receivable_card(
             svc, customer, can_view=authz.can(user, MODULE, "view_debt")

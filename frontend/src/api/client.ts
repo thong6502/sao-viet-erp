@@ -358,6 +358,8 @@ export interface CustomerRow {
   discount_trade_pct?: number | null;
   discount_buyer_pct?: number | null;
   discount_hidden?: boolean;
+  /** Nhãn thủ công (#7) — sales gán tay. */
+  tags?: string[];
 }
 
 /** List header KPI strip — rolled up over the whole scoped book from real orders. */
@@ -366,6 +368,8 @@ export interface CustomerKpis {
   loyal_count: number;
   new_this_month: number;
   avg_order_value: number;
+  partner_count?: number;
+  total_revenue?: number;
 }
 
 export interface CustomerListOut {
@@ -625,6 +629,7 @@ export interface CustomerListParams {
   sale?: number | null;
   tier?: string | null;
   status?: string | null;
+  tag?: string | null;
   sort?: string;
   page?: number;
   size?: number;
@@ -2740,6 +2745,7 @@ export const api = {
       if (params.sale != null) qs.set("sale", String(params.sale));
       if (params.tier) qs.set("tier", params.tier);
       if (params.status) qs.set("status", params.status);
+      if (params.tag) qs.set("tag", params.tag);
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
@@ -2884,6 +2890,25 @@ export const api = {
       return authed<void>(`/api/customers/${id}/addresses/${addressId}`, token, {
         method: "DELETE",
       });
+    },
+    // --- nhãn thủ công (#7) ---
+    tagLabels(token: string): Promise<string[]> {
+      return authed<string[]>("/api/customers/tags", token);
+    },
+    tags(token: string, id: number): Promise<{ items: { id: number; label: string }[] }> {
+      return authed<{ items: { id: number; label: string }[] }>(
+        `/api/customers/${id}/tags`,
+        token,
+      );
+    },
+    addTag(token: string, id: number, label: string): Promise<{ id: number; label: string }> {
+      return authed<{ id: number; label: string }>(`/api/customers/${id}/tags`, token, {
+        method: "POST",
+        body: JSON.stringify({ label }),
+      });
+    },
+    deleteTag(token: string, id: number, tagId: number): Promise<void> {
+      return authed<void>(`/api/customers/${id}/tags/${tagId}`, token, { method: "DELETE" });
     },
     // --- chăm sóc (#20/#27/#28) ---
     careEvents(token: string, id: number): Promise<{ items: CareEvent[] }> {

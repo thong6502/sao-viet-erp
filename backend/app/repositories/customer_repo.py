@@ -19,6 +19,7 @@ from ..models.customer import (
     CustomerCareEvent,
     CustomerCareTask,
     CustomerContact,
+    CustomerTag,
 )
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
@@ -63,34 +64,33 @@ class CustomerRepository:
     ) -> list[tuple[str, Customer]]:
         """Soft duplicate check theo 3 tiêu chí khảo sát #15 (MST / tên cty / email).
         Trả về [(field, customer)] — mỗi khách chỉ báo MỘT lần theo tiêu chí mạnh nhất
-        (tax_code > name > email). So khớp case-insensitive, name bỏ khoảng trắng thừa."""
+        (tax_code > name > email). So khớp case-insensitive trong PYTHON (lower() của
+        SQLite chỉ hạ ASCII — "Đại Phát" ≠ "đại phát" nếu so trong SQL), name bỏ
+        khoảng trắng thừa. Quét cả bảng — chấp nhận được ở cỡ danh bạ vài nghìn khách
+        (list endpoint cũng đã load whole-book)."""
         out: list[tuple[str, Customer]] = []
         seen: set[int] = set()
+        name_needle = " ".join(name.strip().lower().split()) if name and name.strip() else None
+        email_needle = email.strip().lower() if email and email.strip() else None
+        if not (tax_code or name_needle or email_needle):
+            return out
 
-        def _add(field: str, rows) -> None:
+        rows = list(self.db.execute(select(Customer).order_by(Customer.id)).scalars())
+
+        def _add(field: str, match) -> None:
             for c in rows:
                 if c.id in seen or (exclude_id is not None and c.id == exclude_id):
                     continue
-                seen.add(c.id)
-                out.append((field, c))
+                if match(c):
+                    seen.add(c.id)
+                    out.append((field, c))
 
         if tax_code:
-            _add("tax_code", self.db.execute(
-                select(Customer).where(Customer.tax_code == tax_code).order_by(Customer.id)
-            ).scalars())
-        if name and name.strip():
-            needle = " ".join(name.strip().lower().split())
-            _add("name", self.db.execute(
-                select(Customer)
-                .where(func.lower(Customer.name) == needle)
-                .order_by(Customer.id)
-            ).scalars())
-        if email and email.strip():
-            _add("email", self.db.execute(
-                select(Customer)
-                .where(func.lower(func.coalesce(Customer.email, "")) == email.strip().lower())
-                .order_by(Customer.id)
-            ).scalars())
+            _add("tax_code", lambda c: c.tax_code == tax_code)
+        if name_needle:
+            _add("name", lambda c: " ".join(c.name.lower().split()) == name_needle)
+        if email_needle:
+            _add("email", lambda c: (c.email or "").lower() == email_needle)
         return out
 
     def _scope_condition(self, *, scope: str, actor):
@@ -375,6 +375,76 @@ class CustomerRepository:
     def delete_address(self, address: CustomerAddress) -> None:
         self.db.delete(address)
         self.db.commit()
+
+    # --- nhãn thủ công (#7: sales gán tay để phân loại chăm sóc) ------------------
+
+    def list_tags(self, customer_id: int) -> list[CustomerTag]:
+        return list(self.db.execute(
+            select(CustomerTag)
+            .where(CustomerTag.customer_id == customer_id)
+            .order_by(CustomerTag.label)
+        ).scalars())
+
+    def tags_for(self, customer_ids: list[int]) -> dict[int, list[str]]:
+        """Nhãn của một tập khách trong MỘT query (chips trên danh bạ, không N+1)."""
+        if not customer_ids:
+            return {}
+        out: dict[int, list[str]] = {}
+        rows = self.db.execute(
+            select(CustomerTag.customer_id, CustomerTag.label)
+            .where(CustomerTag.customer_id.in_(customer_ids))
+            .order_by(CustomerTag.label)
+        ).all()
+        for cid, label in rows:
+            out.setdefault(cid, []).append(label)
+        return out
+
+    def get_tag(self, tag_id: int) -> CustomerTag | None:
+        return self.db.get(CustomerTag, tag_id)
+
+    def find_tag_by_label(self, customer_id: int, label: str) -> CustomerTag | None:
+        """Nhãn trùng (case-insensitive) trên cùng một khách — chống gán đúp."""
+        needle = label.strip().lower()
+        for t in self.list_tags(customer_id):
+            if t.label.lower() == needle:
+                return t
+        return None
+
+    def add_tag(self, customer_id: int, *, label: str, created_by: int | None) -> CustomerTag:
+        tag = CustomerTag(customer_id=customer_id, label=label, created_by=created_by)
+        self.db.add(tag)
+        self.db.commit()
+        self.db.refresh(tag)
+        return tag
+
+    def delete_tag(self, tag: CustomerTag) -> None:
+        self.db.delete(tag)
+        self.db.commit()
+
+    def distinct_labels(self, *, scope: str, actor) -> list[str]:
+        """Mọi nhãn đã dùng trên các khách trong scope (gợi ý khi gõ + option filter)."""
+        stmt = (
+            select(CustomerTag.label)
+            .join(Customer, CustomerTag.customer_id == Customer.id)
+            .distinct()
+            .order_by(CustomerTag.label)
+        )
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        return list(self.db.execute(stmt).scalars())
+
+    def ids_with_label(self, label: str) -> set[int]:
+        """Id các khách mang nhãn này (lọc danh bạ theo nhãn, case-insensitive).
+
+        So sánh lower trong PYTHON, không dùng SQL lower() — lower() của SQLite chỉ hạ
+        chữ ASCII nên "Đại lý" ≠ "đại lý" nếu so trong SQL (Postgres thì được, nhưng
+        phải chạy đúng trên cả hai)."""
+        needle = label.strip().lower()
+        rows = self.db.execute(
+            select(CustomerTag.customer_id, CustomerTag.label)
+        ).all()
+        return {cid for cid, lb in rows if lb.lower() == needle}
 
     # --- chăm sóc: nhật ký + lịch hẹn (#20/#27/#28) -----------------------------
 

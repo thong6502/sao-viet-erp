@@ -613,6 +613,46 @@ class CustomerService:
             detail=f"Xóa tài liệu: {att.file_name}",
         )
 
+    # --- nhãn thủ công (#7: sales gán tay) ---------------------------------------
+
+    def list_tags(self, *, customer_id: int, scope: str, actor):
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        return self.customers.list_tags(customer_id)
+
+    def add_tag(self, *, customer_id: int, scope: str, actor, label: str):
+        """Gán nhãn. Nhãn trùng (case-insensitive) trên cùng khách → trả nhãn có sẵn,
+        không tạo đúp, không lỗi (gõ lại nhãn cũ là vô hại)."""
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        label = " ".join((label or "").strip().split())
+        if not label:
+            raise CustomerValidationError("Nhãn không được để trống.")
+        if len(label) > 50:
+            raise CustomerValidationError("Nhãn tối đa 50 ký tự.")
+        existing = self.customers.find_tag_by_label(customer_id, label)
+        if existing is not None:
+            return existing
+        tag = self.customers.add_tag(customer_id, label=label, created_by=actor.id)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="update_customer",
+            target=f"customer:{customer_id}",
+            detail=f"Gán nhãn: {label}",
+        )
+        return tag
+
+    def remove_tag(self, *, customer_id: int, tag_id: int, scope: str, actor) -> None:
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        tag = self.customers.get_tag(tag_id)
+        if tag is None or tag.customer_id != customer_id:
+            raise CustomerNotFound("Không tìm thấy nhãn.")
+        self.customers.delete_tag(tag)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="update_customer",
+            target=f"customer:{customer_id}",
+            detail=f"Gỡ nhãn: {tag.label}",
+        )
+
     # --- chăm sóc khách hàng (#20/#27/#28) --------------------------------------
 
     @staticmethod

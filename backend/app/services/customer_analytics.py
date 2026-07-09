@@ -77,6 +77,8 @@ class CustomerListStats:
     loyal_count: int = 0
     new_this_month: int = 0
     avg_order_value: int = 0        # TB/đơn trên toàn tập scoped (0 nếu chưa có đơn)
+    partner_count: int = 0
+    total_revenue: int = 0
     per_customer: dict[int, CustomerStat] = field(default_factory=dict)
 
 
@@ -247,6 +249,8 @@ class CustomerAnalyticsService:
             )
             if tier == TIER_LOYAL:
                 stats.loyal_count += 1
+            elif tier == TIER_PARTNER:
+                stats.partner_count += 1
             created = c.created_at
             if created is not None and created.tzinfo is None:
                 created = created.replace(tzinfo=timezone.utc)
@@ -258,6 +262,7 @@ class CustomerAnalyticsService:
         stats.avg_order_value = (
             round(total_rev_12m / total_orders_12m) if total_orders_12m else 0
         )
+        stats.total_revenue = total_rev_12m
         return stats
 
     # --- detail dashboard ---------------------------------------------------
