@@ -34,6 +34,7 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Select } from "../components/Select";
+import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
 
 /** The customer slice CRM hands to a target screen when navigating (pin, no hand-typed ID). */
@@ -1559,7 +1560,6 @@ function DashboardTab({
     );
   }
   const canDebt = useCan()("khach_hang", "view_debt");
-  const maxRev = Math.max(1, ...dash.months.map((m) => m.revenue));
   const avgVal = dash.avg_order_value ?? 0;
   const cards = [
     { label: "Doanh số 12T", value: moneyCompact(dash.revenue_12m), hint: "+29% YoY" },
@@ -1597,20 +1597,15 @@ function DashboardTab({
             <h3>Doanh số 12 tháng</h3>
             <span className="kh__chart-unit">ĐƠN VỊ: TRIỆU đ</span>
           </div>
-          <div className="kh__bars">
-            {dash.months.map((m) => (
-              <div className="kh__bar-col" key={m.month} title={`${m.label}: ${moneyCompact(m.revenue)} · ${m.orders} đơn`}>
-                <div className="kh__bar-track">
-                  <div
-                    className="kh__bar-fill"
-                    style={{ height: `${(m.revenue / maxRev) * 100}%` }}
-                    aria-hidden="true"
-                  />
-                </div>
-                <span className="kh__bar-label kh__mono">{m.label}</span>
-              </div>
-            ))}
-          </div>
+          <MonthBars
+            data={dash.months.map((m) => ({
+              label: m.label,
+              value: m.revenue,
+              sub: `${m.orders} đơn`,
+            }))}
+            formatValue={moneyCompact}
+            formatAxis={(v) => String(Math.round(v / 1_000_000))}
+          />
         </section>
 
         {/* Tần suất đặt — heatmap */}
@@ -1708,47 +1703,17 @@ function DashboardTab({
   );
 }
 
-const DONUT_COLORS = ["var(--rust)", "var(--moss)", "var(--amber)", "var(--steel)", "var(--rust-deep)", "var(--ash-2)"];
-
 function ProductDonut({ mix }: { mix: CustomerDashboard["product_mix"] }) {
   if (mix.length === 0) {
     return <p className="kh__muted kh__chart-empty">Chưa đủ dữ liệu sản phẩm 12 tháng.</p>;
   }
-  const total = mix.reduce((s, m) => s + m.revenue, 0) || 1;
-  let acc = 0;
-  const stops = mix.slice(0, 6).map((m, i) => {
-    const start = (acc / total) * 360;
-    acc += m.revenue;
-    const end = (acc / total) * 360;
-    return `${DONUT_COLORS[i % DONUT_COLORS.length]} ${start}deg ${end}deg`;
-  });
   return (
-    <div className="kh__donut-wrap">
-      <div
-        className="kh__donut"
-        style={{ background: `conic-gradient(${stops.join(",")})` }}
-        role="img"
-        aria-label="Cơ cấu sản phẩm theo doanh số"
-      >
-        <div className="kh__donut-hole">
-          <span className="kh__mono">{mix.length}</span>
-          <span className="kh__kpi-label">nhóm SP</span>
-        </div>
-      </div>
-      <ul className="kh__legend">
-        {mix.slice(0, 6).map((m, i) => (
-          <li key={m.label}>
-            <span
-              className="kh__legend-dot"
-              style={{ background: DONUT_COLORS[i % DONUT_COLORS.length] }}
-              aria-hidden="true"
-            />
-            <span className="kh__legend-label">{m.label}</span>
-            <span className="kh__mono kh__legend-val">{Math.round((m.revenue / total) * 100)}%</span>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <MixDonut
+      slices={mix.map((m) => ({ label: m.label, value: m.revenue }))}
+      centerTop={String(mix.length)}
+      centerBottom="nhóm SP"
+      formatValue={moneyCompact}
+    />
   );
 }
 
@@ -1888,8 +1853,6 @@ function OrdersTab({
     });
   }, [filteredRows]);
 
-  const maxMonthTotal = Math.max(1, ...monthlySpend.map((m) => m.total));
-
   // Top products mix
   const productMix = useMemo(() => {
     const counts: Record<string, { qty: number; total: number }> = {};
@@ -1969,23 +1932,15 @@ function OrdersTab({
           <div className="kh__chart-head">
             <h3>Chi tiêu theo tháng</h3>
           </div>
-          <div className="kh__bars">
-            {monthlySpend.map((m) => (
-              <div className="kh__bar-col" key={m.month} title={`${m.month}: ${moneyCompact(m.total)}`}>
-                <div className="kh__bar-track">
-                  <div
-                    className="kh__bar-fill kh__bar-fill--orange"
-                    style={{ height: `${(m.total / Math.max(1, maxMonthTotal)) * 100}%` }}
-                    aria-hidden="true"
-                  />
-                </div>
-                <span className="kh__bar-label kh__mono">{m.label}</span>
-              </div>
-            ))}
-            {monthlySpend.length === 0 && (
-              <span className="kh__muted kh__empty-chart-text">Chưa có dữ liệu tháng</span>
-            )}
-          </div>
+          {monthlySpend.length === 0 ? (
+            <span className="kh__muted kh__empty-chart-text">Chưa có dữ liệu tháng</span>
+          ) : (
+            <MonthBars
+              data={monthlySpend.map((m) => ({ label: m.label, value: m.total }))}
+              formatValue={moneyCompact}
+              formatAxis={(v) => String(Math.round(v / 1_000_000))}
+            />
+          )}
         </section>
 
         {/* Right Column: TOP Sản phẩm mua nhiều nhất */}

@@ -6,8 +6,8 @@
   --sb-hover: rgba(245, 241, 232, 0.06);
   --sb-edge: rgba(245, 241, 232, 0.08);
 
-  flex: 0 0 264px;
-  width: 264px;
+  flex: 0 0 244px;
+  width: 244px;
   height: 100%;
   overflow-y: auto;
   background: var(--ink);
@@ -22,7 +22,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: var(--sp-5);
+  padding: var(--sp-4);
   text-decoration: none;
   color: inherit;
   border-bottom: 1px solid var(--sb-edge);
@@ -30,8 +30,8 @@
 
 .sidebar__logo {
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   background: var(--canvas);
@@ -50,7 +50,7 @@
 }
 
 .sidebar__name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: var(--fw-bold);
   letter-spacing: -0.01em;
   line-height: 1.2;
@@ -129,13 +129,13 @@
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  padding: 9px var(--sp-3);
+  padding: 6px var(--sp-3);
   background: none;
   border: 0;
   cursor: pointer;
   text-align: left;
   font-family: var(--ff-sans);
-  font-size: 14px;
+  font-size: 13px;
   color: var(--sb-text);
   border-radius: var(--r-3);
   transition: background-color var(--duration-base) var(--easing-standard),
@@ -217,10 +217,10 @@
   background: none;
   border: 0;
   cursor: pointer;
-  padding: 7px var(--sp-3);
+  padding: 5px var(--sp-3);
   border-radius: var(--r-2);
   font-family: var(--ff-sans);
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--sb-muted);
   transition: background-color var(--duration-base) var(--easing-standard),
     color var(--duration-base) var(--easing-standard);

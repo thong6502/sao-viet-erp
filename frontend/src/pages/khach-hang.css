@@ -1769,7 +1769,8 @@
 /* 3-Column dashboard row */
 .kh__dash-grid-3 {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  /* minmax(0,1fr) + auto-fit: card hẹp quá thì tự xuống hàng, không bóp chữ vỡ dọc. */
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
   gap: var(--sp-4);
 }
 @media (max-width: 900px) {
@@ -1857,9 +1858,12 @@
 .kh__pay-detail-row {
   display: flex;
   justify-content: space-between;
+  align-items: baseline;
+  gap: var(--sp-3);
   font-size: 13px;
   border-bottom: 1px dashed var(--rule-soft);
   padding-bottom: 4px;
+  white-space: nowrap;
 }
 .kh__pay-detail-row span {
   color: var(--ash-1);
@@ -2036,4 +2040,14 @@
   padding: 2px 8px;
   font-size: 12px;
   width: 140px;
+}
+
+/* Chip nhỏ ở đầu card chart ("KỸ THUẬT IN") — không bẻ dọc khi card hẹp. */
+.kh__muted-tag {
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.kh__chart-head {
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
