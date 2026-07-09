@@ -16,6 +16,7 @@ from ..models.leave import (
     LeaveType,
 )
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
+from .org_scope import dept_subtree_ids
 
 _DECIDED = (STATUS_APPROVED, STATUS_REJECTED)
 
@@ -101,7 +102,11 @@ class LeaveRepository:
         if scope == SCOPE_OWN:
             return Employee.user_id == actor.id
         if scope == SCOPE_DEPARTMENT:
-            return Employee.department_id == actor.department_id
+            # Subtree semantics (#26): phòng mình + mọi đơn vị con.
+            dept_ids = dept_subtree_ids(self.db, actor.department_id)
+            if not dept_ids:
+                return Employee.user_id == actor.id
+            return Employee.department_id.in_(dept_ids)
         raise ValueError(f"Unknown scope: {scope!r}")
 
     def list_scoped(self, *, scope: str, actor, status: str | None = None, limit: int = 200) -> list[LeaveRequest]:

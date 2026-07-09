@@ -10,7 +10,20 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class CustomerCreate(BaseModel):
+class _PaymentDiscountFields(BaseModel):
+    """Điều khoản thanh toán riêng (#12, dữ liệu chờ Công nợ) + chiết khấu mặc định
+    theo KH (#14 — chỉ nhận khi caller có quyền chi tiết `view_discount`, service bỏ
+    qua nếu thiếu quyền)."""
+
+    payment_term_type: str | None = Field(default=None, max_length=24)
+    payment_term_days: int | None = Field(default=None, ge=0)
+    prepay_pct: float | None = Field(default=None, ge=0, le=100)
+    payment_term_note: str | None = Field(default=None, max_length=500)
+    discount_trade_pct: float | None = Field(default=None, ge=0, le=100)
+    discount_buyer_pct: float | None = Field(default=None, ge=0, le=100)
+
+
+class CustomerCreate(_PaymentDiscountFields):
     name: str = Field(min_length=1, max_length=255)
     tax_code: str | None = Field(default=None, max_length=20)
     phone: str | None = Field(default=None, max_length=30)
@@ -20,9 +33,11 @@ class CustomerCreate(BaseModel):
     # ≥ 0 enforced here AND in the service (defense in depth).
     credit_limit: int = Field(default=0, ge=0)
     sale_user_id: int | None = None
+    # lead = tiềm năng (khảo sát #22) — cho tạo thẳng khách tiềm năng.
+    status: str = Field(default="active")
 
 
-class CustomerUpdate(BaseModel):
+class CustomerUpdate(_PaymentDiscountFields):
     name: str = Field(min_length=1, max_length=255)
     tax_code: str | None = Field(default=None, max_length=20)
     phone: str | None = Field(default=None, max_length=30)
@@ -31,13 +46,23 @@ class CustomerUpdate(BaseModel):
     contact_name: str | None = Field(default=None, max_length=255)
     credit_limit: int = Field(default=0, ge=0)
     sale_user_id: int | None = None
-    # active = đang giao dịch, inactive = ngừng giao dịch.
+    # lead = tiềm năng, active = đang giao dịch, inactive = ngừng giao dịch.
     status: str = Field(default="active")
 
 
 class DuplicateRef(BaseModel):
     """Points at an existing customer that already carries the submitted MST (soft warn)."""
 
+    id: int
+    code: str
+    name: str
+
+
+class DuplicateWarn(BaseModel):
+    """Một cảnh báo trùng MỀM (khảo sát #8/#15: check theo MST + tên cty + email —
+    cảnh báo, không chặn). `field` ∈ tax_code|name|email."""
+
+    field: str
     id: int
     code: str
     name: str
@@ -72,6 +97,16 @@ class CustomerRow(BaseModel):
     revenue_12m: int = 0
     orders_total: int = 0
     last_order_at: date | None = None
+    # --- Điều khoản thanh toán (#12) — hiển thị cho mọi người có quyền read ---
+    payment_term_type: str | None = None
+    payment_term_days: int | None = None
+    prepay_pct: float | None = None
+    payment_term_note: str | None = None
+    # --- Chiết khấu mặc định (#14) — router ẨN (None + discount_hidden=True) khi
+    # caller thiếu quyền chi tiết `view_discount`; không bao giờ trả 0 giả ---
+    discount_trade_pct: float | None = None
+    discount_buyer_pct: float | None = None
+    discount_hidden: bool = False
 
 
 class CustomerKpis(BaseModel):
@@ -92,10 +127,110 @@ class CustomerListOut(BaseModel):
 
 
 class CustomerCreateOut(BaseModel):
-    """Create response: the new customer + an optional soft duplicate-MST warning."""
+    """Create/update response: the customer + soft duplicate warnings (không chặn).
+    `duplicate` giữ lại cho chỗ gọi cũ (= cảnh báo MST đầu tiên); `duplicates` là danh
+    sách đầy đủ theo MST + tên cty + email."""
 
     customer: CustomerRow
     duplicate: DuplicateRef | None = None
+    duplicates: list[DuplicateWarn] = []
+
+
+# --- Người liên hệ (#10–#11) -----------------------------------------------
+
+
+class ContactIn(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    title: str | None = Field(default=None, max_length=120)
+    duty: str | None = Field(default=None, max_length=255)
+    phone: str | None = Field(default=None, max_length=30)
+    email: str | None = Field(default=None, max_length=255)
+    is_primary: bool = False
+
+
+class ContactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    title: str | None = None
+    duty: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    is_primary: bool
+
+
+class ContactsOut(BaseModel):
+    items: list[ContactOut]
+
+
+# --- Địa chỉ giao hàng (#9) --------------------------------------------------
+
+
+class AddressIn(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
+    address: str = Field(min_length=1, max_length=500)
+    phone: str | None = Field(default=None, max_length=30)
+    note: str | None = Field(default=None, max_length=500)
+    is_default: bool = False
+
+
+class AddressOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    label: str
+    address: str
+    phone: str | None = None
+    note: str | None = None
+    is_default: bool
+
+
+class AddressesOut(BaseModel):
+    items: list[AddressOut]
+
+
+# --- Tài liệu đính kèm (#21) --------------------------------------------------
+
+
+class CustomerAttachmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    doc_kind: str
+    file_name: str
+    file_url: str
+    file_type: str | None = None
+    uploaded_at: datetime
+
+
+class CustomerAttachmentsOut(BaseModel):
+    items: list[CustomerAttachmentOut]
+
+
+# --- Import CSV (#23) ---------------------------------------------------------
+
+
+class ImportRowResult(BaseModel):
+    """Kết quả một dòng import: `row` là số dòng trong file (1-based, không tính header).
+    status ∈ created|warning|error — warning = đã tạo nhưng có cảnh báo trùng."""
+
+    row: int
+    status: str
+    message: str | None = None
+    code: str | None = None
+    name: str | None = None
+
+
+class ImportResultOut(BaseModel):
+    """Tổng kết import. `dry_run=True` → chưa ghi gì, chỉ xem trước."""
+
+    dry_run: bool
+    total: int
+    created: int
+    warnings: int
+    errors: int
+    rows: list[ImportRowResult]
 
 
 class ReceivableCard(BaseModel):
@@ -238,6 +373,17 @@ class CustomerAuditOut(BaseModel):
 __all__ = [
     "CustomerCreate",
     "CustomerUpdate",
+    "DuplicateWarn",
+    "ContactIn",
+    "ContactOut",
+    "ContactsOut",
+    "AddressIn",
+    "AddressOut",
+    "AddressesOut",
+    "CustomerAttachmentOut",
+    "CustomerAttachmentsOut",
+    "ImportRowResult",
+    "ImportResultOut",
     "CustomerRow",
     "CustomerKpis",
     "CustomerListOut",

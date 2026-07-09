@@ -1034,3 +1034,50 @@
   color: var(--ash-2);
   font-size: 18px;
 }
+
+/* --- CRM đợt khảo sát (câu 7–29): lead badge, import/export, sub-form tab --- */
+.kh__badge--lead {
+  background: var(--amber-soft, #fdf3e0);
+  color: var(--amber-deep, #8a5b00);
+}
+.kh__toolbar-io {
+  display: flex;
+  gap: var(--sp-2);
+  margin-left: auto;
+}
+.kh__dup-list {
+  margin: var(--sp-2) 0 0;
+  padding-left: 18px;
+}
+.kh__dup-list li {
+  margin-bottom: 2px;
+}
+.kh__subform {
+  padding: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.kh__checkfield {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: 22px;
+}
+.kh__upload-row {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.kh__linkbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--rust, #a2542f);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+}
+.kh__import-rows {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-top: var(--sp-3);
+}

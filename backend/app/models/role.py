@@ -70,6 +70,12 @@ class RolePermission(Base):
     can_view_debt: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # khach_hang: xem/sửa CHIẾT KHẤU riêng theo khách (CK thương mại + CK người mua hàng
+    # — nhạy cảm, thực chất là hoa hồng phía khách). Thiếu quyền → API ẩn số và bỏ qua
+    # thay đổi 2 trường này khi Sửa (pattern view_debt/view_salary).
+    can_view_discount: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     # Duyệt báo giá (bao_gia): tách khỏi "sửa" — chuyển trạng thái sang "Khách duyệt".
     can_approve: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"

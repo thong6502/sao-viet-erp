@@ -22,6 +22,7 @@ export type ActionKey =
   | "can_reassign"
   | "can_export"
   | "can_view_debt"
+  | "can_view_discount"
   | "can_approve"
   | "can_manage_status"
   | "can_reset_password"
@@ -51,6 +52,7 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
     { key: "can_reassign", label: "Điều chuyển" },
     { key: "can_export", label: "Xuất file" },
     { key: "can_view_debt", label: "Xem công nợ" },
+    { key: "can_view_discount", label: "Xem/sửa chiết khấu riêng" },
   ],
   bao_gia: [
     { key: "can_manage_status", label: "Thao tác trạng thái (gửi/từ chối/hết hạn)" },
@@ -116,6 +118,7 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_reassign: false,
     can_export: false,
     can_view_debt: false,
+    can_view_discount: false,
     can_approve: false,
     can_manage_status: false,
     can_reset_password: false,

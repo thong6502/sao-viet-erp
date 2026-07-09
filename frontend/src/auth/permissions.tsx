@@ -13,6 +13,7 @@ export type PermAction =
   | "reassign"
   | "export"
   | "view_debt"
+  | "view_discount"
   | "approve"
   | "manage_status"
   | "reset_password"
@@ -65,6 +66,7 @@ export function PermissionsProvider({
     if (action === "reassign") return row.can_reassign;
     if (action === "export") return row.can_export;
     if (action === "view_debt") return row.can_view_debt;
+    if (action === "view_discount") return row.can_view_discount;
     if (action === "approve") return row.can_approve;
     if (action === "manage_status") return row.can_manage_status;
     if (action === "reset_password") return row.can_reset_password;

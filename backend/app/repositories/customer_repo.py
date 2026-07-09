@@ -11,9 +11,15 @@ from __future__ import annotations
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from ..models.customer import Customer
+from ..models.customer import (
+    Customer,
+    CustomerAddress,
+    CustomerAttachment,
+    CustomerContact,
+)
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
+from .org_scope import dept_subtree_ids
 
 # Columns a caller may sort by (whitelist — never interpolate a raw sort key).
 _SORTABLE = {
@@ -44,21 +50,64 @@ class CustomerRepository:
             select(Customer).where(Customer.tax_code == tax_code).order_by(Customer.id)
         ).scalars().first()
 
+    def find_duplicates(
+        self,
+        *,
+        tax_code: str | None = None,
+        name: str | None = None,
+        email: str | None = None,
+        exclude_id: int | None = None,
+    ) -> list[tuple[str, Customer]]:
+        """Soft duplicate check theo 3 tiêu chí khảo sát #15 (MST / tên cty / email).
+        Trả về [(field, customer)] — mỗi khách chỉ báo MỘT lần theo tiêu chí mạnh nhất
+        (tax_code > name > email). So khớp case-insensitive, name bỏ khoảng trắng thừa."""
+        out: list[tuple[str, Customer]] = []
+        seen: set[int] = set()
+
+        def _add(field: str, rows) -> None:
+            for c in rows:
+                if c.id in seen or (exclude_id is not None and c.id == exclude_id):
+                    continue
+                seen.add(c.id)
+                out.append((field, c))
+
+        if tax_code:
+            _add("tax_code", self.db.execute(
+                select(Customer).where(Customer.tax_code == tax_code).order_by(Customer.id)
+            ).scalars())
+        if name and name.strip():
+            needle = " ".join(name.strip().lower().split())
+            _add("name", self.db.execute(
+                select(Customer)
+                .where(func.lower(Customer.name) == needle)
+                .order_by(Customer.id)
+            ).scalars())
+        if email and email.strip():
+            _add("email", self.db.execute(
+                select(Customer)
+                .where(func.lower(func.coalesce(Customer.email, "")) == email.strip().lower())
+                .order_by(Customer.id)
+            ).scalars())
+        return out
+
     def _scope_condition(self, *, scope: str, actor):
         """The WHERE expression narrowing customers to a data scope, or None for `all`.
 
         `own`        → customers whose owning Sale is the actor.
-        `department` → customers whose owning Sale sits in the actor's department.
+        `department` → customers whose owning Sale sits in the actor's department
+                       OR any of its sub-units (subtree — khảo sát #26: GĐKD ở phòng
+                       cha thấy khách của các team con).
         """
         if scope == SCOPE_ALL:
             return None
         if scope == SCOPE_OWN:
             return Customer.sale_user_id == actor.id
         if scope == SCOPE_DEPARTMENT:
-            if actor.department_id is None:
+            dept_ids = dept_subtree_ids(self.db, actor.department_id)
+            if not dept_ids:
                 # No department → can only see own (avoids leaking the whole table).
                 return Customer.sale_user_id == actor.id
-            dept_sales = select(User.id).where(User.department_id == actor.department_id)
+            dept_sales = select(User.id).where(User.department_id.in_(dept_ids))
             return Customer.sale_user_id.in_(dept_sales)
         raise ValueError(f"Unknown scope: {scope!r}")
 
@@ -74,7 +123,9 @@ class CustomerRepository:
             if customer.sale_user_id == actor.id:
                 return True
             owner = self.db.get(User, customer.sale_user_id)
-            return owner is not None and owner.department_id == actor.department_id
+            if owner is None or owner.department_id is None:
+                return False
+            return owner.department_id in dept_subtree_ids(self.db, actor.department_id)
         raise ValueError(f"Unknown scope: {scope!r}")
 
     def list(
@@ -174,7 +225,10 @@ class CustomerRepository:
         credit_limit: int,
         sale_user_id: int | None,
         status: str,
+        **extra,
     ) -> Customer:
+        """`extra` = các cột phụ đã được service validate (điều khoản thanh toán,
+        chiết khấu) — code vẫn luôn do repo tự sinh."""
         customer = Customer(
             code=self._next_code(),
             name=name,
@@ -186,6 +240,7 @@ class CustomerRepository:
             credit_limit=credit_limit,
             sale_user_id=sale_user_id,
             status=status,
+            **extra,
         )
         self.db.add(customer)
         self.db.commit()
@@ -239,3 +294,104 @@ class CustomerRepository:
                 moved.append(c)
         self.db.commit()
         return moved, skipped
+
+    # --- người liên hệ (#10–#11) ---------------------------------------------
+
+    def list_contacts(self, customer_id: int) -> list[CustomerContact]:
+        return list(self.db.execute(
+            select(CustomerContact)
+            .where(CustomerContact.customer_id == customer_id)
+            .order_by(CustomerContact.is_primary.desc(), CustomerContact.id)
+        ).scalars())
+
+    def get_contact(self, contact_id: int) -> CustomerContact | None:
+        return self.db.get(CustomerContact, contact_id)
+
+    def _clear_primary(self, customer_id: int, except_id: int | None = None) -> None:
+        for c in self.list_contacts(customer_id):
+            if c.is_primary and c.id != except_id:
+                c.is_primary = False
+
+    def add_contact(self, customer_id: int, **fields) -> CustomerContact:
+        if fields.get("is_primary"):
+            self._clear_primary(customer_id)
+        contact = CustomerContact(customer_id=customer_id, **fields)
+        self.db.add(contact)
+        self.db.commit()
+        self.db.refresh(contact)
+        return contact
+
+    def update_contact(self, contact: CustomerContact, **fields) -> CustomerContact:
+        if fields.get("is_primary"):
+            self._clear_primary(contact.customer_id, except_id=contact.id)
+        for key, value in fields.items():
+            setattr(contact, key, value)
+        self.db.commit()
+        self.db.refresh(contact)
+        return contact
+
+    def delete_contact(self, contact: CustomerContact) -> None:
+        self.db.delete(contact)
+        self.db.commit()
+
+    # --- địa chỉ giao hàng (#9) ------------------------------------------------
+
+    def list_addresses(self, customer_id: int) -> list[CustomerAddress]:
+        return list(self.db.execute(
+            select(CustomerAddress)
+            .where(CustomerAddress.customer_id == customer_id)
+            .order_by(CustomerAddress.is_default.desc(), CustomerAddress.id)
+        ).scalars())
+
+    def get_address(self, address_id: int) -> CustomerAddress | None:
+        return self.db.get(CustomerAddress, address_id)
+
+    def _clear_default_address(self, customer_id: int, except_id: int | None = None) -> None:
+        for a in self.list_addresses(customer_id):
+            if a.is_default and a.id != except_id:
+                a.is_default = False
+
+    def add_address(self, customer_id: int, **fields) -> CustomerAddress:
+        if fields.get("is_default"):
+            self._clear_default_address(customer_id)
+        address = CustomerAddress(customer_id=customer_id, **fields)
+        self.db.add(address)
+        self.db.commit()
+        self.db.refresh(address)
+        return address
+
+    def update_address(self, address: CustomerAddress, **fields) -> CustomerAddress:
+        if fields.get("is_default"):
+            self._clear_default_address(address.customer_id, except_id=address.id)
+        for key, value in fields.items():
+            setattr(address, key, value)
+        self.db.commit()
+        self.db.refresh(address)
+        return address
+
+    def delete_address(self, address: CustomerAddress) -> None:
+        self.db.delete(address)
+        self.db.commit()
+
+    # --- tài liệu đính kèm (#21) -------------------------------------------------
+
+    def list_attachments(self, customer_id: int) -> list[CustomerAttachment]:
+        return list(self.db.execute(
+            select(CustomerAttachment)
+            .where(CustomerAttachment.customer_id == customer_id)
+            .order_by(CustomerAttachment.id.desc())
+        ).scalars())
+
+    def get_attachment(self, attachment_id: int) -> CustomerAttachment | None:
+        return self.db.get(CustomerAttachment, attachment_id)
+
+    def add_attachment(self, customer_id: int, **fields) -> CustomerAttachment:
+        att = CustomerAttachment(customer_id=customer_id, **fields)
+        self.db.add(att)
+        self.db.commit()
+        self.db.refresh(att)
+        return att
+
+    def delete_attachment(self, att: CustomerAttachment) -> None:
+        self.db.delete(att)
+        self.db.commit()

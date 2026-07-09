@@ -19,6 +19,7 @@ ACTION_DELETE = "delete"
 ACTION_REASSIGN = "reassign"
 ACTION_EXPORT = "export"
 ACTION_VIEW_DEBT = "view_debt"
+ACTION_VIEW_DISCOUNT = "view_discount"  # khach_hang: xem/sửa chiết khấu riêng theo khách
 ACTION_APPROVE = "approve"  # bao_gia: duyệt báo giá (đổi trạng thái → Khách duyệt)
 ACTION_MANAGE_STATUS = "manage_status"  # don_hang_ban: chốt / hủy đơn
 ACTION_RESET_PASSWORD = "reset_password"  # nguoi_dung: đặt lại mật khẩu
@@ -47,6 +48,7 @@ _ACTION_ATTR = {
     ACTION_REASSIGN: "can_reassign",
     ACTION_EXPORT: "can_export",
     ACTION_VIEW_DEBT: "can_view_debt",
+    ACTION_VIEW_DISCOUNT: "can_view_discount",
     ACTION_APPROVE: "can_approve",
     ACTION_MANAGE_STATUS: "can_manage_status",
     ACTION_RESET_PASSWORD: "can_reset_password",
@@ -108,6 +110,7 @@ class AuthorizationService:
                 "can_reassign": p.can_reassign,
                 "can_export": p.can_export,
                 "can_view_debt": p.can_view_debt,
+                "can_view_discount": p.can_view_discount,
                 "can_approve": p.can_approve,
                 "can_manage_status": p.can_manage_status,
                 "can_reset_password": p.can_reset_password,

@@ -64,6 +64,7 @@ class ModuleCapability(BaseModel):
     can_reassign: bool = False
     can_export: bool = False
     can_view_debt: bool = False
+    can_view_discount: bool = False
     can_approve: bool = False
     can_manage_status: bool = False
     can_reset_password: bool = False

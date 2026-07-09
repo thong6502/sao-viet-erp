@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from ..models.employee import Employee, EmployeeAttachment, EmployeeEvent
 from ..models.profile_request import ProfileUpdateRequest
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
+from .org_scope import dept_subtree_ids
 
 # Columns a caller may sort by (whitelist — never interpolate a raw sort key).
 _SORTABLE = {
@@ -64,10 +65,12 @@ class EmployeeRepository:
         if scope == SCOPE_OWN:
             return Employee.user_id == actor.id
         if scope == SCOPE_DEPARTMENT:
-            if actor.department_id is None:
+            # Subtree semantics (#26): phòng mình + mọi đơn vị con.
+            dept_ids = dept_subtree_ids(self.db, actor.department_id)
+            if not dept_ids:
                 # No department → can only see own record (avoids leaking the whole table).
                 return Employee.user_id == actor.id
-            return Employee.department_id == actor.department_id
+            return Employee.department_id.in_(dept_ids)
         raise ValueError(f"Unknown scope: {scope!r}")
 
     def can_access(self, *, employee: Employee, scope: str, actor) -> bool:
@@ -77,9 +80,10 @@ class EmployeeRepository:
         if scope == SCOPE_OWN:
             return employee.user_id == actor.id
         if scope == SCOPE_DEPARTMENT:
-            if actor.department_id is None:
+            dept_ids = dept_subtree_ids(self.db, actor.department_id)
+            if not dept_ids:
                 return employee.user_id == actor.id
-            return employee.department_id == actor.department_id
+            return employee.department_id in dept_ids
         raise ValueError(f"Unknown scope: {scope!r}")
 
     def list(

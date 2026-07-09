@@ -257,6 +257,7 @@ export interface ModuleCapability {
   can_reassign: boolean;
   can_export: boolean;
   can_view_debt: boolean;
+  can_view_discount: boolean;
   can_approve: boolean;
   can_manage_status: boolean;
   can_reset_password: boolean;
@@ -301,6 +302,7 @@ export interface PermissionRow {
   can_reassign: boolean;
   can_export: boolean;
   can_view_debt: boolean;
+  can_view_discount: boolean;
   can_approve: boolean;
   can_manage_status: boolean;
   can_reset_password: boolean;
@@ -347,6 +349,15 @@ export interface CustomerRow {
   revenue_12m: number;
   orders_total: number;
   last_order_at: string | null;
+  /** Điều khoản thanh toán riêng (#12) — dữ liệu chờ Công nợ. */
+  payment_term_type?: string | null;
+  payment_term_days?: number | null;
+  prepay_pct?: number | null;
+  payment_term_note?: string | null;
+  /** Chiết khấu riêng theo KH (#14) — null + discount_hidden khi thiếu quyền `view_discount`. */
+  discount_trade_pct?: number | null;
+  discount_buyer_pct?: number | null;
+  discount_hidden?: boolean;
 }
 
 /** List header KPI strip — rolled up over the whole scoped book from real orders. */
@@ -445,9 +456,83 @@ export interface DuplicateRef {
   name: string;
 }
 
+/** Cảnh báo trùng MỀM theo tiêu chí (#15): field ∈ tax_code | name | email. */
+export interface DuplicateWarn {
+  field: "tax_code" | "name" | "email";
+  id: number;
+  code: string;
+  name: string;
+}
+
 export interface CustomerCreateOut {
   customer: CustomerRow;
   duplicate: DuplicateRef | null;
+  duplicates: DuplicateWarn[];
+}
+
+// --- Người liên hệ / địa chỉ giao hàng / tài liệu (khảo sát #9–#11, #21) -----
+
+export interface CustomerContact {
+  id: number;
+  name: string;
+  title: string | null;
+  duty: string | null;
+  phone: string | null;
+  email: string | null;
+  is_primary: boolean;
+}
+
+export interface CustomerContactInput {
+  name: string;
+  title: string | null;
+  duty: string | null;
+  phone: string | null;
+  email: string | null;
+  is_primary: boolean;
+}
+
+export interface CustomerAddress {
+  id: number;
+  label: string;
+  address: string;
+  phone: string | null;
+  note: string | null;
+  is_default: boolean;
+}
+
+export interface CustomerAddressInput {
+  label: string;
+  address: string;
+  phone: string | null;
+  note: string | null;
+  is_default: boolean;
+}
+
+export interface CustomerAttachment {
+  id: number;
+  doc_kind: string;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
+  uploaded_at: string;
+}
+
+/** Kết quả import CSV (#23): dry_run=true → chỉ xem trước, chưa ghi. */
+export interface ImportRowResult {
+  row: number;
+  status: "created" | "warning" | "error";
+  message: string | null;
+  code: string | null;
+  name: string | null;
+}
+
+export interface ImportResultOut {
+  dry_run: boolean;
+  total: number;
+  created: number;
+  warnings: number;
+  errors: number;
+  rows: ImportRowResult[];
 }
 
 /** The read-only Công nợ card. available=false + message → "Chưa có phân hệ Công nợ". */
@@ -479,8 +564,17 @@ export interface CustomerInput {
   contact_name: string | null;
   credit_limit: number;
   sale_user_id: number | null;
-  /** Only sent on update (create defaults to active). */
+  /** lead = tiềm năng (#22), active, inactive. Create mặc định active nếu bỏ trống. */
   status?: string;
+  /** Điều khoản thanh toán (#12). */
+  payment_term_type?: string | null;
+  payment_term_days?: number | null;
+  prepay_pct?: number | null;
+  payment_term_note?: string | null;
+  /** Chiết khấu (#14) — backend bỏ qua nếu thiếu quyền `view_discount`; khi Sửa,
+   * null = giữ nguyên (xóa CK → gửi 0). */
+  discount_trade_pct?: number | null;
+  discount_buyer_pct?: number | null;
 }
 
 export interface CustomerListParams {
@@ -2682,6 +2776,136 @@ export const api = {
       return authed<CustomerCreateOut>(`/api/customers/${id}`, token, {
         method: "PUT",
         body: JSON.stringify(input),
+      });
+    },
+    /** Check trùng tức thời trên form (#8) — soft warn, không chặn. */
+    checkDuplicate(
+      token: string,
+      params: { tax_code?: string; name?: string; email?: string; exclude_id?: number },
+    ): Promise<DuplicateWarn[]> {
+      const qs = new URLSearchParams();
+      if (params.tax_code) qs.set("tax_code", params.tax_code);
+      if (params.name) qs.set("name", params.name);
+      if (params.email) qs.set("email", params.email);
+      if (params.exclude_id != null) qs.set("exclude_id", String(params.exclude_id));
+      return authed<DuplicateWarn[]>(`/api/customers/check-duplicate?${qs}`, token);
+    },
+    // --- người liên hệ (#10–#11) ---
+    contacts(token: string, id: number): Promise<{ items: CustomerContact[] }> {
+      return authed<{ items: CustomerContact[] }>(`/api/customers/${id}/contacts`, token);
+    },
+    addContact(token: string, id: number, input: CustomerContactInput): Promise<CustomerContact> {
+      return authed<CustomerContact>(`/api/customers/${id}/contacts`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    updateContact(
+      token: string,
+      id: number,
+      contactId: number,
+      input: CustomerContactInput,
+    ): Promise<CustomerContact> {
+      return authed<CustomerContact>(`/api/customers/${id}/contacts/${contactId}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    deleteContact(token: string, id: number, contactId: number): Promise<void> {
+      return authed<void>(`/api/customers/${id}/contacts/${contactId}`, token, {
+        method: "DELETE",
+      });
+    },
+    // --- địa chỉ giao hàng (#9) ---
+    addresses(token: string, id: number): Promise<{ items: CustomerAddress[] }> {
+      return authed<{ items: CustomerAddress[] }>(`/api/customers/${id}/addresses`, token);
+    },
+    addAddress(token: string, id: number, input: CustomerAddressInput): Promise<CustomerAddress> {
+      return authed<CustomerAddress>(`/api/customers/${id}/addresses`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    updateAddress(
+      token: string,
+      id: number,
+      addressId: number,
+      input: CustomerAddressInput,
+    ): Promise<CustomerAddress> {
+      return authed<CustomerAddress>(`/api/customers/${id}/addresses/${addressId}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    deleteAddress(token: string, id: number, addressId: number): Promise<void> {
+      return authed<void>(`/api/customers/${id}/addresses/${addressId}`, token, {
+        method: "DELETE",
+      });
+    },
+    // --- tài liệu đính kèm (#21) ---
+    attachments(token: string, id: number): Promise<{ items: CustomerAttachment[] }> {
+      return authed<{ items: CustomerAttachment[] }>(`/api/customers/${id}/attachments`, token);
+    },
+    uploadAttachment(
+      token: string,
+      id: number,
+      file: File,
+      docKind: string,
+    ): Promise<CustomerAttachment> {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("doc_kind", docKind);
+      return authed<CustomerAttachment>(`/api/customers/${id}/attachments`, token, {
+        method: "POST",
+        body: form,
+      });
+    },
+    deleteAttachment(token: string, id: number, attachmentId: number): Promise<void> {
+      return authed<void>(`/api/customers/${id}/attachments/${attachmentId}`, token, {
+        method: "DELETE",
+      });
+    },
+    // --- import / export danh bạ (#23) ---
+    /** Xuất danh bạ CSV (blob URL, bearer-aware — mirror orderCsvBlobUrl). */
+    async exportCsvBlobUrl(token: string): Promise<string> {
+      const doFetch = (bearer: string) =>
+        fetch(`${BASE_URL}/api/customers/export.csv`, {
+          credentials: "include",
+          cache: "no-store",
+          headers: authHeader(bearer),
+        });
+      let resp = await doFetch(token);
+      if (resp.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) resp = await doFetch(fresh);
+      }
+      if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+      return URL.createObjectURL(await resp.blob());
+    },
+    /** File mẫu import (blob URL). */
+    async importTemplateBlobUrl(token: string): Promise<string> {
+      const doFetch = (bearer: string) =>
+        fetch(`${BASE_URL}/api/customers/import-template.csv`, {
+          credentials: "include",
+          cache: "no-store",
+          headers: authHeader(bearer),
+        });
+      let resp = await doFetch(token);
+      if (resp.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) resp = await doFetch(fresh);
+      }
+      if (!resp.ok) throw new ApiError(`Download failed (${resp.status}).`, resp.status);
+      return URL.createObjectURL(await resp.blob());
+    },
+    /** Import CSV — dryRun=true chỉ xem trước; false mới ghi. */
+    importCsv(token: string, file: File, dryRun: boolean): Promise<ImportResultOut> {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("dry_run", dryRun ? "true" : "false");
+      return authed<ImportResultOut>("/api/customers/import", token, {
+        method: "POST",
+        body: form,
       });
     },
   },

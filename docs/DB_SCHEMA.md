@@ -145,6 +145,7 @@ gets on that module.
 | `can_reassign` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (Cách B) — điều chuyển người phụ trách (vd Khách hàng). |
 | `can_export` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — xuất file đối ngoại (CSV khách hàng, PDF báo giá). |
 | `can_view_debt` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — xem công nợ / hạn mức khách hàng. |
+| `can_view_discount` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (khach_hang) — xem/sửa chiết khấu riêng theo khách (#14, nhạy cảm). |
 | `can_approve` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — duyệt báo giá (chuyển trạng thái → Khách duyệt). |
 | `can_manage_status` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — chốt / hủy đơn hàng (đổi trạng thái vòng đời). |
 | `can_reset_password` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đặt lại mật khẩu người dùng. |
@@ -248,7 +249,13 @@ and is read via SEAM-16, never stored here.
 | `contact_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người liên hệ tại khách (CRM field). |
 | `credit_limit` | `Integer` → `INTEGER` | — | no | `0` | Hạn mức tín dụng (VND integer). Limit only; live balance is read via SEAM-16. |
 | `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Owning Sale (RBAC scope owner). Nullable; indexed because every scoped list filters on it. |
-| `status` | `String(16)` → `VARCHAR(16)` | — | no | `active` | `active` = đang giao dịch, `inactive` = ngừng giao dịch. |
+| `status` | `String(16)` → `VARCHAR(16)` | — | no | `active` | `lead` = tiềm năng (chào hàng, chưa giao dịch — khảo sát #22), `active` = đang giao dịch, `inactive` = ngừng giao dịch. |
+| `payment_term_type` | `String(24)` → `VARCHAR(24)` | — | yes | — | Điều khoản thanh toán riêng (#12, dữ liệu chờ Công nợ): `prepay` / `net_delivery` / `net_eom` / `custom`; NULL = chưa khai. |
+| `payment_term_days` | `Integer` → `INTEGER` | — | yes | — | Số ngày công nợ (chỉ có nghĩa với `net_delivery` / `net_eom`). |
+| `prepay_pct` | `Float` → `FLOAT` | — | yes | — | Tỷ lệ trả trước % (chỉ có nghĩa với `prepay`). |
+| `payment_term_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú điều khoản (bắt buộc mô tả khi `custom`). |
+| `discount_trade_pct` | `Float` → `FLOAT` | — | yes | — | CK thương mại mặc định cho công ty khách (#14) — default điền sẵn ở Báo giá, KHÔNG nằm trong engine tính giá. Ẩn sau quyền chi tiết `view_discount`. |
+| `discount_buyer_pct` | `Float` → `FLOAT` | — | yes | — | CK cho người mua hàng của khách (#14 — nhạy cảm). Ẩn sau quyền chi tiết `view_discount`; NULL = chưa khai (không phải 0 giả). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the customer row was created. |
 
 **Keys & indexes**
@@ -265,6 +272,80 @@ and is read via SEAM-16, never stored here.
 - Receivable/CreditLimit live in Công nợ (Tài chính–Kế toán) and are read via SEAM-16 —
   NOT modeled as FKs here at P0 (cardinality `Customer 1─n Receivable` is inferred; see
   spec-06 open decision #3).
+
+---
+
+### `customer_contacts`
+
+**Purpose:** người liên hệ của khách hàng (khảo sát #10–#11: khách luôn có nhiều người —
+mua hàng, kho, kế toán, kỹ thuật — cần chức vụ + nhiệm vụ để các bộ phận tự liên hệ).
+`customers.contact_name` vẫn giữ làm "liên hệ nhanh"; bảng này là danh sách đầy đủ.
+Bất biến (service): tối đa MỘT `is_primary` mỗi khách.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id** (CASCADE), **IX** | no | — | Khách hàng sở hữu. |
+| `name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên người liên hệ (bắt buộc). |
+| `title` | `String(120)` → `VARCHAR(120)` | — | yes | — | Chức vụ (kế toán, mua hàng…). |
+| `duty` | `String(255)` → `VARCHAR(255)` | — | yes | — | Nhiệm vụ (đối chiếu công nợ, nhận hàng…). |
+| `phone` | `String(30)` → `VARCHAR(30)` | — | yes | — | Điện thoại. |
+| `email` | `String(255)` → `VARCHAR(255)` | — | yes | — | Email. |
+| `is_primary` | `Boolean` → `BOOLEAN` | — | no | `false` | Liên hệ chính (#11) — service giữ tối đa một/khách. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm tạo. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `ix_customer_contacts_customer_id` on `customer_id`.
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE CASCADE).
+
+---
+
+### `customer_addresses`
+
+**Purpose:** địa điểm giao hàng của khách (khảo sát #9: "khách hàng luôn có nhiều vị trí
+giao hàng"). CHỖ NỐI Tính giá: phí giao hàng theo điểm giao sẽ đọc danh sách này khi
+được wire (chưa wire ở đợt khảo sát). Bất biến (service): tối đa MỘT `is_default`/khách.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id** (CASCADE), **IX** | no | — | Khách hàng sở hữu. |
+| `label` | `String(120)` → `VARCHAR(120)` | — | no | — | Tên điểm giao ("Trụ sở", "Nhà máy Bắc Ninh"). |
+| `address` | `String(500)` → `VARCHAR(500)` | — | no | — | Địa chỉ đầy đủ. |
+| `phone` | `String(30)` → `VARCHAR(30)` | — | yes | — | SĐT tại điểm giao. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú giao nhận. |
+| `is_default` | `Boolean` → `BOOLEAN` | — | no | `false` | Điểm giao mặc định — service giữ tối đa một/khách. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm tạo. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `ix_customer_addresses_customer_id` on `customer_id`.
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE CASCADE).
+
+---
+
+### `customer_attachments`
+
+**Purpose:** tài liệu đính kèm hồ sơ khách (khảo sát #21: hợp đồng, GPKD, file thiết kế…).
+Bytes nằm dưới `<backend>/static/crm/<customer_id>/`, serve read-only tại `/static`; chỉ
+lưu path ở đây (mirror `employee_attachments` / `quote_attachments`).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id** (CASCADE), **IX** | no | — | Khách hàng sở hữu. |
+| `doc_kind` | `String(24)` → `VARCHAR(24)` | — | no | `khac` | Loại tài liệu: `hop_dong` / `gpkd` / `thiet_ke` / `khac`. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | no | — | Tên file gốc (đã sanitize). |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | Path `/static/crm/<customer_id>/<token>_<name>`. |
+| `file_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người upload. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm upload. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `ix_customer_attachments_customer_id` on `customer_id`.
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE CASCADE), `uploaded_by FK→users.id`.
 
 ---
 

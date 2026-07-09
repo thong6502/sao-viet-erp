@@ -228,6 +228,7 @@ class RoleRepository:
         can_reassign: bool = False,
         can_export: bool = False,
         can_view_debt: bool = False,
+        can_view_discount: bool = False,
         can_approve: bool = False,
         can_manage_status: bool = False,
         can_reset_password: bool = False,
@@ -259,6 +260,7 @@ class RoleRepository:
         perm.can_reassign = can_reassign
         perm.can_export = can_export
         perm.can_view_debt = can_view_debt
+        perm.can_view_discount = can_view_discount
         perm.can_approve = can_approve
         perm.can_manage_status = can_manage_status
         perm.can_reset_password = can_reset_password

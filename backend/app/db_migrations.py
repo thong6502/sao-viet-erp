@@ -766,6 +766,33 @@ def _migrate_drop_paper_sizes(db: Session) -> None:
     run("DROP TABLE IF EXISTS paper_sizes")
 
 
+def _migrate_customer_crm_fields(db: Session) -> None:
+    """CRM đợt khảo sát (câu 7–29): điều khoản thanh toán riêng (#12), chiết khấu mặc
+    định theo KH (#14, gate `can_view_discount`). Các BẢNG mới (customer_contacts /
+    customer_addresses / customer_attachments) do create_all tự tạo — ở đây chỉ ADD
+    COLUMN cho bảng đã tồn tại. No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "customers" in tables:
+        cols = _existing_columns(insp, "customers")
+        for name, ddl in (
+            ("payment_term_type", "VARCHAR(24)"),
+            ("payment_term_days", "INTEGER"),
+            ("prepay_pct", "FLOAT"),
+            ("payment_term_note", "VARCHAR(500)"),
+            ("discount_trade_pct", "FLOAT"),
+            ("discount_buyer_pct", "FLOAT"),
+        ):
+            if name not in cols:
+                db.execute(text(f"ALTER TABLE customers ADD COLUMN {name} {ddl}"))
+    if "role_permissions" in tables:
+        if "can_view_discount" not in _existing_columns(insp, "role_permissions"):
+            db.execute(text(
+                "ALTER TABLE role_permissions ADD COLUMN can_view_discount BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -785,6 +812,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0017_leave_seen_by_employee", _migrate_leave_seen_by_employee),
     ("0018_product_type_waste_pct", _migrate_product_type_waste_pct),
     ("0019_drop_paper_sizes", _migrate_drop_paper_sizes),
+    ("0020_customer_crm_fields", _migrate_customer_crm_fields),
 ]
 
 

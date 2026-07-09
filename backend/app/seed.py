@@ -87,6 +87,7 @@ def _full(scope: str) -> dict:
         can_reassign=True,
         can_export=True,
         can_view_debt=True,
+        can_view_discount=True,
         can_approve=True,
         can_manage_status=True,
         can_reset_password=True,

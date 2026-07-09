@@ -8,10 +8,23 @@ explicit "unavailable" card (never a fabricated 0 balance).
 """
 from __future__ import annotations
 
+import csv
 import io
+import secrets
+from pathlib import Path
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Response,
+    UploadFile,
+    status,
+)
 
 from ..deps import (
     get_audit_repository,
@@ -26,6 +39,14 @@ from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas.customer import (
+    AddressIn,
+    AddressOut,
+    AddressesOut,
+    ContactIn,
+    ContactOut,
+    ContactsOut,
+    CustomerAttachmentOut,
+    CustomerAttachmentsOut,
     CustomerAuditOut,
     CustomerAuditRowOut,
     CustomerCreate,
@@ -39,7 +60,10 @@ from ..schemas.customer import (
     CustomerRow,
     CustomerUpdate,
     DuplicateRef,
+    DuplicateWarn,
     HeatCellOut,
+    ImportResultOut,
+    ImportRowResult,
     MonthPointOut,
     OrderHistoryOut,
     OrderHistoryRowOut,
@@ -64,6 +88,9 @@ router = APIRouter(prefix="/api/customers", tags=["customers"])
 
 MODULE = "khach_hang"
 
+# Tài liệu KH nằm dưới <backend>/static/crm, serve read-only tại /static (mirror hr).
+_STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+
 Service = Annotated[CustomerService, Depends(get_customer_service)]
 Analytics = Annotated[CustomerAnalyticsService, Depends(get_customer_analytics_service)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
@@ -81,6 +108,8 @@ def _row(
     customer: Customer,
     sale_names: dict[int, str],
     stat: CustomerStat | None = None,
+    *,
+    show_discount: bool = False,
 ) -> CustomerRow:
     row = CustomerRow.model_validate(customer)
     if customer.sale_user_id is not None:
@@ -88,6 +117,12 @@ def _row(
     # Công nợ chỉ-đọc: chưa build → None + no_ar_module=True (KHÔNG số 0 giả).
     row.receivable = None
     row.no_ar_module = True
+    # Chiết khấu riêng theo KH (#14) là dữ liệu nhạy cảm — thiếu quyền chi tiết
+    # `view_discount` thì ẨN (None + discount_hidden), không bao giờ trả 0 giả.
+    if not show_discount:
+        row.discount_trade_pct = None
+        row.discount_buyer_pct = None
+        row.discount_hidden = True
     # Derived-from-real-orders fields (default honest zeros when no history).
     if stat is not None:
         row.tier = stat.tier
@@ -151,7 +186,7 @@ def list_customers(
         filtered = [c for c in filtered if c.sale_user_id == sale]
     if tier:
         filtered = [c for c in filtered if stats.per_customer[c.id].tier == tier]
-    if status in ("active", "inactive"):
+    if status in ("lead", "active", "inactive"):
         filtered = [c for c in filtered if c.status == status]
 
     key, is_desc = _sort_key(sort or "code")
@@ -178,8 +213,12 @@ def list_customers(
 
     sale_ids = {c.sale_user_id for c in page_rows if c.sale_user_id is not None}
     names = _sale_names(users, sale_ids)
+    show_disc = authz.can(user, MODULE, "view_discount")
     return CustomerListOut(
-        items=[_row(c, names, stats.per_customer.get(c.id)) for c in page_rows],
+        items=[
+            _row(c, names, stats.per_customer.get(c.id), show_discount=show_disc)
+            for c in page_rows
+        ],
         total=total,
         page=page,
         size=size,
@@ -288,15 +327,177 @@ def reassign_customers(
     )
 
 
+# --- check trùng tức thời (#8: cảnh báo ngay trên form, trước khi chào hàng) --
+
+
+@router.get("/check-duplicate", response_model=list[DuplicateWarn])
+def check_duplicate(
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    tax_code: str | None = Query(default=None),
+    name: str | None = Query(default=None),
+    email: str | None = Query(default=None),
+    exclude_id: int | None = Query(default=None),
+) -> list[DuplicateWarn]:
+    """Soft check theo MST + tên cty + email (#15). Cảnh báo, KHÔNG chặn — form gọi
+    khi người dùng rời ô nhập để hiện link tới khách đã có."""
+    return _dup_warns(
+        svc.customers.find_duplicates(
+            tax_code=(tax_code or "").strip() or None,
+            name=name,
+            email=email,
+            exclude_id=exclude_id,
+        )
+    )
+
+
+# --- import / export danh bạ (#23) -------------------------------------------
+
+_EXPORT_STATUS_LABELS = {"lead": "Tiềm năng", "active": "Đang giao dịch", "inactive": "Ngừng giao dịch"}
+_IMPORT_HEADERS = [
+    "Tên khách hàng", "MST", "Điện thoại", "Email", "Địa chỉ",
+    "Người liên hệ", "Hạn mức (VND)", "Trạng thái",
+]
+
+
+def _csv_response(rows: list[list], filename: str) -> Response:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    for r in rows:
+        w.writerow(r)
+    # UTF-8 BOM so Excel opens Vietnamese correctly.
+    data = b"\xef\xbb\xbf" + buf.getvalue().encode("utf-8")
+    return Response(
+        content=data,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/export.csv")
+def export_customers_csv(
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "export"))],
+) -> Response:
+    """Xuất toàn bộ danh bạ trong scope của người gọi (CSV UTF-8 BOM mở bằng Excel).
+    Cột chiết khấu chỉ xuất khi có quyền chi tiết `view_discount`."""
+    scope = _scope_for(authz, user)
+    book = svc.list_scoped_all(scope=scope, actor=user)
+    book.sort(key=lambda c: c.code)
+    show_disc = authz.can(user, MODULE, "view_discount")
+    names = _sale_names(users, {c.sale_user_id for c in book if c.sale_user_id})
+
+    header = ["Mã KH", *_IMPORT_HEADERS, "NV phụ trách"]
+    if show_disc:
+        header += ["CK thương mại (%)", "CK người mua (%)"]
+    rows: list[list] = [header]
+    for c in book:
+        row = [
+            c.code, c.name, c.tax_code or "", c.phone or "", c.email or "",
+            c.address or "", c.contact_name or "", c.credit_limit,
+            _EXPORT_STATUS_LABELS.get(c.status, c.status),
+            names.get(c.sale_user_id, "") if c.sale_user_id else "",
+        ]
+        if show_disc:
+            row += [
+                c.discount_trade_pct if c.discount_trade_pct is not None else "",
+                c.discount_buyer_pct if c.discount_buyer_pct is not None else "",
+            ]
+        rows.append(row)
+    return _csv_response(rows, "danh-ba-khach-hang.csv")
+
+
+@router.get("/import-template.csv")
+def import_template_csv(
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> Response:
+    """File mẫu import (header tiếng Việt + 1 dòng ví dụ)."""
+    return _csv_response(
+        [
+            _IMPORT_HEADERS,
+            ["Công ty TNHH ABC", "0101234567", "0912345678", "lienhe@abc.vn",
+             "Số 1 Phố X, Hà Nội", "Chị Lan", "200000000", "Đang giao dịch"],
+        ],
+        "mau-import-khach-hang.csv",
+    )
+
+
+@router.post("/import", response_model=ImportResultOut)
+def import_customers_csv(
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    file: UploadFile = File(...),
+    dry_run: bool = Form(default=True),
+) -> ImportResultOut:
+    """Import danh bạ từ CSV (#23 — Excel Save-As CSV). `dry_run=true` (mặc định) chỉ
+    KIỂM TRA và trả kết quả từng dòng để xem trước; gửi lại với dry_run=false mới ghi.
+    Trùng MST/tên/email = cảnh báo mềm, vẫn tạo (§34) — người dùng thấy trước ở preview."""
+    raw = file.file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="File phải là CSV mã hóa UTF-8 (Excel: Save As → CSV UTF-8).",
+        ) from None
+    reader = csv.reader(io.StringIO(text))
+    lines = [r for r in reader if any((cell or "").strip() for cell in r)]
+    if not lines:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="File rỗng."
+        )
+    header = [h.strip().lower() for h in lines[0]]
+    col_map: dict[int, str] = {}
+    for idx, h in enumerate(header):
+        key = CustomerService.IMPORT_COLUMNS.get(h)
+        if key:
+            col_map[idx] = key
+    if "name" not in col_map.values():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail='Thiếu cột "Tên khách hàng" — tải file mẫu để lấy đúng header.',
+        )
+    rows = [
+        {key: (line[idx].strip() if idx < len(line) else "") for idx, key in col_map.items()}
+        for line in lines[1:]
+    ]
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="File chỉ có header, không có dòng dữ liệu.",
+        )
+
+    results = svc.import_rows(rows=rows, actor=user, dry_run=dry_run)
+    out_rows = [
+        ImportRowResult(
+            row=no, status=st, message=msg,
+            code=c.code if c else None, name=c.name if c else (rows[no - 1].get("name") or None),
+        )
+        for no, st, msg, c in results
+    ]
+    return ImportResultOut(
+        dry_run=dry_run,
+        total=len(out_rows),
+        created=sum(1 for r in out_rows if r.status in ("created", "warning") and not dry_run),
+        warnings=sum(1 for r in out_rows if r.status == "warning"),
+        errors=sum(1 for r in out_rows if r.status == "error"),
+        rows=out_rows,
+    )
+
+
 @router.post("", response_model=CustomerCreateOut, status_code=status.HTTP_201_CREATED)
 def create_customer(
     payload: CustomerCreate,
     svc: Service,
+    authz: Authz,
     users: Users,
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> CustomerCreateOut:
+    show_disc = authz.can(user, MODULE, "view_discount")
     try:
-        customer, duplicate = svc.create_customer(
+        customer, duplicates = svc.create_customer(
             name=payload.name,
             tax_code=payload.tax_code,
             phone=payload.phone,
@@ -306,6 +507,14 @@ def create_customer(
             credit_limit=payload.credit_limit,
             sale_user_id=payload.sale_user_id,
             actor=user,
+            status=payload.status,
+            payment_term_type=payload.payment_term_type,
+            payment_term_days=payload.payment_term_days,
+            prepay_pct=payload.prepay_pct,
+            payment_term_note=payload.payment_term_note,
+            discount_trade_pct=payload.discount_trade_pct,
+            discount_buyer_pct=payload.discount_buyer_pct,
+            allow_discount=show_disc,
         )
     except CustomerValidationError as e:
         raise HTTPException(
@@ -315,8 +524,9 @@ def create_customer(
         users, {customer.sale_user_id} if customer.sale_user_id else set()
     )
     return CustomerCreateOut(
-        customer=_row(customer, names),
-        duplicate=_dup_ref(duplicate),
+        customer=_row(customer, names, show_discount=show_disc),
+        duplicate=_first_dup(duplicates),
+        duplicates=_dup_warns(duplicates),
     )
 
 
@@ -336,7 +546,10 @@ def get_customer(
     )
     stat = analytics.list_stats([customer]).per_customer.get(customer.id)
     return CustomerDetailOut(
-        customer=_row(customer, names, stat),
+        customer=_row(
+            customer, names, stat,
+            show_discount=authz.can(user, MODULE, "view_discount"),
+        ),
         receivable=_receivable_card(
             svc, customer, can_view=authz.can(user, MODULE, "view_debt")
         ),
@@ -553,8 +766,9 @@ def update_customer(
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> CustomerCreateOut:
     scope = _scope_for(authz, user)
+    show_disc = authz.can(user, MODULE, "view_discount")
     try:
-        customer, duplicate = svc.update_customer(
+        customer, duplicates = svc.update_customer(
             customer_id=customer_id,
             scope=scope,
             actor=user,
@@ -568,6 +782,13 @@ def update_customer(
             sale_user_id=payload.sale_user_id,
             status=payload.status,
             allow_reassign=authz.can(user, MODULE, "reassign"),
+            payment_term_type=payload.payment_term_type,
+            payment_term_days=payload.payment_term_days,
+            prepay_pct=payload.prepay_pct,
+            payment_term_note=payload.payment_term_note,
+            discount_trade_pct=payload.discount_trade_pct,
+            discount_buyer_pct=payload.discount_buyer_pct,
+            allow_discount=show_disc,
         )
     except ReassignForbidden as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
@@ -584,11 +805,249 @@ def update_customer(
         users, {customer.sale_user_id} if customer.sale_user_id else set()
     )
     return CustomerCreateOut(
-        customer=_row(customer, names), duplicate=_dup_ref(duplicate)
+        customer=_row(customer, names, show_discount=show_disc),
+        duplicate=_first_dup(duplicates),
+        duplicates=_dup_warns(duplicates),
     )
 
 
+# --- người liên hệ (#10–#11) --------------------------------------------------
+
+
+@router.get("/{customer_id}/contacts", response_model=ContactsOut)
+def list_contacts(
+    customer_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> ContactsOut:
+    try:
+        items = svc.list_contacts(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return ContactsOut(items=[ContactOut.model_validate(c) for c in items])
+
+
+@router.post("/{customer_id}/contacts", response_model=ContactOut, status_code=201)
+def add_contact(
+    customer_id: int,
+    payload: ContactIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> ContactOut:
+    try:
+        contact = svc.add_contact(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user,
+            name=payload.name, title=payload.title, duty=payload.duty,
+            phone=payload.phone, email=payload.email, is_primary=payload.is_primary,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return ContactOut.model_validate(contact)
+
+
+@router.put("/{customer_id}/contacts/{contact_id}", response_model=ContactOut)
+def update_contact(
+    customer_id: int,
+    contact_id: int,
+    payload: ContactIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> ContactOut:
+    try:
+        contact = svc.update_contact(
+            customer_id=customer_id, contact_id=contact_id,
+            scope=_scope_for(authz, user), actor=user,
+            name=payload.name, title=payload.title, duty=payload.duty,
+            phone=payload.phone, email=payload.email, is_primary=payload.is_primary,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return ContactOut.model_validate(contact)
+
+
+@router.delete("/{customer_id}/contacts/{contact_id}", status_code=204)
+def delete_contact(
+    customer_id: int,
+    contact_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        svc.delete_contact(
+            customer_id=customer_id, contact_id=contact_id,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+
+
+# --- địa chỉ giao hàng (#9) -----------------------------------------------------
+
+
+@router.get("/{customer_id}/addresses", response_model=AddressesOut)
+def list_addresses(
+    customer_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> AddressesOut:
+    try:
+        items = svc.list_addresses(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return AddressesOut(items=[AddressOut.model_validate(a) for a in items])
+
+
+@router.post("/{customer_id}/addresses", response_model=AddressOut, status_code=201)
+def add_address(
+    customer_id: int,
+    payload: AddressIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> AddressOut:
+    try:
+        row = svc.add_address(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user,
+            label=payload.label, address=payload.address, phone=payload.phone,
+            note=payload.note, is_default=payload.is_default,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return AddressOut.model_validate(row)
+
+
+@router.put("/{customer_id}/addresses/{address_id}", response_model=AddressOut)
+def update_address(
+    customer_id: int,
+    address_id: int,
+    payload: AddressIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> AddressOut:
+    try:
+        row = svc.update_address(
+            customer_id=customer_id, address_id=address_id,
+            scope=_scope_for(authz, user), actor=user,
+            label=payload.label, address=payload.address, phone=payload.phone,
+            note=payload.note, is_default=payload.is_default,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return AddressOut.model_validate(row)
+
+
+@router.delete("/{customer_id}/addresses/{address_id}", status_code=204)
+def delete_address(
+    customer_id: int,
+    address_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        svc.delete_address(
+            customer_id=customer_id, address_id=address_id,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+
+
+# --- tài liệu đính kèm (#21) ------------------------------------------------------
+
+
+@router.get("/{customer_id}/attachments", response_model=CustomerAttachmentsOut)
+def list_attachments(
+    customer_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> CustomerAttachmentsOut:
+    try:
+        items = svc.list_attachments(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return CustomerAttachmentsOut(
+        items=[CustomerAttachmentOut.model_validate(a) for a in items]
+    )
+
+
+@router.post("/{customer_id}/attachments", response_model=CustomerAttachmentOut, status_code=201)
+def upload_attachment(
+    customer_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    file: UploadFile = File(...),
+    doc_kind: str = Form(default="khac"),
+) -> CustomerAttachmentOut:
+    scope = _scope_for(authz, user)
+    # Access check first so we don't write a file for an inaccessible customer.
+    _load_scoped(svc, customer_id, scope, user)
+
+    safe_name = Path(file.filename or "file").name
+    token = secrets.token_hex(4)
+    dest_dir = _STATIC_DIR / "crm" / str(customer_id)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest = dest_dir / f"{token}_{safe_name}"
+    with dest.open("wb") as f:
+        f.write(file.file.read())
+    file_url = f"/static/crm/{customer_id}/{token}_{safe_name}"
+
+    try:
+        att = svc.add_attachment(
+            customer_id=customer_id, scope=scope, actor=user, doc_kind=doc_kind,
+            file_name=safe_name, file_url=file_url, file_type=file.content_type,
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return CustomerAttachmentOut.model_validate(att)
+
+
+@router.delete("/{customer_id}/attachments/{attachment_id}", status_code=204)
+def delete_attachment(
+    customer_id: int,
+    attachment_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        svc.delete_attachment(
+            customer_id=customer_id, attachment_id=attachment_id,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+
+
 # --- helpers ---------------------------------------------------------------
+
+
+def _not_found() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khách hàng."
+    )
 
 
 def _load_scoped(
@@ -602,10 +1061,18 @@ def _load_scoped(
         ) from None
 
 
-def _dup_ref(duplicate: Customer | None) -> DuplicateRef | None:
-    if duplicate is None:
-        return None
-    return DuplicateRef(id=duplicate.id, code=duplicate.code, name=duplicate.name)
+def _dup_warns(duplicates: list[tuple[str, Customer]]) -> list[DuplicateWarn]:
+    return [
+        DuplicateWarn(field=f, id=c.id, code=c.code, name=c.name) for f, c in duplicates
+    ]
+
+
+def _first_dup(duplicates: list[tuple[str, Customer]]) -> DuplicateRef | None:
+    """Back-compat: cảnh báo MST đầu tiên (shape cũ) — None nếu không trùng MST."""
+    for f, c in duplicates:
+        if f == "tax_code":
+            return DuplicateRef(id=c.id, code=c.code, name=c.name)
+    return None
 
 
 def _receivable_card(

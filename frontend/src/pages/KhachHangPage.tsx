@@ -7,13 +7,19 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } fro
 import {
   ApiError,
   api,
+  type CustomerAddress,
+  type CustomerAddressInput,
+  type CustomerAttachment,
   type CustomerAuditRow,
+  type CustomerContact,
+  type CustomerContactInput,
   type CustomerDashboard,
   type CustomerInput,
   type CustomerKpis,
   type CustomerRow,
   type CustomerTier,
-  type DuplicateRef,
+  type DuplicateWarn,
+  type ImportResultOut,
   type OrderHistoryRow,
   type PinnedCustomer,
   type QuoteHistoryRow,
@@ -81,6 +87,14 @@ interface FormState {
   credit_limit: string;
   sale_user_id: string;
   status: string;
+  // Điều khoản thanh toán (#12).
+  payment_term_type: string;
+  payment_term_days: string;
+  prepay_pct: string;
+  payment_term_note: string;
+  // Chiết khấu riêng (#14) — chỉ hiện khi có quyền `view_discount`.
+  discount_trade_pct: string;
+  discount_buyer_pct: string;
 }
 const EMPTY_FORM: FormState = {
   name: "",
@@ -92,7 +106,48 @@ const EMPTY_FORM: FormState = {
   credit_limit: "0",
   sale_user_id: "",
   status: "active",
+  payment_term_type: "",
+  payment_term_days: "",
+  prepay_pct: "",
+  payment_term_note: "",
+  discount_trade_pct: "",
+  discount_buyer_pct: "",
 };
+
+const STATUS_LABELS: Record<string, string> = {
+  lead: "Tiềm năng",
+  active: "Đang giao dịch",
+  inactive: "Ngừng",
+};
+
+const DUP_FIELD_LABELS: Record<DuplicateWarn["field"], string> = {
+  tax_code: "MST",
+  name: "tên công ty",
+  email: "email",
+};
+
+const PAYMENT_TERM_LABELS: Record<string, string> = {
+  prepay: "Trả trước X%",
+  net_delivery: "X ngày từ ngày nhận hàng",
+  net_eom: "Đối chiếu cuối tháng + X ngày",
+  custom: "Đặc thù khác (ghi chú)",
+};
+
+/** Tóm tắt điều khoản thanh toán để hiển thị (hồ sơ + bảng). */
+function termSummary(c: CustomerRow): string | null {
+  switch (c.payment_term_type) {
+    case "prepay":
+      return `Trả trước ${c.prepay_pct ?? "?"}%`;
+    case "net_delivery":
+      return `${c.payment_term_days ?? "?"} ngày từ ngày nhận hàng`;
+    case "net_eom":
+      return `Đối chiếu cuối tháng + ${c.payment_term_days ?? "?"} ngày`;
+    case "custom":
+      return c.payment_term_note || "Đặc thù khác";
+    default:
+      return null;
+  }
+}
 
 // =============================================================================
 // List-Report page
@@ -116,7 +171,32 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
   // ma trận phân quyền, tách khỏi quyền Sửa thông thường.
   const can = useCan();
   const canReassign = can("khach_hang", "reassign");
+  const canExport = can("khach_hang", "export");
+  const canCreate = can("khach_hang", "create");
   const colCount = canReassign ? 7 : 6;
+
+  // Import / export danh bạ (#23).
+  const [importOpen, setImportOpen] = useState(false);
+  const [exportingBook, setExportingBook] = useState(false);
+
+  async function exportBook() {
+    if (!token || exportingBook) return;
+    setExportingBook(true);
+    try {
+      const url = await api.customers.exportCsvBlobUrl(token);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "danh-ba-khach-hang.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch {
+      setListError("Xuất danh bạ không thành công.");
+    } finally {
+      setExportingBook(false);
+    }
+  }
   const [reassignOpen, setReassignOpen] = useState(false);
   const [fromSale, setFromSale] = useState<number | null>(null);
   const [toSale, setToSale] = useState<number | null>(null);
@@ -372,10 +452,23 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             }}
             options={[
               { value: "", label: "Tất cả trạng thái" },
+              { value: "lead", label: "Tiềm năng" },
               { value: "active", label: "Đang giao dịch" },
               { value: "inactive", label: "Ngừng giao dịch" },
             ]}
           />
+        </div>
+        <div className="kh__toolbar-io">
+          {canExport && (
+            <Button variant="ghost" onClick={exportBook} loading={exportingBook}>
+              ⬇ Xuất CSV
+            </Button>
+          )}
+          {canCreate && (
+            <Button variant="ghost" onClick={() => setImportOpen(true)}>
+              ⬆ Nhập CSV
+            </Button>
+          )}
         </div>
       </div>
 
@@ -542,9 +635,15 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                     </td>
                     <td>
                       <span
-                        className={`kh__badge${c.status === "active" ? "" : " kh__badge--off"}`}
+                        className={`kh__badge${
+                          c.status === "active"
+                            ? ""
+                            : c.status === "lead"
+                              ? " kh__badge--lead"
+                              : " kh__badge--off"
+                        }`}
                       >
-                        {c.status === "active" ? "Đang giao dịch" : "Ngừng"}
+                        {STATUS_LABELS[c.status] ?? c.status}
                       </span>
                     </td>
                   </tr>
@@ -627,10 +726,30 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             credit_limit: String(editing.credit_limit),
             sale_user_id: editing.sale_user_id != null ? String(editing.sale_user_id) : "",
             status: editing.status,
+            payment_term_type: editing.payment_term_type ?? "",
+            payment_term_days:
+              editing.payment_term_days != null ? String(editing.payment_term_days) : "",
+            prepay_pct: editing.prepay_pct != null ? String(editing.prepay_pct) : "",
+            payment_term_note: editing.payment_term_note ?? "",
+            discount_trade_pct:
+              editing.discount_trade_pct != null ? String(editing.discount_trade_pct) : "",
+            discount_buyer_pct:
+              editing.discount_buyer_pct != null ? String(editing.discount_buyer_pct) : "",
           }}
           onClose={() => setMode(null)}
           onSaved={() => {
             setMode(null);
+            load();
+          }}
+        />
+      )}
+
+      {importOpen && (
+        <ImportDialog
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false);
+            setPage(1);
             load();
           }}
         />
@@ -797,7 +916,7 @@ function SortBtn({
 // Object-page slide-over
 // =============================================================================
 
-type Tab = "dashboard" | "orders" | "quotes" | "audit";
+type Tab = "dashboard" | "orders" | "quotes" | "contacts" | "addresses" | "files" | "audit";
 
 function CustomerObjectPage({
   customerId,
@@ -914,6 +1033,9 @@ function CustomerObjectPage({
                   ["dashboard", "Dashboard"],
                   ["orders", "Lịch sử mua hàng"],
                   ["quotes", "Lịch sử báo giá"],
+                  ["contacts", "Liên hệ"],
+                  ["addresses", "Giao hàng"],
+                  ["files", "Tài liệu"],
                   ["audit", "Nhật ký"],
                 ] as [Tab, string][]
               ).map(([key, label]) => (
@@ -950,6 +1072,9 @@ function CustomerObjectPage({
                   }}
                 />
               )}
+              {tab === "contacts" && <ContactsTab customerId={customerId} />}
+              {tab === "addresses" && <AddressesTab customerId={customerId} />}
+              {tab === "files" && <AttachmentsTab customerId={customerId} />}
               {tab === "audit" && (
                 <AuditTab
                   customerId={customerId}
@@ -1022,6 +1147,20 @@ function ObjectHeader({
             <dt>NV phụ trách</dt>
             <dd>{customer.sale_name ?? "Chưa gán"}</dd>
           </div>
+          <div>
+            <dt>Điều khoản TT</dt>
+            <dd>{termSummary(customer) ?? "Chưa khai"}</dd>
+          </div>
+          {!customer.discount_hidden && (
+            <div>
+              <dt>Chiết khấu</dt>
+              <dd>
+                {customer.discount_trade_pct != null || customer.discount_buyer_pct != null
+                  ? `TM ${customer.discount_trade_pct ?? "—"}% · NM ${customer.discount_buyer_pct ?? "—"}%`
+                  : "Chưa khai"}
+              </dd>
+            </div>
+          )}
         </dl>
       </div>
 
@@ -1582,6 +1721,768 @@ function AuditTab({
   );
 }
 
+// --- Liên hệ tab (#10–#11: nhiều người liên hệ, chức vụ + nhiệm vụ) -----------
+
+interface ContactFormState {
+  name: string;
+  title: string;
+  duty: string;
+  phone: string;
+  email: string;
+  is_primary: boolean;
+}
+const EMPTY_CONTACT: ContactFormState = {
+  name: "",
+  title: "",
+  duty: "",
+  phone: "",
+  email: "",
+  is_primary: false,
+};
+
+function ContactsTab({ customerId }: { customerId: number }) {
+  const { token } = useAuth();
+  const canUpdate = useCan()("khach_hang", "update");
+  const [items, setItems] = useState<CustomerContact[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null); // -1 = thêm mới
+  const [form, setForm] = useState<ContactFormState>(EMPTY_CONTACT);
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    if (!token) return;
+    api.customers
+      .contacts(token, customerId)
+      .then((r) => setItems(r.items))
+      .catch(() => setError("Không tải được danh sách liên hệ."));
+  }, [token, customerId]);
+
+  useEffect(() => {
+    setItems(null);
+    setError(null);
+    setEditingId(null);
+    reload();
+  }, [reload]);
+
+  function startAdd() {
+    setForm(EMPTY_CONTACT);
+    setFormError(null);
+    setEditingId(-1);
+  }
+  function startEdit(c: CustomerContact) {
+    setForm({
+      name: c.name,
+      title: c.title ?? "",
+      duty: c.duty ?? "",
+      phone: c.phone ?? "",
+      email: c.email ?? "",
+      is_primary: c.is_primary,
+    });
+    setFormError(null);
+    setEditingId(c.id);
+  }
+
+  async function save() {
+    if (!token || busy) return;
+    if (!form.name.trim()) {
+      setFormError("Tên người liên hệ là bắt buộc.");
+      return;
+    }
+    setBusy(true);
+    setFormError(null);
+    const input: CustomerContactInput = {
+      name: form.name.trim(),
+      title: form.title.trim() || null,
+      duty: form.duty.trim() || null,
+      phone: form.phone.trim() || null,
+      email: form.email.trim() || null,
+      is_primary: form.is_primary,
+    };
+    try {
+      if (editingId === -1) await api.customers.addContact(token, customerId, input);
+      else if (editingId != null)
+        await api.customers.updateContact(token, customerId, editingId, input);
+      setEditingId(null);
+      reload();
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : "Lưu không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: number) {
+    if (!token) return;
+    try {
+      await api.customers.deleteContact(token, customerId, id);
+      reload();
+    } catch {
+      setError("Xóa không thành công.");
+    }
+  }
+
+  if (error) return <div className="banner banner--error" role="alert">{error}</div>;
+  if (items == null) return <TableSkeleton cols={4} />;
+
+  return (
+    <div className="kh__histwrap">
+      <div className="kh__hist-toolbar">
+        <span className="kh__muted">
+          {items.length} người liên hệ · ghi rõ chức vụ + nhiệm vụ để các bộ phận tự liên hệ
+        </span>
+        {canUpdate && editingId == null && (
+          <Button variant="secondary" onClick={startAdd}>
+            + Thêm liên hệ
+          </Button>
+        )}
+      </div>
+
+      {editingId != null && (
+        <div className="card kh__subform">
+          <div className="kh__form-grid">
+            <label className="field">
+              <span className="field__label">Tên *</span>
+              <input
+                className="input"
+                value={form.name}
+                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                autoFocus
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">Chức vụ</span>
+              <input
+                className="input"
+                value={form.title}
+                placeholder="Kế toán, mua hàng, kho…"
+                onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">Nhiệm vụ</span>
+              <input
+                className="input"
+                value={form.duty}
+                placeholder="Đối chiếu công nợ, nhận hàng…"
+                onChange={(e) => setForm((f) => ({ ...f, duty: e.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">Điện thoại</span>
+              <input
+                className="input"
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">Email</span>
+              <input
+                className="input"
+                value={form.email}
+                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+              />
+            </label>
+            <label className="field kh__checkfield">
+              <input
+                type="checkbox"
+                checked={form.is_primary}
+                onChange={(e) => setForm((f) => ({ ...f, is_primary: e.target.checked }))}
+              />
+              <span>Liên hệ chính (chỉ một người)</span>
+            </label>
+          </div>
+          {formError && <div className="banner banner--error" role="alert">{formError}</div>}
+          <div className="kh__dialog-actions">
+            <Button variant="ghost" onClick={() => setEditingId(null)}>
+              Huỷ
+            </Button>
+            <Button variant="primary" onClick={save} loading={busy}>
+              Lưu
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {items.length === 0 && editingId == null ? (
+        <div className="kh__empty-panel">
+          <p className="kh__empty-title">Chưa có người liên hệ</p>
+          <p className="kh__muted">
+            Khách luôn có nhiều đầu mối (mua hàng, kho, kế toán, kỹ thuật…) — thêm để các bộ
+            phận tự chủ liên hệ khi cần.
+          </p>
+        </div>
+      ) : (
+        items.length > 0 && (
+          <table className="kh__table kh__table--tight">
+            <thead>
+              <tr>
+                <th>Tên</th>
+                <th>Chức vụ / nhiệm vụ</th>
+                <th>Liên lạc</th>
+                {canUpdate && <th className="kh__num">Thao tác</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((c) => (
+                <tr key={c.id}>
+                  <td>
+                    <span className="kh__name">{c.name}</span>
+                    {c.is_primary && <span className="kh__badge kh__badge--lead"> Chính</span>}
+                  </td>
+                  <td>
+                    {c.title ?? "—"}
+                    {c.duty && <span className="kh__muted"> · {c.duty}</span>}
+                  </td>
+                  <td className="kh__mono">
+                    {[c.phone, c.email].filter(Boolean).join(" · ") || "—"}
+                  </td>
+                  {canUpdate && (
+                    <td className="kh__num">
+                      <button type="button" className="btn btn--ghost" onClick={() => startEdit(c)}>
+                        Sửa
+                      </button>
+                      <button type="button" className="btn btn--ghost" onClick={() => remove(c.id)}>
+                        Xóa
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      )}
+    </div>
+  );
+}
+
+// --- Giao hàng tab (#9: nhiều địa chỉ giao — chỗ nối phí giao hàng của Tính giá) --
+
+interface AddressFormState {
+  label: string;
+  address: string;
+  phone: string;
+  note: string;
+  is_default: boolean;
+}
+const EMPTY_ADDRESS: AddressFormState = {
+  label: "",
+  address: "",
+  phone: "",
+  note: "",
+  is_default: false,
+};
+
+function AddressesTab({ customerId }: { customerId: number }) {
+  const { token } = useAuth();
+  const canUpdate = useCan()("khach_hang", "update");
+  const [items, setItems] = useState<CustomerAddress[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [form, setForm] = useState<AddressFormState>(EMPTY_ADDRESS);
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const reload = useCallback(() => {
+    if (!token) return;
+    api.customers
+      .addresses(token, customerId)
+      .then((r) => setItems(r.items))
+      .catch(() => setError("Không tải được danh sách địa chỉ giao hàng."));
+  }, [token, customerId]);
+
+  useEffect(() => {
+    setItems(null);
+    setError(null);
+    setEditingId(null);
+    reload();
+  }, [reload]);
+
+  function startAdd() {
+    setForm(EMPTY_ADDRESS);
+    setFormError(null);
+    setEditingId(-1);
+  }
+  function startEdit(a: CustomerAddress) {
+    setForm({
+      label: a.label,
+      address: a.address,
+      phone: a.phone ?? "",
+      note: a.note ?? "",
+      is_default: a.is_default,
+    });
+    setFormError(null);
+    setEditingId(a.id);
+  }
+
+  async function save() {
+    if (!token || busy) return;
+    if (!form.label.trim() || !form.address.trim()) {
+      setFormError("Tên điểm giao và địa chỉ là bắt buộc.");
+      return;
+    }
+    setBusy(true);
+    setFormError(null);
+    const input: CustomerAddressInput = {
+      label: form.label.trim(),
+      address: form.address.trim(),
+      phone: form.phone.trim() || null,
+      note: form.note.trim() || null,
+      is_default: form.is_default,
+    };
+    try {
+      if (editingId === -1) await api.customers.addAddress(token, customerId, input);
+      else if (editingId != null)
+        await api.customers.updateAddress(token, customerId, editingId, input);
+      setEditingId(null);
+      reload();
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : "Lưu không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(id: number) {
+    if (!token) return;
+    try {
+      await api.customers.deleteAddress(token, customerId, id);
+      reload();
+    } catch {
+      setError("Xóa không thành công.");
+    }
+  }
+
+  if (error) return <div className="banner banner--error" role="alert">{error}</div>;
+  if (items == null) return <TableSkeleton cols={3} />;
+
+  return (
+    <div className="kh__histwrap">
+      <div className="kh__hist-toolbar">
+        <span className="kh__muted">
+          {items.length} điểm giao · phí giao hàng theo điểm sẽ nối vào Tính giá sau
+        </span>
+        {canUpdate && editingId == null && (
+          <Button variant="secondary" onClick={startAdd}>
+            + Thêm điểm giao
+          </Button>
+        )}
+      </div>
+
+      {editingId != null && (
+        <div className="card kh__subform">
+          <div className="kh__form-grid">
+            <label className="field">
+              <span className="field__label">Tên điểm giao *</span>
+              <input
+                className="input"
+                value={form.label}
+                placeholder="Trụ sở / Nhà máy Bắc Ninh…"
+                onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
+                autoFocus
+              />
+            </label>
+            <label className="field kh__form-wide">
+              <span className="field__label">Địa chỉ *</span>
+              <input
+                className="input"
+                value={form.address}
+                onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
+              />
+            </label>
+            <label className="field">
+              <span className="field__label">SĐT tại điểm giao</span>
+              <input
+                className="input"
+                value={form.phone}
+                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+              />
+            </label>
+            <label className="field kh__form-wide">
+              <span className="field__label">Ghi chú giao nhận</span>
+              <input
+                className="input"
+                value={form.note}
+                placeholder="Giờ nhận hàng, người nhận, yêu cầu xe…"
+                onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+              />
+            </label>
+            <label className="field kh__checkfield">
+              <input
+                type="checkbox"
+                checked={form.is_default}
+                onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))}
+              />
+              <span>Điểm giao mặc định</span>
+            </label>
+          </div>
+          {formError && <div className="banner banner--error" role="alert">{formError}</div>}
+          <div className="kh__dialog-actions">
+            <Button variant="ghost" onClick={() => setEditingId(null)}>
+              Huỷ
+            </Button>
+            <Button variant="primary" onClick={save} loading={busy}>
+              Lưu
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {items.length === 0 && editingId == null ? (
+        <div className="kh__empty-panel">
+          <p className="kh__empty-title">Chưa có điểm giao hàng</p>
+          <p className="kh__muted">
+            Khách thường có nhiều vị trí giao (trụ sở, nhà máy…) — khai để báo giá ghi rõ
+            giao ở đâu và sau này tính phí giao hàng theo điểm.
+          </p>
+        </div>
+      ) : (
+        items.length > 0 && (
+          <table className="kh__table kh__table--tight">
+            <thead>
+              <tr>
+                <th>Điểm giao</th>
+                <th>Địa chỉ</th>
+                <th>Ghi chú</th>
+                {canUpdate && <th className="kh__num">Thao tác</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((a) => (
+                <tr key={a.id}>
+                  <td>
+                    <span className="kh__name">{a.label}</span>
+                    {a.is_default && <span className="kh__badge kh__badge--lead"> Mặc định</span>}
+                    {a.phone && <div className="kh__muted kh__mono">{a.phone}</div>}
+                  </td>
+                  <td>{a.address}</td>
+                  <td>{a.note ?? "—"}</td>
+                  {canUpdate && (
+                    <td className="kh__num">
+                      <button type="button" className="btn btn--ghost" onClick={() => startEdit(a)}>
+                        Sửa
+                      </button>
+                      <button type="button" className="btn btn--ghost" onClick={() => remove(a.id)}>
+                        Xóa
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+      )}
+    </div>
+  );
+}
+
+// --- Tài liệu tab (#21: hợp đồng / GPKD / file thiết kế đính kèm hồ sơ) ---------
+
+const DOC_KIND_LABELS: Record<string, string> = {
+  hop_dong: "Hợp đồng",
+  gpkd: "GPKD",
+  thiet_ke: "File thiết kế",
+  khac: "Khác",
+};
+
+function AttachmentsTab({ customerId }: { customerId: number }) {
+  const { token } = useAuth();
+  const canUpdate = useCan()("khach_hang", "update");
+  const [items, setItems] = useState<CustomerAttachment[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [docKind, setDocKind] = useState("hop_dong");
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const reload = useCallback(() => {
+    if (!token) return;
+    api.customers
+      .attachments(token, customerId)
+      .then((r) => setItems(r.items))
+      .catch(() => setError("Không tải được danh sách tài liệu."));
+  }, [token, customerId]);
+
+  useEffect(() => {
+    setItems(null);
+    setError(null);
+    reload();
+  }, [reload]);
+
+  async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!token || !file) return;
+    setUploading(true);
+    setError(null);
+    try {
+      await api.customers.uploadAttachment(token, customerId, file, docKind);
+      reload();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Upload không thành công.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function remove(id: number) {
+    if (!token) return;
+    try {
+      await api.customers.deleteAttachment(token, customerId, id);
+      reload();
+    } catch {
+      setError("Xóa không thành công.");
+    }
+  }
+
+  if (error && items == null)
+    return <div className="banner banner--error" role="alert">{error}</div>;
+  if (items == null) return <TableSkeleton cols={3} />;
+
+  return (
+    <div className="kh__histwrap">
+      <div className="kh__hist-toolbar">
+        <span className="kh__muted">{items.length} tài liệu</span>
+        {canUpdate && (
+          <div className="kh__upload-row">
+            <Select
+              ariaLabel="Loại tài liệu"
+              value={docKind}
+              onChange={(v) => setDocKind(v ?? "khac")}
+              options={Object.entries(DOC_KIND_LABELS).map(([value, label]) => ({
+                value,
+                label,
+              }))}
+            />
+            <input ref={fileRef} type="file" hidden onChange={onPick} />
+            <Button
+              variant="secondary"
+              loading={uploading}
+              onClick={() => fileRef.current?.click()}
+            >
+              ⬆ Tải tài liệu lên
+            </Button>
+          </div>
+        )}
+      </div>
+      {error && <div className="banner banner--error" role="alert">{error}</div>}
+
+      {items.length === 0 ? (
+        <div className="kh__empty-panel">
+          <p className="kh__empty-title">Chưa có tài liệu</p>
+          <p className="kh__muted">
+            Đính kèm hợp đồng, GPKD, file thiết kế, biên bản… để xử lý ngay khi cần, không
+            phải đi tìm nơi khác.
+          </p>
+        </div>
+      ) : (
+        <table className="kh__table kh__table--tight">
+          <thead>
+            <tr>
+              <th>Tài liệu</th>
+              <th>Loại</th>
+              <th>Ngày tải</th>
+              {canUpdate && <th className="kh__num">Thao tác</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((a) => (
+              <tr key={a.id}>
+                <td>
+                  <a className="kh__link" href={a.file_url} target="_blank" rel="noreferrer">
+                    {a.file_name}
+                  </a>
+                </td>
+                <td>{DOC_KIND_LABELS[a.doc_kind] ?? a.doc_kind}</td>
+                <td className="kh__mono">{fmtDate(a.uploaded_at)}</td>
+                {canUpdate && (
+                  <td className="kh__num">
+                    <button type="button" className="btn btn--ghost" onClick={() => remove(a.id)}>
+                      Xóa
+                    </button>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// --- Import CSV dialog (#23: dry-run xem trước → xác nhận ghi) ------------------
+
+function ImportDialog({
+  onClose,
+  onImported,
+}: {
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const { token } = useAuth();
+  const [file, setFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState<ImportResultOut | null>(null);
+  const [result, setResult] = useState<ImportResultOut | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function downloadTemplate() {
+    if (!token) return;
+    try {
+      const url = await api.customers.importTemplateBlobUrl(token);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "mau-import-khach-hang.csv";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+    } catch {
+      setError("Không tải được file mẫu.");
+    }
+  }
+
+  async function runDry(f: File) {
+    if (!token) return;
+    setBusy(true);
+    setError(null);
+    setPreview(null);
+    try {
+      setPreview(await api.customers.importCsv(token, f, true));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Không đọc được file.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function commit() {
+    if (!token || !file || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await api.customers.importCsv(token, file, false));
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Import không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const shown = result ?? preview;
+
+  return (
+    <div className="kh__overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="kh__dialog card" role="dialog" aria-modal="true" aria-label="Nhập danh bạ từ CSV">
+        <div className="kh__dialog-head">
+          <h2>Nhập danh bạ khách hàng (CSV)</h2>
+          <button type="button" className="kh__close" aria-label="Đóng" onClick={onClose}>
+            ✕
+          </button>
+        </div>
+        <div className="kh__dialog-body">
+          {result == null && (
+            <>
+              <p className="kh__muted">
+                File CSV UTF-8 theo{" "}
+                <button type="button" className="kh__linkbtn" onClick={downloadTemplate}>
+                  file mẫu
+                </button>{" "}
+                (Excel: Save As → CSV UTF-8). Hệ thống kiểm tra trước, bạn xem kết quả từng
+                dòng rồi mới xác nhận ghi. Trùng MST/tên/email chỉ cảnh báo, không chặn.
+              </p>
+              <input
+                type="file"
+                accept=".csv,text/csv"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] ?? null;
+                  setFile(f);
+                  setResult(null);
+                  if (f) void runDry(f);
+                }}
+              />
+            </>
+          )}
+
+          {error && <div className="banner banner--error" role="alert">{error}</div>}
+
+          {shown && (
+            <>
+              <div className={`banner ${shown.errors > 0 ? "banner--warn" : "banner--success"}`} role="status">
+                {result
+                  ? `Đã nhập ${result.created} khách hàng (${result.warnings} cảnh báo trùng, ${result.errors} dòng lỗi bị bỏ qua).`
+                  : `Xem trước: ${shown.total} dòng — ${shown.total - shown.errors} hợp lệ (${shown.warnings} trùng), ${shown.errors} lỗi.`}
+              </div>
+              {shown.rows.some((r) => r.status !== "created") && (
+                <div className="kh__import-rows">
+                  <table className="kh__table kh__table--tight">
+                    <thead>
+                      <tr>
+                        <th>Dòng</th>
+                        <th>Khách hàng</th>
+                        <th>Kết quả</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shown.rows
+                        .filter((r) => r.status !== "created")
+                        .map((r) => (
+                          <tr key={r.row}>
+                            <td className="kh__mono">{r.row}</td>
+                            <td>{r.name ?? "—"}</td>
+                            <td>
+                              <span
+                                className={`kh__badge${r.status === "error" ? " kh__badge--off" : " kh__badge--lead"}`}
+                              >
+                                {r.status === "error" ? "Lỗi" : "Trùng"}
+                              </span>{" "}
+                              {r.message}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="kh__dialog-actions">
+            {result ? (
+              <Button variant="primary" onClick={onImported}>
+                Xong
+              </Button>
+            ) : (
+              <>
+                <Button variant="ghost" onClick={onClose}>
+                  Huỷ
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={commit}
+                  loading={busy}
+                  disabled={!file || !preview || preview.total === preview.errors}
+                >
+                  Nhập {preview ? preview.total - preview.errors : ""} dòng hợp lệ
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TableSkeleton({ cols }: { cols: number }) {
   return (
     <table className="kh__table kh__table--tight">
@@ -1626,13 +2527,41 @@ function CustomerFormDialog({
   const { token } = useAuth();
   // Đổi NV phụ trách của KH ĐANG CÓ = quyền chi tiết `reassign` (backend cũng chặn) —
   // thiếu quyền thì khóa picker khi Sửa; khi Tạo mới vẫn chọn được (gán lần đầu).
-  const canReassign = useCan()("khach_hang", "reassign");
+  const can = useCan();
+  const canReassign = can("khach_hang", "reassign");
+  // Chiết khấu riêng (#14): thiếu quyền `view_discount` → ẩn hẳn khối (backend cũng bỏ qua).
+  const canDiscount = can("khach_hang", "view_discount");
   const saleLocked = isEdit && !canReassign;
   const [form, setForm] = useState<FormState>(initial);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
   const [serverError, setServerError] = useState<string | null>(null);
-  const [duplicate, setDuplicate] = useState<DuplicateRef | null>(null);
+  // Cảnh báo trùng MỀM sau khi lưu (#15: MST + tên cty + email — không chặn).
+  const [savedWarns, setSavedWarns] = useState<DuplicateWarn[] | null>(null);
+  // Check trùng tức thời khi rời ô nhập (#8) — chỉ là gợi ý, không chặn Lưu.
+  const [liveWarns, setLiveWarns] = useState<DuplicateWarn[]>([]);
+
+  async function liveCheck() {
+    if (!token) return;
+    const tax = form.tax_code.trim();
+    const name = form.name.trim();
+    const email = form.email.trim();
+    if (!tax && !name && !email) {
+      setLiveWarns([]);
+      return;
+    }
+    try {
+      const warns = await api.customers.checkDuplicate(token, {
+        tax_code: tax || undefined,
+        name: name || undefined,
+        email: email || undefined,
+        exclude_id: customerId,
+      });
+      setLiveWarns(warns);
+    } catch {
+      setLiveWarns([]); // gợi ý thôi — lỗi mạng thì im lặng
+    }
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -1654,6 +2583,24 @@ function CustomerFormDialog({
     const limit = Number(form.credit_limit);
     if (form.credit_limit.trim() === "" || Number.isNaN(limit) || limit < 0)
       next.credit_limit = "Hạn mức phải là số ≥ 0.";
+    // Điều khoản thanh toán (#12): validate theo kiểu mốc.
+    const term = form.payment_term_type;
+    if (term === "prepay") {
+      const p = Number(form.prepay_pct);
+      if (form.prepay_pct.trim() === "" || Number.isNaN(p) || p < 0 || p > 100)
+        next.prepay_pct = "Nhập tỷ lệ trả trước 0–100%.";
+    }
+    if (term === "net_delivery" || term === "net_eom") {
+      const d = Number(form.payment_term_days);
+      if (form.payment_term_days.trim() === "" || !Number.isInteger(d) || d < 0)
+        next.payment_term_days = "Nhập số ngày công nợ (số nguyên ≥ 0).";
+    }
+    for (const key of ["discount_trade_pct", "discount_buyer_pct"] as const) {
+      if (form[key].trim() !== "") {
+        const v = Number(form[key]);
+        if (Number.isNaN(v) || v < 0 || v > 100) next[key] = "Chiết khấu phải trong 0–100%.";
+      }
+    }
     setErrors(next);
     return Object.keys(next).length === 0;
   }
@@ -1664,6 +2611,7 @@ function CustomerFormDialog({
     if (!validate()) return;
     setSaving(true);
     setServerError(null);
+    const term = form.payment_term_type;
     const input: CustomerInput = {
       name: form.name.trim(),
       tax_code: form.tax_code.trim() || null,
@@ -1673,15 +2621,29 @@ function CustomerFormDialog({
       contact_name: form.contact_name.trim() || null,
       credit_limit: Number(form.credit_limit),
       sale_user_id: form.sale_user_id ? Number(form.sale_user_id) : null,
-      ...(isEdit ? { status: form.status } : {}),
+      status: form.status,
+      payment_term_type: term || null,
+      payment_term_days:
+        term === "net_delivery" || term === "net_eom" ? Number(form.payment_term_days) : null,
+      prepay_pct: term === "prepay" ? Number(form.prepay_pct) : null,
+      payment_term_note: form.payment_term_note.trim() || null,
+      // Backend: khi Sửa, null = giữ nguyên CK (xóa CK → gửi 0); thiếu quyền thì bị bỏ qua.
+      discount_trade_pct:
+        canDiscount && form.discount_trade_pct.trim() !== ""
+          ? Number(form.discount_trade_pct)
+          : null,
+      discount_buyer_pct:
+        canDiscount && form.discount_buyer_pct.trim() !== ""
+          ? Number(form.discount_buyer_pct)
+          : null,
     };
     try {
       const res =
         isEdit && customerId != null
           ? await api.customers.update(token, customerId, input)
           : await api.customers.create(token, input);
-      if (res.duplicate) {
-        setDuplicate(res.duplicate);
+      if (res.duplicates.length > 0) {
+        setSavedWarns(res.duplicates);
         setSaving(false);
         return;
       }
@@ -1705,16 +2667,22 @@ function CustomerFormDialog({
           </button>
         </div>
 
-        {duplicate ? (
+        {savedWarns ? (
           <div className="kh__dialog-body">
             <div className="banner banner--warn" role="alert">
-              <span>
-                Đã lưu. Lưu ý: MST trùng với khách{" "}
-                <strong>
-                  {duplicate.code} · {duplicate.name}
-                </strong>{" "}
-                (cảnh báo mềm, không chặn).
-              </span>
+              <div>
+                <p>Đã lưu. Lưu ý trùng thông tin (cảnh báo mềm, không chặn):</p>
+                <ul className="kh__dup-list">
+                  {savedWarns.map((w) => (
+                    <li key={`${w.field}-${w.id}`}>
+                      Trùng <strong>{DUP_FIELD_LABELS[w.field]}</strong> với khách{" "}
+                      <strong>
+                        {w.code} · {w.name}
+                      </strong>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </div>
             <div className="kh__dialog-actions">
               <Button variant="primary" onClick={onSaved}>
@@ -1735,6 +2703,7 @@ function CustomerFormDialog({
                   className="input"
                   value={form.name}
                   onChange={(e) => set("name", e.target.value)}
+                  onBlur={liveCheck}
                   aria-invalid={!!errors.name}
                   autoFocus
                 />
@@ -1746,6 +2715,7 @@ function CustomerFormDialog({
                   className="input"
                   value={form.tax_code}
                   onChange={(e) => set("tax_code", e.target.value)}
+                  onBlur={liveCheck}
                   placeholder="10 hoặc 13 chữ số"
                   aria-invalid={!!errors.tax_code}
                 />
@@ -1757,7 +2727,12 @@ function CustomerFormDialog({
               </label>
               <label className="field">
                 <span className="field__label">Email</span>
-                <input className="input" value={form.email} onChange={(e) => set("email", e.target.value)} />
+                <input
+                  className="input"
+                  value={form.email}
+                  onChange={(e) => set("email", e.target.value)}
+                  onBlur={liveCheck}
+                />
               </label>
               <label className="field">
                 <span className="field__label">Người liên hệ</span>
@@ -1804,20 +2779,141 @@ function CustomerFormDialog({
                   </span>
                 )}
               </label>
-              {isEdit && (
+              <label className="field">
+                <span className="field__label">Trạng thái</span>
+                <select
+                  className="input"
+                  value={form.status}
+                  onChange={(e) => set("status", e.target.value)}
+                >
+                  <option value="lead">Tiềm năng (chào hàng)</option>
+                  <option value="active">Đang giao dịch</option>
+                  {isEdit && <option value="inactive">Ngừng giao dịch</option>}
+                </select>
+              </label>
+
+              {/* Điều khoản thanh toán riêng (#12) — dữ liệu chờ Công nợ. */}
+              <label className="field kh__form-wide">
+                <span className="field__label">Điều khoản thanh toán</span>
+                <select
+                  className="input"
+                  value={form.payment_term_type}
+                  onChange={(e) => set("payment_term_type", e.target.value)}
+                >
+                  <option value="">— Chưa khai —</option>
+                  {Object.entries(PAYMENT_TERM_LABELS).map(([v, label]) => (
+                    <option key={v} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {(form.payment_term_type === "net_delivery" ||
+                form.payment_term_type === "net_eom") && (
                 <label className="field">
-                  <span className="field__label">Trạng thái</span>
-                  <select
+                  <span className="field__label">Số ngày công nợ *</span>
+                  <input
                     className="input"
-                    value={form.status}
-                    onChange={(e) => set("status", e.target.value)}
-                  >
-                    <option value="active">Đang giao dịch</option>
-                    <option value="inactive">Ngừng giao dịch</option>
-                  </select>
+                    type="number"
+                    min={0}
+                    value={form.payment_term_days}
+                    onChange={(e) => set("payment_term_days", e.target.value)}
+                    aria-invalid={!!errors.payment_term_days}
+                  />
+                  {errors.payment_term_days && (
+                    <span className="kh__err" role="alert">{errors.payment_term_days}</span>
+                  )}
                 </label>
               )}
+              {form.payment_term_type === "prepay" && (
+                <label className="field">
+                  <span className="field__label">Tỷ lệ trả trước (%) *</span>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={form.prepay_pct}
+                    onChange={(e) => set("prepay_pct", e.target.value)}
+                    aria-invalid={!!errors.prepay_pct}
+                  />
+                  {errors.prepay_pct && (
+                    <span className="kh__err" role="alert">{errors.prepay_pct}</span>
+                  )}
+                </label>
+              )}
+              {form.payment_term_type && (
+                <label className="field kh__form-wide">
+                  <span className="field__label">
+                    Ghi chú điều khoản{form.payment_term_type === "custom" ? " *" : ""}
+                  </span>
+                  <input
+                    className="input"
+                    value={form.payment_term_note}
+                    onChange={(e) => set("payment_term_note", e.target.value)}
+                    placeholder="VD: 30 ngày từ ngày đối chiếu, cọc 50% khi đặt…"
+                  />
+                </label>
+              )}
+
+              {/* Chiết khấu riêng theo KH (#14) — chỉ người có quyền `view_discount`. */}
+              {canDiscount && (
+                <>
+                  <label className="field">
+                    <span className="field__label">CK thương mại (%)</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.1"
+                      value={form.discount_trade_pct}
+                      onChange={(e) => set("discount_trade_pct", e.target.value)}
+                      aria-invalid={!!errors.discount_trade_pct}
+                      placeholder="Mặc định điền vào báo giá"
+                    />
+                    {errors.discount_trade_pct && (
+                      <span className="kh__err" role="alert">{errors.discount_trade_pct}</span>
+                    )}
+                  </label>
+                  <label className="field">
+                    <span className="field__label">CK người mua hàng (%)</span>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      max={100}
+                      step="0.1"
+                      value={form.discount_buyer_pct}
+                      onChange={(e) => set("discount_buyer_pct", e.target.value)}
+                      aria-invalid={!!errors.discount_buyer_pct}
+                      placeholder="Dữ liệu nhạy cảm — chỉ người có quyền thấy"
+                    />
+                    {errors.discount_buyer_pct && (
+                      <span className="kh__err" role="alert">{errors.discount_buyer_pct}</span>
+                    )}
+                  </label>
+                </>
+              )}
             </div>
+
+            {liveWarns.length > 0 && (
+              <div className="banner banner--warn" role="status">
+                <div>
+                  <p>Có thể trùng khách đã có (không chặn lưu):</p>
+                  <ul className="kh__dup-list">
+                    {liveWarns.map((w) => (
+                      <li key={`${w.field}-${w.id}`}>
+                        Trùng <strong>{DUP_FIELD_LABELS[w.field]}</strong> với{" "}
+                        <strong>
+                          {w.code} · {w.name}
+                        </strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
 
             {serverError && (
               <div className="banner banner--error" role="alert">

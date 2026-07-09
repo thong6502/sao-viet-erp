@@ -10,6 +10,7 @@ from ..models.customer import Customer
 from ..models.quotation import Quote, QuoteVersion, QuoteItem, STATUS_ACCEPTED
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
+from .org_scope import dept_subtree_ids
 
 # Whitelist of sortable fields in Quote
 _SORTABLE = {
@@ -66,9 +67,11 @@ class QuotationRepository:
         if scope == SCOPE_OWN:
             return Quote.salesperson_id == actor.id
         if scope == SCOPE_DEPARTMENT:
-            if actor.department_id is None:
+            # Subtree semantics (#26): phòng mình + mọi đơn vị con (GĐKD thấy các team).
+            dept_ids = dept_subtree_ids(self.db, actor.department_id)
+            if not dept_ids:
                 return Quote.salesperson_id == actor.id
-            dept_sales = select(User.id).where(User.department_id == actor.department_id)
+            dept_sales = select(User.id).where(User.department_id.in_(dept_ids))
             return Quote.salesperson_id.in_(dept_sales)
         raise ValueError(f"Unknown scope: {scope!r}")
 
@@ -83,7 +86,9 @@ class QuotationRepository:
             if quote.salesperson_id == actor.id:
                 return True
             owner = self.db.get(User, quote.salesperson_id)
-            return owner is not None and owner.department_id == actor.department_id
+            if owner is None or owner.department_id is None:
+                return False
+            return owner.department_id in dept_subtree_ids(self.db, actor.department_id)
         raise ValueError(f"Unknown scope: {scope!r}")
 
     def list(
