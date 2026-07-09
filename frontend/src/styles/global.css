@@ -1,3 +1,4 @@
+@import "./fonts.css";
 @import "./tokens.css";
 
 * {
@@ -276,4 +277,176 @@ body {
   background: var(--rust-soft);
   color: var(--rust-deep);
   border: 1px solid #e6c3ab;
+}
+
+/* ==== Motip CRM (mockup 2026-07): primitives dùng chung toàn app ============
+   Class MỚI, additive — page nào cũng xài được, không đè class cũ. */
+
+/* Pill filter phân đoạn ("Tất cả [247] · Thân thiết [38]…") — active nền charcoal. */
+.seg {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background-color var(--duration-base) var(--easing-standard),
+    color var(--duration-base) var(--easing-standard);
+}
+.seg:hover {
+  background: var(--rule-hair);
+  color: var(--ink);
+}
+.seg.is-active {
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+}
+.seg:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* Chip đếm nhỏ đi kèm pill/tab ("[38]"). Trong phần tử active → đảo màu rust. */
+.chip-count {
+  display: inline-block;
+  min-width: 18px;
+  text-align: center;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  background: var(--rule-soft);
+  color: var(--ash);
+  border-radius: var(--r-2);
+  padding: 1px 5px;
+}
+.seg.is-active .chip-count,
+.is-active > .chip-count {
+  background: var(--rust);
+  color: var(--on-charcoal);
+}
+
+/* Avatar chữ cái vuông (danh bạ, người dùng). */
+.avatar-sq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-3);
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+
+/* KPI/stat card: label mono HOA + số to + sub-hint. Dùng trong .card hoặc độc lập. */
+.stat__label {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--ash);
+}
+.stat__value {
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  line-height: 1.2;
+}
+.stat__value small {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  margin-left: 2px;
+}
+.stat__hint {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.stat__hint--up {
+  color: var(--moss);
+}
+.stat__hint--down {
+  color: var(--signal);
+}
+
+/* Badge ngữ nghĩa (trạng thái chứng từ, hành vi khách): nền soft + chữ deep. */
+.badge-sem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  border-radius: var(--r-2);
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.badge-sem--rust { background: var(--rust-soft); color: var(--rust-deep); }
+.badge-sem--rust-solid { background: var(--rust); color: var(--on-charcoal); }
+.badge-sem--plum { background: var(--plum-soft); color: var(--plum-deep); }
+.badge-sem--plum-solid { background: var(--plum); color: var(--on-charcoal); }
+.badge-sem--moss { background: var(--moss-soft); color: var(--moss-deep); }
+.badge-sem--amber { background: var(--amber-soft); color: var(--amber-deep); }
+.badge-sem--signal { background: var(--signal-soft); color: var(--signal); }
+.badge-sem--muted { background: var(--rule-soft); color: var(--ash); }
+
+/* Chip điểm số (uy tín…) theo ngưỡng — page tự chọn variant theo giá trị. */
+.score-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  border-radius: var(--r-2);
+  padding: 3px 7px;
+}
+.score-chip--good { background: var(--score-good-bg); color: var(--score-good-fg); }
+.score-chip--mid { background: var(--score-mid-bg); color: var(--score-mid-fg); }
+.score-chip--bad { background: var(--score-bad-bg); color: var(--score-bad-fg); }
+
+/* Khối tối (header hồ sơ / hero) — chữ và nút bên trong tự đảo màu. */
+.panel-dark {
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+  border-radius: var(--r-6) var(--r-6) 0 0;
+}
+.panel-dark .stat__label,
+.panel-dark .field__label {
+  color: var(--on-charcoal-muted);
+}
+.panel-dark .btn--secondary {
+  background: var(--charcoal-2);
+  color: var(--on-charcoal);
+  border-color: #3a362f;
+}
+.panel-dark .btn--secondary:hover:not(:disabled) {
+  background: #33302a;
+}
+
+/* Ô heatmap (tần suất) — page gán mức 0..4. */
+.heat-cell { border-radius: 3px; }
+.heat-cell--0 { background: var(--heat-0); }
+.heat-cell--1 { background: var(--heat-1); }
+.heat-cell--2 { background: var(--heat-2); }
+.heat-cell--3 { background: var(--heat-3); }
+.heat-cell--4 { background: var(--heat-4); }
+
+/* Hàng bảng đang chọn: nền ấm + viền trái rust (mockup danh bạ). */
+.row-selected {
+  background: var(--rust-soft);
+  box-shadow: inset 3px 0 0 var(--rust);
 }

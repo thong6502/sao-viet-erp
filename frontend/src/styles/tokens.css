@@ -25,9 +25,33 @@
   --signal-soft: #efd5d5;
   --steel: #4a5560;
   --steel-soft: #dde1e5;
+  /* Khối tối (header hồ sơ, pill active, nút primary đậm) — mockup CRM. */
+  --charcoal: #1c1a17;
+  --charcoal-2: #2a2723;
+  --on-charcoal: #f5f1e8;
+  --on-charcoal-muted: #b3ada1;
+  /* Badge hành vi (tím) — "Trả đúng hạn" trong mockup. */
+  --plum: #5f4d9e;
+  --plum-soft: #e6e0f2;
+  --plum-deep: #483a7a;
+  /* Thang nhiệt (heatmap tần suất) — ramp từ nền ấm tới rust. */
+  --heat-0: #f3ede2;
+  --heat-1: #f2d9c6;
+  --heat-2: #e8b18e;
+  --heat-3: #d97b4a;
+  --heat-4: #c5400a;
+  /* Chip điểm (uy tín/score): tốt / trung bình / kém. */
+  --score-good-bg: var(--moss-soft);
+  --score-good-fg: var(--moss-deep);
+  --score-mid-bg: var(--amber-soft);
+  --score-mid-fg: var(--amber-deep);
+  --score-bad-bg: var(--signal-soft);
+  --score-bad-fg: var(--signal);
 
   /* Typography */
-  --ff-sans: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  /* Self-hosted (styles/fonts.css): Be Vietnam Pro — sans hiện đại đủ dấu tiếng Việt,
+     JetBrains Mono — label HOA giãn cách / mã / số liệu (subset latin+vietnamese). */
+  --ff-sans: "Be Vietnam Pro", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --ff-mono: "JetBrains Mono", ui-monospace, "SF Mono", monospace;
   --fw-regular: 400;
   --fw-medium: 500;
@@ -50,6 +74,7 @@
   --r-2: 4px;
   --r-3: 6px;
   --r-5: 10px;
+  --r-6: 12px;
   --r-pill: 9999px;
 
   /* Shadow / Elevation (flat by default) */
