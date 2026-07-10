@@ -97,17 +97,20 @@ class UserAdminService:
         return rows
 
     def create_user(
-        self, *, name: str, username: str, department_id: int, actor_id: int | None
+        self, *, name: str, username: str, department_id: int, actor_id: int | None,
+        password: str | None = None,
     ) -> User:
         username = username.strip()
         if self.departments.get_by_id(department_id) is None:
             raise DepartmentNotFound("Không tìm thấy phòng ban")
         if self.users.get_by_username(username) is not None:
             raise UsernameTaken("Tên đăng nhập đã được sử dụng")
+        # Mật khẩu: admin nhập (nếu có) hoặc mật khẩu mặc định.
+        effective_pw = (password or "").strip() or settings.default_user_password
         user = self.users.create(
             username=username,
             name=name.strip(),
-            password_hash=hash_password(settings.default_user_password),
+            password_hash=hash_password(effective_pw),
         )
         # New account: in the department, no role yet (most-minimal access until a
         # head assigns one), active.

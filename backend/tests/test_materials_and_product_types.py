@@ -161,15 +161,15 @@ def test_materials_crud(client, auth_headers):
     assert resp.json()["gsm"] == 200
     assert resp.json()["width_cm"] == 79
     assert resp.json()["code"].startswith("GY")
+    clone_id = resp.json()["id"]
 
-    # 7. Delete material - blocked by SEAM-22 (Kho) stub
-    # Should raise validation error suggesting toggle_active
+    # 7. Delete material — SEAM-22 đã back-fill (Kho P0): vật tư KHÔNG có tồn trong Kho
+    # thì xóa được. (Nếu có lô/sổ tồn thì bị chặn 422 "đang được sử dụng trong Kho".)
     resp = client.delete(f"/api/materials/{material_id}", headers=auth_headers)
-    assert resp.status_code == 422
-    assert "Chưa kiểm tra được tham chiếu Kho" in resp.json()["detail"]
+    assert resp.status_code in (200, 204)
 
-    # Toggle active instead
-    resp = client.patch(f"/api/materials/{material_id}/toggle-active", headers=auth_headers)
+    # Toggle active vẫn hoạt động (thử trên bản clone).
+    resp = client.patch(f"/api/materials/{clone_id}/toggle-active", headers=auth_headers)
     assert resp.status_code == 200
     assert resp.json()["is_active"] is False
 

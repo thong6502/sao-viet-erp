@@ -28,6 +28,9 @@ from .routers import (
     operations,
     warehouses,
     warehouse_items,
+    kho_stock,
+    kho_voucher,
+    kho_count,
     orders,
     paper_sizes,
     imposition_types,
@@ -38,6 +41,7 @@ from .routers import (
     rbac,
     plate_die_rates,
     norms,
+    production,
 )
 from .seed import seed_all
 
@@ -96,8 +100,12 @@ app.include_router(paper_sizes.router)
 app.include_router(imposition_types.router)
 app.include_router(warehouses.router)
 app.include_router(warehouse_items.router)
+app.include_router(kho_stock.router)
+app.include_router(kho_voucher.router)
+app.include_router(kho_count.router)
 app.include_router(plate_die_rates.router)
 app.include_router(norms.router)
+app.include_router(production.router)
 
 
 

@@ -8,6 +8,16 @@ import { Select } from "../components/Select";
 import { UserDetailDialog } from "../components/UserDetailDialog";
 import "./users.css";
 
+// Bộ ký tự dễ đọc (bỏ 0/O/1/l/I gây nhầm) để sinh mật khẩu ban đầu ngẫu nhiên.
+const PW_CHARS = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+function genPassword(len = 12): string {
+  const buf = new Uint32Array(len);
+  crypto.getRandomValues(buf);
+  let out = "";
+  for (let i = 0; i < len; i++) out += PW_CHARS[buf[i] % PW_CHARS.length];
+  return out;
+}
+
 export function UsersPage() {
   const { token, user: me } = useAuth();
   const can = useCan();
@@ -32,8 +42,12 @@ export function UsersPage() {
   const [cName, setCName] = useState("");
   const [cUsername, setCUsername] = useState("");
   const [cDept, setCDept] = useState<number | null>(null);
+  const [cPassword, setCPassword] = useState("");
+  const [pwCopied, setPwCopied] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  // Sau khi tạo: hiện mật khẩu ban đầu để admin bàn giao cho người dùng.
+  const [createdInfo, setCreatedInfo] = useState<{ username: string; password: string } | null>(null);
 
   // Detail modal.
   const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -106,8 +120,21 @@ export function UsersPage() {
     setCName("");
     setCUsername("");
     setCDept(departments[0]?.id ?? null);
+    setCPassword(genPassword());
+    setPwCopied(false);
     setCreateError(null);
+    setCreatedInfo(null);
     setCreateOpen(true);
+  }
+
+  async function copyPassword() {
+    try {
+      await navigator.clipboard.writeText(cPassword);
+      setPwCopied(true);
+      window.setTimeout(() => setPwCopied(false), 1500);
+    } catch {
+      /* clipboard bị chặn — bỏ qua, admin có thể copy tay */
+    }
   }
 
   async function onCreate() {
@@ -118,7 +145,8 @@ export function UsersPage() {
     setCreating(true);
     setCreateError(null);
     try {
-      await api.rbac.createUser(token, cName.trim(), cUsername.trim(), cDept);
+      const created = await api.rbac.createUser(token, cName.trim(), cUsername.trim(), cDept, cPassword);
+      setCreatedInfo({ username: created.username, password: created.initial_password });
       setCreateOpen(false);
       await refresh();
     } catch (e) {
@@ -187,6 +215,17 @@ export function UsersPage() {
       </header>
 
       {/* Toolbar: search + filters. */}
+      {createdInfo && (
+        <div className="banner banner--success" role="status">
+          Đã tạo tài khoản <strong>{createdInfo.username}</strong>. Mật khẩu ban đầu:{" "}
+          <strong>{createdInfo.password}</strong> — đưa cho người dùng và nhắc đổi khi đăng nhập
+          lần đầu.
+          <button type="button" className="users__banner-close" onClick={() => setCreatedInfo(null)}>
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="users__toolbar">
         <input
           className="input users__search"
@@ -418,9 +457,32 @@ export function UsersPage() {
               }))}
             />
           </div>
-          <p className="users__hint">
-            Tài khoản mới dùng mật khẩu mặc định và chưa có vai trò — gán vai trò sau khi tạo.
-          </p>
+          <div className="field">
+            <span className="field__label">Mật khẩu (tự sinh)</span>
+            <div className="users__pw-row">
+              <code className="users__pw-display">{cPassword}</code>
+              <button
+                type="button"
+                className="users__pw-btn"
+                title="Sao chép mật khẩu"
+                onClick={copyPassword}
+              >
+                {pwCopied ? "✓ Đã chép" : "Sao chép"}
+              </button>
+              <button
+                type="button"
+                className="users__pw-btn"
+                title="Tạo mật khẩu khác"
+                onClick={() => {
+                  setCPassword(genPassword());
+                  setPwCopied(false);
+                }}
+              >
+                Tạo lại
+              </button>
+            </div>
+          </div>
+          <p className="users__hint">Tài khoản mới chưa có vai trò — gán vai trò sau khi tạo.</p>
         </div>
       </ConfirmDialog>
 

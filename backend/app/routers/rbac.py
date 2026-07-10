@@ -7,6 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
+from ..config import settings
 from ..deps import (
     get_activity_service,
     get_authorization_service,
@@ -43,6 +44,7 @@ from ..schemas.rbac import (
     UnitLevelUpdate,
     UserBrief,
     UserCreate,
+    UserCreatedOut,
     UserRow,
     UserUpdate,
 )
@@ -336,7 +338,7 @@ def list_users(
     return admin.list_users()
 
 
-@router.post("/users", response_model=UserRow, status_code=status.HTTP_201_CREATED)
+@router.post("/users", response_model=UserCreatedOut, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,
     admin: Users,
@@ -348,11 +350,14 @@ def create_user(
             username=payload.username,
             department_id=payload.department_id,
             actor_id=user.id,
+            password=payload.password,
         )
     except UsernameTaken as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except UADeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    # Mật khẩu ban đầu để admin bàn giao cho người dùng (đổi khi đăng nhập lần đầu).
+    initial_password = (payload.password or "").strip() or settings.default_user_password
     return {
         "id": created.id,
         "code": created.code,
@@ -361,6 +366,7 @@ def create_user(
         "department_id": created.department_id,
         "role_id": created.role_id,
         "is_active": created.is_active,
+        "initial_password": initial_password,
     }
 
 

@@ -1570,6 +1570,198 @@ MỘT kho đã cấu hình (`warehouses`). MVP — về sau mở rộng thành p
 
 ---
 
+### `stock_lots`
+
+**Purpose:** Kho P0 — lô tồn của MỘT vật tư (`Material`) trong một kho. `Material` là item master (không tạo master trùng). Số lượng còn lại tính động từ `stock_moves`. Back-fill SEAM-06 (giấy khách theo đơn).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
+| `code` | `String(30)` | **U**, **IX** | no | — | Mã lô tự sinh `LO######`. |
+| `material_id` | `Integer` | **FK→materials.id**, **IX** | no | — | Vật tư (item master). |
+| `warehouse_id` | `Integer` | **FK→warehouses.id**, **IX** | no | — | Kho chứa. |
+| `location` | `String(60)` | — | yes | — | Vị trí (chuỗi; P0 chưa có danh mục vị trí). |
+| `ownership` | `String(16)` | — | no | `'company'` | company / customer (giấy khách gửi). |
+| `owner_customer_id` | `Integer` | **FK→customers.id** | yes | — | Khách sở hữu (giấy khách). |
+| `order_id` | `Integer` | **IX** | yes | — | Đơn hàng gắn lô (SEAM-06). |
+| `unit_cost` | `BigInteger` | — | yes | — | Giá vốn / đơn vị tồn (đồng). |
+| `supplier` | `String(150)` | — | yes | — | NCC lô nhập. |
+| `received_date` | `Date` | — | yes | — | Ngày nhập. |
+| `expiry_date` | `Date` | — | yes | — | HSD / date bao bì. |
+| `note` | `Text` | — | yes | — | Ghi chú. |
+| `is_active` | `Boolean` | — | no | `true` | Còn dùng. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Cập nhật cuối. |
+
+---
+
+### `stock_min_levels`
+
+**Purpose:** Kho — ngưỡng tồn tối thiểu theo (vật tư × kho). Tồn thực tế < `min_qty` → cảnh báo bổ sung (`/api/kho/reports/low-stock`). UNIQUE(material_id, warehouse_id).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
+| `material_id` | `Integer` | **FK→materials.id**, **IX**, **U(mat,wh)** | no | — | Vật tư. |
+| `warehouse_id` | `Integer` | **FK→warehouses.id**, **IX**, **U(mat,wh)** | no | — | Kho. |
+| `min_qty` | `Numeric(18,3)` | — | no | `0` | Ngưỡng tồn tối thiểu (đơn vị tồn). |
+| `note` | `String(120)` | — | yes | — | Ghi chú. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Cập nhật cuối. |
+
+---
+
+### `stock_moves`
+
+**Purpose:** Kho P0 — sổ cái tồn append-only. `qty_delta` CÓ DẤU; tồn = SUM(qty_delta) theo (material × warehouse × lot). Đơn vị lưu theo đơn vị tồn của vật tư (đã quy đổi).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | Surrogate PK. |
+| `material_id` | `Integer` | **FK→materials.id**, **IX** | no | — | Vật tư. |
+| `warehouse_id` | `Integer` | **FK→warehouses.id**, **IX** | no | — | Kho. |
+| `lot_id` | `Integer` | **FK→stock_lots.id**, **IX** | yes | — | Lô. |
+| `qty_delta` | `Numeric(18,3)` | — | no | — | CÓ DẤU: + tăng / − giảm tồn. |
+| `unit` | `String(16)` | — | no | `''` | Đơn vị tồn (snapshot). |
+| `unit_cost` | `BigInteger` | — | yes | — | §spec-13 E Giá vốn/đơn vị (đồng); giá trị = qty_delta × unit_cost. |
+| `move_type` | `String(24)` | — | no | `'dieu_chinh'` | ton_dau_ky/nhap/xuat/dieu_chinh/dieu_chuyen_in/dieu_chuyen_out. |
+| `status_id` | `Integer` | **FK→wh_item_statuses.id** | yes | — | §spec-13 Trạng thái hàng (quyết định tồn khả dụng); null = khả dụng. |
+| `voucher_id` | `Integer` | **FK→stock_vouchers.id**, **IX** | yes | — | §spec-13 Phiếu nguồn; null = ghi trực tiếp. |
+| `reason` | `String(120)` | — | yes | — | Lý do. |
+| `note` | `Text` | — | yes | — | Diễn giải. |
+| `ref_type` | `String(24)` | — | yes | — | Loại chứng từ nguồn (P1+). |
+| `ref_id` | `Integer` | — | yes | — | Id chứng từ nguồn. |
+| `created_by_user_id` | `Integer` | **FK→users.id**, **IX** | yes | — | Người ghi. |
+| `created_at` | `DateTime(tz)` | **IX** | no | now | Thời điểm. |
+
+---
+
+### `wh_item_statuses`
+
+**Purpose:** Kho Document Engine (spec-13, DacTa 3.15) — trạng thái hàng. `count_available` quyết định tồn khả dụng. Bộ chuẩn seed `is_system`.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `code` | `String(24)` | **U**, **IX** | no | — | AVAILABLE/RESERVED/QC_WAIT/DEFECT/CANCELLED. |
+| `name` | `String(120)` | — | no | — | Tên. |
+| `count_on_hand` | `Boolean` | — | no | `true` | Cộng vào tồn thực tế. |
+| `count_available` | `Boolean` | — | no | `true` | Cộng vào tồn khả dụng. |
+| `allow_issue` | `Boolean` | — | no | `true` | Được xuất. |
+| `display_order` | `Integer` | — | no | `100` | Thứ tự. |
+| `is_system` | `Boolean` | — | no | `false` | Bộ chuẩn — chỉ ẩn không xóa. |
+| `notes` | `Text` | — | yes | — | Ghi chú. |
+| `is_active` | `Boolean` | — | no | `true` | Còn dùng. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Cập nhật cuối. |
+
+---
+
+### `wh_voucher_types`
+
+**Purpose:** Kho Document Engine (spec-13, DacTa 3.16) — loại phiếu, khai HÀNH VI (chiều tồn, kho nguồn/đích, duyệt, MISA). Thêm nghiệp vụ = thêm loại phiếu.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `code` | `String(24)` | **U**, **IX** | no | — | NK-NVL/XK-SX/DC-KHO… (cũng là prefix mã phiếu). |
+| `name` | `String(120)` | — | no | — | Tên. |
+| `voucher_group` | `String(24)` | — | no | `'nhap'` | nhap/xuat/dieu_chuyen/kiem_ke/dieu_chinh. |
+| `stock_effect` | `String(24)` | — | no | `'tang'` | tang/giam/chuyen_vi_tri/khong_tac_dong. |
+| `require_src_wh` | `Boolean` | — | no | `false` | Bắt buộc kho nguồn. |
+| `require_dst_wh` | `Boolean` | — | no | `false` | Bắt buộc kho đích. |
+| `require_approval` | `Boolean` | — | no | `false` | Cần duyệt trước khi ghi sổ. |
+| `sync_misa` | `Boolean` | — | no | `false` | Cờ đồng bộ MISA (chưa hiện thực). |
+| `notes` | `Text` | — | yes | — | Ghi chú. |
+| `is_active` | `Boolean` | — | no | `true` | Còn dùng. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Cập nhật cuối. |
+
+---
+
+### `stock_vouchers`
+
+**Purpose:** Kho Document Engine (spec-13, DacTa Table 2) — Header phiếu. Ghi `stock_moves` khi GHI SỔ. Mã tự sinh `{loại}-{YY}-{NNNN}`.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `code` | `String(30)` | **U**, **IX** | no | — | Mã phiếu (NK-NVL-25-0001). |
+| `voucher_type_id` | `Integer` | **FK→wh_voucher_types.id**, **IX** | no | — | Loại phiếu (hành vi). |
+| `doc_date` | `Date` | — | yes | — | Ngày chứng từ. |
+| `partner_kind` | `String(16)` | — | yes | — | ncc/khach/bo_phan/may. |
+| `partner_ref` | `String(150)` | — | yes | — | Đối tượng (text, P1). |
+| `src_warehouse_id` | `Integer` | **FK→warehouses.id**, **IX** | yes | — | Kho nguồn. |
+| `dst_warehouse_id` | `Integer` | **FK→warehouses.id** | yes | — | Kho đích. |
+| `ref_type` | `String(24)` | — | yes | — | lsx/order/po. |
+| `ref_id` | `Integer` | — | yes | — | Id chứng từ nguồn. |
+| `reason` | `String(200)` | — | yes | — | Lý do/diễn giải. |
+| `note` | `Text` | — | yes | — | Ghi chú. |
+| `status` | `String(16)` | **IX** | no | `'draft'` | draft/pending/posted/cancelled. |
+| `created_by_user_id` | `Integer` | **FK→users.id** | yes | — | Người tạo. |
+| `approved_by_user_id` | `Integer` | **FK→users.id** | yes | — | Người duyệt/ghi sổ. |
+| `approved_at` | `DateTime(tz)` | — | yes | — | Thời điểm ghi sổ. |
+| `misa_ref` | `String(40)` | — | yes | — | Mã đối chiếu MISA (P1). |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Cập nhật cuối. |
+
+---
+
+### `stock_voucher_lines`
+
+**Purpose:** Kho Document Engine (spec-13, DacTa Table 3) — dòng phiếu. `quantity` theo `uom` (quy đổi về đơn vị tồn khi ghi sổ).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `voucher_id` | `Integer` | **FK→stock_vouchers.id** (cascade), **IX** | no | — | Phiếu cha. |
+| `material_id` | `Integer` | **FK→materials.id** | no | — | Vật tư (item master). |
+| `quantity` | `Numeric(18,3)` | — | no | — | Số lượng (dương). |
+| `uom` | `String(16)` | — | yes | — | Đơn vị nhập (ream/kg…). |
+| `lot_id` | `Integer` | **FK→stock_lots.id** | yes | — | Lô. |
+| `location` | `String(60)` | — | yes | — | Vị trí (nguồn). |
+| `dest_location` | `String(60)` | — | yes | — | Vị trí đích (điều chuyển). |
+| `status_id` | `Integer` | **FK→wh_item_statuses.id** | yes | — | Trạng thái hàng. |
+| `unit_cost` | `BigInteger` | — | yes | — | Giá vốn/đơn vị (P1). |
+| `note` | `Text` | — | yes | — | Ghi chú dòng. |
+
+---
+
+### `stock_counts`
+
+**Purpose:** Kho — đợt kiểm kê (spec-13 C, DacTa ch.8). Chốt tồn hệ thống → nhập thực đếm → duyệt sinh `stock_moves` điều chỉnh (move_type `kiem_ke`).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `code` | `String(24)` | **U**, **IX** | no | — | Mã đợt `KK-YY-NNNN`. |
+| `warehouse_id` | `Integer` | **FK→warehouses.id**, **IX** | no | — | Kho kiểm kê. |
+| `status` | `String(16)` | **IX** | no | `'open'` | open/posted/cancelled. |
+| `note` | `Text` | — | yes | — | Ghi chú. |
+| `created_by_user_id` | `Integer` | **FK→users.id** | yes | — | Người tạo. |
+| `posted_by_user_id` | `Integer` | **FK→users.id** | yes | — | Người duyệt. |
+| `posted_at` | `DateTime(tz)` | — | yes | — | Thời điểm duyệt. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Cập nhật cuối. |
+
+---
+
+### `stock_count_lines`
+
+**Purpose:** Kho — dòng kiểm kê (spec-13 C). `system_qty` = tồn hệ thống lúc chốt; `counted_qty` = thực đếm; chênh lệch = counted − system.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `count_id` | `Integer` | **FK→stock_counts.id** (cascade), **IX** | no | — | Đợt cha. |
+| `material_id` | `Integer` | **FK→materials.id** | no | — | Vật tư. |
+| `lot_id` | `Integer` | **FK→stock_lots.id** | yes | — | Lô. |
+| `system_qty` | `Numeric(18,3)` | — | no | `0` | Tồn hệ thống (snapshot). |
+| `counted_qty` | `Numeric(18,3)` | — | yes | — | Thực đếm (null = chưa đếm). |
+| `unit` | `String(16)` | — | yes | — | Đơn vị tồn. |
+| `note` | `Text` | — | yes | — | Ghi chú. |
+
+---
+
 ### `work_shifts`
 
 **Purpose:** ca làm việc (module `nhan_su`, lát Ca kíp). One row per ca (Hành chính, Ca

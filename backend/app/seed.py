@@ -32,6 +32,7 @@ MODULES: list[tuple[str, str]] = [
     ("tinh_gia_thanh", "Tính giá thành"),
     ("san_pham", "Sản phẩm"),
     ("hop_dong", "Hợp đồng"),
+    ("san_xuat", "Sản xuất"),
     ("kho", "Kho hàng"),
     ("phong_ban", "Phòng ban"),
     ("vai_tro", "Vai trò"),
@@ -60,7 +61,11 @@ KD_MODULE_KEYS = [
     "hop_dong",
 ]
 
-DEPARTMENTS = ["Ban giám đốc", "Hành chính nhân sự", "Kinh doanh"]
+DEPARTMENTS = [
+    "Ban giám đốc", "Hành chính nhân sự", "Kinh doanh",
+    # Phòng ban vận hành Kho (BRD Module Kho §1.4) — để gắn vai trò tiếp cận kho.
+    "Kho", "Kế toán", "Sản xuất", "Mua hàng",
+]
 
 # Default org tiers (spec-06 / PBI-4009): (name, rank cao→thấp, head_title). Data, not schema —
 # admins add/edit more via the catalog screen.
@@ -147,6 +152,67 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "khach_hang": _rcu(SCOPE_OWN),
             "don_hang_ban": _rcu(SCOPE_OWN),
             "bao_gia": _rcu(SCOPE_OWN),
+        },
+    ),
+    # === Vai trò tiếp cận Kho (BRD Module Kho §1.4/§1.5) =====================
+    # Thủ kho: vận hành phiếu + kiểm kê; KHÔNG duyệt, KHÔNG thấy giá vốn.
+    (
+        "Kho",
+        "Thủ kho",
+        {
+            "dashboard": _read(SCOPE_OWN),
+            "kho": _rcu(SCOPE_ALL),          # xem + tạo/nộp phiếu, kiểm kê, điều chỉnh nhanh
+            "san_xuat": _read(SCOPE_ALL),    # xem LSX để tham chiếu khi lập phiếu
+        },
+    ),
+    # Quản lý kho: vận hành đầy đủ + duyệt + giá vốn + cấu hình danh mục kho.
+    (
+        "Kho",
+        "Quản lý kho",
+        {
+            "dashboard": _read(SCOPE_ALL),
+            "kho": _full(SCOPE_ALL),
+            "dm_kho": _full(SCOPE_ALL),      # cấu hình kho + loại phiếu + trạng thái hàng
+            "san_xuat": _read(SCOPE_ALL),
+        },
+    ),
+    # Kế toán kho: DUYỆT & ghi sổ + xem GIÁ VỐN/giá trị tồn; đối chiếu. Không tạo phiếu.
+    (
+        "Kế toán",
+        "Kế toán kho",
+        {
+            "dashboard": _read(SCOPE_ALL),
+            "kho": {**_read(SCOPE_ALL), "can_approve": True, "can_manage_price": True},
+            "dm_kho": _read(SCOPE_ALL),
+        },
+    ),
+    # Nhân viên sản xuất: xuất NVL / nhập TP theo LSX; tạo lệnh SX.
+    (
+        "Sản xuất",
+        "Nhân viên sản xuất",
+        {
+            "dashboard": _read(SCOPE_OWN),
+            "kho": {**_read(SCOPE_ALL), "can_create": True},
+            "san_xuat": _rcu(SCOPE_ALL),
+        },
+    ),
+    # Quản lý sản xuất: như trên + duyệt phiếu SX-liên-quan + quản lý lệnh SX.
+    (
+        "Sản xuất",
+        "Quản lý sản xuất",
+        {
+            "dashboard": _read(SCOPE_ALL),
+            "kho": {**_read(SCOPE_ALL), "can_create": True, "can_approve": True},
+            "san_xuat": _full(SCOPE_ALL),
+        },
+    ),
+    # Nhân viên mua hàng: nhập NVL từ NCC (PO), xuất trả NCC.
+    (
+        "Mua hàng",
+        "Nhân viên mua hàng",
+        {
+            "dashboard": _read(SCOPE_OWN),
+            "kho": {**_read(SCOPE_ALL), "can_create": True},
         },
     ),
 ]
@@ -276,6 +342,39 @@ def seed_kd_staff(db: Session) -> None:
         role_id = role.id if role is not None else None
         if u.department_id != kd.id or u.role_id != role_id or not u.is_active:
             users.set_assignment(u, department_id=kd.id, role_id=role_id, is_active=True)
+
+
+# Tài khoản demo cho các vai trò tiếp cận kho: (username, tên, phòng ban, vai trò).
+# Mật khẩu = default_user_password. Chỉ seed khi SEED_DEMO=true.
+KHO_STAFF: list[tuple[str, str, str, str]] = [
+    ("thukho", "Trần Thủ Kho", "Kho", "Thủ kho"),
+    ("qlkho", "Lê Quản Lý Kho", "Kho", "Quản lý kho"),
+    ("ketoankho", "Phạm Kế Toán", "Kế toán", "Kế toán kho"),
+    ("nvsx", "Ngô Sản Xuất", "Sản xuất", "Nhân viên sản xuất"),
+    ("qlsx", "Vũ Quản Lý SX", "Sản xuất", "Quản lý sản xuất"),
+    ("muahang", "Đỗ Mua Hàng", "Mua hàng", "Nhân viên mua hàng"),
+]
+
+
+def seed_kho_staff(db: Session) -> None:
+    """Tài khoản demo cho từng vai trò tiếp cận kho (BRD §1.4) để test phân quyền. Idempotent."""
+    users = UserRepository(db)
+    depts = DepartmentRepository(db)
+    roles = RoleRepository(db)
+    for username, name, dept_name, role_name in KHO_STAFF:
+        dept = depts.get_by_name(dept_name)
+        if dept is None:
+            continue
+        u = users.get_by_username(username)
+        if u is None:
+            u = users.create(
+                username=username, name=name,
+                password_hash=hash_password(settings.default_user_password),
+            )
+        role = roles.get_by_name_and_department(role_name, dept.id)
+        role_id = role.id if role is not None else None
+        if u.department_id != dept.id or u.role_id != role_id or not u.is_active:
+            users.set_assignment(u, department_id=dept.id, role_id=role_id, is_active=True)
 
 
 def seed_customers(db: Session) -> None:
@@ -1374,6 +1473,70 @@ def backfill_user_codes(db: Session) -> None:
         db.commit()
 
 
+def seed_kho_engine(db: Session) -> None:
+    """Kho Document Engine (spec-13): seed 5 trạng thái hàng chuẩn + 3 loại phiếu (đợt 1).
+    Idempotent theo bảng rỗng."""
+    from sqlalchemy import select
+    from .models.warehouse_catalog import WhItemStatus, WhVoucherType
+
+    if db.execute(select(WhItemStatus)).first() is None:
+        # (code, name, on_hand, available, allow_issue, order)
+        statuses = [
+            ("AVAILABLE", "Khả dụng", True, True, True, 10),
+            ("RESERVED", "Giữ chỗ", True, False, False, 20),
+            ("QC_WAIT", "Chờ KCS", True, False, False, 30),
+            ("DEFECT", "Lỗi", True, False, False, 40),
+            ("CANCELLED", "Hủy", False, False, False, 50),
+        ]
+        for code, name, oh, av, iss, order in statuses:
+            db.add(WhItemStatus(code=code, name=name, count_on_hand=oh, count_available=av,
+                                allow_issue=iss, display_order=order, is_system=True, is_active=True))
+        db.commit()
+
+    # Loại phiếu — idempotent theo TỪNG mã (thêm mã mới vào DB cũ mà không đụng mã đã có).
+    # require_approval=True → sau khi Nộp, phiếu ở "Chờ duyệt" đến khi người có quyền
+    # kho:approve (kế toán/kinh doanh) Duyệt & ghi sổ.
+    # (code, name, group, effect, req_src, req_dst, req_approval)
+    vtypes = [
+        ("NK-NVL", "Nhập từ nhà cung cấp", "nhap", "tang", False, True, True),
+        ("NK-GK", "Nhập giấy khách hàng", "nhap", "tang", False, True, True),
+        ("NK-XUONG", "Nhập từ xưởng", "nhap", "tang", False, True, True),
+        ("XK-KH", "Xuất cho khách hàng", "xuat", "giam", True, False, True),
+        ("XK-NCC", "Xuất cho nhà cung cấp", "xuat", "giam", True, False, True),
+        # Gộp XK-GIAY vào XK-SX: một loại "Xuất NVL cho sản xuất" chung (giấy + vật tư khác).
+        ("XK-SX", "Xuất NVL cho sản xuất", "xuat", "giam", True, False, True),
+        ("DC-KHO", "Chuyển kho nội bộ", "dieu_chuyen", "chuyen_vi_tri", True, True, True),
+        # BRD §2.7/2.8/2.9/2.14 — mở rộng cỗ máy phiếu (đối tượng: LSX / bộ phận / máy / lý do).
+        ("NK-TRA", "Nhập trả vật tư thừa", "nhap", "tang", False, True, True),      # 2.7
+        ("XK-CCDC", "Cấp phát vật tư/CCDC nội bộ", "xuat", "giam", True, False, True),  # 2.8
+        ("XK-BT", "Xuất phụ tùng/bảo trì máy", "xuat", "giam", True, False, True),   # 2.9
+        ("XK-HUY", "Xuất hủy/thanh lý", "xuat", "giam", True, False, True),          # 2.14
+    ]
+    by_code = {t.code: t for t in db.execute(select(WhVoucherType)).scalars()}
+    dirty = False
+    for code, name, grp, effect, rsrc, rdst, rappr in vtypes:
+        cur = by_code.get(code)
+        if cur is None:
+            db.add(WhVoucherType(code=code, name=name, voucher_group=grp, stock_effect=effect,
+                                 require_src_wh=rsrc, require_dst_wh=rdst, require_approval=rappr,
+                                 sync_misa=False, is_active=True))
+            dirty = True
+        else:  # đồng bộ tên + bật duyệt theo chuẩn (không đụng cấu hình khác)
+            if cur.name != name:
+                cur.name = name
+                dirty = True
+            if cur.require_approval != rappr:
+                cur.require_approval = rappr
+                dirty = True
+    # Gộp XK-GIAY → XK-SX: vô hiệu hóa loại "Xuất giấy sản xuất" cũ nếu còn (giữ FK cho phiếu cũ).
+    giay = by_code.get("XK-GIAY")
+    if giay is not None and giay.is_active:
+        giay.is_active = False
+        dirty = True
+    if dirty:
+        db.commit()
+
+
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -1393,9 +1556,11 @@ def seed_all(db: Session) -> None:
     seed_machines(db)
     seed_operations(db)
     seed_paper_sizes(db)
+    seed_kho_engine(db)
     seed_imposition_types(db)
     if settings.seed_demo:
         seed_kd_staff(db)
+        seed_kho_staff(db)
         seed_employees(db)
         seed_work_shifts(db)
         seed_work_locations(db)
