@@ -17,12 +17,12 @@ const BINDING: Lbls = { ghim: "Đóng ghim", keo: "Vào keo", khau: "Khâu chỉ
 const VAT: Lbls = { "5": "5%", "8": "8%", "10": "10%" };
 
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in" };
-const CHE_DO: Lbls = { theo_gio: "Theo giờ máy", theo_san_luong: "Theo sản lượng" };
 const PRICING_BASIS: Lbls = {
   per_sheet: "Theo tờ in", per_ram: "Theo ram (500 tờ)", per_1000_luot: "Theo 1.000 lượt",
   per_m2: "Theo m²", per_pass: "Theo lượt in", per_book: "Theo cuốn", per_number: "Theo con/số",
+  per_hour: "Theo giờ máy",
 };
-const TOOLING: Lbls = { khuon_be: "Khuôn bế", khuon_ep: "Khuôn ép (nhũ/nổi)", kem: "Kẽm" };
+const TRUC_BU_HAO: Lbls = { so_mau: "Theo số màu (giấy in)", so_con: "Theo số con (sóng bồi/bế)" };
 
 const THO: Lbls = { canh_dai: "Thớ dọc (canh dài)", canh_ngan: "Thớ ngang (canh ngắn)" };
 const DV_GIA_GIAY: Lbls = { kg: "KG", cai: "CÁI", ram: "Ram", to: "Tờ" };
@@ -113,26 +113,43 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   prefix: "/api/cong-doan",
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [
-    { key: "nhom", label: "Nhóm", render: (r) => lbl(NHOM_CD)(r.nhom) },
-    { key: "che_do_tinh", label: "Chế độ", render: (r) => lbl(CHE_DO)(r.che_do_tinh) },
-    { key: "pricing_basis", label: "Đơn vị", render: (r) => lbl(PRICING_BASIS)(r.pricing_basis) },
+    { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
+    { key: "pricing_basis", label: "Đơn vị tính giá", render: (r) => lbl(PRICING_BASIS)(r.pricing_basis) },
+    { key: "so_to_bu_hao", label: "Bù hao (tờ)", render: (r) => String(r.so_to_bu_hao ?? 50) },
     STATUS_COL,
   ],
   fields: [
-    { key: "nhom", label: "Nhóm công đoạn", type: "select", required: true, group: "Phân loại", options: mapOpt(NHOM_CD) },
-    { key: "may_id", label: "Máy thực hiện", type: "ref", refPrefix: "/api/may-thiet-bi", group: "Phân loại",
-      hint: "Chọn máy đảm nhận công đoạn này" },
-    { key: "che_do_tinh", label: "Cách tính giá", type: "select", group: "Phân loại", options: mapOpt(CHE_DO) },
-    { key: "pricing_basis", label: "Tính theo đơn vị", type: "select", group: "Phân loại",
-      options: mapOpt(PRICING_BASIS), showIf: (f) => f.che_do_tinh === "theo_san_luong" },
-    { key: "setup_cost", label: "Phí chuẩn bị / setup (đ)", type: "number", group: "Giá" },
+    { key: "ten_hien_thi", label: "Tên hiển thị cho sản xuất", type: "text", group: "Thông tin",
+      hint: "Tên in cho thợ dưới xưởng đọc (bỏ trống = dùng Tên)" },
+    { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
+    { key: "pricing_basis", label: "Đơn vị tính giá", type: "select", group: "Giá", options: mapOpt(PRICING_BASIS),
+      hint: "Đếm theo cái gì (tờ / m² / cuốn / giờ…)" },
     { key: "run_rate", label: "Đơn giá / đơn vị (đ)", type: "number", group: "Giá" },
-    { key: "first_unit_floor", label: "Sàn bậc đầu (đ)", type: "number", group: "Giá", hint: "vd 1.000 lượt đầu tính trọn gói" },
-    { key: "min_charge", label: "Sàn cả công đoạn (đ)", type: "number", group: "Giá", hint: "Thu tối thiểu dù ít" },
-    { key: "requires_tooling", label: "Cần khuôn / kẽm", type: "checkbox", group: "Khuôn & hao" },
-    { key: "tooling_type", label: "Loại khuôn", type: "select", group: "Khuôn & hao",
-      options: mapOpt(TOOLING), showIf: (f) => !!f.requires_tooling },
-    { key: "spoilage_pct", label: "Hao hụt %", type: "number", group: "Khuôn & hao", hint: "Bù bù hao cho bước sau" },
+    { key: "min_charge", label: "Giá tối thiểu (đ)", type: "number", group: "Giá", hint: "Thu tối thiểu dù ít" },
+    { key: "so_to_bu_hao", label: "Số tờ bù hao / công đoạn", type: "number", group: "Bù hao", default: 50,
+      hint: "Cộng thêm khi đơn có công đoạn này (mặc định 50; bế nổi/dán móc đáy = 30)" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Bù hao" },
+  ],
+};
+
+export const CFG_BU_HAO: CatalogConfig = {
+  title: "Bù hao",
+  subtitle: "Tra số tờ bù hao theo trục (số màu / số con) × bậc số lượng. Bậc là dữ liệu — thêm/bớt tự do.",
+  prefix: "/api/bu-hao",
+  facet: { key: "truc", values: mapOpt(TRUC_BU_HAO) },
+  columns: [
+    { key: "truc", label: "Tra theo", render: (r) => lbl(TRUC_BU_HAO)(r.truc) },
+    { key: "dai", label: "Dải", render: (r) => `${r.key_tu}–${r.key_den}` },
+    { key: "bac", label: "Số bậc", render: (r) => `${Array.isArray(r.bac) ? r.bac.length : 0} bậc` },
+    STATUS_COL,
+  ],
+  fields: [
+    { key: "truc", label: "Tra theo trục", type: "select", required: true, group: "Phân loại",
+      options: mapOpt(TRUC_BU_HAO), hint: "Số màu (giấy) hay số con (sóng)" },
+    { key: "key_tu", label: "Dải: từ", type: "number", group: "Phân loại", hint: "vd 3 (in 3-4 màu → từ 3)" },
+    { key: "key_den", label: "Dải: đến", type: "number", group: "Phân loại", hint: "vd 4" },
+    { key: "bac", label: "Bậc số lượng → giá trị (tờ / %)", type: "bands", group: "Bậc số lượng" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Bậc số lượng" },
   ],
 };
 
@@ -158,6 +175,8 @@ export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
   subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy.",
   prefix: "/api/vat-lieu-kho/giay",
+  hasVersions: true,
+  softDelete: true,
   facet: KHO_FACET,
   columns: [
     { key: "gsm", label: "Định lượng" },
@@ -168,16 +187,13 @@ export const CFG_GIAY: CatalogConfig = {
   fields: [
     { key: "chung_loai_giay_id", label: "Chủng loại giấy", type: "ref", required: true,
       refPrefix: "/api/vat-lieu-kho/chung-loai-giay", group: "Phân loại" },
-    { key: "kho_rong", label: "Khổ rộng (mm)", type: "number", group: "Khổ & định lượng", hint: "0 = cuộn / khổ mở" },
-    { key: "kho_dai", label: "Khổ dài (mm)", type: "number", group: "Khổ & định lượng", hint: "0 = cuộn / khổ mở" },
-    { key: "gsm", label: "Định lượng (g/m²)", type: "number", required: true, group: "Khổ & định lượng" },
-    { key: "caliper_micron", label: "Độ dày (µm)", type: "number", group: "Khổ & định lượng", hint: "cho gáy sách / bù creep" },
-    { key: "tho", label: "Thớ giấy", type: "select", group: "Khổ & định lượng", options: mapOpt(THO) },
-    { key: "don_vi_gia", label: "ĐVT", type: "select", group: "Giá", options: mapOpt(DV_GIA_GIAY) },
-    { key: "don_gia", label: "Đơn giá (đ)", type: "number", group: "Giá" },
-    { key: "gia_thi_truong", label: "Giá thị trường (đ)", type: "number", group: "Giá", hint: "tham khảo, không bắt buộc" },
+    { key: "gsm", label: "Định lượng (g/m²)", type: "number", required: true, group: "Thông số" },
+    { key: "don_vi_gia", label: "ĐVT", type: "select", group: "Thông số", options: mapOpt(DV_GIA_GIAY) },
+    { key: "kho_rong", label: "Khổ rộng (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
+    { key: "kho_dai", label: "Khổ dài (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
     { key: "kho_tinh_gia", label: "Khổ dùng để tính giá?", type: "checkbox", group: "Giá" },
-    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Giá" },
+    { key: "gia_thi_truong", label: "Giá thị trường (đ)", type: "number", group: "Giá", hint: "tham khảo; đơn giá bán quản ở Lịch sử giá" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };
 
@@ -224,6 +240,7 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "loai-san-pham": CFG_LOAI_SAN_PHAM,
   "may-thiet-bi": CFG_MAY,
   "cong-doan": CFG_CONG_DOAN,
+  "bu-hao": CFG_BU_HAO,
   "chung-loai-giay": CFG_CHUNG_LOAI_GIAY,
   "giay": CFG_GIAY,
   "kho-giay-chuan": CFG_KHO_GIAY_CHUAN,

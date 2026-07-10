@@ -4,7 +4,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from ..models.vat_lieu_kho import BE_MAT_GIAY, DON_VI_GIA_GIAY, DON_VI_GIA_VAT_TU, THO
-from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
+from ..repositories.vat_lieu_kho_repo import VERSION_SNAPSHOT, VatLieuKhoRepository
 
 
 class VatLieuKhoError(Exception):
@@ -89,3 +89,34 @@ class VatLieuKhoService:
 
     def delete(self, kind: str, item_id: int) -> None:
         self.repo.delete(self.get(kind, item_id))
+
+    # -- Phiên bản giá giấy (lịch sử) --
+    def _ensure_v1(self, giay) -> None:
+        """Backfill v1 từ bản ghi Giấy hiện tại nếu chưa có phiên bản nào (giấy tạo trước tính năng)."""
+        if not self.repo.has_versions(giay.id):
+            snap = {k: getattr(giay, k, None) for k in VERSION_SNAPSHOT}
+            self.repo.create_version(giay.id, snap, ghi_chu="Phiên bản đầu")
+
+    def list_giay_versions(self, giay_id: int):
+        giay = self.get("giay", giay_id)
+        self._ensure_v1(giay)
+        return self.repo.list_versions(giay_id)
+
+    def add_giay_version(self, giay_id: int, data: dict, created_by: int | None = None):
+        giay = self.get("giay", giay_id)
+        if _f(data.get("gsm")) <= 0:
+            raise VatLieuKhoValidationError("GSM phải > 0.")
+        if data.get("don_vi_gia") and data["don_vi_gia"] not in DON_VI_GIA_GIAY:
+            raise VatLieuKhoValidationError("Đơn vị giá giấy không hợp lệ.")
+        self._ensure_v1(giay)
+        v = self.repo.create_version(
+            giay_id, data, ngay_hieu_luc=data.get("ngay_hieu_luc"),
+            ghi_chu=data.get("ghi_chu"), created_by=created_by,
+        )
+        # Mirror bản ghi Giấy (hiện hành) = version mới nhất + số phiên bản.
+        for k in VERSION_SNAPSHOT:
+            if k in data and data[k] is not None:
+                setattr(giay, k, data[k])
+        giay.version_no = v.version_no
+        self.repo.db.commit()
+        return v

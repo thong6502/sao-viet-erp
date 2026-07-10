@@ -714,3 +714,122 @@
 @media (max-width: 640px) {
   .rc-grid { grid-template-columns: 1fr; }
 }
+
+/* ── Bảng bậc động (BandsField) ─────────────────────────────────────── */
+.rc-bands { display: flex; flex-direction: column; gap: 8px; }
+.rc-bands__table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rc-bands__table th {
+  text-align: left; font-weight: 600; color: var(--ash, #8a8676);
+  padding: 4px 6px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .02em;
+}
+.rc-bands__table td { padding: 3px 4px; vertical-align: middle; }
+.rc-bands__table td .rc-input { padding: 6px 8px; }
+.rc-bands__empty { color: var(--ash, #8a8676); font-style: italic; padding: 10px 6px; }
+.rc-bands__del {
+  border: none; background: transparent; cursor: pointer; color: var(--signal, #8a1f1f);
+  padding: 6px; border-radius: 6px; display: inline-flex;
+}
+.rc-bands__del:hover { background: rgba(138,31,31,.08); }
+.rc-bands__add {
+  align-self: flex-start; border: 1px dashed var(--rule-soft, #d9d3c3); background: transparent;
+  color: var(--ink, #14130f); padding: 6px 14px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 13px;
+}
+.rc-bands__add:hover { border-color: var(--heat, #b0532b); color: var(--heat, #b0532b); }
+
+/* ── Lịch sử giá: danh sách thẻ phiên bản (vừa bề rộng drawer) ───────── */
+.rc-ver {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.rc-ver__msg {
+  text-align: center;
+  color: var(--ash, #8a8676);
+  padding: 32px 16px;
+  font-size: 13.5px;
+}
+.rc-ver__card {
+  border: 1px solid var(--rule, #e7e3d8);
+  border-radius: 10px;
+  background: var(--paper, #fdfcf8);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rc-ver__card--on {
+  border-color: color-mix(in srgb, var(--rust, #c5400a) 30%, var(--rule, #e7e3d8));
+  background: color-mix(in srgb, var(--rust, #c5400a) 4%, var(--paper, #fdfcf8));
+}
+.rc-ver__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rc-ver__pill {
+  font-size: 10.5px;
+  padding: 1px 7px;
+}
+.rc-ver__date {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--ash, #8a8676);
+  font-variant-numeric: tabular-nums;
+}
+.rc-ver__price {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink, #14130f);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.rc-ver__unit {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash, #8a8676);
+  margin-left: 4px;
+  letter-spacing: 0;
+}
+.rc-ver__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 12px;
+  color: var(--ash, #8a8676);
+}
+.rc-ver__meta b {
+  font-weight: 600;
+  color: var(--ink, #14130f);
+  font-variant-numeric: tabular-nums;
+}
+.rc-ver__dot {
+  color: var(--rule, #e7e3d8);
+}
+.rc-ver__note {
+  font-size: 12px;
+  color: var(--ash, #8a8676);
+  border-top: 1px dashed var(--rule-soft, #e8e3d3);
+  padding-top: 5px;
+  margin-top: 1px;
+}
+
+/* O cot "Phien ban": badge v{n} bam mo lich su gia */
+.rc__ver-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 5px;
+  color: var(--ash, #8a8676);
+  font: inherit;
+  transition: all 0.15s ease;
+}
+.rc__ver-cell:hover {
+  color: var(--rust, #c5400a);
+  background: color-mix(in srgb, var(--rust, #c5400a) 8%, transparent);
+}

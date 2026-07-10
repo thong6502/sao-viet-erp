@@ -1,9 +1,42 @@
 """Pydantic schemas — Danh mục Giấy & Vật tư (chủng loại giấy / giấy / vật tư in ấn)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
+
+
+# ---- Phiên bản giá giấy (lịch sử) ----
+class GiayGiaVersionIn(BaseModel):
+    ngay_hieu_luc: date | None = None
+    kho_dai: int = Field(default=0, ge=0)
+    kho_rong: int = Field(default=0, ge=0)
+    gsm: int | None = None
+    caliper_micron: int | None = None
+    tho: str | None = None
+    don_vi_gia: str = "kg"
+    don_gia: float = Field(default=0, ge=0)
+    gia_thi_truong: float | None = None
+    ghi_chu: str | None = None
+
+
+class GiayGiaVersionRow(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    giay_id: int
+    version_no: int
+    ngay_hieu_luc: date | None = None
+    is_current: bool
+    kho_dai: int
+    kho_rong: int
+    gsm: int | None = None
+    caliper_micron: int | None = None
+    tho: str | None = None
+    don_vi_gia: str
+    don_gia: float
+    gia_thi_truong: float | None = None
+    ghi_chu: str | None = None
+    created_at: datetime | None = None
 
 
 # ---- Chủng loại giấy ----
@@ -62,6 +95,7 @@ class GiayRow(BaseModel):
     gia_thi_truong: float | None = None
     kho_tinh_gia: bool
     ghi_chu: str | None = None
+    version_no: int = 1
     active: bool
     updated_at: datetime | None = None
 

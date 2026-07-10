@@ -4,7 +4,11 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from ..models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, KhoGiayChuan, VatTuInAn
+from ..models.vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, KhoGiayChuan, VatTuInAn
+
+# Các trường "ảnh chụp" của 1 phiên bản giá giấy (khớp cột GiayGiaVersion + GiayNguyen).
+VERSION_SNAPSHOT = ("kho_dai", "kho_rong", "gsm", "caliper_micron", "tho",
+                    "don_vi_gia", "don_gia", "gia_thi_truong")
 
 _CHUNG_LOAI = ("ten", "be_mat", "tho_mac_dinh", "mo_ta", "active")
 _GIAY = ("ten", "chung_loai_giay_id", "kho_dai", "kho_rong", "gsm", "caliper_micron",
@@ -84,3 +88,36 @@ class VatLieuKhoRepository:
     def delete(self, obj) -> None:
         self.db.delete(obj)
         self.db.commit()
+
+    # -- Phiên bản giá giấy (lịch sử) --
+    def has_versions(self, giay_id: int) -> bool:
+        return self.db.execute(
+            select(GiayGiaVersion.id).where(GiayGiaVersion.giay_id == giay_id).limit(1)
+        ).first() is not None
+
+    def list_versions(self, giay_id: int):
+        return list(self.db.execute(
+            select(GiayGiaVersion).where(GiayGiaVersion.giay_id == giay_id)
+            .order_by(GiayGiaVersion.version_no.desc())
+        ).scalars())
+
+    def create_version(self, giay_id: int, fields: dict, *, ngay_hieu_luc=None,
+                       ghi_chu: str | None = None, created_by: int | None = None):
+        # Bỏ cờ hiện hành ở các version cũ.
+        for v in self.db.execute(
+            select(GiayGiaVersion).where(
+                GiayGiaVersion.giay_id == giay_id, GiayGiaVersion.is_current.is_(True))
+        ).scalars():
+            v.is_current = False
+        next_no = (self.db.execute(
+            select(func.max(GiayGiaVersion.version_no)).where(GiayGiaVersion.giay_id == giay_id)
+        ).scalar() or 0) + 1
+        obj = GiayGiaVersion(giay_id=giay_id, version_no=next_no, is_current=True,
+                             ngay_hieu_luc=ngay_hieu_luc, ghi_chu=ghi_chu, created_by=created_by)
+        for k in VERSION_SNAPSHOT:
+            if k in fields and fields[k] is not None:
+                setattr(obj, k, fields[k])
+        self.db.add(obj)
+        self.db.commit()
+        self.db.refresh(obj)
+        return obj

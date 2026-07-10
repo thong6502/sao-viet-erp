@@ -908,6 +908,36 @@ def _migrate_vat_tu_simplify(db: Session) -> None:
         run("ALTER TABLE giay_nguyen DROP COLUMN ton")
 
 
+def _migrate_bu_hao_dynamic_bands(db: Session) -> None:
+    """Bù hao mô hình MỞ: bỏ bảng `bu_hao` 7-cột-cứng (nếu có), tạo lại bảng bậc-động
+    (truc/key_tu/key_den/bac JSON). Chỉ dev từng tạo bảng cũ (module chưa deploy) → drop an toàn.
+    create_all chạy TRƯỚC migration nên bảng cũ không bị sửa; ở đây drop rồi tạo lại đúng shape mới."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "bu_hao" in insp.get_table_names() and "to_le_3000" in _existing_columns(insp, "bu_hao"):
+        db.execute(text("DROP TABLE bu_hao"))
+        db.commit()
+    # Tạo bảng theo model hiện tại (no-op nếu đã đúng shape).
+    from .models.bu_hao import BuHao
+    BuHao.__table__.create(bind, checkfirst=True)
+    db.commit()
+
+
+def _migrate_cong_doan_bu_hao_fields(db: Session) -> None:
+    """Công đoạn: thêm `ten_hien_thi` (tên in cho thợ) + `so_to_bu_hao` (số tờ hao cộng khi có
+    công đoạn này, mặc định 50). Bảng `bu_hao` (danh mục bù hao) do create_all tạo. No-op trên
+    DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "cong_doan")
+    if "ten_hien_thi" not in existing:
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN ten_hien_thi VARCHAR(150)"))
+    if "so_to_bu_hao" not in existing:
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN so_to_bu_hao INTEGER NOT NULL DEFAULT 50"))
+    db.commit()
+
+
 def _migrate_giay_open_fields(db: Session) -> None:
     """Giấy mở hơn (Phương án A): thêm `giay_nguyen.gia_thi_truong` / `kho_tinh_gia` / `ghi_chu`
     (khớp cột bảng xưởng: Giá thị trường / Khổ tính giá? / Ghi chú). Khổ 0 = cuộn: đã cho phép ở
@@ -923,6 +953,17 @@ def _migrate_giay_open_fields(db: Session) -> None:
     ):
         if name not in existing:
             db.execute(text(f"ALTER TABLE giay_nguyen ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
+def _migrate_giay_version_no(db: Session) -> None:
+    """Giấy: thêm `giay_nguyen.version_no` (số phiên bản giá hiện hành, mirror từ
+    `giay_gia_version`). Default 1. No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "giay_nguyen" not in insp.get_table_names():
+        return
+    if "version_no" not in _existing_columns(insp, "giay_nguyen"):
+        db.execute(text("ALTER TABLE giay_nguyen ADD COLUMN version_no INTEGER NOT NULL DEFAULT 1"))
     db.commit()
 
 
@@ -952,6 +993,9 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0024_may_thiet_bi_ghi_chu_2", _migrate_may_thiet_bi_ghi_chu_2),
     ("0025_vat_tu_simplify", _migrate_vat_tu_simplify),
     ("0026_giay_open_fields", _migrate_giay_open_fields),
+    ("0027_cong_doan_bu_hao_fields", _migrate_cong_doan_bu_hao_fields),
+    ("0028_bu_hao_dynamic_bands", _migrate_bu_hao_dynamic_bands),
+    ("0029_giay_version_no", _migrate_giay_version_no),
 ]
 
 

@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 class CongDoanIn(BaseModel):
     ma: str = Field(min_length=1, max_length=30)
     ten: str = Field(min_length=1, max_length=150)
+    ten_hien_thi: str | None = None
+    so_to_bu_hao: int = Field(default=50, ge=0)
     nhom: str
     may_id: int | None = None
     che_do_tinh: str = "theo_san_luong"
@@ -32,6 +34,8 @@ class CongDoanRow(BaseModel):
     id: int
     ma: str
     ten: str
+    ten_hien_thi: str | None = None
+    so_to_bu_hao: int = 50
     nhom: str
     may_id: int | None = None
     che_do_tinh: str

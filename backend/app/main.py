@@ -41,6 +41,7 @@ from .routers import (
     may_thiet_bi,
     vat_lieu_kho,
     cong_doan,
+    bu_hao,
     loai_san_pham,
 )
 from .seed import seed_all
@@ -105,6 +106,7 @@ app.include_router(norms.router)
 app.include_router(may_thiet_bi.router)
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
+app.include_router(bu_hao.router)
 app.include_router(loai_san_pham.router)
 
 

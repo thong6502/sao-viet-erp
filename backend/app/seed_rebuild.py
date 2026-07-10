@@ -8,6 +8,7 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .models.bu_hao import BuHao
 from .models.cong_doan import CongDoan
 from .models.loai_san_pham import LoaiSanPham
 from .models.may_thiet_bi import MayThietBi
@@ -130,19 +131,19 @@ def seed_rebuild_catalog(db: Session) -> None:
         db.add_all([
             GiayNguyen(ma="COUCHE-300-65x86", ten="Couché 300 65×86", chung_loai_giay_id=_cl.get("COUCHE"),
                        kho_dai=860, kho_rong=650, gsm=300, caliper_micron=310, tho="canh_dai",
-                       don_vi_gia="kg", don_gia=30000, ton=500),
+                       don_vi_gia="kg", don_gia=30000),
             GiayNguyen(ma="COUCHE-150-79x109", ten="Couché 150 79×109", chung_loai_giay_id=_cl.get("COUCHE"),
                        kho_dai=1090, kho_rong=790, gsm=150, caliper_micron=150, tho="canh_dai",
-                       don_vi_gia="kg", don_gia=28000, ton=800),
+                       don_vi_gia="kg", don_gia=28000),
             GiayNguyen(ma="FORD-70-65x86", ten="Ford 70 65×86", chung_loai_giay_id=_cl.get("FORD"),
                        kho_dai=860, kho_rong=650, gsm=70, caliper_micron=95, tho="canh_ngan",
-                       don_vi_gia="kg", don_gia=26000, ton=1200),
+                       don_vi_gia="kg", don_gia=26000),
             GiayNguyen(ma="IVORY-350-79x109", ten="Ivory 350 79×109", chung_loai_giay_id=_cl.get("IVORY"),
                        kho_dai=1090, kho_rong=790, gsm=350, caliper_micron=430, tho="canh_dai",
-                       don_vi_gia="kg", don_gia=32000, ton=300),
+                       don_vi_gia="kg", don_gia=32000),
             GiayNguyen(ma="DUPLEX-300", ten="Duplex 300", chung_loai_giay_id=_cl.get("DUPLEX"),
                        kho_dai=1090, kho_rong=790, gsm=300, caliper_micron=380,
-                       don_vi_gia="kg", don_gia=18000, ton=600),
+                       don_vi_gia="kg", don_gia=18000),
         ])
         db.commit()
     # Backfill chủng loại cho giấy chưa gắn (dev data / sau migration) theo tiền tố mã.
@@ -219,6 +220,35 @@ def seed_rebuild_catalog(db: Session) -> None:
                      che_do_tinh="theo_san_luong", pricing_basis="per_book", run_rate=180),
             CongDoan(ma="CD-0008", ten="Đánh số nhảy", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_number", run_rate=10),
+        ])
+        db.commit()
+
+    # --- Bù hao (tra theo trục số màu/số con × bậc SL động) — số THẬT của xưởng ---
+    if _empty(db, BuHao):
+        _SL = [(0, 3000), (3000, 7000), (7000, 10000), (10000, 15000), (15000, 20000), (20000, 30000)]
+
+        def _bac(sau_to, pct):  # 6 bậc đầu = số tờ, bậc >30.000 = %
+            b = [{"sl_tu": t, "sl_den": d, "gia_tri": v, "don_vi": "to"} for (t, d), v in zip(_SL, sau_to)]
+            b.append({"sl_tu": 30000, "sl_den": None, "gia_tri": pct, "don_vi": "pct"})
+            return b
+
+        db.add_all([
+            # Giấy in + thành phẩm — tra theo SỐ MÀU
+            BuHao(ma="BH-KHONG-IN", ten="Hàng không in", truc="so_mau", key_tu=0, key_den=0,
+                  bac=_bac([50, 70, 100, 130, 150, 200], 1)),
+            BuHao(ma="BH-IN-1-2", ten="In 1-2 màu", truc="so_mau", key_tu=1, key_den=2,
+                  bac=_bac([120, 150, 200, 250, 300, 350], 1.5)),
+            BuHao(ma="BH-IN-3-4", ten="In 3-4 màu", truc="so_mau", key_tu=3, key_den=4,
+                  bac=_bac([150, 200, 250, 300, 350, 400], 1.7)),
+            BuHao(ma="BH-IN-5", ten="In 5 màu", truc="so_mau", key_tu=5, key_den=5,
+                  bac=_bac([200, 250, 300, 350, 400, 450], 2)),
+            BuHao(ma="BH-IN-6", ten="In 6 màu", truc="so_mau", key_tu=6, key_den=6,
+                  bac=_bac([250, 300, 350, 450, 500, 600], 2.5)),
+            # Sóng (bồi/bế) — tra theo SỐ CON
+            BuHao(ma="BH-SONG-1CON", ten="Sóng — 1 con", truc="so_con", key_tu=1, key_den=1,
+                  bac=_bac([70, 100, 150, 170, 200, 250], 1), ghi_chu="Sóng E, B, BC, BE — lưu ý chiều sóng trước"),
+            BuHao(ma="BH-SONG-NHIEU", ten="Sóng — nhiều con", truc="so_con", key_tu=2, key_den=999,
+                  bac=_bac([50, 70, 120, 150, 170, 200], 0.7)),
         ])
         db.commit()
 

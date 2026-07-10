@@ -14,8 +14,8 @@ from ..deps import require_permission
 from ..models.user import User
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.vat_lieu_kho import (
-    ChungLoaiGiayIn, ChungLoaiGiayRow, GiayIn, GiayRow, KhoGiayChuanIn, KhoGiayChuanRow,
-    ListOut, VatTuIn, VatTuRow,
+    ChungLoaiGiayIn, ChungLoaiGiayRow, GiayGiaVersionIn, GiayGiaVersionRow, GiayIn, GiayRow,
+    KhoGiayChuanIn, KhoGiayChuanRow, ListOut, VatTuIn, VatTuRow,
 )
 from ..services.vat_lieu_kho_service import (
     VatLieuKhoDuplicate, VatLieuKhoNotFound, VatLieuKhoService, VatLieuKhoValidationError,
@@ -92,3 +92,32 @@ _make_crud("chung_loai_giay", ChungLoaiGiayIn, ChungLoaiGiayRow, "chung-loai-gia
 _make_crud("giay", GiayIn, GiayRow, "giay")
 _make_crud("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an")
 _make_crud("kho_giay_chuan", KhoGiayChuanIn, KhoGiayChuanRow, "kho-giay-chuan")
+
+
+# -- Phiên bản giá giấy (lịch sử) — route custom (không theo factory CRUD) --
+@router.get("/giay/{giay_id}/versions", response_model=list[GiayGiaVersionRow], name="list_giay_versions")
+def list_giay_versions(
+    giay_id: int,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[GiayGiaVersionRow]:
+    try:
+        rows = svc.list_giay_versions(giay_id)
+    except VatLieuKhoNotFound as e:
+        raise _err(e) from None
+    return [GiayGiaVersionRow.model_validate(r) for r in rows]
+
+
+@router.post("/giay/{giay_id}/versions", response_model=GiayGiaVersionRow,
+             status_code=status.HTTP_201_CREATED, name="add_giay_version")
+def add_giay_version(
+    giay_id: int,
+    payload: GiayGiaVersionIn,
+    svc: Service,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> GiayGiaVersionRow:
+    try:
+        v = svc.add_giay_version(giay_id, payload.model_dump(), created_by=user.id)
+    except (VatLieuKhoNotFound, VatLieuKhoValidationError) as e:
+        raise _err(e) from None
+    return GiayGiaVersionRow.model_validate(v)

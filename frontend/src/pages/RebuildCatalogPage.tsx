@@ -5,13 +5,13 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ApiError } from "../api/client";
-import { crud, type Row } from "../api/rebuildCatalog";
+import { crud, addVersion, type Row } from "../api/rebuildCatalog";
 import "./rebuild-catalog.css";
 
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi";
+  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "bands";
   options?: { value: string; label: string }[];
   refPrefix?: string;           // ref / ref-multi: endpoint danh mục nguồn (đổ dropdown theo TÊN)
   required?: boolean;
@@ -38,6 +38,8 @@ export interface CatalogConfig {
   fields: FieldDef[];
   facet?: FacetDef;             // tab lọc phía trên (tùy chọn)
   renderExtra?: (form: Record<string, unknown>) => ReactNode;  // block phụ cuối drawer (vd preview BHR)
+  hasVersions?: boolean;        // bật lịch sử giá (Giấy): thêm cột "Phiên bản" bấm mở lịch sử
+  softDelete?: boolean;         // "Xóa" = ẩn mềm (active=false), giữ dữ liệu; list chỉ hiện active
 }
 
 export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
@@ -53,11 +55,11 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
   const load = useCallback(() => {
     if (!token) return;
     setLoading(true);
-    api.list(token)
+    api.list(token, config.softDelete ? { active: true } : {})   // xóa mềm: chỉ hiện dòng còn active
       .then((r) => setRows(r.items))
       .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được danh sách."))
       .finally(() => setLoading(false));
-  }, [token, api]);
+  }, [token, api, config.softDelete]);
   useEffect(() => { load(); }, [load]);
 
   const shown = useMemo(() => {
@@ -70,9 +72,16 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
   }, [rows, q, facet, config.facet]);
 
   async function remove(r: Row) {
-    if (!token || !window.confirm(`Xóa "${r.ten}" (${r.ma})?`)) return;
-    try { await api.remove(token, r.id); load(); }
-    catch (e) { setError(e instanceof ApiError ? e.message : "Không xóa được."); }
+    if (!token) return;
+    if (config.softDelete) {
+      if (!window.confirm(`Ẩn "${r.ten}" (${r.ma})? Dữ liệu vẫn giữ (xóa mềm), có thể khôi phục sau.`)) return;
+      try { await api.update(token, r.id, { ...r, active: false }); load(); }
+      catch (e) { setError(e instanceof ApiError ? e.message : "Không ẩn được."); }
+    } else {
+      if (!window.confirm(`Xóa "${r.ten}" (${r.ma})?`)) return;
+      try { await api.remove(token, r.id); load(); }
+      catch (e) { setError(e instanceof ApiError ? e.message : "Không xóa được."); }
+    }
   }
 
   const facetCount = (v: string) =>
@@ -128,15 +137,16 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
               <th style={{ width: "15%" }}>Mã</th>
               <th style={{ width: "35%" }}>Tên</th>
               {config.columns.map((c) => <th key={c.key}>{c.label}</th>)}
+              {config.hasVersions && <th>Phiên bản</th>}
               <th className="rc__actcol" style={{ width: "180px" }}>Hành động</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={config.columns.length + 3} className="rc__msg">Đang tải dữ liệu…</td></tr>
+              <tr><td colSpan={config.columns.length + 3 + (config.hasVersions ? 1 : 0)} className="rc__msg">Đang tải dữ liệu…</td></tr>
             ) : shown.length === 0 ? (
               <tr>
-                <td colSpan={config.columns.length + 3} className="rc__empty-state-td">
+                <td colSpan={config.columns.length + 3 + (config.hasVersions ? 1 : 0)} className="rc__empty-state-td">
                   <div className="rc__empty-state">
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="rc__empty-icon">
                       <circle cx="12" cy="12" r="10"/>
@@ -160,6 +170,11 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
                 {config.columns.map((c) => (
                   <td key={c.key}>{c.render ? c.render(r) : (r[c.key] == null || r[c.key] === "" ? "—" : String(r[c.key]))}</td>
                 ))}
+                {config.hasVersions && (
+                  <td title="Phiên bản hiện hành — sửa bản ghi để tạo phiên bản mới">
+                    <span className="rc__code-badge">v{Number(r.version_no ?? 1)}</span>
+                  </td>
+                )}
                 <td className="rc__actcol" onClick={(e) => e.stopPropagation()}>
                   <button type="button" className="rc__link-btn" onClick={() => setEditing(r)} title="Chỉnh sửa">
                     <EditIcon />
@@ -258,6 +273,49 @@ const TrashIcon = () => (
   </svg>
 );
 
+// ── BANDS EDITOR (bậc số lượng động: Từ SL · Đến SL · Giá trị · Đơn vị) ──────────
+interface BacRow { sl_tu?: number | null; sl_den?: number | null; gia_tri?: number; don_vi?: string }
+function BandsField({ value, onChange }: { value: BacRow[]; onChange: (v: BacRow[]) => void }) {
+  const rows = value ?? [];
+  const setRow = (i: number, patch: Partial<BacRow>) =>
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const add = () => onChange([...rows, { sl_tu: 0, sl_den: null, gia_tri: 0, don_vi: "to" }]);
+  const del = (i: number) => onChange(rows.filter((_, j) => j !== i));
+  const num = (v: unknown) => (v === "" || v == null ? "" : String(v));
+  return (
+    <div className="rc-bands">
+      <table className="rc-bands__table">
+        <thead>
+          <tr><th>Từ SL</th><th>Đến SL</th><th>Giá trị</th><th>Đơn vị</th><th></th></tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={5} className="rc-bands__empty">Chưa có bậc — bấm “＋ Thêm bậc”.</td></tr>
+          )}
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td><input className="rc-input rc-input--num" type="number" value={num(r.sl_tu)}
+                onChange={(e) => setRow(i, { sl_tu: e.target.value === "" ? 0 : Number(e.target.value) })} /></td>
+              <td><input className="rc-input rc-input--num" type="number" placeholder="∞" value={num(r.sl_den)}
+                onChange={(e) => setRow(i, { sl_den: e.target.value === "" ? null : Number(e.target.value) })} /></td>
+              <td><input className="rc-input rc-input--num" type="number" step="any" value={num(r.gia_tri)}
+                onChange={(e) => setRow(i, { gia_tri: e.target.value === "" ? 0 : Number(e.target.value) })} /></td>
+              <td>
+                <select className="rc-input" value={r.don_vi ?? "to"} onChange={(e) => setRow(i, { don_vi: e.target.value })}>
+                  <option value="to">Tờ</option>
+                  <option value="pct">%</option>
+                </select>
+              </td>
+              <td><button type="button" className="rc-bands__del" onClick={() => del(i)} title="Xóa bậc"><TrashIcon /></button></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button type="button" className="rc-bands__add" onClick={add}>＋ Thêm bậc</button>
+    </div>
+  );
+}
+
 // ── DRAWER COMPONENT ─────────────────────────────────────────────────────────────
 function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   config: CatalogConfig; existing: Row | null; allRows: Row[]; onClose: () => void; onSaved: () => void;
@@ -271,7 +329,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi") {
+      if (f.type === "ref-multi" || f.type === "bands") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -346,7 +404,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     const body: Record<string, unknown> = { ma: form.ma, ten: form.ten };
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (f.type === "ref-multi" || f.type === "bands") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) { if (!f.required) continue; }
       if ((f.type === "number" || f.type === "ref") && v !== "" && v != null) v = Number(v);
       if (f.type === "json" && typeof v === "string" && v.trim()) {
@@ -363,8 +421,16 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       body[f.key] = v;
     }
     try {
-      if (isEdit && existing) await api.update(token, existing.id, body);
-      else await api.create(token, body);
+      if (isEdit && existing) {
+        if (config.hasVersions) {
+          // Sửa bản ghi versioned = đẻ 1 phiên bản mới (v++ + snapshot), rồi cập nhật field.
+          // Giữ đơn giá hiện tại vì form không có ô đơn giá (tránh mirror về 0).
+          await addVersion(token, config.prefix, existing.id, { ...body, don_gia: existing.don_gia ?? 0 });
+        }
+        await api.update(token, existing.id, body);
+      } else {
+        await api.create(token, body);
+      }
       onSaved();
     } catch (e2) { setErr(e2 instanceof ApiError ? e2.message : "Lưu thất bại."); setSaving(false); }
   }
@@ -434,7 +500,10 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                       return (
                         <label className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}`} key={f.key}>
                           <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
-                          {f.type === "select" ? (
+                          {f.type === "bands" ? (
+                            <BandsField value={Array.isArray(form[f.key]) ? (form[f.key] as BacRow[]) : []}
+                              onChange={(v) => set(f.key, v)} />
+                          ) : f.type === "select" ? (
                             <div className="rc-input-wrapper">
                               <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)}>
                                 <option value="">—</option>

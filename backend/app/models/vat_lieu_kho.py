@@ -9,10 +9,10 @@ Danh mục CRUD thuần (module bình bài/tính giá Hệ B đã gỡ) — khô
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy import (
-    Boolean, DateTime, Integer, JSON, Numeric, String,
+    Boolean, Date, DateTime, Integer, JSON, Numeric, String,
     false as sa_false, true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -69,11 +69,40 @@ class GiayNguyen(Base):
     gia_thi_truong: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)   # giá tham khảo thị trường
     kho_tinh_gia: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)  # khổ này dùng để tính giá?
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)  # phiên bản giá hiện hành (mirror từ giay_gia_version)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+
+
+class GiayGiaVersion(Base):
+    """Phiên bản giá giấy — ẢNH CHỤP toàn bản ghi Giấy tại 1 mốc hiệu lực (lịch sử giá).
+
+    Mỗi lần "Thêm phiên bản" đẻ 1 row; `is_current` = mốc đang áp dụng; `giay_nguyen` mirror
+    các trường của version is_current. `giay_id` soft int → `giay_nguyen` (no DB FK).
+    """
+
+    __tablename__ = "giay_gia_version"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    giay_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)  # → giay_nguyen.id
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
+    ngay_hieu_luc: Mapped[date | None] = mapped_column(Date, nullable=True)     # áp dụng từ ngày
+    is_current: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
+    # -- ảnh chụp toàn bản ghi tại mốc này --
+    kho_dai: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
+    kho_rong: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0", default=0)
+    gsm: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    caliper_micron: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tho: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    don_vi_gia: Mapped[str] = mapped_column(String(8), nullable=False, server_default="kg", default="kg")
+    don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
+    gia_thi_truong: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)     # lý do đổi (vd NCC tăng giá)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class VatTuInAn(Base):

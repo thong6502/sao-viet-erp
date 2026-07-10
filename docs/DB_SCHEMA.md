@@ -2000,7 +2000,13 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** tờ giấy nguyên (khổ mua) — thuộc 1 chủng loại (`chung_loai_giay_id`, soft int). Một row = một loại giấy cụ thể.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `chung_loai_giay_id`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `gia_thi_truong`, `kho_tinh_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `chung_loai_giay_id`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `gia_thi_truong`, `kho_tinh_gia`, `ghi_chu`, `version_no`, `active`, `created_at`, `updated_at`.
+
+### `giay_gia_version`
+
+**Purpose:** phiên bản giá giấy (lịch sử) — ẢNH CHỤP toàn bản ghi `giay_nguyen` tại 1 mốc hiệu lực. Mỗi lần "Thêm phiên bản" đẻ 1 row; `is_current` = mốc đang áp dụng (mirror giá lên `giay_nguyen`). Bảng mới do create_all tạo (không migration). `giay_id` soft int → `giay_nguyen`.
+
+**Tất cả cột:** `id`, `giay_id`, `version_no`, `ngay_hieu_luc`, `is_current`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `gia_thi_truong`, `ghi_chu`, `created_by`, `created_at`.
 
 ### `kho_giay_chuan`
 
@@ -2018,7 +2024,13 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job (`routing_step`) = Phase D. `may_id` soft int → `may_thiet_bi`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `nhom`, `may_id`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `nhom`, `may_id`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+### `bu_hao`
+
+**Purpose:** danh mục Bù hao — bảng tra số tờ bù theo TRỤC (`truc`=số màu / số con) × BẬC số lượng. Mô hình MỞ: bậc số lượng là dữ liệu JSON (`bac`), không phải cột cứng — xưởng thêm/bớt ngưỡng thoải mái. Trục tra bằng dải số (`key_tu..key_den`); `bac` = `[{sl_tu, sl_den, gia_tri, don_vi(to|pct)}]`.
+
+**Tất cả cột:** `id`, `ma`, `ten`, `truc`, `key_tu`, `key_den`, `bac`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 ### `loai_san_pham`
 

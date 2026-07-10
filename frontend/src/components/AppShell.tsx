@@ -184,7 +184,7 @@ export function AppShell() {
         </main>
       );
     }
-    // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP) — 1 trang generic theo config.
+    // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
       return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
     }

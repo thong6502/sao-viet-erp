@@ -21,7 +21,7 @@ from ..db import Base
 
 NHOM = ("prepress", "print", "finishing")
 CHE_DO_TINH = ("theo_gio", "theo_san_luong")
-PRICING_BASIS = ("per_sheet", "per_ram", "per_1000_luot", "per_m2", "per_pass", "per_book", "per_number")
+PRICING_BASIS = ("per_sheet", "per_ram", "per_1000_luot", "per_m2", "per_pass", "per_book", "per_number", "per_hour")
 TOOLING_TYPE = ("khuon_be", "khuon_ep", "kem")
 
 
@@ -35,6 +35,8 @@ class CongDoan(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
+    ten_hien_thi: Mapped[str | None] = mapped_column(String(150), nullable=True)  # tên in cho thợ sản xuất
+    so_to_bu_hao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="50", default=50)  # +tờ hao khi có công đoạn này
     nhom: Mapped[str] = mapped_column(String(12), index=True, nullable=False)  # prepress|print|finishing
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → may_thiet_bi.id (soft)
 
