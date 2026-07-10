@@ -199,7 +199,26 @@ def seed_rebuild_catalog(db: Session) -> None:
         db.add_all(rows)
         db.commit()
 
-    # --- Công đoạn: KHÔNG seed sẵn nữa (bộ đơn vị tính giá mới) — xưởng tự khai báo trong danh mục.
+    # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 4 kiểu bù hao (khong/số màu/số con/cố định) ---
+    if _empty(db, CongDoan):
+        db.add_all([
+            CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_gio",
+                     setup_time=10, kieu_bu_hao="khong"),
+            CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_sheet", run_rate=350, kieu_bu_hao="theo_so_mau"),
+            CongDoan(ma="CD-0003", ten="Cán màng bóng", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_area_sides", run_rate=2.2, min_charge=110000,
+                     kieu_bu_hao="co_dinh", so_to_bu_hao=50),
+            CongDoan(ma="CD-0004", ten="Bồi sóng", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_sheet", run_rate=200, kieu_bu_hao="theo_so_con"),
+            CongDoan(ma="CD-0005", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_position", run_rate=400, requires_tooling=True,
+                     tooling_type="khuon_ep", kieu_bu_hao="co_dinh", so_to_bu_hao=50),
+            CongDoan(ma="CD-0006", ten="Bế nổi", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_finished_qty", run_rate=20, requires_tooling=True,
+                     tooling_type="khuon_be", kieu_bu_hao="co_dinh", so_to_bu_hao=30),
+        ])
+        db.commit()
 
     # --- Bù hao (tra theo trục số màu/số con × bậc SL động) — số THẬT của xưởng ---
     if _empty(db, BuHao):
