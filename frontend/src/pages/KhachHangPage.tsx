@@ -81,14 +81,45 @@ function pinOf(c: CustomerRow): PinnedCustomer {
 const MST_RE = /^(\d{10}|\d{13})$/;
 const PAGE_SIZES = [25, 50, 100];
 
-function money(n: number | null | undefined): string {
-  if (n == null) return "—";
-  return n.toLocaleString("vi-VN") + " ₫";
-}
+/* money() đầy-đủ-đồng đã bỏ: mọi chỗ hiển thị tiền dùng moneyStat/moneyCompact theo prototype.
+   (Hàm cũ chỉ còn được nhắc trong khối PaymentGauge đã comment.) */
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
   return d.toLocaleDateString("vi-VN");
+}
+/** "HH:mm" từ ISO datetime thật (chip giờ cạnh ngày — theo prototype). */
+function fmtTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** Gộp giá trị theo tháng từ rows thật rồi trải trục LIÊN TỤC tối đa 12 tháng
+ *  (tháng không phát sinh = 0 thật — trục không đứt quãng, như prototype). */
+function monthlySeries(
+  items: { created_at: string | null; total: number | null }[],
+): { month: string; label: string; total: number }[] {
+  const groups: Record<string, number> = {};
+  items.forEach((o) => {
+    if (!o.created_at) return;
+    const m = o.created_at.substring(0, 7); // "YYYY-MM"
+    groups[m] = (groups[m] || 0) + (o.total ?? 0);
+  });
+  const keys = Object.keys(groups).sort();
+  if (keys.length === 0) return [];
+  const first = keys[0];
+  const [ly, lm] = keys[keys.length - 1].split("-").map(Number);
+  const out: { month: string; label: string; total: number }[] = [];
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(ly, lm - 1 - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    if (key < first) continue; // không vẽ tháng trước khi có giao dịch đầu tiên
+    out.push({ month: key, label: `T${d.getMonth() + 1}`, total: groups[key] ?? 0 });
+  }
+  return out;
 }
 
 function moneyCompact(n: number | null | undefined): string {
@@ -1736,7 +1767,8 @@ function DashboardTab({
   const canDebt = useCan()("khach_hang", "view_debt");
   const avgVal = dash.avg_order_value ?? 0;
   const cards: { label: string; value: ReactNode; hint?: string; muted?: boolean }[] = [
-    { label: "Doanh số 12T", value: moneyStat(dash.revenue_12m), hint: "+29% YoY" },
+    // Không có dữ liệu 24 tháng để so YoY thật → hint trung thực về phạm vi số liệu.
+    { label: "Doanh số 12T", value: moneyStat(dash.revenue_12m), hint: "12 tháng gần nhất" },
     {
       label: "Số đơn 12T",
       value: (
@@ -1986,6 +2018,14 @@ function OrdersTab({
     }
   }
 
+  // Năm có dữ liệu THẬT (từ created_at) — không hardcode danh sách năm.
+  const years = useMemo(() => {
+    if (!rows) return [];
+    return [...new Set(rows.map((o) => o.created_at?.slice(0, 4)).filter(Boolean))]
+      .sort()
+      .reverse() as string[];
+  }, [rows]);
+
   // Memoized filter and aggregates
   const filteredRows = useMemo(() => {
     if (!rows) return [];
@@ -1993,9 +2033,9 @@ function OrdersTab({
     return rows.filter((o) => o.created_at && o.created_at.startsWith(yearFilter));
   }, [rows, yearFilter]);
 
-  const { totalLifetime, completedCount, avgSpend, maxSpend } = useMemo(() => {
+  const { totalLifetime, completedCount, avgSpend, maxSpend, perMonth, sinceDate } = useMemo(() => {
     if (filteredRows.length === 0) {
-      return { totalLifetime: 0, completedCount: 0, avgSpend: 0, maxSpend: 0 };
+      return { totalLifetime: 0, completedCount: 0, avgSpend: 0, maxSpend: 0, perMonth: 0, sinceDate: null as string | null };
     }
     let total = 0;
     let max = 0;
@@ -2006,36 +2046,37 @@ function OrdersTab({
       if (val > max) max = val;
       if (o.status !== "cancelled") completed += 1;
     });
+    // Nhịp đặt/tháng tính trên KHOẢNG THỜI GIAN THẬT của dữ liệu (đơn cũ nhất → mới nhất),
+    // không chia bừa cho 12.
+    const dates = filteredRows.map((o) => new Date(o.created_at).getTime()).filter((t) => !Number.isNaN(t));
+    const oldest = Math.min(...dates);
+    const newest = Math.max(...dates);
+    const spanMonths = Math.max(1, Math.round((newest - oldest) / (30.44 * 86_400_000)) + 1);
     return {
       totalLifetime: total,
       completedCount: completed,
       avgSpend: completed > 0 ? Math.round(total / completed) : 0,
       maxSpend: max,
+      perMonth: completed / spanMonths,
+      sinceDate: new Date(oldest).toISOString(),
     };
   }, [filteredRows]);
 
-  // Group by month for chart
-  const monthlySpend = useMemo(() => {
-    const groups: Record<string, number> = {};
-    filteredRows.forEach((o) => {
-      if (!o.created_at) return;
-      const m = o.created_at.substring(0, 7); // "YYYY-MM"
-      groups[m] = (groups[m] || 0) + (o.total ?? 0);
-    });
-    const entries = Object.entries(groups)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .slice(-6); // Last 6 months
-    return entries.map(([month, total]) => {
-      const mNum = parseInt(month.split("-")[1], 10);
-      return {
-        month,
-        label: `T${mNum}`,
-        total,
-      };
-    });
-  }, [filteredRows]);
+  // So sánh THẬT với năm liền trước (chỉ khi đang lọc 1 năm và năm trước có dữ liệu).
+  const yoyPct = useMemo(() => {
+    if (!rows || !yearFilter) return null;
+    const prevYear = String(Number(yearFilter) - 1);
+    const sum = (yr: string) =>
+      rows.filter((o) => o.created_at?.startsWith(yr)).reduce((s, o) => s + (o.total ?? 0), 0);
+    const prev = sum(prevYear);
+    if (prev <= 0) return null;
+    return Math.round(((sum(yearFilter) - prev) / prev) * 100);
+  }, [rows, yearFilter]);
 
-  // Top products mix
+  // Group by month for chart — trục liên tục tối đa 12 tháng như prototype.
+  const monthlySpend = useMemo(() => monthlySeries(filteredRows), [filteredRows]);
+
+  // Top products mix — TOP 4 như prototype; chỉ số ĐO ĐƯỢC từ rows thật (số đơn + giá trị).
   const productMix = useMemo(() => {
     const counts: Record<string, { qty: number; total: number }> = {};
     filteredRows.forEach((o) => {
@@ -2050,8 +2091,8 @@ function OrdersTab({
     });
     return Object.entries(counts)
       .map(([name, stat]) => ({ name, ...stat }))
-      .sort((a, b) => b.qty - a.qty)
-      .slice(0, 3);
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 4);
   }, [filteredRows]);
 
   if (error) return <div className="banner banner--error" role="alert">{error}</div>;
@@ -2070,7 +2111,7 @@ function OrdersTab({
       <div className="kh__orders-filter-row">
         <div className="kh__year-filters">
           <span className="kh__year-filters-label">LỌC THEO NĂM:</span>
-          {(["", "2026", "2025", "2024"] as const).map((yr) => (
+          {["", ...years].map((yr) => (
             <button
               key={yr}
               type="button"
@@ -2088,19 +2129,25 @@ function OrdersTab({
         )}
       </div>
 
-      {/* Stats Cards Strip */}
+      {/* Stats Cards Strip — hint là số THẬT tính từ rows (YoY chỉ hiện khi có kỳ trước). */}
       <div className="kh__kpis kh__kpis--orders">
         <div className="kh__kpi card">
-          <span className="kh__kpi-label">TỔNG CHI TIÊU LIFETIME</span>
+          <span className="kh__kpi-label">{yearFilter ? `CHI TIÊU ${yearFilter}` : "TỔNG CHI TIÊU LIFETIME"}</span>
           <span className="kh__kpi-value">{moneyStat(totalLifetime)}</span>
-          <span className="kh__kpi-hint">+19% so với kỳ trước</span>
+          <span className="kh__kpi-hint">
+            {yoyPct != null
+              ? `${yoyPct >= 0 ? "+" : ""}${yoyPct}% so với ${Number(yearFilter) - 1}`
+              : sinceDate
+                ? `từ ${fmtDate(sinceDate)}`
+                : "—"}
+          </span>
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">SỐ ĐƠN HOÀN THÀNH</span>
           <span className="kh__kpi-value">
             {completedCount} <small>đơn</small>
           </span>
-          <span className="kh__kpi-hint">{(completedCount / 12).toFixed(1)}/tháng TB</span>
+          <span className="kh__kpi-hint">{perMonth.toFixed(1)}/tháng TB</span>
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">TB / ĐƠN</span>
@@ -2115,6 +2162,7 @@ function OrdersTab({
         <section className="card kh__chart kh__chart--orders-monthly">
           <div className="kh__chart-head">
             <h3>Chi tiêu theo tháng</h3>
+            <span className="kh__chart-unit">TRIỆU đ</span>
           </div>
           {monthlySpend.length === 0 ? (
             <span className="kh__muted kh__empty-chart-text">Chưa có dữ liệu tháng</span>
@@ -2127,18 +2175,19 @@ function OrdersTab({
           )}
         </section>
 
-        {/* Right Column: TOP Sản phẩm mua nhiều nhất */}
+        {/* Right Column: TOP Sản phẩm mua nhiều nhất — chỉ số thật (số đơn + giá trị). */}
         <section className="card kh__chart kh__chart--orders-top">
           <div className="kh__chart-head">
             <h3>Sản phẩm mua nhiều nhất</h3>
+            <span className="kh__muted-tag">TOP {Math.max(productMix.length, 1)}</span>
           </div>
           <ul className="kh__top-products-list">
             {productMix.map((p, idx) => (
               <li key={p.name} className="kh__top-product-item">
-                <span className="kh__top-rank">#{idx + 1}</span>
+                <span className="kh__top-rank">{String(idx + 1).padStart(2, "0")}</span>
                 <div className="kh__top-prod-info">
                   <span className="kh__top-prod-name">{p.name}</span>
-                  <span className="kh__top-prod-qty">{p.qty} đơn &middot; Lượng: {(idx + 1) * 1000} cuốn</span>
+                  <span className="kh__top-prod-qty">{p.qty} đơn</span>
                 </div>
                 <span className="kh__top-prod-total">{moneyCompact(p.total)}</span>
               </li>
@@ -2150,68 +2199,59 @@ function OrdersTab({
         </section>
       </div>
 
-      {/* Order List Table */}
+      {/* Order List Table — chỉ cột có dữ liệu THẬT (bỏ SL / NV tạo / hạn giao / %TT của mẫu). */}
       <div className="card kh__tablewrap kh__tablewrap--orders">
+        <div className="kh__sec-head">
+          <h3>Toàn bộ đơn hàng</h3>
+          <span className="kh__sec-count">{filteredRows.length} ĐƠN</span>
+          <span className="kh__sec-right">Mới nhất trước</span>
+        </div>
         <table className="kh__table kh__table--tight kh__table--drill">
           <thead>
             <tr>
               <th>Mã đơn · Ngày đặt</th>
               <th>Sản phẩm</th>
-              <th className="kh__num">SL</th>
               <th className="kh__num">Giá trị</th>
               <th>Trạng thái</th>
-              <th>TT</th>
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((o) => {
-              const qty = ((o.id % 5) + 1) * 1000;
-              const progressPct = o.status === "cancelled" ? 0 : o.status === "ordered" ? 100 : 58;
-              const progressColor = o.status === "ordered" ? "var(--moss)" : "var(--amber)";
-
-              return (
-                <tr
-                  key={o.id}
-                  className="kh__drillrow"
-                  onClick={() => onOpenOrder(o.id)}
-                  tabIndex={0}
-                  onKeyDown={(e) => e.key === "Enter" && onOpenOrder(o.id)}
-                  title={`Mở chi tiết đơn ${o.order_no}`}
-                >
-                  <td>
-                    <div className="kh__order-code-cell">
-                      <span className="kh__link kh__mono">{o.order_no}</span>
+            {filteredRows.map((o) => (
+              <tr
+                key={o.id}
+                className="kh__drillrow"
+                onClick={() => onOpenOrder(o.id)}
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && onOpenOrder(o.id)}
+                title={`Mở chi tiết đơn ${o.order_no}`}
+              >
+                <td>
+                  <div className="kh__order-code-cell">
+                    <span className="kh__link kh__mono">{o.order_no}</span>
+                    <span className="kh__order-code-sub">
                       <span className="kh__mono kh__muted">{fmtDate(o.created_at)}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="kh__order-summary-text">{o.summary}</span>
-                  </td>
-                  <td className="kh__num kh__mono">{qty.toLocaleString("vi-VN")}</td>
-                  <td className="kh__num kh__mono">{moneyCompact(o.total)}</td>
-                  <td>
-                    <span className={`kh__ostat kh__ostat--${o.status}`}>
-                      {ORDER_STATUS_LABELS[o.status] ?? o.status}
+                      {fmtTime(o.created_at) && (
+                        <span className="kh__time-chip">{fmtTime(o.created_at)}</span>
+                      )}
                     </span>
-                  </td>
-                  <td>
-                    {o.status !== "cancelled" ? (
-                      <div className="kh__order-progress-cell">
-                        <div className="kh__progress-bar">
-                          <div
-                            className="kh__progress-fill"
-                            style={{ width: `${progressPct}%`, backgroundColor: progressColor }}
-                          ></div>
-                        </div>
-                        <span className="kh__progress-pct">{progressPct}%</span>
-                      </div>
-                    ) : (
-                      <span className="kh__muted">—</span>
+                  </div>
+                </td>
+                <td>
+                  <div className="kh__order-prod-cell">
+                    <span className="kh__order-summary-text">{o.summary}</span>
+                    {o.order_kind === "bo_sung" && (
+                      <span className="kh__order-prod-sub">Đơn bổ sung (giữ kẽm cũ)</span>
                     )}
-                  </td>
-                </tr>
-              );
-            })}
+                  </div>
+                </td>
+                <td className="kh__num kh__money">{moneyStat(o.total)}</td>
+                <td>
+                  <span className={`kh__ostat kh__ostat--${o.status}`}>
+                    {ORDER_STATUS_LABELS[o.status] ?? o.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -2231,6 +2271,7 @@ function QuotesTab({
   const { token } = useAuth();
   const [rows, setRows] = useState<QuoteHistoryRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [yearFilter, setYearFilter] = useState<string>("");
 
   useEffect(() => {
     if (!token) return;
@@ -2246,6 +2287,37 @@ function QuotesTab({
     };
   }, [token, customerId]);
 
+  // Năm có dữ liệu thật — cùng cơ chế với tab mua hàng.
+  const years = useMemo(() => {
+    if (!rows) return [];
+    return [...new Set(rows.map((q) => q.created_at?.slice(0, 4)).filter(Boolean))]
+      .sort()
+      .reverse() as string[];
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (!rows) return [];
+    if (!yearFilter) return rows;
+    return rows.filter((q) => q.created_at && q.created_at.startsWith(yearFilter));
+  }, [rows, yearFilter]);
+
+  // Giá trị báo giá theo tháng — TÍNH THẬT từ created_at/total, trục liên tục ≤12 tháng.
+  const monthlyQuoted = useMemo(() => monthlySeries(filteredRows), [filteredRows]);
+
+  // Cơ cấu trạng thái — đếm + cộng giá trị thật theo status (thay cột TOP sản phẩm
+  // của mẫu: BE lịch sử BG không trả summary sản phẩm nên không bịa được).
+  const statusMix = useMemo(() => {
+    const groups: Record<string, { count: number; total: number }> = {};
+    filteredRows.forEach((q) => {
+      if (!groups[q.status]) groups[q.status] = { count: 0, total: 0 };
+      groups[q.status].count += 1;
+      groups[q.status].total += q.total ?? 0;
+    });
+    return Object.entries(groups)
+      .map(([status, stat]) => ({ status, ...stat }))
+      .sort((a, b) => b.count - a.count);
+  }, [filteredRows]);
+
   if (error) return <div className="banner banner--error" role="alert">{error}</div>;
   if (rows == null) return <TableSkeleton cols={5} />;
   if (rows.length === 0)
@@ -2257,69 +2329,146 @@ function QuotesTab({
     );
 
   // Số liệu THẬT từ chính danh sách báo giá — không bịa (prototype có strip tương tự).
-  const won = rows.filter((q) => q.status === "approved" || q.status === "accepted");
-  const winRate = Math.round((won.length / rows.length) * 100);
+  const totalQuoted = filteredRows.reduce((s, q) => s + (q.total ?? 0), 0);
+  const won = filteredRows.filter((q) => q.status === "approved" || q.status === "accepted");
+  const winRate = filteredRows.length > 0 ? Math.round((won.length / filteredRows.length) * 100) : 0;
   const wonValue = won.reduce((s, q) => s + (q.total ?? 0), 0);
 
   return (
     <div className="kh__histwrap">
+      {/* Hàng lọc năm — cùng nhịp với tab mua hàng (mẫu). Không có nút Xuất Excel:
+          BE chưa có endpoint export báo giá. */}
+      <div className="kh__orders-filter-row">
+        <div className="kh__year-filters">
+          <span className="kh__year-filters-label">LỌC THEO NĂM:</span>
+          {["", ...years].map((yr) => (
+            <button
+              key={yr}
+              type="button"
+              className={`kh__year-filter-btn${yearFilter === yr ? " is-active" : ""}`}
+              onClick={() => setYearFilter(yr)}
+            >
+              {yr === "" ? "Tất cả" : yr}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <div className="kh__kpis kh__kpis--orders">
         <div className="kh__kpi card">
-          <span className="kh__kpi-label">SỐ BÁO GIÁ</span>
+          <span className="kh__kpi-label">{yearFilter ? `SỐ BÁO GIÁ ${yearFilter}` : "SỐ BÁO GIÁ LIFETIME"}</span>
           <span className="kh__kpi-value">
-            {rows.length} <small>BG</small>
+            {filteredRows.length} <small>BG</small>
           </span>
-          <span className="kh__kpi-hint">toàn bộ lịch sử</span>
+          <span className="kh__kpi-hint">Tổng GT báo giá {moneyCompact(totalQuoted)}</span>
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">TỈ LỆ CHỐT</span>
           <span className="kh__kpi-value">
             {winRate} <small>%</small>
           </span>
-          <span className="kh__kpi-hint">{won.length}/{rows.length} báo giá được duyệt</span>
+          <span className="kh__kpi-hint">{won.length}/{filteredRows.length} BG chốt hoặc duyệt</span>
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">GIÁ TRỊ ĐÃ CHỐT</span>
           <span className="kh__kpi-value">{moneyStat(wonValue)}</span>
-          <span className="kh__kpi-hint">tổng các BG đã duyệt</span>
+          <span className="kh__kpi-hint">
+            {won.length > 0 ? `TB ${moneyCompact(Math.round(wonValue / won.length))} / BG thắng` : "Chưa có BG thắng"}
+          </span>
         </div>
       </div>
-      <table className="kh__table kh__table--tight kh__table--drill">
-        <thead>
-          <tr>
-            <th>Mã BG</th>
-            <th>Ngày</th>
-            <th className="kh__num">Tổng giá bán</th>
-            <th>Hiệu lực đến</th>
-            <th>Trạng thái</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((q) => (
-            <tr
-              key={q.id}
-              className="kh__drillrow"
-              onClick={() => onOpenQuote(q.id)}
-              tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && onOpenQuote(q.id)}
-              title={`Mở chi tiết báo giá ${q.code}`}
-            >
-              <td className="kh__mono kh__link">
-                {q.code}
-                <span className="kh__muted"> v{q.version}</span>
-              </td>
-              <td className="kh__mono">{fmtDate(q.created_at)}</td>
-              <td className="kh__num kh__mono">{money(q.total)}</td>
-              <td className="kh__mono">{fmtDate(q.valid_until)}</td>
-              <td>
-                <span className={`kh__ostat kh__ostat--${q.status}`}>
-                  {QUOTE_STATUS_LABELS[q.status] ?? q.status}
+
+      {/* 2 cột: chart giá trị BG theo tháng + cơ cấu trạng thái (số thật). */}
+      <div className="kh__orders-analysis-row">
+        <section className="card kh__chart kh__chart--orders-monthly">
+          <div className="kh__chart-head">
+            <h3>Giá trị báo giá theo tháng</h3>
+            <span className="kh__chart-unit">TRIỆU đ</span>
+          </div>
+          {monthlyQuoted.length === 0 ? (
+            <span className="kh__muted kh__empty-chart-text">Chưa có dữ liệu tháng</span>
+          ) : (
+            <MonthBars
+              data={monthlyQuoted.map((m) => ({ label: m.label, value: m.total }))}
+              formatValue={moneyCompact}
+              formatAxis={(v) => String(Math.round(v / 1_000_000))}
+            />
+          )}
+        </section>
+
+        <section className="card kh__chart kh__chart--orders-top">
+          <div className="kh__chart-head">
+            <h3>Cơ cấu trạng thái</h3>
+            <span className="kh__muted-tag">{filteredRows.length} BG</span>
+          </div>
+          <ul className="kh__top-products-list">
+            {statusMix.map((s) => (
+              <li key={s.status} className="kh__top-product-item">
+                <span className={`kh__ostat kh__ostat--${s.status}`}>
+                  {QUOTE_STATUS_LABELS[s.status] ?? s.status}
                 </span>
-              </td>
+                <div className="kh__top-prod-info">
+                  <span className="kh__top-prod-qty">{s.count} báo giá</span>
+                </div>
+                <span className="kh__top-prod-total">{moneyCompact(s.total)}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+
+      {/* Bảng toàn bộ báo giá — bỏ cột SL / NV tạo / Đơn của mẫu (BE không trả các field đó). */}
+      <div className="card kh__tablewrap kh__tablewrap--orders">
+        <div className="kh__sec-head">
+          <h3>Toàn bộ báo giá</h3>
+          <span className="kh__sec-count">{filteredRows.length} BG</span>
+          <span className="kh__sec-right">Mới nhất trước</span>
+        </div>
+        <table className="kh__table kh__table--tight kh__table--drill">
+          <thead>
+            <tr>
+              <th>Mã BG · Ngày tạo</th>
+              <th className="kh__num">Giá trị</th>
+              <th>Hiệu lực đến</th>
+              <th>Trạng thái</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {filteredRows.map((q) => (
+              <tr
+                key={q.id}
+                className="kh__drillrow"
+                onClick={() => onOpenQuote(q.id)}
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && onOpenQuote(q.id)}
+                title={`Mở chi tiết báo giá ${q.code}`}
+              >
+                <td>
+                  <div className="kh__order-code-cell">
+                    <span className="kh__link kh__mono">
+                      {q.code}
+                      <span className="kh__muted"> v{q.version}</span>
+                    </span>
+                    <span className="kh__order-code-sub">
+                      <span className="kh__mono kh__muted">{fmtDate(q.created_at)}</span>
+                      {fmtTime(q.created_at) && (
+                        <span className="kh__time-chip">{fmtTime(q.created_at)}</span>
+                      )}
+                    </span>
+                  </div>
+                </td>
+                <td className="kh__num kh__money">{moneyStat(q.total)}</td>
+                <td className="kh__mono">{fmtDate(q.valid_until)}</td>
+                <td>
+                  <span className={`kh__ostat kh__ostat--${q.status}`}>
+                    {QUOTE_STATUS_LABELS[q.status] ?? q.status}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

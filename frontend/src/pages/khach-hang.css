@@ -79,18 +79,20 @@
 .kh__kpis {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: var(--sp-3);
+  gap: var(--sp-2);
 }
-/* Stat card phẳng theo prototype (.hv-stat): label mono 9, value sans 22/500 —
-   KHÔNG accent bar, KHÔNG hover lift, KHÔNG mono cho số tiền. */
-.kh__kpi {
-  padding: var(--sp-3) var(--sp-4);
+/* Stat card MỎNG theo prototype (.dr-kpi .item, đo thật ~76px): pad 10×12, radius 6,
+   label mono 9 → số 20/500 + đơn vị nhỏ → hint 11, khít nhau.
+   Chain .card để thắng padding sp-8 của .card global (global.css nạp sau file này). */
+.kh__kpi.card {
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-3);
   background: var(--canvas);
+  box-shadow: none;
 }
 .kh__kpi-label {
   font-family: var(--ff-mono);
@@ -101,9 +103,9 @@
   color: var(--ash);
 }
 .kh__kpi-value {
-  font-size: 22px;
+  font-size: 20px;
   font-weight: var(--fw-medium);
-  letter-spacing: -0.01em;
+  letter-spacing: -0.015em;
   line-height: 1.15;
   color: var(--ink);
 }
@@ -115,6 +117,7 @@
 .kh__kpi-hint {
   font-size: 11px;
   color: var(--ash-2);
+  margin-top: 2px;
 }
 
 /* ---- Toolbar (prototype .filter-strip: MỘT card, search borderless full-width,
@@ -721,8 +724,11 @@
   flex-direction: column;
   gap: var(--sp-4);
 }
-.kh__chart {
-  padding: var(--sp-5);
+/* Card chart theo prototype .sec-card (đo thật): pad 16, radius 10.
+   Chain .card để thắng padding sp-8 của .card global. */
+.card.kh__chart {
+  padding: var(--sp-4);
+  border-radius: 10px;
 }
 .kh__chart-head {
   display: flex;
@@ -2331,23 +2337,21 @@
   color: var(--ink);
 }
 
-/* KPI Strip hint text */
+/* KPI Strip hint text — khít theo prototype (hint 10-11px, mt 2). */
 .kh__kpi-hint {
   font-size: 11px;
   color: var(--ash);
-  margin-top: 4px;
+  margin-top: 2px;
 }
 .kh__kpis--orders {
-  margin-bottom: var(--sp-3);
   grid-template-columns: repeat(3, 1fr);
 }
 
-/* Year Filter tabs in Lịch sử mua hàng */
+/* Year Filter tabs in Lịch sử mua hàng / báo giá (nhịp dọc do gap của histwrap) */
 .kh__orders-filter-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: var(--sp-4);
 }
 .kh__year-filters {
   display: flex;
@@ -2478,27 +2482,89 @@
   font-size: 13px;
 }
 
+/* Đầu card bảng lịch sử — prototype: "Toàn bộ đơn hàng" + chip đếm, phải "MỚI NHẤT TRƯỚC". */
+.kh__sec-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-3) var(--sp-2);
+}
+.kh__sec-head h3 {
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  margin: 0;
+}
+.kh__sec-count {
+  font-family: var(--ff-mono);
+  font-size: 9px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+.kh__sec-right {
+  margin-left: auto;
+  font-family: var(--ff-mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+
 /* Orders Table customized cells */
 .kh__order-code-cell {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   line-height: 1.35;
 }
 .kh__order-code-cell .kh__link {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: var(--fw-bold);
 }
-.kh__order-code-cell .kh__muted {
-  font-size: 10px;
+.kh__order-code-sub {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.kh__order-code-sub .kh__muted {
+  font-size: 10.5px;
+}
+/* Chip giờ cạnh ngày đặt (prototype .o-t): mono 9.5, nền paper. */
+.kh__time-chip {
+  font-family: var(--ff-mono);
+  font-size: 9px;
+  color: var(--ash);
+  background: var(--paper);
+  border-radius: var(--r-1, 3px);
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+/* Cột Sản phẩm: tên + subline nhỏ (prototype) — subline app = loại đơn thật. */
+.kh__order-prod-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 .kh__order-summary-text {
   font-size: 13px;
   color: var(--ink);
+  font-weight: var(--fw-medium);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.kh__order-prod-sub {
+  font-size: 11px;
+  color: var(--ash);
 }
 .kh__order-progress-cell {
   display: flex;
@@ -2699,7 +2765,7 @@
   color: var(--ash);
 }
 .kh__kpi-value small {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: var(--fw-regular);
   color: var(--ash);
 }
