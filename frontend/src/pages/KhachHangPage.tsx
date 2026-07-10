@@ -3,7 +3,7 @@
 // toolbar hành động, tabs Dashboard / Lịch sử mua hàng / Lịch sử báo giá). MỌI số liệu
 // (KPI, doanh số 12T, cơ cấu SP, tần suất đặt, lịch sử) tính từ ĐƠN HÀNG / BÁO GIÁ THẬT;
 // thiếu dữ liệu → empty state trung thực (không bịa số). Công nợ chỉ-đọc qua SEAM-16.
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   ApiError,
   api,
@@ -37,6 +37,8 @@ import { Select } from "../components/Select";
 import {
   AlarmClock,
   CalendarClock,
+  ChevronDown,
+  ChevronUp,
   Download,
   FileText,
   Gauge,
@@ -54,6 +56,18 @@ import {
   ShoppingBag,
   Tags,
   Users,
+  X,
+  CheckCircle2,
+  Clock,
+  Plus,
+  Calendar,
+  AlertTriangle,
+  Trash2,
+  User,
+  Check,
+  ChevronRight,
+  ShieldCheck,
+  Image,
 } from "lucide-react";
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
@@ -102,6 +116,19 @@ function moneySuperCompact(n: number | null | undefined): string {
     return (n / 1_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + "K";
   }
   return n.toLocaleString("vi-VN") + " ₫";
+}
+
+/** Số to + đơn vị nhỏ ("22,17" + "M đ") cho stat card / cột tiền — theo prototype. */
+function moneyStat(n: number | null | undefined): ReactNode {
+  if (n == null || n <= 0) return "—";
+  const s = moneyCompact(n);
+  const m = s.match(/^([\d.,]+)\s*(.+)$/);
+  if (!m) return s;
+  return (
+    <>
+      {m[1]} <small>{m[2]}</small>
+    </>
+  );
 }
 
 function getInitials(name: string): string {
@@ -156,38 +183,41 @@ function getMockAR(id: number): MockAR {
   }
 }
 
+/** Gauge uy tín kiểu prototype: 3 cung vùng (kém/khá/tốt) mờ 28% + cung tiến độ màu
+ *  semantic + vạch tick + số lớn. Màu lấy đúng token (moss/amber/signal), KHÔNG Material. */
 function CreditGauge({ score }: { score: number }) {
-  const radius = 40;
-  const strokeWidth = 8;
-  const circumference = Math.PI * radius; // ~125.66
   const pct = Math.min(100, Math.max(0, score));
-  const strokeDashoffset = circumference - (pct / 100) * circumference;
-  const color = pct >= 80 ? "#4caf50" : pct >= 50 ? "#ff9800" : "#f44336";
-  const label = pct >= 80 ? "Tốt" : pct >= 50 ? "Khá" : "Kém";
+  const R = 72;
+  // Điểm trên cung theo góc (180° = trái, 0° = phải), tâm (100,100).
+  const pt = (deg: number, r = R) => {
+    const rad = (Math.PI * deg) / 180;
+    return `${(100 + r * Math.cos(rad)).toFixed(2)} ${(100 - r * Math.sin(rad)).toFixed(2)}`;
+  };
+  const arc = (fromDeg: number, toDeg: number, r = R) =>
+    `M ${pt(fromDeg, r)} A ${r} ${r} 0 0 1 ${pt(toDeg, r)}`;
+  const endDeg = 180 - (pct / 100) * 180;
+  const color = pct >= 80 ? "var(--moss)" : pct >= 50 ? "var(--amber)" : "var(--signal)";
+  const label = pct >= 80 ? "TỐT" : pct >= 50 ? "KHÁ" : "KÉM";
 
   return (
-    <div className="kh__gauge-svg-container" aria-label="Uy tín thanh toán">
-      <svg width="90" height="58" viewBox="0 0 100 65">
-        <path
-          d="M 10 55 A 40 40 0 0 1 90 55"
-          fill="none"
-          stroke="rgba(255, 255, 255, 0.15)"
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-        />
-        <path
-          d="M 10 55 A 40 40 0 0 1 90 55"
-          fill="none"
-          stroke={color}
-          strokeWidth={strokeWidth}
-          strokeLinecap="round"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-        />
-        <text x="50" y="44" textAnchor="middle" fill="#fff" fontSize="18" fontWeight="bold">
+    <div className="kh__gauge-svg-container" aria-label={`Uy tín thanh toán ${score}/100`}>
+      <svg width="176" height="102" viewBox="0 0 200 116" style={{ overflow: "visible" }}>
+        {/* 3 vùng thang điểm, mờ — kém / khá / tốt */}
+        <path d={arc(180, 120)} style={{ stroke: "var(--signal)", opacity: 0.28 }} strokeWidth={12} fill="none" />
+        <path d={arc(120, 60)} style={{ stroke: "var(--amber)", opacity: 0.28 }} strokeWidth={12} fill="none" />
+        <path d={arc(60, 0)} style={{ stroke: "var(--moss)", opacity: 0.28 }} strokeWidth={12} fill="none" />
+        {/* Cung tiến độ */}
+        <path d={arc(180, Math.min(179.5, Math.max(0.5, endDeg)))} style={{ stroke: color }} strokeWidth={12} fill="none" strokeLinecap="round" />
+        {/* Tick 25 / 50 / 75 */}
+        {[135, 90, 45].map((d) => {
+          const [x1, y1] = pt(d, R - 7).split(" ");
+          const [x2, y2] = pt(d, R + 7).split(" ");
+          return <line key={d} x1={x1} y1={y1} x2={x2} y2={y2} style={{ stroke: "rgba(245,241,232,0.35)" }} strokeWidth={1.2} />;
+        })}
+        <text x="100" y="90" textAnchor="middle" style={{ fill: "var(--on-charcoal)", letterSpacing: "-1.5px" }} fontFamily="var(--ff-sans)" fontSize="36" fontWeight="500">
           {score}
         </text>
-        <text x="50" y="58" textAnchor="middle" fill={color} fontSize="9" fontWeight="bold">
+        <text x="100" y="110" textAnchor="middle" style={{ fill: color }} fontFamily="var(--ff-mono)" fontSize="9" letterSpacing="1.5">
           {label}
         </text>
       </svg>
@@ -216,6 +246,7 @@ const QUOTE_STATUS_LABELS: Record<string, string> = {
   draft: "Nháp",
   sent: "Đã gửi",
   approved: "Đã duyệt",
+  accepted: "Đã chốt",
   rejected: "Từ chối",
   expired: "Hết hạn",
   cancelled: "Đã hủy",
@@ -812,7 +843,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                 <SortBtn label="Số đơn" col="orders" sort={sort} onSort={setSort} />
               </th>
               <th className="kh__num">TB / Đơn</th>
-              <th>Công nợ</th>
+              <th className="kh__num">Công nợ</th>
               <th>Uy tín</th>
               <th>NV phụ trách</th>
               <th></th>
@@ -929,13 +960,13 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                         {"★".repeat(stars)}
                       </span>
                     </td>
-                    <td className="kh__num kh__mono">
-                      {c.revenue_12m > 0 ? moneyCompact(c.revenue_12m) : <span className="kh__muted">—</span>}
+                    <td className="kh__num kh__money">
+                      {c.revenue_12m > 0 ? moneyStat(c.revenue_12m) : <span className="kh__muted">—</span>}
                     </td>
-                    <td className="kh__num kh__mono">
+                    <td className="kh__num">
                       {c.orders_total > 0 ? c.orders_total : <span className="kh__muted">0</span>}
                     </td>
-                    <td className="kh__num kh__mono">
+                    <td className="kh__num">
                       {avgOrderValue > 0 ? moneySuperCompact(avgOrderValue) : <span className="kh__muted">—</span>}
                     </td>
                     <td>
@@ -944,7 +975,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                           <>
                             <span className="kh__ar-amount">{moneySuperCompact(mockAR.receivableVal)}</span>
                             {mockAR.isOverdue ? (
-                              <span className="kh__ar-sub kh__ar-sub--danger">⚠️ Quá hạn {mockAR.overdueDays}D</span>
+                              <span className="kh__ar-sub kh__ar-sub--danger">⚠ Quá hạn {mockAR.overdueDays}D</span>
                             ) : (
                               <span className="kh__ar-sub kh__ar-sub--success">✓ Trong hạn</span>
                             )}
@@ -1171,14 +1202,24 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
 // --- KPI header strip --------------------------------------------------------
 
 function KpiStrip({ kpis, loading }: { kpis: CustomerKpis | null; loading: boolean }) {
-  // MỘT card chia 4 ngăn (mockup) — không emoji, tiền rút gọn kiểu "22,17 M đ".
-  const cells = [
+  // MỘT card chia 4 ngăn (mockup) — số to + đơn vị nhỏ tách rời như prototype.
+  const cells: { label: string; value: ReactNode; hint: string }[] = [
     { label: "Tổng khách hàng", value: kpis ? String(kpis.total_customers) : "—", hint: "trong phạm vi" },
-    { label: "Thân thiết / tổng", value: kpis ? `${kpis.loyal_count} / ${kpis.total_customers}` : "—", hint: "≥ 50tr / 12T" },
+    {
+      label: "Thân thiết / tổng",
+      value: kpis ? (
+        <>
+          {kpis.loyal_count} <small>/ {kpis.total_customers}</small>
+        </>
+      ) : (
+        "—"
+      ),
+      hint: "≥ 50tr / 12T",
+    },
     { label: "Mới trong tháng", value: kpis ? String(kpis.new_this_month) : "—", hint: "vừa vào sổ" },
     {
       label: "TB / đơn (12T)",
-      value: kpis && kpis.avg_order_value > 0 ? moneyCompact(kpis.avg_order_value) : "—",
+      value: kpis ? moneyStat(kpis.avg_order_value) : "—",
       hint: "từ đơn thật",
     },
   ];
@@ -1312,14 +1353,14 @@ function CustomerObjectPage({
         <div className="kh__so-topbar">
           <div className="kh__so-nav">
             <button type="button" className="kh__iconbtn" disabled={!canPrev} onClick={onPrev} aria-label="Khách trước">
-              ▲
+              <ChevronUp size={14} strokeWidth={2} />
             </button>
             <button type="button" className="kh__iconbtn" disabled={!canNext} onClick={onNext} aria-label="Khách sau">
-              ▼
+              <ChevronDown size={14} strokeWidth={2} />
             </button>
           </div>
           <button type="button" className="kh__close" aria-label="Đóng" onClick={onClose}>
-            ✕
+            <X size={14} strokeWidth={2} />
           </button>
         </div>
 
@@ -1453,12 +1494,12 @@ function ObjectHeader({
       <div className="kh__so-headmain">
         <div className="kh__so-title-row">
           <span className="kh__so-badge-tier">
-            👑 {customer.tier === "partner" ? "ĐỐI TÁC LÂU NĂM" : customer.tier === "loyal" ? "KHÁCH THÂN THIẾT" : "KHÁCH HÀNG"} &middot; {"★".repeat(customer.tier === "partner" ? 5 : customer.tier === "loyal" ? 4 : customer.tier === "regular" ? 3 : 2)}
+            {customer.tier === "partner" ? "ĐỐI TÁC LÂU NĂM" : customer.tier === "loyal" ? "KHÁCH THÂN THIẾT" : "KHÁCH HÀNG"} &middot; {"★".repeat(customer.tier === "partner" ? 5 : customer.tier === "loyal" ? 4 : customer.tier === "regular" ? 3 : 2)}
           </span>
           <h2>{customer.name}</h2>
           <div className="kh__so-badges">
             {/* Nhãn thủ công (#7) — sales gán/gỡ trong modal Gắn thẻ. */}
-            <TagChips customerId={customer.id} />
+            <TagChips customerId={customer.id} customerName={customer.name} />
             <button type="button" className="kh__btn-tag" onClick={onEdit}>Sửa</button>
           </div>
         </div>
@@ -1592,16 +1633,24 @@ function DashboardTab({
   }
   const canDebt = useCan()("khach_hang", "view_debt");
   const avgVal = dash.avg_order_value ?? 0;
-  const cards = [
-    { label: "Doanh số 12T", value: moneyCompact(dash.revenue_12m), hint: "+29% YoY" },
-    { label: "Số đơn 12T", value: `${dash.orders_12m} đơn`, hint: `${(dash.orders_12m / 12).toFixed(1)}/tháng` },
-    { label: "TB / đơn", value: avgVal > 0 ? moneyCompact(avgVal) : "—", hint: avgVal > 20000000 ? "Above-avg" : "Average" },
+  const cards: { label: string; value: ReactNode; hint?: string; muted?: boolean }[] = [
+    { label: "Doanh số 12T", value: moneyStat(dash.revenue_12m), hint: "+29% YoY" },
+    {
+      label: "Số đơn 12T",
+      value: (
+        <>
+          {dash.orders_12m} <small>đơn</small>
+        </>
+      ),
+      hint: `${(dash.orders_12m / 12).toFixed(1)}/tháng`,
+    },
+    { label: "TB / đơn", value: moneyStat(avgVal), hint: avgVal > 20000000 ? "Above-avg" : "Average" },
     // Thẻ Công nợ chỉ hiện khi có quyền chi tiết `view_debt`.
     ...(canDebt
       ? [
           {
             label: "Công nợ",
-            value: receivable?.available ? moneyCompact(receivable.balance) : "— đã thu đủ",
+            value: receivable?.available ? moneyStat(receivable.balance) : "— đã thu đủ",
             hint: receivable?.available ? "Trong hạn" : "Đã đối soát",
             muted: !receivable?.available,
           },
@@ -1941,17 +1990,19 @@ function OrdersTab({
       <div className="kh__kpis kh__kpis--orders">
         <div className="kh__kpi card">
           <span className="kh__kpi-label">TỔNG CHI TIÊU LIFETIME</span>
-          <span className="kh__kpi-value">{moneyCompact(totalLifetime)}</span>
+          <span className="kh__kpi-value">{moneyStat(totalLifetime)}</span>
           <span className="kh__kpi-hint">+19% so với kỳ trước</span>
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">SỐ ĐƠN HOÀN THÀNH</span>
-          <span className="kh__kpi-value">{completedCount} đơn</span>
+          <span className="kh__kpi-value">
+            {completedCount} <small>đơn</small>
+          </span>
           <span className="kh__kpi-hint">{(completedCount / 12).toFixed(1)}/tháng TB</span>
         </div>
         <div className="kh__kpi card">
           <span className="kh__kpi-label">TB / ĐƠN</span>
-          <span className="kh__kpi-value">{moneyCompact(avgSpend)}</span>
+          <span className="kh__kpi-value">{moneyStat(avgSpend)}</span>
           <span className="kh__kpi-hint">Đơn lớn nhất: {moneyCompact(maxSpend)}</span>
         </div>
       </div>
@@ -2103,8 +2154,34 @@ function QuotesTab({
       </div>
     );
 
+  // Số liệu THẬT từ chính danh sách báo giá — không bịa (prototype có strip tương tự).
+  const won = rows.filter((q) => q.status === "approved" || q.status === "accepted");
+  const winRate = Math.round((won.length / rows.length) * 100);
+  const wonValue = won.reduce((s, q) => s + (q.total ?? 0), 0);
+
   return (
     <div className="kh__histwrap">
+      <div className="kh__kpis kh__kpis--orders">
+        <div className="kh__kpi card">
+          <span className="kh__kpi-label">SỐ BÁO GIÁ</span>
+          <span className="kh__kpi-value">
+            {rows.length} <small>BG</small>
+          </span>
+          <span className="kh__kpi-hint">toàn bộ lịch sử</span>
+        </div>
+        <div className="kh__kpi card">
+          <span className="kh__kpi-label">TỈ LỆ CHỐT</span>
+          <span className="kh__kpi-value">
+            {winRate} <small>%</small>
+          </span>
+          <span className="kh__kpi-hint">{won.length}/{rows.length} báo giá được duyệt</span>
+        </div>
+        <div className="kh__kpi card">
+          <span className="kh__kpi-label">GIÁ TRỊ ĐÃ CHỐT</span>
+          <span className="kh__kpi-value">{moneyStat(wonValue)}</span>
+          <span className="kh__kpi-hint">tổng các BG đã duyệt</span>
+        </div>
+      </div>
       <table className="kh__table kh__table--tight kh__table--drill">
         <thead>
           <tr>
@@ -2153,10 +2230,10 @@ function fmtDateTime(iso: string): string {
 }
 
 const AUDIT_KIND_META: Record<CustomerAuditRow["kind"], { icon: JSX.Element; label: string; cls: string }> = {
-  profile: { icon: <PencilLine size={13} />, label: "Hồ sơ", cls: "kh__tl--profile" },
-  order: { icon: <Package size={13} />, label: "Đơn hàng", cls: "kh__tl--order" },
-  quote: { icon: <FileText size={13} />, label: "Báo giá", cls: "kh__tl--quote" },
-  care: { icon: <HeartHandshake size={13} />, label: "Chăm sóc", cls: "kh__tl--care" },
+  profile: { icon: <PencilLine size={15} />, label: "Hồ sơ", cls: "kh__tl--profile" },
+  order: { icon: <Package size={15} />, label: "Đơn hàng", cls: "kh__tl--order" },
+  quote: { icon: <FileText size={15} />, label: "Báo giá", cls: "kh__tl--quote" },
+  care: { icon: <HeartHandshake size={15} />, label: "Chăm sóc", cls: "kh__tl--care" },
 };
 
 function AuditTab({
@@ -2227,7 +2304,7 @@ function AuditTab({
                 {r.detail && <p className="kh__tl-detail">{r.detail}</p>}
                 {r.actor_name && <p className="kh__muted kh__tl-actor">bởi {r.actor_name}</p>}
               </div>
-              {drillable && <span className="kh__tl-arrow" aria-hidden="true">›</span>}
+              {drillable && <ChevronRight size={16} className="kh__tl-arrow" aria-hidden="true" />}
             </li>
           );
         })}
@@ -2252,7 +2329,7 @@ function tagTone(label: string): (typeof TAG_TONES)[number] {
 }
 
 /** Chips nhãn trên header hồ sơ + nút mở modal Gắn thẻ (mockup: toggle preset, Lưu một lần). */
-function TagChips({ customerId }: { customerId: number }) {
+function TagChips({ customerId, customerName }: { customerId: number; customerName?: string }) {
   const { token } = useAuth();
   const canUpdate = useCan()("khach_hang", "update");
   const [tags, setTags] = useState<{ id: number; label: string }[]>([]);
@@ -2285,6 +2362,7 @@ function TagChips({ customerId }: { customerId: number }) {
       {open && (
         <TagModal
           customerId={customerId}
+          customerName={customerName}
           current={tags}
           onClose={() => setOpen(false)}
           onSaved={(next) => {
@@ -2301,11 +2379,13 @@ function TagChips({ customerId }: { customerId: number }) {
  *  (diff gán/gỡ so với hiện tại — không lưu từng click). */
 function TagModal({
   customerId,
+  customerName,
   current,
   onClose,
   onSaved,
 }: {
   customerId: number;
+  customerName?: string;
   current: { id: number; label: string }[];
   onClose: () => void;
   onSaved: (next: { id: number; label: string }[]) => void;
@@ -2404,9 +2484,9 @@ function TagModal({
     <div className="kh__overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="kh__dialog card kh__tagmodal" role="dialog" aria-modal="true" aria-label="Gắn thẻ khách hàng">
         <div className="kh__dialog-head">
-          <h2>Gắn thẻ</h2>
+          <h2>Gắn thẻ{customerName ? ` · ${customerName}` : ""}</h2>
           <button type="button" className="kh__close" aria-label="Đóng" onClick={onClose}>
-            ✕
+            <X size={14} strokeWidth={2} />
           </button>
         </div>
         <div className="kh__dialog-body">
@@ -2467,11 +2547,28 @@ const CARE_KIND_LABELS: Record<string, string> = {
 };
 
 function RemindBadge({ level, days }: { level: number; days: number }) {
-  if (level <= 0) return <span className="kh__badge">Chưa đến hạn</span>;
-  const cls = level >= 3 ? " kh__badge--off" : level === 2 ? " kh__badge--warn" : " kh__badge--lead";
+  if (level <= 0) {
+    return (
+      <span className="kh__badge kh__badge--moss" style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+        <CheckCircle2 size={12} /> Chưa đến hạn
+      </span>
+    );
+  }
+  let cls = "";
+  let icon = <Clock size={12} />;
+  if (level >= 3) {
+    cls = " kh__badge--off";
+    icon = <AlertTriangle size={12} />;
+  } else if (level === 2) {
+    cls = " kh__badge--warn";
+    icon = <Clock size={12} />;
+  } else {
+    cls = " kh__badge--lead";
+    icon = <Clock size={12} />;
+  }
   return (
-    <span className={`kh__badge${cls}`} title={days > 0 ? `Quá hạn ${days} ngày` : "Đến hạn hôm nay"}>
-      Nhắc lần {level}
+    <span className={`kh__badge${cls}`} title={days > 0 ? `Quá hạn ${days} ngày` : "Đến hạn hôm nay"} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+      {icon} Nhắc lần {level} {days > 0 ? `(${days} ngày)` : ""}
     </span>
   );
 }
@@ -2573,150 +2670,243 @@ function CareTab({ customerId }: { customerId: number }) {
       {error && <div className="banner banner--error" role="alert">{error}</div>}
 
       {/* Đánh giá chăm sóc (#28) — số thật từ việc đã xong/đang quá hạn. */}
-      <div className="kh__kpis">
-        <div className="kh__kpi card">
-          <span className="kh__kpi-label">Xong đúng hạn</span>
-          <span className="kh__kpi-value">{stats.on_time}</span>
+      <div className="kh__care-kpis">
+        <div className="kh__care-kpi kh__care-kpi--good">
+          <div className="kh__care-kpi-icon">
+            <CheckCircle2 />
+          </div>
+          <div className="kh__care-kpi-content">
+            <span className="kh__care-kpi-label">Xong đúng hạn</span>
+            <span className="kh__care-kpi-value">{stats.on_time}</span>
+          </div>
         </div>
-        <div className="kh__kpi card">
-          <span className="kh__kpi-label">Xong trễ hạn</span>
-          <span className="kh__kpi-value">{stats.late}</span>
+        <div className="kh__care-kpi kh__care-kpi--warn">
+          <div className="kh__care-kpi-icon">
+            <Clock />
+          </div>
+          <div className="kh__care-kpi-content">
+            <span className="kh__care-kpi-label">Xong trễ hạn</span>
+            <span className="kh__care-kpi-value">{stats.late}</span>
+          </div>
         </div>
-        <div className="kh__kpi card">
-          <span className="kh__kpi-label">Đang quá hạn</span>
-          <span className={`kh__kpi-value${stats.overdue > 0 ? " kh__kpi-value--alert" : ""}`}>
-            {stats.overdue}
-          </span>
+        <div className="kh__care-kpi kh__care-kpi--alert">
+          <div className="kh__care-kpi-icon">
+            <AlertTriangle />
+          </div>
+          <div className="kh__care-kpi-content">
+            <span className="kh__care-kpi-label">Đang quá hạn</span>
+            <span className="kh__care-kpi-value">{stats.overdue}</span>
+          </div>
         </div>
       </div>
 
-      {/* Lịch hẹn / follow-up (#27–#28) */}
-      <section className="card kh__chart">
-        <div className="kh__chart-head">
-          <h3>Lịch hẹn chăm sóc</h3>
-          <span className="kh__muted">quá hạn sẽ nhắc lần 1 → 2 (≥2 ngày) → 3 (≥5 ngày)</span>
-        </div>
-        {canUpdate && (
-          <div className="kh__care-addtask">
-            <input
-              className="input"
-              placeholder="Việc cần làm — VD: gọi lại hỏi maquette"
-              value={taskNote}
-              onChange={(e) => setTaskNote(e.target.value)}
-            />
-            <input
-              className="input kh__care-date"
-              type="date"
-              value={taskDue}
-              onChange={(e) => setTaskDue(e.target.value)}
-              aria-label="Hạn thực hiện"
-            />
-            <Button variant="secondary" onClick={addTask} loading={taskBusy} disabled={!taskNote.trim() || !taskDue}>
-              + Hẹn
-            </Button>
-          </div>
-        )}
-        {openTasks.length === 0 ? (
-          <p className="kh__muted kh__chart-empty">Không có việc đang chờ.</p>
-        ) : (
-          <ul className="kh__care-tasks">
-            {openTasks.map((t) => (
-              <li key={t.id} className="kh__care-task">
-                <RemindBadge level={t.remind_level} days={t.overdue_days} />
-                <span className="kh__care-tasknote">{t.note}</span>
-                <span className="kh__mono kh__muted">hạn {fmtDate(t.due_date)}</span>
-                {t.assignee_name && <span className="kh__muted">· {t.assignee_name}</span>}
-                {canUpdate && (
-                  <span className="kh__care-taskbtns">
-                    <button type="button" className="btn btn--ghost" onClick={() => setTaskStatus(t, "done")}>
-                      ✓ Xong
-                    </button>
-                    <button type="button" className="btn btn--ghost" onClick={() => setTaskStatus(t, "cancelled")}>
-                      Hủy
-                    </button>
-                  </span>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-        {closedTasks.length > 0 && (
-          <>
-            <button type="button" className="kh__linkbtn" onClick={() => setShowDone((v) => !v)}>
-              {showDone ? "Ẩn" : "Xem"} {closedTasks.length} việc đã xong/hủy
-            </button>
-            {showDone && (
-              <ul className="kh__care-tasks kh__care-tasks--closed">
-                {closedTasks.map((t) => (
-                  <li key={t.id} className="kh__care-task">
-                    <span className={`kh__badge${t.status === "done" ? "" : " kh__badge--off"}`}>
-                      {t.status === "done" ? "Đã xong" : "Đã hủy"}
-                    </span>
-                    <span className="kh__care-tasknote">{t.note}</span>
-                    <span className="kh__mono kh__muted">
-                      hạn {fmtDate(t.due_date)}
-                      {t.done_at ? ` · xong ${fmtDate(t.done_at)}` : ""}
-                    </span>
-                    {canUpdate && (
-                      <button type="button" className="btn btn--ghost" onClick={() => setTaskStatus(t, "open")}>
-                        Mở lại
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-      </section>
+      {/* Grid Dashboard 2 Cột */}
+      <div className="kh__care-grid">
+        {/* CỘT TRÁI: LỊCH HẸN CHĂM SÓC */}
+        <div className="kh__care-col">
+          <h3 className="kh__care-col-title">
+            <CalendarClock size={16} /> Lịch hẹn chăm sóc
+          </h3>
+          
+          {canUpdate && (
+            <div className="kh__care-card-form" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <input
+                className="input"
+                placeholder="Việc cần làm — VD: gọi lại hỏi maquette"
+                value={taskNote}
+                onChange={(e) => setTaskNote(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && taskNote.trim() && taskDue && addTask()}
+              />
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  className="input kh__care-date"
+                  type="date"
+                  value={taskDue}
+                  onChange={(e) => setTaskDue(e.target.value)}
+                  aria-label="Hạn thực hiện"
+                  style={{ flex: 1 }}
+                />
+                <Button variant="secondary" onClick={addTask} loading={taskBusy} disabled={!taskNote.trim() || !taskDue} style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "8px 16px" }}>
+                  <Plus size={14} /> Hẹn
+                </Button>
+              </div>
+            </div>
+          )}
 
-      {/* Nhật ký chăm sóc (#20/#27) */}
-      <section className="card kh__chart">
-        <div className="kh__chart-head">
-          <h3>Nhật ký chăm sóc</h3>
-          <span className="kh__muted">{events.length} hoạt động — gộp cả vào tab Nhật ký</span>
+          {openTasks.length === 0 ? (
+            <p className="kh__muted kh__chart-empty" style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-5)", padding: "var(--sp-6)", textAlign: "center" }}>
+              Không có việc đang chờ.
+            </p>
+          ) : (
+            <ul className="kh__care-tasks">
+              {openTasks.map((t) => (
+                <li key={t.id} className={`kh__care-task-card kh__care-task-card--level-${t.remind_level}`}>
+                  {canUpdate && (
+                    <div className="task-checkbox-wrapper">
+                      <button
+                        type="button"
+                        className="task-checkbox"
+                        onClick={() => setTaskStatus(t, "done")}
+                        title="Đánh dấu hoàn thành"
+                      >
+                        <Check />
+                      </button>
+                    </div>
+                  )}
+                  <div className="kh__care-task-card-body">
+                    <p className="kh__care-task-card-title">{t.note}</p>
+                    <div className="kh__care-task-card-meta">
+                      <span className={t.overdue_days > 0 ? (t.remind_level >= 3 ? "task-date-alert" : "task-date-warn") : ""}>
+                        <Calendar size={12} /> Hạn: {fmtDate(t.due_date)} {t.overdue_days > 0 ? `(Quá ${t.overdue_days} ngày)` : ""}
+                      </span>
+                      {t.assignee_name && (
+                        <span>
+                          <User size={12} /> {t.assignee_name}
+                        </span>
+                      )}
+                      <RemindBadge level={t.remind_level} days={t.overdue_days} />
+                    </div>
+                  </div>
+                  {canUpdate && (
+                    <div className="task-actions">
+                      <button
+                        type="button"
+                        className="task-btn-action task-btn-action--cancel"
+                        onClick={() => setTaskStatus(t, "cancelled")}
+                        title="Huỷ lịch hẹn"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {closedTasks.length > 0 && (
+            <div className="closed-tasks-container">
+              <button type="button" className="kh__linkbtn" onClick={() => setShowDone((v) => !v)} style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: "bold" }}>
+                {showDone ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {showDone ? "Ẩn" : "Xem"} {closedTasks.length} việc đã xong/hủy
+              </button>
+              {showDone && (
+                <ul className="kh__care-tasks" style={{ marginTop: "var(--sp-2)" }}>
+                  {closedTasks.map((t) => (
+                    <li key={t.id} className={`closed-task-item closed-task-item--${t.status}`}>
+                      <span className="closed-task-item-note">{t.note}</span>
+                      <div style={{ display: "flex", alignItems: "center" }}>
+                        <span className="closed-task-item-meta">
+                          {t.status === "done" ? "Đã xong" : "Đã hủy"} ({fmtDate(t.due_date)})
+                        </span>
+                        {canUpdate && (
+                          <button
+                            type="button"
+                            className="closed-task-action-btn"
+                            onClick={() => setTaskStatus(t, "open")}
+                          >
+                            Mở lại
+                          </button>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
         </div>
-        {canUpdate && (
-          <div className="kh__care-addtask">
-            <Select
-              ariaLabel="Hình thức chăm sóc"
-              value={logKind}
-              onChange={(v) => setLogKind(v ?? "khac")}
-              options={Object.entries(CARE_KIND_LABELS).map(([value, label]) => ({ value, label }))}
-            />
-            <input
-              className="input"
-              placeholder="Trao đổi gì, kết quả, hẹn tiếp theo…"
-              value={logNote}
-              onChange={(e) => setLogNote(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && logCare()}
-            />
-            <Button variant="secondary" onClick={logCare} loading={logBusy} disabled={!logNote.trim()}>
-              Ghi
-            </Button>
-          </div>
-        )}
-        {events.length === 0 ? (
-          <p className="kh__muted kh__chart-empty">
-            Chưa có hoạt động chăm sóc nào — ghi lại mỗi lần gọi/nhắn/gặp để cả team nắm được.
-          </p>
-        ) : (
-          <ul className="kh__care-log">
-            {events.map((e) => (
-              <li key={e.id} className="kh__care-logitem">
-                <span className="kh__badge">{CARE_KIND_LABELS[e.kind] ?? e.kind}</span>
-                <div className="kh__care-logbody">
-                  <p>{e.note}</p>
-                  <span className="kh__muted">
-                    {fmtDateTime(e.happened_at)}
-                    {e.actor_name ? ` · ${e.actor_name}` : ""}
-                  </span>
+
+        {/* CỘT PHẢI: NHẬT KÝ CHĂM SÓC TIMELINE */}
+        <div className="kh__care-col">
+          <h3 className="kh__care-col-title">
+            <History size={16} /> Nhật ký chăm sóc
+          </h3>
+
+          {canUpdate && (
+            <div className="kh__care-card-form" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <input
+                className="input"
+                placeholder="Trao đổi gì, kết quả, hẹn tiếp theo…"
+                value={logNote}
+                onChange={(e) => setLogNote(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && logNote.trim() && logCare()}
+              />
+              
+              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                {/* Care Kind Selector Pills */}
+                <div className="care-kind-pills" style={{ margin: 0, width: "auto", flex: "1 1 auto" }}>
+                  {Object.entries(CARE_KIND_LABELS).map(([value, label]) => {
+                    const active = logKind === value;
+                    const iconsMap: Record<string, React.ReactNode> = {
+                      goi_dien: <Phone size={14} />,
+                      nhan_tin: <MessageCircle size={14} />,
+                      email: <Mail size={14} />,
+                      gap_truc_tiep: <HeartHandshake size={14} />,
+                      khac: <FileText size={14} />,
+                    };
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        className={`care-kind-pill care-kind-pill--${value} ${active ? "care-kind-pill--active" : ""}`}
+                        onClick={() => setLogKind(value)}
+                      >
+                        {iconsMap[value]}
+                        {label}
+                      </button>
+                    );
+                  })}
                 </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                
+                <Button variant="secondary" onClick={logCare} loading={logBusy} disabled={!logNote.trim()} style={{ padding: "8px 20px", display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
+                  <Plus size={14} /> Ghi
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {events.length === 0 ? (
+            <p className="kh__muted kh__chart-empty" style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-5)", padding: "var(--sp-6)", textAlign: "center" }}>
+              Chưa có hoạt động chăm sóc nào — ghi lại mỗi lần gọi/nhắn/gặp để cả team nắm được.
+            </p>
+          ) : (
+            <div className="care-timeline">
+              {events.map((e) => {
+                const iconsMap: Record<string, React.ReactNode> = {
+                  goi_dien: <Phone size={10} />,
+                  nhan_tin: <MessageCircle size={10} />,
+                  email: <Mail size={10} />,
+                  gap_truc_tiep: <HeartHandshake size={10} />,
+                  khac: <FileText size={10} />,
+                };
+                return (
+                  <div key={e.id} className="timeline-item">
+                    <div className={`timeline-icon timeline-icon--${e.kind}`} title={CARE_KIND_LABELS[e.kind] ?? e.kind}>
+                      {iconsMap[e.kind] || <FileText size={10} />}
+                    </div>
+                    <div className="timeline-card">
+                      <p>{e.note}</p>
+                      <div className="timeline-meta">
+                        <span>
+                          <Clock size={11} /> {fmtDateTime(e.happened_at)}
+                        </span>
+                        {e.actor_name && (
+                          <span>
+                            <User size={11} /> {e.actor_name}
+                          </span>
+                        )}
+                        <span className="kh__badge" style={{ fontSize: "9px", padding: "1px 6px" }}>
+                          {CARE_KIND_LABELS[e.kind] ?? e.kind}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -2832,16 +3022,16 @@ function ContactsTab({ customerId }: { customerId: number }) {
           {items.length} người liên hệ · ghi rõ chức vụ + nhiệm vụ để các bộ phận tự liên hệ
         </span>
         {canUpdate && editingId == null && (
-          <Button variant="secondary" onClick={startAdd}>
-            + Thêm liên hệ
+          <Button variant="secondary" onClick={startAdd} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+            <Plus size={14} /> Thêm liên hệ
           </Button>
         )}
       </div>
 
       {editingId != null && (
         <div className="card kh__subform">
-          <div className="kh__form-grid">
-            <label className="field">
+          <div className="kh__form-grid--3col">
+            <label className="field kh__span-2">
               <span className="field__label">Tên *</span>
               <input
                 className="input"
@@ -2850,7 +3040,7 @@ function ContactsTab({ customerId }: { customerId: number }) {
                 autoFocus
               />
             </label>
-            <label className="field">
+            <label className="field kh__span-1">
               <span className="field__label">Chức vụ</span>
               <input
                 className="input"
@@ -2859,7 +3049,7 @@ function ContactsTab({ customerId }: { customerId: number }) {
                 onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
               />
             </label>
-            <label className="field">
+            <label className="field kh__span-1">
               <span className="field__label">Nhiệm vụ</span>
               <input
                 className="input"
@@ -2868,7 +3058,7 @@ function ContactsTab({ customerId }: { customerId: number }) {
                 onChange={(e) => setForm((f) => ({ ...f, duty: e.target.value }))}
               />
             </label>
-            <label className="field">
+            <label className="field kh__span-1">
               <span className="field__label">Điện thoại</span>
               <input
                 className="input"
@@ -2876,7 +3066,7 @@ function ContactsTab({ customerId }: { customerId: number }) {
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
               />
             </label>
-            <label className="field">
+            <label className="field kh__span-1">
               <span className="field__label">Email</span>
               <input
                 className="input"
@@ -2884,13 +3074,13 @@ function ContactsTab({ customerId }: { customerId: number }) {
                 onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
               />
             </label>
-            <label className="field kh__checkfield">
+            <label className="field kh__checkfield kh__span-3" style={{ marginTop: "12px" }}>
               <input
                 type="checkbox"
                 checked={form.is_primary}
                 onChange={(e) => setForm((f) => ({ ...f, is_primary: e.target.checked }))}
               />
-              <span>Liên hệ chính (chỉ một người)</span>
+              <span style={{ fontSize: "13px", color: "var(--ink)" }}>Liên hệ chính (chỉ một người)</span>
             </label>
           </div>
           {formError && <div className="banner banner--error" role="alert">{formError}</div>}
@@ -2907,51 +3097,94 @@ function ContactsTab({ customerId }: { customerId: number }) {
 
       {items.length === 0 && editingId == null ? (
         <div className="kh__empty-panel">
+          <Users size={36} style={{ color: "var(--ash-2)", opacity: 0.7, marginBottom: "4px" }} />
           <p className="kh__empty-title">Chưa có người liên hệ</p>
           <p className="kh__muted">
             Khách luôn có nhiều đầu mối (mua hàng, kho, kế toán, kỹ thuật…) — thêm để các bộ
             phận tự chủ liên hệ khi cần.
           </p>
+          {canUpdate && (
+            <Button variant="secondary" onClick={startAdd} style={{ marginTop: "8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+              <Plus size={14} /> Thêm liên hệ ngay
+            </Button>
+          )}
         </div>
       ) : (
         items.length > 0 && (
-          <table className="kh__table kh__table--tight">
-            <thead>
-              <tr>
-                <th>Tên</th>
-                <th>Chức vụ / nhiệm vụ</th>
-                <th>Liên lạc</th>
-                {canUpdate && <th className="kh__num">Thao tác</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <span className="kh__name">{c.name}</span>
-                    {c.is_primary && <span className="kh__badge kh__badge--lead"> Chính</span>}
-                  </td>
-                  <td>
-                    {c.title ?? "—"}
-                    {c.duty && <span className="kh__muted"> · {c.duty}</span>}
-                  </td>
-                  <td className="kh__mono">
-                    {[c.phone, c.email].filter(Boolean).join(" · ") || "—"}
-                  </td>
+          <div className="kh__contacts-grid">
+            {items.map((c) => {
+              const initials = c.name.trim().split(/\s+/).map(p => p[0]).filter(Boolean).slice(-2).join("").toUpperCase();
+              return (
+                <div key={c.id} className={`kh__contact-card ${c.is_primary ? "kh__contact-card--primary" : ""}`}>
+                  <div className="kh__contact-header">
+                    <div className="contact-avatar">{initials}</div>
+                    <div className="kh__contact-info">
+                      <h4 className="kh__contact-name">
+                        {c.name}
+                        {c.is_primary && (
+                          <span className="kh__badge kh__badge--moss" style={{ fontSize: "9px", padding: "1px 6px", display: "inline-flex", alignItems: "center", gap: "2px", marginLeft: "6px" }}>
+                            <CheckCircle2 size={10} /> Chính
+                          </span>
+                        )}
+                      </h4>
+                      {c.title && <p className="kh__contact-title">{c.title}</p>}
+                    </div>
+                  </div>
+
+                  <div className="kh__contact-details">
+                    {c.duty && (
+                      <div className="kh__contact-detail-row">
+                        <Users size={14} />
+                        <span className="kh__contact-detail-text" title={c.duty}>Nhiệm vụ: {c.duty}</span>
+                      </div>
+                    )}
+                    {c.phone && (
+                      <div className="kh__contact-detail-row">
+                        <Phone size={14} />
+                        <a href={`tel:${c.phone}`} className="kh__contact-detail-text kh__link kh__mono" title={c.phone}>
+                          {c.phone}
+                        </a>
+                      </div>
+                    )}
+                    {c.email && (
+                      <div className="kh__contact-detail-row">
+                        <Mail size={14} />
+                        <a href={`mailto:${c.email}`} className="kh__contact-detail-text kh__link kh__mono" title={c.email}>
+                          {c.email}
+                        </a>
+                      </div>
+                    )}
+                    {!c.duty && !c.phone && !c.email && (
+                      <div className="kh__contact-detail-row kh__muted" style={{ fontSize: "12px", fontStyle: "italic" }}>
+                        Chưa có thông tin liên lạc
+                      </div>
+                    )}
+                  </div>
+
                   {canUpdate && (
-                    <td className="kh__num">
-                      <button type="button" className="btn btn--ghost" onClick={() => startEdit(c)}>
-                        Sửa
+                    <div className="kh__contact-actions">
+                      <button
+                        type="button"
+                        className="contact-action-btn"
+                        onClick={() => startEdit(c)}
+                        title="Sửa thông tin"
+                      >
+                        <PencilLine size={14} />
                       </button>
-                      <button type="button" className="btn btn--ghost" onClick={() => remove(c.id)}>
-                        Xóa
+                      <button
+                        type="button"
+                        className="contact-action-btn contact-action-btn--delete"
+                        onClick={() => remove(c.id)}
+                        title="Xoá liên hệ"
+                      >
+                        <Trash2 size={14} />
                       </button>
-                    </td>
+                    </div>
                   )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                </div>
+              );
+            })}
+          </div>
         )
       )}
     </div>
@@ -3065,16 +3298,16 @@ function AddressesTab({ customerId }: { customerId: number }) {
           {items.length} điểm giao · phí giao hàng theo điểm sẽ nối vào Tính giá sau
         </span>
         {canUpdate && editingId == null && (
-          <Button variant="secondary" onClick={startAdd}>
-            + Thêm điểm giao
+          <Button variant="secondary" onClick={startAdd} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+            <Plus size={14} /> Thêm điểm giao
           </Button>
         )}
       </div>
 
       {editingId != null && (
         <div className="card kh__subform">
-          <div className="kh__form-grid">
-            <label className="field">
+          <div className="kh__form-grid--3col">
+            <label className="field kh__span-1">
               <span className="field__label">Tên điểm giao *</span>
               <input
                 className="input"
@@ -3084,7 +3317,7 @@ function AddressesTab({ customerId }: { customerId: number }) {
                 autoFocus
               />
             </label>
-            <label className="field kh__form-wide">
+            <label className="field kh__span-2">
               <span className="field__label">Địa chỉ *</span>
               <input
                 className="input"
@@ -3092,7 +3325,7 @@ function AddressesTab({ customerId }: { customerId: number }) {
                 onChange={(e) => setForm((f) => ({ ...f, address: e.target.value }))}
               />
             </label>
-            <label className="field">
+            <label className="field kh__span-1">
               <span className="field__label">SĐT tại điểm giao</span>
               <input
                 className="input"
@@ -3100,7 +3333,7 @@ function AddressesTab({ customerId }: { customerId: number }) {
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
               />
             </label>
-            <label className="field kh__form-wide">
+            <label className="field kh__span-2">
               <span className="field__label">Ghi chú giao nhận</span>
               <input
                 className="input"
@@ -3109,13 +3342,13 @@ function AddressesTab({ customerId }: { customerId: number }) {
                 onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
               />
             </label>
-            <label className="field kh__checkfield">
+            <label className="field kh__checkfield kh__span-3" style={{ marginTop: "12px" }}>
               <input
                 type="checkbox"
                 checked={form.is_default}
                 onChange={(e) => setForm((f) => ({ ...f, is_default: e.target.checked }))}
               />
-              <span>Điểm giao mặc định</span>
+              <span style={{ fontSize: "13px", color: "var(--ink)" }}>Điểm giao mặc định</span>
             </label>
           </div>
           {formError && <div className="banner banner--error" role="alert">{formError}</div>}
@@ -3132,47 +3365,73 @@ function AddressesTab({ customerId }: { customerId: number }) {
 
       {items.length === 0 && editingId == null ? (
         <div className="kh__empty-panel">
+          <MapPin size={36} style={{ color: "var(--ash-2)", opacity: 0.7, marginBottom: "4px" }} />
           <p className="kh__empty-title">Chưa có điểm giao hàng</p>
           <p className="kh__muted">
             Khách thường có nhiều vị trí giao (trụ sở, nhà máy…) — khai để báo giá ghi rõ
             giao ở đâu và sau này tính phí giao hàng theo điểm.
           </p>
+          {canUpdate && (
+            <Button variant="secondary" onClick={startAdd} style={{ marginTop: "8px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+              <Plus size={14} /> Thêm điểm giao ngay
+            </Button>
+          )}
         </div>
       ) : (
         items.length > 0 && (
-          <table className="kh__table kh__table--tight">
-            <thead>
-              <tr>
-                <th>Điểm giao</th>
-                <th>Địa chỉ</th>
-                <th>Ghi chú</th>
-                {canUpdate && <th className="kh__num">Thao tác</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((a) => (
-                <tr key={a.id}>
-                  <td>
-                    <span className="kh__name">{a.label}</span>
-                    {a.is_default && <span className="kh__badge kh__badge--lead"> Mặc định</span>}
-                    {a.phone && <div className="kh__muted kh__mono">{a.phone}</div>}
-                  </td>
-                  <td>{a.address}</td>
-                  <td>{a.note ?? "—"}</td>
-                  {canUpdate && (
-                    <td className="kh__num">
-                      <button type="button" className="btn btn--ghost" onClick={() => startEdit(a)}>
-                        Sửa
-                      </button>
-                      <button type="button" className="btn btn--ghost" onClick={() => remove(a.id)}>
-                        Xóa
-                      </button>
-                    </td>
+          <div className="kh__addresses-grid">
+            {items.map((a) => (
+              <div key={a.id} className="kh__address-card">
+                <div className="kh__address-header">
+                  <h4 className="kh__address-label">
+                    <MapPin size={16} />
+                    {a.label}
+                    {a.is_default && (
+                      <span className="kh__badge kh__badge--moss" style={{ fontSize: "9px", padding: "1px 6px", display: "inline-flex", alignItems: "center", gap: "2px", marginLeft: "6px" }}>
+                        <CheckCircle2 size={10} /> Mặc định
+                      </span>
+                    )}
+                  </h4>
+                </div>
+
+                <div className="kh__address-body">
+                  <p style={{ margin: 0, fontWeight: "var(--fw-medium)" }}>{a.address}</p>
+                  {a.phone && (
+                    <div className="kh__address-phone">
+                      <Phone size={12} />
+                      <span>SĐT nhận hàng: {a.phone}</span>
+                    </div>
                   )}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  {a.note && (
+                    <div className="address-instructions" title="Ghi chú giao nhận">
+                      {a.note}
+                    </div>
+                  )}
+                </div>
+
+                {canUpdate && (
+                  <div className="kh__address-actions">
+                    <button
+                      type="button"
+                      className="contact-action-btn"
+                      onClick={() => startEdit(a)}
+                      title="Sửa thông tin"
+                    >
+                      <PencilLine size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className="contact-action-btn contact-action-btn--delete"
+                      onClick={() => remove(a.id)}
+                      title="Xoá địa điểm"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
         )
       )}
     </div>
@@ -3261,8 +3520,9 @@ function AttachmentsTab({ customerId }: { customerId: number }) {
               variant="secondary"
               loading={uploading}
               onClick={() => fileRef.current?.click()}
+              style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}
             >
-              ⬆ Tải tài liệu lên
+              <Plus size={14} /> Tải tài liệu lên
             </Button>
           </div>
         )}
@@ -3271,43 +3531,72 @@ function AttachmentsTab({ customerId }: { customerId: number }) {
 
       {items.length === 0 ? (
         <div className="kh__empty-panel">
+          <FileText size={36} style={{ color: "var(--ash-2)", opacity: 0.7, marginBottom: "4px" }} />
           <p className="kh__empty-title">Chưa có tài liệu</p>
           <p className="kh__muted">
             Đính kèm hợp đồng, GPKD, file thiết kế, biên bản… để xử lý ngay khi cần, không
             phải đi tìm nơi khác.
           </p>
+          {canUpdate && (
+            <Button
+              variant="secondary"
+              loading={uploading}
+              onClick={() => fileRef.current?.click()}
+              style={{ marginTop: "8px", display: "inline-flex", alignItems: "center", gap: "4px" }}
+            >
+              <Plus size={14} /> Tải tài liệu lên ngay
+            </Button>
+          )}
         </div>
       ) : (
-        <table className="kh__table kh__table--tight">
-          <thead>
-            <tr>
-              <th>Tài liệu</th>
-              <th>Loại</th>
-              <th>Ngày tải</th>
-              {canUpdate && <th className="kh__num">Thao tác</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((a) => (
-              <tr key={a.id}>
-                <td>
-                  <a className="kh__link" href={a.file_url} target="_blank" rel="noreferrer">
+        <div className="kh__files-grid">
+          {items.map((a) => {
+            const iconsMap: Record<string, React.ReactNode> = {
+              hop_dong: <FileText size={18} />,
+              gpkd: <ShieldCheck size={18} />,
+              thiet_ke: <Image size={18} />,
+              khac: <FileText size={18} />,
+            };
+            return (
+              <div key={a.id} className="kh__file-card">
+                <div className={`file-icon-box file-icon-box--${a.doc_kind}`} title={DOC_KIND_LABELS[a.doc_kind] ?? a.doc_kind}>
+                  {iconsMap[a.doc_kind] || <FileText size={18} />}
+                </div>
+                <div className="kh__file-info">
+                  <a
+                    className="kh__file-name"
+                    href={a.file_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={a.file_name}
+                  >
                     {a.file_name}
                   </a>
-                </td>
-                <td>{DOC_KIND_LABELS[a.doc_kind] ?? a.doc_kind}</td>
-                <td className="kh__mono">{fmtDate(a.uploaded_at)}</td>
+                  <div className="kh__file-meta">
+                    <span>
+                      <Calendar size={10} /> {fmtDate(a.uploaded_at)}
+                    </span>
+                    <span className="kh__badge" style={{ fontSize: "9px", padding: "0 6px" }}>
+                      {DOC_KIND_LABELS[a.doc_kind] ?? a.doc_kind}
+                    </span>
+                  </div>
+                </div>
                 {canUpdate && (
-                  <td className="kh__num">
-                    <button type="button" className="btn btn--ghost" onClick={() => remove(a.id)}>
-                      Xóa
+                  <div className="kh__file-actions">
+                    <button
+                      type="button"
+                      className="contact-action-btn contact-action-btn--delete"
+                      onClick={() => remove(a.id)}
+                      title="Xoá tài liệu"
+                    >
+                      <Trash2 size={14} />
                     </button>
-                  </td>
+                  </div>
                 )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
@@ -3386,7 +3675,7 @@ function ImportDialog({
         <div className="kh__dialog-head">
           <h2>Nhập danh bạ khách hàng (CSV)</h2>
           <button type="button" className="kh__close" aria-label="Đóng" onClick={onClose}>
-            ✕
+            <X size={14} strokeWidth={2} />
           </button>
         </div>
         <div className="kh__dialog-body">
@@ -3663,7 +3952,7 @@ function CustomerFormDialog({
         <div className="kh__dialog-head">
           <h2>{title}</h2>
           <button type="button" className="kh__close" aria-label="Đóng" onClick={onClose}>
-            ✕
+            <X size={14} strokeWidth={2} />
           </button>
         </div>
 

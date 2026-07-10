@@ -17,8 +17,11 @@ import {
   YAxis,
 } from "recharts";
 
-/** Thứ tự series cố định: rust · green · gold · blue · violet · sienna (validated). */
-export const CHART_SERIES = ["#c5400a", "#2e7d46", "#a87708", "#2f6fae", "#7b5cd6", "#a04a2a"];
+/** Thứ tự series cố định — tông ĐẤT theo prototype: rust · charcoal · gold · green ·
+ *  plum · sienna. Đã qua validator dataviz (CVD/contrast/lightness PASS); riêng charcoal
+ *  cố ý "fail" sàn chroma vì prototype dùng lát ĐEN làm series 2 — chấp nhận được nhờ
+ *  tương phản cao + donut/legend luôn có nhãn và % (secondary encoding). */
+export const CHART_SERIES = ["#c5400a", "#2a2723", "#a87708", "#2e7d46", "#5f4d9e", "#a04a2a"];
 
 const AXIS_TICK = { fontFamily: "var(--ff-mono)", fontSize: 10, fill: "var(--ash-2)" } as const;
 
@@ -65,7 +68,7 @@ export function MonthBars({
 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <BarChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }} barCategoryGap="24%">
+      <BarChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }} barCategoryGap="32%">
         <CartesianGrid vertical={false} stroke="var(--rule-hair)" />
         <XAxis
           dataKey="label"
@@ -99,7 +102,7 @@ export function MonthBars({
             );
           }}
         />
-        <Bar dataKey="value" fill={color} radius={[4, 4, 0, 0]} maxBarSize={28} />
+        <Bar dataKey="value" fill={color} radius={[4, 4, 0, 0]} maxBarSize={18} />
       </BarChart>
     </ResponsiveContainer>
   );

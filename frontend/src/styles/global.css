@@ -139,12 +139,13 @@ body {
   align-items: center;
   justify-content: center;
   gap: var(--sp-2);
+  /* Mật độ prototype: 13px / 8×14 → nút cao ~34px thay vì 44px. */
   font-family: var(--ff-sans);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: var(--fw-medium);
   border-radius: var(--r-3);
   border: 1px solid transparent;
-  padding: 10px 16px;
+  padding: 8px 14px;
   cursor: pointer;
   transition: transform var(--duration-fast) var(--easing-standard),
     background-color var(--duration-base) var(--easing-standard),
@@ -351,23 +352,25 @@ body {
 /* KPI/stat card: label mono HOA + số to + sub-hint. Dùng trong .card hoặc độc lập. */
 .stat__label {
   font-family: var(--ff-mono);
-  font-size: 10px;
-  font-weight: var(--fw-bold);
+  font-size: 9px;
+  font-weight: var(--fw-medium);
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.16em;
   color: var(--ash);
 }
 .stat__value {
-  font-size: 26px;
-  font-weight: var(--fw-bold);
+  /* Prototype: 22px weight 500, đơn vị tách nhỏ — số to nhưng không "to đùng". */
+  font-size: 22px;
+  font-weight: var(--fw-medium);
   color: var(--ink);
-  line-height: 1.2;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
 }
 .stat__value small {
-  font-size: 13px;
-  font-weight: var(--fw-medium);
+  font-size: 12px;
+  font-weight: var(--fw-regular);
   color: var(--ash);
-  margin-left: 2px;
+  margin-left: 3px;
 }
 .stat__hint {
   font-size: 12px;
@@ -449,4 +452,31 @@ body {
 .row-selected {
   background: var(--rust-soft);
   box-shadow: inset 3px 0 0 var(--rust);
+}
+
+/* ---- Stat strip: MỘT card chia n ngăn bằng vạch hairline (mockup danh bạ). ---- */
+.stat-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-1);
+}
+.stat-strip__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--sp-4) var(--sp-5);
+  min-width: 0;
+}
+.stat-strip__cell + .stat-strip__cell {
+  border-left: 1px solid var(--rule-hair);
+}
+
+/* Card mật độ cao (mockup ~20px thay vì 32px mặc định). */
+.card--dense {
+  padding: var(--sp-4) var(--sp-5);
+  border-radius: var(--r-6);
 }
