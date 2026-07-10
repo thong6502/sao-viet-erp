@@ -21,7 +21,21 @@ from ..db import Base
 
 NHOM = ("prepress", "print", "finishing")
 CHE_DO_TINH = ("theo_gio", "theo_san_luong")
-PRICING_BASIS = ("per_sheet", "per_ram", "per_1000_luot", "per_m2", "per_pass", "per_book", "per_number", "per_hour")
+# Đơn vị tính giá công đoạn (bao trùm chế bản + in + sau in). Engine `routing_engine.basis_qty`
+# quy đổi mỗi key → số lượng tính tiền từ ctx job.
+PRICING_BASIS = (
+    "per_sheet",          # Theo số tờ in
+    "per_finished_area",  # Theo diện tích thành phẩm (cm²)
+    "per_finished_qty",   # Theo số lượng thành phẩm
+    "per_book_page",      # Theo số trang sách
+    "per_position",       # Theo số vị trí
+    "per_bag",            # Theo bao
+    "per_carton",         # Theo thùng
+    "per_area_sides",     # Theo diện tích (cm²) và số mặt
+    "per_sheet_area",     # Theo diện tích tờ in (cm²)
+    "per_book_page_q4",   # Theo số trang sách chia 4
+    "per_other",          # Khác (nhập tay, giá phẳng)
+)
 TOOLING_TYPE = ("khuon_be", "khuon_ep", "kem")
 
 
@@ -44,7 +58,7 @@ class CongDoan(Base):
     che_do_tinh: Mapped[str] = mapped_column(
         String(16), nullable=False, server_default="theo_san_luong", default="theo_san_luong"
     )
-    pricing_basis: Mapped[str | None] = mapped_column(String(16), nullable=True)  # khi theo_san_luong
+    pricing_basis: Mapped[str | None] = mapped_column(String(32), nullable=True)  # khi theo_san_luong
 
     setup_cost: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     setup_time: Mapped[float] = mapped_column(Numeric(8, 2), nullable=False, server_default="0", default=0)  # phút

@@ -18,22 +18,47 @@ def _f(v, d: float = 0.0) -> float:
 
 # --- §4.3 quy đổi số lượng hình học → basis_qty (dùng SL GROSS) ---
 def basis_qty(pricing_basis: str, ctx: dict) -> float:
-    """ctx: {so_to_in_gross, so_luot, dt_to_in_m2, so_mat, so_cuon, so_con}."""
+    """Quy đổi 1 đơn vị tính giá công đoạn → số lượng tính tiền, từ ctx job.
+
+    ctx: {
+      so_to_in_gross,        # số tờ in (gross, đã cộng bù hao)
+      so_mat,                # số mặt in (mặc định 1)
+      dt_to_in_cm2,          # diện tích 1 tờ in (cm²)
+      dt_thanh_pham_cm2,     # diện tích 1 thành phẩm (cm²)
+      so_luong_thanh_pham,   # SL thành phẩm (đơn đặt)
+      so_trang,              # số trang sách
+      so_cuon,               # số cuốn
+      so_vi_tri,             # số vị trí (ép kim/bế… mỗi thành phẩm)
+      so_bao, so_thung,      # số bao / số thùng theo quy cách đóng gói
+    }
+    """
     g = _f(ctx.get("so_to_in_gross"))
-    if pricing_basis == "per_sheet":
+    sl = _f(ctx.get("so_luong_thanh_pham"))
+    trang = _f(ctx.get("so_trang"))
+    cuon = _f(ctx.get("so_cuon"))
+    dt_to = _f(ctx.get("dt_to_in_cm2"))
+    if pricing_basis == "per_sheet":                    # Theo số tờ in
         return g
-    if pricing_basis == "per_ram":
-        return g / 500.0
-    if pricing_basis == "per_1000_luot":
-        return _f(ctx.get("so_luot")) / 1000.0
-    if pricing_basis == "per_m2":
-        return _f(ctx.get("dt_to_in_m2")) * g * _f(ctx.get("so_mat"), 1)
-    if pricing_basis == "per_pass":
-        return _f(ctx.get("so_luot"))
-    if pricing_basis == "per_book":
-        return _f(ctx.get("so_cuon"))
-    if pricing_basis == "per_number":
-        return _f(ctx.get("so_con"))
+    if pricing_basis == "per_finished_area":            # Theo diện tích thành phẩm (cm²)
+        return _f(ctx.get("dt_thanh_pham_cm2")) * sl
+    if pricing_basis == "per_finished_qty":             # Theo số lượng thành phẩm
+        return sl
+    if pricing_basis == "per_book_page":                # Theo số trang sách
+        return trang * cuon
+    if pricing_basis == "per_position":                 # Theo số vị trí
+        return _f(ctx.get("so_vi_tri")) * sl
+    if pricing_basis == "per_bag":                      # Theo bao
+        return _f(ctx.get("so_bao"))
+    if pricing_basis == "per_carton":                   # Theo thùng
+        return _f(ctx.get("so_thung"))
+    if pricing_basis == "per_area_sides":               # Theo diện tích (cm²) và số mặt
+        return dt_to * _f(ctx.get("so_mat"), 1) * g
+    if pricing_basis == "per_sheet_area":               # Theo diện tích tờ in (cm²)
+        return dt_to * g
+    if pricing_basis == "per_book_page_q4":             # Theo số trang sách chia 4
+        return (trang * cuon) / 4.0
+    if pricing_basis == "per_other":                    # Khác (nhập tay, giá phẳng)
+        return 1.0
     raise ValueError(f"pricing_basis không hợp lệ: {pricing_basis}")
 
 

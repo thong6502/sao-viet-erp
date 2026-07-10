@@ -1206,6 +1206,31 @@ def _migrate_drop_payment_refunds_renamed(db: Session) -> None:
         db.rollback()
 
 
+def _migrate_cong_doan_pricing_basis_v2(db: Session) -> None:
+    """Công đoạn: nới `pricing_basis` VARCHAR(16)→(32) cho bộ đơn vị tính giá mới (key dài hơn,
+    vd `per_finished_area`) — cần cho Postgres (SQLite bỏ qua độ dài). Đồng thời xóa giá trị theo
+    bộ key CŨ (per_ram/per_1000_luot/per_pass/per_book/per_number/per_m2/per_hour) về NULL để không
+    còn enum không hợp lệ. Best-effort; no-op khi bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    # Postgres: đổi kiểu cột. SQLite: câu này lỗi → bỏ qua (độ dài VARCHAR không bị ép).
+    run("ALTER TABLE cong_doan ALTER COLUMN pricing_basis TYPE VARCHAR(32)")
+    # Dọn key cũ không còn trong whitelist mới.
+    run(
+        "UPDATE cong_doan SET pricing_basis = NULL WHERE pricing_basis IN "
+        "('per_ram','per_1000_luot','per_pass','per_book','per_number','per_m2','per_hour')"
+    )
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1245,6 +1270,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0037_stock_count_phaseA", _migrate_stock_count_phaseA),
     ("0038_purchase_request_expected_receipt_date", _migrate_purchase_request_expected_receipt_date),
     ("0039_drop_payment_refunds_renamed", _migrate_drop_payment_refunds_renamed),
+    ("0040_cong_doan_pricing_basis_v2", _migrate_cong_doan_pricing_basis_v2),
 ]
 
 

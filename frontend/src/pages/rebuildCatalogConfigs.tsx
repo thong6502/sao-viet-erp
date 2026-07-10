@@ -18,9 +18,17 @@ const VAT: Lbls = { "5": "5%", "8": "8%", "10": "10%" };
 
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in" };
 const PRICING_BASIS: Lbls = {
-  per_sheet: "Theo tờ in", per_ram: "Theo ram (500 tờ)", per_1000_luot: "Theo 1.000 lượt",
-  per_m2: "Theo m²", per_pass: "Theo lượt in", per_book: "Theo cuốn", per_number: "Theo con/số",
-  per_hour: "Theo giờ máy",
+  per_sheet: "Theo số tờ in",
+  per_finished_area: "Theo diện tích thành phẩm (cm²)",
+  per_finished_qty: "Theo số lượng thành phẩm",
+  per_book_page: "Theo số trang sách",
+  per_position: "Theo số vị trí",
+  per_bag: "Theo bao",
+  per_carton: "Theo thùng",
+  per_area_sides: "Theo diện tích (cm²) và số mặt",
+  per_sheet_area: "Theo diện tích tờ in (cm²)",
+  per_book_page_q4: "Theo số trang sách chia 4",
+  per_other: "Khác",
 };
 const TRUC_BU_HAO: Lbls = { so_mau: "Theo số màu (giấy in)", so_con: "Theo số con (sóng bồi/bế)" };
 
@@ -108,8 +116,8 @@ export const CFG_MAY: CatalogConfig = {
 };
 
 export const CFG_CONG_DOAN: CatalogConfig = {
-  title: "Công đoạn gia công",
-  subtitle: "Danh mục thao tác + cách tính giá. Chuỗi công đoạn của từng đơn = do Loại sản phẩm gán.",
+  title: "Công đoạn",
+  subtitle: "Danh mục thao tác (chế bản · in · sau in) + cách tính giá. Chuỗi công đoạn của từng đơn = do Loại sản phẩm gán.",
   prefix: "/api/cong-doan",
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [

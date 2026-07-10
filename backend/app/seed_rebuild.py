@@ -199,29 +199,7 @@ def seed_rebuild_catalog(db: Session) -> None:
         db.add_all(rows)
         db.commit()
 
-    # --- Công đoạn (spec-cong-doan §9); may_id nối máy vừa seed ---
-    if _empty(db, CongDoan):
-        may = {m.ma: m.id for m in db.execute(select(MayThietBi)).scalars()}
-        db.add_all([
-            CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", may_id=may.get("TB-0004"),
-                     che_do_tinh="theo_gio", setup_time=10),
-            CongDoan(ma="CD-0002", ten="In offset", nhom="print", may_id=may.get("TB-0001"),
-                     che_do_tinh="theo_san_luong", pricing_basis="per_1000_luot", run_rate=8000,
-                     first_unit_floor=350000, requires_tooling=True, tooling_type="kem"),
-            CongDoan(ma="CD-0003", ten="Cắt xén", nhom="finishing", may_id=may.get("TB-0005"),
-                     che_do_tinh="theo_san_luong", pricing_basis="per_ram", run_rate=60000, min_charge=60000),
-            CongDoan(ma="CD-0004", ten="Cán màng bóng", nhom="finishing", may_id=may.get("TB-0006"),
-                     che_do_tinh="theo_san_luong", pricing_basis="per_m2", run_rate=2200, min_charge=110000),
-            CongDoan(ma="CD-0005", ten="Bế", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_pass", run_rate=180, requires_tooling=True, tooling_type="khuon_be"),
-            CongDoan(ma="CD-0006", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_pass", run_rate=400, requires_tooling=True, tooling_type="khuon_ep"),
-            CongDoan(ma="CD-0007", ten="Đóng keo (vào bìa)", nhom="finishing",
-                     che_do_tinh="theo_san_luong", pricing_basis="per_book", run_rate=180),
-            CongDoan(ma="CD-0008", ten="Đánh số nhảy", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_number", run_rate=10),
-        ])
-        db.commit()
+    # --- Công đoạn: KHÔNG seed sẵn nữa (bộ đơn vị tính giá mới) — xưởng tự khai báo trong danh mục.
 
     # --- Bù hao (tra theo trục số màu/số con × bậc SL động) — số THẬT của xưởng ---
     if _empty(db, BuHao):
