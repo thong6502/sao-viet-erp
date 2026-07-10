@@ -135,6 +135,49 @@ const ICONS = {
       <path d="M10.3 20a2 2 0 0 0 3.4 0" />
     </>
   ),
+  // Row actions
+  printer: (
+    <>
+      <path d="M6.5 9V3.5h11V9" />
+      <rect x="4" y="9" width="16" height="8" rx="2" />
+      <path d="M7 14.5h10v6H7z" />
+      <path d="M16.5 12h.01" />
+    </>
+  ),
+  pencil: (
+    <>
+      <path d="m4 20 4.2-1 10.6-10.6a2 2 0 0 0-2.8-2.8L5.4 16.2Z" />
+      <path d="m14.5 7.1 2.8 2.8M4 20l1.4-3.8 2.8 2.8Z" />
+    </>
+  ),
+  send: (
+    <>
+      <path d="m21 3-7.4 18-3.1-7.5L3 10.4Z" />
+      <path d="M10.5 13.5 21 3" />
+    </>
+  ),
+  check: <path d="m4.5 12.5 4.7 4.7L19.8 6.8" />,
+  x: <path d="m6 6 12 12M18 6 6 18" />,
+  packageCheck: (
+    <>
+      <path d="M12 2.8 4 7v10l8 4.2 8-4.2V7Z" />
+      <path d="M4.2 7.2 12 11.5l7.8-4.3M12 11.5v9.3" />
+      <path d="m8.3 5 7.8 4.3" />
+      <path d="m14.8 15.6 1.4 1.4 2.8-3" />
+    </>
+  ),
+  ban: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="m5.6 5.6 12.8 12.8" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4.5 7h15M9 7V4h6v3M7 7l.8 13h8.4L17 7" />
+      <path d="M10 11v5M14 11v5" />
+    </>
+  ),
   // Affordance
   chevron: <path d="m6 9 6 6 6-6" />,
 } satisfies Record<string, ReactNode>;

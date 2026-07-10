@@ -1,0 +1,392 @@
+.acct-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-4);
+}
+
+.acct-toolbar__filters {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.acct-toolbar__select,
+.acct-toolbar__filters .input {
+  width: 220px;
+}
+
+.acct-master-detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
+  gap: var(--sp-5);
+  align-items: start;
+}
+
+.acct-list {
+  min-width: 0;
+}
+
+.acct-list tbody tr {
+  cursor: pointer;
+}
+
+.acct-list td small,
+.acct-account-pair small,
+.acct-voucher-amount small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ash);
+}
+
+.acct-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.acct-actions--compact {
+  flex-wrap: nowrap;
+}
+
+.acct-payment-status,
+.acct-voucher-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  width: max-content;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.acct-payment-status--unpaid,
+.acct-voucher-status--waiting {
+  background: #fff0c2;
+  color: #7a4d00;
+}
+
+.acct-payment-status--partial {
+  background: #dff0ff;
+  color: #165b8c;
+}
+
+.acct-payment-status--paid,
+.acct-voucher-status--paid {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+
+.acct-voucher-status--cancelled {
+  background: #fde2df;
+  color: var(--signal);
+}
+
+.acct-purpose {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  background: var(--rule-hair);
+}
+
+.acct-purpose span,
+.acct-payment-grid span,
+.acct-summary-strip span,
+.acct-voucher-amount > span,
+.acct-account-pair span {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  color: var(--ash-2);
+  text-transform: uppercase;
+}
+
+.acct-payment-grid,
+.acct-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--rule);
+  background: var(--rule);
+}
+
+.acct-payment-grid > div,
+.acct-summary-strip > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  padding: 11px;
+  background: var(--canvas);
+}
+
+.acct-payment-grid strong,
+.acct-summary-strip strong {
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+
+.acct-modal {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(24, 23, 19, 0.48);
+}
+
+.acct-modal__box {
+  width: min(620px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  box-shadow: var(--shadow-3);
+}
+
+.acct-modal__box--wide {
+  width: min(1120px, 100%);
+}
+
+.acct-modal__head,
+.acct-modal__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+}
+
+.acct-modal__head {
+  border-bottom: 1px solid var(--rule);
+}
+
+.acct-modal__head h2 {
+  margin: 2px 0 0;
+  font-size: 18px;
+}
+
+.acct-modal__foot {
+  justify-content: flex-end;
+  border-top: 1px solid var(--rule);
+}
+
+.acct-modal__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  overflow: auto;
+}
+
+.acct-modal__x {
+  width: 34px;
+  height: 34px;
+  border: 0;
+  background: transparent;
+  color: var(--ash);
+  font-size: 23px;
+  cursor: pointer;
+}
+
+.acct-segment,
+.acct-tabs {
+  display: inline-flex;
+  width: max-content;
+  padding: 3px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--rule-hair);
+}
+
+.acct-segment button,
+.acct-tabs button {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.acct-segment button.is-active,
+.acct-tabs button.is-active {
+  background: var(--ink);
+  color: var(--paper-contrast);
+}
+
+.acct-tabs {
+  margin-bottom: var(--sp-4);
+}
+
+.acct-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  color: var(--ash);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+}
+
+.acct-field > span b {
+  color: var(--signal);
+}
+
+.acct-form-grid {
+  display: grid;
+  gap: var(--sp-3);
+}
+
+.acct-form-grid--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.acct-form-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.acct-form-grid--4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.acct-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.acct-form-section h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.acct-textarea {
+  min-height: 82px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.acct-money-input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.acct-voucher-amount {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--sp-4);
+  border: 1px solid var(--rule);
+  background: var(--rule-hair);
+}
+
+.acct-voucher-amount strong {
+  font-size: 23px;
+}
+
+.acct-account-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+
+.acct-account-pair > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+}
+
+.acct-default-tag {
+  display: inline-block;
+  width: max-content;
+  margin-left: 7px;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+}
+
+.acct-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+}
+
+.acct-checks label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+}
+
+.banner--warn {
+  padding: 9px 12px;
+  border: 1px solid #e8c56c;
+  border-radius: var(--r-3);
+  background: #fff5d9;
+  color: #6d4b00;
+}
+
+@media (max-width: 1180px) {
+  .acct-master-detail {
+    grid-template-columns: 1fr;
+  }
+
+  .acct-form-grid--4,
+  .acct-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .acct-toolbar,
+  .acct-toolbar__filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .acct-toolbar__select,
+  .acct-toolbar__filters .input {
+    width: 100%;
+  }
+
+  .acct-form-grid--2,
+  .acct-form-grid--3,
+  .acct-form-grid--4,
+  .acct-summary-strip,
+  .acct-payment-grid,
+  .acct-account-pair {
+    grid-template-columns: 1fr;
+  }
+
+  .acct-modal {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .acct-modal__box,
+  .acct-modal__box--wide {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+}

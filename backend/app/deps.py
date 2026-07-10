@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from .db import get_db
 from .models.user import User
 from .repositories.audit_repo import AuditLogRepository
+from .repositories.accounting_repo import AccountingRepository
 from .repositories.costing_repo import CostingRepository
 from .repositories.attendance_repo import AttendanceRepository
 from .repositories.leave_repo import LeaveRepository
@@ -30,6 +31,11 @@ from .repositories.warehouse_item_repo import WarehouseItemRepository
 from .repositories.order_repo import OrderRepository
 from .repositories.product_repo import ProductRepository
 from .repositories.product_type_catalog_repo import ProductTypeCatalogRepository
+from .repositories.purchase_repo import (
+    DepartmentPurchaseRequestRepository,
+    PurchaseRequestRepository,
+    SupplierRepository,
+)
 from .repositories.quotation_repo import QuotationRepository
 from .repositories.rbac_repo import (
     DepartmentRepository,
@@ -45,6 +51,7 @@ from .repositories.document_sequence_repo import DocumentSequenceRepository
 from .repositories.estimate_repo import EstimateRepository
 from .security import decode_access_token
 from .services.auth_service import AuthError, AuthService
+from .services.accounting_service import AccountingService
 from .services.activity_service import ActivityService
 from .services.costing_service import CostingService
 from .services.estimate_service import EstimateService
@@ -63,6 +70,7 @@ from .services.warehouse_service import WarehouseService
 from .services.warehouse_item_service import WarehouseItemService
 from .services.product_service import ProductService
 from .services.product_type_catalog_service import ProductTypeCatalogService
+from .services.purchase_service import PurchaseService
 from .services.order_service import OrderService
 from .services.quotation_service import QuotationService
 from .services.profile_service import ProfileService
@@ -432,6 +440,54 @@ def get_product_type_catalog_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> ProductTypeCatalogService:
     return ProductTypeCatalogService(repo, audit)
+
+
+def get_supplier_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> SupplierRepository:
+    return SupplierRepository(db)
+
+
+def get_department_purchase_request_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> DepartmentPurchaseRequestRepository:
+    return DepartmentPurchaseRequestRepository(db)
+
+
+def get_purchase_request_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> PurchaseRequestRepository:
+    return PurchaseRequestRepository(db)
+
+
+def get_purchase_service(
+    suppliers: Annotated[SupplierRepository, Depends(get_supplier_repository)],
+    department_requests: Annotated[
+        DepartmentPurchaseRequestRepository,
+        Depends(get_department_purchase_request_repository),
+    ],
+    requests: Annotated[PurchaseRequestRepository, Depends(get_purchase_request_repository)],
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    authz: Annotated[AuthorizationService, Depends(get_authorization_service)],
+) -> PurchaseService:
+    return PurchaseService(suppliers, department_requests, requests, users, audit, authz)
+
+
+def get_accounting_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> AccountingRepository:
+    return AccountingRepository(db)
+
+
+def get_accounting_service(
+    repo: Annotated[AccountingRepository, Depends(get_accounting_repository)],
+    requests: Annotated[PurchaseRequestRepository, Depends(get_purchase_request_repository)],
+    suppliers: Annotated[SupplierRepository, Depends(get_supplier_repository)],
+    users: Annotated[UserRepository, Depends(get_user_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> AccountingService:
+    return AccountingService(repo, requests, suppliers, users, audit)
 
 
 def get_material_repository(

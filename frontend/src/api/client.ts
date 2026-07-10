@@ -2473,6 +2473,319 @@ export interface WarehouseItemListOut {
   size: number;
 }
 
+// --- Thu mua ----------------------------------------------------------------
+export type SupplierStatus = "active" | "inactive";
+
+export interface SupplierRow {
+  id: number;
+  name: string;
+  tax_code: string | null;
+  phone: string | null;
+  email: string | null;
+  address: string | null;
+  contact_name: string | null;
+  supplier_group: string | null;
+  payment_terms: string | null;
+  status: SupplierStatus;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierInput {
+  name: string;
+  tax_code: string;
+  phone: string;
+  email: string;
+  address: string;
+  contact_name: string;
+  supplier_group: string;
+  payment_terms?: string | null;
+  status?: SupplierStatus;
+  note?: string | null;
+}
+
+export interface SupplierListOut {
+  items: SupplierRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export type PurchaseRequestStatus =
+  | "draft"
+  | "pending_approval"
+  | "approved"
+  | "rejected"
+  | "purchased"
+  | "received"
+  | "cancelled";
+
+export type DepartmentPurchaseRequestStatus =
+  | "open"
+  | "pending_approval"
+  | "in_purchase"
+  | "done"
+  | "cancelled";
+
+export type DepartmentPurchaseSourceType =
+  | "kinh_doanh"
+  | "kho"
+  | "san_xuat"
+  | "cong_nghe"
+  | "gia_cong_ngoai"
+  | "khac";
+
+export interface PurchaseRequestLineInput {
+  item_name: string;
+  unit: string;
+  quantity: number;
+  expected_unit_price: number;
+  discount_percent: number;
+  vat_percent: number;
+  note?: string | null;
+}
+
+export interface DepartmentPurchaseRequestLineInput {
+  item_name: string;
+  unit: string;
+  quantity: number;
+  note?: string | null;
+}
+
+export interface DepartmentPurchaseRequestInput {
+  source_type: DepartmentPurchaseSourceType;
+  related_document_type?: string | null;
+  related_document_code?: string | null;
+  purpose: string;
+  needed_date: string;
+  note?: string | null;
+  lines: DepartmentPurchaseRequestLineInput[];
+}
+
+export interface PurchaseRequestInput {
+  supplier_id: number | null;
+  source_request_ids: number[];
+  purpose: string;
+  needed_date: string;
+  note?: string | null;
+  lines: PurchaseRequestLineInput[];
+}
+
+export interface PurchaseRequestLineOut {
+  id: number;
+  item_name: string;
+  unit: string;
+  quantity: number;
+  expected_unit_price: number;
+  discount_percent: number;
+  discount_amount: number;
+  vat_percent: number;
+  vat_amount: number;
+  line_total: number;
+  note: string | null;
+}
+
+export interface DepartmentPurchaseRequestLineOut {
+  id: number;
+  item_name: string;
+  unit: string;
+  quantity: number;
+  expected_unit_price: number;
+  line_total: number;
+  note: string | null;
+}
+
+export interface DepartmentPurchaseRequestRow {
+  id: number;
+  code: string;
+  status: DepartmentPurchaseRequestStatus;
+  source_type: DepartmentPurchaseSourceType;
+  requesting_department_id: number | null;
+  requesting_department_name: string | null;
+  requested_by_user_id: number | null;
+  requested_by_name: string | null;
+  related_document_type: string | null;
+  related_document_code: string | null;
+  purpose: string;
+  needed_date: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+  total_estimate: number;
+  lines: DepartmentPurchaseRequestLineOut[];
+}
+
+export interface DepartmentPurchaseRequestListOut {
+  items: DepartmentPurchaseRequestRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export interface PurchaseRequestSourceOut {
+  id: number;
+  department_request_id: number;
+  code: string;
+  status: DepartmentPurchaseRequestStatus | null;
+  source_type: DepartmentPurchaseSourceType | null;
+  purpose: string | null;
+  needed_date: string | null;
+  requesting_department_name: string | null;
+  requested_by_name: string | null;
+}
+
+export interface PurchaseRequestRow {
+  id: number;
+  code: string;
+  status: PurchaseRequestStatus;
+  supplier_id: number | null;
+  supplier_name: string | null;
+  purpose: string | null;
+  needed_date: string | null;
+  created_by_user_id: number | null;
+  created_by_name: string | null;
+  submitted_at: string | null;
+  approved_by_user_id: number | null;
+  approved_by_name: string | null;
+  approved_at: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+  total_estimate: number;
+  pending_amount: number;
+  paid_amount: number;
+  outstanding_amount: number;
+  available_amount: number;
+  payment_status: "unpaid" | "partial" | "paid";
+  payment_voucher_count: number;
+  sources: PurchaseRequestSourceOut[];
+  lines: PurchaseRequestLineOut[];
+}
+
+export interface PurchaseRequestListOut {
+  items: PurchaseRequestRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
+export type PaymentVoucherType = "cash" | "bank_transfer";
+export type PaymentStage = "advance" | "partial" | "final" | "other";
+export type PaymentVoucherStatus = "waiting_payment" | "paid" | "cancelled";
+
+export interface BankAccountInput {
+  account_holder: string;
+  account_number: string;
+  bank_name: string;
+  bank_branch: string;
+  currency: string;
+  is_default: boolean;
+  is_active: boolean;
+  note?: string | null;
+}
+
+export interface CompanyBankAccountRow extends BankAccountInput {
+  id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SupplierBankAccountInput extends BankAccountInput {
+  supplier_id: number;
+}
+
+export interface SupplierBankAccountRow extends SupplierBankAccountInput {
+  id: number;
+  supplier_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentVoucherBaseInput {
+  voucher_type: PaymentVoucherType;
+  payment_stage: PaymentStage;
+  voucher_date: string;
+  planned_payment_date?: string | null;
+  amount: number;
+  currency: string;
+  exchange_rate: number;
+  content: string;
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  contract_number?: string | null;
+  company_bank_account_id?: number | null;
+  supplier_bank_account_id?: number | null;
+  cash_recipient_name?: string | null;
+  cash_recipient_address?: string | null;
+  cash_recipient_identity?: string | null;
+  bank_fee_bearer?: "payer" | "beneficiary" | "shared" | null;
+  note?: string | null;
+}
+
+export interface PaymentVoucherInput extends PaymentVoucherBaseInput {
+  purchase_request_id: number;
+}
+
+export interface PaymentVoucherRow {
+  id: number;
+  code: string;
+  purchase_request_id: number;
+  purchase_request_code: string;
+  source_request_codes: string[];
+  supplier_id: number | null;
+  supplier_name: string;
+  supplier_tax_code: string | null;
+  supplier_address: string | null;
+  voucher_type: PaymentVoucherType;
+  payment_stage: PaymentStage;
+  status: PaymentVoucherStatus;
+  voucher_date: string;
+  planned_payment_date: string | null;
+  amount: number;
+  amount_vnd: number;
+  currency: string;
+  exchange_rate: number;
+  content: string;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  contract_number: string | null;
+  company_bank_account_id: number | null;
+  supplier_bank_account_id: number | null;
+  cash_recipient_name: string | null;
+  cash_recipient_address: string | null;
+  cash_recipient_identity: string | null;
+  bank_fee_bearer: "payer" | "beneficiary" | "shared" | null;
+  bank_reference: string | null;
+  company_account_holder: string | null;
+  company_account_number: string | null;
+  company_bank_name: string | null;
+  company_bank_branch: string | null;
+  beneficiary_account_holder: string | null;
+  beneficiary_account_number: string | null;
+  beneficiary_bank_name: string | null;
+  beneficiary_bank_branch: string | null;
+  created_by_user_id: number | null;
+  created_by_name: string | null;
+  paid_by_user_id: number | null;
+  paid_by_name: string | null;
+  paid_at: string | null;
+  cancelled_by_user_id: number | null;
+  cancelled_by_name: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentVoucherListOut {
+  items: PaymentVoucherRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -3908,6 +4221,272 @@ export const api = {
     },
   },
 
+  // --- Thu mua --------------------------------------------------------------
+  suppliers: {
+    list(
+      token: string,
+      params: { q?: string; status?: string | null; supplier_group?: string | null; sort?: string; page?: number; size?: number } = {},
+    ): Promise<SupplierListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.supplier_group) qs.set("supplier_group", params.supplier_group);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<SupplierListOut>(`/api/suppliers${suffix}`, token);
+    },
+    create(token: string, input: SupplierInput): Promise<SupplierRow> {
+      return authed<SupplierRow>("/api/suppliers", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: SupplierInput): Promise<SupplierRow> {
+      return authed<SupplierRow>(`/api/suppliers/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    toggleActive(token: string, id: number): Promise<SupplierRow> {
+      return authed<SupplierRow>(`/api/suppliers/${id}/toggle-active`, token, {
+        method: "PATCH",
+      });
+    },
+  },
+
+  departmentPurchaseRequests: {
+    list(
+      token: string,
+      params: { q?: string; status?: string | null; source_type?: string | null; sort?: string; page?: number; size?: number } = {},
+    ): Promise<DepartmentPurchaseRequestListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.source_type) qs.set("source_type", params.source_type);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<DepartmentPurchaseRequestListOut>(`/api/department-purchase-requests${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<DepartmentPurchaseRequestRow> {
+      return authed<DepartmentPurchaseRequestRow>(`/api/department-purchase-requests/${id}`, token);
+    },
+    create(token: string, input: DepartmentPurchaseRequestInput): Promise<DepartmentPurchaseRequestRow> {
+      return authed<DepartmentPurchaseRequestRow>("/api/department-purchase-requests", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    cancel(token: string, id: number, reason: string | null): Promise<DepartmentPurchaseRequestRow> {
+      return authed<DepartmentPurchaseRequestRow>(`/api/department-purchase-requests/${id}/cancel`, token, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+    },
+  },
+
+  purchaseRequests: {
+    list(
+      token: string,
+      params: { q?: string; status?: string | null; supplier_id?: number | null; sort?: string; page?: number; size?: number } = {},
+    ): Promise<PurchaseRequestListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.supplier_id !== undefined && params.supplier_id !== null)
+        qs.set("supplier_id", String(params.supplier_id));
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<PurchaseRequestListOut>(`/api/purchase-requests${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}`, token);
+    },
+    create(token: string, input: PurchaseRequestInput): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>("/api/purchase-requests", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: PurchaseRequestInput): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/purchase-requests/${id}`, token, { method: "DELETE" });
+    },
+    submit(token: string, id: number): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/submit`, token, { method: "POST" });
+    },
+    approve(token: string, id: number): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/approve`, token, { method: "POST" });
+    },
+    reject(token: string, id: number, reason: string | null): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/reject`, token, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+    },
+    markPurchased(token: string, id: number): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/mark-purchased`, token, { method: "POST" });
+    },
+    markReceived(token: string, id: number): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/mark-received`, token, { method: "POST" });
+    },
+    cancel(token: string, id: number, reason: string | null): Promise<PurchaseRequestRow> {
+      return authed<PurchaseRequestRow>(`/api/purchase-requests/${id}/cancel`, token, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+    },
+  },
+
+  // --- Kế toán: duyệt mua hàng, Phiếu chi / UNC ---------------------------
+  accounting: {
+    inbox(
+      token: string,
+      params: { q?: string; status?: string | null; supplier_id?: number | null; sort?: string; page?: number; size?: number } = {},
+    ): Promise<PurchaseRequestListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.supplier_id != null) qs.set("supplier_id", String(params.supplier_id));
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<PurchaseRequestListOut>(`/api/accounting/inbox${suffix}`, token);
+    },
+    companyAccounts(token: string, activeOnly = false): Promise<CompanyBankAccountRow[]> {
+      return authed<CompanyBankAccountRow[]>(
+        `/api/accounting/company-bank-accounts?active_only=${activeOnly}`,
+        token,
+      );
+    },
+    createCompanyAccount(token: string, input: BankAccountInput): Promise<CompanyBankAccountRow> {
+      return authed<CompanyBankAccountRow>("/api/accounting/company-bank-accounts", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    updateCompanyAccount(token: string, id: number, input: BankAccountInput): Promise<CompanyBankAccountRow> {
+      return authed<CompanyBankAccountRow>(`/api/accounting/company-bank-accounts/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    toggleCompanyAccount(token: string, id: number): Promise<CompanyBankAccountRow> {
+      return authed<CompanyBankAccountRow>(`/api/accounting/company-bank-accounts/${id}/toggle-active`, token, {
+        method: "PATCH",
+      });
+    },
+    supplierAccounts(
+      token: string,
+      supplierId?: number | null,
+      activeOnly = false,
+    ): Promise<SupplierBankAccountRow[]> {
+      const qs = new URLSearchParams();
+      if (supplierId != null) qs.set("supplier_id", String(supplierId));
+      qs.set("active_only", String(activeOnly));
+      return authed<SupplierBankAccountRow[]>(
+        `/api/accounting/supplier-bank-accounts?${qs.toString()}`,
+        token,
+      );
+    },
+    createSupplierAccount(token: string, input: SupplierBankAccountInput): Promise<SupplierBankAccountRow> {
+      return authed<SupplierBankAccountRow>("/api/accounting/supplier-bank-accounts", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    updateSupplierAccount(
+      token: string,
+      id: number,
+      input: SupplierBankAccountInput,
+    ): Promise<SupplierBankAccountRow> {
+      return authed<SupplierBankAccountRow>(`/api/accounting/supplier-bank-accounts/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    toggleSupplierAccount(token: string, id: number): Promise<SupplierBankAccountRow> {
+      return authed<SupplierBankAccountRow>(`/api/accounting/supplier-bank-accounts/${id}/toggle-active`, token, {
+        method: "PATCH",
+      });
+    },
+    vouchers(
+      token: string,
+      params: {
+        q?: string;
+        status?: string | null;
+        voucher_type?: string | null;
+        supplier_id?: number | null;
+        purchase_request_id?: number | null;
+        sort?: string;
+        page?: number;
+        size?: number;
+      } = {},
+    ): Promise<PaymentVoucherListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.voucher_type) qs.set("voucher_type", params.voucher_type);
+      if (params.supplier_id != null) qs.set("supplier_id", String(params.supplier_id));
+      if (params.purchase_request_id != null)
+        qs.set("purchase_request_id", String(params.purchase_request_id));
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<PaymentVoucherListOut>(`/api/accounting/payment-vouchers${suffix}`, token);
+    },
+    voucher(token: string, id: number): Promise<PaymentVoucherRow> {
+      return authed<PaymentVoucherRow>(`/api/accounting/payment-vouchers/${id}`, token);
+    },
+    createVoucher(token: string, input: PaymentVoucherInput): Promise<PaymentVoucherRow> {
+      return authed<PaymentVoucherRow>("/api/accounting/payment-vouchers", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    updateVoucher(token: string, id: number, input: PaymentVoucherInput): Promise<PaymentVoucherRow> {
+      return authed<PaymentVoucherRow>(`/api/accounting/payment-vouchers/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    approveAndCreateVoucher(
+      token: string,
+      purchaseRequestId: number,
+      input: PaymentVoucherBaseInput,
+    ): Promise<PaymentVoucherRow> {
+      return authed<PaymentVoucherRow>(
+        `/api/accounting/purchase-requests/${purchaseRequestId}/approve-and-create-voucher`,
+        token,
+        { method: "POST", body: JSON.stringify(input) },
+      );
+    },
+    markVoucherPaid(token: string, id: number, bankReference: string | null): Promise<PaymentVoucherRow> {
+      return authed<PaymentVoucherRow>(`/api/accounting/payment-vouchers/${id}/mark-paid`, token, {
+        method: "POST",
+        body: JSON.stringify({ bank_reference: bankReference }),
+      });
+    },
+    cancelVoucher(token: string, id: number, reason: string): Promise<PaymentVoucherRow> {
+      return authed<PaymentVoucherRow>(`/api/accounting/payment-vouchers/${id}/cancel`, token, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+    },
+  },
+
   // --- Kho hàng vận hành ----------------------------------------------------
   warehouseItems: {
     options(token: string): Promise<WarehouseOption[]> {
@@ -4272,4 +4851,3 @@ export interface NormTestOutput {
   steps: NormTestStep[];
   warnings: string[];
 }
-
