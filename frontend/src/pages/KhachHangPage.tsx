@@ -2755,6 +2755,8 @@ function CareTab({ customerId }: { customerId: number }) {
 
   // Timeline: mặc định ẨN việc đã huỷ (giảm nhiễu — xem lại được bằng toggle).
   const [showCancelled, setShowCancelled] = useState(false);
+  // Chống "cuộn vô hạn": mặc định 6 mục mới nhất, bấm mới xem thêm.
+  const [showAllHistory, setShowAllHistory] = useState(false);
 
   // Hoàn thành việc: có thể ghi kèm 1 dòng nhật ký trong cùng thao tác (khảo sát #28).
   const [doneForId, setDoneForId] = useState<number | null>(null);
@@ -2921,6 +2923,7 @@ function CareTab({ customerId }: { customerId: number }) {
   const visibleHistory = showCancelled
     ? historyItems
     : historyItems.filter((i) => i.kind !== "cancelled_task");
+  const shownHistory = showAllHistory ? visibleHistory : visibleHistory.slice(0, 6);
 
   if (error && events == null) return <div className="banner banner--error" role="alert">{error}</div>;
   if (events == null || tasks == null) return <TableSkeleton cols={3} />;
@@ -2931,7 +2934,9 @@ function CareTab({ customerId }: { customerId: number }) {
     <div className="kh__care">
       {error && <div className="banner banner--error" role="alert">{error}</div>}
 
-      <div className="kh__care-unified-container">
+      <div className="kh__care-columns">
+        {/* CỘT TRÁI — chỗ LÀM: ghi tương tác + lịch hẹn sắp tới. */}
+        <div className="kh__care-col">
         {/* 1. Activity Composer Card */}
         {canUpdate && (
           <div className="care-composer">
@@ -3154,7 +3159,10 @@ function CareTab({ customerId }: { customerId: number }) {
           </div>
         )}
 
-        {/* 3. History Timeline Section */}
+        </div>
+
+        {/* CỘT PHẢI — chuyện ĐÃ QUA: nhật ký giới hạn 6 mục, xem thêm khi cần. */}
+        <div className="kh__care-col">
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           <div className="timeline-section-title">
             <History size={12} /> Nhật ký hoạt động ({visibleHistory.length})
@@ -3176,7 +3184,7 @@ function CareTab({ customerId }: { customerId: number }) {
             </p>
           ) : (
             <div className="care-timeline">
-              {visibleHistory.map((item) => {
+              {shownHistory.map((item) => {
                 const iconsMap: Record<string, React.ReactNode> = {
                   goi_dien: <Phone size={10} />,
                   nhan_tin: <MessageCircle size={10} />,
@@ -3231,6 +3239,17 @@ function CareTab({ customerId }: { customerId: number }) {
               })}
             </div>
           )}
+          {visibleHistory.length > 6 && (
+            <button
+              type="button"
+              className="kh__linkbtn"
+              style={{ alignSelf: "center", fontSize: 12 }}
+              onClick={() => setShowAllHistory((v) => !v)}
+            >
+              {showAllHistory ? "Thu gọn" : `Xem thêm ${visibleHistory.length - 6} hoạt động cũ hơn`}
+            </button>
+          )}
+        </div>
         </div>
       </div>
     </div>

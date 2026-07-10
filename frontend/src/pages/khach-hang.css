@@ -3262,3 +3262,23 @@
 .care-eval-item--good { color: var(--moss-deep); }
 .care-eval-item--mid { color: var(--amber-deep); }
 .care-eval-item--bad { color: var(--signal); }
+
+/* --- Tab Chăm sóc 2 cột: trái = chỗ LÀM (composer + lịch hẹn), phải = ĐÃ QUA
+   (nhật ký giới hạn). Hẹp thì tự về 1 cột. --- */
+.kh__care-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(0, 1fr);
+  gap: var(--sp-5);
+  align-items: start;
+}
+@media (max-width: 1100px) {
+  .kh__care-columns {
+    grid-template-columns: 1fr;
+  }
+}
+.kh__care-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+}
