@@ -121,17 +121,27 @@ export function MixDonut({
   centerBottom,
   formatValue,
   height = 150,
+  stacked = false,
 }: {
   slices: SliceDatum[];
   centerTop: string;
   centerBottom: string;
   formatValue: (v: number) => string;
   height?: number;
+  /** Bố cục đứng (mẫu prototype): donut giữa trên, legend full-width bên dưới
+   *  (hàng dot + nhãn + % đậm, ngăn hairline). Mặc định là ngang. */
+  stacked?: boolean;
 }) {
   const total = slices.reduce((s, d) => s + d.value, 0) || 1;
   const shown = slices.slice(0, CHART_SERIES.length);
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+    <div
+      style={
+        stacked
+          ? { display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }
+          : { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }
+      }
+    >
       <div style={{ position: "relative", width: height, height, flex: "0 0 auto" }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
@@ -178,15 +188,39 @@ export function MixDonut({
             pointerEvents: "none",
           }}
         >
-          <span style={{ fontFamily: "var(--ff-mono)", fontSize: 17, fontWeight: 600, color: "var(--ink)" }}>
-            {centerTop}
-          </span>
-          <span className="stat__label">{centerBottom}</span>
+          {stacked ? (
+            <>
+              <span className="stat__label">{centerBottom}</span>
+              <span style={{ fontFamily: "var(--ff-mono)", fontSize: 22, fontWeight: 600, color: "var(--ink)" }}>
+                {centerTop}
+              </span>
+            </>
+          ) : (
+            <>
+              <span style={{ fontFamily: "var(--ff-mono)", fontSize: 17, fontWeight: 600, color: "var(--ink)" }}>
+                {centerTop}
+              </span>
+              <span className="stat__label">{centerBottom}</span>
+            </>
+          )}
         </div>
       </div>
-      <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6, minWidth: 130, flex: 1 }}>
+      <ul
+        style={
+          stacked
+            ? { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", width: "100%" }
+            : { listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6, minWidth: 130, flex: 1 }
+        }
+      >
         {shown.map((d, i) => (
-          <li key={d.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }}>
+          <li
+            key={d.label}
+            style={
+              stacked
+                ? { display: "flex", alignItems: "center", gap: 8, fontSize: 13, padding: "7px 0", borderBottom: i < shown.length - 1 ? "1px solid var(--rule-hair)" : "none" }
+                : { display: "flex", alignItems: "center", gap: 8, fontSize: 12.5 }
+            }
+          >
             <span
               aria-hidden="true"
               style={{
@@ -200,7 +234,7 @@ export function MixDonut({
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: "var(--ink)" }}>
               {d.label}
             </span>
-            <span style={{ fontFamily: "var(--ff-mono)", color: "var(--ash)" }}>
+            <span style={{ fontFamily: "var(--ff-mono)", color: stacked ? "var(--ink)" : "var(--ash)", fontWeight: stacked ? 600 : 400 }}>
               {Math.round((d.value / total) * 100)}%
             </span>
           </li>

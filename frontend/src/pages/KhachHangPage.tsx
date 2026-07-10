@@ -69,6 +69,13 @@ import {
   ShieldCheck,
   Image,
   Sparkles,
+  Layers,
+  Palette,
+  Scissors,
+  Box,
+  Zap,
+  CreditCard,
+  Droplets,
 } from "lucide-react";
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
@@ -1843,7 +1850,7 @@ function DashboardTab({
         {/* Cơ cấu sản phẩm — donut */}
         <section className="card kh__chart">
           <div className="kh__chart-head">
-            <h3>Cơ cấu sản phẩm</h3>
+            <h3><Package size={14} /> Cơ cấu sản phẩm</h3>
           </div>
           <ProductDonut mix={dash.product_mix} />
         </section>
@@ -1851,49 +1858,37 @@ function DashboardTab({
         {/* Thông số in thường đặt */}
         <section className="card kh__chart">
           <div className="kh__chart-head">
-            <h3>Thông số in thường đặt</h3>
-            <span className="kh__muted-tag">KỸ THUẬT IN</span>
+            <h3><Droplets size={14} /> Thông số in thường đặt</h3>
+            <span className="kh__muted-tag">KỸ THUẬT</span>
           </div>
           <div className="kh__specs-list">
-            <div className="kh__spec-item">
-              <span className="kh__spec-label">Giấy ưa thích</span>
-              <div className="kh__spec-val-wrap">
-                <span className="kh__spec-val">Couche 200gsm</span>
-                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: "85%" }}></div></div>
+            {[
+              { ic: <Layers size={13} />, label: "Giấy ưa thích", val: "Couche 200gsm", pct: 85 },
+              { ic: <Palette size={13} />, label: "Số màu TB", val: "5 màu (CMYK+Pantone)", pct: 70 },
+              { ic: <Scissors size={13} />, label: "Gia công", val: "Cán bóng · Đóng keo", pct: 65 },
+              { ic: <Box size={13} />, label: "Khổ phổ biến", val: "A4 / A5", pct: 90 },
+              { ic: <Zap size={13} />, label: "Độ phủ mực TB", val: "Cao (50–60%)", pct: 55 },
+            ].map((row) => (
+              <div className="kh__spec-item" key={row.label}>
+                <span className="kh__spec-ic" aria-hidden="true">{row.ic}</span>
+                <div className="kh__spec-text">
+                  <span className="kh__spec-label">{row.label}</span>
+                  <span className="kh__spec-val">{row.val}</span>
+                </div>
+                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: `${row.pct}%` }}></div></div>
               </div>
-            </div>
-            <div className="kh__spec-item">
-              <span className="kh__spec-label">Số màu TB</span>
-              <div className="kh__spec-val-wrap">
-                <span className="kh__spec-val">5 màu (CMYK+Pantone)</span>
-                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: "70%" }}></div></div>
-              </div>
-            </div>
-            <div className="kh__spec-item">
-              <span className="kh__spec-label">Gia công</span>
-              <div className="kh__spec-val-wrap">
-                <span className="kh__spec-val">Cán bóng - Đóng keo</span>
-                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: "65%" }}></div></div>
-              </div>
-            </div>
-            <div className="kh__spec-item">
-              <span className="kh__spec-label">Khổ phổ biến</span>
-              <div className="kh__spec-val-wrap">
-                <span className="kh__spec-val">A4 / A5</span>
-                <div className="kh__progress-bar"><div className="kh__progress-fill" style={{ width: "90%" }}></div></div>
-              </div>
-            </div>
+            ))}
           </div>
         </section>
 
         {/* Thanh toán widget */}
         <section className="card kh__chart kh__payment-widget">
           <div className="kh__chart-head">
-            <h3>Thanh toán</h3>
+            <h3><CreditCard size={14} /> Thanh toán</h3>
           </div>
-          <div className="kh__payment-body">
+          <div className="kh__payment-body kh__payment-body--stack">
             <div className="kh__payment-score">
-              <span className="kh__payment-pct">100%</span>
+              <span className="kh__payment-pct">100<small>%</small></span>
               <span className="kh__payment-label">ĐÚNG HẠN</span>
             </div>
             <div className="kh__payment-details">
@@ -1925,8 +1920,10 @@ function ProductDonut({ mix }: { mix: CustomerDashboard["product_mix"] }) {
     <MixDonut
       slices={mix.map((m) => ({ label: m.label, value: m.revenue }))}
       centerTop={String(mix.length)}
-      centerBottom="nhóm SP"
+      centerBottom="SP"
       formatValue={moneyCompact}
+      height={170}
+      stacked
     />
   );
 }

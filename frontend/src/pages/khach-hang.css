@@ -2230,11 +2230,12 @@
 /* 3-Column dashboard row */
 .kh__dash-grid-3 {
   display: grid;
-  /* minmax(0,1fr) + auto-fit: card hẹp quá thì tự xuống hàng, không bóp chữ vỡ dọc. */
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  /* Mẫu prototype: LUÔN 3 cột trên một hàng; hẹp (<1000px) mới xếp dọc. */
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--sp-4);
+  align-items: start;
 }
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
   .kh__dash-grid-3 {
     grid-template-columns: 1fr;
   }
@@ -2249,18 +2250,35 @@
 }
 .kh__spec-item {
   display: flex;
+  align-items: center;
+  gap: 10px;
+}
+/* Ô icon vuông beige (mẫu prototype). */
+.kh__spec-ic {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-3);
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+.kh__spec-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 1px;
 }
 .kh__spec-label {
-  font-size: 11px;
-  color: var(--ash);
-}
-.kh__spec-val-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-4);
+  font-family: var(--ff-mono);
+  font-size: 9px;
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash-2);
 }
 .kh__spec-val {
   font-size: 12.5px;
@@ -2268,8 +2286,8 @@
   color: var(--ink);
 }
 .kh__progress-bar {
-  flex: 1;
-  max-width: 100px;
+  flex: 0 0 64px;
+  width: 64px;
   height: 4px;
   border-radius: var(--r-pill);
   background: var(--rule-soft);
@@ -2288,6 +2306,20 @@
   gap: var(--sp-6);
   padding: var(--sp-4) 0;
 }
+/* Xếp dọc theo mẫu: khối % trên đầu full-width, hàng chi tiết bên dưới. */
+.kh__payment-body--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-3);
+  padding-top: var(--sp-2);
+}
+.kh__payment-body--stack .kh__payment-score {
+  width: 100%;
+  height: 76px;
+}
+.kh__payment-body--stack .kh__payment-details {
+  width: 100%;
+}
 /* Prototype: khối vuông beige "86% ĐÚNG HẠN" — không vòng tròn viền xanh Material. */
 .kh__payment-score {
   display: flex;
@@ -2303,9 +2335,15 @@
 }
 .kh__payment-pct {
   font-size: 26px;
-  font-weight: var(--fw-medium);
+  font-weight: var(--fw-bold);
   letter-spacing: -0.01em;
   line-height: 1.1;
+  color: var(--rust-deep);
+}
+.kh__payment-pct small {
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  margin-left: 1px;
 }
 .kh__payment-label {
   font-family: var(--ff-mono);
@@ -3347,4 +3385,14 @@
   flex-direction: column;
   gap: var(--sp-4);
   min-width: 0;
+}
+
+.kh__chart-head h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.kh__chart-head h3 svg {
+  color: var(--ash);
+  flex: 0 0 auto;
 }
