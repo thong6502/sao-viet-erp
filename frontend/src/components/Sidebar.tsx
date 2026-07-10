@@ -19,6 +19,7 @@ interface NavItem {
   label: string;
   icon: IconName;
   module: string;
+  modules?: string[];
   children?: NavChild[];
 }
 
@@ -77,8 +78,24 @@ const NAV: NavSection[] = [
     id: "thu-mua",
     label: "Thu mua",
     items: [
+      {
+        id: "yeu-cau-mua-hang",
+        label: "Yêu cầu mua hàng",
+        icon: "clipboard",
+        module: "thu_mua",
+        modules: ["thu_mua", "bao_gia", "don_hang_ban", "kho", "san_xuat", "dm_giay_vat_tu"],
+      },
       { id: "mua-hang", label: "Mua hàng", icon: "bag", module: "thu_mua" },
       { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck", module: "thu_mua" },
+    ],
+  },
+  {
+    id: "ke-toan",
+    label: "Kế toán",
+    items: [
+      { id: "ke-toan-yeu-cau-mua", label: "Yêu cầu mua hàng", icon: "fileCheck", module: "ke_toan" },
+      { id: "ke-toan-phieu-chi", label: "Phiếu chi / UNC", icon: "calculator", module: "ke_toan" },
+      { id: "ke-toan-tai-khoan", label: "Tài khoản ngân hàng", icon: "building", module: "ke_toan" },
     ],
   },
   {
@@ -114,6 +131,10 @@ export const MODULE_BY_NAV_ID: Record<string, string> = Object.fromEntries(
   NAV.flatMap((s) => s.items.map((i) => [i.id, i.module])),
 );
 
+export const MODULES_BY_NAV_ID: Record<string, string[]> = Object.fromEntries(
+  NAV.flatMap((s) => s.items.map((i) => [i.id, i.modules ?? [i.module]])),
+);
+
 interface SidebarProps {
   activeId: string;
   onSelect: (id: string) => void;
@@ -139,7 +160,7 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, badges }: 
   const sections = NAV.map((s) => ({
     ...s,
     items: s.items
-      .filter((i) => readable.has(i.module))
+      .filter((i) => (i.modules ?? [i.module]).some((module) => readable.has(module)))
       .map((i) => {
         const dyn = itemChildren?.[i.id];
         return dyn && dyn.length ? { ...i, children: dyn } : i;

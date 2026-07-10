@@ -17,6 +17,7 @@ from .config import assert_secure_config, settings
 from .db import SessionLocal, init_db
 from .db_migrations import run_migrations
 from .routers import (
+    accounting,
     auth,
     attendance,
     leaves,
@@ -33,6 +34,7 @@ from .routers import (
     orders,
     products,
     product_types_catalog,
+    purchases,
     profile,
     quotations,
     rbac,
@@ -91,6 +93,8 @@ app.include_router(estimates.router)
 app.include_router(quotations.router)
 app.include_router(orders.router)
 app.include_router(product_types_catalog.router)
+app.include_router(purchases.router)
+app.include_router(accounting.router)
 app.include_router(materials.router)
 app.include_router(machines.router)
 app.include_router(operations.router)

@@ -161,10 +161,14 @@ class RoleService:
         for row in rows:
             if row["module_key"] not in valid_keys:
                 continue  # ignore unknown modules rather than create dangling rows
+            can_approve = row.get("can_approve", False)
+            can_read = row.get("can_read", False) or (
+                row["module_key"] == "ke_toan" and can_approve
+            )
             self.roles.set_permission(
                 role_id=role_id,
                 module_key=row["module_key"],
-                can_read=row.get("can_read", False),
+                can_read=can_read,
                 can_create=row.get("can_create", False),
                 can_update=row.get("can_update", False),
                 can_delete=row.get("can_delete", False),
@@ -172,7 +176,7 @@ class RoleService:
                 can_reassign=row.get("can_reassign", False),
                 can_export=row.get("can_export", False),
                 can_view_debt=row.get("can_view_debt", False),
-                can_approve=row.get("can_approve", False),
+                can_approve=can_approve,
                 can_manage_status=row.get("can_manage_status", False),
                 can_reset_password=row.get("can_reset_password", False),
                 can_lock=row.get("can_lock", False),

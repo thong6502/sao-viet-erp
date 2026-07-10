@@ -1,0 +1,296 @@
+"""Accounting API: purchase inbox, bank accounts, Phiếu chi and UNC."""
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from ..deps import (
+    get_accounting_service,
+    get_purchase_service,
+    require_any_permission,
+    require_permission,
+)
+from ..models.user import User
+from ..schemas.accounting import (
+    ApproveAndCreateVoucherIn,
+    CancelPaymentVoucherIn,
+    CompanyBankAccountIn,
+    CompanyBankAccountOut,
+    MarkPaymentVoucherPaidIn,
+    PaymentVoucherIn,
+    PaymentVoucherListOut,
+    PaymentVoucherOut,
+    SupplierBankAccountIn,
+    SupplierBankAccountOut,
+)
+from ..schemas.purchase import PurchaseRequestListOut
+from ..services.accounting_service import (
+    AccountingConflict,
+    AccountingNotFound,
+    AccountingService,
+    AccountingValidationError,
+)
+from ..services.purchase_service import PurchaseService
+
+
+router = APIRouter(tags=["accounting"])
+MODULE = "ke_toan"
+
+
+def _map_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, AccountingNotFound):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, AccountingValidationError):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    if isinstance(exc, AccountingConflict):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.get("/api/accounting/inbox", response_model=PurchaseRequestListOut)
+def accounting_inbox(
+    purchases: Annotated[PurchaseService, Depends(get_purchase_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str | None = Query(default=None),
+    status_: str | None = Query(default=None, alias="status"),
+    supplier_id: int | None = Query(default=None),
+    sort: str = Query(default="-created_at"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
+) -> PurchaseRequestListOut:
+    rows, total = purchases.list_requests(
+        q=q, status=status_, supplier_id=supplier_id, sort=sort, page=page, size=size
+    )
+    return PurchaseRequestListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.get("/api/accounting/company-bank-accounts", response_model=list[CompanyBankAccountOut])
+def list_company_bank_accounts(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    active_only: bool = Query(default=False),
+):
+    return svc.list_company_accounts(active_only=active_only)
+
+
+@router.post(
+    "/api/accounting/company-bank-accounts",
+    response_model=CompanyBankAccountOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_company_bank_account(
+    payload: CompanyBankAccountIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        return svc.create_company_account(actor=user, **payload.model_dump())
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.put("/api/accounting/company-bank-accounts/{account_id}", response_model=CompanyBankAccountOut)
+def update_company_bank_account(
+    account_id: int,
+    payload: CompanyBankAccountIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        return svc.update_company_account(account_id, actor=user, **payload.model_dump())
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.patch("/api/accounting/company-bank-accounts/{account_id}/toggle-active", response_model=CompanyBankAccountOut)
+def toggle_company_bank_account(
+    account_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        return svc.toggle_company_account(account_id, actor=user)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.get("/api/accounting/supplier-bank-accounts", response_model=list[SupplierBankAccountOut])
+def list_supplier_bank_accounts(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[
+        User,
+        Depends(require_any_permission((MODULE, "read"), ("thu_mua", "read"))),
+    ],
+    supplier_id: int | None = Query(default=None),
+    active_only: bool = Query(default=False),
+):
+    return svc.list_supplier_accounts(supplier_id=supplier_id, active_only=active_only)
+
+
+@router.post(
+    "/api/accounting/supplier-bank-accounts",
+    response_model=SupplierBankAccountOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_supplier_bank_account(
+    payload: SupplierBankAccountIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[
+        User,
+        Depends(require_any_permission((MODULE, "approve"), ("thu_mua", "update"))),
+    ],
+):
+    try:
+        return svc.create_supplier_account(actor=user, **payload.model_dump())
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.put("/api/accounting/supplier-bank-accounts/{account_id}", response_model=SupplierBankAccountOut)
+def update_supplier_bank_account(
+    account_id: int,
+    payload: SupplierBankAccountIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[
+        User,
+        Depends(require_any_permission((MODULE, "approve"), ("thu_mua", "update"))),
+    ],
+):
+    try:
+        return svc.update_supplier_account(account_id, actor=user, **payload.model_dump())
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.patch("/api/accounting/supplier-bank-accounts/{account_id}/toggle-active", response_model=SupplierBankAccountOut)
+def toggle_supplier_bank_account(
+    account_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[
+        User,
+        Depends(require_any_permission((MODULE, "approve"), ("thu_mua", "update"))),
+    ],
+):
+    try:
+        return svc.toggle_supplier_account(account_id, actor=user)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.get("/api/accounting/payment-vouchers", response_model=PaymentVoucherListOut)
+def list_payment_vouchers(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str | None = Query(default=None),
+    status_: str | None = Query(default=None, alias="status"),
+    voucher_type: str | None = Query(default=None),
+    supplier_id: int | None = Query(default=None),
+    purchase_request_id: int | None = Query(default=None),
+    sort: str = Query(default="-created_at"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
+):
+    rows, total = svc.list_vouchers(
+        q=q,
+        status=status_,
+        voucher_type=voucher_type,
+        supplier_id=supplier_id,
+        purchase_request_id=purchase_request_id,
+        sort=sort,
+        page=page,
+        size=size,
+    )
+    return PaymentVoucherListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.get("/api/accounting/payment-vouchers/{voucher_id}", response_model=PaymentVoucherOut)
+def get_payment_voucher(
+    voucher_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+):
+    try:
+        return PaymentVoucherOut(**svc.get_voucher(voucher_id))
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.post(
+    "/api/accounting/payment-vouchers",
+    response_model=PaymentVoucherOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_payment_voucher(
+    payload: PaymentVoucherIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+):
+    try:
+        return PaymentVoucherOut(**svc.create_voucher(actor=user, **payload.model_dump()))
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.put("/api/accounting/payment-vouchers/{voucher_id}", response_model=PaymentVoucherOut)
+def update_payment_voucher(
+    voucher_id: int,
+    payload: PaymentVoucherIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+):
+    try:
+        return PaymentVoucherOut(
+            **svc.update_voucher(voucher_id, actor=user, **payload.model_dump())
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.post(
+    "/api/accounting/purchase-requests/{request_id}/approve-and-create-voucher",
+    response_model=PaymentVoucherOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def approve_and_create_payment_voucher(
+    request_id: int,
+    payload: ApproveAndCreateVoucherIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+):
+    try:
+        return PaymentVoucherOut(
+            **svc.approve_and_create_voucher(request_id, actor=user, **payload.model_dump())
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.post("/api/accounting/payment-vouchers/{voucher_id}/mark-paid", response_model=PaymentVoucherOut)
+def mark_payment_voucher_paid(
+    voucher_id: int,
+    payload: MarkPaymentVoucherPaidIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))],
+):
+    try:
+        return PaymentVoucherOut(
+            **svc.mark_paid(voucher_id, actor=user, bank_reference=payload.bank_reference)
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.post("/api/accounting/payment-vouchers/{voucher_id}/cancel", response_model=PaymentVoucherOut)
+def cancel_payment_voucher(
+    voucher_id: int,
+    payload: CancelPaymentVoucherIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "cancel"))],
+):
+    try:
+        return PaymentVoucherOut(
+            **svc.cancel_voucher(voucher_id, actor=user, reason=payload.reason)
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None

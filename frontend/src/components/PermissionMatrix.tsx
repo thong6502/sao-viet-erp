@@ -96,6 +96,12 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
     { key: "can_lock", label: "Chốt kỳ lương" },
     { key: "can_export", label: "Xuất bảng lương / file chuyển khoản" },
   ],
+  ke_toan: [
+    { key: "can_approve", label: "Duyệt PMH & lập Phiếu chi/UNC" },
+    { key: "can_manage_status", label: "Xác nhận đã chi" },
+    { key: "can_cancel", label: "Hủy chứng từ chờ chi" },
+    { key: "can_export", label: "In / xuất chứng từ" },
+  ],
 };
 
 export const SCOPES: { value: Scope; label: string }[] = [

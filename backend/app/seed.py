@@ -32,6 +32,8 @@ MODULES: list[tuple[str, str]] = [
     ("tinh_gia_thanh", "Tính giá thành"),
     ("san_pham", "Sản phẩm"),
     ("hop_dong", "Hợp đồng"),
+    ("thu_mua", "Thu mua"),
+    ("ke_toan", "Kế toán"),
     ("kho", "Kho hàng"),
     ("phong_ban", "Phòng ban"),
     ("vai_tro", "Vai trò"),
@@ -62,7 +64,7 @@ KD_MODULE_KEYS = [
     "hop_dong",
 ]
 
-DEPARTMENTS = ["Ban giám đốc", "Hành chính nhân sự", "Kinh doanh"]
+DEPARTMENTS = ["Ban giám đốc", "Hành chính nhân sự", "Kinh doanh", "Kế toán"]
 
 # Default org tiers (spec-06 / PBI-4009): (name, rank cao→thấp, head_title). Data, not schema —
 # admins add/edit more via the catalog screen.
@@ -1514,4 +1516,3 @@ def seed_all(db: Session) -> None:
         seed_norms(db)
         seed_document_sequences(db)
     backfill_user_codes(db)
-

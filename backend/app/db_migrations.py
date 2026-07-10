@@ -766,6 +766,114 @@ def _migrate_drop_paper_sizes(db: Session) -> None:
     run("DROP TABLE IF EXISTS paper_sizes")
 
 
+def _migrate_purchase_line_discount_vat(db: Session) -> None:
+    """Thu mua: thêm giảm giá (%) và thuế GTGT (%) cho từng dòng phiếu mua.
+
+    Tiền giảm giá, tiền VAT và thành tiền được tính động từ số lượng, đơn giá,
+    discount_percent và vat_percent nên không lưu dư ở bảng dòng hàng.
+    """
+    insp = inspect(db.get_bind())
+    if "purchase_request_lines" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "purchase_request_lines")
+    if "discount_percent" not in existing:
+        db.execute(text(
+            "ALTER TABLE purchase_request_lines "
+            "ADD COLUMN discount_percent NUMERIC(6,2) NOT NULL DEFAULT 0"
+        ))
+    if "vat_percent" not in existing:
+        db.execute(text(
+            "ALTER TABLE purchase_request_lines "
+            "ADD COLUMN vat_percent NUMERIC(6,2) NOT NULL DEFAULT 0"
+        ))
+    db.commit()
+
+
+def _migrate_department_request_pending_approval_status(db: Session) -> None:
+    """Reclassify source requests linked to purchase requests waiting for approval.
+
+    Older code moved a department request straight to ``in_purchase`` as soon as a purchase
+    request was created. Business-wise it should be ``pending_approval`` until accounting
+    approves the purchase request.
+    """
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    required = {"department_purchase_requests", "purchase_request_sources", "purchase_requests"}
+    if not required.issubset(tables):
+        return
+
+    db.execute(text(
+        "UPDATE department_purchase_requests "
+        "SET status = 'done' "
+        "WHERE status <> 'cancelled' "
+        "AND id IN ("
+        "  SELECT prs.department_request_id "
+        "  FROM purchase_request_sources prs "
+        "  JOIN purchase_requests pr ON pr.id = prs.purchase_request_id "
+        "  WHERE pr.status = 'received'"
+        ")"
+    ))
+    db.execute(text(
+        "UPDATE department_purchase_requests "
+        "SET status = 'in_purchase' "
+        "WHERE status NOT IN ('cancelled', 'done') "
+        "AND id IN ("
+        "  SELECT prs.department_request_id "
+        "  FROM purchase_request_sources prs "
+        "  JOIN purchase_requests pr ON pr.id = prs.purchase_request_id "
+        "  WHERE pr.status IN ('approved', 'purchased')"
+        ")"
+    ))
+    db.execute(text(
+        "UPDATE department_purchase_requests "
+        "SET status = 'pending_approval' "
+        "WHERE status NOT IN ('cancelled', 'done') "
+        "AND id IN ("
+        "  SELECT prs.department_request_id "
+        "  FROM purchase_request_sources prs "
+        "  JOIN purchase_requests pr ON pr.id = prs.purchase_request_id "
+        "  WHERE pr.status IN ('draft', 'pending_approval')"
+        ") "
+        "AND id NOT IN ("
+        "  SELECT prs.department_request_id "
+        "  FROM purchase_request_sources prs "
+        "  JOIN purchase_requests pr ON pr.id = prs.purchase_request_id "
+        "  WHERE pr.status IN ('approved', 'purchased', 'received')"
+        ")"
+    ))
+    db.execute(text(
+        "UPDATE department_purchase_requests "
+        "SET status = 'open' "
+        "WHERE status IN ('pending_approval', 'in_purchase') "
+        "AND NOT EXISTS ("
+        "  SELECT 1 "
+        "  FROM purchase_request_sources prs "
+        "  JOIN purchase_requests pr ON pr.id = prs.purchase_request_id "
+        "  WHERE prs.department_request_id = department_purchase_requests.id "
+        "  AND pr.status IN ('draft', 'pending_approval', 'approved', 'purchased', 'received')"
+        ")"
+    ))
+    db.commit()
+
+
+def _migrate_payment_voucher_amount_vnd(db: Session) -> None:
+    """Store the VND equivalent used to reserve and reconcile a purchase total."""
+    insp = inspect(db.get_bind())
+    if "payment_vouchers" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "payment_vouchers")
+    if "amount_vnd" not in existing:
+        db.execute(text(
+            "ALTER TABLE payment_vouchers "
+            "ADD COLUMN amount_vnd BIGINT NOT NULL DEFAULT 0"
+        ))
+        db.execute(text(
+            "UPDATE payment_vouchers "
+            "SET amount_vnd = CAST(ROUND(amount * exchange_rate) AS BIGINT)"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -785,6 +893,9 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0017_leave_seen_by_employee", _migrate_leave_seen_by_employee),
     ("0018_product_type_waste_pct", _migrate_product_type_waste_pct),
     ("0019_drop_paper_sizes", _migrate_drop_paper_sizes),
+    ("0020_purchase_line_discount_vat", _migrate_purchase_line_discount_vat),
+    ("0021_department_request_pending_approval_status", _migrate_department_request_pending_approval_status),
+    ("0022_payment_voucher_amount_vnd", _migrate_payment_voucher_amount_vnd),
 ]
 
 

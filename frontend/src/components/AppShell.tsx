@@ -22,10 +22,16 @@ import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { UsersPage } from "../pages/UsersPage";
 import { NormsCatalogPage } from "../pages/NormsCatalogPage";
+import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
+import { PurchaseRequestsPage } from "../pages/PurchaseRequestsPage";
+import { SuppliersPage } from "../pages/SuppliersPage";
+import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPage";
+import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
+import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
 import { WarehousesCatalogPage } from "../pages/WarehousesCatalogPage";
 import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
 import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
-import { MODULE_BY_NAV_ID, Sidebar } from "./Sidebar";
+import { MODULES_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
 /** A cross-module navigation intent: which screen to open + optional payload so the
@@ -143,8 +149,8 @@ export function AppShell() {
   }
 
   const baseId = activeId.split(":")[0];
-  const moduleKey = MODULE_BY_NAV_ID[baseId];
-  const allowed = moduleKey != null && readable.has(moduleKey);
+  const moduleKeys = MODULES_BY_NAV_ID[baseId];
+  const allowed = moduleKeys != null && moduleKeys.some((moduleKey) => readable.has(moduleKey));
   // Menu con động: các kho đã cấu hình gắn dưới mục "Kho hàng".
   const itemChildren = {
     "kho-hang": warehouses.map((w) => ({ id: `kho-hang:${w.id}`, label: w.name })),
@@ -203,6 +209,18 @@ export function AppShell() {
         );
       case "dinh-muc-bu-hao":
         return <NormsCatalogPage />;
+      case "yeu-cau-mua-hang":
+        return <DepartmentPurchaseRequestsPage />;
+      case "mua-hang":
+        return <PurchaseRequestsPage />;
+      case "nha-cung-cap":
+        return <SuppliersPage />;
+      case "ke-toan-yeu-cau-mua":
+        return <AccountingPurchaseInboxPage />;
+      case "ke-toan-phieu-chi":
+        return <PaymentVouchersPage />;
+      case "ke-toan-tai-khoan":
+        return <AccountingBankAccountsPage />;
       case "cau-hinh-kho":
         return <WarehousesCatalogPage />;
       case "kho-hang":
