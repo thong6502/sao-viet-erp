@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from ..models.loai_san_pham import LoaiSanPham
 
 ASSIGNABLE = (
-    "ten", "structural_type", "box_sub_type", "imposition_rule_id", "default_so_mat",
+    "ten", "structural_type", "box_sub_type", "imposition_rule_id",
     "has_cover", "cover_type", "default_binding", "default_stock_class", "routing_template",
-    "vat_rate", "ghi_chu", "active",
+    "ghi_chu", "active",
 )
 
 

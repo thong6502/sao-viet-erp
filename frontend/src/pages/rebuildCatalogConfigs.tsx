@@ -14,7 +14,6 @@ const STRUCTURAL: Lbls = { flat: "Tờ phẳng", multipage: "Nhiều trang", box
 const BOX_SUB: Lbls = { folding_carton: "Hộp giấy gấp", corrugated: "Thùng carton sóng", rigid: "Hộp cứng" };
 const COVER: Lbls = { tu_bia: "Bìa tự thân (cùng ruột)", bia_roi: "Bìa rời (giấy khác)" };
 const BINDING: Lbls = { ghim: "Đóng ghim", keo: "Vào keo", khau: "Khâu chỉ" };
-const VAT: Lbls = { "5": "5%", "8": "8%", "10": "10%" };
 
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in" };
 const PRICING_BASIS: Lbls = {
@@ -53,12 +52,11 @@ const STATUS_COL: ColumnDef = {
 
 export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   title: "Loại sản phẩm",
-  subtitle: "Khuôn mẫu sản phẩm — gán cách dàn khuôn (bình bài) + chuỗi công đoạn mặc định + VAT.",
+  subtitle: "Khuôn mẫu sản phẩm — gán cách dàn khuôn (bình bài) + chuỗi công đoạn mặc định.",
   prefix: "/api/loai-san-pham",
   facet: { key: "structural_type", values: mapOpt(STRUCTURAL) },
   columns: [
     { key: "structural_type", label: "Kiểu", render: (r) => lbl(STRUCTURAL)(r.structural_type) },
-    { key: "vat_rate", label: "VAT", render: (r) => `${r.vat_rate}%` },
     STATUS_COL,
   ],
   fields: [
@@ -66,8 +64,6 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
       options: mapOpt(STRUCTURAL), hint: "Quyết định các ô bên dưới hiện ra" },
     { key: "box_sub_type", label: "Loại hộp", type: "select", group: "Cấu trúc",
       options: mapOpt(BOX_SUB), showIf: (f) => f.structural_type === "box" },
-    { key: "vat_rate", label: "Thuế VAT", type: "select", group: "Thương mại", options: mapOpt(VAT) },
-    { key: "default_so_mat", label: "Số mặt in mặc định", type: "number", group: "Thương mại", hint: "1 = in 1 mặt, 2 = in 2 mặt" },
     { key: "has_cover", label: "Có bìa riêng", type: "checkbox", group: "Bìa (nhiều trang)",
       showIf: (f) => f.structural_type === "multipage" },
     { key: "cover_type", label: "Kiểu bìa", type: "select", group: "Bìa (nhiều trang)",

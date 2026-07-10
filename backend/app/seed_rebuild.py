@@ -236,19 +236,18 @@ def seed_rebuild_catalog(db: Session) -> None:
         rt_flat = [cd.get("CD-0001"), cd.get("CD-0002"), cd.get("CD-0005"), cd.get("CD-0003")]
         rt_book = [cd.get("CD-0001"), cd.get("CD-0002"), cd.get("CD-0004"), cd.get("CD-0007"), cd.get("CD-0003")]
         db.add_all([
-            LoaiSanPham(ma="LSP-0001", ten="Name card", structural_type="flat", default_so_mat=2,
-                        vat_rate=8, routing_template=[x for x in rt_flat if x]),
-            LoaiSanPham(ma="LSP-0002", ten="Tờ phơi / brochure gấp", structural_type="flat",
-                        default_so_mat=2, vat_rate=8),
+            LoaiSanPham(ma="LSP-0001", ten="Name card", structural_type="flat",
+                        routing_template=[x for x in rt_flat if x]),
+            LoaiSanPham(ma="LSP-0002", ten="Tờ phơi / brochure gấp", structural_type="flat"),
             LoaiSanPham(ma="LSP-0003", ten="Catalogue đóng keo", structural_type="multipage",
-                        has_cover=True, cover_type="bia_roi", default_binding="keo", vat_rate=5,
+                        has_cover=True, cover_type="bia_roi", default_binding="keo",
                         routing_template=[x for x in rt_book if x]),
             LoaiSanPham(ma="LSP-0004", ten="Sách đóng ghim", structural_type="multipage",
-                        has_cover=True, cover_type="tu_bia", default_binding="ghim", vat_rate=5),
+                        has_cover=True, cover_type="tu_bia", default_binding="ghim"),
             LoaiSanPham(ma="LSP-0005", ten="Hộp giấy Ivory", structural_type="box",
-                        box_sub_type="folding_carton", vat_rate=8),
+                        box_sub_type="folding_carton"),
             LoaiSanPham(ma="LSP-0006", ten="Thùng carton sóng", structural_type="box",
-                        box_sub_type="corrugated", vat_rate=8),
-            LoaiSanPham(ma="LSP-0007", ten="Tem decal cuộn", structural_type="label", vat_rate=8),
+                        box_sub_type="corrugated"),
+            LoaiSanPham(ma="LSP-0007", ten="Tem decal cuộn", structural_type="label"),
         ])
         db.commit()

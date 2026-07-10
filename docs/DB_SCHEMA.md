@@ -2231,7 +2231,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** template loại sản phẩm (spec-san-pham §2) — gán `imposition_rule_id` (soft → `quy_tac_binh_bai`) + `routing_template` (JSON list `cong_doan.id`) + VAT. `jobspec`/`component` = Phase D.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `structural_type`, `box_sub_type`, `imposition_rule_id`, `default_so_mat`, `has_cover`, `cover_type`, `default_binding`, `default_stock_class`, `routing_template`, `vat_rate`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `structural_type`, `box_sub_type`, `imposition_rule_id`, `has_cover`, `cover_type`, `default_binding`, `default_stock_class`, `routing_template`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 ---
 
