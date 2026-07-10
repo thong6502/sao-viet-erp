@@ -2233,12 +2233,41 @@
   /* Mẫu prototype: LUÔN 3 cột trên một hàng; hẹp (<1000px) mới xếp dọc. */
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--sp-4);
-  align-items: start;
+  /* Mẫu: 3 card bằng chiều cao, đáy thẳng hàng (card donut cao nhất là chuẩn). */
+  align-items: stretch;
 }
 @media (max-width: 1000px) {
   .kh__dash-grid-3 {
     grid-template-columns: 1fr;
   }
+}
+/* Card con flex column để phần thân giãn cho đáy thẳng hàng như mẫu. */
+.kh__dash-grid-3 > .kh__chart {
+  display: flex;
+  flex-direction: column;
+}
+/* Chip ("KỸ THUẬT") đứng yên góc phải-trên CÙNG HÀNG tiêu đề như mẫu;
+   tiêu đề được phép xuống 2 dòng — không cho chip rớt xuống dòng dưới. */
+.kh__dash-grid-3 .kh__chart-head {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.kh__dash-grid-3 .kh__chart-head h3 {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* Thân 2 card thấp giãn đều khoảng cách hàng cho đầy card (mẫu),
+   không chèn khoảng trắng dồn cục ở đáy. */
+.kh__dash-grid-3 .kh__specs-list {
+  flex: 1 1 auto;
+  justify-content: space-between;
+}
+.kh__dash-grid-3 .kh__payment-body--stack {
+  flex: 1 1 auto;
+}
+.kh__dash-grid-3 .kh__payment-body--stack .kh__payment-details {
+  flex: 1 1 auto;
+  justify-content: space-evenly;
 }
 
 /* Technical specifications list */
@@ -2315,7 +2344,7 @@
 }
 .kh__payment-body--stack .kh__payment-score {
   width: 100%;
-  height: 76px;
+  height: 90px;
 }
 .kh__payment-body--stack .kh__payment-details {
   width: 100%;
