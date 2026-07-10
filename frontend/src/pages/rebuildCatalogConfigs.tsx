@@ -2,8 +2,7 @@
 // `showIf` (ẩn/hiện theo kiểu), `ref`/`ref-multi` (chọn theo TÊN thay vì gõ id),
 // `default` (prefill khi tạo), `jsonKey` (lưu lồng vào fields_theo_loai).
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
-import type { CatalogConfig, ColumnDef } from "./RebuildCatalogPage";
-import type { Row } from "../api/rebuildCatalog";
+import type { CatalogConfig } from "./RebuildCatalogPage";
 
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
 type Lbls = Record<string, string>;
@@ -30,6 +29,13 @@ const PRICING_BASIS: Lbls = {
   per_other: "Khác",
 };
 const TRUC_BU_HAO: Lbls = { so_mau: "Theo số màu (giấy in)", so_con: "Theo số con (sóng bồi/bế)" };
+// Cách công đoạn góp bù hao — nối tới trục module Bù hao, hoặc cộng cố định.
+const KIEU_BU_HAO: Lbls = {
+  khong: "Không bù hao",
+  theo_so_mau: "Theo số màu (tra bảng)",
+  theo_so_con: "Theo số con (tra bảng)",
+  co_dinh: "Cộng cố định (số tờ)",
+};
 
 const THO: Lbls = { canh_dai: "Thớ dọc (canh dài)", canh_ngan: "Thớ ngang (canh ngắn)" };
 const DV_GIA_GIAY: Lbls = { kg: "KG", cai: "CÁI", ram: "Ram", to: "Tờ" };
@@ -41,14 +47,6 @@ const DV_GIA_VAT_TU: Lbls = {
 
 const vnd = (v: unknown) => (v == null || v === "" ? "—" : Number(v).toLocaleString("vi-VN"));
 
-const STATUS_COL: ColumnDef = {
-  key: "active", label: "Trạng thái",
-  render: (r: Row) => (
-    <span className={`rc-pill ${r.active === false ? "rc-pill--off" : "rc-pill--on"}`}>
-      {r.active === false ? "Tạm ngưng" : "Đang dùng"}
-    </span>
-  ),
-};
 
 export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   title: "Loại sản phẩm",
@@ -57,7 +55,6 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   facet: { key: "structural_type", values: mapOpt(STRUCTURAL) },
   columns: [
     { key: "structural_type", label: "Kiểu", render: (r) => lbl(STRUCTURAL)(r.structural_type) },
-    STATUS_COL,
   ],
   fields: [
     { key: "structural_type", label: "Kiểu cấu trúc", type: "select", required: true, group: "Cấu trúc",
@@ -119,8 +116,8 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
     { key: "pricing_basis", label: "Đơn vị tính giá", render: (r) => lbl(PRICING_BASIS)(r.pricing_basis) },
-    { key: "so_to_bu_hao", label: "Bù hao (tờ)", render: (r) => String(r.so_to_bu_hao ?? 50) },
-    STATUS_COL,
+    { key: "kieu_bu_hao", label: "Bù hao", render: (r) =>
+        r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
   ],
   fields: [
     { key: "ten_hien_thi", label: "Tên hiển thị cho sản xuất", type: "text", group: "Thông tin",
@@ -130,8 +127,11 @@ export const CFG_CONG_DOAN: CatalogConfig = {
       hint: "Đếm theo cái gì (tờ / m² / cuốn / giờ…)" },
     { key: "run_rate", label: "Đơn giá / đơn vị (đ)", type: "number", group: "Giá" },
     { key: "min_charge", label: "Giá tối thiểu (đ)", type: "number", group: "Giá", hint: "Thu tối thiểu dù ít" },
-    { key: "so_to_bu_hao", label: "Số tờ bù hao / công đoạn", type: "number", group: "Bù hao", default: 50,
-      hint: "Cộng thêm khi đơn có công đoạn này (mặc định 50; bế nổi/dán móc đáy = 30)" },
+    { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong",
+      hint: "In → Theo số màu · Bồi/Bế sóng → Theo số con · Ép kim/UV → Cộng cố định · Ghi kẽm → Không" },
+    { key: "so_to_bu_hao", label: "Số tờ cộng cố định", type: "number", group: "Bù hao", default: 50,
+      showIf: (f) => f.kieu_bu_hao === "co_dinh",
+      hint: "Mặc định 50; bế nổi / dán móc đáy = 30" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Bù hao" },
   ],
 };
@@ -145,7 +145,6 @@ export const CFG_BU_HAO: CatalogConfig = {
     { key: "truc", label: "Tra theo", render: (r) => lbl(TRUC_BU_HAO)(r.truc) },
     { key: "dai", label: "Dải", render: (r) => `${r.key_tu}–${r.key_den}` },
     { key: "bac", label: "Số bậc", render: (r) => `${Array.isArray(r.bac) ? r.bac.length : 0} bậc` },
-    STATUS_COL,
   ],
   fields: [
     { key: "truc", label: "Tra theo trục", type: "select", required: true, group: "Phân loại",
@@ -166,7 +165,6 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
   columns: [
     { key: "be_mat", label: "Bề mặt", render: (r) => lbl(BE_MAT)(r.be_mat) },
     { key: "tho_mac_dinh", label: "Thớ mặc định", render: (r) => lbl(THO)(r.tho_mac_dinh) },
-    STATUS_COL,
   ],
   fields: [
     { key: "be_mat", label: "Bề mặt", type: "select", group: "Thông số", options: mapOpt(BE_MAT) },
@@ -179,7 +177,6 @@ export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
   subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy.",
   prefix: "/api/vat-lieu-kho/giay",
-  hasVersions: true,
   softDelete: true,
   facet: KHO_FACET,
   columns: [
@@ -209,7 +206,6 @@ export const CFG_VAT_TU: CatalogConfig = {
     { key: "don_vi_gia", label: "ĐVT", render: (r) => lbl(DV_GIA_VAT_TU)(r.don_vi_gia) },
     { key: "don_gia", label: "Giá", render: (r) => vnd(r.don_gia) },
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
-    STATUS_COL,
   ],
   fields: [
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", type: "select", group: "Giá", options: mapOpt(DV_GIA_VAT_TU) },
@@ -224,9 +220,6 @@ export const CFG_KHO_GIAY_CHUAN: CatalogConfig = {
   prefix: "/api/vat-lieu-kho/kho-giay-chuan",
   columns: [
     { key: "kho", label: "Khổ (cm)", render: (r) => (r.dai ? `${r.rong}×${r.dai}` : `${r.rong} (cuộn)`) },
-    { key: "la_hiem", label: "Loại", render: (r) => (
-      <span className={`rc-pill ${r.la_hiem ? "rc-pill--off" : "rc-pill--on"}`}>{r.la_hiem ? "Hiếm" : "Chuẩn"}</span>) },
-    STATUS_COL,
   ],
   fields: [
     { key: "chung_loai_giay_id", label: "Chủng loại giấy", type: "ref", required: true,
@@ -234,8 +227,6 @@ export const CFG_KHO_GIAY_CHUAN: CatalogConfig = {
     { key: "rong", label: "Khổ rộng (cm)", type: "number", required: true, group: "Khổ" },
     { key: "dai", label: "Khổ dài (cm)", type: "number", group: "Khổ",
       hint: "Bỏ trống = giấy cuộn / khổ mở (cắt tự do chiều dài)" },
-    { key: "la_hiem", label: "Khổ hiếm", type: "checkbox", group: "Khổ",
-      hint: "Khổ hiếm → báo thu mua / hỏi giấy trước khi dùng" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Khổ" },
   ],
 };

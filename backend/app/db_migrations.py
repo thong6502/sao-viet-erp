@@ -1231,6 +1231,30 @@ def _migrate_cong_doan_pricing_basis_v2(db: Session) -> None:
     )
 
 
+def _migrate_bu_hao_versioning(db: Session) -> None:
+    """Bù hao: thêm `bu_hao.version_no` (số phiên bản hiện hành, mặc định 1)"""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "bu_hao" in insp.get_table_names():
+        existing = _existing_columns(insp, "bu_hao")
+        if "version_no" not in existing:
+            db.execute(text("ALTER TABLE bu_hao ADD COLUMN version_no INTEGER NOT NULL DEFAULT 1"))
+    db.commit()
+
+
+def _migrate_cong_doan_kieu_bu_hao(db: Session) -> None:
+    """Công đoạn: thêm `kieu_bu_hao` (khong/theo_so_mau/theo_so_con/co_dinh) — nối công đoạn tới
+    trục bù hao. Mặc định 'khong'. No-op trên DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+    if "kieu_bu_hao" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text(
+            "ALTER TABLE cong_doan ADD COLUMN kieu_bu_hao VARCHAR(16) NOT NULL DEFAULT 'khong'"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1271,6 +1295,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0038_purchase_request_expected_receipt_date", _migrate_purchase_request_expected_receipt_date),
     ("0039_drop_payment_refunds_renamed", _migrate_drop_payment_refunds_renamed),
     ("0040_cong_doan_pricing_basis_v2", _migrate_cong_doan_pricing_basis_v2),
+    ("0041_bu_hao_version_no", _migrate_bu_hao_versioning),
+    ("0042_cong_doan_kieu_bu_hao", _migrate_cong_doan_kieu_bu_hao),
 ]
 
 

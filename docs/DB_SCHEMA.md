@@ -2219,7 +2219,9 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job (`routing_step`) = Phase D. `may_id` soft int → `may_thiet_bi`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `nhom`, `may_id`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `nhom`, `may_id`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+`kieu_bu_hao`: nối bù hao — `khong` / `theo_so_mau` / `theo_so_con` (tra bảng `bu_hao` theo trục) / `co_dinh` (cộng `so_to_bu_hao` tờ).
 
 ### `bu_hao`
 
