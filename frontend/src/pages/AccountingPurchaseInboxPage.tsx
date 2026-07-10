@@ -103,24 +103,6 @@ export function AccountingPurchaseInboxPage() {
   );
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  async function approve(row: PurchaseRequestRow) {
-    if (!token) return;
-    setBusy(`approve:${row.id}`);
-    setError(null);
-    try {
-      await api.purchaseRequests.approve(token, row.id);
-      load();
-    } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : "Không duyệt được phiếu mua hàng.",
-      );
-    } finally {
-      setBusy(null);
-    }
-  }
-
   async function reject() {
     if (!token || !rejecting) return;
     if (!rejectReason.trim()) {
@@ -153,14 +135,6 @@ export function AccountingPurchaseInboxPage() {
       <div className={`acct-actions${compact ? " acct-actions--compact" : ""}`}>
         {canApprove && row.status === "pending_approval" && (
           <>
-            {/* <Button
-              type="button"
-              variant="accent"
-              loading={busy === `approve:${row.id}`}
-              onClick={() => approve(row)}
-            >
-              Duyệt
-            </Button> */}
             <Button
               type="button"
               variant="primary"

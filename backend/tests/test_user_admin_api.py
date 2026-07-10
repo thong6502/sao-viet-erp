@@ -55,6 +55,43 @@ def _sales_token() -> str:
         db.close()
 
 
+def test_create_user_default_password(client):
+    token = _admin_token(client)
+    kd = _dept_id("Kinh doanh")
+    res = client.post(
+        "/api/users",
+        json={"name": "U mặc định", "username": "u-default-pw", "department_id": kd},
+        headers=_h(token),
+    ).json()
+    assert res["initial_password"] == "password123"  # mật khẩu mặc định
+    login = client.post("/api/auth/login", json={"username": "u-default-pw", "password": "password123"})
+    assert login.status_code == 200
+
+
+def test_create_user_custom_password(client):
+    token = _admin_token(client)
+    kd = _dept_id("Kinh doanh")
+    res = client.post(
+        "/api/users",
+        json={"name": "U tự đặt", "username": "u-custom-pw", "department_id": kd, "password": "MyPass2026"},
+        headers=_h(token),
+    ).json()
+    assert res["initial_password"] == "MyPass2026"
+    login = client.post("/api/auth/login", json={"username": "u-custom-pw", "password": "MyPass2026"})
+    assert login.status_code == 200
+
+
+def test_create_user_short_password_rejected(client):
+    token = _admin_token(client)
+    kd = _dept_id("Kinh doanh")
+    r = client.post(
+        "/api/users",
+        json={"name": "U ngắn", "username": "u-short-pw", "department_id": kd, "password": "123"},
+        headers=_h(token),
+    )
+    assert r.status_code == 422
+
+
 def _make_target(client, token, username="target-1") -> int:
     kd = _dept_id("Kinh doanh")
     created = client.post(

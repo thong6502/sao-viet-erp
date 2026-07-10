@@ -53,25 +53,16 @@ const NAV: NavSection[] = [
     id: "san-xuat",
     label: "Sản xuất",
     items: [
-      { id: "theo-doi-sx", label: "Theo dõi sản xuất", icon: "activity", module: "san_xuat" },
-      {
-        id: "lenh-sx",
-        label: "Lệnh sản xuất",
-        icon: "clipboard",
-        module: "san_xuat",
-        children: [
-          { id: "lenh-sx-tao", label: "Tạo lệnh" },
-          { id: "lenh-sx-list", label: "Danh sách lệnh" },
-        ],
-      },
-      { id: "ke-hoach-sx", label: "Kế hoạch SX", icon: "calendar", module: "san_xuat" },
+      { id: "lenh-san-xuat", label: "Lệnh sản xuất", icon: "clipboard", module: "san_xuat" },
     ],
   },
   {
     id: "kho",
     label: "Kho",
     items: [
-      { id: "kho-hang", label: "Kho hàng", icon: "warehouse", module: "kho" },
+      { id: "kho-hang", label: "Kho", icon: "warehouse", module: "kho" },
+      { id: "kho-kiem-ke", label: "Kiểm kê", icon: "clipboard", module: "kho" },
+      { id: "kho-bao-cao", label: "Báo cáo kho", icon: "grid", module: "kho" },
     ],
   },
   {
@@ -111,6 +102,7 @@ const NAV: NavSection[] = [
       { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
       { id: "vat-tu-in-an", label: "Vật tư in ấn", icon: "bag", module: "kho" },
       { id: "cau-hinh-kho", label: "Cấu hình kho hàng", icon: "warehouse", module: "dm_kho" },
+      { id: "kho-cauhinh-phieu", label: "Cấu hình phiếu kho", icon: "fileText", module: "dm_kho" },
     ],
   },
   {

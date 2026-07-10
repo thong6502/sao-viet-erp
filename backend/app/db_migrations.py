@@ -1057,6 +1057,57 @@ def _migrate_department_request_pending_approval_status(db: Session) -> None:
     db.commit()
 
 
+def _migrate_stock_moves_voucher(db: Session) -> None:
+    """Kho Document Engine (spec-13): thêm cột `status_id` (trạng thái hàng) + `voucher_id`
+    (truy nguồn phiếu) vào bảng `stock_moves` (P0). Bảng phiếu/trạng thái MỚI do create_all
+    tự dựng — chỉ `stock_moves` cũ cần ALTER. No-op trên DB fresh / khi bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "stock_moves" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "stock_moves")
+    for name, ddl in (("status_id", "INTEGER"), ("voucher_id", "INTEGER")):
+        if name not in existing:
+            db.execute(text(f"ALTER TABLE stock_moves ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
+def _migrate_stock_moves_unit_cost(db: Session) -> None:
+    """Giá vốn kho (spec-13 E): thêm cột `unit_cost` vào `stock_moves`. No-op DB fresh."""
+    insp = inspect(db.get_bind())
+    if "stock_moves" not in insp.get_table_names():
+        return
+    if "unit_cost" not in _existing_columns(insp, "stock_moves"):
+        db.execute(text("ALTER TABLE stock_moves ADD COLUMN unit_cost BIGINT"))
+    db.commit()
+
+
+def _migrate_production_order_header_fields(db: Session) -> None:
+    """Sản xuất Lớp A: thêm cột header giàu vào `production_orders` (hợp đồng/khách/ngày đặt-nhận/
+    lưu ý kỹ thuật/người cập nhật). Bảng `production_orders` do create_all dựng ở P1; DB đã có
+    bảng bản cũ cần ALTER. No-op trên DB fresh (create_all đã dựng đủ cột)."""
+    insp = inspect(db.get_bind())
+    if "production_orders" not in insp.get_table_names():
+        return
+    cols = [
+        ("contract_no", "VARCHAR(60)"),
+        ("customer_id", "INTEGER"),
+        ("customer_name", "VARCHAR(255)"),
+        ("order_date", "DATE"),
+        ("delivery_request_date", "DATE"),
+        ("tech_note_print", "TEXT"),
+        ("tech_note_finishing", "TEXT"),
+        ("updated_by_user_id", "INTEGER"),
+    ]
+    existing = _existing_columns(insp, "production_orders")
+    for name, ddl in cols:
+        if name not in existing:
+            db.execute(text(f"ALTER TABLE production_orders ADD COLUMN {name} {ddl}"))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_production_orders_customer_id ON production_orders (customer_id)"
+    ))
+    db.commit()
+
+
 def _migrate_payment_voucher_amount_vnd(db: Session) -> None:
     """Store the VND equivalent used to reserve and reconcile a purchase total."""
     insp = inspect(db.get_bind())
@@ -1072,6 +1123,63 @@ def _migrate_payment_voucher_amount_vnd(db: Session) -> None:
             "UPDATE payment_vouchers "
             "SET amount_vnd = CAST(ROUND(amount * exchange_rate) AS BIGINT)"
         ))
+    db.commit()
+
+
+def _migrate_production_order_bu(db: Session) -> None:
+    """Sản xuất: thêm cột lệnh bù vào `production_orders` (order_kind/parent_order_id/bu_reason).
+    No-op trên DB fresh (create_all đã dựng đủ cột)."""
+    insp = inspect(db.get_bind())
+    if "production_orders" not in insp.get_table_names():
+        return
+    cols = [
+        ("order_kind", "VARCHAR(10) NOT NULL DEFAULT 'thuong'"),
+        ("parent_order_id", "INTEGER"),
+        ("bu_reason", "VARCHAR(255)"),
+    ]
+    existing = _existing_columns(insp, "production_orders")
+    for name, ddl in cols:
+        if name not in existing:
+            db.execute(text(f"ALTER TABLE production_orders ADD COLUMN {name} {ddl}"))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_production_orders_order_kind ON production_orders (order_kind)"
+    ))
+    db.commit()
+
+
+def _migrate_production_order_bu_fields(db: Session) -> None:
+    """Sản xuất: thêm loại lệnh bù vào `production_orders` — order_kind (thuong/bu),
+    parent_order_id (LSX gốc), bu_reason (lý do bù). No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "production_orders" not in insp.get_table_names():
+        return
+    cols = [
+        ("order_kind", "VARCHAR(10) NOT NULL DEFAULT 'thuong'"),
+        ("parent_order_id", "INTEGER"),
+        ("bu_reason", "VARCHAR(255)"),
+    ]
+    existing = _existing_columns(insp, "production_orders")
+    for name, ddl in cols:
+        if name not in existing:
+            db.execute(text(f"ALTER TABLE production_orders ADD COLUMN {name} {ddl}"))
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_production_orders_order_kind ON production_orders (order_kind)"
+    ))
+    db.commit()
+
+
+def _migrate_stock_count_phaseA(db: Session) -> None:
+    """Kiểm kê phần A: thêm participants (đợt) + defective_qty/damaged_qty (dòng — kém/mất phẩm
+    chất). No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    names = insp.get_table_names()
+    if "stock_counts" in names and "participants" not in _existing_columns(insp, "stock_counts"):
+        db.execute(text("ALTER TABLE stock_counts ADD COLUMN participants TEXT"))
+    if "stock_count_lines" in names:
+        existing = _existing_columns(insp, "stock_count_lines")
+        for name in ("defective_qty", "damaged_qty"):
+            if name not in existing:
+                db.execute(text(f"ALTER TABLE stock_count_lines ADD COLUMN {name} NUMERIC(18,3)"))
     db.commit()
 
 
@@ -1107,6 +1215,11 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0030_purchase_line_discount_vat", _migrate_purchase_line_discount_vat),
     ("0031_department_request_pending_approval_status", _migrate_department_request_pending_approval_status),
     ("0032_payment_voucher_amount_vnd", _migrate_payment_voucher_amount_vnd),
+    ("0033_stock_moves_voucher", _migrate_stock_moves_voucher),
+    ("0034_stock_moves_unit_cost", _migrate_stock_moves_unit_cost),
+    ("0035_production_order_header_fields", _migrate_production_order_header_fields),
+    ("0036_production_order_bu_fields", _migrate_production_order_bu_fields),
+    ("0037_stock_count_phaseA", _migrate_stock_count_phaseA),
 ]
 
 

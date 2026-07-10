@@ -89,9 +89,12 @@ def test_seam_05_proof_gate_stub_raises():
         order_ports.proof_gate(order_id=1)
 
 
-def test_seam_06_customer_paper_lot_stub_raises():
-    with pytest.raises(NotImplementedError, match="SEAM-06 chưa back-fill"):
-        order_ports.customer_paper_lot(order_id=1)
+def test_seam_06_customer_paper_lot_backfilled(client):
+    # SEAM-06 đã back-fill (Kho P0): trả list lô giấy khách (ownership=customer) theo đơn,
+    # rỗng nếu đơn chưa có lô nào. `client` để chắc DB test (bảng stock_lots) đã dựng.
+    result = order_ports.customer_paper_lot(order_id=999999)
+    assert isinstance(result, list)
+    assert result == []
 
 
 def test_seam_01_02_progress_delivery_stub_raise():

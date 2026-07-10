@@ -190,8 +190,32 @@ class CustomerPaperLotPort(Protocol):
 
 
 def customer_paper_lot(order_id: int) -> list:
-    # SEAM-06: chờ Kho (lô giấy ownership=customer) — chưa build (feat-049)
-    raise NotImplementedError("SEAM-06 chưa back-fill")
+    # SEAM-06 back-fill (Kho P0): lô giấy khách (ownership=customer) gắn đơn hàng.
+    # Trả list dict {lot_id, material_id, owner_customer_id, cost=0, actual_sheets}. Read-only.
+    from sqlalchemy import select
+
+    from ..db import SessionLocal
+    from ..models.warehouse_stock import StockLot
+    from ..repositories.warehouse_stock_repo import StockRepo
+
+    db = SessionLocal()
+    try:
+        lots = list(db.execute(
+            select(StockLot).where(
+                StockLot.order_id == order_id, StockLot.ownership == "customer"
+            )
+        ).scalars())
+        qmap = StockRepo(db).lot_qty_map([lot.id for lot in lots])
+        return [
+            {
+                "lot_id": lot.id, "material_id": lot.material_id,
+                "owner_customer_id": lot.owner_customer_id, "cost": 0,
+                "actual_sheets": qmap.get(lot.id, 0.0),
+            }
+            for lot in lots
+        ]
+    finally:
+        db.close()
 
 
 # --- SEAM-01 / SEAM-02: tiến độ SX + trạng thái giao (F7) — ⏳ TREO -----------

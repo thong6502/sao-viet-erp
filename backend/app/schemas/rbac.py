@@ -133,6 +133,14 @@ class UserCreate(BaseModel):
     name: str = Field(min_length=1, max_length=255)
     username: str = Field(min_length=1, max_length=150)
     department_id: int
+    # Tùy chọn: để trống → dùng mật khẩu mặc định (settings.default_user_password).
+    password: str | None = Field(default=None, min_length=6, max_length=128)
+
+
+class UserCreatedOut(UserRow):
+    """Response khi tạo tài khoản — kèm mật khẩu ban đầu để admin bàn giao."""
+
+    initial_password: str
 
 
 class UserUpdate(BaseModel):

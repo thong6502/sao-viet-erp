@@ -14,5 +14,12 @@ class PaperStockUsageLookupPort(Protocol):
         ...
 
 def is_paper_referenced_in_stock(paper_master_id: int) -> bool:
-    # SEAM-22: chờ Kho (StockLot)
-    raise NotImplementedError("SEAM-22 chưa back-fill")
+    # SEAM-22 back-fill (Kho P0): vật tư có lô/sổ tồn nào trong Kho không.
+    from ..db import SessionLocal
+    from ..repositories.warehouse_stock_repo import StockRepo
+
+    db = SessionLocal()
+    try:
+        return StockRepo(db).material_has_stock(paper_master_id)
+    finally:
+        db.close()

@@ -37,8 +37,8 @@ def test_modules_seeded(client):
         assert modules.count() == len(MODULES)
         keys = {m.key for m in modules.list_all()}
         assert {"dashboard", "khach_hang", "vai_tro", "nguoi_dung"} <= keys
-        # Out-of-scope departments are NOT seeded yet (catalog grows later).
-        assert "san_xuat" not in keys
+        # Các phân hệ mới (Thu mua/Kế toán/Sản xuất/Kho) đã có module riêng.
+        assert {"thu_mua", "ke_toan", "san_xuat", "kho"} <= keys
     finally:
         db.close()
 

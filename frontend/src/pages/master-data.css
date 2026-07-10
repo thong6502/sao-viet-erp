@@ -98,8 +98,9 @@
   gap: var(--sp-2);
   padding: 4px 12px;
   border-radius: var(--r-2, 8px);
-  background: var(--rust-soft, #f5ece7);
-  color: var(--rust-deep, #7a3b1e);
+  background: var(--surface-2, #faf8f4);
+  border: 1px solid var(--border, #e2ddd3);
+  color: inherit;
   font-size: 14px;
 }
 
@@ -567,3 +568,80 @@
 .md-page__menu button:hover { background: var(--rule-hair); }
 .md-page__menu button.danger { color: var(--signal); }
 .md-page__menu__sep { height: 1px; background: var(--rule-soft); margin: 4px 2px; }
+
+/* Kho — cỗ máy chứng từ (spec-13) */
+.md-page__lines-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+
+/* Cấu hình phiếu kho (spec-13) */
+.md-page__chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  font-size: 12px;
+  color: var(--ash);
+}
+.md-page__checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3) var(--sp-5);
+}
+.md-page__check {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+/* Danh sách file đính kèm phiếu kho (VoucherForm/VoucherDetail) */
+.md-page__filelist {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.md-page__filelist li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--border, #e2ddd3);
+  border-radius: 6px;
+  background: var(--surface-2, #faf8f4);
+  font-size: 14px;
+}
+.md-page__file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+a.md-page__file-name {
+  color: var(--accent, #b5531f);
+  text-decoration: none;
+}
+a.md-page__file-name:hover {
+  text-decoration: underline;
+}
+.md-page__file-x {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--danger, #c0392b);
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+}
+.md-page__file-x:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

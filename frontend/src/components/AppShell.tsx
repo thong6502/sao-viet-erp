@@ -33,6 +33,10 @@ import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
 import { WarehousesCatalogPage } from "../pages/WarehousesCatalogPage";
 import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
+import { KhoConfigPage } from "../pages/KhoConfigPage";
+import { KhoBaoCaoPage } from "../pages/KhoBaoCaoPage";
+import { KhoKiemKePage } from "../pages/KhoKiemKePage";
+import { ProductionOrdersPage } from "../pages/ProductionOrdersPage";
 import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
 import { MODULES_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -56,10 +60,11 @@ export interface NavParams {
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
 
-/** Nav id của mặt hàng-trong-kho: "kho-hang:<warehouseId>" → id kho, hoặc null. */
+/** Nav id kho con: "kho-hang:<warehouseId>" → id kho; parent "kho-hang" → null. */
 function warehouseIdOf(navId: string): number | null {
   const [base, wid] = navId.split(":");
-  return base === "kho-hang" && wid ? Number(wid) : null;
+  if (base !== "kho-hang" || !wid || !/^\d+$/.test(wid)) return null;
+  return Number(wid);
 }
 
 export function AppShell() {
@@ -69,7 +74,7 @@ export function AppShell() {
   const [readable, setReadable] = useState<Set<string> | null>(null);
   const [caps, setCaps] = useState<Capabilities>(new Map());
   const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
-  // Các kho admin đã cấu hình → menu con động dưới "Kho hàng" trong sidebar.
+  // Các kho admin đã cấu hình → menu con động dưới "Tồn kho" trong sidebar.
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   // Badge số theo nav id (vd "nghi-phep": số đơn chờ duyệt) — chỉ người có quyền duyệt.
   const [badges, setBadges] = useState<Record<string, number>>({});
@@ -104,8 +109,7 @@ export function AppShell() {
     };
   }, [token]);
 
-  // Nạp/refresh danh sách kho (cho menu con sidebar) khi có quyền `kho`. Refetch theo
-  // activeId để kho vừa cấu hình xuất hiện ngay khi điều hướng (endpoint rất nhẹ).
+  // Nạp/refresh danh sách kho (cho menu con sidebar) khi có quyền `kho`.
   useEffect(() => {
     if (!token || readable === null || !readable.has("kho")) return;
     let cancelled = false;
@@ -243,10 +247,18 @@ export function AppShell() {
         return <AccountingBankAccountsPage />;
       case "cau-hinh-kho":
         return <WarehousesCatalogPage />;
+      case "kho-cauhinh-phieu":
+        return <KhoConfigPage />;
+      case "kho-bao-cao":
+        return <KhoBaoCaoPage />;
+      case "kho-kiem-ke":
+        return <KhoKiemKePage />;
       case "kho-hang":
         return (
           <WarehouseItemsPage key={activeId} initialWarehouseId={warehouseIdOf(activeId)} />
         );
+      case "lenh-san-xuat":
+        return <ProductionOrdersPage />;
       case "nhat-ky":
         return <ActivityLogPage />;
       default:
