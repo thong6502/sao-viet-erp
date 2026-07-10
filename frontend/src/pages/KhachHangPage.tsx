@@ -2987,15 +2987,10 @@ function CareTab({ customerId }: { customerId: number }) {
                       })}
                     </div>
                     
-                    <Button variant="accent" onClick={logCare} loading={logBusy} disabled={!logNote.trim()} style={{ padding: "8px 20px" }}>
-                      {nextOpen && nextNote.trim() && nextDue ? "Ghi + hẹn tiếp" : "Ghi nhật ký"}
-                    </Button>
-                  </div>
-                  {/* Hẹn tiếp (tuỳ chọn): gọi xong hẹn luôn lần sau — 1 submit ra cả log + task. */}
-                  <div className="care-next-row">
                     <button
                       type="button"
                       className={`due-chip due-chip--toggle${nextOpen ? " due-chip--active" : ""}`}
+                      style={{ marginLeft: "auto" }}
                       onClick={() => {
                         setNextOpen((v) => !v);
                         if (!nextOpen && !nextDue) setNextDue(dateInDays(3));
@@ -3003,19 +2998,24 @@ function CareTab({ customerId }: { customerId: number }) {
                     >
                       <CalendarClock size={12} /> Hẹn tiếp{nextOpen ? "" : "…"}
                     </button>
-                    {nextOpen && (
-                      <>
-                        <input
-                          className="input care-next-note"
-                          placeholder="Việc lần sau — VD: gọi lại chốt đơn"
-                          value={nextNote}
-                          onChange={(e) => setNextNote(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && logNote.trim() && logCare()}
-                        />
-                        <DueQuickPick due={nextDue} time={nextTime} onDue={setNextDue} onTime={setNextTime} />
-                      </>
-                    )}
+                    <Button variant="accent" onClick={logCare} loading={logBusy} disabled={!logNote.trim()} style={{ padding: "6px 16px", flexShrink: 0, marginLeft: "auto" }}>
+                      {nextOpen && nextNote.trim() && nextDue ? "Ghi + hẹn tiếp" : "Ghi nhật ký"}
+                    </Button>
                   </div>
+                  {/* Hẹn tiếp (tuỳ chọn) — chỉ bung hàng khi bật: 1 submit = log + task. */}
+                  {nextOpen && (
+                    <div className="care-next-row">
+                      <input
+                        className="input care-next-note"
+                        placeholder="Việc lần sau — VD: gọi lại chốt đơn"
+                        value={nextNote}
+                        onChange={(e) => setNextNote(e.target.value)}
+                        onKeyDown={(e) => e.key === "Enter" && logNote.trim() && logCare()}
+                        autoFocus
+                      />
+                      <DueQuickPick due={nextDue} time={nextTime} onDue={setNextDue} onTime={setNextTime} />
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -3042,35 +3042,20 @@ function CareTab({ customerId }: { customerId: number }) {
           </div>
         )}
 
-        {/* 2. Đánh giá chăm sóc (#28): xong đúng hạn / xong trễ / đang quá hạn — số thật từ BE. */}
-        {taskStats && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <div className="timeline-section-title">
-              <Gauge size={12} /> Đánh giá chăm sóc
-            </div>
-            <div className="kh__care-kpis">
-              <div className="kh__care-kpi kh__care-kpi--good">
-                <span className="kh__care-kpi-icon" aria-hidden="true"><CheckCircle2 /></span>
-                <span className="kh__care-kpi-content">
-                  <span className="kh__care-kpi-label">Xong đúng hạn</span>
-                  <span className="kh__care-kpi-value">{taskStats.done_on_time}</span>
-                </span>
-              </div>
-              <div className="kh__care-kpi kh__care-kpi--warn">
-                <span className="kh__care-kpi-icon" aria-hidden="true"><Clock /></span>
-                <span className="kh__care-kpi-content">
-                  <span className="kh__care-kpi-label">Xong trễ</span>
-                  <span className="kh__care-kpi-value">{taskStats.done_late}</span>
-                </span>
-              </div>
-              <div className="kh__care-kpi kh__care-kpi--alert">
-                <span className="kh__care-kpi-icon" aria-hidden="true"><AlertTriangle /></span>
-                <span className="kh__care-kpi-content">
-                  <span className="kh__care-kpi-label">Đang quá hạn</span>
-                  <span className="kh__care-kpi-value">{taskStats.overdue_open}</span>
-                </span>
-              </div>
-            </div>
+        {/* Đánh giá chăm sóc (#28) — MỘT dòng gọn, ẩn khi chưa có gì đáng nói.
+            (Grain đúng của #28 là báo cáo theo sale — chờ BE; tạm giữ dạng dòng chữ.) */}
+        {taskStats && taskStats.done_on_time + taskStats.done_late + taskStats.overdue_open > 0 && (
+          <div className="care-eval-line">
+            <span className="stat__label">Đánh giá</span>
+            <span className="care-eval-item care-eval-item--good">
+              <CheckCircle2 size={12} /> {taskStats.done_on_time} đúng hạn
+            </span>
+            <span className="care-eval-item care-eval-item--mid">
+              <Clock size={12} /> {taskStats.done_late} trễ
+            </span>
+            <span className="care-eval-item care-eval-item--bad">
+              <AlertTriangle size={12} /> {taskStats.overdue_open} đang quá hạn
+            </span>
           </div>
         )}
 
@@ -3114,7 +3099,13 @@ function CareTab({ customerId }: { customerId: number }) {
                           <User size={12} /> {t.assignee_name}
                         </span>
                       )}
-                      <RemindBadge level={t.remind_level} days={t.overdue_days} />
+                      {t.remind_level >= 1 ? (
+                        <RemindBadge level={t.remind_level} days={t.overdue_days} />
+                      ) : (
+                        <span className="kh__muted" style={{ fontSize: 11 }}>
+                          còn {Math.max(1, Math.ceil((new Date(t.due_date).getTime() - Date.now()) / 86_400_000))} ngày
+                        </span>
+                      )}
                     </div>
                     {doneForId === t.id && (
                       <div className="task-done-confirm">

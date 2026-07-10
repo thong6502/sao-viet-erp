@@ -1567,7 +1567,7 @@
   display: flex;
   align-items: flex-start;
   gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
   background: var(--canvas);
@@ -1795,7 +1795,7 @@
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
-  padding: var(--sp-3) var(--sp-4);
+  padding: var(--sp-2) var(--sp-3);
   box-shadow: 0 1px 3px rgba(20, 19, 15, 0.01);
   transition: all var(--duration-base) var(--easing-standard);
   text-align: left;
@@ -3241,3 +3241,24 @@
 .kh__followups-row--suggest .kh__linkbtn:hover {
   text-decoration: underline;
 }
+
+
+/* --- Đánh giá chăm sóc: MỘT dòng gọn thay 3 card (grain thật của #28 là báo cáo
+   theo sale — chờ BE; dòng này chỉ là tóm tắt nhẹ, ẩn khi toàn 0). --- */
+.care-eval-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  font-size: 12px;
+  padding: 2px 2px;
+}
+.care-eval-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--ff-mono);
+  font-weight: var(--fw-medium);
+}
+.care-eval-item--good { color: var(--moss-deep); }
+.care-eval-item--mid { color: var(--amber-deep); }
+.care-eval-item--bad { color: var(--signal); }
