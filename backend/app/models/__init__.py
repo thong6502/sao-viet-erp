@@ -33,7 +33,7 @@ from .warehouse_item import WarehouseItem
 from .plate_die_rate import PlateDieRate
 from .norm import Norm
 from .may_thiet_bi import MayThietBi
-from .vat_lieu_kho import BanKem, GiayNguyen, Muc
+from .vat_lieu_kho import ChungLoaiGiay, GiayNguyen, KhoGiayChuan, VatTuInAn
 from .cong_doan import CongDoan
 from .loai_san_pham import LoaiSanPham
 from .document_sequence import DocumentSequence

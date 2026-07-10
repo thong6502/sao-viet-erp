@@ -1,16 +1,23 @@
-"""Repository — Vật liệu Kho (giấy/mực/bản). CRUD 3 loại + lookup giá kẽm theo khoa_class."""
+"""Repository — Danh mục Giấy & Vật tư (chủng loại giấy / giấy / vật tư in ấn). CRUD generic."""
 from __future__ import annotations
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from ..models.vat_lieu_kho import BanKem, GiayNguyen, Muc
+from ..models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, KhoGiayChuan, VatTuInAn
 
-_GIAY = ("ten", "kho_dai", "kho_rong", "gsm", "caliper_micron", "tho", "don_vi_gia", "don_gia", "ton", "active")
-_MUC = ("ten", "loai_muc", "ma_pantone", "don_gia", "coverage_tiers", "active")
-_BAN = ("ten", "khoa_class", "don_gia_kem", "ton", "active")
+_CHUNG_LOAI = ("ten", "be_mat", "tho_mac_dinh", "mo_ta", "active")
+_GIAY = ("ten", "chung_loai_giay_id", "kho_dai", "kho_rong", "gsm", "caliper_micron",
+         "tho", "don_vi_gia", "don_gia", "gia_thi_truong", "kho_tinh_gia", "ghi_chu", "active")
+_VAT_TU = ("ten", "don_vi_gia", "don_gia", "ghi_chu", "active")
+_KHO_GIAY_CHUAN = ("ten", "chung_loai_giay_id", "rong", "dai", "la_hiem", "ghi_chu", "active")
 
-_MODELS = {"giay": (GiayNguyen, _GIAY), "muc": (Muc, _MUC), "ban": (BanKem, _BAN)}
+_MODELS = {
+    "chung_loai_giay": (ChungLoaiGiay, _CHUNG_LOAI),
+    "giay": (GiayNguyen, _GIAY),
+    "vat_tu": (VatTuInAn, _VAT_TU),
+    "kho_giay_chuan": (KhoGiayChuan, _KHO_GIAY_CHUAN),
+}
 
 
 class VatLieuKhoRepository:
@@ -19,7 +26,7 @@ class VatLieuKhoRepository:
 
     def _cfg(self, kind: str):
         if kind not in _MODELS:
-            raise ValueError(f"loại vật liệu không hợp lệ: {kind}")
+            raise ValueError(f"loại danh mục không hợp lệ: {kind}")
         return _MODELS[kind]
 
     def get(self, kind: str, item_id: int):
@@ -77,10 +84,3 @@ class VatLieuKhoRepository:
     def delete(self, obj) -> None:
         self.db.delete(obj)
         self.db.commit()
-
-    # -- lookup cho engine --
-    def ban_kem_by_khoa_class(self, khoa_class: str) -> BanKem | None:
-        return self.db.execute(
-            select(BanKem).where(BanKem.khoa_class == khoa_class, BanKem.active.is_(True))
-            .order_by(BanKem.id.asc())
-        ).scalars().first()

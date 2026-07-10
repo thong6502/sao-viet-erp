@@ -21,6 +21,10 @@ class MayThietBiIn(BaseModel):
     kho_max_rong: int | None = None
     kho_min_dai: int | None = None
     kho_min_rong: int | None = None
+    kho_kem_dai: int | None = None
+    kho_kem_rong: int | None = None
+    vung_in_dai: int | None = None
+    vung_in_rong: int | None = None
     gripper_mm: int | None = None
     so_units: int | None = None
     # BHR nguồn — validate ở service.
@@ -40,6 +44,9 @@ class MayThietBiRow(BaseModel):
     loai_may: str
     finishing_subtype: str | None = None
     nhom_cost_center: str | None = None
+    hang_san_xuat: str | None = None
+    model: str | None = None
+    nha_cung_cap: str | None = None
     trang_thai: str
     active: bool = True
     # BHR inputs (đủ để sửa lại + tính)
@@ -79,6 +86,10 @@ class MayThietBiRow(BaseModel):
     kho_max_rong: int | None = None
     kho_min_dai: int | None = None
     kho_min_rong: int | None = None
+    kho_kem_dai: int | None = None
+    kho_kem_rong: int | None = None
+    vung_in_dai: int | None = None
+    vung_in_rong: int | None = None
     gripper_mm: int | None = None
     le_hong_mm: int | None = None
     duoi_thang_mau_mm: int | None = None
@@ -94,6 +105,7 @@ class MayThietBiRow(BaseModel):
     ho_tro_cip3: bool | None = None
     fields_theo_loai: dict | None = None
     ghi_chu: str | None = None
+    ghi_chu_2: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

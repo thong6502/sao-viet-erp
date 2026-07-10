@@ -13,6 +13,7 @@ from app.services.may_thiet_bi_service import (
     MayThietBiService,
     MayThietBiValidationError,
     compute_bhr,
+    compute_bhr_preview,
 )
 
 
@@ -84,8 +85,21 @@ def test_validate_kho_and_nhip():
         svc.create(_off74(ma="X1", kho_min_dai=800, kho_max_dai=740))
     with pytest.raises(MayThietBiValidationError):      # E-MAY-NHIP: gripper ≥ kho_min_rong
         svc.create(_off74(ma="X2", gripper_mm=300, kho_min_rong=280))
-    with pytest.raises(MayThietBiValidationError):      # loai_may sai
-        svc.create(_off74(ma="X3", loai_may="khong_co"))
+    with pytest.raises(MayThietBiValidationError):      # nhóm máy để trống (loai_may free text nhưng bắt buộc)
+        svc.create(_off74(ma="X3", loai_may="  "))
+
+
+def test_bhr_preview_from_form_payload():
+    # Payload form CHƯA lưu (string rỗng, field lạ) → vẫn ra đúng BHR §4.3 nhờ default preview.
+    payload = {**_off74(), "ghi_chu": "", "field_la": 123, "fields_theo_loai": {"x": 1}}
+    r = compute_bhr_preview(payload)
+    assert 880_000 <= r["BHR"] <= 915_000
+    # nhập trực tiếp: dùng thẳng đơn giá
+    r2 = compute_bhr_preview({"nguon_bhr": "nhap_truc_tiep", "don_gia_gio_BHR": 900_000})
+    assert r2["BHR"] == 900_000
+    # thiếu đơn giá khi nhập trực tiếp → E-MAY-BHR0
+    with pytest.raises(MayThietBiValidationError):
+        compute_bhr_preview({"nguon_bhr": "nhap_truc_tiep"})
 
 
 def test_fields_theo_loai_json_roundtrip():

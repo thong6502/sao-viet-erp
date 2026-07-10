@@ -811,6 +811,121 @@ def _migrate_drop_quy_tac_binh_bai(db: Session) -> None:
     run("DROP TABLE IF EXISTS folding_scheme")
 
 
+def _migrate_giay_chung_loai_and_vat_tu(db: Session) -> None:
+    """Danh mục Giấy & Vật tư: thêm `giay_nguyen.chung_loai_giay_id`; GỘP `muc` + `ban_kem` →
+    `vat_tu_in_an` rồi drop 2 bảng cũ. Bảng `chung_loai_giay` + `vat_tu_in_an` do create_all tạo
+    (model mới). Best-effort mỗi câu. No-op trên DB fresh (muc/ban_kem không còn model → không tồn
+    tại; giay_nguyen đã có cột). created_at/updated_at cấp CURRENT_TIMESTAMP (cột NOT NULL)."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    # 1) giay_nguyen.chung_loai_giay_id (giấy ăn theo chủng loại).
+    if "giay_nguyen" in tables and "chung_loai_giay_id" not in _existing_columns(insp, "giay_nguyen"):
+        db.execute(text("ALTER TABLE giay_nguyen ADD COLUMN chung_loai_giay_id INTEGER"))
+        db.commit()
+        run("CREATE INDEX IF NOT EXISTS ix_giay_nguyen_chung_loai_giay_id "
+            "ON giay_nguyen (chung_loai_giay_id)")
+
+    # 2) Gộp mực + bản kẽm cũ → vat_tu_in_an (mã MUC-*/KEM-* không đụng nhau).
+    if "vat_tu_in_an" in tables:
+        if "muc" in tables:
+            run("INSERT INTO vat_tu_in_an "
+                "(ma, ten, loai_vat_tu, don_vi_gia, don_gia, ton, loai_muc, ma_pantone, "
+                " coverage_tiers, active, created_at, updated_at) "
+                "SELECT ma, ten, 'muc', 'nghin_luot', don_gia, 0, loai_muc, ma_pantone, "
+                " coverage_tiers, active, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM muc")
+        if "ban_kem" in tables:
+            run("INSERT INTO vat_tu_in_an "
+                "(ma, ten, loai_vat_tu, don_vi_gia, don_gia, ton, khoa_class, active, "
+                " created_at, updated_at) "
+                "SELECT ma, ten, 'kem', 'ban', don_gia_kem, ton, khoa_class, active, "
+                " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP FROM ban_kem")
+
+    # 3) Drop bảng cũ (đã gỡ model).
+    run("DROP TABLE IF EXISTS muc")
+    run("DROP TABLE IF EXISTS ban_kem")
+
+
+def _migrate_may_thiet_bi_plate_print_area(db: Session) -> None:
+    """Máy: thêm Khổ kẽm (`kho_kem_dai`/`kho_kem_rong`) + Vùng in lớn nhất
+    (`vung_in_dai`/`vung_in_rong`) — mm, nullable Integer. Khớp DANH SÁCH MÁY IN của xưởng
+    (khổ kẽm + vùng in ≠ khổ giấy). No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "may_thiet_bi" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "may_thiet_bi")
+    for name in ("kho_kem_dai", "kho_kem_rong", "vung_in_dai", "vung_in_rong"):
+        if name not in existing:
+            db.execute(text(f"ALTER TABLE may_thiet_bi ADD COLUMN {name} INTEGER"))
+    db.commit()
+
+
+def _migrate_may_thiet_bi_ghi_chu_2(db: Session) -> None:
+    """Máy: thêm cột Ghi chú 2 (`ghi_chu_2`) — TEXT nullable. Bảng dữ liệu xưởng có 2 cột
+    ghi chú. No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "may_thiet_bi" not in insp.get_table_names():
+        return
+    if "ghi_chu_2" not in _existing_columns(insp, "may_thiet_bi"):
+        db.execute(text("ALTER TABLE may_thiet_bi ADD COLUMN ghi_chu_2 TEXT"))
+    db.commit()
+
+
+def _migrate_vat_tu_simplify(db: Session) -> None:
+    """Làm gọn theo bảng xưởng: bỏ TỒN khỏi giấy; vật tư về PHẲNG (mã·tên·ĐVT·giá·ghi chú) —
+    thêm `vat_tu_in_an.ghi_chu`, gỡ loai_vat_tu/ton/loai_muc/ma_pantone/coverage_tiers/khoa_class
+    + `giay_nguyen.ton`. Best-effort mỗi câu (SQLite cũ có thể từ chối DROP COLUMN → cột mồ côi vô
+    hại vì model không map). No-op trên DB fresh (create_all đã ra shape mới; cột thừa không tồn tại)."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    if "vat_tu_in_an" in tables:
+        cols = _existing_columns(insp, "vat_tu_in_an")
+        if "ghi_chu" not in cols:
+            db.execute(text("ALTER TABLE vat_tu_in_an ADD COLUMN ghi_chu VARCHAR(500)"))
+            db.commit()
+        for c in ("loai_vat_tu", "ton", "loai_muc", "ma_pantone", "coverage_tiers", "khoa_class"):
+            if c in cols:
+                run(f"ALTER TABLE vat_tu_in_an DROP COLUMN {c}")
+
+    if "giay_nguyen" in tables and "ton" in _existing_columns(insp, "giay_nguyen"):
+        run("ALTER TABLE giay_nguyen DROP COLUMN ton")
+
+
+def _migrate_giay_open_fields(db: Session) -> None:
+    """Giấy mở hơn (Phương án A): thêm `giay_nguyen.gia_thi_truong` / `kho_tinh_gia` / `ghi_chu`
+    (khớp cột bảng xưởng: Giá thị trường / Khổ tính giá? / Ghi chú). Khổ 0 = cuộn: đã cho phép ở
+    tầng schema/service (cột kho_* vẫn Integer, 0 hợp lệ). No-op trên DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "giay_nguyen" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "giay_nguyen")
+    for name, ddl in (
+        ("gia_thi_truong", "NUMERIC(18,2)"),
+        ("kho_tinh_gia", "BOOLEAN NOT NULL DEFAULT TRUE"),
+        ("ghi_chu", "VARCHAR(500)"),
+    ):
+        if name not in existing:
+            db.execute(text(f"ALTER TABLE giay_nguyen ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -832,6 +947,11 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0019_drop_paper_sizes", _migrate_drop_paper_sizes),
     ("0020_customer_crm_fields", _migrate_customer_crm_fields),
     ("0021_drop_quy_tac_binh_bai", _migrate_drop_quy_tac_binh_bai),
+    ("0022_giay_chung_loai_and_vat_tu", _migrate_giay_chung_loai_and_vat_tu),
+    ("0023_may_thiet_bi_plate_print_area", _migrate_may_thiet_bi_plate_print_area),
+    ("0024_may_thiet_bi_ghi_chu_2", _migrate_may_thiet_bi_ghi_chu_2),
+    ("0025_vat_tu_simplify", _migrate_vat_tu_simplify),
+    ("0026_giay_open_fields", _migrate_giay_open_fields),
 ]
 
 

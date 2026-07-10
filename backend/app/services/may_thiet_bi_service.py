@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from ..models.may_thiet_bi import KHOA_CLASS, LOAI_MAY, MayThietBi
+from ..models.may_thiet_bi import KHOA_CLASS, MayThietBi
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository
 
 
@@ -81,6 +81,24 @@ def compute_bhr(may: MayThietBi) -> dict:
             "BHR": round(bhr, 2), "don_gia_ban_gio": round(bhr * (1 + markup), 2)}
 
 
+# Default §3.4 cho preview BHR từ form (model transient KHÔNG có default DB — chỉ áp khi INSERT).
+_BHR_PREVIEW_DEFAULTS = {
+    "nguon_bhr": "dung_tu_von", "gia_tri_thu_hoi": 0, "nam_khau_hao": 8, "gio_lam_nam": 2000,
+    "availability_pct": 85, "productivity_pct": 85, "efficiency_pct": 80, "so_nhan_cong": 1,
+    "luong_burden_pct": 30, "he_so_tai_dien": 0.65, "bao_hiem_nam": 0, "so_may_song_song": 1,
+}
+
+
+def compute_bhr_preview(data: dict) -> dict:
+    """BHR preview từ payload form (máy CHƯA lưu) — dựng model transient rồi compute_bhr."""
+    from ..repositories.may_thiet_bi_repo import ASSIGNABLE
+
+    clean = {k: v for k, v in data.items()
+             if k in ASSIGNABLE and k != "fields_theo_loai" and v not in ("", None)}
+    merged = {**_BHR_PREVIEW_DEFAULTS, **clean}
+    return compute_bhr(MayThietBi(**merged))
+
+
 class MayThietBiService:
     def __init__(self, repo: MayThietBiRepository) -> None:
         self.repo = repo
@@ -91,8 +109,8 @@ class MayThietBiService:
             raise MayThietBiValidationError("Mã máy không được trống.")
         if not (data.get("ten") or "").strip():
             raise MayThietBiValidationError("Tên máy không được trống.")
-        if data.get("loai_may") not in LOAI_MAY:
-            raise MayThietBiValidationError("Loại máy (loai_may) không hợp lệ.")
+        if not (data.get("loai_may") or "").strip():
+            raise MayThietBiValidationError("Nhóm máy không được để trống.")
         if data.get("khoa_class") not in (None, "") and data.get("khoa_class") not in KHOA_CLASS:
             raise MayThietBiValidationError("khoa_class không hợp lệ.")
 

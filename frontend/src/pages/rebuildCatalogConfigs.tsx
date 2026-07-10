@@ -2,11 +2,8 @@
 // `showIf` (ẩn/hiện theo kiểu), `ref`/`ref-multi` (chọn theo TÊN thay vì gõ id),
 // `default` (prefill khi tạo), `jsonKey` (lưu lồng vào fields_theo_loai).
 // Enum hiển thị bằng thuật ngữ in ấn thuần Việt — dùng chung 1 bảng nhãn cho cả dropdown lẫn cột.
-import { useEffect, useState } from "react";
 import type { CatalogConfig, ColumnDef } from "./RebuildCatalogPage";
 import type { Row } from "../api/rebuildCatalog";
-import { authed } from "../api/client";
-import { useAuth } from "../auth/useAuth";
 
 // ── Bảng nhãn thuần Việt (in ấn) — 1 nguồn cho options + column render ──────────
 type Lbls = Record<string, string>;
@@ -19,14 +16,6 @@ const COVER: Lbls = { tu_bia: "Bìa tự thân (cùng ruột)", bia_roi: "Bìa r
 const BINDING: Lbls = { ghim: "Đóng ghim", keo: "Vào keo", khau: "Khâu chỉ" };
 const VAT: Lbls = { "5": "5%", "8": "8%", "10": "10%" };
 
-const LOAI_MAY: Lbls = {
-  press_offset_sheet: "In offset tờ rời", press_offset_web: "In offset cuộn", press_digital: "In kỹ thuật số",
-  press_flexo_label: "In flexo (tem nhãn)", press_gravure: "In ống đồng", wide_format: "In khổ lớn",
-  prepress_ctp: "Ghi kẽm CTP", finishing: "Máy gia công sau in", thue_ngoai: "Thuê ngoài", other: "Khác",
-};
-const TRANG_THAI_MAY: Lbls = { active: "Đang chạy", maintenance: "Bảo trì", retired: "Ngừng dùng" };
-const KHOA_CLASS: Lbls = { "52": "Khổ 52", "74": "Khổ 74", "79": "Khổ 79", "102": "Khổ 102", custom: "Khổ khác" };
-
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in" };
 const CHE_DO: Lbls = { theo_gio: "Theo giờ máy", theo_san_luong: "Theo sản lượng" };
 const PRICING_BASIS: Lbls = {
@@ -36,8 +25,12 @@ const PRICING_BASIS: Lbls = {
 const TOOLING: Lbls = { khuon_be: "Khuôn bế", khuon_ep: "Khuôn ép (nhũ/nổi)", kem: "Kẽm" };
 
 const THO: Lbls = { canh_dai: "Thớ dọc (canh dài)", canh_ngan: "Thớ ngang (canh ngắn)" };
-const DV_GIA_GIAY: Lbls = { kg: "Theo kg", ram: "Theo ram", to: "Theo tờ" };
-const LOAI_MUC: Lbls = { process: "Process (CMYK)", pantone: "Pha Pantone", special: "Đặc biệt (nhũ/UV)" };
+const DV_GIA_GIAY: Lbls = { kg: "KG", cai: "CÁI", ram: "Ram", to: "Tờ" };
+const BE_MAT: Lbls = { bong: "Bóng", mo: "Mờ", nham: "Nhám" };
+const DV_GIA_VAT_TU: Lbls = {
+  kg: "KG", lit: "LÍT", ban: "BẢN", cai: "CÁI", bo: "BỘ", thung: "THÙNG",
+  nghin_luot: "1.000 lượt", met: "MÉT", m2: "M²", cuon: "CUỘN",
+};
 
 const vnd = (v: unknown) => (v == null || v === "" ? "—" : Number(v).toLocaleString("vi-VN"));
 
@@ -78,203 +71,39 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   ],
 };
 
-// ── Máy: nhãn phụ + điều kiện hiện field theo loại máy ──────────────────────────
-const DON_VI_TOC_DO: Lbls = {
-  to_gio: "tờ/giờ", m2_gio: "m²/giờ", cuon_gio: "cuộn/giờ", luot_gio: "lượt/giờ", met_gio: "mét/giờ",
-};
-const FINISHING_SUB: Lbls = {
-  guillotine: "Máy xén", buckle_folder: "Máy gấp (buckle)", knife_folder: "Máy gấp dao",
-  saddle_stitcher: "Đóng ghim yên ngựa", perfect_binder: "Vào keo", wireo: "Lò xo (wire-o)",
-  laminator: "Cán màng", die_cutter: "Máy bế", foil_press: "Ép nhũ", uv_coater: "Phủ UV",
-};
-const NGUON_BHR: Lbls = {
-  nhap_truc_tiep: "Gõ thẳng đơn giá giờ (đã biết sẵn)",
-  dung_tu_von: "Để hệ thống tính từ vốn & chi phí",
-};
-const DV_GIA_NGOAI: Lbls = { per_to: "đ / tờ", per_m2: "đ / m²", per_sp: "đ / sản phẩm" };
-const CONG_NGHE_DIG: Lbls = { toner: "Toner (tính theo click)", inkjet_production: "Inkjet (tính theo mực/m²)" };
-
-type F = Record<string, unknown>;
-const isOffsetSheet = (f: F) => f.loai_may === "press_offset_sheet";
-const isPress = (f: F) => String(f.loai_may ?? "").startsWith("press_") || f.loai_may === "wide_format";
-const isThueNgoai = (f: F) => f.loai_may === "thue_ngoai";
-const coChiPhiGio = (f: F) => !isThueNgoai(f);       // thuê ngoài = cost center ảo, không có BHR
-const bhrTuVon = (f: F) => coChiPhiGio(f) && (f.nguon_bhr ?? "dung_tu_von") !== "nhap_truc_tiep";
-const coUnits = (f: F) =>
-  ["press_offset_sheet", "press_offset_web", "press_flexo_label"].includes(String(f.loai_may));
-
-// ── Preview BHR sống trong drawer (gọi POST /bhr-preview, debounce) ─────────────
-function BhrPreview({ form }: { form: Record<string, unknown> }) {
-  const { token } = useAuth();
-  const [res, setRes] = useState<{ BHR: number; don_gia_ban_gio: number; breakdown: Record<string, number> } | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
-  const depKey = JSON.stringify(form);
-  useEffect(() => {
-    if (!token || isThueNgoai(form) || !form.loai_may) { setRes(null); setMsg(null); return; }
-    const t = setTimeout(() => {
-      authed<{ BHR: number; don_gia_ban_gio: number; breakdown: Record<string, number> }>(
-        "/api/may-thiet-bi/bhr-preview", token,
-        { method: "POST", body: JSON.stringify(form) },
-      )
-        .then((r) => { setRes(r); setMsg(null); })
-        .catch((e) => { setRes(null); setMsg(e instanceof Error ? e.message : "Không tính được."); });
-    }, 600);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, depKey]);
-  if (isThueNgoai(form) || !form.loai_may) return null;
-  return (
-    <section className="rc-sec" style={{ marginTop: "var(--sp-4)" }}>
-      <div className="rc-sec__title">Đơn giá giờ máy (BHR) — xem trước</div>
-      {msg ? (
-        <span className="rc-field__hint">{msg}</span>
-      ) : res ? (
-        <div>
-          <strong style={{ fontSize: "15px" }}>≈ {vnd(res.BHR)} đ/giờ</strong>
-          {res.don_gia_ban_gio > res.BHR && (
-            <span className="rc-field__hint" style={{ marginLeft: "8px" }}>
-              · giá bán giờ (đã markup): {vnd(res.don_gia_ban_gio)} đ/giờ
-            </span>
-          )}
-          <div className="rc-field__hint" style={{ marginTop: "4px" }}>
-            {Object.entries(res.breakdown).filter(([, v]) => v > 0)
-              .map(([k, v]) => `${k.replace(/_gio$/, "").replace(/_/g, " ")}: ${vnd(v)}`).join(" · ") || "Chưa nhập chi phí nào — BHR = 0."}
-          </div>
-          {res.BHR <= 0 && (
-            <div className="rc-field__hint" style={{ color: "var(--signal, #8a1f1f)" }}>
-              ⚠ BHR = 0 — máy này sẽ tính 0 đ tiền công khi báo giá theo giờ.
-            </div>
-          )}
-        </div>
-      ) : (
-        <span className="rc-field__hint">Đang tính…</span>
-      )}
-    </section>
-  );
-}
-
+// Form MỞ (phẳng): mọi ô luôn hiện, không phân loại cứng. Chủ xưởng tự đặt "Nhóm máy"
+// (chữ tự do) rồi nhập khổ kẽm / nhíp / khổ giấy / vùng in / ghi chú.
 export const CFG_MAY: CatalogConfig = {
   title: "Thiết bị & Máy in",
-  subtitle: "Máy = trung tâm chi phí (đơn giá giờ máy) + thông số năng lực (khổ / nhíp / số đơn vị in).",
+  subtitle: "Nhập tự do mọi loại máy (in, cán màng/UV, bồi, bế…). Tự đặt Nhóm máy rồi điền khổ kẽm, nhíp kẽm, khổ giấy, vùng in.",
   prefix: "/api/may-thiet-bi",
-  facet: { key: "loai_may", values: [
-    { value: "press_offset_sheet", label: "Offset tờ" }, { value: "press_digital", label: "Kỹ thuật số" },
-    { value: "prepress_ctp", label: "Ghi kẽm" }, { value: "finishing", label: "Sau in" },
-    { value: "thue_ngoai", label: "Thuê ngoài" }] },
   columns: [
-    { key: "loai_may", label: "Loại máy", render: (r) => lbl(LOAI_MAY)(r.loai_may) },
-    { key: "khoa_class", label: "Khổ (giá kẽm)", render: (r) => lbl(KHOA_CLASS)(r.khoa_class) },
-    { key: "trang_thai", label: "Trạng thái", render: (r) => (
-      <span className={`rc-pill ${r.trang_thai === "active" ? "rc-pill--on" : "rc-pill--off"}`}>{lbl(TRANG_THAI_MAY)(r.trang_thai)}</span>) },
+    { key: "loai_may", label: "Nhóm máy", render: (r) => (r.loai_may ? String(r.loai_may) : "—") },
+    { key: "kho_max", label: "Khổ giấy max (mm)",
+      render: (r) => (r.kho_max_rong || r.kho_max_dai ? `${r.kho_max_rong ?? "?"}×${r.kho_max_dai ?? "?"}` : "—") },
   ],
-  renderExtra: (form) => <BhrPreview form={form} />,
   fields: [
-    // ── Nhận diện ───────────────────────────────────────────────────────────────
-    { key: "loai_may", label: "Loại máy", type: "select", required: true, group: "Nhận diện",
-      options: mapOpt(LOAI_MAY), hint: "Quyết định các ô bên dưới hiện ra" },
-    { key: "trang_thai", label: "Trạng thái", type: "select", group: "Nhận diện",
-      options: mapOpt(TRANG_THAI_MAY), default: "active", hint: "Chỉ máy Đang chạy mới được chọn khi báo giá" },
-    { key: "finishing_subtype", label: "Loại máy gia công", type: "select", group: "Nhận diện",
-      options: mapOpt(FINISHING_SUB), showIf: (f) => f.loai_may === "finishing" },
-    { key: "hang_san_xuat", label: "Hãng sản xuất", type: "text", group: "Nhận diện",
-      hint: "VD: Heidelberg, Komori, RMGT…" },
-    { key: "model", label: "Model", type: "text", group: "Nhận diện" },
-    { key: "khoa_class", label: "Lớp khổ (tra giá kẽm)", type: "select", group: "Nhận diện",
-      options: mapOpt(KHOA_CLASS), showIf: isOffsetSheet,
-      hint: "BẮT BUỘC để tính tiền kẽm — để trống thì báo giá sẽ tính kẽm 0 đ" },
-    // ── Khổ & năng lực (chỉ máy in) ────────────────────────────────────────────
-    { key: "kho_max_dai", label: "Khổ in max — dài (mm)", type: "number", group: "Khổ & năng lực", showIf: isPress },
-    { key: "kho_max_rong", label: "Khổ in max — rộng (mm)", type: "number", group: "Khổ & năng lực", showIf: isPress },
-    { key: "kho_min_dai", label: "Khổ in min — dài (mm)", type: "number", group: "Khổ & năng lực", showIf: isPress },
-    { key: "kho_min_rong", label: "Khổ in min — rộng (mm)", type: "number", group: "Khổ & năng lực", showIf: isPress },
-    { key: "gripper_mm", label: "Nhíp — chừa đầu (mm)", type: "number", group: "Khổ & năng lực",
-      showIf: isOffsetSheet, default: 12, hint: "Mép giấy máy kẹp kéo tờ, không in được. Offset thường 10–12 mm" },
-    { key: "so_units", label: "Số đơn vị in (màu)", type: "number", group: "Khổ & năng lực",
-      showIf: coUnits, hint: "Máy 4 màu = 4. Quyết định số lượt in mỗi tờ" },
-    { key: "toc_do", label: "Tốc độ chạy máy", type: "number", group: "Khổ & năng lực", showIf: coChiPhiGio },
-    { key: "don_vi_toc_do", label: "Đơn vị tốc độ", type: "select", group: "Khổ & năng lực",
-      options: mapOpt(DON_VI_TOC_DO), showIf: coChiPhiGio, default: "to_gio" },
-    // ── In 2 mặt & bù hao (offset tờ rời) ──────────────────────────────────────
-    { key: "cho_phep_tu_tro", label: "Cho phép tự trở", type: "checkbox", group: "In 2 mặt & bù hao",
-      showIf: isOffsetSheet, default: true, hint: "In 2 mặt bằng 1 bộ kẽm (lật chồng giấy)" },
-    { key: "co_tro_mat", label: "Máy trở mặt (perfector)", type: "checkbox", group: "In 2 mặt & bù hao",
-      showIf: isOffsetSheet, hint: "In 2 mặt trong 1 lượt chạy" },
-    { key: "units_truoc", label: "Units mặt trước", type: "number", group: "In 2 mặt & bù hao",
-      showIf: (f) => isOffsetSheet(f) && !!f.co_tro_mat, hint: "Perfector 4/4 = 4 + 4" },
-    { key: "units_sau", label: "Units mặt sau", type: "number", group: "In 2 mặt & bù hao",
-      showIf: (f) => isOffsetSheet(f) && !!f.co_tro_mat },
-    { key: "bu_hao_canh_may_per_mau", label: "Tờ canh máy mỗi màu", type: "number", group: "In 2 mặt & bù hao",
-      showIf: isOffsetSheet, default: 100,
-      hint: "Tờ hao để canh chỉnh mỗi màu/mặt, thường 100–150. Có CIP3 giảm còn một nửa. Để trống = 100" },
-    { key: "bu_hao_chay_pct", label: "Hao khi chạy %", type: "number", group: "In 2 mặt & bù hao",
-      showIf: isOffsetSheet, default: 2, hint: "% tờ hỏng trong lúc chạy sản lượng. Để trống = 2%" },
-    { key: "ho_tro_cip3", label: "Có CIP3 (chốt mực tự động)", type: "checkbox", group: "In 2 mặt & bù hao",
-      showIf: isOffsetSheet },
-    // ── Chi phí giờ máy (BHR) — trừ thuê ngoài ─────────────────────────────────
-    { key: "nguon_bhr", label: "Cách khai đơn giá giờ", type: "select", group: "Chi phí giờ máy",
-      options: mapOpt(NGUON_BHR), showIf: coChiPhiGio, default: "dung_tu_von",
-      hint: "Đã thuộc lòng đơn giá giờ máy? Chọn gõ thẳng cho nhanh" },
-    { key: "don_gia_gio_BHR", label: "Đơn giá giờ máy (đ/giờ)", type: "number", group: "Chi phí giờ máy",
-      showIf: (f) => coChiPhiGio(f) && f.nguon_bhr === "nhap_truc_tiep",
-      hint: "VD máy offset 74 cũ: 500.000–900.000 đ/giờ" },
-    { key: "von_dau_tu", label: "Vốn đầu tư (đ)", type: "number", group: "Chi phí giờ máy", showIf: bhrTuVon,
-      hint: "Giá mua máy gồm cả lắp đặt" },
-    { key: "gia_tri_thu_hoi", label: "Giá trị thu hồi (đ)", type: "number", group: "Chi phí giờ máy",
-      showIf: bhrTuVon, hint: "Bán thanh lý được bao nhiêu khi hết khấu hao — trừ khỏi khấu hao" },
-    { key: "nam_khau_hao", label: "Số năm khấu hao", type: "number", group: "Chi phí giờ máy",
-      showIf: bhrTuVon, default: 8 },
-    { key: "lai_von_pct", label: "Lãi vốn %/năm", type: "number", group: "Chi phí giờ máy", showIf: bhrTuVon,
-      hint: "Lãi vay/chi phí vốn mua máy — máy trả góp thì đây là tiền thật, đừng bỏ trống" },
-    { key: "gio_lam_nam", label: "Giờ chạy / năm", type: "number", group: "Chi phí giờ máy",
-      showIf: bhrTuVon, default: 2000, hint: "1 ca ≈ 2.000 giờ/năm; 2 ca ≈ 4.000" },
-    { key: "availability_pct", label: "Tỉ lệ máy sẵn sàng %", type: "number", group: "Chi phí giờ máy",
-      showIf: bhrTuVon, default: 85, hint: "Trừ giờ hỏng + bảo trì. Không rõ để 85" },
-    { key: "productivity_pct", label: "Tỉ lệ giờ có việc %", type: "number", group: "Chi phí giờ máy",
-      showIf: bhrTuVon, default: 85, hint: "Phần giờ máy thực sự chạy việc tính tiền được. Không rõ để 85" },
-    { key: "luong_gio", label: "Lương / giờ 1 người (đ)", type: "number", group: "Chi phí giờ máy", showIf: bhrTuVon },
-    { key: "luong_burden_pct", label: "Phụ cấp + BHXH %", type: "number", group: "Chi phí giờ máy",
-      showIf: bhrTuVon, default: 30, hint: "Cộng thêm trên lương cơ bản, thường 25–40%" },
-    { key: "so_nhan_cong", label: "Số nhân công đứng máy", type: "number", group: "Chi phí giờ máy",
-      showIf: bhrTuVon, default: 1, hint: "Máy trở mặt lớn có thể 2–3 người" },
-    { key: "cong_suat_kW", label: "Công suất điện (kW)", type: "number", group: "Chi phí giờ máy", showIf: bhrTuVon },
-    { key: "don_gia_dien", label: "Đơn giá điện (đ/kWh)", type: "number", group: "Chi phí giờ máy", showIf: bhrTuVon },
-    { key: "bao_hiem_nam", label: "Bảo hiểm máy (đ/năm)", type: "number", group: "Chi phí giờ máy", showIf: bhrTuVon },
-    { key: "dien_tich_san_m2", label: "Diện tích chiếm sàn (m²)", type: "number", group: "Chi phí giờ máy",
-      showIf: bhrTuVon, hint: "Để phân bổ tiền thuê mặt bằng" },
-    { key: "don_gia_thue_m2_nam", label: "Thuê mặt bằng (đ/m²/năm)", type: "number", group: "Chi phí giờ máy", showIf: bhrTuVon },
-    { key: "bao_tri_gio", label: "Bảo trì (đ/giờ)", type: "number", group: "Chi phí giờ máy", showIf: bhrTuVon },
-    { key: "overhead_gio", label: "Chi phí gián tiếp khác (đ/giờ)", type: "number", group: "Chi phí giờ máy",
-      showIf: bhrTuVon, hint: "CHỈ phần chưa kê ở trên — đừng nhập lại điện/lương/bảo trì kẻo tính trùng" },
-    { key: "markup_pct", label: "Markup giá bán giờ máy %", type: "number", group: "Chi phí giờ máy",
-      showIf: coChiPhiGio, hint: "Chỉ dùng cho giá bán giờ tham khảo — LÃI báo giá nhập ở màn Tính giá, đừng nhập trùng" },
-    // ── Thuê ngoài (cost center ảo) ────────────────────────────────────────────
-    { key: "nha_cung_cap", label: "Nhà cung cấp", type: "text", group: "Thuê ngoài", showIf: isThueNgoai },
-    { key: "don_gia", label: "Đơn giá NCC", type: "number", group: "Thuê ngoài",
-      showIf: isThueNgoai, jsonKey: "fields_theo_loai" },
-    { key: "don_vi_gia", label: "Tính giá theo", type: "select", group: "Thuê ngoài",
-      options: mapOpt(DV_GIA_NGOAI), showIf: isThueNgoai, jsonKey: "fields_theo_loai" },
-    { key: "min_charge", label: "Thu tối thiểu (đ)", type: "number", group: "Thuê ngoài",
-      showIf: isThueNgoai, jsonKey: "fields_theo_loai", hint: "Sàn mỗi lần gửi gia công dù số lượng ít" },
-    { key: "lead_time_ngay", label: "Thời gian trả hàng (ngày)", type: "number", group: "Thuê ngoài",
-      showIf: isThueNgoai, jsonKey: "fields_theo_loai" },
-    { key: "markup_ngoai_pct", label: "Markup trên giá NCC %", type: "number", group: "Thuê ngoài",
-      showIf: isThueNgoai, jsonKey: "fields_theo_loai" },
-    // ── Kỹ thuật số (giá click / mực) ──────────────────────────────────────────
-    { key: "cong_nghe", label: "Công nghệ", type: "select", group: "Kỹ thuật số",
-      options: mapOpt(CONG_NGHE_DIG), showIf: (f) => f.loai_may === "press_digital",
-      jsonKey: "fields_theo_loai", default: "toner" },
-    { key: "click_mono", label: "Giá click đen trắng (đ/mặt)", type: "number", group: "Kỹ thuật số",
-      showIf: (f) => f.loai_may === "press_digital" && (f.cong_nghe ?? "toner") === "toner",
-      jsonKey: "fields_theo_loai" },
-    { key: "click_mau", label: "Giá click màu (đ/mặt)", type: "number", group: "Kỹ thuật số",
-      showIf: (f) => f.loai_may === "press_digital" && (f.cong_nghe ?? "toner") === "toner",
-      jsonKey: "fields_theo_loai" },
-    { key: "min_click", label: "Click tối thiểu / đơn", type: "number", group: "Kỹ thuật số",
-      showIf: (f) => f.loai_may === "press_digital" && (f.cong_nghe ?? "toner") === "toner",
-      jsonKey: "fields_theo_loai" },
-    { key: "don_gia_muc_per_m2", label: "Đơn giá mực (đ/m²)", type: "number", group: "Kỹ thuật số",
-      showIf: (f) => f.loai_may === "press_digital" && f.cong_nghe === "inkjet_production",
-      jsonKey: "fields_theo_loai" },
+    // ── Nhóm máy (chữ tự do — chỉ để nhóm/lọc, không điều khiển ẩn/hiện) ─────────
+    { key: "loai_may", label: "Nhóm máy", type: "text", required: true, group: "Phân loại",
+      hint: "Gõ tự do, vd: Máy in, Cán màng, Bồi sóng, Bế…" },
+    // ── Khổ kẽm + nhíp kẽm ─────────────────────────────────────────────────────
+    { key: "kho_kem_rong", label: "Khổ kẽm — rộng (mm)", type: "number", group: "Khổ kẽm & vùng in",
+      hint: "Bản kẽm máy nhận, vd 800*1030 (rộng*dài)" },
+    { key: "kho_kem_dai", label: "Khổ kẽm — dài (mm)", type: "number", group: "Khổ kẽm & vùng in" },
+    { key: "gripper_mm", label: "Nhíp kẽm (mm)", type: "number", group: "Khổ kẽm & vùng in",
+      hint: "Mép nhíp trên kẽm, vd 44 mm" },
+    // ── Vùng in lớn nhất ───────────────────────────────────────────────────────
+    { key: "vung_in_rong", label: "Vùng in max — rộng (mm)", type: "number", group: "Khổ kẽm & vùng in",
+      hint: "Vùng in được lớn nhất, vd 710*1010 (rộng*dài)" },
+    { key: "vung_in_dai", label: "Vùng in max — dài (mm)", type: "number", group: "Khổ kẽm & vùng in" },
+    // ── Khổ giấy min/max ───────────────────────────────────────────────────────
+    { key: "kho_min_rong", label: "Khổ giấy min — rộng (mm)", type: "number", group: "Khổ giấy" },
+    { key: "kho_min_dai", label: "Khổ giấy min — dài (mm)", type: "number", group: "Khổ giấy" },
+    { key: "kho_max_rong", label: "Khổ giấy max — rộng (mm)", type: "number", group: "Khổ giấy" },
+    { key: "kho_max_dai", label: "Khổ giấy max — dài (mm)", type: "number", group: "Khổ giấy" },
+    // ── Ghi chú ────────────────────────────────────────────────────────────────
+    { key: "ghi_chu", label: "Ghi chú 1", type: "text", group: "Ghi chú" },
+    { key: "ghi_chu_2", label: "Ghi chú 2", type: "text", group: "Ghi chú" },
   ],
 };
 
@@ -309,57 +138,85 @@ export const CFG_CONG_DOAN: CatalogConfig = {
 
 const KHO_FACET = undefined;
 
+export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
+  title: "Chủng loại giấy",
+  subtitle: "Phân loại giấy (Couché / Ford / Bristol / Ivory / Duplex / Kraft…). Giấy chọn theo đây.",
+  prefix: "/api/vat-lieu-kho/chung-loai-giay",
+  columns: [
+    { key: "be_mat", label: "Bề mặt", render: (r) => lbl(BE_MAT)(r.be_mat) },
+    { key: "tho_mac_dinh", label: "Thớ mặc định", render: (r) => lbl(THO)(r.tho_mac_dinh) },
+    STATUS_COL,
+  ],
+  fields: [
+    { key: "be_mat", label: "Bề mặt", type: "select", group: "Thông số", options: mapOpt(BE_MAT) },
+    { key: "tho_mac_dinh", label: "Thớ mặc định", type: "select", group: "Thông số", options: mapOpt(THO) },
+    { key: "mo_ta", label: "Mô tả", type: "text", group: "Thông số" },
+  ],
+};
+
 export const CFG_GIAY: CatalogConfig = {
-  title: "Kho · Giấy nguyên",
-  subtitle: "Tờ giấy nguyên (khổ mua) — engine tính giá đọc để pha khổ & tính số tờ.",
+  title: "Giấy",
+  subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy.",
   prefix: "/api/vat-lieu-kho/giay",
   facet: KHO_FACET,
   columns: [
     { key: "gsm", label: "Định lượng" },
-    { key: "kho", label: "Khổ (mm)", render: (r) => `${r.kho_rong}×${r.kho_dai}` },
-    { key: "don_gia", label: "Đơn giá", render: (r) => `${vnd(r.don_gia)}/${lbl({ kg: "kg", ram: "ram", to: "tờ" })(r.don_vi_gia)}` },
-    { key: "ton", label: "Tồn", render: (r) => vnd(r.ton) },
+    { key: "kho", label: "Khổ (mm)", render: (r) => (Number(r.kho_rong) || Number(r.kho_dai) ? `${r.kho_rong}×${r.kho_dai}` : "Cuộn / khổ mở") },
+    { key: "don_vi_gia", label: "ĐVT", render: (r) => lbl(DV_GIA_GIAY)(r.don_vi_gia) },
+    { key: "don_gia", label: "Giá", render: (r) => vnd(r.don_gia) },
   ],
   fields: [
-    { key: "kho_dai", label: "Khổ dài (mm)", type: "number", required: true, group: "Khổ & định lượng" },
-    { key: "kho_rong", label: "Khổ rộng (mm)", type: "number", required: true, group: "Khổ & định lượng" },
+    { key: "chung_loai_giay_id", label: "Chủng loại giấy", type: "ref", required: true,
+      refPrefix: "/api/vat-lieu-kho/chung-loai-giay", group: "Phân loại" },
+    { key: "kho_rong", label: "Khổ rộng (mm)", type: "number", group: "Khổ & định lượng", hint: "0 = cuộn / khổ mở" },
+    { key: "kho_dai", label: "Khổ dài (mm)", type: "number", group: "Khổ & định lượng", hint: "0 = cuộn / khổ mở" },
     { key: "gsm", label: "Định lượng (g/m²)", type: "number", required: true, group: "Khổ & định lượng" },
     { key: "caliper_micron", label: "Độ dày (µm)", type: "number", group: "Khổ & định lượng", hint: "cho gáy sách / bù creep" },
     { key: "tho", label: "Thớ giấy", type: "select", group: "Khổ & định lượng", options: mapOpt(THO) },
-    { key: "don_vi_gia", label: "Tính giá theo", type: "select", group: "Giá & tồn", options: mapOpt(DV_GIA_GIAY) },
-    { key: "don_gia", label: "Đơn giá (đ)", type: "number", group: "Giá & tồn" },
-    { key: "ton", label: "Tồn kho", type: "number", group: "Giá & tồn" },
+    { key: "don_vi_gia", label: "ĐVT", type: "select", group: "Giá", options: mapOpt(DV_GIA_GIAY) },
+    { key: "don_gia", label: "Đơn giá (đ)", type: "number", group: "Giá" },
+    { key: "gia_thi_truong", label: "Giá thị trường (đ)", type: "number", group: "Giá", hint: "tham khảo, không bắt buộc" },
+    { key: "kho_tinh_gia", label: "Khổ dùng để tính giá?", type: "checkbox", group: "Giá" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Giá" },
   ],
 };
 
-export const CFG_MUC: CatalogConfig = {
-  title: "Kho · Mực",
-  subtitle: "Mực in — engine tính chi phí mực theo độ phủ.",
-  prefix: "/api/vat-lieu-kho/muc",
+export const CFG_VAT_TU: CatalogConfig = {
+  title: "Vật tư in ấn",
+  subtitle: "Mực, bản kẽm, hoá chất, màng, keo… — mã · tên · ĐVT · giá · ghi chú.",
+  prefix: "/api/vat-lieu-kho/vat-tu-in-an",
   columns: [
-    { key: "loai_muc", label: "Loại", render: (r) => lbl(LOAI_MUC)(r.loai_muc) },
-    { key: "don_gia", label: "Đơn giá (/1.000 lượt)", render: (r) => vnd(r.don_gia) },
+    { key: "don_vi_gia", label: "ĐVT", render: (r) => lbl(DV_GIA_VAT_TU)(r.don_vi_gia) },
+    { key: "don_gia", label: "Giá", render: (r) => vnd(r.don_gia) },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+    STATUS_COL,
   ],
   fields: [
-    { key: "loai_muc", label: "Loại mực", type: "select", group: "Thông số", options: mapOpt(LOAI_MUC) },
-    { key: "ma_pantone", label: "Mã Pantone", type: "text", group: "Thông số", hint: "khi là mực pha Pantone" },
-    { key: "don_gia", label: "Đơn giá (đ / 1.000 lượt)", type: "number", group: "Giá" },
+    { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", type: "select", group: "Giá", options: mapOpt(DV_GIA_VAT_TU) },
+    { key: "don_gia", label: "Giá (đ)", type: "number", group: "Giá" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Giá" },
   ],
 };
 
-export const CFG_BAN_KEM: CatalogConfig = {
-  title: "Kho · Bản kẽm",
-  subtitle: "Bản kẽm — giá tra theo lớp khổ máy, nuôi dòng chi phí kẽm khi tính giá.",
-  prefix: "/api/vat-lieu-kho/ban-kem",
+export const CFG_KHO_GIAY_CHUAN: CatalogConfig = {
+  title: "Khổ giấy chuẩn",
+  subtitle: "Mỗi dòng = 1 khổ của 1 chủng loại giấy (cm). Khổ dài trống = giấy cuộn / khổ mở 1 chiều.",
+  prefix: "/api/vat-lieu-kho/kho-giay-chuan",
   columns: [
-    { key: "khoa_class", label: "Khổ máy", render: (r) => lbl(KHOA_CLASS)(r.khoa_class) },
-    { key: "don_gia_kem", label: "Giá / bản", render: (r) => vnd(r.don_gia_kem) },
-    { key: "ton", label: "Tồn", render: (r) => vnd(r.ton) },
+    { key: "kho", label: "Khổ (cm)", render: (r) => (r.dai ? `${r.rong}×${r.dai}` : `${r.rong} (cuộn)`) },
+    { key: "la_hiem", label: "Loại", render: (r) => (
+      <span className={`rc-pill ${r.la_hiem ? "rc-pill--off" : "rc-pill--on"}`}>{r.la_hiem ? "Hiếm" : "Chuẩn"}</span>) },
+    STATUS_COL,
   ],
   fields: [
-    { key: "khoa_class", label: "Lớp khổ máy", type: "select", required: true, group: "Thông số", options: mapOpt(KHOA_CLASS) },
-    { key: "don_gia_kem", label: "Đơn giá / bản (đ)", type: "number", group: "Giá" },
-    { key: "ton", label: "Tồn kho", type: "number", group: "Giá" },
+    { key: "chung_loai_giay_id", label: "Chủng loại giấy", type: "ref", required: true,
+      refPrefix: "/api/vat-lieu-kho/chung-loai-giay", group: "Phân loại" },
+    { key: "rong", label: "Khổ rộng (cm)", type: "number", required: true, group: "Khổ" },
+    { key: "dai", label: "Khổ dài (cm)", type: "number", group: "Khổ",
+      hint: "Bỏ trống = giấy cuộn / khổ mở (cắt tự do chiều dài)" },
+    { key: "la_hiem", label: "Khổ hiếm", type: "checkbox", group: "Khổ",
+      hint: "Khổ hiếm → báo thu mua / hỏi giấy trước khi dùng" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Khổ" },
   ],
 };
 
@@ -367,7 +224,8 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "loai-san-pham": CFG_LOAI_SAN_PHAM,
   "may-thiet-bi": CFG_MAY,
   "cong-doan": CFG_CONG_DOAN,
-  "vl-giay": CFG_GIAY,
-  "vl-muc": CFG_MUC,
-  "vl-ban-kem": CFG_BAN_KEM,
+  "chung-loai-giay": CFG_CHUNG_LOAI_GIAY,
+  "giay": CFG_GIAY,
+  "kho-giay-chuan": CFG_KHO_GIAY_CHUAN,
+  "vat-tu-in-an": CFG_VAT_TU,
 };

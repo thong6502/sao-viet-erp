@@ -69,6 +69,7 @@ class MayThietBi(Base):
         String(16), nullable=False, server_default="active", default="active"
     )
     ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ghi_chu_2: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # ---- §3.3 Tài sản / tài chính ----
     ma_tai_san: Mapped[str | None] = mapped_column(String(50), nullable=True)
@@ -130,6 +131,10 @@ class MayThietBi(Base):
     kho_max_rong: Mapped[int | None] = mapped_column(Integer, nullable=True)  # ★
     kho_min_dai: Mapped[int | None] = mapped_column(Integer, nullable=True)   # ★
     kho_min_rong: Mapped[int | None] = mapped_column(Integer, nullable=True)  # ★
+    kho_kem_dai: Mapped[int | None] = mapped_column(Integer, nullable=True)   # khổ bản kẽm (mm)
+    kho_kem_rong: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vung_in_dai: Mapped[int | None] = mapped_column(Integer, nullable=True)   # vùng in lớn nhất (mm)
+    vung_in_rong: Mapped[int | None] = mapped_column(Integer, nullable=True)
     gripper_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)    # ★ cạnh nhíp không in
     le_hong_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
     duoi_thang_mau_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)

@@ -14,7 +14,8 @@ from ..deps import require_permission
 from ..models.user import User
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.vat_lieu_kho import (
-    BanKemIn, BanKemRow, GiayIn, GiayRow, ListOut, MucIn, MucRow,
+    ChungLoaiGiayIn, ChungLoaiGiayRow, GiayIn, GiayRow, KhoGiayChuanIn, KhoGiayChuanRow,
+    ListOut, VatTuIn, VatTuRow,
 )
 from ..services.vat_lieu_kho_service import (
     VatLieuKhoDuplicate, VatLieuKhoNotFound, VatLieuKhoService, VatLieuKhoValidationError,
@@ -29,7 +30,6 @@ def get_service(db: Annotated[Session, Depends(get_db)]) -> VatLieuKhoService:
 
 
 Service = Annotated[VatLieuKhoService, Depends(get_service)]
-_ROW = {"giay": GiayRow, "muc": MucRow, "ban": BanKemRow}
 
 
 def _err(e: Exception):
@@ -41,7 +41,10 @@ def _err(e: Exception):
 
 
 def _make_crud(kind: str, InModel, RowModel, path: str):
-    @router.get(f"/{path}", response_model=ListOut, name=f"list_{kind}")
+    # NOTE: `from __future__ import annotations` biến mọi annotation thành CHUỖI. `payload: InModel`
+    # thành "InModel" mà FastAPI không resolve được (InModel là biến cục bộ factory) → tưởng query.
+    # Nên: bỏ annotation `payload` ở nguồn, gán `__annotations__["payload"] = InModel` (class thật),
+    # rồi đăng ký route THỦ CÔNG sau khi gán (decorator chạy lúc def nên không kịp).
     def _list(
         svc: Service,
         _: Annotated[User, Depends(require_permission(MODULE, "read"))],
@@ -53,43 +56,39 @@ def _make_crud(kind: str, InModel, RowModel, path: str):
         rows, total = svc.list(kind, q=q, active=active, page=page, size=size)
         return ListOut(items=[RowModel.model_validate(r) for r in rows], total=total, page=page, size=size)
 
-    @router.post(f"/{path}", response_model=RowModel, status_code=status.HTTP_201_CREATED, name=f"create_{kind}")
-    def _create(
-        payload: InModel,
-        svc: Service,
-        _: Annotated[User, Depends(require_permission(MODULE, "create"))],
-    ):
+    def _create(payload, svc: Service,
+                _: Annotated[User, Depends(require_permission(MODULE, "create"))]):
         try:
             return RowModel.model_validate(svc.create(kind, payload.model_dump(exclude_unset=True)))
         except (VatLieuKhoDuplicate, VatLieuKhoValidationError) as e:
             raise _err(e) from None
+    _create.__annotations__["payload"] = InModel
 
-    @router.put(f"/{path}/{{item_id}}", response_model=RowModel, name=f"update_{kind}")
-    def _update(
-        item_id: int,
-        payload: InModel,
-        svc: Service,
-        _: Annotated[User, Depends(require_permission(MODULE, "update"))],
-    ):
+    def _update(item_id: int, payload, svc: Service,
+                _: Annotated[User, Depends(require_permission(MODULE, "update"))]):
         try:
             return RowModel.model_validate(svc.update(kind, item_id, payload.model_dump(exclude_unset=True)))
         except (VatLieuKhoNotFound, VatLieuKhoDuplicate, VatLieuKhoValidationError) as e:
             raise _err(e) from None
+    _update.__annotations__["payload"] = InModel
 
-    @router.delete(f"/{path}/{{item_id}}", status_code=status.HTTP_204_NO_CONTENT,
-                   response_class=Response, name=f"delete_{kind}")
-    def _delete(
-        item_id: int,
-        svc: Service,
-        _: Annotated[User, Depends(require_permission(MODULE, "delete"))],
-    ):
+    def _delete(item_id: int, svc: Service,
+                _: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
         try:
             svc.delete(kind, item_id)
         except VatLieuKhoNotFound as e:
             raise _err(e) from None
         return Response(status_code=status.HTTP_204_NO_CONTENT)
 
+    router.get(f"/{path}", response_model=ListOut, name=f"list_{kind}")(_list)
+    router.post(f"/{path}", response_model=RowModel, status_code=status.HTTP_201_CREATED,
+                name=f"create_{kind}")(_create)
+    router.put(f"/{path}/{{item_id}}", response_model=RowModel, name=f"update_{kind}")(_update)
+    router.delete(f"/{path}/{{item_id}}", status_code=status.HTTP_204_NO_CONTENT,
+                  response_class=Response, name=f"delete_{kind}")(_delete)
 
+
+_make_crud("chung_loai_giay", ChungLoaiGiayIn, ChungLoaiGiayRow, "chung-loai-giay")
 _make_crud("giay", GiayIn, GiayRow, "giay")
-_make_crud("muc", MucIn, MucRow, "muc")
-_make_crud("ban", BanKemIn, BanKemRow, "ban-kem")
+_make_crud("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an")
+_make_crud("kho_giay_chuan", KhoGiayChuanIn, KhoGiayChuanRow, "kho-giay-chuan")

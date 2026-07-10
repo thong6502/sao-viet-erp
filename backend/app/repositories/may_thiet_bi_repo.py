@@ -9,7 +9,7 @@ from ..models.may_thiet_bi import MayThietBi
 # Field client được phép gán (ma chuẩn hoá riêng; id/created/updated do server quản).
 ASSIGNABLE = (
     "ten", "loai_may", "finishing_subtype", "nhom_cost_center", "phong_ban_id", "dia_diem",
-    "hang_san_xuat", "model", "so_seri", "trang_thai", "ghi_chu",
+    "hang_san_xuat", "model", "so_seri", "trang_thai", "ghi_chu", "ghi_chu_2",
     "ma_tai_san", "ma_TK_cost_center", "nha_cung_cap", "ngay_dua_vao_su_dung",
     "het_han_bao_hanh", "phuong_phap_khau_hao",
     "nguon_bhr", "don_gia_gio_BHR", "von_dau_tu", "gia_tri_thu_hoi", "nam_khau_hao",
@@ -20,7 +20,8 @@ ASSIGNABLE = (
     "toc_do", "don_vi_toc_do", "makeready_time_default", "thoi_gian_rua_muc", "min_stock_gsm",
     "max_stock_gsm", "vat_lieu_ho_tro_class", "so_may_song_song", "so_ca", "chi_so_dem_luot",
     "ngay_bao_tri_gan_nhat", "chu_ky_bao_tri", "chu_ky_bao_tri_don_vi", "ngay_bao_tri_ke_tiep",
-    "kho_max_dai", "kho_max_rong", "kho_min_dai", "kho_min_rong", "gripper_mm", "le_hong_mm",
+    "kho_max_dai", "kho_max_rong", "kho_min_dai", "kho_min_rong",
+    "kho_kem_dai", "kho_kem_rong", "vung_in_dai", "vung_in_rong", "gripper_mm", "le_hong_mm",
     "duoi_thang_mau_mm", "so_units", "units_truoc", "units_sau", "khoa_class", "co_tro_mat",
     "cho_phep_tu_tro", "cho_phep_tro_dau_duoi", "bu_hao_canh_may_per_mau", "bu_hao_chay_pct",
     "ho_tro_cip3", "fields_theo_loai",

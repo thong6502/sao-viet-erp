@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from .models.cong_doan import CongDoan
 from .models.loai_san_pham import LoaiSanPham
 from .models.may_thiet_bi import MayThietBi
-from .models.vat_lieu_kho import BanKem, GiayNguyen, Muc
+from .models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, KhoGiayChuan, VatTuInAn
 
 
 def _empty(db: Session, model) -> bool:
@@ -21,59 +21,181 @@ def _empty(db: Session, model) -> bool:
 def seed_rebuild_catalog(db: Session) -> None:
     # --- Máy (spec-may-thiet-bi §7) ---
     if _empty(db, MayThietBi):
+        # Dữ liệu THẬT của xưởng. Dim mm, rộng = số đầu, dài = số sau (vd "800*1030" = rộng 800, dài 1030).
+        # Nhóm máy = chữ tự do (form MỞ). Chủ xưởng tự đặt tên nhóm để nhóm/lọc.
+        _IN = "Máy in"              # máy in nội bộ
+        _INX = "In ngoài"          # xưởng in ngoài
+        _CM = "Cán màng / UV"      # cán màng / UV
+        _BOI = "Bồi"               # bồi sóng / duplex
+        _BE = "Bế"                 # bế / ép kim
         db.add_all([
-            MayThietBi(ma="TB-0001", ten="Offset 4 màu khổ 74", loai_may="press_offset_sheet",
-                       trang_thai="active", khoa_class="74", kho_max_dai=740, kho_max_rong=530,
-                       kho_min_dai=280, kho_min_rong=210, gripper_mm=12, so_units=4,
-                       von_dau_tu=4_000_000_000, gia_tri_thu_hoi=400_000_000, nam_khau_hao=8,
-                       lai_von_pct=10, gio_lam_nam=2000, availability_pct=90, productivity_pct=83,
-                       so_nhan_cong=2, luong_gio=60000, cong_suat_kW=80, don_gia_dien=3000,
-                       toc_do=13000, don_vi_toc_do="to_gio", markup_pct=15),
-            MayThietBi(ma="TB-0002", ten="Offset 5 màu khổ 102 (perfector)", loai_may="press_offset_sheet",
-                       trang_thai="active", khoa_class="102", kho_max_dai=1020, kho_max_rong=720,
-                       kho_min_dai=350, kho_min_rong=250, gripper_mm=12, so_units=5, toc_do=15000,
-                       don_vi_toc_do="to_gio", von_dau_tu=9_000_000_000, nam_khau_hao=8),
-            MayThietBi(ma="TB-0003", ten="Kỹ thuật số SRA3 (toner)", loai_may="press_digital",
-                       trang_thai="active", kho_max_dai=487, kho_max_rong=330, toc_do=4000,
-                       don_vi_toc_do="to_gio"),
-            MayThietBi(ma="TB-0004", ten="Ghi kẽm CTP khổ B1", loai_may="prepress_ctp",
-                       trang_thai="active", toc_do=20, don_vi_toc_do="to_gio"),
-            MayThietBi(ma="TB-0005", ten="Máy xén 1150", loai_may="finishing",
-                       finishing_subtype="guillotine", trang_thai="active"),
-            MayThietBi(ma="TB-0006", ten="Máy cán màng bóng", loai_may="finishing",
-                       finishing_subtype="laminator", trang_thai="active"),
-            MayThietBi(ma="TB-0007", ten="Gia công cán màng (thuê ngoài)", loai_may="thue_ngoai",
-                       trang_thai="active"),
+            # ── MÁY IN nội bộ — kẽm / nhíp / khổ giấy / vùng in ───────────────────────
+            MayThietBi(ma="IN-01", ten="Máy 2 màu Mitsubishi 72×102", loai_may=_IN, trang_thai="active",
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44,
+                       kho_min_rong=390, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
+                       vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV được",
+                       ghi_chu_2="Hàng bồi sóng phải chạy in tay kề nghịch, đặt tay kề sẵn trên bài in"),
+            MayThietBi(ma="IN-02", ten="Máy 4 màu Mitsubishi 79×109", loai_may=_IN, trang_thai="active",
+                       kho_kem_rong=930, kho_kem_dai=1130, gripper_mm=60,
+                       kho_min_rong=540, kho_min_dai=750, kho_max_rong=800, kho_max_dai=1090,
+                       vung_in_rong=780, vung_in_dai=1080),
+            MayThietBi(ma="IN-03", ten="Máy 5 màu Mitsubishi 54×79", loai_may=_IN, trang_thai="active",
+                       kho_kem_rong=645, kho_kem_dai=830, gripper_mm=50,
+                       kho_min_rong=320, kho_min_dai=420, kho_max_rong=540, kho_max_dai=790,
+                       vung_in_rong=535, vung_in_dai=780),
+            MayThietBi(ma="IN-04", ten="Máy 6 màu Mitsubishi 72×102", loai_may=_IN, trang_thai="active",
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44,
+                       kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
+                       vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV được"),
+            MayThietBi(ma="IN-05", ten="Máy 6 màu Heidelberg 72×102", loai_may=_IN, trang_thai="active",
+                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44,
+                       kho_min_rong=395, kho_min_dai=560, kho_max_rong=720, kho_max_dai=1020,
+                       vung_in_rong=690, vung_in_dai=1000, ghi_chu="Có in UV được",
+                       ghi_chu_2="Vùng in lớn hơn 69cm thì nhíp kẽm 38mm; chỉ in được giấy từ 150g trở lên"),
+            MayThietBi(ma="IN-06", ten="Máy 7 màu Heidelberg 72×102", loai_may=_IN, trang_thai="active",
+                       kho_kem_rong=765, kho_kem_dai=1030, gripper_mm=44,
+                       kho_min_rong=395, kho_min_dai=560, kho_max_rong=720, kho_max_dai=1020,
+                       vung_in_rong=690, vung_in_dai=1000),
+            # ── IN ngoài (xưởng in ngoài) ────────────────────────────────────────────
+            MayThietBi(ma="IN-07", ten="Minh Tiến 72×102 - 5 màu", loai_may=_INX, trang_thai="active",
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=48,
+                       kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
+                       vung_in_rong=710, vung_in_dai=1010, ghi_chu_2="Xưởng in ngoài"),
+            MayThietBi(ma="IN-08", ten="Hoàng Anh 1020×1420 - 6 màu", loai_may=_INX, trang_thai="active",
+                       kho_min_rong=575, kho_min_dai=810, kho_max_rong=1020, kho_max_dai=1420,
+                       vung_in_rong=1000, vung_in_dai=1400, ghi_chu_2="Xưởng in ngoài"),
+            MayThietBi(ma="IN-09", ten="Bảo Tiến 72×102 - 6 màu", loai_may=_INX, trang_thai="active",
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=50,
+                       kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
+                       vung_in_rong=710, vung_in_dai=1010, ghi_chu="Có in UV", ghi_chu_2="Xưởng in ngoài"),
+            MayThietBi(ma="IN-10", ten="Đỉnh Việt 72×102 - 5 màu", loai_may=_INX, trang_thai="active",
+                       kho_kem_rong=800, kho_kem_dai=1030, gripper_mm=44,
+                       kho_min_rong=395, kho_min_dai=545, kho_max_rong=720, kho_max_dai=1020,
+                       vung_in_rong=710, vung_in_dai=1010, ghi_chu_2="Xưởng in ngoài"),
+            # ── MÁY CÁN MÀNG + UV ĐỊNH HÌNH — chỉ khổ giấy min/max ────────────────────
+            MayThietBi(ma="CM-01", ten="Máy UV toàn phần 790×1090", loai_may=_CM, trang_thai="active",
+                       kho_min_rong=280, kho_min_dai=380, kho_max_rong=790, kho_max_dai=1090,
+                       ghi_chu="Lớn hơn nửa thì thả tay dọc được"),
+            MayThietBi(ma="CM-02", ten="Máy UV định hình 720×1020", loai_may=_CM, trang_thai="active",
+                       kho_min_rong=360, kho_min_dai=440, kho_max_rong=720, kho_max_dai=1020,
+                       ghi_chu="Xuất film để chụp lụa kéo",
+                       ghi_chu_2="Phim đế 100k để chụp nét nội dung"),
+            MayThietBi(ma="CM-03", ten="Máy cán màng 800×1080", loai_may=_CM, trang_thai="active",
+                       kho_min_rong=300, kho_min_dai=300, kho_max_rong=800, kho_max_dai=1080),
+            MayThietBi(ma="CM-04", ten="Máy cán màng 1250×1500", loai_may=_CM, trang_thai="active",
+                       kho_min_rong=300, kho_min_dai=300, kho_max_rong=1250, kho_max_dai=1500),
+            # ── MÁY BỒI SÓNG + BỒI DUPLEX ────────────────────────────────────────────
+            MayThietBi(ma="BOI-01", ten="Bồi sóng 1450×1450", loai_may=_BOI, trang_thai="active",
+                       kho_min_rong=395, kho_min_dai=395, kho_max_rong=1450, kho_max_dai=1450,
+                       ghi_chu="Sóng luôn ghi chiều khổ trước",
+                       ghi_chu_2="Tem luôn lớn hơn sóng mỗi chiều 5mm; trừ khi ăn gian giấy thì bằng ĐC nhưng phải báo"),
+            MayThietBi(ma="BOI-02", ten="Bồi sóng 1700×1700", loai_may=_BOI, trang_thai="active",
+                       kho_min_rong=395, kho_min_dai=395, kho_max_rong=1700, kho_max_dai=1700),
+            MayThietBi(ma="BOI-03", ten="Bồi duplex với duplex 1100", loai_may=_BOI, trang_thai="active",
+                       kho_min_rong=280, kho_min_dai=380, kho_max_rong=700, kho_max_dai=1000),
+            MayThietBi(ma="BOI-04", ten="Bồi thủ công 1100", loai_may=_BOI, trang_thai="active",
+                       kho_min_rong=200, kho_min_dai=200, kho_max_rong=700, kho_max_dai=1000),
+            # ── MÁY BẾ TỰ ĐỘNG + BẾ TAY ──────────────────────────────────────────────
+            MayThietBi(ma="BE-01", ten="Máy bế tự động Yawa 1050", loai_may=_BE, trang_thai="active",
+                       kho_min_rong=380, kho_min_dai=380, kho_max_rong=720, kho_max_dai=1050,
+                       ghi_chu="Tự động trừ nhíp bế 8mm; chỉ ăn gian được tại dán ở nhíp thì phải tháo dao lạng hoặc tháo bớt nhíp gấp, phải hỏi thợ trước",
+                       ghi_chu_2="Ván min 450×650, ván thực lỗ min 450×450"),
+            MayThietBi(ma="BE-02", ten="Máy ép kim bế tự động Aoer 1050", loai_may=_BE, trang_thai="active",
+                       kho_min_rong=380, kho_min_dai=380, kho_max_rong=720, kho_max_dai=1050),
+            MayThietBi(ma="BE-03", ten="Máy bế tự động Aoer 1500", loai_may=_BE, trang_thai="active",
+                       kho_min_rong=400, kho_min_dai=420, kho_max_rong=1100, kho_max_dai=1500),
+            MayThietBi(ma="BE-04", ten="Máy bế tự động Brouse 145", loai_may=_BE, trang_thai="active",
+                       kho_min_rong=400, kho_min_dai=420, kho_max_rong=1050, kho_max_dai=1450),
+            MayThietBi(ma="BE-05", ten="Máy ép kim bế tự động Diamon 1020", loai_may=_BE, trang_thai="active",
+                       kho_min_rong=380, kho_min_dai=380, kho_max_rong=720, kho_max_dai=1020),
+            MayThietBi(ma="BE-06", ten="Máy bế tay 720/930/1100/1500", loai_may=_BE, trang_thai="active",
+                       kho_min_rong=150, kho_min_dai=150, kho_max_rong=1050, kho_max_dai=1450,
+                       ghi_chu="Bế tay bế SL ít, bế hàng ăn gian nhíp"),
         ])
         db.commit()
 
-    # --- Vật liệu Kho (spec-tinh-gia §3.1) ---
+    # --- Danh mục Giấy & Vật tư (Cấu hình danh mục) ---
+    if _empty(db, ChungLoaiGiay):
+        db.add_all([
+            ChungLoaiGiay(ma="COUCHE", ten="Couché", be_mat="bong", mo_ta="Giấy tráng phủ 2 mặt, bóng."),
+            ChungLoaiGiay(ma="FORD", ten="Ford (giấy in thường)", be_mat="nham"),
+            ChungLoaiGiay(ma="IVORY", ten="Ivory (bìa 1 mặt)", be_mat="bong"),
+            ChungLoaiGiay(ma="DUPLEX", ten="Duplex (bồi 2 lớp)", be_mat="nham"),
+            ChungLoaiGiay(ma="BRISTOL", ten="Bristol", be_mat="mo"),
+            ChungLoaiGiay(ma="KRAFT", ten="Kraft (giấy nâu)", be_mat="nham"),
+        ])
+        db.commit()
+    _cl = {c.ma: c.id for c in db.execute(select(ChungLoaiGiay)).scalars()}
     if _empty(db, GiayNguyen):
         db.add_all([
-            GiayNguyen(ma="COUCHE-300-65x86", ten="Couché 300 65×86", kho_dai=860, kho_rong=650,
-                       gsm=300, caliper_micron=310, tho="canh_dai", don_vi_gia="kg", don_gia=30000, ton=500),
-            GiayNguyen(ma="COUCHE-150-79x109", ten="Couché 150 79×109", kho_dai=1090, kho_rong=790,
-                       gsm=150, caliper_micron=150, tho="canh_dai", don_vi_gia="kg", don_gia=28000, ton=800),
-            GiayNguyen(ma="FORD-70-65x86", ten="Ford 70 65×86", kho_dai=860, kho_rong=650, gsm=70,
-                       caliper_micron=95, tho="canh_ngan", don_vi_gia="kg", don_gia=26000, ton=1200),
-            GiayNguyen(ma="IVORY-350-79x109", ten="Ivory 350 79×109", kho_dai=1090, kho_rong=790,
-                       gsm=350, caliper_micron=430, tho="canh_dai", don_vi_gia="kg", don_gia=32000, ton=300),
-            GiayNguyen(ma="DUPLEX-300", ten="Duplex 300", kho_dai=1090, kho_rong=790, gsm=300,
-                       caliper_micron=380, don_vi_gia="kg", don_gia=18000, ton=600),
+            GiayNguyen(ma="COUCHE-300-65x86", ten="Couché 300 65×86", chung_loai_giay_id=_cl.get("COUCHE"),
+                       kho_dai=860, kho_rong=650, gsm=300, caliper_micron=310, tho="canh_dai",
+                       don_vi_gia="kg", don_gia=30000, ton=500),
+            GiayNguyen(ma="COUCHE-150-79x109", ten="Couché 150 79×109", chung_loai_giay_id=_cl.get("COUCHE"),
+                       kho_dai=1090, kho_rong=790, gsm=150, caliper_micron=150, tho="canh_dai",
+                       don_vi_gia="kg", don_gia=28000, ton=800),
+            GiayNguyen(ma="FORD-70-65x86", ten="Ford 70 65×86", chung_loai_giay_id=_cl.get("FORD"),
+                       kho_dai=860, kho_rong=650, gsm=70, caliper_micron=95, tho="canh_ngan",
+                       don_vi_gia="kg", don_gia=26000, ton=1200),
+            GiayNguyen(ma="IVORY-350-79x109", ten="Ivory 350 79×109", chung_loai_giay_id=_cl.get("IVORY"),
+                       kho_dai=1090, kho_rong=790, gsm=350, caliper_micron=430, tho="canh_dai",
+                       don_vi_gia="kg", don_gia=32000, ton=300),
+            GiayNguyen(ma="DUPLEX-300", ten="Duplex 300", chung_loai_giay_id=_cl.get("DUPLEX"),
+                       kho_dai=1090, kho_rong=790, gsm=300, caliper_micron=380,
+                       don_vi_gia="kg", don_gia=18000, ton=600),
         ])
         db.commit()
-    if _empty(db, Muc):
+    # Backfill chủng loại cho giấy chưa gắn (dev data / sau migration) theo tiền tố mã.
+    _unlinked = list(db.execute(select(GiayNguyen).where(GiayNguyen.chung_loai_giay_id.is_(None))).scalars())
+    if _unlinked:
+        for g in _unlinked:
+            for pfx, clid in _cl.items():
+                if g.ma.upper().startswith(pfx):
+                    g.chung_loai_giay_id = clid
+                    break
+        db.commit()
+
+    if _empty(db, VatTuInAn):
         db.add_all([
-            Muc(ma="MUC-CMYK", ten="Mực process CMYK", loai_muc="process", don_gia=8000),
-            Muc(ma="MUC-PANTONE", ten="Mực pha Pantone", loai_muc="pantone", don_gia=15000),
+            VatTuInAn(ma="MUC-CMYK", ten="Mực process CMYK", don_vi_gia="kg", don_gia=8000),
+            VatTuInAn(ma="MUC-PANTONE", ten="Mực pha Pantone", don_vi_gia="kg", don_gia=15000),
+            VatTuInAn(ma="KEM-74", ten="Bản kẽm khổ 74", don_vi_gia="ban", don_gia=100000),
+            VatTuInAn(ma="KEM-102", ten="Bản kẽm khổ 102", don_vi_gia="ban", don_gia=180000),
+            VatTuInAn(ma="KEM-52", ten="Bản kẽm khổ 52", don_vi_gia="ban", don_gia=70000),
+            VatTuInAn(ma="MANG-BONG", ten="Màng cán bóng", don_vi_gia="m2", don_gia=3000),
+            VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45000,
+                      ghi_chu="UV định hình 1 thùng = 3kg"),
         ])
         db.commit()
-    if _empty(db, BanKem):
-        db.add_all([
-            BanKem(ma="KEM-74", ten="Bản kẽm khổ 74", khoa_class="74", don_gia_kem=100000, ton=200),
-            BanKem(ma="KEM-102", ten="Bản kẽm khổ 102", khoa_class="102", don_gia_kem=180000, ton=150),
-            BanKem(ma="KEM-52", ten="Bản kẽm khổ 52", khoa_class="52", don_gia_kem=70000, ton=100),
-        ])
+
+    # --- Khổ giấy chuẩn (DANH MỤC KHỔ GIẤY CHUẨN, cm) — Duplex/Ivory cuộn, Ford/Couché ream ---
+    if _empty(db, KhoGiayChuan):
+        cuon = {  # chủng loại cuộn (dai=None) → (khổ rộng chuẩn, khổ rộng hiếm)
+            "DUPLEX": ([60, 65, 79, 84, 86, 89, 109, 120], [70, 72, 75, 100, 102, 105, 140]),
+            "IVORY": ([60, 65, 79, 84, 86, 89, 109, 120], [70, 72, 75, 100, 102, 105, 144]),
+        }
+        ream = {  # chủng loại ream → ([(rộng,dài) chuẩn], [rộng cuộn hiếm])
+            "FORD": ([(60, 84), (65, 86), (79, 109)], [60, 65, 79, 86]),
+            "COUCHE": ([(60, 84), (65, 86), (79, 109)], [60, 65, 79, 86]),
+        }
+        rows = []
+        for cl_ma, (chuan, hiem) in cuon.items():
+            clid = _cl.get(cl_ma)
+            for w in chuan:
+                rows.append(KhoGiayChuan(ma=f"KGC-{cl_ma}-{w}", ten=f"{cl_ma} khổ {w} (cuộn)",
+                                         chung_loai_giay_id=clid, rong=w, la_hiem=False))
+            for w in hiem:
+                rows.append(KhoGiayChuan(ma=f"KGC-{cl_ma}-{w}H", ten=f"{cl_ma} khổ {w} (cuộn, hiếm)",
+                                         chung_loai_giay_id=clid, rong=w, la_hiem=True))
+        for cl_ma, (chuan, hiem_cuon) in ream.items():
+            clid = _cl.get(cl_ma)
+            for (w, d) in chuan:
+                rows.append(KhoGiayChuan(ma=f"KGC-{cl_ma}-{w}x{d}", ten=f"{cl_ma} {w}×{d} (ream)",
+                                         chung_loai_giay_id=clid, rong=w, dai=d, la_hiem=False))
+            for w in hiem_cuon:
+                rows.append(KhoGiayChuan(ma=f"KGC-{cl_ma}-{w}C", ten=f"{cl_ma} khổ {w} (cuộn, hiếm)",
+                                         chung_loai_giay_id=clid, rong=w, la_hiem=True))
+        db.add_all(rows)
         db.commit()
 
     # --- Công đoạn (spec-cong-doan §9); may_id nối máy vừa seed ---

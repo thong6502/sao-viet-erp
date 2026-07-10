@@ -25,6 +25,7 @@ from ..services.may_thiet_bi_service import (
     MayThietBiNotFound,
     MayThietBiService,
     MayThietBiValidationError,
+    compute_bhr_preview,
 )
 
 router = APIRouter(prefix="/api/may-thiet-bi", tags=["may-thiet-bi"])
@@ -77,6 +78,20 @@ def bhr(
     except MayThietBiNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     except MayThietBiValidationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+
+
+@router.post("/bhr-preview", response_model=BhrBreakdownOut)
+def bhr_preview(
+    payload: dict,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> BhrBreakdownOut:
+    """BHR preview từ dữ liệu form (máy CHƯA lưu) — nuôi block xem-trước trong drawer."""
+    try:
+        return BhrBreakdownOut(**compute_bhr_preview(payload))
+    except MayThietBiValidationError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
+    except (TypeError, ValueError) as e:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)) from None
 
 
