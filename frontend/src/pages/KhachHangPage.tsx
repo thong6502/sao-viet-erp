@@ -729,33 +729,20 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
         </div>
       )}
 
-      {/* KPI header strip — số thật từ đơn hàng */}
-      <KpiStrip kpis={kpis} loading={loading && !kpis} />
+      {/* KPI header strip — ô 4 = Cần chăm sóc hôm nay (bấm xổ danh sách, hết panel riêng). */}
+      <KpiStrip
+        kpis={kpis}
+        loading={loading && !kpis}
+        careCount={followups.length}
+        suggestCount={visibleSuggestions.length}
+        careOpen={followupsOpen}
+        onToggleCare={() => setFollowupsOpen((v) => !v)}
+      />
 
-      {/* Cần chăm sóc (#28): việc đến hạn/quá hạn, nhắc lần 1-2-3 — bấm mở hồ sơ khách. */}
-      {(followups.length > 0 || visibleSuggestions.length > 0) && (
+      {/* Danh sách Cần chăm sóc — chỉ hiện khi bấm ô KPI, sát ngay dưới strip. */}
+      {(followups.length > 0 || visibleSuggestions.length > 0) && followupsOpen && (
         <div className="kh__followups card">
-          <button
-            type="button"
-            className="kh__followups-head"
-            onClick={() => setFollowupsOpen((v) => !v)}
-            aria-expanded={followupsOpen}
-          >
-            <span aria-hidden="true" className="kh__followups-ic"><AlarmClock size={15} /></span>
-            <strong>
-              Cần chăm sóc: {followups.length} việc đến hạn
-              {visibleSuggestions.length > 0 ? ` · ${visibleSuggestions.length} gợi ý` : ""}
-            </strong>
-            <span className="kh__muted">
-              {followups.filter((f) => f.remind_level >= 3).length > 0
-                ? ` · ${followups.filter((f) => f.remind_level >= 3).length} việc nhắc lần 3`
-                : ""}
-            </span>
-            <span className="kh__followups-caret" aria-hidden="true">
-              {followupsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </span>
-          </button>
-          {followupsOpen && (
+          {(
             <ul className="kh__followups-list">
               {followups.map((f) => (
                 <li key={f.id}>
@@ -950,11 +937,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                 </button>
               </div>
             </div>
-          ) : (
-            <span className="kh__bulkhint">
-              Tick vào ô chọn ở đầu mỗi dòng để điều chuyển khách hàng hàng loạt.
-            </span>
-          )}
+          ) : null}
         </div>
       )}
 
@@ -967,6 +950,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                   <input
                     type="checkbox"
                     aria-label="Chọn tất cả trên trang"
+                    title="Tick để chọn khách hàng — chọn xong sẽ hiện nút điều chuyển hàng loạt"
                     checked={allOnPageSelected}
                     onChange={toggleAllOnPage}
                   />
@@ -1341,8 +1325,23 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
 
 // --- KPI header strip --------------------------------------------------------
 
-function KpiStrip({ kpis, loading }: { kpis: CustomerKpis | null; loading: boolean }) {
-  // MỘT card chia 4 ngăn (mockup) — số to + đơn vị nhỏ tách rời như prototype.
+function KpiStrip({
+  kpis,
+  loading,
+  careCount,
+  suggestCount,
+  careOpen,
+  onToggleCare,
+}: {
+  kpis: CustomerKpis | null;
+  loading: boolean;
+  careCount: number;
+  suggestCount: number;
+  careOpen: boolean;
+  onToggleCare: () => void;
+}) {
+  // MỘT card chia 4 ngăn (mockup) — ô 4 = "Cần chăm sóc hôm nay" (như prototype),
+  // bấm để xổ danh sách ngay dưới strip. Không còn panel riêng chiếm chỗ.
   const cells: { label: string; value: ReactNode; hint: string }[] = [
     { label: "Tổng khách hàng", value: kpis ? String(kpis.total_customers) : "—", hint: "trong phạm vi" },
     {
@@ -1356,13 +1355,13 @@ function KpiStrip({ kpis, loading }: { kpis: CustomerKpis | null; loading: boole
       ),
       hint: "≥ 50tr / 12T",
     },
-    { label: "Mới trong tháng", value: kpis ? String(kpis.new_this_month) : "—", hint: "vừa vào sổ" },
     {
       label: "TB / đơn (12T)",
       value: kpis ? moneyStat(kpis.avg_order_value) : "—",
       hint: "từ đơn thật",
     },
   ];
+  const careTotal = careCount + suggestCount;
   return (
     <div className="stat-strip">
       {cells.map((c) => (
@@ -1374,6 +1373,25 @@ function KpiStrip({ kpis, loading }: { kpis: CustomerKpis | null; loading: boole
           <span className="stat__hint">{c.hint}</span>
         </div>
       ))}
+      <button
+        type="button"
+        className={`stat-strip__cell stat-strip__cell--action${careTotal > 0 ? " is-alert" : ""}`}
+        onClick={onToggleCare}
+        aria-expanded={careOpen}
+        disabled={careTotal === 0}
+      >
+        <span className="stat__label">
+          <AlarmClock size={10} /> Cần chăm sóc hôm nay
+        </span>
+        <span className="stat__value">
+          {careCount}
+          {suggestCount > 0 && <small> việc · {suggestCount} gợi ý</small>}
+          {suggestCount === 0 && <small> việc</small>}
+        </span>
+        <span className="stat__hint">
+          {careTotal === 0 ? "sạch sẽ — không có gì chờ" : careOpen ? "bấm để thu gọn" : "bấm để xem danh sách"}
+        </span>
+      </button>
     </div>
   );
 }

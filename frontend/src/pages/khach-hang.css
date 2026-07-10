@@ -28,7 +28,9 @@
 .kh__bulkslot {
   display: flex;
   align-items: center;
-  min-height: 28px;
+}
+.kh__bulkslot:empty {
+  display: none;
 }
 .kh__bulkhint {
   font-size: 12px;
@@ -3424,4 +3426,33 @@
 .kh__chart-head h3 svg {
   color: var(--ash);
   flex: 0 0 auto;
+}
+
+/* Ô "Cần chăm sóc hôm nay" trong stat-strip: là NÚT, có trạng thái cảnh báo. */
+.stat-strip__cell--action {
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--rule-hair);
+  cursor: pointer;
+  transition: background-color var(--duration-base) var(--easing-standard);
+}
+.stat-strip__cell--action:hover:not(:disabled) {
+  background: var(--rule-hair);
+}
+.stat-strip__cell--action:disabled {
+  cursor: default;
+}
+.stat-strip__cell--action .stat__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.stat-strip__cell--action.is-alert .stat__value {
+  color: var(--rust-deep);
+}
+.stat-strip__cell--action:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: -2px;
 }
