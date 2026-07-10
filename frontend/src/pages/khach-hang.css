@@ -3169,3 +3169,75 @@
   width: 15px;
   height: 15px;
 }
+
+/* --- Chip hạn nhanh + Hẹn tiếp (composer Chăm sóc) --- */
+.due-quickpick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.due-chip {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  color: var(--ash);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.due-chip:hover {
+  border-color: var(--rust);
+  color: var(--ink);
+}
+.due-chip--active {
+  background: var(--rust-soft);
+  border-color: var(--rust);
+  color: var(--rust-deep);
+  font-weight: var(--fw-medium);
+}
+.due-date-input {
+  width: 138px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.due-time-input {
+  width: 84px;
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.care-next-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule-soft);
+  margin-top: 8px;
+}
+.care-next-note {
+  flex: 1 1 200px;
+  min-width: 160px;
+  padding: 5px 10px;
+  font-size: 13px;
+}
+
+/* --- Hàng gợi ý trong panel Cần chăm sóc --- */
+.kh__followups-row--suggest {
+  cursor: default;
+}
+.kh__followups-row--suggest:hover {
+  background: transparent;
+}
+.kh__followups-row--suggest .kh__linkbtn {
+  text-decoration: none;
+  font-weight: var(--fw-medium);
+}
+.kh__followups-row--suggest .kh__linkbtn:hover {
+  text-decoration: underline;
+}

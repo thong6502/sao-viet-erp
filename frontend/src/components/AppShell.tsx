@@ -115,21 +115,34 @@ export function AppShell() {
   // Badge Nghỉ phép: số đơn chờ duyệt (endpoint tự trả null nếu người gọi không có quyền
   // duyệt → không hiện badge). NghiPhepPage gọi lại sau mỗi thao tác để badge cập nhật ngay.
   const reloadBadges = useCallback(() => {
-    if (!token || readable === null || !readable.has("nghi_phep")) return;
-    api.leaves
-      .summary(token)
-      .then((s) => {
-        setBadges((prev) => ({
-          ...prev,
-          "nghi-phep": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
-        }));
-        setLeaveUnseen(s.my_decided_unseen ?? 0);
-      })
-      .catch(() => {});
+    if (!token || readable === null) return;
+    if (readable.has("nghi_phep")) {
+      api.leaves
+        .summary(token)
+        .then((s) => {
+          setBadges((prev) => ({
+            ...prev,
+            "nghi-phep": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
+          }));
+          setLeaveUnseen(s.my_decided_unseen ?? 0);
+        })
+        .catch(() => {});
+    }
+    // Badge Khách hàng: số việc chăm sóc ĐẾN HẠN trong scope (khảo sát #28) — kéo sale
+    // quay lại panel "Cần chăm sóc" mà không cần notification center.
+    if (readable.has("khach_hang")) {
+      api.customers
+        .careFollowups(token)
+        .then((r) => {
+          setBadges((prev) => ({ ...prev, "khach-hang": r.items.length }));
+        })
+        .catch(() => {});
+    }
   }, [token, readable]);
   useEffect(() => {
     reloadBadges();
-  }, [reloadBadges]);
+    // Refetch khi đổi màn — cả 2 endpoint đều rất nhẹ, giữ badge tươi sau khi thao tác.
+  }, [reloadBadges, activeId]);
 
   // Bấm chuông → mở Nghỉ phép (Đơn của tôi) + đánh dấu đã xem → đóng chuông.
   const openLeaveFromBell = useCallback(() => {

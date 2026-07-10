@@ -68,6 +68,7 @@ import {
   ChevronRight,
   ShieldCheck,
   Image,
+  Sparkles,
 } from "lucide-react";
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
@@ -367,6 +368,68 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
   const [followups, setFollowups] = useState<FollowupRow[]>([]);
   const [followupsOpen, setFollowupsOpen] = useState(false);
 
+  // Gợi ý chăm sóc rule-based (smart, thuần FE): khách thân thiết/đối tác mà lâu
+  // không đặt hàng → nhắc hỏi thăm. Tính từ tier + last_order_at CÓ SẴN trong list.
+  const [suggestions, setSuggestions] = useState<
+    Array<{ customer_id: number; code: string; name: string; days: number }>
+  >([]);
+  const [dismissedSuggest, setDismissedSuggest] = useState<Set<number>>(new Set());
+  const [suggestBusyId, setSuggestBusyId] = useState<number | null>(null);
+
+  const loadSuggestions = useCallback(() => {
+    if (!token) return;
+    // Quét cả sổ trong scope (size 200 là đủ cỡ danh bạ hiện tại) — 1 call nhẹ.
+    api.customers
+      .list(token, { size: 200 })
+      .then((res) => {
+        const now = Date.now();
+        const out = res.items
+          .filter((c) => (c.tier === "loyal" || c.tier === "partner") && c.last_order_at)
+          .map((c) => ({
+            customer_id: c.id,
+            code: c.code,
+            name: c.name,
+            days: Math.floor((now - new Date(c.last_order_at as string).getTime()) / 86_400_000),
+          }))
+          .filter((x) => x.days >= 45)
+          .sort((a, b) => b.days - a.days)
+          .slice(0, 5);
+        setSuggestions(out);
+      })
+      .catch(() => setSuggestions([]));
+  }, [token]);
+
+  useEffect(() => {
+    loadSuggestions();
+  }, [loadSuggestions]);
+
+  /** 1 chạm từ gợi ý: tạo luôn lịch hẹn "gọi hỏi thăm" hạn ngày mai 09:00. */
+  async function suggestToTask(sg: { customer_id: number; name: string; days: number }) {
+    if (!token || suggestBusyId != null) return;
+    setSuggestBusyId(sg.customer_id);
+    try {
+      // Hẹn CUỐI GIỜ HÔM NAY: việc lập tức xuất hiện trong panel (feedback thấy ngay)
+      // và đúng tinh thần gợi ý — "gọi hỏi thăm" là việc của hôm nay, không phải mai.
+      await api.customers.addCareTask(token, sg.customer_id, {
+        note: `Gọi hỏi thăm — ${sg.days} ngày chưa đặt lại`,
+        due_date: new Date(`${dateInDays(0)}T17:00:00`).toISOString(),
+      });
+      setDismissedSuggest((prev) => new Set(prev).add(sg.customer_id));
+      loadFollowups();
+    } catch {
+      /* lỗi mạng — giữ gợi ý để thử lại */
+    } finally {
+      setSuggestBusyId(null);
+    }
+  }
+
+  const visibleSuggestions = suggestions.filter(
+    (sg) =>
+      !dismissedSuggest.has(sg.customer_id) &&
+      // Đã có việc đến hạn cho khách này thì khỏi gợi ý thêm — tránh nhắc trùng.
+      !followups.some((f) => f.customer_id === sg.customer_id),
+  );
+
   const loadFollowups = useCallback(() => {
     if (!token) return;
     api.customers
@@ -632,7 +695,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
       <KpiStrip kpis={kpis} loading={loading && !kpis} />
 
       {/* Cần chăm sóc (#28): việc đến hạn/quá hạn, nhắc lần 1-2-3 — bấm mở hồ sơ khách. */}
-      {followups.length > 0 && (
+      {(followups.length > 0 || visibleSuggestions.length > 0) && (
         <div className="kh__followups card">
           <button
             type="button"
@@ -641,7 +704,10 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             aria-expanded={followupsOpen}
           >
             <span aria-hidden="true" className="kh__followups-ic"><AlarmClock size={15} /></span>
-            <strong>Cần chăm sóc: {followups.length} việc đến hạn / quá hạn</strong>
+            <strong>
+              Cần chăm sóc: {followups.length} việc đến hạn
+              {visibleSuggestions.length > 0 ? ` · ${visibleSuggestions.length} gợi ý` : ""}
+            </strong>
             <span className="kh__muted">
               {followups.filter((f) => f.remind_level >= 3).length > 0
                 ? ` · ${followups.filter((f) => f.remind_level >= 3).length} việc nhắc lần 3`
@@ -663,6 +729,42 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                     <span className="kh__mono kh__muted">hạn {fmtDate(f.due_date)}</span>
                     {f.assignee_name && <span className="kh__muted">· {f.assignee_name}</span>}
                   </button>
+                </li>
+              ))}
+              {/* Gợi ý rule-based: khách thân thiết/đối tác im ắng ≥45 ngày (tier +
+                  last_order_at từ dữ liệu thật) — "Hẹn gọi" tạo việc ngày mai 1 chạm. */}
+              {visibleSuggestions.map((sg) => (
+                <li key={`sg-${sg.customer_id}`}>
+                  <div className="kh__followups-row kh__followups-row--suggest">
+                    <span className="badge-sem badge-sem--plum"><Sparkles size={11} /> Gợi ý</span>
+                    <button
+                      type="button"
+                      className="kh__linkbtn kh__name"
+                      onClick={() => setOpenId(sg.customer_id)}
+                    >
+                      {sg.name}
+                    </button>
+                    <span className="kh__mono kh__muted">{sg.code}</span>
+                    <span className="kh__followups-note">{sg.days} ngày chưa đặt lại — hỏi thăm?</span>
+                    <Button
+                      variant="secondary"
+                      loading={suggestBusyId === sg.customer_id}
+                      onClick={() => suggestToTask(sg)}
+                      style={{ padding: "3px 10px", fontSize: 12 }}
+                    >
+                      + Hẹn gọi
+                    </Button>
+                    <button
+                      type="button"
+                      className="kh__tag-x"
+                      aria-label="Bỏ gợi ý này"
+                      onClick={() =>
+                        setDismissedSuggest((prev) => new Set(prev).add(sg.customer_id))
+                      }
+                    >
+                      ×
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -2568,6 +2670,61 @@ function RemindBadge({ level, days }: { level: number; days: number }) {
   );
 }
 
+/** yyyy-mm-dd của (hôm nay + n ngày) theo giờ máy — cho chip ngày nhanh. */
+function dateInDays(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + n);
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Chip chọn hạn nhanh: Ngày mai / 3 ngày / Tuần sau + date picker cho ngày khác. */
+function DueQuickPick({
+  due,
+  time,
+  onDue,
+  onTime,
+}: {
+  due: string;
+  time: string;
+  onDue: (v: string) => void;
+  onTime: (v: string) => void;
+}) {
+  const chips: Array<[string, number]> = [["Ngày mai", 1], ["3 ngày", 3], ["Tuần sau", 7]];
+  return (
+    <div className="due-quickpick">
+      {chips.map(([label, n]) => {
+        const val = dateInDays(n);
+        return (
+          <button
+            key={label}
+            type="button"
+            className={`due-chip${due === val ? " due-chip--active" : ""}`}
+            onClick={() => onDue(val)}
+          >
+            {label}
+          </button>
+        );
+      })}
+      <input
+        className="input due-date-input"
+        type="date"
+        value={due}
+        onChange={(e) => onDue(e.target.value)}
+        aria-label="Chọn ngày hẹn"
+      />
+      <input
+        className="input due-time-input"
+        type="time"
+        value={time}
+        onChange={(e) => onTime(e.target.value)}
+        aria-label="Giờ hẹn"
+        title="Giờ hẹn"
+      />
+    </div>
+  );
+}
+
 function CareTab({ customerId }: { customerId: number }) {
   const { token } = useAuth();
   const canUpdate = useCan()("khach_hang", "update");
@@ -2586,8 +2743,18 @@ function CareTab({ customerId }: { customerId: number }) {
   // Tạo lịch hẹn.
   const [taskNote, setTaskNote] = useState("");
   const [taskDue, setTaskDue] = useState("");
+  const [taskTime, setTaskTime] = useState("09:00");
   const [taskBusy, setTaskBusy] = useState(false);
   const [composerTab, setComposerTab] = useState<"log" | "task">("log");
+
+  // "Hẹn tiếp" ngay trong Ghi tương tác: 1 submit = log + task (luồng phổ biến nhất).
+  const [nextOpen, setNextOpen] = useState(false);
+  const [nextNote, setNextNote] = useState("");
+  const [nextDue, setNextDue] = useState("");
+  const [nextTime, setNextTime] = useState("09:00");
+
+  // Timeline: mặc định ẨN việc đã huỷ (giảm nhiễu — xem lại được bằng toggle).
+  const [showCancelled, setShowCancelled] = useState(false);
 
   // Hoàn thành việc: có thể ghi kèm 1 dòng nhật ký trong cùng thao tác (khảo sát #28).
   const [doneForId, setDoneForId] = useState<number | null>(null);
@@ -2621,13 +2788,32 @@ function CareTab({ customerId }: { customerId: number }) {
     setLogBusy(true);
     try {
       await api.customers.addCareEvent(token, customerId, { kind: logKind, note: logNote.trim() });
-      setLogNote("");
-      reload();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Ghi chăm sóc không thành công.");
-    } finally {
       setLogBusy(false);
+      return;
     }
+    // Hẹn tiếp (tuỳ chọn) — 2 call tuần tự; log đã ghi xong nên lỗi ở đây chỉ báo phần hẹn.
+    if (nextOpen && nextNote.trim() && nextDue) {
+      try {
+        await api.customers.addCareTask(token, customerId, {
+          note: nextNote.trim(),
+          due_date: new Date(`${nextDue}T${nextTime || "09:00"}:00`).toISOString(),
+        });
+        setNextNote("");
+        setNextDue("");
+        setNextOpen(false);
+      } catch {
+        setError("Đã ghi nhật ký, nhưng tạo hẹn tiếp LỖI — kiểm tra lại phần Hẹn tiếp.");
+        setLogNote("");
+        setLogBusy(false);
+        reload();
+        return;
+      }
+    }
+    setLogNote("");
+    setLogBusy(false);
+    reload();
   }
 
   async function addTask() {
@@ -2636,7 +2822,7 @@ function CareTab({ customerId }: { customerId: number }) {
     try {
       await api.customers.addCareTask(token, customerId, {
         note: taskNote.trim(),
-        due_date: new Date(`${taskDue}T09:00:00`).toISOString(),
+        due_date: new Date(`${taskDue}T${taskTime || "09:00"}:00`).toISOString(),
       });
       setTaskNote("");
       setTaskDue("");
@@ -2712,7 +2898,11 @@ function CareTab({ customerId }: { customerId: number }) {
       closed.forEach((t) => {
         list.push({
           id: `task-${t.id}`,
-          date: t.done_at ? new Date(t.done_at) : new Date(t.due_date),
+          // Việc huỷ không có mốc huỷ từ BE (cancelled_at) — chặn trên bằng "bây giờ"
+          // để việc huỷ có hạn TƯƠNG LAI không ghim đầu timeline (bug sort cũ).
+          date: t.done_at
+            ? new Date(t.done_at)
+            : new Date(Math.min(new Date(t.due_date).getTime(), Date.now())),
           kind: t.status === "done" ? "done_task" : "cancelled_task",
           title: t.status === "done" ? `Hoàn thành lịch hẹn: ${t.note}` : `Huỷ lịch hẹn: ${t.note}`,
           detail: t.note,
@@ -2726,6 +2916,11 @@ function CareTab({ customerId }: { customerId: number }) {
 
     return list.sort((a, b) => b.date.getTime() - a.date.getTime());
   }, [events, tasks]);
+
+  const cancelledCount = historyItems.filter((i) => i.kind === "cancelled_task").length;
+  const visibleHistory = showCancelled
+    ? historyItems
+    : historyItems.filter((i) => i.kind !== "cancelled_task");
 
   if (error && events == null) return <div className="banner banner--error" role="alert">{error}</div>;
   if (events == null || tasks == null) return <TableSkeleton cols={3} />;
@@ -2793,8 +2988,33 @@ function CareTab({ customerId }: { customerId: number }) {
                     </div>
                     
                     <Button variant="accent" onClick={logCare} loading={logBusy} disabled={!logNote.trim()} style={{ padding: "8px 20px" }}>
-                      Ghi nhật ký
+                      {nextOpen && nextNote.trim() && nextDue ? "Ghi + hẹn tiếp" : "Ghi nhật ký"}
                     </Button>
+                  </div>
+                  {/* Hẹn tiếp (tuỳ chọn): gọi xong hẹn luôn lần sau — 1 submit ra cả log + task. */}
+                  <div className="care-next-row">
+                    <button
+                      type="button"
+                      className={`due-chip due-chip--toggle${nextOpen ? " due-chip--active" : ""}`}
+                      onClick={() => {
+                        setNextOpen((v) => !v);
+                        if (!nextOpen && !nextDue) setNextDue(dateInDays(3));
+                      }}
+                    >
+                      <CalendarClock size={12} /> Hẹn tiếp{nextOpen ? "" : "…"}
+                    </button>
+                    {nextOpen && (
+                      <>
+                        <input
+                          className="input care-next-note"
+                          placeholder="Việc lần sau — VD: gọi lại chốt đơn"
+                          value={nextNote}
+                          onChange={(e) => setNextNote(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && logNote.trim() && logCare()}
+                        />
+                        <DueQuickPick due={nextDue} time={nextTime} onDue={setNextDue} onTime={setNextTime} />
+                      </>
+                    )}
                   </div>
                 </>
               ) : (
@@ -2807,16 +3027,9 @@ function CareTab({ customerId }: { customerId: number }) {
                     onKeyDown={(e) => e.key === "Enter" && taskNote.trim() && taskDue && addTask()}
                   />
                   <div className="composer-actions-row">
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 auto" }}>
-                      <span style={{ fontSize: "12px", color: "var(--ash)", whiteSpace: "nowrap" }}>Hạn thực hiện:</span>
-                      <input
-                        className="input kh__care-date"
-                        type="date"
-                        value={taskDue}
-                        onChange={(e) => setTaskDue(e.target.value)}
-                        aria-label="Hạn thực hiện"
-                        style={{ width: "160px", padding: "6px 10px" }}
-                      />
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 auto", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: "12px", color: "var(--ash)", whiteSpace: "nowrap" }}>Hạn:</span>
+                      <DueQuickPick due={taskDue} time={taskTime} onDue={setTaskDue} onTime={setTaskTime} />
                     </div>
                     
                     <Button variant="accent" onClick={addTask} loading={taskBusy} disabled={!taskNote.trim() || !taskDue} style={{ padding: "8px 20px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
@@ -2918,6 +3131,7 @@ function CareTab({ customerId }: { customerId: number }) {
                         <input
                           className="input task-done-note"
                           placeholder="Ghi kèm 1 dòng nhật ký (tuỳ chọn) — VD: đã gọi, khách chốt đơn…"
+                          autoFocus
                           value={doneNote}
                           onChange={(e) => setDoneNote(e.target.value)}
                           onKeyDown={(e) => e.key === "Enter" && confirmDone(t)}
@@ -2952,16 +3166,26 @@ function CareTab({ customerId }: { customerId: number }) {
         {/* 3. History Timeline Section */}
         <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           <div className="timeline-section-title">
-            <History size={12} /> Nhật ký hoạt động ({historyItems.length})
+            <History size={12} /> Nhật ký hoạt động ({visibleHistory.length})
+            {cancelledCount > 0 && (
+              <button
+                type="button"
+                className="kh__linkbtn"
+                style={{ marginLeft: "auto", fontSize: 11 }}
+                onClick={() => setShowCancelled((v) => !v)}
+              >
+                {showCancelled ? "Ẩn đã huỷ" : `Hiện đã huỷ (${cancelledCount})`}
+              </button>
+            )}
           </div>
 
-          {historyItems.length === 0 ? (
+          {visibleHistory.length === 0 ? (
             <p className="kh__muted kh__chart-empty" style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-5)", padding: "var(--sp-6)", textAlign: "center" }}>
               Chưa có hoạt động chăm sóc nào — ghi lại mỗi lần gọi/nhắn/gặp để cả team nắm được.
             </p>
           ) : (
             <div className="care-timeline">
-              {historyItems.map((item) => {
+              {visibleHistory.map((item) => {
                 const iconsMap: Record<string, React.ReactNode> = {
                   goi_dien: <Phone size={10} />,
                   nhan_tin: <MessageCircle size={10} />,
