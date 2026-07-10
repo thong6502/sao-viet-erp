@@ -648,7 +648,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                 : ""}
             </span>
             <span className="kh__followups-caret" aria-hidden="true">
-              {followupsOpen ? "▴" : "▾"}
+              {followupsOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
             </span>
           </button>
           {followupsOpen && (
@@ -2226,7 +2226,10 @@ function QuotesTab({
 
 function fmtDateTime(iso: string): string {
   const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString("vi-VN");
+  if (Number.isNaN(d.getTime())) return iso;
+  // "HH:mm dd/MM/yyyy" — gọn kiểu Việt Nam, bỏ giây (toLocaleString vi-VN trả "05:02:50 10/7/2026").
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
 const AUDIT_KIND_META: Record<CustomerAuditRow["kind"], { icon: JSX.Element; label: string; cls: string }> = {
@@ -2547,28 +2550,20 @@ const CARE_KIND_LABELS: Record<string, string> = {
 };
 
 function RemindBadge({ level, days }: { level: number; days: number }) {
+  // Mức nhắc TÍNH từ số ngày quá hạn (BE trả sẵn) — badge semantic theo token:
+  // lần 1 = amber, lần 2 = rust, lần 3 = signal (nặng nhất), chưa đến hạn = moss.
   if (level <= 0) {
     return (
-      <span className="kh__badge kh__badge--moss" style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-        <CheckCircle2 size={12} /> Chưa đến hạn
+      <span className="badge-sem badge-sem--moss">
+        <CheckCircle2 size={11} /> Chưa đến hạn
       </span>
     );
   }
-  let cls = "";
-  let icon = <Clock size={12} />;
-  if (level >= 3) {
-    cls = " kh__badge--off";
-    icon = <AlertTriangle size={12} />;
-  } else if (level === 2) {
-    cls = " kh__badge--warn";
-    icon = <Clock size={12} />;
-  } else {
-    cls = " kh__badge--lead";
-    icon = <Clock size={12} />;
-  }
+  const cls = level >= 3 ? "badge-sem--signal" : level === 2 ? "badge-sem--rust" : "badge-sem--amber";
+  const icon = level >= 3 ? <AlertTriangle size={11} /> : <Clock size={11} />;
   return (
-    <span className={`kh__badge${cls}`} title={days > 0 ? `Quá hạn ${days} ngày` : "Đến hạn hôm nay"} style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-      {icon} Nhắc lần {level} {days > 0 ? `(${days} ngày)` : ""}
+    <span className={`badge-sem ${cls}`} title={days > 0 ? `Quá hạn ${days} ngày` : "Đến hạn hôm nay"}>
+      {icon} Nhắc lần {level}{days > 0 ? ` (${days} ngày)` : ""}
     </span>
   );
 }
@@ -2578,11 +2573,9 @@ function CareTab({ customerId }: { customerId: number }) {
   const canUpdate = useCan()("khach_hang", "update");
   const [events, setEvents] = useState<CareEvent[] | null>(null);
   const [tasks, setTasks] = useState<CareTask[] | null>(null);
-  const [stats, setStats] = useState<{ on_time: number; late: number; overdue: number }>({
-    on_time: 0,
-    late: 0,
-    overdue: 0,
-  });
+  // Đánh giá chăm sóc (#28): xong đúng hạn / xong trễ / đang quá hạn — BE trả sẵn.
+  const [taskStats, setTaskStats] = useState<{ done_on_time: number; done_late: number; overdue_open: number } | null>(null);
+
   const [error, setError] = useState<string | null>(null);
 
   // Ghi hoạt động chăm sóc.
@@ -2594,7 +2587,13 @@ function CareTab({ customerId }: { customerId: number }) {
   const [taskNote, setTaskNote] = useState("");
   const [taskDue, setTaskDue] = useState("");
   const [taskBusy, setTaskBusy] = useState(false);
-  const [showDone, setShowDone] = useState(false);
+  const [composerTab, setComposerTab] = useState<"log" | "task">("log");
+
+  // Hoàn thành việc: có thể ghi kèm 1 dòng nhật ký trong cùng thao tác (khảo sát #28).
+  const [doneForId, setDoneForId] = useState<number | null>(null);
+  const [doneKind, setDoneKind] = useState("goi_dien");
+  const [doneNote, setDoneNote] = useState("");
+  const [doneBusy, setDoneBusy] = useState(false);
 
   const reload = useCallback(() => {
     if (!token) return;
@@ -2605,7 +2604,7 @@ function CareTab({ customerId }: { customerId: number }) {
       .then(([ev, t]) => {
         setEvents(ev.items);
         setTasks(t.items);
-        setStats({ on_time: t.done_on_time, late: t.done_late, overdue: t.overdue_open });
+        setTaskStats({ done_on_time: t.done_on_time, done_late: t.done_late, overdue_open: t.overdue_open });
       })
       .catch(() => setError("Không tải được dữ liệu chăm sóc."));
   }, [token, customerId]);
@@ -2659,85 +2658,215 @@ function CareTab({ customerId }: { customerId: number }) {
     }
   }
 
+  /** Hoàn thành việc, tuỳ chọn ghi kèm 1 dòng nhật ký chăm sóc trong cùng thao tác. */
+  async function confirmDone(t: CareTask) {
+    if (!token || doneBusy) return;
+    setDoneBusy(true);
+    try {
+      const note = doneNote.trim();
+      await api.customers.setCareTaskStatus(token, customerId, t.id, {
+        status: "done",
+        log_kind: note ? doneKind : null,
+        log_note: note || null,
+      });
+      setDoneForId(null);
+      setDoneNote("");
+      reload();
+    } catch {
+      setError("Cập nhật việc không thành công.");
+    } finally {
+      setDoneBusy(false);
+    }
+  }
+
+  const historyItems = useMemo(() => {
+    const list: Array<{
+      id: string;
+      date: Date;
+      kind: string;
+      title: string;
+      detail: string;
+      actor: string | null;
+      badgeText: string;
+      type: "event" | "task";
+      rawTask?: CareTask;
+    }> = [];
+
+    if (events) {
+      events.forEach((e) => {
+        list.push({
+          id: `event-${e.id}`,
+          date: new Date(e.happened_at),
+          kind: e.kind,
+          title: CARE_KIND_LABELS[e.kind] ?? e.kind,
+          detail: e.note,
+          actor: e.actor_name,
+          badgeText: CARE_KIND_LABELS[e.kind] ?? e.kind,
+          type: "event",
+        });
+      });
+    }
+
+    if (tasks) {
+      const closed = tasks.filter((t) => t.status !== "open");
+      closed.forEach((t) => {
+        list.push({
+          id: `task-${t.id}`,
+          date: t.done_at ? new Date(t.done_at) : new Date(t.due_date),
+          kind: t.status === "done" ? "done_task" : "cancelled_task",
+          title: t.status === "done" ? `Hoàn thành lịch hẹn: ${t.note}` : `Huỷ lịch hẹn: ${t.note}`,
+          detail: t.note,
+          actor: t.assignee_name,
+          badgeText: t.status === "done" ? "Đã xong" : "Đã huỷ",
+          type: "task",
+          rawTask: t,
+        });
+      });
+    }
+
+    return list.sort((a, b) => b.date.getTime() - a.date.getTime());
+  }, [events, tasks]);
+
   if (error && events == null) return <div className="banner banner--error" role="alert">{error}</div>;
   if (events == null || tasks == null) return <TableSkeleton cols={3} />;
 
   const openTasks = tasks.filter((t) => t.status === "open");
-  const closedTasks = tasks.filter((t) => t.status !== "open");
 
   return (
     <div className="kh__care">
       {error && <div className="banner banner--error" role="alert">{error}</div>}
 
-      {/* Đánh giá chăm sóc (#28) — số thật từ việc đã xong/đang quá hạn. */}
-      <div className="kh__care-kpis">
-        <div className="kh__care-kpi kh__care-kpi--good">
-          <div className="kh__care-kpi-icon">
-            <CheckCircle2 />
+      <div className="kh__care-unified-container">
+        {/* 1. Activity Composer Card */}
+        {canUpdate && (
+          <div className="care-composer">
+            <div className="composer-tabs">
+              <button
+                type="button"
+                className={`composer-tab ${composerTab === "log" ? "composer-tab--active" : ""}`}
+                onClick={() => setComposerTab("log")}
+              >
+                <PencilLine size={14} /> Ghi tương tác
+              </button>
+              <button
+                type="button"
+                className={`composer-tab ${composerTab === "task" ? "composer-tab--active" : ""}`}
+                onClick={() => setComposerTab("task")}
+              >
+                <CalendarClock size={14} /> Tạo lịch hẹn
+              </button>
+            </div>
+            
+            <div className="composer-body">
+              {composerTab === "log" ? (
+                <>
+                  <input
+                    className="input"
+                    placeholder="Hôm nay bạn đã trao đổi gì với khách, kết quả ra sao..."
+                    value={logNote}
+                    onChange={(e) => setLogNote(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && logNote.trim() && logCare()}
+                  />
+                  <div className="composer-actions-row">
+                    <div className="care-kind-pills" style={{ margin: 0, width: "auto" }}>
+                      {Object.entries(CARE_KIND_LABELS).map(([value, label]) => {
+                        const active = logKind === value;
+                        const iconsMap: Record<string, React.ReactNode> = {
+                          goi_dien: <Phone size={14} />,
+                          nhan_tin: <MessageCircle size={14} />,
+                          email: <Mail size={14} />,
+                          gap_truc_tiep: <HeartHandshake size={14} />,
+                          khac: <FileText size={14} />,
+                        };
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            className={`care-kind-pill care-kind-pill--${value} ${active ? "care-kind-pill--active" : ""}`}
+                            onClick={() => setLogKind(value)}
+                          >
+                            {iconsMap[value]}
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    
+                    <Button variant="accent" onClick={logCare} loading={logBusy} disabled={!logNote.trim()} style={{ padding: "8px 20px" }}>
+                      Ghi nhật ký
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <input
+                    className="input"
+                    placeholder="Công việc cần làm tiếp theo — VD: gọi lại gửi báo giá, đối chiếu công nợ..."
+                    value={taskNote}
+                    onChange={(e) => setTaskNote(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && taskNote.trim() && taskDue && addTask()}
+                  />
+                  <div className="composer-actions-row">
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 auto" }}>
+                      <span style={{ fontSize: "12px", color: "var(--ash)", whiteSpace: "nowrap" }}>Hạn thực hiện:</span>
+                      <input
+                        className="input kh__care-date"
+                        type="date"
+                        value={taskDue}
+                        onChange={(e) => setTaskDue(e.target.value)}
+                        aria-label="Hạn thực hiện"
+                        style={{ width: "160px", padding: "6px 10px" }}
+                      />
+                    </div>
+                    
+                    <Button variant="accent" onClick={addTask} loading={taskBusy} disabled={!taskNote.trim() || !taskDue} style={{ padding: "8px 20px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      <Plus size={14} /> Lên lịch hẹn
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
-          <div className="kh__care-kpi-content">
-            <span className="kh__care-kpi-label">Xong đúng hạn</span>
-            <span className="kh__care-kpi-value">{stats.on_time}</span>
-          </div>
-        </div>
-        <div className="kh__care-kpi kh__care-kpi--warn">
-          <div className="kh__care-kpi-icon">
-            <Clock />
-          </div>
-          <div className="kh__care-kpi-content">
-            <span className="kh__care-kpi-label">Xong trễ hạn</span>
-            <span className="kh__care-kpi-value">{stats.late}</span>
-          </div>
-        </div>
-        <div className="kh__care-kpi kh__care-kpi--alert">
-          <div className="kh__care-kpi-icon">
-            <AlertTriangle />
-          </div>
-          <div className="kh__care-kpi-content">
-            <span className="kh__care-kpi-label">Đang quá hạn</span>
-            <span className="kh__care-kpi-value">{stats.overdue}</span>
-          </div>
-        </div>
-      </div>
+        )}
 
-      {/* Grid Dashboard 2 Cột */}
-      <div className="kh__care-grid">
-        {/* CỘT TRÁI: LỊCH HẸN CHĂM SÓC */}
-        <div className="kh__care-col">
-          <h3 className="kh__care-col-title">
-            <CalendarClock size={16} /> Lịch hẹn chăm sóc
-          </h3>
-          
-          {canUpdate && (
-            <div className="kh__care-card-form" style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <input
-                className="input"
-                placeholder="Việc cần làm — VD: gọi lại hỏi maquette"
-                value={taskNote}
-                onChange={(e) => setTaskNote(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && taskNote.trim() && taskDue && addTask()}
-              />
-              <div style={{ display: "flex", gap: "8px" }}>
-                <input
-                  className="input kh__care-date"
-                  type="date"
-                  value={taskDue}
-                  onChange={(e) => setTaskDue(e.target.value)}
-                  aria-label="Hạn thực hiện"
-                  style={{ flex: 1 }}
-                />
-                <Button variant="secondary" onClick={addTask} loading={taskBusy} disabled={!taskNote.trim() || !taskDue} style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "8px 16px" }}>
-                  <Plus size={14} /> Hẹn
-                </Button>
+        {/* 2. Đánh giá chăm sóc (#28): xong đúng hạn / xong trễ / đang quá hạn — số thật từ BE. */}
+        {taskStats && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div className="timeline-section-title">
+              <Gauge size={12} /> Đánh giá chăm sóc
+            </div>
+            <div className="kh__care-kpis">
+              <div className="kh__care-kpi kh__care-kpi--good">
+                <span className="kh__care-kpi-icon" aria-hidden="true"><CheckCircle2 /></span>
+                <span className="kh__care-kpi-content">
+                  <span className="kh__care-kpi-label">Xong đúng hạn</span>
+                  <span className="kh__care-kpi-value">{taskStats.done_on_time}</span>
+                </span>
+              </div>
+              <div className="kh__care-kpi kh__care-kpi--warn">
+                <span className="kh__care-kpi-icon" aria-hidden="true"><Clock /></span>
+                <span className="kh__care-kpi-content">
+                  <span className="kh__care-kpi-label">Xong trễ</span>
+                  <span className="kh__care-kpi-value">{taskStats.done_late}</span>
+                </span>
+              </div>
+              <div className="kh__care-kpi kh__care-kpi--alert">
+                <span className="kh__care-kpi-icon" aria-hidden="true"><AlertTriangle /></span>
+                <span className="kh__care-kpi-content">
+                  <span className="kh__care-kpi-label">Đang quá hạn</span>
+                  <span className="kh__care-kpi-value">{taskStats.overdue_open}</span>
+                </span>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {openTasks.length === 0 ? (
-            <p className="kh__muted kh__chart-empty" style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-5)", padding: "var(--sp-6)", textAlign: "center" }}>
-              Không có việc đang chờ.
-            </p>
-          ) : (
+        {/* 3. Upcoming Tasks Section */}
+        {openTasks.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            <div className="timeline-section-title">
+              <AlarmClock size={12} /> Lịch hẹn sắp tới ({openTasks.length})
+            </div>
             <ul className="kh__care-tasks">
               {openTasks.map((t) => (
                 <li key={t.id} className={`kh__care-task-card kh__care-task-card--level-${t.remind_level}`}>
@@ -2745,8 +2874,16 @@ function CareTab({ customerId }: { customerId: number }) {
                     <div className="task-checkbox-wrapper">
                       <button
                         type="button"
-                        className="task-checkbox"
-                        onClick={() => setTaskStatus(t, "done")}
+                        className={`task-checkbox${doneForId === t.id ? " task-checkbox--arming" : ""}`}
+                        onClick={() => {
+                          if (doneForId === t.id) {
+                            setDoneForId(null);
+                          } else {
+                            setDoneForId(t.id);
+                            setDoneKind(t.remind_level > 0 ? "goi_dien" : doneKind);
+                            setDoneNote("");
+                          }
+                        }}
                         title="Đánh dấu hoàn thành"
                       >
                         <Check />
@@ -2766,6 +2903,33 @@ function CareTab({ customerId }: { customerId: number }) {
                       )}
                       <RemindBadge level={t.remind_level} days={t.overdue_days} />
                     </div>
+                    {doneForId === t.id && (
+                      <div className="task-done-confirm">
+                        <select
+                          className="input task-done-kind"
+                          value={doneKind}
+                          onChange={(e) => setDoneKind(e.target.value)}
+                          aria-label="Hình thức tương tác ghi kèm"
+                        >
+                          {Object.entries(CARE_KIND_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                          ))}
+                        </select>
+                        <input
+                          className="input task-done-note"
+                          placeholder="Ghi kèm 1 dòng nhật ký (tuỳ chọn) — VD: đã gọi, khách chốt đơn…"
+                          value={doneNote}
+                          onChange={(e) => setDoneNote(e.target.value)}
+                          onKeyDown={(e) => e.key === "Enter" && confirmDone(t)}
+                        />
+                        <Button variant="accent" onClick={() => confirmDone(t)} loading={doneBusy} style={{ padding: "6px 14px" }}>
+                          <Check size={13} /> Hoàn thành
+                        </Button>
+                        <Button variant="ghost" onClick={() => setDoneForId(null)} disabled={doneBusy} style={{ padding: "6px 10px" }}>
+                          Thôi
+                        </Button>
+                      </div>
+                    )}
                   </div>
                   {canUpdate && (
                     <div className="task-actions">
@@ -2782,122 +2946,69 @@ function CareTab({ customerId }: { customerId: number }) {
                 </li>
               ))}
             </ul>
-          )}
+          </div>
+        )}
 
-          {closedTasks.length > 0 && (
-            <div className="closed-tasks-container">
-              <button type="button" className="kh__linkbtn" onClick={() => setShowDone((v) => !v)} style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "13px", fontWeight: "bold" }}>
-                {showDone ? <ChevronUp size={14} /> : <ChevronDown size={14} />} {showDone ? "Ẩn" : "Xem"} {closedTasks.length} việc đã xong/hủy
-              </button>
-              {showDone && (
-                <ul className="kh__care-tasks" style={{ marginTop: "var(--sp-2)" }}>
-                  {closedTasks.map((t) => (
-                    <li key={t.id} className={`closed-task-item closed-task-item--${t.status}`}>
-                      <span className="closed-task-item-note">{t.note}</span>
-                      <div style={{ display: "flex", alignItems: "center" }}>
-                        <span className="closed-task-item-meta">
-                          {t.status === "done" ? "Đã xong" : "Đã hủy"} ({fmtDate(t.due_date)})
-                        </span>
-                        {canUpdate && (
-                          <button
-                            type="button"
-                            className="closed-task-action-btn"
-                            onClick={() => setTaskStatus(t, "open")}
-                          >
-                            Mở lại
-                          </button>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
+        {/* 3. History Timeline Section */}
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div className="timeline-section-title">
+            <History size={12} /> Nhật ký hoạt động ({historyItems.length})
+          </div>
 
-        {/* CỘT PHẢI: NHẬT KÝ CHĂM SÓC TIMELINE */}
-        <div className="kh__care-col">
-          <h3 className="kh__care-col-title">
-            <History size={16} /> Nhật ký chăm sóc
-          </h3>
-
-          {canUpdate && (
-            <div className="kh__care-card-form" style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              <input
-                className="input"
-                placeholder="Trao đổi gì, kết quả, hẹn tiếp theo…"
-                value={logNote}
-                onChange={(e) => setLogNote(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && logNote.trim() && logCare()}
-              />
-              
-              <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
-                {/* Care Kind Selector Pills */}
-                <div className="care-kind-pills" style={{ margin: 0, width: "auto", flex: "1 1 auto" }}>
-                  {Object.entries(CARE_KIND_LABELS).map(([value, label]) => {
-                    const active = logKind === value;
-                    const iconsMap: Record<string, React.ReactNode> = {
-                      goi_dien: <Phone size={14} />,
-                      nhan_tin: <MessageCircle size={14} />,
-                      email: <Mail size={14} />,
-                      gap_truc_tiep: <HeartHandshake size={14} />,
-                      khac: <FileText size={14} />,
-                    };
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        className={`care-kind-pill care-kind-pill--${value} ${active ? "care-kind-pill--active" : ""}`}
-                        onClick={() => setLogKind(value)}
-                      >
-                        {iconsMap[value]}
-                        {label}
-                      </button>
-                    );
-                  })}
-                </div>
-                
-                <Button variant="secondary" onClick={logCare} loading={logBusy} disabled={!logNote.trim()} style={{ padding: "8px 20px", display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
-                  <Plus size={14} /> Ghi
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {events.length === 0 ? (
+          {historyItems.length === 0 ? (
             <p className="kh__muted kh__chart-empty" style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-5)", padding: "var(--sp-6)", textAlign: "center" }}>
               Chưa có hoạt động chăm sóc nào — ghi lại mỗi lần gọi/nhắn/gặp để cả team nắm được.
             </p>
           ) : (
             <div className="care-timeline">
-              {events.map((e) => {
+              {historyItems.map((item) => {
                 const iconsMap: Record<string, React.ReactNode> = {
                   goi_dien: <Phone size={10} />,
                   nhan_tin: <MessageCircle size={10} />,
                   email: <Mail size={10} />,
                   gap_truc_tiep: <HeartHandshake size={10} />,
                   khac: <FileText size={10} />,
+                  done_task: <Check size={10} />,
+                  cancelled_task: <X size={10} />,
                 };
+                
+                const iconClass = item.kind === "done_task"
+                  ? "timeline-icon--done"
+                  : item.kind === "cancelled_task"
+                    ? "timeline-icon--cancelled"
+                    : `timeline-icon--${item.kind}`;
+
                 return (
-                  <div key={e.id} className="timeline-item">
-                    <div className={`timeline-icon timeline-icon--${e.kind}`} title={CARE_KIND_LABELS[e.kind] ?? e.kind}>
-                      {iconsMap[e.kind] || <FileText size={10} />}
+                  <div key={item.id} className="timeline-item">
+                    <div className={`timeline-icon ${iconClass}`} title={item.badgeText}>
+                      {iconsMap[item.kind] || <FileText size={10} />}
                     </div>
                     <div className="timeline-card">
-                      <p>{e.note}</p>
+                      <p style={{ textDecoration: item.kind === "cancelled_task" ? "line-through" : "none", opacity: item.kind === "cancelled_task" ? 0.6 : 1, margin: 0 }}>
+                        {item.type === "task" ? item.title : item.detail}
+                      </p>
                       <div className="timeline-meta">
                         <span>
-                          <Clock size={11} /> {fmtDateTime(e.happened_at)}
+                          <Clock size={11} /> {fmtDateTime(item.date.toISOString())}
                         </span>
-                        {e.actor_name && (
+                        {item.actor && (
                           <span>
-                            <User size={11} /> {e.actor_name}
+                            <User size={11} /> {item.actor}
                           </span>
                         )}
-                        <span className="kh__badge" style={{ fontSize: "9px", padding: "1px 6px" }}>
-                          {CARE_KIND_LABELS[e.kind] ?? e.kind}
+                        <span className={`badge-sem ${item.kind === "done_task" ? "badge-sem--moss" : "badge-sem--muted"}`}>
+                          {item.badgeText}
                         </span>
+                        {item.type === "task" && canUpdate && item.rawTask && (
+                          <button
+                            type="button"
+                            className="closed-task-action-btn"
+                            onClick={() => setTaskStatus(item.rawTask!, "open")}
+                            style={{ marginLeft: "auto" }}
+                          >
+                            Mở lại
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
