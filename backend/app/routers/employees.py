@@ -70,6 +70,7 @@ from ..services.employee_service import (
     EmployeeNotFound,
     EmployeeService,
     EmployeeValidationError,
+    SENSITIVE_FIELDS,
 )
 from ..services.rbac_service import AuthorizationService
 
@@ -140,11 +141,8 @@ def _full(employee, depts: DepartmentRepository, users: UserRepository) -> Emplo
     return out
 
 
-# Dữ liệu nhạy cảm — ẩn với người KHÔNG có quyền `nhan_su:view_salary` (lương/BHXH).
-_SALARY_FIELDS = (
-    "social_insurance_no", "pit_tax_code", "bank_account", "bank_name",
-    "payroll_group", "pay_grade_key",
-)
+# Dữ liệu nhạy cảm — DÙNG CHUNG danh sách với service (che khi đọc + gác khi ghi, N5).
+_SALARY_FIELDS = SENSITIVE_FIELDS
 
 
 def _mask_salary(out: EmployeeOut) -> EmployeeOut:
@@ -237,6 +235,7 @@ def get_meta(
 def create_employee(
     body: EmployeeCreate,
     svc: Service,
+    authz: Authz,
     depts: Depts,
     users: Users,
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
@@ -250,6 +249,7 @@ def create_employee(
         employee, dup_nid, dup_si = svc.create_employee(
             actor=user, department_id=department_id, status=status_in,
             hire_date=hire_date, fields=data,
+            can_edit_salary=authz.can(user, MODULE, "edit_salary"),
         )
         account_username = None
         if account and account.get("username"):
@@ -354,10 +354,11 @@ def list_requests(svc: Service, users: Users,
 
 
 @router.post("/update-requests/{request_id}/approve", response_model=UpdateRequestOut)
-def approve_request(request_id: int, body: RequestDecisionIn, svc: Service,
+def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz,
                     user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
     try:
-        req = svc.decide_update_request(request_id=request_id, actor=user, approve=True, note=body.note)
+        req = svc.decide_update_request(request_id=request_id, actor=user, approve=True, note=body.note,
+                                        can_edit_salary=authz.can(user, MODULE, "edit_salary"))
     except EmployeeError as exc:
         _raise(exc)
     return UpdateRequestOut.model_validate(req)
@@ -409,6 +410,7 @@ def update_employee(
         employee, dup_nid, dup_si = svc.update_employee(
             employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
             fields=body.model_dump(),
+            can_edit_salary=authz.can(user, MODULE, "edit_salary"),
         )
     except EmployeeError as exc:
         _raise(exc)

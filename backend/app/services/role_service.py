@@ -194,6 +194,7 @@ class RoleService:
                 can_toggle_active=row.get("can_toggle_active", False),
                 can_reparent=row.get("can_reparent", False),
                 can_view_salary=row.get("can_view_salary", False),
+                can_edit_salary=row.get("can_edit_salary", False),
                 can_adjust=row.get("can_adjust", False),
             )
         self.audit.create(

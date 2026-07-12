@@ -147,12 +147,13 @@ def test_start_after_end_rejected(client):
 
 
 def test_weekend_only_request_rejected(client):
-    """Khoảng nghỉ rơi hết vào cuối tuần (không ngày làm việc) → 400."""
+    """Nghỉ rơi trúng ngày nghỉ tuần (Chủ Nhật) → không có ngày làm việc → 400.
+    Tuần chuẩn T2–T7 (Thứ 7 LÀ ngày làm), nên chỉ Chủ Nhật là ngày nghỉ."""
     token = _admin_token(client)
     tid = _make_type(client, token)
     _link_admin_employee(client, token)
-    # 2026-08-01 T7, 2026-08-02 CN.
-    bad = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-01", "end_date": "2026-08-02"}, headers=_h(token))
+    # 2026-08-02 là Chủ Nhật (ngày nghỉ tuần duy nhất).
+    bad = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": "2026-08-02", "end_date": "2026-08-02"}, headers=_h(token))
     assert bad.status_code == 400
 
 

@@ -71,10 +71,21 @@ class LeaveService:
         leaves: LeaveRepository,
         employees: EmployeeRepository,
         audit: AuditLogRepository,
+        calendar=None,
     ) -> None:
         self.leaves = leaves
         self.employees = employees
         self.audit = audit
+        # CalendarService | None — lịch chung (loại ngày lễ + tuần T2–T7). Đặt tên `_work_calendar`
+        # để KHÔNG che method `calendar()` (lịch nghỉ tháng) của service này. None → fallback Mon–Fri.
+        self._work_calendar = calendar
+
+    def _wd(self, start: date, end: date) -> int:
+        """Số NGÀY LÀM VIỆC để trừ hạn mức phép — ưu tiên lịch chung (loại lễ + Thứ 7 nay là
+        ngày làm), fallback Mon–Fri khi chưa gắn calendar."""
+        if self._work_calendar is not None:
+            return self._work_calendar.working_days_between(start, end)
+        return _working_days(start, end)
 
     # --- leave types (HR) ---------------------------------------------------
 
@@ -146,8 +157,8 @@ class LeaveService:
         lt = self.leaves.get_type(leave_type_id)
         if lt is None or not lt.is_active:
             raise LeaveValidationError("Loại nghỉ không hợp lệ.")
-        if _working_days(start_date, end_date) == 0:
-            raise LeaveValidationError("Khoảng nghỉ rơi hết vào cuối tuần, không có ngày làm việc.")
+        if self._wd(start_date, end_date) == 0:
+            raise LeaveValidationError("Khoảng nghỉ rơi hết vào ngày nghỉ, không có ngày làm việc.")
         days = (end_date - start_date).days + 1  # số ngày LỊCH (giữ hợp đồng leave_day_map)
 
         # Hạn mức phép năm: loại có annual_quota > 0 mới bị trừ dần + chặn khi vượt (theo
@@ -155,7 +166,7 @@ class LeaveService:
         if lt.annual_quota and lt.annual_quota > 0:
             year = start_date.year
             used = self._used_working_days(emp.id, leave_type_id, year)
-            want = _working_days(start_date, end_date)
+            want = self._wd(start_date, end_date)
             if used + want > lt.annual_quota:
                 remaining = max(lt.annual_quota - used, 0)
                 raise LeaveValidationError(
@@ -204,7 +215,7 @@ class LeaveService:
         năm dương lịch — mẫu số kiểm hạn mức."""
         total = 0
         for r in self.leaves.list_for_quota(employee_id, leave_type_id, year):
-            total += _working_days(r.start_date, r.end_date)
+            total += self._wd(r.start_date, r.end_date)
         return total
 
     def my_quotas(self, *, user, year: int) -> list[dict]:

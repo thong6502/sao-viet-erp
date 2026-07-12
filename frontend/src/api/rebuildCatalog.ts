@@ -56,16 +56,4 @@ export function mayBhr(token: string, id: number): Promise<{
   return authed(`/api/may-thiet-bi/${id}/bhr`, token);
 }
 
-// Phiên bản giá giấy (lịch sử) — GET/POST `${prefix}/${id}/versions`.
-export interface GiayVersion {
-  id: number; giay_id: number; version_no: number; ngay_hieu_luc: string | null; is_current: boolean;
-  kho_dai: number; kho_rong: number; gsm: number | null; caliper_micron: number | null;
-  tho: string | null; don_vi_gia: string; don_gia: number; gia_thi_truong: number | null;
-  ghi_chu: string | null; created_at: string | null;
-}
-export function listVersions(token: string, prefix: string, id: number): Promise<GiayVersion[]> {
-  return authed<GiayVersion[]>(`${prefix}/${id}/versions`, token);
-}
-export function addVersion(token: string, prefix: string, id: number, body: Record<string, unknown>): Promise<GiayVersion> {
-  return authed<GiayVersion>(`${prefix}/${id}/versions`, token, { method: "POST", body: JSON.stringify(body) });
-}
+

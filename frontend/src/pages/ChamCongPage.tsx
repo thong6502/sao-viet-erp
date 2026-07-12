@@ -16,10 +16,18 @@ import {
   type TodayKpi,
   type Timesheet,
   type TimesheetRow,
+  type AttendancePeriod,
   type WorkLocation,
   type WorkLocationInput,
   type WorkShift,
   type WorkShiftInput,
+  type WorkCalendarConfig,
+  type WorkCalendarConfigInput,
+  type SpecialDay,
+  type SpecialDayInput,
+  type SpecialDaysOut,
+  type CalendarMonth,
+  type CalendarDayCell,
 } from "../api/client";
 import type { NavigateFn } from "../components/AppShell";
 import { useAuth } from "../auth/useAuth";
@@ -27,7 +35,7 @@ import { useCan } from "../auth/permissions";
 import "./nhan-su.css";
 import "./cham-cong.css";
 
-type Tab = "me" | "my-timesheet" | "locations" | "khai-ca" | "logs" | "timesheet" | "yeu-cau";
+type Tab = "me" | "my-timesheet" | "locations" | "khai-ca" | "lich-le" | "logs" | "timesheet" | "yeu-cau";
 
 const FAULT_OPTIONS: { value: string; label: string }[] = [
   { value: "nv_quen", label: "NV quên chấm" },
@@ -110,6 +118,7 @@ export function ChamCongPage({ navigate, focusEmployeeId }: { navigate?: Navigat
         <button className={tab === "my-timesheet" ? "is-active" : ""} onClick={() => setTab("my-timesheet")}>Công của tôi</button>
         {canConfig && <button className={tab === "locations" ? "is-active" : ""} onClick={() => setTab("locations")}>Điểm chấm công</button>}
         {canConfig && <button className={tab === "khai-ca" ? "is-active" : ""} onClick={() => setTab("khai-ca")}>Khai ca</button>}
+        {canConfig && <button className={tab === "lich-le" ? "is-active" : ""} onClick={() => setTab("lich-le")}>Lịch & Ngày lễ</button>}
         {canView && <button className={tab === "logs" ? "is-active" : ""} onClick={() => setTab("logs")}>Bảng chấm công</button>}
         {canView && <button className={tab === "timesheet" ? "is-active" : ""} onClick={() => setTab("timesheet")}>Bảng công tháng</button>}
         {canView && <button className={tab === "yeu-cau" ? "is-active" : ""} onClick={() => setTab("yeu-cau")}>Yêu cầu chỉnh công</button>}
@@ -119,6 +128,7 @@ export function ChamCongPage({ navigate, focusEmployeeId }: { navigate?: Navigat
       {tab === "my-timesheet" && <MyTimesheetTab token={token!} />}
       {tab === "locations" && canConfig && <LocationsTab token={token!} />}
       {tab === "khai-ca" && canConfig && <ShiftsTab token={token!} />}
+      {tab === "lich-le" && canConfig && <CalendarTab token={token!} />}
       {tab === "logs" && canView && <LogsTab token={token!} focusEmployeeId={focusEmployeeId} />}
       {tab === "timesheet" && canView && <TimesheetTab token={token!} canAdjust={can("nhan_su", "adjust")} />}
       {tab === "yeu-cau" && canView && <AdjustRequestsTab token={token!} canAdjust={can("nhan_su", "adjust")} />}
@@ -665,6 +675,261 @@ function KpiStrip({ token }: { token: string }) {
 
 // --- Tab: Khai ca (HR) ------------------------------------------------------
 
+// --- Tab: Lịch làm việc & Ngày lễ (nền dùng chung cho Công / Phép / Lương) --
+
+const WEEKDAY_FIELDS: { key: keyof WorkCalendarConfigInput; label: string }[] = [
+  { key: "works_mon", label: "Thứ 2" }, { key: "works_tue", label: "Thứ 3" },
+  { key: "works_wed", label: "Thứ 4" }, { key: "works_thu", label: "Thứ 5" },
+  { key: "works_fri", label: "Thứ 6" }, { key: "works_sat", label: "Thứ 7" },
+  { key: "works_sun", label: "Chủ Nhật" },
+];
+const KIND_LABEL: Record<string, string> = { off: "Nghỉ lễ", work: "Làm bù" };
+
+function fmtDateVN(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+/** Lưới tháng: chèn ô trống đầu tuần để ngày 1 rơi đúng cột thứ (Mon=0..Sun=6). */
+function buildMonthGrid(m: CalendarMonth): (CalendarDayCell | null)[] {
+  const lead = m.days.length ? m.days[0].weekday : 0;
+  return [...Array<null>(lead).fill(null), ...m.days];
+}
+
+function CalendarTab({ token }: { token: string }) {
+  const now = new Date();
+  const [config, setConfig] = useState<WorkCalendarConfig | null>(null);
+  const [cfgBusy, setCfgBusy] = useState(false);
+  const [cfgMsg, setCfgMsg] = useState<string | null>(null);
+  const [year, setYear] = useState(now.getFullYear());
+  const [special, setSpecial] = useState<SpecialDaysOut | null>(null);
+  const [editing, setEditing] = useState<SpecialDay | "new" | null>(null);
+  const [previewMonth, setPreviewMonth] = useState(now.getMonth() + 1);
+  const [preview, setPreview] = useState<CalendarMonth | null>(null);
+
+  const loadConfig = useCallback(() => {
+    api.calendar.getConfig(token).then(setConfig).catch(() => setConfig(null));
+  }, [token]);
+  const loadSpecial = useCallback(() => {
+    api.calendar.specialDays(token, year).then(setSpecial).catch(() => setSpecial(null));
+  }, [token, year]);
+  const loadPreview = useCallback(() => {
+    api.calendar.month(token, year, previewMonth).then(setPreview).catch(() => setPreview(null));
+  }, [token, year, previewMonth]);
+  useEffect(() => { loadConfig(); }, [loadConfig]);
+  useEffect(() => { loadSpecial(); }, [loadSpecial]);
+  useEffect(() => { loadPreview(); }, [loadPreview]);
+
+  function toggleDay(key: keyof WorkCalendarConfigInput) {
+    setConfig((c) => (c ? { ...c, [key]: !c[key] } : c));
+    setCfgMsg(null);
+  }
+  async function saveConfig() {
+    if (!config) return;
+    setCfgBusy(true); setCfgMsg(null);
+    try {
+      const saved = await api.calendar.updateConfig(token, {
+        works_mon: config.works_mon, works_tue: config.works_tue, works_wed: config.works_wed,
+        works_thu: config.works_thu, works_fri: config.works_fri, works_sat: config.works_sat,
+        works_sun: config.works_sun,
+      });
+      setConfig(saved);
+      setCfgMsg("Đã lưu tuần làm việc.");
+      loadPreview();
+    } catch (e) {
+      setCfgMsg(e instanceof Error ? e.message : "Lỗi khi lưu.");
+    } finally {
+      setCfgBusy(false);
+    }
+  }
+  async function removeSpecial(id: number) {
+    await api.calendar.deleteSpecialDay(token, id);
+    loadSpecial(); loadPreview();
+  }
+
+  const shortfall = special ? special.statutory_paid - special.paid_off_count : 0;
+
+  return (
+    <div className="cal">
+      <section className="cal-panel">
+        <h4 className="ns-section__title">Tuần làm việc chuẩn</h4>
+        <p className="cc-note">Bật/tắt từng thứ. Ngày làm việc là mẫu tính công chuẩn tháng + trừ phép năm;
+          ngày tắt = nghỉ tuần (không trừ phép). Ngày lễ khai riêng ở dưới.</p>
+        <div className="cal-week">
+          {WEEKDAY_FIELDS.map((w) => (
+            <label key={String(w.key)} className={`cal-week__day ${config?.[w.key] ? "is-on" : ""}`}>
+              <input type="checkbox" checked={!!config?.[w.key]} onChange={() => toggleDay(w.key)} />
+              <span>{w.label}</span>
+            </label>
+          ))}
+        </div>
+        <div className="cc-toolbar">
+          <button className="btn btn--primary" onClick={saveConfig} disabled={cfgBusy || !config}>
+            {cfgBusy ? "Đang lưu…" : "Lưu tuần làm việc"}
+          </button>
+          {cfgMsg && <span className="cc-assign__msg">{cfgMsg}</span>}
+        </div>
+      </section>
+
+      <section className="cal-panel">
+        <div className="cal-panel__head">
+          <h4 className="ns-section__title">Ngày lễ & làm bù</h4>
+          <div className="cal-yearpick">
+            <button className="btn btn--ghost" onClick={() => setYear((y) => y - 1)} aria-label="Năm trước">‹</button>
+            <span className="cal-year">{year}</span>
+            <button className="btn btn--ghost" onClick={() => setYear((y) => y + 1)} aria-label="Năm sau">›</button>
+          </div>
+        </div>
+        {special && shortfall > 0 && (
+          <div className="banner banner--warn">
+            Năm {year} mới khai {special.paid_off_count}/{special.statutory_paid} ngày nghỉ lễ hưởng lương.
+            Bổ sung Tết Nguyên đán, Giỗ Tổ Hùng Vương và ngày kề Quốc khánh theo thông báo Chính phủ.
+          </div>
+        )}
+        <div className="cc-toolbar">
+          <button className="btn btn--primary" onClick={() => setEditing("new")}>+ Thêm ngày</button>
+        </div>
+        <div className="ns__tablewrap">
+          <table className="ns__table">
+            <thead>
+              <tr><th>Ngày</th><th>Tên</th><th>Loại</th><th>Hưởng lương</th><th></th></tr>
+            </thead>
+            <tbody>
+              {special?.items.map((s) => (
+                <tr key={s.id}>
+                  <td className="ns__code">{fmtDateVN(s.day)}</td>
+                  <td>{s.name}</td>
+                  <td>
+                    <span className={`ns-badge ${s.kind === "work" ? "ns-badge--info" : "ns-badge--ok"}`}>
+                      {KIND_LABEL[s.kind]}
+                    </span>
+                  </td>
+                  <td>{s.kind === "off" ? (s.is_paid ? "Có" : "Không") : "—"}</td>
+                  <td className="cc-rowact">
+                    <button className="btn btn--ghost" onClick={() => setEditing(s)}>Sửa</button>
+                    <button className="btn btn--ghost ns-danger" onClick={() => removeSpecial(s.id)}>Xóa</button>
+                  </td>
+                </tr>
+              ))}
+              {!special && (
+                <tr><td colSpan={5} className="ns__empty">Đang tải…</td></tr>
+              )}
+              {special?.items.length === 0 && (
+                <tr><td colSpan={5} className="ns__empty">Chưa khai ngày đặc biệt nào cho năm {year}.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="cal-panel">
+        <div className="cal-panel__head">
+          <h4 className="ns-section__title">Xem trước tháng</h4>
+          <select className="cal-monthpick" value={previewMonth} onChange={(e) => setPreviewMonth(Number(e.target.value))}>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => <option key={m} value={m}>Tháng {m}</option>)}
+          </select>
+        </div>
+        {!preview && <p className="cal-standard">Đang tải lịch tháng…</p>}
+        {preview && (
+          <>
+            <p className="cal-standard">
+              Công chuẩn tháng {preview.month}/{preview.year}: <strong>{preview.working_days}</strong> công
+              {preview.holidays.length > 0 && <> · {preview.holidays.length} ngày lễ</>}
+            </p>
+            <div className="cal-grid">
+              {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((d) => (
+                <div key={d} className="cal-grid__head">{d}</div>
+              ))}
+              {buildMonthGrid(preview).map((cell, i) =>
+                cell ? (
+                  <div key={i} className={`cal-cell cal-cell--${cell.kind}`} title={cell.name ?? ""}>
+                    <span className="cal-cell__num">{cell.day}</span>
+                    {cell.name && <span className="cal-cell__name">{cell.name}</span>}
+                  </div>
+                ) : <div key={i} className="cal-cell cal-cell--empty" />
+              )}
+            </div>
+            <div className="cal-legend">
+              <span className="cal-lg cal-lg--work">Ngày làm</span>
+              <span className="cal-lg cal-lg--weekend">Nghỉ tuần</span>
+              <span className="cal-lg cal-lg--holiday">Nghỉ lễ</span>
+              <span className="cal-lg cal-lg--makeup">Làm bù</span>
+            </div>
+          </>
+        )}
+      </section>
+
+      {editing && (
+        <SpecialDayForm token={token} special={editing === "new" ? null : editing} year={year}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); loadSpecial(); loadPreview(); }} />
+      )}
+    </div>
+  );
+}
+
+function SpecialDayForm({ token, special, year, onClose, onSaved }: {
+  token: string; special: SpecialDay | null; year: number; onClose: () => void; onSaved: () => void;
+}) {
+  const [form, setForm] = useState<SpecialDayInput>({
+    day: special?.day ?? `${year}-01-01`,
+    kind: special?.kind ?? "off",
+    name: special?.name ?? "",
+    is_paid: special?.is_paid ?? true,
+    note: special?.note ?? "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  function set<K extends keyof SpecialDayInput>(k: K, v: SpecialDayInput[K]) { setForm((f) => ({ ...f, [k]: v })); }
+  async function save() {
+    setBusy(true); setError(null);
+    try {
+      if (special) await api.calendar.updateSpecialDay(token, special.id, form);
+      else await api.calendar.createSpecialDay(token, form);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Lỗi khi lưu.");
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box">
+        <header className="ns-modal__head">
+          <h2>{special ? "Sửa ngày đặc biệt" : "Thêm ngày đặc biệt"}</h2>
+          <button className="ns-modal__x" onClick={onClose}>×</button>
+        </header>
+        <div className="ns-modal__body">
+          {error && <div className="banner banner--error">{error}</div>}
+          <label className="ns-field"><span className="ns-field__label">Ngày *</span>
+            <input type="date" value={form.day} onChange={(e) => set("day", e.target.value)} /></label>
+          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Tên *</span>
+            <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="vd Quốc khánh" /></label>
+          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Loại</span>
+            <select value={form.kind} onChange={(e) => set("kind", e.target.value as "off" | "work")}>
+              <option value="off">Nghỉ lễ (ngày lẽ ra làm nhưng nghỉ)</option>
+              <option value="work">Làm bù (đi làm ngày lẽ ra nghỉ)</option>
+            </select></label>
+          {form.kind === "off" && (
+            <label className="ns-check" style={{ marginTop: 12 }}>
+              <input type="checkbox" checked={!!form.is_paid} onChange={(e) => set("is_paid", e.target.checked)} />
+              Hưởng nguyên lương (cộng 1 công vào bảng công)
+            </label>
+          )}
+          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Ghi chú</span>
+            <input value={form.note ?? ""} onChange={(e) => set("note", e.target.value)} placeholder="vd mùng 1 Tết Âm lịch" /></label>
+        </div>
+        <footer className="ns-modal__foot">
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn--primary" onClick={save} disabled={busy || !form.name.trim() || !form.day}>
+            {busy ? "Đang lưu…" : "Lưu"}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function ShiftsTab({ token }: { token: string }) {
   const [items, setItems] = useState<WorkShift[] | null>(null);
   const [editing, setEditing] = useState<WorkShift | "new" | null>(null);
@@ -877,11 +1142,19 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
   const [deptId, setDeptId] = useState<number | "">("");
   const [depts, setDepts] = useState<{ id: number; name: string }[]>([]);
   const [openDay, setOpenDay] = useState<{ employeeId: number; employeeName: string; date: string } | null>(null);
+  const [period, setPeriod] = useState<AttendancePeriod | null>(null);
+  const [periodBusy, setPeriodBusy] = useState(false);
+  const [periodMsg, setPeriodMsg] = useState<string | null>(null);
   const [year, month] = ym.split("-").map(Number);
 
   useEffect(() => {
     api.employees.meta(token).then((m) => setDepts(m.departments)).catch(() => setDepts([]));
   }, [token]);
+
+  const loadPeriod = useCallback(() => {
+    api.attendance.period(token, year, month).then(setPeriod).catch(() => setPeriod(null));
+  }, [token, year, month]);
+  useEffect(() => { loadPeriod(); setPeriodMsg(null); }, [loadPeriod]);
 
   const reload = useCallback(() => {
     setLoading(true);
@@ -889,6 +1162,25 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
       .then(setData).catch(() => setData(null)).finally(() => setLoading(false));
   }, [token, year, month, deptId]);
   useEffect(() => { reload(); }, [reload]);
+
+  async function doLockPeriod() {
+    setPeriodBusy(true); setPeriodMsg(null);
+    try {
+      setPeriod(await api.attendance.lockPeriod(token, year, month));
+      setPeriodMsg("Đã chốt công tháng.");
+    } catch (e) {
+      setPeriodMsg(e instanceof Error ? e.message : "Lỗi khi chốt công.");
+    } finally { setPeriodBusy(false); }
+  }
+  async function doReopenPeriod() {
+    setPeriodBusy(true); setPeriodMsg(null);
+    try {
+      setPeriod(await api.attendance.reopenPeriod(token, year, month));
+      setPeriodMsg("Đã mở lại kỳ công.");
+    } catch (e) {
+      setPeriodMsg(e instanceof Error ? e.message : "Lỗi khi mở kỳ công.");
+    } finally { setPeriodBusy(false); }
+  }
 
   function openCell(employeeId: number, employeeName: string, dayNum: number) {
     const date = `${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
@@ -931,6 +1223,36 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
           {canAdjust && <> · <b>bấm vào ô</b> để xem/chấm bù</>}
         </span>
       </div>
+      {period && (
+        <div className={`cc-period ${period.status === "locked" ? "cc-period--locked" : ""}`}>
+          <div className="cc-period__info">
+            {period.status === "locked"
+              ? <span className="ns-badge ns-badge--ok">Đã chốt công</span>
+              : <span className="ns-badge ns-badge--muted">Chưa chốt (nháp)</span>}
+            {period.status !== "locked" && (period.hanging_days > 0 || period.pending_leaves + period.pending_adjusts > 0) && (
+              <span className="cc-period__warn">
+                {period.hanging_days > 0 && ` · ${period.hanging_days} ngày treo (thiếu chấm RA)`}
+                {period.pending_leaves + period.pending_adjusts > 0 && ` · ${period.pending_leaves + period.pending_adjusts} đơn chưa duyệt`}
+              </span>
+            )}
+            {period.status === "locked" && <span className="cc-period__warn"> · đóng băng {period.line_count} NV</span>}
+          </div>
+          {canAdjust && (
+            <div className="cc-period__act">
+              {period.status === "draft"
+                ? <button className="btn btn--primary" onClick={doLockPeriod} disabled={periodBusy}>
+                    {periodBusy ? "Đang chốt…" : "Chốt công tháng"}
+                  </button>
+                : <button className="btn btn--ghost" onClick={doReopenPeriod}
+                    disabled={periodBusy || period.payroll_locked}
+                    title={period.payroll_locked ? "Kỳ lương đã chốt — không mở lại kỳ công" : ""}>
+                    {periodBusy ? "Đang mở…" : "Mở lại kỳ công"}
+                  </button>}
+              {periodMsg && <span className="cc-period__msg">{periodMsg}</span>}
+            </div>
+          )}
+        </div>
+      )}
       {loading && <p className="ns__empty">Đang tải…</p>}
       {!loading && data && (
         <div className="ns__tablewrap cc-timesheet">

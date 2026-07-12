@@ -245,6 +245,7 @@ class RoleRepository:
         can_toggle_active: bool = False,
         can_reparent: bool = False,
         can_view_salary: bool = False,
+        can_edit_salary: bool = False,
         can_adjust: bool = False,
     ) -> RolePermission:
         """Upsert the (role, module) permission row."""
@@ -277,6 +278,7 @@ class RoleRepository:
         perm.can_toggle_active = can_toggle_active
         perm.can_reparent = can_reparent
         perm.can_view_salary = can_view_salary
+        perm.can_edit_salary = can_edit_salary
         perm.can_adjust = can_adjust
         self.db.commit()
         self.db.refresh(perm)

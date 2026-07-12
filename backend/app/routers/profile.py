@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from ..deps import CurrentUser, get_profile_service
 from ..schemas.auth import UserOut
 from ..schemas.profile import AvatarOut, UpdateNameRequest
-from ..services.profile_service import ProfileService
+from ..services.profile_service import ProfileError, ProfileService
 
 router = APIRouter(prefix="/api/users", tags=["profile"])
 
@@ -32,8 +32,12 @@ Profiles = Annotated[ProfileService, Depends(get_profile_service)]
 
 @router.patch("/me", response_model=UserOut)
 def update_my_name(payload: UpdateNameRequest, user: CurrentUser, profiles: Profiles) -> UserOut:
-    """Change the current user's display name (spec-04). Schema enforces 1..100 chars."""
-    updated = profiles.update_name(user, payload.name)
+    """Change the current user's display name (spec-04). Schema enforces 1..100 chars.
+    Chặn nếu user có hồ sơ nhân sự (tên do hồ sơ quyết — Đ1)."""
+    try:
+        updated = profiles.update_name(user, payload.name)
+    except ProfileError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     return UserOut.model_validate(updated)
 
 

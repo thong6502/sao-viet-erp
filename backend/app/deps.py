@@ -18,6 +18,7 @@ from .repositories.audit_repo import AuditLogRepository
 from .repositories.accounting_repo import AccountingRepository
 from .repositories.costing_repo import CostingRepository
 from .repositories.attendance_repo import AttendanceRepository
+from .repositories.calendar_repo import CalendarRepository
 from .repositories.leave_repo import LeaveRepository
 from .repositories.payroll_repo import PayrollRepository
 from .repositories.piece_work_repo import PieceWorkRepository
@@ -57,6 +58,7 @@ from .services.costing_service import CostingService
 from .services.estimate_service import EstimateService
 from .services.customer_analytics import CustomerAnalyticsService
 from .services.attendance_service import AttendanceService
+from .services.calendar_service import CalendarService
 from .services.leave_service import LeaveService
 from .services.payroll_service import PayrollService
 from .services.piece_work_service import PieceWorkService
@@ -188,13 +190,14 @@ def get_unit_level_repository(
 
 
 def get_department_service(
+    db: Annotated[Session, Depends(get_db)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     roles: Annotated[RoleRepository, Depends(get_role_repository)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     levels: Annotated[UnitLevelRepository, Depends(get_unit_level_repository)],
 ) -> DepartmentService:
-    return DepartmentService(departments, roles, users, audit, levels)
+    return DepartmentService(departments, roles, users, audit, levels, EmployeeRepository(db))
 
 
 def get_unit_level_service(
@@ -206,21 +209,23 @@ def get_unit_level_service(
 
 
 def get_user_admin_service(
+    db: Annotated[Session, Depends(get_db)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     roles: Annotated[RoleRepository, Depends(get_role_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     tokens: Annotated[RefreshTokenRepository, Depends(get_refresh_token_repository)],
 ) -> UserAdminService:
-    return UserAdminService(users, departments, roles, audit, tokens)
+    return UserAdminService(users, departments, roles, audit, tokens, EmployeeRepository(db))
 
 
 def get_profile_service(
+    db: Annotated[Session, Depends(get_db)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     roles: Annotated[RoleRepository, Depends(get_role_repository)],
 ) -> ProfileService:
-    return ProfileService(users, departments, roles)
+    return ProfileService(users, departments, roles, EmployeeRepository(db))
 
 
 def get_activity_service(
@@ -261,8 +266,22 @@ def get_employee_service(
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
 ) -> EmployeeService:
-    return EmployeeService(employees, audit, users)
+    return EmployeeService(employees, audit, users, departments)
+
+
+def get_calendar_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> CalendarRepository:
+    return CalendarRepository(db)
+
+
+def get_calendar_service(
+    calendar: Annotated[CalendarRepository, Depends(get_calendar_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> CalendarService:
+    return CalendarService(calendar, audit)
 
 
 def get_attendance_repository(
@@ -282,17 +301,22 @@ def get_attendance_service(
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     leaves: Annotated[LeaveRepository, Depends(get_leave_repository)],
+    calendar: Annotated[CalendarService, Depends(get_calendar_service)],
+    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
 ) -> AttendanceService:
-    # leaves injected so Bảng công tháng đánh dấu ngày nghỉ đã duyệt (P/KL).
-    return AttendanceService(attendance, employees, audit, leaves=leaves)
+    # leaves → đánh dấu ngày nghỉ (P/KL); calendar → công lễ; payroll (REPO) → chặn mở kỳ công
+    # khi kỳ lương đã chốt (Q3). Chỉ đọc payroll REPO nên không vòng service↔service.
+    return AttendanceService(attendance, employees, audit, leaves=leaves, calendar=calendar, payroll=payroll)
 
 
 def get_leave_service(
     leaves: Annotated[LeaveRepository, Depends(get_leave_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    calendar: Annotated[CalendarService, Depends(get_calendar_service)],
 ) -> LeaveService:
-    return LeaveService(leaves, employees, audit)
+    # calendar → loại ngày lễ khỏi quota + tuần T2–T7 (Thứ 7 nay trừ phép).
+    return LeaveService(leaves, employees, audit, calendar=calendar)
 
 
 def get_payroll_repository(

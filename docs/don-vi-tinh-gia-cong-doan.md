@@ -1,112 +1,76 @@
-# Đơn vị tính giá công đoạn — công thức tính lượng & tiền
+# Đơn vị tính giá công đoạn
 
-Tài liệu gộp: cách tính **lượng** (basis) và **tiền** cho công đoạn trong SVN. Có **2 engine song song**
-theo mô hình tái thiết (strangler):
+Giải thích 11 **đơn vị tính giá** của công đoạn (màn Cấu hình danh mục → Công đoạn) và cách ra tiền.
 
-| | Đang chạy trong Báo giá (LIVE) | Bộ mới (danh mục "Công đoạn") |
-|---|---|---|
-| Danh mục / model | `operations` (`op.unit`) | `cong_doan` (`pricing_basis`) |
-| Engine | `services/pricing_engine.py` ✅ đã nối Báo giá | `services/routing_engine.py::basis_qty` ⛔ chưa nối |
-| Số đơn vị | 4 (tờ / m² / cái / SP) | 11 (theo bảng ngành in) |
+Sau khi chọn đơn vị, ô **"Đơn giá / đơn vị"** = tiền cho **1** đơn vị đó (1 tờ / 1 cm² / 1 cái / 1 thùng…).
+Máy tự tính **lượng** rồi nhân đơn giá:
 
-> **Trạng thái:** báo giá thật hiện dùng `operations` (4 đơn vị bên dưới). Bộ 11 đơn vị ở màn
-> **Công đoạn** hiện là danh mục chuẩn hóa, **chưa tác động số báo giá** cho tới khi nối
-> `routing_engine` vào `pricing_engine`.
+```
+Tiền công đoạn = đơn_giá × lượng   (+ giá tối thiểu / tiền khuôn nếu có)
+```
+
+Ví dụ chung dưới đây: **đơn 10.000 danh thiếp, in 8 con/tờ → 1.250 tờ in**; sách 200 trang × 500 cuốn.
 
 ---
 
-## A. Engine ĐANG CHẠY — `pricing_engine.py` (danh mục `operations`, `op.unit`)
+## Chia 4 nhóm cho dễ nhớ
 
-Ký hiệu:
-- `qty_at_op` = lượng **tại bước** đó. Bước cuối = SL đặt; bước trước cộng dồn bù hao các bước sau
-  (cascade hao ngược `reverse_snaps`), nên bước càng sớm lượng càng lớn hơn SL đặt một chút.
-- `pieces_per_sheet` = số con trên 1 tờ in (từ bình bài / imposition).
+### Nhóm 1 — Tính theo TỜ IN (phía máy chạy)
 
-Ví dụ dùng chung: **đơn 10.000 thành phẩm, 8 con/tờ, khổ tờ 65×86 cm**.
+| Đơn vị | Đếm cái gì | Hay dùng cho | Ví dụ |
+|---|---|---|---|
+| Theo số tờ in | Số tờ giấy chạy qua máy | In offset, cắt xén | 1.250 tờ |
+| Theo diện tích tờ in (cm²) | Diện tích 1 tờ × số tờ (1 mặt) | Cán/phủ 1 mặt | 65×86 = 5.590 cm² × 1.250 tờ |
+| Theo diện tích (cm²) và số mặt | Diện tích tờ × **số mặt** × số tờ | Cán/phủ/UV 2 mặt | 5.590 × **2 mặt** × 1.250 tờ |
 
-### 1. `to` — Theo tờ in
-```
-lượng = ⌈ qty_at_op / pieces_per_sheet ⌉
-tiền  = lượng × đơn_giá  (+ setup_fee)
-```
-VD: ⌈10.000 / 8⌉ = **1.250 tờ**; đơn giá 300đ/tờ ⇒ 1.250 × 300 = **375.000đ**.
+### Nhóm 2 — Tính theo THÀNH PHẨM (sản phẩm cuối)
 
-### 2. `m2` — Theo mét vuông
-```
-dt_1_tờ = rộng_cm × cao_cm / 10.000        (cm² → m²)
-số_tờ   = ⌈ qty_at_op / pieces_per_sheet ⌉
-lượng   = số_tờ × dt_1_tờ
-tiền    = lượng × đơn_giá
-```
-VD: dt_1_tờ = 65×86/10.000 = **0,559 m²**; số_tờ = 1.250 → lượng = 1.250 × 0,559 = **698,75 m²**;
-đơn giá 2.200đ/m² ⇒ **1.537.250đ**.
+| Đơn vị | Đếm cái gì | Hay dùng cho | Ví dụ |
+|---|---|---|---|
+| Theo số lượng thành phẩm | Số sản phẩm cuối | Dán, đánh số, bế theo cái | 10.000 cái |
+| Theo diện tích thành phẩm (cm²) | Diện tích 1 sản phẩm × số lượng | Cán/phủ tính theo SP (không phải tờ) | tem 5×8 = 40 cm² × 10.000 |
+| Theo số vị trí | Số chỗ gia công × số lượng | Ép kim/dập nổi nhiều chỗ | 2 chỗ × 10.000 = 20.000 vị trí |
 
-### 3. `cuon` / `cai` / `san_pham` — Theo thành phẩm
-```
-lượng = qty_at_op          (đúng số thành phẩm, không quy đổi)
-tiền  = lượng × đơn_giá
-```
-VD: lượng = **10.000**; đơn giá 180đ/cái ⇒ **1.800.000đ**.
+### Nhóm 3 — Sách & Đóng gói
 
-### 4. (đơn vị khác) → mặc định như mục 3 (theo thành phẩm)
+| Đơn vị | Đếm cái gì | Hay dùng cho | Ví dụ |
+|---|---|---|---|
+| Theo số trang sách | Số trang × số cuốn | Vào keo, khâu chỉ, bắt tay | 200 × 500 = 100.000 trang |
+| Theo số trang sách chia 4 | (Trang × cuốn) ÷ 4 | Tính theo "tay" (1 tờ gấp 4 trang) | 100.000 ÷ 4 = 25.000 tay |
+| Theo bao | Số bao đóng gói | Vô bao, đếm bao | 500 cái/bao → 20 bao |
+| Theo thùng | Số thùng | Đóng thùng, bốc xếp | 100 cái/thùng → 100 thùng |
 
-### Chuỗi ra tiền (theo `internal_pricing_method`)
-```
-per_qty  (mặc định):  tiền = lượng × đơn_giá + setup_fee
-per_hour:             tiền = (setup_giờ + lượng/tốc_độ_máy) × đơn_giá_giờ_máy
-combined:             tiền = lượng × đơn_giá + giờ_máy × đơn_giá_giờ + setup_fee
-```
-Rồi cộng **nhân công** (theo SP / giờ / ca / khoán) và ép **giá tối thiểu** nếu có:
-```
-giờ_máy   = setup_giờ + lượng / tốc_độ_máy
-nhân_công = SP:   lượng × đơn_giá_NC
-            giờ:  số_người × giờ_máy × đơn_giá_NC_giờ
-            ca:   đơn_giá_ca
-            khoán: tiền_khoán
-tổng_bước = max(setup + run_cost + nhân_công, giá_tối_thiểu)
-```
+### Nhóm 4 — Khác
+
+| Đơn vị | Nghĩa |
+|---|---|
+| Khác | Giá **cố định/khoán 1 cục**, không nhân theo lượng (thợ nhập tay). VD 500.000đ/đơn. |
+
+**Chọn nhanh:** máy in/cán → *theo tờ*; cắt/dán/đếm sản phẩm → *theo thành phẩm*; đóng sách →
+*theo trang*; đóng gói → *bao/thùng*; khoán → *khác*.
 
 ---
 
-## B. Engine MỚI — `routing_engine.basis_qty` (danh mục `cong_doan`, `pricing_basis`)
+## Phụ lục — Công thức `lượng` (engine `routing_engine.basis_qty`)
 
-Chuỗi tiền 1 công đoạn:
-```
-run_cost = đơn_giá × basis_qty     (có bậc thang → áp bậc; có "giá 1.000 đầu" → lấy sàn first_unit_floor)
-total    = setup_cost + run_cost + tiền_khuôn
-total    = max(total, giá_tối_thiểu)
-```
+Ngữ cảnh đơn: `so_to_in_gross` (số tờ in), `so_mat` (số mặt), `dt_to_in_cm2` (dt 1 tờ),
+`dt_thanh_pham_cm2` (dt 1 thành phẩm), `so_luong_thanh_pham` (SL), `so_trang`, `so_cuon`,
+`so_vi_tri`, `so_bao`, `so_thung`.
 
-`basis_qty` quy đổi mỗi đơn vị → lượng tính tiền, từ ctx đơn hàng
-(`so_to_in_gross`, `so_mat`, `dt_to_in_cm2`, `dt_thanh_pham_cm2`, `so_luong_thanh_pham`,
-`so_trang`, `so_cuon`, `so_vi_tri`, `so_bao`, `so_thung`):
+| Đơn vị (key) | `lượng` = |
+|---|---|
+| Theo số tờ in (`per_sheet`) | số tờ in |
+| Theo diện tích thành phẩm (`per_finished_area`) | dt_thành_phẩm × SL |
+| Theo số lượng thành phẩm (`per_finished_qty`) | SL |
+| Theo số trang sách (`per_book_page`) | số trang × số cuốn |
+| Theo số vị trí (`per_position`) | số vị trí × SL |
+| Theo bao (`per_bag`) | số bao |
+| Theo thùng (`per_carton`) | số thùng |
+| Theo diện tích (cm²) và số mặt (`per_area_sides`) | dt_tờ × số mặt × số tờ in |
+| Theo diện tích tờ in (cm²) (`per_sheet_area`) | dt_tờ × số tờ in |
+| Theo số trang sách chia 4 (`per_book_page_q4`) | (số trang × số cuốn) ÷ 4 |
+| Khác (`per_other`) | 1 (giá phẳng) |
 
-| `pricing_basis` | Nhãn | `basis_qty` = |
-|---|---|---|
-| `per_sheet` | Theo số tờ in | số tờ in gross |
-| `per_finished_area` | Theo diện tích thành phẩm (cm²) | dt_thành_phẩm_cm² × SL thành phẩm |
-| `per_finished_qty` | Theo số lượng thành phẩm | SL thành phẩm |
-| `per_book_page` | Theo số trang sách | số trang × số cuốn |
-| `per_position` | Theo số vị trí | số vị trí × SL thành phẩm |
-| `per_bag` | Theo bao | số bao |
-| `per_carton` | Theo thùng | số thùng |
-| `per_area_sides` | Theo diện tích (cm²) và số mặt | dt_tờ_cm² × số mặt × số tờ in |
-| `per_sheet_area` | Theo diện tích tờ in (cm²) | dt_tờ_cm² × số tờ in |
-| `per_book_page_q4` | Theo số trang sách chia 4 | (số trang × số cuốn) / 4 |
-| `per_other` | Khác | 1 (giá phẳng, nhập tay) |
-
-Giải thích vài mục dễ nhầm:
-- **số tờ in (gross)** = số tờ đã cộng bù hao (không phải số thành phẩm).
-- **diện tích & số mặt**: cán/phủ 2 mặt thì × số mặt; tính trên toàn bộ tờ in đã chạy.
-- **trang sách chia 4**: 1 tờ gấp ra 4 trang (in sách) → quy công theo "tay" thay vì từng trang.
-- **vị trí**: ép kim/bế nhiều vị trí trên 1 thành phẩm → nhân số vị trí với số lượng.
-- **Khác** = basis 1 nên `run_cost = đơn_giá` (một mức cố định).
-
----
-
-## C. Việc còn lại để bộ 11 đơn vị tác động báo giá
-
-Nối `routing_engine` vào `pricing_engine` (thay/bổ sung khối "Operation Cost Lines"):
-dựng `ctx` từ dữ liệu đơn (số tờ in gross, diện tích cm², SL thành phẩm, số trang/cuốn,
-số vị trí, quy cách bao/thùng) → gọi `basis_qty` theo `cong_doan.pricing_basis` → ra tiền.
-Một số ctx (số trang, số vị trí, quy cách đóng gói) cần bổ sung ở dữ liệu đơn/loại sản phẩm.
+> **Lưu ý:** bộ 11 đơn vị này thuộc `routing_engine` — **chưa nối vào Báo giá live** (`pricing_engine.py`
+> đang chạy dùng danh mục `operations` với 4 đơn vị: tờ / m² / cái / SP). Hiện dùng để chuẩn hoá
+> danh mục; khi nối engine mới vào Báo giá thì mỗi công đoạn tự tính theo bảng trên.

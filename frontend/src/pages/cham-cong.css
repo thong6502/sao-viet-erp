@@ -156,3 +156,69 @@
 @media (max-width: 720px) {
   .cc-grid { grid-template-columns: 1fr; }
 }
+
+/* --- Lịch làm việc & Ngày lễ --- */
+.cal { display: flex; flex-direction: column; }
+.cal-panel { padding: var(--sp-6) 0; }
+.cal-panel:first-child { padding-top: 0; }
+.cal-panel + .cal-panel { border-top: 1px solid var(--rule); }
+.cal-panel__head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
+
+.cal-week { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0 var(--sp-4); }
+.cal-week__day {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border: 1px solid var(--rule); border-radius: var(--r-4);
+  background: var(--canvas); cursor: pointer; user-select: none; font-size: 14px;
+  transition: background var(--duration-fast) var(--easing-standard), border-color var(--duration-fast) var(--easing-standard);
+}
+.cal-week__day.is-on { background: var(--moss-soft); border-color: var(--moss); color: var(--moss-deep); font-weight: var(--fw-bold); }
+.cal-week__day input { accent-color: var(--moss); }
+
+.cal-yearpick { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.cal-year { font-size: 18px; font-weight: var(--fw-bold); min-width: 4ch; text-align: center; }
+.cal-monthpick {
+  padding: 6px 10px; border: 1px solid var(--rule); border-radius: var(--r-3);
+  background: var(--canvas); font: inherit; color: var(--ink); min-width: 120px;
+}
+
+.cal-standard { margin: var(--sp-3) 0; color: var(--ash); font-size: 14px; }
+.cal-standard strong { color: var(--rust-deep); font-size: 16px; }
+
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: var(--sp-3); }
+.cal-grid__head { text-align: center; font-size: 12px; font-weight: var(--fw-bold); color: var(--ash); padding: 4px 0; }
+.cal-cell {
+  min-height: 56px; border: 1px solid var(--rule); border-radius: var(--r-3);
+  padding: 6px; display: flex; flex-direction: column; gap: 2px; background: var(--canvas); overflow: hidden;
+}
+.cal-cell--empty { border: none; background: transparent; }
+.cal-cell--weekend { background: var(--rule-soft); color: var(--ash); }
+.cal-cell--holiday { background: var(--rust-soft); border-color: var(--rust); color: var(--rust-deep); }
+.cal-cell--makeup { background: var(--plum-soft); border-color: var(--plum); color: var(--plum-deep); }
+.cal-cell__num { font-weight: var(--fw-bold); font-size: 14px; }
+.cal-cell__name { font-size: 11px; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cal-legend { display: flex; flex-wrap: wrap; gap: var(--sp-4); margin-top: var(--sp-3); font-size: 12px; }
+.cal-lg { display: inline-flex; align-items: center; gap: 6px; color: var(--ash); }
+.cal-lg::before { content: ""; width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--rule); background: var(--canvas); }
+.cal-lg--weekend::before { background: var(--rule-soft); }
+.cal-lg--holiday::before { background: var(--rust-soft); border-color: var(--rust); }
+.cal-lg--makeup::before { background: var(--plum-soft); border-color: var(--plum); }
+
+@media (max-width: 720px) {
+  .cal-cell { min-height: 44px; }
+  .cal-cell__name { display: none; }
+}
+
+/* --- Chốt công tháng --- */
+.cc-period {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  flex-wrap: wrap; margin: 0 0 var(--sp-4); padding: 10px 14px;
+  background: var(--canvas); border: 1px solid var(--rule); border-left: 3px solid var(--ash-2);
+  border-radius: var(--r-4);
+}
+.cc-period--locked { border-left-color: var(--moss); background: var(--moss-soft); }
+.cc-period__info { display: flex; align-items: center; gap: 6px; font-size: 13px; flex-wrap: wrap; }
+.cc-period__warn { color: var(--rust-deep); }
+.cc-period--locked .cc-period__warn { color: var(--moss-deep); }
+.cc-period__act { display: flex; align-items: center; gap: var(--sp-3); }
+.cc-period__msg { font-size: 13px; color: var(--ash); }

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from ..models.attendance import (
     AttendanceAdjustRequest,
     AttendanceLog,
+    AttendancePeriod,
+    AttendancePeriodLine,
     REQ_PENDING,
     WorkLocation,
     WorkShift,
@@ -187,3 +189,50 @@ class AttendanceRepository:
             stmt = stmt.where(AttendanceLog.employee_id.in_(employee_ids))
         stmt = stmt.order_by(AttendanceLog.checked_at.desc(), AttendanceLog.id.desc()).limit(limit)
         return list(self.db.execute(stmt).scalars())
+
+    # --- attendance_periods (Chốt công) ------------------------------------
+
+    def get_period_by_ym(self, year: int, month: int) -> AttendancePeriod | None:
+        return self.db.execute(
+            select(AttendancePeriod).where(AttendancePeriod.year == year, AttendancePeriod.month == month)
+        ).scalars().first()
+
+    def create_period(self, **fields) -> AttendancePeriod:
+        p = AttendancePeriod(**fields)
+        self.db.add(p)
+        self.db.commit()
+        self.db.refresh(p)
+        return p
+
+    def update_period(self, p: AttendancePeriod, **fields) -> AttendancePeriod:
+        for k, v in fields.items():
+            setattr(p, k, v)
+        self.db.commit()
+        self.db.refresh(p)
+        return p
+
+    def list_periods(self, *, limit: int = 36) -> list[AttendancePeriod]:
+        return list(self.db.execute(
+            select(AttendancePeriod).order_by(AttendancePeriod.year.desc(), AttendancePeriod.month.desc()).limit(limit)
+        ).scalars())
+
+    def list_period_lines(self, period_id: int) -> list[AttendancePeriodLine]:
+        return list(self.db.execute(
+            select(AttendancePeriodLine).where(AttendancePeriodLine.period_id == period_id)
+            .order_by(AttendancePeriodLine.id)
+        ).scalars())
+
+    def period_cong_map(self, period_id: int) -> dict[int, float]:
+        return {ln.employee_id: float(ln.total_cong) for ln in self.list_period_lines(period_id)}
+
+    def delete_period_lines(self, period_id: int) -> None:
+        for ln in self.list_period_lines(period_id):
+            self.db.delete(ln)
+        self.db.commit()
+
+    def create_period_line(self, **fields) -> AttendancePeriodLine:
+        ln = AttendancePeriodLine(**fields)
+        self.db.add(ln)
+        self.db.commit()
+        self.db.refresh(ln)
+        return ln

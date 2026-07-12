@@ -44,6 +44,7 @@ const NAV: NavSection[] = [
     id: "kinh-doanh",
     label: "Kinh doanh",
     items: [
+      { id: "tinh-gia", label: "Tính giá", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
       { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart", module: "don_hang_ban" },
       { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },

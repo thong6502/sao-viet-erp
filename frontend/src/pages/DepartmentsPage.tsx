@@ -183,7 +183,7 @@ export function DepartmentsPage() {
 
   // A department's staffing status (wireframe): no staff → trống; staff but no head → thiếu TP.
   function deptStatus(d: Department): "empty" | "no_head" | "complete" {
-    if ((d.user_count ?? 0) === 0) return "empty";
+    if ((d.employee_count ?? 0) === 0) return "empty";
     if (d.head_user_id == null) return "no_head";
     return "complete";
   }
@@ -193,7 +193,7 @@ export function DepartmentsPage() {
     let noHead = 0;
     let empty = 0;
     for (const d of departments) {
-      staff += d.user_count ?? 0;
+      staff += d.employee_count ?? 0;
       const s = deptStatus(d);
       if (s === "no_head") noHead += 1;
       if (s === "empty") empty += 1;
@@ -214,7 +214,7 @@ export function DepartmentsPage() {
       if (!hay.includes(q)) return false;
     }
     if (statusFilter !== "all" && deptStatus(d) !== statusFilter) return false;
-    const count = d.user_count ?? 0;
+    const count = d.employee_count ?? 0;
     const min = staffMin.trim() === "" ? null : Number(staffMin);
     const max = staffMax.trim() === "" ? null : Number(staffMax);
     if (min != null && !Number.isNaN(min) && count < min) return false;
@@ -714,7 +714,7 @@ export function DepartmentsPage() {
           )}
           <span className="deptbl__name">{d.name}</span>
         </div>
-        <div className="deptbl__cell deptbl__num">{d.user_count ?? 0}</div>
+        <div className="deptbl__cell deptbl__num">{d.employee_count ?? 0}</div>
         <div className="deptbl__cell deptbl__num">{d.role_count ?? 0}</div>
         <div className="deptbl__cell deptbl__head">{d.head_name ?? "Chưa có"}</div>
         <div className="deptbl__cell">
@@ -809,7 +809,7 @@ export function DepartmentsPage() {
                     {(childrenOf.get(currentDept.id)?.length ?? 0) > 0 && (
                       <p className="depts__id-branch">
                         Gồm cả nhánh con: {currentDept.total_role_count ?? roles.length} vai trò ·{" "}
-                        {currentDept.total_user_count ?? members.length} người
+                        {currentDept.total_employee_count ?? members.length} người
                       </p>
                     )}
                   </div>
@@ -1009,7 +1009,7 @@ export function DepartmentsPage() {
               <div className="card depts__section">
                 <div className="depts__section-head">
                   <div className="depts__eyebrow-row">
-                    <p className="eyebrow">Nhân sự trong phòng</p>
+                    <p className="eyebrow">Tài khoản trong phòng</p>
                     <InfoHint
                       label={
                         canTransfer

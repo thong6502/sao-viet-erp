@@ -42,8 +42,10 @@ class DepartmentSummaryOut(BaseModel):
     head_title: str | None = None
     role_count: int = 0
     user_count: int = 0
+    employee_count: int = 0
     total_role_count: int = 0
     total_user_count: int = 0
+    total_employee_count: int = 0
 
 
 class DepartmentMemberOut(BaseModel):
@@ -254,6 +256,7 @@ class PermissionRow(BaseModel):
     can_toggle_active: bool = False
     can_reparent: bool = False
     can_view_salary: bool = False
+    can_edit_salary: bool = False
     can_adjust: bool = False
 
 

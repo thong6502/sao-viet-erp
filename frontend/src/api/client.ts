@@ -182,9 +182,12 @@ export interface Department {
   /** This department's own role/user counts. */
   role_count?: number;
   user_count?: number;
+  /** Số HỒ SƠ nhân sự của phòng (Đ2: 'số nhân sự' theo hồ sơ, tách khỏi số tài khoản). */
+  employee_count?: number;
   /** Branch-rolled-up counts (department + every descendant) — PBI-4001. */
   total_role_count?: number;
   total_user_count?: number;
+  total_employee_count?: number;
   /** Org tier tag + its head-title label (spec-06 / PBI-4009). Null = untagged. */
   level_id?: number | null;
   head_title?: string | null;
@@ -745,6 +748,248 @@ export interface CostingListOut {
   page: number;
   size: number;
 }
+
+// Phiếu tính giá 4 nhóm (BE: estimate_to_phieu) — snake_case y hệt JSON trả về.
+export interface PhieuTinhGiaColOut {
+  key: string;
+  label: string;
+  align?: "left" | "right" | "center";
+  // Engine mới trả "number"/"money"; giữ "num"/"formula" cho tương thích phiếu in.
+  kind?: "text" | "num" | "formula" | "number" | "money";
+}
+export interface PhieuTinhGiaGroupOut {
+  idx: string;
+  name: string;
+  columns: PhieuTinhGiaColOut[];
+  rows: Array<Record<string, string | number | null>>;
+  subtotal: number;
+}
+export interface PhieuTinhGiaPrintOut {
+  header: {
+    so_phieu: string;
+    ngay_lap: string | null;
+    ten_an_pham: string;
+    so_luong: number;
+    kho_thanh_pham: string;
+    dvt: string;
+  };
+  noi_dung: Array<{ label: string; text: string }>;
+  groups: PhieuTinhGiaGroupOut[];
+  grand_total: number;
+}
+
+// Engine tính giá MỚI (/api/tinh-gia/preview) — không lưu, trả 4 nhóm + cảnh báo.
+export interface TinhGiaPreviewIn {
+  qty: number;
+  pieces_per_sheet: number;
+  so_mau: number;
+  so_mat: number;
+  giay_id: number | null;
+  loai_san_pham_id?: number | null;
+  cong_doan_ids?: number[];
+}
+/** Số [Hiện] read-only của 1 thành phần (từ result.meta.components) — soi số cho KTV. */
+export interface TinhGiaComponentMeta {
+  idx: number;
+  name: string;
+  gia_von_tp: number;
+  con: number; // ④ con/tờ engine chốt
+  con_auto: boolean;
+  so_manh_xa: number; // ① → ② số mảnh xả
+  to_net: number; // tờ in NET
+  to_gross: number; // tờ in GROSS (đã bù hao)
+  to_nguyen: number; // tờ giấy nguyên
+  so_kem: number;
+  so_luot: number;
+}
+export interface TinhGiaPreviewOut {
+  meta?: { components?: TinhGiaComponentMeta[] } & Record<string, unknown>;
+  groups: PhieuTinhGiaGroupOut[];
+  grand_total: number;
+  warnings: string[];
+}
+
+/** Bình bài live (POST /api/tinh-gia/binh-bai) — mm; chua_mm = tổng 5 chừa (cm) × 10. */
+export interface BinhBaiIn {
+  kho_in_dai: number;
+  kho_in_rong: number;
+  dai_thanh_pham: number;
+  rong_thanh_pham: number;
+  chua_mm: number;
+}
+export interface BinhBaiOut {
+  con: number;
+  cols: number;
+  rows: number;
+  rotated: boolean;
+  usable_dai: number;
+  usable_rong: number;
+  kho_in_dai: number;
+  kho_in_rong: number;
+  dai_tp: number;
+  rong_tp: number;
+  hieu_suat: number;
+}
+
+// --- Phiếu tính giá (PERSISTED costing tickets) — master/detail của "Tính giá" ---
+// Mô hình MỚI theo THÀNH PHẦN: 1 phiếu = nhiều "Thành phần" (mỗi cái = giấy + kỹ thuật in +
+// màu + gia công sau in). List item 2 tầng (sản phẩm + số thành phần); detail lồng nested.
+export interface PhieuTinhGiaListItem {
+  id: number;
+  ma: string;
+  ten_san_pham: string;
+  loai_san_pham_id: number | null;
+  kho_thanh_pham: string | null;
+  so_luong: number;
+  gia_von_don: number;
+  tong_gia_von: number;
+  ktv: string | null;
+  so_thanh_phan: number;
+  ngay: string | null;
+}
+export interface PhieuTinhGiaListOut {
+  items: PhieuTinhGiaListItem[];
+  total: number;
+}
+
+/** 1 dòng gia công sau in (finishing) thuộc 1 thành phần. */
+export interface ThanhPhamOut {
+  id: number;
+  thanh_phan_id: number;
+  thu_tu: number;
+  cong_doan_id: number | null;
+  ten: string;
+  don_gia: number;
+  so_luong: number;
+  bu_hao: boolean;
+  so_mat: number;
+  so_vi_tri: number;
+  dien_tich: number;
+  nha_cung_cap: string | null;
+  ghi_chu: string | null;
+}
+
+/** 1 thành phần giấy (paper component): giấy + kỹ thuật in + màu + list gia công. */
+export interface ThanhPhanOut {
+  id: number;
+  phieu_id: number;
+  thu_tu: number;
+  loai_thanh_phan: string;
+  ten: string;
+  kho_thanh_pham: string | null; // nhãn hiển thị tự do
+  dai_thanh_pham: number; // ③ khổ thành phẩm (mm)
+  rong_thanh_pham: number; // ③
+  kho_mo_rong: string | null;
+  tay_gap: string | null;
+  so_to_per_sp: number;
+  // Giấy in
+  giay_id: number | null;
+  kho_nguyen: string | null; // ① nhãn hiển thị
+  don_gia_giay: number;
+  don_gia_don_vi: string; // "to" | "tan"
+  nguon_giay: string; // "cong_ty" | "khach"
+  bu_hao_so_to: number;
+  chua_xen: number;
+  chua_tay_ke: number;
+  chua_nhip: number;
+  chua_duoi: number;
+  chua_ca_gay: number;
+  // Kỹ thuật in
+  co_in: boolean;
+  che_ban_loai: string | null;
+  che_ban_don_gia: number;
+  quy_cach_in: string; // "mot_mat" | "hai_mat" | "tu_tro"
+  kho_in_dai: number; // ② khổ tờ in (mm)
+  kho_in_rong: number; // ②
+  so_con: number; // ④ con/tờ (override khi con_auto=false)
+  con_auto: boolean; // true: engine tự bình bài
+  may_id: number | null;
+  don_gia_cong_in: number; // mực GỘP trong đây
+  // Màu in (gộp — chỉ số màu mỗi mặt)
+  so_mau_a: number;
+  so_mau_b: number;
+  gia_von_tp: number;
+  thanh_phams: ThanhPhamOut[];
+}
+
+/** Detail đầy đủ 1 phiếu — `result` tái dùng TinhGiaPreviewOut (engine dict 4 nhóm). */
+export interface PhieuTinhGiaOut {
+  id: number;
+  ma: string;
+  ten_san_pham: string;
+  kho_thanh_pham: string | null;
+  loai_san_pham_id: number | null;
+  so_luong: number;
+  tong_gia_von: number;
+  gia_von_don: number;
+  result: TinhGiaPreviewOut | null;
+  warnings: string[] | null;
+  ktv: string | null;
+  ghi_chu: string | null;
+  thanh_phans: ThanhPhanOut[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Input 1 dòng gia công — tất cả optional (BE tự đổ mặc định). */
+export interface ThanhPhamIn {
+  cong_doan_id?: number | null;
+  ten?: string;
+  don_gia?: number;
+  so_luong?: number;
+  bu_hao?: boolean;
+  so_mat?: number;
+  so_vi_tri?: number;
+  dien_tich?: number;
+  nha_cung_cap?: string | null;
+  ghi_chu?: string | null;
+}
+/** Input 1 thành phần — mọi field optional + list gia công. */
+export interface ThanhPhanIn {
+  loai_thanh_phan?: string;
+  ten?: string;
+  kho_thanh_pham?: string | null;
+  dai_thanh_pham?: number;
+  rong_thanh_pham?: number;
+  kho_mo_rong?: string | null;
+  tay_gap?: string | null;
+  so_to_per_sp?: number;
+  giay_id?: number | null;
+  kho_nguyen?: string | null;
+  don_gia_giay?: number;
+  don_gia_don_vi?: string;
+  nguon_giay?: string;
+  bu_hao_so_to?: number;
+  chua_xen?: number;
+  chua_tay_ke?: number;
+  chua_nhip?: number;
+  chua_duoi?: number;
+  chua_ca_gay?: number;
+  co_in?: boolean;
+  che_ban_loai?: string | null;
+  che_ban_don_gia?: number;
+  quy_cach_in?: string;
+  kho_in_dai?: number;
+  kho_in_rong?: number;
+  so_con?: number;
+  con_auto?: boolean;
+  may_id?: number | null;
+  don_gia_cong_in?: number;
+  so_mau_a?: number;
+  so_mau_b?: number;
+  thanh_phams?: ThanhPhamIn[];
+}
+/** Field khởi tạo phiếu (tất cả optional — BE auto `ma`). */
+export interface PhieuTinhGiaCreate {
+  ten_san_pham?: string;
+  kho_thanh_pham?: string | null;
+  loai_san_pham_id?: number | null;
+  so_luong?: number;
+  ghi_chu?: string | null;
+  thanh_phans?: ThanhPhanIn[];
+}
+/** PUT: REPLACE-ALL con — BE tự tính lại + snapshot. */
+export type PhieuTinhGiaUpdate = PhieuTinhGiaCreate;
 
 export interface PaperOptionOut {
   id: number;
@@ -2032,8 +2277,9 @@ export interface TimesheetDay {
   early: boolean;
   ot_minutes: number;
   night: boolean;
-  leave: string | null;  // tên loại nghỉ (nếu ngày nghỉ đã duyệt)
+  leave: string | null;  // tên loại nghỉ (nếu ngày nghỉ đã duyệt) HOẶC tên ngày lễ
   leave_paid: boolean;   // nghỉ có lương (P) hay không (KL)
+  holiday?: boolean;     // ngày nghỉ lễ hưởng lương (cộng 1 công tự động)
 }
 
 export interface TimesheetRow {
@@ -2349,7 +2595,81 @@ export interface Timesheet {
   year: number;
   month: number;
   days_in_month: number;
+  standard_cong?: number | null;   // công chuẩn động của tháng (số ngày làm việc theo lịch)
+  holidays?: HolidayMark[];        // ngày nghỉ lễ hưởng lương trong tháng
   rows: TimesheetRow[];
+}
+
+// --- Chốt công tháng (kỳ công) ---
+export interface AttendancePeriod {
+  year: number;
+  month: number;
+  status: "draft" | "locked";
+  locked_at: string | null;
+  locked_by: number | null;
+  line_count: number;
+  employee_count: number;
+  hanging_days: number;      // ngày treo (thiếu chấm RA) — xử trước khi Chốt
+  pending_leaves: number;    // đơn nghỉ phép chưa duyệt của tháng
+  pending_adjusts: number;   // yêu cầu chỉnh công chưa duyệt
+  payroll_locked: boolean;   // kỳ lương tháng này đã chốt → không mở lại kỳ công
+}
+
+// --- Lịch làm việc & Ngày lễ (calendar) ---
+export interface HolidayMark {
+  day: number;
+  date: string;   // ISO "YYYY-MM-DD"
+  name: string;
+}
+
+export interface WorkCalendarConfig {
+  works_mon: boolean;
+  works_tue: boolean;
+  works_wed: boolean;
+  works_thu: boolean;
+  works_fri: boolean;
+  works_sat: boolean;
+  works_sun: boolean;
+  updated_at: string;
+}
+export type WorkCalendarConfigInput = Partial<Omit<WorkCalendarConfig, "updated_at">>;
+
+export interface SpecialDay {
+  id: number;
+  day: string;      // ISO date
+  kind: "off" | "work";
+  name: string;
+  is_paid: boolean;
+  note: string | null;
+}
+export interface SpecialDayInput {
+  day: string;
+  kind: "off" | "work";
+  name: string;
+  is_paid?: boolean;
+  note?: string | null;
+}
+export interface SpecialDaysOut {
+  year: number;
+  items: SpecialDay[];
+  paid_off_count: number;   // số ngày nghỉ lễ hưởng lương đã khai trong năm
+  statutory_paid: number;   // mức luật (11) — cảnh báo nếu paid_off_count < mức này
+}
+export interface CalendarDayCell {
+  day: number;
+  date: string;
+  weekday: number;   // Mon=0..Sun=6
+  kind: "work" | "weekend" | "holiday" | "makeup";
+  name: string | null;
+  is_working: boolean;
+}
+export interface CalendarMonth {
+  year: number;
+  month: number;
+  working_days: number;
+  paid_holiday_count: number;
+  days: CalendarDayCell[];
+  holidays: { date: string; name: string | null; is_paid: boolean }[];
 }
 
 export interface DayPunch {
@@ -3992,6 +4312,18 @@ export const api = {
     deleteShift(token: string, id: number): Promise<void> {
       return authed<void>(`/api/attendance/shifts/${id}`, token, { method: "DELETE" });
     },
+    // --- Chốt công tháng (kỳ công) ---
+    period(token: string, year: number, month: number): Promise<AttendancePeriod> {
+      return authed<AttendancePeriod>(`/api/attendance/period?year=${year}&month=${month}`, token);
+    },
+    lockPeriod(token: string, year: number, month: number): Promise<AttendancePeriod> {
+      return authed<AttendancePeriod>("/api/attendance/period/lock", token,
+        { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+    reopenPeriod(token: string, year: number, month: number): Promise<AttendancePeriod> {
+      return authed<AttendancePeriod>("/api/attendance/period/reopen", token,
+        { method: "POST", body: JSON.stringify({ year, month }) });
+    },
   },
 
   // --- Nghỉ phép (nhan_su) --------------------------------------------------
@@ -4043,6 +4375,31 @@ export const api = {
     /** NV xác nhận đã xem kết quả các đơn của mình (đóng chuông Topbar). */
     markSeen(token: string): Promise<void> {
       return authed<void>("/api/leaves/mark-seen", token, { method: "POST" });
+    },
+  },
+
+  // --- Lịch làm việc & Ngày lễ (nhan_su) ------------------------------------
+  calendar: {
+    getConfig(token: string): Promise<WorkCalendarConfig> {
+      return authed<WorkCalendarConfig>("/api/calendar/config", token);
+    },
+    updateConfig(token: string, input: WorkCalendarConfigInput): Promise<WorkCalendarConfig> {
+      return authed<WorkCalendarConfig>("/api/calendar/config", token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    specialDays(token: string, year: number): Promise<SpecialDaysOut> {
+      return authed<SpecialDaysOut>(`/api/calendar/special-days?year=${year}`, token);
+    },
+    createSpecialDay(token: string, input: SpecialDayInput): Promise<SpecialDay> {
+      return authed<SpecialDay>("/api/calendar/special-days", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateSpecialDay(token: string, id: number, input: SpecialDayInput): Promise<SpecialDay> {
+      return authed<SpecialDay>(`/api/calendar/special-days/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteSpecialDay(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/calendar/special-days/${id}`, token, { method: "DELETE" });
+    },
+    month(token: string, year: number, month: number): Promise<CalendarMonth> {
+      return authed<CalendarMonth>(`/api/calendar/month?year=${year}&month=${month}`, token);
     },
   },
 
@@ -4233,6 +4590,10 @@ export const api = {
     get(token: string, id: number): Promise<CostingDetailOut> {
       return authed<CostingDetailOut>(`/api/costings/${id}`, token);
     },
+    getPhieu(token: string, id: number, qty?: number): Promise<PhieuTinhGiaPrintOut> {
+      const s = qty ? `?qty=${qty}` : "";
+      return authed<PhieuTinhGiaPrintOut>(`/api/costings/${id}/phieu${s}`, token);
+    },
     create(token: string, input: CostingInput): Promise<CostingDetailOut> {
       return authed<CostingDetailOut>("/api/costings", token, {
         method: "POST",
@@ -4247,6 +4608,53 @@ export const api = {
     },
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/costings/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Tính giá thành (engine MỚI) — preview 4 nhóm, không lưu ---------------
+  tinhGia: {
+    preview(token: string, body: TinhGiaPreviewIn): Promise<TinhGiaPreviewOut> {
+      return authed<TinhGiaPreviewOut>("/api/tinh-gia/preview", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    binhBai(token: string, body: BinhBaiIn): Promise<BinhBaiOut> {
+      return authed<BinhBaiOut>("/api/tinh-gia/binh-bai", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+  },
+
+  // --- Phiếu tính giá (persisted) — master/detail của "Tính giá" -------------
+  phieuTinhGia: {
+    list(
+      token: string,
+      params: { q?: string } = {},
+    ): Promise<PhieuTinhGiaListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<PhieuTinhGiaListOut>(`/api/phieu-tinh-gia${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<PhieuTinhGiaOut> {
+      return authed<PhieuTinhGiaOut>(`/api/phieu-tinh-gia/${id}`, token);
+    },
+    create(token: string, body: PhieuTinhGiaCreate): Promise<PhieuTinhGiaOut> {
+      return authed<PhieuTinhGiaOut>("/api/phieu-tinh-gia", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    update(token: string, id: number, body: PhieuTinhGiaUpdate): Promise<PhieuTinhGiaOut> {
+      return authed<PhieuTinhGiaOut>(`/api/phieu-tinh-gia/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/phieu-tinh-gia/${id}`, token, { method: "DELETE" });
     },
   },
 

@@ -73,7 +73,7 @@ function isEndingSoon(e: EmployeeRow): boolean {
   if (e.status !== "probation" || !e.probation_end_date) return false;
   const end = new Date(e.probation_end_date).getTime();
   const now = Date.now();
-  return end >= now && end <= now + 14 * 24 * 3600 * 1000;
+  return end >= now && end <= now + 30 * 24 * 3600 * 1000; // khớp KPI backend (30 ngày)
 }
 
 export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {

@@ -51,7 +51,7 @@ class BuHaoService:
     def list(self, **kw):
         return self.repo.list(**kw)
 
-    def create(self, data: dict):
+    def create(self, data: dict, created_by: int | None = None):
         self._validate(data)
         if self.repo.find_by_ma(data["ma"]) is not None:
             raise BuHaoDuplicate("Mã đã tồn tại.")

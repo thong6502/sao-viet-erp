@@ -31,6 +31,53 @@
 .mine__reqhead { display: flex; justify-content: space-between; align-items: center; gap: var(--sp-3); margin-bottom: 4px; }
 .mine__lock { font-family: var(--ff-mono); font-size: 10.5px; text-transform: none; color: var(--ash-2); font-weight: normal; margin-left: 6px; }
 
+/* Nút ✎ overlay đổi ảnh (góc dưới-phải avatar hero). Vòng nền sáng, hit-area ≥44px qua ::before. */
+.mine__avatar-wrap { position: relative; flex: none; }
+.mine__avatar-edit {
+  position: absolute; right: -4px; bottom: -4px;
+  width: 30px; height: 30px; padding: 0; border-radius: var(--r-pill);
+  background: var(--paper); color: var(--ink); border: 1px solid var(--rule);
+  display: grid; place-items: center; cursor: pointer;
+  box-shadow: 0 1px 3px rgba(20, 19, 15, .28);
+  transition: border-color var(--duration-fast, .12s) var(--easing-standard, ease), color var(--duration-fast, .12s) var(--easing-standard, ease);
+}
+.mine__avatar-edit::before { content: ""; position: absolute; inset: -7px; } /* mở rộng vùng chạm lên ~44px */
+.mine__avatar-edit:hover { border-color: var(--rust); color: var(--rust); }
+.mine__avatar-edit:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+
+/* ✎ đổi tên (cạnh tên trong hero tối → mực sáng) */
+.mine__name-edit {
+  position: relative; display: inline-grid; place-items: center;
+  width: 26px; height: 26px; padding: 0; margin-left: 2px;
+  background: none; border: 0; border-radius: var(--r-pill);
+  color: rgba(255, 255, 255, .7); cursor: pointer; vertical-align: middle;
+  transition: background-color var(--duration-fast, .12s) var(--easing-standard, ease), color var(--duration-fast, .12s) var(--easing-standard, ease);
+}
+.mine__name-edit::before { content: ""; position: absolute; inset: -9px; } /* hit-area ≥44px */
+.mine__name-edit:hover { background: rgba(255, 255, 255, .12); color: var(--paper); }
+.mine__name-edit:focus-visible { outline: 2px solid var(--rust); outline-offset: 2px; }
+
+/* Link mảnh "Cần đổi tên? Gửi đề nghị" dưới tên (hero tối) */
+.mine__namehint {
+  margin-top: 8px; padding: 0; background: none; border: 0;
+  color: rgba(255, 255, 255, .7); font: inherit; font-size: 12.5px;
+  text-decoration: underline; text-underline-offset: 2px; cursor: pointer; display: inline-block;
+}
+.mine__namehint:hover { color: var(--paper); }
+
+/* Modal đổi ảnh — port từ .pd-avatar-edit (layout avatar + controls) */
+.mine__avatar-modal { display: flex; align-items: center; gap: var(--sp-4); }
+.mine__avatar-modal__controls { display: flex; flex-direction: column; gap: var(--sp-2); align-items: flex-start; }
+.mine__hint { margin: 0; font-size: 12px; color: var(--ash); }
+.mine__vh {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+}
+
+/* Form trong modal tên/mật khẩu (Field xếp dọc) */
+.mine__form { display: flex; flex-direction: column; gap: var(--sp-4); }
+.mine__pw-show { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ash); cursor: pointer; }
+
 @media (max-width: 640px) {
   .mine__hero { flex-direction: column; text-align: center; align-items: center; }
 }

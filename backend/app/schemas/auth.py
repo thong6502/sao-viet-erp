@@ -81,6 +81,7 @@ class ModuleCapability(BaseModel):
     can_toggle_active: bool = False
     can_reparent: bool = False
     can_view_salary: bool = False
+    can_edit_salary: bool = False
     can_adjust: bool = False
 
 

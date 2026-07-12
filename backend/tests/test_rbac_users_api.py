@@ -84,10 +84,10 @@ def test_create_user_starts_with_no_role(client):
     assert body["department_id"] == kd_id
     assert body["role_id"] is None  # most-minimal default until a head assigns
     assert body["is_active"] is True
-    # spec-07: every user gets a system-generated NVxxx business code.
+    # every user gets a system-generated TKxxx account code (Đ1: tách khỏi NV của hồ sơ).
     import re
 
-    assert re.fullmatch(r"NV\d{3,}", body["code"]), body["code"]
+    assert re.fullmatch(r"TK\d{3,}", body["code"]), body["code"]
 
 
 def test_user_codes_are_unique_and_listed(client):
@@ -101,7 +101,7 @@ def test_user_codes_are_unique_and_listed(client):
         )
     rows = client.get("/api/users", headers=_h(token)).json()
     codes = [u["code"] for u in rows if u["code"]]
-    assert all(c.startswith("NV") for c in codes)
+    assert all(c.startswith("TK") for c in codes)  # mã tài khoản đổi NV→TK (Đ1, migration 0042)
     assert len(codes) == len(set(codes))  # no duplicates
 
 

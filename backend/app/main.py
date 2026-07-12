@@ -20,6 +20,7 @@ from .routers import (
     accounting,
     auth,
     attendance,
+    calendar,
     leaves,
     payroll,
     costings,
@@ -48,6 +49,8 @@ from .routers import (
     cong_doan,
     bu_hao,
     loai_san_pham,
+    tinh_gia,
+    phieu_tinh_gia,
     production,
 )
 from .seed import seed_all
@@ -94,6 +97,7 @@ app.include_router(rbac.router)
 app.include_router(customers.router)
 app.include_router(employees.router)
 app.include_router(attendance.router)
+app.include_router(calendar.router)
 app.include_router(leaves.router)
 app.include_router(payroll.router)
 app.include_router(products.router)
@@ -119,6 +123,8 @@ app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(bu_hao.router)
 app.include_router(loai_san_pham.router)
+app.include_router(tinh_gia.router)
+app.include_router(phieu_tinh_gia.router)
 app.include_router(production.router)
 
 

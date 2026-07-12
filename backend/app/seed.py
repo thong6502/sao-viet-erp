@@ -7,10 +7,14 @@ Credentials come from config/env (SEED_ADMIN_*).
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
+from .models.work_calendar import KIND_OFF, SpecialDay
+from .repositories.calendar_repo import CalendarRepository
 from .repositories.customer_repo import CustomerRepository
 from .repositories.rbac_repo import (
     DepartmentRepository,
@@ -111,6 +115,7 @@ def _full(scope: str) -> dict:
         can_toggle_active=True,
         can_reparent=True,
         can_view_salary=True,
+        can_edit_salary=True,
         can_adjust=True,
     )
 
@@ -157,6 +162,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "nhan_su": {
                 **_rcu(SCOPE_ALL),
                 "can_view_salary": True,
+                "can_edit_salary": True,
                 "can_manage_status": True,
                 "can_transfer": True,
                 "can_approve": True,
@@ -1647,6 +1653,99 @@ def seed_kho_engine(db: Session) -> None:
         db.commit()
 
 
+# --- Sample phiếu tính giá (costing tickets) demo data ---------------------
+
+# Mỗi phiếu: (ma, ten_san_pham, kho_thanh_pham, so_luong, ktv, [components]).
+# Mỗi component (thành phần = 1 tờ giấy): (ten, giay_ma, so_con, so_mau_sel, quy_cach, [finishing]).
+# Mỗi finishing: (ten, cong_doan_ma|None, don_gia_phang). don_gia_phang>0 → tính phẳng; else dùng
+# cấu hình công đoạn (compute_step_cost).
+PTG_SAMPLES: list[tuple] = [
+    ("PTG-2026-0211", "HANGTAG LAVELLO BLACK", "5×10 cm", 5000, "Lê Văn C (KTV)", [
+        ("Thẻ treo", "IVORY-350-79x109", 60, 4, "hai_mat",
+         [("Cán màng bóng", "CD-0003", 0.0), ("Bế nổi", None, 300.0)]),
+    ]),
+    ("PTG-2026-0204", "Hộp giấy offset", "20×30×5 cm", 10000, "Phạm Văn D (KTV)", [
+        ("Thân hộp", "IVORY-350-79x109", 2, 4, "mot_mat",
+         [("Cán màng bóng", "CD-0003", 0.0), ("Bế", None, 250.0)]),
+        ("Nắp hộp", "DUPLEX-300", 4, 2, "mot_mat", []),
+    ]),
+    ("PTG-2026-0206", "Tờ rơi A4", "21×29.7 cm", 30000, "Lê Văn C (KTV)", [
+        ("Tờ rơi", "COUCHE-150-79x109", 4, 4, "hai_mat", []),
+    ]),
+    ("PTG-2026-0203", "Catalogue", "21×28 cm", 5000, "Phạm Văn D (KTV)", [
+        ("Ruột", "COUCHE-150-79x109", 4, 4, "hai_mat", []),
+        ("Bìa", "COUCHE-300-65x86", 2, 4, "hai_mat",
+         [("Cán màng bóng", "CD-0003", 0.0)]),
+    ]),
+    ("PTG-2026-0202", "Danh thiếp cao cấp", "9×5.4 cm", 8000, "Lê Văn C (KTV)", [
+        ("Danh thiếp", "COUCHE-300-65x86", 24, 4, "hai_mat",
+         [("Ép kim", None, 500.0)]),
+    ]),
+]
+
+
+def seed_phieu_tinh_gia(db: Session) -> None:
+    """Seed ~5 phiếu tính giá mẫu THEO THÀNH PHẦN — CHỈ khi bảng rỗng (idempotent). Chạy sau
+    seed_rebuild_catalog nên có sẵn Giấy + Công đoạn để tính giá thật (khớp engine, không bịa)."""
+    from sqlalchemy import select
+    from .models.cong_doan import CongDoan
+    from .models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia
+    from .models.vat_lieu_kho import GiayNguyen
+    from .services.tinh_gia_service import compute_phieu_snapshot
+
+    if db.execute(select(PhieuTinhGia)).first() is not None:
+        return
+
+    giay_by_ma = {g.ma: g for g in db.execute(select(GiayNguyen)).scalars()}
+    cd_by_ma = {c.ma: c.id for c in db.execute(select(CongDoan)).scalars()}
+    # Giấy dự phòng khi mã mẫu không có trong danh mục rebuild.
+    fallback_giay = next(iter(giay_by_ma.values()), None)
+
+    for ma, ten, kho, sl, ktv, comps in PTG_SAMPLES:
+        p = PhieuTinhGia(ma=ma, ten_san_pham=ten, kho_thanh_pham=kho, so_luong=sl, ktv=ktv)
+        for i, (c_ten, giay_ma, so_con, so_mau, quy_cach, finishing) in enumerate(comps):
+            giay = giay_by_ma.get(giay_ma) or fallback_giay
+            tp = PhieuThanhPhan(
+                thu_tu=i, ten=c_ten, so_con=so_con, quy_cach_in=quy_cach,
+                giay_id=(giay.id if giay else None),
+                don_gia_giay=float(giay.don_gia) if (giay and giay.don_vi_gia == "to") else 2000,
+                don_gia_don_vi="to", so_mau_a=so_mau, so_mau_b=(so_mau if quy_cach == "hai_mat" else 0),
+                che_ban_don_gia=90000, don_gia_cong_in=120,
+            )
+            for j, (f_ten, f_cd_ma, f_don_gia) in enumerate(finishing):
+                tp.thanh_phams.append(PhieuThanhPham(
+                    thu_tu=j, ten=f_ten, cong_doan_id=cd_by_ma.get(f_cd_ma) if f_cd_ma else None,
+                    don_gia=f_don_gia, so_mat=1, dien_tich=50,
+                ))
+            p.thanh_phans.append(tp)
+        db.add(p)
+        db.flush()
+        compute_phieu_snapshot(db, p)
+    db.commit()
+
+
+# Ngày nghỉ lễ DƯƠNG cố định (điều 112 BLLĐ). CHỈ các ngày dương chắc chắn — Tết Nguyên đán
+# (5 ngày) + Giỗ Tổ 10/3 ÂL + ngày kề Quốc khánh là ÂM/biến động theo thông báo Chính phủ hằng
+# năm → admin tự khai qua UI (FE cảnh báo khi năm chưa đủ 11 ngày nghỉ-có-lương).
+_SEED_HOLIDAYS_2026: list[tuple[date, str]] = [
+    (date(2026, 1, 1), "Tết Dương lịch"),
+    (date(2026, 4, 30), "Ngày Giải phóng miền Nam"),
+    (date(2026, 5, 1), "Ngày Quốc tế Lao động"),
+    (date(2026, 9, 2), "Quốc khánh"),
+]
+_SEED_HOLIDAY_NOTE = "Nghỉ lễ theo luật. Bổ sung Tết Nguyên đán + Giỗ Tổ + ngày kề Quốc khánh theo thông báo Chính phủ."
+
+
+def seed_special_days(db: Session) -> None:
+    """Seed ngày nghỉ lễ dương cố định. SEED-ONCE: nếu bảng đã có hàng thì bỏ qua, nên
+    admin sửa/xóa (vd công ty xử lý 30/4 khác) KHÔNG bị mọc lại sau restart."""
+    if CalendarRepository(db).count() > 0:
+        return
+    for d, name in _SEED_HOLIDAYS_2026:
+        db.add(SpecialDay(day=d, kind=KIND_OFF, name=name, is_paid=True, note=_SEED_HOLIDAY_NOTE))
+    db.commit()
+
+
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -1666,6 +1765,7 @@ def seed_all(db: Session) -> None:
     seed_machines(db)
     seed_operations(db)
     seed_kho_engine(db)
+    seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
     if settings.seed_demo:
         seed_kd_staff(db)
         seed_kho_staff(db)
@@ -1683,5 +1783,6 @@ def seed_all(db: Session) -> None:
         seed_norms(db)
         from .seed_rebuild import seed_rebuild_catalog
         seed_rebuild_catalog(db)
+        seed_phieu_tinh_gia(db)
         seed_document_sequences(db)
     backfill_user_codes(db)

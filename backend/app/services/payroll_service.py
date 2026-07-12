@@ -292,13 +292,9 @@ class PayrollService:
         return self.payroll.list_periods()
 
     def _cong_map(self, year: int, month: int) -> dict[int, float]:
-        """{employee_id → số công} từ Bảng công tháng (total_cong, fallback total_days)."""
-        ts = self.attendance.monthly_timesheet(year=year, month=month)
-        out: dict[int, float] = {}
-        for r in ts["rows"]:
-            cong = r.get("total_cong")
-            out[r["employee_id"]] = float(cong if cong is not None else r.get("total_days") or 0)
-        return out
+        """{employee_id → số công} — đọc SNAPSHOT kỳ công đã CHỐT nếu có, chưa chốt thì tính live
+        (logic gom ở AttendanceService.cong_map — Đ3: Lương đọc bản đã chốt)."""
+        return self.attendance.cong_map(year, month)
 
     def generate(self, *, year, month, actor, scope="all"):
         """Tạo/làm mới bảng lương tháng. Giữ nguyên các ô TAY (vi phạm/thưởng/pit/ghi chú)

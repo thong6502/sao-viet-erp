@@ -15,6 +15,8 @@ import math
 from datetime import date, datetime, timedelta, timezone
 
 from ..models.attendance import (
+    APERIOD_DRAFT,
+    APERIOD_LOCKED,
     CHECK_IN,
     CHECK_OUT,
     CHECK_TYPES,
@@ -26,6 +28,8 @@ from ..models.attendance import (
     WorkLocation,
     WorkShift,
 )
+from ..models.leave import STATUS_PENDING as LEAVE_PENDING
+from ..models.payroll import PERIOD_LOCKED
 from ..models.role import SCOPE_ALL
 from ..repositories.attendance_repo import AttendanceRepository
 from ..repositories.audit_repo import AuditLogRepository
@@ -103,6 +107,15 @@ def compute_day_cong(
     return {"cong": cong, "late": late, "early": early, "ot_minutes": ot_minutes, "incomplete": False}
 
 
+def work_day_of(local: datetime, shift) -> date:
+    """NGÀY CÔNG của một lượt chấm (giờ VN): bình thường = ngày lịch; ca đêm + lượt rơi rạng sáng
+    (≤ giờ RA của ca) → thuộc ngày VÀO ca liền trước (lùi 1 ngày). Nguồn sự thật DUY NHẤT cho
+    quy tắc gom ca (trước lặp 3 nơi: bảng công / hôm nay / punch 1 ngày / luân phiên VÀO-RA)."""
+    if shift is not None and shift.is_overnight and (local.hour * 60 + local.minute) <= shift.end_minute:
+        return (local - timedelta(days=1)).date()
+    return local.date()
+
+
 class AttendanceError(Exception):
     """Base for attendance domain errors."""
 
@@ -126,6 +139,15 @@ def _clean(v: str | None) -> str | None:
     return v or None
 
 
+def _in_headcount_on(emp, d: date) -> bool:
+    """NV có trong biên chế ngày d (đã vào làm & chưa nghỉ việc) → đủ điều kiện hưởng công lễ."""
+    if getattr(emp, "hire_date", None) is not None and emp.hire_date > d:
+        return False
+    if getattr(emp, "resign_date", None) is not None and emp.resign_date < d:
+        return False
+    return True
+
+
 class AttendanceService:
     def __init__(
         self,
@@ -133,11 +155,18 @@ class AttendanceService:
         employees: EmployeeRepository,
         audit: AuditLogRepository,
         leaves=None,
+        calendar=None,
+        payroll=None,
     ) -> None:
         self.attendance = attendance
         self.employees = employees
         self.audit = audit
         self.leaves = leaves  # LeaveRepository | None — để Bảng công tháng đánh dấu nghỉ đã duyệt
+        # CalendarService | None — lịch chung: cộng công ngày lễ (PP-B) + số công chuẩn tháng.
+        self._work_calendar = calendar
+        # PayrollRepository | None — chỉ để CHẶN mở kỳ công khi kỳ lương đã chốt (Q3). Không vòng
+        # service↔service (payroll_service phụ thuộc attendance_service, đây chỉ đọc payroll REPO).
+        self._payroll = payroll
 
     # --- work locations (HR) -----------------------------------------------
 
@@ -257,9 +286,18 @@ class AttendanceService:
             raise NoLinkedEmployee("Tài khoản của bạn chưa gắn hồ sơ nhân viên.")
         return emp
 
-    def _next_check_type(self, employee_id: int) -> str:
+    def _next_check_type(self, employee_id: int, shift=None) -> str:
+        """VÀO/RA luân phiên THEO NGÀY CÔNG (reset mỗi ngày): cùng ngày công + lượt gần nhất là
+        VÀO → tiếp theo RA; khác ngày công (hoặc lượt gần nhất là RA) → VÀO. Quên chấm RA hôm qua
+        KHÔNG làm lượt hôm nay thành RA (trước đây bug: kéo trạng thái xuyên ngày)."""
         last = self.attendance.last_log(employee_id)
-        return CHECK_OUT if (last is not None and last.check_type == CHECK_IN) else CHECK_IN
+        if last is None:
+            return CHECK_IN
+        now_local = datetime.now(timezone.utc).astimezone(VN_TZ)
+        last_local = _as_utc(last.checked_at).astimezone(VN_TZ)
+        if last.check_type == CHECK_IN and work_day_of(last_local, shift) == work_day_of(now_local, shift):
+            return CHECK_OUT
+        return CHECK_IN
 
     def _today_summary(self, emp, shift) -> dict | None:
         """Tóm tắt chấm công HÔM NAY (giờ VN) của NV cho khối 'Hôm nay của tôi': giờ vào/ra,
@@ -268,10 +306,7 @@ class AttendanceService:
         entries = []
         for lg in self.attendance.list_by_employee(emp.id, limit=20):
             local = _as_utc(lg.checked_at).astimezone(VN_TZ)
-            wd = local.date()
-            if shift is not None and shift.is_overnight and (local.hour * 60 + local.minute) <= shift.end_minute:
-                wd = (local - timedelta(days=1)).date()
-            if wd == today:
+            if work_day_of(local, shift) == today:
                 entries.append((local, lg.check_type))
         if not entries:
             return None
@@ -316,7 +351,7 @@ class AttendanceService:
             "has_employee": True,
             "employee_id": emp.id,
             "employee_name": emp.full_name,
-            "next_action": self._next_check_type(emp.id),
+            "next_action": self._next_check_type(emp.id, shift),
             "last_check": last,
             "locations_configured": len(locations) > 0,
             "shift": shift,
@@ -327,6 +362,7 @@ class AttendanceService:
         """Dry-run geofence cho card chấm 'sống': tính điểm gần nhất + trong/ngoài phạm vi +
         còn cách bao nhiêu — KHÔNG ghi log. Dùng để vẽ vòng geofence realtime cho NV."""
         emp = self._employee_for_user(user)  # chỉ NV có hồ sơ mới preview (self-service)
+        shift = self.attendance.get_shift(emp.default_shift_id) if emp.default_shift_id else None
         try:
             lat, lon = float(latitude), float(longitude)
         except (TypeError, ValueError):
@@ -335,7 +371,7 @@ class AttendanceService:
         if not locations:
             return {"locations_configured": False, "within_range": False, "distance_m": None,
                     "meters_out": None, "nearest_name": None, "radius_m": None,
-                    "next_action": self._next_check_type(emp.id),
+                    "next_action": self._next_check_type(emp.id, shift),
                     "message": "Chưa cấu hình điểm chấm công nào."}
         nearest, best = None, None
         for loc in locations:
@@ -348,7 +384,7 @@ class AttendanceService:
         return {
             "locations_configured": True, "within_range": within, "distance_m": distance,
             "meters_out": meters_out, "nearest_name": nearest.name, "radius_m": nearest.radius_m,
-            "next_action": self._next_check_type(emp.id),
+            "next_action": self._next_check_type(emp.id, shift),
             "message": (f"Trong phạm vi '{nearest.name}' (cách {distance:.0f} m)." if within
                         else f"Ngoài phạm vi '{nearest.name}' — còn cách {meters_out:.0f} m."),
         }
@@ -357,6 +393,7 @@ class AttendanceService:
         """Attempt a GPS check-in/out. Returns a result dict; a log is created ONLY when
         the point is inside some active location's radius (chặn cứng)."""
         emp = self._employee_for_user(user)
+        shift = self.attendance.get_shift(emp.default_shift_id) if emp.default_shift_id else None
         try:
             lat, lon = float(latitude), float(longitude)
         except (TypeError, ValueError):
@@ -386,7 +423,7 @@ class AttendanceService:
                 "log": None,
             }
 
-        check_type = self._next_check_type(emp.id)
+        check_type = self._next_check_type(emp.id, shift)
         log = self.attendance.create_log(
             employee_id=emp.id, work_location_id=nearest.id, check_type=check_type,
             latitude=lat, longitude=lon, distance_m=distance, within_range=True,
@@ -450,14 +487,6 @@ class AttendanceService:
 
         shifts = {s.id: s for s in self.attendance.list_shifts()}
 
-        def _work_day(local: datetime, shift) -> date:
-            """Ngày CÔNG của một lượt chấm: bình thường = ngày lịch; ca đêm + rơi vào rạng sáng
-            (≤ giờ RA của ca) → thuộc ngày VÀO ca liền trước (lùi 1 ngày)."""
-            if shift is not None and shift.is_overnight:
-                if local.hour * 60 + local.minute <= shift.end_minute:
-                    return (local - timedelta(days=1)).date()
-            return local.date()
-
         # employee_id → { day(int) → [(local_dt, check_type)] } theo NGÀY CÔNG, chỉ trong tháng này.
         by_emp: dict[int, dict[int, list]] = {}
         for lg in logs:
@@ -466,7 +495,7 @@ class AttendanceService:
             emp0 = self.employees.get_by_id(lg.employee_id)
             shift0 = shifts.get(emp0.default_shift_id) if (emp0 and emp0.default_shift_id) else None
             local = _as_utc(lg.checked_at).astimezone(VN_TZ)
-            wd = _work_day(local, shift0)
+            wd = work_day_of(local, shift0)
             if wd.year != year or wd.month != month:
                 continue  # lượt thuộc tháng khác (vd RA rạng sáng ngày 1 → thuộc tháng trước)
             by_emp.setdefault(lg.employee_id, {}).setdefault(wd.day, []).append((local, lg.check_type))
@@ -488,10 +517,21 @@ class AttendanceService:
                     leave_map.setdefault(r.employee_id, {})[d.day] = {"name": nm, "is_paid": paid}
                     d = date.fromordinal(d.toordinal() + 1)
 
+        # Ngày nghỉ lễ HƯỞNG LƯƠNG trong tháng (từ Lịch chung) → cộng 1 công cho NV trong biên chế
+        # (giống ngày nghỉ phép có lương — PP-B: mẫu số Lương giữ 26, tử số phải gồm công lễ).
+        paid_holidays: dict[int, str] = {}   # {day-of-month → tên lễ}
+        holidays_info: list[dict] = []
+        standard_cong: int | None = None
+        if self._work_calendar is not None:
+            for s in self._work_calendar.paid_holidays_in_month(year, month):
+                paid_holidays[s.day.day] = s.name
+                holidays_info.append({"day": s.day.day, "date": s.day.isoformat(), "name": s.name})
+            standard_cong = self._work_calendar.standard_working_days(year, month)
+
         def _empty_cell() -> dict:
             return {"first_in": None, "last_out": None, "hours": None, "present": False,
                     "cong": None, "late": False, "early": False, "ot_minutes": 0, "night": False,
-                    "leave": None, "leave_paid": False}
+                    "leave": None, "leave_paid": False, "holiday": False}
 
         rows = []
         for emp_id in set(by_emp) | set(leave_map):
@@ -503,14 +543,23 @@ class AttendanceService:
             shift = shifts.get(emp.default_shift_id) if emp.default_shift_id else None
             att_days = by_emp.get(emp_id, {})
             lv_days = leave_map.get(emp_id, {})
+            # Ngày lễ NV được hưởng công: không chấm, không nghỉ phép, đang trong biên chế ngày đó.
+            emp_holidays = {d for d in paid_holidays
+                            if d not in att_days and d not in lv_days
+                            and _in_headcount_on(emp, date(year, month, d))}
             day_map: dict[str, dict] = {}
             total_hours = 0.0
             total_days = 0
             total_leave = 0
             total_cong = 0.0
-            for d in sorted(set(att_days) | set(lv_days)):
+            total_ot = 0
+            night_days = 0
+            paid_leave = 0
+            unpaid_leave = 0
+            hanging = 0
+            for d in sorted(set(att_days) | set(lv_days) | emp_holidays):
                 cell = _empty_cell()
-                if d in att_days:  # có chấm công → attendance thắng ngày nghỉ
+                if d in att_days:  # có chấm công → attendance thắng ngày nghỉ/lễ
                     entries = sorted(att_days[d], key=lambda x: x[0])
                     ins = [t for t, ct in entries if ct == CHECK_IN]
                     outs = [t for t, ct in entries if ct == CHECK_OUT]
@@ -521,6 +570,8 @@ class AttendanceService:
                         hours = round((last_out - first_in).total_seconds() / 3600, 2)
                         total_hours += hours
                     total_days += 1
+                    if last_out is None:
+                        hanging += 1  # thiếu chấm RA → ngày treo (cảnh báo trước khi Chốt)
                     cell.update(first_in=first_in.strftime("%H:%M"),
                                 last_out=last_out.strftime("%H:%M") if last_out else None,
                                 hours=hours, present=True)
@@ -534,31 +585,157 @@ class AttendanceService:
                         cell.update(cong=info["cong"], late=info["late"], early=info["early"],
                                     ot_minutes=info["ot_minutes"], night=shift.night_shift)
                         total_cong += info["cong"]
-                else:  # ngày nghỉ đã duyệt (không chấm công)
+                        total_ot += info["ot_minutes"]
+                        if shift.night_shift:
+                            night_days += 1
+                elif d in lv_days:  # ngày nghỉ phép đã duyệt (không chấm công)
                     lv = lv_days[d]
                     cong = 1.0 if lv["is_paid"] else 0.0
                     cell.update(cong=cong, leave=lv["name"], leave_paid=lv["is_paid"])
                     total_leave += 1
+                    if lv["is_paid"]:
+                        paid_leave += 1
+                    else:
+                        unpaid_leave += 1
                     total_cong += cong
+                else:  # ngày nghỉ lễ hưởng lương → cộng 1 công tự động (không cần chấm)
+                    cell.update(cong=1.0, leave=paid_holidays[d], leave_paid=True, holiday=True)
+                    total_cong += 1.0
                 day_map[str(d)] = cell
-            has_cong = shift is not None or total_leave > 0
+            has_cong = shift is not None or total_leave > 0 or bool(emp_holidays)
             rows.append({
                 "employee_id": emp_id, "employee_code": emp.code, "employee_name": emp.full_name,
                 "department_id": emp.department_id, "days": day_map,
                 "shift_id": shift.id if shift is not None else None,
                 "shift_name": shift.name if shift is not None else None,
                 "total_days": total_days, "total_leave": total_leave,
+                "paid_leave_days": paid_leave, "unpaid_leave_days": unpaid_leave,
+                "holiday_days": len(emp_holidays), "ot_minutes": total_ot, "night_days": night_days,
+                "hanging_days": hanging,
                 "total_hours": round(total_hours, 2),
                 "total_cong": round(total_cong, 2) if has_cong else None,
             })
         rows.sort(key=lambda r: r["employee_code"])
-        return {"year": year, "month": month, "days_in_month": days_in_month, "rows": rows}
+        return {"year": year, "month": month, "days_in_month": days_in_month,
+                "standard_cong": standard_cong, "holidays": holidays_info, "rows": rows}
 
     def my_timesheet(self, *, user, year: int, month: int) -> dict:
         """Bảng công tháng CỦA CHÍNH NV đăng nhập (self-service, không cần quyền module).
         Tái dùng monthly_timesheet với chỉ hồ sơ NV của người gọi."""
         emp = self._employee_for_user(user)
         return self.monthly_timesheet(year=year, month=month, only_employee_id=emp.id)
+
+    # --- Chốt công tháng (kỳ công + snapshot đóng băng) --------------------
+
+    def list_periods(self):
+        return self.attendance.list_periods()
+
+    def get_or_create_period(self, year: int, month: int):
+        p = self.attendance.get_period_by_ym(year, month)
+        if p is None:
+            p = self.attendance.create_period(year=year, month=month, status=APERIOD_DRAFT)
+        return p
+
+    def _pending_blockers(self, year: int, month: int) -> dict:
+        """Đơn phép / chỉnh-công còn treo của tháng — guard thứ tự phép→công→lương (Q2)."""
+        last = calendar.monthrange(year, month)[1]
+        first, lastd = date(year, month, 1), date(year, month, last)
+        pending_leaves = 0
+        if self.leaves is not None:
+            pending_leaves = len(self.leaves.list_overlapping(first, lastd, (LEAVE_PENDING,)))
+        return {"pending_leaves": pending_leaves,
+                "pending_adjusts": self.attendance.count_pending_requests()}
+
+    def period_status(self, *, year: int, month: int) -> dict:
+        if not (1 <= month <= 12):
+            raise AttendanceValidationError("Tháng phải trong 1–12.")
+        p = self.attendance.get_period_by_ym(year, month)
+        blockers = self._pending_blockers(year, month)
+        ts = self.monthly_timesheet(year=year, month=month)
+        hanging = sum(r.get("hanging_days", 0) for r in ts["rows"])
+        payroll_locked = False
+        if self._payroll is not None:
+            pp = self._payroll.get_period_by_ym(year, month)
+            payroll_locked = pp is not None and pp.status == PERIOD_LOCKED
+        return {
+            "year": year, "month": month,
+            "status": p.status if p is not None else APERIOD_DRAFT,
+            "locked_at": p.locked_at if p is not None else None,
+            "locked_by": p.locked_by if p is not None else None,
+            "line_count": len(self.attendance.list_period_lines(p.id)) if p is not None else 0,
+            "employee_count": len(ts["rows"]),
+            "hanging_days": hanging,
+            "pending_leaves": blockers["pending_leaves"],
+            "pending_adjusts": blockers["pending_adjusts"],
+            "payroll_locked": payroll_locked,
+        }
+
+    def lock_period(self, *, year: int, month: int, actor) -> dict:
+        """Chốt công: chụp Bảng công tháng thành snapshot đóng băng + khóa kỳ. CHẶN nếu còn
+        đơn phép/chỉnh-công treo (Q2)."""
+        if not (1 <= month <= 12):
+            raise AttendanceValidationError("Tháng phải trong 1–12.")
+        p = self.get_or_create_period(year, month)
+        if p.status == APERIOD_LOCKED:
+            raise AttendanceValidationError("Kỳ công đã chốt.")
+        blockers = self._pending_blockers(year, month)
+        if blockers["pending_leaves"] or blockers["pending_adjusts"]:
+            raise AttendanceValidationError(
+                f"Còn {blockers['pending_leaves']} đơn nghỉ phép và {blockers['pending_adjusts']} "
+                f"yêu cầu chỉnh công chưa duyệt — duyệt hết trước khi chốt công."
+            )
+        ts = self.monthly_timesheet(year=year, month=month)
+        self.attendance.delete_period_lines(p.id)
+        for r in ts["rows"]:
+            self.attendance.create_period_line(
+                period_id=p.id, employee_id=r["employee_id"],
+                total_cong=r["total_cong"] or 0, total_days=r["total_days"],
+                total_leave=r["total_leave"], paid_leave_days=r.get("paid_leave_days", 0),
+                unpaid_leave_days=r.get("unpaid_leave_days", 0), holiday_days=r.get("holiday_days", 0),
+                total_hours=r["total_hours"], ot_minutes=r.get("ot_minutes", 0),
+                night_days=r.get("night_days", 0),
+            )
+        self.attendance.update_period(
+            p, status=APERIOD_LOCKED, locked_at=datetime.now(timezone.utc),
+            locked_by=getattr(actor, "id", None), updated_at=datetime.now(timezone.utc),
+        )
+        self.audit.create(actor_user_id=getattr(actor, "id", None), action="lock_attendance_period",
+                          target=f"attendance_period:{p.id}", detail=f"{month}/{year} · {len(ts['rows'])} NV")
+        return self.period_status(year=year, month=month)
+
+    def reopen_period(self, *, year: int, month: int, actor) -> dict:
+        """Mở lại kỳ công: xóa snapshot + về draft. CHẶN nếu kỳ LƯƠNG tháng đó đã chốt (Q3)."""
+        if not (1 <= month <= 12):
+            raise AttendanceValidationError("Tháng phải trong 1–12.")
+        p = self.attendance.get_period_by_ym(year, month)
+        if p is None or p.status != APERIOD_LOCKED:
+            raise AttendanceValidationError("Kỳ công chưa chốt.")
+        if self._payroll is not None:
+            pp = self._payroll.get_period_by_ym(year, month)
+            if pp is not None and pp.status == PERIOD_LOCKED:
+                raise AttendanceValidationError(
+                    "Kỳ lương tháng này đã chốt — không mở lại kỳ công. "
+                    "Điều chỉnh sai sót bằng truy lĩnh/khấu trừ kỳ sau."
+                )
+        self.attendance.delete_period_lines(p.id)
+        self.attendance.update_period(p, status=APERIOD_DRAFT, locked_at=None, locked_by=None,
+                                      updated_at=datetime.now(timezone.utc))
+        self.audit.create(actor_user_id=getattr(actor, "id", None), action="reopen_attendance_period",
+                          target=f"attendance_period:{p.id}", detail=f"{month}/{year}")
+        return self.period_status(year=year, month=month)
+
+    def cong_map(self, year: int, month: int) -> dict[int, float]:
+        """Số công/NV cho Lương: đọc SNAPSHOT nếu kỳ công đã CHỐT; chưa chốt thì tính LIVE
+        (giữ tương thích — Lương vẫn generate được, số sẽ khớp khi đã chốt)."""
+        p = self.attendance.get_period_by_ym(year, month)
+        if p is not None and p.status == APERIOD_LOCKED:
+            return self.attendance.period_cong_map(p.id)
+        ts = self.monthly_timesheet(year=year, month=month)
+        out: dict[int, float] = {}
+        for r in ts["rows"]:
+            cong = r.get("total_cong")
+            out[r["employee_id"]] = float(cong if cong is not None else r.get("total_days") or 0)
+        return out
 
     # --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch nguồn -------------
 
@@ -587,10 +764,7 @@ class AttendanceService:
         out = []
         for lg in self.attendance.list_by_employee_in_range(emp.id, start, end):
             local = _as_utc(lg.checked_at).astimezone(VN_TZ)
-            wd = local.date()
-            if shift is not None and shift.is_overnight and (local.hour * 60 + local.minute) <= shift.end_minute:
-                wd = (local - timedelta(days=1)).date()
-            if wd == the_day:
+            if work_day_of(local, shift) == the_day:
                 out.append((local, lg))
         out.sort(key=lambda x: x[0])
         return out

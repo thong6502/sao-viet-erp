@@ -661,6 +661,28 @@ def _migrate_role_permission_view_salary(db: Session) -> None:
     db.commit()
 
 
+def _migrate_role_permission_edit_salary(db: Session) -> None:
+    """Phân quyền: thêm cột `role_permissions.can_edit_salary` (SỬA dữ liệu nhạy cảm hồ sơ:
+    lương/BHXH — tách khỏi view_salary). No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_edit_salary" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text("ALTER TABLE role_permissions ADD COLUMN can_edit_salary BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
+def _migrate_user_code_nv_to_tk(db: Session) -> None:
+    """Đổi tiền tố mã tài khoản 'NV###' → 'TK###' (GIỮ NGUYÊN số) để không trùng tiền tố với
+    employees.code (Đ1: gỡ nhầm tài khoản vs hồ sơ). Idempotent: chỉ đụng mã còn 'NV%';
+    no-op trên DB fresh (repo đã sinh mã 'TK')."""
+    insp = inspect(db.get_bind())
+    if "users" not in insp.get_table_names():
+        return
+    db.execute(text("UPDATE users SET code = 'TK' || substr(code, 3) WHERE code LIKE 'NV%'"))
+    db.commit()
+
+
 def _migrate_role_permission_adjust(db: Session) -> None:
     """Phân quyền: thêm cột `role_permissions.can_adjust` (Chấm công: điều chỉnh công qua
     punch nguồn). No-op trên DB fresh / bảng chưa có."""
@@ -1297,6 +1319,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0040_cong_doan_pricing_basis_v2", _migrate_cong_doan_pricing_basis_v2),
     ("0041_bu_hao_version_no", _migrate_bu_hao_versioning),
     ("0042_cong_doan_kieu_bu_hao", _migrate_cong_doan_kieu_bu_hao),
+    ("0043_role_permission_edit_salary", _migrate_role_permission_edit_salary),
+    ("0044_user_code_nv_to_tk", _migrate_user_code_nv_to_tk),
 ]
 
 
