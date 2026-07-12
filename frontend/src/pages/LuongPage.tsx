@@ -133,12 +133,13 @@ function BangLuongTab({ token }: { token: string }) {
     const rows: string[][] = [];
     if (kind === "full") {
       rows.push(["Mã", "Họ tên", "Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-        "Khoán", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN", "Tạm ứng", "Thực lĩnh"]);
+        "Khoán", "Tăng ca", "Ca đêm", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN", "Tạm ứng", "Thực lĩnh"]);
       for (const l of shown) rows.push([
         l.employee_code ?? "", l.employee_name ?? "", GROUP_LABEL[l.payroll_group ?? ""] ?? (l.payroll_group ?? ""),
         l.is_probation ? "Thử việc" : "Chính thức", String(l.actual_cong),
         String(Math.round(l.luong_cong)), String(Math.round(l.chuyen_can)), String(Math.round(l.allowance)),
-        String(Math.round(l.khoan)), String(Math.round(l.vi_pham)), String(Math.round(l.other_bonus)),
+        String(Math.round(l.khoan)), String(Math.round(l.ot_pay)), String(Math.round(l.night_pay)),
+        String(Math.round(l.vi_pham)), String(Math.round(l.other_bonus)),
         String(Math.round(l.gross)), String(Math.round(l.bhxh)), String(Math.round(l.pit)),
         String(Math.round(l.advance_total)), String(Math.round(l.net_pay)),
       ]);
@@ -192,7 +193,9 @@ function BangLuongTab({ token }: { token: string }) {
               <tr>
                 <th>Mã</th><th>Họ tên</th><th>Tổ</th><th className="lg-num">Công</th>
                 <th className="lg-num">Lương công</th><th className="lg-num">Chuyên cần</th>
-                <th className="lg-num">Phụ cấp</th><th className="lg-num">Khoán</th><th className="lg-num">Vi phạm</th>
+                <th className="lg-num">Phụ cấp</th><th className="lg-num">Khoán</th>
+                <th className="lg-num">Tăng ca</th><th className="lg-num">Ca đêm</th>
+                <th className="lg-num">Vi phạm</th>
                 <th className="lg-num">Thưởng</th><th className="lg-num">BHXH</th>
                 <th className="lg-num">Tạm ứng</th><th className="lg-num lg-net">Thực lĩnh</th><th></th>
               </tr>
@@ -208,6 +211,8 @@ function BangLuongTab({ token }: { token: string }) {
                   <td className="lg-num">{money(l.chuyen_can)}</td>
                   <td className="lg-num">{money(l.allowance)}</td>
                   <td className="lg-num">{l.khoan ? money(l.khoan) : "—"}</td>
+                  <td className="lg-num" title={l.ot_minutes ? `${(l.ot_minutes / 60).toFixed(1)}h tăng ca` : ""}>{l.ot_pay ? money(l.ot_pay) : "—"}</td>
+                  <td className="lg-num" title={l.night_days ? `${l.night_days} ngày ca đêm` : ""}>{l.night_pay ? money(l.night_pay) : "—"}</td>
                   <td className={`lg-num ${l.vi_pham ? "lg-minus" : ""}`}>{l.vi_pham ? "−" + money(l.vi_pham) : "—"}</td>
                   <td className="lg-num">{l.other_bonus ? money(l.other_bonus) : "—"}</td>
                   <td className="lg-num lg-minus">{l.bhxh ? "−" + money(l.bhxh) : "—"}</td>
@@ -216,11 +221,11 @@ function BangLuongTab({ token }: { token: string }) {
                   <td>{!locked && <button className="btn btn--ghost" onClick={() => setEditing(l)}>Sửa</button>}</td>
                 </tr>
               ))}
-              {shown.length === 0 && <tr><td colSpan={14} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
+              {shown.length === 0 && <tr><td colSpan={16} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
             </tbody>
             <tfoot>
               <tr className="lg-foot">
-                <td colSpan={12}>Tổng thực lĩnh ({shown.length} người)</td>
+                <td colSpan={14}>Tổng thực lĩnh ({shown.length} người)</td>
                 <td className="lg-num lg-net">{money(totalNet)}</td><td></td>
               </tr>
             </tfoot>
@@ -915,6 +920,11 @@ function QuyTacTab({ token }: { token: string }) {
             <NumField label="Chuyên cần" v={params.chuyen_can_default} on={(x) => setParams({ ...params, chuyen_can_default: x })} />
             <NumField label="Giảm trừ bản thân" v={params.deduction_self} on={(x) => setParams({ ...params, deduction_self: x })} />
             <NumField label="Giảm trừ/người PT" v={params.deduction_dependent} on={(x) => setParams({ ...params, deduction_dependent: x })} />
+            <NumField label="Giờ công/ngày" v={params.standard_hours_per_day} step={0.5} on={(x) => setParams({ ...params, standard_hours_per_day: x })} />
+            <NumField label="Hệ số tăng ca" v={params.ot_multiplier} step={0.1} on={(x) => setParams({ ...params, ot_multiplier: x })} />
+            <NumField label="Phụ cấp ca đêm" v={params.night_pct} step={0.05} on={(x) => setParams({ ...params, night_pct: x })} />
+            <NumField label="Trần BHXH/BHYT" v={params.bh_base_cap} on={(x) => setParams({ ...params, bh_base_cap: x })} />
+            <NumField label="Trần BHTN" v={params.bhtn_base_cap} on={(x) => setParams({ ...params, bhtn_base_cap: x })} />
           </div>
           <button className="btn btn--primary" style={{ marginTop: 12 }} onClick={saveParams}>Lưu tham số</button>
         </div>
@@ -1037,7 +1047,10 @@ function PhieuLuongTab({ token }: { token: string }) {
 
   const rows: [string, number, boolean?][] = [
     ["Lương theo công", l.luong_cong], ["Chuyên cần", l.chuyen_can], ["Phụ cấp", l.allowance],
-    ["Lương khoán", l.khoan], ["Thưởng / hoa hồng", l.other_bonus], ["Vi phạm", -l.vi_pham, true],
+    ["Lương khoán", l.khoan],
+    ...(l.ot_pay ? ([["Tăng ca", l.ot_pay]] as [string, number][]) : []),
+    ...(l.night_pay ? ([["Phụ cấp ca đêm", l.night_pay]] as [string, number][]) : []),
+    ["Thưởng / hoa hồng", l.other_bonus], ["Vi phạm", -l.vi_pham, true],
     ["Tổng thu nhập", l.gross], ["BHXH/BHYT/BHTN", -l.bhxh, true], ["Thuế TNCN", -l.pit, true],
     ["Tạm ứng đã nhận", -l.advance_total, true],
   ];

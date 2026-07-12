@@ -67,7 +67,7 @@ def _make_emp(client, token, *, name, payroll_group=None, pay_grade_key=None,
 def test_params_defaults_and_rbac(client):
     token = _admin_token(client)
     p = client.get("/api/luong/params", headers=_h(token)).json()
-    assert p["standard_cong_default"] == 26 and p["probation_ratio"] == 0.8
+    assert p["standard_cong_default"] == 26 and p["probation_ratio"] == 0.85
 
     upd = client.put("/api/luong/params", json={"standard_cong_default": 24}, headers=_h(token))
     assert upd.status_code == 200 and upd.json()["standard_cong_default"] == 24
@@ -133,8 +133,89 @@ def test_compute_engine(client):
         v3 = svc._compute(employee=emp_tv, salary=None, params=params, actual_cong=26,
                           standard_cong=26, on=on)
         assert v3["monthly_salary"] == 10_000_000       # mức gốc (chưa nhân)
-        assert v3["luong_cong"] == 8_000_000            # 10tr × 0.8 × 1.0
-        assert v3["bhxh"] == round(8_000_000 * 0.105)   # đóng trên mức thử việc
+        assert v3["luong_cong"] == 8_500_000            # 10tr × 0.85 × 1.0 (Đ26 ≥85%)
+        assert v3["bhxh"] == 0                          # thử việc KHÔNG đóng BHXH (HĐ thử việc)
+    finally:
+        db.close()
+
+
+def test_ot_and_night_pay(client):
+    """Pha 4a: tăng ca (hệ số phẳng) + phụ cấp ca đêm cộng vào gross, KHÔNG prorate theo công."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        svc.payroll.create_rule(payroll_group="ot_grp", monthly_amount=26_000_000,
+                                effective_from=date(2020, 1, 1))
+        params = svc.get_params()   # standard_hours_per_day=8, ot_multiplier=1.5, night_pct=0.3
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
+                              payroll_group="ot_grp", pay_grade_key=None)
+        # std 26 → 1 công = 1.000.000; giờ = 125.000. OT 120' (2h)×1.5 = 375.000.
+        # ca đêm 2 ngày × 1.000.000 × 0.3 = 600.000.
+        v = svc._compute(employee=emp, salary=None, params=params, actual_cong=26,
+                         standard_cong=26, ot_minutes=120, night_days=2, on=date(2026, 6, 1))
+        assert v["ot_pay"] == 375_000
+        assert v["night_pay"] == 600_000
+        assert v["gross"] == 26_000_000 + 300_000 + 375_000 + 600_000   # + chuyên cần đủ công
+    finally:
+        db.close()
+
+
+def test_bhxh_cap(client):
+    """Pha 4a: BHXH/BHYT áp trần bh_base_cap, BHTN áp trần bhtn_base_cap RIÊNG."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        svc.payroll.create_rule(payroll_group="hi_grp", monthly_amount=60_000_000,
+                                effective_from=date(2020, 1, 1))
+        params = svc.get_params()   # bh_base_cap=50.6tr, bhtn_base_cap=106.2tr
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
+                              payroll_group="hi_grp", pay_grade_key=None)
+        v = svc._compute(employee=emp, salary=None, params=params, actual_cong=26,
+                         standard_cong=26, on=date(2026, 6, 1))
+        # base 60tr > trần BHXH/BHYT 50.6tr → phần đó trên 50.6tr; BHTN 60tr < 106.2tr → trên 60tr.
+        assert v["bhxh"] == round(50_600_000 * (0.08 + 0.015) + 60_000_000 * 0.01)
+    finally:
+        db.close()
+
+
+def test_probation_no_bhxh(client):
+    """Pha 4a: NV thử việc KHÔNG đóng BHXH (HĐ thử việc)."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        svc.payroll.create_rule(payroll_group="pb_grp", monthly_amount=12_000_000,
+                                effective_from=date(2020, 1, 1))
+        params = svc.get_params()
+        emp = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male",
+                              payroll_group="pb_grp", pay_grade_key=None)
+        v = svc._compute(employee=emp, salary=None, params=params, actual_cong=26,
+                         standard_cong=26, on=date(2026, 6, 1))
+        assert v["bhxh"] == 0 and v["insurance_base"] == 0
+        assert v["luong_cong"] == round(12_000_000 * 0.85)   # thử việc 85%
+    finally:
+        db.close()
+
+
+def test_update_line_keeps_ot_night_pay(client):
+    """Pha 4a (bẫy C2): sửa ô tay (vi phạm) KHÔNG được xóa tăng ca/ca đêm khỏi gross."""
+    token = _admin_token(client)
+    emp_id = _make_emp(client, token, name="NV OT", payroll_group="x", status="active")
+    db = SessionLocal()
+    try:
+        repo = PayrollRepository(db)
+        svc = PayrollService(repo, EmployeeRepository(db), attendance=None)
+        period = repo.create_period(year=2026, month=6, status="draft", standard_cong=26)
+        ln = repo.create_line(period_id=period.id, employee_id=emp_id,
+                              luong_cong=10_000_000, chuyen_can=300_000, allowance=0,
+                              ot_pay=375_000, night_pay=600_000, bhxh=1_050_000)
+        updated = svc.update_line(line_id=ln.id, actor=None, vi_pham=200_000)
+        assert float(updated.ot_pay) == 375_000 and float(updated.night_pay) == 600_000
+        # gross vẫn còn OT + ca đêm, chỉ trừ thêm vi phạm 200k.
+        assert float(updated.gross) == 10_000_000 + 300_000 + 375_000 + 600_000 - 200_000
+        assert float(updated.net_pay) == float(updated.gross) - 1_050_000
     finally:
         db.close()
 

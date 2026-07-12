@@ -18,6 +18,11 @@ class ParamsIn(BaseModel):
     deduction_self: float | None = Field(default=None, ge=0)
     deduction_dependent: float | None = Field(default=None, ge=0)
     chuyen_can_default: float | None = Field(default=None, ge=0)
+    standard_hours_per_day: float | None = Field(default=None, gt=0, le=24)
+    ot_multiplier: float | None = Field(default=None, ge=1, le=5)
+    night_pct: float | None = Field(default=None, ge=0, le=2)
+    bh_base_cap: float | None = Field(default=None, ge=0)
+    bhtn_base_cap: float | None = Field(default=None, ge=0)
 
 
 class ParamsOut(BaseModel):
@@ -31,6 +36,11 @@ class ParamsOut(BaseModel):
     deduction_self: float
     deduction_dependent: float
     chuyen_can_default: float
+    standard_hours_per_day: float
+    ot_multiplier: float
+    night_pct: float
+    bh_base_cap: float
+    bhtn_base_cap: float
 
 
 # --- salary_rate_rules ------------------------------------------------------
@@ -191,6 +201,10 @@ class LineOut(BaseModel):
     chuyen_can: float
     allowance: float
     khoan: float = 0
+    ot_minutes: int = 0
+    ot_pay: float = 0
+    night_days: int = 0
+    night_pay: float = 0
     vi_pham: float
     other_bonus: float
     gross: float

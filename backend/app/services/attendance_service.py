@@ -733,18 +733,26 @@ class AttendanceService:
                           target=f"attendance_period:{p.id}", detail=f"{month}/{year}")
         return self.period_status(year=year, month=month)
 
-    def cong_map(self, year: int, month: int) -> dict[int, float]:
-        """Số công/NV cho Lương: đọc SNAPSHOT nếu kỳ công đã CHỐT; chưa chốt thì tính LIVE
-        (giữ tương thích — Lương vẫn generate được, số sẽ khớp khi đã chốt)."""
+    def metrics_map(self, year: int, month: int) -> dict[int, dict]:
+        """{emp_id → {cong, ot_minutes, night_days}} cho Lương (Pha 4a): đọc SNAPSHOT nếu kỳ
+        công đã CHỐT; chưa chốt thì tính LIVE từ Bảng công tháng. Nguồn duy nhất — cong_map rút từ đây."""
         p = self.attendance.get_period_by_ym(year, month)
         if p is not None and p.status == APERIOD_LOCKED:
-            return self.attendance.period_cong_map(p.id)
+            return self.attendance.period_metrics_map(p.id)
         ts = self.monthly_timesheet(year=year, month=month)
-        out: dict[int, float] = {}
+        out: dict[int, dict] = {}
         for r in ts["rows"]:
             cong = r.get("total_cong")
-            out[r["employee_id"]] = float(cong if cong is not None else r.get("total_days") or 0)
+            out[r["employee_id"]] = {
+                "cong": float(cong if cong is not None else r.get("total_days") or 0),
+                "ot_minutes": int(r.get("ot_minutes") or 0),
+                "night_days": int(r.get("night_days") or 0),
+            }
         return out
+
+    def cong_map(self, year: int, month: int) -> dict[int, float]:
+        """Số công/NV cho Lương (giữ tương thích) — rút cong từ metrics_map (1 nguồn)."""
+        return {eid: m["cong"] for eid, m in self.metrics_map(year, month).items()}
 
     # --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch nguồn -------------
 

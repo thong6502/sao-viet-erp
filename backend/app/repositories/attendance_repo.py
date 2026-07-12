@@ -225,6 +225,18 @@ class AttendanceRepository:
     def period_cong_map(self, period_id: int) -> dict[int, float]:
         return {ln.employee_id: float(ln.total_cong) for ln in self.list_period_lines(period_id)}
 
+    def period_metrics_map(self, period_id: int) -> dict[int, dict]:
+        """{emp_id → {cong, ot_minutes, night_days}} từ snapshot kỳ công đã chốt — cho Lương
+        cắm tăng ca + ca đêm (Pha 4a)."""
+        return {
+            ln.employee_id: {
+                "cong": float(ln.total_cong),
+                "ot_minutes": int(ln.ot_minutes or 0),
+                "night_days": int(ln.night_days or 0),
+            }
+            for ln in self.list_period_lines(period_id)
+        }
+
     def delete_period_lines(self, period_id: int) -> None:
         for ln in self.list_period_lines(period_id):
             self.db.delete(ln)

@@ -63,9 +63,9 @@ class PayrollParams(Base):
     standard_cong_default: Mapped[float] = mapped_column(
         Numeric(6, 2), nullable=False, default=26, server_default="26"
     )
-    # Thử việc hưởng % của lương chính thức.
+    # Thử việc hưởng % của lương chính thức (Đ26 BLLĐ: ít nhất 85%).
     probation_ratio: Mapped[float] = mapped_column(
-        Numeric(5, 4), nullable=False, default=0.8, server_default="0.8"
+        Numeric(5, 4), nullable=False, default=0.85, server_default="0.85"
     )
     # Tỷ lệ NV đóng: BHXH 8% + BHYT 1.5% + BHTN 1% = 10.5%.
     bhxh_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.08, server_default="0.08")
@@ -76,6 +76,18 @@ class PayrollParams(Base):
     deduction_dependent: Mapped[float] = mapped_column(_MONEY, nullable=False, default=4_400_000, server_default="4400000")
     # Mức chuyên cần mặc định (thưởng đủ công).
     chuyen_can_default: Mapped[float] = mapped_column(_MONEY, nullable=False, default=300_000, server_default="300000")
+    # --- Pha 4a: tăng ca (OT) + phụ cấp ca đêm ---
+    # Giờ công chuẩn/ngày để quy đơn giá giờ khi tính OT.
+    standard_hours_per_day: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=8, server_default="8")
+    # Hệ số OT phẳng (Đ98: ngày thường ≥1.5; phần CN/lễ nhập bù qua ô Thưởng).
+    ot_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=1.5, server_default="1.5")
+    # Phụ cấp ca đêm: % đơn giá 1 công cho mỗi ngày làm ca đêm (Đ98 kh.2: ≥30%).
+    night_pct: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False, default=0.30, server_default="0.3")
+    # --- Pha 4a: trần đóng BHXH (mức tham chiếu × 20; đổi hằng năm → sửa ở tham số) ---
+    # Trần BHXH+BHYT = 20× mức tham chiếu (2.53tr từ 1/7/2026 → 50.6tr). 0 = không áp trần.
+    bh_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=50_600_000, server_default="50600000")
+    # Trần BHTN = 20× lương tối thiểu vùng (vùng I 5.31tr từ 1/1/2026 → 106.2tr). 0 = không áp trần.
+    bhtn_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=106_200_000, server_default="106200000")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -187,6 +199,10 @@ class PayrollLine(Base):
     chuyen_can: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     allowance: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     khoan: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # lương khoán (nhịp 2)
+    ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút tăng ca (Pha 4a)
+    ot_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # tiền tăng ca (Pha 4a)
+    night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày ca đêm (Pha 4a)
+    night_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")       # phụ cấp ca đêm (Pha 4a)
     vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay
     other_bonus: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # tay (thưởng/hoa hồng)
     gross: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")

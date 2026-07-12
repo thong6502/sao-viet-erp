@@ -2376,6 +2376,11 @@ export interface PayrollParams {
   deduction_self: number;
   deduction_dependent: number;
   chuyen_can_default: number;
+  standard_hours_per_day: number;
+  ot_multiplier: number;
+  night_pct: number;
+  bh_base_cap: number;
+  bhtn_base_cap: number;
 }
 export interface SalaryRule {
   id: number;
@@ -2482,6 +2487,10 @@ export interface PayrollLine {
   chuyen_can: number;
   allowance: number;
   khoan: number;
+  ot_minutes: number;
+  ot_pay: number;
+  night_days: number;
+  night_pay: number;
   vi_pham: number;
   other_bonus: number;
   gross: number;

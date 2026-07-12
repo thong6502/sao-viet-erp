@@ -1277,6 +1277,38 @@ def _migrate_cong_doan_kieu_bu_hao(db: Session) -> None:
     db.commit()
 
 
+def _migrate_payroll_ot_night_bhxh_cap(db: Session) -> None:
+    """Pha 4a: cắm tăng ca (OT) + phụ cấp ca đêm + trần đóng BHXH.
+    - payroll_params += standard_hours_per_day, ot_multiplier, night_pct, bh_base_cap, bhtn_base_cap
+    - payroll_lines  += ot_minutes, ot_pay, night_days, night_pay
+    No-op trên DB fresh (create_all đã tạo đủ cột)."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "payroll_params" in tables:
+        cols = _existing_columns(insp, "payroll_params")
+        if "standard_hours_per_day" not in cols:
+            db.execute(text("ALTER TABLE payroll_params ADD COLUMN standard_hours_per_day NUMERIC(5,2) NOT NULL DEFAULT 8"))
+        if "ot_multiplier" not in cols:
+            db.execute(text("ALTER TABLE payroll_params ADD COLUMN ot_multiplier NUMERIC(5,2) NOT NULL DEFAULT 1.5"))
+        if "night_pct" not in cols:
+            db.execute(text("ALTER TABLE payroll_params ADD COLUMN night_pct NUMERIC(5,4) NOT NULL DEFAULT 0.3"))
+        if "bh_base_cap" not in cols:
+            db.execute(text("ALTER TABLE payroll_params ADD COLUMN bh_base_cap NUMERIC(14,2) NOT NULL DEFAULT 50600000"))
+        if "bhtn_base_cap" not in cols:
+            db.execute(text("ALTER TABLE payroll_params ADD COLUMN bhtn_base_cap NUMERIC(14,2) NOT NULL DEFAULT 106200000"))
+    if "payroll_lines" in tables:
+        cols = _existing_columns(insp, "payroll_lines")
+        if "ot_minutes" not in cols:
+            db.execute(text("ALTER TABLE payroll_lines ADD COLUMN ot_minutes INTEGER NOT NULL DEFAULT 0"))
+        if "ot_pay" not in cols:
+            db.execute(text("ALTER TABLE payroll_lines ADD COLUMN ot_pay NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        if "night_days" not in cols:
+            db.execute(text("ALTER TABLE payroll_lines ADD COLUMN night_days INTEGER NOT NULL DEFAULT 0"))
+        if "night_pay" not in cols:
+            db.execute(text("ALTER TABLE payroll_lines ADD COLUMN night_pay NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1321,6 +1353,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0042_cong_doan_kieu_bu_hao", _migrate_cong_doan_kieu_bu_hao),
     ("0043_role_permission_edit_salary", _migrate_role_permission_edit_salary),
     ("0044_user_code_nv_to_tk", _migrate_user_code_nv_to_tk),
+    ("0045_payroll_ot_night_bhxh_cap", _migrate_payroll_ot_night_bhxh_cap),
 ]
 
 

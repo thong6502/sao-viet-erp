@@ -2051,13 +2051,18 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 |---|---|---|---|---|
 | `id` | `Integer` | no | auto | PK. |
 | `standard_cong_default` | `Numeric(6,2)` | no | `26` | Công chuẩn/tháng để prorate lương thời gian. |
-| `probation_ratio` | `Numeric(5,4)` | no | `0.8` | Thử việc hưởng % của lương chính thức. |
+| `probation_ratio` | `Numeric(5,4)` | no | `0.85` | Thử việc hưởng % của lương chính thức (Đ26 BLLĐ ≥85%). |
 | `bhxh_rate` | `Numeric(6,4)` | no | `0.08` | Tỷ lệ NV đóng BHXH. |
 | `bhyt_rate` | `Numeric(6,4)` | no | `0.015` | Tỷ lệ NV đóng BHYT. |
 | `bhtn_rate` | `Numeric(6,4)` | no | `0.01` | Tỷ lệ NV đóng BHTN. |
 | `deduction_self` | `Numeric(14,2)` | no | `11000000` | Giảm trừ gia cảnh bản thân (TNCN). |
 | `deduction_dependent` | `Numeric(14,2)` | no | `4400000` | Giảm trừ mỗi người phụ thuộc. |
 | `chuyen_can_default` | `Numeric(14,2)` | no | `300000` | Mức chuyên cần mặc định (đủ công). |
+| `standard_hours_per_day` | `Numeric(5,2)` | no | `8` | Giờ công chuẩn/ngày (quy đơn giá giờ OT — Pha 4a). |
+| `ot_multiplier` | `Numeric(5,2)` | no | `1.5` | Hệ số tăng ca phẳng (Đ98 ngày thường ≥1.5 — Pha 4a). |
+| `night_pct` | `Numeric(5,4)` | no | `0.3` | Phụ cấp ca đêm: % đơn giá 1 công/ngày ca đêm (Đ98 ≥30% — Pha 4a). |
+| `bh_base_cap` | `Numeric(14,2)` | no | `50600000` | Trần đóng BHXH+BHYT = 20× mức tham chiếu; 0 = không trần (Pha 4a). |
+| `bhtn_base_cap` | `Numeric(14,2)` | no | `106200000` | Trần đóng BHTN = 20× lương tối thiểu vùng; 0 = không trần (Pha 4a). |
 | `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
 
 ---
@@ -2160,6 +2165,10 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `chuyen_can` | `Numeric(14,2)` | — | no | `0` | Thưởng chuyên cần. |
 | `allowance` | `Numeric(14,2)` | — | no | `0` | Phụ cấp cố định. |
 | `khoan` | `Numeric(14,2)` | — | no | `0` | Lương khoán (nhịp 2, từ sổ khoán). Thêm qua migration 0013. |
+| `ot_minutes` | `Integer` | — | no | `0` | Tổng phút tăng ca (từ Chấm công). Thêm qua migration 0043. |
+| `ot_pay` | `Numeric(14,2)` | — | no | `0` | Tiền tăng ca (hệ số phẳng). Thêm qua migration 0043. |
+| `night_days` | `Integer` | — | no | `0` | Số ngày làm ca đêm. Thêm qua migration 0043. |
+| `night_pay` | `Numeric(14,2)` | — | no | `0` | Phụ cấp ca đêm. Thêm qua migration 0043. |
 | `vi_pham` | `Numeric(14,2)` | — | no | `0` | Trừ vi phạm (nhập tay). |
 | `other_bonus` | `Numeric(14,2)` | — | no | `0` | Thưởng/hoa hồng (nhập tay). |
 | `gross` | `Numeric(14,2)` | — | no | `0` | Tổng thu nhập trước khấu trừ. |

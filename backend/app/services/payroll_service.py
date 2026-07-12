@@ -83,6 +83,7 @@ class PayrollService:
         allowed = {
             "standard_cong_default", "probation_ratio", "bhxh_rate", "bhyt_rate",
             "bhtn_rate", "deduction_self", "deduction_dependent", "chuyen_can_default",
+            "standard_hours_per_day", "ot_multiplier", "night_pct", "bh_base_cap", "bhtn_base_cap",
         }
         data = {k: v for k, v in fields.items() if k in allowed and v is not None}
         data["updated_at"] = datetime.now(timezone.utc)
@@ -250,7 +251,8 @@ class PayrollService:
     # --- engine tính 1 dòng -------------------------------------------------
 
     def _compute(self, *, employee, salary, params, actual_cong, standard_cong,
-                 vi_pham=0.0, other_bonus=0.0, pit=0.0, khoan=0.0, on: date) -> dict:
+                 vi_pham=0.0, other_bonus=0.0, pit=0.0, khoan=0.0,
+                 ot_minutes=0, night_days=0, on: date) -> dict:
         is_probation = employee.status == STATUS_PROBATION
         ratio = float(params.probation_ratio) if is_probation else 1.0
         res = self._resolve_salary(employee, salary, params, on)
@@ -258,18 +260,37 @@ class PayrollService:
         eff_monthly = monthly * ratio  # mức tháng thực (đã tính %thử việc)
 
         std = float(standard_cong) or 1.0
+        daily_rate = eff_monthly / std                       # đơn giá 1 công
         luong_cong = eff_monthly * (float(actual_cong) / std)
         chuyen_can = res["chuyen_can_amt"] if float(actual_cong) >= float(standard_cong) else 0.0
         allowance = float(salary.allowance) if salary else 0.0
 
-        gross = luong_cong + chuyen_can + allowance + float(khoan) + float(other_bonus) - float(vi_pham)
+        # Tăng ca (hệ số phẳng) + phụ cấp ca đêm — KHÔNG prorate theo công (tính trên đơn giá chuẩn).
+        hours_per_day = float(getattr(params, "standard_hours_per_day", 8) or 8)
+        hourly_rate = daily_rate / hours_per_day if hours_per_day else 0.0
+        ot_pay = _round(hourly_rate * (float(ot_minutes) / 60.0)
+                        * float(getattr(params, "ot_multiplier", 1.5) or 0))
+        night_pay = _round(float(night_days) * daily_rate
+                           * float(getattr(params, "night_pct", 0) or 0))
 
-        if salary is not None and salary.insurance_base is not None:
-            insurance_base = float(salary.insurance_base)
+        gross = (luong_cong + chuyen_can + allowance + float(khoan)
+                 + ot_pay + night_pay + float(other_bonus) - float(vi_pham))
+
+        # BHXH: thử việc KHÔNG đóng (HĐ thử việc, Đ2 Luật BHXH); áp trần RIÊNG BHXH/BHYT vs BHTN.
+        if is_probation:
+            insurance_base = 0.0
+            bhxh = 0.0
         else:
-            insurance_base = eff_monthly  # mặc định đóng trên mức tháng, KHÔNG prorate
-        bh_rate = float(params.bhxh_rate) + float(params.bhyt_rate) + float(params.bhtn_rate)
-        bhxh = insurance_base * bh_rate
+            if salary is not None and salary.insurance_base is not None:
+                insurance_base = float(salary.insurance_base)
+            else:
+                insurance_base = eff_monthly  # mặc định đóng trên mức tháng, KHÔNG prorate
+            bh_cap = float(getattr(params, "bh_base_cap", 0) or 0)
+            bhtn_cap = float(getattr(params, "bhtn_base_cap", 0) or 0)
+            bh_base = min(insurance_base, bh_cap) if bh_cap > 0 else insurance_base
+            bhtn_base = min(insurance_base, bhtn_cap) if bhtn_cap > 0 else insurance_base
+            bhxh = (bh_base * (float(params.bhxh_rate) + float(params.bhyt_rate))
+                    + bhtn_base * float(params.bhtn_rate))
 
         return {
             "is_probation": is_probation,
@@ -278,6 +299,10 @@ class PayrollService:
             "chuyen_can": _round(chuyen_can),
             "allowance": _round(allowance),
             "khoan": _round(khoan),
+            "ot_minutes": int(ot_minutes),
+            "ot_pay": ot_pay,
+            "night_days": int(night_days),
+            "night_pay": night_pay,
             "vi_pham": _round(vi_pham),
             "other_bonus": _round(other_bonus),
             "gross": _round(gross),
@@ -312,7 +337,7 @@ class PayrollService:
             raise PayrollLocked("Kỳ lương đã chốt — mở lại trước khi tính lại.")
 
         on = date(int(year), int(month), 1)
-        cong_map = self._cong_map(year, month)
+        metrics_map = self.attendance.metrics_map(year, month)   # {emp: {cong, ot_minutes, night_days}}
         advance_map = self.payroll.approved_advance_map(year, month)
         salary_map = self.payroll.latest_salaries_map(on)
         khoan_map = self.piece.khoan_map(year, month) if self.piece is not None else {}
@@ -329,11 +354,15 @@ class PayrollService:
             note = existing.note if existing else None
 
             salary = salary_map.get(emp.id)
-            actual_cong = cong_map.get(emp.id, 0.0)
+            m = metrics_map.get(emp.id) or {}   # NV không chấm công → rỗng (KHÔNG KeyError)
+            actual_cong = float(m.get("cong", 0.0))
+            ot_minutes = int(m.get("ot_minutes", 0))
+            night_days = int(m.get("night_days", 0))
             khoan = khoan_map.get(emp.id, 0.0)
             vals = self._compute(
                 employee=emp, salary=salary, params=params, actual_cong=actual_cong,
-                standard_cong=std, vi_pham=vi_pham, other_bonus=other_bonus, pit=pit, khoan=khoan, on=on,
+                standard_cong=std, vi_pham=vi_pham, other_bonus=other_bonus, pit=pit, khoan=khoan,
+                ot_minutes=ot_minutes, night_days=night_days, on=on,
             )
             advance_total = _round(advance_map.get(emp.id, 0.0))
             net = vals["gross"] - vals["bhxh"] - vals["pit"] - advance_total
@@ -342,6 +371,8 @@ class PayrollService:
                 is_probation=vals["is_probation"], actual_cong=actual_cong, standard_cong=std,
                 monthly_salary=vals["monthly_salary"], luong_cong=vals["luong_cong"],
                 chuyen_can=vals["chuyen_can"], allowance=vals["allowance"], khoan=vals["khoan"],
+                ot_minutes=vals["ot_minutes"], ot_pay=vals["ot_pay"],
+                night_days=vals["night_days"], night_pay=vals["night_pay"],
                 vi_pham=vals["vi_pham"], other_bonus=vals["other_bonus"], gross=vals["gross"],
                 insurance_base=vals["insurance_base"], bhxh=vals["bhxh"], pit=vals["pit"],
                 advance_total=advance_total, net_pay=_round(net), note=note,
@@ -386,7 +417,8 @@ class PayrollService:
             ln.note = note
 
         ln.gross = _round(float(ln.luong_cong) + float(ln.chuyen_can) + float(ln.allowance)
-                          + float(ln.khoan) + float(ln.other_bonus) - float(ln.vi_pham))
+                          + float(ln.khoan) + float(ln.ot_pay) + float(ln.night_pay)
+                          + float(ln.other_bonus) - float(ln.vi_pham))
         ln.net_pay = _round(float(ln.gross) - float(ln.bhxh) - float(ln.pit) - float(ln.advance_total))
         ln.updated_at = datetime.now(timezone.utc)
         return self.payroll.update_line(ln)
