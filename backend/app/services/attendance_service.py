@@ -543,9 +543,11 @@ class AttendanceService:
             shift = shifts.get(emp.default_shift_id) if emp.default_shift_id else None
             att_days = by_emp.get(emp_id, {})
             lv_days = leave_map.get(emp_id, {})
-            # Ngày lễ NV được hưởng công: không chấm, không nghỉ phép, đang trong biên chế ngày đó.
+            # Ngày lễ NV hưởng công lễ: không chấm công + đang trong biên chế ngày đó. CÓ đơn phép
+            # phủ ngày lễ VẪN vào đây (lễ thắng phép: không tiêu ngày phép); công lễ tính theo
+            # is_paid của đơn nền ở nhánh dưới (nghỉ không lương phủ lễ → 0 công, đúng luật).
             emp_holidays = {d for d in paid_holidays
-                            if d not in att_days and d not in lv_days
+                            if d not in att_days
                             and _in_headcount_on(emp, date(year, month, d))}
             day_map: dict[str, dict] = {}
             total_hours = 0.0
@@ -588,7 +590,17 @@ class AttendanceService:
                         total_ot += info["ot_minutes"]
                         if shift.night_shift:
                             night_days += 1
-                elif d in lv_days:  # ngày nghỉ phép đã duyệt (không chấm công)
+                elif d in emp_holidays:  # NGÀY LỄ thắng đơn phép: 1 công lễ, KHÔNG tiêu ngày phép
+                    lv = lv_days.get(d)   # đơn phép phủ ngày lễ (nếu có) → công lễ theo is_paid đơn
+                    paid = lv["is_paid"] if lv is not None else True
+                    cong = 1.0 if paid else 0.0   # nghỉ không lương phủ lễ → 0 công (đúng luật)
+                    cell.update(cong=cong, leave=lv["name"] if lv is not None else paid_holidays[d],
+                                leave_paid=paid, holiday=True)
+                    total_cong += cong
+                elif (self._work_calendar is not None
+                      and not self._work_calendar.is_working_day(date(year, month, d))):
+                    continue  # ngày nghỉ tuần (CN) trong đơn phép → không tiêu phép, không cộng công
+                else:  # d in lv_days: ngày LÀM VIỆC có phép đã duyệt (không rơi lễ)
                     lv = lv_days[d]
                     cong = 1.0 if lv["is_paid"] else 0.0
                     cell.update(cong=cong, leave=lv["name"], leave_paid=lv["is_paid"])
@@ -598,9 +610,6 @@ class AttendanceService:
                     else:
                         unpaid_leave += 1
                     total_cong += cong
-                else:  # ngày nghỉ lễ hưởng lương → cộng 1 công tự động (không cần chấm)
-                    cell.update(cong=1.0, leave=paid_holidays[d], leave_paid=True, holiday=True)
-                    total_cong += 1.0
                 day_map[str(d)] = cell
             has_cong = shift is not None or total_leave > 0 or bool(emp_holidays)
             rows.append({

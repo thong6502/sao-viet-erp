@@ -253,15 +253,91 @@ def test_approved_leave_shows_on_timesheet(client):
     tid = _make_type(client, token, name="Phép năm", is_paid=True)
     _link_admin_employee(client, token)
 
-    today = date.today()
-    y, m = today.year, today.month
-    start = date(y, m, 5).isoformat()
-    end = date(y, m, 6).isoformat()
+    # 8–9/9/2026 = T3–T4, hai ngày làm việc liên tiếp (không rơi CN/lễ nên không bị B2 lọc).
+    y, m = 2026, 9
+    start = date(y, m, 8).isoformat()
+    end = date(y, m, 9).isoformat()
     rid = client.post("/api/leaves", json={"leave_type_id": tid, "start_date": start, "end_date": end}, headers=_h(token)).json()["id"]
     client.post(f"/api/leaves/{rid}/approve", json={}, headers=_h(token))
 
     ts = client.get(f"/api/attendance/timesheet?year={y}&month={m}", headers=_h(token)).json()
     row = next(r for r in ts["rows"] if r["employee_name"] == "NV Nghỉ")
     assert row["total_leave"] >= 2
-    d5 = row["days"].get("5")
-    assert d5 and d5["leave"] == "Phép năm" and d5["leave_paid"] is True and d5["cong"] == 1.0
+    d8 = row["days"].get("8")
+    assert d8 and d8["leave"] == "Phép năm" and d8["leave_paid"] is True and d8["cong"] == 1.0
+
+
+def test_paid_holiday_beats_leave_on_timesheet(client):
+    """Ngày lễ hưởng lương nằm TRONG đơn phép có lương: hiện là công LỄ (holiday), 1 công,
+    KHÔNG tiêu ngày phép (chỉ các ngày làm việc khác trong đơn mới tính phép)."""
+    token = _admin_token(client)
+    tid = _make_type(client, token, name="Phép năm", is_paid=True)
+    _link_admin_employee(client, token)
+
+    # Đơn 1–3/9/2026 phủ lễ 2/9 (Quốc khánh, seed). 1=T3, 2=T4(lễ), 3=T5.
+    rid = client.post("/api/leaves", json={"leave_type_id": tid,
+        "start_date": "2026-09-01", "end_date": "2026-09-03"}, headers=_h(token)).json()["id"]
+    client.post(f"/api/leaves/{rid}/approve", json={}, headers=_h(token))
+
+    ts = client.get("/api/attendance/timesheet?year=2026&month=9", headers=_h(token)).json()
+    row = next(r for r in ts["rows"] if r["employee_name"] == "NV Nghỉ")
+    assert row["days"]["2"]["holiday"] is True and row["days"]["2"]["cong"] == 1.0
+    assert row["total_leave"] == 2  # 1/9 + 3/9; 2/9 là lễ, không tính vào phép
+    assert row["days"]["1"]["leave"] == "Phép năm" and row["days"]["3"]["leave"] == "Phép năm"
+
+
+def test_unpaid_leave_over_holiday_gets_no_pay(client):
+    """Nghỉ KHÔNG lương phủ ngày lễ: ngày lễ vẫn hiện holiday nhưng 0 công (đang trong kỳ không
+    lương, công ty không trả lương lễ — đúng luật). Vẫn không tiêu ngày phép."""
+    token = _admin_token(client)
+    unpaid_tid = client.post("/api/leaves/types",
+        json={"name": "Không lương", "is_paid": False, "annual_quota": 0},
+        headers=_h(token)).json()["id"]
+    _link_admin_employee(client, token)
+
+    rid = client.post("/api/leaves", json={"leave_type_id": unpaid_tid,
+        "start_date": "2026-09-01", "end_date": "2026-09-03"}, headers=_h(token)).json()["id"]
+    client.post(f"/api/leaves/{rid}/approve", json={}, headers=_h(token))
+
+    ts = client.get("/api/attendance/timesheet?year=2026&month=9", headers=_h(token)).json()
+    row = next(r for r in ts["rows"] if r["employee_name"] == "NV Nghỉ")
+    assert row["days"]["2"]["holiday"] is True and row["days"]["2"]["cong"] == 0.0
+    assert row["total_leave"] == 2  # 1/9 + 3/9 (không lương); 2/9 là lễ, không tính phép
+
+
+def test_sunday_in_leave_not_counted_on_timesheet(client):
+    """Đơn phép phủ Chủ Nhật: bảng công KHÔNG đánh dấu phép ngày CN (khớp số ngày trừ quota)."""
+    token = _admin_token(client)
+    tid = _make_type(client, token, name="Phép năm", is_paid=True)
+    _link_admin_employee(client, token)
+
+    # 5–7/9/2026: T7(5) làm, CN(6) nghỉ, T2(7) làm → chỉ 5 và 7 tính phép.
+    rid = client.post("/api/leaves", json={"leave_type_id": tid,
+        "start_date": "2026-09-05", "end_date": "2026-09-07"}, headers=_h(token)).json()["id"]
+    client.post(f"/api/leaves/{rid}/approve", json={}, headers=_h(token))
+
+    ts = client.get("/api/attendance/timesheet?year=2026&month=9", headers=_h(token)).json()
+    row = next(r for r in ts["rows"] if r["employee_name"] == "NV Nghỉ")
+    assert row["total_leave"] == 2       # 5(T7) + 7(T2), KHÔNG tính 6(CN)
+    assert "6" not in row["days"]        # Chủ Nhật không có ô phép
+    assert row["days"]["5"]["leave"] == "Phép năm" and row["days"]["7"]["leave"] == "Phép năm"
+
+
+def test_quota_prorated_for_mid_year_hire(client):
+    """Người mới vào giữa năm: hạn mức phép chia tỷ lệ tháng còn lại (Điều 113 BLLĐ)."""
+    token = _admin_token(client)
+    tid = _make_type(client, token, name="Phép năm", is_paid=True)  # quota 12
+    y = date.today().year
+    emp = client.post("/api/employees",
+        json={"full_name": "NV Mới", "department_id": _dept_id("Hành chính nhân sự"),
+              "hire_date": f"{y}-07-01"}, headers=_h(token)).json()["employee"]
+    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))
+
+    me = client.get("/api/leaves/me", headers=_h(token)).json()
+    q = next(q for q in me["quotas"] if q["name"] == "Phép năm")
+    assert q["annual_quota"] == 6 and q["remaining"] == 6  # 12 × 6 tháng (7..12) / 12
+
+    # Đơn dài (>6 ngày làm việc) → chặn vì vượt hạn mức đã prorate.
+    r = client.post("/api/leaves", json={"leave_type_id": tid,
+        "start_date": f"{y}-11-02", "end_date": f"{y}-11-16"}, headers=_h(token))
+    assert r.status_code == 400 and "Vượt hạn mức" in r.json()["detail"]

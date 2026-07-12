@@ -53,7 +53,7 @@ def _clean(v: str | None) -> str | None:
 def _working_days(start: date, end: date) -> int:
     """Số NGÀY LÀM VIỆC trong [start, end] (loại Thứ Bảy + Chủ Nhật). Là đơn vị TRỪ hạn
     mức phép năm (theo quyết định: cuối tuần không trừ phép; ngày lễ + ca cuối tuần → P2).
-    KHÁC `days` lưu trên đơn (số ngày lịch, giữ nguyên để không đổi hợp đồng leave_day_map)."""
+    KHÁC `days` lưu trên đơn (số ngày lịch, để hiển thị)."""
     if end < start:
         return 0
     n = 0
@@ -86,6 +86,20 @@ class LeaveService:
         if self._work_calendar is not None:
             return self._work_calendar.working_days_between(start, end)
         return _working_days(start, end)
+
+    def _quota_for(self, emp, annual_quota: int, year: int) -> int:
+        """Hạn mức phép năm áp cho 1 NV — prorate năm ĐẦU vào làm (Điều 113 BLLĐ + NĐ145 Đ66):
+        quota × số tháng làm (từ tháng vào đến hết năm) ÷ 12, làm tròn NỬA-LÊN (thiên NLĐ; hệ
+        thống không dùng nửa ngày). Vào từ năm trước / không rõ ngày vào → đủ cả năm."""
+        if annual_quota <= 0:
+            return 0
+        hire = getattr(emp, "hire_date", None)
+        if hire is None or hire.year < year:
+            return annual_quota
+        if hire.year > year:
+            return 0
+        months = 12 - hire.month + 1  # vào tháng 7 → 6 tháng (7..12); tính trọn tháng vào
+        return int(annual_quota * months / 12 + 0.5)
 
     # --- leave types (HR) ---------------------------------------------------
 
@@ -159,16 +173,17 @@ class LeaveService:
             raise LeaveValidationError("Loại nghỉ không hợp lệ.")
         if self._wd(start_date, end_date) == 0:
             raise LeaveValidationError("Khoảng nghỉ rơi hết vào ngày nghỉ, không có ngày làm việc.")
-        days = (end_date - start_date).days + 1  # số ngày LỊCH (giữ hợp đồng leave_day_map)
+        days = (end_date - start_date).days + 1  # số ngày LỊCH (để hiển thị trên đơn)
 
         # Hạn mức phép năm: loại có annual_quota > 0 mới bị trừ dần + chặn khi vượt (theo
         # NGÀY LÀM VIỆC, reset dương lịch, KHÔNG cộng dồn). Loại quota=0 (ốm/không lương) bỏ qua.
         if lt.annual_quota and lt.annual_quota > 0:
             year = start_date.year
+            quota = self._quota_for(emp, lt.annual_quota, year)  # prorate người mới vào giữa năm
             used = self._used_working_days(emp.id, leave_type_id, year)
             want = self._wd(start_date, end_date)
-            if used + want > lt.annual_quota:
-                remaining = max(lt.annual_quota - used, 0)
+            if used + want > quota:
+                remaining = max(quota - used, 0)
                 raise LeaveValidationError(
                     f"Vượt hạn mức {lt.name} năm {year}: đã dùng/đang chờ {used} ngày, "
                     f"còn {remaining} ngày, đơn này {want} ngày làm việc."
@@ -228,13 +243,14 @@ class LeaveService:
         for t in self.leaves.list_types(active_only=True):
             if not t.annual_quota or t.annual_quota <= 0:
                 continue
+            quota = self._quota_for(emp, t.annual_quota, year)  # prorate người mới vào giữa năm
             used = self._used_working_days(emp.id, t.id, year)
             out.append({
                 "leave_type_id": t.id,
                 "name": t.name,
-                "annual_quota": t.annual_quota,
+                "annual_quota": quota,
                 "used": used,
-                "remaining": max(t.annual_quota - used, 0),
+                "remaining": max(quota - used, 0),
             })
         return out
 
@@ -337,26 +353,3 @@ class LeaveService:
             "year": year, "month": month, "days_in_month": last.day,
             "employees": sorted(out.values(), key=lambda e: e["employee_name"]),
         }
-
-    # --- helper cho Bảng công tháng ----------------------------------------
-
-    def leave_day_map(self, *, year: int, month: int) -> dict[int, dict[int, dict]]:
-        """{employee_id → {day(int) → {name, is_paid}}} cho các ngày NGHỈ ĐÃ DUYỆT trong
-        tháng — Bảng công tháng đọc để đánh dấu P/KL."""
-        import calendar
-
-        first = date(year, month, 1)
-        last = date(year, month, calendar.monthrange(year, month)[1])
-        approved = self.leaves.approved_in_range(first, last)
-        types = {t.id: t for t in self.leaves.list_types()}
-        out: dict[int, dict[int, dict]] = {}
-        for r in approved:
-            lt = types.get(r.leave_type_id)
-            name = lt.name if lt is not None else "Nghỉ"
-            is_paid = lt.is_paid if lt is not None else True
-            d = max(r.start_date, first)
-            end = min(r.end_date, last)
-            while d <= end:
-                out.setdefault(r.employee_id, {})[d.day] = {"name": name, "is_paid": is_paid}
-                d = date.fromordinal(d.toordinal() + 1)
-        return out
