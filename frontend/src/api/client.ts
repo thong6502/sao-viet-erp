@@ -2483,6 +2483,8 @@ export interface PayrollPeriod {
   status: string;
   standard_cong: number;
   locked_at: string | null;
+  paid_at: string | null;
+  paid_by: number | null;
 }
 export interface PayrollLine {
   id: number;
@@ -4520,6 +4522,27 @@ export const api = {
     },
     reopen(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/reopen", token, { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+    pay(token: string, year: number, month: number, note?: string): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/pay", token, { method: "POST", body: JSON.stringify({ year, month, note: note ?? null }) });
+    },
+    unpay(token: string, year: number, month: number, note?: string): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/unpay", token, { method: "POST", body: JSON.stringify({ year, month, note: note ?? null }) });
+    },
+    /** Xuất bảng lương / file chuyển khoản .xlsx — fetch as blob (bearer + refresh-aware). */
+    async xlsxBlobUrl(token: string, kind: "table" | "bank", year: number, month: number): Promise<string> {
+      const path = kind === "bank" ? "bank.xlsx" : "export.xlsx";
+      const doFetch = (bearer: string) =>
+        fetch(`${BASE_URL}/api/luong/${path}?year=${year}&month=${month}`, {
+          credentials: "include", cache: "no-store", headers: authHeader(bearer),
+        });
+      let resp = await doFetch(token);
+      if (resp.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) resp = await doFetch(fresh);
+      }
+      if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+      return URL.createObjectURL(await resp.blob());
     },
     myPayslip(token: string): Promise<MyPayslip> {
       return authed<MyPayslip>("/api/luong/payslip/me", token);

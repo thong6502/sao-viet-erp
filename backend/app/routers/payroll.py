@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..deps import (
     CurrentUser,
@@ -32,6 +32,7 @@ from ..schemas.payroll import (
     ParamsIn,
     ParamsOut,
     PayslipOut,
+    PeriodPayIn,
     PitBracketIn,
     PitBracketOut,
     PitBracketsOut,
@@ -404,6 +405,97 @@ def reopen_period(body: GenerateIn, svc: Service,
     except PayrollError as exc:
         _raise(exc)
     return PeriodOut.model_validate(p)
+
+
+@router.post("/pay", response_model=PeriodOut)
+def pay_period(body: PeriodPayIn, svc: Service,
+               user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+    try:
+        p = svc.pay_period(year=body.year, month=body.month, actor=user, note=body.note)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
+@router.post("/unpay", response_model=PeriodOut)
+def unpay_period(body: PeriodPayIn, svc: Service,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+    try:
+        p = svc.unpay_period(year=body.year, month=body.month, actor=user, note=body.note)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
+# --- xuất file .xlsx (bảng lương + chuyển khoản) ----------------------------
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    return Response(content=content, media_type=_XLSX_MEDIA,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+def _build_table_xlsx(year: int, month: int, lines) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook  # lazy import: thiếu dep chỉ hỏng endpoint này, không sập app
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"Luong {month:02d}-{year}"
+    ws.append(["Mã", "Họ tên", "Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
+               "Khoán", "Tăng ca", "Ca đêm", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
+               "Tạm ứng", "Thực lĩnh"])
+    for l in lines:
+        ws.append([l.employee_code or "", l.employee_name or "", l.payroll_group or "",
+                   "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
+                   int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
+                   int(l.ot_pay), int(l.night_pay), int(l.vi_pham), int(l.other_bonus),
+                   int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _build_bank_xlsx(year: int, month: int, lines) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Chuyen khoan"
+    ws.append(["Mã", "Họ tên", "Số tài khoản", "Ngân hàng", "Số tiền", "Nội dung"])
+    for l in lines:
+        if int(l.net_pay) <= 0:
+            continue   # NV net ≤ 0 (tạm ứng vượt lương) → không đưa vào file chuyển khoản
+        ws.append([l.employee_code or "", l.employee_name or "", l.bank_account or "",
+                   l.bank_name or "", int(l.net_pay), f"Luong T{month:02d}/{year} - {l.employee_code or ''}"])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/export.xlsx")
+def export_table_xlsx(svc: Service, employees: Employees, departments: Departments,
+                      user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                      year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
+    data = svc.get_table(year=year, month=month)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
+    lines = _lines_out(data["lines"], employees, departments)
+    return _xlsx_response(_build_table_xlsx(year, month, lines), f"bang-luong-{year}-{month:02d}.xlsx")
+
+
+@router.get("/bank.xlsx")
+def export_bank_xlsx(svc: Service, employees: Employees, departments: Departments,
+                     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                     year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
+    data = svc.get_table(year=year, month=month)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
+    lines = _lines_out(data["lines"], employees, departments)
+    return _xlsx_response(_build_bank_xlsx(year, month, lines), f"chuyen-khoan-{year}-{month:02d}.xlsx")
 
 
 # --- self-service -----------------------------------------------------------

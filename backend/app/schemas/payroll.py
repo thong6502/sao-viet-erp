@@ -193,6 +193,8 @@ class PeriodOut(BaseModel):
     status: str
     standard_cong: float
     locked_at: datetime | None = None
+    paid_at: datetime | None = None
+    paid_by: int | None = None
 
 
 class PeriodsOut(BaseModel):
@@ -202,6 +204,12 @@ class PeriodsOut(BaseModel):
 class GenerateIn(BaseModel):
     year: int = Field(ge=2000, le=2100)
     month: int = Field(ge=1, le=12)
+
+
+class PeriodPayIn(BaseModel):
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    note: str | None = Field(default=None, max_length=255)
 
 
 class LineOut(BaseModel):

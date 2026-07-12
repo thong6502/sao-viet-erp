@@ -1331,6 +1331,19 @@ def _migrate_payroll_pit_2026(db: Session) -> None:
     db.commit()
 
 
+def _migrate_payroll_period_paid(db: Session) -> None:
+    """Pha 4c: chi trả — payroll_periods += paid_at, paid_by (trạng thái 'paid'). No-op fresh."""
+    insp = inspect(db.get_bind())
+    if "payroll_periods" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "payroll_periods")
+    if "paid_at" not in cols:
+        db.execute(text("ALTER TABLE payroll_periods ADD COLUMN paid_at TIMESTAMP"))
+    if "paid_by" not in cols:
+        db.execute(text("ALTER TABLE payroll_periods ADD COLUMN paid_by INTEGER"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1377,6 +1390,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0044_user_code_nv_to_tk", _migrate_user_code_nv_to_tk),
     ("0045_payroll_ot_night_bhxh_cap", _migrate_payroll_ot_night_bhxh_cap),
     ("0046_payroll_pit_2026", _migrate_payroll_pit_2026),
+    ("0047_payroll_period_paid", _migrate_payroll_period_paid),
 ]
 
 

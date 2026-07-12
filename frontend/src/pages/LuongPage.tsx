@@ -128,35 +128,20 @@ function BangLuongTab({ token }: { token: string }) {
 
   const shown = lines.filter((l) => filter === "all" || (filter === "tv" ? l.is_probation : !l.is_probation));
   const totalNet = shown.reduce((s, l) => s + l.net_pay, 0);
-  const locked = period?.status === "locked";
+  const status = period?.status;
+  const isDraft = !period || status === "draft";
+  const locked = status === "locked";
+  const paid = status === "paid";
 
-  function exportCsv(kind: "full" | "bank") {
-    const rows: string[][] = [];
-    if (kind === "full") {
-      rows.push(["Mã", "Họ tên", "Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-        "Khoán", "Tăng ca", "Ca đêm", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN", "Tạm ứng", "Thực lĩnh"]);
-      for (const l of shown) rows.push([
-        l.employee_code ?? "", l.employee_name ?? "", GROUP_LABEL[l.payroll_group ?? ""] ?? (l.payroll_group ?? ""),
-        l.is_probation ? "Thử việc" : "Chính thức", String(l.actual_cong),
-        String(Math.round(l.luong_cong)), String(Math.round(l.chuyen_can)), String(Math.round(l.allowance)),
-        String(Math.round(l.khoan)), String(Math.round(l.ot_pay)), String(Math.round(l.night_pay)),
-        String(Math.round(l.vi_pham)), String(Math.round(l.other_bonus)),
-        String(Math.round(l.gross)), String(Math.round(l.bhxh)), String(Math.round(l.pit)),
-        String(Math.round(l.advance_total)), String(Math.round(l.net_pay)),
-      ]);
-    } else {
-      rows.push(["Mã", "Họ tên", "Số tài khoản", "Ngân hàng", "Thực lĩnh"]);
-      for (const l of shown) rows.push([
-        l.employee_code ?? "", l.employee_name ?? "", l.bank_account ?? "", l.bank_name ?? "",
-        String(Math.round(l.net_pay)),
-      ]);
-    }
-    const csv = "﻿" + rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${kind === "bank" ? "chuyen-khoan" : "bang-luong"}-${ym}.csv`;
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  async function downloadXlsx(kind: "table" | "bank") {
+    setBusy(true); setErr(null);
+    try {
+      const url = await api.luong.xlsxBlobUrl(token, kind, year, month);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${kind === "bank" ? "chuyen-khoan" : "bang-luong"}-${ym}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
   }
 
   return (
@@ -170,17 +155,27 @@ function BangLuongTab({ token }: { token: string }) {
             </button>
           ))}
         </div>
-        {!locked
-          ? <button className="btn btn--primary" onClick={() => run(() => api.luong.generate(token, year, month))} disabled={busy}>
-              {busy ? "Đang tính…" : period ? "↻ Tính lại" : "Tạo bảng lương"}
-            </button>
-          : <button className="btn btn--ghost" onClick={() => run(() => api.luong.reopen(token, year, month))} disabled={busy}>Mở lại</button>}
-        {period && !locked && (
+        {isDraft && (
+          <button className="btn btn--primary" onClick={() => run(() => api.luong.generate(token, year, month))} disabled={busy}>
+            {busy ? "Đang tính…" : period ? "↻ Tính lại" : "Tạo bảng lương"}
+          </button>
+        )}
+        {period && isDraft && (
           <button className="btn btn--ghost" onClick={() => run(() => api.luong.lock(token, year, month))} disabled={busy}>🔒 Chốt</button>
         )}
-        {period && <button className="btn btn--ghost" onClick={() => exportCsv("full")}>⬇ Xuất Excel</button>}
-        {period && <button className="btn btn--ghost" onClick={() => exportCsv("bank")}>⬇ File chuyển khoản</button>}
+        {locked && (
+          <button className="btn btn--ghost" onClick={() => run(() => api.luong.reopen(token, year, month))} disabled={busy}>Mở lại</button>
+        )}
+        {locked && (
+          <button className="btn btn--primary" onClick={() => run(() => api.luong.pay(token, year, month))} disabled={busy}>💵 Đã chi</button>
+        )}
+        {paid && (
+          <button className="btn btn--ghost" onClick={() => run(() => api.luong.unpay(token, year, month, "hủy đã chi"))} disabled={busy}>↩ Hủy đã chi</button>
+        )}
+        {period && <button className="btn btn--ghost" onClick={() => downloadXlsx("table")} disabled={busy}>⬇ Xuất Excel</button>}
+        {(locked || paid) && <button className="btn btn--ghost" onClick={() => downloadXlsx("bank")} disabled={busy}>⬇ File chuyển khoản</button>}
         {locked && <span className="ns-badge ns-badge--muted">Đã chốt</span>}
+        {paid && <span className="ns-badge ns-badge--muted">💵 Đã chi{period?.paid_at ? ` ${new Date(period.paid_at).toLocaleDateString("vi-VN")}` : ""}</span>}
       </div>
 
       {err && <div className="banner banner--error" style={{ marginBottom: 12 }}>{err}</div>}
@@ -1117,7 +1112,7 @@ function PhieuLuongTab({ token }: { token: string }) {
             <div className="lg-payslip__who">{data.employee_name}</div>
             <div className="cc-card__hint">Phiếu lương tháng {String(data.period.month).padStart(2, "0")}/{data.period.year} · {l.actual_cong}/{l.standard_cong} công {l.is_probation && "· thử việc"}</div>
           </div>
-          <span className={`ns-badge ${data.period.status === "locked" ? "ns-badge--ok" : "ns-badge--muted"}`}>{data.period.status === "locked" ? "Đã chốt" : "Tạm tính"}</span>
+          <span className={`ns-badge ${data.period.status !== "draft" ? "ns-badge--ok" : "ns-badge--muted"}`}>{data.period.status === "paid" ? "Đã chi" : data.period.status === "locked" ? "Đã chốt" : "Tạm tính"}</span>
         </div>
         <table className="lg-payslip__table">
           <tbody>

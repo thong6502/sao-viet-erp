@@ -316,6 +316,58 @@ def test_pit_manual_override_and_reset(client):
         db.close()
 
 
+# --- Chi trả + xuất file + nhật ký (Pha 4c) ---------------------------------
+
+
+def test_pay_unpay_flow(client):
+    """State machine: nháp→chốt→đã chi→hủy chi; chặn pay-khi-chưa-chốt, reopen/generate-khi-đã-chi."""
+    token = _admin_token(client)
+    _make_emp(client, token, name="NV Chi", payroll_group="x", status="active")
+    y, m = 2026, 6
+    assert client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token)).status_code == 200
+    # pay khi CHƯA chốt → 400
+    assert client.post("/api/luong/pay", json={"year": y, "month": m}, headers=_h(token)).status_code == 400
+    assert client.post("/api/luong/lock", json={"year": y, "month": m}, headers=_h(token)).status_code == 200
+    paid = client.post("/api/luong/pay", json={"year": y, "month": m}, headers=_h(token))
+    assert paid.status_code == 200 and paid.json()["status"] == "paid" and paid.json()["paid_at"]
+    # reopen / generate khi ĐÃ CHI → chặn
+    assert client.post("/api/luong/reopen", json={"year": y, "month": m}, headers=_h(token)).status_code == 400
+    assert client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token)).status_code in (400, 409)
+    # hủy chi → về locked
+    un = client.post("/api/luong/unpay", json={"year": y, "month": m, "note": "nhầm"}, headers=_h(token))
+    assert un.status_code == 200 and un.json()["status"] == "locked" and un.json()["paid_at"] is None
+
+
+def test_export_xlsx_smoke(client):
+    """Xuất bảng lương + file chuyển khoản .xlsx trả 200 + đúng content-type Excel."""
+    token = _admin_token(client)
+    _make_emp(client, token, name="NV Xls", payroll_group="x", status="active")
+    y, m = 2026, 6
+    client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token))
+    r1 = client.get(f"/api/luong/export.xlsx?year={y}&month={m}", headers=_h(token))
+    assert r1.status_code == 200 and "spreadsheetml" in r1.headers["content-type"]
+    r2 = client.get(f"/api/luong/bank.xlsx?year={y}&month={m}", headers=_h(token))
+    assert r2.status_code == 200 and "spreadsheetml" in r2.headers["content-type"]
+
+
+def test_payroll_audit_logged(client):
+    """Thao tác lương ghi nhật ký (tạo bảng / chốt) — hiện ở Nhật ký chung."""
+    token = _admin_token(client)
+    _make_emp(client, token, name="NV Audit", payroll_group="x", status="active")
+    y, m = 2026, 6
+    client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token))
+    client.post("/api/luong/lock", json={"year": y, "month": m}, headers=_h(token))
+    db = SessionLocal()
+    try:
+        from sqlalchemy import select
+
+        from app.models.audit import AuditLog
+        actions = [a.action for a in db.execute(select(AuditLog)).scalars()]
+        assert "payroll_generate" in actions and "payroll_lock" in actions
+    finally:
+        db.close()
+
+
 # --- lương nhân viên (khai báo + preview) -----------------------------------
 
 

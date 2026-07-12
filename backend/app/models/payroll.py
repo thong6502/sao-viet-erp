@@ -44,7 +44,8 @@ ADVANCE_STATUSES = (ADV_PENDING, ADV_APPROVED, ADV_REJECTED, ADV_CANCELLED)
 # --- Trạng thái kỳ lương ----------------------------------------------------
 PERIOD_DRAFT = "draft"    # đang soạn, sửa được
 PERIOD_LOCKED = "locked"  # đã chốt, khóa số
-PERIOD_STATUSES = (PERIOD_DRAFT, PERIOD_LOCKED)
+PERIOD_PAID = "paid"      # đã chi trả (khóa cứng; hủy chi → về locked)
+PERIOD_STATUSES = (PERIOD_DRAFT, PERIOD_LOCKED, PERIOD_PAID)
 
 _MONEY = Numeric(14, 2)
 
@@ -173,6 +174,8 @@ class PayrollPeriod(Base):
     standard_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=26, server_default="26")
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)   # Pha 4c: đã chi
+    paid_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 

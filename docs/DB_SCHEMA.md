@@ -2139,10 +2139,12 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `id` | `Integer` | **PK** | no | auto | PK. |
 | `year` | `Integer` | **UQ(year,month)** | no | — | Năm. |
 | `month` | `Integer` | **UQ(year,month)** | no | — | Tháng. |
-| `status` | `String(8)` | — | no | `draft` | draft/locked. |
+| `status` | `String(8)` | — | no | `draft` | draft/locked/paid. |
 | `standard_cong` | `Numeric(6,2)` | — | no | `26` | Công chuẩn của kỳ. |
 | `locked_at` | `DateTime(tz)` | — | yes | — | Thời điểm chốt. |
 | `locked_by` | `Integer` | **FK→users.id** | yes | — | Người chốt. |
+| `paid_at` | `DateTime(tz)` | — | yes | — | Thời điểm đánh dấu đã chi. Thêm qua migration 0045. |
+| `paid_by` | `Integer` | **FK→users.id** | yes | — | Người đánh dấu đã chi. Thêm qua migration 0045. |
 | `created_by` | `Integer` | **FK→users.id** | yes | — | Người tạo kỳ. |
 | `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
 

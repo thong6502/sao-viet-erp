@@ -24,6 +24,7 @@ from ..models.payroll import (
     BAND_Y5_10,
     PERIOD_DRAFT,
     PERIOD_LOCKED,
+    PERIOD_PAID,
 )
 
 
@@ -100,6 +101,13 @@ class PayrollService:
         if p is None:
             p = self.payroll.create_params()
         return p
+
+    def _audit(self, actor, action: str, target: str, detail: str) -> None:
+        """Ghi nhật ký thao tác lương (None-guard: test unit dựng service không audit → bỏ qua).
+        KHÔNG đưa số tiền lương vào detail (nhạy cảm, hiện ở Nhật ký chung)."""
+        if self.audit is not None:
+            self.audit.create(actor_user_id=getattr(actor, "id", None), action=action,
+                              target=target, detail=detail)
 
     def update_params(self, **fields):
         p = self.get_params()
@@ -416,8 +424,8 @@ class PayrollService:
                 year=year, month=month, status=PERIOD_DRAFT,
                 standard_cong=params.standard_cong_default, created_by=getattr(actor, "id", None),
             )
-        if period.status == PERIOD_LOCKED:
-            raise PayrollLocked("Kỳ lương đã chốt — mở lại trước khi tính lại.")
+        if period.status != PERIOD_DRAFT:
+            raise PayrollLocked("Kỳ lương đã chốt/đã chi — mở lại trước khi tính lại.")
 
         on = date(int(year), int(month), 1)
         metrics_map = self.attendance.metrics_map(year, month)   # {emp: {cong, ot_minutes, night_days}}
@@ -471,6 +479,7 @@ class PayrollService:
                 self.payroll.update_line(existing, **fields)
             else:
                 self.payroll.create_line(period_id=period.id, employee_id=emp.id, **fields)
+        self._audit(actor, "payroll_generate", f"payroll_period:{period.id}", f"{int(month)}/{int(year)}")
         return period
 
     def get_table(self, *, year, month):
@@ -488,8 +497,8 @@ class PayrollService:
         if ln is None:
             raise PayrollNotFound("Không tìm thấy dòng lương.")
         period = self.payroll.get_period(ln.period_id)
-        if period is None or period.status == PERIOD_LOCKED:
-            raise PayrollLocked("Kỳ lương đã chốt — không sửa được.")
+        if period is None or period.status != PERIOD_DRAFT:
+            raise PayrollLocked("Kỳ lương đã chốt/đã chi — không sửa được.")
 
         if vi_pham is not None:
             ln.vi_pham = _round(vi_pham)
@@ -517,24 +526,59 @@ class PayrollService:
             self._apply_auto_pit(ln)
         ln.net_pay = _round(float(ln.gross) - float(ln.bhxh) - float(ln.pit) - float(ln.advance_total))
         ln.updated_at = datetime.now(timezone.utc)
-        return self.payroll.update_line(ln)
+        saved = self.payroll.update_line(ln)
+        self._audit(actor, "payroll_update_line", f"payroll_line:{ln.id}", "sửa ô tay")
+        return saved
 
     def lock_period(self, *, year, month, actor):
         period = self.payroll.get_period_by_ym(year, month)
         if period is None:
             raise PayrollNotFound("Chưa có bảng lương tháng này.")
-        if period.status == PERIOD_LOCKED:
-            raise PayrollValidationError("Kỳ lương đã chốt rồi.")
-        return self.payroll.update_period(
+        if period.status != PERIOD_DRAFT:
+            raise PayrollValidationError("Chỉ chốt được kỳ đang nháp.")
+        p = self.payroll.update_period(
             period, status=PERIOD_LOCKED, locked_at=datetime.now(timezone.utc),
             locked_by=getattr(actor, "id", None),
         )
+        self._audit(actor, "payroll_lock", f"payroll_period:{p.id}", f"{int(month)}/{int(year)}")
+        return p
 
     def reopen_period(self, *, year, month, actor):
         period = self.payroll.get_period_by_ym(year, month)
         if period is None:
             raise PayrollNotFound("Chưa có bảng lương tháng này.")
-        return self.payroll.update_period(period, status=PERIOD_DRAFT, locked_at=None, locked_by=None)
+        if period.status == PERIOD_PAID:
+            raise PayrollValidationError("Kỳ đã chi — hủy đã chi trước khi mở lại.")
+        p = self.payroll.update_period(period, status=PERIOD_DRAFT, locked_at=None, locked_by=None)
+        self._audit(actor, "payroll_reopen", f"payroll_period:{p.id}", f"{int(month)}/{int(year)}")
+        return p
+
+    def pay_period(self, *, year, month, actor, note=None):
+        """Đánh dấu kỳ lương ĐÃ CHI — chỉ khi đã CHỐT (locked)."""
+        period = self.payroll.get_period_by_ym(year, month)
+        if period is None:
+            raise PayrollNotFound("Chưa có bảng lương tháng này.")
+        if period.status != PERIOD_LOCKED:
+            raise PayrollValidationError("Chỉ đánh dấu đã chi khi kỳ đã CHỐT.")
+        p = self.payroll.update_period(
+            period, status=PERIOD_PAID, paid_at=datetime.now(timezone.utc),
+            paid_by=getattr(actor, "id", None),
+        )
+        detail = f"{int(month)}/{int(year)}" + (f" · {note}" if note else "")
+        self._audit(actor, "payroll_paid", f"payroll_period:{p.id}", detail)
+        return p
+
+    def unpay_period(self, *, year, month, actor, note=None):
+        """Hủy đã chi — về CHỐT (locked). Ghi lý do vào nhật ký nếu có."""
+        period = self.payroll.get_period_by_ym(year, month)
+        if period is None:
+            raise PayrollNotFound("Chưa có bảng lương tháng này.")
+        if period.status != PERIOD_PAID:
+            raise PayrollValidationError("Kỳ chưa ở trạng thái đã chi.")
+        p = self.payroll.update_period(period, status=PERIOD_LOCKED, paid_at=None, paid_by=None)
+        detail = f"{int(month)}/{int(year)}" + (f" · {note}" if note else "")
+        self._audit(actor, "payroll_unpaid", f"payroll_period:{p.id}", detail)
+        return p
 
     # --- self-service phiếu lương -------------------------------------------
 
