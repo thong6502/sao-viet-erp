@@ -75,19 +75,37 @@ function getPosition(): Promise<GeolocationPosition> {
       reject(new Error("Trình duyệt không hỗ trợ định vị GPS."));
       return;
     }
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 0,
-    });
+    // Backstop: trên máy bàn Windows (không có GPS, Location service tắt) getCurrentPosition
+    // có thể TREO mà không bắn timeout riêng của nó → nút "Đang lấy vị trí…" quay vô hạn.
+    // Watchdog tự reject để lời gọi LUÔN kết thúc, UI kịp hiện lỗi + nút thử lại.
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(watchdog);
+      fn();
+    };
+    const timeoutErr = Object.assign(new Error("Lấy vị trí quá lâu."), { code: 3 });
+    const watchdog = setTimeout(() => finish(() => reject(timeoutErr)), 14000);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => finish(() => resolve(pos)),
+      (err) => finish(() => reject(err)),
+      {
+        // Máy bàn không có chip GPS → định vị mạng (WiFi/IP): nhanh, đỡ treo, đủ cho geofence 150 m.
+        // Trong xưởng (indoor) GPS còn kém hơn network → cũng hợp use-case công nhân chấm công.
+        enableHighAccuracy: false,
+        timeout: 12000,
+        maximumAge: 30000, // fix ≤30s được tái dùng → preview→chấm không phải dò lại
+      },
+    );
   });
 }
 
 function geoErrText(e: unknown): string {
   const code = (e as { code?: number } | null)?.code;
   if (code === 1) return "Bạn đã từ chối quyền vị trí. Hãy cho phép định vị rồi thử lại.";
-  if (code === 2) return "Không lấy được vị trí (GPS/định vị không khả dụng).";
-  if (code === 3) return "Lấy vị trí quá lâu (timeout). Thử lại.";
+  if (code === 2) return "Không lấy được vị trí. Kiểm tra Dịch vụ định vị (Location) của Windows đã bật chưa.";
+  if (code === 3) return "Lấy vị trí quá lâu. Kiểm tra mạng và Dịch vụ định vị của Windows rồi thử lại.";
   if (e instanceof Error) return e.message;
   return "Không lấy được vị trí.";
 }
@@ -148,7 +166,12 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
   const [locating, setLocating] = useState(false);
   const [nowTick, setNowTick] = useState(() => Date.now());
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  // StrictMode (dev) chạy mount→cleanup→mount lại: PHẢI bật cờ ở SETUP. Nếu chỉ tắt ở cleanup
+  // thì sau remount cờ kẹt false → mọi setState sau await (setLocating(false)…) bị bỏ qua → nút treo.
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
 
   const load = useCallback(() => {
     api.attendance.myStatus(token).then(setStatus).catch(() => setStatus(null));
@@ -306,7 +329,19 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
           </button>
         )}
 
-        {geoErr && <div className="banner banner--error" style={{ marginTop: 12 }}>{geoErr}</div>}
+        {geoErr && (
+          <div className="banner banner--error" style={{ marginTop: 12 }}>
+            {geoErr}{" "}
+            <button
+              className="btn btn--ghost"
+              style={{ marginLeft: 8 }}
+              onClick={refreshPreview}
+              disabled={locating}
+            >
+              🔄 Thử lại
+            </button>
+          </div>
+        )}
         {result && (
           <div className={`banner ${result.success ? "banner--ok" : "banner--warn"}`} style={{ marginTop: 12 }}>
             {result.message}
