@@ -220,6 +220,102 @@ def test_update_line_keeps_ot_night_pay(client):
         db.close()
 
 
+# --- TNCN tự tính (Pha 4b) --------------------------------------------------
+
+
+def test_params_deduction_2026(client):
+    """Giảm trừ gia cảnh mặc định = mức 2026 (NQ 110/2025)."""
+    token = _admin_token(client)
+    p = client.get("/api/luong/params", headers=_h(token)).json()
+    assert p["deduction_self"] == 15_500_000 and p["deduction_dependent"] == 6_200_000
+
+
+def test_pit_brackets_seeded_and_editable(client):
+    """Biểu thuế TNCN seed 5 bậc 2026 + sửa được."""
+    token = _admin_token(client)
+    items = client.get("/api/luong/pit-brackets", headers=_h(token)).json()["items"]
+    assert len(items) == 5
+    assert items[0]["rate"] == 0.05
+    assert items[-1]["up_to"] is None and items[-1]["rate"] == 0.35
+    bid = items[0]["id"]
+    upd = client.put(f"/api/luong/pit-brackets/{bid}",
+                     json={"seq": 1, "up_to": 11_000_000, "rate": 0.05}, headers=_h(token))
+    assert upd.status_code == 200 and upd.json()["up_to"] == 11_000_000
+
+
+def test_pit_progressive(client):
+    """Lũy tiến từng phần: thu nhập tính thuế 20tr → 1,5tr (10tr×5% + 10tr×10%)."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        params, brackets = svc.get_params(), svc.get_pit_brackets()
+        # gross 35,5tr, không OT/đêm/BHXH, 0 phụ thuộc → tính thuế = 35,5 − 15,5 = 20tr.
+        taxable, pit = svc._auto_pit(gross=35_500_000, bhxh=0, ot_pay=0, night_pay=0,
+                                     dependents_count=0, params=params, brackets=brackets)
+        assert taxable == 20_000_000
+        assert pit == 1_500_000
+    finally:
+        db.close()
+
+
+def test_pit_exempt_ot_night(client):
+    """OT + ca đêm được MIỄN thuế (Luật 109/2025) → giảm thu nhập chịu thuế."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        params, brackets = svc.get_params(), svc.get_pit_brackets()
+        # gross 35,5tr trong đó 5tr OT + 2tr ca đêm (miễn) → chịu thuế 28,5tr → tính thuế 13tr.
+        taxable, pit = svc._auto_pit(gross=35_500_000, bhxh=0, ot_pay=5_000_000, night_pay=2_000_000,
+                                     dependents_count=0, params=params, brackets=brackets)
+        assert taxable == 13_000_000
+        assert pit == round(10_000_000 * 0.05 + 3_000_000 * 0.10)   # 800k
+    finally:
+        db.close()
+
+
+def test_pit_dependents_reduce_tax(client):
+    """Người phụ thuộc giảm thu nhập tính thuế (6,2tr/người)."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        params, brackets = svc.get_params(), svc.get_pit_brackets()
+        # gross 35,5tr, 2 phụ thuộc (12,4tr) → tính thuế = 20tr − 12,4tr = 7,6tr.
+        taxable, pit = svc._auto_pit(gross=35_500_000, bhxh=0, ot_pay=0, night_pay=0,
+                                     dependents_count=2, params=params, brackets=brackets)
+        assert taxable == 7_600_000
+        assert pit == round(7_600_000 * 0.05)
+    finally:
+        db.close()
+
+
+def test_pit_manual_override_and_reset(client):
+    """pit tự tính; HCNS ghi đè tay (pit_manual) → giữ; reset (pit_manual=False) → về auto."""
+    token = _admin_token(client)
+    emp_id = _make_emp(client, token, name="NV Thuế", payroll_group="x", status="active")
+    db = SessionLocal()
+    try:
+        repo = PayrollRepository(db)
+        svc = PayrollService(repo, EmployeeRepository(db), attendance=None)
+        period = repo.create_period(year=2026, month=6, status="draft", standard_cong=26)
+        ln = repo.create_line(period_id=period.id, employee_id=emp_id,
+                              luong_cong=50_000_000, gross=50_000_000, bhxh=0)
+        # auto: sửa (chưa manual) → pit tính lại theo gross.
+        upd = svc.update_line(line_id=ln.id, actor=None, vi_pham=0)
+        auto_pit = float(upd.pit)
+        assert auto_pit > 0 and upd.pit_manual is False
+        # ghi đè tay.
+        upd2 = svc.update_line(line_id=ln.id, actor=None, pit=1_234_000)
+        assert float(upd2.pit) == 1_234_000 and upd2.pit_manual is True
+        # reset về tự tính.
+        upd3 = svc.update_line(line_id=ln.id, actor=None, pit_manual=False)
+        assert float(upd3.pit) == auto_pit and upd3.pit_manual is False
+    finally:
+        db.close()
+
+
 # --- lương nhân viên (khai báo + preview) -----------------------------------
 
 

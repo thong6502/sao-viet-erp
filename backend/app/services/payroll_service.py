@@ -61,6 +61,29 @@ def _seniority_band(hire_date: date | None, on: date) -> str | None:
     return BAND_GT10
 
 
+# Biểu thuế TNCN mặc định 2026 — (seq, trần thu nhập tính thuế/tháng, suất). Trùng seed_pit_brackets;
+# dùng khi bảng trống (fallback). None = bậc cao nhất (∞).
+_DEFAULT_PIT_BRACKETS = [
+    (1, 10_000_000, 0.05), (2, 30_000_000, 0.10), (3, 60_000_000, 0.20),
+    (4, 100_000_000, 0.30), (5, None, 0.35),
+]
+
+
+def _pit_amount(taxable, brackets) -> float:
+    """Thuế TNCN lũy tiến TỪNG PHẦN trên thu nhập TÍNH THUẾ/tháng, theo biểu `brackets`
+    (đã sắp theo seq; `up_to` None = bậc cao nhất ∞)."""
+    t = max(0.0, float(taxable or 0))
+    tax = 0.0
+    lower = 0.0
+    for b in brackets:
+        upper = float(b.up_to) if b.up_to is not None else float("inf")
+        if t <= lower:
+            break
+        tax += (min(t, upper) - lower) * float(b.rate)
+        lower = upper
+    return tax
+
+
 class PayrollService:
     def __init__(self, payroll, employees, attendance, audit=None, piece=None) -> None:
         self.payroll = payroll
@@ -112,6 +135,54 @@ class PayrollService:
         if r is None:
             raise PayrollNotFound("Không tìm thấy quy tắc lương.")
         self.payroll.delete_rule(r)
+
+    # --- biểu thuế TNCN (sửa được) ------------------------------------------
+
+    def get_pit_brackets(self):
+        """Biểu thuế TNCN — tự tạo mặc định 2026 nếu bảng trống."""
+        bks = self.payroll.list_pit_brackets()
+        if not bks:
+            for seq, up_to, rate in _DEFAULT_PIT_BRACKETS:
+                self.payroll.create_pit_bracket(seq=seq, up_to=up_to, rate=rate)
+            bks = self.payroll.list_pit_brackets()
+        return bks
+
+    def create_pit_bracket(self, *, seq, up_to, rate):
+        if rate is None or float(rate) < 0:
+            raise PayrollValidationError("Thuế suất không hợp lệ.")
+        return self.payroll.create_pit_bracket(seq=int(seq), up_to=up_to, rate=rate)
+
+    def update_pit_bracket(self, bracket_id: int, *, seq, up_to, rate):
+        b = self.payroll.get_pit_bracket(bracket_id)
+        if b is None:
+            raise PayrollNotFound("Không tìm thấy bậc thuế.")
+        return self.payroll.update_pit_bracket(b, seq=int(seq), up_to=up_to, rate=rate)
+
+    def delete_pit_bracket(self, bracket_id: int) -> None:
+        b = self.payroll.get_pit_bracket(bracket_id)
+        if b is None:
+            raise PayrollNotFound("Không tìm thấy bậc thuế.")
+        self.payroll.delete_pit_bracket(b)
+
+    def _auto_pit(self, *, gross, bhxh, ot_pay, night_pay, dependents_count, params, brackets):
+        """Trả (thu nhập tính thuế, thuế TNCN). Miễn TOÀN BỘ tiền tăng ca + ca đêm (Luật 109/2025);
+        trừ BHXH đã đóng + giảm trừ bản thân + giảm trừ người phụ thuộc."""
+        assessable = float(gross) - float(ot_pay) - float(night_pay)   # thu nhập chịu thuế
+        deduction = (float(params.deduction_self)
+                     + float(params.deduction_dependent) * int(dependents_count or 0))
+        taxable = max(0.0, assessable - float(bhxh) - deduction)
+        return taxable, _round(_pit_amount(taxable, brackets))
+
+    def _apply_auto_pit(self, ln) -> None:
+        """Tính lại TNCN tự động cho 1 dòng (theo gross/bhxh/OT/đêm hiện tại + người phụ thuộc)."""
+        emp = self.employees.get_by_id(ln.employee_id)
+        tx, pit = self._auto_pit(
+            gross=ln.gross, bhxh=ln.bhxh, ot_pay=ln.ot_pay, night_pay=ln.night_pay,
+            dependents_count=getattr(emp, "dependents_count", 0),
+            params=self.get_params(), brackets=self.get_pit_brackets(),
+        )
+        ln.pit = pit
+        ln.pit_taxable = tx
 
     def _lookup_rule(self, *, payroll_group, pay_grade_key, seniority_band, gender, on: date):
         """Tra mức lương chuẩn: khớp cụ thể nhất trong các rule cùng nhóm, active,
@@ -251,8 +322,8 @@ class PayrollService:
     # --- engine tính 1 dòng -------------------------------------------------
 
     def _compute(self, *, employee, salary, params, actual_cong, standard_cong,
-                 vi_pham=0.0, other_bonus=0.0, pit=0.0, khoan=0.0,
-                 ot_minutes=0, night_days=0, on: date) -> dict:
+                 vi_pham=0.0, other_bonus=0.0, khoan=0.0,
+                 ot_minutes=0, night_days=0, brackets=None, on: date) -> dict:
         is_probation = employee.status == STATUS_PROBATION
         ratio = float(params.probation_ratio) if is_probation else 1.0
         res = self._resolve_salary(employee, salary, params, on)
@@ -292,6 +363,17 @@ class PayrollService:
             bhxh = (bh_base * (float(params.bhxh_rate) + float(params.bhyt_rate))
                     + bhtn_base * float(params.bhtn_rate))
 
+        gross_r = _round(gross)
+        bhxh_r = _round(bhxh)
+        # TNCN tự tính (7→5 bậc lũy tiến) — miễn toàn bộ OT+ca đêm, trừ BHXH + giảm trừ gia cảnh.
+        if brackets is None:
+            brackets = self.get_pit_brackets()
+        dependents = int(getattr(employee, "dependents_count", 0) or 0)
+        pit_taxable, pit_auto = self._auto_pit(
+            gross=gross_r, bhxh=bhxh_r, ot_pay=ot_pay, night_pay=night_pay,
+            dependents_count=dependents, params=params, brackets=brackets,
+        )
+
         return {
             "is_probation": is_probation,
             "monthly_salary": _round(monthly),
@@ -305,10 +387,11 @@ class PayrollService:
             "night_pay": night_pay,
             "vi_pham": _round(vi_pham),
             "other_bonus": _round(other_bonus),
-            "gross": _round(gross),
+            "gross": gross_r,
             "insurance_base": _round(insurance_base),
-            "bhxh": _round(bhxh),
-            "pit": _round(pit),
+            "bhxh": bhxh_r,
+            "pit": pit_auto,
+            "pit_taxable": pit_taxable,
         }
 
     # --- periods / bảng lương tháng -----------------------------------------
@@ -341,6 +424,7 @@ class PayrollService:
         advance_map = self.payroll.approved_advance_map(year, month)
         salary_map = self.payroll.latest_salaries_map(on)
         khoan_map = self.piece.khoan_map(year, month) if self.piece is not None else {}
+        brackets = self.get_pit_brackets()
         std = float(period.standard_cong)
 
         employees = self.employees.list_scoped_all(scope=scope, actor=actor)
@@ -350,7 +434,6 @@ class PayrollService:
             existing = self.payroll.get_line_by_pe(period.id, emp.id)
             vi_pham = float(existing.vi_pham) if existing else 0.0
             other_bonus = float(existing.other_bonus) if existing else 0.0
-            pit = float(existing.pit) if existing else 0.0
             note = existing.note if existing else None
 
             salary = salary_map.get(emp.id)
@@ -361,11 +444,16 @@ class PayrollService:
             khoan = khoan_map.get(emp.id, 0.0)
             vals = self._compute(
                 employee=emp, salary=salary, params=params, actual_cong=actual_cong,
-                standard_cong=std, vi_pham=vi_pham, other_bonus=other_bonus, pit=pit, khoan=khoan,
-                ot_minutes=ot_minutes, night_days=night_days, on=on,
+                standard_cong=std, vi_pham=vi_pham, other_bonus=other_bonus, khoan=khoan,
+                ot_minutes=ot_minutes, night_days=night_days, brackets=brackets, on=on,
             )
+            # TNCN: GIỮ số HCNS đã ghi đè tay (pit_manual); ngược lại dùng số tự tính.
+            if existing is not None and existing.pit_manual:
+                pit_eff, pit_manual = float(existing.pit), True
+            else:
+                pit_eff, pit_manual = vals["pit"], False
             advance_total = _round(advance_map.get(emp.id, 0.0))
-            net = vals["gross"] - vals["bhxh"] - vals["pit"] - advance_total
+            net = vals["gross"] - vals["bhxh"] - pit_eff - advance_total
 
             fields = dict(
                 is_probation=vals["is_probation"], actual_cong=actual_cong, standard_cong=std,
@@ -374,7 +462,8 @@ class PayrollService:
                 ot_minutes=vals["ot_minutes"], ot_pay=vals["ot_pay"],
                 night_days=vals["night_days"], night_pay=vals["night_pay"],
                 vi_pham=vals["vi_pham"], other_bonus=vals["other_bonus"], gross=vals["gross"],
-                insurance_base=vals["insurance_base"], bhxh=vals["bhxh"], pit=vals["pit"],
+                insurance_base=vals["insurance_base"], bhxh=vals["bhxh"],
+                pit=pit_eff, pit_manual=pit_manual, pit_taxable=vals["pit_taxable"],
                 advance_total=advance_total, net_pay=_round(net), note=note,
                 updated_at=datetime.now(timezone.utc),
             )
@@ -393,8 +482,8 @@ class PayrollService:
         return {"period": period, "lines": lines}
 
     def update_line(self, *, line_id, actor, vi_pham=None, other_bonus=None, pit=None,
-                    monthly_override=None, note=None):
-        """Sửa ô tay 1 dòng (chỉ khi kỳ draft) → tính lại gross/net."""
+                    pit_manual=None, monthly_override=None, note=None):
+        """Sửa ô tay 1 dòng (chỉ khi kỳ draft) → tính lại gross/TNCN/net."""
         ln = self.payroll.get_line(line_id)
         if ln is None:
             raise PayrollNotFound("Không tìm thấy dòng lương.")
@@ -406,8 +495,6 @@ class PayrollService:
             ln.vi_pham = _round(vi_pham)
         if other_bonus is not None:
             ln.other_bonus = _round(other_bonus)
-        if pit is not None:
-            ln.pit = _round(pit)
         if monthly_override is not None:
             # sửa tay mức tháng → tính lại lương công theo tỷ lệ công hiện có.
             ln.monthly_salary = _round(monthly_override)
@@ -419,6 +506,15 @@ class PayrollService:
         ln.gross = _round(float(ln.luong_cong) + float(ln.chuyen_can) + float(ln.allowance)
                           + float(ln.khoan) + float(ln.ot_pay) + float(ln.night_pay)
                           + float(ln.other_bonus) - float(ln.vi_pham))
+        # TNCN: reset về tự tính (pit_manual=False) / ghi đè tay (pit) / else cập nhật auto theo gross mới.
+        if pit_manual is False:
+            self._apply_auto_pit(ln)
+            ln.pit_manual = False
+        elif pit is not None:
+            ln.pit = _round(pit)
+            ln.pit_manual = True
+        elif not ln.pit_manual:
+            self._apply_auto_pit(ln)
         ln.net_pay = _round(float(ln.gross) - float(ln.bhxh) - float(ln.pit) - float(ln.advance_total))
         ln.updated_at = datetime.now(timezone.utc)
         return self.payroll.update_line(ln)

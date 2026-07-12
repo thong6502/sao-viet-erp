@@ -793,6 +793,8 @@ export interface TinhGiaComponentMeta {
   idx: number;
   name: string;
   gia_von_tp: number;
+  so_luong: number; // SL dùng cho sản phẩm này (0 = lấy SL mặc định phiếu)
+  gia_von_don: number; // giá vốn / SL của sản phẩm này (đơn giá riêng)
   con: number; // ④ con/tờ engine chốt
   con_auto: boolean;
   so_manh_xa: number; // ① → ② số mảnh xả
@@ -802,8 +804,16 @@ export interface TinhGiaComponentMeta {
   so_kem: number;
   so_luot: number;
 }
+/** Meta cấp phiếu — tổng hợp nhiều sản phẩm. */
+export interface TinhGiaMeta {
+  so_luong?: number; // SL mặc định phiếu
+  tong_so_luong?: number; // Σ SL các sản phẩm
+  so_thanh_phan?: number; // = số sản phẩm
+  gia_von_don?: number; // đơn giá BÌNH QUÂN (Σ giá vốn / Σ SL)
+  components?: TinhGiaComponentMeta[];
+}
 export interface TinhGiaPreviewOut {
-  meta?: { components?: TinhGiaComponentMeta[] } & Record<string, unknown>;
+  meta?: TinhGiaMeta;
   groups: PhieuTinhGiaGroupOut[];
   grand_total: number;
   warnings: string[];
@@ -882,6 +892,8 @@ export interface ThanhPhanOut {
   kho_mo_rong: string | null;
   tay_gap: string | null;
   so_to_per_sp: number;
+  so_luong: number; // SL đặt của sản phẩm này (0 = lấy SL mặc định phiếu)
+  loai_san_pham_id: number | null; // loại SP của sản phẩm này
   // Giấy in
   giay_id: number | null;
   kho_nguyen: string | null; // ① nhãn hiển thị
@@ -954,6 +966,8 @@ export interface ThanhPhanIn {
   kho_mo_rong?: string | null;
   tay_gap?: string | null;
   so_to_per_sp?: number;
+  so_luong?: number; // SL đặt của sản phẩm này (0 = SL mặc định phiếu)
+  loai_san_pham_id?: number | null; // loại SP của sản phẩm này
   giay_id?: number | null;
   kho_nguyen?: string | null;
   don_gia_giay?: number;
@@ -2497,6 +2511,8 @@ export interface PayrollLine {
   insurance_base: number;
   bhxh: number;
   pit: number;
+  pit_manual: boolean;
+  pit_taxable: number;
   advance_total: number;
   net_pay: number;
   note: string | null;
@@ -2505,8 +2521,20 @@ export interface PayrollLineInput {
   vi_pham?: number | null;
   other_bonus?: number | null;
   pit?: number | null;
+  pit_manual?: boolean | null;
   monthly_override?: number | null;
   note?: string | null;
+}
+export interface PitBracket {
+  id: number;
+  seq: number;
+  up_to: number | null;
+  rate: number;
+}
+export interface PitBracketInput {
+  seq: number;
+  up_to?: number | null;
+  rate: number;
 }
 export interface PayrollTable {
   period: PayrollPeriod | null;
@@ -4474,6 +4502,18 @@ export const api = {
     },
     updateLine(token: string, id: number, input: PayrollLineInput): Promise<PayrollLine> {
       return authed<PayrollLine>(`/api/luong/lines/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    pitBrackets(token: string): Promise<{ items: PitBracket[] }> {
+      return authed<{ items: PitBracket[] }>("/api/luong/pit-brackets", token);
+    },
+    createPitBracket(token: string, input: PitBracketInput): Promise<PitBracket> {
+      return authed<PitBracket>("/api/luong/pit-brackets", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updatePitBracket(token: string, id: number, input: PitBracketInput): Promise<PitBracket> {
+      return authed<PitBracket>(`/api/luong/pit-brackets/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deletePitBracket(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/luong/pit-brackets/${id}`, token, { method: "DELETE" });
     },
     lock(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/lock", token, { method: "POST", body: JSON.stringify({ year, month }) });

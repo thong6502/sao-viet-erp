@@ -71,9 +71,9 @@ class PayrollParams(Base):
     bhxh_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.08, server_default="0.08")
     bhyt_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.015, server_default="0.015")
     bhtn_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.01, server_default="0.01")
-    # Giảm trừ gia cảnh TNCN (để sẵn cho Phase TNCN auto).
-    deduction_self: Mapped[float] = mapped_column(_MONEY, nullable=False, default=11_000_000, server_default="11000000")
-    deduction_dependent: Mapped[float] = mapped_column(_MONEY, nullable=False, default=4_400_000, server_default="4400000")
+    # Giảm trừ gia cảnh TNCN — mức 2026 (NQ 110/2025/UBTVQH15, từ kỳ tính thuế 2026).
+    deduction_self: Mapped[float] = mapped_column(_MONEY, nullable=False, default=15_500_000, server_default="15500000")
+    deduction_dependent: Mapped[float] = mapped_column(_MONEY, nullable=False, default=6_200_000, server_default="6200000")
     # Mức chuyên cần mặc định (thưởng đủ công).
     chuyen_can_default: Mapped[float] = mapped_column(_MONEY, nullable=False, default=300_000, server_default="300000")
     # --- Pha 4a: tăng ca (OT) + phụ cấp ca đêm ---
@@ -208,8 +208,23 @@ class PayrollLine(Base):
     gross: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     insurance_base: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     bhxh: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
-    pit: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")            # tay
+    pit: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")            # thuế TNCN (tự tính, có thể ghi đè tay)
+    pit_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")  # HCNS ghi đè TNCN tay (Pha 4b)
+    pit_taxable: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # thu nhập tính thuế đã dùng (Pha 4b)
     advance_total: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     net_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class PitTaxBracket(Base):
+    """Bậc thuế TNCN lũy tiến từng phần (biểu THÁNG) — dữ liệu SỬA ĐƯỢC để cập nhật khi luật đổi.
+    Seed 2026 = 5 bậc (Luật 109/2025/QH15). `up_to` = trần thu nhập TÍNH THUẾ/tháng của bậc;
+    NULL = bậc cao nhất (∞). Bảng do create_all tạo (không migration), seed-once."""
+
+    __tablename__ = "pit_tax_brackets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)                 # thứ tự bậc (1..N)
+    up_to: Mapped[float | None] = mapped_column(_MONEY, nullable=True)        # trần bậc; NULL = ∞
+    rate: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)        # thuế suất (0.05 = 5%)

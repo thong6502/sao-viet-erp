@@ -1309,6 +1309,28 @@ def _migrate_payroll_ot_night_bhxh_cap(db: Session) -> None:
     db.commit()
 
 
+def _migrate_payroll_pit_2026(db: Session) -> None:
+    """Pha 4b: TNCN tự tính theo luật 2026.
+    - payroll_lines += pit_manual (bool), pit_taxable (numeric); backfill pit_manual=TRUE cho
+      dòng đã có pit>0 (số nhập tay cũ → giữ, không bị auto ghi đè).
+    - cập nhật giảm trừ gia cảnh dòng params đang ở mức CŨ (11tr/4.4tr) → 2026 (15.5tr/6.2tr)
+      theo NQ 110/2025/UBTVQH15 — CHỈ đổi nếu còn mức cũ (không đè số admin đã chỉnh).
+    Bảng pit_tax_brackets do create_all tạo + seed_pit_brackets. No-op fresh."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "payroll_lines" in tables:
+        cols = _existing_columns(insp, "payroll_lines")
+        if "pit_manual" not in cols:
+            db.execute(text("ALTER TABLE payroll_lines ADD COLUMN pit_manual BOOLEAN NOT NULL DEFAULT FALSE"))
+            db.execute(text("UPDATE payroll_lines SET pit_manual = TRUE WHERE pit > 0"))
+        if "pit_taxable" not in cols:
+            db.execute(text("ALTER TABLE payroll_lines ADD COLUMN pit_taxable NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    if "payroll_params" in tables:
+        db.execute(text("UPDATE payroll_params SET deduction_self = 15500000 WHERE deduction_self = 11000000"))
+        db.execute(text("UPDATE payroll_params SET deduction_dependent = 6200000 WHERE deduction_dependent = 4400000"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1354,6 +1376,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0043_role_permission_edit_salary", _migrate_role_permission_edit_salary),
     ("0044_user_code_nv_to_tk", _migrate_user_code_nv_to_tk),
     ("0045_payroll_ot_night_bhxh_cap", _migrate_payroll_ot_night_bhxh_cap),
+    ("0046_payroll_pit_2026", _migrate_payroll_pit_2026),
 ]
 
 

@@ -1746,6 +1746,29 @@ def seed_special_days(db: Session) -> None:
     db.commit()
 
 
+# Biểu thuế TNCN lũy tiến từng phần 2026 — (seq, trần thu nhập tính thuế/tháng, thuế suất).
+# 5 bậc theo Luật Thuế TNCN 109/2025/QH15 (áp cho kỳ tính thuế 2026). None = bậc cao nhất.
+_PIT_BRACKETS_2026 = [
+    (1, 10_000_000, 0.05),
+    (2, 30_000_000, 0.10),
+    (3, 60_000_000, 0.20),
+    (4, 100_000_000, 0.30),
+    (5, None, 0.35),
+]
+
+
+def seed_pit_brackets(db: Session) -> None:
+    """Biểu thuế TNCN — SEED-ONCE (admin sửa/thêm bậc KHÔNG bị mọc lại sau restart)."""
+    from sqlalchemy import func, select
+
+    from .models.payroll import PitTaxBracket
+    if db.execute(select(func.count(PitTaxBracket.id))).scalar_one() > 0:
+        return
+    for seq, up_to, rate in _PIT_BRACKETS_2026:
+        db.add(PitTaxBracket(seq=seq, up_to=up_to, rate=rate))
+    db.commit()
+
+
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -1766,6 +1789,7 @@ def seed_all(db: Session) -> None:
     seed_operations(db)
     seed_kho_engine(db)
     seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
+    seed_pit_brackets(db)  # biểu thuế TNCN — dữ liệu vận hành thật (Lương đọc tính thuế)
     if settings.seed_demo:
         seed_kd_staff(db)
         seed_kho_staff(db)

@@ -32,6 +32,9 @@ from ..schemas.payroll import (
     ParamsIn,
     ParamsOut,
     PayslipOut,
+    PitBracketIn,
+    PitBracketOut,
+    PitBracketsOut,
     PeriodOut,
     PeriodsOut,
     RuleIn,
@@ -201,6 +204,43 @@ def delete_rule(rule_id: int, svc: Service,
         _raise(exc)
 
 
+# --- biểu thuế TNCN (sửa được) ----------------------------------------------
+
+
+@router.get("/pit-brackets", response_model=PitBracketsOut)
+def list_pit_brackets(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> PitBracketsOut:
+    return PitBracketsOut(items=[PitBracketOut.model_validate(b) for b in svc.get_pit_brackets()])
+
+
+@router.post("/pit-brackets", response_model=PitBracketOut, status_code=status.HTTP_201_CREATED)
+def create_pit_bracket(body: PitBracketIn, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PitBracketOut:
+    try:
+        b = svc.create_pit_bracket(seq=body.seq, up_to=body.up_to, rate=body.rate)
+    except PayrollError as exc:
+        _raise(exc)
+    return PitBracketOut.model_validate(b)
+
+
+@router.put("/pit-brackets/{bracket_id}", response_model=PitBracketOut)
+def update_pit_bracket(bracket_id: int, body: PitBracketIn, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PitBracketOut:
+    try:
+        b = svc.update_pit_bracket(bracket_id, seq=body.seq, up_to=body.up_to, rate=body.rate)
+    except PayrollError as exc:
+        _raise(exc)
+    return PitBracketOut.model_validate(b)
+
+
+@router.delete("/pit-brackets/{bracket_id}", status_code=204)
+def delete_pit_bracket(bracket_id: int, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    try:
+        svc.delete_pit_bracket(bracket_id)
+    except PayrollError as exc:
+        _raise(exc)
+
+
 # --- lương nhân viên (khai báo + điều chỉnh) --------------------------------
 
 
@@ -339,7 +379,7 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LineOut:
     try:
         ln = svc.update_line(line_id=line_id, actor=user, vi_pham=body.vi_pham,
-                             other_bonus=body.other_bonus, pit=body.pit,
+                             other_bonus=body.other_bonus, pit=body.pit, pit_manual=body.pit_manual,
                              monthly_override=body.monthly_override, note=body.note)
     except PayrollError as exc:
         _raise(exc)

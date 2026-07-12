@@ -2055,8 +2055,8 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `bhxh_rate` | `Numeric(6,4)` | no | `0.08` | Tỷ lệ NV đóng BHXH. |
 | `bhyt_rate` | `Numeric(6,4)` | no | `0.015` | Tỷ lệ NV đóng BHYT. |
 | `bhtn_rate` | `Numeric(6,4)` | no | `0.01` | Tỷ lệ NV đóng BHTN. |
-| `deduction_self` | `Numeric(14,2)` | no | `11000000` | Giảm trừ gia cảnh bản thân (TNCN). |
-| `deduction_dependent` | `Numeric(14,2)` | no | `4400000` | Giảm trừ mỗi người phụ thuộc. |
+| `deduction_self` | `Numeric(14,2)` | no | `15500000` | Giảm trừ gia cảnh bản thân (TNCN, mức 2026 NQ 110/2025). |
+| `deduction_dependent` | `Numeric(14,2)` | no | `6200000` | Giảm trừ mỗi người phụ thuộc (mức 2026). |
 | `chuyen_can_default` | `Numeric(14,2)` | no | `300000` | Mức chuyên cần mặc định (đủ công). |
 | `standard_hours_per_day` | `Numeric(5,2)` | no | `8` | Giờ công chuẩn/ngày (quy đơn giá giờ OT — Pha 4a). |
 | `ot_multiplier` | `Numeric(5,2)` | no | `1.5` | Hệ số tăng ca phẳng (Đ98 ngày thường ≥1.5 — Pha 4a). |
@@ -2174,11 +2174,27 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `gross` | `Numeric(14,2)` | — | no | `0` | Tổng thu nhập trước khấu trừ. |
 | `insurance_base` | `Numeric(14,2)` | — | no | `0` | Mức đóng BH. |
 | `bhxh` | `Numeric(14,2)` | — | no | `0` | Khấu trừ BHXH/BHYT/BHTN. |
-| `pit` | `Numeric(14,2)` | — | no | `0` | Thuế TNCN (nhập tay Phase 1). |
+| `pit` | `Numeric(14,2)` | — | no | `0` | Thuế TNCN (tự tính, có thể ghi đè tay). |
+| `pit_manual` | `Boolean` | — | no | `false` | TNCN do HCNS ghi đè tay (không auto ghi đè). Thêm qua migration 0044. |
+| `pit_taxable` | `Numeric(14,2)` | — | no | `0` | Thu nhập tính thuế đã dùng để tính TNCN. Thêm qua migration 0044. |
 | `advance_total` | `Numeric(14,2)` | — | no | `0` | Tổng tạm ứng đã duyệt. |
 | `net_pay` | `Numeric(14,2)` | — | no | `0` | Thực lĩnh. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
 | `updated_at` | `DateTime(tz)` | — | no | now | Lần cập nhật. |
+
+---
+
+### `pit_tax_brackets`
+
+**Purpose:** biểu thuế TNCN lũy tiến từng phần (biểu tháng) — dữ liệu SỬA ĐƯỢC để cập nhật khi
+luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậc 2026 (Luật 109/2025/QH15).
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `seq` | `Integer` | — | no | — | Thứ tự bậc (1..N), tính lũy tiến theo thứ tự. |
+| `up_to` | `Numeric(14,2)` | — | yes | — | Trần thu nhập tính thuế/tháng của bậc; NULL = bậc cao nhất (∞). |
+| `rate` | `Numeric(5,4)` | — | no | — | Thuế suất (0.05 = 5%). |
 
 ---
 
@@ -2359,7 +2375,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** Thành phần (1 tờ giấy) của 1 phiếu tính giá — con của `phieu_tinh_gia` (`phieu_id` FK thật, cascade xoá). Gom cấu hình GIẤY (khổ nguyên, khổ thành phẩm ③ dạng số `dai/rong_thanh_pham`, đơn giá theo tờ|tấn, nguồn công ty|khách, bù hao số tờ, các loại tờ chừa) + KỸ THUẬT IN (chế bản/kẽm, quy cách 1 mặt|2 mặt|tự trở, khổ tờ in ② `kho_in_dai/rong`, số con ④ `so_con` + cờ `con_auto` tự bình bài, máy, đơn giá công in gộp mực) + MÀU (đã gộp: chỉ `so_mau_a`/`so_mau_b` — KHÔNG hệ số, KHÔNG tách SEL/Pantone/Nền). `giay_id`/`may_id` soft FK. `gia_von_tp` = ảnh chụp giá vốn thành phần (Σ 4 nhóm A/B/C/D). Mỗi thành phần có nhiều dòng gia công sau in (`phieu_thanh_pham`). Tính giá vốn KHÔNG dùng hệ số (mọi hệ số = 1 → đã gỡ khỏi model).
 
-**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `giay_id`, `kho_nguyen`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `chua_xen`, `chua_tay_ke`, `chua_nhip`, `chua_duoi`, `chua_ca_gay`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `gia_von_tp`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `so_luong`, `loai_san_pham_id`, `giay_id`, `kho_nguyen`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `chua_xen`, `chua_tay_ke`, `chua_nhip`, `chua_duoi`, `chua_ca_gay`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `gia_von_tp`, `created_at`, `updated_at`.
 
 ---
 

@@ -24,6 +24,7 @@ from .payroll import (
     PayrollLine,
     PayrollParams,
     PayrollPeriod,
+    PitTaxBracket,
     SalaryAdvance,
     SalaryRateRule,
 )
@@ -141,6 +142,7 @@ __all__ = [
     "SalaryAdvance",
     "PayrollPeriod",
     "PayrollLine",
+    "PitTaxBracket",
     "PieceRate",
     "PieceBatch",
     "PieceBatchEntry",

@@ -4,7 +4,7 @@
 //   • Tạm ứng — ghi nhiều lần → duyệt → tự trừ.
 //   • Quy tắc lương — tham số + bảng mức chuẩn.
 //   • Phiếu lương của tôi — self-service.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   type EmployeeRow,
@@ -12,6 +12,7 @@ import {
   type PayrollLine,
   type PayrollParams,
   type PayrollPeriod,
+  type PitBracket,
   type PieceRate,
   type PieceSheet,
   type SalaryAdvance,
@@ -247,6 +248,7 @@ function LineEditModal({ token, line, onClose, onSaved }: {
   const [viPham, setViPham] = useState(line.vi_pham);
   const [bonus, setBonus] = useState(line.other_bonus);
   const [pit, setPit] = useState(line.pit);
+  const [pitTouched, setPitTouched] = useState(false);
   const [note, setNote] = useState(line.note ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -254,9 +256,18 @@ function LineEditModal({ token, line, onClose, onSaved }: {
   async function save() {
     setBusy(true); setErr(null);
     try {
-      await api.luong.updateLine(token, line.id, {
-        vi_pham: viPham, other_bonus: bonus, pit, note: note || null,
-      });
+      // Chỉ gửi `pit` khi HCNS thực sự sửa ô TNCN → không vô tình khóa cứng số tự tính.
+      const input = pitTouched
+        ? { vi_pham: viPham, other_bonus: bonus, pit, note: note || null }
+        : { vi_pham: viPham, other_bonus: bonus, note: note || null };
+      await api.luong.updateLine(token, line.id, input);
+      onSaved();
+    } catch (e) { setErr(errText(e)); setBusy(false); }
+  }
+  async function resetPit() {
+    setBusy(true); setErr(null);
+    try {
+      await api.luong.updateLine(token, line.id, { pit_manual: false });
       onSaved();
     } catch (e) { setErr(errText(e)); setBusy(false); }
   }
@@ -269,19 +280,22 @@ function LineEditModal({ token, line, onClose, onSaved }: {
         </header>
         <div className="ns-modal__body">
           {err && <div className="banner banner--error">{err}</div>}
-          <p className="cc-note">Lương công {money(line.luong_cong)} · chuyên cần {money(line.chuyen_can)} · phụ cấp {money(line.allowance)} (tự tính, không sửa ở đây).</p>
+          <p className="cc-note">Lương công {money(line.luong_cong)} · chuyên cần {money(line.chuyen_can)} · phụ cấp {money(line.allowance)} · thu nhập tính thuế {money(line.pit_taxable)} (tự tính, không sửa ở đây).</p>
           <div className="ns-grid" style={{ marginTop: 12 }}>
             <label className="ns-field"><span className="ns-field__label">Vi phạm (trừ)</span>
               <input type="number" min={0} value={viPham} onChange={(e) => setViPham(Number(e.target.value))} /></label>
             <label className="ns-field"><span className="ns-field__label">Thưởng / hoa hồng</span>
               <input type="number" min={0} value={bonus} onChange={(e) => setBonus(Number(e.target.value))} /></label>
-            <label className="ns-field"><span className="ns-field__label">Thuế TNCN (trừ)</span>
-              <input type="number" min={0} value={pit} onChange={(e) => setPit(Number(e.target.value))} /></label>
+            <label className="ns-field"><span className="ns-field__label">
+                Thuế TNCN (trừ) <span className="ns-badge ns-badge--muted">{line.pit_manual ? "sửa tay" : "tự tính"}</span>
+              </span>
+              <input type="number" min={0} value={pit} onChange={(e) => { setPit(Number(e.target.value)); setPitTouched(true); }} /></label>
           </div>
           <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Ghi chú</span>
             <input value={note} onChange={(e) => setNote(e.target.value)} /></label>
         </div>
         <footer className="ns-modal__foot">
+          {line.pit_manual && <button className="btn btn--ghost" onClick={resetPit} disabled={busy} style={{ marginRight: "auto" }}>↺ Tự tính TNCN</button>}
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
           <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? "Đang lưu…" : "Lưu"}</button>
         </footer>
@@ -303,11 +317,14 @@ function NhanVienTab({ token, focusEmployeeId }: { token: string; focusEmployeeI
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
-  // Liên thông: khi mở từ Hồ sơ NV, tự bật modal lương của NV đó khi danh sách sẵn sàng.
+  // Liên thông: khi mở từ Hồ sơ NV, tự bật modal lương của NV đó — CHỈ MỘT LẦN cho mỗi
+  // focusEmployeeId. Không dùng ref-guard thì reload danh sách sau khi Đóng sẽ mở lại modal
+  // (dep `emps` đổi) → tưởng "không đóng được".
+  const autoOpenedFor = useRef<number | null>(null);
   useEffect(() => {
-    if (focusEmployeeId && emps.length) {
+    if (focusEmployeeId && emps.length && autoOpenedFor.current !== focusEmployeeId) {
       const e = emps.find((x) => x.id === focusEmployeeId);
-      if (e) setPicked(e);
+      if (e) { setPicked(e); autoOpenedFor.current = focusEmployeeId; }
     }
   }, [focusEmployeeId, emps]);
 
@@ -889,12 +906,14 @@ function AddAdvanceModal({ token, emps, year, month, onClose, onSaved }: {
 function QuyTacTab({ token }: { token: string }) {
   const [params, setParams] = useState<PayrollParams | null>(null);
   const [rules, setRules] = useState<SalaryRule[]>([]);
+  const [brackets, setBrackets] = useState<PitBracket[]>([]);
   const [editing, setEditing] = useState<SalaryRule | "new" | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api.luong.getParams(token).then(setParams).catch(() => setParams(null));
     api.luong.rules(token).then((r) => setRules(r.items)).catch(() => setRules([]));
+    api.luong.pitBrackets(token).then((r) => setBrackets(r.items)).catch(() => setBrackets([]));
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
@@ -904,6 +923,12 @@ function QuyTacTab({ token }: { token: string }) {
     setOk("Đã lưu tham số."); setTimeout(() => setOk(null), 2000);
   }
   async function removeRule(id: number) { await api.luong.deleteRule(token, id); load(); }
+  async function saveBrackets() {
+    for (const b of brackets) await api.luong.updatePitBracket(token, b.id, { seq: b.seq, up_to: b.up_to, rate: b.rate });
+    setOk("Đã lưu biểu thuế TNCN."); setTimeout(() => setOk(null), 2000); load();
+  }
+  async function addBracket() { await api.luong.createPitBracket(token, { seq: brackets.length + 1, up_to: null, rate: 0.35 }); load(); }
+  async function removeBracket(id: number) { await api.luong.deletePitBracket(token, id); load(); }
 
   return (
     <div>
@@ -929,6 +954,36 @@ function QuyTacTab({ token }: { token: string }) {
           <button className="btn btn--primary" style={{ marginTop: 12 }} onClick={saveParams}>Lưu tham số</button>
         </div>
       )}
+
+      <div className="lg-params" style={{ marginTop: 20 }}>
+        <h4 className="ns-section__title">Biểu thuế TNCN (lũy tiến từng phần, biểu tháng)</h4>
+        <p className="cc-note">Thu nhập tính thuế = thu nhập chịu thuế − BHXH − giảm trừ. Sửa khi luật đổi (mặc định 2026: Luật 109/2025).</p>
+        <div className="ns__tablewrap">
+          <table className="ns__table">
+            <thead><tr><th>Bậc</th><th className="lg-num">Đến mức (thu nhập tính thuế/tháng)</th><th className="lg-num">Thuế suất %</th><th></th></tr></thead>
+            <tbody>
+              {brackets.map((b, i) => (
+                <tr key={b.id}>
+                  <td>{b.seq}</td>
+                  <td className="lg-num">
+                    <input type="number" min={0} value={b.up_to ?? ""} placeholder="∞ (bậc cao nhất)"
+                      onChange={(e) => setBrackets(brackets.map((x, j) => j === i ? { ...x, up_to: e.target.value === "" ? null : Number(e.target.value) } : x))} />
+                  </td>
+                  <td className="lg-num">
+                    <input type="number" min={0} step={1} value={Math.round(b.rate * 100)}
+                      onChange={(e) => setBrackets(brackets.map((x, j) => j === i ? { ...x, rate: Number(e.target.value) / 100 } : x))} />
+                  </td>
+                  <td><button className="btn btn--ghost" onClick={() => removeBracket(b.id)}>Xóa</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+          <button className="btn btn--primary" onClick={saveBrackets}>Lưu biểu thuế</button>
+          <button className="btn btn--ghost" onClick={addBracket}>+ Thêm bậc</button>
+        </div>
+      </div>
 
       <div className="cc-toolbar" style={{ marginTop: 20 }}>
         <h4 className="ns-section__title" style={{ margin: 0, flex: 1 }}>Bảng mức lương chuẩn</h4>

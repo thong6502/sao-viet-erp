@@ -43,6 +43,28 @@ class ParamsOut(BaseModel):
     bhtn_base_cap: float
 
 
+# --- biểu thuế TNCN ---------------------------------------------------------
+
+
+class PitBracketIn(BaseModel):
+    seq: int = Field(ge=1)
+    up_to: float | None = Field(default=None, ge=0)   # None = bậc cao nhất (∞)
+    rate: float = Field(ge=0, le=1)
+
+
+class PitBracketOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    seq: int
+    up_to: float | None = None
+    rate: float
+
+
+class PitBracketsOut(BaseModel):
+    items: list[PitBracketOut]
+
+
 # --- salary_rate_rules ------------------------------------------------------
 
 
@@ -211,6 +233,8 @@ class LineOut(BaseModel):
     insurance_base: float
     bhxh: float
     pit: float
+    pit_manual: bool = False
+    pit_taxable: float = 0
     advance_total: float
     net_pay: float
     note: str | None = None
@@ -225,6 +249,7 @@ class LineUpdateIn(BaseModel):
     vi_pham: float | None = Field(default=None, ge=0)
     other_bonus: float | None = Field(default=None, ge=0)
     pit: float | None = Field(default=None, ge=0)
+    pit_manual: bool | None = None   # False = reset về tự tính; None = giữ nguyên
     monthly_override: float | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=255)
 
