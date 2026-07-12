@@ -63,7 +63,11 @@ class PhieuTinhGia(Base):
 
 
 class PhieuThanhPhan(Base):
-    """Thành phần (1 tờ giấy) của phiếu — giấy + kỹ thuật in + màu + gia công sau in."""
+    """1 SẢN PHẨM (dòng hạng mục) của phiếu — có SL + loại + khổ + giấy/in/màu/gia công RIÊNG → giá vốn riêng.
+
+    (Tên bảng/lớp giữ `thanh_phan` vì lý do lịch sử; khái niệm nay là "sản phẩm": 1 phiếu = nhiều sản phẩm,
+    mỗi sản phẩm tính giá vốn độc lập với `so_luong` của nó. Sách/hộp = tách thành nhiều sản phẩm: ruột/bìa/đóng cuốn.)
+    """
 
     __tablename__ = "phieu_thanh_phan"
 
@@ -80,6 +84,8 @@ class PhieuThanhPhan(Base):
     kho_mo_rong: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tay_gap: Mapped[str | None] = mapped_column(String(50), nullable=True)
     so_to_per_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # SL đặt của SẢN PHẨM này (0 = lấy SL mặc định phiếu)
+    loai_san_pham_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # → loai_san_pham.id (soft) — loại của sản phẩm này
 
     # --- Giấy ---
     giay_id: Mapped[int | None] = mapped_column(Integer, nullable=True)             # → giay_nguyen.id (soft)

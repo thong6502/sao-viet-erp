@@ -81,6 +81,29 @@ def test_con_override_khi_con_auto_false():
     assert res["meta"]["components"][0]["con"] == 10
 
 
+def test_moi_san_pham_co_sl_rieng():
+    # 1 phiếu = nhiều SẢN PHẨM, mỗi sản phẩm SL riêng → giá vốn + đơn giá riêng, phiếu = Σ.
+    a = _component(); a["so_luong"] = 1000
+    b = _component(); b["so_luong"] = 3000
+    res = compute_phieu(so_luong=0, thanh_phans=[a, b])   # SL mặc định phiếu = 0 → dùng SL từng SP
+    comps = res["meta"]["components"]
+    assert comps[0]["so_luong"] == 1000 and comps[1]["so_luong"] == 3000
+    assert res["meta"]["tong_so_luong"] == 4000
+    assert res["meta"]["so_thanh_phan"] == 2
+    # SP nhiều SL hơn (cùng cấu hình) → giá vốn cao hơn.
+    assert comps[1]["gia_von_tp"] > comps[0]["gia_von_tp"]
+    # Đơn giá riêng mỗi sản phẩm = giá vốn / SL của nó.
+    assert comps[0]["gia_von_don"] == round(comps[0]["gia_von_tp"] / 1000, 2)
+    # Tổng phiếu = Σ giá vốn sản phẩm.
+    assert res["grand_total"] == round(comps[0]["gia_von_tp"] + comps[1]["gia_von_tp"], 2)
+
+
+def test_san_pham_khong_nhap_sl_thi_lay_mac_dinh_phieu():
+    tp = _component()   # không có so_luong
+    res = compute_phieu(so_luong=2000, thanh_phans=[tp])
+    assert res["meta"]["components"][0]["so_luong"] == 2000   # rơi về SL mặc định phiếu
+
+
 def test_khach_cap_giay_thi_giay_0():
     tp = _component()
     tp["nguon_giay"] = "khach"

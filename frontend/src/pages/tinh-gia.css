@@ -1046,6 +1046,24 @@ select.tg-input {
   color: var(--steel);
   background: var(--steel-soft);
 }
+.tg-tag--todo {
+  color: var(--ink-3, #8a8175);
+  background: var(--paper-2, rgba(0, 0, 0, 0.04));
+  font-weight: var(--fw-regular, 400);
+}
+.tg-warn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  color: var(--heat, #b4541f);
+  background: color-mix(in srgb, var(--heat, #b4541f) 12%, transparent);
+  vertical-align: middle;
+}
 .tg-revert {
   display: inline-flex;
   align-items: center;

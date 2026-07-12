@@ -140,7 +140,8 @@ def load_and_compute(
 # ============================ Mô hình THEO THÀNH PHẦN ============================
 _TP_SCALAR_FIELDS = (
     "thu_tu", "loai_thanh_phan", "ten", "kho_thanh_pham", "dai_thanh_pham", "rong_thanh_pham",
-    "kho_mo_rong", "tay_gap", "so_to_per_sp", "giay_id", "kho_nguyen", "don_gia_giay",
+    "kho_mo_rong", "tay_gap", "so_to_per_sp", "so_luong", "loai_san_pham_id",
+    "giay_id", "kho_nguyen", "don_gia_giay",
     "don_gia_don_vi", "nguon_giay", "bu_hao_so_to", "chua_xen", "chua_tay_ke", "chua_nhip",
     "chua_duoi", "chua_ca_gay", "co_in", "che_ban_loai", "che_ban_don_gia", "quy_cach_in",
     "kho_in_dai", "kho_in_rong", "so_con", "con_auto", "may_id", "don_gia_cong_in",
@@ -216,7 +217,7 @@ def compute_phieu_snapshot(db: Session, phieu) -> dict:
 
     tong = float(result.get("grand_total") or 0)
     phieu.tong_gia_von = tong
-    phieu.gia_von_don = (tong / so_luong) if so_luong > 0 else 0
+    phieu.gia_von_don = float(result.get("meta", {}).get("gia_von_don") or 0)  # đơn giá bình quân (Σ vốn / Σ SL)
     phieu.result_json = result
     phieu.warnings_json = result.get("warnings") or []
     return result

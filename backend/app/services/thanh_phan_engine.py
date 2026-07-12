@@ -135,9 +135,10 @@ def _step_cost_safe(cd: dict, ctx: dict, warnings: list[str], ten: str) -> tuple
     return _f(res.get("total")), ""
 
 
-def _compute_one(tp: dict, so_luong: int, warnings: list[str], flags: dict) -> dict:
-    """Tính 4 nhóm chi phí cho 1 thành phần. Trả {name, rows:{A,B,C,D}, total, meta}."""
+def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: dict) -> dict:
+    """Tính 4 nhóm chi phí cho 1 SẢN PHẨM (theo SL riêng của nó). Trả {name, rows, total, meta}."""
     name = tp.get("ten") or ""
+    sl = _i(tp.get("so_luong")) or _i(so_luong_mac_dinh)   # SL của sản phẩm này; 0 → SL mặc định phiếu
     so_to_per_sp = max(_i(tp.get("so_to_per_sp"), 1), 1)   # số tờ (tay) trên 1 sản phẩm
     qc = tp.get("quy_cach_in", "mot_mat")
     passes = 1 if qc == "mot_mat" else 2                    # số mặt qua máy (2 mặt / tự trở = 2)
@@ -152,7 +153,7 @@ def _compute_one(tp: dict, so_luong: int, warnings: list[str], flags: dict) -> d
     dai_tp = _f(tp.get("dai_thanh_pham"))    # thành phẩm ③
     rong_tp = _f(tp.get("rong_thanh_pham"))
     chua_mm = (_f(tp.get("chua_xen")) + _f(tp.get("chua_tay_ke")) + _f(tp.get("chua_nhip"))
-               + _f(tp.get("chua_duoi")) + _f(tp.get("chua_ca_gay"))) * 10.0   # cm → mm
+               + _f(tp.get("chua_duoi")) + _f(tp.get("chua_ca_gay")))   # ĐÃ là mm (thống nhất mm toàn phiếu)
 
     # --- ④ con/tờ: auto bình bài, override được ---
     con_auto = tp.get("con_auto", True)
@@ -171,7 +172,7 @@ def _compute_one(tp: dict, so_luong: int, warnings: list[str], flags: dict) -> d
     xa = max(xa, 1)
 
     # --- Số tờ: net → gross (tờ in) → tờ nguyên ---
-    to_net = ceil(so_luong * so_to_per_sp / con) if so_luong > 0 else 0
+    to_net = ceil(sl * so_to_per_sp / con) if sl > 0 else 0
     bu_hao = _i(tp.get("bu_hao_so_to"))         # bù hao (tờ in cộng thêm) — KHÔNG hệ số
     if bu_hao > 0 and not flags.get("chua_warned"):
         flags["chua_warned"] = True
@@ -232,7 +233,7 @@ def _compute_one(tp: dict, so_luong: int, warnings: list[str], flags: dict) -> d
     # --- D Gia công sau in (trên tờ in net; basis từ công đoạn) ---
     ctx_base = {
         "so_to_in_gross": to_net,
-        "so_luong_thanh_pham": so_luong,
+        "so_luong_thanh_pham": sl,
         "dt_to_in_cm2": (kho_in_d / 10.0) * (kho_in_r / 10.0),
         "so_con": con,
         "so_trang": 0, "so_cuon": 0, "so_bao": 0, "so_thung": 0,
@@ -253,9 +254,9 @@ def _compute_one(tp: dict, so_luong: int, warnings: list[str], flags: dict) -> d
                 try:
                     qty = basis_qty(basis, ctx)
                 except Exception:  # noqa: BLE001
-                    qty = row_sl if row_sl > 0 else so_luong
+                    qty = row_sl if row_sl > 0 else sl
             else:
-                qty = row_sl if row_sl > 0 else so_luong
+                qty = row_sl if row_sl > 0 else sl
             tien = don_gia_r * qty
         elif cd:
             tien, ghi_chu = _step_cost_safe(cd, ctx, warnings, ten_r)
@@ -273,6 +274,7 @@ def _compute_one(tp: dict, so_luong: int, warnings: list[str], flags: dict) -> d
         "rows": rows,
         "total": _r(total),
         "meta": {
+            "so_luong": sl, "gia_von_don": _r(total / sl) if sl > 0 else 0.0,
             "con": con, "con_auto": bool(con_auto), "so_manh_xa": xa,
             "to_net": to_net, "to_gross": to_gross, "to_nguyen": to_nguyen,
             "so_kem": so_kem, "so_luot": so_luot,
@@ -312,12 +314,14 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], warnings: list[str]
         groups.append({"idx": idx, "name": _NAMES[idx], "columns": _COLS[idx],
                        "rows": rws, "subtotal": _r(subtotal)})
 
-    gia_von_don = (grand_total / so_luong) if so_luong > 0 else 0.0
+    tong_sl = sum(_i(c.get("so_luong")) for c in components)
+    gia_von_don = (grand_total / tong_sl) if tong_sl > 0 else 0.0
     return {
         "meta": {
-            "so_luong": so_luong,
-            "so_thanh_phan": len(thanh_phans or []),
-            "gia_von_don": _r(gia_von_don),
+            "so_luong": so_luong,            # SL mặc định phiếu (dùng khi sản phẩm chưa nhập SL)
+            "tong_so_luong": tong_sl,        # Σ SL các sản phẩm
+            "so_thanh_phan": len(thanh_phans or []),   # = SỐ SẢN PHẨM
+            "gia_von_don": _r(gia_von_don),            # đơn giá BÌNH QUÂN (Σ giá vốn / Σ SL)
             "components": components,
         },
         "groups": groups,
