@@ -39,6 +39,10 @@ services:
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin}
       SEED_DEMO: ${SEED_DEMO:-false}     # production: KHÔNG seed dữ liệu demo
       CORS_ORIGINS: ${CORS_ORIGINS}
+    volumes:
+      # File upload (/static: avatar, đính kèm kho/LSX/phiếu chi) phải sống
+      # qua rebuild image — không có volume này là mất sạch mỗi lần deploy.
+      - uploads:/app/static
     expose:
       - "8000"                           # chỉ nội bộ; nginx proxy vào
 
@@ -73,3 +77,4 @@ volumes:
   pgdata:
   caddy_data:
   caddy_config:
+  uploads:

@@ -115,6 +115,7 @@ class PurchaseRequest(Base):
     )
     purpose: Mapped[str | None] = mapped_column(String(500), nullable=True)
     needed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    expected_receipt_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )

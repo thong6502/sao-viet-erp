@@ -37,6 +37,35 @@
   min-width: 0;
 }
 
+/* Ô bảng PMH: mã phiếu/mã YCMH/ngày/tiền không được gãy giữa chừng — gãy dòng
+   trong các ô này là thứ làm bảng "vỡ" trên laptop. Nội dung dài thì cắt "…"
+   (xem đầy đủ ở panel chi tiết). */
+.purchase__list .purchase__code-cell {
+  white-space: nowrap;
+}
+
+.purchase__list .purchase__code-cell .purchase__source-codes,
+.purchase__list .purchase__row-purpose {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.purchase__list .purchase__supplier-cell {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.purchase__list .purchase__date-cell,
+.purchase__list .purchase__money-cell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .purchase__row--selected {
   background: var(--rule-hair);
 }
@@ -309,6 +338,25 @@
   color: var(--moss-deep);
 }
 
+/* Mã chứng từ bấm được (CodeLink) — kế thừa font/cỡ chữ của chỗ chứa nó. */
+.code-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.code-link:hover,
+.code-link:focus-visible {
+  color: var(--ink);
+  text-decoration-color: currentColor;
+}
+
 .purchase__source-picker {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -493,20 +541,24 @@
   color: var(--steel);
 }
 
-@media (max-width: 1200px) {
+/* Laptop (≤1440): bảng PMH + panel chi tiết xếp dọc — hai cột cạnh nhau chỉ đủ
+   chỗ trên màn hình lớn; dưới ngưỡng này bảng bị bóp làm gãy dòng lung tung. */
+@media (max-width: 1440px) {
   .purchase__layout {
     grid-template-columns: 1fr;
   }
 
+  .purchase__detail {
+    position: static;
+  }
+}
+
+@media (max-width: 1200px) {
   .purchase__source-head,
   .purchase__source-toolbar,
   .purchase__source-foot {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .purchase__detail {
-    position: static;
   }
 
   .purchase__line-edit {

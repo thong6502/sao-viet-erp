@@ -1183,6 +1183,29 @@ def _migrate_stock_count_phaseA(db: Session) -> None:
     db.commit()
 
 
+def _migrate_purchase_request_expected_receipt_date(db: Session) -> None:
+    """Thu mua: thêm `purchase_requests.expected_receipt_date` (Ngày dự kiến nhận hàng —
+    NCC hẹn giao, khác needed_date là ngày phòng ban cần). Nullable Date. No-op trên DB
+    fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "purchase_requests" not in insp.get_table_names():
+        return
+    if "expected_receipt_date" not in _existing_columns(insp, "purchase_requests"):
+        db.execute(text("ALTER TABLE purchase_requests ADD COLUMN expected_receipt_date DATE"))
+    db.commit()
+
+
+def _migrate_drop_payment_refunds_renamed(db: Session) -> None:
+    """Kế toán: bảng `payment_refunds` được ĐỔI TÊN thành `payment_receipts` (Phiếu thu)
+    TRƯỚC khi tính năng ship — bảng cũ chỉ tồn tại trên dev với dữ liệu thử. Drop
+    best-effort; bảng mới do create_all dựng. No-op khi bảng cũ không tồn tại."""
+    try:
+        db.execute(text("DROP TABLE IF EXISTS payment_refunds"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1220,6 +1243,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0035_production_order_header_fields", _migrate_production_order_header_fields),
     ("0036_production_order_bu_fields", _migrate_production_order_bu_fields),
     ("0037_stock_count_phaseA", _migrate_stock_count_phaseA),
+    ("0038_purchase_request_expected_receipt_date", _migrate_purchase_request_expected_receipt_date),
+    ("0039_drop_payment_refunds_renamed", _migrate_drop_payment_refunds_renamed),
 ]
 
 

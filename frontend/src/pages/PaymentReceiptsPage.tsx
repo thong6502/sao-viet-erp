@@ -1,12 +1,12 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
   api,
   assetUrl,
-  type PaymentVoucherAttachment,
+  type PaymentReceiptAttachment,
+  type PaymentReceiptRow,
+  type PaymentReceiptStatus,
   type PaymentVoucherRow,
-  type PaymentVoucherStatus,
-  type PurchaseRequestRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -22,51 +22,46 @@ import {
   originalMoney,
 } from "../utils/format";
 import { PaymentReceiptDialog } from "./PaymentReceiptDialog";
-import { PaymentVoucherDialog } from "./PaymentVoucherDialog";
 import "./accounting.css";
 import "./purchase.css";
 
 const PAGE_SIZE = 20;
 
 const STATUS_META: Record<
-  PaymentVoucherStatus,
+  PaymentReceiptStatus,
   { label: string; tone: string }
 > = {
-  waiting_payment: { label: "Chờ chi", tone: "waiting" },
-  paid: { label: "Đã chi", tone: "paid" },
+  waiting_receipt: { label: "Chờ thu", tone: "waiting" },
+  received: { label: "Đã thu", tone: "paid" },
   cancelled: { label: "Đã hủy", tone: "cancelled" },
 };
 
-const STAGE_LABELS = {
-  advance: "Tạm ứng / đặt cọc",
-  partial: "Thanh toán một phần",
-  final: "Thanh toán cuối",
-  other: "Khác",
-} as const;
+function methodText(row: PaymentReceiptRow): string {
+  return row.receipt_method === "bank_transfer"
+    ? "Về TK ngân hàng"
+    : "Nhập quỹ tiền mặt";
+}
 
-function printVoucher(row: PaymentVoucherRow): boolean {
+/** In Phiếu thu ra cửa sổ mới (A4) — mirror printVoucher của phiếu chi. */
+function printReceipt(row: PaymentReceiptRow): boolean {
   const win = window.open("", "_blank", "width=980,height=760");
   if (!win) return false;
-  const isBank = row.voucher_type === "bank_transfer";
-  const title = isBank ? "ỦY NHIỆM CHI" : "PHIẾU CHI";
-  const accountBlock = isBank
-    ? `<section class="accounts">
-        <div><h3>Tài khoản trích nợ</h3><p><b>${escapeHtml(row.company_account_holder)}</b></p><p>${escapeHtml(row.company_account_number)}</p><p>${escapeHtml(row.company_bank_name)} · ${escapeHtml(row.company_bank_branch)}</p></div>
-        <div><h3>Tài khoản thụ hưởng</h3><p><b>${escapeHtml(row.beneficiary_account_holder)}</b></p><p>${escapeHtml(row.beneficiary_account_number)}</p><p>${escapeHtml(row.beneficiary_bank_name)} · ${escapeHtml(row.beneficiary_bank_branch)}</p></div>
-      </section>`
-    : `<section class="accounts"><div><h3>Người nhận tiền</h3><p><b>${escapeHtml(row.cash_recipient_name)}</b></p><p>${escapeHtml(row.cash_recipient_address || "—")}</p><p>Giấy tờ: ${escapeHtml(row.cash_recipient_identity || "—")}</p></div></section>`;
+  const isBank = row.receipt_method === "bank_transfer";
+  const receiveBlock = isBank
+    ? `<section class="accounts"><div><h3>Tài khoản nhận tiền</h3><p><b>${escapeHtml(row.company_account_holder)}</b></p><p>${escapeHtml(row.company_account_number)}</p><p>${escapeHtml(row.company_bank_name)} · ${escapeHtml(row.company_bank_branch)}</p></div></section>`
+    : `<section class="accounts"><div><h3>Nhập quỹ tiền mặt</h3><p>Người nộp: <b>${escapeHtml(row.payer_name)}</b></p></div></section>`;
   win.document
-    .write(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>${title} ${escapeHtml(row.code)}</title><style>
-    @page{size:A4;margin:16mm}*{box-sizing:border-box}body{font:13px Arial,sans-serif;color:#171713;margin:0}header{display:flex;justify-content:space-between;border-bottom:2px solid #171713;padding-bottom:12px}.brand{font-weight:700}.muted{color:#6f6c64}h1{text-align:center;font-size:24px;margin:24px 0 5px}h2{text-align:center;font:700 14px monospace;margin:0 0 22px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 26px}.label{display:block;font-size:10px;text-transform:uppercase;color:#77736a;font-weight:700;margin-bottom:4px}.purpose{margin:18px 0;padding:12px;border:1px solid #cfcac0}.amount{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}.amount div{padding:14px;background:#f3f1eb}.amount strong{display:block;font-size:20px;margin-top:5px}.words{padding:12px;border:1px solid #cfcac0;margin-bottom:16px}.accounts{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}.accounts>div{border:1px solid #cfcac0;padding:12px}.accounts h3{font-size:12px;text-transform:uppercase;margin:0 0 10px}.accounts p{margin:5px 0}.refs{margin-top:18px;border-top:1px solid #cfcac0;padding-top:12px}.status{font-weight:700;text-transform:uppercase}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+    .write(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>PHIẾU THU ${escapeHtml(row.code)}</title><style>
+    @page{size:A4;margin:16mm}*{box-sizing:border-box}body{font:13px Arial,sans-serif;color:#171713;margin:0}header{display:flex;justify-content:space-between;border-bottom:2px solid #171713;padding-bottom:12px}.brand{font-weight:700}.muted{color:#6f6c64}h1{text-align:center;font-size:24px;margin:24px 0 5px}h2{text-align:center;font:700 14px monospace;margin:0 0 22px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 26px}.label{display:block;font-size:10px;text-transform:uppercase;color:#77736a;font-weight:700;margin-bottom:4px}.purpose{margin:18px 0;padding:12px;border:1px solid #cfcac0}.amount{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}.amount div{padding:14px;background:#f3f1eb}.amount strong{display:block;font-size:20px;margin-top:5px}.words{padding:12px;border:1px solid #cfcac0;margin-bottom:16px}.accounts{display:grid;grid-template-columns:1fr;gap:14px;margin-top:16px}.accounts>div{border:1px solid #cfcac0;padding:12px}.accounts h3{font-size:12px;text-transform:uppercase;margin:0 0 10px}.accounts p{margin:5px 0}.refs{margin-top:18px;border-top:1px solid #cfcac0;padding-top:12px}.status{font-weight:700;text-transform:uppercase}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style></head><body>
     <header><div><div class="brand">Sao Việt Nhật ERP</div><div class="muted">Chứng từ từ phân hệ Kế toán</div></div><div><div>Ngày in: ${escapeHtml(fmtDate(new Date().toISOString()))}</div><div class="muted">Lập lúc: ${escapeHtml(fmtDateTime(row.created_at))}</div><div class="status">${escapeHtml(STATUS_META[row.status].label)}</div></div></header>
-    <h1>${title}</h1><h2>${escapeHtml(row.code)}</h2>
-    <section class="grid"><div><span class="label">Ngày chứng từ</span>${escapeHtml(fmtDate(row.voucher_date))}</div><div><span class="label">Đợt thanh toán</span>${escapeHtml(STAGE_LABELS[row.payment_stage])}</div><div><span class="label">Nhà cung cấp</span>${escapeHtml(row.supplier_name)}</div><div><span class="label">Mã số thuế</span>${escapeHtml(row.supplier_tax_code || "—")}</div><div><span class="label">PMH nguồn</span>${escapeHtml(row.purchase_request_code)}</div><div><span class="label">YCMH nguồn</span>${escapeHtml(row.source_request_codes.join(", ") || "—")}</div></section>
-    <section class="purpose"><span class="label">Nội dung chi</span><b>${escapeHtml(row.content)}</b></section>
+    <h1>PHIẾU THU</h1><h2>${escapeHtml(row.code)}</h2>
+    <section class="grid"><div><span class="label">Ngày thu</span>${escapeHtml(fmtDate(row.receipt_date))}</div><div><span class="label">Người nộp tiền</span>${escapeHtml(row.payer_name)}</div><div><span class="label">Nhà cung cấp</span>${escapeHtml(row.supplier_name)}</div><div><span class="label">Hình thức</span>${escapeHtml(methodText(row))}</div><div><span class="label">Phiếu chi nguồn</span>${escapeHtml(row.payment_voucher_code)}</div><div><span class="label">PMH nguồn</span>${escapeHtml(row.purchase_request_code)}</div></section>
+    <section class="purpose"><span class="label">Nội dung thu</span><b>${escapeHtml(row.content)}</b></section>
     <section class="amount"><div><span class="label">Số tiền nguyên tệ</span><strong>${escapeHtml(originalMoney(row.amount, row.currency))}</strong></div><div><span class="label">Quy đổi VND / tỷ giá</span><strong>${escapeHtml(money(row.amount_vnd))} · ${escapeHtml(row.exchange_rate)}</strong></div></section>
     <section class="words"><span class="label">Số tiền quy đổi bằng chữ</span>${escapeHtml(amountInWords(row.amount_vnd))}</section>
-    ${accountBlock}
-    <section class="refs"><span class="label">Chứng từ tham chiếu</span>Hóa đơn: ${escapeHtml(row.invoice_number || "—")} · Hợp đồng: ${escapeHtml(row.contract_number || "—")} · Mã giao dịch: ${escapeHtml(row.bank_reference || "—")}</section>
+    ${receiveBlock}
+    <section class="refs"><span class="label">Chứng từ tham chiếu</span>Mã giao dịch: ${escapeHtml(row.bank_reference || "—")}</section>
   </body></html>`);
   win.document.close();
   win.focus();
@@ -74,44 +69,38 @@ function printVoucher(row: PaymentVoucherRow): boolean {
   return true;
 }
 
-export function PaymentVouchersPage({
+export function PaymentReceiptsPage({
   navigate,
   focusQuery = null,
 }: {
   navigate: NavigateFn;
-  /** Liên thông từ trang Phiếu thu: điền sẵn ô tìm kiếm (mã PC/UNC). */
+  /** Liên thông từ trang Phiếu chi: lọc theo mã PC/UNC khi mở trang. */
   focusQuery?: string | null;
 }) {
   const { token } = useAuth();
   const can = useCan();
   const canApprove = can("ke_toan", "approve");
-  const openYcmh = (code: string) =>
-    navigate("yeu-cau-mua-hang", { focusRequestCode: code });
-  const openReceipts = (query: string) =>
-    navigate("ke-toan-phieu-thu", { focusReceiptQuery: query });
-  const canMarkPaid = can("ke_toan", "manage_status");
+  const canMarkReceived = can("ke_toan", "manage_status");
   const canCancel = can("ke_toan", "cancel");
   const canExport = can("ke_toan", "export");
-  const [rows, setRows] = useState<PaymentVoucherRow[]>([]);
+  const [rows, setRows] = useState<PaymentReceiptRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(focusQuery ?? "");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editState, setEditState] = useState<null | {
-    voucher: PaymentVoucherRow | null;
-    purchase: PurchaseRequestRow;
+    voucher: PaymentVoucherRow;
+    receipt: PaymentReceiptRow;
   }>(null);
-  const [marking, setMarking] = useState<PaymentVoucherRow | null>(null);
+  const [marking, setMarking] = useState<PaymentReceiptRow | null>(null);
   const [bankReference, setBankReference] = useState("");
-  const [cancelling, setCancelling] = useState<PaymentVoucherRow | null>(null);
+  const [cancelling, setCancelling] = useState<PaymentReceiptRow | null>(null);
   const [cancelReason, setCancelReason] = useState("");
-  const [receiptFor, setReceiptFor] = useState<PaymentVoucherRow | null>(null);
-  const [attachments, setAttachments] = useState<PaymentVoucherAttachment[]>(
+  const [attachments, setAttachments] = useState<PaymentReceiptAttachment[]>(
     [],
   );
   const [attachmentBusy, setAttachmentBusy] = useState(false);
@@ -120,12 +109,10 @@ export function PaymentVouchersPage({
     if (!token) return;
     setLoading(true);
     api.accounting
-      .vouchers(token, {
+      .receipts(token, {
         q: q.trim() || undefined,
         status: statusFilter === "all" ? null : statusFilter,
-        voucher_type: typeFilter === "all" ? null : typeFilter,
-        // "group": phiếu cùng PMH đứng cạnh nhau, nhóm có phiếu mới nhất lên đầu.
-        sort: "-group",
+        sort: "-created_at",
         page,
         size: PAGE_SIZE,
       })
@@ -140,24 +127,20 @@ export function PaymentVouchersPage({
       })
       .catch((err) =>
         setError(
-          err instanceof ApiError
-            ? err.message
-            : "Không tải được Phiếu chi/UNC.",
+          err instanceof ApiError ? err.message : "Không tải được phiếu thu.",
         ),
       )
       .finally(() => setLoading(false));
-  }, [token, q, statusFilter, typeFilter, page]);
+  }, [token, q, statusFilter, page]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // Liên thông từ trang Phiếu thu: điền mã vào ô tìm → load() tự chạy lại.
   useEffect(() => {
     if (!focusQuery) return;
     setQ(focusQuery);
     setStatusFilter("all");
-    setTypeFilter("all");
     setPage(1);
   }, [focusQuery]);
 
@@ -165,16 +148,19 @@ export function PaymentVouchersPage({
     () => rows.find((row) => row.id === selectedId) ?? rows[0] ?? null,
     [rows, selectedId],
   );
-  const selectedVoucherId = selected?.id ?? null;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const openVoucher = (code: string) =>
+    navigate("ke-toan-phieu-chi", { focusVoucherQuery: code });
+  const selectedReceiptId = selected?.id ?? null;
 
   useEffect(() => {
-    if (!token || selectedVoucherId == null) {
+    if (!token || selectedReceiptId == null) {
       setAttachments([]);
       return;
     }
     let cancelled = false;
     api.accounting
-      .voucherAttachments(token, selectedVoucherId)
+      .receiptAttachments(token, selectedReceiptId)
       .then((response) => {
         if (!cancelled) setAttachments(response.items);
       })
@@ -184,23 +170,30 @@ export function PaymentVouchersPage({
     return () => {
       cancelled = true;
     };
-  }, [token, selectedVoucherId]);
+  }, [token, selectedReceiptId]);
+
+  function startPrint(row: PaymentReceiptRow) {
+    if (!printReceipt(row))
+      setError(
+        "Trình duyệt đang chặn cửa sổ in. Vui lòng cho phép pop-up rồi thử lại.",
+      );
+  }
 
   async function uploadAttachments(list: FileList | null) {
-    if (!token || selectedVoucherId == null || !list?.length) return;
+    if (!token || selectedReceiptId == null || !list?.length) return;
     setAttachmentBusy(true);
     setError(null);
     try {
       for (const file of Array.from(list)) {
-        await api.accounting.uploadVoucherAttachment(
+        await api.accounting.uploadReceiptAttachment(
           token,
-          selectedVoucherId,
+          selectedReceiptId,
           file,
         );
       }
-      const response = await api.accounting.voucherAttachments(
+      const response = await api.accounting.receiptAttachments(
         token,
-        selectedVoucherId,
+        selectedReceiptId,
       );
       setAttachments(response.items);
       load(); // cập nhật attachment_count → badge "Thiếu chứng từ" ở bảng
@@ -213,14 +206,14 @@ export function PaymentVouchersPage({
     }
   }
 
-  async function removeAttachment(attachment: PaymentVoucherAttachment) {
-    if (!token || selectedVoucherId == null) return;
+  async function removeAttachment(attachment: PaymentReceiptAttachment) {
+    if (!token || selectedReceiptId == null) return;
     setAttachmentBusy(true);
     setError(null);
     try {
-      await api.accounting.deleteVoucherAttachment(
+      await api.accounting.deleteReceiptAttachment(
         token,
-        selectedVoucherId,
+        selectedReceiptId,
         attachment.id,
       );
       setAttachments((current) =>
@@ -235,64 +228,36 @@ export function PaymentVouchersPage({
       setAttachmentBusy(false);
     }
   }
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
-  async function openEdit(row: PaymentVoucherRow) {
+  async function openEdit(row: PaymentReceiptRow) {
     if (!token) return;
     setBusy(true);
     try {
-      const purchase = await api.purchaseRequests.get(
+      const voucher = await api.accounting.voucher(
         token,
-        row.purchase_request_id,
+        row.payment_voucher_id,
       );
-      setEditState({ voucher: row, purchase });
+      setEditState({ voucher, receipt: row });
     } catch (err) {
       setError(
-        err instanceof ApiError ? err.message : "Không tải được PMH nguồn.",
+        err instanceof ApiError
+          ? err.message
+          : "Không tải được phiếu chi nguồn.",
       );
     } finally {
       setBusy(false);
     }
   }
 
-  async function openTopUp(row: PaymentVoucherRow) {
-    if (!token) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const purchase = await api.purchaseRequests.get(
-        token,
-        row.purchase_request_id,
-      );
-      if (!["approved", "purchased", "received"].includes(purchase.status)) {
-        setError(
-          `PMH ${purchase.code} không còn ở trạng thái được lập chứng từ.`,
-        );
-        return;
-      }
-      if (purchase.available_amount <= 0) {
-        setError(`PMH ${purchase.code} đã được lập đủ chứng từ thanh toán.`);
-        return;
-      }
-      setEditState({ voucher: null, purchase });
-    } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Không tải được PMH nguồn.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function confirmPaid() {
+  async function confirmReceived() {
     if (!token || !marking) return;
-    if (marking.voucher_type === "bank_transfer" && !bankReference.trim()) {
-      setError("UNC phải có mã giao dịch hoặc số báo nợ.");
+    if (marking.receipt_method === "bank_transfer" && !bankReference.trim()) {
+      setError("Thu qua ngân hàng phải có mã giao dịch hoặc số báo có.");
       return;
     }
     setBusy(true);
     try {
-      await api.accounting.markVoucherPaid(
+      await api.accounting.markReceiptReceived(
         token,
         marking.id,
         bankReference.trim() || null,
@@ -302,7 +267,9 @@ export function PaymentVouchersPage({
       load();
     } catch (err) {
       setError(
-        err instanceof ApiError ? err.message : "Không xác nhận được chứng từ.",
+        err instanceof ApiError
+          ? err.message
+          : "Không xác nhận được phiếu thu.",
       );
     } finally {
       setBusy(false);
@@ -317,7 +284,7 @@ export function PaymentVouchersPage({
     }
     setBusy(true);
     try {
-      await api.accounting.cancelVoucher(
+      await api.accounting.cancelReceipt(
         token,
         cancelling.id,
         cancelReason.trim(),
@@ -327,21 +294,14 @@ export function PaymentVouchersPage({
       load();
     } catch (err) {
       setError(
-        err instanceof ApiError ? err.message : "Không hủy được chứng từ.",
+        err instanceof ApiError ? err.message : "Không hủy được phiếu thu.",
       );
     } finally {
       setBusy(false);
     }
   }
 
-  function startPrint(row: PaymentVoucherRow) {
-    if (!printVoucher(row))
-      setError(
-        "Trình duyệt đang chặn cửa sổ in. Vui lòng cho phép pop-up rồi thử lại.",
-      );
-  }
-
-  function actions(row: PaymentVoucherRow) {
+  function actions(row: PaymentReceiptRow) {
     return (
       <div className="acct-actions">
         {canExport && (
@@ -349,33 +309,12 @@ export function PaymentVouchersPage({
             In phiếu
           </Button>
         )}
-        {canApprove && row.status === "waiting_payment" && (
+        {canApprove && row.status === "waiting_receipt" && (
           <Button variant="ghost" onClick={() => openEdit(row)} disabled={busy}>
             Sửa
           </Button>
         )}
-        {canApprove && row.status === "paid" && (
-          <Button
-            variant="ghost"
-            onClick={() => openTopUp(row)}
-            disabled={busy}
-          >
-            Chi bổ sung
-          </Button>
-        )}
-        {canApprove &&
-          row.status === "paid" &&
-          row.receipt_received_amount + row.receipt_pending_amount <
-            row.amount_vnd && (
-            <Button
-              variant="ghost"
-              onClick={() => setReceiptFor(row)}
-              disabled={busy}
-            >
-              Lập phiếu thu
-            </Button>
-          )}
-        {canMarkPaid && row.status === "waiting_payment" && (
+        {canMarkReceived && row.status === "waiting_receipt" && (
           <Button
             variant="accent"
             onClick={() => {
@@ -383,10 +322,10 @@ export function PaymentVouchersPage({
               setBankReference("");
             }}
           >
-            Xác nhận đã chi
+            Xác nhận đã thu
           </Button>
         )}
-        {canCancel && row.status === "waiting_payment" && (
+        {canCancel && row.status === "waiting_receipt" && (
           <Button
             variant="danger"
             onClick={() => {
@@ -405,10 +344,10 @@ export function PaymentVouchersPage({
     <main className="md-page">
       <header className="md-page__head">
         <p className="eyebrow">Kế toán</p>
-        <h1 className="md-page__title">Phiếu chi / UNC</h1>
+        <h1 className="md-page__title">Phiếu thu</h1>
         <p className="md-page__sub">
-          Theo dõi chứng từ chờ chi, đã chi và truy ngược về PMH cùng YCMH
-          nguồn.
+          Ghi nhận tiền quay về công ty — tiền chi ra tiêu không hết do NCC
+          hoặc nhân viên phụ trách mua nộp lại.
         </p>
       </header>
       {error && (
@@ -429,25 +368,13 @@ export function PaymentVouchersPage({
             className="input"
             value={q}
             onChange={(event) => setQ(event.target.value)}
-            placeholder="Tìm PC, UNC, PMH, YCMH..."
+            placeholder="Tìm PT, PC, PMH, NCC, người nộp..."
           />
           <Button type="submit" variant="ghost">
             Tìm
           </Button>
         </form>
         <div className="acct-toolbar__filters">
-          <select
-            className="input"
-            value={typeFilter}
-            onChange={(event) => {
-              setTypeFilter(event.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="all">Tất cả loại</option>
-            <option value="cash">Phiếu chi</option>
-            <option value="bank_transfer">Ủy nhiệm chi</option>
-          </select>
           <select
             className="input"
             value={statusFilter}
@@ -470,8 +397,8 @@ export function PaymentVouchersPage({
           <table className="md-page__table">
             <thead>
               <tr>
-                <th>Mã chứng từ</th>
-                <th>Loại</th>
+                <th>Mã phiếu thu</th>
+                <th>Người nộp</th>
                 <th>Lập lúc</th>
                 <th className="acct-amount-cell">Số tiền</th>
                 <th>Trạng thái</th>
@@ -485,99 +412,66 @@ export function PaymentVouchersPage({
               )}
               {!loading && rows.length === 0 && (
                 <tr>
-                  <td colSpan={5}>Chưa có chứng từ phù hợp.</td>
+                  <td colSpan={5}>
+                    Chưa có phiếu thu phù hợp. Lập phiếu thu từ trang Phiếu chi
+                    / UNC — nút "Lập phiếu thu" trên phiếu đã chi.
+                  </td>
                 </tr>
               )}
               {!loading &&
-                rows.map((row, rowIndex) => (
-                  <Fragment key={row.id}>
-                    {(rowIndex === 0 ||
-                      rows[rowIndex - 1].purchase_request_id !==
-                        row.purchase_request_id) && (
-                      <tr className="acct-group-row">
-                        <td colSpan={5}>
-                          <div>
-                            <strong>{row.purchase_request_code}</strong>
-                            <span
-                              className="acct-group-row__supplier"
-                              title={row.supplier_name}
-                            >
-                              {row.supplier_name}
-                            </span>
-                            <span className="acct-group-row__total">
-                              {row.purchase_paid_amount != null && (
-                                <>
-                                  Đã chi:{" "}
-                                  <b>{money(row.purchase_paid_amount)}</b>
-                                </>
-                              )}
-                              {row.purchase_request_total != null && (
-                                <>
-                                  {row.purchase_paid_amount != null && " / "}
-                                  Tổng PMH: {money(row.purchase_request_total)}
-                                </>
-                              )}
-                            </span>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                    <tr
-                      className={
-                        row.id === selected?.id ? "purchase__row--selected" : ""
-                      }
-                      onClick={() => setSelectedId(row.id)}
+                rows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={
+                      row.id === selected?.id ? "purchase__row--selected" : ""
+                    }
+                    onClick={() => setSelectedId(row.id)}
+                  >
+                    <td className="acct-code-cell">
+                      <strong>{row.code}</strong>
+                      <div className="purchase__source-codes">
+                        <CodeLink
+                          code={row.payment_voucher_code}
+                          onOpen={openVoucher}
+                        />
+                      </div>
+                    </td>
+                    <td
+                      className="acct-supplier-cell"
+                      title={`${row.payer_name} · ${methodText(row)}`}
                     >
-                      <td className="acct-code-cell">
-                        <strong>{row.code}</strong>
-                        <div className="purchase__source-codes">
-                          {row.source_request_codes.map((code, index) => (
-                            <span key={code}>
-                              {index > 0 && ", "}
-                              <CodeLink code={code} onOpen={openYcmh} />
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td>
-                        {row.voucher_type === "cash" ? "Phiếu chi" : "UNC"}
-                      </td>
-                      <td className="acct-time-cell">
-                        {fmtDateTime(row.created_at)}
-                      </td>
-                      <td className="acct-amount-cell">
-                        <strong>{money(row.amount_vnd)}</strong>
-                        {row.receipt_received_amount > 0 && (
-                          <small className="acct-receipt-sub">
-                            − đã thu {money(row.receipt_received_amount)}
-                          </small>
+                      {row.payer_name}
+                    </td>
+                    <td className="acct-time-cell">
+                      {fmtDateTime(row.created_at)}
+                    </td>
+                    <td className="acct-amount-cell">
+                      <strong>{money(row.amount_vnd)}</strong>
+                      {row.currency !== "VND" && (
+                        <small>
+                          {originalMoney(row.amount, row.currency)}
+                        </small>
+                      )}
+                    </td>
+                    <td>
+                      <span
+                        className={`acct-voucher-status acct-voucher-status--${STATUS_META[row.status].tone}`}
+                      >
+                        {STATUS_META[row.status].label}
+                      </span>
+                      {row.status === "received" &&
+                        row.attachment_count === 0 && (
+                          <span className="acct-missing-doc">
+                            Thiếu chứng từ
+                          </span>
                         )}
-                        {row.currency !== "VND" && (
-                          <small>
-                            {originalMoney(row.amount, row.currency)}
-                          </small>
-                        )}
-                      </td>
-                      <td>
-                        <span
-                          className={`acct-voucher-status acct-voucher-status--${STATUS_META[row.status].tone}`}
-                        >
-                          {STATUS_META[row.status].label}
-                        </span>
-                        {row.status === "paid" &&
-                          row.attachment_count === 0 && (
-                            <span className="acct-missing-doc">
-                              Thiếu chứng từ
-                            </span>
-                          )}
-                      </td>
-                    </tr>
-                  </Fragment>
+                    </td>
+                  </tr>
                 ))}
             </tbody>
           </table>
           <div className="md-page__pager">
-            <span>{total} chứng từ</span>
+            <span>{total} phiếu thu</span>
             <div>
               <Button
                 variant="ghost"
@@ -602,17 +496,13 @@ export function PaymentVouchersPage({
         <aside className="purchase__detail">
           {!selected ? (
             <div className="purchase__empty-detail">
-              Chọn một chứng từ để xem chi tiết.
+              Chọn một phiếu thu để xem chi tiết.
             </div>
           ) : (
             <>
               <div className="purchase__detail-head">
                 <div>
-                  <p className="eyebrow">
-                    {selected.voucher_type === "cash"
-                      ? "Phiếu chi"
-                      : "Ủy nhiệm chi"}
-                  </p>
+                  <p className="eyebrow">Phiếu thu</p>
                   <h2>{selected.code}</h2>
                 </div>
                 <div className="acct-status-stack">
@@ -621,7 +511,7 @@ export function PaymentVouchersPage({
                   >
                     {STATUS_META[selected.status].label}
                   </span>
-                  {selected.status === "paid" &&
+                  {selected.status === "received" &&
                     selected.attachment_count === 0 && (
                       <span className="acct-missing-doc">Thiếu chứng từ</span>
                     )}
@@ -629,33 +519,33 @@ export function PaymentVouchersPage({
               </div>
               <dl className="purchase__facts">
                 <div>
-                  <dt>PMH nguồn</dt>
-                  <dd>{selected.purchase_request_code}</dd>
+                  <dt>Phiếu chi nguồn</dt>
+                  <dd>
+                    <CodeLink
+                      code={selected.payment_voucher_code}
+                      onOpen={openVoucher}
+                    />
+                  </dd>
                 </div>
                 <div>
-                  <dt>YCMH nguồn</dt>
-                  <dd>
-                    {selected.source_request_codes.length
-                      ? selected.source_request_codes.map((code, index) => (
-                          <span key={code}>
-                            {index > 0 && ", "}
-                            <CodeLink code={code} onOpen={openYcmh} />
-                          </span>
-                        ))
-                      : "—"}
-                  </dd>
+                  <dt>PMH nguồn</dt>
+                  <dd>{selected.purchase_request_code}</dd>
                 </div>
                 <div>
                   <dt>Nhà cung cấp</dt>
                   <dd>{selected.supplier_name}</dd>
                 </div>
                 <div>
-                  <dt>Ngày chứng từ</dt>
-                  <dd>{fmtDate(selected.voucher_date)}</dd>
+                  <dt>Ngày thu</dt>
+                  <dd>{fmtDate(selected.receipt_date)}</dd>
                 </div>
                 <div>
-                  <dt>Đợt thanh toán</dt>
-                  <dd>{STAGE_LABELS[selected.payment_stage]}</dd>
+                  <dt>Người nộp</dt>
+                  <dd>{selected.payer_name}</dd>
+                </div>
+                <div>
+                  <dt>Hình thức</dt>
+                  <dd>{methodText(selected)}</dd>
                 </div>
                 <div>
                   <dt>Người lập</dt>
@@ -665,60 +555,41 @@ export function PaymentVouchersPage({
                   <dt>Lập lúc</dt>
                   <dd>{fmtDateTime(selected.created_at)}</dd>
                 </div>
+                {selected.received_at && (
+                  <div>
+                    <dt>Đã thu lúc</dt>
+                    <dd>
+                      {fmtDateTime(selected.received_at)}
+                      {selected.received_by_name
+                        ? ` · ${selected.received_by_name}`
+                        : ""}
+                    </dd>
+                  </div>
+                )}
               </dl>
               <div className="acct-purpose">
-                <span>Nội dung chi</span>
+                <span>Nội dung thu</span>
                 <strong>{selected.content}</strong>
               </div>
               <div className="acct-voucher-amount">
                 <span>Số tiền quy đổi</span>
                 <strong>{money(selected.amount_vnd)}</strong>
-                <small>
-                  {selected.currency !== "VND"
-                    ? `${originalMoney(selected.amount, selected.currency)} · tỷ giá ${selected.exchange_rate}`
-                    : amountInWords(selected.amount_vnd)}
-                </small>
-                {(selected.receipt_received_amount > 0 ||
-                  selected.receipt_pending_amount > 0) && (
+                {selected.currency !== "VND" && (
                   <small>
-                    <button
-                      type="button"
-                      className="code-link"
-                      onClick={() => openReceipts(selected.code)}
-                    >
-                      Đã thu {money(selected.receipt_received_amount)}
-                      {selected.receipt_pending_amount > 0
-                        ? ` · chờ thu ${money(selected.receipt_pending_amount)}`
-                        : ""}
-                    </button>
+                    {originalMoney(selected.amount, selected.currency)} · tỷ giá{" "}
+                    {selected.exchange_rate}
                   </small>
                 )}
               </div>
-              {selected.voucher_type === "bank_transfer" ? (
+              {selected.receipt_method === "bank_transfer" && (
                 <div className="acct-account-pair">
                   <div>
-                    <span>Trích nợ</span>
+                    <span>Tài khoản nhận</span>
                     <strong>{selected.company_account_holder}</strong>
                     <small>
                       {selected.company_account_number} ·{" "}
                       {selected.company_bank_name}
                     </small>
-                  </div>
-                  <div>
-                    <span>Thụ hưởng</span>
-                    <strong>{selected.beneficiary_account_holder}</strong>
-                    <small>
-                      {selected.beneficiary_account_number} ·{" "}
-                      {selected.beneficiary_bank_name}
-                    </small>
-                  </div>
-                </div>
-              ) : (
-                <div className="acct-account-pair">
-                  <div>
-                    <span>Người nhận</span>
-                    <strong>{selected.cash_recipient_name}</strong>
-                    <small>{selected.cash_recipient_address || "—"}</small>
                   </div>
                 </div>
               )}
@@ -729,13 +600,13 @@ export function PaymentVouchersPage({
               )}
               <div className="acct-attachments">
                 <span className="acct-attachments__label">
-                  Chứng từ đính kèm
+                  Chứng từ minh chứng đã thu
                 </span>
                 {attachments.length === 0 && (
                   <small className="acct-attachments__empty">
                     Chưa có file đính kèm.
-                    {selected.status === "paid" &&
-                      " Phiếu đã chi — cần bổ sung hóa đơn/biên nhận."}
+                    {selected.status === "received" &&
+                      " Phiếu đã thu — cần bổ sung biên nhận/ảnh minh chứng."}
                   </small>
                 )}
                 {attachments.length > 0 && (
@@ -792,7 +663,7 @@ export function PaymentVouchersPage({
                 )}
                 {canApprove && selected.status !== "cancelled" && (
                   <label className="acct-field">
-                    <span>Thêm ảnh hóa đơn / PDF (tối đa 10 MB)</span>
+                    <span>Thêm ảnh biên nhận / PDF (tối đa 10 MB)</span>
                     <input
                       className="input"
                       type="file"
@@ -807,6 +678,9 @@ export function PaymentVouchersPage({
                   </label>
                 )}
               </div>
+              {selected.note && (
+                <div className="purchase__note">{selected.note}</div>
+              )}
               {selected.cancel_reason && (
                 <div className="banner banner--error">
                   Lý do hủy: {selected.cancel_reason}
@@ -819,24 +693,13 @@ export function PaymentVouchersPage({
       </div>
 
       {editState && (
-        <PaymentVoucherDialog
-          key={editState.voucher?.id ?? "new"}
-          purchase={editState.purchase}
+        <PaymentReceiptDialog
+          key={editState.receipt.id}
           voucher={editState.voucher}
+          receipt={editState.receipt}
           onClose={() => setEditState(null)}
           onSaved={() => {
             setEditState(null);
-            load();
-          }}
-        />
-      )}
-      {receiptFor && (
-        <PaymentReceiptDialog
-          key={`receipt-${receiptFor.id}`}
-          voucher={receiptFor}
-          onClose={() => setReceiptFor(null)}
-          onSaved={() => {
-            setReceiptFor(null);
             load();
           }}
         />
@@ -845,7 +708,7 @@ export function PaymentVouchersPage({
         <div className="acct-modal" role="dialog" aria-modal="true">
           <div className="acct-modal__box">
             <header className="acct-modal__head">
-              <h2>Xác nhận đã chi {marking.code}</h2>
+              <h2>Xác nhận đã thu {marking.code}</h2>
               <button
                 type="button"
                 className="acct-modal__x"
@@ -856,12 +719,13 @@ export function PaymentVouchersPage({
             </header>
             <div className="acct-modal__body">
               <p>
-                Số tiền: <strong>{money(marking.amount_vnd)}</strong>
+                Số tiền: <strong>{money(marking.amount_vnd)}</strong> — người
+                nộp: <strong>{marking.payer_name}</strong>
               </p>
-              {marking.voucher_type === "bank_transfer" && (
+              {marking.receipt_method === "bank_transfer" && (
                 <label className="acct-field">
                   <span>
-                    Mã giao dịch / Số báo nợ <b>*</b>
+                    Mã giao dịch / Số báo có <b>*</b>
                   </span>
                   <input
                     autoFocus
@@ -876,8 +740,12 @@ export function PaymentVouchersPage({
               <Button variant="ghost" onClick={() => setMarking(null)}>
                 Hủy
               </Button>
-              <Button variant="accent" loading={busy} onClick={confirmPaid}>
-                Xác nhận đã chi
+              <Button
+                variant="accent"
+                loading={busy}
+                onClick={confirmReceived}
+              >
+                Xác nhận đã thu
               </Button>
             </footer>
           </div>
@@ -914,7 +782,7 @@ export function PaymentVouchersPage({
                 Đóng
               </Button>
               <Button variant="danger" loading={busy} onClick={confirmCancel}>
-                Hủy chứng từ
+                Hủy phiếu thu
               </Button>
             </footer>
           </div>

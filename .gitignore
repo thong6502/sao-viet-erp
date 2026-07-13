@@ -33,8 +33,18 @@ backend/static/avatars/
 # Hồ sơ nhân sự upload (CCCD…) = runtime + dữ liệu cá nhân nhạy cảm, KHÔNG commit
 backend/static/hr/
 backend/static/crm/
+# File đính kèm phiếu kho / lệnh sản xuất / phiếu chi kế toán = runtime content
+backend/static/kho/
+backend/static/san-xuat/
+backend/static/ke-toan/
 
 # DB backups (dev.db.bak-*)
 *.bak-*
 
 *.txt
+
+.pnpm-store
+
+.codex-tmp
+
+tmp

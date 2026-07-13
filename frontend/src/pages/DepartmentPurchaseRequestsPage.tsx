@@ -19,6 +19,7 @@ import { useCan } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { fmtDate } from "../utils/format";
 import "./master-data.css";
 import "./purchase.css";
 
@@ -76,12 +77,12 @@ function emptyRequest(
   };
 }
 
-function fmtDate(value?: string | null): string {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("vi-VN").format(new Date(value));
-}
-
-export function DepartmentPurchaseRequestsPage() {
+export function DepartmentPurchaseRequestsPage({
+  focusRequestCode = null,
+}: {
+  /** Liên thông từ PMH/Phiếu chi: lọc + tô sáng đúng mã YCMH này khi mở trang. */
+  focusRequestCode?: string | null;
+}) {
   const { token, user } = useAuth();
   const can = useCan();
   const canCreate = REQUEST_MODULES.some((module) => can(module, "create"));
@@ -138,6 +139,14 @@ export function DepartmentPurchaseRequestsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Liên thông: đổ mã YCMH cần truy vết vào ô tìm kiếm → load() tự chạy lại
+  // (q đổi làm useCallback tạo lại), danh sách chỉ còn đúng phiếu đó.
+  useEffect(() => {
+    if (!focusRequestCode) return;
+    setQ(focusRequestCode);
+    setStatus("all");
+  }, [focusRequestCode]);
 
   function openCreate() {
     setForm(emptyRequest(defaultSourceType));
@@ -336,7 +345,14 @@ export function DepartmentPurchaseRequestsPage() {
               </tr>
             ) : (
               rows.map((row) => (
-                <tr key={row.id} className="md-page__row">
+                <tr
+                  key={row.id}
+                  className={`md-page__row${
+                    row.code === focusRequestCode
+                      ? " purchase__row--selected"
+                      : ""
+                  }`}
+                >
                   <td>
                     <strong className="md-page__mono">{row.code}</strong>
                     <div className="md-page__muted">{row.purpose}</div>

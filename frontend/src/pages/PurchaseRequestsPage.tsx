@@ -22,8 +22,11 @@ import {
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import type { NavigateFn } from "../components/AppShell";
+import { CodeLink } from "../components/CodeLink";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon, type IconName } from "../components/Icons";
+import { fmtDate, money } from "../utils/format";
 import "./master-data.css";
 import "./purchase.css";
 
@@ -83,6 +86,7 @@ function emptyRequest(): PurchaseRequestInput {
     source_request_ids: [],
     purpose: "",
     needed_date: "",
+    expected_receipt_date: "",
     note: "",
     lines: [emptyLine()],
   };
@@ -96,6 +100,7 @@ function fromRequest(row: PurchaseRequestRow): PurchaseRequestInput {
     ),
     purpose: row.purpose ?? "",
     needed_date: row.needed_date ?? "",
+    expected_receipt_date: row.expected_receipt_date ?? "",
     note: row.note ?? "",
     lines: row.lines.map((line) => ({
       item_name: line.item_name,
@@ -107,15 +112,6 @@ function fromRequest(row: PurchaseRequestRow): PurchaseRequestInput {
       note: line.note ?? "",
     })),
   };
-}
-
-function money(value: number): string {
-  return `${Math.round(value).toLocaleString("vi-VN")} đ`;
-}
-
-function fmtDate(value?: string | null): string {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("vi-VN").format(new Date(value));
 }
 
 function lineTotal(line: PurchaseRequestLineInput): number {
@@ -321,6 +317,7 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
   <section class="info">
     <div><span class="label">Nhà cung cấp</span>${html(row.supplier_name || "Chưa chọn")}</div>
     <div><span class="label">Ngày cần hàng</span>${html(fmtDate(row.needed_date))}</div>
+    <div><span class="label">Ngày dự kiến nhận hàng</span>${html(fmtDate(row.expected_receipt_date))}</div>
     <div><span class="label">Yêu cầu nguồn</span>${html(sourceCodes)}</div>
     <div><span class="label">Bộ phận/người yêu cầu</span>${html(sourceDepartments || "Nội bộ")}</div>
     <div><span class="label">Người lập</span>${html(row.created_by_name || "—")}</div>
@@ -422,10 +419,12 @@ function PurchaseActionButton({
   );
 }
 
-export function PurchaseRequestsPage() {
+export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("thu_mua", "create");
+  const openYcmh = (code: string) =>
+    navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const canUpdate = can("thu_mua", "update");
   const canDelete = can("thu_mua", "delete");
   const canCancel = can("thu_mua", "cancel");
@@ -612,6 +611,7 @@ export function PurchaseRequestsPage() {
           ? selectedSources[0].purpose
           : `Mua theo ${selectedSources.map((source) => source.code).join(", ")}`,
       needed_date: dates[0] ?? "",
+      expected_receipt_date: "",
       note: "",
       lines: lines.length ? lines : [emptyLine()],
     });
@@ -638,6 +638,7 @@ export function PurchaseRequestsPage() {
         .filter((id) => Number.isFinite(id) && id > 0),
       purpose: (input.purpose ?? "").trim(),
       needed_date: (input.needed_date ?? "").trim(),
+      expected_receipt_date: trimOptional(input.expected_receipt_date),
       note: trimOptional(input.note),
       lines: input.lines.map((line) => ({
         item_name: (line.item_name ?? "").trim(),
@@ -1105,12 +1106,10 @@ export function PurchaseRequestsPage() {
                 <th>Mã phiếu</th>
                 <th>Trạng thái</th>
                 <th>Nhà cung cấp</th>
-                <th>Cần hàng</th>
+                <th>Cần / Dự kiến nhận</th>
                 <th>Tổng dự kiến</th>
                 <th>Người tạo / duyệt</th>
-                <th style={{ display: "flex", justifyContent: "flex-center" }}>
-                  Thao tác
-                </th>
+                <th>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -1133,25 +1132,45 @@ export function PurchaseRequestsPage() {
                     className={`md-page__row${selected?.id === row.id ? " purchase__row--selected" : ""}`}
                     onClick={() => setSelectedId(row.id)}
                   >
-                    <td>
+                    <td className="purchase__code-cell">
                       <strong className="md-page__mono">{row.code}</strong>
                       <div className="purchase__source-codes">
                         {row.sources.length
-                          ? row.sources.map((source) => source.code).join(", ")
+                          ? row.sources.map((source, index) => (
+                              <span key={source.id}>
+                                {index > 0 && ", "}
+                                <CodeLink
+                                  code={source.code}
+                                  onOpen={openYcmh}
+                                />
+                              </span>
+                            ))
                           : "Chưa gắn yêu cầu"}
                       </div>
-                      <div className="md-page__muted">{row.purpose || "—"}</div>
+                      <div className="md-page__muted purchase__row-purpose">
+                        {row.purpose || "—"}
+                      </div>
                     </td>
                     <td>
                       <StatusBadge status={row.status} />
                     </td>
-                    <td>
+                    <td
+                      className="purchase__supplier-cell"
+                      title={row.supplier_name ?? undefined}
+                    >
                       {row.supplier_name || (
                         <span className="md-page__muted">Chưa chọn</span>
                       )}
                     </td>
-                    <td>{fmtDate(row.needed_date)}</td>
-                    <td className="md-page__price">
+                    <td className="purchase__date-cell">
+                      {fmtDate(row.needed_date)}
+                      {row.expected_receipt_date && (
+                        <div className="md-page__muted">
+                          Nhận: {fmtDate(row.expected_receipt_date)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="md-page__price purchase__money-cell">
                       {money(row.total_estimate)}
                     </td>
                     <td>
@@ -1196,13 +1215,22 @@ export function PurchaseRequestsPage() {
                   <dt>Yêu cầu nguồn</dt>
                   <dd>
                     {selected.sources.length
-                      ? selected.sources.map((source) => source.code).join(", ")
+                      ? selected.sources.map((source, index) => (
+                          <span key={source.id}>
+                            {index > 0 && ", "}
+                            <CodeLink code={source.code} onOpen={openYcmh} />
+                          </span>
+                        ))
                       : "Chưa gắn"}
                   </dd>
                 </div>
                 <div>
                   <dt>Cần hàng</dt>
                   <dd>{fmtDate(selected.needed_date)}</dd>
+                </div>
+                <div>
+                  <dt>Dự kiến nhận hàng</dt>
+                  <dd>{fmtDate(selected.expected_receipt_date)}</dd>
                 </div>
                 <div>
                   <dt>Gửi duyệt</dt>
@@ -1373,6 +1401,19 @@ export function PurchaseRequestsPage() {
                     value={form.needed_date ?? ""}
                     onChange={(e) =>
                       setForm({ ...form, needed_date: e.target.value })
+                    }
+                  />
+                </LocalField>
+                <LocalField label="Ngày dự kiến nhận hàng">
+                  <input
+                    className="input"
+                    type="date"
+                    value={form.expected_receipt_date ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        expected_receipt_date: e.target.value,
+                      })
                     }
                   />
                 </LocalField>

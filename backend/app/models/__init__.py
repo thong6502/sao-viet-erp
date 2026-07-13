@@ -31,7 +31,14 @@ from .purchase import (
     PurchaseRequestSource,
     Supplier,
 )
-from .accounting import CompanyBankAccount, PaymentVoucher, SupplierBankAccount
+from .accounting import (
+    CompanyBankAccount,
+    PaymentReceipt,
+    PaymentReceiptAttachment,
+    PaymentVoucher,
+    PaymentVoucherAttachment,
+    SupplierBankAccount,
+)
 from .quotation import Quote, QuoteVersion, QuoteItem, QuoteAttachment, QuoteActivityLog
 from .refresh_token import RefreshToken
 from .role import Role, RolePermission
@@ -97,6 +104,9 @@ __all__ = [
     "CompanyBankAccount",
     "SupplierBankAccount",
     "PaymentVoucher",
+    "PaymentReceipt",
+    "PaymentVoucherAttachment",
+    "PaymentReceiptAttachment",
     "Material",
     "MaterialCost",
     "Machine",

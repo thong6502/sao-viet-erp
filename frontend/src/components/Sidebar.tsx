@@ -74,7 +74,16 @@ const NAV: NavSection[] = [
         label: "Yêu cầu mua hàng",
         icon: "clipboard",
         module: "thu_mua",
-        modules: ["thu_mua", "bao_gia", "don_hang_ban", "kho", "san_xuat", "dm_giay_vat_tu"],
+        // ke_toan: kế toán bấm mã YCMH từ PMH/Phiếu chi để truy vết ngược.
+        modules: [
+          "thu_mua",
+          "bao_gia",
+          "don_hang_ban",
+          "kho",
+          "san_xuat",
+          "dm_giay_vat_tu",
+          "ke_toan",
+        ],
       },
       { id: "mua-hang", label: "Mua hàng", icon: "bag", module: "thu_mua" },
       { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck", module: "thu_mua" },
@@ -86,6 +95,7 @@ const NAV: NavSection[] = [
     items: [
       { id: "ke-toan-yeu-cau-mua", label: "Yêu cầu mua hàng", icon: "fileCheck", module: "ke_toan" },
       { id: "ke-toan-phieu-chi", label: "Phiếu chi / UNC", icon: "calculator", module: "ke_toan" },
+      { id: "ke-toan-phieu-thu", label: "Phiếu thu", icon: "fileText", module: "ke_toan" },
       { id: "ke-toan-tai-khoan", label: "Tài khoản ngân hàng", icon: "building", module: "ke_toan" },
     ],
   },

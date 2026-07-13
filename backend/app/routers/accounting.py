@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
 
 from ..deps import (
     get_accounting_service,
@@ -14,10 +14,19 @@ from ..deps import (
 from ..models.user import User
 from ..schemas.accounting import (
     ApproveAndCreateVoucherIn,
+    CancelPaymentReceiptIn,
     CancelPaymentVoucherIn,
     CompanyBankAccountIn,
     CompanyBankAccountOut,
+    MarkPaymentReceiptReceivedIn,
     MarkPaymentVoucherPaidIn,
+    PaymentReceiptAttachmentListOut,
+    PaymentReceiptAttachmentOut,
+    PaymentReceiptIn,
+    PaymentReceiptListOut,
+    PaymentReceiptOut,
+    PaymentVoucherAttachmentListOut,
+    PaymentVoucherAttachmentOut,
     PaymentVoucherIn,
     PaymentVoucherListOut,
     PaymentVoucherOut,
@@ -191,7 +200,7 @@ def list_payment_vouchers(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ):
-    rows, total = svc.list_vouchers(
+    rows, total, totals = svc.list_vouchers(
         q=q,
         status=status_,
         voucher_type=voucher_type,
@@ -201,7 +210,7 @@ def list_payment_vouchers(
         page=page,
         size=size,
     )
-    return PaymentVoucherListOut(items=rows, total=total, page=page, size=size)
+    return PaymentVoucherListOut(items=rows, total=total, page=page, size=size, **totals)
 
 
 @router.get("/api/accounting/payment-vouchers/{voucher_id}", response_model=PaymentVoucherOut)
@@ -294,3 +303,216 @@ def cancel_payment_voucher(
         )
     except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
         raise _map_error(exc) from None
+
+
+@router.get(
+    "/api/accounting/payment-vouchers/{voucher_id}/attachments",
+    response_model=PaymentVoucherAttachmentListOut,
+)
+def list_payment_voucher_attachments(
+    voucher_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+):
+    try:
+        items = svc.list_voucher_attachments(voucher_id)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    return PaymentVoucherAttachmentListOut(
+        items=[PaymentVoucherAttachmentOut(**item) for item in items]
+    )
+
+
+@router.post(
+    "/api/accounting/payment-vouchers/{voucher_id}/attachments",
+    response_model=PaymentVoucherAttachmentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_payment_voucher_attachment(
+    voucher_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    file: UploadFile = File(...),
+):
+    data = file.file.read()
+    try:
+        return PaymentVoucherAttachmentOut(
+            **svc.add_voucher_attachment(
+                voucher_id,
+                actor=user,
+                file_name=file.filename,
+                content_type=file.content_type,
+                data=data,
+            )
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.delete(
+    "/api/accounting/payment-vouchers/{voucher_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_payment_voucher_attachment(
+    voucher_id: int,
+    attachment_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+) -> Response:
+    try:
+        svc.delete_voucher_attachment(voucher_id, attachment_id, actor=user)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/api/accounting/payment-receipts", response_model=PaymentReceiptListOut)
+def list_payment_receipts(
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    q: str | None = Query(default=None),
+    status_: str | None = Query(default=None, alias="status"),
+    payment_voucher_id: int | None = Query(default=None),
+    sort: str = Query(default="-created_at"),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=200),
+):
+    rows, total = svc.list_receipts(
+        q=q,
+        status=status_,
+        payment_voucher_id=payment_voucher_id,
+        sort=sort,
+        page=page,
+        size=size,
+    )
+    return PaymentReceiptListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.post(
+    "/api/accounting/payment-vouchers/{voucher_id}/receipts",
+    response_model=PaymentReceiptOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_payment_receipt(
+    voucher_id: int,
+    payload: PaymentReceiptIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+):
+    try:
+        return PaymentReceiptOut(**svc.create_receipt(voucher_id, actor=user, **payload.model_dump()))
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.put("/api/accounting/payment-receipts/{receipt_id}", response_model=PaymentReceiptOut)
+def update_payment_receipt(
+    receipt_id: int,
+    payload: PaymentReceiptIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+):
+    try:
+        return PaymentReceiptOut(
+            **svc.update_receipt(receipt_id, actor=user, **payload.model_dump())
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.post(
+    "/api/accounting/payment-receipts/{receipt_id}/mark-received",
+    response_model=PaymentReceiptOut,
+)
+def mark_payment_receipt_received(
+    receipt_id: int,
+    payload: MarkPaymentReceiptReceivedIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))],
+):
+    try:
+        return PaymentReceiptOut(
+            **svc.mark_receipt_received(
+                receipt_id, actor=user, bank_reference=payload.bank_reference
+            )
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.post("/api/accounting/payment-receipts/{receipt_id}/cancel", response_model=PaymentReceiptOut)
+def cancel_payment_receipt(
+    receipt_id: int,
+    payload: CancelPaymentReceiptIn,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "cancel"))],
+):
+    try:
+        return PaymentReceiptOut(
+            **svc.cancel_receipt(receipt_id, actor=user, reason=payload.reason)
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.get(
+    "/api/accounting/payment-receipts/{receipt_id}/attachments",
+    response_model=PaymentReceiptAttachmentListOut,
+)
+def list_payment_receipt_attachments(
+    receipt_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+):
+    try:
+        items = svc.list_receipt_attachments(receipt_id)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    return PaymentReceiptAttachmentListOut(
+        items=[PaymentReceiptAttachmentOut(**item) for item in items]
+    )
+
+
+@router.post(
+    "/api/accounting/payment-receipts/{receipt_id}/attachments",
+    response_model=PaymentReceiptAttachmentOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def upload_payment_receipt_attachment(
+    receipt_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    file: UploadFile = File(...),
+):
+    data = file.file.read()
+    try:
+        return PaymentReceiptAttachmentOut(
+            **svc.add_receipt_attachment(
+                receipt_id,
+                actor=user,
+                file_name=file.filename,
+                content_type=file.content_type,
+                data=data,
+            )
+        )
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+
+
+@router.delete(
+    "/api/accounting/payment-receipts/{receipt_id}/attachments/{attachment_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_payment_receipt_attachment(
+    receipt_id: int,
+    attachment_id: int,
+    svc: Annotated[AccountingService, Depends(get_accounting_service)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+) -> Response:
+    try:
+        svc.delete_receipt_attachment(receipt_id, attachment_id, actor=user)
+    except (AccountingValidationError, AccountingConflict, AccountingNotFound) as exc:
+        raise _map_error(exc) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
