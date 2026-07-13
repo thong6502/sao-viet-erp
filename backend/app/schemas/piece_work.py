@@ -1,6 +1,8 @@
 """Pydantic models cho API Lương khoán (module `luong`, nhịp 2)."""
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -11,6 +13,7 @@ class RateIn(BaseModel):
     group_name: str = Field(min_length=1, max_length=40)
     code: str | None = Field(default=None, max_length=20)
     name: str = Field(min_length=1, max_length=255)
+    cong_doan: str | None = Field(default=None, max_length=30)
     unit: str = Field(default="khac", max_length=12)
     unit_price: float = Field(ge=0)
     note: str | None = Field(default=None, max_length=255)
@@ -24,6 +27,7 @@ class RateOut(BaseModel):
     group_name: str
     code: str | None = None
     name: str
+    cong_doan: str | None = None
     unit: str
     unit_price: float
     note: str | None = None
@@ -59,6 +63,8 @@ class BatchOut(BaseModel):
     over_target: float
     over_bonus_pct: float
     note: str | None = None
+    status: str = "draft"
+    locked_at: datetime | None = None
 
 
 # --- dòng sản lượng ---------------------------------------------------------
@@ -91,6 +97,8 @@ class EntryOut(BaseModel):
     quantity: float
     amount: float
     note: str | None = None
+    source: str = "manual"
+    production_output_id: int | None = None
 
 
 # --- chia về người ----------------------------------------------------------
@@ -122,6 +130,11 @@ class SheetMeta(BaseModel):
     total: float
     leader_cut: float
     pool: float
+    # Cờ chặn (Q2=A): sổ không hợp lệ → không chảy vào lương; FE hiện cảnh báo.
+    valid: bool = True
+    no_shares: bool = False
+    zero_weight: bool = False
+    leader_no_share: bool = False
 
 
 class SheetOut(BaseModel):

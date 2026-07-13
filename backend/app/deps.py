@@ -22,6 +22,8 @@ from .repositories.calendar_repo import CalendarRepository
 from .repositories.leave_repo import LeaveRepository
 from .repositories.payroll_repo import PayrollRepository
 from .repositories.piece_work_repo import PieceWorkRepository
+from .repositories.production_output_repo import ProductionOutputRepository
+from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
 from .repositories.employee_repo import EmployeeRepository
 from .repositories.machine_repo import MachineRepository
@@ -62,6 +64,7 @@ from .services.calendar_service import CalendarService
 from .services.leave_service import LeaveService
 from .services.payroll_service import PayrollService
 from .services.piece_work_service import PieceWorkService
+from .services.production_output_service import ProductionOutputService
 from .services.customer_service import CustomerService
 from .services.department_service import DepartmentService
 from .services.employee_service import EmployeeService
@@ -331,11 +334,35 @@ def get_piece_work_repository(
     return PieceWorkRepository(db)
 
 
+def get_production_output_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> ProductionOutputRepository:
+    return ProductionOutputRepository(db)
+
+
+def get_cong_doan_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> CongDoanRepository:
+    return CongDoanRepository(db)
+
+
 def get_piece_work_service(
     piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    outputs: Annotated[ProductionOutputRepository, Depends(get_production_output_repository)],
 ) -> PieceWorkService:
-    return PieceWorkService(piece, employees)
+    # payroll (REPO, chỉ đọc) → đồng bộ khóa kỳ; audit → nhật ký; outputs → materialize phiếu SL (Pha 5b).
+    return PieceWorkService(piece, employees, payroll=payroll, audit=audit, outputs=outputs)
+
+
+def get_production_output_service(
+    outputs: Annotated[ProductionOutputRepository, Depends(get_production_output_repository)],
+    cong_doan: Annotated[CongDoanRepository, Depends(get_cong_doan_repository)],
+    piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
+) -> ProductionOutputService:
+    return ProductionOutputService(outputs, cong_doan, piece)
 
 
 def get_payroll_service(

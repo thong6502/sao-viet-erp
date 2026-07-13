@@ -637,3 +637,41 @@ def delete_share(share_id: int, svc: PieceService, employees: Employees,
     except PieceWorkError as exc:
         _raise(exc)
     return _sheet_for_batch(svc, employees, batch)
+
+
+@router.post("/khoan/batches/{batch_id}/lock", response_model=SheetOut)
+def lock_sheet(batch_id: int, svc: PieceService, employees: Employees,
+               user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    if svc.piece.get_batch(batch_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sổ khoán.")
+    try:
+        b = svc.lock_sheet(batch_id, actor=user)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, b)
+
+
+@router.post("/khoan/batches/{batch_id}/reopen", response_model=SheetOut)
+def reopen_sheet(batch_id: int, svc: PieceService, employees: Employees,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    if svc.piece.get_batch(batch_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sổ khoán.")
+    try:
+        b = svc.reopen_sheet(batch_id, actor=user)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, b)
+
+
+@router.post("/khoan/batches/{batch_id}/sync-outputs", response_model=SheetOut)
+def sync_outputs(batch_id: int, svc: PieceService, employees: Employees,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    """Kéo Phiếu sản lượng công đoạn (theo tổ) của kỳ vào sổ khoán để xem trước quỹ (sổ còn nháp)."""
+    b = svc.piece.get_batch(batch_id)
+    if b is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sổ khoán.")
+    try:
+        svc.sync_outputs(b)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, b)

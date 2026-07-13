@@ -2210,6 +2210,7 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 | `group_name` | `String(40)` | **IX** | no | — | Tổ khoán (to_boi/to_cat/may_in_5mau…). |
 | `code` | `String(20)` | — | yes | — | Mã (A–F cho máy in). |
 | `name` | `String(255)` | — | no | — | Tên công việc. |
+| `cong_doan` | `String(30)` | **IX** | yes | — | Mã công đoạn gắn đơn giá (Pha 5b, ref `cong_doan.ma`). |
 | `unit` | `String(12)` | — | no | `khac` | Đơn vị (m2/bai_in/tan/cuon/luot/hop/to/khac). |
 | `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá/đơn vị. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
@@ -2234,6 +2235,9 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 | `over_target` | `Numeric(14,2)` | — | no | `0` | Mốc vượt năng suất. |
 | `over_bonus_pct` | `Numeric(5,4)` | — | no | `0` | % thưởng phần vượt mốc. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `status` | `String(8)` | — | no | `draft` | Chốt sổ: draft/locked. Chỉ locked mới vào bảng lương + cấm sửa (Pha 5). |
+| `locked_at` | `DateTime(tz)` | — | yes | — | Khi chốt sổ. |
+| `locked_by` | `Integer` | — | yes | — | User chốt sổ (logical link). |
 | `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
 
 ---
@@ -2253,6 +2257,8 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 | `quantity` | `Numeric(14,2)` | — | no | `0` | Khối lượng làm được. |
 | `amount` | `Numeric(14,2)` | — | no | `0` | Thành tiền = qty × price. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `source` | `String(8)` | — | no | `manual` | Nguồn dòng (Pha 5b): manual (gõ tay) / phieu (materialize từ Phiếu sản lượng lúc chốt sổ). |
+| `production_output_id` | `Integer` | **IX** | yes | — | Soft link → `production_outputs.id` (dòng sinh từ phiếu). |
 
 ---
 
@@ -2268,6 +2274,38 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 | `weight` | `Numeric(10,2)` | — | no | `1` | Hệ số chia (tỷ lệ nhóm thỏa thuận). |
 | `amount` | `Numeric(14,2)` | — | no | `0` | Tiền khoán tính được. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
+
+---
+
+### `production_outputs`
+
+**Purpose:** Phiếu sản lượng công đoạn (Pha 5b) — ghi sản lượng thực mỗi công đoạn của một LSX; phiếu theo TỔ → materialize thành dòng sổ khoán lúc Chốt sổ. Ghi theo NGƯỜI + trừ lỗi = 5b-2.
+
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `production_order_id` | `Integer` | **IX** | no | — | LSX (soft-ref `production_orders.id`). |
+| `cong_doan` | `String(30)` | **IX** | no | — | Mã công đoạn (`cong_doan.ma`). |
+| `ghi_theo` | `String(8)` | — | no | `to` | to (theo tổ) / nguoi (5b-2). |
+| `year` | `Integer` | **IX** | no | — | Năm kỳ khoán. |
+| `month` | `Integer` | **IX** | no | — | Tháng kỳ khoán. |
+| `group_name` | `String(40)` | **IX** | yes | — | Tổ (khi ghi_theo=to) — khớp `piece_batches.group_name`. |
+| `employee_id` | `Integer` | **IX** | yes | — | NV (khi ghi_theo=nguoi, 5b-2). |
+| `may_id` | `Integer` | — | yes | — | Máy (soft-ref, thống kê). |
+| `piece_rate_id` | `Integer` | — | yes | — | Đơn giá nguồn. |
+| `work_name` | `String(255)` | — | no | — | Tên công việc (snapshot). |
+| `unit` | `String(12)` | — | no | `khac` | Đơn vị (snapshot). |
+| `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá (snapshot). |
+| `quantity` | `Numeric(14,2)` | — | no | `0` | Sản lượng đạt. |
+| `defect_qty` | `Numeric(14,2)` | — | no | `0` | Sản lượng HỎNG (5b-2). |
+| `defect_cause` | `String(20)` | — | yes | — | Nguyên nhân hỏng: loi_tho/vat_tu/thiet_bi/file_thiet_ke/cong_doan_truoc (chỉ loi_tho mới trừ). |
+| `defect_deduction` | `Numeric(14,2)` | — | no | `0` | Tiền trừ lỗi (tính lúc ghi, vượt ngưỡng × đơn giá). |
+| `tinh_khoan` | `Boolean` | — | no | `true` | Có tính khoán (LSX bù mặc định false). |
+| `work_date` | `Date` | — | yes | — | Ngày làm. |
+| `recorded_by` | `Integer` | — | yes | — | User ghi phiếu. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Cập nhật. |
 
 ---
 
@@ -2349,7 +2387,9 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job (`routing_step`) = Phase D. `may_id` soft int → `may_thiet_bi`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `nhom`, `may_id`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `nhom`, `may_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+
+`khoan_ghi_theo` (Pha 5b): cách ghi sản lượng khoán — `to` (theo tổ, chia hệ số) / `nguoi` (từng người, 5b-2) / `khong`. `allowed_defect_pct`/`allowed_defect_abs` (5b-2): ngưỡng hao cho phép (max của 2), phần vượt mới trừ lỗi.
 
 `kieu_bu_hao`: nối bù hao — `khong` / `theo_so_mau` / `theo_so_con` (tra bảng `bu_hao` theo trục) / `co_dinh` (cộng `so_to_bu_hao` tờ).
 

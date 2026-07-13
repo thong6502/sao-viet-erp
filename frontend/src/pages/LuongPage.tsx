@@ -539,8 +539,15 @@ function KhoanSheet({ token }: { token: string }) {
     try { setSheet(await fn()); } catch (e) { setErr(errText(e)); }
   }
   const batch = sheet?.batch ?? null;
+  const locked = batch?.status === "locked";
+  const meta = sheet?.meta ?? null;
   const groupRates = rates.filter((r) => r.group_name === group && r.is_active);
   const empName = (id: number) => emps.find((e) => e.id === id)?.full_name ?? `NV#${id}`;
+  const invalidMsg = !meta || meta.valid ? null
+    : meta.no_shares ? "Chưa chia cho ai — thêm người vào danh sách chia."
+    : meta.leader_no_share ? "Tổ trưởng chưa có trong danh sách chia — thêm dòng cho tổ trưởng."
+    : meta.zero_weight ? "Chưa nhập hệ số chia (tất cả đang = 0)."
+    : "Sổ chưa hợp lệ.";
 
   return (
     <div>
@@ -550,8 +557,28 @@ function KhoanSheet({ token }: { token: string }) {
           {KHOAN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
         </select>
         {!batch && <button className="btn btn--primary" onClick={() => run(() => api.luong.openKhoanSheet(token, year, month, group))}>Mở sổ khoán tổ này</button>}
+        {batch && (
+          <span className={`ns-badge ${locked ? "ns-badge--ok" : "ns-badge--warn"}`}>
+            {locked ? "✓ Đã chốt sổ" : "Nháp"}
+          </span>
+        )}
+        {batch && !locked && (
+          <button className="btn btn--ghost"
+                  title="Kéo Phiếu sản lượng công đoạn (theo tổ) của kỳ vào sổ để xem quỹ"
+                  onClick={() => run(() => api.luong.khoanSyncOutputs(token, batch.id))}>↺ Kéo sản lượng</button>
+        )}
+        {batch && !locked && (
+          <button className="btn btn--primary" disabled={!meta?.valid}
+                  title={invalidMsg ?? ""}
+                  onClick={() => run(() => api.luong.khoanLockSheet(token, batch.id))}>Chốt sổ</button>
+        )}
+        {batch && locked && (
+          <button className="btn btn--ghost" onClick={() => run(() => api.luong.khoanReopenSheet(token, batch.id))}>Mở lại sổ</button>
+        )}
       </div>
       {err && <div className="banner banner--error" style={{ marginBottom: 12 }}>{err}</div>}
+      {batch && invalidMsg && !locked && <div className="banner banner--warn" style={{ marginBottom: 12 }}>⚠ {invalidMsg} Sổ chưa hợp lệ sẽ KHÔNG vào bảng lương.</div>}
+      {locked && <div className="banner banner--info" style={{ marginBottom: 12 }}>Sổ đã chốt — chảy vào bảng lương, khóa sửa. Bấm <b>Mở lại sổ</b> để chỉnh (kỳ lương phải chưa chốt).</div>}
 
       {!batch ? (
         <p className="ns__empty">Chưa mở sổ khoán cho <b>{KHOAN_GROUP_LABEL[group]}</b> tháng này. Bấm <b>“Mở sổ khoán tổ này”</b>.</p>
@@ -566,7 +593,7 @@ function KhoanSheet({ token }: { token: string }) {
             </div>
           )}
 
-          <KhoanConfig token={token} batch={batch} emps={emps} onSaved={run} />
+          {!locked && <KhoanConfig token={token} batch={batch} emps={emps} onSaved={run} />}
 
           <h4 className="ns-section__title" style={{ marginTop: 16 }}>Sản lượng (nhập tay)</h4>
           <div className="ns__tablewrap">
@@ -580,14 +607,14 @@ function KhoanSheet({ token }: { token: string }) {
                     <td className="lg-num">{money(en.unit_price)}</td>
                     <td className="lg-num">{Number(en.quantity).toLocaleString("vi-VN")}</td>
                     <td className="lg-num lg-net">{money(en.amount)}</td>
-                    <td><button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanEntry(token, en.id))}>Xóa</button></td>
+                    <td>{!locked && <button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanEntry(token, en.id))}>Xóa</button>}</td>
                   </tr>
                 ))}
                 {sheet?.entries.length === 0 && <tr><td colSpan={6} className="ns__empty">Chưa có dòng sản lượng.</td></tr>}
               </tbody>
             </table>
           </div>
-          <AddEntryRow token={token} batchId={batch.id} rates={groupRates} onAdded={run} />
+          {!locked && <AddEntryRow token={token} batchId={batch.id} rates={groupRates} onAdded={run} />}
 
           <h4 className="ns-section__title" style={{ marginTop: 16 }}>Chia về người (hệ số nhóm tự thỏa thuận)</h4>
           <div className="ns__tablewrap">
@@ -599,14 +626,14 @@ function KhoanSheet({ token }: { token: string }) {
                     <td>{s.employee_name ?? empName(s.employee_id)} {batch.leader_employee_id === s.employee_id && <span className="ns-badge ns-badge--ok">Tổ trưởng</span>}</td>
                     <td className="lg-num">{s.weight}</td>
                     <td className="lg-num lg-net">{money(s.amount)}</td>
-                    <td><button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanShare(token, s.id))}>Xóa</button></td>
+                    <td>{!locked && <button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanShare(token, s.id))}>Xóa</button>}</td>
                   </tr>
                 ))}
                 {sheet?.shares.length === 0 && <tr><td colSpan={4} className="ns__empty">Chưa chia cho ai.</td></tr>}
               </tbody>
             </table>
           </div>
-          <AddShareRow token={token} batchId={batch.id} emps={emps} onAdded={run} />
+          {!locked && <AddShareRow token={token} batchId={batch.id} emps={emps} onAdded={run} />}
         </>
       )}
     </div>

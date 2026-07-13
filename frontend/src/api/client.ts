@@ -2580,6 +2580,8 @@ export interface PieceBatch {
   over_target: number;
   over_bonus_pct: number;
   note: string | null;
+  status: string;
+  locked_at: string | null;
 }
 export interface PieceBatchConfig {
   leader_employee_id?: number | null;
@@ -2622,12 +2624,77 @@ export interface PieceSheetMeta {
   total: number;
   leader_cut: number;
   pool: number;
+  valid: boolean;
+  no_shares: boolean;
+  zero_weight: boolean;
+  leader_no_share: boolean;
 }
 export interface PieceSheet {
   batch: PieceBatch | null;
   entries: PieceEntry[];
   shares: PieceShare[];
   meta: PieceSheetMeta | null;
+}
+
+export interface CongDoanLite {
+  id: number;
+  ma: string;
+  ten: string;
+  khoan_ghi_theo: string;
+}
+
+// Phiếu sản lượng công đoạn (Pha 5b)
+export interface ProductionOutput {
+  id: number;
+  production_order_id: number;
+  cong_doan: string;
+  ghi_theo: string;
+  year: number;
+  month: number;
+  group_name: string | null;
+  employee_id: number | null;
+  may_id: number | null;
+  piece_rate_id: number | null;
+  work_name: string;
+  unit: string;
+  unit_price: number;
+  quantity: number;
+  amount: number;
+  defect_qty: number;
+  defect_cause: string | null;
+  defect_deduction: number;
+  net_amount: number;
+  tinh_khoan: boolean;
+  work_date: string | null;
+  note: string | null;
+}
+export interface ProductionOutputInput {
+  production_order_id: number;
+  cong_doan: string;
+  year: number;
+  month: number;
+  group_name?: string | null;
+  employee_id?: number | null;
+  piece_rate_id?: number | null;
+  work_name?: string | null;
+  unit?: string | null;
+  unit_price?: number | null;
+  quantity: number;
+  defect_qty?: number;
+  defect_cause?: string | null;
+  may_id?: number | null;
+  tinh_khoan?: boolean | null;
+  work_date?: string | null;
+  note?: string | null;
+}
+export interface DefectReportRow {
+  scope: string;
+  employee_id: number | null;
+  group_name: string | null;
+  quantity: number;
+  defect_qty: number;
+  deduction: number;
+  defect_rate: number;
 }
 
 export interface Timesheet {
@@ -4587,6 +4654,15 @@ export const api = {
     deleteKhoanShare(token: string, shareId: number): Promise<PieceSheet> {
       return authed<PieceSheet>(`/api/luong/khoan/shares/${shareId}`, token, { method: "DELETE" });
     },
+    khoanLockSheet(token: string, batchId: number): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/lock`, token, { method: "POST" });
+    },
+    khoanReopenSheet(token: string, batchId: number): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/reopen`, token, { method: "POST" });
+    },
+    khoanSyncOutputs(token: string, batchId: number): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/sync-outputs`, token, { method: "POST" });
+    },
   },
 
   // --- Sản phẩm in (Product catalog), spec-07 -------------------------------
@@ -5764,6 +5840,32 @@ export const api = {
     },
     deleteOrderAttachment(token: string, id: number, attachmentId: number): Promise<void> {
       return authed<void>(`/api/san-xuat/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Công đoạn (danh mục, lite cho dropdown) -----------------------------
+  congDoan: {
+    list(token: string): Promise<{ items: CongDoanLite[] }> {
+      return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=500", token);
+    },
+  },
+
+  // --- Phiếu sản lượng công đoạn (Pha 5b) ----------------------------------
+  sanLuong: {
+    listByOrder(token: string, orderId: number): Promise<{ items: ProductionOutput[] }> {
+      return authed<{ items: ProductionOutput[] }>(`/api/san-luong/outputs?order_id=${orderId}`, token);
+    },
+    create(token: string, input: ProductionOutputInput): Promise<ProductionOutput> {
+      return authed<ProductionOutput>("/api/san-luong/outputs", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    update(token: string, id: number, input: Partial<ProductionOutputInput>): Promise<ProductionOutput> {
+      return authed<ProductionOutput>(`/api/san-luong/outputs/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/san-luong/outputs/${id}`, token, { method: "DELETE" });
+    },
+    defectReport(token: string, year: number, month: number): Promise<{ items: DefectReportRow[] }> {
+      return authed<{ items: DefectReportRow[] }>(`/api/san-luong/defect-report?year=${year}&month=${month}`, token);
     },
   },
 

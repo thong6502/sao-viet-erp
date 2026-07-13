@@ -1344,6 +1344,68 @@ def _migrate_payroll_period_paid(db: Session) -> None:
     db.commit()
 
 
+def _migrate_piece_batch_status(db: Session) -> None:
+    """Pha 5 Lương khoán: thêm cột chốt sổ `piece_batches.status/locked_at/locked_by`.
+    Chỉ sổ đã chốt (locked) mới chảy vào bảng lương + cấm sửa. No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "piece_batches" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "piece_batches")
+    if "status" not in existing:
+        db.execute(text("ALTER TABLE piece_batches ADD COLUMN status VARCHAR(8) NOT NULL DEFAULT 'draft'"))
+    if "locked_at" not in existing:
+        db.execute(text("ALTER TABLE piece_batches ADD COLUMN locked_at TIMESTAMP"))
+    if "locked_by" not in existing:
+        db.execute(text("ALTER TABLE piece_batches ADD COLUMN locked_by INTEGER"))
+    db.commit()
+
+
+def _migrate_phieu_san_luong_5b1(db: Session) -> None:
+    """Pha 5b-1 Phiếu sản lượng công đoạn: thêm cột nối khoán↔công đoạn↔phiếu.
+    - cong_doan.khoan_ghi_theo (to/nguoi/khong)
+    - piece_rates.cong_doan (mã công đoạn gắn đơn giá)
+    - piece_batch_entries.source + production_output_id (dòng materialize từ phiếu)
+    Bảng production_outputs là bảng MỚI → create_all tự dựng, KHÔNG cần ở đây.
+    No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "cong_doan" in tables and "khoan_ghi_theo" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN khoan_ghi_theo VARCHAR(8) NOT NULL DEFAULT 'khong'"))
+    if "piece_rates" in tables and "cong_doan" not in _existing_columns(insp, "piece_rates"):
+        db.execute(text("ALTER TABLE piece_rates ADD COLUMN cong_doan VARCHAR(30)"))
+    if "piece_batch_entries" in tables:
+        cols = _existing_columns(insp, "piece_batch_entries")
+        if "source" not in cols:
+            db.execute(text("ALTER TABLE piece_batch_entries ADD COLUMN source VARCHAR(8) NOT NULL DEFAULT 'manual'"))
+        if "production_output_id" not in cols:
+            db.execute(text("ALTER TABLE piece_batch_entries ADD COLUMN production_output_id INTEGER"))
+    db.commit()
+
+
+def _migrate_phieu_san_luong_5b2(db: Session) -> None:
+    """Pha 5b-2: trừ lỗi + ghi theo người.
+    - cong_doan.allowed_defect_pct / allowed_defect_abs (ngưỡng hao cho phép)
+    - production_outputs.defect_qty / defect_cause / defect_deduction
+    No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "cong_doan" in tables:
+        cols = _existing_columns(insp, "cong_doan")
+        if "allowed_defect_pct" not in cols:
+            db.execute(text("ALTER TABLE cong_doan ADD COLUMN allowed_defect_pct NUMERIC(6,4) NOT NULL DEFAULT 0"))
+        if "allowed_defect_abs" not in cols:
+            db.execute(text("ALTER TABLE cong_doan ADD COLUMN allowed_defect_abs NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    if "production_outputs" in tables:
+        cols = _existing_columns(insp, "production_outputs")
+        if "defect_qty" not in cols:
+            db.execute(text("ALTER TABLE production_outputs ADD COLUMN defect_qty NUMERIC(14,2) NOT NULL DEFAULT 0"))
+        if "defect_cause" not in cols:
+            db.execute(text("ALTER TABLE production_outputs ADD COLUMN defect_cause VARCHAR(20)"))
+        if "defect_deduction" not in cols:
+            db.execute(text("ALTER TABLE production_outputs ADD COLUMN defect_deduction NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1391,6 +1453,9 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0045_payroll_ot_night_bhxh_cap", _migrate_payroll_ot_night_bhxh_cap),
     ("0046_payroll_pit_2026", _migrate_payroll_pit_2026),
     ("0047_payroll_period_paid", _migrate_payroll_period_paid),
+    ("0048_piece_batch_status", _migrate_piece_batch_status),
+    ("0049_phieu_san_luong_5b1", _migrate_phieu_san_luong_5b1),
+    ("0050_phieu_san_luong_5b2", _migrate_phieu_san_luong_5b2),
 ]
 
 

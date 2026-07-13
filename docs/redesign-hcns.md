@@ -102,6 +102,12 @@
 5. **Pha 4 — Lương thời gian** (đọc công chốt, OT/ca đêm/BHXH/TNCN, chi trả, nhật ký).
 6. **Pha 5 — Lương khoán** (khóa kỳ, vá chia, nguồn sản lượng).
 
+**NỢ Pha 5 (đã build Phần 1 + 5b-1 + 5b-2; còn để pha sau):**
+
+- Phiếu lương khoán TÁCH DÒNG theo-người / theo-tổ — hiện gộp 1 cột "khoán"; tiền theo-người mới hiện ở tab Sản lượng (màn LSX), chưa hiện ở tab Lương khoán.
+- Màn BÁO CÁO tỉ lệ hỏng theo thợ/tổ — mới có endpoint `GET /api/san-luong/defect-report`, chưa có màn riêng.
+- ĐỐI CHIẾU sản lượng công đoạn với số lượng LSX + giấy xuất kho (cảnh báo mềm chống khai khống) — hoãn từ 5b, chưa làm.
+
 > **Bẫy thực thi (bắt buộc nhớ):** không có Alembic → cột mới phải viết vào `backend/app/db_migrations.py` + cập nhật `docs/DB_SCHEMA.md` (có guard test); Boolean `server_default` phải `true`/`false` (không `"0"`/`"1"`); đổi route/schema phải restart uvicorn. Mỗi pha chạy `./init.ps1` xanh mới đi tiếp.
 
 ## 6. Tham số/chính sách cần chốt khi làm từng pha (chưa quyết)
