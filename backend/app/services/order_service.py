@@ -38,6 +38,8 @@ from ..models.order import (
     Order,
 )
 from ..models.payment import PAYMENT_KIND_DEPOSIT, PAYMENT_METHODS
+from ..models.quotation import STATUS_ACCEPTED as QUOTE_STATUS_ACCEPTED
+from ..models.quotation import STATUS_CONVERTED_TO_ORDER as QUOTE_STATUS_CONVERTED
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.order_repo import OrderRepository
@@ -450,7 +452,19 @@ class OrderService:
             f"({order_type}/{order_kind})",
         )
         self._auto_clear_from_quote(order)
+        self._lock_source_quote(order)
         return order
+
+    def _lock_source_quote(self, order: Order) -> None:
+        """B7 (redesign-bao-gia §3): khóa BÁO GIÁ GỐC sau khi lên đơn — `accepted → converted_to_order`
+        — để KHÔNG tạo được đơn thứ 2 từ cùng báo giá (picker chỉ chọn báo giá `accepted`). Read-write
+        qua repo Báo giá (cùng session). Chỉ khóa khi báo giá còn `accepted` (idempotent, an toàn)."""
+        if order.quotation_id is None or self._quotations is None:
+            return
+        quote = self._quotations.get_by_id(order.quotation_id)
+        if quote is not None and quote.status == QUOTE_STATUS_ACCEPTED:
+            quote.status = QUOTE_STATUS_CONVERTED
+            self._quotations.update(quote)
 
     def _auto_clear_from_quote(self, order: Order) -> None:
         """BG-2 "đơn tự thông": đơn tạo từ báo giá ĐÃ được GĐ duyệt (bao phủ) → materialize 1 bản duyệt

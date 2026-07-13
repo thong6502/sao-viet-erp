@@ -510,12 +510,15 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá ĐẦU TIÊN (tương thích cũ); tham chiếu thật per dòng ở `quote_items.estimate_id`. Gỡ ở BG-4. |
 | `phieu_tinh_gia_id` | `Integer` → `INTEGER` | **IX** (soft) | yes | — | **BG-1**: nguồn MỚI = 1 Phiếu tính giá (PTG). Soft link (plain int). 1 PTG → 1 BG đang hiệu lực — guard ở service (KHÔNG unique cứng; cancelled/rejected/expired nhả chỗ). Migration 0051. |
 | `salesperson_id` | `Integer` | **FK→users.id** (SET NULL), **IX** | yes | — | Sale phụ trách — RBAC data-scope owner. |
-| `status` | `String(20)` | — | no | `draft` | draft/sent/accepted/rejected/expired/converted_to_order/cancelled. |
+| `status` | `String(20)` | — | no | `draft` | draft/**pending_approval**/sent/accepted/rejected/expired/converted_to_order/cancelled (redesign-bao-gia §3). |
 | `current_version_id` | `Integer` | **IX** | yes | — | Phiên bản đang hiệu lực (con trỏ, không FK để tránh vòng). |
 | `valid_until` | `Date` | — | yes | — | Hạn hiệu lực; quá hạn → expired (chặn duyệt). |
 | `payment_terms` | `String(255)` | — | yes | — | Điều khoản thanh toán. |
 | `delivery_terms` | `String(255)` | — | yes | — | Điều khoản giao hàng. |
-| `delivery_address` | `String(500)` | — | yes | — | Địa chỉ giao. |
+| `delivery_address` | `String(500)` | — | yes | — | Địa chỉ giao (auto-fill từ `CustomerAddress.is_default`, sửa được). |
+| `contact_name_snapshot` | `String(255)` | — | yes | — | **redesign-bao-gia §5**: người liên hệ snapshot (auto-fill CRM `CustomerContact.is_primary`). Migration 0052. |
+| `contact_phone_snapshot` | `String(30)` | — | yes | — | SĐT người liên hệ snapshot. Migration 0052. |
+| `contact_title_snapshot` | `String(120)` | — | yes | — | Chức vụ người liên hệ snapshot. Migration 0052. |
 | `customer_note` | `String(1000)` | — | yes | — | Ghi chú hiện cho khách. |
 | `internal_note` | `String(1000)` | — | yes | — | Ghi chú nội bộ. |
 | `cancel_reason` | `String(500)` | — | yes | — | Lý do hủy (bắt buộc khi cancelled). |
@@ -568,6 +571,7 @@ pick** (logic chốt: báo giá không soạn tay, chỉ pick từ phiếu tính
 | `phieu_thanh_phan_id` | `Integer` → `INTEGER` | (soft) | yes | — | **BG-1**: dòng báo giá nguồn từ 1 "sản phẩm" (`PhieuThanhPhan`) của PTG. Soft ref. Migration 0051. |
 | `estimate_option_id` | `Integer` | — | yes | — | Mức số lượng (option) đã pick trong phiếu. |
 | `line_no` | `Integer` | — | no | — | Thứ tự dòng. |
+| `po_code` | `String(60)` | — | yes | — | Mã PO của khách cho dòng (cột "MÃ PO" mẫu báo giá thật). Migration 0052. |
 | `product_type` | `String(50)` | — | no | — | Loại SP (snapshot từ phiếu). |
 | `product_name` | `String(255)` | — | no | — | Tên SP (snapshot). |
 | `product_spec_text` | `String(1000)` | — | yes | — | Spec đọc được ("21×29,7 cm · 4 màu/2 mặt"). |

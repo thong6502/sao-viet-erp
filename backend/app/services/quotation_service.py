@@ -13,6 +13,7 @@ from ..models.quotation import (
     QuoteVersion,
     QuoteItem,
     STATUS_DRAFT,
+    STATUS_PENDING_APPROVAL,
     STATUS_SENT,
     STATUS_ACCEPTED,
     STATUS_REJECTED,
@@ -110,6 +111,23 @@ class QuotationService:
             return None
         c = self._customers.get_by_id(customer_id)
         return c.name if c else None
+
+    def _customer_defaults(self, customer_id: int | None) -> dict:
+        """Auto-fill từ CRM (redesign-bao-gia §4): người liên hệ CHÍNH (`CustomerContact.is_primary`)
+        + ĐC giao MẶC ĐỊNH (`CustomerAddress.is_default`). Repo list_* đã xếp is_primary/is_default
+        lên đầu; fallback phần tử đầu nếu chưa đặt cờ. Rỗng nếu không có khách/repo."""
+        out = {"contact_name": None, "contact_phone": None, "contact_title": None, "delivery_address": None}
+        if customer_id is None or self._customers is None:
+            return out
+        contacts = list(getattr(self._customers, "list_contacts", lambda _cid: [])(customer_id))
+        primary = next((c for c in contacts if c.is_primary), contacts[0] if contacts else None)
+        if primary is not None:
+            out.update(contact_name=primary.name, contact_phone=primary.phone, contact_title=primary.title)
+        addrs = list(getattr(self._customers, "list_addresses", lambda _cid: [])(customer_id))
+        default_addr = next((a for a in addrs if a.is_default), addrs[0] if addrs else None)
+        if default_addr is not None:
+            out["delivery_address"] = default_addr.address
+        return out
 
     # --- Pricing calculation engine (Phase 2B) --------------------------------
     @staticmethod
@@ -309,6 +327,7 @@ class QuotationService:
         # Generate unique code
         quote_number = self.sequence.generate_code("quotation") if self.sequence else "BG26-0001"
         cust_name = self._customer_display_name(customer_id)
+        defaults = self._customer_defaults(customer_id)  # auto-fill liên hệ + ĐC giao (redesign-bao-gia §4)
 
         # Create Header
         quote = Quote(
@@ -321,7 +340,10 @@ class QuotationService:
             valid_until=valid_until,
             payment_terms=payment_terms,
             delivery_terms=delivery_terms,
-            delivery_address=delivery_address,
+            delivery_address=delivery_address or defaults["delivery_address"],
+            contact_name_snapshot=defaults["contact_name"],
+            contact_phone_snapshot=defaults["contact_phone"],
+            contact_title_snapshot=defaults["contact_title"],
             customer_note=customer_note,
             internal_note=internal_note,
             created_by=actor.id,
@@ -458,6 +480,9 @@ class QuotationService:
             )
 
         quote_number = self.sequence.generate_code("quotation") if self.sequence else "BG26-0001"
+        # Auto-fill người liên hệ chính + ĐC giao mặc định từ CRM (redesign-bao-gia §4); ĐC giao chỉ
+        # điền khi caller CHƯA cung cấp.
+        defaults = self._customer_defaults(customer_id)
         quote = Quote(
             quote_number=quote_number,
             customer_id=customer_id,
@@ -468,7 +493,10 @@ class QuotationService:
             valid_until=valid_until,
             payment_terms=payment_terms,
             delivery_terms=delivery_terms,
-            delivery_address=delivery_address,
+            delivery_address=delivery_address or defaults["delivery_address"],
+            contact_name_snapshot=defaults["contact_name"],
+            contact_phone_snapshot=defaults["contact_phone"],
+            contact_title_snapshot=defaults["contact_title"],
             customer_note=customer_note,
             internal_note=internal_note,
             created_by=actor.id,
@@ -571,17 +599,22 @@ class QuotationService:
         }
 
     def record_approval(self, *, quotation_id: int, decision: str, note: str | None, scope: str, actor):
-        """GĐ DUYỆT / TỪ CHỐI 'báo giá đặc thù'. Chỉ khi báo giá còn `draft` (trước gửi khách). Chặn nếu
-        báo giá KHÔNG thuộc diện đặc thù. Ghim số + ngưỡng (audit). Duyệt 'bao phủ' → mở 'gửi khách';
-        báo giá đổi xấu đi sau đó → tự thành 'stale' (phải trình lại)."""
+        """Giám đốc Kinh doanh DUYỆT / TỪ CHỐI 'báo giá đặc thù' — chỉ khi báo giá đang **Chờ duyệt**
+        (`pending_approval`, tức đã 'Trình duyệt'). Ghim số + ngưỡng (audit). Duyệt 'bao phủ' → báo giá
+        sang **Đã duyệt** (`sent`, gộp 'đã gửi khách' — Q2). Từ chối → **quay về Nháp** (`draft`) + banner
+        lý do (Q4). Chặn nếu báo giá KHÔNG thuộc diện đặc thù."""
         if decision not in _EXC_DECISIONS:
             raise QuotationValidationError("Quyết định không hợp lệ (chỉ 'approved' / 'rejected').")
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
-        if quote.status != STATUS_DRAFT:
-            raise QuotationValidationError("Chỉ duyệt báo giá khi còn ở trạng thái nháp (trước gửi khách).")
         exc = self.exception_eval(quote)
         if not exc["triggers"]:
-            raise QuotationValidationError("Báo giá không thuộc diện đặc thù — không cần Giám đốc duyệt.")
+            raise QuotationValidationError(
+                "Báo giá không thuộc diện đặc thù — không cần Giám đốc Kinh doanh duyệt."
+            )
+        if quote.status != STATUS_PENDING_APPROVAL:
+            raise QuotationValidationError(
+                "Chỉ duyệt khi báo giá đang 'Chờ duyệt' (Sales phải TRÌNH DUYỆT trước)."
+            )
         row = self.quotations.create_approval(
             quote_id=quote.id,
             decision=decision,
@@ -595,10 +628,19 @@ class QuotationService:
             note=note,
             decided_by=actor.id,
         )
+        # Lái trạng thái: duyệt (bao phủ) → Đã duyệt (sent); từ chối → về Nháp (draft) để sửa & trình lại.
+        version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
+        if decision == _EXC_APPROVED:
+            self._apply_send(quote, version)
+        else:
+            quote.status = STATUS_DRAFT
+            if version:
+                version.status = VERSION_STATUS_DRAFT
+        self.quotations.update(quote)
         verb = "duyệt" if decision == _EXC_APPROVED else "từ chối"
         self.audit.create(
             actor_user_id=actor.id, action=f"quote_exception_{decision}", target=f"quote:{quote.id}",
-            detail=f"{quote.quote_number}: GĐ {verb} báo giá đặc thù "
+            detail=f"{quote.quote_number}: Giám đốc KD {verb} báo giá đặc thù "
             f"({', '.join(t['key'] for t in exc['triggers'])})",
         )
         return row
@@ -677,6 +719,7 @@ class QuotationService:
                     db_item.vat_amount = pricing["vat_amount"]
                     db_item.final_amount = pricing["final_amount"]
                     db_item.note = ip.get("note", db_item.note)
+                    db_item.po_code = ip.get("po_code", db_item.po_code)
 
                     subtotal += pricing["selling_price"]
                     discount += pricing["discount_amount"]
@@ -708,7 +751,53 @@ class QuotationService:
         )
         return quote
 
-    # --- Writes: Transition (Phase 2C) ----------------------------------------
+    # --- Writes: Transition (redesign-bao-gia §3) -----------------------------
+    def _apply_send(self, quote: Quote, version) -> None:
+        """Thân bước 'Gửi khách' = sang **Đã duyệt** (`sent`): khóa phiên bản + freeze snapshot
+        copy-on-write + đặt hạn hiệu lực nếu chưa có. Dùng chung cho draft→sent (báo giá THƯỜNG) và
+        duyệt đặc thù (pending_approval → sent, gọi từ `record_approval`)."""
+        if version:
+            version.status = VERSION_STATUS_SENT
+            version.sent_at = datetime.now(timezone.utc)
+            # Freeze cost breakdown lúc gửi khách (copy-on-write, P0 §34).
+            if quote.estimate_id and self._estimates:
+                # Đường Estimate cũ: phân rã theo option/cost_lines của Tính giá.
+                est = self._estimates.get_by_id(quote.estimate_id)
+                if est:
+                    version.estimate_snapshot_json = est.input_spec_json
+                    lines_data = []
+                    for opt in est.options:
+                        opt_items = []
+                        for line in opt.cost_lines:
+                            opt_items.append({
+                                "category": line.category,
+                                "description": line.description,
+                                "total_cost": float(line.total_cost),
+                                "quantity": float(line.quantity),
+                                "unit": line.unit,
+                                "unit_cost": float(line.unit_cost),
+                            })
+                        lines_data.append({"quantity": opt.quantity, "lines": opt_items})
+                    version.internal_cost_snapshot_json = {"options": lines_data}
+            elif version.internal_cost_snapshot_json is None:
+                # B5 (redesign-bao-gia §8): đường PhieuTinhGia — freeze phân rã giá vốn theo các DÒNG đã
+                # khóa lúc tạo (total_cost_snapshot per PhieuThanhPhan) để bản gửi không đổi khi PTG sửa.
+                version.internal_cost_snapshot_json = {
+                    "source": "phieu_tinh_gia",
+                    "lines": [
+                        {
+                            "phieu_thanh_phan_id": it.phieu_thanh_phan_id,
+                            "product_name": it.product_name,
+                            "quantity": it.quantity,
+                            "total_cost_snapshot": float(it.total_cost_snapshot or 0),
+                        }
+                        for it in version.items
+                    ],
+                }
+        quote.status = STATUS_SENT
+        if quote.valid_until is None:
+            quote.valid_until = date.today()
+
     def transition(
         self,
         *,
@@ -718,73 +807,51 @@ class QuotationService:
         actor,
         cancel_reason: str | None = None,
     ) -> Quote:
+        """Chuyển trạng thái báo giá (redesign-bao-gia §3). Báo giá ĐẶC THÙ KHÔNG được gửi/khách-duyệt
+        thẳng — phải TRÌNH DUYỆT (draft→pending_approval) rồi Giám đốc Kinh doanh duyệt (qua /approval)."""
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
         version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
 
-        # BG-2: CỔNG đặc thù — rời NHÁP sang "gửi khách" (sent) HOẶC "khách duyệt" (accepted) đều bị
-        # chặn khi báo giá đặc thù chưa được GĐ duyệt "bao phủ". Chặn cả đường tắt draft→accepted để
-        # sales không lách qua bước gửi (phản biện kiến trúc).
-        if to_status in (STATUS_SENT, STATUS_ACCEPTED) and quote.status == STATUS_DRAFT:
-            gate = self.quote_gate(quote)
-            if gate["exception_required"] and not gate["exception_cleared"]:
+        if to_status == STATUS_PENDING_APPROVAL:
+            # Trình duyệt: CHỈ báo giá đặc thù, từ Nháp.
+            if quote.status != STATUS_DRAFT:
+                raise QuotationConflict(f"Không thể trình duyệt từ trạng thái {quote.status}.")
+            if not self.exception_eval(quote)["triggers"]:
                 raise QuotationValidationError(
-                    {
-                        "pending": "Báo giá thuộc diện đặc thù — cần Giám đốc duyệt trước khi gửi khách.",
-                        "rejected": "Báo giá đặc thù đã bị Giám đốc TỪ CHỐI — không thể gửi khách.",
-                        "stale": "Báo giá đã đổi so với lúc Giám đốc duyệt — cần trình duyệt lại.",
-                    }.get(gate["exception_status"], "Báo giá đặc thù cần Giám đốc duyệt.")
+                    "Báo giá không thuộc diện đặc thù — gửi khách thẳng, không cần trình duyệt."
                 )
+            quote.status = STATUS_PENDING_APPROVAL
 
-        if to_status == STATUS_SENT:
-            # Gửi khách: khóa phiên bản
+        elif to_status == STATUS_SENT:
+            # Gửi khách: chỉ từ Nháp, và CHỈ báo giá thường (đặc thù phải qua duyệt).
             if quote.status != STATUS_DRAFT:
                 raise QuotationConflict(f"Không thể chuyển trạng thái {quote.status} -> sent")
-            
-            # Freeze snapshot copy-on-write
-            if version:
-                version.status = VERSION_STATUS_SENT
-                version.sent_at = datetime.now(timezone.utc)
-                # Copy estimate specs & cost breakdown as snapshots
-                if quote.estimate_id and self._estimates:
-                    est = self._estimates.get_by_id(quote.estimate_id)
-                    if est:
-                        version.estimate_snapshot_json = est.input_spec_json
-                        # Map costing lines
-                        lines_data = []
-                        for opt in est.options:
-                            opt_items = []
-                            for line in opt.cost_lines:
-                                opt_items.append({
-                                    "category": line.category,
-                                    "description": line.description,
-                                    "total_cost": float(line.total_cost),
-                                    "quantity": float(line.quantity),
-                                    "unit": line.unit,
-                                    "unit_cost": float(line.unit_cost),
-                                })
-                            lines_data.append({"quantity": opt.quantity, "lines": opt_items})
-                        version.internal_cost_snapshot_json = {"options": lines_data}
-            
-            quote.status = STATUS_SENT
-            if quote.valid_until is None:
-                quote.valid_until = date.today()
+            if self.quote_gate(quote)["exception_required"]:
+                raise QuotationValidationError(
+                    "Báo giá thuộc diện đặc thù — phải TRÌNH DUYỆT để Giám đốc Kinh doanh duyệt "
+                    "trước khi gửi khách."
+                )
+            self._apply_send(quote, version)
 
         elif to_status == STATUS_ACCEPTED:
-            # Khách duyệt
+            # Khách duyệt: từ sent (chuẩn) hoặc draft (chốt trực tiếp — chỉ báo giá thường).
             if quote.status not in (STATUS_SENT, STATUS_DRAFT):
                 raise QuotationConflict(f"Không thể duyệt báo giá đang ở trạng thái {quote.status}")
+            if quote.status == STATUS_DRAFT and self.quote_gate(quote)["exception_required"]:
+                raise QuotationValidationError(
+                    "Báo giá thuộc diện đặc thù — phải trình duyệt & gửi khách trước khi khách chốt."
+                )
             if quote.valid_until and quote.valid_until < date.today():
                 quote.status = STATUS_EXPIRED
                 self.quotations.update(quote)
                 raise QuotationConflict("Báo giá đã hết hạn hiệu lực, không thể duyệt.")
-
             quote.status = STATUS_ACCEPTED
             if version:
                 version.status = VERSION_STATUS_ACCEPTED
                 version.accepted_at = datetime.now(timezone.utc)
 
         elif to_status == STATUS_REJECTED:
-            # Từ chối
+            # Khách từ chối (SAU khi gửi) — khác với Giám đốc KD từ chối duyệt (→ về Nháp).
             if quote.status != STATUS_SENT:
                 raise QuotationConflict(f"Không thể từ chối báo giá đang ở trạng thái {quote.status}")
             quote.status = STATUS_REJECTED
@@ -793,9 +860,13 @@ class QuotationService:
                 version.rejected_at = datetime.now(timezone.utc)
 
         elif to_status == STATUS_CANCELLED:
-            # Hủy
+            # Hủy (kèm lý do) — từ mọi trạng thái làm việc TRƯỚC khi lên đơn.
             if not cancel_reason or not cancel_reason.strip():
                 raise QuotationValidationError("Cần nêu lý do hủy.")
+            if quote.status not in (
+                STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SENT, STATUS_ACCEPTED, STATUS_REJECTED,
+            ):
+                raise QuotationConflict(f"Không thể hủy báo giá đang ở trạng thái {quote.status}.")
             quote.status = STATUS_CANCELLED
             quote.cancel_reason = cancel_reason
             if version:

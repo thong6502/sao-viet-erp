@@ -16,6 +16,7 @@ class QuoteItemUpdate(BaseModel):
     vat_percent: float = Field(default=10.0)
     rounding: str = Field(default="no_rounding")
     note: str | None = None
+    po_code: str | None = None
 
 
 # --- create / update ----------------------------------------------------------
@@ -123,6 +124,7 @@ class QuoteItemOut(BaseModel):
     estimate_number: str | None = None   # mã phiếu tính giá gốc của dòng (↳ link)
     estimate_option_id: int | None
     line_no: int
+    po_code: str | None = None
     product_type: str
     product_name: str
     product_spec_text: str | None
@@ -154,6 +156,9 @@ class QuotationDetailOut(BaseModel):
     payment_terms: str | None
     delivery_terms: str | None
     delivery_address: str | None
+    contact_name_snapshot: str | None = None
+    contact_phone_snapshot: str | None = None
+    contact_title_snapshot: str | None = None
     customer_note: str | None
     internal_note: str | None
     

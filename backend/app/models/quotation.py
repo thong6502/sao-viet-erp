@@ -20,17 +20,19 @@ from ..db import Base
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
-# Status constants for Quote
-STATUS_DRAFT = "draft"
-STATUS_SENT = "sent"
-STATUS_ACCEPTED = "accepted"
-STATUS_REJECTED = "rejected"
-STATUS_EXPIRED = "expired"
-STATUS_CONVERTED_TO_ORDER = "converted_to_order"
-STATUS_CANCELLED = "cancelled"
+# Status constants for Quote (7 trạng thái nghiệp vụ, xem docs/redesign-bao-gia.md §3).
+STATUS_DRAFT = "draft"                       # Nháp
+STATUS_PENDING_APPROVAL = "pending_approval" # Chờ duyệt — CHỈ báo giá đặc thù, đã "Trình duyệt"
+STATUS_SENT = "sent"                         # Đã duyệt (gộp "đã gửi khách" — Q2 không tách)
+STATUS_ACCEPTED = "accepted"                 # Khách hàng đồng ý
+STATUS_REJECTED = "rejected"                 # Khách hàng từ chối (SAU khi gửi — khác GĐ từ chối duyệt)
+STATUS_EXPIRED = "expired"                   # Hết hiệu lực
+STATUS_CONVERTED_TO_ORDER = "converted_to_order"  # (ẩn) Đã lên đơn — khóa 1 báo giá = 1 đơn
+STATUS_CANCELLED = "cancelled"               # Hủy báo giá
 
 QUOTE_STATUSES = (
     STATUS_DRAFT,
+    STATUS_PENDING_APPROVAL,
     STATUS_SENT,
     STATUS_ACCEPTED,
     STATUS_REJECTED,
@@ -82,6 +84,11 @@ class Quote(Base):
     payment_terms: Mapped[str | None] = mapped_column(String(255), nullable=True)
     delivery_terms: Mapped[str | None] = mapped_column(String(255), nullable=True)
     delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Người liên hệ SNAPSHOT trên báo giá (redesign-bao-gia §4/§5) — auto-fill từ CRM
+    # `CustomerContact.is_primary` khi chọn khách, sửa được; đóng băng để bản in không đổi.
+    contact_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contact_phone_snapshot: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    contact_title_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)
     customer_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     internal_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -161,6 +168,8 @@ class QuoteItem(Base):
     # BG-1: dòng báo giá nguồn từ 1 "sản phẩm" (PhieuThanhPhan) của PTG. Soft ref (gỡ estimate_* ở BG-4).
     phieu_thanh_phan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Mã PO của khách cho dòng này (cột "MÃ PO" trên mẫu báo giá thật) — tùy chọn, nhập tay.
+    po_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
     
     product_type: Mapped[str] = mapped_column(String(50), nullable=False)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)

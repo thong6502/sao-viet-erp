@@ -81,23 +81,32 @@ def test_high_value_quote_requires_gd_and_blocks_send(client):
 def test_gd_approve_unlocks_send(client):
     token = _token(client)
     q = _make_high_value_quote(client, token)
+    # Sales TRÌNH DUYỆT: draft → Chờ duyệt (pending_approval).
+    rs = client.post(f"/api/quotations/{q['id']}/transition",
+                     json={"to_status": "pending_approval"}, headers=_h(token))
+    assert rs.status_code == 200, rs.text
+    assert rs.json()["status"] == "pending_approval"
+    # GĐ Kinh doanh duyệt → báo giá sang "Đã duyệt" (sent, gộp đã-gửi-khách).
     r = client.post(f"/api/quotations/{q['id']}/approval",
                     json={"decision": "approved", "note": "khách lớn"}, headers=_h(token))
     assert r.status_code == 200, r.text
+    assert r.json()["status"] == "sent"
     assert r.json()["exception_status"] == "approved"
     assert r.json()["exception_cleared"] is True
-    # Giờ gửi khách được.
-    r2 = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
-    assert r2.status_code == 200
-    assert r2.json()["status"] == "sent"
 
 
 def test_gd_reject_blocks_send(client):
     token = _token(client)
     q = _make_high_value_quote(client, token)
+    client.post(f"/api/quotations/{q['id']}/transition",
+                json={"to_status": "pending_approval"}, headers=_h(token))
+    # GĐ Kinh doanh TỪ CHỐI duyệt → quay về Nháp (Q4) + ghi lý do.
     r = client.post(f"/api/quotations/{q['id']}/approval",
                     json={"decision": "rejected", "note": "giá quá cao"}, headers=_h(token))
-    assert r.status_code == 200 and r.json()["exception_status"] == "rejected"
+    assert r.status_code == 200
+    assert r.json()["status"] == "draft"
+    assert r.json()["exception_status"] == "rejected"
+    # Gửi khách vẫn bị chặn (đặc thù — phải trình duyệt lại).
     r2 = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
     assert r2.status_code == 422
 
@@ -124,6 +133,30 @@ def test_sales_cannot_approve_quote(client):
     assert r.status_code == 403
 
 
+def test_giam_doc_kinh_doanh_can_approve(client):
+    admin = _token(client)
+    gdkd = _role_token("gdkd_bg2", "Giám đốc Kinh doanh")
+    q = _make_high_value_quote(client, admin)
+    client.post(f"/api/quotations/{q['id']}/transition",
+                json={"to_status": "pending_approval"}, headers=_h(admin))
+    r = client.post(f"/api/quotations/{q['id']}/approval",
+                    json={"decision": "approved", "note": "GĐ KD duyệt"}, headers=_h(gdkd))
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "sent"
+
+
+def test_truong_phong_kd_cannot_approve_exception(client):
+    admin = _token(client)
+    tpkd = _role_token("tpkd_bg2", "Trưởng phòng KD")
+    q = _make_high_value_quote(client, admin)
+    client.post(f"/api/quotations/{q['id']}/transition",
+                json={"to_status": "pending_approval"}, headers=_h(admin))
+    # TP KD KHÔNG có approve_exception → 403 (duyệt đặc thù chỉ Giám đốc Kinh doanh).
+    r = client.post(f"/api/quotations/{q['id']}/approval",
+                    json={"decision": "approved"}, headers=_h(tpkd))
+    assert r.status_code == 403
+
+
 def test_gd_sees_margin_number(client):
     token = _token(client)
     q = _make_high_value_quote(client, token)
@@ -137,9 +170,9 @@ def test_gd_sees_margin_number(client):
 def test_order_auto_clears_from_approved_quote(client):
     token = _token(client)
     q = _make_high_value_quote(client, token)
-    # GĐ duyệt → gửi khách → khách duyệt (accepted).
+    # Trình duyệt → GĐ Kinh doanh duyệt (→ Đã duyệt/sent) → khách chốt (accepted).
+    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "pending_approval"}, headers=_h(token))
     client.post(f"/api/quotations/{q['id']}/approval", json={"decision": "approved"}, headers=_h(token))
-    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
     ra = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "accepted"}, headers=_h(token))
     assert ra.status_code == 200, ra.text
     # Tạo đơn từ báo giá đã duyệt.

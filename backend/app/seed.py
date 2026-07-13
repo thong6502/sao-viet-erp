@@ -211,6 +211,19 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Trưởng phòng KD",
         {**{k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS}, "nghi_phep": _leave_self()},
     ),
+    # Giám đốc Kinh doanh: toàn quyền KD scope Tất cả + DUYỆT "báo giá / đơn ĐẶC THÙ" (BG-2 + A2)
+    # — CHỈ vai này (không phải TP KD) được `can_approve_exception`, kèm quyền xem số biên/giá vốn
+    # (gắn với approve_exception ở router). redesign-bao-gia §10 / redesign-luong-kinh-doanh §11.
+    (
+        "Kinh doanh",
+        "Giám đốc Kinh doanh",
+        {
+            **{k: _full(SCOPE_ALL) for k in KD_MODULE_KEYS},
+            "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
+            "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
+            "nghi_phep": _leave_self(),
+        },
+    ),
     (
         "Kinh doanh",
         "NV Sales",

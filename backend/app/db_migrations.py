@@ -1444,6 +1444,24 @@ def _migrate_quote_phieu_tinh_gia_link(db: Session) -> None:
     db.commit()
 
 
+def _migrate_quote_bao_gia_fields(db: Session) -> None:
+    """redesign-bao-gia §5: người liên hệ snapshot trên báo giá (auto-fill từ CRM liên hệ chính)
+    + MÃ PO per dòng (mẫu báo giá thật). No-op nếu bảng/cột đã có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "quotes" in tables:
+        qcols = _existing_columns(insp, "quotes")
+        if "contact_name_snapshot" not in qcols:
+            db.execute(text("ALTER TABLE quotes ADD COLUMN contact_name_snapshot VARCHAR(255)"))
+        if "contact_phone_snapshot" not in qcols:
+            db.execute(text("ALTER TABLE quotes ADD COLUMN contact_phone_snapshot VARCHAR(30)"))
+        if "contact_title_snapshot" not in qcols:
+            db.execute(text("ALTER TABLE quotes ADD COLUMN contact_title_snapshot VARCHAR(120)"))
+    if "quote_items" in tables and "po_code" not in _existing_columns(insp, "quote_items"):
+        db.execute(text("ALTER TABLE quote_items ADD COLUMN po_code VARCHAR(60)"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1497,6 +1515,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0051_order_line_cost_snapshot", _migrate_order_line_cost_snapshot),
     ("0052_role_permission_approve_exception", _migrate_role_permission_approve_exception),
     ("0053_quote_phieu_tinh_gia_link", _migrate_quote_phieu_tinh_gia_link),
+    ("0054_quote_bao_gia_fields", _migrate_quote_bao_gia_fields),
 ]
 
 
