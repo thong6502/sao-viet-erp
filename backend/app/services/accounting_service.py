@@ -1,17 +1,21 @@
 """Business rules for Accounting purchase approvals and payment vouchers."""
 from __future__ import annotations
 
+import re
 import secrets
 import string
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
+from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
 
 from ..models.accounting import (
     BANK_FEE_BEARERS,
     BANK_FEE_PAYER,
-    PAYMENT_STAGE_FINAL,
+    PAYMENT_RECEIPT_CANCELLED,
+    PAYMENT_RECEIPT_RECEIVED,
+    PAYMENT_RECEIPT_WAITING,
     PAYMENT_STAGES,
     PAYMENT_VOUCHER_CANCELLED,
     PAYMENT_VOUCHER_PAID,
@@ -21,7 +25,10 @@ from ..models.accounting import (
     VOUCHER_BANK_TRANSFER,
     VOUCHER_CASH,
     CompanyBankAccount,
+    PaymentReceipt,
+    PaymentReceiptAttachment,
     PaymentVoucher,
+    PaymentVoucherAttachment,
     SupplierBankAccount,
 )
 from ..models.purchase import (
@@ -59,6 +66,21 @@ class AccountingConflict(AccountingError):
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# File đính kèm phiếu chi: bytes nằm dưới <backend>/static (cùng gốc mount
+# /static của main.py) — /static là public nên giới hạn loại + cỡ file.
+_STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+_ATTACHMENT_SUBDIR = "ke-toan"
+_RECEIPT_ATTACHMENT_SUBDIR = "ke-toan-thu"
+MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+MAX_ATTACHMENTS_PER_VOUCHER = 20
+
+
+def _safe_attachment_name(file_name: str | None) -> str:
+    """Chặn traversal (kể cả Windows "\\") + thay ký tự cấm; cắt 180 ký tự."""
+    name = Path((file_name or "file").replace("\\", "/")).name
+    return re.sub(r'[<>:"|?*\x00-\x1f]', "_", name)[:180].strip(" .") or "file"
 
 
 def _text(value, *, label: str, required: bool = False, max_length: int | None = None):
@@ -216,8 +238,8 @@ class AccountingService:
     # --- vouchers ---------------------------------------------------------
 
     def list_vouchers(self, **filters):
-        rows, total = self.repo.list_vouchers(**filters)
-        return [self._voucher_out(row) for row in rows], total
+        rows, total, totals = self.repo.list_vouchers(**filters)
+        return [self._voucher_out(row) for row in rows], total, totals
 
     def get_voucher(self, voucher_id: int):
         return self._voucher_out(self._voucher(voucher_id))
@@ -320,6 +342,400 @@ class AccountingService:
         )
         return self._voucher_out(saved)
 
+    # --- payment receipts ---------------------------------------------------
+
+    def list_receipts(
+        self,
+        *,
+        q: str | None = None,
+        status: str | None = None,
+        payment_voucher_id: int | None = None,
+        sort: str = "-created_at",
+        page: int = 1,
+        size: int = 20,
+    ) -> tuple[list[dict], int]:
+        rows, total = self.repo.list_receipts(
+            q=q,
+            status=status,
+            payment_voucher_id=payment_voucher_id,
+            sort=sort,
+            page=page,
+            size=size,
+        )
+        return [self._receipt_out(row) for row in rows], total
+
+    def create_receipt(self, payment_voucher_id: int, *, actor, **values):
+        voucher = self._voucher(payment_voucher_id)
+        if voucher.status != PAYMENT_VOUCHER_PAID:
+            raise AccountingConflict("Chỉ Phiếu chi/UNC đã chi mới được lập phiếu thu.")
+        prepared = self._prepare_receipt(voucher, values, exclude_receipt_id=None)
+        receipt = PaymentReceipt(
+            code=self._new_receipt_code(),
+            payment_voucher_id=voucher.id,
+            purchase_request_id=voucher.purchase_request_id,
+            status=PAYMENT_RECEIPT_WAITING,
+            created_by_user_id=actor.id,
+        )
+        self._apply_receipt(receipt, voucher, prepared)
+        saved = self.repo.save_receipt(receipt)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="create_payment_receipt",
+            target=f"payment_receipt:{saved.id}",
+            detail=f"{saved.code} <- {voucher.code}",
+        )
+        return self._receipt_out(saved)
+
+    def update_receipt(self, receipt_id: int, *, actor, **values):
+        receipt = self._receipt(receipt_id)
+        if receipt.status != PAYMENT_RECEIPT_WAITING:
+            raise AccountingConflict("Chỉ phiếu thu đang chờ thu mới được sửa.")
+        voucher = receipt.payment_voucher
+        prepared = self._prepare_receipt(voucher, values, exclude_receipt_id=receipt.id)
+        self._apply_receipt(receipt, voucher, prepared)
+        saved = self.repo.save_receipt(receipt)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="update_payment_receipt",
+            target=f"payment_receipt:{saved.id}",
+            detail=saved.code,
+        )
+        return self._receipt_out(saved)
+
+    def mark_receipt_received(self, receipt_id: int, *, actor, bank_reference: str | None):
+        receipt = self._receipt(receipt_id)
+        if receipt.status != PAYMENT_RECEIPT_WAITING:
+            raise AccountingConflict("Chỉ phiếu thu đang chờ thu mới được xác nhận đã thu.")
+        reference = _text(bank_reference, label="Mã giao dịch", max_length=64)
+        if receipt.receipt_method == VOUCHER_BANK_TRANSFER and not reference:
+            raise AccountingValidationError(
+                "Thu qua ngân hàng phải có mã giao dịch hoặc số báo có."
+            )
+        receipt.status = PAYMENT_RECEIPT_RECEIVED
+        receipt.bank_reference = reference
+        receipt.received_by_user_id = actor.id
+        receipt.received_at = _now()
+        saved = self.repo.save_receipt(receipt)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="mark_payment_receipt_received",
+            target=f"payment_receipt:{saved.id}",
+            detail=saved.code,
+        )
+        return self._receipt_out(saved)
+
+    def cancel_receipt(self, receipt_id: int, *, actor, reason: str):
+        receipt = self._receipt(receipt_id)
+        if receipt.status != PAYMENT_RECEIPT_WAITING:
+            raise AccountingConflict("Chỉ phiếu thu đang chờ thu mới được hủy.")
+        cleaned_reason = _text(reason, label="Lý do hủy", required=True, max_length=2000)
+        receipt.status = PAYMENT_RECEIPT_CANCELLED
+        receipt.cancel_reason = cleaned_reason
+        receipt.cancelled_by_user_id = actor.id
+        receipt.cancelled_at = _now()
+        saved = self.repo.save_receipt(receipt)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="cancel_payment_receipt",
+            target=f"payment_receipt:{saved.id}",
+            detail=f"{saved.code}: {cleaned_reason}",
+        )
+        return self._receipt_out(saved)
+
+    def _prepare_receipt(
+        self, voucher: PaymentVoucher, values: dict, *, exclude_receipt_id: int | None
+    ) -> dict:
+        receipt_method = (values.get("receipt_method") or "").strip()
+        if receipt_method not in PAYMENT_VOUCHER_TYPES:
+            raise AccountingValidationError("Hình thức thu không hợp lệ.")
+        payer_name = _text(
+            values.get("payer_name"), label="Người nộp tiền", required=True, max_length=255
+        )
+
+        amount = int(values.get("amount") or 0)
+        if amount <= 0:
+            raise AccountingValidationError("Số tiền thu phải lớn hơn 0.")
+        # Thu bằng đúng loại tiền của phiếu chi gốc — không nhận currency từ payload.
+        currency = voucher.currency
+        exchange_rate = float(values.get("exchange_rate") or voucher.exchange_rate)
+        if exchange_rate <= 0:
+            raise AccountingValidationError("Tỷ giá phải lớn hơn 0.")
+        if currency == "VND" and exchange_rate != 1:
+            raise AccountingValidationError("Tỷ giá của VND phải bằng 1.")
+        amount_vnd = int(
+            (Decimal(amount) * Decimal(str(exchange_rate))).quantize(
+                Decimal("1"), rounding=ROUND_HALF_UP
+            )
+        )
+        reserved = self.repo.receipt_reserved_amount(voucher.id, exclude_id=exclude_receipt_id)
+        remaining = int(voucher.amount_vnd) - reserved
+        if amount_vnd > remaining:
+            raise AccountingValidationError(
+                f"Số tiền thu vượt quá phần còn được thu ({remaining:,} đ)."
+            )
+        content = _text(values.get("content"), label="Nội dung thu", required=True, max_length=500)
+
+        company_account = None
+        if receipt_method == VOUCHER_BANK_TRANSFER:
+            account_id = values.get("company_bank_account_id")
+            company_account = (
+                self.repo.get_company_account(int(account_id)) if account_id else None
+            )
+            if company_account is None or not company_account.is_active:
+                raise AccountingValidationError(
+                    "Vui lòng chọn tài khoản công ty đang hoạt động."
+                )
+            if company_account.currency != currency:
+                raise AccountingValidationError(
+                    "Loại tiền phiếu thu phải khớp tài khoản nhận."
+                )
+
+        return {
+            "payer_name": payer_name,
+            "receipt_method": receipt_method,
+            "receipt_date": values.get("receipt_date"),
+            "amount": amount,
+            "amount_vnd": amount_vnd,
+            "currency": currency,
+            "exchange_rate": exchange_rate,
+            "content": content,
+            "note": _text(values.get("note"), label="Ghi chú", max_length=2000),
+            "company_account": company_account,
+        }
+
+    def _apply_receipt(
+        self, receipt: PaymentReceipt, voucher: PaymentVoucher, prepared: dict
+    ) -> None:
+        account = prepared.pop("company_account")
+        for key, value in prepared.items():
+            setattr(receipt, key, value)
+        receipt.company_bank_account_id = account.id if account else None
+        receipt.voucher_code_snapshot = voucher.code
+        receipt.purchase_code_snapshot = voucher.source_code_snapshot
+        receipt.supplier_name_snapshot = voucher.supplier_name_snapshot
+        receipt.company_account_holder_snapshot = account.account_holder if account else None
+        receipt.company_account_number_snapshot = account.account_number if account else None
+        receipt.company_bank_name_snapshot = account.bank_name if account else None
+        receipt.company_bank_branch_snapshot = account.bank_branch if account else None
+
+    def _new_receipt_code(self) -> str:
+        alphabet = string.ascii_uppercase + string.digits
+        date_part = _now().strftime("%y%m%d")
+        for _ in range(30):
+            suffix = "".join(secrets.choice(alphabet) for _ in range(4))
+            code = f"PT-{date_part}-{suffix}"
+            if self.repo.get_receipt_by_code(code) is None:
+                return code
+        raise AccountingConflict("Không sinh được mã chứng từ duy nhất, vui lòng thử lại.")
+
+    def _receipt(self, receipt_id: int) -> PaymentReceipt:
+        row = self.repo.get_receipt(receipt_id)
+        if row is None:
+            raise AccountingNotFound("Không tìm thấy phiếu thu.")
+        return row
+
+    def _receipt_out(self, row: PaymentReceipt) -> dict:
+        return {
+            "id": row.id,
+            "code": row.code,
+            "payment_voucher_id": row.payment_voucher_id,
+            "payment_voucher_code": row.voucher_code_snapshot,
+            "purchase_request_id": row.purchase_request_id,
+            "purchase_request_code": row.purchase_code_snapshot,
+            "supplier_name": row.supplier_name_snapshot,
+            "payer_name": row.payer_name,
+            "receipt_method": row.receipt_method,
+            "status": row.status,
+            "receipt_date": row.receipt_date,
+            "amount": int(row.amount),
+            "amount_vnd": int(row.amount_vnd),
+            "currency": row.currency,
+            "exchange_rate": float(row.exchange_rate),
+            "content": row.content,
+            "company_bank_account_id": row.company_bank_account_id,
+            "company_account_holder": row.company_account_holder_snapshot,
+            "company_account_number": row.company_account_number_snapshot,
+            "company_bank_name": row.company_bank_name_snapshot,
+            "company_bank_branch": row.company_bank_branch_snapshot,
+            "bank_reference": row.bank_reference,
+            "created_by_user_id": row.created_by_user_id,
+            "created_by_name": self._user_name(row.created_by_user_id),
+            "received_by_user_id": row.received_by_user_id,
+            "received_by_name": self._user_name(row.received_by_user_id),
+            "received_at": row.received_at,
+            "cancelled_by_user_id": row.cancelled_by_user_id,
+            "cancelled_by_name": self._user_name(row.cancelled_by_user_id),
+            "cancelled_at": row.cancelled_at,
+            "cancel_reason": row.cancel_reason,
+            "note": row.note,
+            "attachment_count": len(row.attachments),
+            "created_at": row.created_at,
+            "updated_at": row.updated_at,
+        }
+
+    # --- voucher attachments -----------------------------------------------
+
+    def list_voucher_attachments(self, voucher_id: int) -> list[dict]:
+        self._voucher(voucher_id)
+        return [self._attachment_out(row) for row in self.repo.list_attachments(voucher_id)]
+
+    def add_voucher_attachment(
+        self,
+        voucher_id: int,
+        *,
+        actor,
+        file_name: str | None,
+        content_type: str | None,
+        data: bytes,
+    ) -> dict:
+        voucher = self._voucher(voucher_id)
+        if voucher.status == PAYMENT_VOUCHER_CANCELLED:
+            raise AccountingConflict("Chứng từ đã hủy — không đính kèm thêm.")
+        ct = (content_type or "").lower()
+        if not (ct.startswith("image/") or ct == "application/pdf"):
+            raise AccountingValidationError("Chỉ nhận ảnh (image/*) hoặc PDF.")
+        if not data:
+            raise AccountingValidationError("Tệp rỗng.")
+        if len(data) > MAX_ATTACHMENT_BYTES:
+            raise AccountingValidationError("Tệp vượt quá 10 MB.")
+        if len(voucher.attachments) >= MAX_ATTACHMENTS_PER_VOUCHER:
+            raise AccountingValidationError(
+                f"Mỗi chứng từ tối đa {MAX_ATTACHMENTS_PER_VOUCHER} file đính kèm."
+            )
+        safe_name = _safe_attachment_name(file_name)
+        token = secrets.token_hex(4)
+        dest_dir = _STATIC_DIR / _ATTACHMENT_SUBDIR / str(voucher.id)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        (dest_dir / f"{token}_{safe_name}").write_bytes(data)
+        attachment = PaymentVoucherAttachment(
+            payment_voucher_id=voucher.id,
+            file_name=safe_name,
+            file_url=f"/static/{_ATTACHMENT_SUBDIR}/{voucher.id}/{token}_{safe_name}",
+            file_type=content_type,
+            uploaded_by=actor.id,
+        )
+        saved = self.repo.save_attachment(attachment)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="upload_payment_voucher_attachment",
+            target=f"payment_voucher:{voucher.id}",
+            detail=f"{voucher.code} + {safe_name}",
+        )
+        return self._attachment_out(saved)
+
+    def delete_voucher_attachment(self, voucher_id: int, attachment_id: int, *, actor) -> None:
+        voucher = self._voucher(voucher_id)
+        attachment = self.repo.get_attachment(attachment_id)
+        if attachment is None or attachment.payment_voucher_id != voucher_id:
+            raise AccountingNotFound("Không tìm thấy file đính kèm.")
+        try:
+            (_STATIC_DIR.parent / attachment.file_url.lstrip("/")).unlink(missing_ok=True)
+        except OSError:
+            pass  # gỡ file đĩa best-effort — row vẫn phải xóa
+        file_name = attachment.file_name
+        self.repo.delete_attachment(attachment)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="delete_payment_voucher_attachment",
+            target=f"payment_voucher:{voucher.id}",
+            detail=f"{voucher.code} - {file_name}",
+        )
+
+    @staticmethod
+    def _attachment_out(row: PaymentVoucherAttachment) -> dict:
+        return {
+            "id": row.id,
+            "payment_voucher_id": row.payment_voucher_id,
+            "file_name": row.file_name,
+            "file_url": row.file_url,
+            "file_type": row.file_type,
+            "uploaded_by": row.uploaded_by,
+            "uploaded_at": row.uploaded_at,
+        }
+
+    # --- receipt attachments -----------------------------------------------
+
+    def list_receipt_attachments(self, receipt_id: int) -> list[dict]:
+        self._receipt(receipt_id)
+        return [
+            self._receipt_attachment_out(row)
+            for row in self.repo.list_receipt_attachments(receipt_id)
+        ]
+
+    def add_receipt_attachment(
+        self,
+        receipt_id: int,
+        *,
+        actor,
+        file_name: str | None,
+        content_type: str | None,
+        data: bytes,
+    ) -> dict:
+        receipt = self._receipt(receipt_id)
+        if receipt.status == PAYMENT_RECEIPT_CANCELLED:
+            raise AccountingConflict("Phiếu thu đã hủy — không đính kèm thêm.")
+        ct = (content_type or "").lower()
+        if not (ct.startswith("image/") or ct == "application/pdf"):
+            raise AccountingValidationError("Chỉ nhận ảnh (image/*) hoặc PDF.")
+        if not data:
+            raise AccountingValidationError("Tệp rỗng.")
+        if len(data) > MAX_ATTACHMENT_BYTES:
+            raise AccountingValidationError("Tệp vượt quá 10 MB.")
+        if len(receipt.attachments) >= MAX_ATTACHMENTS_PER_VOUCHER:
+            raise AccountingValidationError(
+                f"Mỗi phiếu thu tối đa {MAX_ATTACHMENTS_PER_VOUCHER} file đính kèm."
+            )
+        safe_name = _safe_attachment_name(file_name)
+        token = secrets.token_hex(4)
+        dest_dir = _STATIC_DIR / _RECEIPT_ATTACHMENT_SUBDIR / str(receipt.id)
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        (dest_dir / f"{token}_{safe_name}").write_bytes(data)
+        attachment = PaymentReceiptAttachment(
+            payment_receipt_id=receipt.id,
+            file_name=safe_name,
+            file_url=f"/static/{_RECEIPT_ATTACHMENT_SUBDIR}/{receipt.id}/{token}_{safe_name}",
+            file_type=content_type,
+            uploaded_by=actor.id,
+        )
+        saved = self.repo.save_receipt_attachment(attachment)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="upload_payment_receipt_attachment",
+            target=f"payment_receipt:{receipt.id}",
+            detail=f"{receipt.code} + {safe_name}",
+        )
+        return self._receipt_attachment_out(saved)
+
+    def delete_receipt_attachment(self, receipt_id: int, attachment_id: int, *, actor) -> None:
+        receipt = self._receipt(receipt_id)
+        attachment = self.repo.get_receipt_attachment(attachment_id)
+        if attachment is None or attachment.payment_receipt_id != receipt_id:
+            raise AccountingNotFound("Không tìm thấy file đính kèm.")
+        try:
+            (_STATIC_DIR.parent / attachment.file_url.lstrip("/")).unlink(missing_ok=True)
+        except OSError:
+            pass  # gỡ file đĩa best-effort — row vẫn phải xóa
+        file_name = attachment.file_name
+        self.repo.delete_receipt_attachment(attachment)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="delete_payment_receipt_attachment",
+            target=f"payment_receipt:{receipt.id}",
+            detail=f"{receipt.code} - {file_name}",
+        )
+
+    @staticmethod
+    def _receipt_attachment_out(row: PaymentReceiptAttachment) -> dict:
+        return {
+            "id": row.id,
+            "payment_receipt_id": row.payment_receipt_id,
+            "file_name": row.file_name,
+            "file_url": row.file_url,
+            "file_type": row.file_type,
+            "uploaded_by": row.uploaded_by,
+            "uploaded_at": row.uploaded_at,
+        }
+
     # --- validation/output ------------------------------------------------
 
     def _clean_bank_account(self, values: dict) -> dict:
@@ -361,9 +777,6 @@ class AccountingService:
         stage = (values.get("payment_stage") or "").strip()
         if stage not in PAYMENT_STAGES:
             raise AccountingValidationError("Đợt thanh toán không hợp lệ.")
-        if stage == PAYMENT_STAGE_FINAL and purchase.status != PR_RECEIVED:
-            raise AccountingConflict("Thanh toán cuối chỉ được lập sau khi đã nhận hàng.")
-
         amount = int(values.get("amount") or 0)
         if amount <= 0:
             raise AccountingValidationError("Số tiền thanh toán phải lớn hơn 0.")
@@ -535,11 +948,41 @@ class AccountingService:
             link.department_request.code if link.department_request else link.source_code_snapshot
             for link in purchase.sources
         ] if purchase else []
+        purchase_total = self._purchase_total(purchase) if purchase else None
+        # Tổng ĐÃ CHI của cả PMH (mọi phiếu chi anh em) — hiện trên dải nhóm.
+        purchase_paid_amount = (
+            sum(
+                int(sibling.amount_vnd)
+                for sibling in purchase.payment_vouchers
+                if sibling.status == PAYMENT_VOUCHER_PAID
+            )
+            if purchase
+            else None
+        )
+        receipt_received_amount = sum(
+            int(receipt.amount_vnd)
+            for receipt in row.receipts
+            if receipt.status == PAYMENT_RECEIPT_RECEIVED
+        )
+        receipt_pending_amount = sum(
+            int(receipt.amount_vnd)
+            for receipt in row.receipts
+            if receipt.status == PAYMENT_RECEIPT_WAITING
+        )
         return {
             "id": row.id,
             "code": row.code,
+            "receipt_received_amount": receipt_received_amount,
+            "receipt_pending_amount": receipt_pending_amount,
+            "attachment_count": len(row.attachments),
             "purchase_request_id": row.purchase_request_id,
             "purchase_request_code": purchase.code if purchase else row.source_code_snapshot,
+            "purchase_request_total": purchase_total,
+            "purchase_paid_amount": purchase_paid_amount,
+            # Người phụ trách mua (lập PMH) — mặc định "Người nộp tiền" của phiếu thu.
+            "purchase_created_by_name": (
+                self._user_name(purchase.created_by_user_id) if purchase else None
+            ),
             "source_request_codes": source_codes,
             "supplier_id": row.supplier_id,
             "supplier_name": row.supplier_name_snapshot,

@@ -30,6 +30,7 @@ import { PurchaseRequestsPage } from "../pages/PurchaseRequestsPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPage";
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
+import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
 import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
 import { WarehousesCatalogPage } from "../pages/WarehousesCatalogPage";
 import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
@@ -56,6 +57,12 @@ export interface NavParams {
   openEstimateId?: number | null;
   /** Liên thông: mở Chấm công / Nghỉ phép / Lương lọc theo đúng nhân viên này. */
   focusEmployeeId?: number;
+  /** Liên thông: mở màn Yêu cầu mua hàng (YCMH) lọc + tô sáng đúng mã phiếu này. */
+  focusRequestCode?: string;
+  /** Liên thông: mở màn Phiếu chi / UNC với ô tìm kiếm điền sẵn (mã PC/PMH...). */
+  focusVoucherQuery?: string;
+  /** Liên thông: mở màn Phiếu thu với ô tìm kiếm điền sẵn (mã PC/PT...). */
+  focusReceiptQuery?: string;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -234,15 +241,31 @@ export function AppShell() {
       case "dinh-muc-bu-hao":
         return <NormsCatalogPage />;
       case "yeu-cau-mua-hang":
-        return <DepartmentPurchaseRequestsPage />;
+        return (
+          <DepartmentPurchaseRequestsPage
+            focusRequestCode={navParams?.focusRequestCode ?? null}
+          />
+        );
       case "mua-hang":
-        return <PurchaseRequestsPage />;
+        return <PurchaseRequestsPage navigate={navigate} />;
       case "nha-cung-cap":
         return <SuppliersPage />;
       case "ke-toan-yeu-cau-mua":
-        return <AccountingPurchaseInboxPage />;
+        return <AccountingPurchaseInboxPage navigate={navigate} />;
       case "ke-toan-phieu-chi":
-        return <PaymentVouchersPage />;
+        return (
+          <PaymentVouchersPage
+            navigate={navigate}
+            focusQuery={navParams?.focusVoucherQuery ?? null}
+          />
+        );
+      case "ke-toan-phieu-thu":
+        return (
+          <PaymentReceiptsPage
+            navigate={navigate}
+            focusQuery={navParams?.focusReceiptQuery ?? null}
+          />
+        );
       case "ke-toan-tai-khoan":
         return <AccountingBankAccountsPage />;
       case "cau-hinh-kho":

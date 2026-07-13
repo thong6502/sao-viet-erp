@@ -53,6 +53,15 @@ BANK_FEE_BENEFICIARY = "beneficiary"
 BANK_FEE_SHARED = "shared"
 BANK_FEE_BEARERS = (BANK_FEE_PAYER, BANK_FEE_BENEFICIARY, BANK_FEE_SHARED)
 
+PAYMENT_RECEIPT_WAITING = "waiting_receipt"
+PAYMENT_RECEIPT_RECEIVED = "received"
+PAYMENT_RECEIPT_CANCELLED = "cancelled"
+PAYMENT_RECEIPT_STATUSES = (
+    PAYMENT_RECEIPT_WAITING,
+    PAYMENT_RECEIPT_RECEIVED,
+    PAYMENT_RECEIPT_CANCELLED,
+)
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -180,3 +189,134 @@ class PaymentVoucher(Base):
     supplier = relationship("Supplier")
     company_bank_account = relationship("CompanyBankAccount")
     supplier_bank_account = relationship("SupplierBankAccount")
+    receipts: Mapped[list["PaymentReceipt"]] = relationship(
+        "PaymentReceipt", back_populates="payment_voucher", order_by="PaymentReceipt.id"
+    )
+    attachments: Mapped[list["PaymentVoucherAttachment"]] = relationship(
+        "PaymentVoucherAttachment",
+        back_populates="payment_voucher",
+        order_by="PaymentVoucherAttachment.id",
+        cascade="all, delete-orphan",
+    )
+
+
+class PaymentReceipt(Base):
+    """Phiếu thu (PT) gắn với một Phiếu chi/UNC đã chi: tiền chi ra tiêu không
+    hết quay VỀ công ty — người nộp (NCC hoặc nhân viên phụ trách mua) nộp quỹ
+    tiền mặt hoặc chuyển về tài khoản công ty. Chỉ lập được trên phiếu chi
+    `paid` — nên phiếu chi gốc không bao giờ hủy được sau khi có phiếu thu
+    (cancel_voucher chỉ cho phiếu đang chờ chi)."""
+
+    __tablename__ = "payment_receipts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    payment_voucher_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("payment_vouchers.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # Denormalize từ phiếu chi gốc để SUM theo PMH không phải join.
+    purchase_request_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # Người nộp lại tiền — mặc định suy từ phiếu chi (người nhận TM / tên NCC).
+    payer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    receipt_method: Mapped[str] = mapped_column(String(24), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default=PAYMENT_RECEIPT_WAITING, index=True
+    )
+    receipt_date: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    amount_vnd: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="VND")
+    exchange_rate: Mapped[float] = mapped_column(Numeric(18, 6), nullable=False, default=1)
+    content: Mapped[str] = mapped_column(String(500), nullable=False)
+    company_bank_account_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("company_bank_accounts.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    bank_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    voucher_code_snapshot: Mapped[str] = mapped_column(String(32), nullable=False)
+    purchase_code_snapshot: Mapped[str] = mapped_column(String(32), nullable=False)
+    supplier_name_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
+    company_account_holder_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    company_account_number_snapshot: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    company_bank_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    company_bank_branch_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    created_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    received_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    payment_voucher = relationship("PaymentVoucher", back_populates="receipts")
+    company_bank_account = relationship("CompanyBankAccount")
+    attachments: Mapped[list["PaymentReceiptAttachment"]] = relationship(
+        "PaymentReceiptAttachment",
+        back_populates="payment_receipt",
+        order_by="PaymentReceiptAttachment.id",
+        cascade="all, delete-orphan",
+    )
+
+
+class PaymentVoucherAttachment(Base):
+    """Chứng từ scan đính kèm Phiếu chi/UNC (hóa đơn/biên nhận/UNC ngân hàng).
+    Bytes nằm dưới <backend>/static/ke-toan/<voucher_id>/, phục vụ read-only qua
+    mount /static (public — known-tradeoff, cùng phạm vi avatars/hr/kho); DB chỉ
+    lưu metadata + path (mirror stock_voucher_attachments). Cho đính THÊM cả khi
+    phiếu đã `paid` (hóa đơn về sau khi đi mua); chỉ chặn `cancelled`."""
+
+    __tablename__ = "payment_voucher_attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    payment_voucher_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("payment_vouchers.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    uploaded_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    payment_voucher = relationship("PaymentVoucher", back_populates="attachments")
+
+
+class PaymentReceiptAttachment(Base):
+    """Ảnh minh chứng đã thu đính kèm Phiếu thu (biên nhận/UNC báo có).
+    Bytes nằm dưới <backend>/static/ke-toan-thu/<receipt_id>/, phục vụ qua mount
+    /static; DB chỉ lưu metadata + path (mirror payment_voucher_attachments).
+    Cho đính THÊM cả khi đã `received`; chỉ chặn `cancelled`."""
+
+    __tablename__ = "payment_receipt_attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    payment_receipt_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("payment_receipts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    file_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    uploaded_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    payment_receipt = relationship("PaymentReceipt", back_populates="attachments")

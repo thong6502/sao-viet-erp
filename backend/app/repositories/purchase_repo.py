@@ -7,6 +7,7 @@ from typing import Sequence
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from ..models.accounting import PaymentVoucher
 from ..models.purchase import (
     DPR_IN_PURCHASE,
     DPR_OPEN,
@@ -338,7 +339,9 @@ class PurchaseRequestRepository:
                 selectinload(PurchaseRequest.lines),
                 selectinload(PurchaseRequest.supplier),
                 selectinload(PurchaseRequest.sources).selectinload(PurchaseRequestSource.department_request),
-                selectinload(PurchaseRequest.payment_vouchers),
+                selectinload(PurchaseRequest.payment_vouchers).selectinload(
+                    PaymentVoucher.receipts
+                ),
             )
             .where(PurchaseRequest.id == request_id)
         ).scalars().first()
@@ -381,7 +384,9 @@ class PurchaseRequestRepository:
             selectinload(PurchaseRequest.lines),
             selectinload(PurchaseRequest.supplier),
             selectinload(PurchaseRequest.sources).selectinload(PurchaseRequestSource.department_request),
-            selectinload(PurchaseRequest.payment_vouchers),
+            selectinload(PurchaseRequest.payment_vouchers).selectinload(
+                PaymentVoucher.receipts
+            ),
         )
         count_stmt = select(func.count()).select_from(PurchaseRequest)
         for c in conditions:
@@ -407,6 +412,7 @@ class PurchaseRequestRepository:
         supplier_id: int | None,
         purpose: str | None,
         needed_date: date | None,
+        expected_receipt_date: date | None = None,
         created_by_user_id: int | None,
         note: str | None,
         lines: Sequence[PurchaseRequestLineInput],
@@ -418,6 +424,7 @@ class PurchaseRequestRepository:
             supplier_id=supplier_id,
             purpose=purpose,
             needed_date=needed_date,
+            expected_receipt_date=expected_receipt_date,
             created_by_user_id=created_by_user_id,
             note=note,
         )
@@ -450,6 +457,7 @@ class PurchaseRequestRepository:
         supplier_id: int | None,
         purpose: str | None,
         needed_date: date | None,
+        expected_receipt_date: date | None = None,
         note: str | None,
         lines: Sequence[PurchaseRequestLineInput],
         source_requests: Sequence[DepartmentPurchaseRequest],
@@ -457,6 +465,7 @@ class PurchaseRequestRepository:
         request.supplier_id = supplier_id
         request.purpose = purpose
         request.needed_date = needed_date
+        request.expected_receipt_date = expected_receipt_date
         request.note = note
         request.lines = [
             PurchaseRequestLine(

@@ -108,6 +108,7 @@ def _request_payload(supplier_id: int | None = None) -> dict:
         "source_request_ids": [],
         "purpose": "Mua giay cho don hang carton",
         "needed_date": "2026-07-20",
+        "expected_receipt_date": "2026-07-25",
         "note": "Can bao gia truoc khi mua",
         "lines": [
             {
@@ -305,6 +306,7 @@ def test_purchase_request_line_discount_and_vat(client, auth_headers):
     assert line["vat_amount"] == 158_400
     assert line["line_total"] == 2_138_400
     assert body["total_estimate"] == 2_138_400
+    assert body["expected_receipt_date"] == "2026-07-25"
 
 
 def test_purchase_request_delete_only_draft(client, auth_headers):

@@ -2893,6 +2893,7 @@ export interface PurchaseRequestInput {
   source_request_ids: number[];
   purpose: string;
   needed_date: string;
+  expected_receipt_date?: string | null;
   note?: string | null;
   lines: PurchaseRequestLineInput[];
 }
@@ -2968,6 +2969,7 @@ export interface PurchaseRequestRow {
   supplier_name: string | null;
   purpose: string | null;
   needed_date: string | null;
+  expected_receipt_date: string | null;
   created_by_user_id: number | null;
   created_by_name: string | null;
   submitted_at: string | null;
@@ -2980,6 +2982,7 @@ export interface PurchaseRequestRow {
   total_estimate: number;
   pending_amount: number;
   paid_amount: number;
+  receipt_received_amount: number;
   outstanding_amount: number;
   available_amount: number;
   payment_status: "unpaid" | "partial" | "paid";
@@ -3057,6 +3060,12 @@ export interface PaymentVoucherRow {
   code: string;
   purchase_request_id: number;
   purchase_request_code: string;
+  purchase_request_total: number | null;
+  purchase_paid_amount: number | null;
+  purchase_created_by_name: string | null;
+  receipt_received_amount: number;
+  receipt_pending_amount: number;
+  attachment_count: number;
   source_request_codes: string[];
   supplier_id: number | null;
   supplier_name: string;
@@ -3106,6 +3115,88 @@ export interface PaymentVoucherRow {
 
 export interface PaymentVoucherListOut {
   items: PaymentVoucherRow[];
+  total: number;
+  page: number;
+  size: number;
+  /** Tổng tiền (VND) trên TOÀN BỘ kết quả khớp bộ lọc — mọi trang. */
+  total_paid_amount: number;
+  total_waiting_amount: number;
+  total_receipt_received_amount: number;
+}
+
+export interface PaymentVoucherAttachment {
+  id: number;
+  payment_voucher_id: number;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
+  uploaded_by: number | null;
+  uploaded_at: string | null;
+}
+
+export type PaymentReceiptStatus = "waiting_receipt" | "received" | "cancelled";
+
+export interface PaymentReceiptInput {
+  payer_name: string;
+  receipt_method: PaymentVoucherType;
+  receipt_date: string;
+  amount: number;
+  exchange_rate?: number | null;
+  content: string;
+  company_bank_account_id?: number | null;
+  note?: string | null;
+}
+
+export interface PaymentReceiptRow {
+  id: number;
+  code: string;
+  payment_voucher_id: number;
+  payment_voucher_code: string;
+  purchase_request_id: number;
+  purchase_request_code: string;
+  supplier_name: string;
+  payer_name: string;
+  receipt_method: PaymentVoucherType;
+  status: PaymentReceiptStatus;
+  receipt_date: string;
+  amount: number;
+  amount_vnd: number;
+  currency: string;
+  exchange_rate: number;
+  content: string;
+  company_bank_account_id: number | null;
+  company_account_holder: string | null;
+  company_account_number: string | null;
+  company_bank_name: string | null;
+  company_bank_branch: string | null;
+  bank_reference: string | null;
+  created_by_user_id: number | null;
+  created_by_name: string | null;
+  received_by_user_id: number | null;
+  received_by_name: string | null;
+  received_at: string | null;
+  cancelled_by_user_id: number | null;
+  cancelled_by_name: string | null;
+  cancelled_at: string | null;
+  cancel_reason: string | null;
+  note: string | null;
+  attachment_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PaymentReceiptAttachment {
+  id: number;
+  payment_receipt_id: number;
+  file_name: string;
+  file_url: string;
+  file_type: string | null;
+  uploaded_by: number | null;
+  uploaded_at: string | null;
+}
+
+export interface PaymentReceiptListOut {
+  items: PaymentReceiptRow[];
   total: number;
   page: number;
   size: number;
@@ -4814,6 +4905,132 @@ export const api = {
         method: "POST",
         body: JSON.stringify({ reason }),
       });
+    },
+    receipts(
+      token: string,
+      params: {
+        q?: string;
+        status?: string | null;
+        payment_voucher_id?: number | null;
+        sort?: string;
+        page?: number;
+        size?: number;
+      } = {},
+    ): Promise<PaymentReceiptListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.payment_voucher_id != null)
+        qs.set("payment_voucher_id", String(params.payment_voucher_id));
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<PaymentReceiptListOut>(`/api/accounting/payment-receipts${suffix}`, token);
+    },
+    createReceipt(
+      token: string,
+      voucherId: number,
+      input: PaymentReceiptInput,
+    ): Promise<PaymentReceiptRow> {
+      return authed<PaymentReceiptRow>(
+        `/api/accounting/payment-vouchers/${voucherId}/receipts`,
+        token,
+        { method: "POST", body: JSON.stringify(input) },
+      );
+    },
+    updateReceipt(
+      token: string,
+      id: number,
+      input: PaymentReceiptInput,
+    ): Promise<PaymentReceiptRow> {
+      return authed<PaymentReceiptRow>(`/api/accounting/payment-receipts/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    markReceiptReceived(
+      token: string,
+      id: number,
+      bankReference: string | null,
+    ): Promise<PaymentReceiptRow> {
+      return authed<PaymentReceiptRow>(
+        `/api/accounting/payment-receipts/${id}/mark-received`,
+        token,
+        { method: "POST", body: JSON.stringify({ bank_reference: bankReference }) },
+      );
+    },
+    cancelReceipt(token: string, id: number, reason: string): Promise<PaymentReceiptRow> {
+      return authed<PaymentReceiptRow>(`/api/accounting/payment-receipts/${id}/cancel`, token, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      });
+    },
+    receiptAttachments(
+      token: string,
+      receiptId: number,
+    ): Promise<{ items: PaymentReceiptAttachment[] }> {
+      return authed<{ items: PaymentReceiptAttachment[] }>(
+        `/api/accounting/payment-receipts/${receiptId}/attachments`,
+        token,
+      );
+    },
+    uploadReceiptAttachment(
+      token: string,
+      receiptId: number,
+      file: File,
+    ): Promise<PaymentReceiptAttachment> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<PaymentReceiptAttachment>(
+        `/api/accounting/payment-receipts/${receiptId}/attachments`,
+        token,
+        { method: "POST", body: form },
+      );
+    },
+    deleteReceiptAttachment(
+      token: string,
+      receiptId: number,
+      attachmentId: number,
+    ): Promise<void> {
+      return authed<void>(
+        `/api/accounting/payment-receipts/${receiptId}/attachments/${attachmentId}`,
+        token,
+        { method: "DELETE" },
+      );
+    },
+    voucherAttachments(
+      token: string,
+      voucherId: number,
+    ): Promise<{ items: PaymentVoucherAttachment[] }> {
+      return authed<{ items: PaymentVoucherAttachment[] }>(
+        `/api/accounting/payment-vouchers/${voucherId}/attachments`,
+        token,
+      );
+    },
+    uploadVoucherAttachment(
+      token: string,
+      voucherId: number,
+      file: File,
+    ): Promise<PaymentVoucherAttachment> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<PaymentVoucherAttachment>(
+        `/api/accounting/payment-vouchers/${voucherId}/attachments`,
+        token,
+        { method: "POST", body: form },
+      );
+    },
+    deleteVoucherAttachment(
+      token: string,
+      voucherId: number,
+      attachmentId: number,
+    ): Promise<void> {
+      return authed<void>(
+        `/api/accounting/payment-vouchers/${voucherId}/attachments/${attachmentId}`,
+        token,
+        { method: "DELETE" },
+      );
     },
   },
 

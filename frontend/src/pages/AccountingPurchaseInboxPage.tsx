@@ -7,7 +7,10 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
+import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
+import { CodeLink } from "../components/CodeLink";
+import { fmtDate, money } from "../utils/format";
 import { PaymentVoucherDialog } from "./PaymentVoucherDialog";
 import "./accounting.css";
 import "./purchase.css";
@@ -33,19 +36,16 @@ const PAYMENT_META = {
   paid: { label: "Đã thanh toán", tone: "paid" },
 } as const;
 
-function money(value: number): string {
-  return `${Math.round(value).toLocaleString("vi-VN")} đ`;
-}
-
-function dateText(value?: string | null): string {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("vi-VN").format(new Date(value));
-}
-
-export function AccountingPurchaseInboxPage() {
+export function AccountingPurchaseInboxPage({
+  navigate,
+}: {
+  navigate: NavigateFn;
+}) {
   const { token } = useAuth();
   const can = useCan();
   const canApprove = can("ke_toan", "approve");
+  const openYcmh = (code: string) =>
+    navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -230,7 +230,7 @@ export function AccountingPurchaseInboxPage() {
                 <th>Mã phiếu</th>
                 <th>Trạng thái</th>
                 <th>Nhà cung cấp</th>
-                <th>Tổng PMH</th>
+                <th className="acct-amount-cell">Tổng PMH</th>
                 <th>Thanh toán</th>
                 <th>Ngày cần</th>
               </tr>
@@ -258,10 +258,15 @@ export function AccountingPurchaseInboxPage() {
                       }
                       onClick={() => setSelectedId(row.id)}
                     >
-                      <td>
+                      <td className="acct-code-cell">
                         <strong>{row.code}</strong>
                         <div className="purchase__source-codes">
-                          {row.sources.map((source) => source.code).join(", ")}
+                          {row.sources.map((source, index) => (
+                            <span key={source.id}>
+                              {index > 0 && ", "}
+                              <CodeLink code={source.code} onOpen={openYcmh} />
+                            </span>
+                          ))}
                         </div>
                       </td>
                       <td>
@@ -271,8 +276,13 @@ export function AccountingPurchaseInboxPage() {
                           {status.label}
                         </span>
                       </td>
-                      <td>{row.supplier_name || "—"}</td>
-                      <td>
+                      <td
+                        className="acct-supplier-cell"
+                        title={row.supplier_name ?? undefined}
+                      >
+                        {row.supplier_name || "—"}
+                      </td>
+                      <td className="acct-amount-cell">
                         <strong>{money(row.total_estimate)}</strong>
                       </td>
                       <td>
@@ -283,7 +293,9 @@ export function AccountingPurchaseInboxPage() {
                         </span>
                         <small>{money(row.outstanding_amount)} còn lại</small>
                       </td>
-                      <td>{dateText(row.needed_date)}</td>
+                      <td className="acct-code-cell">
+                        {fmtDate(row.needed_date)}
+                      </td>
                     </tr>
                   );
                 })}
@@ -338,7 +350,7 @@ export function AccountingPurchaseInboxPage() {
                 </div>
                 <div>
                   <dt>Ngày cần hàng</dt>
-                  <dd>{dateText(selected.needed_date)}</dd>
+                  <dd>{fmtDate(selected.needed_date)}</dd>
                 </div>
                 <div>
                   <dt>Người lập</dt>
@@ -346,12 +358,17 @@ export function AccountingPurchaseInboxPage() {
                 </div>
                 <div>
                   <dt>Gửi duyệt</dt>
-                  <dd>{dateText(selected.submitted_at)}</dd>
+                  <dd>{fmtDate(selected.submitted_at)}</dd>
                 </div>
                 <div>
                   <dt>Yêu cầu nguồn</dt>
                   <dd>
-                    {selected.sources.map((source) => source.code).join(", ")}
+                    {selected.sources.map((source, index) => (
+                      <span key={source.id}>
+                        {index > 0 && ", "}
+                        <CodeLink code={source.code} onOpen={openYcmh} />
+                      </span>
+                    ))}
                   </dd>
                 </div>
                 <div>

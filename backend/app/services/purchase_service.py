@@ -27,7 +27,11 @@ from ..models.purchase import (
     PurchaseRequest,
     Supplier,
 )
-from ..models.accounting import PAYMENT_VOUCHER_PAID, PAYMENT_VOUCHER_WAITING
+from ..models.accounting import (
+    PAYMENT_RECEIPT_RECEIVED,
+    PAYMENT_VOUCHER_PAID,
+    PAYMENT_VOUCHER_WAITING,
+)
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.purchase_repo import (
     DepartmentPurchaseRequestLineInput,
@@ -475,6 +479,7 @@ class PurchaseService:
         supplier_id: int | None,
         purpose: str | None,
         needed_date: date | None,
+        expected_receipt_date: date | None = None,
         note: str | None,
         lines,
         source_request_ids,
@@ -491,6 +496,7 @@ class PurchaseService:
             supplier_id=supplier_id,
             purpose=cleaned_purpose,
             needed_date=needed_date,
+            expected_receipt_date=expected_receipt_date,
             created_by_user_id=actor.id,
             note=(note or "").strip() or None,
             lines=cleaned_lines,
@@ -513,6 +519,7 @@ class PurchaseService:
         source_request_ids,
         purpose,
         needed_date,
+        expected_receipt_date=None,
         note,
         lines,
     ) -> dict:
@@ -528,6 +535,7 @@ class PurchaseService:
             supplier_id=supplier_id,
             purpose=cleaned_purpose,
             needed_date=needed_date,
+            expected_receipt_date=expected_receipt_date,
             note=(note or "").strip() or None,
             lines=self._clean_lines(lines),
             source_requests=self._resolve_source_requests(
@@ -715,11 +723,20 @@ class PurchaseService:
             for voucher in row.payment_vouchers
             if voucher.status == PAYMENT_VOUCHER_PAID
         )
-        outstanding_amount = max(0, total - paid_amount)
-        available_amount = max(0, total - paid_amount - pending_amount)
-        if total > 0 and paid_amount >= total:
+        # Tiền ĐÃ THU về (phiếu thu received) làm giảm số đã chi thực;
+        # paid_amount giữ số thô để UI hiện tách bạch "đã chi X, đã thu Y".
+        receipt_received_amount = sum(
+            int(receipt.amount_vnd)
+            for voucher in row.payment_vouchers
+            for receipt in voucher.receipts
+            if receipt.status == PAYMENT_RECEIPT_RECEIVED
+        )
+        net_paid = paid_amount - receipt_received_amount
+        outstanding_amount = max(0, total - net_paid)
+        available_amount = max(0, total - net_paid - pending_amount)
+        if total > 0 and net_paid >= total:
             payment_status = "paid"
-        elif paid_amount > 0 or pending_amount > 0:
+        elif net_paid > 0 or pending_amount > 0:
             payment_status = "partial"
         else:
             payment_status = "unpaid"
@@ -731,6 +748,7 @@ class PurchaseService:
             "supplier_name": row.supplier.name if row.supplier else None,
             "purpose": row.purpose,
             "needed_date": row.needed_date,
+            "expected_receipt_date": row.expected_receipt_date,
             "created_by_user_id": row.created_by_user_id,
             "created_by_name": self._user_name(row.created_by_user_id),
             "submitted_at": row.submitted_at,
@@ -743,6 +761,7 @@ class PurchaseService:
             "total_estimate": total,
             "pending_amount": pending_amount,
             "paid_amount": paid_amount,
+            "receipt_received_amount": receipt_received_amount,
             "outstanding_amount": outstanding_amount,
             "available_amount": available_amount,
             "payment_status": payment_status,

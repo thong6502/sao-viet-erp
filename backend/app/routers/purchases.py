@@ -44,6 +44,8 @@ DEPARTMENT_REQUEST_READERS = (
     ("kho", "read"),
     ("san_xuat", "read"),
     ("dm_giay_vat_tu", "read"),
+    # Kế toán truy vết YCMH nguồn khi duyệt PMH / lập Phiếu chi (SEAM-25).
+    ("ke_toan", "read"),
 )
 
 

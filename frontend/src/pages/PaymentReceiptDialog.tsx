@@ -1,0 +1,389 @@
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  ApiError,
+  api,
+  type CompanyBankAccountRow,
+  type PaymentReceiptInput,
+  type PaymentReceiptRow,
+  type PaymentVoucherRow,
+  type PaymentVoucherType,
+} from "../api/client";
+import { useAuth } from "../auth/useAuth";
+import { Button } from "../components/Button";
+import { money } from "../utils/format";
+
+function isoToday(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function optional(value?: string | null): string | null {
+  const cleaned = (value ?? "").trim();
+  return cleaned || null;
+}
+
+interface PaymentReceiptDialogProps {
+  /** Phiếu chi gốc (đã chi) — nguồn người nộp, currency/tỷ giá và hạn mức còn được thu. */
+  voucher: PaymentVoucherRow;
+  receipt?: PaymentReceiptRow | null;
+  onClose: () => void;
+  onSaved: (receipt: PaymentReceiptRow) => void;
+}
+
+function initialForm(
+  voucher: PaymentVoucherRow,
+  receipt?: PaymentReceiptRow | null,
+): PaymentReceiptInput {
+  if (receipt) {
+    return {
+      payer_name: receipt.payer_name,
+      receipt_method: receipt.receipt_method,
+      receipt_date: receipt.receipt_date,
+      amount: receipt.amount,
+      exchange_rate: receipt.exchange_rate,
+      content: receipt.content,
+      company_bank_account_id: receipt.company_bank_account_id,
+      note: receipt.note,
+    };
+  }
+  return {
+    // Người nộp = người phụ trách mua (người lập PMH); thiếu thì rơi về
+    // người nhận tiền mặt trên phiếu chi. KHÔNG dùng tên công ty NCC.
+    payer_name:
+      voucher.purchase_created_by_name || voucher.cash_recipient_name || "",
+    receipt_method: "cash",
+    receipt_date: isoToday(),
+    // Để trống bắt kế toán tự gõ số thực nộp (ca phổ biến là thu tiền thừa,
+    // không phải thu trọn) — "Còn được thu" hiện ở dải tổng quan để đối chiếu.
+    amount: 0,
+    exchange_rate: voucher.exchange_rate,
+    content: `Thu hồi tiền thừa ${voucher.code}`,
+    company_bank_account_id: null,
+    note: null,
+  };
+}
+
+export function PaymentReceiptDialog({
+  voucher,
+  receipt = null,
+  onClose,
+  onSaved,
+}: PaymentReceiptDialogProps) {
+  const { token } = useAuth();
+  // Phần còn được thu: cộng lại chính phiếu này khi đang sửa (nó đang chiếm chỗ).
+  const remainingVnd = useMemo(
+    () =>
+      voucher.amount_vnd -
+      voucher.receipt_received_amount -
+      voucher.receipt_pending_amount +
+      (receipt?.status === "waiting_receipt" ? receipt.amount_vnd : 0),
+    [voucher, receipt],
+  );
+  const [form, setForm] = useState<PaymentReceiptInput>(() =>
+    initialForm(voucher, receipt),
+  );
+  const [companyAccounts, setCompanyAccounts] = useState<
+    CompanyBankAccountRow[]
+  >([]);
+  const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const amountVnd = useMemo(
+    () =>
+      Math.round(
+        Number(form.amount || 0) *
+          Number(form.exchange_rate || voucher.exchange_rate || 1),
+      ),
+    [form.amount, form.exchange_rate, voucher.exchange_rate],
+  );
+  const isBank = form.receipt_method === "bank_transfer";
+
+  useEffect(() => {
+    if (!token) return;
+    setLoadingAccounts(true);
+    api.accounting
+      .companyAccounts(token, true)
+      .then((accounts) => {
+        const matching = accounts.filter(
+          (row) => row.currency === voucher.currency,
+        );
+        setCompanyAccounts(matching);
+        setForm((current) => ({
+          ...current,
+          company_bank_account_id:
+            current.company_bank_account_id ??
+            matching.find((row) => row.is_default)?.id ??
+            matching[0]?.id ??
+            null,
+        }));
+      })
+      .catch(() => setError("Không tải được danh sách tài khoản ngân hàng."))
+      .finally(() => setLoadingAccounts(false));
+  }, [token, voucher.currency]);
+
+  function set<K extends keyof PaymentReceiptInput>(
+    key: K,
+    value: PaymentReceiptInput[K],
+  ) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!token || saving) return;
+    if (!form.payer_name.trim()) {
+      setError("Vui lòng nhập người nộp tiền.");
+      return;
+    }
+    if (!form.receipt_date || !form.content.trim()) {
+      setError("Vui lòng nhập ngày thu và nội dung thu.");
+      return;
+    }
+    if (!Number.isFinite(form.amount) || form.amount <= 0) {
+      setError("Số tiền thu phải lớn hơn 0.");
+      return;
+    }
+    if (amountVnd > remainingVnd) {
+      setError(
+        `Số tiền thu không được vượt quá ${remainingVnd.toLocaleString("vi-VN")} đ.`,
+      );
+      return;
+    }
+    if (isBank && !form.company_bank_account_id) {
+      setError("Vui lòng chọn tài khoản công ty nhận tiền.");
+      return;
+    }
+
+    const payload: PaymentReceiptInput = {
+      ...form,
+      payer_name: form.payer_name.trim(),
+      amount: Math.round(Number(form.amount)),
+      exchange_rate: Number(form.exchange_rate || voucher.exchange_rate || 1),
+      content: form.content.trim(),
+      company_bank_account_id: isBank
+        ? (form.company_bank_account_id ?? null)
+        : null,
+      note: optional(form.note),
+    };
+    setSaving(true);
+    setError(null);
+    try {
+      const saved = receipt
+        ? await api.accounting.updateReceipt(token, receipt.id, payload)
+        : await api.accounting.createReceipt(token, voucher.id, payload);
+      onSaved(saved);
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : "Không lưu được phiếu thu.",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="acct-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="payment-receipt-title"
+    >
+      <form className="acct-modal__box" onSubmit={submit}>
+        <header className="acct-modal__head">
+          <div>
+            <p className="eyebrow">
+              {receipt ? "Sửa phiếu thu" : "Lập phiếu thu"}
+            </p>
+            <h2 id="payment-receipt-title">
+              {voucher.code} · {voucher.supplier_name}
+            </h2>
+          </div>
+          <button
+            type="button"
+            className="acct-modal__x"
+            onClick={onClose}
+            aria-label="Đóng"
+          >
+            ×
+          </button>
+        </header>
+
+        <div className="acct-modal__body">
+          {error && (
+            <div className="banner banner--error" role="alert">
+              {error}
+            </div>
+          )}
+
+          <div className="acct-summary-strip">
+            <div>
+              <span>Đã chi</span>
+              <strong>{money(voucher.amount_vnd)}</strong>
+            </div>
+            <div>
+              <span>Đã thu</span>
+              <strong>{money(voucher.receipt_received_amount)}</strong>
+            </div>
+            <div>
+              <span>Chờ thu</span>
+              <strong>{money(voucher.receipt_pending_amount)}</strong>
+            </div>
+            <div>
+              <span>Còn được thu</span>
+              <strong>{money(remainingVnd)}</strong>
+            </div>
+          </div>
+
+          <label className="acct-field">
+            <span>
+              Người nộp tiền <b>*</b>
+            </span>
+            <input
+              className="input"
+              value={form.payer_name}
+              onChange={(e) => set("payer_name", e.target.value)}
+              placeholder="NCC hoặc nhân viên phụ trách mua"
+            />
+          </label>
+
+          <div className="acct-segment" aria-label="Hình thức thu">
+            <button
+              type="button"
+              className={form.receipt_method === "cash" ? "is-active" : ""}
+              onClick={() => set("receipt_method", "cash" as PaymentVoucherType)}
+            >
+              Nhập quỹ tiền mặt
+            </button>
+            <button
+              type="button"
+              className={
+                form.receipt_method === "bank_transfer" ? "is-active" : ""
+              }
+              onClick={() =>
+                set("receipt_method", "bank_transfer" as PaymentVoucherType)
+              }
+            >
+              Về TK ngân hàng
+            </button>
+          </div>
+
+          {isBank && (
+            <label className="acct-field">
+              <span>
+                Tài khoản công ty nhận tiền <b>*</b>
+              </span>
+              <select
+                className="input"
+                value={form.company_bank_account_id ?? ""}
+                onChange={(e) =>
+                  set(
+                    "company_bank_account_id",
+                    e.target.value ? Number(e.target.value) : null,
+                  )
+                }
+                disabled={loadingAccounts}
+              >
+                <option value="">Chọn tài khoản công ty</option>
+                {companyAccounts.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.bank_name} · {row.account_number} · {row.currency}
+                  </option>
+                ))}
+              </select>
+              {!loadingAccounts && companyAccounts.length === 0 && (
+                <small>
+                  Chưa có tài khoản công ty loại tiền {voucher.currency}. Khai
+                  báo trong mục Tài khoản ngân hàng trước.
+                </small>
+              )}
+            </label>
+          )}
+
+          <div className="acct-form-grid acct-form-grid--3">
+            <label className="acct-field">
+              <span>
+                Ngày thu <b>*</b>
+              </span>
+              <input
+                className="input"
+                type="date"
+                value={form.receipt_date}
+                onChange={(e) => set("receipt_date", e.target.value)}
+              />
+            </label>
+            <label className="acct-field">
+              <span>
+                Số tiền nguyên tệ ({voucher.currency}) <b>*</b>
+              </span>
+              <input
+                className="input acct-money-input"
+                type="number"
+                min="1"
+                step="1"
+                value={form.amount === 0 ? "" : form.amount}
+                onChange={(e) => set("amount", Number(e.target.value))}
+              />
+            </label>
+            {voucher.currency !== "VND" ? (
+              <label className="acct-field">
+                <span>
+                  Tỷ giá VND <b>*</b>
+                </span>
+                <input
+                  className="input acct-money-input"
+                  type="number"
+                  min="0.000001"
+                  step="0.000001"
+                  value={form.exchange_rate ?? voucher.exchange_rate}
+                  onChange={(e) => set("exchange_rate", Number(e.target.value))}
+                />
+                <small>Quy đổi: {amountVnd.toLocaleString("vi-VN")} đ</small>
+              </label>
+            ) : (
+              <div className="acct-field">
+                <span>Quy đổi</span>
+                <strong style={{ alignSelf: "flex-start" }}>
+                  {money(amountVnd)}
+                </strong>
+              </div>
+            )}
+          </div>
+
+          <label className="acct-field">
+            <span>
+              Nội dung thu <b>*</b>
+            </span>
+            <input
+              className="input"
+              value={form.content}
+              onChange={(e) => set("content", e.target.value)}
+            />
+          </label>
+
+          <label className="acct-field">
+            <span>Ghi chú</span>
+            <textarea
+              className="input acct-textarea"
+              value={form.note ?? ""}
+              onChange={(e) => set("note", e.target.value)}
+            />
+          </label>
+        </div>
+
+        <footer className="acct-modal__foot">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onClose}
+            disabled={saving}
+          >
+            Hủy
+          </Button>
+          <Button type="submit" variant="accent" loading={saving}>
+            {receipt ? "Lưu thay đổi" : "Lập phiếu thu"}
+          </Button>
+        </footer>
+      </form>
+    </div>
+  );
+}
