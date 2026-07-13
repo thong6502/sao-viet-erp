@@ -232,16 +232,10 @@ export function BaoGiaPage({
 
         <div className="bg__toolbar-spacer" />
 
-        <Button
-          variant="accent"
-          onClick={() => {
-            setEditing(null);
-            setPreSelectedEstimateId(null);
-            setPinned(null);
-            setMode("create");
-          }}
-        >
-          + Báo giá mới (pick từ Tính giá)
+        {/* BG-3/4: báo giá LUÔN khởi từ 1 Phiếu tính giá (1 PTG → 1 BG). Bỏ modal đa-pick cũ — nút
+            này điều hướng sang màn Phiếu tính giá, ở đó bấm "Báo giá →" để tạo/mở báo giá. */}
+        <Button variant="accent" onClick={() => navigate?.("tinh-gia")}>
+          + Báo giá mới (từ Phiếu tính giá)
         </Button>
       </div>
 
