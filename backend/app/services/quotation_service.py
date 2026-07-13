@@ -519,13 +519,38 @@ class QuotationService:
         self.quotations.db.flush()
 
         default_margin = float(margin_percent) if margin_percent is not None else 20.0
-        default_vat = 10.0
+        self._fill_version_from_ptg(
+            version, ptg, margin_by_index=None, default_margin=default_margin, default_vat=10.0,
+        )
+        quote.current_version_id = version.id
+        self.quotations.update(quote)
+
+        self.audit.create(
+            actor_user_id=actor.id, action="create_quote", target=f"quote:{quote.id}",
+            detail=f"Tạo báo giá {quote.quote_number} v1 từ phiếu tính giá {ptg.ma} "
+            f"({len(ptg.thanh_phans)} sản phẩm)",
+        )
+        return quote
+
+    def _fill_version_from_ptg(
+        self, version, ptg, *, margin_by_index: dict[int, float] | None,
+        default_margin: float, default_vat: float,
+    ) -> None:
+        """Dựng dòng báo giá TỪ các 'sản phẩm' (PhieuThanhPhan) của PTG vào 1 version + gộp tổng.
+        Giá vốn KHÓA = gia_von_tp; SL = so_luong sản phẩm (0 → SL mặc định phiếu). `margin_by_index`
+        GIỮ markup theo VỊ TRÍ dòng (0-based) khi ĐỒNG BỘ LẠI — KHÔNG theo phieu_thanh_phan_id, vì mỗi
+        lần sửa PTG `_replace_children` XÓA+TẠO LẠI thanh_phan với id mới (id không ổn định, nhất là
+        Postgres không tái dùng id). Dòng chưa có ở bản cũ → dùng default_margin. Duyệt theo thứ tự
+        (thu_tu, id) cho ổn định — khớp cách engine sắp xếp."""
         subtotal = discount = vat = final = total_cost = 0.0
-        for i, tp in enumerate(ptg.thanh_phans, start=1):
+        tps = sorted(ptg.thanh_phans, key=lambda t: (t.thu_tu or 0, t.id or 0))
+        for pos, tp in enumerate(tps):
+            i = pos + 1
             qty = int(tp.so_luong) or int(ptg.so_luong) or 1     # 0 = lấy SL mặc định phiếu
             cost = float(tp.gia_von_tp or 0)
+            margin = (margin_by_index or {}).get(pos, default_margin)
             pricing = self.calculate_pricing(
-                total_cost=cost, margin_percent=default_margin, vat_percent=default_vat, quantity=qty,
+                total_cost=cost, margin_percent=margin, vat_percent=default_vat, quantity=qty,
             )
             self.quotations.db.add(QuoteItem(
                 quote_version_id=version.id,
@@ -537,7 +562,7 @@ class QuotationService:
                 quantity=qty,
                 unit="cái",
                 total_cost_snapshot=cost,
-                margin_percent=default_margin,
+                margin_percent=margin,
                 selling_price=pricing["selling_price"],
                 unit_price=pricing["unit_price"],
                 discount_amount=pricing["discount_amount"],
@@ -550,21 +575,89 @@ class QuotationService:
             vat += pricing["vat_amount"]
             final += pricing["final_amount"]
             total_cost += cost
-
         version.total_cost_snapshot = total_cost
         version.subtotal_amount = subtotal
         version.discount_amount = discount
         version.vat_amount = vat
         version.final_amount = final
-        quote.current_version_id = version.id
-        self.quotations.update(quote)
 
-        self.audit.create(
-            actor_user_id=actor.id, action="create_quote", target=f"quote:{quote.id}",
-            detail=f"Tạo báo giá {quote.quote_number} v1 từ phiếu tính giá {ptg.ma} "
-            f"({len(ptg.thanh_phans)} sản phẩm)",
+    def resync_from_ptg(self, *, phieu_tinh_gia_id: int, scope: str, actor) -> tuple[Quote, str]:
+        """PTG đổi số → ĐỒNG BỘ sang báo giá đang hiệu lực (Phương án A). NHÁP → cập nhật TẠI CHỖ
+        bản nháp (giữ markup theo dòng + điều khoản/khách đã nhập). ĐÃ CHỐT (chờ duyệt/đã duyệt/
+        khách đồng ý) → tạo PHIÊN BẢN MỚI v(n+1) draft giá vốn mới, bản cũ → superseded. Đã lên đơn
+        thì CHẶN. Trả `(quote, mode)` với mode ∈ {"draft_synced","new_version"}."""
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        from ..models.phieu_tinh_gia import PhieuTinhGia
+
+        db = self.quotations.db
+        ptg = db.execute(
+            select(PhieuTinhGia)
+            .where(PhieuTinhGia.id == phieu_tinh_gia_id)
+            .options(selectinload(PhieuTinhGia.thanh_phans))
+        ).scalar_one_or_none()
+        if ptg is None:
+            raise QuotationValidationError("Không tìm thấy phiếu tính giá.")
+        if not ptg.thanh_phans:
+            raise QuotationValidationError("Phiếu tính giá chưa có sản phẩm nào để báo giá.")
+
+        quote = self.quotations.active_for_phieu(phieu_tinh_gia_id)
+        if quote is None:
+            raise QuotationConflict("Phiếu tính giá này chưa có báo giá đang hiệu lực.")
+        # RBAC scope: chỉ đồng bộ báo giá trong phạm vi của người thao tác.
+        self.get_quotation(quotation_id=quote.id, scope=scope, actor=actor)
+        if quote.status == STATUS_CONVERTED_TO_ORDER:
+            raise QuotationConflict(
+                f"Báo giá {quote.quote_number} đã lên đơn hàng — không thể đồng bộ lại từ phiếu tính giá."
+            )
+
+        current = db.get(QuoteVersion, quote.current_version_id) if quote.current_version_id else None
+        # GIỮ markup người dùng đã đặt theo VỊ TRÍ dòng (bản cũ sắp theo line_no) — KHÔNG theo
+        # phieu_thanh_phan_id (id đổi mỗi lần sửa PTG). Dòng mới thêm → default_margin.
+        old_items = sorted((current.items if current else []), key=lambda it: it.line_no or 0)
+        margin_by_index = {idx: float(it.margin_percent) for idx, it in enumerate(old_items)}
+
+        if quote.status == STATUS_DRAFT:
+            # NHÁP: làm mới TẠI CHỖ bản nháp hiện tại (không đẻ version).
+            if current is None:
+                raise QuotationConflict("Báo giá chưa có phiên bản để đồng bộ.")
+            for it in list(current.items):
+                db.delete(it)
+            db.flush()
+            self._fill_version_from_ptg(
+                current, ptg, margin_by_index=margin_by_index, default_margin=20.0, default_vat=10.0,
+            )
+            self.quotations.update(quote)
+            self.audit.create(
+                actor_user_id=actor.id, action="change_order", target=f"quote:{quote.id}",
+                detail=f"{quote.quote_number}: đồng bộ giá vốn từ phiếu tính giá {ptg.ma} (bản nháp v{current.version_number})",
+            )
+            return quote, "draft_synced"
+
+        # ĐÃ CHỐT: bản cũ superseded, tạo phiên bản mới draft giá vốn mới → quote về nháp.
+        if current:
+            current.status = VERSION_STATUS_SUPERSEDED
+        new_version = QuoteVersion(
+            quote_id=quote.id,
+            version_number=(current.version_number + 1) if current else 2,
+            status=VERSION_STATUS_DRAFT,
+            created_by=actor.id,
         )
-        return quote
+        db.add(new_version)
+        db.flush()
+        self._fill_version_from_ptg(
+            new_version, ptg, margin_by_index=margin_by_index, default_margin=20.0, default_vat=10.0,
+        )
+        quote.current_version_id = new_version.id
+        quote.status = STATUS_DRAFT
+        self.quotations.update(quote)
+        self.audit.create(
+            actor_user_id=actor.id, action="change_order", target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: v{current.version_number if current else 1} → v{new_version.version_number} "
+            f"đồng bộ giá vốn mới từ phiếu tính giá {ptg.ma}",
+        )
+        return quote, "new_version"
 
     # --- BG-2: "báo giá đặc thù" — GĐ duyệt (cùng máy exception_gate với A2) --------
 

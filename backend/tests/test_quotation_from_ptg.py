@@ -205,3 +205,141 @@ def test_change_customer_refreshes_contact_and_delivery(client):
     assert d["contact_name_snapshot"] == "Chị Mai"
     assert d["contact_phone_snapshot"] == "0911222333"
     assert d["delivery_address"] == "KCN Sóng Thần, Bình Dương"
+
+
+# --- Phương án A: PTG đổi số → ĐỒNG BỘ sang báo giá (resync-from-ptg) ------------
+# Nháp = cập nhật TẠI CHỖ (giữ markup); đã chốt = tạo PHIÊN BẢN MỚI.
+
+def _edit_ptg_first_product(pid: int, *, gia_von_tp: int, so_luong: int) -> None:
+    """Giả lập người dùng quay về PTG tính lại: sửa giá vốn + SL của 'sản phẩm' đầu."""
+    db = SessionLocal()
+    try:
+        tp = (
+            db.query(PhieuThanhPhan)
+            .filter(PhieuThanhPhan.phieu_id == pid)
+            .order_by(PhieuThanhPhan.thu_tu)
+            .first()
+        )
+        tp.gia_von_tp = gia_von_tp
+        tp.so_luong = so_luong
+        db.commit()
+    finally:
+        db.close()
+
+
+def _version_count(quote_id: int) -> int:
+    from app.models.quotation import QuoteVersion
+    db = SessionLocal()
+    try:
+        return db.query(QuoteVersion).filter(QuoteVersion.quote_id == quote_id).count()
+    finally:
+        db.close()
+
+
+def _first_tp_id(pid: int) -> int:
+    db = SessionLocal()
+    try:
+        t = (db.query(PhieuThanhPhan)
+             .filter(PhieuThanhPhan.phieu_id == pid)
+             .order_by(PhieuThanhPhan.thu_tu).first())
+        return t.id
+    finally:
+        db.close()
+
+
+def _replace_ptg_products(pid: int, products: list[tuple[str, int, int]]) -> None:
+    """Mô phỏng ĐÚNG `_replace_children` (phieu_tinh_gia.py) khi user bấm Tính giá: THÊM thanh_phan
+    mới (chiếm id cao hơn) RỒI xóa cũ → id thật sự ĐỔI (giống Postgres prod, không tái dùng id)."""
+    db = SessionLocal()
+    try:
+        old = db.query(PhieuThanhPhan).filter(PhieuThanhPhan.phieu_id == pid).all()
+        for i, (ten, sl, von) in enumerate(products):
+            db.add(PhieuThanhPhan(phieu_id=pid, thu_tu=i, ten=ten, so_luong=sl,
+                                  gia_von_tp=von, loai_thanh_phan="to_roi"))
+        db.flush()
+        for t in old:
+            db.delete(t)
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_resync_draft_updates_in_place(client):
+    token = _token(client)
+    pid = _seed_ptg(products=[("Ruột", 5_000, 8_000_000)])
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    # Tính lại PTG: giá vốn 8tr→12tr, SL 5.000→7.000.
+    _edit_ptg_first_product(pid, gia_von_tp=12_000_000, so_luong=7_000)
+    r = client.post(f"/api/quotations/resync-from-ptg/{pid}", headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["mode"] == "draft_synced"
+    assert r.json()["quote_id"] == q["id"]
+    assert _version_count(q["id"]) == 1          # KHÔNG đẻ phiên bản
+    d = client.get(f"/api/quotations/{q['id']}", headers=_h(token)).json()
+    it = d["items"][0]
+    assert it["total_cost_snapshot"] == 12_000_000    # giá vốn mới
+    assert it["quantity"] == 7_000                     # SL mới
+    assert round(it["selling_price"]) == 15_000_000    # 12tr / (1-0.20)
+
+
+def test_resync_preserves_user_margin_on_draft(client):
+    token = _token(client)
+    pid = _seed_ptg(products=[("Ruột", 5_000, 8_000_000)])
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    item_id = q["items"][0]["id"]
+    # Sales đặt markup riêng 40%.
+    client.put(f"/api/quotations/{q['id']}",
+               json={"items": [{"id": item_id, "margin_percent": 40}]}, headers=_h(token))
+    _edit_ptg_first_product(pid, gia_von_tp=12_000_000, so_luong=5_000)
+    r = client.post(f"/api/quotations/resync-from-ptg/{pid}", headers=_h(token))
+    assert r.status_code == 200, r.text
+    it = client.get(f"/api/quotations/{q['id']}", headers=_h(token)).json()["items"][0]
+    assert it["total_cost_snapshot"] == 12_000_000
+    assert round(it["margin_percent"]) == 40           # GIỮ markup người dùng
+    assert round(it["selling_price"]) == 20_000_000    # 12tr / (1-0.40)
+
+
+def test_resync_preserves_margin_across_tp_recreate(client):
+    """Bấm Tính giá lại tạo thanh_phan id MỚI (prod không tái dùng id). Markup phải GIỮ theo VỊ TRÍ
+    dòng — regression cho bug 'giữ theo phieu_thanh_phan_id → mất markup trên Postgres'."""
+    token = _token(client)
+    pid = _seed_ptg(products=[("Ruột", 5_000, 8_000_000)])
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    item_id = q["items"][0]["id"]
+    client.put(f"/api/quotations/{q['id']}",
+               json={"items": [{"id": item_id, "margin_percent": 40}]}, headers=_h(token))
+    old_tp = _first_tp_id(pid)
+    _replace_ptg_products(pid, [("Ruột", 5_000, 12_000_000)])   # id đổi + giá vốn mới
+    assert _first_tp_id(pid) != old_tp                           # xác nhận id THẬT SỰ đổi
+    r = client.post(f"/api/quotations/resync-from-ptg/{pid}", headers=_h(token))
+    assert r.status_code == 200, r.text
+    it = client.get(f"/api/quotations/{q['id']}", headers=_h(token)).json()["items"][0]
+    assert round(it["margin_percent"]) == 40                     # GIỮ markup dù tp_id đổi
+    assert it["total_cost_snapshot"] == 12_000_000
+    assert round(it["selling_price"]) == 20_000_000              # 12tr / (1-0.40)
+
+
+def test_resync_committed_creates_new_version(client):
+    token = _token(client)
+    pid = _seed_ptg(products=[("Ruột", 5_000, 8_000_000)])
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    # Chốt = gửi khách (sent).
+    sent = client.post(f"/api/quotations/{q['id']}/transition",
+                       json={"to_status": "sent"}, headers=_h(token))
+    assert sent.status_code == 200, sent.text
+    _edit_ptg_first_product(pid, gia_von_tp=12_000_000, so_luong=5_000)
+    r = client.post(f"/api/quotations/resync-from-ptg/{pid}", headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["mode"] == "new_version"
+    assert _version_count(q["id"]) == 2                # ĐẺ phiên bản mới
+    d = client.get(f"/api/quotations/{q['id']}", headers=_h(token)).json()
+    assert d["status"] == "draft"                      # về nháp để chỉnh
+    assert d["items"][0]["total_cost_snapshot"] == 12_000_000
+
+
+def test_resync_no_active_quote_conflict(client):
+    token = _token(client)
+    pid = _seed_ptg()
+    # PTG chưa có báo giá đang hiệu lực → 409 (màn PTG sẽ đi đường tạo mới).
+    r = client.post(f"/api/quotations/resync-from-ptg/{pid}", headers=_h(token))
+    assert r.status_code == 409

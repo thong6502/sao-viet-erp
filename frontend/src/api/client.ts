@@ -4988,6 +4988,14 @@ export const api = {
     byPhieu(token: string, phieuId: number): Promise<{ quote_id: number | null; quote_number: string | null }> {
       return authed(`/api/quotations/by-phieu/${phieuId}`, token);
     },
+    /** PTG đổi số → đồng bộ sang báo giá đang hiệu lực (Phương án A). Nháp = cập nhật tại chỗ;
+     *  đã chốt = tạo phiên bản mới. Trả mode để màn PTG báo cho người dùng. */
+    resyncFromPhieu(
+      token: string,
+      phieuId: number,
+    ): Promise<{ quote_id: number; quote_number: string; mode: "draft_synced" | "new_version" }> {
+      return authed(`/api/quotations/resync-from-ptg/${phieuId}`, token, { method: "POST" });
+    },
     /** BG-2: GĐ DUYỆT / TỪ CHỐI báo giá đặc thù → mở khóa "gửi khách". */
     recordApproval(
       token: string,

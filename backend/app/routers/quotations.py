@@ -408,6 +408,30 @@ def quote_id_for_phieu(
     return {"quote_id": existing.id, "quote_number": existing.quote_number}
 
 
+@router.post("/resync-from-ptg/{phieu_tinh_gia_id}")
+def resync_quote_from_ptg(
+    phieu_tinh_gia_id: int,
+    svc: Service,
+    authz: Authz,
+    # Đồng bộ = sửa báo giá theo phiếu tính giá mới → cần quyền SỬA báo giá (gộp P8).
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> dict:
+    """PTG đổi số → đồng bộ sang báo giá đang hiệu lực (Phương án A). Nháp = cập nhật tại chỗ;
+    đã chốt = tạo phiên bản mới. Trả `{quote_id, quote_number, mode}` để màn PTG điều hướng + báo."""
+    scope = _scope_for(authz, user)
+    try:
+        quote, mode = svc.resync_from_ptg(
+            phieu_tinh_gia_id=phieu_tinh_gia_id, scope=scope, actor=user
+        )
+    except (QuotationNotFound, QuotationForbidden):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
+    except QuotationValidationError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    except QuotationConflict as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
+    return {"quote_id": quote.id, "quote_number": quote.quote_number, "mode": mode}
+
+
 @router.get("/{quotation_id}", response_model=QuotationDetailOut)
 def get_quotation(
     quotation_id: int,

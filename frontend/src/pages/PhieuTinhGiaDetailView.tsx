@@ -729,7 +729,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       .finally(() => setCalcing(false));
   }, [token, id, tenAnPham, khoThanhPham, loaiSPId, qty, comps, applyOut]);
 
-  // BG-3: từ phiếu tính giá → mở báo giá (1 PTG → 1 BG). Có sẵn thì mở, chưa có thì tạo rồi mở.
+  // BG-3: từ phiếu tính giá → mở báo giá (1 PTG → 1 BG). Chưa có → tạo. ĐÃ CÓ → ĐỒNG BỘ số mới
+  // của PTG sang báo giá (Phương án A): nháp cập nhật tại chỗ, đã chốt tạo phiên bản mới; rồi mở.
   async function openOrCreateQuote() {
     if (!token || !navigate) return;
     setQuoting(true);
@@ -744,6 +745,11 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           customer_note: null, internal_note: null,
         });
         quoteId = q.id;
+      } else {
+        // Đã có báo giá → kéo giá vốn/SL mới nhất từ PTG sang trước khi mở (nháp: tại chỗ; đã
+        // chốt: phiên bản mới). Trang Báo giá hiển thị số mới + badge phiên bản là tín hiệu.
+        const r = await api.quotations.resyncFromPhieu(token, id);
+        quoteId = r.quote_id;
       }
       navigate("bao-gia", { openQuoteId: quoteId });
     } catch (e) {

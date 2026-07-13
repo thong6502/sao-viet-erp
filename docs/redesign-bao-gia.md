@@ -140,6 +140,14 @@ Màn detail = `QuotationDetailView` trong `frontend/src/pages/BaoGiaPage.tsx`.
   từ phiếu tính giá mới (vì giá vốn khóa đã lệch). **Gỡ** nút "Tạo phiên bản mới" (`requote`) + UI so sánh
   phiên bản (B6 tự hết). Giữ cấu trúc H‑V‑I nhưng **luôn 1 phiên bản**.
 - **Đổi nhỏ** (markup / điều khoản / hiệu lực) → sửa tại chỗ khi còn `draft`.
+- **Đồng bộ PTG → Báo giá — ĐÃ BUILD (Phương án A):** sửa PTG rồi bấm **"Báo giá"** lại → tự kéo **giá vốn/SL
+  mới** sang báo giá đang hiệu lực (endpoint `POST /quotations/resync-from-ptg/{pid}`, service
+  `resync_from_ptg`; FE `openOrCreateQuote`). **Nháp** → cập nhật **TẠI CHỖ** (giữ markup theo dòng qua
+  `phieu_thanh_phan_id` + điều khoản/khách đã nhập), **không đẻ phiên bản**. **Đã chốt** (chờ duyệt / đã
+  duyệt / khách đồng ý) → tạo **phiên bản mới `v(n+1)`** draft giá vốn mới (bản cũ → `superseded`, quote về
+  `draft`); **đã lên đơn** (`converted_to_order`) → **chặn 409**. ⇒ **Điều chỉnh** ý "luôn 1 phiên bản / gỡ
+  requote" ở gạch đầu dòng trên: cơ chế **version ĐƯỢC GIỮ** để phục vụ re-sync khi báo giá đã chốt (không
+  cần "hủy + tạo mới" thủ công cho case đổi-lớn đường PTG).
 - **Hủy** cần **lý do phân loại**: `doi_sl · doi_chat_lieu · them_gia_cong · gia_nvl_tang · khac` (+ ghi chú
   tự do) — để báo cáo. Cho hủy từ `draft / pending_approval / sent / accepted` (accepted chỉ khi **chưa**
   `converted_to_order`).
