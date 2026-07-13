@@ -1025,6 +1025,27 @@ select.input {
 .bgv .cust-rows > div { display: flex; justify-content: space-between; gap: 10px; }
 .bgv .cust-rows > div b { color: var(--ink); font-weight: 600; text-align: right; }
 
+/* Ô chọn khách hàng gõ-để-tìm (combobox) */
+.bgv .cust-combo { position: relative; width: 100%; }
+.bgv .cust-combo__in { width: 100%; }
+.bgv .cust-combo__pop {
+  position: absolute; z-index: 50; top: calc(100% + 4px); right: 0;
+  min-width: 240px; max-width: 340px; max-height: 264px; overflow-y: auto;
+  background: var(--paper-contrast); border: 1px solid var(--rule);
+  border-radius: 10px; box-shadow: 0 14px 32px rgba(0,0,0,0.18); padding: 4px;
+}
+.bgv .cust-combo__opt {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; padding: 8px 10px; border: 0; border-radius: 7px;
+  background: transparent; cursor: pointer; font: inherit; font-size: 13px; color: var(--ink);
+}
+.bgv .cust-combo__opt:hover, .bgv .cust-combo__opt.active { background: var(--rule-hair); }
+.bgv .cust-combo__opt.sel { color: var(--rust-2); font-weight: 600; }
+.bgv .cust-combo__opt--clear { color: var(--ash); font-size: 12px; }
+.bgv .cust-combo__opt .cc-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bgv .cust-combo__opt .cc-code { flex-shrink: 0; font-family: var(--ff-mono); font-size: 11px; color: var(--ash-2); }
+.bgv .cust-combo__empty { padding: 10px; font-size: 12px; color: var(--ash); }
+
 /* activity timeline */
 .bgv .act-timeline { display: flex; flex-direction: column; }
 .bgv .act-item { display: grid; grid-template-columns: 26px minmax(0,1fr); gap: 10px; padding: 9px 0; position: relative; }

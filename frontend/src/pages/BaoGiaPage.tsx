@@ -1,7 +1,7 @@
 // Báo giá (Quotation / Quote) — spec-09, Phase 2B/2C/2D.
 // Danh sách phiếu (mã+version, khách, tổng giá bán, trạng thái, hạn hiệu lực) + Tạo/Sửa
 // (H-V-I structure, multi-quantity spreadsheet pricing table, version timeline, PDF preview & Order handoff).
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ApiError,
   api,
@@ -905,15 +905,16 @@ function QuotationFormDialog({
                     </div>
                   </div>
                 ) : (
-                  <label className="field">
+                  <div className="field">
                     <span className="field__label">Khách hàng *</span>
-                    <select className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)} disabled={isEdit}>
-                      <option value="">— Chọn Khách hàng (CRM) —</option>
-                      {customers.map((c) => (
-                        <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
-                      ))}
-                    </select>
-                  </label>
+                    <CustomerCombobox
+                      customers={customers}
+                      value={customerId ? Number(customerId) : null}
+                      onChange={(id) => setCustomerId(id ? String(id) : "")}
+                      disabled={isEdit}
+                      placeholder="— Chọn Khách hàng (CRM) —"
+                    />
+                  </div>
                 )}
 
                 <label className="field">
@@ -1541,8 +1542,8 @@ function QuotationDetailView({
 
   async function submitQuoteApproval(decision: "approved" | "rejected") {
     if (!token || !d) return;
-    if (decision === "rejected" && !apprNote.trim()) {
-      setErr("Nhập lý do từ chối.");
+    if (!apprNote.trim()) {
+      setErr("Nhập lý do/ý kiến — bắt buộc khi duyệt HOẶC từ chối báo giá đặc thù.");
       return;
     }
     setApprSaving(true);
@@ -2040,7 +2041,7 @@ function QuotationDetailView({
                       className="exc-note"
                       value={apprNote}
                       onChange={(e) => setApprNote(e.target.value)}
-                      placeholder="Lý do / ghi chú (bắt buộc khi từ chối)"
+                      placeholder="Lý do / ý kiến (bắt buộc — cả khi duyệt lẫn từ chối)"
                       rows={2}
                     />
                     <div className="exc-btns">
@@ -2072,16 +2073,13 @@ function QuotationDetailView({
               <div>
                 <span>Công ty</span>
                 {editable ? (
-                  <select
-                    className="input" style={{ maxWidth: 210 }}
-                    value={d.customer_id ?? ""} disabled={busy}
-                    onChange={(e) => changeCustomer(e.target.value ? Number(e.target.value) : null)}
-                  >
-                    <option value="">— Chọn khách hàng —</option>
-                    {customers.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <CustomerCombobox
+                    customers={customers}
+                    value={d.customer_id ?? null}
+                    onChange={changeCustomer}
+                    disabled={busy}
+                    maxWidth={220}
+                  />
                 ) : (
                   <b>{d.customer?.name ?? "—"}</b>
                 )}
@@ -2339,6 +2337,100 @@ function QuotationPrintModal({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ---- Ô chọn khách hàng: gõ-để-tìm (tìm "tương đối", bỏ dấu vẫn ra) --------------
+/** Bỏ dấu tiếng Việt + hạ chữ thường để so khớp gần đúng (gõ "bao bi" khớp "Bao Bì"). */
+function normVi(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[đĐ]/g, "d")
+    .toLowerCase()
+    .trim();
+}
+
+function CustomerCombobox({
+  customers,
+  value,
+  onChange,
+  disabled,
+  placeholder = "— Chọn khách hàng —",
+  maxWidth,
+}: {
+  customers: { id: number; name: string; code: string }[];
+  value: number | null;
+  onChange: (id: number | null) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  maxWidth?: number;
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const selected = customers.find((c) => c.id === value) ?? null;
+  const q = normVi(query);
+  const matches = (q
+    ? customers.filter((c) => normVi(`${c.name} ${c.code}`).includes(q))
+    : customers
+  ).slice(0, 50);
+
+  // Đóng dropdown khi bấm ra ngoài.
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  function pick(id: number | null) {
+    onChange(id);
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <div ref={wrapRef} className="cust-combo" style={maxWidth ? { maxWidth } : undefined}>
+      <input
+        className="input cust-combo__in"
+        disabled={disabled}
+        placeholder={placeholder}
+        value={open ? query : selected?.name ?? ""}
+        onFocus={() => { setOpen(true); setActive(0); }}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); setActive(0); }}
+        onKeyDown={(e) => {
+          if (e.key === "ArrowDown") { e.preventDefault(); setOpen(true); setActive((a) => Math.min(a + 1, matches.length - 1)); }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+          else if (e.key === "Enter") { e.preventDefault(); if (open && matches[active]) pick(matches[active].id); }
+          else if (e.key === "Escape") { setOpen(false); }
+        }}
+      />
+      {open && !disabled && (
+        <div className="cust-combo__pop" role="listbox">
+          <button
+            type="button" className="cust-combo__opt cust-combo__opt--clear"
+            onMouseDown={(e) => { e.preventDefault(); pick(null); }}
+          >— Bỏ chọn —</button>
+          {matches.length === 0 && <div className="cust-combo__empty">Không tìm thấy khách phù hợp</div>}
+          {matches.map((c, i) => (
+            <button
+              key={c.id} type="button"
+              className={`cust-combo__opt${i === active ? " active" : ""}${c.id === value ? " sel" : ""}`}
+              onMouseEnter={() => setActive(i)}
+              onMouseDown={(e) => { e.preventDefault(); pick(c.id); }}
+            >
+              <span className="cc-name">{c.name}</span>
+              {c.code && <span className="cc-code">{c.code}</span>}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
