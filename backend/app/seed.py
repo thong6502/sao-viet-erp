@@ -89,7 +89,10 @@ ADMIN_DEPARTMENT = "Ban giám đốc"
 ADMIN_ROLE = "Giám đốc"
 
 
-def _full(scope: str) -> dict:
+def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
+    # `can_approve_exception` (A2: GĐ duyệt "đơn đặc thù" trên don_hang_ban) MẶC ĐỊNH TẮT — vì
+    # _full dùng CHUNG cho cả GĐ lẫn Trưởng phòng KD; chỉ GĐ được bật (override riêng ở ROLES),
+    # nếu bật thẳng trong _full thì TP KD cũng nhận → tự miễn cho đơn của mình (phản biện #1).
     return dict(
         can_read=True,
         can_create=True,
@@ -118,6 +121,7 @@ def _full(scope: str) -> dict:
         can_view_salary=True,
         can_edit_salary=True,
         can_adjust=True,
+        can_approve_exception=can_approve_exception,
     )
 
 
@@ -152,7 +156,15 @@ def _leave_admin(scope: str = SCOPE_ALL) -> dict:
 # Roles: (department_name, role_name, {module_key: permission}). The minimal default
 # role ("Nhân viên") is Read-only on Dashboard, scope own.
 ROLES: list[tuple[str, str, dict[str, dict]]] = [
-    (ADMIN_DEPARTMENT, ADMIN_ROLE, {k: _full(SCOPE_ALL) for k in ALL_MODULE_KEYS}),
+    (
+        ADMIN_DEPARTMENT,
+        ADMIN_ROLE,
+        {
+            **{k: _full(SCOPE_ALL) for k in ALL_MODULE_KEYS},
+            # Chỉ GĐ được DUYỆT "đơn đặc thù" (A2) — TP KD giữ _full nhưng KHÔNG có quyền này.
+            "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
+        },
+    ),
     (
         "Hành chính nhân sự",
         "Trưởng phòng HCNS",

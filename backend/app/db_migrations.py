@@ -1406,6 +1406,32 @@ def _migrate_phieu_san_luong_5b2(db: Session) -> None:
     db.commit()
 
 
+def _migrate_order_line_cost_snapshot(db: Session) -> None:
+    """A2 (đơn đặc thù): thêm cột `order_lines.cost_snapshot` (giá vốn TỔNG dòng, VND) để soi biên
+    lợi nhuận. Đơn cũ = NULL → bỏ qua soi biên. No-op trên DB fresh / bảng chưa có.
+    (Bảng `order_approvals` là bảng MỚI → create_all tự tạo, không cần ALTER ở đây.)"""
+    insp = inspect(db.get_bind())
+    if "order_lines" not in insp.get_table_names():
+        return
+    if "cost_snapshot" not in _existing_columns(insp, "order_lines"):
+        db.execute(text("ALTER TABLE order_lines ADD COLUMN cost_snapshot BIGINT"))
+    db.commit()
+
+
+def _migrate_role_permission_approve_exception(db: Session) -> None:
+    """Phân quyền A2: thêm cột `role_permissions.can_approve_exception` (GĐ duyệt "đơn đặc thù").
+    Chỉ ADD COLUMN DEFAULT FALSE — quyền cho vai Giám đốc do seed_roles tự upsert lại mỗi lần khởi
+    động (không cần backfill). No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_approve_exception" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_approve_exception BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1456,6 +1482,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0048_piece_batch_status", _migrate_piece_batch_status),
     ("0049_phieu_san_luong_5b1", _migrate_phieu_san_luong_5b1),
     ("0050_phieu_san_luong_5b2", _migrate_phieu_san_luong_5b2),
+    ("0051_order_line_cost_snapshot", _migrate_order_line_cost_snapshot),
+    ("0052_role_permission_approve_exception", _migrate_role_permission_approve_exception),
 ]
 
 

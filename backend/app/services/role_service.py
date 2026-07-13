@@ -150,6 +150,9 @@ class RoleService:
                     "can_clone": bool(p.can_clone) if p else False,
                     "can_toggle_active": bool(p.can_toggle_active) if p else False,
                     "can_reparent": bool(p.can_reparent) if p else False,
+                    # A2 — quyền duyệt "đơn đặc thù" (chỉ GĐ). (view_salary/edit_salary/adjust vẫn
+                    # do save_matrix xử lý riêng, giữ nguyên hành vi cũ — không mở rộng ở đây.)
+                    "can_approve_exception": bool(p.can_approve_exception) if p else False,
                 }
             )
         return rows
@@ -196,6 +199,7 @@ class RoleService:
                 can_view_salary=row.get("can_view_salary", False),
                 can_edit_salary=row.get("can_edit_salary", False),
                 can_adjust=row.get("can_adjust", False),
+                can_approve_exception=row.get("can_approve_exception", False),
             )
         self.audit.create(
             actor_user_id=actor_id,

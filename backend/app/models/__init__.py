@@ -18,7 +18,8 @@ from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
 from .module import Module
 from .operation import Operation, OperationRate
-from .order import Order, OrderLine
+from .order import Order, OrderApproval, OrderLine
+from .payment import Payment
 from .payroll import (
     EmployeeSalary,
     PayrollLine,
@@ -137,6 +138,8 @@ __all__ = [
     "CostingOperation",
     "Order",
     "OrderLine",
+    "OrderApproval",
+    "Payment",
     "PayrollParams",
     "SalaryRateRule",
     "EmployeeSalary",

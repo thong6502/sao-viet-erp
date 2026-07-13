@@ -164,6 +164,7 @@ gets on that module.
 | `can_view_salary` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su) — xem dữ liệu nhạy cảm của hồ sơ (lương/BHXH/MST/số phụ thuộc/TK ngân hàng/nhóm-bậc lương). Thiếu quyền → các field đó bị ẩn. Thêm qua migration 0014. |
 | `can_edit_salary` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su) — SỬA dữ liệu nhạy cảm của hồ sơ (lương/BHXH/bank/nhóm-bậc lương), tách khỏi `can_view_salary` (chỉ xem). Thiếu quyền → các field đó bị BỎ QUA khi ghi (N5). Thêm qua migration 0041. |
 | `can_adjust` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su · Chấm công) — chấm bù / sửa công qua punch nguồn (`attendance_logs.is_manual`), tách khỏi `can_update`. Thêm qua migration 0015. |
+| `can_approve_exception` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (don_hang_ban · A2) — DUYỆT "đơn đặc thù" (giá trị cao / biên thấp / dưới giá vốn), tách khỏi `can_approve` (= chốt đơn thường). CHỈ Giám đốc; Trưởng phòng KD giữ `_full` nhưng KHÔNG có quyền này. Thêm qua migration 0050. |
 
 **Keys & indexes**
 
@@ -656,6 +657,31 @@ and Postgres.
 - Indexes: `ix_orders_order_no` (U), `ix_orders_customer_id`, `ix_orders_quotation_id`, `ix_orders_parent_order_id`, `ix_orders_sale_user_id` (scope filter).
 - Foreign keys: `customer_id FK→customers.id` (ON DELETE SET NULL), `parent_order_id FK→orders.id` (ON DELETE SET NULL, self-FK), `sale_user_id FK→users.id`. `quotation_id` is deliberately NOT a FK (SEAM-04; báo giá versioned — the (id, version) pin is the reference).
 
+### `payments`
+
+**Purpose:** thu tiền bán (CỌC + đợt thu) của một Đơn hàng bán — Pha A "Lát Tài chính". `deposit_total(order) = NET Σ(thu)−Σ(hoàn)` trên `kind=deposit` là điều kiện chốt đơn ③→④ (§32 L827-828), đóng **SEAM-04 (deposit)**. Cọc **KHÔNG sinh hóa đơn** (N5, NĐ123/2020 — chỉ treo Nợ 111/112 / Có 131); chân lý hóa đơn/doanh thu ở ⑬ (MISA). Khác `payment_vouchers` (Phiếu CHI mua hàng, AP). Bảng MỚI do `create_all` dựng (không cần migration). Portable across SQLite và Postgres.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | no | — | Đơn hàng bán khoản thu này gắn vào (ON DELETE CASCADE). |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id**, **IX** | yes | — | Khách kéo TỪ ĐƠN (cộng dồn công nợ/đối chiếu theo khách). ON DELETE SET NULL. |
+| `kind` | `String(16)` → `VARCHAR(16)` | — | no | `deposit` | deposit (cọc, mở cổng chốt) / partial / final (thu đợt sau — Pha D). |
+| `direction` | `String(8)` → `VARCHAR(8)` | — | no | `thu` | thu (tiền vào) / hoan (hoàn cọc khi hủy đơn §32). `deposit_total` tính NET thu−hoàn. |
+| `amount` | `BigInteger` → `BIGINT` | — | no | `0` | Số tiền (VND). BigInteger vì đơn in giá trị lớn (vượt Int 2³¹). Luôn > 0. |
+| `method` | `String(16)` → `VARCHAR(16)` | — | no | `bank` | cash (Nợ 111) / bank (Nợ 112). |
+| `paid_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm thu. |
+| `voucher_no` | `String(40)` → `VARCHAR(40)` | — | yes | — | Số phiếu thu (đối chiếu MISA — §4.9). Nullable. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người ghi khoản thu. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_payments_order_id`, `ix_payments_customer_id`.
+- Foreign keys: `order_id FK→orders.id` (ON DELETE CASCADE), `customer_id FK→customers.id` (ON DELETE SET NULL), `created_by FK→users.id`.
+
 **Relationships**
 
 - `orders 1─n order_lines` (cascade delete). Cardinality Order 1─n Job → thực tế n-n Order-line ↔ Job/PrintForm (§34/§43 #6) is NOT modelled at P0 (Sản xuất chưa build; no hard FK to Job).
@@ -682,6 +708,7 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 | `norm_snapshot` | `JSON` → `JSON` | — | yes | — | **P0 copy-on-write**: frozen norm/định mức snapshot (ngang hàng unit_price_snapshot). |
 | `vat_pct_estimate` | `Integer` → `INTEGER` | — | no | `0` | VAT DỰ KIẾN (%) cho dòng — chân lý ở InvoiceLine (⑬). |
 | `line_total` | `Integer` → `INTEGER` | — | yes | — | Thành tiền = qty × unit_price_snapshot (derived + stored; null khi chưa có giá). |
+| `cost_snapshot` | `BigInteger` → `BIGINT` | — | yes | — | **A2**: giá vốn TỔNG dòng (VND) snapshot copy-on-write từ báo giá (`QuoteItem.total_cost_snapshot`) — cùng grain với line_total. Soi biên lợi nhuận đơn (Σ cost_snapshot vs Σ line_total). BigInteger (tiền, chống tràn Postgres). NULL cho đơn cũ (trước A2) → bỏ qua soi biên. Migration 0049. |
 
 **Keys & indexes**
 
@@ -692,6 +719,39 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 **Relationships**
 
 - Many `order_lines` belong to one `orders`. The snapshot pair lives on the line (copy-on-write); no FK to a live price/norm table.
+
+---
+
+### `order_approvals`
+
+**Purpose:** A2 — duyệt "đơn đặc thù" (Giám đốc). Hệ tự soi đơn khi chuẩn bị chốt: **giá trị cao** (tổng gồm VAT ≥ ngưỡng) / **biên lợi nhuận thấp** / **bán dưới giá vốn** → CHẶN chốt ③→④ tới khi GĐ duyệt (audit). Một hàng = một QUYẾT ĐỊNH (duyệt/từ chối), GHIM số + ngưỡng tại thời điểm đó để re-check "bao phủ" lúc chốt (đơn xấu đi so mức GĐ ký → `stale`, phải trình lại) + căn cứ audit. Vượt-hạn-mức-công-nợ HOÃN Pha D (chưa có hóa đơn → nợ = −cọc là số giả). Bảng MỚI do `create_all` dựng (không cần migration). Portable across SQLite và Postgres.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | no | — | Đơn được duyệt (ON DELETE CASCADE). |
+| `decision` | `String(16)` → `VARCHAR(16)` | — | no | — | `approved` (duyệt, mở khóa chốt nếu bao phủ) / `rejected` (từ chối, chặn). |
+| `triggers_json` | `JSON` → `JSON` | — | yes | — | Các điều kiện đặc thù đang bật lúc quyết định (`['high_value','low_margin','below_cost']`). |
+| `order_total` | `BigInteger` → `BIGINT` | — | no | `0` | GHIM tổng GỒM VAT lúc quyết định (đối chiếu ngưỡng giá-trị-cao khi re-check bao phủ). |
+| `order_subtotal` | `BigInteger` → `BIGINT` | — | no | `0` | GHIM subtotal TRƯỚC VAT (base tính biên) lúc quyết định. |
+| `order_cost` | `BigInteger` → `BIGINT` | — | yes | — | GHIM tổng giá vốn snapshot lúc quyết định (null nếu không soi được biên). |
+| `margin_pct_snapshot` | `Integer` → `INTEGER` | — | yes | — | GHIM biên (%) lúc quyết định — hiển thị/audit. |
+| `min_margin_pct` | `Integer` → `INTEGER` | — | yes | — | Ngưỡng biên đang HIỆU LỰC lúc GĐ ký (đổi hằng số sau vẫn còn căn cứ audit). |
+| `high_value_threshold` | `BigInteger` → `BIGINT` | — | yes | — | Ngưỡng giá-trị-cao đang HIỆU LỰC lúc GĐ ký. |
+| `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Lý do GĐ (khuyến nghị khi từ chối). |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết định (GĐ). ON DELETE SET NULL. |
+| `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm quyết định (tie-break cho "bản gần nhất"). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `ix_order_approvals_order_id`.
+- Foreign keys: `order_id FK→orders.id` (ON DELETE CASCADE), `decided_by FK→users.id` (ON DELETE SET NULL).
+
+**Relationships**
+
+- Many `order_approvals` belong to one `orders`. Bản GẦN NHẤT (theo `decided_at`, tie-break `id`) quyết định cổng chốt: `approved`+bao phủ → cleared; `rejected`/`stale`/chưa có → chặn.
 
 ---
 

@@ -22,6 +22,7 @@ from app.models.quotation import (
 )
 from app.repositories.audit_repo import AuditLogRepository
 from app.repositories.order_repo import OrderRepository
+from app.repositories.payment_repo import PaymentRepository
 from app.repositories.quotation_repo import QuotationRepository
 from app.repositories.user_repo import UserRepository
 from app.security import hash_password
@@ -90,7 +91,8 @@ def _make_actor(db) -> _Actor:
 
 def _service(db) -> OrderService:
     return OrderService(
-        OrderRepository(db), AuditLogRepository(db), quotations=QuotationRepository(db)
+        OrderRepository(db), AuditLogRepository(db),
+        quotations=QuotationRepository(db), payments=PaymentRepository(db),
     )
 
 
@@ -209,7 +211,7 @@ def test_bad_enum_blocked(db):
 
 # --- gate ③→④ with deposit TREO (F3) ------------------------------------------
 
-def test_gate_deposit_unavailable_blocks_confirm(db):
+def test_gate_deposit_available_unpaid_blocks_confirm(db):
     actor = _make_actor(db)
     qid = _approved_quotation(db, actor, total=1_000_000)
     svc = _service(db)
@@ -219,7 +221,43 @@ def test_gate_deposit_unavailable_blocks_confirm(db):
     )
     gate = svc.gate_status(order)
     assert gate["quotation_approved"] is True
-    assert gate["deposit_available"] is False  # Payment TREO
-    assert gate["deposit_paid"] is None        # never a fabricated paid amount
-    assert gate["can_confirm"] is False        # cannot chốt until cọc closes (feat-048)
-    assert gate["deposit_required"] == 300_000  # 30% of 1,000,000
+    assert gate["deposit_available"] is True   # Payment LIVE (feat-048)
+    assert gate["deposit_paid"] == 0           # chưa thu → 0, không bịa
+    assert gate["can_confirm"] is False        # cọc 0 < ngưỡng → chưa chốt được
+    assert gate["deposit_required"] == 500_000  # 50% của 1.000.000 (VAT 0%)
+    assert gate["all_lines_priced"] is True
+
+
+def test_record_deposit_unlocks_confirm(db):
+    actor = _make_actor(db)
+    qid = _approved_quotation(db, actor, total=1_000_000)
+    svc = _service(db)
+    order = svc.create_order(
+        quotation_id=qid, order_type="theo_yc", order_kind="moi",
+        parent_order_id=None, has_customer_paper=False, vat_pct_estimate=0, actor=actor,
+    )
+    # Ghi cọc đủ ngưỡng (500k = 50% của 1tr, VAT 0%) → cổng mở.
+    svc.record_deposit(
+        order_id=order.id, amount=500_000, method="bank", note=None, scope="all", actor=actor
+    )
+    gate = svc.gate_status(order)
+    assert gate["deposit_paid"] == 500_000
+    assert gate["can_confirm"] is True
+    # Chốt đơn hợp lệ.
+    updated = svc.transition(order_id=order.id, to_status="ordered", scope="all", actor=actor)
+    assert updated.status == "ordered"
+
+
+def test_record_deposit_rejects_after_cancel(db):
+    actor = _make_actor(db)
+    qid = _approved_quotation(db, actor, total=1_000_000)
+    svc = _service(db)
+    order = svc.create_order(
+        quotation_id=qid, order_type="theo_yc", order_kind="moi",
+        parent_order_id=None, has_customer_paper=False, vat_pct_estimate=0, actor=actor,
+    )
+    svc.transition(order_id=order.id, to_status="cancelled", scope="all", actor=actor,
+                   cancel_reason="khách hủy")
+    with pytest.raises(OrderValidationError):
+        svc.record_deposit(order_id=order.id, amount=100_000, method="bank", note=None,
+                           scope="all", actor=actor)

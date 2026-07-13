@@ -278,6 +278,8 @@ export interface ModuleCapability {
   can_reparent: boolean;
   can_view_salary: boolean;
   can_adjust: boolean;
+  /** A2: don_hang_ban — GĐ duyệt "đơn đặc thù" (chỉ Giám đốc). */
+  can_approve_exception: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -1422,16 +1424,53 @@ export interface OrderLineOut {
   line_total: number | null;
 }
 
-/** ③→④ gate (F3). deposit_paid=null + deposit_available=false while SEAM-04 (Payment) is TREO. */
+/** Một điều kiện "đơn đặc thù" đang bật (A2) — nhãn định tính, an toàn cho mọi vai. */
+export interface OrderException {
+  key: string;   // high_value | low_margin | below_cost
+  label: string;
+}
+
+/** ③→④ gate (F3). deposit_paid=null + deposit_available=false while SEAM-04 (Payment) is TREO.
+ *  A2: thêm khối "đơn đặc thù" — Giám đốc duyệt mới chốt được. */
 export interface OrderGate {
   total: number;
+  total_payment: number;        // tổng GỒM VAT — base tính cọc (số khách phải trả)
   min_deposit_pct: number;
   deposit_required: number;
   deposit_paid: number | null;
   deposit_available: boolean;
   deposit_shortfall: number;
   quotation_approved: boolean;
+  all_lines_priced: boolean;
+  // A2 — đơn đặc thù (GĐ duyệt).
+  exception_required: boolean;
+  exception_status: "none" | "pending" | "approved" | "rejected" | "stale";
+  exception_cleared: boolean;
+  exceptions: OrderException[];
+  exception_note: string | null;
+  margin_pct: number | null;    // số nhạy cảm — null nếu người xem không có quyền duyệt đặc thù
   can_confirm: boolean;
+}
+
+/** Một bản duyệt/từ chối "đơn đặc thù" (A2) — chỉ GĐ xem (chứa số biên/giá vốn). */
+export interface OrderApproval {
+  id: number;
+  order_id: number;
+  decision: string;             // approved | rejected
+  triggers_json: string[] | null;
+  order_total: number;
+  order_subtotal: number;
+  order_cost: number | null;
+  margin_pct_snapshot: number | null;
+  min_margin_pct: number | null;
+  high_value_threshold: number | null;
+  note: string | null;
+  decided_by: number | null;
+  decided_at: string;
+}
+
+export interface OrderApprovalListOut {
+  items: OrderApproval[];
 }
 
 export interface OrderDetail {
@@ -1454,6 +1493,25 @@ export interface OrderDetail {
   lines: OrderLineOut[];
   gate: OrderGate | null;
   allowed_transitions: string[];
+}
+
+/** Khoản thu của đơn (cọc/đợt) — SEAM-04 deposit (feat-048). */
+export interface Payment {
+  id: number;
+  order_id: number;
+  customer_id: number | null;
+  kind: string;
+  direction: string;
+  amount: number;
+  method: string;
+  paid_at: string;
+  voucher_no: string | null;
+  note: string | null;
+}
+
+export interface PaymentListOut {
+  items: Payment[];
+  deposit_total: number;
 }
 
 export interface OrderInput {
@@ -4973,6 +5031,34 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       });
+    },
+    /** Ghi CỌC (kind=deposit) → mở khóa cổng chốt ③→④. Trả về đơn kèm gate đã cập nhật. */
+    recordDeposit(
+      token: string,
+      id: number,
+      body: { amount: number; method: string; note?: string | null },
+    ): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/payments`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    payments(token: string, id: number): Promise<PaymentListOut> {
+      return authed<PaymentListOut>(`/api/orders/${id}/payments`, token);
+    },
+    /** A2: GĐ DUYỆT / TỪ CHỐI "đơn đặc thù" → mở khóa cổng chốt. Trả về đơn kèm gate cập nhật. */
+    recordApproval(
+      token: string,
+      id: number,
+      body: { decision: "approved" | "rejected"; note?: string | null },
+    ): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/approval`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    approvals(token: string, id: number): Promise<OrderApprovalListOut> {
+      return authed<OrderApprovalListOut>(`/api/orders/${id}/approvals`, token);
     },
   },
 

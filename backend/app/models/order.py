@@ -35,6 +35,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
@@ -157,6 +158,13 @@ class OrderLine(Base):
     # NO live FK to a price/norm table — đổi giá gốc sau KHÔNG đổi số trên đơn.
     unit_price_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     norm_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # A2 (đơn đặc thù): giá vốn TỔNG của dòng (Int, VND), snapshot copy-on-write từ báo giá
+    # (`QuoteItem.total_cost_snapshot`) at create — CÙNG GRAIN với line_total (tổng cả SL). Dùng
+    # để soi biên lợi nhuận (tổng đơn = Σ cost_snapshot). NULL cho đơn cũ (trước A2) → bỏ qua soi
+    # biên (chỉ trigger giá-trị-cao còn hiệu lực). Snapshot theo DÒNG để biên KHÔNG trôi khi
+    # đổi dòng đơn (phản biện nghiệp vụ: 1 số tổng đóng băng sẽ sai khi thêm/bớt dòng).
+    # BigInteger (không Integer) — tiền, đơn in giá trị lớn có thể vượt Int 2³¹ trên Postgres.
+    cost_snapshot: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     # VAT DỰ KIẾN cho dòng (ước tổng) — chân lý ở InvoiceLine (⑬).
     vat_pct_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
@@ -164,3 +172,53 @@ class OrderLine(Base):
     line_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     order: Mapped["Order"] = relationship("Order", back_populates="lines")
+
+
+# --- A2: "đơn đặc thù" → Giám đốc duyệt (order_approvals) ----------------------
+# Hệ tự soi đơn khi chuẩn bị chốt: giá trị cao / biên lợi nhuận thấp / bán dưới giá vốn. Trip điều
+# kiện → CHẶN chốt tới khi GĐ duyệt (audit). Vượt-hạn-mức-công-nợ HOÃN sang Pha D (chưa có hóa đơn
+# → nợ = −cọc là số giả). Một hàng = một QUYẾT ĐỊNH (duyệt/từ chối) của GĐ, GHIM số tại thời điểm
+# quyết định (order_total gồm VAT · subtotal trước VAT · giá vốn · ngưỡng đang hiệu lực) để re-check
+# "bao phủ" lúc chốt (đơn xấu đi so mức GĐ ký → phải trình lại) + làm căn cứ audit.
+APPROVAL_DECISION_APPROVED = "approved"
+APPROVAL_DECISION_REJECTED = "rejected"
+APPROVAL_DECISIONS = (APPROVAL_DECISION_APPROVED, APPROVAL_DECISION_REJECTED)
+
+# Khóa các điều kiện đặc thù (trigger). "no_credit_check" = vượt-hạn-mức HOÃN Pha D (không dùng nay).
+EXC_HIGH_VALUE = "high_value"      # tổng gồm VAT ≥ ngưỡng
+EXC_LOW_MARGIN = "low_margin"      # 0 ≤ biên < ngưỡng
+EXC_BELOW_COST = "below_cost"      # bán dưới giá vốn (biên < 0)
+
+
+class OrderApproval(Base):
+    __tablename__ = "order_approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # 'approved' | 'rejected' (xem APPROVAL_DECISIONS).
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Các trigger đang bật lúc quyết định (['high_value','low_margin','below_cost']) — audit/hiển thị.
+    triggers_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # GHIM số tại thời điểm quyết định (tiền = BigInteger). subtotal = trước VAT (base biên);
+    # order_total = gồm VAT (đối chiếu ngưỡng giá-trị-cao); cost = tổng giá vốn snapshot.
+    order_total: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    order_subtotal: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    order_cost: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    margin_pct_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Ngưỡng đang hiệu lực lúc GĐ ký (phản biện: đổi hằng số sau này thì lịch sử duyệt vẫn có căn cứ).
+    min_margin_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    high_value_threshold: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    decided_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
