@@ -370,7 +370,9 @@ engine chiết khấu tự động (SEAM‑23, chiết khấu hiện nhập tay)
 
 ### 14.8 Còn treo (⏳ chờ SVN)
 
-- Ngưỡng đặc thù báo giá: `min_margin_pct` · `high_value_threshold` (vd 1 tỷ) — số cụ thể.
+- Ngưỡng đặc thù: **`high_value_threshold` = 1 tỷ (SVN CHỐT 2026-07-13)** — dùng CHUNG báo giá + đơn
+  hàng (cùng một giá trị đơn), trong `services/exception_gate.py`. `min_margin_pct` = 15% (chờ soát
+  lại theo overhead/hoa hồng). Màn cấu hình versioned để pha sau.
 - 1 PTG có nhiều "sản phẩm" là Ruột/Bìa (không bán rời): báo giá tách 2 dòng markup riêng (mặc định) hay
   gộp 1 dòng "cuốn" — chờ xác nhận cách trình bày cho khách (chỉ ảnh hưởng IN PDF, không chặn backend).
 

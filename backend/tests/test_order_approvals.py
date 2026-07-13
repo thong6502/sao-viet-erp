@@ -94,8 +94,8 @@ def _create_order(client, token, qid, vat=8):
 
 def test_high_value_trips_and_blocks_chot(client):
     token = _admin_token(client)
-    # 100tr + VAT 8% = 108tr ≥ ngưỡng 100tr → "giá trị cao"; cost 50tr → biên 50% (không kích biên).
-    qid = _seed_quote(sale_user_id=_admin_id(), total=100_000_000, cost=50_000_000)
+    # 1 tỷ + VAT 8% = 1.08 tỷ ≥ ngưỡng 1 tỷ → "giá trị cao"; cost 500tr → biên 50% (không kích biên).
+    qid = _seed_quote(sale_user_id=_admin_id(), total=1_000_000_000, cost=500_000_000)
     order = _create_order(client, token, qid).json()
     gate = order["gate"]
     assert gate["exception_required"] is True
@@ -105,8 +105,8 @@ def test_high_value_trips_and_blocks_chot(client):
     assert gate["can_confirm"] is False
 
     oid = order["id"]
-    # Nộp đủ cọc (50% của 108tr = 54tr) — vẫn chưa chốt được vì CHƯA có GĐ duyệt.
-    client.post(f"/api/orders/{oid}/payments", json={"amount": 54_000_000, "method": "bank"}, headers=_h(token))
+    # Nộp đủ cọc (50% của 1.08 tỷ = 540tr) — vẫn chưa chốt được vì CHƯA có GĐ duyệt.
+    client.post(f"/api/orders/{oid}/payments", json={"amount": 540_000_000, "method": "bank"}, headers=_h(token))
     r = client.post(f"/api/orders/{oid}/transition", json={"to_status": "ordered"}, headers=_h(token))
     assert r.status_code == 422
     assert "Giám đốc" in r.json()["detail"]
@@ -114,7 +114,7 @@ def test_high_value_trips_and_blocks_chot(client):
 
 def test_below_cost_trips(client):
     token = _admin_token(client)
-    # bán 10tr, giá vốn 15tr → dưới giá vốn (lỗ). Không kích high_value (10.8tr < 100tr).
+    # bán 10tr, giá vốn 15tr → dưới giá vốn (lỗ). Không kích high_value (10.8tr < 1 tỷ).
     qid = _seed_quote(sale_user_id=_admin_id(), total=10_000_000, cost=15_000_000)
     order = _create_order(client, token, qid).json()
     keys = {e["key"] for e in order["gate"]["exceptions"]}
@@ -159,9 +159,9 @@ def test_normal_order_no_exception(client):
 
 def test_gd_approve_unlocks_chot(client):
     token = _admin_token(client)
-    qid = _seed_quote(sale_user_id=_admin_id(), total=100_000_000, cost=50_000_000)
+    qid = _seed_quote(sale_user_id=_admin_id(), total=1_000_000_000, cost=500_000_000)
     oid = _create_order(client, token, qid).json()["id"]
-    client.post(f"/api/orders/{oid}/payments", json={"amount": 54_000_000, "method": "bank"}, headers=_h(token))
+    client.post(f"/api/orders/{oid}/payments", json={"amount": 540_000_000, "method": "bank"}, headers=_h(token))
     # GĐ duyệt đơn đặc thù.
     r = client.post(f"/api/orders/{oid}/approval", json={"decision": "approved", "note": "OK khách lớn"}, headers=_h(token))
     assert r.status_code == 200, r.text
@@ -178,9 +178,9 @@ def test_gd_approve_unlocks_chot(client):
 
 def test_gd_reject_blocks_chot(client):
     token = _admin_token(client)
-    qid = _seed_quote(sale_user_id=_admin_id(), total=100_000_000, cost=50_000_000)
+    qid = _seed_quote(sale_user_id=_admin_id(), total=1_000_000_000, cost=500_000_000)
     oid = _create_order(client, token, qid).json()["id"]
-    client.post(f"/api/orders/{oid}/payments", json={"amount": 54_000_000, "method": "bank"}, headers=_h(token))
+    client.post(f"/api/orders/{oid}/payments", json={"amount": 540_000_000, "method": "bank"}, headers=_h(token))
     r = client.post(f"/api/orders/{oid}/approval", json={"decision": "rejected", "note": "giá quá thấp"}, headers=_h(token))
     assert r.status_code == 200
     assert r.json()["gate"]["exception_status"] == "rejected"
@@ -192,7 +192,7 @@ def test_gd_reject_blocks_chot(client):
 
 def test_approval_goes_stale_when_order_worsens(client):
     token = _admin_token(client)
-    qid = _seed_quote(sale_user_id=_admin_id(), total=100_000_000, cost=50_000_000)
+    qid = _seed_quote(sale_user_id=_admin_id(), total=1_000_000_000, cost=500_000_000)
     oid = _create_order(client, token, qid).json()["id"]
     client.post(f"/api/orders/{oid}/approval", json={"decision": "approved", "note": "ok"}, headers=_h(token))
     # Đơn PHÌNH giá trị SAU khi GĐ duyệt (mô phỏng sửa dòng qua DB) → vượt mức đã ký → stale.
@@ -200,7 +200,7 @@ def test_approval_goes_stale_when_order_worsens(client):
     try:
         from app.models.order import OrderLine
         ln = db.query(OrderLine).filter(OrderLine.order_id == oid).first()
-        ln.line_total = 300_000_000
+        ln.line_total = 1_500_000_000
         db.commit()
     finally:
         db.close()
@@ -225,7 +225,7 @@ def test_sales_cannot_approve_exception(client):
     _admin_token(client)  # đảm bảo seed
     sales_token, _ = _role_token("nv_sales_a2", "NV Sales")
     admin_token = _admin_token(client)
-    qid = _seed_quote(sale_user_id=_admin_id(), total=100_000_000, cost=50_000_000)
+    qid = _seed_quote(sale_user_id=_admin_id(), total=1_000_000_000, cost=500_000_000)
     oid = _create_order(client, admin_token, qid).json()["id"]
     # NV Sales KHÔNG có quyền approve_exception → 403 (dependency chặn trước cả scope).
     r = client.post(f"/api/orders/{oid}/approval", json={"decision": "approved"}, headers=_h(sales_token))
@@ -236,7 +236,7 @@ def test_truongphong_kd_cannot_approve_exception(client):
     _admin_token(client)
     tp_token, _ = _role_token("tp_kd_a2", "Trưởng phòng KD")
     admin_token = _admin_token(client)
-    qid = _seed_quote(sale_user_id=_admin_id(), total=100_000_000, cost=50_000_000)
+    qid = _seed_quote(sale_user_id=_admin_id(), total=1_000_000_000, cost=500_000_000)
     oid = _create_order(client, admin_token, qid).json()["id"]
     # TP KD chốt được đơn THƯỜNG (can_approve) nhưng KHÔNG duyệt được đơn ĐẶC THÙ.
     r = client.post(f"/api/orders/{oid}/approval", json={"decision": "approved"}, headers=_h(tp_token))
@@ -262,9 +262,9 @@ def test_sales_does_not_see_margin_number(client):
 
 def test_on_hold_to_ordered_is_gated(client):
     token = _admin_token(client)
-    qid = _seed_quote(sale_user_id=_admin_id(), total=100_000_000, cost=50_000_000)
+    qid = _seed_quote(sale_user_id=_admin_id(), total=1_000_000_000, cost=500_000_000)
     oid = _create_order(client, token, qid).json()["id"]
-    client.post(f"/api/orders/{oid}/payments", json={"amount": 54_000_000, "method": "bank"}, headers=_h(token))
+    client.post(f"/api/orders/{oid}/payments", json={"amount": 540_000_000, "method": "bank"}, headers=_h(token))
     # draft → on_hold (không gated)
     r = client.post(f"/api/orders/{oid}/transition", json={"to_status": "on_hold"}, headers=_h(token))
     assert r.status_code == 200

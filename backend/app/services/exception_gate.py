@@ -21,9 +21,9 @@ from ..models.order import (
 
 DECISIONS = (DECISION_APPROVED, DECISION_REJECTED)
 
-# Ngưỡng mặc định (cấu hình versioned sau) — dùng CHUNG order + quote.
-DEFAULT_MIN_MARGIN_PCT = 15                    # 0 ≤ biên < 15% → "biên thấp"
-DEFAULT_HIGH_VALUE_THRESHOLD = 100_000_000     # subtotal (trước VAT) ≥ 100tr → "giá trị cao"
+# Ngưỡng mặc định (cấu hình versioned sau) — dùng CHUNG order + quote (cùng một giá trị đơn).
+DEFAULT_MIN_MARGIN_PCT = 15                       # 0 ≤ biên < 15% → "biên thấp"
+DEFAULT_HIGH_VALUE_THRESHOLD = 1_000_000_000      # subtotal (trước VAT) ≥ 1 tỷ → "giá trị cao" (SVN chốt)
 
 _LABELS = {
     EXC_HIGH_VALUE: "Giá trị đơn cao",
