@@ -96,21 +96,22 @@ def test_ptg_no_products_rejected(client):
 
 # --- P2 (redesign-bao-gia §4/§5): auto-fill liên hệ chính + ĐC giao mặc định + MÃ PO ------
 
-def _seed_customer_full() -> int:
+def _seed_customer_full(*, name="Cty Auto-fill Test", primary="Anh Thanh", title="Mua hàng",
+                        phone="0379897367", addr="Lô A5, KCN Hiệp Thành, Tây Ninh") -> int:
     """Khách có 2 liên hệ (1 is_primary) + 2 điểm giao (1 is_default)."""
     db = SessionLocal()
     try:
         n = db.query(Customer).count() + 1
-        c = Customer(code=f"KHT-{n:04d}", name="Cty Auto-fill Test")
+        c = Customer(code=f"KHT-{n:04d}", name=name)
         db.add(c)
         db.flush()
         db.add(CustomerContact(customer_id=c.id, name="Chị Lan", title="Kế toán",
                                phone="0900000000", is_primary=False))
-        db.add(CustomerContact(customer_id=c.id, name="Anh Thanh", title="Mua hàng",
-                               phone="0379897367", is_primary=True))
+        db.add(CustomerContact(customer_id=c.id, name=primary, title=title,
+                               phone=phone, is_primary=True))
         db.add(CustomerAddress(customer_id=c.id, label="Khác", address="ĐC khác", is_default=False))
-        db.add(CustomerAddress(customer_id=c.id, label="Kho Bến Cầu",
-                               address="Lô A5, KCN Hiệp Thành, Tây Ninh", phone="08", is_default=True))
+        db.add(CustomerAddress(customer_id=c.id, label="Kho chính",
+                               address=addr, phone="08", is_default=True))
         db.commit()
         return c.id
     finally:
@@ -175,3 +176,32 @@ def test_send_freezes_ptg_cost_snapshot(client):
         assert v.internal_cost_snapshot_json["lines"][0]["total_cost_snapshot"] == 8_000_000
     finally:
         db.close()
+
+
+def test_detail_exposes_ptg_ref(client):
+    """P3 (link PTG): detail trả phieu_tinh_gia_id + ma để FE render link mở phiếu."""
+    token = _token(client)
+    pid = _seed_ptg()
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    assert q["phieu_tinh_gia_id"] == pid
+    assert q["phieu_tinh_gia_ma"] and q["phieu_tinh_gia_ma"].startswith("PTG-TEST-")
+
+
+def test_change_customer_refreshes_contact_and_delivery(client):
+    """P3 (customer picker): đổi khách → làm mới liên hệ chính + ĐC giao mặc định của khách mới."""
+    token = _token(client)
+    cid_a = _seed_customer_full()  # Anh Thanh · Lô A5...
+    pid = _seed_ptg()
+    q = client.post("/api/quotations",
+                    json={"phieu_tinh_gia_id": pid, "customer_id": cid_a}, headers=_h(token)).json()
+    assert q["contact_name_snapshot"] == "Anh Thanh"
+    cid_b = _seed_customer_full(name="Cty B", primary="Chị Mai", title="Kho",
+                                phone="0911222333", addr="KCN Sóng Thần, Bình Dương")
+    r = client.put(f"/api/quotations/{q['id']}",
+                   json={"customer_id": cid_b, "delivery_address": None}, headers=_h(token))
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["customer_id"] == cid_b
+    assert d["contact_name_snapshot"] == "Chị Mai"
+    assert d["contact_phone_snapshot"] == "0911222333"
+    assert d["delivery_address"] == "KCN Sóng Thần, Bình Dương"

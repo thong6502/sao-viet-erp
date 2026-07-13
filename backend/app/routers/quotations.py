@@ -216,6 +216,8 @@ def _detail(
         customer_id=q.customer_id,
         customer=customer,
         estimate_id=q.estimate_id,
+        phieu_tinh_gia_id=q.phieu_tinh_gia_id,
+        phieu_tinh_gia_ma=svc.phieu_tinh_gia_ref(q)["ma"],
         valid_until=q.valid_until,
         status=q.status,
         cancel_reason=q.cancel_reason,

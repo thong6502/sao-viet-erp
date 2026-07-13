@@ -1298,12 +1298,17 @@ export interface QuotationDetail {
   customer_id: number | null;
   customer: CustomerDisplay | null;
   estimate_id: number | null;
+  phieu_tinh_gia_id: number | null;
+  phieu_tinh_gia_ma: string | null;
   valid_until: string | null;
   status: string;
   cancel_reason: string | null;
   payment_terms: string | null;
   delivery_terms: string | null;
   delivery_address: string | null;
+  contact_name_snapshot: string | null;
+  contact_phone_snapshot: string | null;
+  contact_title_snapshot: string | null;
   customer_note: string | null;
   internal_note: string | null;
   

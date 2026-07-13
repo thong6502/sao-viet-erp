@@ -1328,6 +1328,10 @@ function QuotationDetailView({
   const [draftMargin, setDraftMargin] = useState<number | null>(null);
   // Markup từng dòng khi đang gõ (đa dòng) — override tạm để preview.
   const [lineDraft, setLineDraft] = useState<Record<number, number>>({});
+  // P3 (redesign-bao-gia §6): popover MarginPicker (gói biên + slider) mở cho DÒNG nào (đa dòng).
+  const [mkOpenLine, setMkOpenLine] = useState<number | null>(null);
+  // P3: danh sách khách để CHỌN/ĐỔI khách ngay ở detail (khi còn nháp) — auto-fill lại liên hệ + ĐC giao.
+  const [customers, setCustomers] = useState<{ id: number; name: string; code: string }[]>([]);
 
   const [compareOn, setCompareOn] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
@@ -1374,6 +1378,12 @@ function QuotationDetailView({
   useEffect(() => {
     reload(quotationId);
   }, [reload, quotationId]);
+
+  // P3: nạp danh sách khách để chọn/đổi khách ngay ở detail (khi còn nháp).
+  useEffect(() => {
+    if (!token) return;
+    api.customers.list(token, { page: 1, size: 200 }).then((r) => setCustomers(r.items)).catch(() => {});
+  }, [token]);
 
   if (!d) {
     return (
@@ -1461,6 +1471,33 @@ function QuotationDetailView({
     persistItems([{ id: itemId, margin_percent: v }]);
   }
 
+  // P3: đổi khách ngay ở detail (khi nháp). Gửi delivery_address rỗng → BE tự điền ĐC giao mặc định
+  // + làm mới người liên hệ chính của khách mới (redesign-bao-gia §4).
+  async function changeCustomer(newId: number | null) {
+    if (!token || !d) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.quotations.update(token, d.id, {
+        customer_id: newId,
+        valid_until: d.valid_until,
+        payment_terms: terms,
+        delivery_terms: d.delivery_terms,
+        delivery_address: null,
+        customer_note: d.customer_note,
+        internal_note: d.internal_note,
+        items: null,
+      });
+      await reload(d.id);
+      onChanged();
+      setNotice("Đã đổi khách — cập nhật liên hệ & địa chỉ giao.");
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Đổi khách thất bại.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function saveTerms() {
     if (!token || !d) return;
     setBusy(true);
@@ -1534,16 +1571,6 @@ function QuotationDetailView({
       setErr(e instanceof ApiError ? e.message : "Tạo phiên bản mới không thành công.");
     } finally {
       setBusy(false);
-    }
-  }
-
-  async function openPdf() {
-    if (!token || !d) return;
-    try {
-      const url = await api.quotations.pdfBlobUrl(token, d.id);
-      window.open(url, "_blank", "noopener");
-    } catch {
-      setErr("Không xuất được PDF.");
     }
   }
 
@@ -1707,23 +1734,82 @@ function QuotationDetailView({
                       </td>
                       <td className="bg__mono">{it.quantity.toLocaleString("vi-VN")}</td>
                       <td className="bg__mono">{vnd(c.cost)}</td>
-                      <td>
-                        <input
-                          className="ln-mk bg__mono"
-                          type="number" min={0} max={100} step={0.5}
-                          value={multi ? (lineDraft[it.id] ?? it.margin_percent) : (draftMargin ?? it.margin_percent)}
-                          disabled={!editable}
-                          onChange={(e) => {
-                            const v = Number(e.target.value);
-                            if (multi) setLineDraft((p) => ({ ...p, [it.id]: v }));
-                            else setDraftMargin(v);
-                          }}
-                          onBlur={(e) => {
-                            const v = Number(e.target.value);
-                            if (multi) commitLineMargin(it.id, v);
-                            else commitSingleMargin(v);
-                          }}
-                        />
+                      <td style={{ position: "relative" }}>
+                        {multi ? (
+                          <>
+                            <button
+                              type="button"
+                              className="ln-mk bg__mono"
+                              disabled={!editable}
+                              style={{ cursor: editable ? "pointer" : "default", minWidth: 54 }}
+                              onClick={() => editable && setMkOpenLine(mkOpenLine === it.id ? null : it.id)}
+                              title="Chọn gói biên / kéo slider cho dòng này"
+                            >
+                              {Math.round(lineDraft[it.id] ?? it.margin_percent)}%
+                            </button>
+                            {mkOpenLine === it.id && editable && (
+                              <div
+                                className="mk-block"
+                                style={{
+                                  position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 30,
+                                  minWidth: 232, padding: 12, borderRadius: 10,
+                                  background: "var(--charcoal, #221c17)",
+                                  boxShadow: "0 10px 28px rgba(0,0,0,.35)",
+                                }}
+                              >
+                                <span className="mk-lbl">Gói biên · dòng này</span>
+                                <div className="mk-presets">
+                                  {MARGIN_PRESETS.map(([name, pct]) => (
+                                    <button
+                                      key={name} type="button"
+                                      className={`mk-chip${Math.round(lineDraft[it.id] ?? it.margin_percent) === pct ? " on" : ""}`}
+                                      disabled={busy}
+                                      onClick={() => { setLineDraft((p) => ({ ...p, [it.id]: pct })); commitLineMargin(it.id, pct); }}
+                                    >
+                                      <span className="mc-name">{name}</span>
+                                      <span className="mc-pct">{pct}%</span>
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="mk-controls">
+                                  <input
+                                    type="range" min={5} max={50} step={1} className="markup-slider"
+                                    value={Math.max(5, Math.min(50, lineDraft[it.id] ?? it.margin_percent))}
+                                    disabled={busy}
+                                    onChange={(e) => setLineDraft((p) => ({ ...p, [it.id]: Number(e.target.value) }))}
+                                    onMouseUp={(e) => commitLineMargin(it.id, Number((e.target as HTMLInputElement).value))}
+                                    onTouchEnd={(e) => commitLineMargin(it.id, Number((e.target as HTMLInputElement).value))}
+                                  />
+                                  <div className="mk-manual">
+                                    <input
+                                      type="number" min={0} max={100} step={0.5}
+                                      value={lineDraft[it.id] ?? it.margin_percent}
+                                      disabled={busy}
+                                      onChange={(e) => setLineDraft((p) => ({ ...p, [it.id]: Number(e.target.value) }))}
+                                      onBlur={(e) => commitLineMargin(it.id, Number(e.target.value))}
+                                    />
+                                    <span>%</span>
+                                  </div>
+                                </div>
+                                <button
+                                  type="button" className="btn btn--ghost btn--sm"
+                                  style={{ marginTop: 8 }} onClick={() => setMkOpenLine(null)}
+                                >
+                                  Đóng
+                                </button>
+                              </div>
+                            )}
+                          </>
+                        ) : (
+                          <input
+                            className="ln-mk bg__mono"
+                            type="number" min={0} max={100} step={0.5}
+                            value={draftMargin ?? it.margin_percent}
+                            disabled={!editable}
+                            onChange={(e) => setDraftMargin(Number(e.target.value))}
+                            onBlur={(e) => commitSingleMargin(Number(e.target.value))}
+                          />
+                        )}
                       </td>
                       <td className="bg__mono" style={{ fontWeight: 600, color: "var(--ink)" }}>{vnd(c.final)}</td>
                     </tr>
@@ -1959,10 +2045,46 @@ function QuotationDetailView({
           <div className="card">
             <div className="bg-card-head"><div className="title">👤 Khách hàng</div></div>
             <div className="cust-rows">
-              <div><span>Công ty</span><b>{d.customer?.name ?? "—"}</b></div>
+              <div>
+                <span>Công ty</span>
+                {editable ? (
+                  <select
+                    className="input" style={{ maxWidth: 210 }}
+                    value={d.customer_id ?? ""} disabled={busy}
+                    onChange={(e) => changeCustomer(e.target.value ? Number(e.target.value) : null)}
+                  >
+                    <option value="">— Chọn khách hàng —</option>
+                    {customers.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <b>{d.customer?.name ?? "—"}</b>
+                )}
+              </div>
+              <div>
+                <span>Người liên hệ</span>
+                <b>{d.contact_name_snapshot
+                  ? `${d.contact_name_snapshot}${d.contact_phone_snapshot ? ` · ${d.contact_phone_snapshot}` : ""}`
+                  : "—"}</b>
+              </div>
               <div><span>MST</span><b>{d.customer?.tax_code ?? "—"}</b></div>
               <div><span>Tín dụng</span><b>{d.customer?.credit_status_display ?? "—"}</b></div>
-              <div><span>Phiếu tính giá</span><b>{ptgRefs.length ? ptgRefs.join(", ") : "—"}</b></div>
+              <div>
+                <span>Phiếu tính giá</span>
+                {d.phieu_tinh_gia_id ? (
+                  <button
+                    type="button" className="btn btn--ghost btn--sm"
+                    style={{ fontFamily: "var(--ff-mono)", padding: "2px 8px" }}
+                    onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.phieu_tinh_gia_id ?? undefined })}
+                    title="Mở phiếu tính giá nguồn"
+                  >
+                    ↳ {d.phieu_tinh_gia_ma ?? `#${d.phieu_tinh_gia_id}`} ↗
+                  </button>
+                ) : (
+                  <b>{ptgRefs.length ? ptgRefs.join(", ") : "—"}</b>
+                )}
+              </div>
             </div>
           </div>
 
@@ -2017,7 +2139,7 @@ function QuotationDetailView({
         </div>
       </div>
 
-      {showPrint && <QuotationPrintModal d={d} statuses={statuses} onDownloadPdf={openPdf} canDownload={canExport} onClose={() => setShowPrint(false)} />}
+      {showPrint && <QuotationPrintModal d={d} statuses={statuses} canDownload={canExport} onClose={() => setShowPrint(false)} />}
     </main>
   );
 }
@@ -2025,14 +2147,12 @@ function QuotationDetailView({
 // ---- Bản in báo giá song ngữ (MY AN PHU) -----------------------------------
 function QuotationPrintModal({
   d,
-  onDownloadPdf,
   canDownload,
   onClose,
 }: {
   d: QuotationDetail;
   statuses: EnumOption[];
-  onDownloadPdf: () => void;
-  /** Quyền chi tiết `export`: thiếu thì chỉ xem trước, ẩn nút In/Lưu PDF. */
+  /** Quyền chi tiết `export`: thiếu thì chỉ xem trước, ẩn nút In. */
   canDownload: boolean;
   onClose: () => void;
 }) {
@@ -2040,9 +2160,29 @@ function QuotationPrintModal({
   const p2 = (n: number) => (n < 10 ? "0" : "") + n;
   const qdate = `${p2(now.getDate())}/${p2(now.getMonth() + 1)}/${now.getFullYear()}`;
   const qno = d.code.replace(/[^0-9A-Za-z]/g, "");
+  const money = (v: number) => Math.round(v).toLocaleString("vi-VN");
+
+  // Bảng hiển thị giá CHƯA VAT; VAT + tổng thanh toán ở panel dưới (bám dữ liệu thật của báo giá).
+  const lines = d.items.map((it) => {
+    const net = Math.max(0, it.selling_price - it.discount_amount); // thành tiền chưa VAT / dòng
+    const netUnit = it.quantity ? Math.round(net / it.quantity) : Math.round(net);
+    return { it, net, netUnit };
+  });
+  const netSubtotal = lines.reduce((s, l) => s + l.net, 0); // Σ tiền hàng chưa VAT
+  const vatAmount = d.vat_amount;
+  const grand = d.total; // tổng thanh toán (gồm VAT)
+  const vatSet = new Set(d.items.map((it) => it.vat_percent));
+  const vatPct =
+    vatSet.size === 1
+      ? [...vatSet][0]
+      : netSubtotal > 0
+        ? Math.round((vatAmount / netSubtotal) * 100)
+        : 0;
+
   const note = (vi: string, en: string) => (
     <li>{vi} <span className="q-en">({en})</span></li>
   );
+
   return (
     <div className="bg__overlay" onClick={onClose}>
       <div className="card bg__dialog" style={{ maxWidth: "900px", padding: 0 }} onClick={(e) => e.stopPropagation()}>
@@ -2051,83 +2191,127 @@ function QuotationPrintModal({
           <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng">✕</button>
         </div>
         <div className="qpdf">
-          <div className="q-head">
+          {/* HEADER: logo hộp | tiêu đề giữa | số & ngày phải (bám Phiếu tính giá) */}
+          <header className="q-mh">
             <div className="q-logo"><img src={svnLogoUrl} alt="Sao Việt Nhật" /></div>
-            <div className="q-co">
-              <div className="q-co-name">{SVN_COMPANY.name}</div>
-              <div><b>Address:</b> {SVN_COMPANY.address}</div>
-              <div><b>Tax code:</b> {SVN_COMPANY.taxCode}</div>
-              <div><b>Phone:</b> {SVN_COMPANY.phone}</div>
-              <div><b>Email:</b> {SVN_COMPANY.email} · <b>Website:</b> {SVN_COMPANY.website}</div>
+            <div className="q-th">
+              <h1>BẢNG BÁO GIÁ</h1>
+              <div className="q-th-en">Quotation</div>
+              <div className="q-cty">{SVN_COMPANY.name}</div>
+            </div>
+            <div className="q-meta-r">
+              <div>Số báo giá: <b>{qno}</b></div>
+              <div>Phiên bản: <b>v{d.version}</b></div>
+              <div>Ngày: <b>{qdate}</b></div>
+            </div>
+          </header>
+
+          {/* DẢI THÔNG TIN: khách hàng (trái) + bên bán (phải) */}
+          <div className="q-info">
+            <div className="q-info-grid">
+              <div className="q-info-col">
+                <div><span className="q-lbl">Kính gửi <span className="q-en">/ To:</span></span> <b>{d.customer?.name ?? "—"}</b></div>
+                <div><span className="q-lbl">Địa chỉ <span className="q-en">/ Address:</span></span> {d.delivery_address ?? "—"}</div>
+                <div><span className="q-lbl">MST <span className="q-en">/ Tax code:</span></span> {d.customer?.tax_code ?? "—"}</div>
+              </div>
+              <div className="q-info-col">
+                <div><span className="q-lbl">Người gửi <span className="q-en">/ Sender:</span></span> {SVN_COMPANY.sender}</div>
+                <div><span className="q-lbl">Điện thoại <span className="q-en">/ Phone:</span></span> {SVN_COMPANY.phone}</div>
+                <div><span className="q-lbl">Hiệu lực đến <span className="q-en">/ Valid until:</span></span> {d.valid_until ?? "Đến khi có thông báo mới"}</div>
+              </div>
             </div>
           </div>
-          <div className="q-title">BẢNG BÁO GIÁ / QUOTATION</div>
-          <div className="q-meta">
-            <div className="q-col">
-              <div><b>Kính gửi</b> <span className="q-en">/ To:</span> {d.customer?.name ?? "—"}</div>
-              <div><b>Địa chỉ</b> <span className="q-en">/ Address:</span> —</div>
-              <div><b>MST</b> <span className="q-en">/ Tax code:</span> {d.customer?.tax_code ?? "—"}</div>
-            </div>
-            <div className="q-col">
-              <div><b>Ngày báo giá</b> <span className="q-en">/ Quote Date:</span> {qdate}</div>
-              <div><b>Số báo giá</b> <span className="q-en">/ Quote No:</span> {qno} · v{d.version}</div>
-              <div><b>Người gửi</b> <span className="q-en">/ Sender:</span> {SVN_COMPANY.sender}</div>
-              <div><b>Email</b> <span className="q-en">/ Email:</span> {SVN_COMPANY.senderEmail}</div>
-            </div>
-          </div>
+
           <div className="q-intro">Cảm ơn Quý khách đã quan tâm sản phẩm của {SVN_COMPANY.nameEn}. Chúng tôi xin gửi bảng báo giá chi tiết như sau:</div>
+
+          {/* CHI TIẾT: header xám, viền mảnh, cột tiền căn phải + tfoot Cộng/VAT */}
+          <div className="q-sec">Chi tiết báo giá <span className="q-sec-en">/ Quotation details</span></div>
           <table className="q-tbl">
+            <colgroup>
+              <col style={{ width: "5%" }} /><col style={{ width: "12%" }} /><col style={{ width: "26%" }} />
+              <col style={{ width: "15%" }} /><col style={{ width: "6%" }} /><col style={{ width: "9%" }} />
+              <col style={{ width: "13%" }} /><col style={{ width: "14%" }} />
+            </colgroup>
             <thead>
               <tr>
                 <th>STT<span className="q-en">No</span></th>
-                <th>MÃ HÀNG<span className="q-en">Production Code</span></th>
-                <th>MÔ TẢ SẢN PHẨM<span className="q-en">Production Description</span></th>
-                <th>KÍCH THƯỚC<span className="q-en">Size</span></th>
+                <th>Mã hàng<span className="q-en">Code</span></th>
+                <th>Mô tả sản phẩm<span className="q-en">Description</span></th>
+                <th>Kích thước<span className="q-en">Size</span></th>
                 <th>ĐVT<span className="q-en">Unit</span></th>
-                <th>SỐ LƯỢNG<span className="q-en">Quantity</span></th>
-                <th>ĐƠN GIÁ VND (CHƯA VAT)<span className="q-en">Unit Price (Excl. VAT)</span></th>
-                <th>GHI CHÚ<span className="q-en">Remark</span></th>
+                <th>Số lượng<span className="q-en">Qty</span></th>
+                <th>Đơn giá<span className="q-en">Unit price · chưa VAT</span></th>
+                <th>Thành tiền<span className="q-en">Amount · chưa VAT</span></th>
               </tr>
             </thead>
             <tbody>
-              {d.items.map((it, i) => {
-                const net = Math.max(0, it.selling_price - it.discount_amount);
-                const netUnit = it.quantity ? Math.round(net / it.quantity) : Math.round(net);
-                return (
-                  <tr key={it.id}>
-                    <td className="c">{i + 1}</td>
-                    <td className="c">{it.estimate_number ?? "—"}</td>
-                    <td>{it.product_name}{it.note ? `, ${it.note}` : ""}</td>
-                    <td className="c">{it.product_spec_text ?? "—"}</td>
-                    <td className="c">{it.unit}</td>
-                    <td className="c">{it.quantity.toLocaleString("vi-VN")}</td>
-                    <td className="r">{netUnit.toLocaleString("vi-VN")}</td>
-                    <td></td>
-                  </tr>
-                );
-              })}
+              {lines.map(({ it, net, netUnit }, i) => (
+                <tr key={it.id}>
+                  <td className="c">{i + 1}</td>
+                  <td className="c">{it.estimate_number ?? "—"}</td>
+                  <td><span className="q-prod">{it.product_name}</span>{it.note ? `, ${it.note}` : ""}</td>
+                  <td className="c">{it.product_spec_text ?? "—"}</td>
+                  <td className="c">{it.unit}</td>
+                  <td className="c">{it.quantity.toLocaleString("vi-VN")}</td>
+                  <td className="r">{money(netUnit)}</td>
+                  <td className="r">{money(net)}</td>
+                </tr>
+              ))}
             </tbody>
+            <tfoot>
+              <tr>
+                <td className="q-sub-lbl" colSpan={7}>Cộng tiền hàng (chưa VAT) <span className="q-en">/ Subtotal</span></td>
+                <td className="r">{money(netSubtotal)}</td>
+              </tr>
+              <tr>
+                <td className="q-sub-lbl" colSpan={7}>Thuế GTGT {vatPct}% <span className="q-en">/ VAT</span></td>
+                <td className="r">{money(vatAmount)}</td>
+              </tr>
+            </tfoot>
           </table>
-          <div className="q-notes">
-            <div className="q-note-ttl">Ghi chú / Note:</div>
-            <ol>
-              {note("Hiệu lực của báo giá: Áp dụng từ ngày báo giá cho đến khi có thông báo mới.", "Validity of quotation: Valid from the date of quotation until further notice.")}
-              {note("Giá trên đã bao gồm chi phí vận chuyển đến kho của Quý khách hàng.", "The price includes shipping costs to your warehouse.")}
-              {note("Giá trên chưa bao gồm thuế GTGT theo quy định hiện hành là 8%.", "The prices above do not include VAT, which is currently 8%.")}
-              {note("Thời gian giao hàng: Từ 7-10 ngày kể từ khi nhận đơn hàng.", "Delivery time: 7-10 days from the date of order placement.")}
-              {note(`Thời hạn thanh toán: ${d.payment_terms || "Theo thỏa thuận."}`, "Payment terms as agreed.")}
-            </ol>
+
+          {/* PANEL TỔNG THANH TOÁN (đóng khung, nhãn trái + số lớn phải) */}
+          <div className="q-grand">
+            <div>
+              <div className="q-gt">Tổng thanh toán <span className="q-gt-en">/ Total · incl. VAT</span></div>
+              <div className="q-gs">Tiền hàng {money(netSubtotal)}đ + Thuế GTGT {money(vatAmount)}đ</div>
+            </div>
+            <div className="q-ga">{money(grand)}<span className="q-u">đ</span></div>
           </div>
-          <div className="q-thanks">Công ty chúng tôi xin trân trọng cảm ơn sự hợp tác của Quý khách hàng. (Thank you for your cooperation.)</div>
-          <div className="q-sign">
-            <div className="q-sign-col"><div className="q-sign-ttl">KHÁCH HÀNG XÁC NHẬN <span className="q-en">(Buyer's Confirmation)</span></div><div className="q-sign-sub">(Ký và ghi rõ họ tên / Signature &amp; Full Name)</div><div className="q-sign-space"></div></div>
-            <div className="q-sign-col"><div className="q-sign-ttl">NHÀ CUNG CẤP XÁC NHẬN <span className="q-en">(Supplier's Confirmation)</span></div><div className="q-sign-sub">(Ký và ghi rõ họ tên / Signature &amp; Full Name)</div><div className="q-sign-space"></div></div>
+
+          {/* ĐIỀU KHOẢN */}
+          <div className="q-sec">Điều khoản <span className="q-sec-en">/ Terms</span></div>
+          <ol className="q-notes">
+            {note("Hiệu lực báo giá: áp dụng từ ngày báo giá cho đến khi có thông báo mới.", "Validity: from the quote date until further notice.")}
+            {note("Giá đã bao gồm chi phí vận chuyển đến kho của Quý khách.", "Prices include delivery to your warehouse.")}
+            {note(`Đơn giá trong bảng chưa gồm thuế GTGT; thuế GTGT ${vatPct}% được cộng ở phần tổng.`, `Table prices exclude VAT; ${vatPct}% VAT is added in the total.`)}
+            {note("Thời gian giao hàng: 7–10 ngày kể từ khi nhận đơn hàng.", "Delivery: 7–10 days from order placement.")}
+            {note(`Thời hạn thanh toán: ${d.payment_terms || "theo thỏa thuận."}`, "Payment terms as agreed.")}
+          </ol>
+
+          {/* CHỮ KÝ 2 cột (bám cụm ký Phiếu tính giá) */}
+          <div className="q-signs">
+            <div>
+              <div className="q-role">Khách hàng xác nhận <span>(Buyer's confirmation)</span></div>
+              <div className="q-hint">(Ký, ghi rõ họ tên)</div>
+              <div className="q-sp" />
+            </div>
+            <div>
+              <div className="q-role">Đại diện bên bán <span>(Supplier)</span></div>
+              <div className="q-hint">(Ký, ghi rõ họ tên)</div>
+              <div className="q-sp" />
+            </div>
+          </div>
+
+          <div className="q-foot">
+            <span>Công ty Sao Việt Nhật · Báo giá có giá trị đối ngoại.</span>
+            <span>{qno} · v{d.version}</span>
           </div>
         </div>
         <div className="bg__dialog-actions" style={{ padding: "16px 20px" }}>
           <Button variant="ghost" onClick={onClose}>Đóng</Button>
           {canDownload && (
-            <Button variant="primary" onClick={onDownloadPdf}>In / Lưu PDF</Button>
+            <Button variant="primary" onClick={() => window.print()}>In / Lưu PDF</Button>
           )}
         </div>
       </div>

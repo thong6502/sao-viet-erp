@@ -63,6 +63,8 @@ export interface NavParams {
   focusVoucherQuery?: string;
   /** Liên thông: mở màn Phiếu thu với ô tìm kiếm điền sẵn (mã PC/PT...). */
   focusReceiptQuery?: string;
+  /** P3 (redesign-bao-gia §6): mở thẳng 1 Phiếu tính giá (link "↳ PTG" từ Báo giá). */
+  focusPhieuId?: number;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -222,7 +224,7 @@ export function AppShell() {
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
       case "tinh-gia":
-        return <TinhGiaPage navigate={navigate} />;
+        return <TinhGiaPage navigate={navigate} openPhieuId={navParams?.focusPhieuId} />;
       case "bao-gia":
         return (
           <BaoGiaPage

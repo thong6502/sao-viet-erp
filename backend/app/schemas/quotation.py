@@ -150,6 +150,8 @@ class QuotationDetailOut(BaseModel):
     customer_id: int | None
     customer: CustomerDisplayOut | None = None
     estimate_id: int | None
+    phieu_tinh_gia_id: int | None = None
+    phieu_tinh_gia_ma: str | None = None
     valid_until: date | None
     status: str
     cancel_reason: str | None

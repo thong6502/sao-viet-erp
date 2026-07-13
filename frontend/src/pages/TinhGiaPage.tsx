@@ -8,11 +8,15 @@ import "./tinh-gia.css";
 
 type View = { mode: "list" } | { mode: "detail"; id: number };
 
-export function TinhGiaPage({ navigate }: {
+export function TinhGiaPage({ navigate, openPhieuId }: {
   // BG-3: điều hướng sang Báo giá (nút "Báo giá →" trên phiếu). Không truyền → ẩn nút.
   navigate?: (pageId: string, params?: { openQuoteId?: number }) => void;
+  // P3 (redesign-bao-gia §6): mở thẳng 1 phiếu tính giá (link "↳ PTG" từ Báo giá).
+  openPhieuId?: number;
 } = {}) {
-  const [view, setView] = useState<View>({ mode: "list" });
+  const [view, setView] = useState<View>(
+    openPhieuId ? { mode: "detail", id: openPhieuId } : { mode: "list" },
+  );
 
   if (view.mode === "detail") {
     return (

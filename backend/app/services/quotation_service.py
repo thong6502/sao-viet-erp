@@ -258,6 +258,15 @@ class QuotationService:
             return None
         return quotation_ports.CustomerRefAdapter(self._customers).get_customer(quote.customer_id)
 
+    def phieu_tinh_gia_ref(self, quote: Quote) -> dict:
+        """Tham chiếu Phiếu tính giá NGUỒN (redesign-bao-gia §6, link mở phiếu). {id, ma} — id=None
+        cho báo giá đường Estimate cũ (không có phieu_tinh_gia_id)."""
+        if quote.phieu_tinh_gia_id is None:
+            return {"id": None, "ma": None}
+        from ..models.phieu_tinh_gia import PhieuTinhGia
+        ptg = self.quotations.db.get(PhieuTinhGia, quote.phieu_tinh_gia_id)
+        return {"id": quote.phieu_tinh_gia_id, "ma": ptg.ma if ptg else None}
+
     # --- writes ---------------------------------------------------------------
     @staticmethod
     def _spec_text(spec: dict | None) -> str | None:
@@ -671,13 +680,21 @@ class QuotationService:
         if valid_until and valid_until < date.today():
             raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
 
-        # Update Header
+        # Update Header — đổi khách → làm mới liên hệ chính + ĐC giao mặc định (redesign-bao-gia §4).
+        customer_changed = customer_id != quote.customer_id
         quote.customer_id = customer_id
         quote.customer_name_snapshot = self._customer_display_name(customer_id)
+        if customer_changed:
+            defaults = self._customer_defaults(customer_id)
+            quote.contact_name_snapshot = defaults["contact_name"]
+            quote.contact_phone_snapshot = defaults["contact_phone"]
+            quote.contact_title_snapshot = defaults["contact_title"]
+            quote.delivery_address = defaults["delivery_address"] or delivery_address
+        else:
+            quote.delivery_address = delivery_address
         quote.valid_until = valid_until
         quote.payment_terms = payment_terms
         quote.delivery_terms = delivery_terms
-        quote.delivery_address = delivery_address
         quote.customer_note = customer_note
         quote.internal_note = internal_note
 
