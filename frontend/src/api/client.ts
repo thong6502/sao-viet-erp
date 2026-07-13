@@ -1318,13 +1318,23 @@ export interface QuotationDetail {
   can_approve: boolean;
   versions: VersionRow[];
   items: QuoteItemDetail[];
+  // BG-2 — báo giá đặc thù (GĐ duyệt trước khi gửi khách). `margin_pct` null nếu người xem không có
+  // quyền duyệt đặc thù (không rò biên cho Sales).
+  exception_required: boolean;
+  exception_status: "none" | "pending" | "approved" | "rejected" | "stale";
+  exception_cleared: boolean;
+  exceptions: { key: string; label: string }[];
+  exception_note: string | null;
+  margin_pct: number | null;
 }
 
 export interface QuotationInput {
   customer_id: number | null;
+  /** BG-1 (nguồn MỚI): 1 Phiếu tính giá (PTG) → 1 báo giá. */
+  phieu_tinh_gia_id?: number | null;
   estimate_id?: number | null;
   selected_option_ids?: number[] | null;
-  /** Đường đa phiếu: mỗi pick = 1 phiếu tính giá + option đã tick. Ưu tiên nếu có. */
+  /** Đường đa phiếu (cũ): mỗi pick = 1 phiếu tính giá + option đã tick. */
   picks?: QuotePick[] | null;
   /** Gói biên áp chung khi tạo (per dòng chỉnh sau). */
   margin_percent?: number | null;
@@ -4966,6 +4976,21 @@ export const api = {
     requote(token: string, id: number): Promise<QuotationDetail> {
       return authed<QuotationDetail>(`/api/quotations/${id}/requote`, token, {
         method: "POST",
+      });
+    },
+    /** BG-1: báo giá ĐANG HIỆU LỰC của 1 Phiếu tính giá (màn PTG quyết Tạo mới / Mở cái có sẵn). */
+    byPhieu(token: string, phieuId: number): Promise<{ quote_id: number | null; quote_number: string | null }> {
+      return authed(`/api/quotations/by-phieu/${phieuId}`, token);
+    },
+    /** BG-2: GĐ DUYỆT / TỪ CHỐI báo giá đặc thù → mở khóa "gửi khách". */
+    recordApproval(
+      token: string,
+      id: number,
+      body: { decision: "approved" | "rejected"; note?: string | null },
+    ): Promise<QuotationDetail> {
+      return authed<QuotationDetail>(`/api/quotations/${id}/approval`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
       });
     },
     /** Open the đối-ngoại PDF in a new tab (auth via bearer; returns a blob URL). Refresh-

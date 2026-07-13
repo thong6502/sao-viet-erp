@@ -28,6 +28,9 @@ from ..schemas.quotation import (
     QuotationCreate,
     QuotationDetailOut,
     QuotationEnumsOut,
+    QuoteApprovalIn,
+    QuoteApprovalListOut,
+    QuoteApprovalOut,
     QuotationListOut,
     QuotationRow,
     QuotationStatsOut,
@@ -128,7 +131,8 @@ def _row(
 
 
 def _detail(
-    svc: QuotationService, q: Quote, scope: str, *, can_approve: bool = False
+    svc: QuotationService, q: Quote, scope: str, *,
+    can_approve: bool = False, can_approve_exception: bool = False,
 ) -> QuotationDetailOut:
     ref = svc.customer_display(q)
     customer = (
@@ -228,7 +232,17 @@ def _detail(
         items=items_out,
         allowed_transitions=_allowed_transitions(q.status),
         can_approve=can_approve,
+        **_gate_fields(svc, q, can_approve_exception),
     )
+
+
+def _gate_fields(svc: QuotationService, q: Quote, can_see_numbers: bool) -> dict:
+    """BG-2: khối 'báo giá đặc thù' cho detail. STRIP `margin_pct` (số nhạy cảm) nếu người xem KHÔNG
+    có quyền duyệt đặc thù — Sales chỉ thấy nhãn 'cần Giám đốc duyệt', không thấy con số biên."""
+    gate = svc.quote_gate(q)
+    if not can_see_numbers:
+        gate = {**gate, "margin_pct": None}
+    return gate
 
 
 # --- enums + Tính giá picker (SEAM-13) ----------------------------------------
@@ -353,6 +367,7 @@ def create_quotation(
     try:
         q = svc.create_quotation(
             customer_id=payload.customer_id,
+            phieu_tinh_gia_id=payload.phieu_tinh_gia_id,
             estimate_id=payload.estimate_id,
             selected_option_ids=payload.selected_option_ids,
             picks=[p.model_dump() for p in payload.picks] if payload.picks else None,
@@ -367,7 +382,25 @@ def create_quotation(
         )
     except QuotationValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"))
+    except QuotationConflict as e:
+        # BG-1: PTG đã có báo giá đang hiệu lực (1 PTG → 1 BG).
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
+    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"),
+        can_approve_exception=authz.can(user, MODULE, "approve_exception"))
+
+
+@router.get("/by-phieu/{phieu_tinh_gia_id}")
+def quote_id_for_phieu(
+    phieu_tinh_gia_id: int,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    """BG-1: báo giá ĐANG HIỆU LỰC của 1 Phiếu tính giá (để màn PTG quyết 'Tạo mới' hay 'Mở BG có sẵn').
+    Trả `{quote_id, quote_number}` hoặc `{quote_id: null}` nếu chưa có."""
+    existing = svc.quotations.active_for_phieu(phieu_tinh_gia_id)
+    if existing is None:
+        return {"quote_id": None, "quote_number": None}
+    return {"quote_id": existing.id, "quote_number": existing.quote_number}
 
 
 @router.get("/{quotation_id}", response_model=QuotationDetailOut)
@@ -384,7 +417,8 @@ def get_quotation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
     except QuotationForbidden:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
-    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"))
+    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"),
+        can_approve_exception=authz.can(user, MODULE, "approve_exception"))
 
 
 @router.put("/{quotation_id}", response_model=QuotationDetailOut)
@@ -422,7 +456,8 @@ def update_quotation(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
     except QuotationValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"))
+    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"),
+        can_approve_exception=authz.can(user, MODULE, "approve_exception"))
 
 
 # --- lifecycle transitions ----------------------------------------------------
@@ -467,7 +502,51 @@ def transition_quotation(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
     except QuotationValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"))
+    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"),
+        can_approve_exception=authz.can(user, MODULE, "approve_exception"))
+
+
+# --- BG-2: GĐ duyệt "báo giá đặc thù" → mở khóa "gửi khách" --------------------
+
+@router.post("/{quotation_id}/approval", response_model=QuotationDetailOut)
+def record_quote_approval(
+    quotation_id: int,
+    payload: QuoteApprovalIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "approve_exception"))],
+) -> QuotationDetailOut:
+    """GĐ DUYỆT / TỪ CHỐI báo giá đặc thù (perm `approve_exception` — CHỈ Giám đốc). Duyệt 'bao phủ' →
+    cho 'gửi khách'. Trả về báo giá kèm khối gate cập nhật (người duyệt có quyền → thấy số biên)."""
+    scope = _scope_for(authz, user)
+    try:
+        svc.record_approval(
+            quotation_id=quotation_id, decision=payload.decision, note=payload.note,
+            scope=scope, actor=user,
+        )
+        q = svc.get_quotation(quotation_id=quotation_id, scope=scope, actor=user)
+    except (QuotationNotFound, QuotationForbidden):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
+    except QuotationValidationError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"),
+        can_approve_exception=authz.can(user, MODULE, "approve_exception"))
+
+
+@router.get("/{quotation_id}/approvals", response_model=QuoteApprovalListOut)
+def list_quote_approvals(
+    quotation_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "approve_exception"))],
+) -> QuoteApprovalListOut:
+    """Lịch sử duyệt/từ chối báo giá đặc thù — chứa số biên/giá vốn nên CHỈ người có quyền duyệt (GĐ)."""
+    scope = _scope_for(authz, user)
+    try:
+        items = svc.list_approvals(quotation_id=quotation_id, scope=scope, actor=user)
+    except (QuotationNotFound, QuotationForbidden):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
+    return QuoteApprovalListOut(items=[QuoteApprovalOut.model_validate(a) for a in items])
 
 
 @router.post("/{quotation_id}/requote", response_model=QuotationDetailOut, status_code=status.HTTP_201_CREATED)
@@ -484,7 +563,8 @@ def requote_quotation(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
     except QuotationConflict as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
-    return _detail(svc, new_v, scope, can_approve=authz.can(user, MODULE, "approve"))
+    return _detail(svc, new_v, scope, can_approve=authz.can(user, MODULE, "approve"),
+        can_approve_exception=authz.can(user, MODULE, "approve_exception"))
 
 
 # --- PDF đối ngoại ------------------------------------------------------------

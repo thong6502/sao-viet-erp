@@ -28,10 +28,12 @@ class QuotePick(BaseModel):
 
 class QuotationCreate(BaseModel):
     customer_id: int | None = None
-    # Đường cũ (1 phiếu): estimate_id + selected_option_ids — giữ tương thích.
+    # BG-1 (nguồn MỚI): 1 Phiếu tính giá (PTG) → 1 báo giá. Ưu tiên nếu có.
+    phieu_tinh_gia_id: int | None = None
+    # Đường cũ (1 phiếu): estimate_id + selected_option_ids — giữ tương thích (gỡ ở BG-4).
     estimate_id: int | None = None
     selected_option_ids: list[int] | None = None
-    # Đường mới (đa phiếu): mỗi pick = 1 phiếu tính giá + option đã tick. Ưu tiên nếu có.
+    # Đường cũ (đa phiếu): mỗi pick = 1 phiếu tính giá + option đã tick.
     picks: list[QuotePick] | None = None
     margin_percent: float | None = None  # gói biên áp chung khi tạo (per dòng chỉnh sau)
     valid_until: date | None = None
@@ -166,6 +168,43 @@ class QuotationDetailOut(BaseModel):
     items: list[QuoteItemOut] = Field(default_factory=list)
     allowed_transitions: list[str] = Field(default_factory=list)
     can_approve: bool = False
+    # BG-2 — báo giá đặc thù (GĐ duyệt trước khi gửi khách). `exceptions` = nhãn định tính (an toàn);
+    # `margin_pct` nhạy cảm (router STRIP nếu người xem không có quyền duyệt đặc thù).
+    exception_required: bool = False
+    exception_status: str = "none"        # none|pending|approved|rejected|stale
+    exception_cleared: bool = True
+    exceptions: list[dict] = Field(default_factory=list)   # [{key,label}]
+    exception_note: str | None = None
+    margin_pct: int | None = None
+
+
+class QuoteApprovalIn(BaseModel):
+    """GĐ duyệt / từ chối báo giá đặc thù. `note` = lý do (khuyến nghị khi từ chối)."""
+
+    decision: str = Field(min_length=1, max_length=16)   # approved | rejected
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class QuoteApprovalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    quote_id: int
+    decision: str
+    triggers_json: list[str] | None = None
+    total: int
+    subtotal: int
+    cost: int | None = None
+    margin_pct_snapshot: int | None = None
+    min_margin_pct: int | None = None
+    high_value_threshold: int | None = None
+    note: str | None = None
+    decided_by: int | None = None
+    decided_at: datetime
+
+
+class QuoteApprovalListOut(BaseModel):
+    items: list[QuoteApprovalOut]
 
 
 class EnumOption(BaseModel):

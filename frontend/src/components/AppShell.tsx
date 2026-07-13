@@ -222,7 +222,7 @@ export function AppShell() {
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
       case "tinh-gia":
-        return <TinhGiaPage />;
+        return <TinhGiaPage navigate={navigate} />;
       case "bao-gia":
         return (
           <BaoGiaPage

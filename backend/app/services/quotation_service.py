@@ -31,6 +31,12 @@ from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.quotation_repo import QuotationRepository
 from ..services import quotation_ports
+from ..services.exception_gate import (
+    DECISIONS as _EXC_DECISIONS,
+    DECISION_APPROVED as _EXC_APPROVED,
+    approval_status as _exc_approval_status,
+    evaluate as _exc_evaluate,
+)
 from ..services.sequence_service import SequenceService
 
 
@@ -261,6 +267,7 @@ class QuotationService:
         estimate_id: int | None,
         selected_option_ids: list[int] | None = None,
         picks: list[dict] | None = None,
+        phieu_tinh_gia_id: int | None = None,
         margin_percent: float | None = None,
         valid_until: date | None = None,
         payment_terms: str | None = None,
@@ -272,6 +279,22 @@ class QuotationService:
     ) -> Quote:
         if valid_until and valid_until < date.today():
             raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
+
+        # BG-1: nguồn MỚI = 1 Phiếu tính giá (PTG) → 1 báo giá (dòng = từng "sản phẩm" PhieuThanhPhan,
+        # giá vốn khóa = gia_von_tp). Ưu tiên nếu có. Đường Estimate cũ giữ tới BG-4.
+        if phieu_tinh_gia_id is not None:
+            return self._create_from_ptg(
+                phieu_tinh_gia_id=phieu_tinh_gia_id,
+                customer_id=customer_id,
+                margin_percent=margin_percent,
+                valid_until=valid_until,
+                payment_terms=payment_terms,
+                delivery_terms=delivery_terms,
+                delivery_address=delivery_address,
+                customer_note=customer_note,
+                internal_note=internal_note,
+                actor=actor,
+            )
 
         # Chuẩn hóa: đường mới `picks` (đa phiếu) ưu tiên; đường cũ 1 phiếu = 1 pick.
         pick_list: list[tuple[int, list[int] | None]] = []
@@ -403,6 +426,187 @@ class QuotationService:
         )
         return quote
 
+    def _create_from_ptg(
+        self, *, phieu_tinh_gia_id: int, customer_id: int | None, margin_percent: float | None,
+        valid_until: date | None, payment_terms, delivery_terms, delivery_address,
+        customer_note, internal_note, actor,
+    ) -> Quote:
+        """BG-1: tạo báo giá TỪ 1 Phiếu tính giá (PTG) — 1 dòng / mỗi "sản phẩm" (PhieuThanhPhan). Giá
+        vốn KHÓA = `gia_von_tp` (snapshot copy-on-write, sửa PTG sau không đổi báo giá). SL = so_luong
+        sản phẩm (0 → SL mặc định phiếu). Markup/VAT MẶC ĐỊNH (PhieuThanhPhan không có 2 field này) —
+        sales chỉnh sau. GUARD 1 PTG → 1 BG đang hiệu lực (cancelled/rejected/expired nhả chỗ)."""
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+
+        from ..models.phieu_tinh_gia import PhieuTinhGia
+
+        db = self.quotations.db
+        ptg = db.execute(
+            select(PhieuTinhGia)
+            .where(PhieuTinhGia.id == phieu_tinh_gia_id)
+            .options(selectinload(PhieuTinhGia.thanh_phans))
+        ).scalar_one_or_none()
+        if ptg is None:
+            raise QuotationValidationError("Không tìm thấy phiếu tính giá.")
+        if not ptg.thanh_phans:
+            raise QuotationValidationError("Phiếu tính giá chưa có sản phẩm nào để báo giá.")
+
+        existing = self.quotations.active_for_phieu(phieu_tinh_gia_id)
+        if existing is not None:
+            raise QuotationConflict(
+                f"Phiếu tính giá này đã có báo giá {existing.quote_number} đang hiệu lực — mở báo giá đó."
+            )
+
+        quote_number = self.sequence.generate_code("quotation") if self.sequence else "BG26-0001"
+        quote = Quote(
+            quote_number=quote_number,
+            customer_id=customer_id,
+            customer_name_snapshot=self._customer_display_name(customer_id),
+            phieu_tinh_gia_id=phieu_tinh_gia_id,
+            salesperson_id=actor.id,
+            status=STATUS_DRAFT,
+            valid_until=valid_until,
+            payment_terms=payment_terms,
+            delivery_terms=delivery_terms,
+            delivery_address=delivery_address,
+            customer_note=customer_note,
+            internal_note=internal_note,
+            created_by=actor.id,
+        )
+        self.quotations.create(quote)
+
+        version = QuoteVersion(
+            quote_id=quote.id, version_number=1, status=VERSION_STATUS_DRAFT, created_by=actor.id,
+        )
+        self.quotations.db.add(version)
+        self.quotations.db.flush()
+
+        default_margin = float(margin_percent) if margin_percent is not None else 20.0
+        default_vat = 10.0
+        subtotal = discount = vat = final = total_cost = 0.0
+        for i, tp in enumerate(ptg.thanh_phans, start=1):
+            qty = int(tp.so_luong) or int(ptg.so_luong) or 1     # 0 = lấy SL mặc định phiếu
+            cost = float(tp.gia_von_tp or 0)
+            pricing = self.calculate_pricing(
+                total_cost=cost, margin_percent=default_margin, vat_percent=default_vat, quantity=qty,
+            )
+            self.quotations.db.add(QuoteItem(
+                quote_version_id=version.id,
+                phieu_thanh_phan_id=tp.id,
+                line_no=i,
+                product_type=tp.loai_thanh_phan or "san_pham",
+                product_name=tp.ten or ptg.ten_san_pham or f"Sản phẩm {i}",
+                product_spec_text=tp.kho_thanh_pham,
+                quantity=qty,
+                unit="cái",
+                total_cost_snapshot=cost,
+                margin_percent=default_margin,
+                selling_price=pricing["selling_price"],
+                unit_price=pricing["unit_price"],
+                discount_amount=pricing["discount_amount"],
+                vat_percent=default_vat,
+                vat_amount=pricing["vat_amount"],
+                final_amount=pricing["final_amount"],
+            ))
+            subtotal += pricing["selling_price"]
+            discount += pricing["discount_amount"]
+            vat += pricing["vat_amount"]
+            final += pricing["final_amount"]
+            total_cost += cost
+
+        version.total_cost_snapshot = total_cost
+        version.subtotal_amount = subtotal
+        version.discount_amount = discount
+        version.vat_amount = vat
+        version.final_amount = final
+        quote.current_version_id = version.id
+        self.quotations.update(quote)
+
+        self.audit.create(
+            actor_user_id=actor.id, action="create_quote", target=f"quote:{quote.id}",
+            detail=f"Tạo báo giá {quote.quote_number} v1 từ phiếu tính giá {ptg.ma} "
+            f"({len(ptg.thanh_phans)} sản phẩm)",
+        )
+        return quote
+
+    # --- BG-2: "báo giá đặc thù" — GĐ duyệt (cùng máy exception_gate với A2) --------
+
+    def exception_eval(self, quote: Quote) -> dict:
+        """Soi 3 điều kiện 'báo giá đặc thù' trên VERSION HIỆN TẠI — DELEGATE về `exception_gate`. Số
+        lấy từ tổng đã lưu của version: subtotal NET (subtotal_amount − discount_amount, TRƯỚC VAT, SAU
+        chiết khấu — khớp cách đơn hàng tính); total gồm VAT (final_amount); cost (total_cost_snapshot)."""
+        version = (
+            self.quotations.db.get(QuoteVersion, quote.current_version_id)
+            if quote.current_version_id else None
+        )
+        if version is None:
+            return _exc_evaluate(subtotal=0, total_gross=0, cost=None)
+        subtotal_net = int(round(float(version.subtotal_amount) - float(version.discount_amount)))
+        total_gross = int(round(float(version.final_amount)))
+        cost = int(round(float(version.total_cost_snapshot)))
+        return _exc_evaluate(subtotal=subtotal_net, total_gross=total_gross, cost=cost)
+
+    def approval_status(self, quote: Quote, exc: dict | None = None) -> dict:
+        """Tình trạng duyệt 'báo giá đặc thù' — DELEGATE về exception_gate.approval_status."""
+        if exc is None:
+            exc = self.exception_eval(quote)
+        row = self.quotations.latest_approval(quote.id)
+        latest = None if row is None else {
+            "decision": row.decision, "total": row.total, "subtotal": row.subtotal,
+            "cost": row.cost, "note": row.note, "decided_at": row.decided_at,
+        }
+        return _exc_approval_status(exc, latest)
+
+    def quote_gate(self, quote: Quote) -> dict:
+        """Khối 'báo giá đặc thù' cho output/UI (nhãn định tính + margin_pct nhạy cảm — router strip)."""
+        exc = self.exception_eval(quote)
+        appr = self.approval_status(quote, exc)
+        return {
+            "exception_required": appr["required"],
+            "exception_status": appr["status"],       # none|pending|approved|rejected|stale
+            "exception_cleared": appr["cleared"],
+            "exceptions": exc["triggers"],
+            "exception_note": appr["note"],
+            "margin_pct": exc["margin_pct"],
+        }
+
+    def record_approval(self, *, quotation_id: int, decision: str, note: str | None, scope: str, actor):
+        """GĐ DUYỆT / TỪ CHỐI 'báo giá đặc thù'. Chỉ khi báo giá còn `draft` (trước gửi khách). Chặn nếu
+        báo giá KHÔNG thuộc diện đặc thù. Ghim số + ngưỡng (audit). Duyệt 'bao phủ' → mở 'gửi khách';
+        báo giá đổi xấu đi sau đó → tự thành 'stale' (phải trình lại)."""
+        if decision not in _EXC_DECISIONS:
+            raise QuotationValidationError("Quyết định không hợp lệ (chỉ 'approved' / 'rejected').")
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        if quote.status != STATUS_DRAFT:
+            raise QuotationValidationError("Chỉ duyệt báo giá khi còn ở trạng thái nháp (trước gửi khách).")
+        exc = self.exception_eval(quote)
+        if not exc["triggers"]:
+            raise QuotationValidationError("Báo giá không thuộc diện đặc thù — không cần Giám đốc duyệt.")
+        row = self.quotations.create_approval(
+            quote_id=quote.id,
+            decision=decision,
+            triggers_json=[t["key"] for t in exc["triggers"]],
+            total=exc["total_gross"],
+            subtotal=exc["subtotal"],
+            cost=exc["cost"],
+            margin_pct_snapshot=exc["margin_pct"],
+            min_margin_pct=exc["min_margin_pct"],
+            high_value_threshold=exc["high_value_threshold"],
+            note=note,
+            decided_by=actor.id,
+        )
+        verb = "duyệt" if decision == _EXC_APPROVED else "từ chối"
+        self.audit.create(
+            actor_user_id=actor.id, action=f"quote_exception_{decision}", target=f"quote:{quote.id}",
+            detail=f"{quote.quote_number}: GĐ {verb} báo giá đặc thù "
+            f"({', '.join(t['key'] for t in exc['triggers'])})",
+        )
+        return row
+
+    def list_approvals(self, *, quotation_id: int, scope: str, actor) -> list:
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        return self.quotations.list_approvals(quote.id)
+
     def update_quotation(
         self,
         *,
@@ -516,6 +720,20 @@ class QuotationService:
     ) -> Quote:
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
         version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
+
+        # BG-2: CỔNG đặc thù — rời NHÁP sang "gửi khách" (sent) HOẶC "khách duyệt" (accepted) đều bị
+        # chặn khi báo giá đặc thù chưa được GĐ duyệt "bao phủ". Chặn cả đường tắt draft→accepted để
+        # sales không lách qua bước gửi (phản biện kiến trúc).
+        if to_status in (STATUS_SENT, STATUS_ACCEPTED) and quote.status == STATUS_DRAFT:
+            gate = self.quote_gate(quote)
+            if gate["exception_required"] and not gate["exception_cleared"]:
+                raise QuotationValidationError(
+                    {
+                        "pending": "Báo giá thuộc diện đặc thù — cần Giám đốc duyệt trước khi gửi khách.",
+                        "rejected": "Báo giá đặc thù đã bị Giám đốc TỪ CHỐI — không thể gửi khách.",
+                        "stale": "Báo giá đã đổi so với lúc Giám đốc duyệt — cần trình duyệt lại.",
+                    }.get(gate["exception_status"], "Báo giá đặc thù cần Giám đốc duyệt.")
+                )
 
         if to_status == STATUS_SENT:
             # Gửi khách: khóa phiên bản

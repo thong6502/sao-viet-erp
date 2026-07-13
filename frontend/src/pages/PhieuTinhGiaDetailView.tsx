@@ -438,8 +438,14 @@ function HienStrip({ meta, comp }: { meta: TinhGiaComponentMeta | undefined; com
 }
 
 // ------------------------------- Component -------------------------------
-export function PhieuTinhGiaDetailView({ id, onBack }: { id: number; onBack: () => void }) {
+export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
+  id: number;
+  onBack: () => void;
+  // BG-3: điều hướng sang Báo giá (openQuoteId đã wired ở AppShell). Không truyền → ẩn nút báo giá.
+  navigate?: (pageId: string, params?: { openQuoteId?: number }) => void;
+}) {
   const { token } = useAuth();
+  const [quoting, setQuoting] = useState(false);
 
   // --- Danh mục nguồn ---
   const [loaiSPs, setLoaiSPs] = useState<Row[]>([]);
@@ -723,6 +729,30 @@ export function PhieuTinhGiaDetailView({ id, onBack }: { id: number; onBack: () 
       .finally(() => setCalcing(false));
   }, [token, id, tenAnPham, khoThanhPham, loaiSPId, qty, comps, applyOut]);
 
+  // BG-3: từ phiếu tính giá → mở báo giá (1 PTG → 1 BG). Có sẵn thì mở, chưa có thì tạo rồi mở.
+  async function openOrCreateQuote() {
+    if (!token || !navigate) return;
+    setQuoting(true);
+    setErr(null);
+    try {
+      const existing = await api.quotations.byPhieu(token, id);
+      let quoteId = existing.quote_id;
+      if (quoteId == null) {
+        const q = await api.quotations.create(token, {
+          phieu_tinh_gia_id: id, customer_id: null, valid_until: null,
+          payment_terms: null, delivery_terms: null, delivery_address: null,
+          customer_note: null, internal_note: null,
+        });
+        quoteId = q.id;
+      }
+      navigate("bao-gia", { openQuoteId: quoteId });
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Không mở được báo giá cho phiếu này.");
+    } finally {
+      setQuoting(false);
+    }
+  }
+
   const grand = result ? result.grand_total : null;
   // Đơn giá BÌNH QUÂN (nhiều SP khác SL) — ưu tiên meta engine; fallback grand/ΣSL.
   const tongSoLuong = result?.meta?.tong_so_luong ?? 0;
@@ -810,6 +840,17 @@ export function PhieuTinhGiaDetailView({ id, onBack }: { id: number; onBack: () 
           >
             In phiếu
           </Button>
+          {navigate && (
+            <Button
+              variant="primary"
+              onClick={openOrCreateQuote}
+              loading={quoting}
+              disabled={!token || loading}
+              title="Tạo / mở báo giá từ phiếu tính giá này"
+            >
+              Báo giá →
+            </Button>
+          )}
         </div>
       </header>
 

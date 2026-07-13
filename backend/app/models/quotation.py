@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -63,7 +64,11 @@ class Quote(Base):
     estimate_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("estimates.id", ondelete="SET NULL"), index=True, nullable=True
     )
-    
+    # BG-1: nguồn báo giá MỚI = 1 Phiếu tính giá (PTG). Soft link (plain int — PTG dùng FK mềm theo
+    # convention repo). 1 PTG → 1 BG đang hiệu lực: GUARD ở service (KHÔNG unique cứng — báo giá
+    # cancelled/rejected/expired nhả chỗ, cho báo giá lại / repeat order). estimate_id = hệ CŨ (gỡ ở BG-4).
+    phieu_tinh_gia_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+
     salesperson_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
@@ -153,6 +158,8 @@ class QuoteItem(Base):
         Integer, ForeignKey("estimates.id", ondelete="SET NULL"), index=True, nullable=True
     )
     estimate_option_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # BG-1: dòng báo giá nguồn từ 1 "sản phẩm" (PhieuThanhPhan) của PTG. Soft ref (gỡ estimate_* ở BG-4).
+    phieu_thanh_phan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
     
     product_type: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -216,3 +223,36 @@ class QuoteActivityLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     quote: Mapped[Quote] = relationship("Quote", back_populates="activity_logs")
+
+
+class QuoteApproval(Base):
+    """BG-2: GĐ duyệt "báo giá ĐẶC THÙ" (biên thấp / dưới vốn / giá trị cao) — chặn "gửi khách" tới khi
+    duyệt. Song sinh với `order_approvals` (cùng máy `exception_gate`), khóa theo `quote_id`. Ghim SỐ +
+    NGƯỠNG lúc quyết định để re-check "bao phủ" (báo giá đổi xấu đi → phải trình lại) + audit. Bản GẦN
+    NHẤT quyết định cổng. Tiền = BigInteger. Bảng MỚI (create_all tự tạo, không cần migration)."""
+
+    __tablename__ = "quote_approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    quote_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("quotes.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)   # approved | rejected
+    triggers_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # GHIM số lúc quyết định. total = gồm VAT (mốc quy mô); subtotal = trước VAT (base biên).
+    total: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    subtotal: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    cost: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    margin_pct_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_margin_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    high_value_threshold: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    decided_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )

@@ -507,7 +507,8 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `quote_number` | `String(20)` | **UQ**, **IX** | no | — | Mã phiếu (BG26-0001…) — duy nhất; version nằm ở `quote_versions.version_number`. |
 | `customer_id` | `Integer` | **FK→customers.id** (SET NULL), **IX** | yes | — | Khách hàng (SEAM-14 CRM read). |
 | `customer_name_snapshot` | `String(255)` | — | yes | — | Tên KH chốt tại thời điểm tạo (copy-on-write hiển thị). |
-| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá ĐẦU TIÊN (tương thích cũ); tham chiếu thật per dòng ở `quote_items.estimate_id`. |
+| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá ĐẦU TIÊN (tương thích cũ); tham chiếu thật per dòng ở `quote_items.estimate_id`. Gỡ ở BG-4. |
+| `phieu_tinh_gia_id` | `Integer` → `INTEGER` | **IX** (soft) | yes | — | **BG-1**: nguồn MỚI = 1 Phiếu tính giá (PTG). Soft link (plain int). 1 PTG → 1 BG đang hiệu lực — guard ở service (KHÔNG unique cứng; cancelled/rejected/expired nhả chỗ). Migration 0051. |
 | `salesperson_id` | `Integer` | **FK→users.id** (SET NULL), **IX** | yes | — | Sale phụ trách — RBAC data-scope owner. |
 | `status` | `String(20)` | — | no | `draft` | draft/sent/accepted/rejected/expired/converted_to_order/cancelled. |
 | `current_version_id` | `Integer` | **IX** | yes | — | Phiên bản đang hiệu lực (con trỏ, không FK để tránh vòng). |
@@ -563,7 +564,8 @@ pick** (logic chốt: báo giá không soạn tay, chỉ pick từ phiếu tính
 |---|---|---|---|---|---|
 | `id` | `Integer` | **PK** | no | auto | PK. |
 | `quote_version_id` | `Integer` | **FK→quote_versions.id** (CASCADE), **IX** | no | — | Version cha. |
-| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá gốc của DÒNG NÀY (đa phiếu/1 báo giá). |
+| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá gốc của DÒNG NÀY (đa phiếu/1 báo giá — hệ cũ, gỡ ở BG-4). |
+| `phieu_thanh_phan_id` | `Integer` → `INTEGER` | (soft) | yes | — | **BG-1**: dòng báo giá nguồn từ 1 "sản phẩm" (`PhieuThanhPhan`) của PTG. Soft ref. Migration 0051. |
 | `estimate_option_id` | `Integer` | — | yes | — | Mức số lượng (option) đã pick trong phiếu. |
 | `line_no` | `Integer` | — | no | — | Thứ tự dòng. |
 | `product_type` | `String(50)` | — | no | — | Loại SP (snapshot từ phiếu). |
@@ -752,6 +754,38 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 **Relationships**
 
 - Many `order_approvals` belong to one `orders`. Bản GẦN NHẤT (theo `decided_at`, tie-break `id`) quyết định cổng chốt: `approved`+bao phủ → cleared; `rejected`/`stale`/chưa có → chặn.
+
+---
+
+### `quote_approvals`
+
+**Purpose:** BG-2 — GĐ duyệt "báo giá ĐẶC THÙ" (biên thấp / bán dưới vốn / giá trị cao) → chặn "gửi khách" tới khi duyệt. **Song sinh** với `order_approvals` (cùng máy `services/exception_gate.py`), khóa theo `quote_id`. GHIM số + ngưỡng lúc quyết định để re-check "bao phủ" (báo giá đổi xấu đi → trình lại) + audit. Bản GẦN NHẤT quyết định cổng. Đơn hàng tạo từ báo giá đã duyệt "bao phủ" → A2 tự thông. Bảng MỚI do `create_all` dựng. Portable across SQLite và Postgres.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `quote_id` | `Integer` → `INTEGER` | **FK→quotes.id**, **IX** | no | — | Báo giá được duyệt (ON DELETE CASCADE). |
+| `decision` | `String(16)` → `VARCHAR(16)` | — | no | — | `approved` (duyệt, mở "gửi khách" nếu bao phủ) / `rejected` (từ chối). |
+| `triggers_json` | `JSON` → `JSON` | — | yes | — | Điều kiện đặc thù đang bật lúc quyết định (`['high_value','low_margin','below_cost']`). |
+| `total` | `BigInteger` → `BIGINT` | — | no | `0` | GHIM tổng GỒM VAT lúc quyết định (mốc quy mô khi re-check bao phủ). |
+| `subtotal` | `BigInteger` → `BIGINT` | — | no | `0` | GHIM subtotal TRƯỚC VAT (base biên) lúc quyết định. |
+| `cost` | `BigInteger` → `BIGINT` | — | yes | — | GHIM tổng giá vốn lúc quyết định (null nếu không soi được biên). |
+| `margin_pct_snapshot` | `Integer` → `INTEGER` | — | yes | — | GHIM biên (%) lúc quyết định — hiển thị/audit. |
+| `min_margin_pct` | `Integer` → `INTEGER` | — | yes | — | Ngưỡng biên đang HIỆU LỰC lúc GĐ ký. |
+| `high_value_threshold` | `BigInteger` → `BIGINT` | — | yes | — | Ngưỡng giá-trị-cao đang HIỆU LỰC lúc GĐ ký. |
+| `note` | `String(1000)` → `VARCHAR(1000)` | — | yes | — | Lý do GĐ (khuyến nghị khi từ chối). |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người quyết định (GĐ). ON DELETE SET NULL. |
+| `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm quyết định (tie-break "bản gần nhất"). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `ix_quote_approvals_quote_id`.
+- Foreign keys: `quote_id FK→quotes.id` (ON DELETE CASCADE), `decided_by FK→users.id` (ON DELETE SET NULL).
+
+**Relationships**
+
+- Many `quote_approvals` belong to one `quotes`. Bản GẦN NHẤT quyết định cổng "gửi khách"; `approved`+bao phủ → cho gửi; `rejected`/`stale`/chưa có → chặn.
 
 ---
 

@@ -287,3 +287,119 @@ Mọi báo cáo **tuân theo scope §11** (nhân viên thấy của mình; trư�
 
 Phát hành HĐ GTGT pháp lý · sổ cái/BCTC/tờ khai thuế (MISA) · web‑to‑print · netting AR↔AP (SEAM‑18, P1) ·
 engine chiết khấu tự động (SEAM‑23, chiết khấu hiện nhập tay) · lệnh sản xuất chi tiết & chế bản sâu (phân hệ riêng).
+
+---
+
+## 14. Module Báo giá — `1 Phiếu tính giá → 1 Báo giá` (dựng lại nguồn + cổng GĐ ở báo giá)
+
+> Bổ sung/điều chỉnh §4.1 (trước đây "giữ nền Quote"): **Báo giá dựng lại NGUỒN** — kéo từ **Phiếu
+> tính giá (PhieuTinhGia, mã PTG)** thay cho **Estimate (mã TG)**. Giữ lõi model Quote/Version/Item.
+> UI đích = ảnh mockup BG26 (bảng markup từng dòng + panel "Giá bán đề xuất"). Đã chốt với chủ đầu tư.
+
+### 14.1 Nguyên tắc
+
+- **1 PTG → 1 BG** (một–một). Bỏ mô hình "pick đa phiếu" + màn "Tạo báo giá thương mại" đa-pick.
+- **Dòng báo giá = mỗi "sản phẩm" của PTG** (`PhieuThanhPhan` — docstring model ghi rõ "1 phiếu =
+  nhiều sản phẩm, mỗi sản phẩm có SL + giá vốn riêng"). Ví dụ: Ruột/Bìa của 1 cuốn, hoặc Danh thiếp +
+  Tờ rơi của 1 bộ nhận diện.
+- Sales tự ra + gửi khách báo giá **bình thường**; báo giá **đặc thù** (biên thấp / dưới vốn / giá trị
+  cao) → **GĐ duyệt trước khi gửi khách** (§14.3).
+
+### 14.2 Nguồn dữ liệu & dòng báo giá
+
+- Báo giá gắn 1 PTG: thêm `quotes.phieu_tinh_gia_id` (soft/FK), **1 PTG chỉ 1 BG đang hiệu lực**.
+- Mỗi dòng (`quote_item`) map từ 1 `PhieuThanhPhan`:
+  - `ten` (tên SP) · `so_luong` (SL) · **giá vốn KHÓA** = `gia_von_tp` (snapshot copy-on-write) ·
+    **`margin_percent` riêng từng dòng** (markup, sales chỉnh tay) → **giá bán dòng** (chưa VAT) →
+    +VAT → **thành tiền**.
+  - Tái dùng `QuoteItem` sẵn có (`total_cost_snapshot`=giá vốn, `margin_percent`, `selling_price`,
+    `unit_price`, `discount_amount`, `vat_percent`, `final_amount`) — engine `calculate_pricing` giữ nguyên.
+- Panel "Giá bán đề xuất": Σ giá vốn khóa · Σ lợi nhuận · giá bán chưa VAT · VAT · **tổng cộng**.
+- **Snapshot**: sửa PTG sau KHÔNG đổi số báo giá đã lập (copy-on-write, như A1/A2). Muốn cập nhật → tạo
+  version báo giá mới (nút "Nhân bản"/re-quote).
+
+### 14.3 GĐ duyệt báo giá ĐẶC THÙ (dời cổng "đơn đặc thù" A2 lên khâu báo giá)
+
+- **Bản chất = A2, đặt sớm hơn:** bắt lỗi giá **trước khi gửi khách**, không đợi tới lúc chốt đơn.
+- **Điều kiện trip (ngưỡng cấu hình versioned):** biên lợi nhuận thấp (`min_margin_pct`) · bán dưới giá
+  vốn · giá trị đơn cao (`high_value_threshold` — vd 1 tỷ, chờ SVN chốt số). *(Vượt hạn mức công nợ
+  KHÔNG ở đây — thuộc đơn hàng/Pha D.)*
+- **Cổng:** báo giá trip ngưỡng → **chặn hành động "Gửi khách"** (nháp→sent) tới khi **GĐ duyệt**. Bình
+  thường → sales gửi thẳng. Ghi lý do + lưu vết + ghim số/ngưỡng (audit), cơ chế **"bao phủ"** (báo giá
+  đổi xấu đi sau duyệt → phải trình lại) **tái dùng nguyên từ A2** (`_exception_eval`/`_approval_covers`).
+- **Quyền:** cấp `approve_exception` cho **cả module `bao_gia`** (GĐ có; NV Sales & Trưởng phòng KD
+  KHÔNG) — tái dùng đúng cột `role_permissions.can_approve_exception` đã tạo ở A2, chỉ bật thêm trên
+  `bao_gia` trong seed vai GĐ.
+- **Số nhạy cảm** (biên/giá vốn): STRIP theo quyền như A2 — Sales thấy "cần Giám đốc duyệt" + nhãn lý
+  do, không thấy con số biên.
+
+### 14.4 Đơn hàng "tự thông" (duyệt 1 lần, đúng chỗ)
+
+- Đơn hàng tạo từ báo giá **đã được GĐ duyệt** (cùng số) → cổng đặc thù-về-GIÁ ở A2 (biên/giá trị) **tự
+  cleared**, KHÔNG bắt GĐ duyệt lại. Cơ chế: `order.quotation_id` trỏ báo giá có bản duyệt "bao phủ" →
+  A2 coi phần giá đã cleared. *(Nếu đơn bị đổi xấu hơn báo giá đã duyệt — hiếm, vì đơn snapshot báo giá
+  — thì A2 vẫn chặn như cũ.)*
+- **Đơn hàng A2 từ giờ chỉ còn gác:** vượt hạn mức công nợ (Pha D). Cọc (A1) giữ nguyên.
+
+### 14.5 Màn hình (theo mockup BG26 — ảnh 1)
+
+- **Từ Phiếu tính giá** (list + detail): nút **"Tạo / Mở báo giá"** (chưa có → tạo; có rồi → mở). 1 PTG
+  ↔ 1 BG.
+- **Màn Báo giá (detail):** bảng dòng (SP · SL · **giá vốn** · ô **markup %** sửa tay · **thành tiền
+  (VAT)**) + panel đen **"Giá bán đề xuất"** + khối **Khách hàng** (hạn mức) + **điều khoản/ghi chú** +
+  **version**. Nút: **Gửi khách · Xem in (PDF) · Nhân bản**. Ô **"Bắt buộc cấp trên duyệt"** = trạng
+  thái cổng GĐ (§14.3) — hiện khi trip ngưỡng.
+- **Vòng đời (giữ §3):** nháp → (GĐ duyệt nếu đặc thù) → **gửi khách** → khách duyệt/từ chối → **tạo
+  Đơn hàng**; quá hạn → expired. Báo giá **không** chặn hạn mức.
+- Bỏ hẳn modal "Tạo báo giá thương mại" đa-pick.
+
+### 14.6 Dọn hệ cũ (làm SAU khi nối xong, an toàn)
+
+- Sau khi Báo-giá-mới + Đơn-hàng chạy xanh: gỡ **Estimate** (model/service/router/schema + màn tạo báo
+  giá đa-pick + picker `/costings` đọc Estimate). Thứ tự: nối mới trước → verify → mới xóa cũ (tránh vỡ
+  A1/A2 đang đọc Quote).
+
+### 14.7 Phân pha build
+
+- **BG-1 (backend nguồn):** `quotes.phieu_tinh_gia_id` + tạo/đọc báo giá TỪ 1 PTG (dòng = PhieuThanhPhan,
+  giá vốn khóa) + picker đổi Estimate→PTG. Verify.
+- **BG-2 (cổng GĐ ở báo giá):** tái dùng máy A2 cho báo giá + quyền `approve_exception` trên `bao_gia` +
+  chặn "gửi khách" + đơn-hàng-tự-thông. Verify.
+- **BG-3 (frontend):** nút từ PTG + màn Báo giá detail theo ảnh 1 + gỡ modal đa-pick. tsc + styleseed.
+- **BG-4 (dọn hệ cũ):** gỡ Estimate + xác nhận A1/A2 còn xanh.
+
+### 14.8 Còn treo (⏳ chờ SVN)
+
+- Ngưỡng đặc thù báo giá: `min_margin_pct` · `high_value_threshold` (vd 1 tỷ) — số cụ thể.
+- 1 PTG có nhiều "sản phẩm" là Ruột/Bìa (không bán rời): báo giá tách 2 dòng markup riêng (mặc định) hay
+  gộp 1 dòng "cuốn" — chờ xác nhận cách trình bày cho khách (chỉ ảnh hưởng IN PDF, không chặn backend).
+
+### 14.9 Chốt sau 2 phản biện (2026-07-13)
+
+**Quyết định nghiệp vụ (chủ đầu tư chốt):**
+- **Giữ 1 mức SL / sản phẩm** (KHÔNG đa mức SL). Muốn báo nhiều mức → lập phiếu tính giá riêng.
+- Cả **3 điều kiện đặc thù** (biên thấp · bán dưới vốn · giá trị cao) → **CHẶN CỨNG** "gửi khách" tới khi
+  GĐ duyệt (thống nhất, không phân biệt mềm/cứng).
+- **Làm NGAY:** hiệu lực báo giá `valid_until` — hết hạn **hoặc giá vốn PTG đã đổi** → **buộc báo lại**
+  (re-quote) trước khi lên đơn (chống lỗ do giá giấy tăng).
+- **Để SAU (không làm bản đầu):** giải ngược từ giá bán (nhập giá bán → tính markup) · chốt đơn từ TẬP CON
+  dòng (khách lấy 2/3) · chiết khấu/làm tròn cấp TỔNG đơn.
+
+**Sửa kỹ thuật BẮT BUỘC (từ phản biện kiến trúc — làm khi code):**
+1. Chặn **cả `draft→accepted`** (không chỉ `draft→sent`) khi báo giá đặc thù chưa GĐ duyệt — nếu không
+   sales bấm thẳng "khách duyệt" để lách cổng.
+2. Cổng "bao phủ" enforce ở **`draft→sent` của BÁO GIÁ** (bắt cả re-quote v2 xấu hơn chưa trình lại). Đơn
+   hàng **"tự thông"**: tại `create_order`, nếu báo giá nguồn có bản GĐ-duyệt "bao phủ" → **materialize 1
+   `OrderApproval` `approved` ghim SỐ CỦA ĐƠN** (KHÔNG copy số báo giá — tránh lệch VAT chặn oan); các test
+   A2 cũ không kích nhánh này nên vẫn xanh.
+3. **Tách nhân soi đặc thù** (`_exception_eval` + `_approval_covers`) thành **module thuần dùng chung**
+   (order + quote gọi cùng), ngưỡng 1 nguồn (`DEFAULT_MIN_MARGIN_PCT/HIGH_VALUE`). Thêm bảng
+   **`quote_approvals`** (vì `order_approvals.order_id` NOT NULL FK không tái dùng cho quote).
+4. Soi biên báo giá trên **NET = Σ(selling − discount)** (khớp cách adapter đơn tính — §fix chiết khấu).
+5. Link **MỀM** `quotes.phieu_tinh_gia_id` + **guard tầng service** (KHÔNG unique cứng: cancelled/rejected/
+   expired = nhả chỗ, cho báo giá lại / repeat order). Cột dòng `quote_items.phieu_thanh_phan_id`.
+6. Cơ học: resolve `qty = PhieuThanhPhan.so_luong or phieu.so_luong`; cấp **default markup + VAT 10%** cho
+   dòng PTG (PhieuThanhPhan thiếu 2 field này); **viết lại khối re-snapshot lúc `→sent`** (đang đọc
+   Estimate); giữ Estimate tới BG-4 rồi mới gỡ (thứ tự: cột FK trước, bảng sau — bài học Khổ giấy).
+   `customer_analytics` KHÔNG đọc Estimate → an toàn. `calculate_pricing` + RBAC `can_approve_exception`
+   dùng nguyên.

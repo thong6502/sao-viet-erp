@@ -8,12 +8,19 @@ import "./tinh-gia.css";
 
 type View = { mode: "list" } | { mode: "detail"; id: number };
 
-export function TinhGiaPage() {
+export function TinhGiaPage({ navigate }: {
+  // BG-3: điều hướng sang Báo giá (nút "Báo giá →" trên phiếu). Không truyền → ẩn nút.
+  navigate?: (pageId: string, params?: { openQuoteId?: number }) => void;
+} = {}) {
   const [view, setView] = useState<View>({ mode: "list" });
 
   if (view.mode === "detail") {
     return (
-      <PhieuTinhGiaDetailView id={view.id} onBack={() => setView({ mode: "list" })} />
+      <PhieuTinhGiaDetailView
+        id={view.id}
+        onBack={() => setView({ mode: "list" })}
+        navigate={navigate}
+      />
     );
   }
   return (

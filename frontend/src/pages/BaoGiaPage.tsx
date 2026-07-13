@@ -1321,10 +1321,14 @@ function QuotationDetailView({
   // Lưu ý: layout 2 cột (main) không còn nút Hủy báo giá — quyền `cancel` vẫn chặn ở backend.
   // Thao tác trạng thái chung (gửi / từ chối / đánh dấu hết hạn…) — tách khỏi "sửa".
   const canManageStatus = useCan()("bao_gia", "manage_status");
+  // BG-2: duyệt "báo giá đặc thù" — CHỈ Giám đốc. Người có quyền này cũng thấy số biên.
+  const canApproveException = useCan()("bao_gia", "approve_exception");
   const [d, setD] = useState<QuotationDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [apprNote, setApprNote] = useState("");
+  const [apprSaving, setApprSaving] = useState(false);
 
   // Margin sống (preview cục bộ trước khi persist) — chỉ dùng khi báo giá 1 dòng.
   const [draftMargin, setDraftMargin] = useState<number | null>(null);
@@ -1343,7 +1347,6 @@ function QuotationDetailView({
   const [comments, setComments] = useState<{ who: string; text: string; time: string }[]>([]);
   const [discussWho, setDiscussWho] = useState("Sales");
   const [discussText, setDiscussText] = useState("");
-  const [apprManual, setApprManual] = useState(false);
   const [lastContact, setLastContact] = useState<string | null>(null);
 
   const reload = useCallback(
@@ -1366,7 +1369,6 @@ function QuotationDetailView({
           setValidity(days > 0 ? days : 30);
         } else setValidity(30);
         setComments(lsGet(`bgv_comments_${det.code}`, []));
-        setApprManual(lsGet(`bgv_appr_${det.code}`, false));
         setLastContact(lsGet(`bgv_contact_${det.code}`, null));
       } catch {
         setErr("Không tải được chi tiết báo giá.");
@@ -1505,6 +1507,26 @@ function QuotationDetailView({
     }
   }
 
+  async function submitQuoteApproval(decision: "approved" | "rejected") {
+    if (!token || !d) return;
+    if (decision === "rejected" && !apprNote.trim()) {
+      setErr("Nhập lý do từ chối.");
+      return;
+    }
+    setApprSaving(true);
+    setErr(null);
+    try {
+      await api.quotations.recordApproval(token, d.id, { decision, note: apprNote.trim() || null });
+      setApprNote("");
+      await reload(d.id);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Ghi duyệt không thành công.");
+    } finally {
+      setApprSaving(false);
+    }
+  }
+
   async function doRequote() {
     if (!token || !d) return;
     setBusy(true);
@@ -1555,11 +1577,6 @@ function QuotationDetailView({
     setLastContact(today);
     lsSet(`bgv_contact_${d.code}`, today);
     setNotice("Đã ghi nhận liên hệ khách hôm nay.");
-  }
-  function toggleAppr(v: boolean) {
-    if (!d) return;
-    setApprManual(v);
-    lsSet(`bgv_appr_${d.code}`, v);
   }
   function duplicate() {
     setNotice("Đã nhân bản báo giá (mô phỏng) — bản sao sẽ xuất hiện ở danh sách khi nối backend.");
@@ -1634,7 +1651,12 @@ function QuotationDetailView({
             </>
           )}
           {canManageStatus && viewingLatest && d.status === "draft" && d.allowed_transitions.includes("sent") && (
-            <Button variant="accent" disabled={busy} onClick={() => doTransition("sent")}>➤ Gửi khách</Button>
+            <Button
+              variant="accent"
+              disabled={busy || (d.exception_required && !d.exception_cleared)}
+              title={d.exception_required && !d.exception_cleared ? "Báo giá đặc thù — cần Giám đốc duyệt trước khi gửi" : undefined}
+              onClick={() => doTransition("sent")}
+            >➤ Gửi khách</Button>
           )}
           {viewingLatest && d.status === "accepted" && navigate && (
             <Button variant="accent" disabled={busy} onClick={handleCreateOrder}>🛒 Tạo đơn hàng</Button>
@@ -1884,12 +1906,49 @@ function QuotationDetailView({
               </div>
             )}
 
-            {editable && (
-              <div className="appr-block">
-                <label className="appr-toggle">
-                  <input type="checkbox" checked={apprManual} onChange={(e) => toggleAppr(e.target.checked)} />
-                  <span className="at-text">Bắt buộc cấp trên duyệt<small>Bật để buộc qua bước duyệt nội bộ.</small></span>
-                </label>
+            {/* BG-2 — Báo giá đặc thù: GĐ duyệt trước khi GỬI KHÁCH. Hiện khi hệ soi thấy vướng ngưỡng
+                (giá trị cao / lời mỏng / bán dưới vốn). Sales thấy nhãn + trạng thái; GĐ thấy nút duyệt. */}
+            {d.exception_required && (
+              <div className="appr-block appr-block--exc">
+                <div className="exc-title">Báo giá đặc thù — cần Giám đốc duyệt</div>
+                <div className="exc-chips">
+                  {d.exceptions.map((e) => (
+                    <span key={e.key} className="exc-chip">{e.label}</span>
+                  ))}
+                  {d.margin_pct != null && (
+                    <span className="exc-chip exc-chip--num">Biên {d.margin_pct}%</span>
+                  )}
+                </div>
+                <div className={`exc-status exc-status--${d.exception_status}`}>
+                  {d.exception_status === "approved"
+                    ? "Giám đốc đã duyệt — có thể gửi khách."
+                    : d.exception_status === "rejected"
+                      ? `Giám đốc đã từ chối — không thể gửi khách.${d.exception_note ? " " + d.exception_note : ""}`
+                      : d.exception_status === "stale"
+                        ? "Báo giá đã đổi so với lúc duyệt — cần trình duyệt lại."
+                        : canApproveException
+                          ? "Chờ quyết định của bạn (Giám đốc)."
+                          : "Đang chờ Giám đốc duyệt."}
+                </div>
+                {editable && canApproveException && (
+                  <div className="exc-actions">
+                    <textarea
+                      className="exc-note"
+                      value={apprNote}
+                      onChange={(e) => setApprNote(e.target.value)}
+                      placeholder="Lý do / ghi chú (bắt buộc khi từ chối)"
+                      rows={2}
+                    />
+                    <div className="exc-btns">
+                      <Button variant="primary" disabled={apprSaving} onClick={() => submitQuoteApproval("approved")}>
+                        {apprSaving ? "Đang ghi…" : "Duyệt"}
+                      </Button>
+                      <Button variant="ghost" disabled={apprSaving} onClick={() => submitQuoteApproval("rejected")}>
+                        Từ chối
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

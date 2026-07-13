@@ -1432,6 +1432,18 @@ def _migrate_role_permission_approve_exception(db: Session) -> None:
     db.commit()
 
 
+def _migrate_quote_phieu_tinh_gia_link(db: Session) -> None:
+    """BG-1: Báo giá dựng lại nguồn từ Phiếu tính giá (PTG). Thêm cột SOFT-link (plain int):
+    `quotes.phieu_tinh_gia_id` + `quote_items.phieu_thanh_phan_id`. No-op DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "quotes" in tables and "phieu_tinh_gia_id" not in _existing_columns(insp, "quotes"):
+        db.execute(text("ALTER TABLE quotes ADD COLUMN phieu_tinh_gia_id INTEGER"))
+    if "quote_items" in tables and "phieu_thanh_phan_id" not in _existing_columns(insp, "quote_items"):
+        db.execute(text("ALTER TABLE quote_items ADD COLUMN phieu_thanh_phan_id INTEGER"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1484,6 +1496,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0050_phieu_san_luong_5b2", _migrate_phieu_san_luong_5b2),
     ("0051_order_line_cost_snapshot", _migrate_order_line_cost_snapshot),
     ("0052_role_permission_approve_exception", _migrate_role_permission_approve_exception),
+    ("0053_quote_phieu_tinh_gia_link", _migrate_quote_phieu_tinh_gia_link),
 ]
 
 

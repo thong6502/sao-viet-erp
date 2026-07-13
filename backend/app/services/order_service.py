@@ -27,11 +27,7 @@ from __future__ import annotations
 
 from ..models.order import (
     APPROVAL_DECISION_APPROVED,
-    APPROVAL_DECISION_REJECTED,
     APPROVAL_DECISIONS,
-    EXC_BELOW_COST,
-    EXC_HIGH_VALUE,
-    EXC_LOW_MARGIN,
     ORDER_KIND_BO_SUNG,
     ORDER_KINDS,
     ORDER_TYPES,
@@ -46,6 +42,10 @@ from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.order_repo import OrderRepository
 from ..services import order_ports
+from ..services.exception_gate import (
+    approval_status as _exc_approval_status,
+    evaluate as _exc_evaluate,
+)
 from ..services.order_state import transition_for
 
 # Mặc định CHUNG % cọc mở SX khi khách CHƯA đặt điều khoản riêng. Khách có % riêng qua hồ sơ CRM
@@ -53,12 +53,8 @@ from ..services.order_state import transition_for
 # được KHÔNG cần sửa code (đổi ở hồ sơ khách, hoặc đổi mặc định chung). Số chờ SVN chốt cuối.
 DEFAULT_MIN_DEPOSIT_PCT = 50
 
-# A2 — ngưỡng "đơn đặc thù" (Giám đốc duyệt mới được chốt). Để HẰNG SỐ như DEFAULT_MIN_DEPOSIT_PCT
-# (màn cấu hình để pha sau); giá trị ĐANG HIỆU LỰC được GHIM vào bản duyệt để audit không mất căn cứ
-# khi đổi hằng số. Lưu ý nghiệp vụ: biên tính trên giá vốn theo Tính giá (biên GÓP trực tiếp) — SVN
-# nên soát lại con số 15% cho phù hợp mức overhead/hoa hồng gộp thực tế.
-DEFAULT_MIN_MARGIN_PCT = 15                    # 0 ≤ biên < 15% → "lời mỏng" → cần GĐ duyệt
-DEFAULT_HIGH_VALUE_THRESHOLD = 100_000_000     # tổng GỒM VAT ≥ 100tr → "giá trị đơn cao"
+# A2 — ngưỡng "đơn đặc thù" giờ ở module CHUNG `exception_gate` (dùng chung Đơn hàng + Báo giá,
+# một nguồn định nghĩa). Re-import DEFAULT_MIN_MARGIN_PCT / DEFAULT_HIGH_VALUE_THRESHOLD ở trên.
 
 
 class OrderError(Exception):
@@ -224,86 +220,24 @@ class OrderService:
     # --- A2: "đơn đặc thù" — soi điều kiện + tình trạng duyệt của Giám đốc -------
 
     def _exception_eval(self, order: Order) -> dict:
-        """Soi 3 điều kiện 'đơn đặc thù' trên số HIỆN TẠI: giá trị cao / biên thấp / dưới giá vốn.
-        Biên tính TRƯỚC VAT (subtotal = Σ line_total) trên giá vốn snapshot (Σ cost_snapshot). Không
-        có giá vốn (đơn cũ / báo giá thiếu cost) → bỏ qua 2 trigger biên. Ngưỡng = hằng số (ghim vào
-        bản duyệt). Vượt-hạn-mức-công-nợ HOÃN Pha D. Trả dict số + `triggers` [{key,label}]."""
-        subtotal = self.orders.line_total_sum(order.id) or 0
-        total_gross = self.orders.total_with_vat(order.id)
-        cost = self.orders.order_cost_sum(order.id)   # None nếu không soi được biên
-        min_margin = DEFAULT_MIN_MARGIN_PCT
-        high_thr = DEFAULT_HIGH_VALUE_THRESHOLD
-
-        triggers: list[dict] = []
-        # "Giá trị đơn cao" = QUY MÔ đơn → soi trên subtotal TRƯỚC VAT (không để thuế suất 8%/10%
-        # làm cùng giá trị thật kích khác nhau — phản biện hậu kiểm). order_total (gồm VAT) vẫn
-        # dùng làm mốc "bao phủ" (số tiền thật khách trả).
-        if subtotal > 0 and subtotal >= high_thr:
-            triggers.append({"key": EXC_HIGH_VALUE, "label": "Giá trị đơn cao"})
-
-        margin_pct: int | None = None
-        if cost is not None and subtotal > 0:
-            margin_pct = round((subtotal - cost) * 100 / subtotal)  # DISPLAY (có thể âm = lỗ)
-            # Phân loại bằng phép so KHÔNG chia (chính xác, không lệ thuộc làm tròn):
-            if cost > subtotal:
-                triggers.append({"key": EXC_BELOW_COST, "label": "Bán dưới giá vốn"})
-            elif (subtotal - cost) * 100 < min_margin * subtotal:
-                triggers.append({"key": EXC_LOW_MARGIN, "label": "Biên lợi nhuận thấp"})
-
-        return {
-            "subtotal": subtotal,
-            "total_gross": total_gross,
-            "cost": cost,
-            "margin_pct": margin_pct,
-            "min_margin_pct": min_margin,
-            "high_value_threshold": high_thr,
-            "triggers": triggers,
-        }
+        """Soi 3 điều kiện 'đơn đặc thù' trên số HIỆN TẠI của đơn — DELEGATE về `exception_gate` (logic
+        THUẦN dùng chung với Báo giá). subtotal = Σ line_total (trước VAT); total_gross = gồm VAT; cost =
+        Σ cost_snapshot (None = không soi được biên)."""
+        return _exc_evaluate(
+            subtotal=self.orders.line_total_sum(order.id) or 0,
+            total_gross=self.orders.total_with_vat(order.id),
+            cost=self.orders.order_cost_sum(order.id),
+        )
 
     def _approval_status(self, order: Order, exc: dict) -> dict:
-        """Tình trạng duyệt 'đơn đặc thù'. Không trigger nào bật → không cần GĐ (cleared). Có bật →
-        xét bản duyệt GẦN NHẤT: chưa có=pending · từ chối=rejected · duyệt+bao phủ=approved · duyệt
-        nhưng đơn xấu đi=stale. Chỉ `approved`/none mới cleared (cho chốt)."""
-        if not exc["triggers"]:
-            return {"required": False, "status": "none", "cleared": True,
-                    "note": None, "decided_at": None}
-        latest = self._approvals.latest_for_order(order.id) if self._approvals is not None else None
-        if latest is None:
-            return {"required": True, "status": "pending", "cleared": False,
-                    "note": None, "decided_at": None}
-        if latest.decision == APPROVAL_DECISION_REJECTED:
-            return {"required": True, "status": "rejected", "cleared": False,
-                    "note": latest.note, "decided_at": latest.decided_at}
-        covered = self._approval_covers(latest, exc)
-        return {
-            "required": True,
-            "status": APPROVAL_DECISION_APPROVED if covered else "stale",
-            "cleared": covered,
-            "note": latest.note,
-            "decided_at": latest.decided_at,
+        """Tình trạng duyệt 'đơn đặc thù' — DELEGATE về `exception_gate.approval_status`. Build `latest`
+        từ bản duyệt gần nhất của ĐƠN (order_approvals)."""
+        row = self._approvals.latest_for_order(order.id) if self._approvals is not None else None
+        latest = None if row is None else {
+            "decision": row.decision, "total": row.order_total, "subtotal": row.order_subtotal,
+            "cost": row.order_cost, "note": row.note, "decided_at": row.decided_at,
         }
-
-    @staticmethod
-    def _approval_covers(appr, exc: dict) -> bool:
-        """Bản duyệt 'approved' có BAO PHỦ tình trạng hiện tại không: đơn KHÔNG rủi ro hơn mức GĐ ký.
-        Chỉ xét trục ĐANG bị trip. Giá trị cao: current total ≤ approved total. Biên: biên hiện tại ≥
-        biên đã duyệt — nhân chéo số nguyên (mẫu dương giữ chiều bất đẳng thức, đúng cả khi lỗ). Thiếu
-        dữ liệu giá vốn để so → fail-đóng (bắt trình lại), không ngầm cho qua."""
-        keys = {t["key"] for t in exc["triggers"]}
-        # Cap QUY MÔ tuyệt đối cho MỌI trục (không chỉ high_value): đơn hiện tại không được lớn hơn
-        # số GĐ đã ký — chặn cả đường "duyệt đơn biên mỏng ở mức nhỏ rồi phình to trong ngưỡng"
-        # (phản biện hậu kiểm). order_total ghim = tổng gồm VAT lúc duyệt.
-        if exc["total_gross"] > (appr.order_total or 0):
-            return False
-        if EXC_LOW_MARGIN in keys or EXC_BELOW_COST in keys:
-            cur_sub, cur_cost = exc["subtotal"], exc["cost"]
-            appr_sub, appr_cost = appr.order_subtotal, appr.order_cost
-            if cur_cost is None or appr_cost is None or cur_sub <= 0 or (appr_sub or 0) <= 0:
-                return False
-            # biên_cur ≥ biên_appr  ⇔  (cur_sub−cur_cost)·appr_sub ≥ (appr_sub−appr_cost)·cur_sub
-            if (cur_sub - cur_cost) * appr_sub < (appr_sub - appr_cost) * cur_sub:
-                return False
-        return True
+        return _exc_approval_status(exc, latest)
 
     def record_approval(
         self, *, order_id: int, decision: str, note: str | None, scope: str, actor
@@ -515,7 +449,35 @@ class OrderService:
             detail=f"{order.order_no} ← BG#{ref.quotation_id} v{ref.version} "
             f"({order_type}/{order_kind})",
         )
+        self._auto_clear_from_quote(order)
         return order
+
+    def _auto_clear_from_quote(self, order: Order) -> None:
+        """BG-2 "đơn tự thông": đơn tạo từ báo giá ĐÃ được GĐ duyệt (bao phủ) → materialize 1 bản duyệt
+        A2 `approved` GHIM SỐ CỦA ĐƠN (không copy số báo giá — tránh lệch VAT chặn oan). A2 tự cleared,
+        không hỏi GĐ lại phần giá. Chỉ khi đơn thuộc diện đặc thù + báo giá có bản duyệt gần nhất là
+        `approved` (báo giá 'accepted' bắt buộc đã qua cổng §14.3 nên bản duyệt của nó bao phủ)."""
+        if order.quotation_id is None or self._approvals is None or self._quotations is None:
+            return
+        exc = self._exception_eval(order)
+        if not exc["triggers"]:
+            return
+        qa = self._quotations.latest_approval(order.quotation_id)
+        if qa is None or qa.decision != APPROVAL_DECISION_APPROVED:
+            return
+        self._approvals.create(
+            order_id=order.id,
+            decision=APPROVAL_DECISION_APPROVED,
+            triggers=[t["key"] for t in exc["triggers"]],
+            order_total=exc["total_gross"],
+            order_subtotal=exc["subtotal"],
+            order_cost=exc["cost"],
+            margin_pct_snapshot=exc["margin_pct"],
+            min_margin_pct=exc["min_margin_pct"],
+            high_value_threshold=exc["high_value_threshold"],
+            note=f"Tự thông từ báo giá đã duyệt (BG-approval #{qa.id})",
+            decided_by=qa.decided_by,
+        )
 
     # --- writes: lifecycle transitions (F8) ---------------------------------
 

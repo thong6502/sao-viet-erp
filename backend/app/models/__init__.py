@@ -48,7 +48,14 @@ from .accounting import (
     PaymentVoucherAttachment,
     SupplierBankAccount,
 )
-from .quotation import Quote, QuoteVersion, QuoteItem, QuoteAttachment, QuoteActivityLog
+from .quotation import (
+    Quote,
+    QuoteApproval,
+    QuoteActivityLog,
+    QuoteAttachment,
+    QuoteItem,
+    QuoteVersion,
+)
 from .refresh_token import RefreshToken
 from .role import Role, RolePermission
 from .unit_level import UnitLevel
@@ -133,6 +140,7 @@ __all__ = [
     "QuoteItem",
     "QuoteAttachment",
     "QuoteActivityLog",
+    "QuoteApproval",
     "Costing",
     "CostingPaperOption",
     "CostingOperation",

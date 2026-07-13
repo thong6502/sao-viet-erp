@@ -161,8 +161,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         ADMIN_ROLE,
         {
             **{k: _full(SCOPE_ALL) for k in ALL_MODULE_KEYS},
-            # Chỉ GĐ được DUYỆT "đơn đặc thù" (A2) — TP KD giữ _full nhưng KHÔNG có quyền này.
+            # Chỉ GĐ được DUYỆT "đơn/báo giá đặc thù" (A2 + BG-2) — TP KD giữ _full nhưng KHÔNG có quyền này.
             "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
+            "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
         },
     ),
     (
