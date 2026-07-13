@@ -59,13 +59,15 @@ Service = Annotated[QuotationService, Depends(get_quotation_service)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 
 STATUS_LABELS = {
+    # 7 trạng thái nghiệp vụ (redesign-bao-gia §3) — bám đúng chữ chủ đầu tư chốt.
     "draft": "Nháp",
-    "sent": "Đã gửi",
-    "accepted": "Khách duyệt",
-    "rejected": "Từ chối",
-    "expired": "Hết hạn",
-    "converted_to_order": "Đã tạo SO",
-    "cancelled": "Đã hủy",
+    "pending_approval": "Chờ duyệt",   # đặc thù đã "Trình duyệt", chờ Giám đốc Kinh doanh
+    "sent": "Đã duyệt",                 # gộp "đã gửi khách" (Q2 không tách)
+    "accepted": "Khách hàng đồng ý",
+    "rejected": "Khách hàng từ chối",
+    "expired": "Hết hiệu lực",
+    "converted_to_order": "Đã lên đơn",
+    "cancelled": "Hủy báo giá",
 }
 
 

@@ -1285,7 +1285,8 @@ const MARGIN_PRESETS: Array<[string, number]> = [
 ];
 
 const STATUS_LABEL_SHORT: Record<string, string> = {
-  sent: "gửi khách",
+  pending_approval: "đang chờ Giám đốc duyệt",
+  sent: "đã duyệt · gửi khách",
   accepted: "được khách chốt",
   rejected: "bị từ chối",
   expired: "hết hạn",
@@ -1671,11 +1672,22 @@ function QuotationDetailView({
               )}
             </>
           )}
-          {canManageStatus && viewingLatest && d.status === "draft" && d.allowed_transitions.includes("sent") && (
+          {/* Nháp: báo giá ĐẶC THÙ phải TRÌNH DUYỆT (→ Chờ duyệt → GĐ Kinh doanh duyệt); báo giá
+              THƯỜNG gửi khách thẳng. Backend chặn cứng 2 đường (redesign-bao-gia §3). */}
+          {canManageStatus && viewingLatest && d.status === "draft" && d.exception_required &&
+            d.allowed_transitions.includes("pending_approval") && (
             <Button
               variant="accent"
-              disabled={busy || (d.exception_required && !d.exception_cleared)}
-              title={d.exception_required && !d.exception_cleared ? "Báo giá đặc thù — cần Giám đốc duyệt trước khi gửi" : undefined}
+              disabled={busy}
+              title="Báo giá đặc thù — trình Giám đốc Kinh doanh duyệt trước khi gửi khách"
+              onClick={() => doTransition("pending_approval")}
+            >⇪ Trình duyệt</Button>
+          )}
+          {canManageStatus && viewingLatest && d.status === "draft" && !d.exception_required &&
+            d.allowed_transitions.includes("sent") && (
+            <Button
+              variant="accent"
+              disabled={busy}
               onClick={() => doTransition("sent")}
             >➤ Gửi khách</Button>
           )}
@@ -1696,6 +1708,12 @@ function QuotationDetailView({
       )}
       {err && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "14px" }}>{err}</div>
+      )}
+      {/* Giám đốc Kinh doanh TỪ CHỐI duyệt đặc thù → báo giá về Nháp (Q4): banner nhắc sửa & trình lại. */}
+      {d.status === "draft" && d.exception_required && d.exception_status === "rejected" && (
+        <div className="banner banner--error" role="alert" style={{ marginBottom: "14px" }}>
+          <span>🔙 Giám đốc Kinh doanh đã <b>trả lại</b> báo giá đặc thù{d.exception_note ? `: ${d.exception_note}` : ""}. Chỉnh sửa rồi bấm <b>Trình duyệt</b> lại.</span>
+        </div>
       )}
 
       <div className="bg-split">
@@ -1986,11 +2004,12 @@ function QuotationDetailView({
               </div>
             )}
 
-            {/* BG-2 — Báo giá đặc thù: GĐ duyệt trước khi GỬI KHÁCH. Hiện khi hệ soi thấy vướng ngưỡng
-                (giá trị cao / lời mỏng / bán dưới vốn). Sales thấy nhãn + trạng thái; GĐ thấy nút duyệt. */}
+            {/* Báo giá đặc thù (giá trị cao / lời mỏng / bán dưới vốn): Nháp → TRÌNH DUYỆT → Chờ duyệt →
+                Giám đốc Kinh doanh duyệt (→ Đã duyệt/gửi) hoặc từ chối (→ về Nháp). Trạng thái bám máy
+                trạng thái báo giá (d.status), KHÔNG bám riêng exception_status (redesign-bao-gia §3). */}
             {d.exception_required && (
               <div className="appr-block appr-block--exc">
-                <div className="exc-title">Báo giá đặc thù — cần Giám đốc duyệt</div>
+                <div className="exc-title">Báo giá đặc thù — cần Giám đốc Kinh doanh duyệt</div>
                 <div className="exc-chips">
                   {d.exceptions.map((e) => (
                     <span key={e.key} className="exc-chip">{e.label}</span>
@@ -1999,18 +2018,23 @@ function QuotationDetailView({
                     <span className="exc-chip exc-chip--num">Biên {d.margin_pct}%</span>
                   )}
                 </div>
-                <div className={`exc-status exc-status--${d.exception_status}`}>
-                  {d.exception_status === "approved"
-                    ? "Giám đốc đã duyệt — có thể gửi khách."
-                    : d.exception_status === "rejected"
-                      ? `Giám đốc đã từ chối — không thể gửi khách.${d.exception_note ? " " + d.exception_note : ""}`
-                      : d.exception_status === "stale"
-                        ? "Báo giá đã đổi so với lúc duyệt — cần trình duyệt lại."
-                        : canApproveException
-                          ? "Chờ quyết định của bạn (Giám đốc)."
-                          : "Đang chờ Giám đốc duyệt."}
+                <div className={`exc-status exc-status--${d.status === "pending_approval" ? "pending" : d.exception_status}`}>
+                  {d.status === "pending_approval"
+                    ? canApproveException
+                      ? "Chờ quyết định của bạn (Giám đốc Kinh doanh)."
+                      : "Đã trình — đang chờ Giám đốc Kinh doanh duyệt."
+                    : d.status === "sent" || d.status === "accepted" || d.status === "converted_to_order"
+                      ? "Giám đốc Kinh doanh đã duyệt — báo giá đã gửi khách."
+                      : d.exception_status === "rejected"
+                        ? `Giám đốc Kinh doanh đã trả lại — sửa & Trình duyệt lại.${d.exception_note ? " Lý do: " + d.exception_note : ""}`
+                        : d.exception_status === "stale"
+                          ? "Báo giá đã đổi so với lần duyệt trước — cần Trình duyệt lại."
+                          : canManageStatus
+                            ? "Bấm ‘Trình duyệt’ để gửi Giám đốc Kinh doanh duyệt."
+                            : "Chưa trình duyệt."}
                 </div>
-                {editable && canApproveException && (
+                {/* GĐ Kinh doanh duyệt/từ chối — CHỈ khi báo giá đang Chờ duyệt (pending_approval). */}
+                {d.status === "pending_approval" && canApproveException && (
                   <div className="exc-actions">
                     <textarea
                       className="exc-note"
@@ -2021,10 +2045,10 @@ function QuotationDetailView({
                     />
                     <div className="exc-btns">
                       <Button variant="primary" disabled={apprSaving} onClick={() => submitQuoteApproval("approved")}>
-                        {apprSaving ? "Đang ghi…" : "Duyệt"}
+                        {apprSaving ? "Đang ghi…" : "Duyệt & gửi khách"}
                       </Button>
                       <Button variant="ghost" disabled={apprSaving} onClick={() => submitQuoteApproval("rejected")}>
-                        Từ chối
+                        Từ chối (trả lại)
                       </Button>
                     </div>
                   </div>
@@ -2323,6 +2347,7 @@ function QuotationPrintModal({
 function statusChipClass(status: string): string {
   if (status === "accepted" || status === "converted_to_order") return "ok";
   if (status === "sent") return "sent";
+  if (status === "pending_approval") return "pending";
   if (status === "rejected" || status === "expired" || status === "cancelled") return "reject";
   return "draft";
 }

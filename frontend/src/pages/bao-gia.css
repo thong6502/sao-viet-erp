@@ -981,6 +981,7 @@ select.input {
 .bgv .status-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 9999px; font-family: var(--ff-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; border: 1px solid transparent; }
 .bgv .status-chip.draft { background: var(--amber-soft); color: var(--amber); border-color: rgba(156,119,20,0.3); }
 .bgv .status-chip.sent { background: var(--steel-soft); color: var(--steel); border-color: rgba(74,85,96,0.3); }
+.bgv .status-chip.pending { background: rgba(224,112,63,0.12); color: var(--rust-2); border-color: rgba(224,112,63,0.4); }
 .bgv .status-chip.ok { background: var(--moss-soft); color: var(--moss-deep); border-color: rgba(47,93,58,0.3); }
 .bgv .status-chip.reject { background: var(--paper-2); color: var(--ash); border-color: var(--rule); }
 
