@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_permission
+from ..deps import require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.may_thiet_bi_repo import MayThietBiRepository
 from ..schemas.may_thiet_bi import (
@@ -42,7 +42,9 @@ Service = Annotated[MayThietBiService, Depends(get_service)]
 @router.get("", response_model=MayThietBiListOut)
 def list_items(
     svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    # Danh mục THAM CHIẾU: đọc được nếu có quyền cấu hình Máy HOẶC quyền Tính giá
+    # (màn Tính giá cần đổ dropdown Máy mà không phải mở màn cấu hình).
+    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
     q: str | None = Query(default=None),
     loai_may: str | None = Query(default=None),
     trang_thai: str | None = Query(default=None),

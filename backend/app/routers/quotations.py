@@ -14,8 +14,6 @@ from ..deps import (
 )
 from ..models.quotation import (
     QUOTE_STATUSES,
-    STATUS_ACCEPTED,
-    STATUS_CANCELLED,
     Quote,
     QuoteVersion,
 )
@@ -478,21 +476,11 @@ def transition_quotation(
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> QuotationDetailOut:
     scope = _scope_for(authz, user)
-    # Mỗi chuyển trạng thái tách thành quyền chi tiết riêng (tách hẳn khỏi "sửa nội dung"):
-    #   - Khách duyệt (accepted)      → `approve`
-    #   - Hủy (cancelled)             → `cancel`
-    #   - Gửi / Từ chối / Hết hạn / … → `manage_status` (thao tác trạng thái chung)
-    to_status = payload.to_status
-    if to_status == STATUS_ACCEPTED:
-        if not authz.can(user, MODULE, "approve"):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền duyệt báo giá.")
-    elif to_status == STATUS_CANCELLED:
-        if not authz.can(user, MODULE, "cancel"):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền hủy báo giá.")
-    elif not authz.can(user, MODULE, "manage_status"):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "Bạn không có quyền thao tác trạng thái báo giá."
-        )
+    # Vòng đời báo giá (gửi khách · ghi nhận Khách đồng ý/từ chối · hủy · hết hạn) là thao tác THƯỜNG:
+    # ai SỬA được báo giá thì làm được — KHÔNG tách quyền chi tiết vụn (chủ đầu tư chốt P8). Riêng báo giá
+    # ĐẶC THÙ vẫn bị chặn: phải TRÌNH DUYỆT (service) + chỉ approve_exception mới duyệt (record_approval).
+    if not authz.can(user, MODULE, "update"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền thao tác báo giá.")
     try:
         q = svc.transition(
             quotation_id=quotation_id,
@@ -561,7 +549,8 @@ def requote_quotation(
     quotation_id: int,
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "requote"))],
+    # Tạo bản mới = thao tác thường: ai SỬA được báo giá thì làm được (gộp vào `update`, P8).
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> QuotationDetailOut:
     scope = _scope_for(authz, user)
     try:

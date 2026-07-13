@@ -118,6 +118,33 @@ def test_matrix_get_defaults_and_save_persists(client):
     assert not kh["can_delete"]
 
 
+def test_bao_gia_approve_exception_roundtrips(client):
+    """P8: toggle 'Duyệt báo giá đặc thù' (can_approve_exception) trên bao_gia đọc/lưu qua ma trận vai trò
+    — đây là quyền chi tiết DUY NHẤT còn lại của Báo giá (các thao tác thường đã gộp vào 'Sửa')."""
+    token = _admin_token(client)
+    kd_id = _kd_id()
+    db = SessionLocal()
+    try:
+        tp_id = RoleRepository(db).get_by_name_and_department("Trưởng phòng KD", kd_id).id
+        sales_id = RoleRepository(db).get_by_name_and_department("NV Sales", kd_id).id
+    finally:
+        db.close()
+    # Đọc: TP KD (seed) BẬT approve_exception, NV Sales TẮT.
+    tp_bg = next(r for r in client.get(f"/api/roles/{tp_id}/permissions", headers=_h(token)).json()
+                 if r["module_key"] == "bao_gia")
+    assert tp_bg["can_approve_exception"] is True
+    sales_rows = client.get(f"/api/roles/{sales_id}/permissions", headers=_h(token)).json()
+    s_bg = next(r for r in sales_rows if r["module_key"] == "bao_gia")
+    assert s_bg["can_approve_exception"] is False
+    # Lưu: bật approve_exception cho NV Sales → đọc lại phải GIỮ (round-trip đúng field FE dùng).
+    s_bg["can_approve_exception"] = True
+    assert client.put(f"/api/roles/{sales_id}/permissions",
+                      json={"permissions": sales_rows}, headers=_h(token)).status_code == 200
+    reloaded = next(r for r in client.get(f"/api/roles/{sales_id}/permissions", headers=_h(token)).json()
+                    if r["module_key"] == "bao_gia")
+    assert reloaded["can_approve_exception"] is True
+
+
 def test_rename_role(client):
     token = _admin_token(client)
     kd_id = _kd_id()

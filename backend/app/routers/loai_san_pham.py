@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_permission
+from ..deps import require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.loai_san_pham_repo import LoaiSanPhamRepository
 from ..schemas.loai_san_pham import LoaiSanPhamIn, LoaiSanPhamListOut, LoaiSanPhamRow
@@ -40,7 +40,9 @@ def _err(e: Exception):
 @router.get("", response_model=LoaiSanPhamListOut)
 def list_items(
     svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    # Danh mục THAM CHIẾU: đọc được nếu có quyền cấu hình danh mục HOẶC quyền Tính giá
+    # (màn Tính giá cần đổ dropdown Loại SP mà không phải mở màn cấu hình danh mục).
+    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
     q: str | None = Query(default=None),
     structural_type: str | None = Query(default=None),
     active: bool | None = Query(default=None),

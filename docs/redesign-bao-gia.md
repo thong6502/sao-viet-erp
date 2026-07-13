@@ -178,10 +178,12 @@ chưa có vai duyệt đặc thù. **Thêm vai "Giám đốc Kinh doanh"** → 3
 | *(Giám đốc công ty = Admin)* | Tất cả | super-role — giữ nguyên |
 
 - **Chủ đầu tư chốt (P8):** các thao tác THƯỜNG (gửi/ghi nhận khách đồng ý-từ chối/hủy/PDF/tạo bản mới) **không tách
-  quyền vụn — mọi NV kinh doanh đều có** (NV Sales = `_full(SCOPE_OWN)` trên `bao_gia`, KHÔNG `approve_exception`).
-  Chỉ **báo giá ĐẶC THÙ** (biên thấp / dưới vốn / giá trị cao) mới bắt buộc **TRÌNH DUYỆT** → gửi tới người có
-  `approve_exception` (**TP KD hoặc GĐ KD**). Người duyệt **đồng ý HAY từ chối đều PHẢI nêu lý do** (enforce ở
-  `record_approval` + FE). "Gửi báo giá" ≠ "Duyệt đặc thù".
+  quyền vụn — mọi NV kinh doanh đều có**. **GỠ 5 toggle chi tiết Báo giá** khỏi ma trận phân quyền
+  (`PermissionMatrix.tsx` FINE_ACTIONS.bao_gia) + **gộp enforcement backend vào quyền "Sửa" (`can_update`)**: ai
+  Sửa được báo giá thì gửi/ghi nhận đồng ý-từ chối/hủy/hết hạn/tạo bản mới đều được (transition + requote đổi từ
+  `manage_status`/`approve`/`cancel`/`requote` → `update`). Chỉ **báo giá ĐẶC THÙ** (biên thấp / dưới vốn / giá trị
+  cao) mới bắt buộc **TRÌNH DUYỆT** → gửi tới người có `approve_exception` (**TP KD hoặc GĐ KD**). Người duyệt
+  **đồng ý HAY từ chối đều PHẢI nêu lý do** (enforce ở `record_approval` + FE). "Gửi báo giá" ≠ "Duyệt đặc thù".
 - **Tính giá theo phạm vi (P8, migration 0053):** `phieu_tinh_gia.created_by` (chủ sở hữu) → NV Sales scope "Của tôi"
   chỉ thấy phiếu MÌNH lập; TP KD/GĐ scope phòng/tất cả thấy hết (lọc `list`/`get`/`update`/`delete`, ngoài phạm vi = 404).
   Backfill `created_by` từ `ktv` (khớp name/username) cho dữ liệu cũ.

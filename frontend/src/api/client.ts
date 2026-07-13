@@ -325,6 +325,7 @@ export interface PermissionRow {
   can_reparent: boolean;
   can_view_salary: boolean;
   can_adjust: boolean;
+  can_approve_exception: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 ----------------------------------------------
