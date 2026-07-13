@@ -172,14 +172,22 @@ chưa có vai duyệt đặc thù. **Thêm vai "Giám đốc Kinh doanh"** → 3
 
 | Vai (phòng Kinh doanh) | Scope | Quyền |
 |---|---|---|
-| **NV Sales** | Của mình | CRUD báo giá/đơn/khách mình phụ trách; **KHÔNG** thấy số biên/giá vốn |
-| **Trưởng phòng KD** | Cả phòng | + chốt/duyệt **thường** (`can_approve`), điều chuyển khách; **KHÔNG** duyệt đặc thù |
-| **Giám đốc Kinh doanh** *(mới)* | Cả phòng / Tất cả | + **`can_approve_exception`** (bao_gia + don_hang_ban) = duyệt "Chờ duyệt→Đã duyệt/Từ chối" + **xem biên/giá vốn** |
+| **NV Sales** | Của mình | ĐỦ thao tác THƯỜNG trên báo giá của mình (`_full` scope own: gửi khách · ghi nhận Khách đồng ý/từ chối · hủy · xuất PDF · tạo bản mới) + **thấy số biên** (tự set biên khi soạn) + lập **Phiếu tính giá** của mình; **KHÔNG** duyệt đặc thù |
+| **Trưởng phòng KD** | Cả phòng | như trên (cả phòng) + **`can_approve_exception`** trên **`bao_gia` + `don_hang_ban`** (duyệt đặc thù báo giá & đơn), điều chuyển khách |
+| **Giám đốc Kinh doanh** *(mới)* | Cả phòng / Tất cả | + **`can_approve_exception`** (bao_gia + don_hang_ban) = duyệt "Chờ duyệt→Đã duyệt/Từ chối" |
 | *(Giám đốc công ty = Admin)* | Tất cả | super-role — giữ nguyên |
 
-- "**GĐ duyệt**" trong §3 = **Giám đốc Kinh doanh** (không phải GĐ công ty). Từ chối duyệt cũng là quyền vai này.
-- Chỉ **thêm 1 vai seeded + gán cờ** (cột `can_approve_exception` đã có) → **không cần migration schema**, sửa
-  `seed_roles` (`seed.py`). Khớp `redesign-luong-kinh-doanh` §11 (chỉ đổi "Giám đốc" chung → "Giám đốc KD").
+- **Chủ đầu tư chốt (P8):** các thao tác THƯỜNG (gửi/ghi nhận khách đồng ý-từ chối/hủy/PDF/tạo bản mới) **không tách
+  quyền vụn — mọi NV kinh doanh đều có** (NV Sales = `_full(SCOPE_OWN)` trên `bao_gia`, KHÔNG `approve_exception`).
+  Chỉ **báo giá ĐẶC THÙ** (biên thấp / dưới vốn / giá trị cao) mới bắt buộc **TRÌNH DUYỆT** → gửi tới người có
+  `approve_exception` (**TP KD hoặc GĐ KD**). Người duyệt **đồng ý HAY từ chối đều PHẢI nêu lý do** (enforce ở
+  `record_approval` + FE). "Gửi báo giá" ≠ "Duyệt đặc thù".
+- **Tính giá theo phạm vi (P8, migration 0053):** `phieu_tinh_gia.created_by` (chủ sở hữu) → NV Sales scope "Của tôi"
+  chỉ thấy phiếu MÌNH lập; TP KD/GĐ scope phòng/tất cả thấy hết (lọc `list`/`get`/`update`/`delete`, ngoài phạm vi = 404).
+  Backfill `created_by` từ `ktv` (khớp name/username) cho dữ liệu cũ.
+- Sửa `seed_roles` (`seed.py`): NV Sales `bao_gia`=`_full(SCOPE_OWN)` + `tinh_gia_thanh`=`_rcu(SCOPE_OWN)`; TP KD
+  +`can_approve_exception` trên `bao_gia`+`don_hang_ban`. `seed_roles` upsert quyền tại chỗ mỗi lần khởi động → tự
+  đồng bộ cả DB prod.
 
 ## 11. Bug list (đã re-verify tại HEAD `3844b4d`, 2026‑07‑13)
 

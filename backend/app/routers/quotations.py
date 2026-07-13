@@ -244,13 +244,12 @@ def _detail(
     )
 
 
-def _gate_fields(svc: QuotationService, q: Quote, can_see_numbers: bool) -> dict:
-    """BG-2: khối 'báo giá đặc thù' cho detail. STRIP `margin_pct` (số nhạy cảm) nếu người xem KHÔNG
-    có quyền duyệt đặc thù — Sales chỉ thấy nhãn 'cần Giám đốc duyệt', không thấy con số biên."""
-    gate = svc.quote_gate(q)
-    if not can_see_numbers:
-        gate = {**gate, "margin_pct": None}
-    return gate
+def _gate_fields(svc: QuotationService, q: Quote, can_see_numbers: bool = True) -> dict:
+    """Khối 'báo giá đặc thù' cho detail. Số biên (`margin_pct`) HIỆN cho mọi vai đọc được báo giá:
+    NV Sales tự set biên khi soạn (thanh gói biên/slider) nên không còn giấu con số (redesign-bao-gia
+    §10, cập nhật sau P7). Giữ tham số cũ để không phải sửa toàn bộ call-site."""
+    del can_see_numbers  # không còn strip theo vai
+    return svc.quote_gate(q)
 
 
 # --- enums + Tính giá picker (SEAM-13) ----------------------------------------

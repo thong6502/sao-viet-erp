@@ -209,7 +209,14 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     (
         "Kinh doanh",
         "Trưởng phòng KD",
-        {**{k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS}, "nghi_phep": _leave_self()},
+        {
+            **{k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS},
+            # TP KD DUYỆT được "đặc thù" cả BÁO GIÁ lẫn ĐƠN HÀNG (cùng Giám đốc Kinh doanh) — chủ đầu tư
+            # chốt sau P7.
+            "bao_gia": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
+            "don_hang_ban": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
+            "nghi_phep": _leave_self(),
+        },
     ),
     # Giám đốc Kinh doanh: toàn quyền KD scope Tất cả + DUYỆT "báo giá / đơn ĐẶC THÙ" (BG-2 + A2)
     # — CHỈ vai này (không phải TP KD) được `can_approve_exception`, kèm quyền xem số biên/giá vốn
@@ -231,7 +238,14 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "khach_hang": _rcu(SCOPE_OWN),
             "don_hang_ban": _rcu(SCOPE_OWN),
-            "bao_gia": _rcu(SCOPE_OWN),
+            # Báo giá: NV Sales có ĐỦ thao tác thường trên phiếu CỦA MÌNH (gửi khách, ghi nhận khách
+            # đồng ý/từ chối, hủy, xuất PDF, tạo bản mới) — các quyền này KHÔNG tách vụn, ai làm KD cũng có.
+            # Riêng báo giá ĐẶC THÙ (biên thấp / giá trị cao) phải TRÌNH DUYỆT: chỉ TP KD / GĐ KD cầm
+            # `can_approve_exception` mới duyệt được (redesign-bao-gia §10). NV Sales KHÔNG có cờ đó.
+            "bao_gia": _full(SCOPE_OWN),
+            # Tính giá: NV Sales tự lập phiếu tính giá của mình; phạm vi "Của tôi" (chỉ thấy phiếu mình lập),
+            # TP KD/GĐ scope phòng/tất cả thấy hết (lọc theo `created_by`).
+            "tinh_gia_thanh": _rcu(SCOPE_OWN),
             "nghi_phep": _leave_self(),
         },
     ),

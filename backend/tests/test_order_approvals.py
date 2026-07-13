@@ -1,8 +1,9 @@
 """A2 — Đơn hàng bán: GĐ duyệt "đơn đặc thù" (order_approvals).
 
 Bao phủ: soi 3 điều kiện (giá trị cao / biên thấp / dưới giá vốn) → chặn chốt tới khi GĐ duyệt;
-GĐ duyệt "bao phủ" → mở khóa; đơn xấu đi sau duyệt → stale (trình lại); từ chối → chặn; RBAC (chỉ
-GĐ duyệt, Sales/TP KD 403); KHÔNG rò biên/giá vốn cho người thiếu quyền; on_hold→ordered cũng gated.
+duyệt "bao phủ" → mở khóa; đơn xấu đi sau duyệt → stale (trình lại); từ chối → chặn; RBAC (cập nhật
+sau P7: DUYỆT đặc thù = TP KD HOẶC Giám đốc Kinh doanh, NV Sales 403); KHÔNG rò biên/giá vốn cho NV
+Sales; on_hold→ordered cũng gated.
 """
 from __future__ import annotations
 
@@ -232,15 +233,15 @@ def test_sales_cannot_approve_exception(client):
     assert r.status_code == 403
 
 
-def test_truongphong_kd_cannot_approve_exception(client):
+def test_truongphong_kd_can_approve_exception(client):
     _admin_token(client)
-    tp_token, _ = _role_token("tp_kd_a2", "Trưởng phòng KD")
-    admin_token = _admin_token(client)
-    qid = _seed_quote(sale_user_id=_admin_id(), total=1_000_000_000, cost=500_000_000)
-    oid = _create_order(client, admin_token, qid).json()["id"]
-    # TP KD chốt được đơn THƯỜNG (can_approve) nhưng KHÔNG duyệt được đơn ĐẶC THÙ.
+    # TP KD lập đơn của phòng mình (scope DEPARTMENT thấy) → duyệt được đơn ĐẶC THÙ (cùng GĐ KD).
+    tp_token, tp_id = _role_token("tp_kd_a2", "Trưởng phòng KD")
+    qid = _seed_quote(sale_user_id=tp_id, total=1_000_000_000, cost=500_000_000)
+    oid = _create_order(client, tp_token, qid).json()["id"]
     r = client.post(f"/api/orders/{oid}/approval", json={"decision": "approved"}, headers=_h(tp_token))
-    assert r.status_code == 403
+    assert r.status_code == 200, r.text
+    assert r.json()["gate"]["exception_status"] == "approved"
 
 
 def test_sales_does_not_see_margin_number(client):

@@ -1462,6 +1462,24 @@ def _migrate_quote_bao_gia_fields(db: Session) -> None:
     db.commit()
 
 
+def _migrate_ptg_created_by(db: Session) -> None:
+    """redesign-bao-gia §10 (P8): thêm chủ sở hữu `created_by` cho Phiếu tính giá để lọc phạm vi
+    (NV Sales chỉ thấy phiếu của mình; TP KD/GĐ thấy cả phòng/tất cả). Best-effort backfill từ `ktv`
+    (khớp users.name hoặc users.username) cho dữ liệu cũ; không khớp → NULL (chỉ scope 'all' thấy)."""
+    insp = inspect(db.get_bind())
+    if "phieu_tinh_gia" not in insp.get_table_names():
+        return
+    if "created_by" not in _existing_columns(insp, "phieu_tinh_gia"):
+        db.execute(text("ALTER TABLE phieu_tinh_gia ADD COLUMN created_by INTEGER"))
+        db.execute(text(
+            "UPDATE phieu_tinh_gia SET created_by = ("
+            " SELECT u.id FROM users u"
+            " WHERE u.name = phieu_tinh_gia.ktv OR u.username = phieu_tinh_gia.ktv LIMIT 1"
+            ") WHERE created_by IS NULL AND ktv IS NOT NULL"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1516,6 +1534,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0052_role_permission_approve_exception", _migrate_role_permission_approve_exception),
     ("0053_quote_phieu_tinh_gia_link", _migrate_quote_phieu_tinh_gia_link),
     ("0054_quote_bao_gia_fields", _migrate_quote_bao_gia_fields),
+    ("0055_ptg_created_by", _migrate_ptg_created_by),
 ]
 
 

@@ -155,3 +155,42 @@ def test_delete(client, auth_headers):
     assert dele.status_code == 200
     assert dele.json() == {"ok": True}
     assert client.get(f"/api/phieu-tinh-gia/{pid}", headers=auth_headers).status_code == 404
+
+
+def _kd_headers(username: str, role_name: str = "NV Sales") -> dict[str, str]:
+    """Header cho 1 user phòng Kinh doanh (tạo nếu chưa có)."""
+    from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
+    from app.repositories.user_repo import UserRepository
+    from app.security import create_access_token, hash_password
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        u = users.get_by_username(username)
+        if u is None:
+            kd = DepartmentRepository(db).get_by_name("Kinh doanh")
+            role = RoleRepository(db).get_by_name_and_department(role_name, kd.id)
+            u = users.create(username=username, name=username, password_hash=hash_password("x"))
+            users.set_assignment(u, department_id=kd.id, role_id=role.id, is_active=True)
+        return {"Authorization": f"Bearer {create_access_token(str(u.id))}"}
+    finally:
+        db.close()
+
+
+def test_phieu_tinh_gia_scope(client, auth_headers):
+    """P8 §10: NV Sales scope 'Của tôi' chỉ thấy phiếu MÌNH lập; TP KD (phòng) thấy cả phòng; admin thấy hết."""
+    h1 = _kd_headers("ptg_sale1")
+    h2 = _kd_headers("ptg_sale2")
+    htp = _kd_headers("ptg_tpkd", "Trưởng phòng KD")
+    p1 = client.post("/api/phieu-tinh-gia", json={"ten_san_pham": "SP sale1", "so_luong": 100}, headers=h1)
+    p2 = client.post("/api/phieu-tinh-gia", json={"ten_san_pham": "SP sale2", "so_luong": 100}, headers=h2)
+    assert p1.status_code == 201 and p2.status_code == 201, (p1.text, p2.text)
+    id1, id2 = p1.json()["id"], p2.json()["id"]
+
+    ids1 = {x["id"] for x in client.get("/api/phieu-tinh-gia", headers=h1).json()["items"]}
+    assert id1 in ids1 and id2 not in ids1              # sale1 chỉ thấy phiếu của mình
+    idstp = {x["id"] for x in client.get("/api/phieu-tinh-gia", headers=htp).json()["items"]}
+    assert id1 in idstp and id2 in idstp                # TP KD thấy cả phòng
+    idsa = {x["id"] for x in client.get("/api/phieu-tinh-gia", headers=auth_headers).json()["items"]}
+    assert id1 in idsa and id2 in idsa                  # admin (all) thấy hết
+    # sale1 KHÔNG mở/sửa/xóa được phiếu của sale2 (ngoài phạm vi → 404).
+    assert client.get(f"/api/phieu-tinh-gia/{id2}", headers=h1).status_code == 404

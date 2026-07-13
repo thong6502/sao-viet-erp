@@ -45,7 +45,8 @@ class PhieuTinhGia(Base):
     result_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)   # dict engine đầy đủ
     warnings_json: Mapped[list | None] = mapped_column(JSON, nullable=True)  # list[str]
 
-    ktv: Mapped[str | None] = mapped_column(String(255), nullable=True)     # tên người tạo
+    ktv: Mapped[str | None] = mapped_column(String(255), nullable=True)     # tên người tạo (hiển thị)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)  # → users.id: chủ sở hữu (lọc scope)
     ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

@@ -1,8 +1,9 @@
 """BG-2 — GĐ duyệt "báo giá đặc thù" + đơn hàng "tự thông".
 
-Báo giá đặc thù (giá trị cao ≥100tr…) → chặn "gửi khách"/"khách duyệt" tới khi GĐ duyệt; sales bình
-thường gửi thẳng. Đơn hàng tạo từ báo giá đã GĐ duyệt → A2 TỰ THÔNG (không hỏi duyệt lại). RBAC: chỉ
-GĐ duyệt; Sales không thấy số biên.
+Báo giá đặc thù (giá trị cao ≥100tr…) → chặn "gửi khách"/"khách duyệt" tới khi được duyệt; sales bình
+thường gửi thẳng. Đơn hàng tạo từ báo giá đã duyệt → A2 TỰ THÔNG (không hỏi duyệt lại). RBAC (cập nhật
+sau P7): NV Sales soạn + tự TRÌNH DUYỆT (có manage_status) + thấy số biên; DUYỆT đặc thù = TP KD HOẶC
+Giám đốc Kinh doanh (approve_exception); NV Sales không được duyệt.
 """
 from __future__ import annotations
 
@@ -145,16 +146,67 @@ def test_giam_doc_kinh_doanh_can_approve(client):
     assert r.json()["status"] == "sent"
 
 
-def test_truong_phong_kd_cannot_approve_exception(client):
-    admin = _token(client)
+def test_truong_phong_kd_can_approve_exception(client):
+    _token(client)  # đảm bảo roles đã seed
+    # Luồng thật: NV Sales cùng phòng Kinh doanh soạn + trình duyệt; TP KD (scope phòng) duyệt.
+    sales = _role_token("sale_for_tpkd", "NV Sales")
     tpkd = _role_token("tpkd_bg2", "Trưởng phòng KD")
+    pid = _seed_ptg(gia_von_tp=1_000_000_000)
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(sales)).json()
+    client.post(f"/api/quotations/{q['id']}/transition",
+                json={"to_status": "pending_approval"}, headers=_h(sales))
+    # TP KD cũng có approve_exception (cùng GĐ KD) → duyệt được đặc thù (chủ đầu tư chốt sau P7).
+    r = client.post(f"/api/quotations/{q['id']}/approval",
+                    json={"decision": "approved", "note": "TP KD duyệt"}, headers=_h(tpkd))
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "sent"
+
+
+def test_sales_can_submit_own_quote_for_approval(client):
+    """NV Sales tự soạn báo giá đặc thù + tự TRÌNH DUYỆT (có manage_status), NHƯNG không tự duyệt."""
+    _token(client)  # đảm bảo roles đã seed
+    sales = _role_token("nv_sales_submit", "NV Sales")
+    pid = _seed_ptg(gia_von_tp=1_000_000_000)  # giá bán 1.25 tỷ → đặc thù (giá trị cao)
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(sales)).json()
+    assert q["exception_required"] is True
+    # NV Sales tự set biên khi soạn → thấy số biên (không còn giấu).
+    assert q["margin_pct"] is not None
+    # Có manage_status → tự Trình duyệt (draft → pending_approval).
+    r = client.post(f"/api/quotations/{q['id']}/transition",
+                    json={"to_status": "pending_approval"}, headers=_h(sales))
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "pending_approval"
+    # Nhưng KHÔNG tự duyệt được (thiếu approve_exception).
+    r2 = client.post(f"/api/quotations/{q['id']}/approval",
+                     json={"decision": "approved"}, headers=_h(sales))
+    assert r2.status_code == 403
+
+
+def test_sales_can_accept_own_normal_quote(client):
+    """NV Sales tự đánh dấu 'Khách hàng đồng ý' cho báo giá THƯỜNG của mình (can_approve, scope own)."""
+    _token(client)  # đảm bảo roles đã seed
+    sales = _role_token("nv_sales_accept", "NV Sales")
+    pid = _seed_ptg(gia_von_tp=1_000_000)  # giá bán 1.25tr → KHÔNG đặc thù
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(sales)).json()
+    assert q["exception_required"] is False
+    # Gửi khách (manage_status) rồi khách chốt (approve) — cả hai đều là quyền của NV Sales.
+    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(sales))
+    r = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "accepted"}, headers=_h(sales))
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "accepted"
+
+
+def test_approval_requires_reason(client):
+    """Người duyệt đặc thù PHẢI nêu lý do — dù đồng ý hay từ chối (chủ đầu tư chốt sau P8)."""
+    admin = _token(client)
     q = _make_high_value_quote(client, admin)
     client.post(f"/api/quotations/{q['id']}/transition",
                 json={"to_status": "pending_approval"}, headers=_h(admin))
-    # TP KD KHÔNG có approve_exception → 403 (duyệt đặc thù chỉ Giám đốc Kinh doanh).
+    # Duyệt mà bỏ trống lý do → 422.
     r = client.post(f"/api/quotations/{q['id']}/approval",
-                    json={"decision": "approved"}, headers=_h(tpkd))
-    assert r.status_code == 403
+                    json={"decision": "approved"}, headers=_h(admin))
+    assert r.status_code == 422
+    assert "lý do" in r.json()["detail"].lower()
 
 
 def test_gd_sees_margin_number(client):
@@ -172,7 +224,7 @@ def test_order_auto_clears_from_approved_quote(client):
     q = _make_high_value_quote(client, token)
     # Trình duyệt → GĐ Kinh doanh duyệt (→ Đã duyệt/sent) → khách chốt (accepted).
     client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "pending_approval"}, headers=_h(token))
-    client.post(f"/api/quotations/{q['id']}/approval", json={"decision": "approved"}, headers=_h(token))
+    client.post(f"/api/quotations/{q['id']}/approval", json={"decision": "approved", "note": "OK khách lớn"}, headers=_h(token))
     ra = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "accepted"}, headers=_h(token))
     assert ra.status_code == 200, ra.text
     # Tạo đơn từ báo giá đã duyệt.

@@ -624,6 +624,11 @@ class QuotationService:
             raise QuotationValidationError(
                 "Chỉ duyệt khi báo giá đang 'Chờ duyệt' (Sales phải TRÌNH DUYỆT trước)."
             )
+        # Người duyệt PHẢI phản hồi lý do — dù đồng ý hay từ chối (redesign-bao-gia §10, chủ đầu tư chốt).
+        if not note or not note.strip():
+            raise QuotationValidationError(
+                "Phải nêu lý do/ý kiến khi duyệt hoặc từ chối báo giá đặc thù."
+            )
         row = self.quotations.create_approval(
             quote_id=quote.id,
             decision=decision,
