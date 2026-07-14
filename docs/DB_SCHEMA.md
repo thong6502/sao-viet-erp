@@ -2543,7 +2543,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** Thu mua — phiếu mua hàng (PMH) gửi Kế toán duyệt. One row = 1 PMH.
 
-**Tất cả cột:** `id`, `code`, `status`, `supplier_id`, `purpose`, `needed_date`, `created_by_user_id`, `submitted_at`, `approved_by_user_id`, `approved_at`, `note`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `code`, `status`, `supplier_id`, `purpose`, `needed_date`, `expected_receipt_date`, `created_by_user_id`, `submitted_at`, `approved_by_user_id`, `approved_at`, `note`, `created_at`, `updated_at`.
 
 ---
 
@@ -2600,6 +2600,30 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 **Purpose:** Kế toán — chứng từ chi (Phiếu chi / Ủy nhiệm chi) từ PMH. One row = 1 chứng từ; nhiều cột `*_snapshot` chốt thông tin NCC/ngân hàng tại thời điểm lập.
 
 **Tất cả cột:** `id`, `code`, `purchase_request_id`, `supplier_id`, `voucher_type`, `payment_stage`, `status`, `voucher_date`, `planned_payment_date`, `amount`, `amount_vnd`, `currency`, `exchange_rate`, `content`, `invoice_number`, `invoice_date`, `contract_number`, `company_bank_account_id`, `supplier_bank_account_id`, `cash_recipient_name`, `cash_recipient_address`, `cash_recipient_identity`, `bank_fee_bearer`, `bank_reference`, `source_code_snapshot`, `supplier_name_snapshot`, `supplier_tax_code_snapshot`, `supplier_address_snapshot`, `company_account_holder_snapshot`, `company_account_number_snapshot`, `company_bank_name_snapshot`, `company_bank_branch_snapshot`, `beneficiary_account_holder_snapshot`, `beneficiary_account_number_snapshot`, `beneficiary_bank_name_snapshot`, `beneficiary_bank_branch_snapshot`, `created_by_user_id`, `paid_by_user_id`, `paid_at`, `cancelled_by_user_id`, `cancelled_at`, `cancel_reason`, `note`, `created_at`, `updated_at`.
+
+---
+
+### `payment_receipts`
+
+**Purpose:** Kế toán — Phiếu thu tiền thừa hoàn về từ Phiếu chi đã chi.
+
+**Tất cả cột:** `id`, `code`, `payment_voucher_id`, `purchase_request_id`, `payer_name`, `receipt_method`, `status`, `receipt_date`, `amount`, `amount_vnd`, `currency`, `exchange_rate`, `content`, `company_bank_account_id`, `bank_reference`, `voucher_code_snapshot`, `purchase_code_snapshot`, `supplier_name_snapshot`, `company_account_holder_snapshot`, `company_account_number_snapshot`, `company_bank_name_snapshot`, `company_bank_branch_snapshot`, `created_by_user_id`, `received_by_user_id`, `received_at`, `cancelled_by_user_id`, `cancelled_at`, `cancel_reason`, `note`, `created_at`, `updated_at`.
+
+---
+
+### `payment_voucher_attachments`
+
+**Purpose:** Kế toán — ảnh/chứng từ scan đính kèm Phiếu chi.
+
+**Tất cả cột:** `id`, `payment_voucher_id`, `file_name`, `file_url`, `file_type`, `uploaded_by`, `uploaded_at`.
+
+---
+
+### `payment_receipt_attachments`
+
+**Purpose:** Kế toán — ảnh/chứng từ scan đính kèm Phiếu thu.
+
+**Tất cả cột:** `id`, `payment_receipt_id`, `file_name`, `file_url`, `file_type`, `uploaded_by`, `uploaded_at`.
 
 ---
 

@@ -11,6 +11,8 @@ import {
   Users,
   Clock,
   TrendingDown,
+  Search,
+  Sliders,
 } from "lucide-react";
 import {
   api,
@@ -466,23 +468,40 @@ function NhanVienTab({ token, focusEmployeeId }: { token: string; focusEmployeeI
   return (
     <div>
       <div className="cc-toolbar">
-        <input className="lg-search" placeholder="Tìm theo tên / mã…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="lg-search-wrapper">
+          <span className="lg-search-icon"><Search size={14} /></span>
+          <input className="lg-search-input" placeholder="Tìm theo tên / mã…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
       </div>
-      <div className="ns__tablewrap">
+      <div className="lg-emp-table-wrapper">
         <table className="ns__table">
           <thead>
-            <tr><th>Mã</th><th>Họ tên</th><th>Vị trí</th><th>Trạng thái</th><th></th></tr>
+            <tr><th>Mã</th><th>Họ tên</th><th>Vị trí</th><th>Trạng thái</th><th>Hành động</th></tr>
           </thead>
           <tbody>
-            {shown.map((e) => (
-              <tr key={e.id}>
-                <td className="ns__code">{e.code}</td>
-                <td>{e.full_name}</td>
-                <td>{e.position ?? "—"}</td>
-                <td>{e.status === "probation" ? <span className="ns-badge ns-badge--muted">Thử việc</span> : e.status === "active" ? <span className="ns-badge ns-badge--ok">Chính thức</span> : e.status}</td>
-                <td><button className="btn btn--ghost" onClick={() => setPicked(e)}>Lương</button></td>
-              </tr>
-            ))}
+            {shown.map((e) => {
+              const statusLabels: Record<string, { label: string; className: string }> = {
+                probation: { label: "Thử việc", className: "ns-badge ns-badge--warn" },
+                active: { label: "Chính thức", className: "ns-badge ns-badge--ok" },
+                on_leave: { label: "Nghỉ phép", className: "ns-badge ns-badge--info" },
+                suspended: { label: "Tạm đình chỉ", className: "ns-badge ns-badge--danger" },
+                resigned: { label: "Đã thôi việc", className: "ns-badge ns-badge--muted" },
+              };
+              const statusInfo = statusLabels[e.status] ?? { label: e.status, className: "ns-badge ns-badge--muted" };
+              return (
+                <tr key={e.id}>
+                  <td className="ns__code">{e.code}</td>
+                  <td><b>{e.full_name}</b></td>
+                  <td>{e.position ?? "—"}</td>
+                  <td><span className={statusInfo.className}>{statusInfo.label}</span></td>
+                  <td>
+                    <button className="lg-edit-salary-btn" onClick={() => setPicked(e)}>
+                      <Sliders size={13} /> Thiết lập lương
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
             {shown.length === 0 && <tr><td colSpan={5} className="ns__empty">Không có nhân viên.</td></tr>}
           </tbody>
         </table>

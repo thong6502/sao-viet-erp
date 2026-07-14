@@ -54,10 +54,12 @@ _COLS = {
         {"key": "so_to", "label": "SL tờ", "align": "right", "kind": "number"},
         {"key": "don_gia", "label": "Đơn giá", "align": "right", "kind": "money"},
         {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
+        {"key": "cong_thuc", "label": "Công thức", "align": "left", "kind": "formula"},
     ],
     "B": [
         {"key": "ten", "label": "Tên công đoạn", "align": "left", "kind": "text"},
         {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
+        {"key": "cong_thuc", "label": "Công thức", "align": "left", "kind": "formula"},
         {"key": "ghi_chu", "label": "Ghi chú", "align": "left", "kind": "text"},
     ],
     "C": [
@@ -65,10 +67,12 @@ _COLS = {
         {"key": "sl", "label": "SL", "align": "right", "kind": "number"},
         {"key": "don_gia", "label": "Đơn giá", "align": "right", "kind": "money"},
         {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
+        {"key": "cong_thuc", "label": "Công thức", "align": "left", "kind": "formula"},
     ],
     "D": [
         {"key": "ten", "label": "Tên công đoạn", "align": "left", "kind": "text"},
         {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
+        {"key": "cong_thuc", "label": "Công thức", "align": "left", "kind": "formula"},
         {"key": "ghi_chu", "label": "Ghi chú", "align": "left", "kind": "text"},
     ],
 }
@@ -128,6 +132,17 @@ def _vi(n) -> str:
     if n == int(n):
         return f"{int(n):,}".replace(",", ".")
     return f"{n:,.2f}".replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+
+
+def _ct(dan: str, tien: float, sl: int) -> str:
+    """Công thức đã-THAY-SỐ cho phiếu in: '<dẫn giải> ÷ <SL> = <đ/sp>'. sl≤0 → chỉ tổng.
+
+    `dan` = chuỗi dẫn giải cho ra `tien` (vd '24 × 28.000đ'). Cho người đọc tự cộng lại được.
+    """
+    tien = _f(tien)
+    if sl <= 0:
+        return f"{dan} = {_vi(tien)}đ"
+    return f"{dan} ÷ {_vi(sl)} = {_vi(round(tien / sl, 2))}đ/sp"
 
 
 def _step_cost_safe(cd: dict, ctx: dict, warnings: list[str], ten: str) -> tuple[float, str]:
@@ -204,20 +219,25 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     giay_ten = tp.get("giay_ten") or tp.get("kho_nguyen") or "Giấy"
     if nguon == "khach":
         rows["A"].append({"ten": _pre(name, giay_ten), "so_to": to_nguyen,
-                          "don_gia": 0.0, "thanh_tien": 0.0, "ghi_chu": "Khách cấp giấy"})
+                          "don_gia": 0.0, "thanh_tien": 0.0, "ghi_chu": "Khách cấp giấy",
+                          "cong_thuc": "Khách cấp giấy — 0đ/sp"})
     elif don_vi == "tan":
         if kho_ng_d > 0 and kho_ng_r > 0 and gsm > 0:
             kg_to = (kho_ng_d / 1000.0) * (kho_ng_r / 1000.0) * gsm / 1000.0   # kg / 1 tờ nguyên
             tan = to_nguyen * kg_to / 1000.0
             gia_giay = tan * don_gia_giay
+            dan_a = f"{to_nguyen}tờ ≈ {_vi(round(tan, 4))}tấn × {_vi(don_gia_giay)}đ/tấn"
         else:
             warnings.append(f"Thành phần '{name or giay_ten}': thiếu khổ/định lượng giấy — tính theo TỜ (có thể lệch).")
             gia_giay = to_nguyen * don_gia_giay
+            dan_a = f"{to_nguyen} × {_vi(don_gia_giay)}đ (theo tờ — thiếu gsm)"
         rows["A"].append({"ten": _pre(name, giay_ten), "so_to": to_nguyen,
-                          "don_gia": _r(don_gia_giay), "thanh_tien": _r(gia_giay)})
+                          "don_gia": _r(don_gia_giay), "thanh_tien": _r(gia_giay),
+                          "cong_thuc": _ct(dan_a, gia_giay, sl)})
     else:  # 'to' — tính theo tờ nguyên
         rows["A"].append({"ten": _pre(name, giay_ten), "so_to": to_nguyen,
-                          "don_gia": _r(don_gia_giay), "thanh_tien": _r(to_nguyen * don_gia_giay)})
+                          "don_gia": _r(don_gia_giay), "thanh_tien": _r(to_nguyen * don_gia_giay),
+                          "cong_thuc": _ct(f"{to_nguyen} × {_vi(don_gia_giay)}đ", to_nguyen * don_gia_giay, sl)})
 
     so_kem = 0
     so_luot = 0
@@ -233,12 +253,15 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         che_ban_dg = _f(tp.get("che_ban_don_gia"))
         if so_kem > 0:
             rows["C"].append({"ten": _pre(name, "Chế bản / kẽm"), "sl": so_kem,
-                              "don_gia": _r(che_ban_dg), "thanh_tien": _r(so_kem * che_ban_dg)})
+                              "don_gia": _r(che_ban_dg), "thanh_tien": _r(so_kem * che_ban_dg),
+                              "cong_thuc": _ct(f"{so_kem} kẽm × {_vi(che_ban_dg)}đ", so_kem * che_ban_dg, sl)})
 
         # --- B Công in: số lượt = tờ IN gross × số mặt (KHÔNG nhân màu; mực gộp) ---
         so_luot = to_gross * passes
-        tien_in = so_luot * _f(tp.get("don_gia_cong_in"))
+        dg_in = _f(tp.get("don_gia_cong_in"))
+        tien_in = so_luot * dg_in
         rows["B"].append({"ten": _pre(name, "Công in"), "thanh_tien": _r(tien_in),
+                          "cong_thuc": _ct(f"{so_luot} lượt × {_vi(dg_in)}đ", tien_in, sl),
                           "ghi_chu": f"{so_luot} lượt ({to_gross} tờ × {passes} mặt)"})
 
     # --- D Gia công sau in (trên tờ in net; basis từ công đoạn) ---
@@ -262,6 +285,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         ctx["so_vi_tri"] = _i(row.get("so_vi_tri"))
         ctx["dt_thanh_pham_cm2"] = _f(row.get("dien_tich"))
         ghi_chu = ""
+        dan_d = None
         if don_gia_r > 0:
             if basis:
                 try:
@@ -271,15 +295,20 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             else:
                 qty = row_sl if row_sl > 0 else sl
             tien = don_gia_r * qty
+            dan_d = f"{_vi(round(qty, 2))} × {_vi(don_gia_r)}đ"
         elif cd:
             tien, ghi_chu = _step_cost_safe(cd, ctx, warnings, ten_r)
+            if "×" in ghi_chu:            # _step_cost_safe trả 'bq × rateđ' → dùng làm dẫn giải
+                dan_d = ghi_chu
         else:
             warnings.append(f"Dòng gia công '{ten_r}': thiếu đơn giá & công đoạn — tính 0đ.")
             tien, ghi_chu = 0.0, "thiếu đơn giá/công đoạn — 0đ"
+        cong_thuc = _ct(dan_d, tien, sl) if dan_d else (ghi_chu or f"{_vi(tien)}đ")
         if row.get("nha_cung_cap"):
             suffix = f"(thuê ngoài: {row['nha_cung_cap']})"
             ghi_chu = f"{ghi_chu} {suffix}".strip() if ghi_chu else suffix
-        rows["D"].append({"ten": _pre(name, ten_r), "thanh_tien": _r(tien), "ghi_chu": ghi_chu})
+        rows["D"].append({"ten": _pre(name, ten_r), "thanh_tien": _r(tien),
+                          "cong_thuc": cong_thuc, "ghi_chu": ghi_chu})
 
     total = sum(_f(r.get("thanh_tien")) for grp in rows.values() for r in grp)
     return {

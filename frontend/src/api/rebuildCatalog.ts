@@ -49,6 +49,24 @@ export const giay = crud("/api/vat-lieu-kho/giay");
 export const muc = crud("/api/vat-lieu-kho/muc");
 export const banKem = crud("/api/vat-lieu-kho/ban-kem");
 
+// -- Lịch sử giá Giấy (phiên bản) — GET danh sách + POST thêm phiên bản (mirror đơn giá hiện hành) --
+export interface GiayGiaVersion {
+  id: number; giay_id: number; version_no: number; ngay_hieu_luc: string | null;
+  is_current: boolean; kho_dai: number; kho_rong: number; gsm: number | null;
+  don_vi_gia: string; don_gia: number; gia_thi_truong: number | null;
+  ghi_chu: string | null; created_at: string | null;
+}
+export function giayVersions(token: string, giayId: number): Promise<GiayGiaVersion[]> {
+  return authed(`/api/vat-lieu-kho/giay/${giayId}/versions`, token);
+}
+export function addGiayVersion(
+  token: string, giayId: number, body: Record<string, unknown>,
+): Promise<GiayGiaVersion> {
+  return authed(`/api/vat-lieu-kho/giay/${giayId}/versions`, token, {
+    method: "POST", body: JSON.stringify(body),
+  });
+}
+
 // BHR preview cho Máy.
 export function mayBhr(token: string, id: number): Promise<{
   gio_tinh_phi: number | null; breakdown: Record<string, number>; BHR: number; don_gia_ban_gio: number;

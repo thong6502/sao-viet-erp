@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..db import Base
 
 THO = ("canh_dai", "canh_ngan")
-DON_VI_GIA_GIAY = ("kg", "cai", "ram", "to")
+DON_VI_GIA_GIAY = ("kg", "cai", "ram", "to", "tan")
 BE_MAT_GIAY = ("bong", "mo", "nham")
 LOAI_MUC = ("process", "pantone", "special")
 KHOA_CLASS = ("52", "74", "79", "102", "custom")

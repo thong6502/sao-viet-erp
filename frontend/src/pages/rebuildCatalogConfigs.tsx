@@ -39,7 +39,7 @@ const KIEU_BU_HAO: Lbls = {
 };
 
 const THO: Lbls = { canh_dai: "Thớ dọc (canh dài)", canh_ngan: "Thớ ngang (canh ngắn)" };
-const DV_GIA_GIAY: Lbls = { kg: "KG", cai: "CÁI", ram: "Ram", to: "Tờ" };
+const DV_GIA_GIAY: Lbls = { kg: "KG", cai: "CÁI", ram: "Ram", to: "Tờ", tan: "Tấn" };
 const BE_MAT: Lbls = { bong: "Bóng", mo: "Mờ", nham: "Nhám" };
 const DV_GIA_VAT_TU: Lbls = {
   kg: "KG", lit: "LÍT", ban: "BẢN", cai: "CÁI", bo: "BỘ", thung: "THÙNG",
