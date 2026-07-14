@@ -138,20 +138,9 @@ export const CFG_CONG_DOAN: CatalogConfig = {
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
   ],
   fields: [
-    { key: "ten_hien_thi", label: "Tên hiển thị cho sản xuất", type: "text", group: "Thông tin",
-      hint: "Tên in cho thợ dưới xưởng đọc (bỏ trống = dùng Tên)" },
+    { key: "ten_hien_thi", label: "Tên hiển thị cho sản xuất", type: "text", group: "Thông tin" },
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
-    // Ô CHÍNH: chọn 1 cách tính → chỉ hiện đúng ô cần nhập. Chỉ 6 cách công ty thật dùng.
-    { key: "_method", label: "Cách tính giá", type: "select", group: "Giá", default: "sheet",
-      options: [
-        { value: "sheet", label: "Theo tờ in — đơn giá × số tờ ÷ SL" },
-        { value: "piece_flat", label: "Theo con — giá cố định (đ / sản phẩm)" },
-        { value: "piece_size", label: "Theo con — giá theo cỡ sản phẩm" },
-        { value: "job", label: "Trọn gói cả đơn — tổng ÷ SL (khuôn / bế)" },
-        { value: "area_sides", label: "Theo diện tích bề mặt (cán màng, phủ UV)" },
-        { value: "position", label: "Theo số vị trí (ép kim, khoan lỗ…)" },
-      ],
-      hint: "Chọn cách máy tính tiền công đoạn này. Chọn xong bên dưới chỉ hiện ô cần nhập." },
+
     // run_rate — 2 biến thể cùng key: đa số là 'đơn giá / đơn vị', riêng trọn gói là 'tổng tiền'.
     { key: "run_rate", label: "Đơn giá / đơn vị (đ)", type: "number", group: "Giá",
       showIf: (f) => ["sheet", "piece_flat", "area_sides", "position"].includes(String(f._method)),
@@ -162,12 +151,9 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "size_tiers", label: "Bậc đơn giá theo kích thước", type: "size_tiers", group: "Giá",
       showIf: (f) => f._method === "piece_size",
       hint: "Đơn giá theo cạnh dài thành phẩm (cm). VD dán hộp: ≤20cm=100 · ≤40cm=200 · ≤100cm=800." },
-    { key: "min_charge", label: "Giá tối thiểu (đ)", type: "number", group: "Giá",
-      hint: "Thu tối thiểu dù số lượng ít (bỏ trống nếu không cần)." },
-    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
-      hint: "Công thức trả về TỔNG tiền cả dòng (máy tự chia ÷ số lượng ra đ/thành phẩm). Bấm thẻ biến phía trên để chèn. VD In khoán 1 lượt: to_dau_vao * so_mat * don_gia · Kẽm: so_kem * don_gia · Cán màng/vecni: dai_in * rong_in * don_gia_m2 * to_sau_in · Trọn gói khuôn/bế: 800000. Hàm: ceil floor round max min." },
-    { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong",
-      hint: "In / Bồi / Bế sóng → Tra bảng (chọn mã bù hao) · Ép kim/UV → Cộng cố định · Ghi kẽm → Không" },
+
+    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
+    { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
       showIf: (f) => f.kieu_bu_hao === "tra_bang",
       hint: "Gõ mã / tên bù hao để tìm (vd 3-4 → In 3-4 màu) — engine tra bậc theo số lượng" },
@@ -258,8 +244,7 @@ export const CFG_GIAY: CatalogConfig = {
     { key: "kho_dai", label: "Khổ dài (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
     { key: "kho_tinh_gia", label: "Khổ dùng để tính giá?", type: "checkbox", group: "Giá" },
     { key: "gia_thi_truong", label: "Giá thị trường (đ)", type: "number", group: "Giá", hint: "tham khảo; đơn giá bán quản ở Lịch sử giá" },
-    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
-      hint: "Công thức trả về TỔNG tiền cả dòng (máy tự chia ÷ số lượng). Bấm thẻ biến phía trên để chèn. Giấy theo kg: dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen · Giấy theo tờ: don_gia * to_nguyen. Hàm: ceil floor round max min." },
+    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };
@@ -276,8 +261,7 @@ export const CFG_VAT_TU: CatalogConfig = {
   fields: [
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", type: "select", group: "Giá", options: mapOpt(DV_GIA_VAT_TU) },
     { key: "don_gia", label: "Giá (đ)", type: "number", group: "Giá" },
-    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
-      hint: "Công thức trả về TỔNG tiền cả dòng (máy tự chia ÷ số lượng). Bấm thẻ biến phía trên để chèn. Cán màng/vecni (m²): dai_in * rong_in * don_gia_m2 * to_sau_in · In khoán 1 lượt: to_dau_vao * so_mat * don_gia · Kẽm: so_kem * don_gia. Hàm: ceil floor round max min." },
+    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Giá" },
   ],
 };

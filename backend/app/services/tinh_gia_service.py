@@ -56,7 +56,7 @@ def _bu_hao_to_dict(b: BuHao) -> dict:
 _TP_SCALAR_FIELDS = (
     "thu_tu", "loai_thanh_phan", "ten", "kho_thanh_pham", "dai_thanh_pham", "rong_thanh_pham",
     "kho_mo_rong", "tay_gap", "so_to_per_sp", "so_luong", "loai_san_pham_id",
-    "giay_id", "kho_nguyen", "don_gia_giay",
+    "giay_id", "kho_nguyen", "kho_nguyen_dai", "kho_nguyen_rong", "don_gia_giay",
     "don_gia_don_vi", "nguon_giay", "bu_hao_so_to", "hao_so_to", "tinh_bu_hao_cd",
     "chua_xen", "chua_tay_ke", "chua_nhip",
     "chua_duoi", "chua_ca_gay", "co_in", "che_ban_loai", "che_ban_don_gia", "quy_cach_in",
@@ -92,6 +92,13 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
             if not _f(d.get("don_gia_giay")):
                 d["don_gia_giay"] = _f(giay.don_gia)
                 d["don_gia_don_vi"] = giay.don_vi_gia
+
+    # Khổ giấy nguyên ①: phiếu nhập (kho_nguyen_dai/rong > 0) → ĐÈ khổ danh mục (đặt hàng xả khổ
+    # khác). 0 → giữ theo danh mục Giấy (đã bơm ở trên). Áp cả khi khách cấp giấy (tự nhập khổ).
+    if _f(d.get("kho_nguyen_dai")):
+        d["kho_dai"] = _f(d.get("kho_nguyen_dai"))
+    if _f(d.get("kho_nguyen_rong")):
+        d["kho_rong"] = _f(d.get("kho_nguyen_rong"))
 
     # Máy: bơm khổ tờ in ② (kho_max) khi thành phần CHƯA set khổ in (để xả giấy + bình bài).
     if (not _f(d.get("kho_in_dai")) or not _f(d.get("kho_in_rong"))) and tp.may_id is not None:

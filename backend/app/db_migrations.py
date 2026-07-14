@@ -1602,6 +1602,19 @@ def _migrate_ptg_tinh_bu_hao_cd(db: Session) -> None:
     db.commit()
 
 
+def _migrate_ptg_kho_nguyen_override(db: Session) -> None:
+    """Tính giá: thêm 2 cột `phieu_thanh_phan.kho_nguyen_dai/rong` (mm) — cho ĐÈ khổ giấy nguyên ①
+    ngay trên phiếu (đặt hàng xả khổ khác danh mục). 0 = lấy theo danh mục Giấy. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "phieu_thanh_phan")
+    for col in ("kho_nguyen_dai", "kho_nguyen_rong"):
+        if col not in cols:
+            db.execute(text(f"ALTER TABLE phieu_thanh_phan ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1665,6 +1678,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0061_ptg_tinh_bu_hao_cd", _migrate_ptg_tinh_bu_hao_cd),
     ("0062_quote_decision_seen_at", _migrate_quote_decision_seen_at),
     ("0063_quote_deposit_pct", _migrate_quote_deposit_pct),
+    ("0063_ptg_kho_nguyen_override", _migrate_ptg_kho_nguyen_override),
 ]
 
 

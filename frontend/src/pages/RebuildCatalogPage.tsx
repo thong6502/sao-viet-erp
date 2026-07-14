@@ -851,7 +851,6 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                     {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
                   </span>
                 )}
-                {isEdit && <span className="rc-field__hint">Mã không đổi sau khi tạo.</span>}
               </label>
               <label className="rc-field">
                 <span className="rc-field__label">Tên <em>*</em></span>
@@ -1099,18 +1098,41 @@ function RefSearchField({ value, options, placeholder, onChange }: {
 
 
 // ── FORMULA FIELD EDITOR AND VALIDATOR (Live math preview + click-to-insert variable tags) ──
+// CHỈ 14 biến LẤY ĐƯỢC TỪ PHIẾU (kích thước + sản lượng). Đơn giá/định lượng → gõ SỐ trực tiếp
+// trong công thức (kiểu báo giá Excel). Bỏ don_gia*/dinh_luong khỏi palette (công thức cũ vẫn chạy
+// vì engine vẫn cấp biến — chỉ không gợi ý chip nữa).
+const PHIEU_VARS = [
+  "dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
+  "so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen",
+];
 const WHITELIST_VARS = {
-  cong_doan: [
-    "dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
-    "so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen",
-    "don_gia", "don_gia_kg", "don_gia_m2", "don_gia_luot", "don_gia_kem"
-  ],
-  vat_tu: [
-    "dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
-    "so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen",
-    "dinh_luong", "don_gia", "don_gia_kg", "don_gia_m2", "don_gia_luot", "don_gia_kem"
-  ]
+  cong_doan: PHIEU_VARS,
+  vat_tu: PHIEU_VARS,
 };
+
+// Giải thích ngắn từng biến — hiện khi hover chip. Kích thước ở đơn vị MÉT trong công thức.
+const VAR_DESC: Record<string, string> = {
+  dai_tp: "Dài sản phẩm — đơn vị MÉT (vd 0,21)",
+  rong_tp: "Rộng sản phẩm — mét",
+  dai_nguyen: "Dài tờ giấy nguyên (mua về) — mét",
+  rong_nguyen: "Rộng tờ giấy nguyên — mét",
+  dai_in: "Dài tờ chạy máy in — mét (vd 0,64)",
+  rong_in: "Rộng tờ chạy máy in — mét",
+  so_luong: "Số cái cần làm (số lượng đặt)",
+  so_tp: "Số con/tờ — 1 tờ in ra mấy cái",
+  so_mau: "Tổng số màu in (mặt A + mặt B)",
+  so_mat: "Số mặt qua máy in (1 mặt = 1 · 2 mặt/tự trở = 2)",
+  so_kem: "Số bản kẽm (bằng số màu)",
+  to_dau_vao: "Số tờ vào máy in = tờ cần in + bù hao",
+  to_sau_in: "Số tờ tốt sau in (dùng cho gia công)",
+  to_nguyen: "Số tờ giấy nguyên phải mua",
+};
+// Biến engine VẪN chấp nhận trong công thức (KHÔNG gợi ý chip, nhưng gõ tay vẫn hợp lệ) — để
+// công thức cũ (dùng đơn giá / ép kim theo vị trí・diện tích) không bị validator báo đỏ oan.
+const EXTRA_VALID_VARS = [
+  "dinh_luong", "don_gia", "don_gia_kg", "don_gia_m2", "don_gia_luot", "don_gia_kem",
+  "so_vi_tri", "dien_tich",
+];
 const MATH_FUNCS = ["ceil", "floor", "round", "max", "min"];
 
 function FormulaField({
@@ -1123,7 +1145,8 @@ function FormulaField({
   configPrefix: string;
 }) {
   const isCd = configPrefix.includes("cong-doan");
-  const whitelist = isCd ? WHITELIST_VARS.cong_doan : WHITELIST_VARS.vat_tu;
+  const whitelist = isCd ? WHITELIST_VARS.cong_doan : WHITELIST_VARS.vat_tu; // chip gợi ý (14 biến phiếu)
+  const validVars = useMemo(() => [...whitelist, ...EXTRA_VALID_VARS], [whitelist]); // validator (rộng hơn)
 
   // Insert a variable at the current cursor position in textarea
   const insertVar = (varName: string) => {
@@ -1223,7 +1246,7 @@ function FormulaField({
         continue;
       }
       
-      if (whitelist.includes(trimmed)) {
+      if (validVars.includes(trimmed)) {
         formattedElements.push(
           <span key={index++} className="rc-formula__token rc-formula__token--var" title="Biến hệ thống">
             {trimmed}
@@ -1261,7 +1284,7 @@ function FormulaField({
     }
 
     return { valid: true, error: null, formatted: formattedElements };
-  }, [value, whitelist]);
+  }, [value, validVars]);
 
   return (
     <div className="rc-formula">
@@ -1279,7 +1302,7 @@ function FormulaField({
                   type="button"
                   className={`rc-formula__var-tag ${g.colorClass}`}
                   onClick={() => insertVar(v)}
-                  title={`Chèn biến ${v}`}
+                  title={VAR_DESC[v] ? `${v} — ${VAR_DESC[v]}` : `Chèn biến ${v}`}
                 >
                   {v}
                 </button>
@@ -1307,15 +1330,8 @@ function FormulaField({
         </div>
       </div>
 
-      <div className="rc-formula__validation">
-        {valid ? (
-          <div className="rc-formula__status rc-formula__status--success">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px" }}>
-              <path d="M20 6 9 17l-5-5"/>
-            </svg>
-            Cú pháp hợp lệ
-          </div>
-        ) : (
+      {!valid && (
+        <div className="rc-formula__validation">
           <div className="rc-formula__status rc-formula__status--error">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px" }}>
               <circle cx="12" cy="12" r="10"/>
@@ -1323,8 +1339,8 @@ function FormulaField({
             </svg>
             {error}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

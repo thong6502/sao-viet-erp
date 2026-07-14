@@ -11,7 +11,7 @@ Chạy:  cd backend && PYTHONIOENCODING=utf-8 python scripts/seed_hop_doi_add.py
 from __future__ import annotations
 
 import sys
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 sys.path.insert(0, ".")
 from app.db import Base, SessionLocal, engine  # noqa: E402
@@ -86,11 +86,21 @@ def main():
         )
         db.commit()
 
-        # ── 4. Phiếu PTG-2026-0006 (xoá bản cũ nếu có → tạo lại sạch) ────────────────
-        old = db.execute(select(PhieuTinhGia).where(PhieuTinhGia.ma == "PTG-2026-0006")).scalar_one_or_none()
-        if old is not None:
-            db.delete(old)
-            db.flush()
+        # ── 4. Phiếu PTG-2026-0006 (xoá bản cũ SẠCH — SQLite không cascade FK, phải xoá con
+        #       tường minh theo thứ tự: thành phẩm/vật tư → thành phần → phiếu) ───────────────
+        ph_ids = [r[0] for r in db.execute(
+            text("SELECT id FROM phieu_tinh_gia WHERE ma = 'PTG-2026-0006'"))]
+        if ph_ids:
+            ph = ",".join(str(i) for i in ph_ids)
+            tp_ids = [r[0] for r in db.execute(
+                text(f"SELECT id FROM phieu_thanh_phan WHERE phieu_id IN ({ph})"))]
+            if tp_ids:
+                tps = ",".join(str(i) for i in tp_ids)
+                db.execute(text(f"DELETE FROM phieu_thanh_pham WHERE thanh_phan_id IN ({tps})"))
+                db.execute(text(f"DELETE FROM phieu_vat_tu WHERE thanh_phan_id IN ({tps})"))
+            db.execute(text(f"DELETE FROM phieu_thanh_phan WHERE phieu_id IN ({ph})"))
+            db.execute(text(f"DELETE FROM phieu_tinh_gia WHERE id IN ({ph})"))
+            db.commit()
 
         p = PhieuTinhGia(
             ma="PTG-2026-0006",
@@ -103,6 +113,7 @@ def main():
         tp = PhieuThanhPhan(
             thu_tu=0, ten="Hộp bộ đôi (ghép 2 con/tờ)", loai_san_pham_id=lsp.id,
             giay_id=giay.id, quy_cach_in="mot_mat", so_mau_a=4, so_mau_b=0,
+            kho_nguyen_dai=640, kho_nguyen_rong=445,  # khổ giấy nguyên 44,5×64 (nhập trên phiếu, đè danh mục)
             kho_in_dai=640, kho_in_rong=435,          # khổ tờ in 43,5×64
             dai_thanh_pham=145, rong_thanh_pham=130,  # chỉ hiển thị (con_auto tắt)
             con_auto=False, so_con=2,                 # ghép 2 con/tờ

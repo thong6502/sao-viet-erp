@@ -971,6 +971,8 @@ export interface ThanhPhanOut {
   // Giấy in
   giay_id: number | null;
   kho_nguyen: string | null; // ① nhãn hiển thị
+  kho_nguyen_dai: number; // ① khổ giấy nguyên dài (mm) — đè danh mục khi > 0
+  kho_nguyen_rong: number; // ①
   don_gia_giay: number;
   don_gia_don_vi: string; // "to" | "tan"
   nguon_giay: string; // "cong_ty" | "khach"
@@ -1067,6 +1069,8 @@ export interface ThanhPhanIn {
   loai_san_pham_id?: number | null; // loại SP của sản phẩm này
   giay_id?: number | null;
   kho_nguyen?: string | null;
+  kho_nguyen_dai?: number;
+  kho_nguyen_rong?: number;
   don_gia_giay?: number;
   don_gia_don_vi?: string;
   nguon_giay?: string;

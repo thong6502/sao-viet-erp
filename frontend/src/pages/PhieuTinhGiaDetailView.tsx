@@ -133,6 +133,8 @@ interface EditableComponent {
   // Giấy ①
   giay_id: number | null;
   kho_nguyen: string;
+  kho_nguyen_dai: number; // ① khổ giấy nguyên dài (mm) — đè danh mục khi > 0
+  kho_nguyen_rong: number; // ①
   don_gia_giay: number;
   don_gia_don_vi: string; // kg | to | tan | ram | cai (theo danh mục giấy)
   nguon_giay: string; // cong_ty | khach
@@ -192,6 +194,8 @@ function blankComponent(ten = ""): EditableComponent {
     loai_san_pham_id: null,
     giay_id: null,
     kho_nguyen: "",
+    kho_nguyen_dai: 0,
+    kho_nguyen_rong: 0,
     don_gia_giay: 0,
     don_gia_don_vi: "to",
     nguon_giay: "cong_ty",
@@ -257,6 +261,8 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     loai_san_pham_id: c.loai_san_pham_id ?? null,
     giay_id: c.giay_id ?? null,
     kho_nguyen: c.kho_nguyen ?? "",
+    kho_nguyen_dai: c.kho_nguyen_dai ?? 0,
+    kho_nguyen_rong: c.kho_nguyen_rong ?? 0,
     don_gia_giay: c.don_gia_giay ?? 0,
     don_gia_don_vi: c.don_gia_don_vi ?? "to",
     nguon_giay: c.nguon_giay ?? "cong_ty",
@@ -296,6 +302,8 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     loai_san_pham_id: c.loai_san_pham_id,
     giay_id: c.giay_id,
     kho_nguyen: c.kho_nguyen.trim() || null,
+    kho_nguyen_dai: c.kho_nguyen_dai,
+    kho_nguyen_rong: c.kho_nguyen_rong,
     don_gia_giay: c.don_gia_giay,
     don_gia_don_vi: c.don_gia_don_vi,
     nguon_giay: c.nguon_giay,
@@ -615,6 +623,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
             giay_id: gid,
             kho_nguyen: kd && kr ? `${kr}×${kd}` : c.kho_nguyen,
           };
+          // Khổ giấy nguyên ①: đổi giấy → set lại theo khổ danh mục (giống đơn giá). Người dùng có
+          // thể gõ đè sau đó; engine sẽ tính theo số trên phiếu.
+          if (kd) patch.kho_nguyen_dai = kd;
+          if (kr) patch.kho_nguyen_rong = kr;
           // Đơn giá giấy ĂN THẲNG theo DANH MỤC (spec §6: read-only theo danh mục) — LUÔN ghi đè
           // theo giấy vừa chọn (đổi giấy → đổi giá, không giữ giá cũ) + đồng bộ đơn vị giá.
           patch.don_gia_giay = numOf(g.don_gia);
@@ -700,7 +712,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setComps((cs) => {
       let changed = false;
       const next = cs.map((c) => {
-        if (!c.giay_id || (c.kho_in_dai && c.kho_in_rong)) return c;
+        if (!c.giay_id) return c;
+        const needIn = !c.kho_in_dai || !c.kho_in_rong;
+        const needNg = !c.kho_nguyen_dai || !c.kho_nguyen_rong;
+        if (!needIn && !needNg) return c;
         const g = giays.find((x) => x.id === c.giay_id);
         if (!g) return c;
         const kd = numOf(g.kho_dai);
@@ -711,6 +726,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           ...c,
           kho_in_dai: c.kho_in_dai || kd,
           kho_in_rong: c.kho_in_rong || kr,
+          kho_nguyen_dai: c.kho_nguyen_dai || kd,
+          kho_nguyen_rong: c.kho_nguyen_rong || kr,
           kho_nguyen: c.kho_nguyen || `${kr}×${kd}`,
         };
       });
@@ -778,6 +795,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       psl: phieuSL,
       sl: c.so_luong,
       kd: c.kho_in_dai, kr: c.kho_in_rong, d: c.dai_thanh_pham, r: c.rong_thanh_pham,
+      knd: c.kho_nguyen_dai, knr: c.kho_nguyen_rong,
       ca: c.con_auto, sc: c.so_con, sp: c.so_to_per_sp, qc: c.quy_cach_in,
       ma: c.so_mau_a, mb: c.so_mau_b, bu: c.bu_hao_so_to, hao: c.hao_so_to,
       tbh: c.tinh_bu_hao_cd,
@@ -1471,18 +1489,22 @@ function ComponentModal({
                     ]}
                   />
                 </div>
-                <label className="tg-field tg-span-6">
-                  <span className="tg-microlabel">
-                    Khổ nguyên <span className="tg-microlabel__opt">rộng×dài</span>
-                  </span>
-                  <input
-                    className="tg-input"
-                    type="text"
-                    value={c.kho_nguyen}
-                    placeholder="VD 790×1090"
-                    onChange={(e) => patchComp(c.uid, { kho_nguyen: e.target.value })}
+                <div className="tg-span-3">
+                  <NumField
+                    label="Dài nguyên"
+                    value={c.kho_nguyen_dai}
+                    onChange={(n) => patchComp(c.uid, { kho_nguyen_dai: n })}
+                    suffix="mm"
                   />
-                </label>
+                </div>
+                <div className="tg-span-3">
+                  <NumField
+                    label="Rộng nguyên"
+                    value={c.kho_nguyen_rong}
+                    onChange={(n) => patchComp(c.uid, { kho_nguyen_rong: n })}
+                    suffix="mm"
+                  />
+                </div>
                 <div className="tg-field tg-span-6">
                   <span className="tg-microlabel">
                     Đơn giá giấy <span className="tg-microlabel__opt">theo danh mục</span>

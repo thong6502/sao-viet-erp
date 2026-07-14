@@ -90,7 +90,9 @@ class PhieuThanhPhan(Base):
 
     # --- Giấy ---
     giay_id: Mapped[int | None] = mapped_column(Integer, nullable=True)             # → giay_nguyen.id (soft)
-    kho_nguyen: Mapped[str | None] = mapped_column(String(100), nullable=True)      # snapshot khổ giấy nguyên
+    kho_nguyen: Mapped[str | None] = mapped_column(String(100), nullable=True)      # nhãn hiển thị "rộng×dài" (giay_ten fallback)
+    kho_nguyen_dai: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # mm — khổ giấy nguyên ① dài (ĐÈ danh mục khi > 0)
+    kho_nguyen_rong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # mm — rộng ①
     don_gia_giay: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     don_gia_don_vi: Mapped[str] = mapped_column(String(8), nullable=False, default="to")   # to|tan
     nguon_giay: Mapped[str] = mapped_column(String(12), nullable=False, default="cong_ty")  # cong_ty|khach

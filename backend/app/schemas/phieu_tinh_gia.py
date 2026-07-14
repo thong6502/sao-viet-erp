@@ -86,6 +86,8 @@ class ThanhPhanIn(BaseModel):
     # Giấy
     giay_id: int | None = None
     kho_nguyen: str | None = None
+    kho_nguyen_dai: int | None = None
+    kho_nguyen_rong: int | None = None
     don_gia_giay: float | None = None
     don_gia_don_vi: str | None = None
     nguon_giay: str | None = None
@@ -134,6 +136,8 @@ class ThanhPhanOut(BaseModel):
     # Giấy
     giay_id: int | None = None
     kho_nguyen: str | None = None
+    kho_nguyen_dai: int = 0
+    kho_nguyen_rong: int = 0
     don_gia_giay: float
     don_gia_don_vi: str
     nguon_giay: str
