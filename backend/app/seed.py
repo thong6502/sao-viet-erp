@@ -122,6 +122,9 @@ def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
         can_edit_salary=True,
         can_adjust=True,
         can_approve_exception=can_approve_exception,
+        # khach_hang: thiết lập điều khoản tín dụng khách — bật cho vai quản lý (_full dùng chung
+        # cho Giám đốc + GĐ KD + Trưởng phòng KD). NV Sales dùng _rcu → KHÔNG có (chỉ xem read-only).
+        can_set_credit_terms=True,
     )
 
 

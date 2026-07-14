@@ -40,6 +40,7 @@ ACTION_VIEW_SALARY = "view_salary"  # nhan_su: xem dữ liệu nhạy cảm (lư
 ACTION_EDIT_SALARY = "edit_salary"  # nhan_su: SỬA dữ liệu nhạy cảm hồ sơ (tách khỏi view_salary)
 ACTION_ADJUST = "adjust"  # nhan_su (Chấm công): điều chỉnh công qua punch nguồn (chấm bù/sửa)
 ACTION_APPROVE_EXCEPTION = "approve_exception"  # don_hang_ban (A2): GĐ duyệt "đơn đặc thù"
+ACTION_SET_CREDIT_TERMS = "set_credit_terms"  # khach_hang: sửa chính sách tài chính (hạn mức + điều khoản + chiết khấu/biên min-max)
 # Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn");
 # ACTION_APPROVE_EXCEPTION TÁCH RIÊNG (chỉ GĐ) — duyệt đơn đặc thù mới được chốt.
 
@@ -71,6 +72,7 @@ _ACTION_ATTR = {
     ACTION_EDIT_SALARY: "can_edit_salary",
     ACTION_ADJUST: "can_adjust",
     ACTION_APPROVE_EXCEPTION: "can_approve_exception",
+    ACTION_SET_CREDIT_TERMS: "can_set_credit_terms",
 }
 
 
@@ -135,6 +137,7 @@ class AuthorizationService:
                 "can_edit_salary": p.can_edit_salary,
                 "can_adjust": p.can_adjust,
                 "can_approve_exception": p.can_approve_exception,
+                "can_set_credit_terms": p.can_set_credit_terms,
             }
             for p in self.roles.permissions_for(user.role_id)
         ]

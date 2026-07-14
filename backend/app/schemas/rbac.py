@@ -259,6 +259,7 @@ class PermissionRow(BaseModel):
     can_edit_salary: bool = False
     can_adjust: bool = False
     can_approve_exception: bool = False
+    can_set_credit_terms: bool = False
 
 
 class PermissionMatrixIn(BaseModel):

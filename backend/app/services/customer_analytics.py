@@ -35,15 +35,8 @@ from ..models.order import STATUS_CANCELLED as ORDER_CANCELLED
 from ..models.order import Order, OrderLine
 from ..models.quotation import Quote, QuoteVersion
 
-# --- Tier thresholds (SVN-input, ⚠️ chưa xác nhận — documented default) ---------
-LOYAL_REVENUE_VND = 50_000_000   # doanh số 12T ≥ 50tr → "thân thiết"
-PARTNER_TENURE_DAYS = 365        # khách > 1 năm + có đơn → "đối tác lâu năm"
-NEW_WINDOW_DAYS = 30             # tạo trong 30 ngày → "mới"
-
-TIER_NEW = "new"
-TIER_LOYAL = "loyal"
-TIER_PARTNER = "partner"
-TIER_REGULAR = "regular"
+# Redesign spec-06 v2: BỎ tier (tự phân loại thân thiết/đối tác/mới) — thay bằng thẻ gán tay.
+# Chỉ giữ số THẬT (doanh số / số đơn / recency) cho danh sách + dashboard.
 
 # Orders in these statuses are excluded from realised revenue (đã hủy).
 _EXCLUDED_ORDER_STATUSES = (ORDER_CANCELLED,)
@@ -68,16 +61,13 @@ class CustomerStat:
     orders_12m: int = 0
     orders_total: int = 0
     last_order_at: date | None = None
-    tier: str = TIER_REGULAR
 
 
 @dataclass
 class CustomerListStats:
     total_customers: int = 0
-    loyal_count: int = 0
     new_this_month: int = 0
     avg_order_value: int = 0        # TB/đơn trên toàn tập scoped (0 nếu chưa có đơn)
-    partner_count: int = 0
     total_revenue: int = 0
     per_customer: dict[int, CustomerStat] = field(default_factory=dict)
 
@@ -136,7 +126,6 @@ class CustomerDashboard:
     win_rate_pct: int | None        # đơn / báo giá đã gửi (tỉ lệ chốt), None nếu chưa có BG
     first_order_at: date | None
     last_order_at: date | None
-    tier: str
     months: list[MonthPoint]
     product_mix: list[ProductSlice]
     heatmap: list[HeatCell]
@@ -148,32 +137,6 @@ class CustomerAnalyticsService:
 
     def __init__(self, db: Session) -> None:
         self.db = db
-
-    # --- tier classification ------------------------------------------------
-
-    @staticmethod
-    def classify_tier(
-        *,
-        created_at: datetime | None,
-        revenue_12m: int,
-        orders_total: int,
-        now: datetime | None = None,
-    ) -> str:
-        now = now or _utcnow()
-        created = created_at
-        # created_at may be naive (SQLite) — normalise to aware UTC for the delta.
-        if created is not None and created.tzinfo is None:
-            created = created.replace(tzinfo=timezone.utc)
-        age_days = (now - created).days if created is not None else 0
-        # Spend wins first (VIP theo chi tiêu), then tenure, then recency.
-        if revenue_12m >= LOYAL_REVENUE_VND:
-            return TIER_LOYAL
-        if orders_total > 0 and age_days > PARTNER_TENURE_DAYS:
-            return TIER_PARTNER
-        # "Mới" = vừa vào sổ (≤30 ngày) và chưa phát sinh giao dịch (hoặc chưa có đơn nào).
-        if orders_total == 0 or age_days <= NEW_WINDOW_DAYS:
-            return TIER_NEW
-        return TIER_REGULAR
 
     # --- list roll-up -------------------------------------------------------
 
@@ -233,24 +196,13 @@ class CustomerAnalyticsService:
         for c in customers:
             rev_12m, orders_12m = rev_by_cust.get(c.id, (0, 0))
             orders_total, last_order = tot_by_cust.get(c.id, (0, None))
-            tier = self.classify_tier(
-                created_at=c.created_at,
-                revenue_12m=rev_12m,
-                orders_total=orders_total,
-                now=now,
-            )
             stats.per_customer[c.id] = CustomerStat(
                 customer_id=c.id,
                 revenue_12m=rev_12m,
                 orders_12m=orders_12m,
                 orders_total=orders_total,
                 last_order_at=last_order,
-                tier=tier,
             )
-            if tier == TIER_LOYAL:
-                stats.loyal_count += 1
-            elif tier == TIER_PARTNER:
-                stats.partner_count += 1
             created = c.created_at
             if created is not None and created.tzinfo is None:
                 created = created.replace(tzinfo=timezone.utc)
@@ -382,12 +334,6 @@ class CustomerAnalyticsService:
         win_rate = (
             round(orders_total / sent_quotes * 100) if sent_quotes else None
         )
-        tier = self.classify_tier(
-            created_at=customer.created_at,
-            revenue_12m=revenue_12m,
-            orders_total=orders_total,
-            now=now,
-        )
         has_data = orders_total > 0 or quotes_total > 0
 
         return CustomerDashboard(
@@ -399,7 +345,6 @@ class CustomerAnalyticsService:
             win_rate_pct=win_rate,
             first_order_at=first_order_at,
             last_order_at=last_order_at,
-            tier=tier,
             months=month_points,
             product_mix=product_mix,
             heatmap=heatmap,

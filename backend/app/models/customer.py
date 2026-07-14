@@ -25,6 +25,13 @@ STATUS_ACTIVE = "active"
 STATUS_INACTIVE = "inactive"
 CUSTOMER_STATUSES = (STATUS_LEAD, STATUS_ACTIVE, STATUS_INACTIVE)
 
+# Loại khách (redesign spec-06 v2) — quyết định có cần MST hay không.
+#   ca_nhan  — cá nhân / khách lẻ: KHÔNG bắt buộc MST (form ẩn ô MST).
+#   cong_ty  — doanh nghiệp: hiện MST (tùy chọn, cảnh báo trùng mềm).
+KIND_CA_NHAN = "ca_nhan"
+KIND_CONG_TY = "cong_ty"
+CUSTOMER_KINDS = (KIND_CA_NHAN, KIND_CONG_TY)
+
 # Kiểu mốc điều khoản thanh toán (khảo sát #12 — "mỗi khách một đặc thù, không cố định"):
 #   prepay        — trả trước X% khi đặt hàng
 #   net_delivery  — X ngày kể từ ngày nhận hàng
@@ -67,9 +74,16 @@ class Customer(Base):
     sale_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id"), index=True, nullable=True
     )
-    # lead = tiềm năng (chưa giao dịch), active = đang giao dịch, inactive = ngừng.
+    # DORMANT (redesign spec-06 v2): trạng thái lead/active/inactive đã BỎ khỏi UI + logic
+    # (không còn ô chọn / tab lọc). Cột giữ lại default 'active' để dữ liệu cũ không vỡ; đừng
+    # dùng cho nghiệp vụ mới.
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=STATUS_ACTIVE, server_default=STATUS_ACTIVE
+    )
+    # Loại KH (redesign spec-06 v2). Khách cũ mặc định 'cong_ty' (ERP in chủ yếu B2B); cá
+    # nhân sửa tay. Cá nhân → form ẩn MST; công ty → hiện MST (tùy chọn).
+    customer_kind: Mapped[str] = mapped_column(
+        String(12), nullable=False, default=KIND_CONG_TY, server_default=KIND_CONG_TY
     )
     # --- Điều khoản thanh toán riêng theo KH (khảo sát #12) — DỮ LIỆU CHỜ: chỉ nhập +
     # hiển thị; engine tính hạn nợ thuộc Công nợ (sẽ đọc cấu trúc này khi back-fill
@@ -78,12 +92,18 @@ class Customer(Base):
     payment_term_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     prepay_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     payment_term_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    # --- Chiết khấu mặc định theo KH (khảo sát #14). Chỉ là GIÁ TRỊ MẶC ĐỊNH điền sẵn
-    # ở tầng Báo giá (cho sửa từng báo giá) — KHÔNG nằm trong engine tính giá.
-    # `discount_buyer_pct` (CK cho người mua hàng của khách) là dữ liệu nhạy cảm — API
-    # ẩn cả hai trường sau quyền chi tiết `view_discount` (pattern view_debt/view_salary).
+    # DORMANT (redesign spec-06 v2): "chiết khấu mặc định" (trade/buyer) đã BỎ, thay bằng
+    # rào chiết khấu/biên min–max bên dưới. Cột giữ lại (SQLite không drop gọn); đừng dùng.
     discount_trade_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     discount_buyer_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # --- Chính sách CHIẾT KHẤU & BIÊN LỢI NHUẬN (rào chắn báo giá, redesign spec-06 v2).
+    # % ∈ [0,100], min ≤ max; None = chưa đặt rào. Sửa cần quyền `set_credit_terms` (đã mở
+    # rộng nghĩa = "chính sách tài chính"). Đợt này chỉ LƯU + HIỂN THỊ; việc CHẶN/cảnh báo
+    # khi lập báo giá là chỗ nối engine Báo giá (SEAM để lại).
+    discount_min_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    discount_max_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    margin_min_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    margin_max_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

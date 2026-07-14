@@ -40,7 +40,8 @@ export type ActionKey =
   | "can_reparent"
   | "can_view_salary"
   | "can_adjust"
-  | "can_approve_exception";
+  | "can_approve_exception"
+  | "can_set_credit_terms";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -53,7 +54,7 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
     { key: "can_reassign", label: "Điều chuyển" },
     { key: "can_export", label: "Xuất file" },
     { key: "can_view_debt", label: "Xem công nợ" },
-    { key: "can_view_discount", label: "Xem/sửa chiết khấu riêng" },
+    { key: "can_set_credit_terms", label: "Thiết lập chính sách tài chính" },
   ],
   // Báo giá: thao tác vòng đời THƯỜNG (gửi khách · ghi nhận Khách đồng ý/từ chối · hủy · PDF · tạo bản mới)
   // KHÔNG tách quyền chi tiết — ai có "Sửa" báo giá đều làm được (chủ đầu tư chốt P8). Quyền chi tiết DUY NHẤT
@@ -144,6 +145,7 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_view_salary: false,
     can_adjust: false,
     can_approve_exception: false,
+    can_set_credit_terms: false,
   }));
 }
 

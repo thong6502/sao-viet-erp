@@ -1444,6 +1444,39 @@ def _migrate_role_permission_approve_exception(db: Session) -> None:
     db.commit()
 
 
+def _migrate_role_permission_set_credit_terms(db: Session) -> None:
+    """khach_hang: thêm cột `role_permissions.can_set_credit_terms` (quyền THIẾT LẬP điều khoản
+    tín dụng khách — hạn mức + điều khoản thanh toán). Chỉ ADD COLUMN DEFAULT FALSE — quyền cho
+    vai Giám đốc/Kế toán trưởng do seed_roles tự upsert lại mỗi lần khởi động (không cần backfill).
+    No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_set_credit_terms" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_set_credit_terms BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
+def _migrate_customer_kind_and_pricing_bounds(db: Session) -> None:
+    """Redesign khách hàng spec-06 v2: thêm `customers.customer_kind` (cá nhân/công ty, khách
+    cũ mặc định 'cong_ty') + rào chiết khấu/biên min–max (4 cột FLOAT, NULL = chưa đặt).
+    Chỉ ADD COLUMN. No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "customers" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "customers")
+    if "customer_kind" not in cols:
+        db.execute(text(
+            "ALTER TABLE customers ADD COLUMN customer_kind VARCHAR(12) NOT NULL DEFAULT 'cong_ty'"
+        ))
+    for col in ("discount_min_pct", "discount_max_pct", "margin_min_pct", "margin_max_pct"):
+        if col not in cols:
+            db.execute(text(f"ALTER TABLE customers ADD COLUMN {col} FLOAT"))
+    db.commit()
+
+
 def _migrate_quote_phieu_tinh_gia_link(db: Session) -> None:
     """BG-1: Báo giá dựng lại nguồn từ Phiếu tính giá (PTG). Thêm cột SOFT-link (plain int):
     `quotes.phieu_tinh_gia_id` + `quote_items.phieu_thanh_phan_id`. No-op DB fresh / bảng chưa có."""
@@ -1565,6 +1598,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0055_ptg_created_by", _migrate_ptg_created_by),
     ("0056_cong_doan_size_tiers", _migrate_cong_doan_size_tiers),
     ("0057_cong_doan_bu_hao_ref", _migrate_cong_doan_bu_hao_ref),
+    ("0059_role_permission_set_credit_terms", _migrate_role_permission_set_credit_terms),
+    ("0060_customer_kind_and_pricing_bounds", _migrate_customer_kind_and_pricing_bounds),
 ]
 
 

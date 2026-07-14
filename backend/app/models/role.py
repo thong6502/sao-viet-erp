@@ -157,3 +157,12 @@ class RolePermission(Base):
     can_approve_exception: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # khach_hang: THIẾT LẬP CHÍNH SÁCH TÀI CHÍNH khách (redesign spec-06 v2 — mở rộng từ
+    # "điều khoản tín dụng"): hạn mức công nợ + điều khoản thanh toán + chiết khấu min/max +
+    # biên lợi nhuận min/max. Mọi số tài chính AI CŨNG XEM; chỉ quyền này mới SỬA. Quyết định
+    # "cho nợ/chiết khấu bao nhiêu" bàn NGOÀI ĐỜI — quyền chỉ gate AI được NHẬP, KHÔNG phải
+    # bước duyệt. Thiếu quyền → các field tài chính bị BỎ QUA khi ghi (giữ nguyên / default
+    # an toàn). Mặc định tắt.
+    can_set_credit_terms: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

@@ -165,6 +165,7 @@ gets on that module.
 | `can_edit_salary` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su) — SỬA dữ liệu nhạy cảm của hồ sơ (lương/BHXH/bank/nhóm-bậc lương), tách khỏi `can_view_salary` (chỉ xem). Thiếu quyền → các field đó bị BỎ QUA khi ghi (N5). Thêm qua migration 0041. |
 | `can_adjust` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su · Chấm công) — chấm bù / sửa công qua punch nguồn (`attendance_logs.is_manual`), tách khỏi `can_update`. Thêm qua migration 0015. |
 | `can_approve_exception` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (don_hang_ban · A2) — DUYỆT "đơn đặc thù" (giá trị cao / biên thấp / dưới giá vốn), tách khỏi `can_approve` (= chốt đơn thường). CHỈ Giám đốc; Trưởng phòng KD giữ `_full` nhưng KHÔNG có quyền này. Thêm qua migration 0050. |
+| `can_set_credit_terms` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (khach_hang) — THIẾT LẬP **chính sách tài chính** khách: hạn mức công nợ + điều khoản thanh toán + **chiết khấu min/max + biên lợi nhuận min/max** (redesign spec-06 v2 mở rộng nghĩa từ "điều khoản tín dụng"). Mọi số tài chính ai cũng XEM; chỉ quyền này mới SỬA. Quyết định "cho nợ/chiết khấu bao nhiêu" bàn NGOÀI ĐỜI — quyền chỉ gate ai NHẬP, KHÔNG phải bước duyệt. Thiếu quyền → các field tài chính bị BỎ QUA khi ghi (giữ nguyên / về default an toàn). Bật qua `_full` (GĐ/GĐ KD/TP KD). Thêm qua migration 0059. |
 
 **Keys & indexes**
 
@@ -251,13 +252,18 @@ and is read via SEAM-16, never stored here.
 | `contact_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người liên hệ tại khách (CRM field). |
 | `credit_limit` | `Integer` → `INTEGER` | — | no | `0` | Hạn mức tín dụng (VND integer). Limit only; live balance is read via SEAM-16. |
 | `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Owning Sale (RBAC scope owner). Nullable; indexed because every scoped list filters on it. |
-| `status` | `String(16)` → `VARCHAR(16)` | — | no | `active` | `lead` = tiềm năng (chào hàng, chưa giao dịch — khảo sát #22), `active` = đang giao dịch, `inactive` = ngừng giao dịch. |
+| `status` | `String(16)` → `VARCHAR(16)` | — | no | `active` | **DORMANT (redesign spec-06 v2)** — lead/active/inactive đã bỏ khỏi UI + logic; cột giữ default `active` cho dữ liệu cũ, không dùng cho nghiệp vụ mới. |
+| `customer_kind` | `String(12)` → `VARCHAR(12)` | — | no | `cong_ty` | Loại KH (redesign spec-06 v2): `ca_nhan` (cá nhân — form ẩn MST) / `cong_ty` (doanh nghiệp — hiện MST, tùy chọn). Khách cũ mặc định `cong_ty`. Thêm qua migration 0060. |
 | `payment_term_type` | `String(24)` → `VARCHAR(24)` | — | yes | — | Điều khoản thanh toán riêng (#12, dữ liệu chờ Công nợ): `prepay` / `net_delivery` / `net_eom` / `custom`; NULL = chưa khai. |
 | `payment_term_days` | `Integer` → `INTEGER` | — | yes | — | Số ngày công nợ (chỉ có nghĩa với `net_delivery` / `net_eom`). |
 | `prepay_pct` | `Float` → `FLOAT` | — | yes | — | Tỷ lệ trả trước % (chỉ có nghĩa với `prepay`). |
 | `payment_term_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú điều khoản (bắt buộc mô tả khi `custom`). |
-| `discount_trade_pct` | `Float` → `FLOAT` | — | yes | — | CK thương mại mặc định cho công ty khách (#14) — default điền sẵn ở Báo giá, KHÔNG nằm trong engine tính giá. Ẩn sau quyền chi tiết `view_discount`. |
-| `discount_buyer_pct` | `Float` → `FLOAT` | — | yes | — | CK cho người mua hàng của khách (#14 — nhạy cảm). Ẩn sau quyền chi tiết `view_discount`; NULL = chưa khai (không phải 0 giả). |
+| `discount_trade_pct` | `Float` → `FLOAT` | — | yes | — | **DORMANT (redesign spec-06 v2)** — "CK mặc định" đã bỏ, thay bằng rào `discount_min/max_pct`. Cột giữ lại, không dùng. |
+| `discount_buyer_pct` | `Float` → `FLOAT` | — | yes | — | **DORMANT (redesign spec-06 v2)** — như trên. Cột giữ lại, không dùng. |
+| `discount_min_pct` | `Float` → `FLOAT` | — | yes | — | Sàn chiết khấu cho phép (%) — rào chắn báo giá (redesign spec-06 v2). % ∈ [0,100], `min ≤ max`; NULL = chưa đặt. Sửa cần `set_credit_terms`. Thêm qua migration 0060. |
+| `discount_max_pct` | `Float` → `FLOAT` | — | yes | — | Trần chiết khấu cho phép (%). Thêm qua migration 0060. |
+| `margin_min_pct` | `Float` → `FLOAT` | — | yes | — | Sàn biên lợi nhuận yêu cầu (%). Thêm qua migration 0060. |
+| `margin_max_pct` | `Float` → `FLOAT` | — | yes | — | Trần biên lợi nhuận (%). Thêm qua migration 0060. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the customer row was created. |
 
 **Keys & indexes**

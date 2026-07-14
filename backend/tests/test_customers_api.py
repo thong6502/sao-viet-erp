@@ -135,26 +135,7 @@ def test_list_q_filters(client):
                for c in body["items"]) or body["total"] >= 1
 
 
-def test_list_status_filter(client):
-    token = _admin_token(client)
-    cid = client.post(
-        "/api/customers", json={"name": "KH Status", "credit_limit": 0}, headers=_h(token)
-    ).json()["customer"]["id"]
-    # New customer defaults to active.
-    act = client.get("/api/customers?status=active", headers=_h(token)).json()
-    assert any(c["id"] == cid for c in act["items"])
-    inact = client.get("/api/customers?status=inactive", headers=_h(token)).json()
-    assert all(c["id"] != cid for c in inact["items"])
-    # Switch to inactive → now only the inactive filter shows it.
-    client.put(
-        f"/api/customers/{cid}",
-        json={"name": "KH Status", "credit_limit": 0, "status": "inactive"},
-        headers=_h(token),
-    )
-    inact2 = client.get("/api/customers?status=inactive", headers=_h(token)).json()
-    assert any(c["id"] == cid for c in inact2["items"])
-    act2 = client.get("/api/customers?status=active", headers=_h(token)).json()
-    assert all(c["id"] != cid for c in act2["items"])
+# Redesign spec-06 v2: lọc theo Trạng thái đã BỎ (status dormant) → test cũ gỡ.
 
 
 # --- KH-02 create ----------------------------------------------------------
@@ -198,10 +179,14 @@ def test_create_blank_mst_is_valid(client):
     assert resp.json()["customer"]["tax_code"] is None
 
 
-def test_create_negative_limit_422(client):
+def test_negative_limit_422(client):
+    """Redesign spec-06 v2: hạn mức đặt qua /financial; hạn mức âm → 422."""
     token = _admin_token(client)
-    resp = client.post(
-        "/api/customers", json={"name": "X", "credit_limit": -5}, headers=_h(token)
+    cid = client.post(
+        "/api/customers", json={"name": "X"}, headers=_h(token)
+    ).json()["customer"]["id"]
+    resp = client.put(
+        f"/api/customers/{cid}/financial", json={"credit_limit": -5}, headers=_h(token)
     )
     assert resp.status_code == 422
 
@@ -241,7 +226,7 @@ def test_detail_and_update_readonly_code_and_audit(client):
     token = _admin_token(client)
     created = client.post(
         "/api/customers",
-        json={"name": "Sửa Tôi", "credit_limit": 1000},
+        json={"name": "Sửa Tôi"},
         headers=_h(token),
     ).json()["customer"]
     cid = created["id"]
@@ -251,19 +236,24 @@ def test_detail_and_update_readonly_code_and_audit(client):
     assert detail.status_code == 200
     assert detail.json()["customer"]["code"] == created["code"]
 
-    # update credit_limit → audit records before→after
+    # update ĐỊNH DANH (đổi tên) → code giữ nguyên (read-only) + audit ghi.
     upd = client.put(
         f"/api/customers/{cid}",
-        json={"name": "Sửa Tôi", "credit_limit": 9999, "status": "inactive"},
+        json={"name": "Sửa Tôi 2"},
         headers=_h(token),
     )
     assert upd.status_code == 200
-    assert upd.json()["customer"]["credit_limit"] == 9999
-    assert upd.json()["customer"]["status"] == "inactive"
-    # code unchanged (read-only)
+    assert upd.json()["customer"]["name"] == "Sửa Tôi 2"
     assert upd.json()["customer"]["code"] == created["code"]
-    detail2 = _last_audit("update_customer")
-    assert detail2 is not None and "1000" in detail2 and "9999" in detail2
+    # hạn mức đổi qua endpoint TÀI CHÍNH riêng (redesign spec-06 v2).
+    fin = client.put(
+        f"/api/customers/{cid}/financial",
+        json={"credit_limit": 9999},
+        headers=_h(token),
+    )
+    assert fin.status_code == 200
+    assert fin.json()["customer"]["credit_limit"] == 9999
+    assert _last_audit("update_customer") is not None
 
 
 def test_sale_own_cannot_open_other_sales_customer(client):
@@ -301,9 +291,14 @@ def test_detail_receivable_card_unavailable_no_fake_zero(client):
     """SEAM-16 not built → card available=False + message, balance None (NOT 0)."""
     token = _admin_token(client)
     created = client.post(
-        "/api/customers", json={"name": "Có Thẻ Công Nợ", "credit_limit": 5000},
+        "/api/customers", json={"name": "Có Thẻ Công Nợ"},
         headers=_h(token),
     ).json()["customer"]
+    # Hạn mức đặt qua endpoint tài chính riêng.
+    client.put(
+        f"/api/customers/{created['id']}/financial", json={"credit_limit": 5000},
+        headers=_h(token),
+    )
     detail = client.get(f"/api/customers/{created['id']}", headers=_h(token)).json()
     card = detail["receivable"]
     assert card["available"] is False

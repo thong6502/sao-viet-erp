@@ -26,10 +26,10 @@ from ..models.customer import (
     CARE_KINDS,
     CARE_TASK_STATUSES,
     CUSTOMER_DOC_KINDS,
-    CUSTOMER_STATUSES,
+    CUSTOMER_KINDS,
     DOC_KHAC,
+    KIND_CONG_TY,
     PAYMENT_TERM_TYPES,
-    STATUS_ACTIVE,
     TASK_CANCELLED,
     TASK_DONE,
     TASK_OPEN,
@@ -131,13 +131,6 @@ class CustomerService:
         return credit_limit
 
     @staticmethod
-    def _validate_status(status: str | None) -> str:
-        status = (status or STATUS_ACTIVE).strip()
-        if status not in CUSTOMER_STATUSES:
-            raise CustomerValidationError("Trạng thái không hợp lệ.")
-        return status
-
-    @staticmethod
     def _validate_pct(value: float | None, label: str) -> float | None:
         if value is None:
             return None
@@ -183,6 +176,36 @@ class CustomerService:
             payment_term_days=days if term_type in ("net_delivery", "net_eom") else None,
             prepay_pct=pct if term_type == "prepay" else None,
             payment_term_note=_clean(payment_term_note),
+        )
+
+    @staticmethod
+    def _validate_kind(kind: str | None) -> str:
+        """Loại KH (redesign spec-06 v2). None/rỗng → mặc định 'cong_ty'."""
+        kind = (kind or KIND_CONG_TY).strip()
+        if kind not in CUSTOMER_KINDS:
+            raise CustomerValidationError("Loại khách hàng không hợp lệ.")
+        return kind
+
+    def _validate_bounds(
+        self,
+        *,
+        discount_min_pct: float | None,
+        discount_max_pct: float | None,
+        margin_min_pct: float | None,
+        margin_max_pct: float | None,
+    ) -> dict:
+        """Rào chiết khấu/biên (spec-06 v2): mỗi % ∈ [0,100], min ≤ max; None = chưa đặt."""
+        dmin = self._validate_pct(discount_min_pct, "Chiết khấu tối thiểu")
+        dmax = self._validate_pct(discount_max_pct, "Chiết khấu tối đa")
+        mmin = self._validate_pct(margin_min_pct, "Biên lợi nhuận tối thiểu")
+        mmax = self._validate_pct(margin_max_pct, "Biên lợi nhuận tối đa")
+        if dmin is not None and dmax is not None and dmin > dmax:
+            raise CustomerValidationError("Chiết khấu tối thiểu không được lớn hơn tối đa.")
+        if mmin is not None and mmax is not None and mmin > mmax:
+            raise CustomerValidationError("Biên lợi nhuận tối thiểu không được lớn hơn tối đa.")
+        return dict(
+            discount_min_pct=dmin, discount_max_pct=dmax,
+            margin_min_pct=mmin, margin_max_pct=mmax,
         )
 
     # --- reads --------------------------------------------------------------
@@ -248,37 +271,16 @@ class CustomerService:
         email: str | None,
         address: str | None,
         contact_name: str | None,
-        credit_limit: int | None,
         sale_user_id: int | None,
         actor,
-        status: str | None = None,
-        payment_term_type: str | None = None,
-        payment_term_days: int | None = None,
-        prepay_pct: float | None = None,
-        payment_term_note: str | None = None,
-        discount_trade_pct: float | None = None,
-        discount_buyer_pct: float | None = None,
-        allow_discount: bool = False,
+        customer_kind: str | None = None,
     ) -> tuple[Customer, list[tuple[str, Customer]]]:
-        """Create a customer. Returns (customer, duplicates) — duplicates là cảnh báo
-        MỀM theo MST + tên cty + email (#8/#15): vẫn tạo, UI cảnh báo + link (§34 L885).
-        `allow_discount=False` (thiếu quyền `view_discount`) → 2 trường chiết khấu bị
-        BỎ QUA (không phải lỗi), tránh né quyền qua create."""
+        """Create a customer (THÔNG TIN ĐỊNH DANH). Chính sách tài chính về default an toàn
+        (credit_limit=0, chưa khai điều khoản, chưa đặt rào) — đặt sau qua `update_financial`.
+        Returns (customer, duplicates) — trùng MST/tên/email = cảnh báo MỀM, vẫn tạo (§34)."""
         name = self._validate_name(name)
         tax_code = self._validate_tax_code(tax_code)
-        credit_limit = self._validate_credit_limit(credit_limit)
-        status = self._validate_status(status)
-        terms = self._validate_payment_terms(
-            payment_term_type=payment_term_type,
-            payment_term_days=payment_term_days,
-            prepay_pct=prepay_pct,
-            payment_term_note=payment_term_note,
-        )
-        if allow_discount:
-            trade = self._validate_pct(discount_trade_pct, "Chiết khấu thương mại")
-            buyer = self._validate_pct(discount_buyer_pct, "Chiết khấu người mua hàng")
-        else:
-            trade = buyer = None
+        kind = self._validate_kind(customer_kind)
         # Default owning Sale = the acting user (spec-06 KH-02).
         if sale_user_id is None:
             sale_user_id = actor.id
@@ -295,12 +297,9 @@ class CustomerService:
             email=email_clean,
             address=_clean(address),
             contact_name=_clean(contact_name),
-            credit_limit=credit_limit,
+            credit_limit=0,  # default an toàn; đặt qua /financial
             sale_user_id=sale_user_id,
-            status=status,
-            discount_trade_pct=trade,
-            discount_buyer_pct=buyer,
-            **terms,
+            customer_kind=kind,
         )
         self.audit.create(
             actor_user_id=actor.id,
@@ -395,51 +394,18 @@ class CustomerService:
         email: str | None,
         address: str | None,
         contact_name: str | None,
-        credit_limit: int | None,
         sale_user_id: int | None,
-        status: str | None,
+        customer_kind: str | None = None,
         allow_reassign: bool = True,
-        payment_term_type: str | None = None,
-        payment_term_days: int | None = None,
-        prepay_pct: float | None = None,
-        payment_term_note: str | None = None,
-        discount_trade_pct: float | None = None,
-        discount_buyer_pct: float | None = None,
-        allow_discount: bool = False,
     ) -> tuple[Customer, list[tuple[str, Customer]]]:
-        """Update every field except the code. Records a before→after audit line for
-        Sale-owner, credit-limit and discount changes. Returns (customer, duplicates).
-
-        Đổi NV phụ trách là quyền chi tiết `reassign` — thiếu `allow_reassign` thì
-        sale_user_id phải giữ nguyên, tránh né quyền Điều chuyển qua nút Sửa. Tương tự,
-        thiếu `allow_discount` thì 2 trường chiết khấu GIỮ NGUYÊN giá trị cũ."""
+        """Update THÔNG TIN ĐỊNH DANH (không đụng chính sách tài chính — sửa qua
+        `update_financial`, endpoint riêng). Đổi NV phụ trách cần `allow_reassign` (quyền
+        `reassign`); thiếu → giữ nguyên sale (tránh né quyền qua nút Sửa)."""
         customer = self.get_customer(customer_id=customer_id, scope=scope, actor=actor)
 
         name = self._validate_name(name)
         tax_code = self._validate_tax_code(tax_code)
-        credit_limit = self._validate_credit_limit(credit_limit)
-        status = self._validate_status(status)
-        terms = self._validate_payment_terms(
-            payment_term_type=payment_term_type,
-            payment_term_days=payment_term_days,
-            prepay_pct=prepay_pct,
-            payment_term_note=payment_term_note,
-        )
-        if allow_discount:
-            # None = GIỮ NGUYÊN (tránh PUT thiếu trường xóa nhầm CK); xóa CK → gửi 0.
-            trade = (
-                customer.discount_trade_pct
-                if discount_trade_pct is None
-                else self._validate_pct(discount_trade_pct, "Chiết khấu thương mại")
-            )
-            buyer = (
-                customer.discount_buyer_pct
-                if discount_buyer_pct is None
-                else self._validate_pct(discount_buyer_pct, "Chiết khấu người mua hàng")
-            )
-        else:
-            trade = customer.discount_trade_pct
-            buyer = customer.discount_buyer_pct
+        kind = self._validate_kind(customer_kind)
         if sale_user_id is None:
             sale_user_id = customer.sale_user_id
         if sale_user_id != customer.sale_user_id and not allow_reassign:
@@ -453,9 +419,6 @@ class CustomerService:
         )
 
         old_sale = customer.sale_user_id
-        old_limit = customer.credit_limit
-        old_trade, old_buyer = customer.discount_trade_pct, customer.discount_buyer_pct
-
         self.customers.update(
             customer,
             name=name,
@@ -464,21 +427,13 @@ class CustomerService:
             email=email_clean,
             address=_clean(address),
             contact_name=_clean(contact_name),
-            credit_limit=credit_limit,
             sale_user_id=sale_user_id,
-            status=status,
-            discount_trade_pct=trade,
-            discount_buyer_pct=buyer,
-            **terms,
+            customer_kind=kind,
         )
 
         changes: list[str] = []
         if old_sale != sale_user_id:
             changes.append(f"Sale {old_sale}→{sale_user_id}")
-        if old_limit != credit_limit:
-            changes.append(f"hạn mức {old_limit}→{credit_limit}")
-        if (old_trade, old_buyer) != (trade, buyer):
-            changes.append(f"chiết khấu {old_trade}/{old_buyer}→{trade}/{buyer}")
         self.audit.create(
             actor_user_id=actor.id,
             action="update_customer",
@@ -486,6 +441,61 @@ class CustomerService:
             detail=f"{customer.code} " + ("; ".join(changes) if changes else "thông tin"),
         )
         return customer, duplicates
+
+    def update_financial(
+        self,
+        *,
+        customer_id: int,
+        scope: str,
+        actor,
+        credit_limit: int | None,
+        payment_term_type: str | None = None,
+        payment_term_days: int | None = None,
+        prepay_pct: float | None = None,
+        payment_term_note: str | None = None,
+        discount_min_pct: float | None = None,
+        discount_max_pct: float | None = None,
+        margin_min_pct: float | None = None,
+        margin_max_pct: float | None = None,
+    ) -> Customer:
+        """Ghi ĐẦY ĐỦ chính sách tài chính (hạn mức + điều khoản + rào chiết khấu/biên) —
+        redesign spec-06 v2. Router chỉ gọi khi caller có quyền `set_credit_terms` (chặn 403
+        nếu thiếu). Ghi cả nhóm nên None = "chưa khai/chưa đặt rào" (không phải giữ-nguyên)."""
+        customer = self.get_customer(customer_id=customer_id, scope=scope, actor=actor)
+        credit_limit = self._validate_credit_limit(credit_limit)
+        terms = self._validate_payment_terms(
+            payment_term_type=payment_term_type,
+            payment_term_days=payment_term_days,
+            prepay_pct=prepay_pct,
+            payment_term_note=payment_term_note,
+        )
+        bounds = self._validate_bounds(
+            discount_min_pct=discount_min_pct, discount_max_pct=discount_max_pct,
+            margin_min_pct=margin_min_pct, margin_max_pct=margin_max_pct,
+        )
+        old = (
+            customer.credit_limit,
+            customer.payment_term_type, customer.payment_term_days,
+            customer.prepay_pct, customer.payment_term_note,
+            customer.discount_min_pct, customer.discount_max_pct,
+            customer.margin_min_pct, customer.margin_max_pct,
+        )
+        self.customers.update(customer, credit_limit=credit_limit, **terms, **bounds)
+        new = (
+            credit_limit,
+            terms["payment_term_type"], terms["payment_term_days"],
+            terms["prepay_pct"], terms["payment_term_note"],
+            bounds["discount_min_pct"], bounds["discount_max_pct"],
+            bounds["margin_min_pct"], bounds["margin_max_pct"],
+        )
+        if old != new:
+            self.audit.create(
+                actor_user_id=actor.id,
+                action="update_customer",
+                target=f"customer:{customer.id}",
+                detail=f"{customer.code} chính sách tài chính",
+            )
+        return customer
 
     # --- người liên hệ / địa chỉ giao hàng / tài liệu (#9–#11, #21) -----------
 
@@ -775,38 +785,36 @@ class CustomerService:
     # --- import CSV (#23) -----------------------------------------------------
 
     # Cột file import (header tiếng Việt, khớp file mẫu /api/customers/import-template.csv).
+    # Redesign spec-06 v2: bỏ Trạng thái + Hạn mức (chính sách tài chính đặt riêng, gated);
+    # thêm Loại. Import chỉ nạp thông tin ĐỊNH DANH.
     IMPORT_COLUMNS = {
         "tên khách hàng": "name",
+        "loại": "customer_kind",
         "mst": "tax_code",
         "điện thoại": "phone",
         "email": "email",
         "địa chỉ": "address",
         "người liên hệ": "contact_name",
-        "hạn mức (vnd)": "credit_limit",
-        "trạng thái": "status",
     }
-    _IMPORT_STATUS = {"tiềm năng": "lead", "đang giao dịch": "active", "ngừng giao dịch": "inactive"}
 
     def import_rows(
         self, *, rows: list[dict], actor, dry_run: bool
     ) -> list[tuple[int, str, str | None, Customer | None]]:
         """Import danh bạ từ các dòng đã parse (khảo sát #23 — ~2.000 khách từ Excel).
         Mỗi dòng: validate như create; TRÙNG (MST/tên/email) = cảnh báo mềm nhưng VẪN
-        TẠO (nhất quán §34 — người dùng xem trước bằng dry_run rồi mới ghi).
+        TẠO (nhất quán §34 — người dùng xem trước bằng dry_run rồi mới ghi). Chỉ nạp thông
+        tin định danh — chính sách tài chính (hạn mức/điều khoản/rào) đặt riêng ở chi tiết.
         Trả về [(row_no, status, message, customer_or_None)]; dry_run → không ghi gì."""
         out: list[tuple[int, str, str | None, Customer | None]] = []
         for i, raw in enumerate(rows, start=1):
             name = (raw.get("name") or "").strip()
+            kind_label = (raw.get("customer_kind") or "").strip().lower()
+            kind = "ca_nhan" if kind_label in ("cá nhân", "ca nhan", "cá nhan") else KIND_CONG_TY
             try:
                 self._validate_name(name)
                 tax_code = self._validate_tax_code(raw.get("tax_code"))
-                limit_raw = (str(raw.get("credit_limit") or "")).replace(".", "").replace(",", "").strip()
-                credit_limit = self._validate_credit_limit(int(limit_raw) if limit_raw else 0)
-                status_label = (raw.get("status") or "").strip().lower()
-                status = self._IMPORT_STATUS.get(status_label, STATUS_ACTIVE) if status_label else STATUS_ACTIVE
-            except (CustomerValidationError, ValueError) as e:
-                msg = "Hạn mức không hợp lệ." if isinstance(e, ValueError) else str(e)
-                out.append((i, "error", msg, None))
+            except CustomerValidationError as e:
+                out.append((i, "error", str(e), None))
                 continue
 
             dups = self.customers.find_duplicates(
@@ -822,15 +830,14 @@ class CustomerService:
                 continue
             customer, _ = self.create_customer(
                 name=name,
+                customer_kind=kind,
                 tax_code=raw.get("tax_code"),
                 phone=raw.get("phone"),
                 email=raw.get("email"),
                 address=raw.get("address"),
                 contact_name=raw.get("contact_name"),
-                credit_limit=credit_limit,
                 sale_user_id=None,
                 actor=actor,
-                status=status,
             )
             out.append((i, "warning" if warn else "created", warn, customer))
         return out

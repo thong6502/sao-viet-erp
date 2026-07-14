@@ -280,6 +280,8 @@ export interface ModuleCapability {
   can_adjust: boolean;
   /** A2: don_hang_ban — GĐ duyệt "đơn đặc thù" (chỉ Giám đốc). */
   can_approve_exception: boolean;
+  /** khach_hang — thiết lập điều khoản tín dụng khách (hạn mức + điều khoản thanh toán). */
+  can_set_credit_terms: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -326,17 +328,19 @@ export interface PermissionRow {
   can_view_salary: boolean;
   can_adjust: boolean;
   can_approve_exception: boolean;
+  can_set_credit_terms: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 ----------------------------------------------
 
-/** Behavioural tier derived from real orders (never an invented master field). */
-export type CustomerTier = "new" | "loyal" | "partner" | "regular";
+/** Loại KH (redesign spec-06 v2): cá nhân (ẩn MST) / công ty (hiện MST). */
+export type CustomerKind = "ca_nhan" | "cong_ty";
 
 export interface CustomerRow {
   id: number;
   code: string;
   name: string;
+  customer_kind: CustomerKind;
   tax_code: string | null;
   phone: string | null;
   email?: string | null;
@@ -345,25 +349,23 @@ export interface CustomerRow {
   credit_limit: number;
   sale_user_id: number | null;
   sale_name: string | null;
-  status: string;
   created_at?: string | null;
   /** Công nợ chỉ-đọc: null + no_ar_module=true until Công nợ (SEAM-16) is built. */
   receivable: number | null;
   no_ar_module: boolean;
-  /** Derived from real orders. */
-  tier: CustomerTier;
+  /** Derived from real orders (số THẬT; redesign spec-06 v2 bỏ tier). */
   revenue_12m: number;
   orders_total: number;
   last_order_at: string | null;
-  /** Điều khoản thanh toán riêng (#12) — dữ liệu chờ Công nợ. */
+  /** Chính sách tài chính (ai cũng xem; sửa qua /financial, gate set_credit_terms). */
   payment_term_type?: string | null;
   payment_term_days?: number | null;
   prepay_pct?: number | null;
   payment_term_note?: string | null;
-  /** Chiết khấu riêng theo KH (#14) — null + discount_hidden khi thiếu quyền `view_discount`. */
-  discount_trade_pct?: number | null;
-  discount_buyer_pct?: number | null;
-  discount_hidden?: boolean;
+  discount_min_pct?: number | null;
+  discount_max_pct?: number | null;
+  margin_min_pct?: number | null;
+  margin_max_pct?: number | null;
   /** Nhãn thủ công (#7) — sales gán tay. */
   tags?: string[];
 }
@@ -371,10 +373,8 @@ export interface CustomerRow {
 /** List header KPI strip — rolled up over the whole scoped book from real orders. */
 export interface CustomerKpis {
   total_customers: number;
-  loyal_count: number;
   new_this_month: number;
   avg_order_value: number;
-  partner_count?: number;
   total_revenue?: number;
 }
 
@@ -413,7 +413,6 @@ export interface CustomerDashboard {
   win_rate_pct: number | null;
   first_order_at: string | null;
   last_order_at: string | null;
-  tier: CustomerTier;
   months: MonthPoint[];
   product_mix: ProductSlice[];
   heatmap: HeatCell[];
@@ -608,33 +607,35 @@ export interface SaleOption {
   name: string;
 }
 
+/** Form Thêm/Sửa — THÔNG TIN ĐỊNH DANH (redesign spec-06 v2). Không đụng tài chính. */
 export interface CustomerInput {
   name: string;
+  customer_kind: CustomerKind;
   tax_code: string | null;
-  phone: string | null;
+  phone?: string | null;
   email: string | null;
   address: string | null;
-  contact_name: string | null;
-  credit_limit: number;
+  contact_name?: string | null;
   sale_user_id: number | null;
-  /** lead = tiềm năng (#22), active, inactive. Create mặc định active nếu bỏ trống. */
-  status?: string;
-  /** Điều khoản thanh toán (#12). */
+}
+
+/** Chính sách tài chính — endpoint /financial (gate set_credit_terms). Ghi đầy đủ nhóm. */
+export interface CustomerFinancialInput {
+  credit_limit: number;
   payment_term_type?: string | null;
   payment_term_days?: number | null;
   prepay_pct?: number | null;
   payment_term_note?: string | null;
-  /** Chiết khấu (#14) — backend bỏ qua nếu thiếu quyền `view_discount`; khi Sửa,
-   * null = giữ nguyên (xóa CK → gửi 0). */
-  discount_trade_pct?: number | null;
-  discount_buyer_pct?: number | null;
+  discount_min_pct?: number | null;
+  discount_max_pct?: number | null;
+  margin_min_pct?: number | null;
+  margin_max_pct?: number | null;
 }
 
 export interface CustomerListParams {
   q?: string;
   sale?: number | null;
-  tier?: string | null;
-  status?: string | null;
+  followup?: boolean;
   tag?: string | null;
   sort?: string;
   page?: number;
@@ -4003,8 +4004,7 @@ export const api = {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.sale != null) qs.set("sale", String(params.sale));
-      if (params.tier) qs.set("tier", params.tier);
-      if (params.status) qs.set("status", params.status);
+      if (params.followup) qs.set("followup", "true");
       if (params.tag) qs.set("tag", params.tag);
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
@@ -4083,6 +4083,18 @@ export const api = {
     },
     update(token: string, id: number, input: CustomerInput): Promise<CustomerCreateOut> {
       return authed<CustomerCreateOut>(`/api/customers/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Sửa CHÍNH SÁCH TÀI CHÍNH (hạn mức + điều khoản + rào chiết khấu/biên) — endpoint
+     *  riêng, gate `set_credit_terms`. Trả detail (customer + receivable card). */
+    updateFinancial(
+      token: string,
+      id: number,
+      input: CustomerFinancialInput,
+    ): Promise<CustomerDetailOut> {
+      return authed<CustomerDetailOut>(`/api/customers/${id}/financial`, token, {
         method: "PUT",
         body: JSON.stringify(input),
       });

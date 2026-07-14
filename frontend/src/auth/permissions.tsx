@@ -31,7 +31,8 @@ export type PermAction =
   | "reparent"
   | "view_salary"
   | "adjust"
-  | "approve_exception";
+  | "approve_exception"
+  | "set_credit_terms";
 
 export type Capabilities = Map<string, ModuleCapability>;
 
@@ -86,6 +87,7 @@ export function PermissionsProvider({
     if (action === "view_salary") return row.can_view_salary;
     if (action === "adjust") return row.can_adjust;
     if (action === "approve_exception") return row.can_approve_exception;
+    if (action === "set_credit_terms") return row.can_set_credit_terms;
     return false;
   }
   function scopeOf(moduleKey: string): Scope | null {

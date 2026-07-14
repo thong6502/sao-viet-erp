@@ -1048,6 +1048,114 @@
   font-size: 12px;
   margin-top: 2px;
 }
+/* Điều khoản tín dụng khóa theo quyền `set_credit_terms` — chỉ-đọc rõ ràng (khác input
+   thường: nền ấm hơn + chữ mờ + không con trỏ nhập), tách khỏi cảm giác "disabled/forbidden". */
+.kh__field--locked .input {
+  background: var(--paper);
+  color: var(--ash);
+  cursor: default;
+}
+.kh__field--locked .input:focus-visible {
+  outline: none;
+  border-color: var(--rule);
+}
+.kh__lock-note {
+  grid-column: 1 / -1;
+  color: var(--ash-2);
+  font-size: 12px;
+  margin-top: -4px;
+}
+
+/* Segmented "Loại khách hàng" (Cá nhân / Công ty) — trạng thái active rõ ràng. */
+.kh__seg {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+}
+.kh__seg-btn {
+  flex: 1;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: calc(var(--r-2) - 3px);
+  background: transparent;
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--easing-standard), color var(--duration-base) var(--easing-standard);
+}
+.kh__seg-btn:hover {
+  color: var(--ink);
+}
+.kh__seg-btn.is-active {
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Card "Chính sách tài chính" (Dashboard chi tiết) — xem read-only + sửa inline. */
+.kh__finpolicy .kh__chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.kh__finpolicy-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+.kh__fin-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--rule);
+}
+.kh__fin-row:last-of-type {
+  border-bottom: 0;
+}
+.kh__fin-label {
+  color: var(--ash);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.kh__finpolicy-edit {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+  padding-top: 6px;
+}
+.kh__fin-wide {
+  grid-column: 1 / -1;
+}
+.kh__fin-bounds {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: var(--sp-3);
+  padding-top: 6px;
+  border-top: 1px dashed var(--rule);
+}
+.kh__fin-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  margin-top: 4px;
+}
+@media (max-width: 640px) {
+  .kh__finpolicy-edit,
+  .kh__fin-bounds {
+    grid-template-columns: 1fr;
+  }
+}
 .kh__dialog-actions {
   display: flex;
   justify-content: flex-end;

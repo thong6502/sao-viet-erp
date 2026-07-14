@@ -227,11 +227,11 @@ class CustomerRepository:
         contact_name: str | None,
         credit_limit: int,
         sale_user_id: int | None,
-        status: str,
         **extra,
     ) -> Customer:
-        """`extra` = các cột phụ đã được service validate (điều khoản thanh toán,
-        chiết khấu) — code vẫn luôn do repo tự sinh."""
+        """`extra` = các cột phụ đã được service validate (customer_kind, điều khoản thanh
+        toán, rào chiết khấu/biên) — code vẫn luôn do repo tự sinh. `status` (dormant) rơi
+        vào `extra` nếu caller cũ còn truyền; model default 'active' nếu không có."""
         customer = Customer(
             code=self._next_code(),
             name=name,
@@ -242,7 +242,6 @@ class CustomerRepository:
             contact_name=contact_name,
             credit_limit=credit_limit,
             sale_user_id=sale_user_id,
-            status=status,
             **extra,
         )
         self.db.add(customer)

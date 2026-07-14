@@ -62,35 +62,37 @@ def _create(client, token, **over) -> dict:
 # --- #12 điều khoản thanh toán ------------------------------------------------
 
 
-def test_create_with_payment_terms_and_lead_status(client):
-    body = _create(
-        client, _admin_token(client),
-        name="Cty Điều Khoản", status="lead",
-        payment_term_type="net_eom", payment_term_days=30,
-    )
-    c = body["customer"]
-    assert c["status"] == "lead"
+def test_create_kind_then_set_terms_via_financial(client):
+    """Redesign spec-06 v2: create chỉ ĐỊNH DANH (Loại); điều khoản đặt qua /financial riêng."""
+    token = _admin_token(client)
+    body = _create(client, token, name="Cty Điều Khoản", customer_kind="cong_ty")
+    cid = body["customer"]["id"]
+    assert body["customer"]["customer_kind"] == "cong_ty"
+    r = client.put(f"/api/customers/{cid}/financial", json={
+        "credit_limit": 0, "payment_term_type": "net_eom", "payment_term_days": 30,
+    }, headers=_h(token))
+    assert r.status_code == 200, r.text
+    c = r.json()["customer"]
     assert c["payment_term_type"] == "net_eom"
     assert c["payment_term_days"] == 30
-    # Admin (full) thấy chiết khấu (chưa khai → None, không phải 0 giả) + không bị ẩn.
-    assert c["discount_hidden"] is False
 
 
 def test_payment_term_validation(client):
     token = _admin_token(client)
+    cid = _create(client, token, name="Cty PT")["customer"]["id"]
     # prepay thiếu tỷ lệ % → 422.
-    r = client.post("/api/customers", json={
-        "name": "Cty A", "payment_term_type": "prepay",
+    r = client.put(f"/api/customers/{cid}/financial", json={
+        "credit_limit": 0, "payment_term_type": "prepay",
     }, headers=_h(token))
     assert r.status_code == 422
     # net_delivery thiếu số ngày → 422.
-    r = client.post("/api/customers", json={
-        "name": "Cty B", "payment_term_type": "net_delivery",
+    r = client.put(f"/api/customers/{cid}/financial", json={
+        "credit_limit": 0, "payment_term_type": "net_delivery",
     }, headers=_h(token))
     assert r.status_code == 422
     # Kiểu mốc lạ → 422.
-    r = client.post("/api/customers", json={
-        "name": "Cty C", "payment_term_type": "whenever",
+    r = client.put(f"/api/customers/{cid}/financial", json={
+        "credit_limit": 0, "payment_term_type": "whenever",
     }, headers=_h(token))
     assert r.status_code == 422
 
@@ -137,40 +139,7 @@ def test_check_duplicate_endpoint(client):
 # --- #14 chiết khấu gate quyền ---------------------------------------------------
 
 
-def test_discount_hidden_and_update_ignored_without_permission(client):
-    _seed_demo()
-    admin = _admin_token(client)
-    body = _create(client, admin, name="Cty Chiết Khấu",
-                   discount_trade_pct=10, discount_buyer_pct=2.5)
-    cid = body["customer"]["id"]
-    assert body["customer"]["discount_trade_pct"] == 10
-
-    # NV Sales không có quyền chi tiết view_discount → số bị ẩn, không phải 0 giả.
-    db = SessionLocal()
-    try:
-        users = UserRepository(db)
-        admin_u = users.get_by_username("admin")
-        # Gán khách cho sale1 để scope own nhìn thấy.
-        sale1 = users.get_by_username("sale1")
-    finally:
-        db.close()
-    client.put(f"/api/customers/{cid}", json={
-        "name": "Cty Chiết Khấu", "sale_user_id": sale1.id,
-    }, headers=_h(admin))
-
-    sale_token = create_access_token(str(sale1.id))
-    detail = client.get(f"/api/customers/{cid}", headers=_h(sale_token)).json()
-    assert detail["customer"]["discount_hidden"] is True
-    assert detail["customer"]["discount_trade_pct"] is None
-
-    # PUT của sale kèm chiết khấu → bị BỎ QUA (giữ 10/2.5), không phải lỗi.
-    r = client.put(f"/api/customers/{cid}", json={
-        "name": "Cty Chiết Khấu", "discount_trade_pct": 99, "discount_buyer_pct": 99,
-    }, headers=_h(sale_token))
-    assert r.status_code == 200
-    after = client.get(f"/api/customers/{cid}", headers=_h(admin)).json()
-    assert after["customer"]["discount_trade_pct"] == 10
-    assert after["customer"]["discount_buyer_pct"] == 2.5
+# Rào chiết khấu/biên + gate /financial: xem test_credit_terms_gate.py (đầy đủ).
 
 
 # --- #10/#11 người liên hệ + #9 địa chỉ giao hàng -----------------------------------
@@ -262,10 +231,10 @@ def test_attachment_upload_and_delete(client):
 
 
 _CSV = (
-    "Tên khách hàng,MST,Điện thoại,Email,Địa chỉ,Người liên hệ,Hạn mức (VND),Trạng thái\n"
-    "Cty Import Một,0101234567,0911,imp1@x.vn,HN,Anh A,100000000,Đang giao dịch\n"
-    "Cty Import Hai,,0912,,HCM,,50000000,Tiềm năng\n"
-    ",0100000000,,,,,,\n"  # thiếu tên → error
+    "Tên khách hàng,Loại,MST,Điện thoại,Email,Địa chỉ,Người liên hệ\n"
+    "Cty Import Một,Công ty,0101234567,0911,imp1@x.vn,HN,Anh A\n"
+    "Cty Import Hai,Cá nhân,,0912,,HCM,\n"
+    ",Công ty,0100000000,,,,\n"  # thiếu tên → error
 )
 
 
@@ -294,25 +263,25 @@ def test_import_dry_run_then_commit(client):
     assert body["created"] == 2 and body["errors"] == 1
     after = client.get("/api/customers", headers=_h(token)).json()["total"]
     assert after == before + 2
-    # Trạng thái tiếng Việt map đúng (Tiềm năng → lead).
-    leads = client.get(
-        "/api/customers", params={"status": "lead"}, headers=_h(token)
-    ).json()
-    assert any(c["name"] == "Cty Import Hai" for c in leads["items"])
+    # Import chỉ nạp ĐỊNH DANH; Loại tiếng Việt map đúng (Cá nhân → ca_nhan).
+    listing = client.get("/api/customers?size=200", headers=_h(token)).json()
+    hai = next((c for c in listing["items"] if c["name"] == "Cty Import Hai"), None)
+    assert hai is not None and hai["customer_kind"] == "ca_nhan"
 
 
 def test_import_template_and_export(client):
     token = _admin_token(client)
     r = client.get("/api/customers/import-template.csv", headers=_h(token))
     assert r.status_code == 200
-    assert "Tên khách hàng" in r.content.decode("utf-8-sig")
+    tmpl = r.content.decode("utf-8-sig")
+    assert "Tên khách hàng" in tmpl and "Loại" in tmpl
 
-    _create(client, token, name="Cty Xuất File", discount_trade_pct=7)
+    _create(client, token, name="Cty Xuất File", discount_max_pct=8)
     r = client.get("/api/customers/export.csv", headers=_h(token))
     assert r.status_code == 200
     text = r.content.decode("utf-8-sig")
-    # Admin có view_discount → cột chiết khấu xuất hiện kèm số thật.
-    assert "CK thương mại (%)" in text and "Cty Xuất File" in text
+    # Redesign spec-06 v2: export có cột rào chiết khấu/biên (ai cũng xem).
+    assert "CK tối đa (%)" in text and "Cty Xuất File" in text
 
 
 # --- #26 scope department = subtree -------------------------------------------------

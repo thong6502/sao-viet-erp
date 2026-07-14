@@ -62,6 +62,7 @@ from ..schemas.customer import (
     CustomerCreateOut,
     CustomerDashboardOut,
     CustomerDetailOut,
+    CustomerFinancialIn,
     CustomerKpis,
     CustomerListOut,
     CustomerReassignIn,
@@ -121,9 +122,10 @@ def _row(
     sale_names: dict[int, str],
     stat: CustomerStat | None = None,
     *,
-    show_discount: bool = False,
     tags: list[str] | None = None,
 ) -> CustomerRow:
+    # customer_kind + rào chiết khấu/biên + điều khoản tự nạp từ ORM (from_attributes).
+    # Redesign spec-06 v2: mọi số tài chính AI CŨNG XEM (không ẩn); bỏ tier.
     row = CustomerRow.model_validate(customer)
     row.tags = tags or []
     if customer.sale_user_id is not None:
@@ -131,15 +133,8 @@ def _row(
     # Công nợ chỉ-đọc: chưa build → None + no_ar_module=True (KHÔNG số 0 giả).
     row.receivable = None
     row.no_ar_module = True
-    # Chiết khấu riêng theo KH (#14) là dữ liệu nhạy cảm — thiếu quyền chi tiết
-    # `view_discount` thì ẨN (None + discount_hidden), không bao giờ trả 0 giả.
-    if not show_discount:
-        row.discount_trade_pct = None
-        row.discount_buyer_pct = None
-        row.discount_hidden = True
     # Derived-from-real-orders fields (default honest zeros when no history).
     if stat is not None:
-        row.tier = stat.tier
         row.revenue_12m = stat.revenue_12m
         row.orders_total = stat.orders_total
         row.last_order_at = stat.last_order_at
@@ -172,16 +167,14 @@ def list_customers(
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
     sale: int | None = Query(default=None),
-    tier: str | None = Query(default=None),
-    status: str | None = Query(default=None),
+    followup: bool = Query(default=False),
     tag: str | None = Query(default=None),
     sort: str = Query(default="code"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> CustomerListOut:
-    """Danh bạ + KPI header. Every derived number (tier/LTV/#đơn) và mọi KPI được tính từ
-    ĐƠN HÀNG THẬT (feat CRM-360). Filter/sort/paginate over the scoped book so the header
-    reflects the whole book and the tier filter/derived sort are correct."""
+    """Danh bạ + KPI header. Số dẫn xuất (doanh số/#đơn) + KPI tính từ ĐƠN HÀNG THẬT.
+    Redesign spec-06 v2: bỏ lọc theo tier/trạng thái; lọc theo THẺ gán tay + "Cần theo dõi"."""
     scope = _scope_for(authz, user)
     book = svc.list_scoped_all(scope=scope, actor=user)
     stats = analytics.list_stats(book)
@@ -199,14 +192,10 @@ def list_customers(
         ]
     if sale is not None:
         filtered = [c for c in filtered if c.sale_user_id == sale]
-    if tier == "followup":
+    if followup:  # tab "Cần theo dõi" — việc chăm sóc đến/quá hạn (số thật, care-task)
         due_followups = svc.list_due_followups(scope=scope, actor=user)
         followup_customer_ids = {c.id for _, c, _, _ in due_followups}
         filtered = [c for c in filtered if c.id in followup_customer_ids]
-    elif tier:
-        filtered = [c for c in filtered if stats.per_customer[c.id].tier == tier]
-    if status in ("lead", "active", "inactive"):
-        filtered = [c for c in filtered if c.status == status]
     if tag and tag.strip():
         # Lọc theo nhãn thủ công (#7) — case-insensitive.
         tagged_ids = svc.customers.ids_with_label(tag)
@@ -236,14 +225,10 @@ def list_customers(
 
     sale_ids = {c.sale_user_id for c in page_rows if c.sale_user_id is not None}
     names = _sale_names(users, sale_ids)
-    show_disc = authz.can(user, MODULE, "view_discount")
     tag_map = svc.customers.tags_for([c.id for c in page_rows])
     return CustomerListOut(
         items=[
-            _row(
-                c, names, stats.per_customer.get(c.id),
-                show_discount=show_disc, tags=tag_map.get(c.id),
-            )
+            _row(c, names, stats.per_customer.get(c.id), tags=tag_map.get(c.id))
             for c in page_rows
         ],
         total=total,
@@ -251,10 +236,8 @@ def list_customers(
         size=size,
         kpis=CustomerKpis(
             total_customers=stats.total_customers,
-            loyal_count=stats.loyal_count,
             new_this_month=stats.new_this_month,
             avg_order_value=stats.avg_order_value,
-            partner_count=stats.partner_count,
             total_revenue=stats.total_revenue,
         ),
     )
@@ -483,10 +466,10 @@ def care_followups(
 
 # --- import / export danh bạ (#23) -------------------------------------------
 
-_EXPORT_STATUS_LABELS = {"lead": "Tiềm năng", "active": "Đang giao dịch", "inactive": "Ngừng giao dịch"}
+_KIND_LABELS = {"ca_nhan": "Cá nhân", "cong_ty": "Công ty"}
+# Redesign spec-06 v2: import chỉ nạp thông tin ĐỊNH DANH (bỏ Hạn mức/Trạng thái, thêm Loại).
 _IMPORT_HEADERS = [
-    "Tên khách hàng", "MST", "Điện thoại", "Email", "Địa chỉ",
-    "Người liên hệ", "Hạn mức (VND)", "Trạng thái",
+    "Tên khách hàng", "Loại", "MST", "Điện thoại", "Email", "Địa chỉ", "Người liên hệ",
 ]
 
 
@@ -512,30 +495,28 @@ def export_customers_csv(
     user: Annotated[User, Depends(require_permission(MODULE, "export"))],
 ) -> Response:
     """Xuất toàn bộ danh bạ trong scope của người gọi (CSV UTF-8 BOM mở bằng Excel).
-    Cột chiết khấu chỉ xuất khi có quyền chi tiết `view_discount`."""
+    Redesign spec-06 v2: định danh + chính sách tài chính (ai cũng xem); bỏ Trạng thái + CK cũ."""
     scope = _scope_for(authz, user)
     book = svc.list_scoped_all(scope=scope, actor=user)
     book.sort(key=lambda c: c.code)
-    show_disc = authz.can(user, MODULE, "view_discount")
     names = _sale_names(users, {c.sale_user_id for c in book if c.sale_user_id})
 
-    header = ["Mã KH", *_IMPORT_HEADERS, "NV phụ trách"]
-    if show_disc:
-        header += ["CK thương mại (%)", "CK người mua (%)"]
+    header = [
+        "Mã KH", *_IMPORT_HEADERS, "NV phụ trách", "Hạn mức (VND)",
+        "CK tối thiểu (%)", "CK tối đa (%)", "Biên tối thiểu (%)", "Biên tối đa (%)",
+    ]
     rows: list[list] = [header]
     for c in book:
-        row = [
-            c.code, c.name, c.tax_code or "", c.phone or "", c.email or "",
-            c.address or "", c.contact_name or "", c.credit_limit,
-            _EXPORT_STATUS_LABELS.get(c.status, c.status),
+        rows.append([
+            c.code, c.name, _KIND_LABELS.get(c.customer_kind, ""), c.tax_code or "",
+            c.phone or "", c.email or "", c.address or "", c.contact_name or "",
             names.get(c.sale_user_id, "") if c.sale_user_id else "",
-        ]
-        if show_disc:
-            row += [
-                c.discount_trade_pct if c.discount_trade_pct is not None else "",
-                c.discount_buyer_pct if c.discount_buyer_pct is not None else "",
-            ]
-        rows.append(row)
+            c.credit_limit,
+            c.discount_min_pct if c.discount_min_pct is not None else "",
+            c.discount_max_pct if c.discount_max_pct is not None else "",
+            c.margin_min_pct if c.margin_min_pct is not None else "",
+            c.margin_max_pct if c.margin_max_pct is not None else "",
+        ])
     return _csv_response(rows, "danh-ba-khach-hang.csv")
 
 
@@ -543,12 +524,12 @@ def export_customers_csv(
 def import_template_csv(
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> Response:
-    """File mẫu import (header tiếng Việt + 1 dòng ví dụ)."""
+    """File mẫu import (header tiếng Việt + 1 dòng ví dụ). Chỉ thông tin định danh."""
     return _csv_response(
         [
             _IMPORT_HEADERS,
-            ["Công ty TNHH ABC", "0101234567", "0912345678", "lienhe@abc.vn",
-             "Số 1 Phố X, Hà Nội", "Chị Lan", "200000000", "Đang giao dịch"],
+            ["Công ty TNHH ABC", "Công ty", "0101234567", "0912345678", "lienhe@abc.vn",
+             "Số 1 Phố X, Hà Nội", "Chị Lan"],
         ],
         "mau-import-khach-hang.csv",
     )
@@ -625,26 +606,17 @@ def create_customer(
     users: Users,
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> CustomerCreateOut:
-    show_disc = authz.can(user, MODULE, "view_discount")
     try:
         customer, duplicates = svc.create_customer(
             name=payload.name,
+            customer_kind=payload.customer_kind,
             tax_code=payload.tax_code,
             phone=payload.phone,
             email=payload.email,
             address=payload.address,
             contact_name=payload.contact_name,
-            credit_limit=payload.credit_limit,
             sale_user_id=payload.sale_user_id,
             actor=user,
-            status=payload.status,
-            payment_term_type=payload.payment_term_type,
-            payment_term_days=payload.payment_term_days,
-            prepay_pct=payload.prepay_pct,
-            payment_term_note=payload.payment_term_note,
-            discount_trade_pct=payload.discount_trade_pct,
-            discount_buyer_pct=payload.discount_buyer_pct,
-            allow_discount=show_disc,
         )
     except CustomerValidationError as e:
         raise HTTPException(
@@ -654,7 +626,7 @@ def create_customer(
         users, {customer.sale_user_id} if customer.sale_user_id else set()
     )
     return CustomerCreateOut(
-        customer=_row(customer, names, show_discount=show_disc),
+        customer=_row(customer, names),
         duplicate=_first_dup(duplicates),
         duplicates=_dup_warns(duplicates),
     )
@@ -677,11 +649,7 @@ def get_customer(
     stat = analytics.list_stats([customer]).per_customer.get(customer.id)
     tag_map = svc.customers.tags_for([customer.id])
     return CustomerDetailOut(
-        customer=_row(
-            customer, names, stat,
-            show_discount=authz.can(user, MODULE, "view_discount"),
-            tags=tag_map.get(customer.id),
-        ),
+        customer=_row(customer, names, stat, tags=tag_map.get(customer.id)),
         receivable=_receivable_card(
             svc, customer, can_view=authz.can(user, MODULE, "view_debt")
         ),
@@ -714,7 +682,6 @@ def customer_dashboard(
         win_rate_pct=d.win_rate_pct,
         first_order_at=d.first_order_at,
         last_order_at=d.last_order_at,
-        tier=d.tier,
         months=[MonthPointOut(**vars(m)) for m in d.months],
         product_mix=[ProductSliceOut(**vars(s)) for s in d.product_mix],
         heatmap=[HeatCellOut(**vars(h)) for h in d.heatmap],
@@ -919,29 +886,20 @@ def update_customer(
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> CustomerCreateOut:
     scope = _scope_for(authz, user)
-    show_disc = authz.can(user, MODULE, "view_discount")
     try:
         customer, duplicates = svc.update_customer(
             customer_id=customer_id,
             scope=scope,
             actor=user,
             name=payload.name,
+            customer_kind=payload.customer_kind,
             tax_code=payload.tax_code,
             phone=payload.phone,
             email=payload.email,
             address=payload.address,
             contact_name=payload.contact_name,
-            credit_limit=payload.credit_limit,
             sale_user_id=payload.sale_user_id,
-            status=payload.status,
             allow_reassign=authz.can(user, MODULE, "reassign"),
-            payment_term_type=payload.payment_term_type,
-            payment_term_days=payload.payment_term_days,
-            prepay_pct=payload.prepay_pct,
-            payment_term_note=payload.payment_term_note,
-            discount_trade_pct=payload.discount_trade_pct,
-            discount_buyer_pct=payload.discount_buyer_pct,
-            allow_discount=show_disc,
         )
     except ReassignForbidden as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
@@ -958,9 +916,64 @@ def update_customer(
         users, {customer.sale_user_id} if customer.sale_user_id else set()
     )
     return CustomerCreateOut(
-        customer=_row(customer, names, show_discount=show_disc),
+        customer=_row(customer, names),
         duplicate=_first_dup(duplicates),
         duplicates=_dup_warns(duplicates),
+    )
+
+
+@router.put("/{customer_id}/financial", response_model=CustomerDetailOut)
+def update_customer_financial(
+    customer_id: int,
+    payload: CustomerFinancialIn,
+    svc: Service,
+    analytics: Analytics,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> CustomerDetailOut:
+    """Sửa CHÍNH SÁCH TÀI CHÍNH khách (hạn mức + điều khoản + rào chiết khấu/biên) —
+    endpoint RIÊNG (redesign spec-06 v2), gate quyền chi tiết `set_credit_terms`. Ai cũng
+    XEM qua GET detail; chỉ quyền này mới SỬA (thiếu → 403, KHÔNG đụng field định danh)."""
+    if not authz.can(user, MODULE, "set_credit_terms"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền thiết lập chính sách tài chính khách hàng.",
+        )
+    scope = _scope_for(authz, user)
+    try:
+        customer = svc.update_financial(
+            customer_id=customer_id,
+            scope=scope,
+            actor=user,
+            credit_limit=payload.credit_limit,
+            payment_term_type=payload.payment_term_type,
+            payment_term_days=payload.payment_term_days,
+            prepay_pct=payload.prepay_pct,
+            payment_term_note=payload.payment_term_note,
+            discount_min_pct=payload.discount_min_pct,
+            discount_max_pct=payload.discount_max_pct,
+            margin_min_pct=payload.margin_min_pct,
+            margin_max_pct=payload.margin_max_pct,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e)
+        ) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khách hàng."
+        ) from None
+    names = _sale_names(
+        users, {customer.sale_user_id} if customer.sale_user_id else set()
+    )
+    stat = analytics.list_stats([customer]).per_customer.get(customer.id)
+    tag_map = svc.customers.tags_for([customer.id])
+    return CustomerDetailOut(
+        customer=_row(customer, names, stat, tags=tag_map.get(customer.id)),
+        receivable=_receivable_card(
+            svc, customer, can_view=authz.can(user, MODULE, "view_debt")
+        ),
     )
 
 
