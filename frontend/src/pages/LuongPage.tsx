@@ -13,6 +13,10 @@ import {
   TrendingDown,
   Search,
   Sliders,
+  AlertTriangle,
+  Wallet,
+  FileText,
+  Trash2,
 } from "lucide-react";
 import {
   api,
@@ -708,12 +712,16 @@ function KhoanSheet({ token }: { token: string }) {
 
   return (
     <div>
-      <div className="cc-toolbar cc-ts-toolbar">
-        <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
-        <select value={group} onChange={(e) => setGroup(e.target.value)}>
-          {KHOAN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
-        </select>
-        {!batch && <button className="btn btn--primary" onClick={() => run(() => api.luong.openKhoanSheet(token, year, month, group))}>Mở sổ khoán tổ này</button>}
+      <div className="cc-toolbar cc-ts-toolbar lg-toolbar">
+        <div className="lg-date-wrapper">
+          <span className="lg-date-icon"><Calendar size={14} /></span>
+          <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+        </div>
+        <div className="lg-select-wrapper">
+          <select value={group} onChange={(e) => setGroup(e.target.value)}>
+            {KHOAN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+          </select>
+        </div>
         {batch && (
           <span className={`ns-badge ${locked ? "ns-badge--ok" : "ns-badge--warn"}`}>
             {locked ? "✓ Đã chốt sổ" : "Nháp"}
@@ -738,7 +746,73 @@ function KhoanSheet({ token }: { token: string }) {
       {locked && <div className="banner banner--info" style={{ marginBottom: 12 }}>Sổ đã chốt — chảy vào bảng lương, khóa sửa. Bấm <b>Mở lại sổ</b> để chỉnh (kỳ lương phải chưa chốt).</div>}
 
       {!batch ? (
-        <p className="ns__empty">Chưa mở sổ khoán cho <b>{KHOAN_GROUP_LABEL[group]}</b> tháng này. Bấm <b>“Mở sổ khoán tổ này”</b>.</p>
+        <div className="lg-init-dashboard">
+          <div className="lg-init-grid">
+            <div className="lg-init-section lg-init-section--sources">
+              <h3 className="lg-init-section-title">Cơ chế tính Lương khoán</h3>
+              <p className="lg-init-section-desc">Sổ khoán giúp ghi nhận và phân chia quỹ lương khoán sản phẩm của tổ nhóm:</p>
+              
+              <div className="lg-source-list">
+                <div className="lg-source-item">
+                  <div className="lg-source-item-head">
+                    <span className="lg-source-bullet lg-source-bullet--active"></span>
+                    <span className="lg-source-name">Sản lượng công đoạn</span>
+                  </div>
+                  <span className="lg-source-text">Kéo sản lượng thực tế đã sản xuất từ các công đoạn máy in, thành phẩm hoặc nhập tay công việc phát sinh.</span>
+                </div>
+
+                <div className="lg-source-item">
+                  <div className="lg-source-item-head">
+                    <span className="lg-source-bullet lg-source-bullet--active"></span>
+                    <span className="lg-source-name">Phân chia theo hệ số</span>
+                  </div>
+                  <span className="lg-source-text">Tiền lương sau khi trừ quỹ tổ trưởng sẽ chia đều về từng nhân viên theo hệ số đóng góp thỏa thuận.</span>
+                </div>
+
+                <div className="lg-source-item">
+                  <div className="lg-source-item-head">
+                    <span className="lg-source-bullet lg-source-bullet--active"></span>
+                    <span className="lg-source-name">Trích lũy & Bù lỗ</span>
+                  </div>
+                  <span className="lg-source-text">Hỗ trợ trích % cho tổ trưởng, bù lỗ quỹ nếu sản lượng thấp (min guarantee) và thưởng vượt năng suất.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg-init-section lg-init-section--params">
+              <h3 className="lg-init-section-title">Đơn giá khoán áp dụng ({KHOAN_GROUP_LABEL[group]})</h3>
+              <p className="lg-init-section-desc">Các đơn giá công việc đang hoạt động của tổ này (sửa tại tab Đơn giá khoán):</p>
+              
+              {groupRates.length > 0 ? (
+                <div className="lg-param-table">
+                  {groupRates.slice(0, 5).map((r) => (
+                    <div className="lg-param-row" key={r.id}>
+                      <span className="lg-param-name">{r.name}</span>
+                      <span className="lg-param-val">{money(r.unit_price)}đ/{UNIT_LABEL[r.unit] ?? r.unit}</span>
+                    </div>
+                  ))}
+                  {groupRates.length > 5 && (
+                    <div className="lg-param-loading" style={{ textAlign: "center", borderTop: "1px solid var(--rule-soft)", padding: 6 }}>
+                      ... và {groupRates.length - 5} công việc khác
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="lg-param-loading">Tổ này chưa cấu hình đơn giá khoán nào.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="lg-init-action-card">
+            <div className="lg-init-action-info">
+              <h4 className="lg-init-action-title">Sổ khoán tháng {month}/{year} của {KHOAN_GROUP_LABEL[group]} chưa mở</h4>
+              <p className="lg-init-action-desc">Xác nhận đơn giá khoán và cơ chế chia lương của tổ trước khi mở sổ.</p>
+            </div>
+            <button className="btn btn--accent" onClick={() => run(() => api.luong.openKhoanSheet(token, year, month, group))}>
+              Mở sổ khoán tổ này
+            </button>
+          </div>
+        </div>
       ) : (
         <>
           {sheet?.meta && (
@@ -991,38 +1065,63 @@ function TamUngTab({ token }: { token: string }) {
 
   return (
     <div>
-      <div className="cc-toolbar cc-ts-toolbar">
-        <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+      <div className="cc-toolbar cc-ts-toolbar lg-toolbar">
+        <div className="lg-date-wrapper">
+          <span className="lg-date-icon"><Calendar size={14} /></span>
+          <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+        </div>
         <button className="btn btn--primary" onClick={() => setAdding(true)}>+ Thêm ứng</button>
-        <span className="cc-ts-legend">Đã duyệt: <b>{money(totalApproved)}đ</b></span>
+        <span className="lg-approved-badge">Đã duyệt: <b>{money(totalApproved)}đ</b></span>
       </div>
-      <div className="ns__tablewrap">
-        <table className="ns__table">
-          <thead><tr><th>Nhân viên</th><th>Ngày ứng</th><th className="lg-num">Số tiền</th><th>Lý do</th><th>Trạng thái</th><th></th></tr></thead>
-          <tbody>
-            {items.map((a) => {
-              const [label, cls] = STATUS[a.status] ?? [a.status, "ns-badge--muted"];
-              return (
-                <tr key={a.id}>
-                  <td>{a.employee_name ?? `NV#${a.employee_id}`}</td>
-                  <td>{a.advance_date}</td>
-                  <td className="lg-num">{money(a.amount)}</td>
-                  <td>{a.reason ?? "—"}</td>
-                  <td><span className={`ns-badge ${cls}`}>{label}</span></td>
-                  <td className="cc-rowact">
-                    {a.status === "pending" && <>
-                      <button className="btn btn--ghost" onClick={() => act(() => api.luong.approveAdvance(token, a.id))}>Duyệt</button>
-                      <button className="btn btn--ghost ns-danger" onClick={() => act(() => api.luong.rejectAdvance(token, a.id))}>Từ chối</button>
-                    </>}
-                    {a.status === "approved" && <button className="btn btn--ghost ns-danger" onClick={() => act(() => api.luong.cancelAdvance(token, a.id))}>Hủy</button>}
-                  </td>
-                </tr>
-              );
-            })}
-            {items.length === 0 && <tr><td colSpan={6} className="ns__empty">Chưa có tạm ứng tháng này.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+
+      {items.length === 0 ? (
+        <div className="lg-table-empty-state">
+          <div className="lg-table-empty-icon"><Wallet size={20} /></div>
+          <span className="lg-table-empty-title">Chưa có tạm ứng tháng này</span>
+          <span className="lg-table-empty-desc">Nhấp nút "+ Thêm ứng" để lập phiếu tạm ứng lương cho nhân viên trong kỳ.</span>
+        </div>
+      ) : (
+        <div className="lg-emp-table-wrapper">
+          <table className="ns__table">
+            <thead>
+              <tr>
+                <th>Nhân viên</th>
+                <th>Ngày ứng</th>
+                <th className="lg-num">Số tiền</th>
+                <th>Lý do</th>
+                <th>Trạng thái</th>
+                <th>Hành động</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((a) => {
+                const [label, cls] = STATUS[a.status] ?? [a.status, "ns-badge--muted"];
+                return (
+                  <tr key={a.id}>
+                    <td><b>{a.employee_name ?? `NV#${a.employee_id}`}</b></td>
+                    <td>{a.advance_date}</td>
+                    <td className="lg-num font-mono">{money(a.amount)}đ</td>
+                    <td>{a.reason ?? "—"}</td>
+                    <td><span className={`ns-badge ${cls}`}>{label}</span></td>
+                    <td className="cc-rowact">
+                      {a.status === "pending" && (
+                        <>
+                          <button className="btn btn--ghost" onClick={() => act(() => api.luong.approveAdvance(token, a.id))}>Duyệt</button>
+                          <button className="btn btn--ghost ns-danger" onClick={() => act(() => api.luong.rejectAdvance(token, a.id))}>Từ chối</button>
+                        </>
+                      )}
+                      {a.status === "approved" && (
+                        <button className="btn btn--ghost ns-danger" onClick={() => act(() => api.luong.cancelAdvance(token, a.id))}>Hủy</button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       {adding && <AddAdvanceModal token={token} emps={emps} year={year} month={month}
         onClose={() => setAdding(false)} onSaved={() => { setAdding(false); load(); }} />}
     </div>
@@ -1087,6 +1186,7 @@ function QuyTacTab({ token }: { token: string }) {
   const [rules, setRules] = useState<SalaryRule[]>([]);
   const [brackets, setBrackets] = useState<PitBracket[]>([]);
   const [editing, setEditing] = useState<SalaryRule | "new" | null>(null);
+  const [paramsModalOpen, setParamsModalOpen] = useState(false);
   const [ok, setOk] = useState<string | null>(null);
 
   const load = useCallback(() => {
@@ -1096,11 +1196,6 @@ function QuyTacTab({ token }: { token: string }) {
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
-  async function saveParams() {
-    if (!params) return;
-    await api.luong.updateParams(token, params);
-    setOk("Đã lưu tham số."); setTimeout(() => setOk(null), 2000);
-  }
   async function removeRule(id: number) { await api.luong.deleteRule(token, id); load(); }
   async function saveBrackets() {
     for (const b of brackets) await api.luong.updatePitBracket(token, b.id, { seq: b.seq, up_to: b.up_to, rate: b.rate });
@@ -1113,46 +1208,74 @@ function QuyTacTab({ token }: { token: string }) {
     <div>
       {ok && <div className="banner banner--ok" style={{ marginBottom: 12 }}>{ok}</div>}
       {params && (
-        <div className="lg-params">
-          <h4 className="ns-section__title">Tham số chung</h4>
-          <div className="ns-grid lg-params-grid">
-            <NumField label="Công chuẩn/tháng" v={params.standard_cong_default} on={(x) => setParams({ ...params, standard_cong_default: x })} />
-            <NumField label="% thử việc" v={params.probation_ratio} step={0.05} on={(x) => setParams({ ...params, probation_ratio: x })} />
-            <NumField label="BHXH (NV)" v={params.bhxh_rate} step={0.005} on={(x) => setParams({ ...params, bhxh_rate: x })} />
-            <NumField label="BHYT (NV)" v={params.bhyt_rate} step={0.005} on={(x) => setParams({ ...params, bhyt_rate: x })} />
-            <NumField label="BHTN (NV)" v={params.bhtn_rate} step={0.005} on={(x) => setParams({ ...params, bhtn_rate: x })} />
-            <NumField label="Chuyên cần" v={params.chuyen_can_default} on={(x) => setParams({ ...params, chuyen_can_default: x })} />
-            <NumField label="Giảm trừ bản thân" v={params.deduction_self} on={(x) => setParams({ ...params, deduction_self: x })} />
-            <NumField label="Giảm trừ/người PT" v={params.deduction_dependent} on={(x) => setParams({ ...params, deduction_dependent: x })} />
-            <NumField label="Giờ công/ngày" v={params.standard_hours_per_day} step={0.5} on={(x) => setParams({ ...params, standard_hours_per_day: x })} />
-            <NumField label="Hệ số tăng ca" v={params.ot_multiplier} step={0.1} on={(x) => setParams({ ...params, ot_multiplier: x })} />
-            <NumField label="Phụ cấp ca đêm" v={params.night_pct} step={0.05} on={(x) => setParams({ ...params, night_pct: x })} />
-            <NumField label="Trần BHXH/BHYT" v={params.bh_base_cap} on={(x) => setParams({ ...params, bh_base_cap: x })} />
-            <NumField label="Trần BHTN" v={params.bhtn_base_cap} on={(x) => setParams({ ...params, bhtn_base_cap: x })} />
+        <div className="lg-params-summary-card">
+          <div className="lg-summary-info">
+            <h4 className="lg-summary-title">Tham số chung hệ thống</h4>
+            <p className="lg-summary-desc">Tham số phục vụ tính công chuẩn, bảo hiểm nhân viên và khấu trừ thuế TNCN.</p>
           </div>
-          <button className="btn btn--primary" style={{ marginTop: 12 }} onClick={saveParams}>Lưu tham số</button>
+          <div className="lg-summary-grid">
+            <div className="lg-summary-item">
+              <span className="lg-summary-label">Công chuẩn mặc định</span>
+              <span className="lg-summary-value">{params.standard_cong_default} công / {params.standard_hours_per_day}h</span>
+            </div>
+            <div className="lg-summary-item">
+              <span className="lg-summary-label">Đóng BHXH (Nhân viên)</span>
+              <span className="lg-summary-value">{(params.bhxh_rate * 100).toFixed(1)}%</span>
+            </div>
+            <div className="lg-summary-item">
+              <span className="lg-summary-label">Giảm trừ gia cảnh</span>
+              <span className="lg-summary-value">{money(params.deduction_self)}đ</span>
+            </div>
+            <div className="lg-summary-item">
+              <span className="lg-summary-label">Lương thử việc</span>
+              <span className="lg-summary-value">{(params.probation_ratio * 100).toFixed(0)}%</span>
+            </div>
+          </div>
+          <div className="lg-summary-action">
+            <button className="btn btn--secondary" onClick={() => setParamsModalOpen(true)}>
+              <Sliders size={13} /> Cấu hình tham số
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="lg-params" style={{ marginTop: 20 }}>
-        <h4 className="ns-section__title">Biểu thuế TNCN (lũy tiến từng phần, biểu tháng)</h4>
-        <p className="cc-note">Thu nhập tính thuế = thu nhập chịu thuế − BHXH − giảm trừ. Sửa khi luật đổi (mặc định 2026: Luật 109/2025).</p>
-        <div className="ns__tablewrap">
-          <table className="ns__table">
-            <thead><tr><th>Bậc</th><th className="lg-num">Đến mức (thu nhập tính thuế/tháng)</th><th className="lg-num">Thuế suất %</th><th></th></tr></thead>
+      <div className="lg-tncn-wrapper">
+        <h4 className="lg-tncn-title">Biểu thuế TNCN (lũy tiến từng phần, biểu tháng)</h4>
+        <p className="lg-tncn-desc">Thu nhập tính thuế = thu nhập chịu thuế − BHXH − giảm trừ. Sửa khi luật đổi (mặc định 2026: Luật 109/2025).</p>
+        <div className="ns__tablewrap" style={{ border: "1px solid var(--rule-soft)", borderRadius: "var(--r-3)", overflow: "hidden" }}>
+          <table className="lg-tncn-table">
+            <thead>
+              <tr>
+                <th style={{ width: 80 }}>Bậc</th>
+                <th>Đến mức (thu nhập tính thuế/tháng)</th>
+                <th style={{ width: 180 }}>Thuế suất %</th>
+                <th style={{ width: 60, textAlign: "center" }}>Hành động</th>
+              </tr>
+            </thead>
             <tbody>
               {brackets.map((b, i) => (
                 <tr key={b.id}>
-                  <td>{b.seq}</td>
-                  <td className="lg-num">
-                    <input type="number" min={0} value={b.up_to ?? ""} placeholder="∞ (bậc cao nhất)"
-                      onChange={(e) => setBrackets(brackets.map((x, j) => j === i ? { ...x, up_to: e.target.value === "" ? null : Number(e.target.value) } : x))} />
+                  <td style={{ verticalAlign: "middle" }}><b>Bậc {b.seq}</b></td>
+                  <td>
+                    <div className="lg-input-wrapper">
+                      <input type="number" min={0} value={b.up_to ?? ""} placeholder="∞ (bậc cao nhất)"
+                        onChange={(e) => setBrackets(brackets.map((x, j) => j === i ? { ...x, up_to: e.target.value === "" ? null : Number(e.target.value) } : x))} />
+                      {b.up_to !== null && <span className="lg-input-suffix">đ</span>}
+                    </div>
+                    {b.up_to !== null && <div className="lg-input-helper">{money(b.up_to)}đ</div>}
                   </td>
-                  <td className="lg-num">
-                    <input type="number" min={0} step={1} value={Math.round(b.rate * 100)}
-                      onChange={(e) => setBrackets(brackets.map((x, j) => j === i ? { ...x, rate: Number(e.target.value) / 100 } : x))} />
+                  <td>
+                    <div className="lg-input-wrapper">
+                      <input type="number" min={0} step={1} value={Math.round(b.rate * 100)}
+                        onChange={(e) => setBrackets(brackets.map((x, j) => j === i ? { ...x, rate: Number(e.target.value) / 100 } : x))} />
+                      <span className="lg-input-suffix">%</span>
+                    </div>
                   </td>
-                  <td><button className="btn btn--ghost" onClick={() => removeBracket(b.id)}>Xóa</button></td>
+                  <td style={{ textAlign: "center", verticalAlign: "middle" }}>
+                    <button className="lg-btn-delete-bracket" title="Xóa bậc này" onClick={() => removeBracket(b.id)}>
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -1164,42 +1287,181 @@ function QuyTacTab({ token }: { token: string }) {
         </div>
       </div>
 
-      <div className="cc-toolbar" style={{ marginTop: 20 }}>
-        <h4 className="ns-section__title" style={{ margin: 0, flex: 1 }}>Bảng mức lương chuẩn</h4>
+      <div className="lg-scale-header">
+        <h4 className="lg-scale-title">Bảng mức lương chuẩn</h4>
         <button className="btn btn--primary" onClick={() => setEditing("new")}>+ Thêm mức</button>
       </div>
-      <div className="ns__tablewrap">
-        <table className="ns__table">
-          <thead><tr><th>Nhóm</th><th>Bậc</th><th>Thâm niên</th><th>Giới</th><th className="lg-num">Mức/tháng</th><th>Hiệu lực</th><th></th></tr></thead>
-          <tbody>
-            {rules.map((r) => (
-              <tr key={r.id}>
-                <td>{GROUP_LABEL[r.payroll_group] ?? r.payroll_group}</td>
-                <td>{r.pay_grade_key ? (GRADE_LABEL[r.pay_grade_key] ?? r.pay_grade_key) : "—"}</td>
-                <td>{r.seniority_band ? (BAND_LABEL[r.seniority_band] ?? r.seniority_band) : "—"}</td>
-                <td>{r.gender === "male" ? "Nam" : r.gender === "female" ? "Nữ" : "—"}</td>
-                <td className="lg-num">{money(r.monthly_amount)}</td>
-                <td>{r.effective_from ?? "—"}</td>
-                <td className="cc-rowact">
-                  <button className="btn btn--ghost" onClick={() => setEditing(r)}>Sửa</button>
-                  <button className="btn btn--ghost ns-danger" onClick={() => removeRule(r.id)}>Xóa</button>
-                </td>
+
+      {rules.length === 0 ? (
+        <div className="lg-table-empty-state">
+          <div className="lg-table-empty-icon"><Sliders size={20} /></div>
+          <span className="lg-table-empty-title">Chưa có mức lương chuẩn nào</span>
+          <span className="lg-table-empty-desc">Nhấp nút "+ Thêm mức" để cấu hình thang bảng lương chuẩn áp dụng cho các vị trí công việc.</span>
+        </div>
+      ) : (
+        <div className="lg-emp-table-wrapper">
+          <table className="ns__table">
+            <thead>
+              <tr>
+                <th>Nhóm</th>
+                <th>Bậc</th>
+                <th>Thâm niên</th>
+                <th>Giới tính</th>
+                <th className="lg-num">Mức lương/tháng</th>
+                <th>Ngày hiệu lực</th>
+                <th>Hành động</th>
               </tr>
-            ))}
-            {rules.length === 0 && <tr><td colSpan={7} className="ns__empty">Chưa có mức lương nào.</td></tr>}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {rules.map((r) => (
+                <tr key={r.id}>
+                  <td><b>{GROUP_LABEL[r.payroll_group] ?? r.payroll_group}</b></td>
+                  <td>{r.pay_grade_key ? <span className="ns-badge ns-badge--info">{GRADE_LABEL[r.pay_grade_key] ?? r.pay_grade_key}</span> : "—"}</td>
+                  <td>{r.seniority_band ? (BAND_LABEL[r.seniority_band] ?? r.seniority_band) : "—"}</td>
+                  <td>{r.gender === "male" ? "Nam" : r.gender === "female" ? "Nữ" : "Mọi giới tính"}</td>
+                  <td className="lg-num font-mono"><b>{money(r.monthly_amount)}đ</b></td>
+                  <td>{r.effective_from ?? "—"}</td>
+                  <td className="cc-rowact">
+                    <button className="btn btn--ghost" onClick={() => setEditing(r)}>Sửa</button>
+                    <button className="btn btn--ghost ns-danger" onClick={() => removeRule(r.id)}>Xóa</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {editing && <RuleModal token={token} rule={editing === "new" ? null : editing}
         onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />}
+      {paramsModalOpen && params && (
+        <ParamsModal token={token} params={params} onClose={() => setParamsModalOpen(false)} onSaved={() => { setParamsModalOpen(false); load(); setOk("Đã lưu tham số."); setTimeout(() => setOk(null), 2000); }} />
+      )}
     </div>
   );
 }
 
-function NumField({ label, v, on, step }: { label: string; v: number; on: (x: number) => void; step?: number }) {
+function NumField({
+  label,
+  v,
+  on,
+  step,
+  suffix,
+  isPercent,
+}: {
+  label: string;
+  v: number;
+  on: (x: number) => void;
+  step?: number;
+  suffix?: string;
+  isPercent?: boolean;
+}) {
+  const displayVal = isPercent ? Number((v * 100).toFixed(3)) : v;
+
+  const handleChange = (valStr: string) => {
+    const num = Number(valStr);
+    if (isPercent) {
+      on(num / 100);
+    } else {
+      on(num);
+    }
+  };
+
+  const renderHelperText = () => {
+    if (suffix === "đ" && v > 0) return money(v) + " đ";
+    return "";
+  };
+
   return (
-    <label className="ns-field"><span className="ns-field__label">{label}</span>
-      <input type="number" step={step ?? 1} value={v} onChange={(e) => on(Number(e.target.value))} /></label>
+    <div className="lg-field-wrapper">
+      <span className="lg-field-label">{label}</span>
+      <div className="lg-input-wrapper">
+        <input
+          type="number"
+          step={step ?? (isPercent ? 1 : 1)}
+          value={displayVal}
+          onChange={(e) => handleChange(e.target.value)}
+        />
+        {(suffix || isPercent) && <span className="lg-input-suffix">{suffix ?? "%"}</span>}
+      </div>
+      <div className="lg-input-helper">{renderHelperText()}</div>
+    </div>
+  );
+}
+
+function ParamsModal({
+  token,
+  params: initialParams,
+  onClose,
+  onSaved,
+}: {
+  token: string;
+  params: PayrollParams;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [params, setParams] = useState<PayrollParams>({ ...initialParams });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true); setErr(null);
+    try {
+      await api.luong.updateParams(token, params);
+      onSaved();
+    } catch (e) {
+      setErr(errText(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box ns-modal__box--wide" style={{ maxWidth: 1000 }}>
+        <header className="ns-modal__head">
+          <h2>Cấu hình tham số lương chung</h2>
+          <button className="ns-modal__x" onClick={onClose}>×</button>
+        </header>
+        <div className="ns-modal__body" style={{ maxHeight: "calc(100vh - 200px)", overflowY: "auto" }}>
+          {err && <div className="banner banner--error">{err}</div>}
+          <div className="lg-rules-grid">
+            <div className="lg-params-card">
+              <h4 className="lg-params-card-title">Cấu hình Lao động & Tăng ca</h4>
+              <div className="lg-params-fields">
+                <NumField label="Công chuẩn mặc định/tháng" suffix="công" v={params.standard_cong_default} on={(x) => setParams({ ...params, standard_cong_default: x })} />
+                <NumField label="Giờ công tiêu chuẩn/ngày" suffix="h" v={params.standard_hours_per_day} step={0.5} on={(x) => setParams({ ...params, standard_hours_per_day: x })} />
+                <NumField label="Hệ số tăng ca (OT)" suffix="x" v={params.ot_multiplier} step={0.1} on={(x) => setParams({ ...params, ot_multiplier: x })} />
+                <NumField label="Tỷ lệ phụ cấp ca đêm" isPercent v={params.night_pct} step={5} on={(x) => setParams({ ...params, night_pct: x })} />
+                <NumField label="Tỷ lệ lương thử việc" isPercent v={params.probation_ratio} step={5} on={(x) => setParams({ ...params, probation_ratio: x })} />
+              </div>
+            </div>
+
+            <div className="lg-params-card">
+              <h4 className="lg-params-card-title">Cấu hình Đóng Bảo hiểm</h4>
+              <div className="lg-params-fields">
+                <NumField label="Tỷ lệ BHXH (Nhân viên)" isPercent v={params.bhxh_rate} step={0.5} on={(x) => setParams({ ...params, bhxh_rate: x })} />
+                <NumField label="Tỷ lệ BHYT (Nhân viên)" isPercent v={params.bhyt_rate} step={0.5} on={(x) => setParams({ ...params, bhyt_rate: x })} />
+                <NumField label="Tỷ lệ BHTN (Nhân viên)" isPercent v={params.bhtn_rate} step={0.5} on={(x) => setParams({ ...params, bhtn_rate: x })} />
+                <NumField label="Trần đóng BHXH/BHYT" suffix="đ" v={params.bh_base_cap} on={(x) => setParams({ ...params, bh_base_cap: x })} />
+                <NumField label="Trần đóng BHTN" suffix="đ" v={params.bhtn_base_cap} on={(x) => setParams({ ...params, bhtn_base_cap: x })} />
+              </div>
+            </div>
+
+            <div className="lg-params-card">
+              <h4 className="lg-params-card-title">Khấu trừ Thuế & Chuyên cần</h4>
+              <div className="lg-params-fields">
+                <NumField label="Giảm trừ gia cảnh bản thân" suffix="đ" v={params.deduction_self} on={(x) => setParams({ ...params, deduction_self: x })} />
+                <NumField label="Giảm trừ người phụ thuộc" suffix="đ" v={params.deduction_dependent} on={(x) => setParams({ ...params, deduction_dependent: x })} />
+                <NumField label="Mức thưởng chuyên cần mặc định" suffix="đ" v={params.chuyen_can_default} on={(x) => setParams({ ...params, chuyen_can_default: x })} />
+              </div>
+            </div>
+          </div>
+        </div>
+        <footer className="ns-modal__foot">
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? "Đang lưu…" : "Lưu thay đổi"}</button>
+        </footer>
+      </div>
+    </div>
   );
 }
 
@@ -1274,10 +1536,34 @@ function PhieuLuongTab({ token }: { token: string }) {
   const [data, setData] = useState<Awaited<ReturnType<typeof api.luong.myPayslip>> | null>(null);
   useEffect(() => { api.luong.myPayslip(token).then(setData).catch(() => setData(null)); }, [token]);
 
-  if (!data) return <p className="ns__empty">Đang tải…</p>;
-  if (!data.has_employee) return <div className="banner banner--warn" style={{ marginTop: 12 }}>Tài khoản của bạn chưa gắn hồ sơ nhân viên.</div>;
+  if (!data) return <div className="lg-payslip-empty-container"><div className="lg-payslip-empty-card"><p className="lg-payslip-empty-desc">Đang tải dữ liệu...</p></div></div>;
+  if (!data.has_employee) {
+    return (
+      <div className="lg-payslip-empty-container">
+        <div className="lg-payslip-empty-card">
+          <div className="lg-payslip-empty-icon lg-payslip-empty-icon--warn"><AlertTriangle size={24} /></div>
+          <h3 className="lg-payslip-empty-title">Tài khoản chưa gắn hồ sơ</h3>
+          <p className="lg-payslip-empty-desc">
+            Tài khoản của bạn chưa được liên kết với bất kỳ hồ sơ nhân viên nào. Vui lòng liên hệ bộ phận HCNS để được thiết lập.
+          </p>
+        </div>
+      </div>
+    );
+  }
   const l = data.line;
-  if (!l || !data.period) return <p className="ns__empty">Chưa có phiếu lương nào. Chờ HCNS chốt bảng lương.</p>;
+  if (!l || !data.period) {
+    return (
+      <div className="lg-payslip-empty-container">
+        <div className="lg-payslip-empty-card">
+          <div className="lg-payslip-empty-icon"><FileText size={24} /></div>
+          <h3 className="lg-payslip-empty-title">Chưa có phiếu lương</h3>
+          <p className="lg-payslip-empty-desc">
+            Không tìm thấy dữ liệu phiếu lương của bạn cho tháng này. Phiếu lương sẽ hiển thị sau khi bộ phận HCNS hoàn tất việc chốt bảng lương.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const rows: [string, number, boolean?][] = [
     ["Lương theo công", l.luong_cong], ["Chuyên cần", l.chuyen_can], ["Phụ cấp", l.allowance],

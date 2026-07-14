@@ -152,11 +152,12 @@
 }
 
 /* === Cải tiến UI/UX mới: KPI Cards === */
+/* === Cải tiến UI/UX mới: KPI Cards (Gọn gàng hơn) === */
 .lg-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-5);
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
   animation: fadeInUp 0.4s ease-out;
 }
 @media (max-width: 960px) {
@@ -168,19 +169,19 @@
 .lg-kpi-card {
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  padding: var(--sp-4);
+  border-radius: var(--r-5);
+  padding: 10px 14px;
   box-shadow: 0 2px 8px rgba(20, 19, 15, 0.02);
   position: relative;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
+  gap: 2px;
   transition: all 0.25s ease;
 }
 .lg-kpi-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-4);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-3);
   border-color: var(--rule);
 }
 .lg-kpi-card::after {
@@ -188,7 +189,7 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 4px;
+  width: 3px;
   height: 100%;
   background: var(--rule);
 }
@@ -201,15 +202,15 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  margin-bottom: var(--sp-1);
+  margin-bottom: 1px;
 }
 .lg-kpi-card-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-3);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-2);
   color: var(--ash);
   background: var(--rule-hair);
 }
@@ -219,7 +220,7 @@
 .lg-kpi-card--deduct .lg-kpi-card-icon { background: var(--rust-soft); color: var(--rust-deep); }
 
 .lg-kpi-card-label {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: var(--fw-bold);
   color: var(--ash);
   text-transform: uppercase;
@@ -227,16 +228,26 @@
 }
 .lg-kpi-card-val {
   font-family: var(--ff-mono);
-  font-size: 18px;
+  font-size: 16px;
   font-weight: var(--fw-bold);
   color: var(--ink);
-  margin-top: 2px;
+  margin-top: 1px;
 }
 .lg-kpi-card-sub {
-  font-size: 11.5px;
+  font-size: 11px;
   color: var(--ash-2);
-  margin-top: 2px;
+  margin-top: 1px;
 }
+
+/* Scrollable wrapper for the main payroll table */
+.ns__tablewrap.lg-table {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.ns__tablewrap.lg-table .ns__table {
+  min-width: 1350px; /* Ensure columns have enough breathing space and scroll cleanly */
+}
+
 
 /* === Cải tiến UI/UX mới: Giao diện Khởi tạo Kỳ lương mới (Không có AI sparkles) === */
 .lg-init-dashboard {
@@ -503,4 +514,406 @@
   background: var(--rust-soft);
   border-color: var(--rust);
   color: var(--rust-deep);
+}
+
+/* Subtabs capsule style */
+.lg-subtabs {
+  display: inline-flex;
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 3px;
+  margin-bottom: var(--sp-4);
+}
+.lg-subtabs button {
+  border: none;
+  background: transparent;
+  color: var(--ash);
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+.lg-subtabs button:hover {
+  color: var(--ink);
+}
+.lg-subtabs button.is-active {
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+  border: none;
+}
+
+/* Custom selects in toolbar */
+.lg-select-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.lg-select-wrapper select {
+  padding: 8px 30px 8px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  height: 33px;
+  appearance: none;
+  cursor: pointer;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.lg-select-wrapper select:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+.lg-select-wrapper::after {
+  content: "▾";
+  position: absolute;
+  right: 12px;
+  color: var(--ash);
+  pointer-events: none;
+  font-size: 12px;
+}
+
+/* === Cải tiến UI/UX mới: Giao diện trống & cảnh báo nâng cao === */
+.lg-table-empty-state {
+  max-width: 1200px;
+  padding: 48px 24px;
+  text-align: center;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-6);
+  background: var(--canvas);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin-top: var(--sp-2);
+}
+.lg-table-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: var(--rule-hair);
+  color: var(--ash-2);
+  margin-bottom: 12px;
+}
+.lg-table-empty-title {
+  font-size: 14.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin-bottom: 4px;
+}
+.lg-table-empty-desc {
+  font-size: 12.5px;
+  color: var(--ash);
+  margin: 0;
+}
+
+.lg-approved-badge {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  border-radius: var(--r-3);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--moss);
+  height: 33px;
+}
+
+/* Payslip warning/empty cards */
+.lg-payslip-empty-container {
+  display: flex;
+  justify-content: center;
+  padding-top: 40px;
+  width: 100%;
+}
+.lg-payslip-empty-card {
+  max-width: 480px;
+  width: 100%;
+  padding: 32px 24px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-4);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.lg-payslip-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: var(--rule-hair);
+  color: var(--ash);
+  margin-bottom: 16px;
+}
+.lg-payslip-empty-icon--warn {
+  background: var(--rust-soft);
+  color: var(--rust);
+}
+.lg-payslip-empty-title {
+  font-size: 16px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0 0 8px 0;
+}
+.lg-payslip-empty-desc {
+  font-size: 13px;
+  color: var(--ash);
+  line-height: 1.5;
+  margin: 0;
+}
+
+/* === Cải tiến UI/UX mới: Tab Quy tắc lương (QuyTacTab) === */
+.lg-rules-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  max-width: 1200px;
+}
+.lg-params-card {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: var(--sp-4);
+  box-shadow: var(--shadow-1);
+}
+.lg-params-card-title {
+  font-size: 14.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0 0 var(--sp-3) 0;
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.lg-params-fields {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-3);
+}
+
+.lg-field-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lg-field-label {
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.lg-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.lg-input-wrapper input {
+  width: 100%;
+  padding: 8px 36px 8px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  height: 33px;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.lg-input-wrapper input:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+.lg-input-suffix {
+  position: absolute;
+  right: 12px;
+  color: var(--ash);
+  font-size: 12px;
+  pointer-events: none;
+}
+.lg-input-helper {
+  font-size: 11px;
+  color: var(--ash);
+  margin-top: 2px;
+  min-height: 14px;
+  font-style: italic;
+}
+
+/* Biểu thuế TNCN */
+.lg-tncn-wrapper {
+  max-width: 1200px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-4);
+  margin-top: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.lg-tncn-title {
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0 0 var(--sp-2) 0;
+}
+.lg-tncn-desc {
+  font-size: 13px;
+  color: var(--ash);
+  margin: 0 0 var(--sp-4) 0;
+}
+.lg-tncn-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: var(--sp-3);
+}
+.lg-tncn-table th {
+  background: var(--paper-contrast);
+  color: var(--ash);
+  font-weight: var(--fw-bold);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--rule-soft);
+  text-align: left;
+}
+.lg-tncn-table td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule-hair);
+  text-align: left;
+  vertical-align: top;
+}
+.lg-btn-delete-bracket {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  background: var(--canvas);
+  color: var(--signal);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+.lg-btn-delete-bracket:hover {
+  background: var(--signal-soft);
+  border-color: var(--signal);
+}
+
+/* Lương chuẩn scale styling */
+.lg-scale-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 1200px;
+  margin-top: var(--sp-5);
+  margin-bottom: var(--sp-2);
+}
+.lg-scale-title {
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0;
+}
+
+/* Summary Card for parameters on main page */
+.lg-params-summary-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-6);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--shadow-2);
+  max-width: 1200px;
+  margin-bottom: var(--sp-4);
+}
+@media (max-width: 900px) {
+  .lg-params-summary-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--sp-3);
+  }
+}
+
+.lg-summary-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: 320px;
+}
+.lg-summary-title {
+  font-size: 14.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0;
+}
+.lg-summary-desc {
+  font-size: 12px;
+  color: var(--ash);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.lg-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);
+  flex: 1;
+  padding: 0 var(--sp-3);
+}
+@media (max-width: 600px) {
+  .lg-summary-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--sp-2);
+    padding: 0;
+  }
+}
+
+.lg-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lg-summary-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ash);
+}
+.lg-summary-value {
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-family: var(--ff-mono);
+}
+
+.lg-summary-action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+.lg-summary-action .btn--secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  border-radius: var(--r-3);
+  white-space: nowrap;
 }
