@@ -29,7 +29,6 @@ from ..models.customer import (
     CUSTOMER_KINDS,
     DOC_KHAC,
     KIND_CONG_TY,
-    PAYMENT_TERM_TYPES,
     TASK_CANCELLED,
     TASK_DONE,
     TASK_OPEN,
@@ -141,42 +140,6 @@ class CustomerService:
         if not 0 <= value <= 100:
             raise CustomerValidationError(f"{label} phải trong khoảng 0–100%.")
         return value
-
-    def _validate_payment_terms(
-        self,
-        *,
-        payment_term_type: str | None,
-        payment_term_days: int | None,
-        prepay_pct: float | None,
-        payment_term_note: str | None,
-    ) -> dict:
-        """Điều khoản thanh toán (#12) — dữ liệu chờ Công nợ. type None = chưa khai
-        (các trường phụ bị xoá theo, tránh dữ liệu mồ côi)."""
-        term_type = _clean(payment_term_type)
-        if term_type is not None and term_type not in PAYMENT_TERM_TYPES:
-            raise CustomerValidationError("Kiểu điều khoản thanh toán không hợp lệ.")
-        days = payment_term_days
-        if days is not None:
-            if not isinstance(days, int) or isinstance(days, bool) or days < 0:
-                raise CustomerValidationError("Số ngày công nợ phải là số nguyên ≥ 0.")
-        pct = self._validate_pct(prepay_pct, "Tỷ lệ trả trước")
-        if term_type is None:
-            return dict(
-                payment_term_type=None,
-                payment_term_days=None,
-                prepay_pct=None,
-                payment_term_note=None,
-            )
-        if term_type in ("net_delivery", "net_eom") and days is None:
-            raise CustomerValidationError("Điều khoản theo ngày cần nhập số ngày công nợ.")
-        if term_type == "prepay" and pct is None:
-            raise CustomerValidationError("Điều khoản trả trước cần nhập tỷ lệ %.")
-        return dict(
-            payment_term_type=term_type,
-            payment_term_days=days if term_type in ("net_delivery", "net_eom") else None,
-            prepay_pct=pct if term_type == "prepay" else None,
-            payment_term_note=_clean(payment_term_note),
-        )
 
     @staticmethod
     def _validate_kind(kind: str | None) -> str:
@@ -449,42 +412,28 @@ class CustomerService:
         scope: str,
         actor,
         credit_limit: int | None,
-        payment_term_type: str | None = None,
-        payment_term_days: int | None = None,
-        prepay_pct: float | None = None,
-        payment_term_note: str | None = None,
         discount_min_pct: float | None = None,
         discount_max_pct: float | None = None,
         margin_min_pct: float | None = None,
         margin_max_pct: float | None = None,
     ) -> Customer:
-        """Ghi ĐẦY ĐỦ chính sách tài chính (hạn mức + điều khoản + rào chiết khấu/biên) —
+        """Ghi ĐẦY ĐỦ chính sách tài chính (hạn mức công nợ + rào chiết khấu/biên) —
         redesign spec-06 v2. Router chỉ gọi khi caller có quyền `set_credit_terms` (chặn 403
-        nếu thiếu). Ghi cả nhóm nên None = "chưa khai/chưa đặt rào" (không phải giữ-nguyên)."""
+        nếu thiếu). Ghi cả nhóm nên None = "chưa đặt rào". (Điều khoản thanh toán đã BỎ.)"""
         customer = self.get_customer(customer_id=customer_id, scope=scope, actor=actor)
         credit_limit = self._validate_credit_limit(credit_limit)
-        terms = self._validate_payment_terms(
-            payment_term_type=payment_term_type,
-            payment_term_days=payment_term_days,
-            prepay_pct=prepay_pct,
-            payment_term_note=payment_term_note,
-        )
         bounds = self._validate_bounds(
             discount_min_pct=discount_min_pct, discount_max_pct=discount_max_pct,
             margin_min_pct=margin_min_pct, margin_max_pct=margin_max_pct,
         )
         old = (
             customer.credit_limit,
-            customer.payment_term_type, customer.payment_term_days,
-            customer.prepay_pct, customer.payment_term_note,
             customer.discount_min_pct, customer.discount_max_pct,
             customer.margin_min_pct, customer.margin_max_pct,
         )
-        self.customers.update(customer, credit_limit=credit_limit, **terms, **bounds)
+        self.customers.update(customer, credit_limit=credit_limit, **bounds)
         new = (
             credit_limit,
-            terms["payment_term_type"], terms["payment_term_days"],
-            terms["prepay_pct"], terms["payment_term_note"],
             bounds["discount_min_pct"], bounds["discount_max_pct"],
             bounds["margin_min_pct"], bounds["margin_max_pct"],
         )

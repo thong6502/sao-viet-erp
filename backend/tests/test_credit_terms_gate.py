@@ -70,7 +70,6 @@ def test_new_customer_safe_financial_default(client):
     cid = _create(client, token, name="KH Mới", credit_limit=99_000_000)
     c = client.get(f"/api/customers/{cid}", headers=_h(token)).json()["customer"]
     assert c["credit_limit"] == 0
-    assert c["payment_term_type"] is None
     assert c["discount_max_pct"] is None and c["margin_min_pct"] is None
 
 
@@ -84,7 +83,6 @@ def test_manager_can_set_financial(client):
         f"/api/customers/{cid}/financial",
         json={
             "credit_limit": 30_000_000,
-            "payment_term_type": "net_delivery", "payment_term_days": 30,
             "discount_min_pct": 0, "discount_max_pct": 10,
             "margin_min_pct": 15, "margin_max_pct": 40,
         },
@@ -93,21 +91,20 @@ def test_manager_can_set_financial(client):
     assert r.status_code == 200, r.text
     c = r.json()["customer"]
     assert c["credit_limit"] == 30_000_000
-    assert c["payment_term_type"] == "net_delivery" and c["payment_term_days"] == 30
     assert c["discount_max_pct"] == 10 and c["margin_min_pct"] == 15
 
 
 def test_financial_validation(client):
     token = _admin_token(client)
     cid = _create(client, token, name="KH Validate")
-    # min > max → 422.
+    # chiết khấu min > max → 422.
     r = client.put(f"/api/customers/{cid}/financial", json={
         "credit_limit": 0, "discount_min_pct": 20, "discount_max_pct": 10,
     }, headers=_h(token))
     assert r.status_code == 422
-    # điều khoản net_delivery thiếu số ngày → 422.
+    # biên min > max → 422.
     r = client.put(f"/api/customers/{cid}/financial", json={
-        "credit_limit": 0, "payment_term_type": "net_delivery",
+        "credit_limit": 0, "margin_min_pct": 40, "margin_max_pct": 15,
     }, headers=_h(token))
     assert r.status_code == 422
 

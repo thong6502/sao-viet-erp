@@ -85,9 +85,8 @@ class Customer(Base):
     customer_kind: Mapped[str] = mapped_column(
         String(12), nullable=False, default=KIND_CONG_TY, server_default=KIND_CONG_TY
     )
-    # --- Điều khoản thanh toán riêng theo KH (khảo sát #12) — DỮ LIỆU CHỜ: chỉ nhập +
-    # hiển thị; engine tính hạn nợ thuộc Công nợ (sẽ đọc cấu trúc này khi back-fill
-    # SEAM-16). type ∈ PAYMENT_TERM_TYPES; None = chưa khai điều khoản.
+    # --- DORMANT (2026-07-15): "Điều khoản thanh toán riêng theo KH" (khảo sát #12) đã BỎ
+    # khỏi UI + logic theo yêu cầu. Cột giữ lại (SQLite không drop gọn); đừng dùng.
     payment_term_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
     payment_term_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     prepay_pct: Mapped[float | None] = mapped_column(Float, nullable=True)

@@ -62,39 +62,20 @@ def _create(client, token, **over) -> dict:
 # --- #12 điều khoản thanh toán ------------------------------------------------
 
 
-def test_create_kind_then_set_terms_via_financial(client):
-    """Redesign spec-06 v2: create chỉ ĐỊNH DANH (Loại); điều khoản đặt qua /financial riêng."""
+def test_create_kind_then_set_credit_via_financial(client):
+    """Redesign spec-06 v2: create chỉ ĐỊNH DANH (Loại); hạn mức đặt qua /financial riêng.
+    (Điều khoản thanh toán đã BỎ theo yêu cầu.)"""
     token = _admin_token(client)
     body = _create(client, token, name="Cty Điều Khoản", customer_kind="cong_ty")
     cid = body["customer"]["id"]
     assert body["customer"]["customer_kind"] == "cong_ty"
     r = client.put(f"/api/customers/{cid}/financial", json={
-        "credit_limit": 0, "payment_term_type": "net_eom", "payment_term_days": 30,
+        "credit_limit": 25_000_000, "discount_max_pct": 8,
     }, headers=_h(token))
     assert r.status_code == 200, r.text
     c = r.json()["customer"]
-    assert c["payment_term_type"] == "net_eom"
-    assert c["payment_term_days"] == 30
-
-
-def test_payment_term_validation(client):
-    token = _admin_token(client)
-    cid = _create(client, token, name="Cty PT")["customer"]["id"]
-    # prepay thiếu tỷ lệ % → 422.
-    r = client.put(f"/api/customers/{cid}/financial", json={
-        "credit_limit": 0, "payment_term_type": "prepay",
-    }, headers=_h(token))
-    assert r.status_code == 422
-    # net_delivery thiếu số ngày → 422.
-    r = client.put(f"/api/customers/{cid}/financial", json={
-        "credit_limit": 0, "payment_term_type": "net_delivery",
-    }, headers=_h(token))
-    assert r.status_code == 422
-    # Kiểu mốc lạ → 422.
-    r = client.put(f"/api/customers/{cid}/financial", json={
-        "credit_limit": 0, "payment_term_type": "whenever",
-    }, headers=_h(token))
-    assert r.status_code == 422
+    assert c["credit_limit"] == 25_000_000
+    assert c["discount_max_pct"] == 8
 
 
 # --- #8/#15 check trùng mở rộng -------------------------------------------------

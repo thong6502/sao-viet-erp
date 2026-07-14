@@ -1103,6 +1103,31 @@
   align-items: center;
   justify-content: space-between;
 }
+/* Nút Sửa trên nền SÁNG (card dashboard) — rõ ràng, khác kh__btn-tag (dành nền tối). */
+.kh__fin-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--easing-standard), border-color var(--duration-base) var(--easing-standard);
+}
+.kh__fin-edit-btn:hover {
+  background: var(--paper);
+  border-color: var(--rust);
+  color: var(--rust);
+}
+.kh__fin-edit-btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
 .kh__finpolicy-view {
   display: flex;
   flex-direction: column;

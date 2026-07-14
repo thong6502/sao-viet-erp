@@ -36,14 +36,10 @@ class CustomerUpdate(_CustomerIdentity):
 
 class CustomerFinancialIn(BaseModel):
     """Chính sách tài chính khách (redesign spec-06 v2) — endpoint /financial, gate
-    `set_credit_terms`. Ghi ĐẦY ĐỦ (mỗi lần lưu ghi toàn bộ nhóm này): hạn mức + điều khoản
-    thanh toán (#12) + rào chiết khấu/biên min–max. Lưu + hiển thị; chặn báo giá là SEAM."""
+    `set_credit_terms`. Ghi ĐẦY ĐỦ nhóm này: hạn mức công nợ + rào chiết khấu/biên min–max.
+    Lưu + hiển thị; chặn báo giá là SEAM. (Điều khoản thanh toán đã BỎ theo yêu cầu.)"""
 
     credit_limit: int = Field(default=0, ge=0)
-    payment_term_type: str | None = Field(default=None, max_length=24)
-    payment_term_days: int | None = Field(default=None, ge=0)
-    prepay_pct: float | None = Field(default=None, ge=0, le=100)
-    payment_term_note: str | None = Field(default=None, max_length=500)
     discount_min_pct: float | None = Field(default=None, ge=0, le=100)
     discount_max_pct: float | None = Field(default=None, ge=0, le=100)
     margin_min_pct: float | None = Field(default=None, ge=0, le=100)
@@ -98,11 +94,6 @@ class CustomerRow(BaseModel):
     revenue_12m: int = 0
     orders_total: int = 0
     last_order_at: date | None = None
-    # --- Điều khoản thanh toán (#12) — hiển thị cho mọi người ---
-    payment_term_type: str | None = None
-    payment_term_days: int | None = None
-    prepay_pct: float | None = None
-    payment_term_note: str | None = None
     # --- Rào chiết khấu / biên lợi nhuận (spec-06 v2) — hiển thị cho mọi người ---
     discount_min_pct: float | None = None
     discount_max_pct: float | None = None

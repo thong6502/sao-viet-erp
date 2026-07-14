@@ -183,6 +183,25 @@ function getInitials(name: string): string {
   return clean.substring(0, 2).toUpperCase();
 }
 
+export const TAG_TONES = ["rust", "plum", "moss", "amber"] as const;
+
+export function tagTone(label: string): (typeof TAG_TONES)[number] {
+  let h = 0;
+  for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return TAG_TONES[h % TAG_TONES.length];
+}
+
+export function getKhAvatarClass(name: string): string {
+  const clean = name.replace(/^(Cty|Công ty|Cafe|Cà phê|TNHH|CP)\s+/i, "").trim();
+  const tones = ["rust", "plum", "moss", "amber", "steel"];
+  let code = 0;
+  for (let i = 0; i < clean.length; i++) {
+    code = clean.charCodeAt(i) + ((code << 5) - code);
+  }
+  const tone = tones[Math.abs(code) % tones.length];
+  return `kh__avatar--${tone}`;
+}
+
 /*
 const TIER_META: Record<CustomerTier, { label: string; stars: number; cls: string }> = {
   loyal: { label: "Thân thiết", stars: 3, cls: "tier--loyal" },
@@ -901,7 +920,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                     )}
                     <td>
                       <div className="kh__identity-cell">
-                        <div className="kh__avatar">{initials}</div>
+                        <div className={`kh__avatar ${getKhAvatarClass(c.name)}`}>{initials}</div>
                         <div className="kh__identity">
                           <span className="kh__name">{c.name}</span>
                           <span className="kh__submeta">
@@ -910,7 +929,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                           <div className="kh__row-badges">
                             {/* Redesign spec-06 v2: badge = THẺ gán tay (#7), bỏ tier/mock. */}
                             {(c.tags ?? []).map((t) => (
-                              <span key={t} className="kh__row-badge kh__row-badge--tag">
+                              <span key={t} className={`kh__row-badge kh__row-badge--tag-${tagTone(t)}`}>
                                 {t}
                               </span>
                             ))}
@@ -1713,29 +1732,7 @@ function DashboardTab({
 }
 
 // --- Chính sách tài chính (inline view/edit, redesign spec-06 v2) -------------
-
-const PAYMENT_TERM_OPTS: { value: string; label: string }[] = [
-  { value: "", label: "— Chưa khai —" },
-  { value: "prepay", label: "Trả trước / đặt cọc" },
-  { value: "net_delivery", label: "Công nợ X ngày từ ngày nhận hàng" },
-  { value: "net_eom", label: "Đối chiếu cuối tháng + X ngày" },
-  { value: "custom", label: "Đặc thù khác" },
-];
-
-function termText(c: CustomerRow): string {
-  switch (c.payment_term_type) {
-    case "prepay":
-      return `Trả trước ${c.prepay_pct ?? "?"}%`;
-    case "net_delivery":
-      return `Công nợ ${c.payment_term_days ?? "?"} ngày từ ngày nhận hàng`;
-    case "net_eom":
-      return `Đối chiếu cuối tháng + ${c.payment_term_days ?? "?"} ngày`;
-    case "custom":
-      return c.payment_term_note || "Đặc thù khác";
-    default:
-      return "Chưa khai (mặc định trả trước)";
-  }
-}
+// Điều khoản thanh toán đã BỎ theo yêu cầu — chỉ còn Hạn mức + rào Chiết khấu/Biên.
 
 function rangeText(min?: number | null, max?: number | null): string {
   if (min == null && max == null) return "Chưa đặt";
@@ -1759,10 +1756,6 @@ function FinancialPolicyCard({
   const [err, setErr] = useState<string | null>(null);
   const [f, setF] = useState({
     credit_limit: "0",
-    payment_term_type: "",
-    payment_term_days: "",
-    prepay_pct: "",
-    payment_term_note: "",
     discount_min_pct: "",
     discount_max_pct: "",
     margin_min_pct: "",
@@ -1773,10 +1766,6 @@ function FinancialPolicyCard({
     const numStr = (n?: number | null) => (n != null ? String(n) : "");
     setF({
       credit_limit: String(customer.credit_limit ?? 0),
-      payment_term_type: customer.payment_term_type ?? "",
-      payment_term_days: numStr(customer.payment_term_days),
-      prepay_pct: numStr(customer.prepay_pct),
-      payment_term_note: customer.payment_term_note ?? "",
       discount_min_pct: numStr(customer.discount_min_pct),
       discount_max_pct: numStr(customer.discount_max_pct),
       margin_min_pct: numStr(customer.margin_min_pct),
@@ -1790,15 +1779,9 @@ function FinancialPolicyCard({
     if (!token || saving) return;
     setSaving(true);
     setErr(null);
-    const term = f.payment_term_type;
     const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
     const input: CustomerFinancialInput = {
       credit_limit: Number(f.credit_limit) || 0,
-      payment_term_type: term || null,
-      payment_term_days:
-        term === "net_delivery" || term === "net_eom" ? Number(f.payment_term_days) : null,
-      prepay_pct: term === "prepay" ? Number(f.prepay_pct) : null,
-      payment_term_note: f.payment_term_note.trim() || null,
       discount_min_pct: numOrNull(f.discount_min_pct),
       discount_max_pct: numOrNull(f.discount_max_pct),
       margin_min_pct: numOrNull(f.margin_min_pct),
@@ -1824,7 +1807,9 @@ function FinancialPolicyCard({
       <div className="kh__chart-head">
         <h3><CreditCard size={14} /> Chính sách tài chính</h3>
         {canEdit && !editing && (
-          <button type="button" className="kh__btn-tag" onClick={openEdit}>Sửa</button>
+          <button type="button" className="kh__fin-edit-btn" onClick={openEdit}>
+            <PencilLine size={13} strokeWidth={2} /> Sửa
+          </button>
         )}
       </div>
 
@@ -1833,10 +1818,6 @@ function FinancialPolicyCard({
           <div className="kh__fin-row">
             <span className="kh__fin-label">Hạn mức công nợ</span>
             <strong className="kh__mono">{moneyStat(customer.credit_limit)}</strong>
-          </div>
-          <div className="kh__fin-row">
-            <span className="kh__fin-label">Điều khoản thanh toán</span>
-            <span>{termText(customer)}</span>
           </div>
           <div className="kh__fin-row">
             <span className="kh__fin-label">Chiết khấu cho phép</span>
@@ -1852,41 +1833,11 @@ function FinancialPolicyCard({
         </div>
       ) : (
         <div className="kh__finpolicy-edit">
-          <label className="field">
+          <label className="field kh__fin-wide">
             <span className="field__label">Hạn mức công nợ (VND)</span>
             <input className="input" type="number" min={0} value={f.credit_limit}
               onChange={(e) => set("credit_limit", e.target.value)} />
           </label>
-          <label className="field">
-            <span className="field__label">Điều khoản thanh toán</span>
-            <select className="input" value={f.payment_term_type}
-              onChange={(e) => set("payment_term_type", e.target.value)}>
-              {PAYMENT_TERM_OPTS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </label>
-          {(f.payment_term_type === "net_delivery" || f.payment_term_type === "net_eom") && (
-            <label className="field">
-              <span className="field__label">Số ngày công nợ</span>
-              <input className="input" type="number" min={0} value={f.payment_term_days}
-                onChange={(e) => set("payment_term_days", e.target.value)} />
-            </label>
-          )}
-          {f.payment_term_type === "prepay" && (
-            <label className="field">
-              <span className="field__label">Tỷ lệ trả trước (%)</span>
-              <input className="input" type="number" min={0} max={100} value={f.prepay_pct}
-                onChange={(e) => set("prepay_pct", e.target.value)} />
-            </label>
-          )}
-          {f.payment_term_type && (
-            <label className="field kh__fin-wide">
-              <span className="field__label">Ghi chú điều khoản</span>
-              <input className="input" value={f.payment_term_note}
-                onChange={(e) => set("payment_term_note", e.target.value)} />
-            </label>
-          )}
           <div className="kh__fin-bounds">
             <label className="field">
               <span className="field__label">CK tối thiểu (%)</span>
@@ -2579,13 +2530,6 @@ const DEFAULT_TAG_PRESETS = [
   "Tiềm năng", "Ưu tiên", "Đối tác lâu năm", "Trả đúng hạn", "Hay trễ hẹn",
   "Khó tính", "Nhạy giá", "Ưa giao nhanh", "Cần chăm sóc", "Tái ký HĐ",
 ];
-const TAG_TONES = ["rust", "plum", "moss", "amber"] as const;
-/** Màu thẻ ổn định theo nội dung nhãn (hash) — cùng nhãn luôn cùng màu ở mọi nơi. */
-function tagTone(label: string): (typeof TAG_TONES)[number] {
-  let h = 0;
-  for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return TAG_TONES[h % TAG_TONES.length];
-}
 
 /** Chips nhãn trên header hồ sơ + nút mở modal Gắn thẻ (mockup: toggle preset, Lưu một lần). */
 function TagChips({ customerId, customerName }: { customerId: number; customerName?: string }) {
