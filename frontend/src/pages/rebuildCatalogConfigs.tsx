@@ -9,10 +9,10 @@ type Lbls = Record<string, string>;
 const mapOpt = (m: Lbls) => Object.entries(m).map(([value, label]) => ({ value, label }));
 const lbl = (m: Lbls) => (v: unknown) => (v == null || v === "" ? "—" : (m[String(v)] ?? String(v)));
 
-const STRUCTURAL: Lbls = { flat: "Tờ phẳng", multipage: "Nhiều trang", box: "Hộp", label: "Tem / nhãn" };
-const BOX_SUB: Lbls = { folding_carton: "Hộp giấy gấp", corrugated: "Thùng carton sóng", rigid: "Hộp cứng" };
-const COVER: Lbls = { tu_bia: "Bìa tự thân (cùng ruột)", bia_roi: "Bìa rời (giấy khác)" };
-const BINDING: Lbls = { ghim: "Đóng ghim", keo: "Vào keo", khau: "Khâu chỉ" };
+export const STRUCTURAL: Lbls = { flat: "Tờ phẳng", multipage: "Nhiều trang", box: "Hộp", label: "Tem / nhãn" };
+export const BOX_SUB: Lbls = { folding_carton: "Hộp giấy gấp", corrugated: "Thùng carton sóng", rigid: "Hộp cứng" };
+export const COVER: Lbls = { tu_bia: "Bìa tự thân (cùng ruột)", bia_roi: "Bìa rời (giấy khác)" };
+export const BINDING: Lbls = { ghim: "Đóng ghim", keo: "Vào keo", khau: "Khâu chỉ" };
 
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in" };
 const PRICING_BASIS: Lbls = {
@@ -51,24 +51,26 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   title: "Loại sản phẩm",
   subtitle: "Khuôn mẫu sản phẩm — gán cách dàn khuôn (bình bài) + chuỗi công đoạn mặc định.",
   prefix: "/api/loai-san-pham",
-  facet: { key: "structural_type", values: mapOpt(STRUCTURAL) },
-  columns: [
-    { key: "structural_type", label: "Kiểu", render: (r) => lbl(STRUCTURAL)(r.structural_type) },
-  ],
+  columns: [],
   fields: [
-    { key: "structural_type", label: "Kiểu cấu trúc", type: "select", required: true, group: "Cấu trúc",
-      options: mapOpt(STRUCTURAL), hint: "Quyết định các ô bên dưới hiện ra" },
-    { key: "box_sub_type", label: "Loại hộp", type: "select", group: "Cấu trúc",
-      options: mapOpt(BOX_SUB), showIf: (f) => f.structural_type === "box" },
-    { key: "has_cover", label: "Có bìa riêng", type: "checkbox", group: "Bìa (nhiều trang)",
-      showIf: (f) => f.structural_type === "multipage" },
-    { key: "cover_type", label: "Kiểu bìa", type: "select", group: "Bìa (nhiều trang)",
-      options: mapOpt(COVER), showIf: (f) => f.structural_type === "multipage" },
-    { key: "default_binding", label: "Kiểu đóng gáy", type: "select", group: "Bìa (nhiều trang)",
-      options: mapOpt(BINDING), showIf: (f) => f.structural_type === "multipage" },
     { key: "routing_template", label: "Chuỗi công đoạn mặc định", type: "ref-multi", refPrefix: "/api/cong-doan",
       group: "Công đoạn mặc định", hint: "Các bước sản xuất, theo đúng thứ tự chạy" },
   ],
+  deriveInitial: (existing) => ({
+    structural_type: existing?.structural_type ?? "flat",
+    box_sub_type: existing?.box_sub_type ?? "",
+    has_cover: existing?.has_cover ?? false,
+    cover_type: existing?.cover_type ?? "",
+    default_binding: existing?.default_binding ?? "",
+  }),
+  transformSubmit: (body, form) => ({
+    ...body,
+    structural_type: form.structural_type ?? "flat",
+    box_sub_type: form.box_sub_type || null,
+    has_cover: form.has_cover || false,
+    cover_type: form.cover_type || null,
+    default_binding: form.default_binding || null,
+  }),
 };
 
 const isMayIn = (val: unknown) => {
@@ -162,6 +164,8 @@ export const CFG_CONG_DOAN: CatalogConfig = {
       hint: "Đơn giá theo cạnh dài thành phẩm (cm). VD dán hộp: ≤20cm=100 · ≤40cm=200 · ≤100cm=800." },
     { key: "min_charge", label: "Giá tối thiểu (đ)", type: "number", group: "Giá",
       hint: "Thu tối thiểu dù số lượng ít (bỏ trống nếu không cần)." },
+    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
+      hint: "Công thức trả về TỔNG tiền cả dòng (máy tự chia ÷ số lượng ra đ/thành phẩm). Bấm thẻ biến phía trên để chèn. VD In khoán 1 lượt: to_dau_vao * so_mat * don_gia · Kẽm: so_kem * don_gia · Cán màng/vecni: dai_in * rong_in * don_gia_m2 * to_sau_in · Trọn gói khuôn/bế: 800000. Hàm: ceil floor round max min." },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong",
       hint: "In / Bồi / Bế sóng → Tra bảng (chọn mã bù hao) · Ép kim/UV → Cộng cố định · Ghi kẽm → Không" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
@@ -254,6 +258,8 @@ export const CFG_GIAY: CatalogConfig = {
     { key: "kho_dai", label: "Khổ dài (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
     { key: "kho_tinh_gia", label: "Khổ dùng để tính giá?", type: "checkbox", group: "Giá" },
     { key: "gia_thi_truong", label: "Giá thị trường (đ)", type: "number", group: "Giá", hint: "tham khảo; đơn giá bán quản ở Lịch sử giá" },
+    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
+      hint: "Công thức trả về TỔNG tiền cả dòng (máy tự chia ÷ số lượng). Bấm thẻ biến phía trên để chèn. Giấy theo kg: dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen · Giấy theo tờ: don_gia * to_nguyen. Hàm: ceil floor round max min." },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
 };
@@ -270,6 +276,8 @@ export const CFG_VAT_TU: CatalogConfig = {
   fields: [
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", type: "select", group: "Giá", options: mapOpt(DV_GIA_VAT_TU) },
     { key: "don_gia", label: "Giá (đ)", type: "number", group: "Giá" },
+    { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá",
+      hint: "Công thức trả về TỔNG tiền cả dòng (máy tự chia ÷ số lượng). Bấm thẻ biến phía trên để chèn. Cán màng/vecni (m²): dai_in * rong_in * don_gia_m2 * to_sau_in · In khoán 1 lượt: to_dau_vao * so_mat * don_gia · Kẽm: so_kem * don_gia. Hàm: ceil floor round max min." },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Giá" },
   ],
 };

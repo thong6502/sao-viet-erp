@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from ..db import get_db
 from ..deps import get_authorization_service, require_permission
-from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia
+from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia, PhieuVatTu
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
@@ -81,12 +81,17 @@ def _build_thanh_phan(tp_in: ThanhPhanIn, thu_tu: int) -> PhieuThanhPhan:
     """Dựng ORM thành phần + con finishing từ payload (chỉ set field được gửi → giữ default model)."""
     data = tp_in.model_dump(exclude_unset=True)
     rows_in = data.pop("thanh_phams", None) or []
+    vt_in = data.pop("vat_tus", None) or []
     data.setdefault("thu_tu", thu_tu)
     tp = PhieuThanhPhan(**data)
     for j, row in enumerate(rows_in):
         rd = dict(row)
         rd.setdefault("thu_tu", j)
         tp.thanh_phams.append(PhieuThanhPham(**rd))
+    for k, vt in enumerate(vt_in):
+        vd = dict(vt)
+        vd.setdefault("thu_tu", k)
+        tp.vat_tus.append(PhieuVatTu(**vd))
     return tp
 
 

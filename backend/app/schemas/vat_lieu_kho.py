@@ -76,6 +76,7 @@ class GiayIn(BaseModel):
     gia_thi_truong: float | None = None
     kho_tinh_gia: bool = True
     ghi_chu: str | None = None
+    cong_thuc_gia: str | None = None
     active: bool = True
 
 
@@ -96,6 +97,7 @@ class GiayRow(BaseModel):
     kho_tinh_gia: bool
     ghi_chu: str | None = None
     version_no: int = 1
+    cong_thuc_gia: str | None = None
     active: bool
     updated_at: datetime | None = None
 
@@ -107,6 +109,7 @@ class VatTuIn(BaseModel):
     don_vi_gia: str = "cai"
     don_gia: float = Field(default=0, ge=0)
     ghi_chu: str | None = None
+    cong_thuc_gia: str | None = None
     active: bool = True
 
 
@@ -118,6 +121,7 @@ class VatTuRow(BaseModel):
     don_vi_gia: str
     don_gia: float
     ghi_chu: str | None = None
+    cong_thuc_gia: str | None = None
     active: bool
     updated_at: datetime | None = None
 

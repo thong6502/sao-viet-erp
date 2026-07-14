@@ -2,8 +2,8 @@
 """
 from __future__ import annotations
 
-from datetime import date
-from sqlalchemy import asc, desc, func, or_, select
+from datetime import date, datetime, timezone
+from sqlalchemy import asc, desc, exists, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from ..models.customer import Customer
@@ -134,6 +134,34 @@ class QuotationRepository:
         if cond is not None:
             stmt = stmt.where(cond)
         return int(self.db.execute(stmt).scalar_one())
+
+    # --- Real-time "gửi duyệt": quyết định GĐ chưa xem phía Sale ---------------
+    _EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+    def _unseen_decision_exists(self):
+        """EXISTS 1 quyết định DUYỆT/TỪ CHỐI của GĐ (quote_approvals) ra SAU mốc Sale đã xem.
+        Bám bảng quyết định GĐ → KHÔNG lẫn 'khách từ chối' (đường transition, không tạo approval)."""
+        return exists().where(
+            QuoteApproval.quote_id == Quote.id,
+            QuoteApproval.decided_at > func.coalesce(Quote.decision_seen_at, self._EPOCH),
+        )
+
+    def count_my_decided_unseen(self, salesperson_id: int) -> int:
+        """Số báo giá của NGƯỜI SOẠN vừa được GĐ quyết mà họ chưa xem (nuôi badge/toast phía Sale)."""
+        stmt = select(func.count()).select_from(Quote).where(
+            Quote.salesperson_id == salesperson_id,
+            self._unseen_decision_exists(),
+        )
+        return int(self.db.execute(stmt).scalar_one())
+
+    def mark_my_decisions_seen(self, salesperson_id: int) -> None:
+        """Người soạn xác nhận đã xem các quyết định → đóng badge/chuông (đặt mốc = giờ hiện tại)."""
+        self.db.execute(
+            update(Quote)
+            .where(Quote.salesperson_id == salesperson_id, self._unseen_decision_exists())
+            .values(decision_seen_at=datetime.now(timezone.utc))
+        )
+        self.db.commit()
 
     def can_access(self, *, quote: Quote, scope: str, actor) -> bool:
         if scope == SCOPE_ALL:

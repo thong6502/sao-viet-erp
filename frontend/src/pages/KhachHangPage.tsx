@@ -1016,7 +1016,6 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
       {mode === "edit" && editing && (
         <CustomerFormDialog
           title={`Sửa khách hàng · ${editing.code}`}
-          code={editing.code}
           customerId={editing.id}
           isEdit
           sales={sales}
@@ -4239,7 +4238,6 @@ function TableSkeleton({ cols }: { cols: number }) {
 
 function CustomerFormDialog({
   title,
-  code,
   customerId,
   isEdit,
   initial,
@@ -4248,7 +4246,6 @@ function CustomerFormDialog({
   onSaved,
 }: {
   title: string;
-  code?: string;
   customerId?: number;
   isEdit: boolean;
   initial: FormState;
@@ -4389,11 +4386,7 @@ function CustomerFormDialog({
         ) : (
           <form className="kh__dialog-body" onSubmit={onSubmit}>
             <div className="kh__form-grid">
-              <label className="field">
-                <span className="field__label">Mã KH</span>
-                <input className="input" value={code ?? "(tự sinh)"} readOnly disabled />
-              </label>
-              <label className="field">
+              <label className="field kh__form-wide">
                 <span className="field__label">Tên khách hàng *</span>
                 <input
                   className="input"
@@ -4457,7 +4450,6 @@ function CustomerFormDialog({
                     value={form.tax_code}
                     onChange={(e) => set("tax_code", e.target.value)}
                     onBlur={liveCheck}
-                    placeholder="10 hoặc 13 chữ số"
                     aria-invalid={!!errors.tax_code}
                   />
                   {errors.tax_code && <span className="kh__err" role="alert">{errors.tax_code}</span>}
@@ -4476,10 +4468,6 @@ function CustomerFormDialog({
                   onBlur={liveCheck}
                 />
               </label>
-              <p className="kh__lock-note kh__form-wide">
-                Hạn mức công nợ, điều khoản thanh toán và rào chiết khấu/biên đặt ở{" "}
-                <strong>hồ sơ khách → Dashboard → Chính sách tài chính</strong> (cần quyền).
-              </p>
             </div>
 
             {liveWarns.length > 0 && (

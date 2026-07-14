@@ -2,16 +2,24 @@
 """
 from __future__ import annotations
 
+import asyncio
 import io
+import json
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi.responses import StreamingResponse
 
+from ..db import SessionLocal
 from ..deps import (
     get_authorization_service,
     get_quotation_service,
     require_permission,
 )
+from ..realtime import hub
+from ..repositories.user_repo import UserRepository
+from ..security import decode_access_token
+from ..services.auth_service import AuthError, AuthService
 from ..models.quotation import (
     QUOTE_STATUSES,
     Quote,
@@ -390,6 +398,96 @@ def pending_approval_count(
     return {"count": svc.pending_approval_count(scope=scope, actor=user, can_approve=can_approve)}
 
 
+# --- Real-time luồng gửi duyệt (SSE) — CLAUDE.md "gửi nội bộ = real-time" ------
+
+@router.get("/notify-summary")
+def notify_summary(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    """Số nuôi badge/toast real-time (SSE snapshot khi connect + REST fallback khi có event):
+    `pending_approval_count` (chờ TÔI duyệt) + `my_decided_unseen` (quyết định cho báo giá của TÔI
+    chưa xem)."""
+    scope = _scope_for(authz, user)
+    can_approve = authz.can(user, MODULE, "approve_exception")
+    return svc.notify_summary(scope=scope, actor=user, can_approve=can_approve)
+
+
+@router.post("/decisions/seen")
+def mark_decisions_seen(
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    """Người soạn xác nhận đã xem các quyết định duyệt/từ chối → đóng badge/toast phía Sale."""
+    svc.mark_decisions_seen(actor=_)
+    return {"ok": True}
+
+
+def _authenticate_sse(token: str | None) -> int:
+    """Xác thực bearer token cho SSE mà KHÔNG giữ session request-scoped (stream sống lâu — 200 kết
+    nối giữ session sẽ cạn pool). Mở session ngắn, validate, đóng ngay; trả user_id."""
+    unauth = HTTPException(status.HTTP_401_UNAUTHORIZED, "Not authenticated",
+                           headers={"WWW-Authenticate": "Bearer"})
+    if not token:
+        raise unauth
+    claims = decode_access_token(token)
+    if claims is None:
+        raise unauth
+    db = SessionLocal()
+    try:
+        user = AuthService(UserRepository(db)).user_from_token_subject(claims.get("sub"))
+    except AuthError:
+        raise unauth from None
+    finally:
+        db.close()
+    if claims.get("tv") != user.token_version or not user.is_active:
+        raise unauth
+    return user.id
+
+
+@router.get("/events")
+async def quote_events(
+    request: Request,
+    access_token: Annotated[str | None, Query()] = None,
+    authorization: Annotated[str | None, Header()] = None,
+) -> StreamingResponse:
+    """Kênh SSE đẩy sự kiện luồng gửi duyệt (in-process, 1 worker). Client dùng fetch-reader gắn
+    `Authorization: Bearer` (EventSource gốc không set được header) — cũng nhận `?access_token=` để
+    dự phòng. Sự kiện chỉ là tín hiệu nhẹ (`quote_decision`, `quote_pending_changed`); số chính xác
+    lấy qua `/notify-summary` để không giữ DB suốt stream."""
+    token = access_token
+    if not token and authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:]
+    user_id = _authenticate_sse(token)
+    queue = hub.subscribe(user_id)
+
+    async def stream():
+        try:
+            yield ": connected\n\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    evt = await asyncio.wait_for(queue.get(), timeout=20.0)
+                except asyncio.TimeoutError:
+                    yield ": ping\n\n"   # heartbeat giữ kết nối sống qua proxy
+                    continue
+                yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+        finally:
+            hub.unsubscribe(user_id, queue)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # nginx: tắt buffering cho stream này
+            "Connection": "keep-alive",
+        },
+    )
+
+
 # --- create / read / update ---------------------------------------------------
 
 @router.post("", response_model=QuotationDetailOut, status_code=status.HTTP_201_CREATED)
@@ -552,6 +650,10 @@ def transition_quotation(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
     except QuotationValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    # Real-time: TRÌNH DUYỆT (thêm vào 'chờ duyệt') hoặc HỦY (rời 'chờ duyệt') → báo người duyệt
+    # ngay (họ tự refetch 'chờ tôi duyệt'; badge nhảy + toast khi số tăng).
+    if payload.to_status in ("pending_approval", "cancelled"):
+        hub.broadcast({"type": "quote_pending_changed", "code": q.quote_number})
     return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"),
         can_approve_exception=authz.can(user, MODULE, "approve_exception"))
 
@@ -579,6 +681,14 @@ def record_quote_approval(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
     except QuotationValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    # Real-time: báo NGƯỜI SOẠN kết quả duyệt/từ chối NGAY (toast + badge); và báo người duyệt danh
+    # sách 'chờ tôi duyệt' đã đổi (báo giá vừa rời khỏi hàng chờ).
+    if q.salesperson_id:
+        hub.publish(q.salesperson_id, {
+            "type": "quote_decision", "quote_id": q.id,
+            "code": q.quote_number, "decision": payload.decision,
+        })
+    hub.broadcast({"type": "quote_pending_changed", "code": q.quote_number})
     return _detail(svc, q, scope, can_approve=authz.can(user, MODULE, "approve"),
         can_approve_exception=authz.can(user, MODULE, "approve_exception"))
 

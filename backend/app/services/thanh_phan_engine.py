@@ -1,12 +1,13 @@
 """Engine tính giá vốn THEO THÀNH PHẦN — hàm THUẦN (không I/O, không ORM).
 
-Bản REDESIGN (theo `docs/redesign-tinh-gia.md`): giá vốn theo SẢN LƯỢNG, KHÔNG hệ số.
-1 phiếu = nhiều "thành phần" (mỗi thành phần = 1 tờ giấy). Mỗi thành phần tính 4 nhóm rồi CỘNG:
+Bản REDESIGN (theo `docs/redesign-tinh-gia.md` §0/§1.6): giá vốn theo SẢN LƯỢNG, KHÔNG hệ số.
+CHI PHÍ CHỈ 2 LOẠI DÒNG (không còn rổ A/B/C/D):
 
-  A Giấy       ← số TỜ NGUYÊN (đã xả) × đơn giá giấy (theo tờ | theo tấn).
-  B Công in    ← (tờ IN gross × số mặt) lượt × đơn giá công in (mực GỘP; KHÔNG nhân số màu).
-  C Chế bản/kẽm← (màu A + màu B) × số tay × đơn giá kẽm.
-  D Gia công   ← từng dòng finishing (đơn giá phẳng HOẶC compute_step_cost công đoạn).
+  • Nguyên vật liệu (nvl) ← giấy + vật tư in ấn (kẽm/mực/keo/màng…).
+  • Công đoạn (cong_doan) ← MỌI công đoạn (chế bản/kẽm · in · gia công) theo thứ tự routing.
+
+Quy cách in (mẫu/cách/màu/kẽm) chỉ MÔ TẢ + phơi biến (so_mau/so_mat/so_kem) cho công thức — KHÔNG
+phải rổ chi phí. Giá vốn = Σ dòng nvl + Σ dòng công đoạn.
 
 BỐN KHỔ (mm) — không lẫn:
   ① khổ giấy nguyên (kho_ng_dai/rong) — MUA về, tính tiền giấy.
@@ -22,9 +23,13 @@ KHÔNG hệ số (mọi hệ số khoán/quy đổi = 1 → đã gỡ). Giá v�
 """
 from __future__ import annotations
 
+import ast
+import operator
+import re
 from math import ceil, floor
 
 from .routing_engine import basis_qty, compute_step_cost
+from .bu_hao_engine import bu_hao_cong_doan
 
 
 def _f(v, d: float = 0.0) -> float:
@@ -48,35 +53,112 @@ def _r(v: float) -> float:
     return round(_f(v), 2)
 
 
+OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+FUNCTIONS = {
+    'ceil': ceil,
+    'floor': floor,
+    'round': round,
+    'max': max,
+    'min': min,
+}
+
+MATH_FUNCS = {"ceil", "floor", "round", "max", "min"}
+
+
+def _eval_node(node, variables: dict) -> float:
+    if isinstance(node, ast.Num):
+        return float(node.n)
+    elif isinstance(node, ast.Constant):
+        if isinstance(node.value, (int, float)):
+            return float(node.value)
+        raise ValueError(f"Hằng số không hợp lệ: {node.value}")
+    elif isinstance(node, ast.Name):
+        name = node.id
+        if name in variables:
+            return float(variables[name] or 0.0)
+        raise ValueError(f"Biến không xác định: {name}")
+    elif isinstance(node, ast.BinOp):
+        left = _eval_node(node.left, variables)
+        right = _eval_node(node.right, variables)
+        op_type = type(node.op)
+        if op_type in OPERATORS:
+            return OPERATORS[op_type](left, right)
+        raise ValueError(f"Toán tử không được hỗ trợ: {op_type}")
+    elif isinstance(node, ast.UnaryOp):
+        operand = _eval_node(node.operand, variables)
+        op_type = type(node.op)
+        if op_type in OPERATORS:
+            return OPERATORS[op_type](operand)
+        raise ValueError(f"Toán tử một ngôi không được hỗ trợ: {op_type}")
+    elif isinstance(node, ast.Call):
+        if not isinstance(node.func, ast.Name):
+            raise ValueError("Gọi hàm không hợp lệ")
+        func_name = node.func.id
+        if func_name not in FUNCTIONS:
+            raise ValueError(f"Hàm không được hỗ trợ: {func_name}")
+        args = [_eval_node(arg, variables) for arg in node.args]
+        return float(FUNCTIONS[func_name](*args))
+    else:
+        raise ValueError(f"Cú pháp không được hỗ trợ: {type(node)}")
+
+
+def safe_eval(expr_str: str, variables: dict) -> float:
+    if not expr_str or not expr_str.strip():
+        return 0.0
+    expr_str = expr_str.replace('×', '*').replace('÷', '/').replace('−', '-')
+    try:
+        node = ast.parse(expr_str.strip(), mode='eval').body
+        return _eval_node(node, variables)
+    except Exception as e:
+        raise ValueError(f"Lỗi công thức: {e}")
+
+
+def format_substituted_formula(formula_str: str, variables: dict) -> str:
+    if not formula_str or not formula_str.strip():
+        return ""
+    word_regex = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b')
+    def replacer(match):
+        word = match.group(1)
+        if word in MATH_FUNCS:
+            return word
+        if word in variables:
+            val = variables[word]
+            return f"{word}({_vi(val)})"
+        return word
+    substituted = word_regex.sub(replacer, formula_str)
+    substituted = substituted.replace('*', ' × ').replace('/', ' ÷ ').replace('-', ' − ').replace('+', ' + ')
+    substituted = re.sub(r'\s+', ' ', substituted).strip()
+    return substituted
+
+
+# 2 nhóm duy nhất (§1.6): Nguyên vật liệu (giấy + vật tư) · Công đoạn (chế bản/in/gia công).
 _COLS = {
-    "A": [
-        {"key": "ten", "label": "Loại giấy", "align": "left", "kind": "text"},
+    "nvl": [
+        {"key": "ten", "label": "Nguyên vật liệu", "align": "left", "kind": "text"},
         {"key": "so_to", "label": "SL tờ", "align": "right", "kind": "number"},
         {"key": "don_gia", "label": "Đơn giá", "align": "right", "kind": "money"},
         {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
-        {"key": "cong_thuc", "label": "Công thức", "align": "left", "kind": "formula"},
+        {"key": "gia_don_sp", "label": "đ/TP", "align": "right", "kind": "money"},
+        {"key": "cong_thuc", "label": "Công thức thế số", "align": "left", "kind": "formula"},
     ],
-    "B": [
-        {"key": "ten", "label": "Tên công đoạn", "align": "left", "kind": "text"},
+    "cong_doan": [
+        {"key": "ten", "label": "Công đoạn", "align": "left", "kind": "text"},
         {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
-        {"key": "cong_thuc", "label": "Công thức", "align": "left", "kind": "formula"},
-        {"key": "ghi_chu", "label": "Ghi chú", "align": "left", "kind": "text"},
-    ],
-    "C": [
-        {"key": "ten", "label": "Nội dung", "align": "left", "kind": "text"},
-        {"key": "sl", "label": "SL", "align": "right", "kind": "number"},
-        {"key": "don_gia", "label": "Đơn giá", "align": "right", "kind": "money"},
-        {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
-        {"key": "cong_thuc", "label": "Công thức", "align": "left", "kind": "formula"},
-    ],
-    "D": [
-        {"key": "ten", "label": "Tên công đoạn", "align": "left", "kind": "text"},
-        {"key": "thanh_tien", "label": "Số tiền", "align": "right", "kind": "money"},
-        {"key": "cong_thuc", "label": "Công thức", "align": "left", "kind": "formula"},
+        {"key": "gia_don_sp", "label": "đ/TP", "align": "right", "kind": "money"},
+        {"key": "cong_thuc", "label": "Công thức thế số", "align": "left", "kind": "formula"},
         {"key": "ghi_chu", "label": "Ghi chú", "align": "left", "kind": "text"},
     ],
 }
-_NAMES = {"A": "Giấy", "B": "Công in", "C": "Chế bản", "D": "Gia công sau in"}
+_NAMES = {"nvl": "Nguyên vật liệu", "cong_doan": "Công đoạn"}
 
 
 def _pre(name: str, label: str) -> str:
@@ -161,8 +243,8 @@ def _step_cost_safe(cd: dict, ctx: dict, warnings: list[str], ten: str) -> tuple
     return _f(res.get("total")), ghi
 
 
-def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: dict) -> dict:
-    """Tính 4 nhóm chi phí cho 1 SẢN PHẨM (theo SL riêng của nó). Trả {name, rows, total, meta}."""
+def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: dict, bu_hao_rows: list[dict]) -> dict:
+    """Tính chi phí 1 SẢN PHẨM → 2 nhóm (nvl · cong_doan). Trả {name, rows, total, meta}."""
     name = tp.get("ten") or ""
     sl = _i(tp.get("so_luong")) or _i(so_luong_mac_dinh)   # SL của sản phẩm này; 0 → SL mặc định phiếu
     so_to_per_sp = max(_i(tp.get("so_to_per_sp"), 1), 1)   # số tờ (tay) trên 1 sản phẩm
@@ -179,7 +261,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     dai_tp = _f(tp.get("dai_thanh_pham"))    # thành phẩm ③
     rong_tp = _f(tp.get("rong_thanh_pham"))
     chua_mm = (_f(tp.get("chua_xen")) + _f(tp.get("chua_tay_ke")) + _f(tp.get("chua_nhip"))
-               + _f(tp.get("chua_duoi")) + _f(tp.get("chua_ca_gay")))   # ĐÃ là mm (thống nhất mm toàn phiếu)
+               + _f(tp.get("chua_duoi")) + _f(tp.get("chua_ca_gay")))
 
     # --- ④ con/tờ: auto bình bài, override được ---
     con_auto = tp.get("con_auto", True)
@@ -197,118 +279,292 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     xa = _fit(kho_ng_d, kho_ng_r, kho_in_d, kho_in_r) if (kho_ng_d > 0 and kho_ng_r > 0) else 1
     xa = max(xa, 1)
 
-    # --- Số tờ: net → gross (tờ in) → tờ nguyên ---
+    # --- Số tờ CẦN in (net) — tính TRƯỚC để tra bù hao THEO SỐ TỜ (không phải số lượng) ---
     to_net = ceil(sl * so_to_per_sp / con) if sl > 0 else 0
-    bu_hao = _i(tp.get("bu_hao_so_to"))         # bù hao (tờ in cộng thêm) — KHÔNG hệ số
-    if bu_hao > 0 and not flags.get("chua_warned"):
-        flags["chua_warned"] = True
-    to_gross = to_net + bu_hao
-    to_nguyen = ceil(to_gross / xa) if to_gross > 0 else 0
+
+    # --- Bù hao mỗi công đoạn: TỰ áp theo mã của công đoạn (kieu_bu_hao != "khong"), tra bậc
+    # theo SỐ TỜ CẦN IN (to_net). Toggle `tinh_bu_hao_cd` TẮT → bỏ qua (người dùng tự nhập bù). ---
+    finishing_spoilage_sum = 0.0
+    if tp.get("tinh_bu_hao_cd", True):
+        for row in tp.get("thanh_phams") or []:
+            cd = row.get("cong_doan") or {}
+            if cd and cd.get("kieu_bu_hao", "khong") != "khong":
+                finishing_spoilage_sum += bu_hao_cong_doan(cd, rows=bu_hao_rows, sl=to_net)
+
+    # --- Số tờ: net → gross (tờ in) → tờ nguyên ---
+    bu_hao = _i(tp.get("bu_hao_so_to"))         # số bù nhập tay (cộng thêm to_dau_vao)
+    hao = _i(tp.get("hao_so_to"))               # số hao nhập tay (trừ bớt to_sau_in)
+    to_dau_vao = to_net + finishing_spoilage_sum + bu_hao
+    to_sau_in = max(to_dau_vao - hao, 0.0)
+    to_nguyen = ceil(to_dau_vao / xa) if to_dau_vao > 0 else 0
 
     so_mau_a = _i(tp.get("so_mau_a"))
     so_mau_b = _i(tp.get("so_mau_b"))
+    so_mau = so_mau_a + so_mau_b
     co_in = bool(tp.get("co_in", True))
 
-    rows: dict[str, list[dict]] = {"A": [], "B": [], "C": [], "D": []}
+    # --- Biến đổi đơn vị cho biến công thức (mm -> m) ---
+    dai_tp_m = dai_tp / 1000.0
+    rong_tp_m = rong_tp / 1000.0
+    dai_nguyen_m = kho_ng_d / 1000.0
+    rong_nguyen_m = kho_ng_r / 1000.0
+    dai_in_m = kho_in_d / 1000.0
+    rong_in_m = kho_in_r / 1000.0
+    dinh_luong = _f(tp.get("gsm")) / 1000.0  # gsm / 1000 -> kg/m2 (0.25)
 
-    # --- A Giấy (theo TỜ NGUYÊN) ---
+    # --- Số kẽm ---
+    kem_mau = so_mau_a if qc in ("mot_mat", "tu_tro") else (so_mau_a + so_mau_b)
+    so_kem = kem_mau * so_to_per_sp
+    so_luot = to_dau_vao * passes
+
+    # --- Cấu cảnh biến dùng chung ---
+    ctx_vars = {
+        "dai_tp": dai_tp_m,
+        "rong_tp": rong_tp_m,
+        "dai_nguyen": dai_nguyen_m,
+        "rong_nguyen": rong_nguyen_m,
+        "dai_in": dai_in_m,
+        "rong_in": rong_in_m,
+        "so_luong": sl,
+        "so_tp": con,
+        "so_mau": so_mau,
+        "so_mat": passes,
+        "so_kem": so_kem,
+        "to_dau_vao": to_dau_vao,
+        "to_sau_in": to_sau_in,
+        "to_nguyen": to_nguyen,
+        "dinh_luong": dinh_luong,
+    }
+
+    # 2 nhóm: nvl (giấy + vật tư) · cong_doan (chế bản/in/gia công theo thứ tự routing).
+    rows: dict[str, list[dict]] = {"nvl": [], "cong_doan": []}
+
+    # --- Giấy (Nguyên vật liệu) ---
     nguon = tp.get("nguon_giay", "cong_ty")
     don_gia_giay = _f(tp.get("don_gia_giay"))
     don_vi = tp.get("don_gia_don_vi", "to")
-    gsm = _f(tp.get("gsm"))
     giay_ten = tp.get("giay_ten") or tp.get("kho_nguyen") or "Giấy"
+
     if nguon == "khach":
-        rows["A"].append({"ten": _pre(name, giay_ten), "so_to": to_nguyen,
-                          "don_gia": 0.0, "thanh_tien": 0.0, "ghi_chu": "Khách cấp giấy",
-                          "cong_thuc": "Khách cấp giấy — 0đ/sp"})
-    elif don_vi == "tan":
-        if kho_ng_d > 0 and kho_ng_r > 0 and gsm > 0:
-            kg_to = (kho_ng_d / 1000.0) * (kho_ng_r / 1000.0) * gsm / 1000.0   # kg / 1 tờ nguyên
-            tan = to_nguyen * kg_to / 1000.0
-            gia_giay = tan * don_gia_giay
-            dan_a = f"{to_nguyen}tờ ≈ {_vi(round(tan, 4))}tấn × {_vi(don_gia_giay)}đ/tấn"
+        rows["nvl"].append({
+            "ten": _pre(name, giay_ten),
+            "so_to": to_nguyen,
+            "don_gia": 0.0,
+            "thanh_tien": 0.0,
+            "gia_don_sp": 0.0,
+            "ghi_chu": "Khách cấp giấy",
+            "cong_thuc": "Khách cấp giấy — 0đ"
+        })
+    else:
+        formula = tp.get("cong_thuc_gia")
+        if not formula or not formula.strip():
+            if don_vi in ("kg", "tan"):   # giấy bán theo CÂN → tiền = khối lượng × đ/kg
+                formula = "dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen"
+            else:                          # to | ram | cai → tính theo tờ
+                formula = "don_gia * to_nguyen"
+        
+        eval_ctx = dict(ctx_vars)
+        eval_ctx["don_gia"] = don_gia_giay
+        # don_gia_kg: quy về đ/kg cho công thức theo kg. tan (đ/tấn) → ÷1000; kg/khác → thẳng.
+        eval_ctx["don_gia_kg"] = don_gia_giay / 1000.0 if don_vi == "tan" else don_gia_giay
+
+        try:
+            gia_giay = safe_eval(formula, eval_ctx)
+        except Exception as e:
+            warnings.append(f"Thành phần '{name}': lỗi công thức giấy ({e}) — tính 0đ.")
+            gia_giay = 0.0
+
+        rows["nvl"].append({
+            "ten": _pre(name, giay_ten),
+            "so_to": to_nguyen,
+            "don_gia": _r(don_gia_giay),
+            "thanh_tien": _r(gia_giay),
+            "gia_don_sp": _r(gia_giay / sl) if sl > 0 else 0.0,
+            "cong_thuc": format_substituted_formula(formula, eval_ctx)
+        })
+
+    # --- Vật tư in ấn thêm (mực/màng/keo…) → Nguyên vật liệu: thế biến vào CÔNG THỨC của vật tư
+    # (HỆT giấy — công thức nằm ở danh mục vật tư, engine chỉ thế số). don_gia/don_gia_kg/m² phơi sẵn. ---
+    for vt in tp.get("vat_tus") or []:
+        vt_ten = vt.get("ten") or "Vật tư"
+        vt_formula = vt.get("cong_thuc_gia")
+        vt_don_gia = _f(vt.get("don_gia"))
+        if not vt_formula or not vt_formula.strip():
+            warnings.append(f"Vật tư '{vt_ten}' (thành phần '{name}'): chưa có công thức — tính 0đ.")
+            tien_vt, dan_vt = 0.0, "thiếu công thức — 0đ"
         else:
-            warnings.append(f"Thành phần '{name or giay_ten}': thiếu khổ/định lượng giấy — tính theo TỜ (có thể lệch).")
-            gia_giay = to_nguyen * don_gia_giay
-            dan_a = f"{to_nguyen} × {_vi(don_gia_giay)}đ (theo tờ — thiếu gsm)"
-        rows["A"].append({"ten": _pre(name, giay_ten), "so_to": to_nguyen,
-                          "don_gia": _r(don_gia_giay), "thanh_tien": _r(gia_giay),
-                          "cong_thuc": _ct(dan_a, gia_giay, sl)})
-    else:  # 'to' — tính theo tờ nguyên
-        rows["A"].append({"ten": _pre(name, giay_ten), "so_to": to_nguyen,
-                          "don_gia": _r(don_gia_giay), "thanh_tien": _r(to_nguyen * don_gia_giay),
-                          "cong_thuc": _ct(f"{to_nguyen} × {_vi(don_gia_giay)}đ", to_nguyen * don_gia_giay, sl)})
+            vt_don_vi = vt.get("don_vi_gia", "kg")
+            eval_ctx = dict(ctx_vars)
+            eval_ctx["don_gia"] = vt_don_gia
+            eval_ctx["don_gia_kg"] = vt_don_gia / 1000.0 if vt_don_vi == "tan" else vt_don_gia
+            eval_ctx["don_gia_m2"] = vt_don_gia
+            try:
+                tien_vt = safe_eval(vt_formula, eval_ctx)
+                dan_vt = format_substituted_formula(vt_formula, eval_ctx)
+            except Exception as e:
+                warnings.append(f"Vật tư '{vt_ten}': lỗi công thức ({e}) — tính 0đ.")
+                tien_vt, dan_vt = 0.0, "lỗi công thức — 0đ"
+        rows["nvl"].append({
+            "ten": _pre(name, vt_ten),
+            "so_to": to_dau_vao,
+            "don_gia": _r(vt_don_gia),
+            "thanh_tien": _r(tien_vt),
+            "gia_don_sp": _r(tien_vt / sl) if sl > 0 else 0.0,
+            "cong_thuc": dan_vt,
+        })
 
-    so_kem = 0
-    so_luot = 0
-    if co_in:
-        # --- C Chế bản / kẽm: (màu A + màu B) × số tay ---
-        if qc == "mot_mat":
-            kem_mau = so_mau_a
-        elif qc == "tu_tro":
-            kem_mau = so_mau_a          # tự trở: 1 bộ kẽm, in 2 lượt
-        else:  # hai_mat
-            kem_mau = so_mau_a + so_mau_b
-        so_kem = kem_mau * so_to_per_sp
-        che_ban_dg = _f(tp.get("che_ban_don_gia"))
-        if so_kem > 0:
-            rows["C"].append({"ten": _pre(name, "Chế bản / kẽm"), "sl": so_kem,
-                              "don_gia": _r(che_ban_dg), "thanh_tien": _r(so_kem * che_ban_dg),
-                              "cong_thuc": _ct(f"{so_kem} kẽm × {_vi(che_ban_dg)}đ", so_kem * che_ban_dg, sl)})
+    # --- Công đoạn trong chuỗi thuộc print/prepress → In/Kẽm ĐÃ là CÔNG ĐOẠN (không hard-code nữa) ---
+    chain_nhoms = {((r.get("cong_doan") or {}).get("nhom")) for r in (tp.get("thanh_phams") or [])}
+    has_print_cd = "print" in chain_nhoms
+    has_prepress_cd = "prepress" in chain_nhoms
 
-        # --- B Công in: số lượt = tờ IN gross × số mặt (KHÔNG nhân màu; mực gộp) ---
-        so_luot = to_gross * passes
+    # --- Công in (FALLBACK field cứng — chỉ khi chuỗi CHƯA có công đoạn 'print') ---
+    if co_in and not has_print_cd:
         dg_in = _f(tp.get("don_gia_cong_in"))
-        tien_in = so_luot * dg_in
-        rows["B"].append({"ten": _pre(name, "Công in"), "thanh_tien": _r(tien_in),
-                          "cong_thuc": _ct(f"{so_luot} lượt × {_vi(dg_in)}đ", tien_in, sl),
-                          "ghi_chu": f"{so_luot} lượt ({to_gross} tờ × {passes} mặt)"})
+        formula = "to_dau_vao * so_mat * don_gia_luot"
+        
+        eval_ctx = dict(ctx_vars)
+        eval_ctx["don_gia"] = dg_in
+        eval_ctx["don_gia_luot"] = dg_in
 
-    # --- D Gia công sau in (trên tờ in net; basis từ công đoạn) ---
+        try:
+            tien_in = safe_eval(formula, eval_ctx)
+        except Exception as e:
+            warnings.append(f"Thành phần '{name}': lỗi công thức công in ({e}) — tính 0đ.")
+            tien_in = 0.0
+
+        rows["cong_doan"].append({
+            "ten": _pre(name, "Công in"),
+            "thanh_tien": _r(tien_in),
+            "gia_don_sp": _r(tien_in / sl) if sl > 0 else 0.0,
+            "cong_thuc": format_substituted_formula(formula, eval_ctx),
+            "ghi_chu": f"{so_luot} lượt ({to_dau_vao} tờ × {passes} mặt)"
+        })
+
+    # --- Chế bản/kẽm (FALLBACK field cứng — chỉ khi chuỗi CHƯA có công đoạn 'prepress') ---
+    if co_in and so_kem > 0 and not has_prepress_cd:
+        che_ban_dg = _f(tp.get("che_ban_don_gia"))
+        formula = "so_kem * don_gia_kem"
+        
+        eval_ctx = dict(ctx_vars)
+        eval_ctx["don_gia"] = che_ban_dg
+        eval_ctx["don_gia_kem"] = che_ban_dg
+
+        try:
+            tien_che_ban = safe_eval(formula, eval_ctx)
+        except Exception as e:
+            warnings.append(f"Thành phần '{name}': lỗi công thức chế bản ({e}) — tính 0đ.")
+            tien_che_ban = 0.0
+
+        rows["cong_doan"].append({
+            "ten": _pre(name, "Chế bản / kẽm"),
+            "thanh_tien": _r(tien_che_ban),
+            "gia_don_sp": _r(tien_che_ban / sl) if sl > 0 else 0.0,
+            "cong_thuc": format_substituted_formula(formula, eval_ctx),
+            "ghi_chu": "",
+        })
+
+    # --- Công đoạn trong chuỗi (chế bản/in/gia công) theo thứ tự routing ---
     ctx_base = {
         "so_to_in_gross": to_net,
         "so_luong_thanh_pham": sl,
         "dt_to_in_cm2": (kho_in_d / 10.0) * (kho_in_r / 10.0),
         "so_con": con,
-        # Cạnh dài thành phẩm (cm) — trục cho bậc đơn giá theo kích thước (công dán/bế…).
         "size_cm": max(dai_tp, rong_tp) / 10.0,
         "so_trang": 0, "so_cuon": 0, "so_bao": 0, "so_thung": 0,
     }
+
     for row in tp.get("thanh_phams") or []:
         cd = row.get("cong_doan") or {}
         ten_r = row.get("ten") or cd.get("ten") or "Công đoạn"
         row_sl = _i(row.get("so_luong"))
         don_gia_r = _f(row.get("don_gia"))
         basis = cd.get("pricing_basis") if cd else None
+
         ctx = dict(ctx_base)
-        ctx["so_mat"] = _i(row.get("so_mat"), 1)
+        # so_mat: dòng IN (nhom=print) LUÔN theo số mặt cách in (passes) — KHÔNG để field mặc định=1
+        # nuốt (N2: model so_mat default=1 khiến fallback passes thành code chết). Finishing tự set
+        # so_mat (cán 1/2 mặt); ≤0 → dùng passes.
+        if cd.get("nhom") == "print":
+            ctx["so_mat"] = passes
+        else:
+            _rm = _i(row.get("so_mat"))
+            ctx["so_mat"] = _rm if _rm > 0 else passes
         ctx["so_vi_tri"] = _i(row.get("so_vi_tri"))
         ctx["dt_thanh_pham_cm2"] = _f(row.get("dien_tich"))
-        ghi_chu = ""
-        dan_d = None
-        if don_gia_r > 0:
-            if basis:
+
+        formula = cd.get("cong_thuc_gia") if cd else None
+        # Mặc định theo nhom khi công đoạn CHƯA khai công thức: print → công in theo lượt; prepress → kẽm.
+        if (not formula or not formula.strip()) and cd:
+            _nhom_cd = cd.get("nhom")
+            if _nhom_cd == "print":
+                formula = "to_dau_vao * so_mat * don_gia"
+            elif _nhom_cd == "prepress":
+                formula = "so_kem * don_gia"
+        if formula and formula.strip():
+            final_don_gia = don_gia_r
+            if not final_don_gia and cd:
                 try:
-                    qty = basis_qty(basis, ctx)
-                except Exception:  # noqa: BLE001
-                    qty = row_sl if row_sl > 0 else sl
-            else:
-                qty = row_sl if row_sl > 0 else sl
-            tien = don_gia_r * qty
-            dan_d = f"{_vi(round(qty, 2))} × {_vi(don_gia_r)}đ"
-        elif cd:
-            tien, ghi_chu = _step_cost_safe(cd, ctx, warnings, ten_r)
-            if "×" in ghi_chu:            # _step_cost_safe trả 'bq × rateđ' → dùng làm dẫn giải
-                dan_d = ghi_chu
+                    res_cost = compute_step_cost(cd, ctx)
+                    final_don_gia = res_cost.get("rate_used") or 0.0
+                except Exception:
+                    final_don_gia = cd.get("run_rate") or 0.0
+
+            eval_ctx = dict(ctx_vars)
+            eval_ctx["don_gia"] = final_don_gia
+            eval_ctx["don_gia_m2"] = final_don_gia
+            eval_ctx["so_mat"] = ctx["so_mat"]
+            eval_ctx["so_vi_tri"] = ctx["so_vi_tri"]
+            eval_ctx["dien_tich"] = ctx["dt_thanh_pham_cm2"]
+
+            try:
+                tien = safe_eval(formula, eval_ctx)
+                dan_d = format_substituted_formula(formula, eval_ctx)
+                ghi_chu = ""
+            except Exception as e:
+                warnings.append(f"Dòng '{ten_r}': lỗi công thức ({e}) — tính 0đ.")
+                tien = 0.0
+                dan_d = "lỗi công thức — 0đ"
+                ghi_chu = str(e)
         else:
-            warnings.append(f"Dòng gia công '{ten_r}': thiếu đơn giá & công đoạn — tính 0đ.")
-            tien, ghi_chu = 0.0, "thiếu đơn giá/công đoạn — 0đ"
-        cong_thuc = _ct(dan_d, tien, sl) if dan_d else (ghi_chu or f"{_vi(tien)}đ")
+            ghi_chu = ""
+            dan_d = None
+            if don_gia_r > 0:
+                if basis:
+                    try:
+                        qty = basis_qty(basis, ctx)
+                    except Exception:
+                        qty = row_sl if row_sl > 0 else sl
+                else:
+                    qty = row_sl if row_sl > 0 else sl
+                tien = don_gia_r * qty
+                dan_d = f"{_vi(round(qty, 2))} × {_vi(don_gia_r)}đ"
+            elif cd:
+                tien, ghi_chu = _step_cost_safe(cd, ctx, warnings, ten_r)
+                if "×" in ghi_chu:
+                    dan_d = ghi_chu
+
+            if not dan_d:
+                if don_gia_r <= 0 and not cd:
+                    warnings.append(f"Dòng gia công '{ten_r}': thiếu đơn giá & công đoạn — tính 0đ.")
+                    tien, ghi_chu = 0.0, "thiếu đơn giá/công đoạn — 0đ"
+                    dan_d = "0đ"
+                else:
+                    dan_d = f"{_vi(tien)}đ"
+
+        cong_thuc = _ct(dan_d, tien, sl) if ("÷" not in dan_d and "đ/sp" not in dan_d) else dan_d
         if row.get("nha_cung_cap"):
             suffix = f"(thuê ngoài: {row['nha_cung_cap']})"
             ghi_chu = f"{ghi_chu} {suffix}".strip() if ghi_chu else suffix
-        rows["D"].append({"ten": _pre(name, ten_r), "thanh_tien": _r(tien),
-                          "cong_thuc": cong_thuc, "ghi_chu": ghi_chu})
+
+        # MỌI công đoạn (chế bản/in/gia công) vào chung nhóm "Công đoạn", giữ thứ tự routing.
+        rows["cong_doan"].append({
+            "ten": _pre(name, ten_r),
+            "thanh_tien": _r(tien),
+            "gia_don_sp": _r(tien / sl) if sl > 0 else 0.0,
+            "cong_thuc": cong_thuc,
+            "ghi_chu": ghi_chu,
+        })
 
     total = sum(_f(r.get("thanh_tien")) for grp in rows.values() for r in grp)
     return {
@@ -318,14 +574,17 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         "meta": {
             "so_luong": sl, "gia_von_don": _r(total / sl) if sl > 0 else 0.0,
             "con": con, "con_auto": bool(con_auto), "so_manh_xa": xa,
-            "to_net": to_net, "to_gross": to_gross, "to_nguyen": to_nguyen,
+            "to_net": to_net, "to_gross": to_dau_vao, "to_nguyen": to_nguyen,
             "so_kem": so_kem, "so_luot": so_luot,
+            "to_dau_vao": to_dau_vao, "to_sau_in": to_sau_in,
+            "bu_hao_auto": _r(finishing_spoilage_sum),  # Σ bù hao công đoạn tự tra (theo số tờ)
+            "bu_hao_tay": bu_hao, "hao_tay": hao,        # số bù / hao nhập tay
         },
     }
 
 
-def compute_phieu(*, so_luong: int, thanh_phans: list[dict], warnings: list[str] | None = None) -> dict:
-    """Tính giá vốn 1 phiếu theo thành phần → cấu trúc 4 nhóm (A/B/C/D).
+def compute_phieu(*, so_luong: int, thanh_phans: list[dict], bu_hao_rows: list[dict] | None = None, warnings: list[str] | None = None) -> dict:
+    """Tính giá vốn 1 phiếu theo thành phần → 2 nhóm (nvl · cong_doan).
 
     Returns:
         {meta:{so_luong, so_thanh_phan, gia_von_don, components:[{idx,name,gia_von_tp,...}]},
@@ -335,12 +594,14 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], warnings: list[str]
     so_luong = _i(so_luong)
     flags: dict = {}
 
-    grouped: dict[str, list[dict]] = {"A": [], "B": [], "C": [], "D": []}
+    grouped: dict[str, list[dict]] = {"nvl": [], "cong_doan": []}
     components: list[dict] = []
 
+    bu_hao_list = bu_hao_rows or []
+
     for i, tp in enumerate(thanh_phans or []):
-        one = _compute_one(tp, so_luong, warns, flags)
-        for idx in ("A", "B", "C", "D"):
+        one = _compute_one(tp, so_luong, warns, flags, bu_hao_list)
+        for idx in ("nvl", "cong_doan"):
             grouped[idx].extend(one["rows"][idx])
         components.append({"idx": i, "name": one["name"], "gia_von_tp": one["total"], **one["meta"]})
 
@@ -349,7 +610,7 @@ def compute_phieu(*, so_luong: int, thanh_phans: list[dict], warnings: list[str]
 
     groups = []
     grand_total = 0.0
-    for idx in ("A", "B", "C", "D"):
+    for idx in ("nvl", "cong_doan"):
         rws = grouped[idx]
         subtotal = sum(_f(r.get("thanh_tien")) for r in rws)
         grand_total += subtotal

@@ -1000,3 +1000,208 @@ select.rc-input:focus {
   color: var(--rust, #c5400a);
   background: color-mix(in srgb, var(--rust, #c5400a) 8%, transparent);
 }
+
+/* --- Trình soạn thảo công thức (Formula Field) --- */
+.rc-formula {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  width: 100%;
+  margin-top: 4px;
+}
+.rc-formula__groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.rc-formula__group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(138, 134, 118, 0.02);
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px dashed var(--rule-soft, #e8e3d3);
+}
+.rc-formula__group-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ash, #8a8676);
+}
+.rc-formula__group-title svg {
+  opacity: 0.8;
+  color: var(--rust, #c5400a);
+}
+.rc-formula__vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.rc-formula__var-tag {
+  border-radius: 6px;
+  font-family: var(--ff-mono, monospace);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
+  display: inline-flex;
+  align-items: center;
+}
+.rc-formula__var-tag:hover {
+  transform: translateY(-1px) scale(1.02);
+}
+.rc-formula__var-tag--size {
+  background-color: hsl(200, 75%, 96%);
+  border-color: hsl(200, 50%, 88%);
+  color: hsl(200, 80%, 30%);
+}
+.rc-formula__var-tag--size:hover {
+  background-color: hsl(200, 70%, 91%);
+  border-color: hsl(200, 70%, 75%);
+}
+.rc-formula__var-tag--qty {
+  background-color: hsl(270, 70%, 97%);
+  border-color: hsl(270, 50%, 90%);
+  color: hsl(270, 60%, 40%);
+}
+.rc-formula__var-tag--qty:hover {
+  background-color: hsl(270, 70%, 92%);
+  border-color: hsl(270, 70%, 80%);
+}
+.rc-formula__var-tag--price {
+  background-color: hsl(35, 90%, 96%);
+  border-color: hsl(35, 75%, 88%);
+  color: hsl(35, 90%, 32%);
+}
+.rc-formula__var-tag--price:hover {
+  background-color: hsl(35, 90%, 90%);
+  border-color: hsl(35, 80%, 75%);
+}
+
+.rc-formula__editor-container {
+  position: relative;
+  background: #17171b; /* Sleek rich dark */
+  border: 1px solid #2d2d34;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.25), 0 2px 8px rgba(0,0,0,0.06);
+  transition: all 0.2s ease;
+  width: 100%;
+}
+.rc-formula__editor-container:focus-within {
+  border-color: var(--rust, #c5400a);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.25), 0 0 0 3px color-mix(in srgb, var(--rust, #c5400a) 15%, transparent);
+}
+.rc-formula__textarea {
+  background: transparent !important;
+  border: none !important;
+  color: #e2e2cc !important; /* VSCode light yellow code font */
+  font-family: var(--ff-mono, "Fira Code", Monaco, Consolas, monospace) !important;
+  font-size: 13.5px !important;
+  line-height: 1.55 !important;
+  padding: 12px 14px !important;
+  width: 100%;
+  resize: vertical;
+  min-height: 75px;
+  caret-color: #fff;
+  outline: none !important;
+}
+.rc-formula__textarea::placeholder {
+  color: #55534c;
+  font-style: italic;
+}
+
+.rc-formula__preview-container {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 1px;
+}
+.rc-formula__preview-title {
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ash, #8a8676);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.rc-formula__preview {
+  background: var(--paper, #fdfcf8);
+  border: 1px solid var(--rule-soft, #e8e3d3);
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 38px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  font-family: var(--ff-mono, monospace);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink, #14130f);
+  box-shadow: 0 1px 3px rgba(138, 134, 118, 0.04);
+}
+.rc-formula__token {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin: 2px 1px;
+  font-weight: 600;
+  font-size: 12px;
+  transition: all 0.12s ease;
+}
+.rc-formula__token--var {
+  background: color-mix(in srgb, var(--moss, #2f5d3a) 8%, transparent);
+  color: var(--moss, #2f5d3a);
+  border: 1px solid color-mix(in srgb, var(--moss, #2f5d3a) 15%, transparent);
+}
+.rc-formula__token--func {
+  background: color-mix(in srgb, var(--rust, #c5400a) 8%, transparent);
+  color: var(--rust, #c5400a);
+  border: 1px solid color-mix(in srgb, var(--rust, #c5400a) 15%, transparent);
+}
+.rc-formula__token--num {
+  background: rgba(30, 64, 175, 0.07);
+  color: #1e40af;
+  border: 1px solid rgba(30, 64, 175, 0.14);
+}
+.rc-formula__token--op {
+  color: var(--ash, #6b665b);
+  font-weight: 700;
+  margin: 0 5px;
+  font-size: 14px;
+}
+
+.rc-formula__validation {
+  margin-top: 1px;
+}
+.rc-formula__status {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  animation: rc-formula-slide-in 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.rc-formula__status--success {
+  background: color-mix(in srgb, var(--moss, #2f5d3a) 8%, transparent);
+  color: var(--moss, #2f5d3a);
+  border-color: color-mix(in srgb, var(--moss, #2f5d3a) 15%, transparent);
+}
+.rc-formula__status--error {
+  background: color-mix(in srgb, var(--signal, #8a1f1f) 8%, transparent);
+  color: var(--signal, #8a1f1f);
+  border-color: color-mix(in srgb, var(--signal, #8a1f1f) 15%, transparent);
+}
+
+@keyframes rc-formula-slide-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}

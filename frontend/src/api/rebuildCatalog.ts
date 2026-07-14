@@ -48,6 +48,7 @@ export const loaiSanPham = crud("/api/loai-san-pham");
 export const giay = crud("/api/vat-lieu-kho/giay");
 export const muc = crud("/api/vat-lieu-kho/muc");
 export const banKem = crud("/api/vat-lieu-kho/ban-kem");
+export const vatTu = crud("/api/vat-lieu-kho/vat-tu-in-an"); // vật tư in ấn gộp (mực/kẽm/màng/keo)
 
 // -- Lịch sử giá Giấy (phiên bản) — GET danh sách + POST thêm phiên bản (mirror đơn giá hiện hành) --
 export interface GiayGiaVersion {

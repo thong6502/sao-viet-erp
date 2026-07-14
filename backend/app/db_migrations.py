@@ -1507,6 +1507,16 @@ def _migrate_quote_bao_gia_fields(db: Session) -> None:
     db.commit()
 
 
+def _migrate_quote_decision_seen_at(db: Session) -> None:
+    """Real-time 'gửi duyệt' (SSE): mốc người soạn đã xem quyết định GĐ gần nhất — nuôi badge/toast
+    phía Sale. Nullable timestamp (NULL = có quyết định mới chưa xem). No-op nếu cột đã có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "quotes" in tables and "decision_seen_at" not in _existing_columns(insp, "quotes"):
+        db.execute(text("ALTER TABLE quotes ADD COLUMN decision_seen_at TIMESTAMP WITH TIME ZONE"))
+    db.commit()
+
+
 def _migrate_ptg_created_by(db: Session) -> None:
     """redesign-bao-gia §10 (P8): thêm chủ sở hữu `created_by` cho Phiếu tính giá để lọc phạm vi
     (NV Sales chỉ thấy phiếu của mình; TP KD/GĐ thấy cả phòng/tất cả). Best-effort backfill từ `ktv`
@@ -1538,6 +1548,48 @@ def _migrate_cong_doan_bu_hao_ref(db: Session) -> None:
         "UPDATE cong_doan SET kieu_bu_hao = 'khong' "
         "WHERE kieu_bu_hao IN ('theo_so_mau', 'theo_so_con')"
     ))
+    db.commit()
+
+
+def _migrate_redesign_formula_pricing(db: Session) -> None:
+    """Add cong_thuc_gia to cong_doan, giay_nguyen, and vat_tu_in_an tables."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = insp.get_table_names()
+
+    if "cong_doan" in tables:
+        existing = _existing_columns(insp, "cong_doan")
+        if "cong_thuc_gia" not in existing:
+            db.execute(text("ALTER TABLE cong_doan ADD COLUMN cong_thuc_gia TEXT"))
+
+    if "giay_nguyen" in tables:
+        existing = _existing_columns(insp, "giay_nguyen")
+        if "cong_thuc_gia" not in existing:
+            db.execute(text("ALTER TABLE giay_nguyen ADD COLUMN cong_thuc_gia TEXT"))
+
+    if "vat_tu_in_an" in tables:
+        existing = _existing_columns(insp, "vat_tu_in_an")
+        if "cong_thuc_gia" not in existing:
+            db.execute(text("ALTER TABLE vat_tu_in_an ADD COLUMN cong_thuc_gia TEXT"))
+
+    if "phieu_thanh_phan" in tables:
+        existing = _existing_columns(insp, "phieu_thanh_phan")
+        if "hao_so_to" not in existing:
+            db.execute(text("ALTER TABLE phieu_thanh_phan ADD COLUMN hao_so_to INTEGER DEFAULT 0"))
+
+    db.commit()
+
+
+def _migrate_ptg_tinh_bu_hao_cd(db: Session) -> None:
+    """Tính giá: thêm cột `phieu_thanh_phan.tinh_bu_hao_cd` (bật/TẮT tính bù hao công đoạn tự).
+    Mặc định BẬT (TRUE). No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    if "tinh_bu_hao_cd" not in _existing_columns(insp, "phieu_thanh_phan"):
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_phan ADD COLUMN tinh_bu_hao_cd BOOLEAN NOT NULL DEFAULT TRUE"
+        ))
     db.commit()
 
 
@@ -1598,8 +1650,11 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0055_ptg_created_by", _migrate_ptg_created_by),
     ("0056_cong_doan_size_tiers", _migrate_cong_doan_size_tiers),
     ("0057_cong_doan_bu_hao_ref", _migrate_cong_doan_bu_hao_ref),
+    ("0058_redesign_formula_pricing", _migrate_redesign_formula_pricing),
     ("0059_role_permission_set_credit_terms", _migrate_role_permission_set_credit_terms),
     ("0060_customer_kind_and_pricing_bounds", _migrate_customer_kind_and_pricing_bounds),
+    ("0061_ptg_tinh_bu_hao_cd", _migrate_ptg_tinh_bu_hao_cd),
+    ("0062_quote_decision_seen_at", _migrate_quote_decision_seen_at),
 ]
 
 

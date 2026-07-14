@@ -91,9 +91,9 @@ def test_create_with_components_computes(client, auth_headers):
     comp = body["thanh_phans"][0]
     assert comp["gia_von_tp"] > 0
     assert len(comp["thanh_phams"]) == 2
-    # 4 nhóm A/B/C/D có đủ, tổng = Σ nhóm.
+    # 2 nhóm (Nguyên vật liệu · Công đoạn) — không còn A/B/C/D; tổng = Σ nhóm.
     groups = body["result"]["groups"]
-    assert [g["idx"] for g in groups] == ["A", "B", "C", "D"]
+    assert [g["idx"] for g in groups] == ["nvl", "cong_doan"]
     assert body["result"]["grand_total"] == round(sum(g["subtotal"] for g in groups), 2)
 
 

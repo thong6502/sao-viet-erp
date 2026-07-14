@@ -11,7 +11,7 @@ import "./rebuild-catalog.css";
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "bands" | "size_tiers" | "suggest";
+  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "bands" | "size_tiers" | "suggest" | "formula";
   options?: { value: string; label: string }[];
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   required?: boolean;
@@ -934,6 +934,12 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                               options={refData[f.refPrefix ?? ""] ?? []}
                               onChange={(v) => set(f.key, v)}
                             />
+                          ) : f.type === "formula" ? (
+                            <FormulaField
+                              value={String(form[f.key] ?? "")}
+                              onChange={(v) => set(f.key, v)}
+                              configPrefix={config.prefix}
+                            />
                           ) : f.type === "checkbox" ? (
                             <label className="rc-switch">
                               <input type="checkbox" checked={!!form[f.key]} onChange={(e) => set(f.key, e.target.checked)} />
@@ -1090,3 +1096,236 @@ function RefSearchField({ value, options, placeholder, onChange }: {
     </div>
   );
 }
+
+
+// ── FORMULA FIELD EDITOR AND VALIDATOR (Live math preview + click-to-insert variable tags) ──
+const WHITELIST_VARS = {
+  cong_doan: [
+    "dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
+    "so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen",
+    "don_gia", "don_gia_kg", "don_gia_m2", "don_gia_luot", "don_gia_kem"
+  ],
+  vat_tu: [
+    "dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
+    "so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen",
+    "dinh_luong", "don_gia", "don_gia_kg", "don_gia_m2", "don_gia_luot", "don_gia_kem"
+  ]
+};
+const MATH_FUNCS = ["ceil", "floor", "round", "max", "min"];
+
+function FormulaField({
+  value,
+  onChange,
+  configPrefix
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  configPrefix: string;
+}) {
+  const isCd = configPrefix.includes("cong-doan");
+  const whitelist = isCd ? WHITELIST_VARS.cong_doan : WHITELIST_VARS.vat_tu;
+
+  // Insert a variable at the current cursor position in textarea
+  const insertVar = (varName: string) => {
+    const el = document.getElementById("formula-textarea") as HTMLTextAreaElement | null;
+    if (!el) {
+      onChange(value + varName);
+      return;
+    }
+    const start = el.selectionStart;
+    const end = el.selectionEnd;
+    const text = el.value;
+    const before = text.substring(0, start);
+    const after = text.substring(end, text.length);
+    const newValue = before + varName + after;
+    onChange(newValue);
+    // Focus back and set selection range
+    setTimeout(() => {
+      el.focus();
+      el.setSelectionRange(start + varName.length, start + varName.length);
+    }, 10);
+  };
+
+  // Group variables for clean categorical rendering
+  const groups = useMemo(() => {
+    const sizeVars = ["dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in", "dinh_luong"];
+    const qtyVars = ["so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen"];
+    const priceVars = ["don_gia", "don_gia_m2", "don_gia_luot", "don_gia_kem", "don_gia_kg"];
+
+    return [
+      {
+        name: "Kích thước & Định lượng",
+        key: "size",
+        colorClass: "rc-formula__var-tag--size",
+        icon: (
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <rect width="20" height="8" x="2" y="8" rx="1.5"/>
+            <path d="M6 16v-4M10 16v-2M14 16v-4M18 16v-2"/>
+          </svg>
+        ),
+        vars: whitelist.filter(v => sizeVars.includes(v))
+      },
+      {
+        name: "Số lượng & Sản lượng",
+        key: "qty",
+        colorClass: "rc-formula__var-tag--qty",
+        icon: (
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 22V4c0-.5.2-1 .6-1.4C5 2.2 5.5 2 6 2h12c.5 0 1 .2 1.4.6.4.4.6.9.6 1.4v18l-4-2-4 2-4-2-4 2z"/>
+            <path d="M8 6h8M8 10h8M8 14h6"/>
+          </svg>
+        ),
+        vars: whitelist.filter(v => qtyVars.includes(v))
+      },
+      {
+        name: "Giá vốn & Đơn giá",
+        key: "price",
+        colorClass: "rc-formula__var-tag--price",
+        icon: (
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="12" x2="12" y1="2" y2="22"/>
+            <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+          </svg>
+        ),
+        vars: whitelist.filter(v => priceVars.includes(v))
+      }
+    ].filter(g => g.vars.length > 0);
+  }, [whitelist]);
+
+  // Real-time formula validation and preview formatting
+  const { valid, error, formatted } = useMemo(() => {
+    if (!value.trim()) return { valid: true, error: null, formatted: <span style={{ color: "var(--ash, #8a8676)", fontStyle: "italic" }}>Trống (trả về 0đ)</span> };
+    
+    // Check balanced parenthesis
+    let openParen = 0;
+    for (const char of value) {
+      if (char === '(') openParen++;
+      if (char === ')') openParen--;
+      if (openParen < 0) {
+        return { valid: false, error: "Đóng mở ngoặc đơn không hợp lệ", formatted: null };
+      }
+    }
+    if (openParen !== 0) {
+      return { valid: false, error: "Thiếu dấu đóng hoặc mở ngoặc đơn", formatted: null };
+    }
+
+    // Tokenize
+    const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)]|\s+/g;
+    const tokens = value.match(tokenRegex) || [];
+    
+    const formattedElements: ReactNode[] = [];
+    let index = 0;
+    
+    for (const token of tokens) {
+      const trimmed = token.trim();
+      if (!trimmed) {
+        formattedElements.push(<span key={index++}> </span>);
+        continue;
+      }
+      
+      if (whitelist.includes(trimmed)) {
+        formattedElements.push(
+          <span key={index++} className="rc-formula__token rc-formula__token--var" title="Biến hệ thống">
+            {trimmed}
+          </span>
+        );
+      } else if (MATH_FUNCS.includes(trimmed)) {
+        formattedElements.push(
+          <span key={index++} className="rc-formula__token rc-formula__token--func" title="Hàm toán học">
+            {trimmed}
+          </span>
+        );
+      } else if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+        formattedElements.push(
+          <span key={index++} className="rc-formula__token rc-formula__token--num" title="Hằng số">
+            {trimmed}
+          </span>
+        );
+      } else if (/^[\+\-\*\/\(\)]$/.test(trimmed)) {
+        let displayOp = trimmed;
+        if (trimmed === "*") displayOp = "×";
+        if (trimmed === "/") displayOp = "÷";
+        if (trimmed === "-") displayOp = "−";
+        formattedElements.push(
+          <span key={index++} className="rc-formula__token rc-formula__token--op">
+            {displayOp}
+          </span>
+        );
+      } else {
+        return {
+          valid: false,
+          error: `Biến hoặc hàm "${trimmed}" không được hỗ trợ trong hệ thống`,
+          formatted: null
+        };
+      }
+    }
+
+    return { valid: true, error: null, formatted: formattedElements };
+  }, [value, whitelist]);
+
+  return (
+    <div className="rc-formula">
+      <div className="rc-formula__groups">
+        {groups.map((g) => (
+          <div key={g.key} className="rc-formula__group">
+            <div className="rc-formula__group-title">
+              {g.icon}
+              <span>{g.name}</span>
+            </div>
+            <div className="rc-formula__vars">
+              {g.vars.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`rc-formula__var-tag ${g.colorClass}`}
+                  onClick={() => insertVar(v)}
+                  title={`Chèn biến ${v}`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="rc-formula__editor-container">
+        <textarea
+          id="formula-textarea"
+          className="rc-formula__textarea"
+          rows={3}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="Nhập công thức tính giá vốn động..."
+        />
+      </div>
+
+      <div className="rc-formula__preview-container">
+        <div className="rc-formula__preview-title">Xem trước công thức hiển thị:</div>
+        <div className="rc-formula__preview">
+          {formatted}
+        </div>
+      </div>
+
+      <div className="rc-formula__validation">
+        {valid ? (
+          <div className="rc-formula__status rc-formula__status--success">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px" }}>
+              <path d="M20 6 9 17l-5-5"/>
+            </svg>
+            Cú pháp hợp lệ
+          </div>
+        ) : (
+          <div className="rc-formula__status rc-formula__status--error">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px" }}>
+              <circle cx="12" cy="12" r="10"/>
+              <path d="m15 9-6 6M9 9l6 6"/>
+            </svg>
+            {error}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+

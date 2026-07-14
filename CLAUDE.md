@@ -39,6 +39,13 @@ progress.md ĐÃ CŨ (dừng ở RBAC) — ĐỪNG tin nó để biết trạng 
 - UI/UX: ít thao tác + gợi ý rule-based từ data sẵn có; đừng thêm khối UI vô nghĩa; đừng đánh đổi
   chất lượng dữ liệu để bớt click.
 
+## Nguyên tắc sản phẩm
+
+- **Gửi/thông báo NỘI BỘ = REAL-TIME.** Mọi việc gửi giữa người dùng trong hệ thống (trình duyệt
+  báo giá, duyệt/từ chối, giao việc, nhắc hạn…) phải tới người nhận NGAY — badge tự nhảy + toast
+  tức thì, KHÔNG bắt họ refresh hay đổi màn mới thấy. Ưu tiên ĐẨY (SSE): hiện đẩy in-process theo
+  1 uvicorn worker; nếu scale >1 worker thì chuyển publish sang Postgres LISTEN/NOTIFY.
+
 ## Triển khai
 
 - Live: <https://svn.superbai.io> — GitHub Actions → Docker Compose VPS. Push `main` = TỰ DEPLOY.

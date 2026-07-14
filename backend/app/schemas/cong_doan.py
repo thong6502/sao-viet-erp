@@ -32,6 +32,7 @@ class CongDoanIn(BaseModel):
     spoilage_pct: float = Field(default=0, ge=0, le=100)
     inline_flag: bool = False
     ghi_chu: str | None = None
+    cong_thuc_gia: str | None = None
     active: bool = True
 
 
@@ -63,6 +64,7 @@ class CongDoanRow(BaseModel):
     spoilage_pct: float
     inline_flag: bool
     ghi_chu: str | None = None
+    cong_thuc_gia: str | None = None
     active: bool
     updated_at: datetime | None = None
 

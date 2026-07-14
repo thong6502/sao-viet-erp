@@ -231,6 +231,21 @@ class QuotationService:
             return 0
         return self.quotations.count_pending_approval(scope=scope, actor=actor)
 
+    def notify_summary(self, *, scope: str, actor, can_approve: bool) -> dict:
+        """Số nuôi real-time badge/toast luồng gửi duyệt (SSE snapshot + REST fallback):
+        - `pending_approval_count`: số chờ TÔI duyệt (chỉ người duyệt mới có số).
+        - `my_decided_unseen`: số báo giá của TÔI (người soạn) vừa được GĐ quyết mà tôi chưa xem."""
+        return {
+            "pending_approval_count": self.pending_approval_count(
+                scope=scope, actor=actor, can_approve=can_approve
+            ),
+            "my_decided_unseen": self.quotations.count_my_decided_unseen(actor.id),
+        }
+
+    def mark_decisions_seen(self, *, actor) -> None:
+        """Người soạn xác nhận đã xem các quyết định duyệt/từ chối → đóng badge/toast phía Sale."""
+        self.quotations.mark_my_decisions_seen(actor.id)
+
     def estimate_numbers(self, estimate_ids: set[int]) -> dict[int, str]:
         """Map estimate_id → estimate_number cho hiển thị ↳ tham chiếu (bulk, tránh N+1)."""
         ids = {i for i in estimate_ids if i}
@@ -779,6 +794,8 @@ class QuotationService:
             quote.status = STATUS_REJECTED
             if version:
                 version.status = VERSION_STATUS_REJECTED
+        # Real-time: đánh dấu "có quyết định MỚI chưa xem" cho người soạn → badge/toast phía Sale.
+        quote.decision_seen_at = None
         self.quotations.update(quote)
         verb = "duyệt" if decision == _EXC_APPROVED else "từ chối"
         self.audit.create(

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, true as sa_true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
@@ -95,6 +95,10 @@ class PhieuThanhPhan(Base):
     don_gia_don_vi: Mapped[str] = mapped_column(String(8), nullable=False, default="to")   # to|tan
     nguon_giay: Mapped[str] = mapped_column(String(12), nullable=False, default="cong_ty")  # cong_ty|khach
     bu_hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # bù hao (tờ in cộng thêm) — KHÔNG hệ số
+    hao_so_to: Mapped[int] = mapped_column(Integer, nullable=False, default=0)      # hao (tờ in trừ đi)
+    # Bật/TẮT tính bù hao công đoạn TỰ (mỗi công đoạn tra theo số tờ). Tắt → không cộng bù hao tự;
+    # người dùng tự nhập `bu_hao_so_to`. Mặc định BẬT.
+    tinh_bu_hao_cd: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     chua_xen: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     chua_tay_ke: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     chua_nhip: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
@@ -132,6 +136,15 @@ class PhieuThanhPhan(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    # Vật tư in ấn thêm tay (mực/màng/keo…) → dòng NGUYÊN VẬT LIỆU (song song giấy). Mỗi dòng trỏ
+    # 1 mã vật tư (soft) + engine thế biến vào `cong_thuc_gia` của vật tư — HỆT giấy.
+    vat_tus: Mapped[list["PhieuVatTu"]] = relationship(
+        "PhieuVatTu",
+        back_populates="thanh_phan",
+        order_by="PhieuVatTu.thu_tu",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
 
 
 class PhieuThanhPham(Base):
@@ -161,3 +174,32 @@ class PhieuThanhPham(Base):
     )
 
     thanh_phan: Mapped["PhieuThanhPhan"] = relationship("PhieuThanhPhan", back_populates="thanh_phams")
+
+
+class PhieuVatTu(Base):
+    """1 dòng VẬT TƯ IN ẤN (mực/màng/keo…) của 1 thành phần → NGUYÊN VẬT LIỆU.
+
+    Trỏ 1 mã `vat_tu_id` (soft → vat_tu_in_an.id). Engine kéo `cong_thuc_gia` + `don_gia` +
+    `don_vi_gia` từ danh mục rồi thế biến vào — giống hệt Giấy. `don_gia` ở đây = ghi đè
+    (0 = lấy theo danh mục). `so_luong` (0 = SL đặt) chỉ để công thức dùng nếu cần.
+    """
+
+    __tablename__ = "phieu_vat_tu"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    thanh_phan_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("phieu_thanh_phan.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    vat_tu_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → vat_tu_in_an.id (soft)
+    ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    don_gia: Mapped[float] = mapped_column(Numeric(18, 4), nullable=False, default=0)  # 0 = lấy danh mục
+    so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # 0 = dùng SL đặt
+    ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    thanh_phan: Mapped["PhieuThanhPhan"] = relationship("PhieuThanhPhan", back_populates="vat_tus")

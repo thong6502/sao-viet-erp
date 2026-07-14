@@ -95,6 +95,14 @@
   border-radius: var(--r-3);
   background: var(--canvas);
   box-shadow: none;
+  transition: transform var(--duration-base) var(--easing-standard),
+              box-shadow var(--duration-base) var(--easing-standard),
+              border-color var(--duration-base) var(--easing-standard);
+}
+.kh__kpi.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
+  border-color: var(--rule);
 }
 .kh__kpi-label {
   font-family: var(--ff-mono);
@@ -133,6 +141,12 @@
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
+  transition: border-color var(--duration-base) var(--easing-standard),
+              box-shadow var(--duration-base) var(--easing-standard);
+}
+.kh__toolbar:focus-within {
+  border-color: var(--rust-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 12%, transparent);
 }
 .kh__search {
   flex: 1 1 260px;
@@ -191,11 +205,11 @@
 }
 /* Header prototype: nền paper (tối hơn card), mono 10px giãn 0.14em, vạch rule đậm hơn. */
 .kh__table thead th {
-  font-family: var(--ff-mono);
-  font-size: 10px;
-  font-weight: var(--fw-medium);
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.05em;
   color: var(--ash);
   text-align: left;
   padding: 10px var(--sp-4);
@@ -205,7 +219,6 @@
 }
 .kh__table tbody tr {
   transition: background var(--duration-fast) var(--easing-standard);
-  position: relative;
 }
 .kh__table tbody td {
   padding: 10px var(--sp-4);
@@ -218,14 +231,33 @@
 }
 .kh__row {
   cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard);
 }
 .kh__row:hover,
 .kh__row:focus-visible {
-  background: var(--rule-hair);
+  background: color-mix(in srgb, var(--rust-soft) 22%, var(--canvas)) !important;
   outline: none;
 }
+.kh__row td {
+  position: relative;
+}
+.kh__row td:first-child::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--rust);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+.kh__row:hover td:first-child::before {
+  transform: scaleY(1);
+}
 .kh__row.is-open {
-  background: var(--rust-soft);
+  background: var(--rust-soft) !important;
 }
 .kh__mono {
   font-family: var(--ff-mono);
@@ -1043,6 +1075,41 @@
 .kh__form-wide {
   grid-column: 1 / -1;
 }
+.kh__dialog .field__label,
+.kh__finpolicy-edit .field__label {
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash-deep, #5e5349);
+  margin-bottom: 5px;
+  display: block;
+}
+.kh__dialog .input,
+.kh__finpolicy-edit .input {
+  border-radius: var(--r-3);
+  border-color: var(--rule);
+  transition: border-color var(--duration-base) var(--easing-standard),
+              box-shadow var(--duration-base) var(--easing-standard);
+}
+.kh__dialog .input:focus-visible,
+.kh__finpolicy-edit .input:focus-visible {
+  outline: none !important;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--rust) 14%, transparent);
+}
+.kh__dialog .input[readonly],
+.kh__dialog .input:disabled,
+.kh__finpolicy-edit .input[readonly],
+.kh__finpolicy-edit .input:disabled {
+  background: var(--paper-contrast, var(--paper));
+  border-style: dashed;
+  border-color: var(--rule);
+  color: var(--ash-2);
+  cursor: not-allowed;
+  opacity: 0.8;
+}
 .kh__err {
   color: var(--signal);
   font-size: 12px;
@@ -1163,9 +1230,9 @@
 .kh__fin-bounds {
   grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: var(--sp-3);
-  padding-top: 6px;
+  padding-top: 8px;
   border-top: 1px dashed var(--rule);
 }
 .kh__fin-actions {
@@ -2116,6 +2183,27 @@
   font-weight: var(--fw-bold);
   letter-spacing: 0.04em;
   flex-shrink: 0;
+  transition: background-color var(--duration-base) var(--easing-standard), color var(--duration-base) var(--easing-standard);
+}
+.kh__avatar--rust {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+}
+.kh__avatar--plum {
+  background: var(--plum-soft);
+  color: var(--plum-deep);
+}
+.kh__avatar--moss {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+.kh__avatar--amber {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+.kh__avatar--steel {
+  background: var(--steel-soft);
+  color: var(--steel);
 }
 
 .kh__row-badges {
@@ -2791,6 +2879,26 @@
   background: var(--rule-soft);
   color: var(--ash);
   border: 1px dashed var(--rule);
+}
+.kh__row-badge--tag-rust {
+  background: color-mix(in srgb, var(--rust) 8%, transparent);
+  color: var(--rust);
+  border: 1px solid color-mix(in srgb, var(--rust) 24%, transparent);
+}
+.kh__row-badge--tag-plum {
+  background: color-mix(in srgb, var(--plum) 8%, transparent);
+  color: var(--plum);
+  border: 1px solid color-mix(in srgb, var(--plum) 22%, transparent);
+}
+.kh__row-badge--tag-moss {
+  background: color-mix(in srgb, var(--moss) 8%, transparent);
+  color: var(--moss);
+  border: 1px solid color-mix(in srgb, var(--moss) 24%, transparent);
+}
+.kh__row-badge--tag-amber {
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 24%, transparent);
 }
 .kh__badge-tag--manual {
   background: var(--rule-soft);

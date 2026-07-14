@@ -59,7 +59,7 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm }
     return (
       <div className="tg-imp tg-imp--empty">
         <ImpIcon />
-        <p className="tg-imp__hint">Nhập khổ tờ in ② và khổ thành phẩm ③ để xem sơ đồ bình bài.</p>
+        <p className="tg-imp__hint">Nhập khổ tờ in và khổ thành phẩm để xem sơ đồ bình bài.</p>
       </div>
     );
   }
@@ -103,7 +103,7 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm }
               : "Khổ thành phẩm lớn hơn khổ tờ in — không vừa"
           }
         >
-          {/* Tờ in ② */}
+          {/* Tờ in */}
           <rect
             className="tg-imp__sheet"
             x={0}
@@ -124,7 +124,7 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm }
               vectorEffect="non-scaling-stroke"
             />
           )}
-          {/* Lưới con ③ */}
+          {/* Lưới con */}
           {pieces.map((p, i) => (
             <g key={i}>
               <rect
@@ -176,7 +176,7 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm }
             </span>
           </>
         ) : lay ? (
-          <span className="tg-imp__warn">Khổ thành phẩm ③ lớn hơn khổ tờ in ② — không vừa.</span>
+          <span className="tg-imp__warn">Khổ thành phẩm lớn hơn khổ tờ in — không vừa.</span>
         ) : (
           <span className="tg-imp__loading">{pending ? "Đang tính bình bài…" : "—"}</span>
         )}

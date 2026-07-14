@@ -1,7 +1,7 @@
 // MASTER của "Tính giá" — danh sách phiếu tính giá (giá vốn). Bấm dòng → detail. Nút "+ Lập phiếu
 // tính giá" tạo nháp rồi mở detail. StatusTabs lọc theo tab; search debounce. Bám pattern list nhà
 // (RebuildCatalogPage): row hover, code mono badge, số liệu mono/tabular/vi-VN căn phải.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useMemo } from "react";
 import {
   api,
   ApiError,
@@ -9,6 +9,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
+import { StatusTabs } from "../components/StatusTabs";
 import "./tinh-gia.css";
 
 const fmt = (v: number | null | undefined): string =>
@@ -18,6 +19,31 @@ function specLine(it: PhieuTinhGiaListItem): string {
   return [`${it.so_thanh_phan} thành phần`, it.kho_thanh_pham]
     .filter((x) => x != null && x !== "")
     .join(" · ");
+}
+
+function SortBtn({
+  label,
+  col,
+  sort,
+  onSort,
+}: {
+  label: string;
+  col: string;
+  sort: string;
+  onSort: (s: string) => void;
+}) {
+  const active = sort === col || sort === `-${col}`;
+  const desc = sort === `-${col}`;
+  return (
+    <button
+      type="button"
+      className={`ptg__sortbtn${active ? " is-active" : ""}`}
+      onClick={() => onSort(desc ? col : active ? `-${col}` : col)}
+    >
+      {label}
+      {active && <span aria-hidden="true">{desc ? " ↓" : " ↑"}</span>}
+    </button>
+  );
 }
 
 export function PhieuTinhGiaListView({
@@ -31,10 +57,12 @@ export function PhieuTinhGiaListView({
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [items, setItems] = useState<PhieuTinhGiaListItem[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [sort, setSort] = useState("-ngay");
 
   // Debounce ô tìm kiếm.
   useEffect(() => {
@@ -50,7 +78,6 @@ export function PhieuTinhGiaListView({
       .list(token, { q: debouncedQ })
       .then((r) => {
         setItems(r.items);
-        setTotal(r.total);
       })
       .catch((e) => setError(e instanceof ApiError ? e.message : "Không tải được danh sách phiếu."))
       .finally(() => setLoading(false));
@@ -70,25 +97,54 @@ export function PhieuTinhGiaListView({
       .finally(() => setCreating(false));
   }, [token, onNew]);
 
+  // Filter and sort items client-side
+  const filteredAndSortedItems = useMemo(() => {
+    // 1. Filter by status tab
+    let result = items;
+    if (statusFilter === "calculated") {
+      result = result.filter((it) => it.so_thanh_phan > 0);
+    } else if (statusFilter === "draft") {
+      result = result.filter((it) => it.so_thanh_phan === 0);
+    }
+
+    // 2. Sort client-side
+    if (!sort) return result;
+    const isDesc = sort.startsWith("-");
+    const key = isDesc ? sort.substring(1) : sort;
+
+    return [...result].sort((a, b) => {
+      let valA = a[key as keyof PhieuTinhGiaListItem];
+      let valB = b[key as keyof PhieuTinhGiaListItem];
+
+      // Handle null/undefined values
+      if (valA == null) return isDesc ? 1 : -1;
+      if (valB == null) return isDesc ? -1 : 1;
+
+      // Handle string columns
+      if (typeof valA === "string" && typeof valB === "string") {
+        return isDesc ? valB.localeCompare(valA) : valA.localeCompare(valB);
+      }
+
+      // Handle numeric columns
+      if (typeof valA === "number" && typeof valB === "number") {
+        return isDesc ? valB - valA : valA - valB;
+      }
+
+      return 0;
+    });
+  }, [items, statusFilter, sort]);
+
+  // Tab counts based on currently loaded items
+  const allCount = items.length;
+  const calculatedCount = items.filter(it => it.so_thanh_phan > 0).length;
+  const draftCount = items.filter(it => it.so_thanh_phan === 0).length;
+
   return (
     <main className="tg-page">
       <header className="tg-head">
         <div className="tg-head__lead">
           <p className="eyebrow">Kinh doanh</p>
-          <h1 className="tg-head__title">
-            Tính giá thành <span className="tg-head__title-sub">· Phiếu tính giá</span>
-          </h1>
-          <p className="tg-head__sub">
-            Công cụ nội bộ của KTV — tính giá vốn. Số liệu phục vụ lập báo giá cho khách.
-            <span className="tg-head__meta">
-              {" "}· {fmt(total)} phiếu
-            </span>
-          </p>
-        </div>
-        <div className="tg-head__actions">
-          <Button variant="accent" onClick={create} loading={creating}>
-            + Lập phiếu tính giá
-          </Button>
+          <h1 className="tg-head__title">Tính giá thành</h1>
         </div>
       </header>
 
@@ -106,6 +162,24 @@ export function PhieuTinhGiaListView({
         <button type="button" className="btn btn--secondary ptg-filter" disabled title="Sắp có">
           Lọc theo tiêu chí
         </button>
+
+        <div className="ptg-toolbar-spacer" />
+
+        <Button variant="accent" onClick={create} loading={creating}>
+          + Lập phiếu tính giá
+        </Button>
+      </div>
+
+      <div style={{ margin: "4px 0 8px" }}>
+        <StatusTabs
+          tabs={[
+            { key: "all", label: "Tất cả", count: allCount },
+            { key: "calculated", label: "Đã tính giá", count: calculatedCount },
+            { key: "draft", label: "Phiếu nháp", count: draftCount },
+          ]}
+          active={statusFilter}
+          onChange={setStatusFilter}
+        />
       </div>
 
       {error ? (
@@ -126,24 +200,35 @@ export function PhieuTinhGiaListView({
         <table className="ptg-table">
           <thead>
             <tr>
-              <th>Mã PTG</th>
+              <th>
+                <SortBtn label="Mã PTG" col="ma" sort={sort} onSort={setSort} />
+              </th>
               <th>Sản phẩm</th>
-              <th className="tg-num">SL</th>
-              <th className="tg-num">Giá vốn/đơn</th>
-              <th className="tg-num">Tổng giá vốn</th>
-              <th>Ngày · KTV</th>
+              <th className="tg-num">
+                <SortBtn label="SL" col="so_luong" sort={sort} onSort={setSort} />
+              </th>
+              <th className="tg-num">
+                <SortBtn label="Giá vốn/đơn" col="gia_von_don" sort={sort} onSort={setSort} />
+              </th>
+              <th className="tg-num">
+                <SortBtn label="Tổng giá vốn" col="tong_gia_von" sort={sort} onSort={setSort} />
+              </th>
+              <th>Trạng thái</th>
+              <th>
+                <SortBtn label="Ngày · KTV" col="ngay" sort={sort} onSort={setSort} />
+              </th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="ptg-msg">
+                <td colSpan={7} className="ptg-msg">
                   Đang tải dữ liệu…
                 </td>
               </tr>
-            ) : items.length === 0 ? (
+            ) : filteredAndSortedItems.length === 0 ? (
               <tr>
-                <td colSpan={6} className="ptg-empty-td">
+                <td colSpan={7} className="ptg-empty-td">
                   <div className="ptg-empty">
                     <EmptyIcon />
                     <p className="ptg-empty__title">
@@ -162,7 +247,7 @@ export function PhieuTinhGiaListView({
                 </td>
               </tr>
             ) : (
-              items.map((it) => (
+              filteredAndSortedItems.map((it) => (
                 <tr
                   key={it.id}
                   className="ptg-row"
@@ -176,8 +261,8 @@ export function PhieuTinhGiaListView({
                     }
                   }}
                 >
-                  <td className="tg-mono ptg-nowrap">
-                    <span className="ptg-code">{it.ma}</span>
+                  <td className="tg-mono ptg-nowrap" style={{ fontWeight: "bold" }}>
+                    {it.ma}
                   </td>
                   <td className="ptg-prod">
                     <span className="ptg-prod__name">{it.ten_san_pham || "—"}</span>
@@ -185,7 +270,18 @@ export function PhieuTinhGiaListView({
                   </td>
                   <td className="tg-num">{fmt(it.so_luong)}</td>
                   <td className="tg-num">{fmt(it.gia_von_don)} đ</td>
-                  <td className="tg-num ptg-strong">{fmt(it.tong_gia_von)} đ</td>
+                  <td className="tg-num ptg-strong" style={{ color: "var(--rust-deep)" }}>
+                    {fmt(it.tong_gia_von)} đ
+                  </td>
+                  <td>
+                    {it.so_thanh_phan === 0 ? (
+                      <span className="ptg-badge ptg-badge--neutral">Nháp</span>
+                    ) : it.tong_gia_von > 0 ? (
+                      <span className="ptg-badge ptg-badge--moss">Đã tính giá</span>
+                    ) : (
+                      <span className="ptg-badge ptg-badge--amber">Đang tính</span>
+                    )}
+                  </td>
                   <td className="ptg-when">
                     <span className="ptg-when__date">
                       {it.ngay ? new Date(it.ngay).toLocaleDateString("vi-VN") : "—"}
@@ -199,9 +295,9 @@ export function PhieuTinhGiaListView({
         </table>
       </div>
 
-      {!loading && items.length > 0 ? (
+      {!loading && filteredAndSortedItems.length > 0 ? (
         <p className="ptg-foot-note">
-          {fmt(total)} phiếu trong bộ lọc hiện tại.
+          Tìm thấy {fmt(filteredAndSortedItems.length)} phiếu trong bộ lọc hiện tại.
         </p>
       ) : null}
     </main>

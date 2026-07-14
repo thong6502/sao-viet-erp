@@ -8,9 +8,12 @@
 
 ## 0. Một dòng
 
-Engine = **máy thế-số-vào-công-thức**. Mỗi giấy / công đoạn / vật tư có **1 công thức** viết
-bằng **biến hệ thống**; lúc tính, engine thế số thật vào → ra **tiền tổng** → ÷ số lượng =
-**đ/thành phẩm**; cộng dọc = **giá vốn**.
+Engine = **máy thế-số-vào-công-thức**. **Giá vốn = Σ dòng NVL (vật tư — gồm giấy) + Σ dòng công
+đoạn.** Mỗi dòng có **1 công thức** viết bằng **biến hệ thống**; engine thế số thật vào → **tổng
+dòng** → ÷ số lượng = **đ/thành phẩm**; cộng dọc = giá vốn.
+
+**Quy cách in** (mẫu in · cách in · màu in · số kẽm) là khối **mô tả cho sản xuất — KHÔNG phải rổ
+chi phí**, nhưng **phơi vài biến** (số màu / mặt / kẽm) cho công thức dùng.
 
 ---
 
@@ -22,6 +25,8 @@ bằng **biến hệ thống**; lúc tính, engine thế số thật vào → ra
 3. Tư duy theo **đ/thành phẩm**; tổng = đ/thành phẩm × số lượng.
 4. **Auto + override**: ô danh mục tự điền, sửa đè được; ô thuần tính-ra thì khóa.
 5. **Một engine duy nhất** — bỏ `pricing_engine.py`, model costing, và `tinh_gia_engine.py` cũ.
+6. **Chi phí chỉ 2 loại dòng: NVL + Công đoạn** (giấy = NVL). Không còn "rổ A/B/C/D". Quy cách in
+   KHÔNG phải rổ chi phí — chỉ mô tả + phơi biến.
 
 ---
 
@@ -34,11 +39,15 @@ bằng **biến hệ thống**; lúc tính, engine thế số thật vào → ra
 | `dai_in` `rong_in` | dài/rộng khổ giấy in | nhập | m |
 | `so_luong` | số lượng (thành phẩm) | nhập | thành phẩm |
 | `so_tp` | số thành phẩm/tờ | nhập | — |
+| `so_mau` | số màu in | quy cách | màu |
+| `so_mat` | số mặt in (1 mặt→1; 2 mặt/tự trở→2) | quy cách | mặt |
+| `so_kem` | số bản kẽm | quy cách | bản |
 | `to_dau_vao` | **số tờ đầu vào máy in** | hệ thống | tờ |
 | `to_sau_in` | **số tờ còn lại sau in** | hệ thống | tờ |
-| *(field của item)* | vd `dinh_luong`, `don_gia` | danh mục | kg/m², đ/… |
+| *(field của item)* | vd `dinh_luong`, `don_gia_kg`, `don_gia_m2`, `don_gia_kem` | danh mục | kg/m², đ/… |
 
 > Khổ nhập bằng **cm**, biến đưa vào công thức quy về **m** (để `× đ/m²`, `× đ/kg` ra thẳng).
+> `so_mau/so_mat/so_kem` đến từ khối **Quy cách in** (§6) — quy cách không tự tính tiền, chỉ cấp biến.
 
 ---
 
@@ -62,6 +71,17 @@ công thức — 2 nguồn sự thật).
   vd `định_lượng(0,25)`, `đơn_giá_kg(17.100)`. Đổi giá ở danh mục → công thức tự đổi (sửa 1 chỗ).
 - **An toàn:** bộ tính riêng (parse + whitelist token), **không** dùng `eval` của Python.
 - Công thức lỗi / thiếu biến → dòng đó **0đ + cảnh báo**, không được crash.
+- **Quy ước:** công thức trả **TỔNG dòng**; `đ/thành phẩm = tổng ÷ so_luong` (§8).
+
+**Công thức mẫu (mỗi dòng chọn 1 kiểu — engine không khóa cứng):**
+
+| Dòng | Kiểu | Công thức |
+|---|---|---|
+| Giấy (NVL) | theo kg | `dinh_luong × dai_nguyen × rong_nguyen × don_gia_kg × to_dau_vao` |
+| Cán màng / vecni (công đoạn) | theo m² | `dai_in × rong_in × don_gia_m2 × to_sau_in` |
+| In (công đoạn) | khoán 1 lượt | `to_dau_vao × so_mat × don_gia_luot` |
+| Kẽm (công đoạn/NVL) | theo bản | `so_kem × don_gia_kem` |
+| Khuôn (công đoạn) | trọn gói ÷ SL | `800000` → 800.000 ÷ so_luong = 200 đ/thành phẩm |
 
 ---
 
@@ -101,14 +121,27 @@ Nhãn tầng: **[Nhập]** KTV gõ · **[Auto]** tự điền từ danh mục, s
 Chỉ để **đối chiếu cảnh báo**: nếu `so_tp` (nhập tay) > số hình học → cảnh báo "bình bài không vừa".
 Tiền vẫn tính theo `so_tp` KTV gõ.
 
+**Khối Quy cách in** (mô tả — KHÔNG tính tiền, in ra cho sản xuất đọc): mẫu in · **cách in**
+(1 mặt / tự trở / trở nhíp / AB) · màu in (CMYK / màu pha / vecni bóng / mờ) · **SL kẽm** + khổ kẽm.
+
+- **Số màu · số mặt · số kẽm** phơi thành biến (`so_mau/so_mat/so_kem`) cho công thức dùng.
+- **Cách in KHÔNG có luật ẩn** — chỉ là nhãn; KTV tự nhập `so_mat` & `so_tp` cho đúng:
+  - 1 mặt → `so_mat`=1
+  - **AB** (2 mặt khác bài, 2 bộ kẽm) → `so_mat`=2, `so_tp` **giữ nguyên**
+  - Tự trở / trở nhíp (1 bộ kẽm, lật tờ) → `so_mat`=2, `so_tp` **÷2**
+- Chi tiết thuần sản xuất (mẫu in duyệt, chốt khổ kẽm cụ thể) có thể để trống ở tính giá → firm
+  up khi **lên đơn / lệnh sản xuất**.
+
 ---
 
 ## 7. Danh mục phải thêm "ô công thức"
 
-- **Giấy** (Material paper): `cong_thuc_gia` + field định lượng, đơn giá/kg.
-- **Công đoạn** (Operation): `cong_thuc_gia` (bù hao đã có).
-- **Vật tư in ấn** (Material): `cong_thuc_gia`.
-- **Loại SP**: danh sách công đoạn mặc định (đã có routing → tái dùng, không dựng lại).
+Chỉ **2 danh mục** cần ô công thức (khớp "chi phí = NVL + công đoạn"):
+
+- **Vật tư in ấn** (`Material` — gồm **giấy · kẽm · mực · keo · màng**…): thêm `cong_thuc_gia`;
+  field riêng phơi thành biến (giấy: `dinh_luong`, `don_gia_kg`).
+- **Công đoạn** (`Operation`): thêm `cong_thuc_gia` (bù hao đã có, nối qua `bu_hao_id`).
+- **Loại SP**: chỉ giữ **routing công đoạn mặc định** (tái dùng, không thêm công thức).
 
 ---
 

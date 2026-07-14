@@ -13,10 +13,11 @@ import {
   type ThanhPhanIn,
   type ThanhPhanOut,
   type ThanhPhamOut,
+  type VatTuLineOut,
   type TinhGiaComponentMeta,
   type TinhGiaPreviewOut,
 } from "../api/client";
-import { congDoan, giay, loaiSanPham, mayThietBi, type Row } from "../api/rebuildCatalog";
+import { congDoan, giay, loaiSanPham, mayThietBi, vatTu, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { DarkSummaryPanel } from "../components/DarkSummaryPanel";
@@ -34,6 +35,7 @@ const vnd = (v: number | string | null | undefined): string =>
 
 const rowLabel = (r: Row): string => `${r.ma ? `${r.ma} · ` : ""}${r.ten}`;
 const cdName = (r: Row): string => (r.ten_hien_thi ? String(r.ten_hien_thi) : String(r.ten));
+const vtName = (r: Row): string => `${r.ma ? String(r.ma) + " · " : ""}${String(r.ten)}`;
 const numOf = (v: unknown): number => (typeof v === "number" ? v : Number(v) || 0);
 
 const LOAI_TP: Record<string, string> = {
@@ -107,6 +109,14 @@ interface EditableFinishing {
   nha_cung_cap: string;
   ghi_chu: string;
 }
+interface EditableVatTu {
+  uid: string;
+  vat_tu_id: number | null;
+  ten: string;
+  don_gia: number;
+  so_luong: number;
+  ghi_chu: string;
+}
 interface EditableComponent {
   uid: string;
   loai_thanh_phan: string;
@@ -124,32 +134,34 @@ interface EditableComponent {
   giay_id: number | null;
   kho_nguyen: string;
   don_gia_giay: number;
-  don_gia_don_vi: string; // to | tan
+  don_gia_don_vi: string; // kg | to | tan | ram | cai (theo danh mục giấy)
   nguon_giay: string; // cong_ty | khach
   bu_hao_so_to: number;
+  hao_so_to: number;
+  tinh_bu_hao_cd: boolean; // bật/tắt tính bù hao công đoạn tự
   chua_xen: number;
   chua_tay_ke: number;
   chua_nhip: number;
   chua_duoi: number;
   chua_ca_gay: number;
-  // Kỹ thuật in ②
-  co_in: boolean;
-  che_ban_loai: string;
-  che_ban_don_gia: number;
+  // Kỹ thuật in ② — In/kẽm nay là CÔNG ĐOẠN (chuỗi), không còn field cứng ở đây.
   quy_cach_in: string; // mot_mat | hai_mat | tu_tro
   kho_in_dai: number; // mm
   kho_in_rong: number; // mm
   so_con: number; // ④
   con_auto: boolean;
   may_id: number | null;
-  don_gia_cong_in: number;
   // Màu (gộp)
   so_mau_a: number;
   so_mau_b: number;
   gia_von_tp: number; // read-only từ lần tính gần nhất
   thanh_phams: EditableFinishing[];
+  vat_tus: EditableVatTu[];
 }
 
+function blankVatTu(ten = "", vat_tu_id: number | null = null): EditableVatTu {
+  return { uid: nextUid(), vat_tu_id, ten, don_gia: 0, so_luong: 0, ghi_chu: "" };
+}
 function blankFinishing(ten = "", cong_doan_id: number | null = null): EditableFinishing {
   return {
     uid: nextUid(),
@@ -184,25 +196,24 @@ function blankComponent(ten = ""): EditableComponent {
     don_gia_don_vi: "to",
     nguon_giay: "cong_ty",
     bu_hao_so_to: 0,
+    hao_so_to: 0,
+    tinh_bu_hao_cd: true,
     chua_xen: 0,
     chua_tay_ke: 0,
     chua_nhip: 0,
     chua_duoi: 0,
     chua_ca_gay: 0,
-    co_in: true,
-    che_ban_loai: "",
-    che_ban_don_gia: 0,
     quy_cach_in: "mot_mat",
     kho_in_dai: 0,
     kho_in_rong: 0,
     so_con: 1,
     con_auto: true,
     may_id: null,
-    don_gia_cong_in: 0,
     so_mau_a: 0,
     so_mau_b: 0,
     gia_von_tp: 0,
     thanh_phams: [],
+    vat_tus: [],
   };
 }
 
@@ -219,6 +230,16 @@ function fromFinishing(f: ThanhPhamOut): EditableFinishing {
     dien_tich: f.dien_tich ?? 0,
     nha_cung_cap: f.nha_cung_cap ?? "",
     ghi_chu: f.ghi_chu ?? "",
+  };
+}
+function fromVatTu(v: VatTuLineOut): EditableVatTu {
+  return {
+    uid: nextUid(),
+    vat_tu_id: v.vat_tu_id ?? null,
+    ten: v.ten ?? "",
+    don_gia: v.don_gia ?? 0,
+    so_luong: v.so_luong ?? 0,
+    ghi_chu: v.ghi_chu ?? "",
   };
 }
 function fromComponent(c: ThanhPhanOut): EditableComponent {
@@ -240,25 +261,24 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     don_gia_don_vi: c.don_gia_don_vi ?? "to",
     nguon_giay: c.nguon_giay ?? "cong_ty",
     bu_hao_so_to: c.bu_hao_so_to ?? 0,
+    hao_so_to: c.hao_so_to ?? 0,
+    tinh_bu_hao_cd: c.tinh_bu_hao_cd ?? true,
     chua_xen: c.chua_xen ?? 0,
     chua_tay_ke: c.chua_tay_ke ?? 0,
     chua_nhip: c.chua_nhip ?? 0,
     chua_duoi: c.chua_duoi ?? 0,
     chua_ca_gay: c.chua_ca_gay ?? 0,
-    co_in: c.co_in ?? true,
-    che_ban_loai: c.che_ban_loai ?? "",
-    che_ban_don_gia: c.che_ban_don_gia ?? 0,
     quy_cach_in: c.quy_cach_in ?? "mot_mat",
     kho_in_dai: c.kho_in_dai ?? 0,
     kho_in_rong: c.kho_in_rong ?? 0,
     so_con: c.so_con ?? 1,
     con_auto: c.con_auto ?? true,
     may_id: c.may_id ?? null,
-    don_gia_cong_in: c.don_gia_cong_in ?? 0,
     so_mau_a: c.so_mau_a ?? 0,
     so_mau_b: c.so_mau_b ?? 0,
     gia_von_tp: c.gia_von_tp ?? 0,
     thanh_phams: (c.thanh_phams ?? []).map(fromFinishing),
+    vat_tus: (c.vat_tus ?? []).map(fromVatTu),
   };
 }
 
@@ -280,21 +300,19 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     don_gia_don_vi: c.don_gia_don_vi,
     nguon_giay: c.nguon_giay,
     bu_hao_so_to: c.bu_hao_so_to,
+    hao_so_to: c.hao_so_to,
+    tinh_bu_hao_cd: c.tinh_bu_hao_cd,
     chua_xen: c.chua_xen,
     chua_tay_ke: c.chua_tay_ke,
     chua_nhip: c.chua_nhip,
     chua_duoi: c.chua_duoi,
     chua_ca_gay: c.chua_ca_gay,
-    co_in: c.co_in,
-    che_ban_loai: c.che_ban_loai.trim() || null,
-    che_ban_don_gia: c.che_ban_don_gia,
     quy_cach_in: c.quy_cach_in,
     kho_in_dai: c.kho_in_dai,
     kho_in_rong: c.kho_in_rong,
     so_con: c.so_con,
     con_auto: c.con_auto,
     may_id: c.may_id,
-    don_gia_cong_in: c.don_gia_cong_in,
     so_mau_a: c.so_mau_a,
     so_mau_b: c.so_mau_b,
     thanh_phams: c.thanh_phams.map((f) => ({
@@ -309,14 +327,16 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
       nha_cung_cap: f.nha_cung_cap.trim() || null,
       ghi_chu: f.ghi_chu.trim() || null,
     })),
+    vat_tus: c.vat_tus.map((v) => ({
+      vat_tu_id: v.vat_tu_id,
+      ten: v.ten,
+      don_gia: v.don_gia,
+      so_luong: v.so_luong,
+      ghi_chu: v.ghi_chu.trim() || null,
+    })),
   };
 }
 
-// Số kẽm client-side (khi chưa tính): (màu A + B) × số tờ/SP. Tự trở & 1 mặt chỉ tính mặt A.
-function soKemOf(c: EditableComponent): number {
-  const kemMau = c.quy_cach_in === "hai_mat" ? c.so_mau_a + c.so_mau_b : c.so_mau_a;
-  return kemMau * Math.max(c.so_to_per_sp, 1);
-}
 
 // Engine (snake_case) → phiếu in (chuỗi format sẵn).
 function toPhieu(
@@ -357,7 +377,7 @@ function toPhieu(
           }
           return out;
         }),
-        subtotalLabel: `Cộng nhóm ${g.idx}`,
+        subtotalLabel: `Cộng ${g.name}`,
         subtotal: vnd(g.subtotal),
       };
     }),
@@ -438,27 +458,6 @@ function NumField({
   );
 }
 
-// Dải số [Hiện] read-only — soi sản lượng đã chốt sau khi Tính (meta) + ước lượng trước tính.
-function HienStrip({ meta, comp }: { meta: TinhGiaComponentMeta | undefined; comp: EditableComponent }) {
-  const items: { k: string; v: string; hint?: string }[] = [
-    { k: "Con/tờ ④", v: meta ? fmt(meta.con) : fmt(comp.so_con) },
-    { k: "Tờ in NET", v: meta ? fmt(meta.to_net) : "—" },
-    { k: "Tờ in GROSS", v: meta ? fmt(meta.to_gross) : "—" },
-    { k: "Tờ nguyên", v: meta ? fmt(meta.to_nguyen) : "—" },
-    { k: "Số kẽm", v: meta ? fmt(meta.so_kem) : fmt(soKemOf(comp)) },
-    { k: "Số lượt", v: meta ? fmt(meta.so_luot) : "—" },
-  ];
-  return (
-    <div className="tg-hien" aria-label="Số liệu tự tính">
-      {items.map((it) => (
-        <div className="tg-hien__item" key={it.k}>
-          <span className="tg-hien__k">{it.k}</span>
-          <span className="tg-hien__v">{it.v}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ------------------------------- Component -------------------------------
 export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
@@ -475,6 +474,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const [giays, setGiays] = useState<Row[]>([]);
   const [mays, setMays] = useState<Row[]>([]);
   const [congDoans, setCongDoans] = useState<Row[]>([]);
+  const [vatTus, setVatTus] = useState<Row[]>([]);
 
   // --- Header phiếu đã lưu ---
   const [ma, setMa] = useState("");
@@ -484,11 +484,11 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
 
   // --- Form ---
   const [loaiSPId, setLoaiSPId] = useState<number | "">("");
-  const [tenAnPham, setTenAnPham] = useState("");
   const [khoThanhPham, setKhoThanhPham] = useState("");
-  const [qty, setQty] = useState(0);
   const [comps, setComps] = useState<EditableComponent[]>([]);
   const [editingUid, setEditingUid] = useState<string | null>(null);
+  // Số [Hiện] LIVE của sản phẩm đang mở modal (gọi /preview — engine thật, không ghi DB).
+  const [editMeta, setEditMeta] = useState<TinhGiaComponentMeta | null>(null);
 
   // --- Kết quả ---
   const [result, setResult] = useState<TinhGiaPreviewOut | null>(null);
@@ -504,10 +504,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setKtv(out.ktv);
     setNgay(out.created_at ? out.created_at.slice(0, 10) : null);
     setTongGiaVon(out.tong_gia_von);
-    setTenAnPham(out.ten_san_pham ?? "");
     setKhoThanhPham(out.kho_thanh_pham ?? "");
     setLoaiSPId(out.loai_san_pham_id ?? "");
-    setQty(out.so_luong ?? 0);
     setComps((out.thanh_phans ?? []).map(fromComponent));
     setResult(out.result);
     setWarnList(out.result?.warnings ?? out.warnings ?? []);
@@ -529,6 +527,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     giay.list(token).then((r) => setGiays(r.items)).catch(() => setGiays([]));
     mayThietBi.list(token).then((r) => setMays(r.items)).catch(() => setMays([]));
     congDoan.list(token).then((r) => setCongDoans(r.items)).catch(() => setCongDoans([]));
+    vatTu.list(token).then((r) => setVatTus(r.items)).catch(() => setVatTus([]));
   }, [token]);
 
   // Nạp phiếu.
@@ -572,9 +571,11 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
             const routing = Array.isArray(sp.routing_template)
               ? (sp.routing_template as unknown[]).map((x) => Number(x)).filter((n) => !Number.isNaN(n))
               : [];
+            // Bung ĐỦ chuỗi công đoạn theo routing Loại SP — KỂ CẢ chế bản/kẽm (prepress) & in (print),
+            // KHÔNG lọc bỏ nhóm nào (spec §6: In/Kẽm cũng là công đoạn). Giữ nguyên thứ tự routing.
             const fins = routing
               .map((cid) => congDoans.find((cd) => cd.id === cid))
-              .filter((cd): cd is Row => !!cd && String(cd.nhom) === "finishing")
+              .filter((cd): cd is Row => !!cd)
               .map((cd) => blankFinishing(cdName(cd), cd.id));
             if (fins.length > 0) patch.thanh_phams = fins;
           }
@@ -614,8 +615,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
             giay_id: gid,
             kho_nguyen: kd && kr ? `${kr}×${kd}` : c.kho_nguyen,
           };
-          if (c.don_gia_giay === 0 && typeof g.don_gia === "number") patch.don_gia_giay = g.don_gia;
-          if (g.don_vi_gia === "tan") patch.don_gia_don_vi = "tan";
+          // Đơn giá giấy ĂN THẲNG theo DANH MỤC (spec §6: read-only theo danh mục) — LUÔN ghi đè
+          // theo giấy vừa chọn (đổi giấy → đổi giá, không giữ giá cũ) + đồng bộ đơn vị giá.
+          patch.don_gia_giay = numOf(g.don_gia);
+          patch.don_gia_don_vi = (g.don_vi_gia as string) || "to"; // giữ ĐÚNG đơn vị danh mục (kg/tấn/tờ/ram/cái)
           if (!c.kho_in_dai && kd) patch.kho_in_dai = kd;
           if (!c.kho_in_rong && kr) patch.kho_in_rong = kr;
           return { ...c, ...patch };
@@ -639,8 +642,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           const kr = numOf(m.kho_max_rong);
           if (kd) patch.kho_in_dai = kd;
           if (kr) patch.kho_in_rong = kr;
-          const grip = numOf(m.gripper_mm);
-          if (grip && c.chua_nhip === 0) patch.chua_nhip = grip; // gripper_mm đã là mm (thống nhất mm)
+          // Spec §6: bình bài KHÔNG trừ chừa (5 chừa đã bỏ) — không tự set chua_nhip theo gripper nữa.
           return { ...c, ...patch };
         }),
       );
@@ -648,27 +650,34 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     [mays],
   );
 
-  const patchFin = useCallback(
-    (cuid: string, fuid: string, patch: Partial<EditableFinishing>) => {
-      setComps((cs) =>
-        cs.map((c) =>
-          c.uid === cuid
-            ? { ...c, thanh_phams: c.thanh_phams.map((f) => (f.uid === fuid ? { ...f, ...patch } : f)) }
-            : c,
-        ),
-      );
-    },
-    [],
-  );
-  const addFin = useCallback((cuid: string) => {
+  const addFin = useCallback((cuid: string, cong_doan_id: number | null = null, ten = "") => {
     setComps((cs) =>
-      cs.map((c) => (c.uid === cuid ? { ...c, thanh_phams: [...c.thanh_phams, blankFinishing()] } : c)),
+      cs.map((c) =>
+        c.uid === cuid
+          ? { ...c, thanh_phams: [...c.thanh_phams, blankFinishing(ten, cong_doan_id)] }
+          : c,
+      ),
     );
   }, []);
   const removeFin = useCallback((cuid: string, fuid: string) => {
     setComps((cs) =>
       cs.map((c) =>
         c.uid === cuid ? { ...c, thanh_phams: c.thanh_phams.filter((f) => f.uid !== fuid) } : c,
+      ),
+    );
+  }, []);
+
+  const addVt = useCallback((cuid: string, vat_tu_id: number | null = null, ten = "") => {
+    setComps((cs) =>
+      cs.map((c) =>
+        c.uid === cuid ? { ...c, vat_tus: [...c.vat_tus, blankVatTu(ten, vat_tu_id)] } : c,
+      ),
+    );
+  }, []);
+  const removeVt = useCallback((cuid: string, vuid: string) => {
+    setComps((cs) =>
+      cs.map((c) =>
+        c.uid === cuid ? { ...c, vat_tus: c.vat_tus.filter((v) => v.uid !== vuid) } : c,
       ),
     );
   }, []);
@@ -748,6 +757,39 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     return () => window.clearTimeout(h);
   }, [binhBaiSig, token]);
 
+  // ---- Số tờ LIVE trong modal: gọi /preview cho SP đang mở (debounce) → editMeta ----
+  const phieuSL = result?.meta?.so_luong ?? 0;
+  const editingComp = comps.find((c) => c.uid === editingUid) ?? null;
+  const previewSig = useMemo(() => {
+    if (!editingComp) return "";
+    const c = editingComp;
+    return JSON.stringify({
+      psl: phieuSL,
+      sl: c.so_luong,
+      kd: c.kho_in_dai, kr: c.kho_in_rong, d: c.dai_thanh_pham, r: c.rong_thanh_pham,
+      ca: c.con_auto, sc: c.so_con, sp: c.so_to_per_sp, qc: c.quy_cach_in,
+      ma: c.so_mau_a, mb: c.so_mau_b, bu: c.bu_hao_so_to, hao: c.hao_so_to,
+      tbh: c.tinh_bu_hao_cd,
+      ch: c.chua_xen + c.chua_tay_ke + c.chua_nhip + c.chua_duoi + c.chua_ca_gay,
+      gid: c.giay_id, may: c.may_id, cds: c.thanh_phams.map((f) => f.cong_doan_id),
+    });
+  }, [editingComp, phieuSL]);
+  useEffect(() => {
+    if (!token || !editingComp) {
+      setEditMeta(null);
+      return;
+    }
+    const snapshot = editingComp;
+    const h = window.setTimeout(() => {
+      api.tinhGia
+        .preview(token, { so_luong: phieuSL, thanh_phans: [toThanhPhanIn(snapshot)] })
+        .then((r) => setEditMeta(r.meta?.components?.[0] ?? null))
+        .catch(() => {});
+    }, 300);
+    return () => window.clearTimeout(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewSig, token]);
+
   // "Tính giá" = LƯU + TÍNH LẠI (BE) → refresh từ Out.
   const calc = useCallback(() => {
     if (!token) return;
@@ -755,10 +797,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setErr(null);
     api.phieuTinhGia
       .update(token, id, {
-        ten_san_pham: tenAnPham,
         kho_thanh_pham: khoThanhPham.trim() || null,
         loai_san_pham_id: loaiSPId === "" ? null : loaiSPId,
-        so_luong: qty,
         thanh_phans: comps.map(toThanhPhanIn),
       })
       .then((out) => {
@@ -767,7 +807,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       })
       .catch((e) => setErr(e instanceof ApiError ? e.message : "Không tính được giá. Thử lại."))
       .finally(() => setCalcing(false));
-  }, [token, id, tenAnPham, khoThanhPham, loaiSPId, qty, comps, applyOut, loadActs]);
+  }, [token, id, khoThanhPham, loaiSPId, comps, applyOut, loadActs]);
 
   // BG-3: từ phiếu tính giá → LUÔN tạo 1 phiếu báo giá MỚI (1 PTG → nhiều BG). Không ghi tiếp
   // phiếu cũ; muốn điều chỉnh 1 báo giá đã có thì dùng "Tạo phiên bản mới" TRONG phiếu đó.
@@ -800,8 +840,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
         : null;
 
   const phieu = useMemo(
-    () => (result ? toPhieu(result, ma || "(chưa lưu)", tenAnPham, qty, khoThanhPham) : null),
-    [result, ma, tenAnPham, qty, khoThanhPham],
+    () => (result ? toPhieu(result, ma || "(chưa lưu)", "", 0, khoThanhPham) : null),
+    [result, ma, khoThanhPham],
   );
 
   // Số [Hiện] chốt từ engine, index theo vị trí thành phần.
@@ -832,7 +872,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const summaryRows = useMemo(() => {
     if (!result) return [];
     return [
-      ...result.groups.map((g) => ({ label: `Nhóm ${g.idx} · ${g.name}`, value: `${fmt(g.subtotal)} đ` })),
+      ...result.groups.map((g) => ({ label: g.name, value: `${fmt(g.subtotal)} đ` })),
       { label: "Tổng giá vốn", value: `${fmt(result.grand_total)} đ`, total: true },
     ];
   }, [result]);
@@ -861,7 +901,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
             <h1 className="tg-head__title">{ma || "Phiếu tính giá"}</h1>
           </div>
           <p className="tg-head__sub">
-            <span className="tg-mono">{ma || "—"}</span> · {tenAnPham || "—"}
+            <span className="tg-mono">{ma || "—"}</span>
           </p>
         </div>
         <div className="tg-head__actions">
@@ -904,34 +944,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
         <div className="tg-split">
           {/* ============ LEFT ============ */}
           <div className="tg-main">
-            {/* --- Card: Thông tin ấn phẩm --- */}
-            <section className="canvas tg-card">
-              <div className="tg-card__head">
-                <h2 className="tg-card__title">Thông tin ấn phẩm</h2>
-              </div>
-              <div className="tg-card__body">
-                <div className="tg-grid">
-                  <label className="tg-field tg-field--full">
-                    <span className="tg-microlabel">
-                      Tên phiếu / khách <span className="tg-microlabel__opt">hiển thị trên phiếu</span>
-                    </span>
-                    <input
-                      className="tg-input"
-                      type="text"
-                      value={tenAnPham}
-                      placeholder="Tên phiếu hoặc tên khách hàng"
-                      onChange={(e) => setTenAnPham(e.target.value)}
-                    />
-                  </label>
-                  <NumField
-                    label="SL mặc định"
-                    opt="cho SP chưa nhập SL"
-                    value={qty}
-                    onChange={setQty}
-                  />
-                </div>
-              </div>
-            </section>
+
 
             {/* --- Card: DANH SÁCH SẢN PHẨM (list + drawer) --- */}
             <section className="canvas tg-card">
@@ -956,7 +969,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                           <th>Tên</th>
                           <th>Loại</th>
                           <th className="tg-num">SL</th>
-                          <th className="tg-num">Khổ ③ D×R</th>
+                          <th className="tg-num">Khổ D×R</th>
                           <th className="tg-num">Giá vốn</th>
                           <th className="tg-num">Đơn giá</th>
                           <th className="rc__actcol" style={{ width: "148px" }}>
@@ -967,7 +980,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                       <tbody>
                         {comps.map((c, i) => {
                           const meta = metaByIdx.get(i);
-                          const sl = meta ? meta.so_luong : c.so_luong || qty;
+                          // SL hiệu lực từ STATE LOCAL (phản ánh ngay khi sửa; 0 = lấy SL phiếu).
+                          const sl = c.so_luong > 0 ? c.so_luong : phieuSL;
                           const thieu =
                             !c.giay_id || c.dai_thanh_pham <= 0 || c.rong_thanh_pham <= 0;
                           return (
@@ -980,9 +994,18 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                 {thieu && (
                                   <span
                                     className="tg-warn-chip"
-                                    title="Chưa đủ khổ thành phẩm ③ hoặc chưa chọn giấy — số con/giá vốn chưa chính xác."
+                                    title="Chưa đủ khổ thành phẩm hoặc chưa chọn giấy — số con/giá vốn chưa chính xác."
                                   >
                                     <WarnIcon /> thiếu khổ/giấy
+                                  </span>
+                                )}
+                                {meta && meta.to_dau_vao > 0 && (
+                                  <span
+                                    className="tg-complist__meta"
+                                    title="Số [Hiện] engine chốt: con/tờ · tờ vào máy in (nuôi giấy+in) · tờ sau in (nuôi gia công) · số kẽm"
+                                  >
+                                    {fmt(meta.con)} con/tờ · vào máy {fmt(meta.to_dau_vao)} tờ · sau in{" "}
+                                    {fmt(meta.to_sau_in)} tờ · {fmt(meta.so_kem)} kẽm
                                   </span>
                                 )}
                               </td>
@@ -1034,18 +1057,18 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               </div>
             </section>
 
-            {/* --- Chi tiết dòng giá vốn (gọn — panel phải đã hiện 4 nhóm) --- */}
+            {/* --- Chi tiết dòng giá vốn (gọn — panel phải đã hiện 2 nhóm) --- */}
             {result ? (
               <details className="canvas tg-card tg-costdetails">
                 <summary className="tg-costdetails__sum">
-                  <span className="tg-card__title">Chi tiết dòng giá vốn (A · B · C · D)</span>
+                  <span className="tg-card__title">Chi tiết dòng giá vốn (Nguyên vật liệu · Công đoạn)</span>
                   <ChevronIcon open={false} />
                 </summary>
                 <div className="tg-cost">
-                  {result.groups.map((g) => (
+                  {result.groups.map((g, gi) => (
                     <div className="tg-cost__grp" key={g.idx}>
                       <div className="tg-cost__grphead">
-                        <span className="tg-cost__idx">{g.idx}</span>
+                        <span className="tg-cost__idx">{gi + 1}</span>
                         {g.name}
                       </div>
                       <div className="tg-cost__scroll">
@@ -1080,7 +1103,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                             <tr className="tg-cost__sub">
                               <td colSpan={g.columns.length}>
                                 <div className="tg-cost__subrow">
-                                  <span>Cộng nhóm {g.idx}</span>
+                                  <span>Cộng {g.name}</span>
                                   <span className="tg-num">{fmt(g.subtotal)} đ</span>
                                 </div>
                               </td>
@@ -1102,8 +1125,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                   <CalcIcon />
                   <p className="tg-empty__title">Chưa có kết quả</p>
                   <p className="tg-empty__sub">
-                    Cấu hình sản phẩm rồi bấm <b>Tính giá</b> để xem bảng 4 nhóm (Giấy · Công in ·
-                    Chế bản · Gia công).
+                    Cấu hình sản phẩm rồi bấm <b>Tính giá</b> để xem bảng 2 nhóm (Nguyên vật liệu ·
+                    Công đoạn).
                   </p>
                 </div>
               </section>
@@ -1116,7 +1139,11 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               label="Tổng giá vốn (nội bộ)"
               amount={grand == null ? null : fmt(grand)}
               unit="đ"
-              sub={perPiece == null ? undefined : `≈ ${fmt(perPiece)} đ · đơn giá bình quân`}
+              sub={
+                perPiece == null || comps.length > 1
+                  ? undefined // nhiều sản phẩm → bình quân/món vô nghĩa; mỗi SP đã có đơn giá riêng
+                  : `≈ ${fmt(perPiece)} đ · đơn giá bình quân`
+              }
               note={summaryNote}
               rows={summaryRows}
             />
@@ -1200,16 +1227,18 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
         </div>
       )}
 
-      {/* ---------- DRAWER: sửa 1 thành phần ---------- */}
+      {/* ---------- POPUP MODAL: sửa 1 thành phần ---------- */}
       {editing ? (
-        <ComponentDrawer
+        <ComponentModal
           comp={editing}
           idx={editingIdx}
-          meta={metaByIdx.get(editingIdx)}
           loaiSPs={loaiSPs}
           giays={giays}
           mays={mays}
           congDoans={congDoans}
+          vatTus={vatTus}
+          liveMeta={editMeta}
+          phieuSL={phieuSL}
           onClose={() => setEditingUid(null)}
           onRemove={() => {
             removeComp(editing.uid);
@@ -1219,9 +1248,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           onPickLoaiSP={onPickLoaiSPForComp}
           onPickGiay={onPickGiay}
           onPickMay={onPickMay}
-          patchFin={patchFin}
           addFin={addFin}
           removeFin={removeFin}
+          addVt={addVt}
+          removeVt={removeVt}
         />
       ) : null}
 
@@ -1235,47 +1265,54 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   );
 }
 
-// ================= DRAWER: sửa 1 thành phần (bám .rc-drawer*) =================
-function ComponentDrawer({
+// ================= POPUP MODAL: sửa 1 thành phần (bám .rc-modal*) =================
+function ComponentModal({
   comp: c,
   idx,
-  meta,
   loaiSPs,
   giays,
   mays,
   congDoans,
+  vatTus,
+  liveMeta,
+  phieuSL,
   onClose,
   onRemove,
   patchComp,
   onPickLoaiSP,
   onPickGiay,
   onPickMay,
-  patchFin,
   addFin,
   removeFin,
+  addVt,
+  removeVt,
 }: {
   comp: EditableComponent;
   idx: number;
-  meta: TinhGiaComponentMeta | undefined;
   loaiSPs: Row[];
   giays: Row[];
   mays: Row[];
   congDoans: Row[];
+  vatTus: Row[];
+  liveMeta: TinhGiaComponentMeta | null;
+  phieuSL: number;
   onClose: () => void;
   onRemove: () => void;
   patchComp: (uid: string, patch: Partial<EditableComponent>) => void;
   onPickLoaiSP: (uid: string, pid: number | "") => void;
   onPickGiay: (uid: string, gid: number | null) => void;
   onPickMay: (uid: string, mid: number | null) => void;
-  patchFin: (cuid: string, fuid: string, patch: Partial<EditableFinishing>) => void;
-  addFin: (cuid: string) => void;
+  addFin: (cuid: string, cong_doan_id?: number | null, ten?: string) => void;
   removeFin: (cuid: string, fuid: string) => void;
+  addVt: (cuid: string, vat_tu_id?: number | null, ten?: string) => void;
+  removeVt: (cuid: string, vuid: string) => void;
 }) {
   const isToRoi = c.loai_thanh_phan === "to_roi";
   const chuaTong = c.chua_xen + c.chua_tay_ke + c.chua_nhip + c.chua_duoi + c.chua_ca_gay;
   // Bình bài chỉ tính được khi có ĐỦ khổ thành phẩm ③ + khổ tờ in ② (khổ in tự lấy từ giấy/máy).
   const canBinhBai =
     c.dai_thanh_pham > 0 && c.rong_thanh_pham > 0 && c.kho_in_dai > 0 && c.kho_in_rong > 0;
+
 
   // Esc để đóng.
   useEffect(() => {
@@ -1287,329 +1324,389 @@ function ComponentDrawer({
   }, [onClose]);
 
   return (
-    <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
-      <aside className="rc-drawer rc-drawer--wide" onClick={(e) => e.stopPropagation()}>
-        <header className="rc-drawer__head">
+    <div className="rc-modal__scrim" role="dialog" aria-modal="true" onClick={onClose}>
+      <div className="rc-modal" onClick={(e) => e.stopPropagation()}>
+        <header className="rc-modal__head">
           <div>
-            <div className="rc-drawer__kicker">Sản phẩm {idx + 1}</div>
-            <h2 className="rc-drawer__title">{c.ten || loaiTpLabel(c.loai_thanh_phan)}</h2>
+            <div className="rc-modal__kicker">Sản phẩm {idx + 1}</div>
+            <h2 className="rc-modal__title">{c.ten || loaiTpLabel(c.loai_thanh_phan)}</h2>
           </div>
-          <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
+          <button type="button" className="rc-modal__x" onClick={onClose} aria-label="Đóng">
             <CloseIcon />
           </button>
         </header>
 
-        <div className="rc-drawer__body">
-          {/* ---- SẢN PHẨM & KHỔ ③ ---- */}
-          <section className="rc-sec">
-            <div className="rc-sec__title">Sản phẩm &amp; khổ thành phẩm ③</div>
-            <div className="tg-grid">
-              <label className="tg-field">
-                <span className="tg-microlabel">Tên sản phẩm</span>
-                <input
-                  className="tg-input"
-                  type="text"
-                  value={c.ten}
-                  placeholder="VD Thân hộp / Ruột / Bìa"
-                  onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
-                />
-              </label>
-              <NumField
-                label="Số lượng"
-                opt="0 = SL mặc định phiếu"
-                value={c.so_luong}
-                step="1"
-                onChange={(n) => patchComp(c.uid, { so_luong: Math.max(0, n) })}
-              />
-              <label className="tg-field">
-                <span className="tg-microlabel">
-                  Loại sản phẩm <span className="tg-microlabel__opt">tự bung công đoạn mặc định</span>
-                </span>
-                <select
-                  className="tg-input"
-                  value={c.loai_san_pham_id ?? ""}
-                  onChange={(e) =>
-                    onPickLoaiSP(c.uid, e.target.value === "" ? "" : Number(e.target.value))
-                  }
-                >
-                  <option value="">— Chọn loại sản phẩm —</option>
-                  {loaiSPs.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {rowLabel(s)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="tg-field">
-                <span className="tg-microlabel">Kiểu cấu trúc</span>
-                <select
-                  className="tg-input"
-                  value={c.loai_thanh_phan}
-                  onChange={(e) => patchComp(c.uid, { loai_thanh_phan: e.target.value })}
-                >
-                  <option value="to_roi">Tờ rời</option>
-                  <option value="than">Thân</option>
-                  <option value="nap">Nắp</option>
-                  <option value="bia">Bìa</option>
-                  <option value="ruot">Ruột</option>
-                  <option value="phu_kien">Phụ kiện</option>
-                </select>
-              </label>
-              <NumField
-                label="Dài thành phẩm ③"
-                value={c.dai_thanh_pham}
-                onChange={(n) => patchComp(c.uid, { dai_thanh_pham: n })}
-                suffix="mm"
-              />
-              <NumField
-                label="Rộng thành phẩm ③"
-                value={c.rong_thanh_pham}
-                onChange={(n) => patchComp(c.uid, { rong_thanh_pham: n })}
-                suffix="mm"
-              />
-              {!isToRoi && (
-                <>
+        <div className="rc-modal__body-grid">
+          {/* Cột trái: Giao diện nhập liệu */}
+          <div className="rc-modal__left-col">
+            <div className="rc-modal__form-col">
+              {/* ---- SẢN PHẨM & KHỔ ---- */}
+              <section className="rc-sec">
+                <div className="rc-sec__title">
+                  <span className="tg-step-badge">1</span> Sản phẩm &amp; khổ thành phẩm
+                </div>
+                <div className="tg-grid">
                   <label className="tg-field">
-                    <span className="tg-microlabel">Tay gấp</span>
+                    <span className="tg-microlabel">Tên sản phẩm</span>
                     <input
                       className="tg-input"
                       type="text"
-                      value={c.tay_gap}
-                      placeholder="VD gấp đôi / gấp ba"
-                      onChange={(e) => patchComp(c.uid, { tay_gap: e.target.value })}
+                      value={c.ten}
+                      placeholder="VD Thân hộp / Ruột / Bìa"
+                      onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
                     />
                   </label>
                   <NumField
-                    label="Số tờ / SP"
-                    value={c.so_to_per_sp}
-                    min={1}
+                    label="Số lượng"
+                    value={c.so_luong > 0 ? c.so_luong : phieuSL}
                     step="1"
-                    onChange={(n) => patchComp(c.uid, { so_to_per_sp: Math.max(1, n) })}
+                    onChange={(n) => patchComp(c.uid, { so_luong: Math.max(0, n) })}
                   />
-                </>
-              )}
-            </div>
-          </section>
-
-          {/* ---- GIẤY IN ① ---- */}
-          <section className="rc-sec">
-            <div className="rc-sec__title">Giấy in ①</div>
-            <div className="tg-grid">
-              <label className="tg-field">
-                <span className="tg-microlabel">Loại giấy</span>
-                <select
-                  className="tg-input"
-                  value={c.giay_id ?? ""}
-                  onChange={(e) => onPickGiay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
-                >
-                  <option value="">— Chọn giấy —</option>
-                  {giays.map((g) => (
-                    <option key={g.id} value={g.id}>
-                      {rowLabel(g)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="tg-field">
-                <span className="tg-microlabel">
-                  Khổ nguyên ① <span className="tg-microlabel__opt">rộng×dài</span>
-                </span>
-                <input
-                  className="tg-input"
-                  type="text"
-                  value={c.kho_nguyen}
-                  placeholder="VD 790×1090"
-                  onChange={(e) => patchComp(c.uid, { kho_nguyen: e.target.value })}
-                />
-              </label>
-              <NumField
-                label="Đơn giá giấy"
-                value={c.don_gia_giay}
-                onChange={(n) => patchComp(c.uid, { don_gia_giay: n })}
-              />
-              <div className="tg-field">
-                <span className="tg-microlabel">Đơn vị giá</span>
-                <Seg
-                  ariaLabel="Đơn vị giá giấy"
-                  value={c.don_gia_don_vi}
-                  onChange={(v) => patchComp(c.uid, { don_gia_don_vi: v })}
-                  options={[
-                    { val: "to", label: "Tờ" },
-                    { val: "tan", label: "Tấn" },
-                  ]}
-                />
-              </div>
-              <div className="tg-field tg-field--full">
-                <span className="tg-microlabel">Nguồn giấy</span>
-                <Seg
-                  ariaLabel="Nguồn giấy"
-                  value={c.nguon_giay}
-                  onChange={(v) => patchComp(c.uid, { nguon_giay: v })}
-                  options={[
-                    { val: "cong_ty", label: "Công ty" },
-                    { val: "khach", label: "Khách cấp" },
-                  ]}
-                />
-                {c.nguon_giay === "khach" && (
-                  <span className="tg-hint">Khách cấp giấy — không tính tiền giấy.</span>
-                )}
-              </div>
-              <NumField
-                label="Bù hao (số tờ in)"
-                opt="cộng thêm"
-                value={c.bu_hao_so_to}
-                step="1"
-                onChange={(n) => patchComp(c.uid, { bu_hao_so_to: n })}
-              />
-            </div>
-
-            <details className="tg-collapse">
-              <summary className="tg-collapse__sum">
-                Chừa giấy — xén · tay kê · nhíp · đuôi · cà gáy (mm)
-              </summary>
-              <div className="tg-chua">
-                {(
-                  [
-                    ["chua_xen", "Xén"],
-                    ["chua_tay_ke", "Tay kê"],
-                    ["chua_nhip", "Nhíp"],
-                    ["chua_duoi", "Đuôi"],
-                    ["chua_ca_gay", "Cà gáy"],
-                  ] as const
-                ).map(([key, lbl]) => (
-                  <NumField
-                    key={key}
-                    label={lbl}
-                    step="1"
-                    value={c[key]}
-                    onChange={(n) => patchComp(c.uid, { [key]: n })}
-                  />
-                ))}
-              </div>
-            </details>
-          </section>
-
-          {/* ---- KỸ THUẬT IN ② + SƠ ĐỒ BÌNH BÀI ---- */}
-          <section className="rc-sec">
-            <div className="rc-sec__title">Kỹ thuật in ②</div>
-            <div className="tg-grid">
-              <label className="tg-field">
-                <span className="tg-microlabel">
-                  Máy in <span className="tg-microlabel__opt">→ khổ tờ in</span>
-                </span>
-                <select
-                  className="tg-input"
-                  value={c.may_id ?? ""}
-                  onChange={(e) => onPickMay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
-                >
-                  <option value="">— Không chọn —</option>
-                  {mays.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {rowLabel(m)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <div className="tg-field">
-                <span className="tg-microlabel">Có in?</span>
-                <button
-                  type="button"
-                  aria-pressed={c.co_in}
-                  className={`tg-toggle${c.co_in ? " tg-toggle--on" : ""}`}
-                  onClick={() => patchComp(c.uid, { co_in: !c.co_in })}
-                >
-                  {c.co_in ? "Có in" : "Không in"}
-                </button>
-              </div>
-              <NumField
-                label="Khổ tờ in ② dài"
-                value={c.kho_in_dai}
-                onChange={(n) => patchComp(c.uid, { kho_in_dai: n })}
-                suffix="mm"
-              />
-              <NumField
-                label="Khổ tờ in ② rộng"
-                value={c.kho_in_rong}
-                onChange={(n) => patchComp(c.uid, { kho_in_rong: n })}
-                suffix="mm"
-              />
-              <div className="tg-field tg-field--full">
-                <span className="tg-microlabel">Quy cách in</span>
-                <Seg
-                  ariaLabel="Quy cách in"
-                  value={c.quy_cach_in}
-                  onChange={(v) => patchComp(c.uid, { quy_cach_in: v })}
-                  options={[
-                    { val: "mot_mat", label: "1 mặt" },
-                    { val: "hai_mat", label: "2 mặt" },
-                    { val: "tu_tro", label: "Tự trở" },
-                  ]}
-                />
-              </div>
-              {/* Số con ④ — auto bình bài, sửa đè được */}
-              <div className="tg-field">
-                <span className="tg-microlabel">
-                  Số con ④
-                  {c.con_auto ? (
-                    canBinhBai ? (
-                      <span className="tg-tag tg-tag--auto">
-                        <AutoIcon /> tự bình bài
-                      </span>
-                    ) : (
-                      <span className="tg-tag tg-tag--todo">nhập khổ ③ + chọn giấy/máy để tự tính</span>
-                    )
-                  ) : (
-                    <button
-                      type="button"
-                      className="tg-revert"
-                      onClick={() => patchComp(c.uid, { con_auto: true })}
-                      title="Về số tự bình bài"
+                  <label className="tg-field tg-field--full">
+                    <span className="tg-microlabel">
+                      Loại sản phẩm <span className="tg-microlabel__opt">tự bung công đoạn mặc định</span>
+                    </span>
+                    <select
+                      className="tg-input"
+                      value={c.loai_san_pham_id ?? ""}
+                      onChange={(e) =>
+                        onPickLoaiSP(c.uid, e.target.value === "" ? "" : Number(e.target.value))
+                      }
                     >
-                      <RevertIcon /> về auto
-                    </button>
+                      <option value="">— Chọn loại sản phẩm —</option>
+                      {loaiSPs.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {rowLabel(s)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {/* Spec §6 KHÔNG có ô "Kiểu cấu trúc" — đã gỡ; field loai_thanh_phan giữ mặc định
+                      "to_roi" (chỉ ẩn ô nhập, không xóa field để logic ẩn/hiện khác không vỡ). */}
+                  <NumField
+                    label="Dài thành phẩm"
+                    value={c.dai_thanh_pham}
+                    onChange={(n) => patchComp(c.uid, { dai_thanh_pham: n })}
+                    suffix="mm"
+                  />
+                  <NumField
+                    label="Rộng thành phẩm"
+                    value={c.rong_thanh_pham}
+                    onChange={(n) => patchComp(c.uid, { rong_thanh_pham: n })}
+                    suffix="mm"
+                  />
+                  {!isToRoi && (
+                    <>
+                      <label className="tg-field">
+                        <span className="tg-microlabel">Tay gấp</span>
+                        <input
+                          className="tg-input"
+                          type="text"
+                          value={c.tay_gap}
+                          placeholder="VD gấp đôi / gấp ba"
+                          onChange={(e) => patchComp(c.uid, { tay_gap: e.target.value })}
+                        />
+                      </label>
+                      <NumField
+                        label="Số tờ / SP"
+                        value={c.so_to_per_sp}
+                        min={1}
+                        step="1"
+                        onChange={(n) => patchComp(c.uid, { so_to_per_sp: Math.max(1, n) })}
+                      />
+                    </>
                   )}
-                </span>
-                <input
-                  className={`tg-input tg-input--num${c.con_auto ? "" : " tg-input--edited"}`}
-                  type="number"
-                  min={1}
-                  value={c.so_con}
-                  onChange={(e) =>
-                    patchComp(c.uid, {
-                      so_con: Math.max(1, Number(e.target.value)),
-                      con_auto: false,
-                    })
-                  }
-                />
-              </div>
-              <label className="tg-field">
-                <span className="tg-microlabel">Chế bản (loại)</span>
-                <input
-                  className="tg-input"
-                  type="text"
-                  value={c.che_ban_loai}
-                  placeholder="VD CTP ghi kẽm"
-                  onChange={(e) => patchComp(c.uid, { che_ban_loai: e.target.value })}
-                />
-              </label>
-              <NumField
-                label="Chế bản (đơn giá / kẽm)"
-                value={c.che_ban_don_gia}
-                onChange={(n) => patchComp(c.uid, { che_ban_don_gia: n })}
-              />
-              <NumField
-                label="Đơn giá công in"
-                opt="mực gộp / 1000 lượt"
-                value={c.don_gia_cong_in}
-                onChange={(n) => patchComp(c.uid, { don_gia_cong_in: n })}
-              />
+                </div>
+              </section>
+
+              {/* ---- GIẤY IN ---- */}
+              <section className="rc-sec">
+                <div className="rc-sec__title">
+                  <span className="tg-step-badge">2</span> Giấy in
+                </div>
+                <div className="tg-grid">
+                  <label className="tg-field">
+                    <span className="tg-microlabel">Loại giấy</span>
+                    <select
+                      className="tg-input"
+                      value={c.giay_id ?? ""}
+                      onChange={(e) => onPickGiay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
+                    >
+                      <option value="">— Chọn giấy —</option>
+                      {giays.map((g) => (
+                        <option key={g.id} value={g.id}>
+                          {rowLabel(g)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="tg-field">
+                    <span className="tg-microlabel">
+                      Khổ nguyên <span className="tg-microlabel__opt">rộng×dài</span>
+                    </span>
+                    <input
+                      className="tg-input"
+                      type="text"
+                      value={c.kho_nguyen}
+                      placeholder="VD 790×1090"
+                      onChange={(e) => patchComp(c.uid, { kho_nguyen: e.target.value })}
+                    />
+                  </label>
+                  {/* Spec §6: đơn giá giấy ĂN THEO DANH MỤC — read-only, tự điền khi chọn giấy
+                      (onPickGiay ghi don_gia_giay + don_gia_don_vi từ danh mục). */}
+                  <div className="tg-field">
+                    <span className="tg-microlabel">
+                      Đơn giá giấy <span className="tg-microlabel__opt">theo danh mục</span>
+                    </span>
+                    <div className="tg-readout">
+                      {(() => {
+                        const g = c.giay_id ? giays.find((x) => x.id === c.giay_id) : null;
+                        if (!g) return "— chọn giấy để lấy giá —";
+                        const u = g.don_vi_gia;
+                        const uL =
+                          u === "tan" ? "tấn" : u === "kg" ? "kg" : u === "ram" ? "ram" : u === "cai" ? "cái" : "tờ";
+                        return `${fmt(numOf(g.don_gia))} đ / ${uL}`;
+                      })()}
+                    </div>
+                  </div>
+                  <div className="tg-field">
+                    <span className="tg-microlabel">Nguồn giấy</span>
+                    <Seg
+                      ariaLabel="Nguồn giấy"
+                      value={c.nguon_giay}
+                      onChange={(v) => patchComp(c.uid, { nguon_giay: v })}
+                      options={[
+                        { val: "cong_ty", label: "Công ty" },
+                        { val: "khach", label: "Khách cấp" },
+                      ]}
+                    />
+                    {c.nguon_giay === "khach" && (
+                      <span className="tg-hint">Khách cấp giấy — không tính tiền giấy.</span>
+                    )}
+                  </div>
+                </div>
+              </section>
             </div>
 
-            {/* SƠ ĐỒ BÌNH BÀI LIVE */}
-            <div className="tg-field tg-field--full tg-imp-wrap">
-              <span className="tg-microlabel">
-                Sơ đồ bình bài <span className="tg-microlabel__opt">tờ in ② → con ③, khớp engine</span>
-              </span>
+            <div className="rc-modal__form-col">
+              {/* ---- KỸ THUẬT IN & MÀU IN ---- */}
+              <section className="rc-sec">
+                <div className="rc-sec__title">
+                  <span className="tg-step-badge">3</span> Kỹ thuật in &amp; Màu in
+                </div>
+                <div className="tg-grid">
+                  <label className="tg-field">
+                    <span className="tg-microlabel">
+                      Máy in <span className="tg-microlabel__opt">→ khổ tờ in</span>
+                    </span>
+                    <select
+                      className="tg-input"
+                      value={c.may_id ?? ""}
+                      onChange={(e) => onPickMay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
+                    >
+                      <option value="">— Không chọn —</option>
+                      {mays.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {rowLabel(m)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <NumField
+                    label="Khổ tờ in dài"
+                    value={c.kho_in_dai}
+                    onChange={(n) => patchComp(c.uid, { kho_in_dai: n })}
+                    suffix="mm"
+                  />
+                  <NumField
+                    label="Khổ tờ in rộng"
+                    value={c.kho_in_rong}
+                    onChange={(n) => patchComp(c.uid, { kho_in_rong: n })}
+                    suffix="mm"
+                  />
+                  <div className="tg-field">
+                    <span className="tg-microlabel">Quy cách in</span>
+                    <Seg
+                      ariaLabel="Quy cách in"
+                      value={c.quy_cach_in}
+                      onChange={(v) => patchComp(c.uid, { quy_cach_in: v })}
+                      options={[
+                        { val: "mot_mat", label: "1 mặt" },
+                        { val: "hai_mat", label: "2 mặt" },
+                        { val: "tu_tro", label: "Tự trở" },
+                      ]}
+                    />
+                  </div>
+                  {/* Số con — auto bình bài, sửa đè được */}
+                  <div className="tg-field">
+                    <span className="tg-microlabel">
+                      Số con
+                      {c.con_auto ? (
+                        canBinhBai ? (
+                          <span className="tg-tag tg-tag--auto">
+                            <AutoIcon /> tự bình bài
+                          </span>
+                        ) : (
+                          <span className="tg-tag tg-tag--todo">nhập khổ + chọn giấy/máy để tự tính</span>
+                        )
+                      ) : (
+                        <button
+                          type="button"
+                          className="tg-revert"
+                          onClick={() => patchComp(c.uid, { con_auto: true })}
+                          title="Về số tự bình bài"
+                        >
+                          <RevertIcon /> về auto
+                        </button>
+                      )}
+                    </span>
+                    <input
+                      className={`tg-input tg-input--num${c.con_auto ? "" : " tg-input--edited"}`}
+                      type="number"
+                      min={1}
+                      value={c.so_con}
+                      onChange={(e) =>
+                        patchComp(c.uid, {
+                          so_con: Math.max(1, Number(e.target.value)),
+                          con_auto: false,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                {/* Sub-grid cho Màu in (gộp trong Kỹ thuật in) */}
+                <div className="tg-grid tg-section-divider">
+                  <NumField
+                    label="Số màu mặt A"
+                    value={c.so_mau_a}
+                    step="1"
+                    onChange={(n) => patchComp(c.uid, { so_mau_a: n })}
+                  />
+                  <NumField
+                    label="Số màu mặt B"
+                    opt={c.quy_cach_in === "hai_mat" ? undefined : "chỉ tính khi in 2 mặt"}
+                    value={c.so_mau_b}
+                    step="1"
+                    onChange={(n) => patchComp(c.uid, { so_mau_b: n })}
+                  />
+                </div>
+              </section>
+
+              {/* ---- CHUỖI CÔNG ĐOẠN THỰC HIỆN ---- */}
+              <section className="rc-sec">
+                <div className="rc-sec__title">
+                  <span className="tg-step-badge">4</span> Chuỗi công đoạn thực hiện
+                </div>
+                <div className="tg-chipgrid">
+                  {c.thanh_phams.length === 0 && (
+                    <p className="tg-chipgrid__empty">
+                      Chọn loại sản phẩm để tự bung chuỗi, hoặc thêm công đoạn.
+                    </p>
+                  )}
+                  {c.thanh_phams.map((f) => (
+                    <span
+                      key={f.uid}
+                      className="tg-chip"
+                    >
+                      <span className="tg-chip__name">
+                        {f.ten || "(công đoạn)"}
+                      </span>
+                      <button
+                        type="button"
+                        className="tg-chip__x"
+                        aria-label="Xóa công đoạn"
+                        title="Xóa khỏi chuỗi"
+                        onClick={() => removeFin(c.uid, f.uid)}
+                      >
+                        <CloseIcon />
+                      </button>
+                    </span>
+                  ))}
+                  <select
+                    className="tg-chip-add"
+                    aria-label="Thêm công đoạn"
+                    value=""
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (!v) return;
+                      if (v === "__blank") {
+                        addFin(c.uid);
+                      } else {
+                        const cd = congDoans.find((x) => String(x.id) === v);
+                        addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "");
+                      }
+                    }}
+                  >
+                    <option value="">+ Thêm công đoạn…</option>
+                    {congDoans.map((cd) => (
+                      <option key={cd.id} value={cd.id}>
+                        {cdName(cd)}
+                      </option>
+                    ))}
+                    <option value="__blank">+ Tự nhập…</option>
+                  </select>
+                </div>
+              </section>
+
+              {/* ---- VẬT TƯ THÊM (mực/màng/keo → NGUYÊN VẬT LIỆU) ---- */}
+              <section className="rc-sec">
+                <div className="rc-sec__title">
+                  <span className="tg-step-badge">5</span> Vật tư thêm
+                </div>
+                <div className="tg-chipgrid">
+                  {c.vat_tus.length === 0 && (
+                    <p className="tg-chipgrid__empty">
+                      Thêm vật tư (mực…) — engine thế biến vào công thức của vật tư, hệt giấy.
+                    </p>
+                  )}
+                  {c.vat_tus.map((v) => (
+                    <span key={v.uid} className="tg-chip">
+                      <span className="tg-chip__name">{v.ten || "(vật tư)"}</span>
+                      <button
+                        type="button"
+                        className="tg-chip__x"
+                        aria-label="Xóa vật tư"
+                        title="Xóa khỏi phiếu"
+                        onClick={() => removeVt(c.uid, v.uid)}
+                      >
+                        <CloseIcon />
+                      </button>
+                    </span>
+                  ))}
+                  <select
+                    className="tg-chip-add"
+                    aria-label="Thêm vật tư"
+                    value=""
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) return;
+                      if (val === "__blank") {
+                        addVt(c.uid);
+                      } else {
+                        const m = vatTus.find((x) => String(x.id) === val);
+                        addVt(c.uid, m ? m.id : null, m ? vtName(m) : "");
+                      }
+                    }}
+                  >
+                    <option value="">+ Thêm vật tư…</option>
+                    {vatTus.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {vtName(m)}
+                      </option>
+                    ))}
+                    <option value="__blank">+ Tự nhập…</option>
+                  </select>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          {/* Cột phải: Trực quan hóa và Số liệu ước lượng */}
+          <div className="rc-modal__right-col">
+            {/* SƠ ĐỒ BÌNH BÀI CARD */}
+            <div className="tg-imp-card">
+              <div className="tg-imp-card__title">Sơ đồ bình bài live</div>
               <ImpositionDiagram
                 khoInDai={c.kho_in_dai}
                 khoInRong={c.kho_in_rong}
@@ -1618,197 +1715,76 @@ function ComponentDrawer({
                 chuaMm={chuaTong}
               />
             </div>
-          </section>
 
-          {/* ---- MÀU IN ---- */}
-          <section className="rc-sec">
-            <div className="rc-sec__title">Màu in</div>
-            <div className="tg-grid">
-              <NumField
-                label="Số màu mặt A"
-                value={c.so_mau_a}
-                step="1"
-                onChange={(n) => patchComp(c.uid, { so_mau_a: n })}
-              />
-              <NumField
-                label="Số màu mặt B"
-                opt={c.quy_cach_in === "hai_mat" ? undefined : "chỉ tính khi in 2 mặt"}
-                value={c.so_mau_b}
-                step="1"
-                onChange={(n) => patchComp(c.uid, { so_mau_b: n })}
-              />
+            {/* SỐ TỜ (tính LIVE qua /preview) + ô Bù / Hao nhập tay */}
+            <div className="tg-sheetbox">
+              <div className="tg-sheetbox__title">
+                Số tờ <span className="tg-sheetbox__hint">tự tính · engine thật</span>
+              </div>
+              <div className="tg-sheetrow">
+                <span>Cần in (net)</span>
+                <b>{liveMeta ? `${fmt(liveMeta.to_net)} tờ` : "…"}</b>
+              </div>
+              <div className="tg-sheetrow">
+                <span className="tg-sheetrow__lbl">
+                  + Bù hao công đoạn
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={c.tinh_bu_hao_cd}
+                    className={`tg-minitoggle${c.tinh_bu_hao_cd ? " tg-minitoggle--on" : ""}`}
+                    title={c.tinh_bu_hao_cd ? "Đang TỰ tính bù hao — bấm để TẮT" : "Đang TẮT — bấm để tự tính lại"}
+                    onClick={() => patchComp(c.uid, { tinh_bu_hao_cd: !c.tinh_bu_hao_cd })}
+                  >
+                    {c.tinh_bu_hao_cd ? "tự" : "tắt"}
+                  </button>
+                </span>
+                <b>{liveMeta ? `${fmt(liveMeta.bu_hao_auto ?? 0)} tờ` : "…"}</b>
+              </div>
+              <div className="tg-sheetrow tg-sheetrow--input">
+                <span>+ Bù thêm</span>
+                <input
+                  className="tg-sheetinput"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={c.bu_hao_so_to}
+                  onChange={(e) =>
+                    patchComp(c.uid, { bu_hao_so_to: Math.max(0, Math.round(Number(e.target.value) || 0)) })
+                  }
+                />
+              </div>
+              <div className="tg-sheetrow tg-sheetrow--total">
+                <span>= Tờ vào máy</span>
+                <b>{liveMeta ? `${fmt(liveMeta.to_dau_vao)} tờ` : "…"}</b>
+              </div>
+              <div className="tg-sheetrow tg-sheetrow--input">
+                <span>− Hao</span>
+                <input
+                  className="tg-sheetinput"
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={c.hao_so_to}
+                  onChange={(e) =>
+                    patchComp(c.uid, { hao_so_to: Math.max(0, Math.round(Number(e.target.value) || 0)) })
+                  }
+                />
+              </div>
+              <div className="tg-sheetrow tg-sheetrow--total">
+                <span>= Tờ sau in</span>
+                <b>{liveMeta ? `${fmt(liveMeta.to_sau_in)} tờ` : "…"}</b>
+              </div>
+              <div className="tg-sheetbox__foot">
+                {liveMeta
+                  ? `${fmt(liveMeta.con)} con/tờ · ${fmt(liveMeta.so_kem)} kẽm · ${fmt(liveMeta.to_nguyen)} tờ nguyên`
+                  : "Nhập đủ khổ + số lượng để tính"}
+              </div>
             </div>
-          </section>
-
-          {/* ---- [Hiện] số liệu tự tính ---- */}
-          <section className="rc-sec">
-            <div className="rc-sec__title">Số liệu tự tính (read-only)</div>
-            <HienStrip meta={meta} comp={c} />
-          </section>
-
-          {/* ---- GIA CÔNG SAU IN ---- */}
-          <section className="rc-sec">
-            <div className="rc-sec__title">Gia công sau in</div>
-            <div className="tg-fin-scroll">
-              <table className="tg-fin">
-                <thead>
-                  <tr>
-                    <th className="tg-fin__cd">Công đoạn</th>
-                    <th className="tg-num">Đơn giá</th>
-                    <th className="tg-num">SL (trống=SL SP)</th>
-                    <th className="tg-num">Số mặt</th>
-                    <th className="tg-num">Số vị trí</th>
-                    <th className="tg-num">Diện tích</th>
-                    <th>NCC (thuê ngoài)</th>
-                    <th>Ghi chú</th>
-                    <th aria-label="Xóa" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {c.thanh_phams.length === 0 ? (
-                    <tr>
-                      <td colSpan={9} className="tg-fin__empty">
-                        Chưa có công đoạn gia công.
-                      </td>
-                    </tr>
-                  ) : (
-                    c.thanh_phams.map((f) => (
-                      <tr key={f.uid}>
-                        <td className="tg-fin__cd">
-                          <select
-                            className="tg-input tg-input--sm"
-                            aria-label="Công đoạn"
-                            value={f.cong_doan_id ?? ""}
-                            onChange={(e) => {
-                              const cid = e.target.value === "" ? null : Number(e.target.value);
-                              const cd = congDoans.find((x) => x.id === cid);
-                              patchFin(c.uid, f.uid, {
-                                cong_doan_id: cid,
-                                ten: cd ? cdName(cd) : f.ten,
-                              });
-                            }}
-                          >
-                            <option value="">— Chọn / tự nhập —</option>
-                            {congDoans.map((cd) => (
-                              <option key={cd.id} value={cd.id}>
-                                {cdName(cd)}
-                              </option>
-                            ))}
-                          </select>
-                          <input
-                            className="tg-input tg-input--sm tg-fin__ten"
-                            type="text"
-                            aria-label="Tên công đoạn"
-                            value={f.ten}
-                            placeholder="Tên công đoạn"
-                            onChange={(e) => patchFin(c.uid, f.uid, { ten: e.target.value })}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="tg-input tg-input--sm tg-input--num"
-                            type="number"
-                            min={0}
-                            aria-label="Đơn giá"
-                            value={f.don_gia}
-                            onChange={(e) =>
-                              patchFin(c.uid, f.uid, { don_gia: Math.max(0, Number(e.target.value)) })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="tg-input tg-input--sm tg-input--num"
-                            type="number"
-                            min={0}
-                            aria-label="Số lượng"
-                            value={f.so_luong}
-                            onChange={(e) =>
-                              patchFin(c.uid, f.uid, { so_luong: Math.max(0, Number(e.target.value)) })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="tg-input tg-input--sm tg-input--num"
-                            type="number"
-                            min={0}
-                            aria-label="Số mặt"
-                            value={f.so_mat}
-                            onChange={(e) =>
-                              patchFin(c.uid, f.uid, { so_mat: Math.max(0, Number(e.target.value)) })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="tg-input tg-input--sm tg-input--num"
-                            type="number"
-                            min={0}
-                            aria-label="Số vị trí"
-                            value={f.so_vi_tri}
-                            onChange={(e) =>
-                              patchFin(c.uid, f.uid, { so_vi_tri: Math.max(0, Number(e.target.value)) })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="tg-input tg-input--sm tg-input--num"
-                            type="number"
-                            min={0}
-                            step="0.01"
-                            aria-label="Diện tích"
-                            value={f.dien_tich}
-                            onChange={(e) =>
-                              patchFin(c.uid, f.uid, { dien_tich: Math.max(0, Number(e.target.value)) })
-                            }
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="tg-input tg-input--sm"
-                            type="text"
-                            aria-label="Nhà cung cấp"
-                            value={f.nha_cung_cap}
-                            placeholder="NCC"
-                            onChange={(e) => patchFin(c.uid, f.uid, { nha_cung_cap: e.target.value })}
-                          />
-                        </td>
-                        <td>
-                          <input
-                            className="tg-input tg-input--sm"
-                            type="text"
-                            aria-label="Ghi chú"
-                            value={f.ghi_chu}
-                            placeholder="Ghi chú"
-                            onChange={(e) => patchFin(c.uid, f.uid, { ghi_chu: e.target.value })}
-                          />
-                        </td>
-                        <td>
-                          <button
-                            type="button"
-                            className="tg-icon-btn tg-icon-btn--danger"
-                            aria-label="Xóa công đoạn"
-                            title="Xóa công đoạn"
-                            onClick={() => removeFin(c.uid, f.uid)}
-                          >
-                            <TrashIcon />
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <button type="button" className="tg-add tg-add--sm" onClick={() => addFin(c.uid)}>
-              <PlusIcon /> Thêm công đoạn
-            </button>
-          </section>
+          </div>
         </div>
 
-        <footer className="rc-drawer__foot">
+        <footer className="rc-modal__foot">
           <Button type="button" variant="ghost" onClick={onRemove}>
             Xóa sản phẩm
           </Button>
@@ -1816,7 +1792,7 @@ function ComponentDrawer({
             Xong
           </Button>
         </footer>
-      </aside>
+      </div>
     </div>
   );
 }

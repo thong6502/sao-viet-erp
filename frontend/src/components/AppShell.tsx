@@ -1,8 +1,8 @@
 // Authenticated app shell: persistent left Sidebar + the active screen.
 // On entry it loads the current user's readable modules (feat-010) to gate both
 // the sidebar (handled in Sidebar) and the content (a forbidden module → 403).
-import { useCallback, useEffect, useState } from "react";
-import { api, type PinnedCustomer, type WarehouseOption } from "../api/client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, connectQuoteEvents, type PinnedCustomer, type WarehouseOption } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import {
   buildCapabilities,
@@ -88,6 +88,15 @@ export function AppShell() {
   const [badges, setBadges] = useState<Record<string, number>>({});
   // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
   const [leaveUnseen, setLeaveUnseen] = useState(0);
+  // Real-time luồng gửi duyệt (SSE): toast nổi + mốc 'chờ tôi duyệt' gần nhất để chỉ toast khi TĂNG.
+  const [toasts, setToasts] = useState<{ id: number; text: string; tone: "ok" | "warn" | "info" }[]>([]);
+  const toastSeq = useRef(0);
+  const lastPending = useRef(0);
+  const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
+    const id = ++toastSeq.current;
+    setToasts((prev) => [...prev, { id, text, tone }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 6000);
+  }, []);
 
   // Single navigation entrypoint: switches the active screen AND carries an optional
   // payload (pinned customer / document to open). Every param object is fresh so the
@@ -156,13 +165,17 @@ export function AppShell() {
         })
         .catch(() => {});
     }
-    // Badge Báo giá in ấn: số báo giá 'Chờ duyệt' trong scope — endpoint tự trả 0 nếu người
-    // gọi KHÔNG có quyền duyệt đặc thù (chỉ người duyệt mới thấy "chờ tôi duyệt").
+    // Badge Báo giá in ấn = 'chờ TÔI duyệt' (người duyệt) + 'quyết định chưa xem' (người soạn).
+    // Số real-time: SSE đẩy sự kiện → hàm này refetch; ở đây cũng là snapshot lúc đổi màn/mở app.
     if (readable.has("bao_gia")) {
       api.quotations
-        .pendingApprovalCount(token)
-        .then((r) => {
-          setBadges((prev) => ({ ...prev, "bao-gia": r.count > 0 ? r.count : 0 }));
+        .notifySummary(token)
+        .then((s) => {
+          lastPending.current = s.pending_approval_count;
+          setBadges((prev) => ({
+            ...prev,
+            "bao-gia": s.pending_approval_count + s.my_decided_unseen,
+          }));
         })
         .catch(() => {});
     }
@@ -171,6 +184,48 @@ export function AppShell() {
     reloadBadges();
     // Refetch khi đổi màn — cả 2 endpoint đều rất nhẹ, giữ badge tươi sau khi thao tác.
   }, [reloadBadges, activeId]);
+
+  // Real-time luồng gửi duyệt (CLAUDE.md "gửi nội bộ = real-time"): mở 1 kênh SSE sau đăng nhập →
+  // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
+  // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
+  useEffect(() => {
+    if (!token || readable === null || !readable.has("bao_gia")) return;
+    const close = connectQuoteEvents(token, (e) => {
+      if (e.type === "quote_decision") {
+        pushToast(
+          e.decision === "approved"
+            ? `✓ Báo giá ${e.code} đã được duyệt`
+            : `✕ Báo giá ${e.code} bị từ chối`,
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (e.type === "quote_pending_changed") {
+        // Danh sách 'chờ duyệt' đổi → refetch số; chỉ toast khi số 'chờ TÔI duyệt' TĂNG (có việc mới).
+        api.quotations
+          .notifySummary(token)
+          .then((s) => {
+            setBadges((prev) => ({
+              ...prev,
+              "bao-gia": s.pending_approval_count + s.my_decided_unseen,
+            }));
+            if (s.pending_approval_count > lastPending.current) {
+              pushToast(`🔔 Có báo giá${e.code ? " " + e.code : ""} chờ bạn duyệt`, "info");
+            }
+            lastPending.current = s.pending_approval_count;
+          })
+          .catch(() => {});
+      }
+    });
+    return close;
+  }, [token, readable, reloadBadges, pushToast]);
+
+  // Mở màn Báo giá = người soạn đã xem các quyết định → đánh dấu seen + hạ badge (giống chuông Nghỉ phép).
+  useEffect(() => {
+    if (!token || readable === null) return;
+    if (activeId.split(":")[0] === "bao-gia" && readable.has("bao_gia")) {
+      api.quotations.markDecisionsSeen(token).then(reloadBadges).catch(() => {});
+    }
+  }, [activeId, token, readable, reloadBadges]);
 
   // Bấm chuông → mở Nghỉ phép (Đơn của tôi) + đánh dấu đã xem → đóng chuông.
   const openLeaveFromBell = useCallback(() => {
@@ -316,6 +371,33 @@ export function AppShell() {
           <Topbar onOpenProfile={() => navigate("ho-so-cua-toi")} leaveUnseen={leaveUnseen} onOpenLeave={openLeaveFromBell} />
           <div className="shell__content">{renderContent()}</div>
         </div>
+        {/* Toast real-time luồng gửi duyệt — nổi góc trên-phải, tự tắt sau 6s. */}
+        {toasts.length > 0 && (
+          <div
+            aria-live="polite"
+            style={{
+              position: "fixed", top: 16, right: 16, zIndex: 9999,
+              display: "flex", flexDirection: "column", gap: 8, maxWidth: 340,
+            }}
+          >
+            {toasts.map((t) => (
+              <div
+                key={t.id}
+                role="status"
+                onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+                style={{
+                  padding: "10px 14px", borderRadius: 10, cursor: "pointer",
+                  color: "#fff", fontSize: 13, fontWeight: 600, lineHeight: 1.35,
+                  boxShadow: "0 10px 28px rgba(0,0,0,.28)",
+                  background:
+                    t.tone === "ok" ? "#1f8a52" : t.tone === "warn" ? "#b4432b" : "#2b6cb0",
+                }}
+              >
+                {t.text}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </PermissionsProvider>
   );

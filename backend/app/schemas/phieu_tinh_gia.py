@@ -45,6 +45,30 @@ class ThanhPhamOut(BaseModel):
     ghi_chu: str | None = None
 
 
+# ============================ VẬT TƯ (nguyên vật liệu thêm) ============================
+class VatTuLineIn(BaseModel):
+    """1 dòng vật tư in ấn thêm tay (đầu vào — mọi trường optional)."""
+    thu_tu: int | None = None
+    vat_tu_id: int | None = None
+    ten: str | None = None
+    don_gia: float | None = None
+    so_luong: int | None = Field(default=None, ge=0)
+    ghi_chu: str | None = None
+
+
+class VatTuLineOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    thanh_phan_id: int
+    thu_tu: int
+    vat_tu_id: int | None = None
+    ten: str
+    don_gia: float
+    so_luong: int
+    ghi_chu: str | None = None
+
+
 # ============================ THÀNH PHẦN (paper component) ============================
 class ThanhPhanIn(BaseModel):
     """1 thành phần (tờ giấy) — đầu vào (mọi trường optional)."""
@@ -66,6 +90,8 @@ class ThanhPhanIn(BaseModel):
     don_gia_don_vi: str | None = None
     nguon_giay: str | None = None
     bu_hao_so_to: int | None = None
+    hao_so_to: int | None = None
+    tinh_bu_hao_cd: bool | None = None
     chua_xen: float | None = None
     chua_tay_ke: float | None = None
     chua_nhip: float | None = None
@@ -86,6 +112,7 @@ class ThanhPhanIn(BaseModel):
     so_mau_a: int | None = None
     so_mau_b: int | None = None
     thanh_phams: list[ThanhPhamIn] | None = None
+    vat_tus: list[VatTuLineIn] | None = None
 
 
 class ThanhPhanOut(BaseModel):
@@ -111,6 +138,8 @@ class ThanhPhanOut(BaseModel):
     don_gia_don_vi: str
     nguon_giay: str
     bu_hao_so_to: int
+    hao_so_to: int
+    tinh_bu_hao_cd: bool = True
     chua_xen: float
     chua_tay_ke: float
     chua_nhip: float
@@ -132,6 +161,7 @@ class ThanhPhanOut(BaseModel):
     so_mau_b: int
     gia_von_tp: float
     thanh_phams: list[ThanhPhamOut] = Field(default_factory=list)
+    vat_tus: list[VatTuLineOut] = Field(default_factory=list)
 
 
 # ============================ PHIẾU (header) ============================

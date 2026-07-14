@@ -162,6 +162,73 @@ function refreshAccessToken(): Promise<string | null> {
   return refreshInFlight;
 }
 
+// --- Real-time luồng gửi duyệt (SSE) ----------------------------------------
+// EventSource gốc KHÔNG set được header Authorization → dùng fetch + ReadableStream để đọc SSE có
+// Bearer. Tự reconnect (kèm refresh token khi 401). Sự kiện chỉ là tín hiệu nhẹ; số chính xác lấy
+// qua notifySummary(). Trả hàm đóng kết nối (gọi khi logout/unmount).
+
+export interface QuoteNotifySummary {
+  pending_approval_count: number;
+  my_decided_unseen: number;
+}
+
+export type QuoteEvent =
+  | { type: "quote_decision"; quote_id: number; code: string; decision: "approved" | "rejected" }
+  | { type: "quote_pending_changed"; code?: string };
+
+export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
+  let closed = false;
+  let controller: AbortController | null = null;
+  let current = token;
+
+  async function loop(): Promise<void> {
+    while (!closed) {
+      controller = new AbortController();
+      try {
+        const resp = await fetch(`${BASE_URL}/api/quotations/events`, {
+          headers: { ...authHeader(current), Accept: "text/event-stream" },
+          credentials: "include",
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (resp.status === 401) {
+          const fresh = await refreshAccessToken();
+          if (fresh) { current = fresh; continue; }  // thử lại ngay với token mới
+          break;                                     // session chết → dừng
+        }
+        if (!resp.ok || !resp.body) throw new Error(`SSE ${resp.status}`);
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        while (!closed) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += decoder.decode(value, { stream: true });
+          let sep: number;
+          while ((sep = buf.indexOf("\n\n")) >= 0) {
+            const frame = buf.slice(0, sep);
+            buf = buf.slice(sep + 2);
+            const data = frame
+              .split("\n")
+              .filter((l) => l.startsWith("data:"))
+              .map((l) => l.slice(5).trim())
+              .join("\n");
+            if (!data) continue;  // heartbeat/comment (": ping")
+            try { onEvent(JSON.parse(data) as QuoteEvent); } catch { /* bỏ frame hỏng */ }
+          }
+        }
+      } catch {
+        /* lỗi mạng/stream → reconnect sau backoff */
+      }
+      if (closed) break;
+      await new Promise((r) => setTimeout(r, 3000));  // backoff trước khi reconnect
+    }
+  }
+
+  void loop();
+  return () => { closed = true; controller?.abort(); };
+}
+
 // --- RBAC admin shapes ------------------------------------------------------
 
 export type Scope = "own" | "department" | "all";
@@ -331,7 +398,7 @@ export interface PermissionRow {
   can_set_credit_terms: boolean;
 }
 
-// --- Khách hàng (CRM), spec-06 ----------------------------------------------
+// --- Khách hàng (CRM), spec-06 v2 -------------------------------------------
 
 /** Loại KH (redesign spec-06 v2): cá nhân (ẩn MST) / công ty (hiện MST). */
 export type CustomerKind = "ca_nhan" | "cong_ty";
@@ -782,16 +849,6 @@ export interface PhieuTinhGiaPrintOut {
   grand_total: number;
 }
 
-// Engine tính giá MỚI (/api/tinh-gia/preview) — không lưu, trả 4 nhóm + cảnh báo.
-export interface TinhGiaPreviewIn {
-  qty: number;
-  pieces_per_sheet: number;
-  so_mau: number;
-  so_mat: number;
-  giay_id: number | null;
-  loai_san_pham_id?: number | null;
-  cong_doan_ids?: number[];
-}
 /** Số [Hiện] read-only của 1 thành phần (từ result.meta.components) — soi số cho KTV. */
 export interface TinhGiaComponentMeta {
   idx: number;
@@ -807,6 +864,11 @@ export interface TinhGiaComponentMeta {
   to_nguyen: number; // tờ giấy nguyên
   so_kem: number;
   so_luot: number;
+  to_dau_vao: number;
+  to_sau_in: number;
+  bu_hao_auto?: number; // Σ bù hao công đoạn tự tra (theo số tờ cần in)
+  bu_hao_tay?: number; // số bù nhập tay (cộng thêm)
+  hao_tay?: number; // số hao nhập tay (trừ bớt)
 }
 /** Meta cấp phiếu — tổng hợp nhiều sản phẩm. */
 export interface TinhGiaMeta {
@@ -905,6 +967,8 @@ export interface ThanhPhanOut {
   don_gia_don_vi: string; // "to" | "tan"
   nguon_giay: string; // "cong_ty" | "khach"
   bu_hao_so_to: number;
+  hao_so_to: number;
+  tinh_bu_hao_cd: boolean;
   chua_xen: number;
   chua_tay_ke: number;
   chua_nhip: number;
@@ -926,6 +990,19 @@ export interface ThanhPhanOut {
   so_mau_b: number;
   gia_von_tp: number;
   thanh_phams: ThanhPhamOut[];
+  vat_tus: VatTuLineOut[];
+}
+
+/** 1 dòng vật tư in ấn thêm (mực/màng/keo…) → Nguyên vật liệu. */
+export interface VatTuLineOut {
+  id: number;
+  thanh_phan_id: number;
+  thu_tu: number;
+  vat_tu_id: number | null;
+  ten: string;
+  don_gia: number;
+  so_luong: number;
+  ghi_chu: string | null;
 }
 
 /** Detail đầy đủ 1 phiếu — `result` tái dùng TinhGiaPreviewOut (engine dict 4 nhóm). */
@@ -986,6 +1063,8 @@ export interface ThanhPhanIn {
   don_gia_don_vi?: string;
   nguon_giay?: string;
   bu_hao_so_to?: number;
+  hao_so_to?: number;
+  tinh_bu_hao_cd?: boolean;
   chua_xen?: number;
   chua_tay_ke?: number;
   chua_nhip?: number;
@@ -1004,6 +1083,15 @@ export interface ThanhPhanIn {
   so_mau_a?: number;
   so_mau_b?: number;
   thanh_phams?: ThanhPhamIn[];
+  vat_tus?: VatTuLineIn[];
+}
+/** Input 1 dòng vật tư thêm — optional (BE kéo công thức + giá từ danh mục). */
+export interface VatTuLineIn {
+  vat_tu_id?: number | null;
+  ten?: string;
+  don_gia?: number;
+  so_luong?: number;
+  ghi_chu?: string | null;
 }
 /** Field khởi tạo phiếu (tất cả optional — BE auto `ma`). */
 export interface PhieuTinhGiaCreate {
@@ -4871,16 +4959,17 @@ export const api = {
     },
   },
 
-  // --- Tính giá thành (engine MỚI) — preview 4 nhóm, không lưu ---------------
+  // --- Tính giá thành — chỉ còn bình bài live; tính giá vốn đi qua phiếu (phieuTinhGia) ---
   tinhGia: {
-    preview(token: string, body: TinhGiaPreviewIn): Promise<TinhGiaPreviewOut> {
-      return authed<TinhGiaPreviewOut>("/api/tinh-gia/preview", token, {
+    binhBai(token: string, body: BinhBaiIn): Promise<BinhBaiOut> {
+      return authed<BinhBaiOut>("/api/tinh-gia/binh-bai", token, {
         method: "POST",
         body: JSON.stringify(body),
       });
     },
-    binhBai(token: string, body: BinhBaiIn): Promise<BinhBaiOut> {
-      return authed<BinhBaiOut>("/api/tinh-gia/binh-bai", token, {
+    /** Xem-trước LIVE: chạy engine thật trên phiếu CHƯA lưu → result đầy đủ (không ghi DB). */
+    preview(token: string, body: PhieuTinhGiaCreate): Promise<TinhGiaPreviewOut> {
+      return authed<TinhGiaPreviewOut>("/api/tinh-gia/preview", token, {
         method: "POST",
         body: JSON.stringify(body),
       });
@@ -5046,6 +5135,14 @@ export const api = {
     /** Badge nav: số báo giá 'Chờ duyệt' trong phạm vi — chỉ ai có quyền duyệt đặc thù mới >0. */
     pendingApprovalCount(token: string): Promise<{ count: number }> {
       return authed(`/api/quotations/pending-approval-count`, token);
+    },
+    /** Real-time luồng gửi duyệt: số 'chờ tôi duyệt' + số quyết định (cho báo giá của tôi) chưa xem. */
+    notifySummary(token: string): Promise<QuoteNotifySummary> {
+      return authed(`/api/quotations/notify-summary`, token);
+    },
+    /** Người soạn xác nhận đã xem các quyết định duyệt/từ chối → đóng badge/toast phía Sale. */
+    markDecisionsSeen(token: string): Promise<{ ok: boolean }> {
+      return authed(`/api/quotations/decisions/seen`, token, { method: "POST" });
     },
     /** BG-2: GĐ DUYỆT / TỪ CHỐI báo giá đặc thù → mở khóa "gửi khách". */
     recordApproval(

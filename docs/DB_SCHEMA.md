@@ -531,6 +531,7 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `created_by` | `Integer` | **FK→users.id** (SET NULL) | yes | — | Người tạo. |
 | `created_at` | `DateTime(tz)` | — | no | now (UTC) | Tạo lúc. |
 | `updated_at` | `DateTime(tz)` | — | no | now (UTC) | Sửa lần cuối (onupdate). |
+| `decision_seen_at` | `DateTime(tz)` | — | yes | — | Mốc người soạn đã xem quyết định GĐ gần nhất (real-time gửi duyệt); NULL = có quyết định mới chưa xem. |
 
 ### `quote_versions`
 
@@ -2467,7 +2468,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** tờ giấy nguyên (khổ mua) — thuộc 1 chủng loại (`chung_loai_giay_id`, soft int). Một row = một loại giấy cụ thể.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `chung_loai_giay_id`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `gia_thi_truong`, `kho_tinh_gia`, `ghi_chu`, `version_no`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `chung_loai_giay_id`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `gia_thi_truong`, `kho_tinh_gia`, `cong_thuc_gia`, `ghi_chu`, `version_no`, `active`, `created_at`, `updated_at`.
 
 ### `giay_gia_version`
 
@@ -2485,13 +2486,13 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** vật tư in ấn — danh mục PHẲNG (mực/kẽm/hoá chất/màng/keo… chung 1 bảng, phân biệt bằng tên) theo bảng xưởng: Mã · Tên · ĐVT · Giá · Ghi chú. Thay 2 bảng cũ `muc`+`ban_kem`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `don_vi_gia`, `don_gia`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 ### `cong_doan`
 
 **Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job (`routing_step`) = Phase D. `may_id` soft int → `may_thiet_bi`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `may_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `may_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 `size_tiers` (JSON): bậc đơn giá theo KÍCH THƯỚC thành phẩm (cạnh dài, cm) — `[{den_cm, don_gia}]`, "≤ den_cm → đơn giá"; engine chọn giá theo cỡ thay `run_rate` (vd công dán ≤20cm=100 · 40cm=200 · 100cm=800). `pricing_basis="per_job"` = trọn gói một lần (khuôn bế) — engine ÷ SL.
 
@@ -2525,7 +2526,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** Thành phần (1 tờ giấy) của 1 phiếu tính giá — con của `phieu_tinh_gia` (`phieu_id` FK thật, cascade xoá). Gom cấu hình GIẤY (khổ nguyên, khổ thành phẩm ③ dạng số `dai/rong_thanh_pham`, đơn giá theo tờ|tấn, nguồn công ty|khách, bù hao số tờ, các loại tờ chừa) + KỸ THUẬT IN (chế bản/kẽm, quy cách 1 mặt|2 mặt|tự trở, khổ tờ in ② `kho_in_dai/rong`, số con ④ `so_con` + cờ `con_auto` tự bình bài, máy, đơn giá công in gộp mực) + MÀU (đã gộp: chỉ `so_mau_a`/`so_mau_b` — KHÔNG hệ số, KHÔNG tách SEL/Pantone/Nền). `giay_id`/`may_id` soft FK. `gia_von_tp` = ảnh chụp giá vốn thành phần (Σ 4 nhóm A/B/C/D). Mỗi thành phần có nhiều dòng gia công sau in (`phieu_thanh_pham`). Tính giá vốn KHÔNG dùng hệ số (mọi hệ số = 1 → đã gỡ khỏi model).
 
-**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `so_luong`, `loai_san_pham_id`, `giay_id`, `kho_nguyen`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `chua_xen`, `chua_tay_ke`, `chua_nhip`, `chua_duoi`, `chua_ca_gay`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `gia_von_tp`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `so_luong`, `loai_san_pham_id`, `giay_id`, `kho_nguyen`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `hao_so_to`, `tinh_bu_hao_cd`, `chua_xen`, `chua_tay_ke`, `chua_nhip`, `chua_duoi`, `chua_ca_gay`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `gia_von_tp`, `created_at`, `updated_at`.
 
 ---
 
@@ -2534,6 +2535,14 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 **Purpose:** 1 dòng công đoạn gia công sau in (finishing) của 1 thành phần — con của `phieu_thanh_phan` (`thanh_phan_id` FK thật, cascade xoá). Hoặc tính giá PHẲNG (`don_gia` > 0 × số lượng — `so_luong`=0 nghĩa dùng SL đặt của phiếu) hoặc dùng cấu hình công đoạn danh mục (`cong_doan_id`, soft FK) qua `routing_engine.compute_step_cost` với `so_mat`/`so_vi_tri`/`dien_tich`. `nha_cung_cap` → nhãn thuê ngoài. `bu_hao` cờ báo dòng có góp hao. (Không cột lợi nhuận — đây là giá vốn.)
 
 **Tất cả cột:** `id`, `thanh_phan_id`, `thu_tu`, `cong_doan_id`, `ten`, `don_gia`, `so_luong`, `bu_hao`, `so_mat`, `so_vi_tri`, `dien_tich`, `nha_cung_cap`, `ghi_chu`, `created_at`, `updated_at`.
+
+---
+
+### `phieu_vat_tu`
+
+**Purpose:** 1 dòng VẬT TƯ IN ẤN (mực/màng/keo…) thêm tay của 1 thành phần → NGUYÊN VẬT LIỆU (song song giấy) — con của `phieu_thanh_phan` (`thanh_phan_id` FK thật, cascade xoá). Trỏ 1 mã `vat_tu_id` (soft → `vat_tu_in_an.id`); engine kéo `cong_thuc_gia` + `don_gia` + `don_vi_gia` từ danh mục rồi thế biến vào công thức — HỆT giấy. `don_gia` = ghi đè (0 → lấy danh mục); `so_luong` (0 → SL đặt) cho công thức nếu cần; `ten` nhãn hiển thị; `ghi_chu` ghi chú.
+
+**Tất cả cột:** `id`, `thanh_phan_id`, `thu_tu`, `vat_tu_id`, `ten`, `don_gia`, `so_luong`, `ghi_chu`, `created_at`, `updated_at`.
 
 ---
 

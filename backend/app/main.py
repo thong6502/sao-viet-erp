@@ -6,6 +6,7 @@ schema (create_all) + seeds the admin user. Run with:
 """
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -64,6 +65,10 @@ STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Real-time SSE hub: ghim event loop đang chạy để publisher (endpoint sync trong threadpool) đẩy
+    # sự kiện an toàn qua call_soon_threadsafe (app/realtime.py). Chỉ đúng khi 1 uvicorn worker.
+    from .realtime import hub
+    hub.set_loop(asyncio.get_running_loop())
     # Refuse to boot in production with an insecure JWT secret (no-op in development).
     assert_secure_config(settings)
     # create_all + idempotent seed (RBAC catalog/roles + admin). Alembic is a later spec.

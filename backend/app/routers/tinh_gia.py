@@ -1,9 +1,8 @@
-"""Router Tính giá thành (engine MỚI) — POST /api/tinh-gia/preview.
+"""Router Tính giá thành — POST /api/tinh-gia/binh-bai (bình bài live).
 
-Máy tính giá KHÔNG trạng thái: nhận cấu hình → gọi `services.tinh_gia_service.load_and_compute`
-(load Giấy · Kẽm · Công đoạn · Bù hao rồi chạy engine thuần). RBAC MODULE = "tinh_gia_thanh".
-
-Dependency INLINE (không đụng deps.py) — khớp convention module rebuild (cong_doan.py).
+Bình bài KHÔNG trạng thái: nhận khổ → trả số con + layout để FE vẽ sơ đồ.
+Tính giá vốn đầy đủ đi qua phiếu (`phieu_tinh_gia` → `compute_phieu_snapshot`, engine
+`thanh_phan_engine`). RBAC MODULE = "tinh_gia_thanh".
 """
 from __future__ import annotations
 
@@ -15,9 +14,12 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_permission
+from ..models.phieu_tinh_gia import PhieuTinhGia
 from ..models.user import User
+from ..schemas.phieu_tinh_gia import PhieuTinhGiaCreate
 from ..services.thanh_phan_engine import binh_bai_layout
-from ..services.tinh_gia_service import load_and_compute
+from ..services.tinh_gia_service import compute_phieu_snapshot
+from .phieu_tinh_gia import _build_thanh_phan
 
 router = APIRouter(prefix="/api/tinh-gia", tags=["tinh-gia"])
 MODULE = "tinh_gia_thanh"
@@ -48,38 +50,20 @@ def binh_bai(
     return {**lay, "hieu_suat": hieu_suat}
 
 
-class PreviewIn(BaseModel):
-    qty: int = Field(gt=0)
-    pieces_per_sheet: int = Field(default=1, ge=1)
-    so_mau: int = Field(default=4, ge=0)
-    so_mat: int = Field(default=1, ge=1)
-    so_con: int = Field(default=1, ge=1)
-    giay_id: int | None = None
-    kem: float | None = None                       # ép đơn giá kẽm; None → tự tra VatTuInAn
-    loai_san_pham_id: int | None = None
-    cong_doan_ids: list[int] | None = None
-    dt_to_in_cm2: float = 0
-    dt_thanh_pham_cm2: float = 0
-
-
 @router.post("/preview")
 def preview(
-    payload: PreviewIn,
+    payload: PhieuTinhGiaCreate,
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> dict:
-    result, _resolved = load_and_compute(
-        db,
-        qty=payload.qty,
-        pieces_per_sheet=payload.pieces_per_sheet,
-        so_mau=payload.so_mau,
-        so_mat=payload.so_mat,
-        so_con=payload.so_con,
-        giay_id=payload.giay_id,
-        kem=payload.kem,
-        loai_san_pham_id=payload.loai_san_pham_id,
-        cong_doan_ids=payload.cong_doan_ids,
-        dt_to_in_cm2=payload.dt_to_in_cm2,
-        dt_thanh_pham_cm2=payload.dt_thanh_pham_cm2,
-    )
+    """Xem-trước LIVE: chạy ĐÚNG engine (`compute_phieu_snapshot`) trên dữ liệu phiếu CHƯA lưu →
+    trả `result` đầy đủ (mỗi thành phần: con, tờ vào máy/sau in, bù hao tự, kẽm, giá vốn). KHÔNG ghi DB.
+
+    An toàn: KHÔNG `db.add` phiếu (transient), session autoflush=False → không insert; `rollback` cuối
+    dọn sạch mọi thao tác đọc/resolve. Chỉ đọc danh mục (giấy/công đoạn/vật tư/bù hao)."""
+    phieu = PhieuTinhGia(ma="__preview__", so_luong=int(payload.so_luong or 0))
+    for i, tp_in in enumerate(payload.thanh_phans or []):
+        phieu.thanh_phans.append(_build_thanh_phan(tp_in, i))
+    result = compute_phieu_snapshot(db, phieu)
+    db.rollback()
     return result

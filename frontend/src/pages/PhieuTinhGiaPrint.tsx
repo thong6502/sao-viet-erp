@@ -1,5 +1,6 @@
 // Phiếu tính giá ấn phẩm — component in tái dùng (bản CHỐT chủ xưởng đã duyệt).
-// Giao diện đen-trắng thuần, bảng chi tiết theo 4 nhóm A/B/C/D, khối Tổng giá vốn, 3 ô ký.
+// Giao diện đen-trắng thuần, bảng chi tiết theo nhóm (data-driven: Nguyên vật liệu · Công đoạn),
+// khối Tổng giá vốn, 3 ô ký. Số nhóm hiển thị là số thứ tự (1., 2.) — không phụ thuộc mã idx.
 // Toàn bộ dữ liệu vào qua props `data`. Component KHÔNG tự format số — số đã là chuỗi format sẵn.
 import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import "./phieu-tinh-gia.css";
@@ -203,10 +204,10 @@ export function PhieuTinhGiaPrint({
 
         <div className="ptg-sec">Kết quả tính giá</div>
 
-        {groups.map((g) => (
+        {groups.map((g, gi) => (
           <div className="ptg-grp" key={g.idx}>
             <div className="ptg-grpt">
-              <span className="ptg-idx">{g.idx}.</span> {g.name}
+              <span className="ptg-idx">{gi + 1}.</span> {g.name}
             </div>
             <GroupTable group={g} />
           </div>
@@ -280,11 +281,11 @@ export const SAMPLE_PHIEU: PhieuTinhGia = {
   ],
   groups: [
     {
-      idx: "A",
-      name: "Giấy",
+      idx: "nvl",
+      name: "Nguyên vật liệu",
       columns: [
         { key: "anpham", label: "Tên ấn phẩm", width: "23%" },
-        { key: "giay", label: "Giấy", width: "15%" },
+        { key: "giay", label: "Giấy / vật tư", width: "15%" },
         { key: "buhao", label: "TL bù hao", align: "center", width: "9%" },
         { key: "slnguyen", label: "SL giấy nguyên", kind: "num", width: "12%" },
         { key: "dgban", label: "ĐG bán", kind: "num", width: "11%" },
@@ -302,77 +303,35 @@ export const SAMPLE_PHIEU: PhieuTinhGia = {
           ghichu: "",
         },
       ],
-      subtotalLabel: "Cộng nhóm A",
+      subtotalLabel: "Cộng Nguyên vật liệu",
       subtotal: "2.052.000",
     },
     {
-      idx: "B",
-      name: "Công in",
+      idx: "cong_doan",
+      name: "Công đoạn",
       columns: [
-        { key: "anpham", label: "Tên ấn phẩm", width: "23%" },
-        { key: "congin", label: "Công in", width: "24%" },
-        { key: "dg", label: "Đơn giá", kind: "num", width: "11%" },
-        { key: "tien", label: "Số tiền", kind: "num", width: "13%" },
-        { key: "ct", label: "Công thức", kind: "formula", width: "29%" },
-      ],
-      rows: [
-        {
-          anpham: AN_PHAM,
-          congin: "(98.50x64.50) in 1 mặt - 1 tờ x 1 tay",
-          dg: "0đ/T",
-          tien: "0",
-          ct: "0 × 1,00000 (5/0) × 1 × 1000/510",
-        },
-      ],
-      subtotalLabel: "Cộng nhóm B",
-      subtotal: "0",
-    },
-    {
-      idx: "C",
-      name: "Chế bản",
-      columns: [
-        { key: "anpham", label: "Tên ấn phẩm", width: "23%" },
-        { key: "cheban", label: "Chế bản", width: "24%" },
-        { key: "dg", label: "Đơn giá", kind: "num", width: "12%" },
-        { key: "tien", label: "Số tiền", kind: "num", width: "13%" },
-        { key: "ct", label: "Công thức", kind: "formula", width: "28%" },
-      ],
-      rows: [
-        {
-          anpham: AN_PHAM,
-          cheban: "KT-CTP GHI KẼM",
-          dg: "980,39đ/T",
-          tien: "500.000",
-          ct: "5 × 100.000 × 1 × 1,00000/510",
-        },
-      ],
-      subtotalLabel: "Cộng nhóm C",
-      subtotal: "500.000",
-    },
-    {
-      idx: "D",
-      name: "Gia công sau in",
-      columns: [
-        { key: "gc", label: "Gia công sau in", width: "22%" },
+        { key: "cd", label: "Công đoạn", width: "26%" },
         { key: "dg", label: "Đơn giá", kind: "num", width: "13%" },
         { key: "tien", label: "Số tiền", kind: "num", width: "14%" },
-        { key: "ct", label: "Công thức", kind: "formula", width: "29%" },
-        { key: "ghichu", label: "Ghi chú", width: "22%" },
+        { key: "ct", label: "Công thức", kind: "formula", width: "27%" },
+        { key: "ghichu", label: "Ghi chú", width: "20%" },
       ],
       rows: [
-        { gc: "CM-CÁN MÀNG MỜ", dg: "1.238,86đ/T", tien: "631.830", ct: "0,20 × 3.240.157,50 ×1,00000/510", ghichu: "" },
-        { gc: "TBOI-BỒI SẢN PHẨM", dg: "8.894.550đ/T", tien: "4.536.220.500", ct: "1.400 × 3.240.157,50 ×1,00000/510", ghichu: "SÓNG E NÂU 140/120" },
-        { gc: "TB-BẾ CẤN HỘP, THÙNG", dg: "250đ/T", tien: "127.500", ct: "250 × 510 ×1,00000/510", ghichu: "KHUÔN MỚI N-0763" },
-        { gc: "TD-DÁN HỘP CARTON", dg: "200đ/T", tien: "102.000", ct: "200 × 510 ×1,00000/510", ghichu: "" },
-        { gc: "TD-DÁN MÓC ĐÁY", dg: "0đ/T", tien: "0", ct: "0 × 510 ×1,00000/510", ghichu: "" },
-        { gc: "TP-KIỂM PHẨM", dg: "0đ/T", tien: "0", ct: "0 × 510 ×1,00000/510", ghichu: "" },
+        { cd: "KT-CTP GHI KẼM", dg: "980,39đ/T", tien: "500.000", ct: "5 × 100.000 × 1 × 1,00000/510", ghichu: "" },
+        { cd: "(98.50x64.50) in 1 mặt - 1 tờ x 1 tay", dg: "0đ/T", tien: "0", ct: "0 × 1,00000 (5/0) × 1 × 1000/510", ghichu: "" },
+        { cd: "CM-CÁN MÀNG MỜ", dg: "1.238,86đ/T", tien: "631.830", ct: "0,20 × 3.240.157,50 ×1,00000/510", ghichu: "" },
+        { cd: "TBOI-BỒI SẢN PHẨM", dg: "8.894.550đ/T", tien: "4.536.220.500", ct: "1.400 × 3.240.157,50 ×1,00000/510", ghichu: "SÓNG E NÂU 140/120" },
+        { cd: "TB-BẾ CẤN HỘP, THÙNG", dg: "250đ/T", tien: "127.500", ct: "250 × 510 ×1,00000/510", ghichu: "KHUÔN MỚI N-0763" },
+        { cd: "TD-DÁN HỘP CARTON", dg: "200đ/T", tien: "102.000", ct: "200 × 510 ×1,00000/510", ghichu: "" },
+        { cd: "TD-DÁN MÓC ĐÁY", dg: "0đ/T", tien: "0", ct: "0 × 510 ×1,00000/510", ghichu: "" },
+        { cd: "TP-KIỂM PHẨM", dg: "0đ/T", tien: "0", ct: "0 × 510 ×1,00000/510", ghichu: "" },
       ],
-      subtotalLabel: "Cộng nhóm D",
-      subtotal: "4.537.081.831",
+      subtotalLabel: "Cộng Công đoạn",
+      subtotal: "4.537.581.831",
     },
   ],
   grandTotal: "4.539.633.831",
-  grandNote: "Cộng A+B+C+D · giá vốn cho 510 tờ · chưa gồm lợi nhuận & VAT",
+  grandNote: "Cộng Nguyên vật liệu + Công đoạn · giá vốn cho 510 tờ · chưa gồm lợi nhuận & VAT",
   chuKy: [
     { role: "Người lập", who: "Bộ phận định giá" },
     { role: "Người duyệt", who: "Trưởng phòng KD" },

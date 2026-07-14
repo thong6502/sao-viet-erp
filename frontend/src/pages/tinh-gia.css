@@ -2,8 +2,12 @@
    Tokens-only (rust là accent duy nhất). Phiếu in có style riêng (phieu-tinh-gia.css). */
 
 .tg-page {
-  padding: var(--sp-5) var(--sp-6) var(--sp-10);
-  max-width: 1180px;
+  max-width: 1540px;
+  margin: 0 auto;
+  padding: var(--sp-5) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
 }
 
 /* ---------- HEAD ---------- */
@@ -13,6 +17,8 @@
   justify-content: space-between;
   gap: var(--sp-4);
   flex-wrap: wrap;
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--rule);
 }
 .tg-head__lead {
   min-width: 0;
@@ -169,22 +175,21 @@
 
 /* ---------- Field / label ---------- */
 .tg-microlabel {
-  font-family: var(--ff-mono);
-  font-size: 10px;
-  font-weight: var(--fw-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--ash);
   display: flex;
   align-items: baseline;
   gap: var(--sp-2);
 }
 .tg-microlabel__opt {
-  font-family: var(--ff-mono);
-  letter-spacing: 0.04em;
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  letter-spacing: 0;
   text-transform: none;
   color: var(--ash-2);
-  font-weight: var(--fw-regular);
+  font-weight: 400;
 }
 
 .tg-fieldset {
@@ -216,8 +221,8 @@
   width: 100%;
   box-sizing: border-box;
   min-height: 44px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
   background: var(--paper-contrast);
   color: var(--ink);
   padding: 10px 12px;
@@ -232,7 +237,7 @@
 .tg-input:focus {
   outline: none;
   border-color: var(--rust);
-  box-shadow: 0 0 0 3px var(--rust-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
 }
 .tg-input--num {
   font-family: var(--ff-mono);
@@ -321,6 +326,63 @@ select.tg-input {
   color: var(--ash-2);
   font-style: italic;
   margin: 0;
+}
+
+/* Chip công đoạn: tên (bấm mở chi tiết) + nút xóa ✕ */
+.tg-chip__name {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.tg-chip__x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--easing-standard);
+}
+.tg-chip__x:hover {
+  opacity: 1;
+}
+.tg-chip__x svg {
+  width: 12px;
+  height: 12px;
+}
+/* Ô "+ Thêm công đoạn" dạng chip nét đứt */
+.tg-chip-add {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ash-2);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tg-chip-add:hover {
+  border-color: var(--ash-2);
+  background: var(--rule-hair);
+}
+/* Bảng chi tiết công đoạn khi bấm vào chip */
+.tg-chip-detail {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  background: var(--rule-hair);
 }
 
 /* ---------- Bảng giá vốn ---------- */
@@ -542,7 +604,26 @@ select.tg-input {
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  margin-top: var(--sp-5);
+}
+.ptg-toolbar-spacer {
+  flex: 1 1 auto;
+}
+.ptg__sortbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.ptg__sortbtn.is-active {
+  color: var(--rust);
+}
+.ptg__sortbtn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
 }
 .ptg-search {
   position: relative;
@@ -602,22 +683,22 @@ select.tg-input {
   font-size: 13px;
 }
 .ptg-table thead th {
-  text-align: left;
-  padding: 11px 14px;
   font-family: var(--ff-mono);
   font-size: 10px;
-  font-weight: var(--fw-medium);
-  letter-spacing: 0.07em;
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
-  color: var(--ash-2);
-  border-bottom: 1px solid var(--rule-soft);
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  text-align: left;
+  padding: var(--sp-4) var(--sp-4);
+  border-bottom: 1px solid var(--rule);
   white-space: nowrap;
 }
 .ptg-table thead th.tg-num {
   text-align: right;
 }
 .ptg-table td {
-  padding: 12px 14px;
+  padding: var(--sp-3) var(--sp-4);
   color: var(--ink);
   border-bottom: 1px solid var(--rule-hair);
   vertical-align: middle;
@@ -766,6 +847,35 @@ select.tg-input {
   .ptg-search {
     flex-basis: 100%;
   }
+}
+
+.ptg-stats {
+  display: flex;
+  gap: var(--sp-6);
+  align-items: center;
+}
+.ptg-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.ptg-stat-label {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ash-2);
+}
+.ptg-stat-val {
+  font-family: var(--ff-mono);
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  margin-top: 1px;
+}
+.ptg-stat-val--accent {
+  color: var(--rust);
 }
 
 /* ================= COMPONENT-BASED DETAIL ================= */
@@ -1337,6 +1447,15 @@ select.tg-input--sm {
   font-weight: var(--fw-bold);
   color: var(--ink);
 }
+/* Readout [Hiện] engine (spec §6): con/tờ · số tờ vào máy / sau in · kẽm — khóa, chỉ đọc. */
+.tg-complist__meta {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash-2);
+  letter-spacing: 0.01em;
+}
 .tg-complist__loai {
   display: inline-block;
   margin-top: 3px;
@@ -1510,3 +1629,390 @@ select.tg-input--sm {
     grid-template-columns: 1fr;
   }
 }
+
+/* ================= POPUP MODAL REDESIGN ================= */
+.rc-modal__scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--ink, #14130f) 45%, transparent);
+  backdrop-filter: blur(6px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  animation: rc-modal-fade var(--duration-base) var(--easing-standard) forwards;
+}
+
+.rc-modal {
+  width: min(1240px, 95vw);
+  height: min(850px, 90vh);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: scale(0.96);
+  opacity: 0;
+  animation: rc-modal-scale var(--duration-base) cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes rc-modal-fade {
+  to { opacity: 1; }
+}
+
+@keyframes rc-modal-scale {
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.rc-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-6);
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.rc-modal__kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--rust);
+}
+
+.rc-modal__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 2px 0 0;
+  letter-spacing: -0.01em;
+}
+
+.rc-modal__x {
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: var(--ash);
+  border-radius: var(--r-3);
+  transition: all var(--duration-fast) var(--easing-standard);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.rc-modal__x:hover {
+  background: var(--rule-soft);
+  color: var(--ink);
+}
+
+.rc-modal__body-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  overflow: hidden;
+}
+
+.rc-modal__left-col {
+  padding: var(--sp-5) var(--sp-6);
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-6);
+  align-items: start;
+}
+
+.rc-modal__form-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+@media (max-width: 1024px) {
+  .rc-modal__left-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rc-modal__right-col {
+  background: var(--rule-hair);
+  border-left: 1px solid var(--rule-soft);
+  padding: var(--sp-5) var(--sp-6);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.rc-modal__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-4) var(--sp-6);
+  border-top: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+/* Tinh chỉnh các thẻ form cấu hình */
+.rc-modal__left-col .rc-sec {
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: var(--sp-5);
+  box-shadow: var(--shadow-4);
+}
+
+.rc-modal__left-col .rc-sec__title {
+  margin-top: 0;
+  margin-bottom: var(--sp-5);
+  font-family: var(--ff-sans);
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule-hair);
+  padding-bottom: var(--sp-3);
+  text-transform: none;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+}
+
+/* Step badge tự vẽ */
+.tg-step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: var(--sp-2);
+  border: 1px solid color-mix(in srgb, var(--rust) 25%, transparent);
+  flex-shrink: 0;
+}
+
+/* Phân chia Màu in */
+.tg-section-divider {
+  margin-top: var(--sp-5);
+  border-top: 1px dashed var(--rule-soft);
+  padding-top: var(--sp-5);
+}
+
+/* Tạo viền phát sáng khi focus */
+.rc-modal__left-col .tg-input:focus {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
+  outline: none;
+}
+
+/* Định nghĩa giao diện kết quả kiểu hóa đơn Receipt */
+.rc-modal__right-col .tg-hien {
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  box-shadow: var(--shadow-4);
+  position: relative;
+}
+
+.rc-modal__right-col .tg-hien::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--rust) 0px,
+    var(--rust) 10px,
+    var(--amber) 10px,
+    var(--amber) 20px
+  );
+  border-radius: var(--r-6) var(--r-6) 0 0;
+}
+
+.rc-modal__right-col .tg-hien__item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--sp-3);
+  border-bottom: 1px dashed var(--rule);
+}
+
+.rc-modal__right-col .tg-hien__item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.rc-modal__right-col .tg-hien__k {
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ash);
+  font-weight: 500;
+}
+
+.rc-modal__right-col .tg-hien__v {
+  font-family: var(--ff-mono);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sơ đồ bình bài dạng card */
+.rc-modal__right-col .tg-imp-card {
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: var(--sp-5);
+  box-shadow: var(--shadow-4);
+}
+
+.rc-modal__right-col .tg-imp-card__title {
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash);
+  margin-bottom: var(--sp-4);
+}
+
+/* Khối SỐ TỜ (tính live) — 2 số tờ + ô Bù/Hao nhập tay inline. */
+.tg-sheetbox {
+  margin-top: var(--sp-4);
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: var(--sp-5);
+  box-shadow: var(--shadow-4);
+}
+.tg-sheetbox__title {
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash);
+  margin-bottom: var(--sp-3);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.tg-sheetbox__hint {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--ash-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.tg-sheetrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 5px 0;
+  font-size: 13px;
+  color: var(--ash);
+}
+.tg-sheetrow b {
+  font-family: var(--ff-mono);
+  color: var(--ink);
+  font-weight: 600;
+}
+.tg-sheetrow--total {
+  border-top: 1px dashed var(--rule-soft);
+  margin-top: 2px;
+  padding-top: 7px;
+}
+.tg-sheetrow--total span {
+  font-weight: 600;
+  color: var(--ink);
+}
+.tg-sheetrow--total b {
+  font-size: 15px;
+  color: var(--heat, var(--ink));
+}
+.tg-sheetinput {
+  width: 84px;
+  text-align: right;
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  padding: 4px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-4);
+  background: var(--paper);
+  color: var(--ink);
+}
+.tg-sheetinput:focus {
+  outline: none;
+  border-color: var(--heat, var(--ink));
+}
+.tg-sheetbox__foot {
+  margin-top: var(--sp-3);
+  padding-top: 7px;
+  border-top: 1px solid var(--rule-soft);
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.tg-sheetrow__lbl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+/* Toggle nhỏ bật/tắt bù hao công đoạn tự (ngay trong khối Số tờ). */
+.tg-minitoggle {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ash-2);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+.tg-minitoggle--on {
+  background: var(--charcoal, #2b2a27);
+  border-color: var(--charcoal, #2b2a27);
+  color: var(--on-charcoal, #fff);
+}
+.tg-minitoggle:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* Tự co giãn trên mobile */
+@media (max-width: 992px) {
+  .rc-modal {
+    width: 96vw;
+    height: 94vh;
+  }
+  .rc-modal__body-grid {
+    grid-template-columns: 1fr;
+  }
+  .rc-modal__right-col {
+    border-left: none;
+    border-top: 1px solid var(--rule-soft);
+  }
+}
+

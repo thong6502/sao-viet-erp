@@ -89,6 +89,7 @@ class CongDoan(Base):
     tooling_type: Mapped[str | None] = mapped_column(String(16), nullable=True)
     spoilage_pct: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, server_default="0", default=0)  # KHÔNG áp bước in
     inline_flag: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_false(), default=False)
+    cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
 

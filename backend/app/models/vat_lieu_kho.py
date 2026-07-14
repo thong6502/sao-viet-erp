@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, Integer, JSON, Numeric, String,
+    Boolean, Date, DateTime, Integer, JSON, Numeric, String, Text,
     false as sa_false, true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -68,6 +68,7 @@ class GiayNguyen(Base):
     don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     gia_thi_truong: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)   # giá tham khảo thị trường
     kho_tinh_gia: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)  # khổ này dùng để tính giá?
+    cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     version_no: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)  # phiên bản giá hiện hành (mirror từ giay_gia_version)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
@@ -118,6 +119,7 @@ class VatTuInAn(Base):
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
     don_vi_gia: Mapped[str] = mapped_column(String(16), nullable=False, server_default="cai", default="cai")
     don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
+    cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

@@ -102,6 +102,10 @@ class Quote(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+    # Real-time "gửi duyệt": mốc người SOẠN (salesperson) đã xem quyết định duyệt/từ chối gần nhất
+    # của báo giá này. NULL = có quyết định MỚI chưa xem → nuôi badge/toast phía Sale. Timestamp,
+    # KHÔNG Boolean (né gotcha server_default Postgres). Reset về NULL mỗi lần GĐ ra quyết định.
+    decision_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     versions: Mapped[list[QuoteVersion]] = relationship(

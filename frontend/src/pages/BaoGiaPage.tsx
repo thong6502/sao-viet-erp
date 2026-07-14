@@ -299,17 +299,6 @@ export function BaoGiaPage({
               <tr>
                 <td colSpan={6} className="bg__empty">
                   <p>Chưa có báo giá thương mại nào được tạo.</p>
-                  <Button
-                    variant="accent"
-                    onClick={() => {
-                      setEditing(null);
-                      setPreSelectedEstimateId(null);
-                      setPinned(null);
-                      setMode("create");
-                    }}
-                  >
-                    + Tạo báo giá đầu tiên
-                  </Button>
                 </td>
               </tr>
             ) : (
@@ -520,7 +509,6 @@ function QuotationFormDialog({
   );
   // Đa phiếu: giỏ các phiếu tính giá đã pick (mỗi phiếu kéo các mức SL vào bảng định giá)
   const [picked, setPicked] = useState<{ id: number; estimate_number: string; product_name: string }[]>([]);
-  const [pendingEstimateId, setPendingEstimateId] = useState<string>("");
   const [validUntil, setValidUntil] = useState<string>(existing?.valid_until ?? "");
   const [paymentTerms, setPaymentTerms] = useState<string>(existing?.payment_terms ?? "Tạm ứng 50% khi chốt đơn, 50% còn lại thanh toán khi giao hàng.");
   const [deliveryTerms, setDeliveryTerms] = useState<string>(existing?.delivery_terms ?? "Giao hàng tận nơi tại TP. Hồ Chí Minh.");
@@ -674,10 +662,6 @@ function QuotationFormDialog({
     }
   }
 
-  function removePick(estId: number) {
-    setPicked((prev) => prev.filter((p) => p.id !== estId));
-    setLocalItems((prev) => prev.filter((i) => i.estimate_id !== estId));
-  }
 
   // Pure mathematical pricing calculator matching backend formulas (Phase 2B)
   function calculateItemCalculatedFields(item: Omit<LocalItem, "selling_price" | "unit_price" | "actual_margin" | "vat_amount" | "final_amount">): LocalItem {
@@ -915,60 +899,20 @@ function QuotationFormDialog({
                 </label>
               </div>
 
-              {/* Picker đa phiếu: báo giá KHÔNG soạn tay — mọi dòng pick từ phiếu tính giá đã tính */}
-              {!isEdit && (
+              {!isEdit && picked.length > 0 && (
                 <div style={{ marginTop: "16px" }}>
-                  <span className="field__label">Pick phiếu tính giá vào báo giá * <span className="bg__muted">(được chọn nhiều phiếu — nhiều sản phẩm trong 1 báo giá)</span></span>
-                  <div style={{ display: "flex", gap: "8px", marginTop: "4px" }}>
-                    <select
-                      className="input"
-                      value={pendingEstimateId}
-                      onChange={(e) => setPendingEstimateId(e.target.value)}
-                      style={{ flex: 1 }}
-                    >
-                      <option value="">— Chọn phiếu Đã tính để thêm —</option>
-                      {estimates
-                        .filter((est) => !picked.some((p) => p.id === est.id))
-                        .map((est) => (
-                          <option key={est.id} value={est.id}>{est.estimate_number} — {est.product_name}</option>
-                        ))}
-                    </select>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => {
-                        const est = estimates.find((e) => e.id === Number(pendingEstimateId));
-                        if (est) {
-                          addPick(est);
-                          setPendingEstimateId("");
-                        }
-                      }}
-                      disabled={!pendingEstimateId}
-                    >
-                      ＋ Thêm phiếu
-                    </Button>
+                  <span className="field__label">Phiếu tính giá liên kết</span>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
+                    {picked.map((p) => (
+                      <span
+                        key={p.id}
+                        className="bg__mono"
+                        style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "var(--rule-hair)", border: "1px solid var(--rule)", color: "var(--ink)", borderRadius: "999px", padding: "3px 10px", fontSize: "12px" }}
+                      >
+                        ↳ {p.estimate_number} · {p.product_name}
+                      </span>
+                    ))}
                   </div>
-                  {picked.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "8px" }}>
-                      {picked.map((p) => (
-                        <span
-                          key={p.id}
-                          className="bg__mono"
-                          style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "var(--rust-soft)", border: "1px solid var(--rust)", color: "var(--rust-deep)", borderRadius: "999px", padding: "3px 10px", fontSize: "12px" }}
-                        >
-                          ↳ {p.estimate_number} · {p.product_name}
-                          <button
-                            type="button"
-                            onClick={() => removePick(p.id)}
-                            style={{ border: "none", background: "none", cursor: "pointer", color: "var(--rust-deep)", fontWeight: 700, padding: 0, lineHeight: 1 }}
-                            aria-label={`Bỏ ${p.estimate_number}`}
-                          >
-                            ✕
-                          </button>
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -1338,6 +1282,8 @@ function QuotationDetailView({
   const [draftMargin, setDraftMargin] = useState<number | null>(null);
   // Markup từng dòng khi đang gõ (đa dòng) — override tạm để preview.
   const [lineDraft, setLineDraft] = useState<Record<number, number>>({});
+  // Chiết khấu (đồng) từng dòng khi đang gõ — override tạm để preview trước khi persist.
+  const [discDraft, setDiscDraft] = useState<Record<number, number>>({});
   // P3 (redesign-bao-gia §6): popover MarginPicker (gói biên + slider) mở cho DÒNG nào (đa dòng).
   const [mkOpenLine, setMkOpenLine] = useState<number | null>(null);
   // P3: danh sách khách để CHỌN/ĐỔI khách ngay ở detail (khi còn nháp) — auto-fill lại liên hệ + ĐC giao.
@@ -1371,6 +1317,7 @@ function QuotationDetailView({
         setD(det);
         setDraftMargin(null);
         setLineDraft({});
+        setDiscDraft({});
         setTerms(det.payment_terms ?? "");
         setVerNote((det as any).change_reason ?? "");
         setValidUntilEdit(det.valid_until ?? "");
@@ -1426,14 +1373,17 @@ function QuotationDetailView({
     const m = override != null ? override : it.margin_percent;
     const cost = it.total_cost_snapshot;
     const selling = m >= 100 ? cost : cost / (1 - m / 100);
-    const net = Math.max(0, selling - it.discount_amount);
+    // Chiết khấu (đồng) — dùng bản nháp đang gõ nếu có, chặn trong [0, giá bán] như backend.
+    const discRaw = discDraft[it.id] != null ? discDraft[it.id] : it.discount_amount;
+    const disc = Math.min(selling, Math.max(0, discRaw));
+    const net = Math.max(0, selling - disc);
     const vat = (net * (it.vat_percent || 0)) / 100;
-    return { m, cost, selling, net, vat, final: net + vat, profit: net - cost, qty: it.quantity };
+    return { m, cost, selling, disc, net, vat, final: net + vat, profit: net - cost, qty: it.quantity };
   }
-  let costT = 0, netT = 0, vatT = 0, grandT = 0, qtyT = 0;
+  let costT = 0, netT = 0, vatT = 0, grandT = 0, qtyT = 0, discountT = 0;
   d.items.forEach((it) => {
     const c = calcItem(it);
-    costT += c.cost; netT += c.net; vatT += c.vat; grandT += c.final; qtyT += c.qty;
+    costT += c.cost; netT += c.net; vatT += c.vat; grandT += c.final; qtyT += c.qty; discountT += c.disc;
   });
   const profitT = netT - costT;
   const singleMargin = draftMargin != null ? draftMargin : d.items[0]?.margin_percent ?? 0;
@@ -1497,6 +1447,22 @@ function QuotationDetailView({
     if (!editable || !d) return;
     const v = Math.max(0, Math.min(100, val));
     persistItems(d.items.map((it) => ({ id: it.id, vat_percent: v })));
+  }
+  // Chiết khấu (đồng) theo DÒNG — persist qua cùng endpoint update line. Backend tự chặn [0, giá bán]
+  // + tính lại subtotal/discount/final của version (cổng đặc thù soi trên số mới).
+  function commitLineDiscount(itemId: number, val: number) {
+    if (!editable) return;
+    const v = Math.max(0, Math.round(val || 0));
+    persistItems([{ id: itemId, discount_amount: v }]);
+  }
+  // Áp % chiết khấu cho DÒNG → quy ra tiền theo giá bán hiện tại của dòng rồi persist như trên.
+  function applyLineDiscountPct(itemId: number, pct: number) {
+    if (!editable || !d) return;
+    const it = d.items.find((x) => x.id === itemId);
+    if (!it) return;
+    const amt = Math.round((calcItem(it).selling * Math.max(0, Math.min(100, pct))) / 100);
+    setDiscDraft((p) => ({ ...p, [itemId]: amt }));
+    commitLineDiscount(itemId, amt);
   }
 
   // P3: đổi khách ngay ở detail (khi nháp). Gửi delivery_address rỗng → BE tự điền ĐC giao mặc định
@@ -1734,7 +1700,7 @@ function QuotationDetailView({
             <table className="bg-lines">
               <thead>
                 <tr>
-                  <th>Sản phẩm</th><th>SL</th><th>Giá vốn</th><th>Markup %</th><th>Thành tiền (VAT)</th>
+                  <th>Sản phẩm</th><th>SL</th><th>Giá vốn</th><th>Markup %</th><th>Chiết khấu (đ)</th><th>Thành tiền (VAT)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1830,6 +1796,36 @@ function QuotationDetailView({
                           />
                         )}
                       </td>
+                      <td style={{ minWidth: 118 }}>
+                        <input
+                          className="ln-mk bg__mono"
+                          type="number" min={0} step={1000}
+                          style={{ width: 98 }}
+                          value={discDraft[it.id] ?? it.discount_amount}
+                          disabled={!editable}
+                          onChange={(e) => setDiscDraft((p) => ({ ...p, [it.id]: Number(e.target.value) }))}
+                          onBlur={(e) => commitLineDiscount(it.id, Number(e.target.value))}
+                          title="Chiết khấu (đồng) cho dòng này — trừ TRƯỚC VAT"
+                        />
+                        {editable && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 4 }}>
+                            <input
+                              type="number" min={0} max={100} step={0.5}
+                              className="bg__mono"
+                              style={{ width: 50, fontSize: 11, padding: "2px 4px" }}
+                              placeholder="% CK"
+                              disabled={busy}
+                              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+                              onBlur={(e) => {
+                                const p = Number((e.target as HTMLInputElement).value);
+                                if (p > 0) { applyLineDiscountPct(it.id, p); (e.target as HTMLInputElement).value = ""; }
+                              }}
+                              title="Nhập % chiết khấu rồi Enter/rời ô → quy ra tiền theo giá bán dòng"
+                            />
+                            <span style={{ fontSize: 11, color: "var(--ash)" }}>%→đ</span>
+                          </div>
+                        )}
+                      </td>
                       <td className="bg__mono" style={{ fontWeight: 600, color: "var(--ink)" }}>{vnd(c.final)}</td>
                     </tr>
                   );
@@ -1839,6 +1835,7 @@ function QuotationDetailView({
                   <td></td>
                   <td>{vnd(costT)}</td>
                   <td></td>
+                  <td>{discountT > 0 ? `−${vnd(discountT)}` : "—"}</td>
                   <td>{vnd(grandT)}</td>
                 </tr>
               </tbody>
@@ -2089,7 +2086,10 @@ function QuotationDetailView({
             <div className="br-rows">
               <div className="row-cost"><span className="row-key">Giá vốn (khóa)</span><span className="row-val">{numf(costT)}₫</span></div>
               <div><span className="row-key">Lợi nhuận ({multi ? "~" + aggMarginPct : Math.round(singleMargin)}%)</span><span className="row-val">{numf(profitT)}₫</span></div>
-              <div><span className="row-key">Giá bán (chưa VAT)</span><span className="row-val">{numf(netT)}₫</span></div>
+              <div><span className="row-key">Giá bán (chưa VAT)</span><span className="row-val">{numf(netT + discountT)}₫</span></div>
+              {discountT > 0 && (
+                <div><span className="row-key">Chiết khấu</span><span className="row-val" style={{ color: "var(--amber)" }}>−{numf(discountT)}₫</span></div>
+              )}
               <div>
                 <span className="row-key">
                   VAT
