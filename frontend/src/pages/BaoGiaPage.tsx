@@ -1883,8 +1883,8 @@ function QuotationDetailView({
             )}
             <div style={{ marginTop: "14px", display: "flex", gap: "8px" }}>
               {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}>💾 Lưu nháp</Button>}
-              {canRequote && !editable && d.allowed_transitions.includes("change_order") && (
-                <Button variant="primary" disabled={busy} onClick={openRequote}>⎇ Tạo phiên bản mới</Button>
+              {canRequote && viewingLatest && d.allowed_transitions.includes("change_order") && (
+                <Button variant="primary" disabled={busy} onClick={openRequote} title="Giữ bản hiện tại + tạo phiên bản mới (bắt buộc ghi chú)">⎇ Tạo phiên bản mới</Button>
               )}
             </div>
           </div>

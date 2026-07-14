@@ -77,10 +77,10 @@ def _scope_for(authz: AuthorizationService, user: User) -> str:
     return authz.scope_for(user, MODULE) or "own"
 
 
-# Trạng thái mà bản HIỆN TẠI đã KHÓA (hết sửa trực tiếp) → cho phép "Tạo phiên bản mới" (requote).
+# Trạng thái cho phép "Tạo phiên bản mới" (requote) — mọi trạng thái CHƯA lên đơn/chưa hủy.
 # `change_order` KHÔNG phải transition state-machine (requote đẻ version mới rồi về draft) nên gắn
 # tay ở đây để FE hiện nút "⎇ Tạo phiên bản mới". KHỚP với các trạng thái svc.requote chấp nhận.
-_REQUOTE_FROM = {"sent", "approved", "accepted", "rejected", "expired"}
+_REQUOTE_FROM = {"draft", "pending_approval", "sent", "approved", "accepted", "rejected", "expired"}
 
 
 def _allowed_transitions(current_status: str) -> list[str]:

@@ -270,6 +270,20 @@ def test_requote_new_version(client):
     assert v2["change_reason"] == "KH đổi số lượng"
 
 
+def test_requote_from_draft_allowed(client):
+    """Ngay khi còn NHÁP vẫn tạo được phiên bản mới (giữ v1, làm variant giá khác) — bắt buộc ghi chú."""
+    token = _admin_token(client)
+    eid, opts = _mk_estimate()
+    q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
+    r = client.post(f"/api/quotations/{q['id']}/requote",
+                    json={"change_reason": "thử giá 25%"}, headers=_h(token))
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["version"] == 2
+    assert {v["version"] for v in body["versions"]} == {1, 2}
+    assert body["status"] == "draft"
+
+
 def test_activity_feed_records_who_did_what(client):
     """Feed Hoạt động = nhật ký THẬT (ai làm gì): mọi thao tác để lại dấu vết + tên người."""
     token = _admin_token(client)
