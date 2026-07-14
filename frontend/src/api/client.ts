@@ -1240,6 +1240,7 @@ export interface QuotationStats {
   total: number;
   draft: number;
   pending_approval: number;
+  approved: number;
   sent: number;
   accepted: number;
   rejected: number;

@@ -23,7 +23,8 @@ def _utcnow() -> datetime:
 # Status constants for Quote (7 trạng thái nghiệp vụ, xem docs/redesign-bao-gia.md §3).
 STATUS_DRAFT = "draft"                       # Nháp
 STATUS_PENDING_APPROVAL = "pending_approval" # Chờ duyệt — CHỈ báo giá đặc thù, đã "Trình duyệt"
-STATUS_SENT = "sent"                         # Đã duyệt (gộp "đã gửi khách" — Q2 không tách)
+STATUS_APPROVED = "approved"                 # Đã duyệt — GĐ Kinh doanh duyệt xong, CHỜ sale gửi khách
+STATUS_SENT = "sent"                         # Đã gửi khách (sale tự gửi; tách khỏi "duyệt" theo chủ đầu tư)
 STATUS_ACCEPTED = "accepted"                 # Khách hàng đồng ý
 STATUS_REJECTED = "rejected"                 # Khách hàng từ chối (SAU khi gửi — khác GĐ từ chối duyệt)
 STATUS_EXPIRED = "expired"                   # Hết hiệu lực
@@ -33,6 +34,7 @@ STATUS_CANCELLED = "cancelled"               # Hủy báo giá
 QUOTE_STATUSES = (
     STATUS_DRAFT,
     STATUS_PENDING_APPROVAL,
+    STATUS_APPROVED,
     STATUS_SENT,
     STATUS_ACCEPTED,
     STATUS_REJECTED,

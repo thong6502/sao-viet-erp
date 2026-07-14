@@ -14,6 +14,7 @@ from ..models.quotation import (
     QuoteItem,
     STATUS_DRAFT,
     STATUS_PENDING_APPROVAL,
+    STATUS_APPROVED,
     STATUS_SENT,
     STATUS_ACCEPTED,
     STATUS_REJECTED,
@@ -749,10 +750,13 @@ class QuotationService:
             note=note,
             decided_by=actor.id,
         )
-        # Lái trạng thái: duyệt (bao phủ) → Đã duyệt (sent); từ chối → về Nháp (draft) để sửa & trình lại.
+        # Lái trạng thái: GĐ DUYỆT → "Đã duyệt" (approved, khóa; KHÔNG gửi, KHÔNG freeze — sale tự gửi
+        # khách sau, freeze lúc gửi). Từ chối → về Nháp (draft) để sửa & trình lại. (Tách duyệt/gửi.)
         version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
         if decision == _EXC_APPROVED:
-            self._apply_send(quote, version)
+            quote.status = STATUS_APPROVED
+            if version:
+                version.status = VERSION_STATUS_LOCKED
         else:
             quote.status = STATUS_DRAFT
             if version:
@@ -952,14 +956,16 @@ class QuotationService:
             quote.status = STATUS_PENDING_APPROVAL
 
         elif to_status == STATUS_SENT:
-            # Gửi khách: chỉ từ Nháp, và CHỈ báo giá thường (đặc thù phải qua duyệt).
-            if quote.status != STATUS_DRAFT:
+            # Gửi khách (SALE tự gửi): từ Nháp (báo giá THƯỜNG) HOẶC từ "Đã duyệt" (đặc thù đã được
+            # Giám đốc Kinh doanh DUYỆT). Freeze snapshot tại mốc gửi này.
+            if quote.status == STATUS_DRAFT:
+                if self.quote_gate(quote)["exception_required"]:
+                    raise QuotationValidationError(
+                        "Báo giá thuộc diện đặc thù — phải TRÌNH DUYỆT để Giám đốc Kinh doanh duyệt "
+                        "trước khi gửi khách."
+                    )
+            elif quote.status != STATUS_APPROVED:
                 raise QuotationConflict(f"Không thể chuyển trạng thái {quote.status} -> sent")
-            if self.quote_gate(quote)["exception_required"]:
-                raise QuotationValidationError(
-                    "Báo giá thuộc diện đặc thù — phải TRÌNH DUYỆT để Giám đốc Kinh doanh duyệt "
-                    "trước khi gửi khách."
-                )
             self._apply_send(quote, version)
 
         elif to_status == STATUS_ACCEPTED:
@@ -993,7 +999,8 @@ class QuotationService:
             if not cancel_reason or not cancel_reason.strip():
                 raise QuotationValidationError("Cần nêu lý do hủy.")
             if quote.status not in (
-                STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SENT, STATUS_ACCEPTED, STATUS_REJECTED,
+                STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_APPROVED, STATUS_SENT,
+                STATUS_ACCEPTED, STATUS_REJECTED,
             ):
                 raise QuotationConflict(f"Không thể hủy báo giá đang ở trạng thái {quote.status}.")
             quote.status = STATUS_CANCELLED

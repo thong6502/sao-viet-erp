@@ -19,6 +19,7 @@ from dataclasses import dataclass
 
 from ..models.quotation import (
     STATUS_ACCEPTED,
+    STATUS_APPROVED,
     STATUS_CANCELLED,
     STATUS_CONVERTED_TO_ORDER,
     STATUS_DRAFT,
@@ -41,8 +42,10 @@ class Transition:
 # LƯU Ý: cửa DUYỆT đặc thù (pending_approval → sent / → draft) do endpoint POST /approval
 # (record_approval) lái, KHÔNG qua /transition — nên KHÔNG liệt kê ở đây (xem redesign-bao-gia §3).
 TRANSITIONS: dict[tuple[str, str], Transition] = {
-    # Gửi khách: khóa phiên bản + freeze snapshot. draft → sent (chỉ báo giá THƯỜNG; đặc thù phải qua duyệt).
+    # Gửi khách: khóa phiên bản + freeze snapshot. draft → sent (báo giá THƯỜNG; đặc thù phải qua duyệt).
     (STATUS_DRAFT, STATUS_SENT): Transition(action="send_quote", snapshots=True),
+    # Đặc thù ĐÃ ĐƯỢC GĐ DUYỆT (approved) → SALE tự gửi khách (approved → sent), freeze tại mốc gửi.
+    (STATUS_APPROVED, STATUS_SENT): Transition(action="send_quote", snapshots=True),
     # Trình duyệt: draft → pending_approval (CHỈ báo giá đặc thù) → chờ Giám đốc Kinh doanh.
     (STATUS_DRAFT, STATUS_PENDING_APPROVAL): Transition(action="submit_approval"),
     # Khách chốt: sent → accepted (service cũng cho draft → accepted khi chốt trực tiếp, báo giá thường).
@@ -57,6 +60,7 @@ TRANSITIONS: dict[tuple[str, str], Transition] = {
     # Hủy (cần lý do) từ các trạng thái đang làm việc (trước khi lên đơn).
     (STATUS_DRAFT, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),
     (STATUS_PENDING_APPROVAL, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),
+    (STATUS_APPROVED, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),
     (STATUS_SENT, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),
     (STATUS_ACCEPTED, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),
     (STATUS_REJECTED, STATUS_CANCELLED): Transition(action="cancel_quote", requires_reason=True),

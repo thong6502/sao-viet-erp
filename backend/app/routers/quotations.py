@@ -60,7 +60,8 @@ STATUS_LABELS = {
     # 7 trạng thái nghiệp vụ (redesign-bao-gia §3) — bám đúng chữ chủ đầu tư chốt.
     "draft": "Nháp",
     "pending_approval": "Chờ duyệt",   # đặc thù đã "Trình duyệt", chờ Giám đốc Kinh doanh
-    "sent": "Đã duyệt",                 # gộp "đã gửi khách" (Q2 không tách)
+    "approved": "Đã duyệt",             # GĐ KD duyệt xong, CHỜ sale gửi khách (tách duyệt/gửi)
+    "sent": "Đã gửi khách",             # sale tự gửi (tách khỏi "duyệt")
     "accepted": "Khách hàng đồng ý",
     "rejected": "Khách hàng từ chối",
     "expired": "Hết hiệu lực",

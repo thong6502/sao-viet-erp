@@ -101,6 +101,7 @@ class QuotationStatsOut(BaseModel):
     total: int
     draft: int
     pending_approval: int = 0   # đang "Chờ duyệt" (đặc thù đã Trình duyệt)
+    approved: int = 0           # "Đã duyệt" — GĐ duyệt xong, chờ sale gửi khách
     sent: int
     accepted: int
     rejected: int
