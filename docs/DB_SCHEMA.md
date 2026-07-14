@@ -2485,19 +2485,19 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job (`routing_step`) = Phase D. `may_id` soft int → `may_thiet_bi`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `nhom`, `may_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `may_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 `size_tiers` (JSON): bậc đơn giá theo KÍCH THƯỚC thành phẩm (cạnh dài, cm) — `[{den_cm, don_gia}]`, "≤ den_cm → đơn giá"; engine chọn giá theo cỡ thay `run_rate` (vd công dán ≤20cm=100 · 40cm=200 · 100cm=800). `pricing_basis="per_job"` = trọn gói một lần (khuôn bế) — engine ÷ SL.
 
 `khoan_ghi_theo` (Pha 5b): cách ghi sản lượng khoán — `to` (theo tổ, chia hệ số) / `nguoi` (từng người, 5b-2) / `khong`. `allowed_defect_pct`/`allowed_defect_abs` (5b-2): ngưỡng hao cho phép (max của 2), phần vượt mới trừ lỗi.
 
-`kieu_bu_hao`: nối bù hao — `khong` / `theo_so_mau` / `theo_so_con` (tra bảng `bu_hao` theo trục) / `co_dinh` (cộng `so_to_bu_hao` tờ).
+`kieu_bu_hao`: nối bù hao — `khong` / `tra_bang` (trỏ 1 mã bù hao qua `bu_hao_id` → tra bậc theo SL) / `co_dinh` (cộng `so_to_bu_hao` tờ). `bu_hao_id`: soft int → `bu_hao.id` (dùng khi `kieu_bu_hao='tra_bang'`).
 
 ### `bu_hao`
 
-**Purpose:** danh mục Bù hao — bảng tra số tờ bù theo TRỤC (`truc`=số màu / số con) × BẬC số lượng. Mô hình MỞ: bậc số lượng là dữ liệu JSON (`bac`), không phải cột cứng — xưởng thêm/bớt ngưỡng thoải mái. Trục tra bằng dải số (`key_tu..key_den`); `bac` = `[{sl_tu, sl_den, gia_tri, don_vi(to|pct)}]`.
+**Purpose:** danh mục Bù hao — mỗi mã = danh sách BẬC số lượng → số tờ / %. Mô hình MỞ: bậc là dữ liệu JSON (`bac`), không phải cột cứng. Công đoạn TRỎ THẲNG 1 mã bù hao (qua `cong_doan.bu_hao_id`); engine tra bậc theo SL (bỏ trục số màu/số con). `bac` = `[{sl_tu, sl_den, gia_tri, don_vi(to|pct)}]`.
 
-**Tất cả cột:** `id`, `ma`, `ten`, `truc`, `key_tu`, `key_den`, `bac`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `bac`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 ### `loai_san_pham`
 
