@@ -38,6 +38,7 @@ from ..services.exception_gate import (
     DECISION_APPROVED as _EXC_APPROVED,
     approval_status as _exc_approval_status,
     evaluate as _exc_evaluate,
+    evaluate_quote as _exc_evaluate_quote,
 )
 from ..services.sequence_service import SequenceService
 
@@ -701,19 +702,34 @@ class QuotationService:
     # --- BG-2: "báo giá đặc thù" — GĐ duyệt (cùng máy exception_gate với A2) --------
 
     def exception_eval(self, quote: Quote) -> dict:
-        """Soi 3 điều kiện 'báo giá đặc thù' trên VERSION HIỆN TẠI — DELEGATE về `exception_gate`. Số
-        lấy từ tổng đã lưu của version: subtotal NET (subtotal_amount − discount_amount, TRƯỚC VAT, SAU
-        chiết khấu — khớp cách đơn hàng tính); total gồm VAT (final_amount); cost (total_cost_snapshot)."""
+        """Soi 'báo giá đặc thù' trên VERSION HIỆN TẠI — cổng **theo TỪNG KHÁCH HÀNG** (redesign):
+        - LUÔN áp (chung): Giá trị đơn ≥ 1 tỷ · Bán dưới vốn.
+        - Theo rào của KH (bỏ ngưỡng 15% cứng): CHIẾT KHẤU vượt `discount_max_pct` · BIÊN dưới
+          `margin_min_pct`. KH chưa đặt rào (None) → bỏ qua cổng đó; KH null (khách lẻ) → chỉ 2 cổng chung.
+        Số lấy từ tổng đã lưu của version: subtotal NET (trước VAT, sau CK) · gross (trước CK) · discount ·
+        total gồm VAT · cost. (Cổng công nợ HOÃN tới khi build phân hệ Công nợ/AR.)"""
         version = (
             self.quotations.db.get(QuoteVersion, quote.current_version_id)
             if quote.current_version_id else None
         )
         if version is None:
-            return _exc_evaluate(subtotal=0, total_gross=0, cost=None)
-        subtotal_net = int(round(float(version.subtotal_amount) - float(version.discount_amount)))
+            return _exc_evaluate_quote(subtotal=0, total_gross=0, cost=None)
+        subtotal_gross = int(round(float(version.subtotal_amount)))
+        discount = int(round(float(version.discount_amount)))
+        subtotal_net = subtotal_gross - discount
         total_gross = int(round(float(version.final_amount)))
         cost = int(round(float(version.total_cost_snapshot)))
-        return _exc_evaluate(subtotal=subtotal_net, total_gross=total_gross, cost=cost)
+        # Rào chính sách tài chính của KHÁCH (None nếu chưa đặt / khách lẻ chưa chọn). Ngoài khoảng
+        # [min,max] (cả 2 chiều) → đặc thù; rào nào để None thì bỏ chiều đó.
+        cust = self._customers.get_by_id(quote.customer_id) if (quote.customer_id and self._customers) else None
+        return _exc_evaluate_quote(
+            subtotal=subtotal_net, total_gross=total_gross, cost=cost,
+            discount_amount=discount, subtotal_gross=subtotal_gross,
+            discount_min_pct=(cust.discount_min_pct if cust else None),
+            discount_max_pct=(cust.discount_max_pct if cust else None),
+            margin_min_pct=(cust.margin_min_pct if cust else None),
+            margin_max_pct=(cust.margin_max_pct if cust else None),
+        )
 
     def approval_status(self, quote: Quote, exc: dict | None = None) -> dict:
         """Tình trạng duyệt 'báo giá đặc thù' — DELEGATE về exception_gate.approval_status."""

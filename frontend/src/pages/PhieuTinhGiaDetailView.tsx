@@ -650,13 +650,24 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     [mays],
   );
 
-  const addFin = useCallback((cuid: string, cong_doan_id: number | null = null, ten = "") => {
+  const addFin = useCallback((
+    cuid: string,
+    cong_doan_id: number | null = null,
+    ten = "",
+    insertIndex: number | null = null
+  ) => {
     setComps((cs) =>
-      cs.map((c) =>
-        c.uid === cuid
-          ? { ...c, thanh_phams: [...c.thanh_phams, blankFinishing(ten, cong_doan_id)] }
-          : c,
-      ),
+      cs.map((c) => {
+        if (c.uid !== cuid) return c;
+        const newFin = blankFinishing(ten, cong_doan_id);
+        const newThanhPhams = [...c.thanh_phams];
+        if (insertIndex !== null) {
+          newThanhPhams.splice(insertIndex, 0, newFin);
+        } else {
+          newThanhPhams.push(newFin);
+        }
+        return { ...c, thanh_phams: newThanhPhams };
+      }),
     );
   }, []);
   const removeFin = useCallback((cuid: string, fuid: string) => {
@@ -999,15 +1010,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                     <WarnIcon /> thiếu khổ/giấy
                                   </span>
                                 )}
-                                {meta && meta.to_dau_vao > 0 && (
-                                  <span
-                                    className="tg-complist__meta"
-                                    title="Số [Hiện] engine chốt: con/tờ · tờ vào máy in (nuôi giấy+in) · tờ sau in (nuôi gia công) · số kẽm"
-                                  >
-                                    {fmt(meta.con)} con/tờ · vào máy {fmt(meta.to_dau_vao)} tờ · sau in{" "}
-                                    {fmt(meta.to_sau_in)} tờ · {fmt(meta.so_kem)} kẽm
-                                  </span>
-                                )}
+
                               </td>
                               <td>
                                 <span className="tg-complist__loai">{loaiLabelOf(c)}</span>
@@ -1025,15 +1028,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                                 {meta && meta.gia_von_don > 0 ? `${fmt(meta.gia_von_don)} đ` : "—"}
                               </td>
                               <td className="rc__actcol" onClick={(e) => e.stopPropagation()}>
-                                <button
-                                  type="button"
-                                  className="rc__link-btn"
-                                  onClick={() => setEditingUid(c.uid)}
-                                  title="Sửa sản phẩm"
-                                >
-                                  <EditIcon />
-                                  <span>Sửa</span>
-                                </button>
+
                                 <button
                                   type="button"
                                   className="rc__link-btn rc__link-btn--danger"
@@ -1302,7 +1297,7 @@ function ComponentModal({
   onPickLoaiSP: (uid: string, pid: number | "") => void;
   onPickGiay: (uid: string, gid: number | null) => void;
   onPickMay: (uid: string, mid: number | null) => void;
-  addFin: (cuid: string, cong_doan_id?: number | null, ten?: string) => void;
+  addFin: (cuid: string, cong_doan_id?: number | null, ten?: string, insertIndex?: number | null) => void;
   removeFin: (cuid: string, fuid: string) => void;
   addVt: (cuid: string, vat_tu_id?: number | null, ten?: string) => void;
   removeVt: (cuid: string, vuid: string) => void;
@@ -1339,74 +1334,97 @@ function ComponentModal({
         <div className="rc-modal__body-grid">
           {/* Cột trái: Giao diện nhập liệu */}
           <div className="rc-modal__left-col">
-            <div className="rc-modal__form-col">
-              {/* ---- SẢN PHẨM & KHỔ ---- */}
-              <section className="rc-sec">
-                <div className="rc-sec__title">
-                  <span className="tg-step-badge">1</span> Sản phẩm &amp; khổ thành phẩm
-                </div>
-                <div className="tg-grid">
-                  <label className="tg-field">
-                    <span className="tg-microlabel">Tên sản phẩm</span>
-                    <input
-                      className="tg-input"
-                      type="text"
-                      value={c.ten}
-                      placeholder="VD Thân hộp / Ruột / Bìa"
-                      onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
-                    />
-                  </label>
+            {/* ---- SẢN PHẨM & KHỔ ---- */}
+            <section className="rc-sec">
+              <div className="rc-sec__title">
+                <span className="tg-step-badge">1</span> Sản phẩm &amp; khổ thành phẩm
+              </div>
+              <div className="tg-grid">
+                <label className="tg-field tg-span-8">
+                  <span className="tg-microlabel">Tên sản phẩm</span>
+                  <input
+                    className="tg-input"
+                    type="text"
+                    value={c.ten}
+                    placeholder="VD Thân hộp / Ruột / Bìa"
+                    onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
+                  />
+                </label>
+                <div className="tg-span-4">
                   <NumField
                     label="Số lượng"
                     value={c.so_luong > 0 ? c.so_luong : phieuSL}
                     step="1"
                     onChange={(n) => patchComp(c.uid, { so_luong: Math.max(0, n) })}
                   />
-                  <label className="tg-field tg-field--full">
-                    <span className="tg-microlabel">
-                      Loại sản phẩm <span className="tg-microlabel__opt">tự bung công đoạn mặc định</span>
-                    </span>
-                    <select
-                      className="tg-input"
-                      value={c.loai_san_pham_id ?? ""}
-                      onChange={(e) =>
-                        onPickLoaiSP(c.uid, e.target.value === "" ? "" : Number(e.target.value))
-                      }
-                    >
-                      <option value="">— Chọn loại sản phẩm —</option>
-                      {loaiSPs.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {rowLabel(s)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {/* Spec §6 KHÔNG có ô "Kiểu cấu trúc" — đã gỡ; field loai_thanh_phan giữ mặc định
-                      "to_roi" (chỉ ẩn ô nhập, không xóa field để logic ẩn/hiện khác không vỡ). */}
-                  <NumField
-                    label="Dài thành phẩm"
-                    value={c.dai_thanh_pham}
-                    onChange={(n) => patchComp(c.uid, { dai_thanh_pham: n })}
-                    suffix="mm"
-                  />
-                  <NumField
-                    label="Rộng thành phẩm"
-                    value={c.rong_thanh_pham}
-                    onChange={(n) => patchComp(c.uid, { rong_thanh_pham: n })}
-                    suffix="mm"
-                  />
-                  {!isToRoi && (
-                    <>
-                      <label className="tg-field">
-                        <span className="tg-microlabel">Tay gấp</span>
-                        <input
-                          className="tg-input"
-                          type="text"
-                          value={c.tay_gap}
-                          placeholder="VD gấp đôi / gấp ba"
-                          onChange={(e) => patchComp(c.uid, { tay_gap: e.target.value })}
-                        />
-                      </label>
+                </div>
+                <label className="tg-field tg-span-12">
+                  <span className="tg-microlabel">
+                    Loại sản phẩm <span className="tg-microlabel__opt">tự bung công đoạn mặc định</span>
+                  </span>
+                  <select
+                    className="tg-input"
+                    value={c.loai_san_pham_id ?? ""}
+                    onChange={(e) =>
+                      onPickLoaiSP(c.uid, e.target.value === "" ? "" : Number(e.target.value))
+                    }
+                  >
+                    <option value="">— Chọn loại sản phẩm —</option>
+                    {loaiSPs.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {rowLabel(s)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {isToRoi ? (
+                  <>
+                    <div className="tg-span-6">
+                      <NumField
+                        label="Dài thành phẩm"
+                        value={c.dai_thanh_pham}
+                        onChange={(n) => patchComp(c.uid, { dai_thanh_pham: n })}
+                        suffix="mm"
+                      />
+                    </div>
+                    <div className="tg-span-6">
+                      <NumField
+                        label="Rộng thành phẩm"
+                        value={c.rong_thanh_pham}
+                        onChange={(n) => patchComp(c.uid, { rong_thanh_pham: n })}
+                        suffix="mm"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="tg-span-3">
+                      <NumField
+                        label="Dài thành phẩm"
+                        value={c.dai_thanh_pham}
+                        onChange={(n) => patchComp(c.uid, { dai_thanh_pham: n })}
+                        suffix="mm"
+                      />
+                    </div>
+                    <div className="tg-span-3">
+                      <NumField
+                        label="Rộng thành phẩm"
+                        value={c.rong_thanh_pham}
+                        onChange={(n) => patchComp(c.uid, { rong_thanh_pham: n })}
+                        suffix="mm"
+                      />
+                    </div>
+                    <label className="tg-field tg-span-3">
+                      <span className="tg-microlabel">Tay gấp</span>
+                      <input
+                        className="tg-input"
+                        type="text"
+                        value={c.tay_gap}
+                        placeholder="VD gấp đôi / gấp ba"
+                        onChange={(e) => patchComp(c.uid, { tay_gap: e.target.value })}
+                      />
+                    </label>
+                    <div className="tg-span-3">
                       <NumField
                         label="Số tờ / SP"
                         value={c.so_to_per_sp}
@@ -1414,201 +1432,200 @@ function ComponentModal({
                         step="1"
                         onChange={(n) => patchComp(c.uid, { so_to_per_sp: Math.max(1, n) })}
                       />
-                    </>
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+
+            {/* ---- GIẤY IN ---- */}
+            <section className="rc-sec">
+              <div className="rc-sec__title">
+                <span className="tg-step-badge">2</span> Giấy in
+              </div>
+              <div className="tg-grid">
+                <label className="tg-field tg-span-8">
+                  <span className="tg-microlabel">Loại giấy</span>
+                  <select
+                    className="tg-input"
+                    value={c.giay_id ?? ""}
+                    onChange={(e) => onPickGiay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
+                  >
+                    <option value="">— Chọn giấy —</option>
+                    {giays.map((g) => (
+                      <option key={g.id} value={g.id}>
+                        {rowLabel(g)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="tg-field tg-span-4">
+                  <span className="tg-microlabel">Nguồn giấy</span>
+                  <Seg
+                    ariaLabel="Nguồn giấy"
+                    value={c.nguon_giay}
+                    onChange={(v) => patchComp(c.uid, { nguon_giay: v })}
+                    options={[
+                      { val: "cong_ty", label: "Công ty" },
+                      { val: "khach", label: "Khách cấp" },
+                    ]}
+                  />
+                </div>
+                <label className="tg-field tg-span-6">
+                  <span className="tg-microlabel">
+                    Khổ nguyên <span className="tg-microlabel__opt">rộng×dài</span>
+                  </span>
+                  <input
+                    className="tg-input"
+                    type="text"
+                    value={c.kho_nguyen}
+                    placeholder="VD 790×1090"
+                    onChange={(e) => patchComp(c.uid, { kho_nguyen: e.target.value })}
+                  />
+                </label>
+                <div className="tg-field tg-span-6">
+                  <span className="tg-microlabel">
+                    Đơn giá giấy <span className="tg-microlabel__opt">theo danh mục</span>
+                  </span>
+                  <div className="tg-readout" style={{ minHeight: "36px", display: "flex", alignItems: "center" }}>
+                    {(() => {
+                      const g = c.giay_id ? giays.find((x) => x.id === c.giay_id) : null;
+                      if (!g) return "— chọn giấy để lấy giá —";
+                      const u = g.don_vi_gia;
+                      const uL =
+                        u === "tan" ? "tấn" : u === "kg" ? "kg" : u === "ram" ? "ram" : u === "cai" ? "cái" : "tờ";
+                      return `${fmt(numOf(g.don_gia))} đ / ${uL}`;
+                    })()}
+                  </div>
+                  {c.nguon_giay === "khach" && (
+                    <span className="tg-hint" style={{ marginTop: "-4px" }}>Khách cấp giấy — không tính tiền giấy.</span>
                   )}
                 </div>
-              </section>
+              </div>
+            </section>
 
-              {/* ---- GIẤY IN ---- */}
-              <section className="rc-sec">
-                <div className="rc-sec__title">
-                  <span className="tg-step-badge">2</span> Giấy in
+            {/* ---- KỸ THUẬT IN & MÀU IN ---- */}
+            <section className="rc-sec">
+              <div className="rc-sec__title">
+                <span className="tg-step-badge">3</span> Kỹ thuật in &amp; Màu in
+              </div>
+              <div className="tg-grid">
+                <label className="tg-field tg-span-8">
+                  <span className="tg-microlabel">
+                    Máy in <span className="tg-microlabel__opt">→ khổ tờ in</span>
+                  </span>
+                  <select
+                    className="tg-input"
+                    value={c.may_id ?? ""}
+                    onChange={(e) => onPickMay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
+                  >
+                    <option value="">— Không chọn —</option>
+                    {mays.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {rowLabel(m)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="tg-field tg-span-4">
+                  <span className="tg-microlabel">Quy cách in</span>
+                  <Seg
+                    ariaLabel="Quy cách in"
+                    value={c.quy_cach_in}
+                    onChange={(v) => patchComp(c.uid, { quy_cach_in: v })}
+                    options={[
+                      { val: "mot_mat", label: "1 mặt" },
+                      { val: "hai_mat", label: "2 mặt" },
+                      { val: "tu_tro", label: "Tự trở" },
+                    ]}
+                  />
                 </div>
-                <div className="tg-grid">
-                  <label className="tg-field">
-                    <span className="tg-microlabel">Loại giấy</span>
-                    <select
-                      className="tg-input"
-                      value={c.giay_id ?? ""}
-                      onChange={(e) => onPickGiay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
-                    >
-                      <option value="">— Chọn giấy —</option>
-                      {giays.map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {rowLabel(g)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="tg-field">
-                    <span className="tg-microlabel">
-                      Khổ nguyên <span className="tg-microlabel__opt">rộng×dài</span>
-                    </span>
-                    <input
-                      className="tg-input"
-                      type="text"
-                      value={c.kho_nguyen}
-                      placeholder="VD 790×1090"
-                      onChange={(e) => patchComp(c.uid, { kho_nguyen: e.target.value })}
-                    />
-                  </label>
-                  {/* Spec §6: đơn giá giấy ĂN THEO DANH MỤC — read-only, tự điền khi chọn giấy
-                      (onPickGiay ghi don_gia_giay + don_gia_don_vi từ danh mục). */}
-                  <div className="tg-field">
-                    <span className="tg-microlabel">
-                      Đơn giá giấy <span className="tg-microlabel__opt">theo danh mục</span>
-                    </span>
-                    <div className="tg-readout">
-                      {(() => {
-                        const g = c.giay_id ? giays.find((x) => x.id === c.giay_id) : null;
-                        if (!g) return "— chọn giấy để lấy giá —";
-                        const u = g.don_vi_gia;
-                        const uL =
-                          u === "tan" ? "tấn" : u === "kg" ? "kg" : u === "ram" ? "ram" : u === "cai" ? "cái" : "tờ";
-                        return `${fmt(numOf(g.don_gia))} đ / ${uL}`;
-                      })()}
-                    </div>
-                  </div>
-                  <div className="tg-field">
-                    <span className="tg-microlabel">Nguồn giấy</span>
-                    <Seg
-                      ariaLabel="Nguồn giấy"
-                      value={c.nguon_giay}
-                      onChange={(v) => patchComp(c.uid, { nguon_giay: v })}
-                      options={[
-                        { val: "cong_ty", label: "Công ty" },
-                        { val: "khach", label: "Khách cấp" },
-                      ]}
-                    />
-                    {c.nguon_giay === "khach" && (
-                      <span className="tg-hint">Khách cấp giấy — không tính tiền giấy.</span>
-                    )}
-                  </div>
-                </div>
-              </section>
-            </div>
-
-            <div className="rc-modal__form-col">
-              {/* ---- KỸ THUẬT IN & MÀU IN ---- */}
-              <section className="rc-sec">
-                <div className="rc-sec__title">
-                  <span className="tg-step-badge">3</span> Kỹ thuật in &amp; Màu in
-                </div>
-                <div className="tg-grid">
-                  <label className="tg-field">
-                    <span className="tg-microlabel">
-                      Máy in <span className="tg-microlabel__opt">→ khổ tờ in</span>
-                    </span>
-                    <select
-                      className="tg-input"
-                      value={c.may_id ?? ""}
-                      onChange={(e) => onPickMay(c.uid, e.target.value === "" ? null : Number(e.target.value))}
-                    >
-                      <option value="">— Không chọn —</option>
-                      {mays.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {rowLabel(m)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
+                <div className="tg-span-3">
                   <NumField
                     label="Khổ tờ in dài"
                     value={c.kho_in_dai}
                     onChange={(n) => patchComp(c.uid, { kho_in_dai: n })}
                     suffix="mm"
                   />
+                </div>
+                <div className="tg-span-3">
                   <NumField
                     label="Khổ tờ in rộng"
                     value={c.kho_in_rong}
                     onChange={(n) => patchComp(c.uid, { kho_in_rong: n })}
                     suffix="mm"
                   />
-                  <div className="tg-field">
-                    <span className="tg-microlabel">Quy cách in</span>
-                    <Seg
-                      ariaLabel="Quy cách in"
-                      value={c.quy_cach_in}
-                      onChange={(v) => patchComp(c.uid, { quy_cach_in: v })}
-                      options={[
-                        { val: "mot_mat", label: "1 mặt" },
-                        { val: "hai_mat", label: "2 mặt" },
-                        { val: "tu_tro", label: "Tự trở" },
-                      ]}
-                    />
-                  </div>
-                  {/* Số con — auto bình bài, sửa đè được */}
-                  <div className="tg-field">
-                    <span className="tg-microlabel">
-                      Số con
-                      {c.con_auto ? (
-                        canBinhBai ? (
-                          <span className="tg-tag tg-tag--auto">
-                            <AutoIcon /> tự bình bài
-                          </span>
-                        ) : (
-                          <span className="tg-tag tg-tag--todo">nhập khổ + chọn giấy/máy để tự tính</span>
-                        )
-                      ) : (
-                        <button
-                          type="button"
-                          className="tg-revert"
-                          onClick={() => patchComp(c.uid, { con_auto: true })}
-                          title="Về số tự bình bài"
-                        >
-                          <RevertIcon /> về auto
-                        </button>
-                      )}
-                    </span>
-                    <input
-                      className={`tg-input tg-input--num${c.con_auto ? "" : " tg-input--edited"}`}
-                      type="number"
-                      min={1}
-                      value={c.so_con}
-                      onChange={(e) =>
-                        patchComp(c.uid, {
-                          so_con: Math.max(1, Number(e.target.value)),
-                          con_auto: false,
-                        })
-                      }
-                    />
-                  </div>
                 </div>
-
-                {/* Sub-grid cho Màu in (gộp trong Kỹ thuật in) */}
-                <div className="tg-grid tg-section-divider">
+                <div className="tg-field tg-span-6">
+                  <span className="tg-microlabel">
+                    <span>Số con</span>
+                    {c.con_auto ? (
+                      canBinhBai ? (
+                        <span className="tg-tag tg-tag--auto">
+                          <AutoIcon /> tự bình bài
+                        </span>
+                      ) : (
+                        <span className="tg-tag tg-tag--todo" style={{ fontSize: "9px" }}>nhập khổ để tự tính</span>
+                      )
+                    ) : (
+                      <button
+                        type="button"
+                        className="tg-revert"
+                        onClick={() => patchComp(c.uid, { con_auto: true })}
+                        title="Về số tự bình bài"
+                      >
+                        <RevertIcon /> về auto
+                      </button>
+                    )}
+                  </span>
+                  <input
+                    className={`tg-input tg-input--num${c.con_auto ? "" : " tg-input--edited"}`}
+                    type="number"
+                    min={1}
+                    value={c.so_con}
+                    onChange={(e) =>
+                      patchComp(c.uid, {
+                        so_con: Math.max(1, Number(e.target.value)),
+                        con_auto: false,
+                      })
+                    }
+                  />
+                </div>
+                <div className={c.quy_cach_in === "hai_mat" ? "tg-span-6" : "tg-span-12"}>
                   <NumField
                     label="Số màu mặt A"
                     value={c.so_mau_a}
                     step="1"
                     onChange={(n) => patchComp(c.uid, { so_mau_a: n })}
                   />
-                  <NumField
-                    label="Số màu mặt B"
-                    opt={c.quy_cach_in === "hai_mat" ? undefined : "chỉ tính khi in 2 mặt"}
-                    value={c.so_mau_b}
-                    step="1"
-                    onChange={(n) => patchComp(c.uid, { so_mau_b: n })}
-                  />
                 </div>
-              </section>
+                {c.quy_cach_in === "hai_mat" && (
+                  <div className="tg-span-6">
+                    <NumField
+                      label="Số màu mặt B"
+                      value={c.so_mau_b}
+                      step="1"
+                      onChange={(n) => patchComp(c.uid, { so_mau_b: n })}
+                    />
+                  </div>
+                )}
+              </div>
+            </section>
 
-              {/* ---- CHUỖI CÔNG ĐOẠN THỰC HIỆN ---- */}
-              <section className="rc-sec">
-                <div className="rc-sec__title">
-                  <span className="tg-step-badge">4</span> Chuỗi công đoạn thực hiện
-                </div>
-                <div className="tg-chipgrid">
-                  {c.thanh_phams.length === 0 && (
-                    <p className="tg-chipgrid__empty">
-                      Chọn loại sản phẩm để tự bung chuỗi, hoặc thêm công đoạn.
-                    </p>
-                  )}
-                  {c.thanh_phams.map((f) => (
-                    <span
-                      key={f.uid}
-                      className="tg-chip"
-                    >
+            {/* ---- CHUỖI CÔNG ĐOẠN THỰC HIỆN ---- */}
+            <section className="rc-sec">
+              <div className="rc-sec__title">
+                <span className="tg-step-badge">4</span> Chuỗi công đoạn thực hiện
+              </div>
+              <div className="tg-timeline">
+                {c.thanh_phams.length === 0 && (
+                  <p className="tg-chipgrid__empty" style={{ margin: "6px 0" }}>
+                    Chọn loại sản phẩm để tự bung chuỗi, hoặc thêm công đoạn.
+                  </p>
+                )}
+                {c.thanh_phams.map((f, fIdx) => (
+                  <div key={f.uid} className="tg-timeline-item">
+                    <span className="tg-chip">
                       <span className="tg-chip__name">
                         {f.ten || "(công đoạn)"}
                       </span>
@@ -1622,84 +1639,113 @@ function ComponentModal({
                         <CloseIcon />
                       </button>
                     </span>
+                    {fIdx < c.thanh_phams.length - 1 && (
+                      <div className="tg-timeline-arrow-wrap">
+                        <select
+                          className="tg-timeline-select-arrow"
+                          title="Chèn công đoạn vào giữa"
+                          value=""
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            if (!v) return;
+                            const insertIdx = fIdx + 1;
+                            if (v === "__blank") {
+                              addFin(c.uid, null, "", insertIdx);
+                            } else {
+                              const cd = congDoans.find((x) => String(x.id) === v);
+                              addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "", insertIdx);
+                            }
+                          }}
+                        >
+                          <option value="">➔</option>
+                          {congDoans.map((cd) => (
+                            <option key={cd.id} value={cd.id}>
+                              {cdName(cd)}
+                            </option>
+                          ))}
+                          <option value="__blank">+ Tự nhập…</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                <select
+                  className="tg-chip-add"
+                  aria-label="Thêm công đoạn"
+                  value=""
+                  style={{ marginLeft: c.thanh_phams.length > 0 ? "8px" : "0" }}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) return;
+                    if (v === "__blank") {
+                      addFin(c.uid);
+                    } else {
+                      const cd = congDoans.find((x) => String(x.id) === v);
+                      addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "");
+                    }
+                  }}
+                >
+                  <option value="">+ Thêm công đoạn…</option>
+                  {congDoans.map((cd) => (
+                    <option key={cd.id} value={cd.id}>
+                      {cdName(cd)}
+                    </option>
                   ))}
-                  <select
-                    className="tg-chip-add"
-                    aria-label="Thêm công đoạn"
-                    value=""
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (!v) return;
-                      if (v === "__blank") {
-                        addFin(c.uid);
-                      } else {
-                        const cd = congDoans.find((x) => String(x.id) === v);
-                        addFin(c.uid, cd ? cd.id : null, cd ? cdName(cd) : "");
-                      }
-                    }}
-                  >
-                    <option value="">+ Thêm công đoạn…</option>
-                    {congDoans.map((cd) => (
-                      <option key={cd.id} value={cd.id}>
-                        {cdName(cd)}
-                      </option>
-                    ))}
-                    <option value="__blank">+ Tự nhập…</option>
-                  </select>
-                </div>
-              </section>
+                  <option value="__blank">+ Tự nhập…</option>
+                </select>
+              </div>
+            </section>
 
-              {/* ---- VẬT TƯ THÊM (mực/màng/keo → NGUYÊN VẬT LIỆU) ---- */}
-              <section className="rc-sec">
-                <div className="rc-sec__title">
-                  <span className="tg-step-badge">5</span> Vật tư thêm
-                </div>
-                <div className="tg-chipgrid">
-                  {c.vat_tus.length === 0 && (
-                    <p className="tg-chipgrid__empty">
-                      Thêm vật tư (mực…) — engine thế biến vào công thức của vật tư, hệt giấy.
-                    </p>
-                  )}
-                  {c.vat_tus.map((v) => (
-                    <span key={v.uid} className="tg-chip">
-                      <span className="tg-chip__name">{v.ten || "(vật tư)"}</span>
-                      <button
-                        type="button"
-                        className="tg-chip__x"
-                        aria-label="Xóa vật tư"
-                        title="Xóa khỏi phiếu"
-                        onClick={() => removeVt(c.uid, v.uid)}
-                      >
-                        <CloseIcon />
-                      </button>
-                    </span>
+            {/* ---- VẬT TƯ THÊM (mực/màng/keo → NGUYÊN VẬT LIỆU) ---- */}
+            <section className="rc-sec">
+              <div className="rc-sec__title">
+                <span className="tg-step-badge">5</span> Vật tư thêm
+              </div>
+              <div className="tg-chipgrid">
+                {c.vat_tus.length === 0 && (
+                  <p className="tg-chipgrid__empty" style={{ margin: "6px 0" }}>
+                    Thêm vật tư (mực…) — engine thế biến vào công thức của vật tư, hệt giấy.
+                  </p>
+                )}
+                {c.vat_tus.map((v) => (
+                  <span key={v.uid} className="tg-chip">
+                    <span className="tg-chip__name">{v.ten || "(vật tư)"}</span>
+                    <button
+                      type="button"
+                      className="tg-chip__x"
+                      aria-label="Xóa vật tư"
+                      title="Xóa khỏi phiếu"
+                      onClick={() => removeVt(c.uid, v.uid)}
+                    >
+                      <CloseIcon />
+                    </button>
+                  </span>
+                ))}
+                <select
+                  className="tg-chip-add"
+                  aria-label="Thêm vật tư"
+                  value=""
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (!val) return;
+                    if (val === "__blank") {
+                      addVt(c.uid);
+                    } else {
+                      const m = vatTus.find((x) => String(x.id) === val);
+                      addVt(c.uid, m ? m.id : null, m ? vtName(m) : "");
+                    }
+                  }}
+                >
+                  <option value="">+ Thêm vật tư…</option>
+                  {vatTus.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {vtName(m)}
+                    </option>
                   ))}
-                  <select
-                    className="tg-chip-add"
-                    aria-label="Thêm vật tư"
-                    value=""
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (!val) return;
-                      if (val === "__blank") {
-                        addVt(c.uid);
-                      } else {
-                        const m = vatTus.find((x) => String(x.id) === val);
-                        addVt(c.uid, m ? m.id : null, m ? vtName(m) : "");
-                      }
-                    }}
-                  >
-                    <option value="">+ Thêm vật tư…</option>
-                    {vatTus.map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {vtName(m)}
-                      </option>
-                    ))}
-                    <option value="__blank">+ Tự nhập…</option>
-                  </select>
-                </div>
-              </section>
-            </div>
+                  <option value="__blank">+ Tự nhập…</option>
+                </select>
+              </div>
+            </section>
           </div>
 
           {/* Cột phải: Trực quan hóa và Số liệu ước lượng */}
@@ -1713,6 +1759,7 @@ function ComponentModal({
                 daiTP={c.dai_thanh_pham}
                 rongTP={c.rong_thanh_pham}
                 chuaMm={chuaTong}
+                soCon={c.so_con}
               />
             </div>
 
@@ -1830,11 +1877,6 @@ const PlusIcon = () => (
   </svg>
 );
 
-const EditIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-  </svg>
-);
 
 const CloseIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

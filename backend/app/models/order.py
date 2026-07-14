@@ -188,6 +188,8 @@ APPROVAL_DECISIONS = (APPROVAL_DECISION_APPROVED, APPROVAL_DECISION_REJECTED)
 EXC_HIGH_VALUE = "high_value"      # tổng gồm VAT ≥ ngưỡng
 EXC_LOW_MARGIN = "low_margin"      # 0 ≤ biên < ngưỡng
 EXC_BELOW_COST = "below_cost"      # bán dưới giá vốn (biên < 0)
+EXC_DISCOUNT_OUT = "discount_out"    # (chỉ Báo giá) chiết khấu NGOÀI khoảng cho phép của KHÁCH HÀNG
+EXC_MARGIN_OUT = "margin_out"        # (chỉ Báo giá) biên lợi nhuận NGOÀI khoảng cho phép của KHÁCH HÀNG
 
 
 class OrderApproval(Base):

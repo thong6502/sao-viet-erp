@@ -15,8 +15,10 @@ from ..models.order import (
     APPROVAL_DECISION_APPROVED as DECISION_APPROVED,
     APPROVAL_DECISION_REJECTED as DECISION_REJECTED,
     EXC_BELOW_COST,
+    EXC_DISCOUNT_OUT,
     EXC_HIGH_VALUE,
     EXC_LOW_MARGIN,
+    EXC_MARGIN_OUT,
 )
 
 DECISIONS = (DECISION_APPROVED, DECISION_REJECTED)
@@ -29,6 +31,8 @@ _LABELS = {
     EXC_HIGH_VALUE: "Giá trị đơn cao",
     EXC_LOW_MARGIN: "Biên lợi nhuận thấp",
     EXC_BELOW_COST: "Bán dưới giá vốn",
+    EXC_DISCOUNT_OUT: "Chiết khấu ngoài mức cho phép của khách",
+    EXC_MARGIN_OUT: "Biên lợi nhuận ngoài mức cho phép của khách",
 }
 
 
@@ -59,6 +63,66 @@ def evaluate(
         "margin_pct": margin_pct,
         "min_margin_pct": min_margin_pct,
         "high_value_threshold": high_value_threshold,
+        "triggers": triggers,
+    }
+
+
+def evaluate_quote(
+    *, subtotal, total_gross, cost,
+    discount_amount: float = 0.0,
+    subtotal_gross: float = 0.0,
+    discount_min_pct: float | None = None,
+    discount_max_pct: float | None = None,
+    margin_min_pct: float | None = None,
+    margin_max_pct: float | None = None,
+    high_value_threshold: int = DEFAULT_HIGH_VALUE_THRESHOLD,
+) -> dict:
+    """Cổng đặc thù cho **BÁO GIÁ** — rào theo TỪNG KHÁCH HÀNG (Đơn hàng vẫn dùng `evaluate` ngưỡng chung).
+
+    Trigger (dính bất kỳ → gửi duyệt):
+    - **Giá trị cao** (subtotal TRƯỚC VAT ≥ ngưỡng) và **Bán dưới vốn**: LUÔN áp (chung, không đổi).
+    - **Chiết khấu NGOÀI khoảng [min,max] của KH** (dưới min HOẶC vượt max).
+    - **Biên NGOÀI khoảng [min,max] của KH** (dưới min HOẶC vượt max) — thay ngưỡng 15% cứng cũ.
+    Rào nào KH để None → KHÔNG soi chiều đó (chỉ chặn phía đã đặt). So sánh nhân chéo (không chia).
+
+    `subtotal` = NET (sau CK, trước VAT, base biên); `subtotal_gross` = tổng giá bán TRƯỚC CK (base %CK);
+    `discount_amount` = tổng chiết khấu; `total_gross` = gồm VAT (mốc quy mô)."""
+    triggers: list[dict] = []
+    if subtotal > 0 and subtotal >= high_value_threshold:
+        triggers.append({"key": EXC_HIGH_VALUE, "label": _LABELS[EXC_HIGH_VALUE]})
+
+    margin_pct = None
+    if cost is not None and subtotal > 0:
+        margin_pct = round((subtotal - cost) * 100 / subtotal)
+        profit = subtotal - cost
+        if cost > subtotal:                                              # dưới vốn — LUÔN áp
+            triggers.append({"key": EXC_BELOW_COST, "label": _LABELS[EXC_BELOW_COST]})
+        else:
+            below = margin_min_pct is not None and profit * 100 < margin_min_pct * subtotal
+            above = margin_max_pct is not None and profit * 100 > margin_max_pct * subtotal
+            if below or above:
+                triggers.append({"key": EXC_MARGIN_OUT, "label": _LABELS[EXC_MARGIN_OUT]})
+
+    disc_pct = None
+    if subtotal_gross and subtotal_gross > 0:
+        d100 = float(discount_amount) * 100
+        disc_pct = round(d100 / subtotal_gross)
+        below = discount_min_pct is not None and d100 < discount_min_pct * subtotal_gross
+        above = discount_max_pct is not None and d100 > discount_max_pct * subtotal_gross
+        if below or above:
+            triggers.append({"key": EXC_DISCOUNT_OUT, "label": _LABELS[EXC_DISCOUNT_OUT]})
+
+    return {
+        "subtotal": subtotal,
+        "total_gross": total_gross,
+        "cost": cost,
+        "margin_pct": margin_pct,
+        "min_margin_pct": int(round(margin_min_pct)) if margin_min_pct is not None else None,
+        "margin_max_pct": margin_max_pct,
+        "high_value_threshold": high_value_threshold,
+        "disc_pct": disc_pct,
+        "discount_min_pct": discount_min_pct,
+        "discount_max_pct": discount_max_pct,
         "triggers": triggers,
     }
 

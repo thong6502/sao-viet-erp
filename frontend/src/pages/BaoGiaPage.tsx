@@ -1456,14 +1456,7 @@ function QuotationDetailView({
     persistItems([{ id: itemId, discount_amount: v }]);
   }
   // Áp % chiết khấu cho DÒNG → quy ra tiền theo giá bán hiện tại của dòng rồi persist như trên.
-  function applyLineDiscountPct(itemId: number, pct: number) {
-    if (!editable || !d) return;
-    const it = d.items.find((x) => x.id === itemId);
-    if (!it) return;
-    const amt = Math.round((calcItem(it).selling * Math.max(0, Math.min(100, pct))) / 100);
-    setDiscDraft((p) => ({ ...p, [itemId]: amt }));
-    commitLineDiscount(itemId, amt);
-  }
+
 
   // P3: đổi khách ngay ở detail (khi nháp). Gửi delivery_address rỗng → BE tự điền ĐC giao mặc định
   // + làm mới người liên hệ chính của khách mới (redesign-bao-gia §4).
@@ -1630,8 +1623,8 @@ function QuotationDetailView({
             d.allowed_transitions.includes("pending_approval") && (
             <Button
               variant="accent"
-              disabled={busy}
-              title="Báo giá đặc thù — trình duyệt trước khi gửi khách"
+              disabled={busy || !d.customer_id}
+              title={!d.customer_id ? "Vui lòng chọn khách hàng trước" : "Báo giá đặc thù — trình duyệt trước khi gửi khách"}
               onClick={() => doTransition("pending_approval")}
             >⇪ Trình duyệt</Button>
           )}
@@ -1640,8 +1633,8 @@ function QuotationDetailView({
             ((d.status === "draft" && !d.exception_required) || d.status === "approved") && (
             <Button
               variant="accent"
-              disabled={busy}
-              title={d.status === "approved" ? "Giám đốc đã duyệt — gửi báo giá cho khách" : undefined}
+              disabled={busy || !d.customer_id}
+              title={!d.customer_id ? "Vui lòng chọn khách hàng trước" : (d.status === "approved" ? "Giám đốc đã duyệt — gửi báo giá cho khách" : undefined)}
               onClick={() => doTransition("sent")}
             >➤ Gửi khách</Button>
           )}
@@ -1688,7 +1681,7 @@ function QuotationDetailView({
             <table className="bg-lines">
               <thead>
                 <tr>
-                  <th>Sản phẩm</th><th>SL</th><th>Giá vốn</th><th>Markup %</th><th>Chiết khấu (đ)</th><th>Thành tiền (VAT)</th>
+                  <th>Sản phẩm</th><th>SL</th><th>Giá vốn</th><th>Markup %</th><th>Chiết khấu (%)</th><th>Thành tiền (VAT)</th>
                 </tr>
               </thead>
               <tbody>
@@ -1784,35 +1777,24 @@ function QuotationDetailView({
                           />
                         )}
                       </td>
-                      <td style={{ minWidth: 118 }}>
+                      <td>
                         <input
                           className="ln-mk bg__mono"
-                          type="number" min={0} step={1000}
-                          style={{ width: 98 }}
-                          value={discDraft[it.id] ?? it.discount_amount}
+                          type="number" min={0} max={100} step={0.5}
+                          value={c.selling > 0 ? Math.round(((discDraft[it.id] ?? it.discount_amount) / c.selling) * 100) : 0}
                           disabled={!editable}
-                          onChange={(e) => setDiscDraft((p) => ({ ...p, [it.id]: Number(e.target.value) }))}
-                          onBlur={(e) => commitLineDiscount(it.id, Number(e.target.value))}
-                          title="Chiết khấu (đồng) cho dòng này — trừ TRƯỚC VAT"
+                          onChange={(e) => {
+                            const pct = Number(e.target.value);
+                            const amt = Math.round((c.selling * pct) / 100);
+                            setDiscDraft((p) => ({ ...p, [it.id]: amt }));
+                          }}
+                          onBlur={(e) => {
+                            const pct = Number(e.target.value);
+                            const amt = Math.round((c.selling * pct) / 100);
+                            commitLineDiscount(it.id, amt);
+                          }}
+                          title="Chiết khấu phần trăm (%) cho dòng này — trừ TRƯỚC VAT"
                         />
-                        {editable && (
-                          <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 4 }}>
-                            <input
-                              type="number" min={0} max={100} step={0.5}
-                              className="bg__mono"
-                              style={{ width: 50, fontSize: 11, padding: "2px 4px" }}
-                              placeholder="% CK"
-                              disabled={busy}
-                              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-                              onBlur={(e) => {
-                                const p = Number((e.target as HTMLInputElement).value);
-                                if (p > 0) { applyLineDiscountPct(it.id, p); (e.target as HTMLInputElement).value = ""; }
-                              }}
-                              title="Nhập % chiết khấu rồi Enter/rời ô → quy ra tiền theo giá bán dòng"
-                            />
-                            <span style={{ fontSize: 11, color: "var(--ash)" }}>%→đ</span>
-                          </div>
-                        )}
                       </td>
                       <td className="bg__mono" style={{ fontWeight: 600, color: "var(--ink)" }}>{vnd(c.final)}</td>
                     </tr>

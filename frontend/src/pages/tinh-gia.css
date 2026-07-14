@@ -1569,6 +1569,14 @@ select.tg-input--sm {
   fill: var(--rust-soft);
   stroke: var(--rust);
   stroke-width: 1.2;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.tg-imp__piece--unused {
+  fill: transparent;
+  stroke: var(--rule);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.55;
 }
 .tg-imp--bad .tg-imp__sheet {
   stroke: var(--signal, #8a1f1f);
@@ -1634,8 +1642,8 @@ select.tg-input--sm {
 .rc-modal__scrim {
   position: fixed;
   inset: 0;
-  background: color-mix(in srgb, var(--ink, #14130f) 45%, transparent);
-  backdrop-filter: blur(6px);
+  background: color-mix(in srgb, var(--ink, #14130f) 50%, transparent);
+  backdrop-filter: blur(8px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1645,8 +1653,8 @@ select.tg-input--sm {
 }
 
 .rc-modal {
-  width: min(1240px, 95vw);
-  height: min(850px, 90vh);
+  width: min(1320px, 98vw);
+  height: min(900px, 94vh);
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-6);
@@ -1688,7 +1696,7 @@ select.tg-input--sm {
 }
 
 .rc-modal__title {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 700;
   color: var(--ink);
   margin: 2px 0 0;
@@ -1713,32 +1721,27 @@ select.tg-input--sm {
 .rc-modal__x:hover {
   background: var(--rule-soft);
   color: var(--ink);
+  transform: rotate(90deg);
 }
 
 .rc-modal__body-grid {
   flex: 1;
   display: grid;
-  grid-template-columns: 1.6fr 1fr;
+  grid-template-columns: 1.35fr 1fr;
   overflow: hidden;
 }
 
 .rc-modal__left-col {
   padding: var(--sp-5) var(--sp-6);
   overflow-y: auto;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--sp-6);
-  align-items: start;
-}
-
-.rc-modal__form-col {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-6);
+  gap: var(--sp-5);
+  align-items: stretch;
 }
 
 @media (max-width: 1024px) {
-  .rc-modal__left-col {
+  .rc-modal__body-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -1762,24 +1765,34 @@ select.tg-input--sm {
   background: var(--paper);
 }
 
+.rc-modal__foot button {
+  transition: transform var(--duration-fast) var(--easing-standard), opacity var(--duration-fast) var(--easing-standard);
+}
+.rc-modal__foot button:hover {
+  transform: translateY(-1px);
+}
+.rc-modal__foot button:active {
+  transform: translateY(0);
+}
+
 /* Tinh chỉnh các thẻ form cấu hình */
 .rc-modal__left-col .rc-sec {
   background: var(--paper-contrast);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  padding: var(--sp-5);
-  box-shadow: var(--shadow-4);
+  border-radius: var(--r-5);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--shadow-1);
 }
 
 .rc-modal__left-col .rc-sec__title {
   margin-top: 0;
-  margin-bottom: var(--sp-5);
+  margin-bottom: var(--sp-4);
   font-family: var(--ff-sans);
   font-size: 14.5px;
   font-weight: 700;
   color: var(--ink);
   border-bottom: 1px solid var(--rule-hair);
-  padding-bottom: var(--sp-3);
+  padding-bottom: var(--sp-2);
   text-transform: none;
   letter-spacing: -0.01em;
   display: flex;
@@ -1791,8 +1804,8 @@ select.tg-input--sm {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--rust-soft);
   color: var(--rust-deep);
@@ -1800,208 +1813,296 @@ select.tg-input--sm {
   font-size: 11px;
   font-weight: 700;
   margin-right: var(--sp-2);
-  border: 1px solid color-mix(in srgb, var(--rust) 25%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rust) 20%, transparent);
   flex-shrink: 0;
 }
 
-/* Phân chia Màu in */
-.tg-section-divider {
-  margin-top: var(--sp-5);
-  border-top: 1px dashed var(--rule-soft);
-  padding-top: var(--sp-5);
+/* 12-column sub-grid for modal left side form fields */
+.rc-modal__left-col .tg-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--sp-3) var(--sp-4);
 }
 
-/* Tạo viền phát sáng khi focus */
+.tg-span-12 { grid-column: span 12; }
+.tg-span-10 { grid-column: span 10; }
+.tg-span-9 { grid-column: span 9; }
+.tg-span-8 { grid-column: span 8; }
+.tg-span-7 { grid-column: span 7; }
+.tg-span-6 { grid-column: span 6; }
+.tg-span-5 { grid-column: span 5; }
+.tg-span-4 { grid-column: span 4; }
+.tg-span-3 { grid-column: span 3; }
+.tg-span-2 { grid-column: span 2; }
+
+/* Overrides for compact properties panel inputs */
+.rc-modal__left-col .tg-field {
+  gap: 5px;
+}
+.rc-modal__left-col .tg-microlabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ash);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rc-modal__left-col .tg-input {
+  min-height: 36px;
+  font-size: 13px;
+  padding: 4px var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--paper);
+}
+
 .rc-modal__left-col .tg-input:focus {
   border-color: var(--rust);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
+  box-shadow: 0 0 0 3px var(--rust-soft);
   outline: none;
 }
 
-/* Định nghĩa giao diện kết quả kiểu hóa đơn Receipt */
-.rc-modal__right-col .tg-hien {
-  background: var(--paper-contrast);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  padding: var(--sp-5);
+/* Redesigned Segmented Control for Modal */
+.rc-modal__left-col .tg-seg {
   display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-  box-shadow: var(--shadow-4);
+  gap: 1px;
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: 2px;
+  width: 100%;
+}
+.rc-modal__left-col .tg-seg__btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  border-radius: var(--r-2);
+  min-height: 30px;
+  padding: 2px 6px;
+  font-size: 12.5px;
+  text-align: center;
+  color: var(--ash);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+.rc-modal__left-col .tg-seg__btn:hover {
+  color: var(--ink);
+}
+.rc-modal__left-col .tg-seg__btn--on {
+  background: var(--paper);
+  border-color: var(--rule);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.08);
+}
+
+/* Timeline Flow layout for Step 4 */
+.tg-timeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.tg-timeline-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.tg-timeline-arrow-wrap {
+  display: inline-flex;
+  align-items: center;
   position: relative;
 }
-
-.rc-modal__right-col .tg-hien::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 4px;
-  background: repeating-linear-gradient(
-    90deg,
-    var(--rust) 0px,
-    var(--rust) 10px,
-    var(--amber) 10px,
-    var(--amber) 20px
-  );
-  border-radius: var(--r-6) var(--r-6) 0 0;
-}
-
-.rc-modal__right-col .tg-hien__item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-bottom: var(--sp-3);
-  border-bottom: 1px dashed var(--rule);
-}
-
-.rc-modal__right-col .tg-hien__item:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.rc-modal__right-col .tg-hien__k {
-  font-family: var(--ff-sans);
-  font-size: 13px;
-  color: var(--ash);
-  font-weight: 500;
-}
-
-.rc-modal__right-col .tg-hien__v {
-  font-family: var(--ff-mono);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-
-/* Sơ đồ bình bài dạng card */
-.rc-modal__right-col .tg-imp-card {
+.tg-timeline-select-arrow {
+  appearance: none;
+  -webkit-appearance: none;
   background: var(--paper-contrast);
   border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  padding: var(--sp-5);
-  box-shadow: var(--shadow-4);
+  border-radius: var(--r-pill);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-align-last: center;
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  color: var(--ash);
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  transition: all var(--duration-fast) var(--easing-standard);
+  text-indent: 0;
+  line-height: 1;
+}
+.tg-timeline-select-arrow:hover {
+  background: var(--rust-soft);
+  border-color: var(--rust);
+  color: var(--rust-deep);
+  transform: scale(1.15);
+  box-shadow: 0 2px 4px rgba(20, 19, 15, 0.08);
+}
+.tg-timeline-select-arrow option {
+  background: var(--paper);
+  color: var(--ink);
+  text-align: left;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+}
+
+/* Right column styling overrides */
+.rc-modal__right-col .tg-imp-card {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--shadow-1);
 }
 
 .rc-modal__right-col .tg-imp-card__title {
   font-family: var(--ff-sans);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ash);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
   margin-bottom: var(--sp-4);
-}
-
-/* Khối SỐ TỜ (tính live) — 2 số tờ + ô Bù/Hao nhập tay inline. */
-.tg-sheetbox {
-  margin-top: var(--sp-4);
-  background: var(--paper-contrast);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  padding: var(--sp-5);
-  box-shadow: var(--shadow-4);
-}
-.tg-sheetbox__title {
-  font-family: var(--ff-sans);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--ash);
-  margin-bottom: var(--sp-3);
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-.tg-sheetbox__hint {
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--ash-2);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.tg-sheetrow {
+
+/* Compact receipt style estimation sheetbox */
+.rc-modal__right-col .tg-sheetbox {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--shadow-1);
+  margin-top: 0;
+}
+.rc-modal__right-col .tg-sheetbox__title {
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: var(--sp-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rc-modal__right-col .tg-sheetrow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--sp-3);
-  padding: 5px 0;
-  font-size: 13px;
+  padding: var(--sp-2) 0;
+  font-size: 13.5px;
   color: var(--ash);
+  border-bottom: 1px dashed var(--rule-soft);
 }
-.tg-sheetrow b {
+.rc-modal__right-col .tg-sheetrow:last-of-type {
+  border-bottom: none;
+}
+.rc-modal__right-col .tg-sheetrow b {
   font-family: var(--ff-mono);
   color: var(--ink);
-  font-weight: 600;
+  font-weight: 700;
+  font-size: 14.5px;
 }
-.tg-sheetrow--total {
-  border-top: 1px dashed var(--rule-soft);
-  margin-top: 2px;
-  padding-top: 7px;
+.rc-modal__right-col .tg-sheetrow--total {
+  border-top: 1.5px solid var(--rule);
+  border-bottom: 1.5px solid var(--rule);
+  margin: var(--sp-2) 0;
+  padding: var(--sp-3) var(--sp-2);
+  background: color-mix(in srgb, var(--paper-contrast) 40%, transparent);
 }
-.tg-sheetrow--total span {
-  font-weight: 600;
+.rc-modal__right-col .tg-sheetrow--total span {
+  font-weight: 700;
   color: var(--ink);
 }
-.tg-sheetrow--total b {
-  font-size: 15px;
-  color: var(--heat, var(--ink));
+.rc-modal__right-col .tg-sheetrow--total b {
+  font-size: 17px;
+  color: var(--rust-deep);
 }
-.tg-sheetinput {
-  width: 84px;
+.rc-modal__right-col .tg-sheetinput {
+  width: 80px;
+  min-height: 28px;
   text-align: right;
   font-family: var(--ff-mono);
   font-size: 13px;
-  padding: 4px 8px;
+  padding: 2px 8px;
   border: 1px solid var(--rule);
-  border-radius: var(--r-4);
-  background: var(--paper);
+  border-radius: var(--r-2);
+  background: var(--paper-contrast);
   color: var(--ink);
 }
-.tg-sheetinput:focus {
+.rc-modal__right-col .tg-sheetinput:focus {
   outline: none;
-  border-color: var(--heat, var(--ink));
+  border-color: var(--rust);
 }
-.tg-sheetbox__foot {
+.rc-modal__right-col .tg-sheetbox__foot {
   margin-top: var(--sp-3);
-  padding-top: 7px;
-  border-top: 1px solid var(--rule-soft);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
   font-family: var(--ff-mono);
-  font-size: 11px;
-  color: var(--ash-2);
+  font-size: 11.5px;
+  color: var(--ash);
+  text-align: center;
+  line-height: 1.4;
 }
-.tg-sheetrow__lbl {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-/* Toggle nhỏ bật/tắt bù hao công đoạn tự (ngay trong khối Số tờ). */
-.tg-minitoggle {
-  font-family: var(--ff-mono);
+
+/* Modern green/moss state switches for automatic spoilage */
+.rc-modal__right-col .tg-minitoggle {
+  font-family: var(--ff-sans);
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   padding: 2px 8px;
   border-radius: var(--r-pill);
-  border: 1px solid var(--rule);
-  background: var(--paper);
-  color: var(--ash-2);
+  border: 1px solid var(--rule-soft);
+  background: var(--paper-contrast);
+  color: var(--ash);
   cursor: pointer;
-  transition: background-color var(--duration-fast) var(--easing-standard),
-    color var(--duration-fast) var(--easing-standard),
-    border-color var(--duration-fast) var(--easing-standard);
+  transition: all var(--duration-fast) var(--easing-standard);
 }
-.tg-minitoggle--on {
-  background: var(--charcoal, #2b2a27);
-  border-color: var(--charcoal, #2b2a27);
-  color: var(--on-charcoal, #fff);
-}
-.tg-minitoggle:focus-visible {
-  outline: 2px solid var(--rust);
-  outline-offset: 2px;
+.rc-modal__right-col .tg-minitoggle--on {
+  background: var(--moss-soft);
+  border-color: var(--moss);
+  color: var(--moss-deep);
 }
 
-/* Tự co giãn trên mobile */
+/* Auto/Revert styles inside fields */
+.tg-tag--auto {
+  background: var(--moss-soft) !important;
+  color: var(--moss-deep) !important;
+  border: 1px solid var(--moss) !important;
+  font-size: 10.5px !important;
+  padding: 2px 6px !important;
+  border-radius: var(--r-pill);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.tg-revert {
+  font-size: 10.5px;
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border: 1px solid var(--rust);
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+.tg-revert:hover {
+  background: var(--rust);
+  color: #fff;
+}
+
+/* Responsiveness overrides */
 @media (max-width: 992px) {
   .rc-modal {
     width: 96vw;
@@ -2009,6 +2110,11 @@ select.tg-input--sm {
   }
   .rc-modal__body-grid {
     grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .rc-modal__left-col,
+  .rc-modal__right-col {
+    overflow-y: visible;
   }
   .rc-modal__right-col {
     border-left: none;

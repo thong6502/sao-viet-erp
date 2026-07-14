@@ -12,9 +12,10 @@ interface Props {
   daiTP: number; // ③ mm
   rongTP: number; // ③ mm
   chuaMm: number; // tổng 5 chừa (mm) trừ mỗi chiều
+  soCon: number; // Số con hiện tại (có thể được đè tay)
 }
 
-export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm }: Props) {
+export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm, soCon }: Props) {
   const { token } = useAuth();
   const [lay, setLay] = useState<BinhBaiOut | null>(null);
   const [pending, setPending] = useState(false);
@@ -79,11 +80,17 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm }
   const cellW = rotated ? daiTP : rongTP; // theo trục X (rộng ②)
   const cellH = rotated ? rongTP : daiTP; // theo trục Y (dài ②)
 
-  const pieces: { x: number; y: number }[] = [];
+  const pieces: { x: number; y: number; used: boolean }[] = [];
   if (con > 0) {
+    let index = 0;
     for (let r = 0; r < rows; r++) {
       for (let cix = 0; cix < cols; cix++) {
-        pieces.push({ x: inset + cix * cellW, y: inset + r * cellH });
+        pieces.push({
+          x: inset + cix * cellW,
+          y: inset + r * cellH,
+          used: index < soCon,
+        });
+        index++;
       }
     }
   }
@@ -99,7 +106,7 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm }
           role="img"
           aria-label={
             con > 0
-              ? `Sơ đồ bình bài: ${con} con mỗi tờ in`
+              ? `Sơ đồ bình bài: ${soCon} con mỗi tờ in (tổng ${con})`
               : "Khổ thành phẩm lớn hơn khổ tờ in — không vừa"
           }
         >
@@ -128,14 +135,14 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm }
           {pieces.map((p, i) => (
             <g key={i}>
               <rect
-                className="tg-imp__piece"
+                className={`tg-imp__piece${p.used ? "" : " tg-imp__piece--unused"}`}
                 x={p.x}
                 y={p.y}
                 width={cellW}
                 height={cellH}
                 vectorEffect="non-scaling-stroke"
               />
-              {showIndex && (
+              {p.used && showIndex && (
                 <text
                   className="tg-imp__pnum"
                   x={p.x + cellW / 2}
@@ -166,10 +173,17 @@ export function ImpositionDiagram({ khoInDai, khoInRong, daiTP, rongTP, chuaMm }
       <div className="tg-imp__caption">
         {con > 0 ? (
           <>
-            <span className="tg-imp__con">{con}</span>
+            <span className="tg-imp__con">{soCon}</span>
             <span className="tg-imp__con-unit">con/tờ</span>
+            {soCon !== con && (
+              <span className="tg-imp__overridden-hint" style={{ fontSize: "10.5px", color: "var(--ash-2)", marginLeft: "2px" }}>
+                (gốc {con})
+              </span>
+            )}
             <span className="tg-imp__sep">·</span>
-            <span className="tg-imp__eff">hiệu suất {lay?.hieu_suat ?? 0}%</span>
+            <span className="tg-imp__eff">
+              hiệu suất {Math.round((soCon / Math.max(1, con)) * (lay?.hieu_suat ?? 0))}%
+            </span>
             <span className="tg-imp__grid">
               {cols}×{rows}
               {rotated ? " · xoay 90°" : ""}
