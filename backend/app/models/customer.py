@@ -264,6 +264,38 @@ class CustomerCareTask(Base):
     )
 
 
+class CustomerNote(Base):
+    """Ghi chú TỰ DO của team về một khách (tab "Ghi chú"). Khác hẳn:
+      - CustomerCareEvent (Chăm sóc): việc ĐÃ LÀM, có loại + timeline;
+      - AuditLog / mốc chứng từ (Nhật ký): sự kiện hệ thống.
+    Đây là LƯU Ý dùng chung ("khách khó tính · thích giao sáng · chốt qua Zalo nhanh nhất").
+    `pinned` đẩy ghi chú quan trọng lên đầu; `updated_at` chỉ set khi SỬA NỘI DUNG (None =
+    chưa sửa → FE hiện "đã sửa" khi != None; ghim/bỏ ghim KHÔNG tính là sửa). Xem cần quyền
+    `read`; thêm/sửa/xóa/ghim cần quyền `update` (không cần quyền tài chính). Bảng MỚI nên
+    create_all tự tạo — không cần migration cột. KHÔNG ghi audit (giữ tách khỏi Nhật ký)."""
+
+    __tablename__ = "customer_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customers.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    body: Mapped[str] = mapped_column(String(4000), nullable=False)
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    # Chỉ set khi sửa NỘI DUNG (None = chưa sửa). Không dùng onupdate để ghim không bump.
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class CustomerAttachment(Base):
     """File đính kèm hồ sơ khách hàng. Bytes nằm dưới <backend>/static/crm và được serve
     read-only tại /static; chỉ lưu path ở đây (mirror employee_attachments)."""

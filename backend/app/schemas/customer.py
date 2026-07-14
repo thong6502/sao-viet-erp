@@ -226,6 +226,38 @@ class TagsOut(BaseModel):
     items: list[TagOut]
 
 
+# --- Ghi chú tự do (tab Ghi chú — lưu ý team về khách) --------------------------
+
+
+class NoteIn(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class NoteUpdateIn(BaseModel):
+    """Sửa ghi chú. Cả hai optional để PUT lo được RIÊNG LẺ: chỉ sửa nội dung, hoặc chỉ
+    bật/tắt ghim. `body=None` → không đụng nội dung; `pinned=None` → không đụng ghim."""
+
+    body: str | None = Field(default=None, max_length=4000)
+    pinned: bool | None = None
+
+
+class NoteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    body: str
+    pinned: bool
+    created_at: datetime
+    updated_at: datetime | None = None
+    # `edited` = đã sửa nội dung (updated_at != None). `author_name` do router nạp.
+    edited: bool = False
+    author_name: str | None = None
+
+
+class NotesOut(BaseModel):
+    items: list[NoteOut]
+
+
 # --- Chăm sóc khách hàng (#20/#27/#28) -----------------------------------------
 
 
@@ -473,6 +505,10 @@ __all__ = [
     "CustomerCreate",
     "CustomerUpdate",
     "CustomerFinancialIn",
+    "NoteIn",
+    "NoteUpdateIn",
+    "NoteOut",
+    "NotesOut",
     "DuplicateWarn",
     "ContactIn",
     "ContactOut",

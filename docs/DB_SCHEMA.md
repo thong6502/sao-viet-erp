@@ -427,6 +427,30 @@ lưu path ở đây (mirror `employee_attachments` / `quote_attachments`).
 
 ---
 
+### `customer_notes`
+
+**Purpose:** ghi chú TỰ DO của team về một khách (tab "Ghi chú"). Lưu ý dùng chung ("khách
+khó tính · thích giao sáng · chốt qua Zalo nhanh nhất"). Khác `customer_care_events` (việc ĐÃ
+LÀM, có loại) và Nhật ký (audit + mốc chứng từ). Bảng MỚI → `create_all` tự tạo, KHÔNG cần
+migration. KHÔNG ghi audit (giữ tách khỏi Nhật ký).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `customer_id` | `Integer` → `INTEGER` | **FK→customers.id** (CASCADE), **IX** | no | — | Khách hàng sở hữu ghi chú. |
+| `body` | `String(4000)` → `VARCHAR(4000)` | — | no | — | Nội dung ghi chú (text tự do). |
+| `pinned` | `Boolean` → `BOOLEAN` | — | no | `false` | Ghim ghi chú quan trọng lên đầu danh sách. |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người ghi. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Thời điểm ghi. |
+| `updated_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | CHỈ set khi sửa NỘI DUNG (bật/tắt ghim không bump); NULL = chưa sửa → FE hiện "đã sửa" khi != NULL. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `ix_customer_notes_customer_id` on `customer_id`.
+- Foreign keys: `customer_id FK→customers.id` (ON DELETE CASCADE), `created_by FK→users.id`.
+
+---
+
 ### `products`
 
 **Purpose:** the Sản phẩm in catalog head (Product) — spec-07-san-pham. One row per

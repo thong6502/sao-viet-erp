@@ -38,6 +38,7 @@ from ..models.customer import (
     CustomerCareEvent,
     CustomerCareTask,
     CustomerContact,
+    CustomerNote,
 )
 from ..models.role import SCOPE_OWN
 from ..ports.customer_finance_port import (
@@ -627,6 +628,52 @@ class CustomerService:
             target=f"customer:{customer_id}",
             detail=f"Gỡ nhãn: {tag.label}",
         )
+
+    # --- ghi chú tự do (tab Ghi chú — lưu ý team về khách) ----------------------
+
+    def list_notes(self, *, customer_id: int, scope: str, actor) -> list[CustomerNote]:
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        return self.customers.list_notes(customer_id)
+
+    def add_note(self, *, customer_id: int, scope: str, actor, body: str) -> CustomerNote:
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        body = (body or "").strip()
+        if not body:
+            raise CustomerValidationError("Nội dung ghi chú là bắt buộc.")
+        # KHÔNG ghi audit: giữ ghi chú TÁCH khỏi Nhật ký (audit target=customer:<id> sẽ
+        # hiện trong tab Nhật ký).
+        return self.customers.add_note(customer_id, body=body, created_by=actor.id)
+
+    def update_note(
+        self, *, customer_id: int, note_id: int, scope: str, actor,
+        body: str | None = None, pinned: bool | None = None,
+    ) -> CustomerNote:
+        """Sửa nội dung và/hoặc bật-tắt ghim. `updated_at` chỉ bump khi NỘI DUNG đổi thật
+        (ghim không tính là sửa). Không có gì để đổi → trả nguyên trạng."""
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        note = self.customers.get_note(note_id)
+        if note is None or note.customer_id != customer_id:
+            raise CustomerNotFound("Không tìm thấy ghi chú.")
+        fields: dict = {}
+        if body is not None:
+            body = body.strip()
+            if not body:
+                raise CustomerValidationError("Nội dung ghi chú là bắt buộc.")
+            if body != note.body:
+                fields["body"] = body
+                fields["updated_at"] = datetime.now(timezone.utc)
+        if pinned is not None:
+            fields["pinned"] = bool(pinned)
+        if fields:
+            note = self.customers.update_note(note, **fields)
+        return note
+
+    def delete_note(self, *, customer_id: int, note_id: int, scope: str, actor) -> None:
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        note = self.customers.get_note(note_id)
+        if note is None or note.customer_id != customer_id:
+            raise CustomerNotFound("Không tìm thấy ghi chú.")
+        self.customers.delete_note(note)
 
     # --- chăm sóc khách hàng (#20/#27/#28) --------------------------------------
 

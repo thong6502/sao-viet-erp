@@ -20,6 +20,7 @@ import {
   type CustomerFinancialInput,
   type CustomerKind,
   type CustomerKpis,
+  type CustomerNote,
   type CustomerRow,
   type DuplicateWarn,
   type FollowupRow,
@@ -77,6 +78,8 @@ import {
   Zap,
   CreditCard,
   Droplets,
+  StickyNote,
+  Pin,
 } from "lucide-react";
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
@@ -1231,7 +1234,7 @@ function SortBtn({
 // Object-page slide-over
 // =============================================================================
 
-type Tab = "dashboard" | "orders" | "quotes" | "care" | "contacts" | "addresses" | "files" | "audit";
+type Tab = "dashboard" | "orders" | "quotes" | "care" | "notes" | "contacts" | "addresses" | "files" | "audit";
 
 function CustomerObjectPage({
   customerId,
@@ -1351,6 +1354,7 @@ function CustomerObjectPage({
                   ["orders", "Lịch sử mua hàng", <ReceiptText size={14} key="i" />, dash.orders_total],
                   ["quotes", "Lịch sử báo giá", <FileText size={14} key="i" />, dash.quotes_total],
                   ["care", "Chăm sóc", <HeartHandshake size={14} key="i" />, null],
+                  ["notes", "Ghi chú", <StickyNote size={14} key="i" />, null],
                   ["contacts", "Liên hệ", <Users size={14} key="i" />, null],
                   ["addresses", "Giao hàng", <MapPin size={14} key="i" />, null],
                   ["files", "Tài liệu", <Paperclip size={14} key="i" />, null],
@@ -1393,6 +1397,7 @@ function CustomerObjectPage({
                 />
               )}
               {tab === "care" && <CareTab customerId={customerId} />}
+              {tab === "notes" && <NotesTab customerId={customerId} />}
               {tab === "contacts" && <ContactsTab customerId={customerId} />}
               {tab === "addresses" && <AddressesTab customerId={customerId} />}
               {tab === "files" && <AttachmentsTab customerId={customerId} />}
@@ -2707,6 +2712,210 @@ function TagModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// --- Ghi chú tab (lưu ý tự do của team về khách; ghim + sửa/xóa) ---------------
+
+function NotesTab({ customerId }: { customerId: number }) {
+  const { token } = useAuth();
+  const canUpdate = useCan()("khach_hang", "update");
+  const [notes, setNotes] = useState<CustomerNote[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editBody, setEditBody] = useState("");
+
+  const reload = useCallback(() => {
+    if (!token) return;
+    api.customers
+      .notes(token, customerId)
+      .then((r) => setNotes(r.items))
+      .catch(() => setError("Không tải được ghi chú."));
+  }, [token, customerId]);
+
+  useEffect(() => {
+    setNotes(null);
+    setError(null);
+    reload();
+  }, [reload]);
+
+  async function add() {
+    if (!token || busy || !draft.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.customers.addNote(token, customerId, draft.trim());
+      setDraft("");
+      reload();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Thêm ghi chú không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveEdit(n: CustomerNote) {
+    if (!token || !editBody.trim()) return;
+    try {
+      await api.customers.updateNote(token, customerId, n.id, { body: editBody.trim() });
+      setEditId(null);
+      setEditBody("");
+      reload();
+    } catch {
+      setError("Lưu ghi chú không thành công.");
+    }
+  }
+
+  async function togglePin(n: CustomerNote) {
+    if (!token) return;
+    try {
+      await api.customers.updateNote(token, customerId, n.id, { pinned: !n.pinned });
+      reload();
+    } catch {
+      setError("Cập nhật ghim không thành công.");
+    }
+  }
+
+  async function remove(n: CustomerNote) {
+    if (!token) return;
+    if (!window.confirm("Xóa ghi chú này?")) return;
+    try {
+      await api.customers.deleteNote(token, customerId, n.id);
+      reload();
+    } catch {
+      setError("Xóa ghi chú không thành công.");
+    }
+  }
+
+  if (notes === null) return <p className="kh__muted">Đang tải…</p>;
+
+  return (
+    <div className="kh__notes">
+      {canUpdate && (
+        <div className="kh__note-composer">
+          <textarea
+            className="input kh__note-input"
+            rows={2}
+            placeholder="Thêm ghi chú về khách (vd: thích giao buổi sáng, chốt qua Zalo nhanh nhất, hay trả trễ…)"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") add();
+            }}
+          />
+          <div className="kh__note-composer-actions">
+            <span className="kh__note-hint">⌘/Ctrl + Enter để lưu nhanh</span>
+            <Button
+              type="button"
+              variant="primary"
+              loading={busy}
+              disabled={!draft.trim()}
+              onClick={add}
+            >
+              <Plus size={14} /> Thêm ghi chú
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <p className="kh__err" role="alert">
+          {error}
+        </p>
+      )}
+
+      {notes.length === 0 ? (
+        <p className="kh__muted kh__note-empty">
+          Chưa có ghi chú nào cho khách này.
+          {canUpdate && " Thêm lưu ý đầu tiên ở trên."}
+        </p>
+      ) : (
+        <ul className="kh__note-list">
+          {notes.map((n) => (
+            <li key={n.id} className={`kh__note${n.pinned ? " is-pinned" : ""}`}>
+              {editId === n.id ? (
+                <div className="kh__note-edit">
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                  />
+                  <div className="kh__note-edit-actions">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setEditId(null);
+                        setEditBody("");
+                      }}
+                    >
+                      Huỷ
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={!editBody.trim()}
+                      onClick={() => saveEdit(n)}
+                    >
+                      Lưu
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="kh__note-body">
+                    {n.pinned && <Pin size={12} className="kh__note-pin-ic" />}
+                    <span>{n.body}</span>
+                  </div>
+                  <div className="kh__note-meta">
+                    <span className="kh__note-author">
+                      {n.author_name || "—"} · {fmtDateTime(n.created_at)}
+                      {n.edited && n.updated_at && (
+                        <em className="kh__note-edited"> · đã sửa {fmtDateTime(n.updated_at)}</em>
+                      )}
+                    </span>
+                    {canUpdate && (
+                      <span className="kh__note-actions">
+                        <button
+                          type="button"
+                          className={`kh__note-act${n.pinned ? " is-on" : ""}`}
+                          title={n.pinned ? "Bỏ ghim" : "Ghim lên đầu"}
+                          onClick={() => togglePin(n)}
+                        >
+                          <Pin size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="kh__note-act"
+                          title="Sửa"
+                          onClick={() => {
+                            setEditId(n.id);
+                            setEditBody(n.body);
+                          }}
+                        >
+                          <PencilLine size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="kh__note-act kh__note-act--danger"
+                          title="Xóa"
+                          onClick={() => remove(n)}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

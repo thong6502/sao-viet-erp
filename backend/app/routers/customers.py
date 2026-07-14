@@ -75,6 +75,10 @@ from ..schemas.customer import (
     ImportResultOut,
     ImportRowResult,
     MonthPointOut,
+    NoteIn,
+    NoteOut,
+    NotesOut,
+    NoteUpdateIn,
     OrderHistoryOut,
     OrderHistoryRowOut,
     ProductSliceOut,
@@ -1333,6 +1337,100 @@ def delete_attachment(
     try:
         svc.delete_attachment(
             customer_id=customer_id, attachment_id=attachment_id,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+
+
+# --- ghi chú tự do (tab Ghi chú — lưu ý team về khách) --------------------------
+
+
+def _note_out(n, names: dict[int, str]) -> NoteOut:
+    out = NoteOut.model_validate(n)
+    out.edited = n.updated_at is not None
+    if n.created_by is not None:
+        out.author_name = names.get(n.created_by)
+    return out
+
+
+@router.get("/{customer_id}/notes", response_model=NotesOut)
+def list_notes(
+    customer_id: int,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> NotesOut:
+    """Ghi chú của khách — ghim lên đầu, còn lại mới-nhất-trước. Ai xem được hồ sơ đều xem."""
+    try:
+        items = svc.list_notes(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    names = _sale_names(users, {n.created_by for n in items if n.created_by})
+    return NotesOut(items=[_note_out(n, names) for n in items])
+
+
+@router.post("/{customer_id}/notes", response_model=NoteOut, status_code=201)
+def add_note(
+    customer_id: int,
+    payload: NoteIn,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> NoteOut:
+    try:
+        note = svc.add_note(
+            customer_id=customer_id, scope=_scope_for(authz, user), actor=user,
+            body=payload.body,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    names = _sale_names(users, {note.created_by} if note.created_by else set())
+    return _note_out(note, names)
+
+
+@router.put("/{customer_id}/notes/{note_id}", response_model=NoteOut)
+def update_note(
+    customer_id: int,
+    note_id: int,
+    payload: NoteUpdateIn,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> NoteOut:
+    """Sửa nội dung và/hoặc bật-tắt ghim (PUT lo cả hai; ghim không tính là 'đã sửa')."""
+    try:
+        note = svc.update_note(
+            customer_id=customer_id, note_id=note_id,
+            scope=_scope_for(authz, user), actor=user,
+            body=payload.body, pinned=payload.pinned,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    names = _sale_names(users, {note.created_by} if note.created_by else set())
+    return _note_out(note, names)
+
+
+@router.delete("/{customer_id}/notes/{note_id}", status_code=204)
+def delete_note(
+    customer_id: int,
+    note_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    try:
+        svc.delete_note(
+            customer_id=customer_id, note_id=note_id,
             scope=_scope_for(authz, user), actor=user,
         )
     except (CustomerNotFound, CustomerForbidden):

@@ -695,6 +695,18 @@ export interface CustomerFinancialInput {
   margin_max_pct?: number | null;
 }
 
+/** Một ghi chú tự do của team về khách (tab Ghi chú). */
+export interface CustomerNote {
+  id: number;
+  body: string;
+  pinned: boolean;
+  created_at: string;
+  updated_at?: string | null;
+  /** Đã sửa nội dung (ghim không tính). */
+  edited: boolean;
+  author_name?: string | null;
+}
+
 export interface CustomerListParams {
   q?: string;
   sale?: number | null;
@@ -4172,6 +4184,32 @@ export const api = {
     },
     deleteAttachment(token: string, id: number, attachmentId: number): Promise<void> {
       return authed<void>(`/api/customers/${id}/attachments/${attachmentId}`, token, {
+        method: "DELETE",
+      });
+    },
+    // --- ghi chú tự do (tab Ghi chú) ---
+    notes(token: string, id: number): Promise<{ items: CustomerNote[] }> {
+      return authed<{ items: CustomerNote[] }>(`/api/customers/${id}/notes`, token);
+    },
+    addNote(token: string, id: number, body: string): Promise<CustomerNote> {
+      return authed<CustomerNote>(`/api/customers/${id}/notes`, token, {
+        method: "POST",
+        body: JSON.stringify({ body }),
+      });
+    },
+    updateNote(
+      token: string,
+      id: number,
+      noteId: number,
+      input: { body?: string; pinned?: boolean },
+    ): Promise<CustomerNote> {
+      return authed<CustomerNote>(`/api/customers/${id}/notes/${noteId}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    deleteNote(token: string, id: number, noteId: number): Promise<void> {
+      return authed<void>(`/api/customers/${id}/notes/${noteId}`, token, {
         method: "DELETE",
       });
     },
