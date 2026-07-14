@@ -1,7 +1,8 @@
-"""BG-1 — Báo giá dựng lại nguồn: 1 Phiếu tính giá (PTG) → 1 Báo giá.
+"""BG-1 — Báo giá dựng lại nguồn: 1 Phiếu tính giá (PTG) → NHIỀU Báo giá.
 
 Kiểm: tạo báo giá TỪ 1 PTG (dòng = mỗi sản phẩm PhieuThanhPhan, giá vốn khóa = gia_von_tp, markup mặc
-định 20% → giá bán); guard 1 PTG → 1 BG đang hiệu lực (409); endpoint /by-phieu tra báo giá của PTG.
+định 20% → giá bán); mỗi lần bấm "Báo giá" tạo 1 phiếu MỚI (không ghi tiếp phiếu cũ); endpoint
+/by-phieu tra báo giá của PTG.
 """
 from __future__ import annotations
 
@@ -62,15 +63,17 @@ def test_create_quote_from_ptg_one_line_per_product(client):
     assert round(ruot["margin_percent"]) == 20
 
 
-def test_one_ptg_one_active_quote(client):
+def test_ptg_can_spawn_multiple_quotes(client):
     token = _token(client)
     pid = _seed_ptg()
+    # Mỗi lần bấm "Báo giá" từ 1 PTG → tạo 1 phiếu báo giá MỚI (1 PTG → nhiều BG).
     r1 = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token))
     assert r1.status_code == 201
-    # PTG đã có báo giá đang hiệu lực → tạo cái thứ 2 bị chặn 409.
     r2 = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token))
-    assert r2.status_code == 409
-    assert "hiệu lực" in r2.json()["detail"].lower()
+    assert r2.status_code == 201, r2.text
+    # 2 báo giá khác nhau (mã khác, id khác) — không ghi tiếp phiếu cũ.
+    assert r1.json()["id"] != r2.json()["id"]
+    assert r1.json()["code"] != r2.json()["code"]
 
 
 def test_by_phieu_lookup(client):

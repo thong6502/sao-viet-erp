@@ -253,13 +253,40 @@ def test_requote_new_version(client):
     q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
     client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
 
-    r = client.post(f"/api/quotations/{q['id']}/requote", headers=_h(token))
+    # Tạo phiên bản mới BẮT BUỘC ghi chú — thiếu → 422.
+    r0 = client.post(f"/api/quotations/{q['id']}/requote", json={"change_reason": "  "}, headers=_h(token))
+    assert r0.status_code == 422, r0.text
+
+    r = client.post(f"/api/quotations/{q['id']}/requote",
+                    json={"change_reason": "KH đổi số lượng"}, headers=_h(token))
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["version"] == 2
     assert len(body["versions"]) == 2
     # phiên bản cũ giữ nguyên trong lịch sử
     assert {v["version"] for v in body["versions"]} == {1, 2}
+    # ghi chú in vào phiên bản mới (Lịch sử phiên bản)
+    v2 = next(v for v in body["versions"] if v["version"] == 2)
+    assert v2["change_reason"] == "KH đổi số lượng"
+
+
+def test_activity_feed_records_who_did_what(client):
+    """Feed Hoạt động = nhật ký THẬT (ai làm gì): mọi thao tác để lại dấu vết + tên người."""
+    token = _admin_token(client)
+    eid, opts = _mk_estimate()
+    q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
+    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
+
+    r = client.get(f"/api/quotations/{q['id']}/activity", headers=_h(token))
+    assert r.status_code == 200, r.text
+    items = r.json()["items"]
+    actions = [it["action"] for it in items]
+    assert "create_quote" in actions
+    assert "transition_sent" in actions
+    # có TÊN người thao tác (biết ai làm) — không rỗng
+    assert any(it["actor_name"] for it in items)
+    # mới nhất trước: gửi khách đứng trước tạo báo giá
+    assert actions.index("transition_sent") < actions.index("create_quote")
 
 
 # --- SEAM-13 costing picker --------------------------------------------------------

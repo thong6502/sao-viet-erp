@@ -7,6 +7,7 @@ import {
   api,
   type EnumOption,
   type PinnedCustomer,
+  type QuotationActivity,
   type QuotationDetail,
   type QuotationEnumsOut,
   type QuotationRow,
@@ -524,8 +525,6 @@ function QuotationFormDialog({
   const [paymentTerms, setPaymentTerms] = useState<string>(existing?.payment_terms ?? "Tạm ứng 50% khi chốt đơn, 50% còn lại thanh toán khi giao hàng.");
   const [deliveryTerms, setDeliveryTerms] = useState<string>(existing?.delivery_terms ?? "Giao hàng tận nơi tại TP. Hồ Chí Minh.");
   const [deliveryAddress, setDeliveryAddress] = useState<string>(existing?.delivery_address ?? "");
-  const [customerNote, setCustomerNote] = useState<string>(existing?.customer_note ?? "");
-  const [internalNote, setInternalNote] = useState<string>(existing?.internal_note ?? "");
 
   const [estimates, setEstimates] = useState<{ id: number; estimate_number: string; product_name: string }[]>([]);
   const [customers, setCustomers] = useState<{ id: number; name: string; code: string }[]>([]);
@@ -806,8 +805,6 @@ function QuotationFormDialog({
           payment_terms: paymentTerms,
           delivery_terms: deliveryTerms,
           delivery_address: deliveryAddress,
-          customer_note: customerNote,
-          internal_note: internalNote,
           items: activeItems.map((item) => ({
             id: item.id,
             margin_percent: item.margin_percent,
@@ -838,8 +835,6 @@ function QuotationFormDialog({
           payment_terms: paymentTerms,
           delivery_terms: deliveryTerms,
           delivery_address: deliveryAddress,
-          customer_note: customerNote,
-          internal_note: internalNote,
         });
 
         // Backend created draft item rows. We map local items to the newly created DB item IDs and save them.
@@ -856,8 +851,6 @@ function QuotationFormDialog({
           payment_terms: paymentTerms,
           delivery_terms: deliveryTerms,
           delivery_address: deliveryAddress,
-          customer_note: customerNote,
-          internal_note: internalNote,
           items: itemIdsMapping.map((item) => ({
             id: item.id,
             margin_percent: item.margin_percent,
@@ -998,16 +991,6 @@ function QuotationFormDialog({
                 </label>
               </div>
 
-              <div className="bg__form-grid" style={{ marginTop: "16px" }}>
-                <label className="field">
-                  <span className="field__label">Ghi chú đối ngoại (In trên PDF)</span>
-                  <textarea className="input bg__textarea" value={customerNote} onChange={(e) => setCustomerNote(e.target.value)} placeholder="Ví dụ: Đơn giá đã bao gồm khuôn bế..." />
-                </label>
-                <label className="field">
-                  <span className="field__label">Ghi chú nội bộ</span>
-                  <textarea className="input bg__textarea" value={internalNote} onChange={(e) => setInternalNote(e.target.value)} placeholder="Thông tin lưu ý cho phòng sản xuất..." />
-                </label>
-              </div>
             </div>
 
             {/* Pricing spreadsheet panel */}
@@ -1295,6 +1278,31 @@ const STATUS_LABEL_SHORT: Record<string, string> = {
   cancelled: "hủy",
 };
 
+// Feed Hoạt động: action (audit backend) → [glyph, lớp màu chấm, nhãn tiếng Việt].
+const ACT_META: Record<string, [string, string, string]> = {
+  create_quote: ["+", "rust", "Tạo báo giá"],
+  update_quote: ["✎", "steel", "Cập nhật báo giá"],
+  change_order: ["⎇", "rust", "Tạo phiên bản mới"],
+  transition_pending_approval: ["⇪", "amber", "Trình duyệt"],
+  quote_exception_approved: ["✓", "moss", "Giám đốc KD duyệt"],
+  quote_exception_rejected: ["✕", "signal", "Giám đốc KD từ chối"],
+  transition_sent: ["✈", "steel", "Gửi khách"],
+  transition_accepted: ["✓", "moss", "Khách hàng đồng ý"],
+  transition_rejected: ["✕", "signal", "Khách hàng từ chối"],
+  transition_expired: ["!", "ash", "Hết hiệu lực"],
+  transition_cancelled: ["✕", "ash", "Hủy báo giá"],
+  transition_converted_to_order: ["→", "moss", "Lên đơn hàng"],
+};
+
+// Ngày + giờ cho feed Hoạt động ("ai làm gì · khi nào").
+function fmtDateTime(v: string | null): string {
+  if (!v) return "—";
+  const dt = new Date(v);
+  return isNaN(dt.getTime()) ? "—" : dt.toLocaleString("vi-VN", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
 function QuotationDetailView({
   quotationId,
   statuses,
@@ -1343,18 +1351,16 @@ function QuotationDetailView({
   const [validity, setValidity] = useState<number>(30);
   const [validUntilEdit, setValidUntilEdit] = useState<string>("");   // ngày hết hạn (editable)
   const [verNote, setVerNote] = useState("");
-  // Gộp modal "Chỉnh sửa" vào detail (bỏ modal): 4 field điều khoản/ghi chú editable ngay đây.
+  // Gộp modal "Chỉnh sửa" vào detail (bỏ modal): điều khoản giao nhận + địa chỉ giao editable ngay đây.
   const [deliveryAddressEdit, setDeliveryAddressEdit] = useState("");
   const [deliveryTermsEdit, setDeliveryTermsEdit] = useState("");
-  const [customerNoteEdit, setCustomerNoteEdit] = useState("");
-  const [internalNoteEdit, setInternalNoteEdit] = useState("");
-  const [bulkMk, setBulkMk] = useState("");   // áp chung margin %
-  const [bulkCk, setBulkCk] = useState("");   // áp chung chiết khấu đ/dòng
 
-  // Mockup (parity UI, chưa backend) — localStorage theo mã BG.
-  const [comments, setComments] = useState<{ who: string; text: string; time: string }[]>([]);
-  const [discussWho, setDiscussWho] = useState("Sales");
-  const [discussText, setDiscussText] = useState("");
+  // Feed Hoạt động — nhật ký tương tác THẬT (ai làm gì) đọc từ backend.
+  const [acts, setActs] = useState<QuotationActivity[]>([]);
+  // Tạo phiên bản mới: BẮT BUỘC ghi chú → modal nhập lý do trước khi tạo.
+  const [requoteOpen, setRequoteOpen] = useState(false);
+  const [requoteNote, setRequoteNote] = useState("");
+  // Theo dõi gửi khách (follow-up) — localStorage theo mã BG.
   const [lastContact, setLastContact] = useState<string | null>(null);
 
   const reload = useCallback(
@@ -1370,8 +1376,6 @@ function QuotationDetailView({
         setValidUntilEdit(det.valid_until ?? "");
         setDeliveryAddressEdit(det.delivery_address ?? "");
         setDeliveryTermsEdit(det.delivery_terms ?? "");
-        setCustomerNoteEdit(det.customer_note ?? "");
-        setInternalNoteEdit(det.internal_note ?? "");
         // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
         const vr = det.versions.find((v) => v.version === det.version);
         const created = vr?.created_at ?? null;
@@ -1381,8 +1385,9 @@ function QuotationDetailView({
           );
           setValidity(days > 0 ? days : 30);
         } else setValidity(30);
-        setComments(lsGet(`bgv_comments_${det.code}`, []));
         setLastContact(lsGet(`bgv_contact_${det.code}`, null));
+        // Feed Hoạt động — nhật ký THẬT (ai làm gì) từ backend.
+        api.quotations.activity(token, id).then((r) => setActs(r.items)).catch(() => setActs([]));
       } catch {
         setErr("Không tải được chi tiết báo giá.");
       }
@@ -1456,8 +1461,6 @@ function QuotationDetailView({
         payment_terms: terms,
         delivery_terms: deliveryTermsEdit,
         delivery_address: deliveryAddressEdit,
-        customer_note: customerNoteEdit,
-        internal_note: internalNoteEdit,
         items: d.items.map((it) => {
           const patch = items.find((x) => x.id === it.id);
           return {
@@ -1479,22 +1482,6 @@ function QuotationDetailView({
       setBusy(false);
     }
   }
-  // Lưu chi tiết 1 dòng (chiết khấu / làm tròn / ghi chú) — thay cho grid trong modal cũ.
-  function commitLineExtra(itemId: number, patch: { discount_amount?: number; rounding?: string; note?: string | null }) {
-    if (!editable) return;
-    persistItems([{ id: itemId, ...patch }]);
-  }
-  function applyBulkMk() {
-    if (!editable || !d || bulkMk === "") return;
-    const v = Math.max(0, Math.min(100, Number(bulkMk)));
-    persistItems(d.items.map((it) => ({ id: it.id, margin_percent: v })));
-  }
-  function applyBulkCk() {
-    if (!editable || !d || bulkCk === "") return;
-    const v = Math.max(0, Number(bulkCk));
-    persistItems(d.items.map((it) => ({ id: it.id, discount_amount: v })));
-  }
-
   function commitSingleMargin(val: number) {
     if (!editable || !d) return;
     const v = Math.max(0, Math.min(100, val));
@@ -1505,7 +1492,7 @@ function QuotationDetailView({
     const v = Math.max(0, Math.min(100, val));
     persistItems([{ id: itemId, margin_percent: v }]);
   }
-  // VAT áp CHUNG mọi dòng (VN chuẩn 0/8/10%); per-dòng chỉnh ở panel "Chi tiết định giá từng dòng".
+  // VAT áp CHUNG mọi dòng (VN chuẩn 0/8/10%).
   function commitVat(val: number) {
     if (!editable || !d) return;
     const v = Math.max(0, Math.min(100, val));
@@ -1525,8 +1512,6 @@ function QuotationDetailView({
         payment_terms: terms,
         delivery_terms: d.delivery_terms,
         delivery_address: null,
-        customer_note: d.customer_note,
-        internal_note: d.internal_note,
         items: null,
       });
       await reload(d.id);
@@ -1550,8 +1535,6 @@ function QuotationDetailView({
         payment_terms: terms,
         delivery_terms: deliveryTermsEdit,
         delivery_address: deliveryAddressEdit,
-        customer_note: customerNoteEdit,
-        internal_note: internalNoteEdit,
         items: null,
       });
       await reload(d.id);
@@ -1599,12 +1582,21 @@ function QuotationDetailView({
     }
   }
 
+  function openRequote() {
+    setRequoteNote("");
+    setErr(null);
+    setRequoteOpen(true);
+  }
   async function doRequote() {
     if (!token || !d) return;
+    const note = requoteNote.trim();
+    if (!note) { setErr("Nhập lý do/ghi chú cho phiên bản mới — bắt buộc."); return; }
     setBusy(true);
     setErr(null);
     try {
-      const nv = await api.quotations.requote(token, d.id);
+      const nv = await api.quotations.requote(token, d.id, note);
+      setRequoteOpen(false);
+      setRequoteNote("");
       setD(null);
       await reload(nv.id);
       onChanged();
@@ -1624,15 +1616,7 @@ function QuotationDetailView({
     onClose();
   }
 
-  // ---- Mockup handlers -----------------------------------------------------
-  function sendComment() {
-    const txt = discussText.trim();
-    if (!txt || !d) return;
-    const next = [...comments, { who: discussWho, text: txt, time: nowLabel() }];
-    setComments(next);
-    lsSet(`bgv_comments_${d.code}`, next);
-    setDiscussText("");
-  }
+  // ---- Follow-up handler ---------------------------------------------------
   function recordContact() {
     if (!d) return;
     const today = new Date().toLocaleDateString("vi-VN");
@@ -1644,32 +1628,6 @@ function QuotationDetailView({
     setNotice("Đã nhân bản báo giá (mô phỏng) — bản sao sẽ xuất hiện ở danh sách khi nối backend.");
   }
 
-  // ---- Activity (suy từ versions + trạng thái) -----------------------------
-  const acts: { glyph: string; cls: string; text: string; meta: string }[] = [];
-  d.versions
-    .slice()
-    .sort((a, b) => a.version - b.version)
-    .forEach((v) => {
-      acts.push({
-        glyph: "+",
-        cls: "rust",
-        text: `Tạo phiên bản v${v.version}${v.change_reason ? " · " + v.change_reason : ""}`,
-        meta: fmtDate(v.created_at),
-      });
-    });
-  const stGlyph: Record<string, [string, string]> = {
-    sent: ["✈", "steel"], accepted: ["✓", "moss"], rejected: ["✕", "signal"],
-    converted_to_order: ["→", "moss"], expired: ["!", "ash"], cancelled: ["✕", "ash"],
-  };
-  if (stGlyph[d.status]) {
-    acts.push({
-      glyph: stGlyph[d.status][0], cls: stGlyph[d.status][1],
-      text: `${labelOf(statuses, d.status)} · v${d.version}`,
-      meta: fmtDate(d.versions.find((v) => v.version === d.version)?.created_at ?? null),
-    });
-  }
-  acts.reverse();
-
   // ---- Follow-up (chỉ khi 'sent') ------------------------------------------
   const curVerRow = d.versions.find((v) => v.version === d.version);
   const sentDate = curVerRow?.created_at ?? null;
@@ -1677,9 +1635,6 @@ function QuotationDetailView({
   const stale = d.status === "sent" && sentDays > 3;
 
   const statusCls = statusChipClass(d.status);
-  const roleAv: Record<string, [string, string]> = {
-    Sales: ["r-sales", "SL"], "Cấp trên": ["r-sep", "CT"], "KTV giá": ["r-ktv", "KT"], "Kế toán": ["r-kt", "KE"],
-  };
 
   return (
     <main className="bg bgv">
@@ -1737,7 +1692,7 @@ function QuotationDetailView({
             <Button variant="accent" disabled={busy} onClick={handleCreateOrder}>🛒 Tạo đơn hàng</Button>
           )}
           {canRequote && viewingLatest && (d.status === "rejected" || d.status === "expired") && d.allowed_transitions.includes("change_order") && (
-            <Button variant="primary" disabled={busy} onClick={doRequote}>⎇ Tạo phiên bản mới</Button>
+            <Button variant="primary" disabled={busy} onClick={openRequote}>⎇ Tạo phiên bản mới</Button>
           )}
         </div>
       </div>
@@ -1886,46 +1841,9 @@ function QuotationDetailView({
             </table>
           </div>
 
-          {/* Chi tiết định giá từng dòng (gộp từ modal "Sửa chi tiết dòng" cũ — chiết khấu · làm
-              tròn · ghi chú dòng + áp chung). Chỉ hiện khi còn sửa được. */}
-          {editable && (
-            <div className="card ln-extra-card">
-              <div className="bg-card-head"><div className="title">🧮 Chi tiết định giá từng dòng</div></div>
-              <div className="ln-bulk">
-                <span className="ln-bulk-lbl">⚡ Áp chung:</span>
-                <input className="input input--sm bg__mono" style={{ width: "84px" }} type="number" placeholder="Margin %" value={bulkMk} onChange={(e) => setBulkMk(e.target.value)} />
-                <Button variant="ghost" disabled={busy} onClick={applyBulkMk} style={{ padding: "4px 8px", fontSize: "12px" }}>Set margin</Button>
-                <input className="input input--sm bg__mono" style={{ width: "120px" }} type="number" placeholder="C.khấu đ/dòng" value={bulkCk} onChange={(e) => setBulkCk(e.target.value)} />
-                <Button variant="ghost" disabled={busy} onClick={applyBulkCk} style={{ padding: "4px 8px", fontSize: "12px" }}>Set C.khấu</Button>
-              </div>
-              {d.items.map((it) => (
-                <div key={it.id} className="ln-extra-row">
-                  <span className="ln-extra-name">{it.product_name}</span>
-                  <label className="ln-extra-f">Chiết khấu (đ)
-                    <input className="input input--sm bg__mono" type="number" min={0} defaultValue={it.discount_amount} disabled={busy}
-                      onBlur={(e) => commitLineExtra(it.id, { discount_amount: Number(e.target.value) || 0 })} />
-                  </label>
-                  <label className="ln-extra-f">Làm tròn
-                    <select className="input input--sm" defaultValue="no_rounding" disabled={busy}
-                      onChange={(e) => commitLineExtra(it.id, { rounding: e.target.value })}>
-                      <option value="no_rounding">Không</option>
-                      <option value="round_up_1000">Lên 1.000</option>
-                      <option value="round_up_5000">Lên 5.000</option>
-                      <option value="round_up_10000">Lên 10.000</option>
-                    </select>
-                  </label>
-                  <label className="ln-extra-f ln-extra-note">Ghi chú dòng
-                    <input className="input input--sm" defaultValue={it.note ?? ""} disabled={busy}
-                      onBlur={(e) => commitLineExtra(it.id, { note: e.target.value || null })} />
-                  </label>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Điều khoản & ghi chú phiên bản */}
+          {/* Điều khoản & hiệu lực */}
           <div className="card">
-            <div className="bg-card-head"><div className="title">📝 Điều khoản &amp; ghi chú phiên bản</div></div>
+            <div className="bg-card-head"><div className="title">📝 Điều khoản &amp; hiệu lực</div></div>
             <div className="field-row">
               <span className="field-lbl">Điều khoản thanh toán</span>
               <textarea className="field-in" rows={2} value={terms} disabled={!editable} onChange={(e) => setTerms(e.target.value)} />
@@ -1952,18 +1870,12 @@ function QuotationDetailView({
                 {validUntilEdit ? `(${validity} ngày kể từ ngày gửi)` : "để trống = đến khi có thông báo mới"}
               </span>
             </div>
-            <div className="field-row">
-              <span className="field-lbl">Ghi chú đối ngoại (in trên PDF)</span>
-              <textarea className="field-in" rows={2} value={customerNoteEdit} disabled={!editable} onChange={(e) => setCustomerNoteEdit(e.target.value)} placeholder="Ví dụ: Đơn giá đã gồm khuôn bế…" />
-            </div>
-            <div className="field-row">
-              <span className="field-lbl">Ghi chú nội bộ</span>
-              <textarea className="field-in" rows={2} value={internalNoteEdit} disabled={!editable} onChange={(e) => setInternalNoteEdit(e.target.value)} placeholder="Thông tin lưu ý cho phòng sản xuất…" />
-            </div>
-            <div className="field-row">
-              <span className="field-lbl">Lý do / ghi chú phiên bản này</span>
-              <input className="field-in" value={verNote} disabled={!editable} onChange={(e) => setVerNote(e.target.value)} />
-            </div>
+            {verNote && (
+              <div className="field-row">
+                <span className="field-lbl">Lý do phiên bản này</span>
+                <input className="field-in" value={verNote} disabled readOnly />
+              </div>
+            )}
             {!editable && (
               <div className="ro-note" style={{ marginTop: "12px" }}>
                 👁 Phiên bản này {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"} — khóa chỉnh sửa. Bấm "Tạo phiên bản mới" để sửa.
@@ -1972,7 +1884,7 @@ function QuotationDetailView({
             <div style={{ marginTop: "14px", display: "flex", gap: "8px" }}>
               {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}>💾 Lưu nháp</Button>}
               {canRequote && !editable && d.allowed_transitions.includes("change_order") && (
-                <Button variant="primary" disabled={busy} onClick={doRequote}>⎇ Tạo phiên bản mới</Button>
+                <Button variant="primary" disabled={busy} onClick={openRequote}>⎇ Tạo phiên bản mới</Button>
               )}
             </div>
           </div>
@@ -2248,56 +2160,60 @@ function QuotationDetailView({
             </div>
           </div>
 
-          {/* Hoạt động */}
+          {/* Hoạt động — nhật ký tương tác THẬT: ai làm gì · khi nào (mọi vai trò đụng cùng phiếu) */}
           <div className="card">
             <div className="bg-card-head"><div className="title">⚡ Hoạt động</div><span className="sub">{acts.length} sự kiện</span></div>
             <div className="act-timeline">
-              {acts.map((a, i) => (
-                <div className="act-item" key={i}>
-                  <span className={`a-dot ${a.cls}`}>{a.glyph}</span>
-                  <div><div className="a-text">{a.text}</div><div className="a-meta">{a.meta}</div></div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Thảo luận */}
-          <div className="card">
-            <div className="bg-card-head"><div className="title">💬 Thảo luận</div><span className="sub">{comments.length ? comments.length + " bình luận" : ""}</span></div>
-            <div className="discuss-thread">
-              {comments.length === 0 ? (
-                <div className="discuss-empty">Chưa có thảo luận. Hãy mở đầu trao đổi về báo giá này.</div>
-              ) : comments.map((m, i) => {
-                const av = roleAv[m.who] ?? ["r-sales", (m.who || "?").slice(0, 2).toUpperCase()];
+              {acts.length === 0 ? (
+                <div className="discuss-empty">Chưa có hoạt động.</div>
+              ) : acts.map((a, i) => {
+                const m = ACT_META[a.action] ?? ["•", "ash", a.action];
                 return (
-                  <div className="dc-msg" key={i}>
-                    <span className={`dc-av ${av[0]}`}>{av[1]}</span>
-                    <div className="dc-bubble">
-                      <div className="dc-head"><span className="dc-who">{m.who}</span><span className="dc-time">{m.time}</span></div>
-                      <div className="dc-body">{m.text}</div>
+                  <div className="act-item" key={i}>
+                    <span className={`a-dot ${m[1]}`}>{m[0]}</span>
+                    <div>
+                      <div className="a-text">
+                        {m[2]}
+                        {a.actor_name && <> · <b>{a.actor_name}</b></>}
+                      </div>
+                      <div className="a-meta">{fmtDateTime(a.at)}</div>
                     </div>
                   </div>
                 );
               })}
             </div>
-            <div className="discuss-compose">
-              <select className="discuss-who" value={discussWho} onChange={(e) => setDiscussWho(e.target.value)}>
-                <option value="Sales">Sales</option>
-                <option value="Cấp trên">Cấp trên</option>
-                <option value="KTV giá">KTV giá</option>
-                <option value="Kế toán">Kế toán</option>
-              </select>
-              <input
-                placeholder="Viết bình luận về báo giá này..."
-                value={discussText}
-                onChange={(e) => setDiscussText(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") sendComment(); }}
-              />
-              <Button variant="primary" onClick={sendComment}>➤</Button>
-            </div>
           </div>
         </div>
       </div>
+
+      {requoteOpen && (
+        <div className="bg__overlay" onClick={() => setRequoteOpen(false)}>
+          <div className="card bg__dialog" style={{ maxWidth: "480px" }} onClick={(e) => e.stopPropagation()}>
+            <div className="bg__dialog-head">
+              <h2>Tạo phiên bản mới</h2>
+              <button type="button" className="bg__close" onClick={() => setRequoteOpen(false)} aria-label="Đóng">✕</button>
+            </div>
+            <div style={{ padding: "16px" }}>
+              <p style={{ margin: "0 0 10px", color: "var(--ash)", fontSize: "13px" }}>
+                Ghi rõ lý do/thay đổi cho phiên bản này — <b>bắt buộc</b> (lưu vào Hoạt động &amp; Lịch sử phiên bản).
+              </p>
+              <textarea
+                className="field-in"
+                rows={3}
+                autoFocus
+                value={requoteNote}
+                onChange={(e) => setRequoteNote(e.target.value)}
+                placeholder="Ví dụ: KH yêu cầu giảm 5% · cập nhật số lượng · đổi quy cách giấy…"
+              />
+              {err && <div className="ro-note" style={{ marginTop: "8px", color: "var(--signal)" }}>{err}</div>}
+              <div style={{ marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                <Button variant="ghost" disabled={busy} onClick={() => setRequoteOpen(false)}>Hủy</Button>
+                <Button variant="primary" disabled={busy || !requoteNote.trim()} onClick={doRequote}>⎇ Tạo phiên bản</Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showPrint && <QuotationPrintModal d={d} statuses={statuses} canDownload={canExport} onClose={() => setShowPrint(false)} />}
     </main>
@@ -2586,11 +2502,6 @@ function vnd(v: number): string {
 }
 function numf(v: number): string {
   return Math.round(v).toLocaleString("vi-VN");
-}
-function nowLabel(): string {
-  const dd = new Date();
-  const p = (n: number) => (n < 10 ? "0" : "") + n;
-  return `${p(dd.getDate())}/${p(dd.getMonth() + 1)} ${p(dd.getHours())}:${p(dd.getMinutes())}`;
 }
 function lsGet<T>(key: string, fallback: T): T {
   try {

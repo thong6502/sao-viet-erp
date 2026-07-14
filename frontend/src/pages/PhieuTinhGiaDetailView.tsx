@@ -9,6 +9,7 @@ import {
   ApiError,
   type PhieuTinhGiaOut,
   type PhieuTinhGiaColOut,
+  type PtgActivity,
   type ThanhPhanIn,
   type ThanhPhanOut,
   type ThanhPhamOut,
@@ -44,6 +45,28 @@ const LOAI_TP: Record<string, string> = {
   phu_kien: "Phụ kiện",
 };
 const loaiTpLabel = (v: string): string => LOAI_TP[v] ?? v;
+
+// Nhật ký hoạt động: action (audit backend) → [glyph, nhãn tiếng Việt].
+const PTG_ACT_META: Record<string, [string, string]> = {
+  create_ptg: ["+", "Lập phiếu tính giá"],
+  update_ptg: ["✎", "Cập nhật phiếu"],
+  delete_ptg: ["✕", "Xoá phiếu"],
+};
+
+// Ngày + giờ cho feed Hoạt động ("ai làm gì · khi nào").
+function fmtActDateTime(v: string | null): string {
+  if (!v) return "—";
+  const dt = new Date(v);
+  return isNaN(dt.getTime())
+    ? "—"
+    : dt.toLocaleString("vi-VN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+}
 
 let _uid = 0;
 const nextUid = (): string => `u${++_uid}`;
@@ -470,6 +493,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   // --- Kết quả ---
   const [result, setResult] = useState<TinhGiaPreviewOut | null>(null);
   const [warnList, setWarnList] = useState<string[]>([]);
+  // Nhật ký hoạt động THẬT (ai làm gì · khi nào) — nhiều người cùng sửa 1 phiếu.
+  const [acts, setActs] = useState<PtgActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [calcing, setCalcing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -487,6 +512,15 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setResult(out.result);
     setWarnList(out.result?.warnings ?? out.warnings ?? []);
   }, []);
+
+  // Nạp nhật ký hoạt động của phiếu (mới→cũ) từ backend.
+  const loadActs = useCallback(() => {
+    if (!token) return;
+    api.phieuTinhGia
+      .activity(token, id)
+      .then((r) => setActs(r.items))
+      .catch(() => setActs([]));
+  }, [token, id]);
 
   // Nạp 4 danh mục 1 lần.
   useEffect(() => {
@@ -506,7 +540,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     api.phieuTinhGia
       .get(token, id)
       .then((out) => {
-        if (alive) applyOut(out);
+        if (alive) {
+          applyOut(out);
+          loadActs();
+        }
       })
       .catch((e) => {
         if (alive) setErr(e instanceof ApiError ? e.message : "Không tải được phiếu.");
@@ -517,7 +554,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     return () => {
       alive = false;
     };
-  }, [token, id, applyOut]);
+  }, [token, id, applyOut, loadActs]);
 
   // ---- Chọn loại SP CHO 1 SẢN PHẨM → auto-fill routing công đoạn + tên mặc định ----
   // (Trước đây là handler cấp phiếu; nay theo TỪNG sản phẩm — mỗi SP có loại riêng.)
@@ -724,34 +761,27 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
         so_luong: qty,
         thanh_phans: comps.map(toThanhPhanIn),
       })
-      .then(applyOut)
+      .then((out) => {
+        applyOut(out);
+        loadActs(); // phản ánh ngay dòng "Cập nhật phiếu" vừa ghi.
+      })
       .catch((e) => setErr(e instanceof ApiError ? e.message : "Không tính được giá. Thử lại."))
       .finally(() => setCalcing(false));
-  }, [token, id, tenAnPham, khoThanhPham, loaiSPId, qty, comps, applyOut]);
+  }, [token, id, tenAnPham, khoThanhPham, loaiSPId, qty, comps, applyOut, loadActs]);
 
-  // BG-3: từ phiếu tính giá → mở báo giá (1 PTG → 1 BG). Chưa có → tạo. ĐÃ CÓ → ĐỒNG BỘ số mới
-  // của PTG sang báo giá (Phương án A): nháp cập nhật tại chỗ, đã chốt tạo phiên bản mới; rồi mở.
+  // BG-3: từ phiếu tính giá → LUÔN tạo 1 phiếu báo giá MỚI (1 PTG → nhiều BG). Không ghi tiếp
+  // phiếu cũ; muốn điều chỉnh 1 báo giá đã có thì dùng "Tạo phiên bản mới" TRONG phiếu đó.
   async function openOrCreateQuote() {
     if (!token || !navigate) return;
     setQuoting(true);
     setErr(null);
     try {
-      const existing = await api.quotations.byPhieu(token, id);
-      let quoteId = existing.quote_id;
-      if (quoteId == null) {
-        const q = await api.quotations.create(token, {
-          phieu_tinh_gia_id: id, customer_id: null, valid_until: null,
-          payment_terms: null, delivery_terms: null, delivery_address: null,
-          customer_note: null, internal_note: null,
-        });
-        quoteId = q.id;
-      } else {
-        // Đã có báo giá → kéo giá vốn/SL mới nhất từ PTG sang trước khi mở (nháp: tại chỗ; đã
-        // chốt: phiên bản mới). Trang Báo giá hiển thị số mới + badge phiên bản là tín hiệu.
-        const r = await api.quotations.resyncFromPhieu(token, id);
-        quoteId = r.quote_id;
-      }
-      navigate("bao-gia", { openQuoteId: quoteId });
+      const q = await api.quotations.create(token, {
+        phieu_tinh_gia_id: id, customer_id: null, valid_until: null,
+        payment_terms: null, delivery_terms: null, delivery_address: null,
+        customer_note: null, internal_note: null,
+      });
+      navigate("bao-gia", { openQuoteId: q.id });
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Không mở được báo giá cho phiếu này.");
     } finally {
@@ -1121,6 +1151,39 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
                   </div>
                 ) : null}
               </dl>
+            </section>
+
+            {/* Nhật ký hoạt động — ai làm gì · khi nào (nhiều người cùng sửa 1 phiếu) */}
+            <section className="canvas tg-info">
+              <div className="tg-info__title">⚡ Hoạt động</div>
+              {acts.length === 0 ? (
+                <p className="tg-empty__sub" style={{ margin: 0 }}>Chưa có hoạt động.</p>
+              ) : (
+                <dl className="tg-info__list">
+                  {acts.map((a, i) => {
+                    const m = PTG_ACT_META[a.action] ?? ["•", a.action];
+                    return (
+                      <div className="tg-info__row" key={i}>
+                        <dt>
+                          <span aria-hidden="true" style={{ marginRight: "6px", color: "var(--ash)" }}>
+                            {m[0]}
+                          </span>
+                          {m[1]}
+                          {a.actor_name ? (
+                            <>
+                              {" · "}
+                              <b style={{ color: "var(--ink)" }}>{a.actor_name}</b>
+                            </>
+                          ) : null}
+                        </dt>
+                        <dd className="tg-mono" style={{ fontSize: "11px", color: "var(--ash)" }}>
+                          {fmtActDateTime(a.at)}
+                        </dd>
+                      </div>
+                    );
+                  })}
+                </dl>
+              )}
             </section>
 
             {warnList.length > 0 ? (

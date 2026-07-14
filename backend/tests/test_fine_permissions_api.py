@@ -174,7 +174,7 @@ def test_assign_role_requires_assign_permission(client):
 def test_requote_requires_update_permission(client):
     # Chỉ-đọc báo giá (không Sửa) → tạo bản mới bị 403.
     token = _user_with_role("fp-requote", "bao_gia", can_read=True)
-    r = client.post("/api/quotations/1/requote", headers=_h(token))
+    r = client.post("/api/quotations/1/requote", json={"change_reason": "x"}, headers=_h(token))
     assert r.status_code == 403, r.text
 
 

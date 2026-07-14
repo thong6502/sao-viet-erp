@@ -20,6 +20,7 @@ from ..deps import get_authorization_service, require_permission
 from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
+from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.org_scope import dept_subtree_ids
 from ..schemas.phieu_tinh_gia import (
     PhieuTinhGiaCreate,
@@ -27,6 +28,8 @@ from ..schemas.phieu_tinh_gia import (
     PhieuTinhGiaListOut,
     PhieuTinhGiaOut,
     PhieuTinhGiaUpdate,
+    PtgActivityItem,
+    PtgActivityOut,
     ThanhPhanIn,
 )
 from ..services.rbac_service import AuthorizationService
@@ -143,6 +146,13 @@ def create_item(
     db.add(p)
     db.flush()
     compute_phieu_snapshot(db, p)
+    # Nhật ký hoạt động: ai LẬP phiếu, khi nào (audit.create tự commit → snapshot cùng lưu).
+    AuditLogRepository(db).create(
+        actor_user_id=user.id,
+        action="create_ptg",
+        target=f"phieu_tinh_gia:{p.id}",
+        detail=f"Lập phiếu tính giá {p.ma}",
+    )
     db.commit()
     db.refresh(p)
     return p
@@ -175,6 +185,13 @@ def update_item(
         _replace_children(p, payload.thanh_phans)
     db.flush()
     compute_phieu_snapshot(db, p)
+    # Nhật ký hoạt động: ai CẬP NHẬT phiếu, khi nào (audit.create tự commit).
+    AuditLogRepository(db).create(
+        actor_user_id=user.id,
+        action="update_ptg",
+        target=f"phieu_tinh_gia:{p.id}",
+        detail=f"Cập nhật phiếu tính giá {p.ma}",
+    )
     db.commit()
     db.refresh(p)
     return p
@@ -188,6 +205,44 @@ def delete_item(
     user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
 ) -> dict:
     p = _fetch_in_scope(db, p_id, user, authz)
+    ma = p.ma
+    pid = p.id
     db.delete(p)
     db.commit()
+    # Nhật ký hoạt động: ai XOÁ phiếu, khi nào (ghi sau khi đã xoá; giữ target theo id cũ).
+    AuditLogRepository(db).create(
+        actor_user_id=user.id,
+        action="delete_ptg",
+        target=f"phieu_tinh_gia:{pid}",
+        detail=f"Xoá phiếu tính giá {ma}",
+    )
     return {"ok": True}
+
+
+@router.get("/{p_id}/activity", response_model=PtgActivityOut)
+def phieu_activity(
+    p_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> PtgActivityOut:
+    """Nhật ký hoạt động THẬT của 1 phiếu tính giá (ai làm gì · khi nào) — nhiều vai trò
+    (KTV/sale/TP) có thể cùng sửa 1 phiếu nên mỗi thao tác để lại dấu vết. Đọc audit theo
+    target `phieu_tinh_gia:{id}`, mới→cũ, kèm TÊN người thao tác. RBAC + phạm vi qua
+    `_fetch_in_scope` (ngoài phạm vi = 404, không lộ tồn tại)."""
+    _fetch_in_scope(db, p_id, user, authz)
+    rows = AuditLogRepository(db).list_by_target(f"phieu_tinh_gia:{p_id}")
+    ids = {r.actor_user_id for r in rows if r.actor_user_id is not None}
+    names: dict[int, str] = (
+        dict(db.execute(select(User.id, User.name).where(User.id.in_(ids))).all()) if ids else {}
+    )
+    items = [
+        PtgActivityItem(
+            action=r.action,
+            actor_name=names.get(r.actor_user_id) if r.actor_user_id else None,
+            detail=r.detail,
+            at=r.created_at,
+        )
+        for r in rows
+    ]
+    return PtgActivityOut(items=items)

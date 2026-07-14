@@ -61,6 +61,11 @@ class TransitionRequest(BaseModel):
     cancel_reason: str | None = Field(default=None, max_length=500)
 
 
+class RequoteRequest(BaseModel):
+    """Tạo phiên bản mới — BẮT BUỘC ghi chú/lý do (in vào Hoạt động + Lịch sử phiên bản)."""
+    change_reason: str = Field(min_length=1, max_length=255)
+
+
 # --- outputs ------------------------------------------------------------------
 
 class CustomerDisplayOut(BaseModel):
@@ -220,6 +225,18 @@ class QuoteApprovalOut(BaseModel):
 
 class QuoteApprovalListOut(BaseModel):
     items: list[QuoteApprovalOut]
+
+
+class QuoteActivityItem(BaseModel):
+    """1 dòng nhật ký tương tác (feed Hoạt động) — ai làm gì, khi nào."""
+    action: str
+    actor_name: str | None = None
+    detail: str
+    at: datetime
+
+
+class QuoteActivityOut(BaseModel):
+    items: list[QuoteActivityItem]
 
 
 class EnumOption(BaseModel):

@@ -33,6 +33,9 @@ from ..schemas.quotation import (
     QuotationRow,
     QuotationStatsOut,
     QuotationUpdate,
+    QuoteActivityItem,
+    QuoteActivityOut,
+    RequoteRequest,
     TransitionRequest,
     VersionRow,
     QuoteItemOut,
@@ -590,6 +593,7 @@ def list_quote_approvals(
 @router.post("/{quotation_id}/requote", response_model=QuotationDetailOut, status_code=status.HTTP_201_CREATED)
 def requote_quotation(
     quotation_id: int,
+    payload: RequoteRequest,
     svc: Service,
     authz: Authz,
     # Tạo bản mới = thao tác thường: ai SỬA được báo giá thì làm được (gộp vào `update`, P8).
@@ -597,13 +601,34 @@ def requote_quotation(
 ) -> QuotationDetailOut:
     scope = _scope_for(authz, user)
     try:
-        new_v = svc.requote(quotation_id=quotation_id, scope=scope, actor=user)
+        new_v = svc.requote(
+            quotation_id=quotation_id, scope=scope, actor=user,
+            change_reason=payload.change_reason,
+        )
     except (QuotationNotFound, QuotationForbidden):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
+    except QuotationValidationError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
     except QuotationConflict as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
     return _detail(svc, new_v, scope, can_approve=authz.can(user, MODULE, "approve"),
         can_approve_exception=authz.can(user, MODULE, "approve_exception"))
+
+
+@router.get("/{quotation_id}/activity", response_model=QuoteActivityOut)
+def quotation_activity(
+    quotation_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> QuoteActivityOut:
+    """Feed Hoạt động — nhật ký tương tác THẬT (ai làm gì) của báo giá này."""
+    scope = _scope_for(authz, user)
+    try:
+        rows = svc.activity(quotation_id=quotation_id, scope=scope, actor=user)
+    except (QuotationNotFound, QuotationForbidden):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy báo giá.") from None
+    return QuoteActivityOut(items=[QuoteActivityItem(**r) for r in rows])
 
 
 # --- PDF đối ngoại ------------------------------------------------------------

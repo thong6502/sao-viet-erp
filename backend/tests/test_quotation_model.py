@@ -12,6 +12,7 @@ from app.db import Base, SessionLocal, engine
 from app.models.quotation import (
     QUOTE_STATUSES,
     STATUS_ACCEPTED,
+    STATUS_APPROVED,
     STATUS_CANCELLED,
     STATUS_CONVERTED_TO_ORDER,
     STATUS_DRAFT,
@@ -54,7 +55,7 @@ def _mk_quote(db, *, number="BGT-0001", status=STATUS_DRAFT) -> Quote:
 
 def test_status_constants_complete():
     assert QUOTE_STATUSES == (
-        STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SENT, STATUS_ACCEPTED,
+        STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_APPROVED, STATUS_SENT, STATUS_ACCEPTED,
         STATUS_REJECTED, STATUS_EXPIRED, STATUS_CONVERTED_TO_ORDER, STATUS_CANCELLED,
     )
 

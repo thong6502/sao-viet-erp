@@ -946,6 +946,14 @@ export interface PhieuTinhGiaOut {
   updated_at: string | null;
 }
 
+/** 1 dòng nhật ký hoạt động của phiếu tính giá — ai làm gì · khi nào. */
+export interface PtgActivity {
+  action: string;
+  actor_name: string | null;
+  detail: string;
+  at: string;
+}
+
 /** Input 1 dòng gia công — tất cả optional (BE tự đổ mặc định). */
 export interface ThanhPhamIn {
   cong_doan_id?: number | null;
@@ -1250,6 +1258,14 @@ export interface QuotationStats {
   need_action: number;
 }
 
+/** 1 dòng nhật ký tương tác của báo giá (feed Hoạt động) — ai làm gì, khi nào. */
+export interface QuotationActivity {
+  action: string;
+  actor_name: string | null;
+  detail: string;
+  at: string;
+}
+
 /** 1 phiếu tính giá + các mức SL được pick vào báo giá. */
 export interface QuotePick {
   estimate_id: number;
@@ -1356,8 +1372,9 @@ export interface QuotationInput {
   payment_terms: string | null;
   delivery_terms: string | null;
   delivery_address: string | null;
-  customer_note: string | null;
-  internal_note: string | null;
+  // Ghi chú đối ngoại/nội bộ đã BỎ khỏi UI — optional để tương thích payload cũ.
+  customer_note?: string | null;
+  internal_note?: string | null;
 }
 
 export interface QuoteItemUpdateInput {
@@ -1378,8 +1395,9 @@ export interface QuotationUpdateInput {
   payment_terms: string | null;
   delivery_terms: string | null;
   delivery_address: string | null;
-  customer_note: string | null;
-  internal_note: string | null;
+  // Ghi chú đối ngoại/nội bộ đã BỎ khỏi UI — vẫn optional để tương thích payload cũ.
+  customer_note?: string | null;
+  internal_note?: string | null;
   items: QuoteItemUpdateInput[] | null;
 }
 
@@ -4886,6 +4904,10 @@ export const api = {
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/phieu-tinh-gia/${id}`, token, { method: "DELETE" });
     },
+    /** Nhật ký hoạt động THẬT (ai làm gì · khi nào) của phiếu tính giá này. */
+    activity(token: string, id: number): Promise<{ items: PtgActivity[] }> {
+      return authed<{ items: PtgActivity[] }>(`/api/phieu-tinh-gia/${id}/activity`, token);
+    },
   },
 
   estimates: {
@@ -4987,10 +5009,15 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
-    requote(token: string, id: number): Promise<QuotationDetail> {
+    requote(token: string, id: number, change_reason: string): Promise<QuotationDetail> {
       return authed<QuotationDetail>(`/api/quotations/${id}/requote`, token, {
         method: "POST",
+        body: JSON.stringify({ change_reason }),
       });
+    },
+    /** Feed Hoạt động — nhật ký tương tác THẬT (ai làm gì) của báo giá này. */
+    activity(token: string, id: number): Promise<{ items: QuotationActivity[] }> {
+      return authed(`/api/quotations/${id}/activity`, token);
     },
     /** BG-1: báo giá ĐANG HIỆU LỰC của 1 Phiếu tính giá (màn PTG quyết Tạo mới / Mở cái có sẵn). */
     byPhieu(token: string, phieuId: number): Promise<{ quote_id: number | null; quote_number: string | null }> {

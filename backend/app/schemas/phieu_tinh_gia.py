@@ -200,3 +200,16 @@ class PhieuTinhGiaListItem(BaseModel):
 class PhieuTinhGiaListOut(BaseModel):
     items: list[PhieuTinhGiaListItem]
     total: int
+
+
+# ============================ NHẬT KÝ HOẠT ĐỘNG ============================
+class PtgActivityItem(BaseModel):
+    """1 dòng nhật ký hoạt động (ai làm gì · khi nào) của 1 phiếu tính giá."""
+    action: str
+    actor_name: str | None = None
+    detail: str
+    at: datetime
+
+
+class PtgActivityOut(BaseModel):
+    items: list[PtgActivityItem]

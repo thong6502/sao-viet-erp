@@ -257,6 +257,23 @@ class QuotationService:
             ).all()
         )
 
+    def activity(self, *, quotation_id: int, scope: str, actor) -> list[dict]:
+        """Nhật ký tương tác THẬT của 1 báo giá (feed Hoạt động) — ai làm gì, khi nào. Đọc audit
+        log theo target `quote:{id}` (mọi vai trò sale/TP/GĐ đụng cùng phiếu đều để lại dấu vết),
+        cũ→mới ĐẢO thành mới→cũ, kèm TÊN người thao tác. RBAC: qua get_quotation (đúng phạm vi)."""
+        quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
+        rows = self.audit.list_by_target(f"quote:{quote.id}", limit=200)
+        names = self.user_names({r.actor_user_id for r in rows if r.actor_user_id})
+        return [
+            {
+                "action": r.action,
+                "actor_name": names.get(r.actor_user_id) if r.actor_user_id else None,
+                "detail": r.detail,
+                "at": r.created_at,
+            }
+            for r in rows
+        ]
+
     def version_history(self, quote: Quote) -> list[QuoteVersion]:
         return self.quotations.versions_of(quote.quote_number)
 
@@ -489,12 +506,8 @@ class QuotationService:
         if not ptg.thanh_phans:
             raise QuotationValidationError("Phiếu tính giá chưa có sản phẩm nào để báo giá.")
 
-        existing = self.quotations.active_for_phieu(phieu_tinh_gia_id)
-        if existing is not None:
-            raise QuotationConflict(
-                f"Phiếu tính giá này đã có báo giá {existing.quote_number} đang hiệu lực — mở báo giá đó."
-            )
-
+        # 1 PTG → NHIỀU báo giá: mỗi lần bấm "Báo giá" tạo 1 phiếu MỚI (không ghi tiếp phiếu cũ).
+        # Sửa/điều chỉnh 1 báo giá đã có → dùng "Tạo phiên bản mới" TRONG phiếu đó (có ghi chú bắt buộc).
         quote_number = self.sequence.generate_code("quotation") if self.sequence else "BG26-0001"
         # Auto-fill người liên hệ chính + ĐC giao mặc định từ CRM (redesign-bao-gia §4); ĐC giao chỉ
         # điền khi caller CHƯA cung cấp.
@@ -1021,13 +1034,17 @@ class QuotationService:
         return quote
 
     # --- Writes: Re-quote / Versioning (Phase 2C) -----------------------------
-    def requote(self, *, quotation_id: int, scope: str, actor) -> Quote:
-        """Create a new version (re-quote) from an existing quote."""
+    def requote(self, *, quotation_id: int, scope: str, actor, change_reason: str) -> Quote:
+        """Create a new version (re-quote) from an existing quote. `change_reason` BẮT BUỘC —
+        mỗi phiên bản mới phải ghi rõ LÝ DO/thay đổi (in vào feed Hoạt động + Lịch sử phiên bản)."""
+        reason = (change_reason or "").strip()
+        if not reason:
+            raise QuotationValidationError("Phải ghi chú/lý do cho phiên bản mới trước khi tạo.")
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
 
         # Re-quote is only valid for sent, approved/accepted, or rejected quotes
-        if quote.status not in (STATUS_SENT, STATUS_ACCEPTED, STATUS_REJECTED):
-            raise QuotationConflict(f"Không thể re-quote từ trạng thái '{quote.status}'.")
+        if quote.status not in (STATUS_SENT, STATUS_APPROVED, STATUS_ACCEPTED, STATUS_REJECTED):
+            raise QuotationConflict(f"Không thể tạo phiên bản mới từ trạng thái '{quote.status}'.")
 
         # Mark current version as superseded
         current_version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
@@ -1047,6 +1064,7 @@ class QuotationService:
             final_amount=current_version.final_amount if current_version else 0.0,
             estimate_snapshot_json=current_version.estimate_snapshot_json if current_version else None,
             internal_cost_snapshot_json=current_version.internal_cost_snapshot_json if current_version else None,
+            change_reason=reason,
             created_by=actor.id,
         )
         self.quotations.db.add(new_version)
@@ -1085,6 +1103,6 @@ class QuotationService:
             actor_user_id=actor.id,
             action="change_order",
             target=f"quote:{quote.id}",
-            detail=f"{quote.quote_number}: v{current_version.version_number if current_version else 1} -> v{new_version.version_number} (re-quote)",
+            detail=f"{quote.quote_number}: tạo phiên bản v{new_version.version_number} — {reason}",
         )
         return quote
