@@ -1419,6 +1419,7 @@ function QuotationDetailView({
   });
   const profitT = netT - costT;
   const singleMargin = draftMargin != null ? draftMargin : d.items[0]?.margin_percent ?? 0;
+  const singleVat = d.items[0]?.vat_percent ?? 10;
   const aggMarginPct = costT ? Math.round((profitT / costT) * 100) : 0;
   const perUnit = qtyT ? Math.round(grandT / qtyT) : 0;
   const unitLabel = d.items[0]?.unit || "cái";
@@ -1426,8 +1427,9 @@ function QuotationDetailView({
   const productSummary = d.items[0]?.product_name ?? "—";
   const ptgRefs = Array.from(new Set(d.items.map((it) => it.estimate_number).filter(Boolean)));
 
-  // ---- Persist margin ------------------------------------------------------
-  async function persistItems(items: { id: number; margin_percent: number }[]) {
+  // ---- Persist margin/VAT --------------------------------------------------
+  // Patch theo dòng: bỏ trống field nào thì GIỮ giá trị hiện tại của dòng đó (dùng ?? để 0 vẫn áp).
+  async function persistItems(items: { id: number; margin_percent?: number; vat_percent?: number }[]) {
     if (!token || !d) return;
     setBusy(true);
     setErr(null);
@@ -1444,10 +1446,10 @@ function QuotationDetailView({
           const patch = items.find((x) => x.id === it.id);
           return {
             id: it.id,
-            margin_percent: patch ? patch.margin_percent : it.margin_percent,
+            margin_percent: patch?.margin_percent ?? it.margin_percent,
             discount_amount: it.discount_amount,
             discount_percent: 0,
-            vat_percent: it.vat_percent,
+            vat_percent: patch?.vat_percent ?? it.vat_percent,
             rounding: "no_rounding",
             note: it.note,
           };
@@ -1471,6 +1473,12 @@ function QuotationDetailView({
     if (!editable) return;
     const v = Math.max(0, Math.min(100, val));
     persistItems([{ id: itemId, margin_percent: v }]);
+  }
+  // VAT áp CHUNG mọi dòng (VN chuẩn 0/8/10%); per-dòng vẫn chỉnh được ở "Sửa chi tiết dòng".
+  function commitVat(val: number) {
+    if (!editable || !d) return;
+    const v = Math.max(0, Math.min(100, val));
+    persistItems(d.items.map((it) => ({ id: it.id, vat_percent: v })));
   }
 
   // P3: đổi khách ngay ở detail (khi nháp). Gửi delivery_address rỗng → BE tự điền ĐC giao mặc định
@@ -2061,7 +2069,30 @@ function QuotationDetailView({
               <div className="row-cost"><span className="row-key">Giá vốn (khóa)</span><span className="row-val">{numf(costT)}₫</span></div>
               <div><span className="row-key">Lợi nhuận ({multi ? "~" + aggMarginPct : Math.round(singleMargin)}%)</span><span className="row-val">{numf(profitT)}₫</span></div>
               <div><span className="row-key">Giá bán (chưa VAT)</span><span className="row-val">{numf(netT)}₫</span></div>
-              <div><span className="row-key">VAT</span><span className="row-val">{numf(vatT)}₫</span></div>
+              <div>
+                <span className="row-key">
+                  VAT
+                  {!multi && editable ? (
+                    <span className="vat-seg" role="group" aria-label="Chọn % VAT">
+                      {[0, 8, 10].map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          className={`vat-opt${Math.round(singleVat) === p ? " on" : ""}`}
+                          disabled={busy}
+                          onClick={() => commitVat(p)}
+                          title={`Áp VAT ${p}% cho báo giá`}
+                        >
+                          {p}%
+                        </button>
+                      ))}
+                    </span>
+                  ) : (
+                    ` (${multi ? "~" : Math.round(singleVat)}%)`
+                  )}
+                </span>
+                <span className="row-val">{numf(vatT)}₫</span>
+              </div>
               <div className="row-total"><span className="row-key">Tổng cộng</span><span className="row-val">{numf(grandT)}₫</span></div>
             </div>
           </div>

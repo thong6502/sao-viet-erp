@@ -952,6 +952,14 @@ select.input {
 .bgv .mk-manual input:disabled { opacity: 0.45; }
 .bgv .mk-manual span { color: rgba(245,241,232,0.6); font-size: 13px; }
 
+/* Ô chọn % VAT ngay dòng "VAT" của panel giá bán (VN chuẩn 0/8/10%) — đồng bộ .mk-chip */
+.bgv .summary-card .br-rows > div:has(.vat-seg) { align-items: center; }
+.bgv .vat-seg { display: inline-flex; gap: 4px; margin-left: 8px; }
+.bgv .vat-opt { font-family: var(--ff-mono); font-size: 11px; font-weight: 600; line-height: 1; padding: 3px 7px; border-radius: var(--r-3); background: rgba(245,241,232,0.06); border: 1px solid rgba(245,241,232,0.14); color: rgba(245,241,232,0.7); cursor: pointer; transition: background 120ms ease, border-color 120ms ease, color 120ms ease; }
+.bgv .vat-opt:hover { background: rgba(245,241,232,0.12); color: var(--paper); }
+.bgv .vat-opt.on { background: var(--rust); border-color: var(--rust); color: var(--paper); }
+.bgv .vat-opt:disabled { pointer-events: none; opacity: 0.5; }
+
 /* toggle bắt buộc duyệt */
 .bgv .appr-block { padding: 14px 0; border-top: 1px solid rgba(245,241,232,0.15); }
 .bgv .appr-notice { background: rgba(197,64,10,0.12); border: 1px solid rgba(224,112,63,0.4); border-radius: var(--r-3); padding: 11px 12px; }
