@@ -230,6 +230,7 @@ class QuotationRepository:
         return {
             "total": sum(int(v) for v in by_status.values()),
             "draft": get("draft"),
+            "pending_approval": get("pending_approval"),
             "sent": get("sent"),
             "accepted": get("accepted"),
             "rejected": get("rejected"),

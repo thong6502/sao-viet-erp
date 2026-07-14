@@ -1239,6 +1239,7 @@ export interface QuotationListOut {
 export interface QuotationStats {
   total: number;
   draft: number;
+  pending_approval: number;
   sent: number;
   accepted: number;
   rejected: number;

@@ -217,6 +217,8 @@ def test_pending_approval_count_scoped(client):
                 json={"to_status": "pending_approval"}, headers=_h(admin))
     c = client.get("/api/quotations/pending-approval-count", headers=_h(admin))
     assert c.status_code == 200 and c.json()["count"] >= 1
+    # Tab "Chờ duyệt" đọc từ stats.pending_approval.
+    assert client.get("/api/quotations/stats", headers=_h(admin)).json()["pending_approval"] >= 1
     sales = _role_token("nv_sales_count", "NV Sales")
     c2 = client.get("/api/quotations/pending-approval-count", headers=_h(sales))
     assert c2.status_code == 200 and c2.json()["count"] == 0   # không quyền duyệt → 0

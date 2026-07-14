@@ -100,6 +100,7 @@ class QuotationStatsOut(BaseModel):
     """Số đếm cho thanh tab list Báo giá."""
     total: int
     draft: int
+    pending_approval: int = 0   # đang "Chờ duyệt" (đặc thù đã Trình duyệt)
     sent: int
     accepted: int
     rejected: int

@@ -246,6 +246,9 @@ export function BaoGiaPage({
             { key: "", label: "Tất cả", count: stats?.total },
             { key: "need_action", label: "Cần xử lý", count: stats?.need_action, tone: "alert" },
             { key: "draft", label: "Soạn", count: stats?.draft },
+            // "Chờ duyệt" = báo giá đặc thù đã Trình duyệt (list đã lọc theo phạm vi → người duyệt
+            // thấy đúng "chờ TÔI duyệt"). Tone alert để nổi bật việc cần quyết định.
+            { key: "pending_approval", label: "Chờ duyệt", count: stats?.pending_approval, tone: "alert" },
             { key: "sent", label: "Đã gửi khách", count: stats?.sent },
             { key: "accepted", label: "Khách chốt", count: stats?.accepted },
             { key: "converted_to_order", label: "Đã lên đơn", count: stats?.converted_to_order },
@@ -1313,7 +1316,9 @@ function QuotationDetailView({
   const { token } = useAuth();
   // Xuất PDF đối ngoại = quyền chi tiết `export` (tách khỏi "xem").
   const canExport = useCan()("bao_gia", "export");
-  const canRequote = useCan()("bao_gia", "requote");
+  // Tạo phiên bản mới (requote) = thao tác thường: ai SỬA được báo giá thì làm được (gộp vào
+  // `update` ở P8; quyền `requote` cũ đã bỏ). State machine (`change_order`) vẫn chặn đúng trạng thái.
+  const canRequote = useCan()("bao_gia", "update");
   // Lưu ý: layout 2 cột (main) không còn nút Hủy báo giá — quyền `cancel` vẫn chặn ở backend.
   // Thao tác trạng thái chung (gửi / từ chối / đánh dấu hết hạn…) — tách khỏi "sửa".
   const canManageStatus = useCan()("bao_gia", "manage_status");
@@ -1341,6 +1346,7 @@ function QuotationDetailView({
   // Điều khoản chỉnh tại chỗ (nháp)
   const [terms, setTerms] = useState("");
   const [validity, setValidity] = useState<number>(30);
+  const [validUntilEdit, setValidUntilEdit] = useState<string>("");   // ngày hết hạn (editable)
   const [verNote, setVerNote] = useState("");
 
   // Mockup (parity UI, chưa backend) — localStorage theo mã BG.
@@ -1359,6 +1365,7 @@ function QuotationDetailView({
         setLineDraft({});
         setTerms(det.payment_terms ?? "");
         setVerNote((det as any).change_reason ?? "");
+        setValidUntilEdit(det.valid_until ?? "");
         // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
         const vr = det.versions.find((v) => v.version === det.version);
         const created = vr?.created_at ?? null;
@@ -1515,7 +1522,7 @@ function QuotationDetailView({
     try {
       await api.quotations.update(token, d.id, {
         customer_id: d.customer_id,
-        valid_until: d.valid_until,
+        valid_until: validUntilEdit || null,
         payment_terms: terms,
         delivery_terms: d.delivery_terms,
         delivery_address: d.delivery_address,
@@ -1861,9 +1868,18 @@ function QuotationDetailView({
               <textarea className="field-in" rows={2} value={terms} disabled={!editable} onChange={(e) => setTerms(e.target.value)} />
             </div>
             <div className="field-inline">
-              <span className="field-lbl">Hiệu lực báo giá</span>
-              <input className="field-in bg__mono" type="number" min={1} max={180} style={{ width: "64px", textAlign: "right" }} value={validity} disabled onChange={() => {}} />
-              <span style={{ color: "var(--ash)", fontSize: "12px" }}>ngày kể từ ngày gửi</span>
+              <span className="field-lbl">Hạn hiệu lực</span>
+              <input
+                className="field-in"
+                type="date"
+                style={{ width: "170px" }}
+                value={validUntilEdit}
+                disabled={!editable}
+                onChange={(e) => setValidUntilEdit(e.target.value)}
+              />
+              <span style={{ color: "var(--ash)", fontSize: "12px" }}>
+                {validUntilEdit ? `(${validity} ngày kể từ ngày gửi)` : "để trống = đến khi có thông báo mới"}
+              </span>
             </div>
             <div className="field-row">
               <span className="field-lbl">Lý do / ghi chú phiên bản này</span>
