@@ -1042,8 +1042,11 @@ class QuotationService:
             raise QuotationValidationError("Phải ghi chú/lý do cho phiên bản mới trước khi tạo.")
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
 
-        # Re-quote is only valid for sent, approved/accepted, or rejected quotes
-        if quote.status not in (STATUS_SENT, STATUS_APPROVED, STATUS_ACCEPTED, STATUS_REJECTED):
+        # Tạo phiên bản mới hợp lệ khi bản hiện tại đã KHÓA: đã gửi khách / đã duyệt / khách đồng ý /
+        # khách từ chối / hết hiệu lực (KHỚP _REQUOTE_FROM ở router). Nháp thì sửa trực tiếp, không cần.
+        if quote.status not in (
+            STATUS_SENT, STATUS_APPROVED, STATUS_ACCEPTED, STATUS_REJECTED, STATUS_EXPIRED,
+        ):
             raise QuotationConflict(f"Không thể tạo phiên bản mới từ trạng thái '{quote.status}'.")
 
         # Mark current version as superseded
