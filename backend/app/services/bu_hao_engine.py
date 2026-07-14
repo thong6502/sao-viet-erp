@@ -1,9 +1,8 @@
 """Bù hao engine — hàm THUẦN tra số tờ bù hao. Không I/O, không ORM.
 
 Nối Công đoạn ↔ module Bù hao. Mỗi công đoạn khai `kieu_bu_hao`:
-  - `theo_so_mau` / `theo_so_con` → tra bảng module Bù hao theo 2 bước:
-      B1 (trục+key): chọn dòng có dải [key_tu..key_den] chứa số màu / số con.
-      B2 (số lượng): chọn bậc [sl_tu..sl_den] chứa SL → giá trị (tờ | %).
+  - `tra_bang` → TRỎ 1 mã bù hao (`bu_hao_id`) ở module Bù hao; engine tra bậc số lượng:
+      chọn bậc [sl_tu..sl_den] chứa SL → giá trị (tờ | %).
   - `co_dinh` → cộng thẳng `so_to_bu_hao` tờ (ép kim, UV… — không theo bảng).
   - `khong` → 0.
 
@@ -20,24 +19,10 @@ def _f(v, d: float = 0.0) -> float:
         return d
 
 
-def tra_bang(rows: list[dict], truc: str, key: float, sl: float) -> float:
-    """Tra số TỜ bù hao từ các dòng bù hao cùng `truc`.
-
-    rows = [{truc, key_tu, key_den, bac:[{sl_tu, sl_den, gia_tri, don_vi}]}].
-    Trả 0.0 nếu không khớp dòng hoặc bậc.
-    """
-    key = _f(key)
+def tra_bac(bac: list[dict], sl: float) -> float:
+    """Tra giá trị bù hao từ danh sách bậc số lượng của 1 dòng bù hao. Trả 0.0 nếu không khớp."""
     sl = _f(sl)
-    row = None
-    for r in rows:                                        # B1: dòng có dải chứa key
-        if r.get("truc") != truc:
-            continue
-        if _f(r.get("key_tu")) <= key <= _f(r.get("key_den")):
-            row = r
-            break
-    if row is None:
-        return 0.0
-    for b in (row.get("bac") or []):                      # B2: bậc chứa SL
+    for b in (bac or []):
         lo = _f(b.get("sl_tu"))
         hi = b.get("sl_den")
         in_band = sl > lo if hi in (None, "") else (lo < sl <= _f(hi))
@@ -47,23 +32,25 @@ def tra_bang(rows: list[dict], truc: str, key: float, sl: float) -> float:
     return 0.0
 
 
-def bu_hao_cong_doan(cd: dict, *, rows: list[dict], so_mau: float, so_con: float, sl: float) -> float:
-    """Số tờ bù hao của 1 công đoạn theo `kieu_bu_hao`."""
+def bu_hao_cong_doan(cd: dict, *, rows: list[dict], sl: float) -> float:
+    """Số tờ bù hao của 1 công đoạn theo `kieu_bu_hao`.
+
+    rows = danh sách dòng bù hao [{id, ma, bac:[…]}] (toàn bộ danh mục Bù hao).
+    """
     kieu = cd.get("kieu_bu_hao", "khong")
     if kieu == "co_dinh":
         return _f(cd.get("so_to_bu_hao"))
-    if kieu == "theo_so_mau":
-        return tra_bang(rows, "so_mau", so_mau, sl)
-    if kieu == "theo_so_con":
-        return tra_bang(rows, "so_con", so_con, sl)
+    if kieu == "tra_bang":
+        bid = cd.get("bu_hao_id")
+        if bid is None:
+            return 0.0
+        row = next((r for r in rows if r.get("id") == bid), None)
+        return tra_bac(row.get("bac") or [], sl) if row else 0.0
     return 0.0
 
 
-def tong_bu_hao(cong_doans: list[dict], *, rows: list[dict], so_mau: float, so_con: float,
-                sl: float, pct_yeu_cau: float = 0.0) -> float:
+def tong_bu_hao(cong_doans: list[dict], *, rows: list[dict], sl: float,
+                pct_yeu_cau: float = 0.0) -> float:
     """Tổng số tờ bù hao 1 đơn = Σ bù hao mỗi công đoạn + %_yêu_cầu × SL (nếu đơn yêu cầu)."""
-    total = sum(
-        bu_hao_cong_doan(cd, rows=rows, so_mau=so_mau, so_con=so_con, sl=sl)
-        for cd in cong_doans
-    )
+    total = sum(bu_hao_cong_doan(cd, rows=rows, sl=sl) for cd in cong_doans)
     return total + _f(sl) * _f(pct_yeu_cau) / 100.0

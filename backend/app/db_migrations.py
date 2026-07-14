@@ -1492,6 +1492,22 @@ def _migrate_ptg_created_by(db: Session) -> None:
     db.commit()
 
 
+def _migrate_cong_doan_bu_hao_ref(db: Session) -> None:
+    """Bù hao đổi mô hình: bỏ trục số màu/số con — công đoạn TRỎ THẲNG 1 mã bù hao. Thêm
+    `cong_doan.bu_hao_id` (soft ref → bu_hao.id). Giá trị `kieu_bu_hao` cũ (theo_so_mau/
+    theo_so_con) không còn tự dò được → đưa về 'khong' (người dùng cấu hình lại theo mã)."""
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+    if "bu_hao_id" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN bu_hao_id INTEGER"))
+    db.execute(text(
+        "UPDATE cong_doan SET kieu_bu_hao = 'khong' "
+        "WHERE kieu_bu_hao IN ('theo_so_mau', 'theo_so_con')"
+    ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1548,6 +1564,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0054_quote_bao_gia_fields", _migrate_quote_bao_gia_fields),
     ("0055_ptg_created_by", _migrate_ptg_created_by),
     ("0056_cong_doan_size_tiers", _migrate_cong_doan_size_tiers),
+    ("0057_cong_doan_bu_hao_ref", _migrate_cong_doan_bu_hao_ref),
 ]
 
 

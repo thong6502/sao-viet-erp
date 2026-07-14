@@ -9,18 +9,18 @@ from math import ceil
 
 from app.services.tinh_gia_engine import tinh_gia
 
-# --- Bù hao: In 3-4 màu, bậc SL ≤ 5000 → +150 tờ (trục so_mau) ---
+# --- Bù hao: mã BH-IN-3-4 (id 3), bậc SL ≤ 5000 → +150 tờ ---
 BU_HAO_ROWS = [
-    {"truc": "so_mau", "key_tu": 3, "key_den": 4,
+    {"id": 3, "ma": "BH-IN-3-4",
      "bac": [{"sl_tu": 0, "sl_den": 5000, "gia_tri": 150, "don_vi": "to"},
              {"sl_tu": 5000, "sl_den": None, "gia_tri": 3, "don_vi": "pct"}]},
 ]
 
-# In offset: theo số tờ in (per_sheet), 200đ/tờ, setup 100k. Góp bù hao? kiểu 'khong' (bù hao lấy từ dòng trên).
+# In offset: theo số tờ in (per_sheet), 200đ/tờ, setup 100k. Công đoạn TRỎ mã bù hao BH-IN-3-4 (id 3).
 CD_IN = {
     "ten": "In offset 4 màu", "nhom": "print", "che_do_tinh": "theo_san_luong",
     "pricing_basis": "per_sheet", "run_rate": 200, "setup_cost": 100000,
-    "kieu_bu_hao": "theo_so_mau", "so_to_bu_hao": 0,  # kéo bù hao canh máy từ bảng theo số màu
+    "kieu_bu_hao": "tra_bang", "bu_hao_id": 3, "so_to_bu_hao": 0,  # tra bậc SL của mã bù hao đã trỏ
 }
 # Cán màng: theo diện tích × số mặt (per_area_sides), 0.05đ/cm²/mặt.
 CD_CAN = {

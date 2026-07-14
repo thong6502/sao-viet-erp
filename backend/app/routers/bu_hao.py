@@ -43,12 +43,11 @@ def list_items(
     svc: Service,
     _: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
-    truc: str | None = Query(default=None),
     active: bool | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
 ) -> BuHaoListOut:
-    rows, total = svc.list(q=q, truc=truc, active=active, page=page, size=size)
+    rows, total = svc.list(q=q, active=active, page=page, size=size)
     return BuHaoListOut(items=[BuHaoRow.model_validate(r) for r in rows], total=total, page=page, size=size)
 
 

@@ -38,9 +38,9 @@ PRICING_BASIS = (
     "per_other",          # Khác (nhập tay, giá phẳng)
 )
 TOOLING_TYPE = ("khuon_be", "khuon_ep", "kem")
-# Cách công đoạn tính bù hao: không / tra bảng theo trục số màu / theo trục số con /
-# cộng cố định `so_to_bu_hao` tờ (ép kim, UV… — không theo bảng). Khớp 2 trục của module Bù hao.
-KIEU_BU_HAO = ("khong", "theo_so_mau", "theo_so_con", "co_dinh")
+# Cách công đoạn tính bù hao: không / tra bảng (trỏ 1 mã bù hao ở module Bù hao → tra bậc SL) /
+# cộng cố định `so_to_bu_hao` tờ (ép kim, UV… — không theo bảng).
+KIEU_BU_HAO = ("khong", "tra_bang", "co_dinh")
 
 
 def _utcnow() -> datetime:
@@ -54,9 +54,10 @@ class CongDoan(Base):
     ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
     ten: Mapped[str] = mapped_column(String(150), nullable=False)
     ten_hien_thi: Mapped[str | None] = mapped_column(String(150), nullable=True)  # tên in cho thợ sản xuất
-    # Bù hao: cách công đoạn này góp hao. theo_so_mau/theo_so_con → tra bảng module Bù hao theo
-    # số màu/số con của đơn; co_dinh → cộng `so_to_bu_hao` tờ; khong → không góp.
+    # Bù hao: cách công đoạn này góp hao. tra_bang → trỏ 1 mã bù hao (`bu_hao_id`) rồi tra bậc theo
+    # SL; co_dinh → cộng `so_to_bu_hao` tờ; khong → không góp.
     kieu_bu_hao: Mapped[str] = mapped_column(String(16), nullable=False, server_default="khong", default="khong")
+    bu_hao_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → bu_hao.id (soft) khi kieu=tra_bang
     so_to_bu_hao: Mapped[int] = mapped_column(Integer, nullable=False, server_default="50", default=50)  # +tờ hao khi kieu_bu_hao=co_dinh
     nhom: Mapped[str] = mapped_column(String(12), index=True, nullable=False)  # prepress|print|finishing
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → may_thiet_bi.id (soft)

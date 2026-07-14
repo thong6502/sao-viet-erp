@@ -6,7 +6,7 @@ component in phiếu.
 
 Tận dụng 2 engine thuần đã có:
   - `routing_engine.compute_step_cost(cd, ctx)` — tiền 1 công đoạn (§4.1).
-  - `bu_hao_engine.tong_bu_hao(cong_doans, rows=…, so_mau, so_con, sl)` — Σ tờ bù hao.
+  - `bu_hao_engine.tong_bu_hao(cong_doans, rows=…, sl)` — Σ tờ bù hao (công đoạn trỏ mã bù hao).
 
 Gom nhóm (khớp estimate_to_phieu):
   A Giấy            ← to_gross × đơn giá giấy.
@@ -102,10 +102,10 @@ def tinh_gia(*, qty: int, pieces_per_sheet: int, so_mau: int, so_mat: int,
         giay: dict giấy {ten, don_gia, don_vi_gia, …} hoặc None (bỏ nhóm Giấy).
         kem_don_gia: đơn giá 1 bản kẽm.
         cong_doans: list dict công đoạn ĐÃ sort theo routing; mỗi cái có nhom / pricing_basis /
-            kieu_bu_hao / so_to_bu_hao / run_rate / rate_tiers / first_unit_floor / min_charge /
-            setup_cost / che_do_tinh / ten.
-        bu_hao_rows: toàn bộ dòng bù hao (danh mục) để tra bảng.
-        so_con: số con (trục bù hao theo_so_con).
+            kieu_bu_hao / bu_hao_id / so_to_bu_hao / run_rate / rate_tiers / first_unit_floor /
+            min_charge / setup_cost / che_do_tinh / ten.
+        bu_hao_rows: toàn bộ dòng bù hao (danh mục) để tra bảng theo bu_hao_id.
+        so_con: số con (cho ctx routing).
         dt_to_in_cm2: diện tích 1 tờ in (cm²) — cho basis theo diện tích.
         dt_thanh_pham_cm2: diện tích 1 thành phẩm (cm²).
 
@@ -120,7 +120,7 @@ def tinh_gia(*, qty: int, pieces_per_sheet: int, so_mau: int, so_mat: int,
 
     # --- Số tờ (net → +bù hao → gross) ---
     to_net = ceil(qty / pieces) if qty > 0 else 0
-    bu_hao_to = tong_bu_hao(cong_doans, rows=bu_hao_rows, so_mau=so_mau, so_con=so_con, sl=qty)
+    bu_hao_to = tong_bu_hao(cong_doans, rows=bu_hao_rows, sl=qty)
     to_gross = to_net + bu_hao_to
 
     # --- ctx cho routing_engine (dùng SL GROSS) ---

@@ -1,7 +1,7 @@
-"""Danh mục Bù hao — service CRUD (validate trục + bậc động)."""
+"""Danh mục Bù hao — service CRUD (validate bậc động)."""
 from __future__ import annotations
 
-from ..models.bu_hao import DON_VI_BAC, TRUC_BU_HAO
+from ..models.bu_hao import DON_VI_BAC
 from ..repositories.bu_hao_repo import BuHaoRepository
 
 
@@ -30,11 +30,6 @@ class BuHaoService:
             raise BuHaoValidationError("Mã không được trống.")
         if not (data.get("ten") or "").strip():
             raise BuHaoValidationError("Tên không được trống.")
-        if data.get("truc") and data["truc"] not in TRUC_BU_HAO:
-            raise BuHaoValidationError("Trục tra không hợp lệ (so_mau/so_con).")
-        if data.get("key_tu") is not None and data.get("key_den") is not None:
-            if int(data["key_tu"]) > int(data["key_den"]):
-                raise BuHaoValidationError("Dải trục: từ phải ≤ đến.")
         for b in (data.get("bac") or []):
             if b.get("don_vi") and b["don_vi"] not in DON_VI_BAC:
                 raise BuHaoValidationError("Đơn vị bậc không hợp lệ (tờ/%).")

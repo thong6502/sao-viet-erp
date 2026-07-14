@@ -199,18 +199,18 @@ def seed_rebuild_catalog(db: Session) -> None:
         db.add_all(rows)
         db.commit()
 
-    # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 4 kiểu bù hao (khong/số màu/số con/cố định) ---
+    # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 3 kiểu bù hao (khong/tra_bang/cố định) ---
     if _empty(db, CongDoan):
         db.add_all([
             CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_gio",
                      setup_time=10, kieu_bu_hao="khong"),
             CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_sheet", run_rate=350, kieu_bu_hao="theo_so_mau"),
+                     pricing_basis="per_sheet", run_rate=350, kieu_bu_hao="tra_bang"),  # → BH nối bên dưới
             CongDoan(ma="CD-0003", ten="Cán màng bóng", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_area_sides", run_rate=2.2, min_charge=110000,
                      kieu_bu_hao="co_dinh", so_to_bu_hao=50),
             CongDoan(ma="CD-0004", ten="Bồi sóng", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_sheet", run_rate=200, kieu_bu_hao="theo_so_con"),
+                     pricing_basis="per_sheet", run_rate=200, kieu_bu_hao="tra_bang"),  # → BH nối bên dưới
             CongDoan(ma="CD-0005", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
                      pricing_basis="per_position", run_rate=400, requires_tooling=True,
                      tooling_type="khuon_ep", kieu_bu_hao="co_dinh", so_to_bu_hao=50),
@@ -220,7 +220,7 @@ def seed_rebuild_catalog(db: Session) -> None:
         ])
         db.commit()
 
-    # --- Bù hao (tra theo trục số màu/số con × bậc SL động) — số THẬT của xưởng ---
+    # --- Bù hao (mã bù hao × bậc SL động) — số THẬT của xưởng ---
     if _empty(db, BuHao):
         _SL = [(0, 3000), (3000, 7000), (7000, 10000), (10000, 15000), (15000, 20000), (20000, 30000)]
 
@@ -230,24 +230,24 @@ def seed_rebuild_catalog(db: Session) -> None:
             return b
 
         db.add_all([
-            # Giấy in + thành phẩm — tra theo SỐ MÀU
-            BuHao(ma="BH-KHONG-IN", ten="Hàng không in", truc="so_mau", key_tu=0, key_den=0,
-                  bac=_bac([50, 70, 100, 130, 150, 200], 1)),
-            BuHao(ma="BH-IN-1-2", ten="In 1-2 màu", truc="so_mau", key_tu=1, key_den=2,
-                  bac=_bac([120, 150, 200, 250, 300, 350], 1.5)),
-            BuHao(ma="BH-IN-3-4", ten="In 3-4 màu", truc="so_mau", key_tu=3, key_den=4,
-                  bac=_bac([150, 200, 250, 300, 350, 400], 1.7)),
-            BuHao(ma="BH-IN-5", ten="In 5 màu", truc="so_mau", key_tu=5, key_den=5,
-                  bac=_bac([200, 250, 300, 350, 400, 450], 2)),
-            BuHao(ma="BH-IN-6", ten="In 6 màu", truc="so_mau", key_tu=6, key_den=6,
-                  bac=_bac([250, 300, 350, 450, 500, 600], 2.5)),
-            # Sóng (bồi/bế) — tra theo SỐ CON
-            BuHao(ma="BH-SONG-1CON", ten="Sóng — 1 con", truc="so_con", key_tu=1, key_den=1,
+            BuHao(ma="BH-KHONG-IN", ten="Hàng không in", bac=_bac([50, 70, 100, 130, 150, 200], 1)),
+            BuHao(ma="BH-IN-1-2", ten="In 1-2 màu", bac=_bac([120, 150, 200, 250, 300, 350], 1.5)),
+            BuHao(ma="BH-IN-3-4", ten="In 3-4 màu", bac=_bac([150, 200, 250, 300, 350, 400], 1.7)),
+            BuHao(ma="BH-IN-5", ten="In 5 màu", bac=_bac([200, 250, 300, 350, 400, 450], 2)),
+            BuHao(ma="BH-IN-6", ten="In 6 màu", bac=_bac([250, 300, 350, 450, 500, 600], 2.5)),
+            BuHao(ma="BH-SONG-1CON", ten="Sóng — 1 con",
                   bac=_bac([70, 100, 150, 170, 200, 250], 1), ghi_chu="Sóng E, B, BC, BE — lưu ý chiều sóng trước"),
-            BuHao(ma="BH-SONG-NHIEU", ten="Sóng — nhiều con", truc="so_con", key_tu=2, key_den=999,
-                  bac=_bac([50, 70, 120, 150, 170, 200], 0.7)),
+            BuHao(ma="BH-SONG-NHIEU", ten="Sóng — nhiều con", bac=_bac([50, 70, 120, 150, 170, 200], 0.7)),
         ])
         db.commit()
+
+    # --- Nối công đoạn 'tra_bang' → 1 mã bù hao mặc định (mô hình MỚI: công đoạn trỏ thẳng mã) ---
+    for cd_ma, bh_ma in (("CD-0002", "BH-IN-3-4"), ("CD-0004", "BH-SONG-1CON")):
+        cd = db.execute(select(CongDoan).where(CongDoan.ma == cd_ma)).scalars().first()
+        bh = db.execute(select(BuHao).where(BuHao.ma == bh_ma)).scalars().first()
+        if cd is not None and bh is not None and cd.kieu_bu_hao == "tra_bang" and cd.bu_hao_id is None:
+            cd.bu_hao_id = bh.id
+    db.commit()
 
     # --- Loại sản phẩm (spec-san-pham §7) ---
     if _empty(db, LoaiSanPham):

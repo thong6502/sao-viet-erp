@@ -11,6 +11,7 @@ class CongDoanIn(BaseModel):
     ten: str = Field(min_length=1, max_length=150)
     ten_hien_thi: str | None = None
     kieu_bu_hao: str = "khong"
+    bu_hao_id: int | None = None
     so_to_bu_hao: int = Field(default=50, ge=0)
     nhom: str
     may_id: int | None = None
@@ -41,6 +42,7 @@ class CongDoanRow(BaseModel):
     ten: str
     ten_hien_thi: str | None = None
     kieu_bu_hao: str = "khong"
+    bu_hao_id: int | None = None
     so_to_bu_hao: int = 50
     nhom: str
     may_id: int | None = None

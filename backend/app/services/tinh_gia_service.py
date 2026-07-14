@@ -40,6 +40,7 @@ def _cong_doan_to_dict(cd: CongDoan) -> dict:
         "ten": cd.ten,
         "nhom": cd.nhom,
         "kieu_bu_hao": cd.kieu_bu_hao,
+        "bu_hao_id": cd.bu_hao_id,
         "so_to_bu_hao": cd.so_to_bu_hao,
         "che_do_tinh": cd.che_do_tinh,
         "pricing_basis": cd.pricing_basis,
@@ -55,7 +56,7 @@ def _cong_doan_to_dict(cd: CongDoan) -> dict:
 
 
 def _bu_hao_to_dict(b: BuHao) -> dict:
-    return {"truc": b.truc, "key_tu": b.key_tu, "key_den": b.key_den, "bac": b.bac}
+    return {"id": b.id, "ma": b.ma, "bac": b.bac}
 
 
 def load_and_compute(
