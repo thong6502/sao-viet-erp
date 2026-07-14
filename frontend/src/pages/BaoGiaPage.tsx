@@ -195,11 +195,6 @@ export function BaoGiaPage({
         statuses={statuses}
         navigate={navigate}
         onClose={() => setDetail(null)}
-        onEdit={(dd) => {
-          setDetail(null);
-          setEditing(dd);
-          setMode("edit");
-        }}
         onChanged={() => load()}
       />
     );
@@ -1303,14 +1298,12 @@ function QuotationDetailView({
   statuses,
   navigate,
   onClose,
-  onEdit,
   onChanged,
 }: {
   quotationId: number;
   statuses: EnumOption[];
   navigate?: (id: string, params?: any) => void;
   onClose: () => void;
-  onEdit: (d: QuotationDetail) => void;
   onChanged: () => void;
 }) {
   const { token } = useAuth();
@@ -1348,6 +1341,13 @@ function QuotationDetailView({
   const [validity, setValidity] = useState<number>(30);
   const [validUntilEdit, setValidUntilEdit] = useState<string>("");   // ngày hết hạn (editable)
   const [verNote, setVerNote] = useState("");
+  // Gộp modal "Chỉnh sửa" vào detail (bỏ modal): 4 field điều khoản/ghi chú editable ngay đây.
+  const [deliveryAddressEdit, setDeliveryAddressEdit] = useState("");
+  const [deliveryTermsEdit, setDeliveryTermsEdit] = useState("");
+  const [customerNoteEdit, setCustomerNoteEdit] = useState("");
+  const [internalNoteEdit, setInternalNoteEdit] = useState("");
+  const [bulkMk, setBulkMk] = useState("");   // áp chung margin %
+  const [bulkCk, setBulkCk] = useState("");   // áp chung chiết khấu đ/dòng
 
   // Mockup (parity UI, chưa backend) — localStorage theo mã BG.
   const [comments, setComments] = useState<{ who: string; text: string; time: string }[]>([]);
@@ -1366,6 +1366,10 @@ function QuotationDetailView({
         setTerms(det.payment_terms ?? "");
         setVerNote((det as any).change_reason ?? "");
         setValidUntilEdit(det.valid_until ?? "");
+        setDeliveryAddressEdit(det.delivery_address ?? "");
+        setDeliveryTermsEdit(det.delivery_terms ?? "");
+        setCustomerNoteEdit(det.customer_note ?? "");
+        setInternalNoteEdit(det.internal_note ?? "");
         // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
         const vr = det.versions.find((v) => v.version === det.version);
         const created = vr?.created_at ?? null;
@@ -1436,29 +1440,32 @@ function QuotationDetailView({
 
   // ---- Persist margin/VAT --------------------------------------------------
   // Patch theo dòng: bỏ trống field nào thì GIỮ giá trị hiện tại của dòng đó (dùng ?? để 0 vẫn áp).
-  async function persistItems(items: { id: number; margin_percent?: number; vat_percent?: number }[]) {
+  // Header lấy từ edit-state (không clobber ghi chú/điều khoản đang sửa chưa lưu).
+  async function persistItems(
+    items: { id: number; margin_percent?: number; vat_percent?: number; discount_amount?: number; rounding?: string; note?: string | null }[],
+  ) {
     if (!token || !d) return;
     setBusy(true);
     setErr(null);
     try {
       await api.quotations.update(token, d.id, {
         customer_id: d.customer_id,
-        valid_until: d.valid_until,
+        valid_until: validUntilEdit || null,
         payment_terms: terms,
-        delivery_terms: d.delivery_terms,
-        delivery_address: d.delivery_address,
-        customer_note: d.customer_note,
-        internal_note: d.internal_note,
+        delivery_terms: deliveryTermsEdit,
+        delivery_address: deliveryAddressEdit,
+        customer_note: customerNoteEdit,
+        internal_note: internalNoteEdit,
         items: d.items.map((it) => {
           const patch = items.find((x) => x.id === it.id);
           return {
             id: it.id,
             margin_percent: patch?.margin_percent ?? it.margin_percent,
-            discount_amount: it.discount_amount,
+            discount_amount: patch?.discount_amount ?? it.discount_amount,
             discount_percent: 0,
             vat_percent: patch?.vat_percent ?? it.vat_percent,
-            rounding: "no_rounding",
-            note: it.note,
+            rounding: patch?.rounding ?? "no_rounding",
+            note: patch?.note !== undefined ? patch.note : it.note,
           };
         }),
       });
@@ -1469,6 +1476,21 @@ function QuotationDetailView({
     } finally {
       setBusy(false);
     }
+  }
+  // Lưu chi tiết 1 dòng (chiết khấu / làm tròn / ghi chú) — thay cho grid trong modal cũ.
+  function commitLineExtra(itemId: number, patch: { discount_amount?: number; rounding?: string; note?: string | null }) {
+    if (!editable) return;
+    persistItems([{ id: itemId, ...patch }]);
+  }
+  function applyBulkMk() {
+    if (!editable || !d || bulkMk === "") return;
+    const v = Math.max(0, Math.min(100, Number(bulkMk)));
+    persistItems(d.items.map((it) => ({ id: it.id, margin_percent: v })));
+  }
+  function applyBulkCk() {
+    if (!editable || !d || bulkCk === "") return;
+    const v = Math.max(0, Number(bulkCk));
+    persistItems(d.items.map((it) => ({ id: it.id, discount_amount: v })));
   }
 
   function commitSingleMargin(val: number) {
@@ -1481,7 +1503,7 @@ function QuotationDetailView({
     const v = Math.max(0, Math.min(100, val));
     persistItems([{ id: itemId, margin_percent: v }]);
   }
-  // VAT áp CHUNG mọi dòng (VN chuẩn 0/8/10%); per-dòng vẫn chỉnh được ở "Sửa chi tiết dòng".
+  // VAT áp CHUNG mọi dòng (VN chuẩn 0/8/10%); per-dòng chỉnh ở panel "Chi tiết định giá từng dòng".
   function commitVat(val: number) {
     if (!editable || !d) return;
     const v = Math.max(0, Math.min(100, val));
@@ -1524,10 +1546,10 @@ function QuotationDetailView({
         customer_id: d.customer_id,
         valid_until: validUntilEdit || null,
         payment_terms: terms,
-        delivery_terms: d.delivery_terms,
-        delivery_address: d.delivery_address,
-        customer_note: d.customer_note,
-        internal_note: verNote || d.internal_note,
+        delivery_terms: deliveryTermsEdit,
+        delivery_address: deliveryAddressEdit,
+        customer_note: customerNoteEdit,
+        internal_note: internalNoteEdit,
         items: null,
       });
       await reload(d.id);
@@ -1860,12 +1882,57 @@ function QuotationDetailView({
             </table>
           </div>
 
+          {/* Chi tiết định giá từng dòng (gộp từ modal "Sửa chi tiết dòng" cũ — chiết khấu · làm
+              tròn · ghi chú dòng + áp chung). Chỉ hiện khi còn sửa được. */}
+          {editable && (
+            <div className="card ln-extra-card">
+              <div className="bg-card-head"><div className="title">🧮 Chi tiết định giá từng dòng</div></div>
+              <div className="ln-bulk">
+                <span className="ln-bulk-lbl">⚡ Áp chung:</span>
+                <input className="input input--sm bg__mono" style={{ width: "84px" }} type="number" placeholder="Margin %" value={bulkMk} onChange={(e) => setBulkMk(e.target.value)} />
+                <Button variant="ghost" disabled={busy} onClick={applyBulkMk} style={{ padding: "4px 8px", fontSize: "12px" }}>Set margin</Button>
+                <input className="input input--sm bg__mono" style={{ width: "120px" }} type="number" placeholder="C.khấu đ/dòng" value={bulkCk} onChange={(e) => setBulkCk(e.target.value)} />
+                <Button variant="ghost" disabled={busy} onClick={applyBulkCk} style={{ padding: "4px 8px", fontSize: "12px" }}>Set C.khấu</Button>
+              </div>
+              {d.items.map((it) => (
+                <div key={it.id} className="ln-extra-row">
+                  <span className="ln-extra-name">{it.product_name}</span>
+                  <label className="ln-extra-f">Chiết khấu (đ)
+                    <input className="input input--sm bg__mono" type="number" min={0} defaultValue={it.discount_amount} disabled={busy}
+                      onBlur={(e) => commitLineExtra(it.id, { discount_amount: Number(e.target.value) || 0 })} />
+                  </label>
+                  <label className="ln-extra-f">Làm tròn
+                    <select className="input input--sm" defaultValue="no_rounding" disabled={busy}
+                      onChange={(e) => commitLineExtra(it.id, { rounding: e.target.value })}>
+                      <option value="no_rounding">Không</option>
+                      <option value="round_up_1000">Lên 1.000</option>
+                      <option value="round_up_5000">Lên 5.000</option>
+                      <option value="round_up_10000">Lên 10.000</option>
+                    </select>
+                  </label>
+                  <label className="ln-extra-f ln-extra-note">Ghi chú dòng
+                    <input className="input input--sm" defaultValue={it.note ?? ""} disabled={busy}
+                      onBlur={(e) => commitLineExtra(it.id, { note: e.target.value || null })} />
+                  </label>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Điều khoản & ghi chú phiên bản */}
           <div className="card">
             <div className="bg-card-head"><div className="title">📝 Điều khoản &amp; ghi chú phiên bản</div></div>
             <div className="field-row">
-              <span className="field-lbl">Điều khoản</span>
+              <span className="field-lbl">Điều khoản thanh toán</span>
               <textarea className="field-in" rows={2} value={terms} disabled={!editable} onChange={(e) => setTerms(e.target.value)} />
+            </div>
+            <div className="field-row">
+              <span className="field-lbl">Điều khoản giao nhận</span>
+              <textarea className="field-in" rows={2} value={deliveryTermsEdit} disabled={!editable} onChange={(e) => setDeliveryTermsEdit(e.target.value)} />
+            </div>
+            <div className="field-row">
+              <span className="field-lbl">Địa chỉ giao hàng</span>
+              <input className="field-in" value={deliveryAddressEdit} disabled={!editable} onChange={(e) => setDeliveryAddressEdit(e.target.value)} placeholder="Nhập địa chỉ giao hàng…" />
             </div>
             <div className="field-inline">
               <span className="field-lbl">Hạn hiệu lực</span>
@@ -1882,6 +1949,14 @@ function QuotationDetailView({
               </span>
             </div>
             <div className="field-row">
+              <span className="field-lbl">Ghi chú đối ngoại (in trên PDF)</span>
+              <textarea className="field-in" rows={2} value={customerNoteEdit} disabled={!editable} onChange={(e) => setCustomerNoteEdit(e.target.value)} placeholder="Ví dụ: Đơn giá đã gồm khuôn bế…" />
+            </div>
+            <div className="field-row">
+              <span className="field-lbl">Ghi chú nội bộ</span>
+              <textarea className="field-in" rows={2} value={internalNoteEdit} disabled={!editable} onChange={(e) => setInternalNoteEdit(e.target.value)} placeholder="Thông tin lưu ý cho phòng sản xuất…" />
+            </div>
+            <div className="field-row">
               <span className="field-lbl">Lý do / ghi chú phiên bản này</span>
               <input className="field-in" value={verNote} disabled={!editable} onChange={(e) => setVerNote(e.target.value)} />
             </div>
@@ -1895,7 +1970,6 @@ function QuotationDetailView({
               {canRequote && !editable && d.allowed_transitions.includes("change_order") && (
                 <Button variant="primary" disabled={busy} onClick={doRequote}>⎇ Tạo phiên bản mới</Button>
               )}
-              <Button variant="ghost" onClick={() => onEdit(d)}>Sửa chi tiết dòng</Button>
             </div>
           </div>
 

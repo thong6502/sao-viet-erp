@@ -960,6 +960,18 @@ select.input {
 .bgv .vat-opt.on { background: var(--rust); border-color: var(--rust); color: var(--paper); }
 .bgv .vat-opt:disabled { pointer-events: none; opacity: 0.5; }
 
+/* Chi tiết định giá từng dòng — gộp từ modal "Sửa chi tiết dòng" cũ (bỏ modal) */
+.bgv .ln-bulk { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--rule); }
+.bgv .ln-bulk-lbl { font-size: 12px; font-weight: 600; color: var(--ash); }
+.bgv .ln-bulk .input { font-size: 13px; padding: 6px 8px; }
+.bgv .ln-extra-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--rule-hair); }
+.bgv .ln-extra-row:last-child { border-bottom: none; padding-bottom: 0; }
+.bgv .ln-extra-name { font-weight: 600; font-size: 13px; min-width: 110px; align-self: center; color: var(--ink); }
+.bgv .ln-extra-f { display: flex; flex-direction: column; gap: 4px; font-family: var(--ff-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ash); }
+.bgv .ln-extra-f .input { font-size: 13px; padding: 6px 8px; min-width: 120px; }
+.bgv .ln-extra-note { flex: 1 1 200px; }
+.bgv .ln-extra-note .input { width: 100%; }
+
 /* toggle bắt buộc duyệt */
 .bgv .appr-block { padding: 14px 0; border-top: 1px solid rgba(245,241,232,0.15); }
 .bgv .appr-notice { background: rgba(197,64,10,0.12); border: 1px solid rgba(224,112,63,0.4); border-radius: var(--r-3); padding: 11px 12px; }
