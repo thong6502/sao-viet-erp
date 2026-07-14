@@ -1,192 +1,196 @@
-# REDESIGN — Module Tính giá (giá vốn theo sản lượng)
+# REDESIGN — Tính giá (engine công thức, giá vốn theo sản lượng)
 
-> Làm lại UI/UX + logic module Tính giá (`PhieuTinhGia`, component-based, engine
-> `tinh_gia_engine` / `thanh_phan_engine`). Công cụ nội bộ KTV ra **giá vốn** — KHÔNG
-> markup/VAT/giá bán (việc của Báo giá; luật đã khóa trong `PLAN_UI_TINH_GIA_BAO_GIA.md`).
-> Bản này là bản ĐƠN GIẢN, khác `spec-tinh-gia.md` (engine đầy đủ). Anh em: `spec-cong-doan.md`,
-> `spec-may-thiet-bi.md`, `spec-san-pham.md`.
+> Làm lại từ đầu module Tính giá. Bản này **thay thế** thiết kế cũ (engine cứng 4 rổ).
+> Nguồn gốc: phiếu tính giá tay thật của xưởng (hộp đôi ITALY + rộ bông, 4.000 thành phẩm).
+> Đơn vị đếm sản phẩm gọi là **"thành phẩm"** (không dùng tiếng lóng "con").
 
 ---
 
-## 1. Mục tiêu & nguyên tắc bất biến
+## 0. Một dòng
 
-1. **Theo sản lượng** — mọi khoản = đơn giá × sản lượng đo được (tờ / bản / lượt / basis).
-   BỎ tính theo giờ máy (BHR).
-2. **Không hệ số** — mọi "hệ số khoán / quy đổi" trong tính giá vốn đều = 1 → gỡ hẳn khỏi
-   model lẫn UI.
-3. **Auto + override** — mọi ô tự điền từ danh mục (smart default), KTV luôn sửa đè được;
-   chỉ số thuần-tính-ra là read-only.
-4. **Khởi đầu từ Loại sản phẩm** — chọn nó trước, tự bung khung phiếu.
-5. Giá vốn thôi; **làm tròn 1 lần ở cuối**.
+Engine = **máy thế-số-vào-công-thức**. Mỗi giấy / công đoạn / vật tư có **1 công thức** viết
+bằng **biến hệ thống**; lúc tính, engine thế số thật vào → ra **tiền tổng** → ÷ số lượng =
+**đ/thành phẩm**; cộng dọc = **giá vốn**.
 
 ---
 
-## 2. Bốn khổ & hai mức tờ (nền tảng logic — không được lẫn)
+## 1. Nguyên tắc bất biến
+
+1. **Chỉ ra giá vốn** — markup/VAT là việc của Báo giá.
+2. **Engine không có luật ẩn** — mọi khác biệt cách tính đều nằm trong *công thức + biến*,
+   không phán đoán trong code.
+3. Tư duy theo **đ/thành phẩm**; tổng = đ/thành phẩm × số lượng.
+4. **Auto + override**: ô danh mục tự điền, sửa đè được; ô thuần tính-ra thì khóa.
+5. **Một engine duy nhất** — bỏ `pricing_engine.py`, model costing, và `tinh_gia_engine.py` cũ.
+
+---
+
+## 2. Biến hệ thống (hợp đồng — dùng trong công thức)
+
+| Biến | Nhãn | Nguồn | ĐVT |
+|---|---|---|---|
+| `dai_tp` `rong_tp` | dài/rộng khổ thành phẩm | nhập | m |
+| `dai_nguyen` `rong_nguyen` | dài/rộng khổ giấy nguyên | nhập | m |
+| `dai_in` `rong_in` | dài/rộng khổ giấy in | nhập | m |
+| `so_luong` | số lượng (thành phẩm) | nhập | thành phẩm |
+| `so_tp` | số thành phẩm/tờ | nhập | — |
+| `to_dau_vao` | **số tờ đầu vào máy in** | hệ thống | tờ |
+| `to_sau_in` | **số tờ còn lại sau in** | hệ thống | tờ |
+| *(field của item)* | vd `dinh_luong`, `don_gia` | danh mục | kg/m², đ/… |
+
+> Khổ nhập bằng **cm**, biến đưa vào công thức quy về **m** (để `× đ/m²`, `× đ/kg` ra thẳng).
+
+---
+
+## 3. Hai số tờ (trái tim)
 
 ```
-① GIẤY NGUYÊN (mua)  ──xả cho vừa Máy──►  ② TỜ IN (chạy máy)  ──bình bài──►  ③ THÀNH PHẨM × ④ con/tờ
+to_dau_vao  = ⌈so_luong / so_tp⌉ + Σ(bù hao mỗi công đoạn) + số bù nhập tay   → nuôi GIẤY + IN
+to_sau_in   = to_dau_vao − số hao nhập tay                                     → nuôi CÔNG ĐOẠN SAU IN
 ```
 
-| Khổ | Nghĩa | Nguồn |
+Người viết công thức tự chọn nhân với `to_dau_vao` hay `to_sau_in` → tự quyết chi phí thuộc
+trước/sau in. **Engine không cần cờ "trước/sau in"** (nếu thêm cờ đó thì thừa và đá nhau với
+công thức — 2 nguồn sự thật).
+
+---
+
+## 4. Công thức & bộ tính
+
+- **Toán tử:** `+ − × ÷ ( )` + hàm `ceil, floor, round, max, min`.
+- **Token:** biến hệ thống (§2) + field của item; giá trị field **hiển thị ngay trong công thức**,
+  vd `định_lượng(0,25)`, `đơn_giá_kg(17.100)`. Đổi giá ở danh mục → công thức tự đổi (sửa 1 chỗ).
+- **An toàn:** bộ tính riêng (parse + whitelist token), **không** dùng `eval` của Python.
+- Công thức lỗi / thiếu biến → dòng đó **0đ + cảnh báo**, không được crash.
+
+---
+
+## 5. Bù hao — tái dùng module có sẵn
+
+- Quy tắc bù hao = **bậc theo số lượng** → giá trị (**tờ** | **%**); hoặc **cộng cố định (tờ)**.
+- Công đoạn nối quy tắc qua `kieu_bu_hao`; `bu_hao_engine` dò bậc theo `so_luong`.
+  Không nối → dùng `so_to_bu_hao` (cộng cố định).
+- Đơn vị `%` **nhân thẳng với `so_luong`** → ra số tờ bù (vd `1,5% × 40.000 = 600 tờ`),
+  cộng **thẳng** vào `to_dau_vao`, KHÔNG chia `so_tp`.
+- Σ bù hao các công đoạn → cộng vào `to_dau_vao`.
+
+---
+
+## 6. Nhập liệu (form phiếu)
+
+Nhãn tầng: **[Nhập]** KTV gõ · **[Auto]** tự điền từ danh mục, sửa đè được · **[Hiện]** tự tính, khóa.
+
+| Field | Tầng | Nguồn / ghi chú |
 |---|---|---|
-| ① Khổ giấy nguyên | tờ giấy MUA về từ NCC | danh mục Giấy `giay_nguyen.kho_dai/kho_rong` |
-| ② Khổ tờ in | tờ ĐƯA VÀO MÁY, vừa `may.kho_max` | xả từ ① cho vừa Máy; = ① nếu không cắt |
-| ③ Khổ thành phẩm | sản phẩm CUỐI khách nhận | KTV nhập |
-| ④ con/tờ | số thành phẩm trên 1 tờ in | tự bình bài ③ lên ② |
+| Tên thành phẩm · khổ thành phẩm (D×R) · số lượng | [Nhập] | — |
+| Loại sản phẩm | [Nhập] | → auto bung danh sách công đoạn mặc định |
+| Máy in | [Nhập] | → auto khổ máy |
+| Nguồn giấy: **Công ty** \| **Khách cấp** | [Nhập] | Khách cấp → **bỏ tiền giấy** |
+| Loại giấy (nếu Công ty) | [Nhập] | → công thức + field giấy (định lượng, đơn giá/kg) |
+| Khổ giấy nguyên (D×R) · khổ giấy in (D×R) | [Nhập] | cảnh báo nếu khổ in > khổ máy |
+| Số thành phẩm/tờ (`so_tp`) | [Nhập] | cảnh báo bình bài (so với số thành phẩm/tờ hình học) |
+| Số bù (vào `to_dau_vao`) · số hao (ra `to_sau_in`) | [Nhập] | mặc định 0 |
+| Danh sách công đoạn (thêm/xóa) | [Auto] | routing Loại SP; mỗi công đoạn có công thức + bù hao |
+| Vật tư thêm | [Nhập] | danh mục vật tư in ấn; mỗi vật tư có công thức |
+| **số tờ đầu vào / sau in · số thành phẩm/tờ (hình học) · đ/thành phẩm từng dòng · tổng** | [Hiện] | tính-ra, khóa |
 
-**Hai phép chia:**
-- **Xả giấy** (① → ②): `tờ_in / tờ_nguyên` — cần khổ Máy để biết cắt mấy mảnh.
-- **Bình bài** (② → ④): `con / tờ_in` — công thức hình học, trên khổ ② trừ 5 chừa.
-
-**Mỗi chi phí ăn khổ khác nhau (mấu chốt "2 mức tờ"):**
-- Giấy (tiền mua) → theo **① tờ nguyên** (đúng cả khi giấy bán theo kg lẫn theo tờ/ram).
-- Công in / số lượt → theo **② tờ in**.
-
-Bình bài chết: module `imposition_rule` đã bị xóa (chỉ còn `.pyc` mồ côi); `LoaiSanPham.imposition_rule_id`
-trỏ vào khoảng không. Bản này KHÔNG dùng nó — port công thức hình học từ `pricing_engine.py` (đã có).
+**Số thành phẩm/tờ (hình học)** — số thành phẩm tối đa nhét vừa 1 tờ in, tự tính có xoay bài:
+```
+= max( ⌊dai_in/dai_tp⌋×⌊rong_in/rong_tp⌋ , ⌊dai_in/rong_tp⌋×⌊rong_in/dai_tp⌋ )
+```
+Chỉ để **đối chiếu cảnh báo**: nếu `so_tp` (nhập tay) > số hình học → cảnh báo "bình bài không vừa".
+Tiền vẫn tính theo `so_tp` KTV gõ.
 
 ---
 
-## 3. Luồng nhập (ít thao tác, rule-based)
+## 7. Danh mục phải thêm "ô công thức"
+
+- **Giấy** (Material paper): `cong_thuc_gia` + field định lượng, đơn giá/kg.
+- **Công đoạn** (Operation): `cong_thuc_gia` (bù hao đã có).
+- **Vật tư in ấn** (Material): `cong_thuc_gia`.
+- **Loại SP**: danh sách công đoạn mặc định (đã có routing → tái dùng, không dựng lại).
+
+---
+
+## 8. Ra tiền & hiển thị (3 lớp mỗi dòng)
+
+Mỗi dòng hiện **đ/thành phẩm** + tổng + công thức đã thế số:
+```
+Cán màng bóng    285 đ/thành phẩm   (tổng 1.140.048đ)
+  = dài_in(0,435) × rộng_in(0,64) × đơn_giá_m²(1.950) × tờ_sau_in(2.100)
+```
+`đ/thành phẩm = tổng dòng ÷ so_luong`. Bảng phẳng theo thứ tự phiếu tay (giấy → in → công đoạn →
+vật tư) + dòng **TỔNG (giá vốn) đ/thành phẩm**. Không markup ở màn này.
+
+---
+
+## 9. Cảnh báo (không chặn)
+
+- Khổ in > khổ máy.
+- `so_tp` > số thành phẩm/tờ hình học (bình bài không vừa).
+- Công thức lỗi / thiếu biến → dòng 0đ.
+- Giấy khách cấp → bỏ tiền giấy.
+
+---
+
+## 10. Ghép nhiều mã
+
+Coi là **1 sản phẩm trên 1 tờ**: nhập `so_luong` tổng + `so_tp` tổng. Không chia chi phí riêng
+theo mã.
+
+---
+
+## 11. Snapshot (khi Báo giá chốt)
+
+Freeze: input + công thức + giá trị mọi biến + version danh mục → sau này truy được **tại sao ra
+số đó**, dù đơn giá danh mục đã đổi.
+
+---
+
+## 12. Làm tròn
+
+Số thành phẩm/tờ **floor** · số tờ **ceil** · % bù hao **ceil** · tiền mỗi dòng **round** ·
+đ/thành phẩm **round**.
+
+---
+
+## 13. Golden test neo (phiếu hộp đôi thật)
 
 ```
-Chọn LOẠI SP  → bung: số thành phần (structural_type) + routing công đoạn ĐẦY ĐỦ + gợi ý giấy (default_stock_class)
-Chọn MÁY      → khổ in ② + gripper + 5 chừa mặc định + khoa_class (giá kẽm)
-Chọn GIẤY     → khổ nguyên ① + đơn giá (kg | tờ)
-KTV nhập:     Số lượng · Khổ thành phẩm ③ · Số màu (mặt A / mặt B)
-→ TỰ bình bài ra ④ con/tờ → TỰ ra số tờ → bấm Tính → bảng 4 nhóm giá vốn
+SL 4.000 · số thành phẩm/tờ 2 · khổ in 0,435×0,64 · khổ nguyên 0,445×0,64
+giấy D250 (đl 0,25 kg/m², 17.100 đ/kg) · bù 250 (đầu vào) · hao 150 (sau in)
+
+to_dau_vao = 4000/2 + 250 = 2.250
+to_sau_in  = 2.250 − 150 = 2.100
+Giấy     = 0,25×0,445×0,64×17.100×2.250 = 2.739.375 → 685 đ/thành phẩm   ✓
+Cán màng = 0,435×0,64×1.950×2.100       = 1.140.048 → 285 đ/thành phẩm   ✓
 ```
-
-Mọi ô "auto" đều sửa đè được; ô đã lệch khỏi giá trị auto có dấu hiệu + nút "về mặc định".
-
----
-
-## 4. Engine — sản lượng & công thức (giá vốn 4 nhóm)
-
-Nhóm phiếu: **A Giấy · B Công in · C Chế bản (kẽm) · D Gia công sau in.**
-
-```
-usable_w = khổ_in②_rộng − (xén + tay kê + nhíp + đuôi + cà gáy)
-usable_h = khổ_in②_dài  − (xén + tay kê + nhíp + đuôi + cà gáy)
-con/tờ ④  = max( (usable_w // w_tp)×(usable_h // h_tp) , (usable_w // h_tp)×(usable_h // w_tp) )
-             (w_tp/h_tp = khổ thành phẩm ③; max = tự chọn hướng đặt tốt hơn)   ← port pricing_engine
-
-tờ in NET   = ceil(SL / con/tờ)
-tờ in GROSS = NET + bù hao (canh máy + % chạy, từ danh mục Bù hao)         ← KHÔNG hệ số
-tờ nguyên   = ceil(GROSS / số mảnh xả)        (ẩn khỏi UI; chỉ để tính tiền giấy)
-
-A Giấy    = tờ nguyên → quy đổi (kg | tờ) × đơn giá        [theo don_vi_gia của giấy]
-C Kẽm     = (màu A + màu B) × số tờ-mẫu × đơn giá kẽm(khoa_class)
-B Công in = (tờ GROSS × số mặt) lượt × đơn giá/1000 lượt   [MỰC GỘP trong đơn giá công in]
-D Gia công= Σ công đoạn: đơn giá × basis_qty (tờ | ram | m² | con | lượt…)
-
-GIÁ VỐN = A + B + C + D          gia_von_don = GIÁ VỐN / SL
-```
-
-- **Số lượt đếm mặt, KHÔNG nhân số màu** (máy nhiều màu in 1 lượt hết màu; số màu chỉ đẻ ra kẽm).
-- Quy cách: 1 mặt → passes 1; 2 mặt / tự trở → passes 2.
-- Ngoài phạm vi: nhánh web (tem cuộn), đóng cuốn nhiều tay / assembly, in theo giờ máy.
+(Các dòng còn lại neo tiếp khi cấu hình đủ công thức; đích cuối = **3.001 đ/thành phẩm**.)
 
 ---
 
-## 5. Bộ field (3 tầng)
+## 14. Dọn kiến trúc & lộ trình
 
-Nhãn: `[Nhập]` = KTV gõ gốc · `[Auto]` = tự điền từ danh mục, SỬA ĐÈ được · `[Hiện]` = tự tính, read-only.
+Bỏ `pricing_engine.py` + model costing + `tinh_gia_engine.py` → **1 engine công thức**.
+Viết lại golden trên engine mới. **Báo giá tạm vẫn ăn `Estimate` cũ** — rewire Tính giá → Báo giá
+là việc riêng, làm sau.
 
-### Thành phần (khung)
-| Field | Tầng | Nguồn |
-|---|---|---|
-| Loại thành phần (tờ rời / ruột / bìa…) | [Auto] | `structural_type` Loại SP |
-| Tên thành phần | [Auto] | tên Loại SP |
-| Khổ thành phẩm ③ (+ mở rộng) | [Nhập] | — (ô gốc quan trọng nhất) |
-| Tay gấp 1&2 | [Auto] | ẩn nếu loại không gấp |
-| Số tờ / sản phẩm | [Auto] | mặc định 1, ẩn với tờ rời |
-
-### Giấy in
-| Field | Tầng | Nguồn |
-|---|---|---|
-| Loại giấy & định lượng | [Auto] | gợi ý theo `default_stock_class` |
-| Khổ giấy nguyên ① | [Auto] | tự điền khi chọn giấy |
-| Đơn giá giấy (kg / tờ) | [Auto] | theo `don_vi_gia` giấy |
-| Nguồn giấy (Công ty / Khách) | [Auto] | mặc định Công ty |
-| Bù hao (số tờ cộng thêm) | [Auto] | danh mục Bù hao (theo màu/con/SL) |
-| 5 chừa: xén · tay kê · nhíp · đuôi · cà gáy | [Auto] | theo Máy, sửa được |
-
-> ẩn khỏi UI: số tờ nguyên, kg giấy (vẫn tính ngầm để ra tiền giấy).
-
-### Kỹ thuật in
-| Field | Tầng | Nguồn |
-|---|---|---|
-| Có in không? | [Nhập] | mặc định có |
-| Khách cung cấp (File / Thiết kế) | [Auto] | — |
-| Chế bản (loại + đơn giá) | [Auto] | routing + đơn giá danh mục |
-| Quy cách in (1 mặt / 2 mặt / tự trở) | [Nhập] | — |
-| Khổ in ② | [Auto] | xả từ ① cho vừa Máy |
-| Số con ④ | [Auto] | tự bình bài (③ lên ② trừ chừa) |
-| Máy in | [Auto] | gợi ý theo khổ; ra khổ in + gripper + khoa_class |
-| Tráng phủ / Sấy | [Auto] | — |
-| Đơn giá công in | [Auto] | danh mục Công đoạn (nhóm print), mực gộp |
-| tờ in net / gross · số lượt | [Hiện] | tự tính |
-
-### Màu in (đã gộp — không SEL/Pan/Nền, không hệ số)
-| Field | Tầng |
-|---|---|
-| Số màu mặt A / số màu mặt B | [Nhập] |
-| Số kẽm = (màu A + màu B) × số tờ-mẫu | [Hiện] |
-
-### Gia công sau in (nhiều dòng)
-| Field | Tầng |
-|---|---|
-| Công đoạn (chọn) | [Auto] từ routing Loại SP |
-| Đơn giá / SL / diện tích / số mặt | [Auto] danh mục, sửa được |
-| Nhà cung cấp (thuê ngoài) | [Nhập] tùy chọn |
-| Thành tiền dòng | [Hiện] |
+Ràng buộc repo (CLAUDE.md): không Alembic → đổi cột viết vào `backend/app/db_migrations.py`;
+cập nhật `docs/DB_SCHEMA.md` cùng lúc (guard test); Boolean `server_default` = `true`/`false`.
 
 ---
 
-## 6. Thay đổi schema
+## 15. Ngoài phạm vi (defer)
 
-**Gỡ cột** (hệ số / trung gian không dùng — tính giá vốn không có hệ số):
-`he_so_sel`, `he_so_pan`, `he_so_nen`, `che_ban_he_so`, `he_so_cong_in`, `bu_hao_he_so`, `loi_nhuan`.
-
-Ràng buộc repo (`CLAUDE.md`):
-- KHÔNG Alembic → thay đổi cột phải viết vào `backend/app/db_migrations.py`; dev drop `dev.db`.
-- Guard test `docs/DB_SCHEMA.md`: cập nhật cùng lúc khi đổi model, nếu không `./init.ps1` FAIL.
-- Boolean `server_default` = `true`/`false` (Python bool), không `"0"/"1"`.
+Rewire sang Báo giá · in theo giờ máy · web/cuộn · sách nhiều tay (BOM động) · mực theo độ phủ.
 
 ---
 
-## 7. UI/UX
+## 16. Đã chốt (trước còn treo)
 
-- **List** (`PhieuTinhGiaListView`): giữ — đã bám `RebuildCatalogPage`.
-- **Detail**: THIẾT KẾ LẠI TỪ ĐẦU sau khi xem hiện trạng bằng `dev-browser`. Form cũ chỉ là nguồn
-  field/dữ liệu, KHÔNG phải mẫu thẩm mỹ — không mô phỏng layout cũ.
-  - Nguyên tắc: 2 vùng (form thành phần ↔ tổng giá vốn), phân cấp thông tin rõ, mật độ vừa.
-  - Icon: **SVG line-icon** theo codebase (`SearchIcon`/`EmptyIcon`), `stroke=currentColor`.
-    TUYỆT ĐỐI KHÔNG emoji.
-  - Hiện `[Hiện]` (số con / tờ / lượt / kẽm / thành tiền) ngay cạnh ô liên quan để KTV soi số.
-  - Ẩn field theo ngữ cảnh loại thành phần (tờ rời ẩn tay gấp / số tờ-sp).
-  - Ô đã sửa-đè: dấu hiệu + nút "về mặc định".
-  - Panel tổng "TỔNG GIÁ VỐN" + subtotal 4 nhóm.
-- Bắt buộc: `styleseed-design-review` + `dev-browser` (screenshot thật) xác nhận TRƯỚC KHI báo xong.
+- Định lượng **lưu thẳng kg/m²** (0,25) — biến `dinh_luong` dùng luôn, không quy đổi.
+- `%` bù hao **nhân với `so_luong`** → ra số tờ, cộng thẳng vào `to_dau_vao` (không chia `so_tp`).
 
 ---
-
-## 8. Ngoài phạm vi (defer)
-
-- Nhánh web (tem cuộn), đóng cuốn nhiều tay / assembly, in theo giờ máy.
-- Nối lại module `imposition_rule` (đã xóa).
-- Nối Tính giá → Báo giá: Báo giá vẫn ăn `Estimate` cũ (FK `estimate_id`). `PhieuTinhGia` hiện là
-  công cụ giá vốn ĐỘC LẬP — quyết định rewire là việc riêng, sau.
-
----
-
-## 9. Quy trình build & bàn giao
-
-1. `dev-browser`: mở app, chụp UI Tính giá hiện tại (xem hiện trạng, không để anchor thẩm mỹ).
-2. Backend: build engine (§4) + schema (§6); verify `./init.ps1` (pytest + compileall), dán kết quả thật.
-3. UI/UX: có thể giao 1 agent build, kèm brief ngữ cảnh đầy đủ:
-   - doc này + hợp đồng API engine (input/output) + field 3 tầng (§5)
-   - pattern repo: `RebuildCatalogPage`, inline SVG icon, panel tổng giá vốn
-   - ràng buộc: không emoji, chạy `styleseed-design-review`.
-4. Verify: `styleseed` + `dev-browser` (screenshot) → mới báo xong.
+*Tạo lại 2026-07-14. Nguồn: phiếu tính giá tay thật (hộp đôi ITALY + rộ bông). Đơn vị đếm =
+"thành phẩm". CHƯA code.*
