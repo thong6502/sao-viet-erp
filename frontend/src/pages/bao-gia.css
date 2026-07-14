@@ -981,6 +981,9 @@ select.input {
 .bgv .exc-status { font-size: 12px; line-height: 1.4; color: rgba(245,241,232,0.6); }
 .bgv .exc-status--approved { color: var(--moss); }
 .bgv .exc-status--rejected, .bgv .exc-status--stale { color: var(--rust-2); }
+/* Ai đã duyệt/từ chối gần nhất — NV biết ai xử lý (P8b). */
+.bgv .exc-decided { font-size: 11.5px; line-height: 1.4; color: rgba(245,241,232,0.72); padding: 6px 9px; border-radius: 6px; background: rgba(0,0,0,0.18); border: 1px solid rgba(245,241,232,0.12); }
+.bgv .exc-decided b { color: var(--paper); font-weight: 600; }
 .bgv .exc-actions { display: flex; flex-direction: column; gap: 8px; }
 .bgv .exc-note { width: 100%; resize: vertical; font: inherit; font-size: 12px; padding: 7px 9px; border-radius: 6px; background: rgba(0,0,0,0.2); border: 1px solid rgba(245,241,232,0.18); color: var(--paper); }
 .bgv .exc-btns { display: flex; gap: 8px; }

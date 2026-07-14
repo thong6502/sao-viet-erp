@@ -2042,6 +2042,15 @@ function QuotationDetailView({
                             ? "Bấm ‘Trình duyệt’ để gửi Giám đốc Kinh doanh duyệt."
                             : "Chưa trình duyệt."}
                 </div>
+                {/* AI đã quyết định gần nhất — để NV biết ai duyệt/từ chối + khi nào + lý do (P8b). */}
+                {d.exception_decided_by_name && (
+                  <div className="exc-decided">
+                    {d.exception_decision === "rejected" ? "✕ Từ chối" : "✓ Duyệt"} bởi{" "}
+                    <b>{d.exception_decided_by_name}</b>
+                    {d.exception_decided_at ? ` · ${fmtDate(d.exception_decided_at)}` : ""}
+                    {d.exception_note ? ` · “${d.exception_note}”` : ""}
+                  </div>
+                )}
                 {/* GĐ Kinh doanh duyệt/từ chối — CHỈ khi báo giá đang Chờ duyệt (pending_approval). */}
                 {d.status === "pending_approval" && canApproveException && (
                   <div className="exc-actions">
