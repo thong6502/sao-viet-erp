@@ -262,24 +262,6 @@ const DUP_FIELD_LABELS: Record<DuplicateWarn["field"], string> = {
   email: "email",
 };
 
-/** Tóm tắt điều khoản thanh toán để hiển thị (hồ sơ + bảng). */
-/*
-function termSummary(c: CustomerRow): string | null {
-  switch (c.payment_term_type) {
-    case "prepay":
-      return `Trả trước ${c.prepay_pct ?? "?"}%`;
-    case "net_delivery":
-      return `${c.payment_term_days ?? "?"} ngày từ ngày nhận hàng`;
-    case "net_eom":
-      return `Đối chiếu cuối tháng + ${c.payment_term_days ?? "?"} ngày`;
-    case "custom":
-      return c.payment_term_note || "Đặc thù khác";
-    default:
-      return null;
-  }
-}
-*/
-
 // =============================================================================
 // List-Report page
 // =============================================================================
@@ -1755,6 +1737,7 @@ function FinancialPolicyCard({
   const [err, setErr] = useState<string | null>(null);
   const [f, setF] = useState({
     credit_limit: "0",
+    payment_term_days: "",
     discount_min_pct: "",
     discount_max_pct: "",
     margin_min_pct: "",
@@ -1765,6 +1748,7 @@ function FinancialPolicyCard({
     const numStr = (n?: number | null) => (n != null ? String(n) : "");
     setF({
       credit_limit: String(customer.credit_limit ?? 0),
+      payment_term_days: numStr(customer.payment_term_days),
       discount_min_pct: numStr(customer.discount_min_pct),
       discount_max_pct: numStr(customer.discount_max_pct),
       margin_min_pct: numStr(customer.margin_min_pct),
@@ -1779,8 +1763,11 @@ function FinancialPolicyCard({
     setSaving(true);
     setErr(null);
     const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
+    const daysOrNull = (s: string) =>
+      s.trim() === "" ? null : Math.max(0, Math.floor(Number(s) || 0));
     const input: CustomerFinancialInput = {
       credit_limit: Number(f.credit_limit) || 0,
+      payment_term_days: daysOrNull(f.payment_term_days),
       discount_min_pct: numOrNull(f.discount_min_pct),
       discount_max_pct: numOrNull(f.discount_max_pct),
       margin_min_pct: numOrNull(f.margin_min_pct),
@@ -1819,6 +1806,14 @@ function FinancialPolicyCard({
             <strong className="kh__mono">{moneyStat(customer.credit_limit)}</strong>
           </div>
           <div className="kh__fin-row">
+            <span className="kh__fin-label">Số ngày công nợ tối đa</span>
+            <span>
+              {customer.payment_term_days != null
+                ? `${customer.payment_term_days} ngày kể từ ngày xuất HĐ`
+                : "Chưa đặt"}
+            </span>
+          </div>
+          <div className="kh__fin-row">
             <span className="kh__fin-label">Chiết khấu cho phép</span>
             <span>{rangeText(customer.discount_min_pct, customer.discount_max_pct)}</span>
           </div>
@@ -1832,10 +1827,16 @@ function FinancialPolicyCard({
         </div>
       ) : (
         <div className="kh__finpolicy-edit">
-          <label className="field kh__fin-wide">
+          <label className="field">
             <span className="field__label">Hạn mức công nợ (VND)</span>
             <input className="input" type="number" min={0} value={f.credit_limit}
               onChange={(e) => set("credit_limit", e.target.value)} />
+          </label>
+          <label className="field">
+            <span className="field__label">Số ngày công nợ tối đa</span>
+            <input className="input" type="number" min={0} step={1} placeholder="Kể từ ngày xuất HĐ"
+              value={f.payment_term_days}
+              onChange={(e) => set("payment_term_days", e.target.value)} />
           </label>
           <div className="kh__fin-bounds">
             <label className="field">

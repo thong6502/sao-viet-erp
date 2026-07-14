@@ -85,10 +85,16 @@ class Customer(Base):
     customer_kind: Mapped[str] = mapped_column(
         String(12), nullable=False, default=KIND_CONG_TY, server_default=KIND_CONG_TY
     )
-    # --- DORMANT (2026-07-15): "Điều khoản thanh toán riêng theo KH" (khảo sát #12) đã BỎ
-    # khỏi UI + logic theo yêu cầu. Cột giữ lại (SQLite không drop gọn); đừng dùng.
-    payment_term_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # Số ngày công nợ TỐI ĐA — thời hạn khách phải thanh toán, tính từ NGÀY XUẤT HÓA ĐƠN
+    # (net terms; redesign spec-06 v2). Cặp với `credit_limit` thành chính sách "cho nợ":
+    # được nợ tối đa X đồng VÀ trong Y ngày. None = chưa đặt hạn ngày. Sửa cần quyền
+    # `set_credit_terms`. Đợt này chỉ LƯU + HIỂN THỊ; cảnh báo/chặn khi quá hạn là việc của
+    # Công nợ AR (SEAM để sau).
     payment_term_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # --- DORMANT (2026-07-15): kiểu điều khoản (dropdown prepay/net_eom/custom) + % trả trước
+    # + ghi chú tự do đã BỎ khỏi UI theo yêu cầu; giờ chỉ giữ SỐ NGÀY ở trên. Cột giữ lại
+    # (SQLite không drop gọn); đừng dùng.
+    payment_term_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
     prepay_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     payment_term_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # DORMANT (redesign spec-06 v2): "chiết khấu mặc định" (trade/buyer) đã BỎ, thay bằng

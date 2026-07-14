@@ -254,10 +254,10 @@ and is read via SEAM-16, never stored here.
 | `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | Owning Sale (RBAC scope owner). Nullable; indexed because every scoped list filters on it. |
 | `status` | `String(16)` → `VARCHAR(16)` | — | no | `active` | **DORMANT (redesign spec-06 v2)** — lead/active/inactive đã bỏ khỏi UI + logic; cột giữ default `active` cho dữ liệu cũ, không dùng cho nghiệp vụ mới. |
 | `customer_kind` | `String(12)` → `VARCHAR(12)` | — | no | `cong_ty` | Loại KH (redesign spec-06 v2): `ca_nhan` (cá nhân — form ẩn MST) / `cong_ty` (doanh nghiệp — hiện MST, tùy chọn). Khách cũ mặc định `cong_ty`. Thêm qua migration 0060. |
-| `payment_term_type` | `String(24)` → `VARCHAR(24)` | — | yes | — | Điều khoản thanh toán riêng (#12, dữ liệu chờ Công nợ): `prepay` / `net_delivery` / `net_eom` / `custom`; NULL = chưa khai. |
-| `payment_term_days` | `Integer` → `INTEGER` | — | yes | — | Số ngày công nợ (chỉ có nghĩa với `net_delivery` / `net_eom`). |
-| `prepay_pct` | `Float` → `FLOAT` | — | yes | — | Tỷ lệ trả trước % (chỉ có nghĩa với `prepay`). |
-| `payment_term_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú điều khoản (bắt buộc mô tả khi `custom`). |
+| `payment_term_days` | `Integer` → `INTEGER` | — | yes | — | **Số ngày công nợ TỐI ĐA** (net terms) — hạn thanh toán kể từ NGÀY XUẤT HÓA ĐƠN (redesign spec-06 v2). Cặp với `credit_limit` thành chính sách "cho nợ" (nợ tối đa X đồng VÀ trong Y ngày). NULL = chưa đặt hạn ngày. Sửa qua `/financial`, gate `set_credit_terms`; lưu + hiển thị (cảnh báo quá hạn là SEAM Công nợ AR). |
+| `payment_term_type` | `String(24)` → `VARCHAR(24)` | — | yes | — | **DORMANT (2026-07-15)** — kiểu điều khoản (dropdown `prepay`/`net_delivery`/`net_eom`/`custom`) đã bỏ khỏi UI; chỉ giữ `payment_term_days`. Cột giữ lại, không dùng. |
+| `prepay_pct` | `Float` → `FLOAT` | — | yes | — | **DORMANT (2026-07-15)** — % trả trước đã bỏ khỏi UI. Cột giữ lại, không dùng. |
+| `payment_term_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | **DORMANT (2026-07-15)** — ghi chú điều khoản tự do đã bỏ khỏi UI. Cột giữ lại, không dùng. |
 | `discount_trade_pct` | `Float` → `FLOAT` | — | yes | — | **DORMANT (redesign spec-06 v2)** — "CK mặc định" đã bỏ, thay bằng rào `discount_min/max_pct`. Cột giữ lại, không dùng. |
 | `discount_buyer_pct` | `Float` → `FLOAT` | — | yes | — | **DORMANT (redesign spec-06 v2)** — như trên. Cột giữ lại, không dùng. |
 | `discount_min_pct` | `Float` → `FLOAT` | — | yes | — | Sàn chiết khấu cho phép (%) — rào chắn báo giá (redesign spec-06 v2). % ∈ [0,100], `min ≤ max`; NULL = chưa đặt. Sửa cần `set_credit_terms`. Thêm qua migration 0060. |

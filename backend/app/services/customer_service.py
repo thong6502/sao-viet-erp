@@ -130,6 +130,18 @@ class CustomerService:
         return credit_limit
 
     @staticmethod
+    def _validate_credit_days(days: int | None) -> int | None:
+        """Số ngày công nợ tối đa (net terms, kể từ ngày xuất HĐ). None = chưa đặt hạn ngày;
+        số nguyên ≥ 0 (bool bị loại — tránh True/False lọt qua isinstance int)."""
+        if days is None:
+            return None
+        if not isinstance(days, int) or isinstance(days, bool):
+            raise CustomerValidationError("Số ngày công nợ phải là số nguyên.")
+        if days < 0:
+            raise CustomerValidationError("Số ngày công nợ không được âm.")
+        return days
+
+    @staticmethod
     def _validate_pct(value: float | None, label: str) -> float | None:
         if value is None:
             return None
@@ -412,28 +424,32 @@ class CustomerService:
         scope: str,
         actor,
         credit_limit: int | None,
+        payment_term_days: int | None = None,
         discount_min_pct: float | None = None,
         discount_max_pct: float | None = None,
         margin_min_pct: float | None = None,
         margin_max_pct: float | None = None,
     ) -> Customer:
-        """Ghi ĐẦY ĐỦ chính sách tài chính (hạn mức công nợ + rào chiết khấu/biên) —
-        redesign spec-06 v2. Router chỉ gọi khi caller có quyền `set_credit_terms` (chặn 403
-        nếu thiếu). Ghi cả nhóm nên None = "chưa đặt rào". (Điều khoản thanh toán đã BỎ.)"""
+        """Ghi ĐẦY ĐỦ chính sách tài chính (hạn mức công nợ + số ngày công nợ tối đa + rào
+        chiết khấu/biên) — redesign spec-06 v2. Router chỉ gọi khi caller có quyền
+        `set_credit_terms` (chặn 403 nếu thiếu). Ghi cả nhóm nên None = "chưa đặt"."""
         customer = self.get_customer(customer_id=customer_id, scope=scope, actor=actor)
         credit_limit = self._validate_credit_limit(credit_limit)
+        credit_days = self._validate_credit_days(payment_term_days)
         bounds = self._validate_bounds(
             discount_min_pct=discount_min_pct, discount_max_pct=discount_max_pct,
             margin_min_pct=margin_min_pct, margin_max_pct=margin_max_pct,
         )
         old = (
-            customer.credit_limit,
+            customer.credit_limit, customer.payment_term_days,
             customer.discount_min_pct, customer.discount_max_pct,
             customer.margin_min_pct, customer.margin_max_pct,
         )
-        self.customers.update(customer, credit_limit=credit_limit, **bounds)
+        self.customers.update(
+            customer, credit_limit=credit_limit, payment_term_days=credit_days, **bounds
+        )
         new = (
-            credit_limit,
+            credit_limit, credit_days,
             bounds["discount_min_pct"], bounds["discount_max_pct"],
             bounds["margin_min_pct"], bounds["margin_max_pct"],
         )

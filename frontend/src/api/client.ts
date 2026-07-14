@@ -425,10 +425,8 @@ export interface CustomerRow {
   orders_total: number;
   last_order_at: string | null;
   /** Chính sách tài chính (ai cũng xem; sửa qua /financial, gate set_credit_terms). */
-  payment_term_type?: string | null;
+  /** Số ngày công nợ tối đa (net terms, kể từ ngày xuất HĐ). null = chưa đặt hạn ngày. */
   payment_term_days?: number | null;
-  prepay_pct?: number | null;
-  payment_term_note?: string | null;
   discount_min_pct?: number | null;
   discount_max_pct?: number | null;
   margin_min_pct?: number | null;
@@ -689,10 +687,8 @@ export interface CustomerInput {
 /** Chính sách tài chính — endpoint /financial (gate set_credit_terms). Ghi đầy đủ nhóm. */
 export interface CustomerFinancialInput {
   credit_limit: number;
-  payment_term_type?: string | null;
+  /** Số ngày công nợ tối đa (net terms, kể từ ngày xuất HĐ). null = chưa đặt hạn ngày. */
   payment_term_days?: number | null;
-  prepay_pct?: number | null;
-  payment_term_note?: string | null;
   discount_min_pct?: number | null;
   discount_max_pct?: number | null;
   margin_min_pct?: number | null;

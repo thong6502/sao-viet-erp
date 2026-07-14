@@ -1,6 +1,6 @@
 """Quyền chi tiết `set_credit_terms` — CHÍNH SÁCH TÀI CHÍNH khách (redesign spec-06 v2).
 
-Chính sách tài chính (hạn mức công nợ + điều khoản thanh toán + rào chiết khấu/biên min–max)
+Chính sách tài chính (hạn mức công nợ + số ngày công nợ tối đa + rào chiết khấu/biên min–max)
 sửa qua endpoint RIÊNG `PUT /api/customers/{id}/financial`, gate `set_credit_terms`. KHÔNG có
 bước duyệt. Form Thêm/Sửa (định danh) KHÔNG đụng tài chính. Ai cũng XEM (cho xem hết); chỉ
 người có quyền mới SỬA (thiếu → 403). Chạy trên in-memory DB nên không đụng dữ liệu thật.
@@ -83,6 +83,7 @@ def test_manager_can_set_financial(client):
         f"/api/customers/{cid}/financial",
         json={
             "credit_limit": 30_000_000,
+            "payment_term_days": 30,
             "discount_min_pct": 0, "discount_max_pct": 10,
             "margin_min_pct": 15, "margin_max_pct": 40,
         },
@@ -91,6 +92,7 @@ def test_manager_can_set_financial(client):
     assert r.status_code == 200, r.text
     c = r.json()["customer"]
     assert c["credit_limit"] == 30_000_000
+    assert c["payment_term_days"] == 30            # net terms round-trips
     assert c["discount_max_pct"] == 10 and c["margin_min_pct"] == 15
 
 
@@ -105,6 +107,11 @@ def test_financial_validation(client):
     # biên min > max → 422.
     r = client.put(f"/api/customers/{cid}/financial", json={
         "credit_limit": 0, "margin_min_pct": 40, "margin_max_pct": 15,
+    }, headers=_h(token))
+    assert r.status_code == 422
+    # số ngày công nợ âm → 422 (net terms ≥ 0).
+    r = client.put(f"/api/customers/{cid}/financial", json={
+        "credit_limit": 0, "payment_term_days": -5,
     }, headers=_h(token))
     assert r.status_code == 422
 

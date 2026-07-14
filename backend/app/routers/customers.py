@@ -502,7 +502,7 @@ def export_customers_csv(
     names = _sale_names(users, {c.sale_user_id for c in book if c.sale_user_id})
 
     header = [
-        "Mã KH", *_IMPORT_HEADERS, "NV phụ trách", "Hạn mức (VND)",
+        "Mã KH", *_IMPORT_HEADERS, "NV phụ trách", "Hạn mức (VND)", "Số ngày công nợ",
         "CK tối thiểu (%)", "CK tối đa (%)", "Biên tối thiểu (%)", "Biên tối đa (%)",
     ]
     rows: list[list] = [header]
@@ -512,6 +512,7 @@ def export_customers_csv(
             c.phone or "", c.email or "", c.address or "", c.contact_name or "",
             names.get(c.sale_user_id, "") if c.sale_user_id else "",
             c.credit_limit,
+            c.payment_term_days if c.payment_term_days is not None else "",
             c.discount_min_pct if c.discount_min_pct is not None else "",
             c.discount_max_pct if c.discount_max_pct is not None else "",
             c.margin_min_pct if c.margin_min_pct is not None else "",
@@ -932,8 +933,8 @@ def update_customer_financial(
     users: Users,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> CustomerDetailOut:
-    """Sửa CHÍNH SÁCH TÀI CHÍNH khách (hạn mức + điều khoản + rào chiết khấu/biên) —
-    endpoint RIÊNG (redesign spec-06 v2), gate quyền chi tiết `set_credit_terms`. Ai cũng
+    """Sửa CHÍNH SÁCH TÀI CHÍNH khách (hạn mức + số ngày công nợ tối đa + rào chiết khấu/biên)
+    — endpoint RIÊNG (redesign spec-06 v2), gate quyền chi tiết `set_credit_terms`. Ai cũng
     XEM qua GET detail; chỉ quyền này mới SỬA (thiếu → 403, KHÔNG đụng field định danh)."""
     if not authz.can(user, MODULE, "set_credit_terms"):
         raise HTTPException(
@@ -947,6 +948,7 @@ def update_customer_financial(
             scope=scope,
             actor=user,
             credit_limit=payload.credit_limit,
+            payment_term_days=payload.payment_term_days,
             discount_min_pct=payload.discount_min_pct,
             discount_max_pct=payload.discount_max_pct,
             margin_min_pct=payload.margin_min_pct,

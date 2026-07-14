@@ -100,13 +100,18 @@ Thay `section` widget "Thanh toán" fake bằng card **"Chính sách tài chính
 
 ```
 ┌ Chính sách tài chính ──────────────── [Sửa ✎ nếu có quyền] ┐
-│ Hạn mức công nợ      50.000.000 đ                          │
-│ Điều khoản thanh toán Công nợ 30 ngày từ ngày nhận hàng    │
-│ ---------------------------------------------------------- │  ← phần nhạy cảm, ẩn nếu thiếu quyền
-│ Chiết khấu cho phép   0% – 10%                              │
-│ Biên lợi nhuận        ≥ 15% (tối đa 40%)                    │
+│ Hạn mức công nợ        50.000.000 đ                         │
+│ Số ngày công nợ tối đa 30 ngày kể từ ngày xuất HĐ           │
+│ Chiết khấu cho phép    0% – 10%                             │
+│ Biên lợi nhuận         ≥ 15% (tối đa 40%)                   │
 └────────────────────────────────────────────────────────────┘
 ```
+
+> **Cập nhật 2026-07-15:** "Điều khoản thanh toán" (dropdown kiểu prepay/net-EOM + %
+> trả trước + ghi chú) đã **BỎ** theo yêu cầu; thay bằng **một ô số** *"Số ngày công nợ
+> tối đa"* (`payment_term_days`) — net terms tính từ ngày xuất hóa đơn. Cặp với hạn mức
+> tiền thành chính sách "cho nợ". Mọi mục tài chính **ai cũng xem** (cho xem hết); chỉ
+> `set_credit_terms` mới sửa.
 
 - Read-only mặc định; bấm **Sửa ✎** (chỉ khi có quyền) → chuyển các dòng thành input tại
   chỗ → Lưu gọi **`PUT /api/customers/{id}/financial`** (endpoint RIÊNG, gate `set_credit_terms`).

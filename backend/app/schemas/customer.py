@@ -36,10 +36,13 @@ class CustomerUpdate(_CustomerIdentity):
 
 class CustomerFinancialIn(BaseModel):
     """Chính sách tài chính khách (redesign spec-06 v2) — endpoint /financial, gate
-    `set_credit_terms`. Ghi ĐẦY ĐỦ nhóm này: hạn mức công nợ + rào chiết khấu/biên min–max.
-    Lưu + hiển thị; chặn báo giá là SEAM. (Điều khoản thanh toán đã BỎ theo yêu cầu.)"""
+    `set_credit_terms`. Ghi ĐẦY ĐỦ nhóm này: hạn mức công nợ (tiền) + số ngày công nợ tối đa
+    (net terms, kể từ ngày xuất HĐ) + rào chiết khấu/biên min–max. Lưu + hiển thị; chặn báo
+    giá / cảnh báo quá hạn là SEAM."""
 
     credit_limit: int = Field(default=0, ge=0)
+    # Số ngày công nợ tối đa kể từ ngày xuất hóa đơn. None = chưa đặt hạn ngày.
+    payment_term_days: int | None = Field(default=None, ge=0)
     discount_min_pct: float | None = Field(default=None, ge=0, le=100)
     discount_max_pct: float | None = Field(default=None, ge=0, le=100)
     margin_min_pct: float | None = Field(default=None, ge=0, le=100)
@@ -84,6 +87,8 @@ class CustomerRow(BaseModel):
     address: str | None = None
     contact_name: str | None = None
     credit_limit: int
+    # Số ngày công nợ tối đa (net terms, kể từ ngày xuất HĐ). None = chưa đặt hạn ngày.
+    payment_term_days: int | None = None
     sale_user_id: int | None
     sale_name: str | None = None
     created_at: datetime | None = None
