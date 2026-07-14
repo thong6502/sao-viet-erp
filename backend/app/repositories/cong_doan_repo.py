@@ -10,7 +10,7 @@ ASSIGNABLE = (
     "ten", "ten_hien_thi", "kieu_bu_hao", "so_to_bu_hao", "nhom", "may_id", "khoan_ghi_theo",
     "allowed_defect_pct", "allowed_defect_abs",
     "che_do_tinh", "pricing_basis", "setup_cost", "setup_time",
-    "run_rate", "rate_tiers", "first_unit_floor", "min_charge", "requires_tooling",
+    "run_rate", "rate_tiers", "size_tiers", "first_unit_floor", "min_charge", "requires_tooling",
     "tooling_type", "spoilage_pct", "inline_flag", "ghi_chu", "active",
 )
 

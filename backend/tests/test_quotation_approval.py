@@ -209,6 +209,53 @@ def test_approval_requires_reason(client):
     assert "lý do" in r.json()["detail"].lower()
 
 
+def test_pending_approval_count_scoped(client):
+    """Badge nav: người CÓ quyền duyệt thấy số 'chờ tôi duyệt'; NV Sales (không quyền) = 0."""
+    admin = _token(client)  # GĐ: approve_exception, scope all
+    q = _make_high_value_quote(client, admin)
+    client.post(f"/api/quotations/{q['id']}/transition",
+                json={"to_status": "pending_approval"}, headers=_h(admin))
+    c = client.get("/api/quotations/pending-approval-count", headers=_h(admin))
+    assert c.status_code == 200 and c.json()["count"] >= 1
+    sales = _role_token("nv_sales_count", "NV Sales")
+    c2 = client.get("/api/quotations/pending-approval-count", headers=_h(sales))
+    assert c2.status_code == 200 and c2.json()["count"] == 0   # không quyền duyệt → 0
+
+
+def test_detail_shows_salesperson_and_approver(client):
+    """Người duyệt biết báo giá của NV nào; sau khi duyệt, NV biết AI đã duyệt + khi nào."""
+    _token(client)  # seed roles
+    sales = _role_token("nv_sales_names", "NV Sales")
+    admin = _token(client)
+    pid = _seed_ptg(gia_von_tp=1_000_000_000)
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(sales)).json()
+    d0 = client.get(f"/api/quotations/{q['id']}", headers=_h(admin)).json()
+    assert d0["salesperson_name"] == "nv_sales_names"          # người duyệt thấy NV soạn
+    client.post(f"/api/quotations/{q['id']}/transition",
+                json={"to_status": "pending_approval"}, headers=_h(sales))
+    client.post(f"/api/quotations/{q['id']}/approval",
+                json={"decision": "approved", "note": "OK"}, headers=_h(admin))
+    d = client.get(f"/api/quotations/{q['id']}", headers=_h(sales)).json()
+    assert d["exception_decision"] == "approved"
+    assert d["exception_decided_by_name"] == "Admin"           # NV biết ai duyệt
+    assert d["exception_decided_at"] is not None
+
+
+def test_double_approval_locked(client):
+    """1 người đã duyệt → rời 'Chờ duyệt' → người thứ 2 KHÔNG duyệt lại (chống duyệt trùng)."""
+    admin = _token(client)
+    gdkd = _role_token("gdkd_double", "Giám đốc Kinh doanh")
+    q = _make_high_value_quote(client, admin)
+    client.post(f"/api/quotations/{q['id']}/transition",
+                json={"to_status": "pending_approval"}, headers=_h(admin))
+    r1 = client.post(f"/api/quotations/{q['id']}/approval",
+                     json={"decision": "approved", "note": "duyet 1"}, headers=_h(admin))
+    assert r1.status_code == 200 and r1.json()["status"] == "sent"
+    r2 = client.post(f"/api/quotations/{q['id']}/approval",
+                     json={"decision": "approved", "note": "duyet 2"}, headers=_h(gdkd))
+    assert r2.status_code == 422 and "Chờ duyệt" in r2.json()["detail"]
+
+
 def test_gd_sees_margin_number(client):
     token = _token(client)
     q = _make_high_value_quote(client, token)

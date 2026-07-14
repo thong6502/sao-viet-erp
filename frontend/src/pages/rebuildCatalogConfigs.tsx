@@ -26,6 +26,7 @@ const PRICING_BASIS: Lbls = {
   per_area_sides: "Theo diện tích (cm²) và số mặt",
   per_sheet_area: "Theo diện tích tờ in (cm²)",
   per_book_page_q4: "Theo số trang sách chia 4",
+  per_job: "Trọn gói một lần (cả đơn)",
   per_other: "Khác",
 };
 const TRUC_BU_HAO: Lbls = { so_mau: "Theo số màu (giấy in)", so_con: "Theo số con (sóng bồi/bế)" };
@@ -124,8 +125,11 @@ export const CFG_CONG_DOAN: CatalogConfig = {
       hint: "Tên in cho thợ dưới xưởng đọc (bỏ trống = dùng Tên)" },
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
     { key: "pricing_basis", label: "Đơn vị tính giá", type: "select", group: "Giá", options: mapOpt(PRICING_BASIS),
-      hint: "Đếm theo cái gì (tờ / m² / cuốn / giờ…)" },
-    { key: "run_rate", label: "Đơn giá / đơn vị (đ)", type: "number", group: "Giá" },
+      hint: "Đếm theo cái gì (tờ / m² / cuốn…). 'Trọn gói một lần' cho khuôn bế — engine tự ÷ SL." },
+    { key: "run_rate", label: "Đơn giá / đơn vị (đ)", type: "number", group: "Giá",
+      hint: "Bỏ trống nếu dùng bậc theo kích thước bên dưới" },
+    { key: "size_tiers", label: "Bậc đơn giá theo kích thước", type: "size_tiers", group: "Giá",
+      hint: "Đơn giá theo cạnh dài thành phẩm (cm). VD dán: ≤20cm=100 · ≤40cm=200 · ≤100cm=800. Có bậc thì thay Đơn giá ở trên." },
     { key: "min_charge", label: "Giá tối thiểu (đ)", type: "number", group: "Giá", hint: "Thu tối thiểu dù ít" },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong",
       hint: "In → Theo số màu · Bồi/Bế sóng → Theo số con · Ép kim/UV → Cộng cố định · Ghi kẽm → Không" },

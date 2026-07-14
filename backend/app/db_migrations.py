@@ -989,6 +989,18 @@ def _migrate_giay_version_no(db: Session) -> None:
     db.commit()
 
 
+def _migrate_cong_doan_size_tiers(db: Session) -> None:
+    """Công đoạn: thêm `cong_doan.size_tiers` (JSON) — bậc đơn giá theo KÍCH THƯỚC thành phẩm
+    (cạnh dài, cm): [{den_cm, don_gia}]. Cho công đoạn kiểu dán/bế tính đơn giá theo cỡ (spec
+    tính-giá diễn giải). Nullable → không ảnh hưởng công đoạn cũ. No-op trên DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+    if "size_tiers" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN size_tiers JSON"))
+    db.commit()
+
+
 def _migrate_purchase_line_discount_vat(db: Session) -> None:
     """Thu mua: thêm giảm giá (%) và thuế GTGT (%) cho từng dòng phiếu mua.
 
@@ -1535,6 +1547,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0053_quote_phieu_tinh_gia_link", _migrate_quote_phieu_tinh_gia_link),
     ("0054_quote_bao_gia_fields", _migrate_quote_bao_gia_fields),
     ("0055_ptg_created_by", _migrate_ptg_created_by),
+    ("0056_cong_doan_size_tiers", _migrate_cong_doan_size_tiers),
 ]
 
 

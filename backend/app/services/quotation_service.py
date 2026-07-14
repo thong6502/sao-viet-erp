@@ -224,6 +224,12 @@ class QuotationService:
     def stats(self) -> dict:
         return self.quotations.stats()
 
+    def pending_approval_count(self, *, scope: str, actor, can_approve: bool) -> int:
+        """Badge 'chờ tôi duyệt': CHỈ người có quyền duyệt đặc thù mới có số; người khác = 0."""
+        if not can_approve:
+            return 0
+        return self.quotations.count_pending_approval(scope=scope, actor=actor)
+
     def estimate_numbers(self, estimate_ids: set[int]) -> dict[int, str]:
         """Map estimate_id → estimate_number cho hiển thị ↳ tham chiếu (bulk, tránh N+1)."""
         ids = {i for i in estimate_ids if i}
@@ -688,9 +694,14 @@ class QuotationService:
         return _exc_approval_status(exc, latest)
 
     def quote_gate(self, quote: Quote) -> dict:
-        """Khối 'báo giá đặc thù' cho output/UI (nhãn định tính + margin_pct nhạy cảm — router strip)."""
+        """Khối 'báo giá đặc thù' cho output/UI (nhãn định tính + margin_pct nhạy cảm — router strip).
+        Kèm AI đã quyết định gần nhất (tên + thời điểm) để UI hiện 'đã được X duyệt/từ chối'."""
         exc = self.exception_eval(quote)
         appr = self.approval_status(quote, exc)
+        row = self.quotations.latest_approval(quote.id)
+        decided_by_name = None
+        if row is not None and row.decided_by:
+            decided_by_name = self.user_names({row.decided_by}).get(row.decided_by)
         return {
             "exception_required": appr["required"],
             "exception_status": appr["status"],       # none|pending|approved|rejected|stale
@@ -698,6 +709,9 @@ class QuotationService:
             "exceptions": exc["triggers"],
             "exception_note": appr["note"],
             "margin_pct": exc["margin_pct"],
+            "exception_decision": row.decision if row is not None else None,
+            "exception_decided_by_name": decided_by_name,
+            "exception_decided_at": row.decided_at if row is not None else None,
         }
 
     def record_approval(self, *, quotation_id: int, decision: str, note: str | None, scope: str, actor):

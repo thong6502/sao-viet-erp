@@ -23,6 +23,7 @@ class CongDoanIn(BaseModel):
     setup_time: float = Field(default=0, ge=0)
     run_rate: float | None = None
     rate_tiers: list | None = None
+    size_tiers: list | None = None
     first_unit_floor: float | None = None
     min_charge: float | None = None
     requires_tooling: bool = False
@@ -52,6 +53,7 @@ class CongDoanRow(BaseModel):
     setup_time: float
     run_rate: float | None = None
     rate_tiers: list | None = None
+    size_tiers: list | None = None
     first_unit_floor: float | None = None
     min_charge: float | None = None
     requires_tooling: bool

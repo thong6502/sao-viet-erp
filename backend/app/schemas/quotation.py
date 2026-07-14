@@ -183,6 +183,12 @@ class QuotationDetailOut(BaseModel):
     exceptions: list[dict] = Field(default_factory=list)   # [{key,label}]
     exception_note: str | None = None
     margin_pct: int | None = None
+    # Ai SOẠN (để người duyệt biết báo giá của NV nào) + ai ĐÃ DUYỆT/từ chối (để NV biết ai xử lý).
+    salesperson_id: int | None = None
+    salesperson_name: str | None = None
+    exception_decision: str | None = None            # approved | rejected của lần quyết định gần nhất
+    exception_decided_by_name: str | None = None     # tên người đã duyệt/từ chối
+    exception_decided_at: datetime | None = None
 
 
 class QuoteApprovalIn(BaseModel):

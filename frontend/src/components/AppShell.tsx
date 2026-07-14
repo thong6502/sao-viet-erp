@@ -156,6 +156,16 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Báo giá in ấn: số báo giá 'Chờ duyệt' trong scope — endpoint tự trả 0 nếu người
+    // gọi KHÔNG có quyền duyệt đặc thù (chỉ người duyệt mới thấy "chờ tôi duyệt").
+    if (readable.has("bao_gia")) {
+      api.quotations
+        .pendingApprovalCount(token)
+        .then((r) => {
+          setBadges((prev) => ({ ...prev, "bao-gia": r.count > 0 ? r.count : 0 }));
+        })
+        .catch(() => {});
+    }
   }, [token, readable]);
   useEffect(() => {
     reloadBadges();

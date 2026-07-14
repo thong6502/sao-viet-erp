@@ -6,6 +6,13 @@
 //   • Phiếu lương của tôi — self-service.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Calendar,
+  DollarSign,
+  Users,
+  Clock,
+  TrendingDown,
+} from "lucide-react";
+import {
   api,
   type EmployeeRow,
   type EmployeeSalary,
@@ -112,7 +119,12 @@ function BangLuongTab({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<PayrollLine | null>(null);
+  const [params, setParams] = useState<PayrollParams | null>(null);
   const [year, month] = ym.split("-").map(Number);
+
+  useEffect(() => {
+    api.luong.getParams(token).then(setParams).catch(() => setParams(null));
+  }, [token]);
 
   const load = useCallback(() => {
     api.luong.table(token, year, month)
@@ -128,6 +140,12 @@ function BangLuongTab({ token }: { token: string }) {
 
   const shown = lines.filter((l) => filter === "all" || (filter === "tv" ? l.is_probation : !l.is_probation));
   const totalNet = shown.reduce((s, l) => s + l.net_pay, 0);
+  const totalStaff = shown.length;
+  const officialCount = shown.filter((l) => !l.is_probation).length;
+  const probationCount = shown.filter((l) => l.is_probation).length;
+  const totalWorkdays = shown.reduce((s, l) => s + (l.actual_cong ?? 0), 0);
+  const totalDeductions = shown.reduce((s, l) => s + (l.vi_pham ?? 0) + (l.bhxh ?? 0) + (l.advance_total ?? 0), 0);
+
   const status = period?.status;
   const isDraft = !period || status === "draft";
   const locked = status === "locked";
@@ -147,7 +165,10 @@ function BangLuongTab({ token }: { token: string }) {
   return (
     <div>
       <div className="cc-toolbar cc-ts-toolbar lg-toolbar">
-        <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+        <div className="lg-date-wrapper">
+          <span className="lg-date-icon"><Calendar size={14} /></span>
+          <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+        </div>
         <div className="lg-seg">
           {(["all", "ct", "tv"] as const).map((f) => (
             <button key={f} className={filter === f ? "is-active" : ""} onClick={() => setFilter(f)}>
@@ -155,9 +176,9 @@ function BangLuongTab({ token }: { token: string }) {
             </button>
           ))}
         </div>
-        {isDraft && (
+        {isDraft && period && (
           <button className="btn btn--primary" onClick={() => run(() => api.luong.generate(token, year, month))} disabled={busy}>
-            {busy ? "Đang tính…" : period ? "↻ Tính lại" : "Tạo bảng lương"}
+            {busy ? "Đang tính…" : "↻ Tính lại"}
           </button>
         )}
         {period && isDraft && (
@@ -180,8 +201,125 @@ function BangLuongTab({ token }: { token: string }) {
 
       {err && <div className="banner banner--error" style={{ marginBottom: 12 }}>{err}</div>}
 
+      {period && (
+        <div className="lg-kpi-grid">
+          <div className="lg-kpi-card lg-kpi-card--net">
+            <div className="lg-kpi-card-header">
+              <span className="lg-kpi-card-icon"><DollarSign size={15} /></span>
+              <span className="lg-kpi-card-label">Tổng thực lĩnh</span>
+            </div>
+            <div className="lg-kpi-card-val">{money(totalNet)}đ</div>
+            <div className="lg-kpi-card-sub">Chi trả cho {totalStaff} nhân sự</div>
+          </div>
+
+          <div className="lg-kpi-card lg-kpi-card--staff">
+            <div className="lg-kpi-card-header">
+              <span className="lg-kpi-card-icon"><Users size={15} /></span>
+              <span className="lg-kpi-card-label">Quy mô nhân sự</span>
+            </div>
+            <div className="lg-kpi-card-val">{totalStaff} người</div>
+            <div className="lg-kpi-card-sub">{officialCount} chính thức · {probationCount} thử việc</div>
+          </div>
+
+          <div className="lg-kpi-card lg-kpi-card--workday">
+            <div className="lg-kpi-card-header">
+              <span className="lg-kpi-card-icon"><Clock size={15} /></span>
+              <span className="lg-kpi-card-label">Tổng ngày công</span>
+            </div>
+            <div className="lg-kpi-card-val">{totalWorkdays.toLocaleString("vi-VN")} công</div>
+            <div className="lg-kpi-card-sub">Trung bình {(totalStaff ? totalWorkdays / totalStaff : 0).toFixed(1)} công/người</div>
+          </div>
+
+          <div className="lg-kpi-card lg-kpi-card--deduct">
+            <div className="lg-kpi-card-header">
+              <span className="lg-kpi-card-icon"><TrendingDown size={15} /></span>
+              <span className="lg-kpi-card-label">Khấu trừ & Tạm ứng</span>
+            </div>
+            <div className="lg-kpi-card-val">−{money(totalDeductions)}đ</div>
+            <div className="lg-kpi-card-sub">Bảo hiểm, phạt và ứng lương</div>
+          </div>
+        </div>
+      )}
+
       {!period ? (
-        <p className="ns__empty">Chưa có bảng lương tháng này. Bấm <b>“Tạo bảng lương”</b> để máy tính từ Chấm công + quy tắc + tạm ứng.</p>
+        <div className="lg-init-dashboard">
+          <div className="lg-init-grid">
+            <div className="lg-init-section lg-init-section--sources">
+              <h3 className="lg-init-section-title">Dữ liệu nguồn đồng bộ</h3>
+              <p className="lg-init-section-desc">Hệ thống tự động liên kết các phân hệ dữ liệu để tính toán lương chính xác:</p>
+              
+              <div className="lg-source-list">
+                <div className="lg-source-item">
+                  <div className="lg-source-item-head">
+                    <span className="lg-source-bullet lg-source-bullet--active"></span>
+                    <span className="lg-source-name">Dữ liệu Chấm công</span>
+                  </div>
+                  <span className="lg-source-text">Lấy số ngày công thực tế, giờ tăng ca, số ngày làm ca đêm đã chốt từ phân hệ Chấm công.</span>
+                </div>
+
+                <div className="lg-source-item">
+                  <div className="lg-source-item-head">
+                    <span className="lg-source-bullet lg-source-bullet--active"></span>
+                    <span className="lg-source-name">Quy tắc lương chuẩn</span>
+                  </div>
+                  <span className="lg-source-text">Áp dụng mức lương chuẩn theo vị trí, tổ nhóm công tác, thâm niên và giới tính đã cấu hình.</span>
+                </div>
+
+                <div className="lg-source-item">
+                  <div className="lg-source-item-head">
+                    <span className="lg-source-bullet lg-source-bullet--active"></span>
+                    <span className="lg-source-name">Khấu trừ & Tạm ứng</span>
+                  </div>
+                  <span className="lg-source-text">Tự động trừ các khoản tạm ứng đã phê duyệt trong tháng, tính BHXH bắt buộc và thuế TNCN lũy tiến.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg-init-section lg-init-section--params">
+              <h3 className="lg-init-section-title">Tham số cấu hình hiện tại</h3>
+              <p className="lg-init-section-desc">Các tham số chung đang áp dụng trong hệ thống (sửa tại tab Quy tắc lương):</p>
+              
+              {params ? (
+                <div className="lg-param-table">
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Công chuẩn mặc định</span>
+                    <span className="lg-param-val">{params.standard_cong_default} ngày</span>
+                  </div>
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Giờ công tiêu chuẩn</span>
+                    <span className="lg-param-val">{params.standard_hours_per_day}h/ngày</span>
+                  </div>
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Tỷ lệ lương thử việc</span>
+                    <span className="lg-param-val">{params.probation_ratio * 100}%</span>
+                  </div>
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Giảm trừ bản thân</span>
+                    <span className="lg-param-val">{money(params.deduction_self)}đ</span>
+                  </div>
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Giảm trừ người phụ thuộc</span>
+                    <span className="lg-param-val">{money(params.deduction_dependent)}đ</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="lg-param-loading">Đang tải tham số...</p>
+              )}
+            </div>
+          </div>
+
+          <div className="lg-init-action-card">
+            <div className="lg-init-action-info">
+              <h4 className="lg-init-action-title">Kỳ lương tháng {month}/{year} chưa được tạo</h4>
+              <p className="lg-init-action-desc">Xác nhận các thông tin dữ liệu nguồn và tham số ở trên trước khi tiến hành khởi tạo.</p>
+            </div>
+            {isDraft && (
+              <button className="btn btn--accent btn--large" onClick={() => run(() => api.luong.generate(token, year, month))} disabled={busy}>
+                {busy ? "Đang tính toán..." : "Khởi tạo bảng lương"}
+              </button>
+            )}
+          </div>
+        </div>
       ) : (
         <div className="ns__tablewrap lg-table">
           <table className="ns__table">

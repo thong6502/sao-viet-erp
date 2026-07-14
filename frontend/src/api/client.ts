@@ -1332,6 +1332,12 @@ export interface QuotationDetail {
   exceptions: { key: string; label: string }[];
   exception_note: string | null;
   margin_pct: number | null;
+  // Ai SOẠN (người duyệt biết báo giá của NV nào) + ai ĐÃ DUYỆT/từ chối (NV biết ai xử lý).
+  salesperson_id?: number | null;
+  salesperson_name?: string | null;
+  exception_decision?: "approved" | "rejected" | null;
+  exception_decided_by_name?: string | null;
+  exception_decided_at?: string | null;
 }
 
 export interface QuotationInput {
@@ -4995,6 +5001,10 @@ export const api = {
       phieuId: number,
     ): Promise<{ quote_id: number; quote_number: string; mode: "draft_synced" | "new_version" }> {
       return authed(`/api/quotations/resync-from-ptg/${phieuId}`, token, { method: "POST" });
+    },
+    /** Badge nav: số báo giá 'Chờ duyệt' trong phạm vi — chỉ ai có quyền duyệt đặc thù mới >0. */
+    pendingApprovalCount(token: string): Promise<{ count: number }> {
+      return authed(`/api/quotations/pending-approval-count`, token);
     },
     /** BG-2: GĐ DUYỆT / TỪ CHỐI báo giá đặc thù → mở khóa "gửi khách". */
     recordApproval(

@@ -22,6 +22,36 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import type { NavigateFn } from "../components/AppShell";
 import { Timeline, type TimelineEntry } from "../components/Timeline";
+import {
+  Users,
+  Hourglass,
+  UserCheck,
+  AlertCircle,
+  Search,
+  Download,
+  UserPlus,
+  ChevronDown,
+  Calendar,
+  Briefcase,
+  Clock,
+  CreditCard,
+  FileText,
+  Activity,
+  Phone,
+  Mail,
+  MapPin,
+  Lock,
+  Paperclip,
+  Trash2,
+  Edit2,
+  Link2,
+  Link2Off,
+  TrendingUp,
+  UserMinus,
+  AlertTriangle,
+  Key,
+  X
+} from "lucide-react";
 import "./nhan-su.css";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -74,6 +104,13 @@ function isEndingSoon(e: EmployeeRow): boolean {
   const end = new Date(e.probation_end_date).getTime();
   const now = Date.now();
   return end >= now && end <= now + 30 * 24 * 3600 * 1000; // khớp KPI backend (30 ngày)
+}
+
+function getAvatarClass(name: string): string {
+  const firstChar = name.trim().slice(0, 1).toLowerCase();
+  const validChars = ["a", "b", "c", "d", "e", "g", "h", "k", "l", "m", "n", "p", "q", "s", "t", "u", "v", "x"];
+  if (validChars.includes(firstChar)) return `ns2-row__av--${firstChar}`;
+  return "ns2-row__av--default";
 }
 
 export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
@@ -165,13 +202,15 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
         </div>
         <div className="ns2__headact">
           {canApprove && (
-            <button type="button" className={`btn btn--ghost${reqCount > 0 ? " ns2-reqbtn--on" : ""}`} onClick={() => setReqOpen(true)}>
+            <button type="button" className={`btn btn--ghost${reqCount > 0 ? " ns2-reqbtn--on" : ""}`} style={{ display: "inline-flex", alignItems: "center", gap: "6px" }} onClick={() => setReqOpen(true)}>
+              <Activity size={14} />
               Yêu cầu cập nhật{reqCount > 0 ? ` (${reqCount})` : ""}
             </button>
           )}
           {canCreate && (
-            <button type="button" className="btn btn--primary" onClick={() => setWizardOpen(true)}>
-              + Thêm nhân viên
+            <button type="button" className="btn btn--primary" style={{ display: "inline-flex", alignItems: "center", gap: "6px" }} onClick={() => setWizardOpen(true)}>
+              <UserPlus size={14} />
+              Thêm nhân viên
             </button>
           )}
         </div>
@@ -188,82 +227,133 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
           )}
 
           <div className="ns2__toolbar">
-            <input
-              className="ns__search"
-              placeholder="Tìm tên / mã / CCCD / SĐT…"
-              value={q}
-              onChange={(e) => { setPage(1); setEndingSoon(false); setQ(e.target.value); }}
-            />
+            <div className="ns-search-wrapper">
+              <Search className="ns-search-icon" size={16} />
+              <input
+                className="ns__search"
+                placeholder="Tìm tên / mã / CCCD / SĐT…"
+                value={q}
+                onChange={(e) => { setPage(1); setEndingSoon(false); setQ(e.target.value); }}
+              />
+            </div>
             <div className="ns2__filters">
-              <select value={statusFilter} onChange={(e) => { setPage(1); setEndingSoon(false); setStatusFilter(e.target.value); }}>
-                <option value="">Mọi trạng thái</option>
-                {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-              </select>
-              <select value={deptFilter} onChange={(e) => { setPage(1); setDeptFilter(e.target.value === "" ? "" : Number(e.target.value)); }}>
-                <option value="">Mọi phòng/tổ</option>
-                {meta?.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-              <select value={sort} onChange={(e) => { setPage(1); setSort(e.target.value); }} title="Sắp xếp">
-                <option value="code">Mã ↑</option>
-                <option value="full_name">Tên A→Z</option>
-                <option value="-hire_date">Mới vào trước</option>
-                <option value="hire_date">Vào lâu trước</option>
-                <option value="status">Trạng thái</option>
-              </select>
-              <button className="btn btn--ghost" onClick={exportExcel} disabled={exporting}>{exporting ? "…" : "⬇ Excel"}</button>
+              <div className="ns-select-wrapper">
+                <select value={statusFilter} onChange={(e) => { setPage(1); setEndingSoon(false); setStatusFilter(e.target.value); }}>
+                  <option value="">Mọi trạng thái</option>
+                  {Object.entries(STATUS_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+                <ChevronDown className="ns-select-chevron" size={14} />
+              </div>
+              <div className="ns-select-wrapper">
+                <select value={deptFilter} onChange={(e) => { setPage(1); setDeptFilter(e.target.value === "" ? "" : Number(e.target.value)); }}>
+                  <option value="">Mọi phòng/tổ</option>
+                  {meta?.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+                <ChevronDown className="ns-select-chevron" size={14} />
+              </div>
+              <div className="ns-select-wrapper">
+                <select value={sort} onChange={(e) => { setPage(1); setSort(e.target.value); }} title="Sắp xếp">
+                  <option value="code">Mã ↑</option>
+                  <option value="full_name">Tên A→Z</option>
+                  <option value="-hire_date">Mới vào trước</option>
+                  <option value="hire_date">Vào lâu trước</option>
+                  <option value="status">Trạng thái</option>
+                </select>
+                <ChevronDown className="ns-select-chevron" size={14} />
+              </div>
+              <button className="ns-btn-excel" onClick={exportExcel} disabled={exporting}>
+                <Download size={14} />
+                {exporting ? "Đang xuất…" : "Xuất Excel"}
+              </button>
               {endingSoon && (
-                <button className="ns2-chip" onClick={() => setEndingSoon(false)}>⚠ Sắp hết thử việc ×</button>
+                <button className="ns2-chip" onClick={() => setEndingSoon(false)}>
+                  <AlertCircle size={14} />
+                  Sắp hết thử việc ×
+                </button>
               )}
             </div>
           </div>
 
           {error && <div className="banner banner--error" role="alert">{error}</div>}
 
-          <div className="ns2__rows">
-            {loading && <div className="ns__empty">Đang tải…</div>}
-            {!loading && rows.length === 0 && (
-              <div className="ns__empty">
-                {endingSoon ? "Không có ai sắp hết thử việc." : "Chưa có nhân viên nào."}
-              </div>
-            )}
-            {!loading && rows.map((e) => (
-              <button
-                key={e.id}
-                type="button"
-                className={`ns2-row${selectedId === e.id ? " is-active" : ""}${isEndingSoon(e) ? " is-soon" : ""}`}
-                onClick={() => setSelectedId(e.id)}
-              >
-                <span className="ns2-row__av">{e.full_name.slice(0, 1).toUpperCase()}</span>
-                <span className="ns2-row__body">
-                  <span className="ns2-row__name">
-                    {e.full_name}
-                    {e.account_username && <span className="ns__chip" title="Có tài khoản">🔑</span>}
-                  </span>
-                  <span className="ns2-row__sub">{e.code} · {e.department_name ?? "—"}{e.job_grade ? ` · ${e.job_grade}` : ""}</span>
-                </span>
-                <StatusDot status={e.status} />
-              </button>
-            ))}
+          <div className="ns-table-wrapper">
+            <table className="ns-table-records">
+              <thead>
+                <tr>
+                  <th>Mã NV</th>
+                  <th>Nhân viên</th>
+                  <th>Phòng/Tổ</th>
+                  <th>Chức danh</th>
+                  <th>Bậc thợ</th>
+                  <th>Ngày vào làm</th>
+                  <th>Trạng thái</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && (
+                  <tr>
+                    <td colSpan={7} className="ns__empty">Đang tải danh sách…</td>
+                  </tr>
+                )}
+                {!loading && rows.map((e) => {
+                  const avatarClass = getAvatarClass(e.full_name);
+                  return (
+                    <tr
+                      key={e.id}
+                      className="ns-table-row"
+                      onClick={() => setSelectedId(e.id)}
+                    >
+                      <td className="ns-cell-code">{e.code}</td>
+                      <td>
+                        <div className="ns-cell-employee">
+                          <span className={`ns-table-avatar ${avatarClass}`}>
+                            {e.full_name.trim().slice(0, 1).toUpperCase()}
+                          </span>
+                          <span className="ns-cell-name">
+                            {e.full_name}
+                            {e.account_username && (
+                              <span title="Có tài khoản">
+                                <Key size={13} style={{ marginLeft: "2px" }} />
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      </td>
+                      <td>{e.department_name ?? "—"}</td>
+                      <td>{e.position ?? "—"}</td>
+                      <td>{e.job_grade ?? "—"}</td>
+                      <td>{fmtDate(e.hire_date)}</td>
+                      <td>
+                        <StatusBadge status={e.status} />
+                      </td>
+                    </tr>
+                  );
+                })}
+                {!loading && rows.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="ns__empty">
+                      {endingSoon ? "Không có ai sắp hết thử việc." : "Chưa có nhân viên nào."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
 
           <div className="ns__pager">
             <span>{data ? `${data.total} nhân viên` : ""}</span>
             <div className="ns__pagerbtns">
-              <button className="btn btn--ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>
+              <button type="button" className="btn btn--ghost" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>‹</button>
               <span>{page} / {totalPages}</span>
-              <button className="btn btn--ghost" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>›</button>
+              <button type="button" className="btn btn--ghost" disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}>›</button>
             </div>
           </div>
         </section>
+      </div>
 
-        <section className={`ns2__detail${selectedId != null ? " is-open" : ""}`}>
-          {selectedId == null ? (
-            <div className="ns2-blank">
-              <div className="ns2-blank__icon">👤</div>
-              <p>Chọn một nhân viên để xem hồ sơ</p>
-              {canCreate && <span className="ns2-blank__hint">hoặc “+ Thêm nhân viên”</span>}
-            </div>
-          ) : (
+      {selectedId != null && (
+        <div className="ns-modal" role="dialog" aria-modal="true" onClick={() => setSelectedId(null)}>
+          <div className="ns-detail-modal-box" onClick={(e) => e.stopPropagation()}>
             <EmployeeDetailPanel
               token={token!}
               employeeId={selectedId}
@@ -272,9 +362,9 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
               onClose={() => setSelectedId(null)}
               onChanged={load}
             />
-          )}
-        </section>
-      </div>
+          </div>
+        </div>
+      )}
 
       {wizardOpen && meta && (
         <EmployeeWizard
@@ -353,14 +443,6 @@ function RequestQueueModal({ token, onClose, onDecided }: {
   );
 }
 
-function StatusDot({ status }: { status: string }) {
-  return (
-    <span className={`ns2-status ns2-status--${status}`} title={STATUS_LABEL[status] ?? status}>
-      <span className="ns2-status__dot" />
-      <span className="ns2-status__txt">{STATUS_LABEL[status] ?? status}</span>
-    </span>
-  );
-}
 
 function StatusBadge({ status }: { status: string }) {
   return (
@@ -374,26 +456,35 @@ function KpiStrip({ kpis, onPickProbation, onPickEndingSoon }: {
   kpis: EmployeeKpis; onPickProbation: () => void; onPickEndingSoon: () => void;
 }) {
   return (
-    <div className="ns__kpis ns2__kpis">
-      <Kpi label="Tổng" value={kpis.total} />
-      <button type="button" className="ns__kpi ns__kpi--warn ns2-kpibtn" onClick={onPickProbation}>
-        <span className="ns__kpival">{kpis.probation}</span>
-        <span className="ns__kpilabel">Thử việc</span>
+    <div className="ns2__kpis">
+      <div className="ns__kpi ns__kpi--total">
+        <span className="ns__kpi-icon"><Users size={16} /></span>
+        <div className="ns__kpi-content">
+          <span className="ns__kpilabel">Tổng nhân sự</span>
+          <span className="ns__kpival">{kpis.total}</span>
+        </div>
+      </div>
+      <button type="button" className="ns__kpi ns__kpi--probation" onClick={onPickProbation}>
+        <span className="ns__kpi-icon"><Hourglass size={16} /></span>
+        <div className="ns__kpi-content">
+          <span className="ns__kpilabel">Đang thử việc</span>
+          <span className="ns__kpival">{kpis.probation}</span>
+        </div>
       </button>
-      <Kpi label="Đang làm" value={kpis.active} tone="ok" />
+      <div className="ns__kpi ns__kpi--active">
+        <span className="ns__kpi-icon"><UserCheck size={16} /></span>
+        <div className="ns__kpi-content">
+          <span className="ns__kpilabel">Chính thức</span>
+          <span className="ns__kpival">{kpis.active}</span>
+        </div>
+      </div>
       <button type="button" className="ns__kpi ns__kpi--action" onClick={onPickEndingSoon}>
-        <span className="ns__kpival">{kpis.probation_ending_soon}</span>
-        <span className="ns__kpilabel">⚠ Sắp hết TV</span>
+        <span className="ns__kpi-icon"><AlertCircle size={16} /></span>
+        <div className="ns__kpi-content">
+          <span className="ns__kpilabel">Sắp hết thử việc</span>
+          <span className="ns__kpival">{kpis.probation_ending_soon}</span>
+        </div>
       </button>
-    </div>
-  );
-}
-
-function Kpi({ label, value, tone }: { label: string; value: number; tone?: string }) {
-  return (
-    <div className={`ns__kpi ${tone ? `ns__kpi--${tone}` : ""}`}>
-      <span className="ns__kpival">{value}</span>
-      <span className="ns__kpilabel">{label}</span>
     </div>
   );
 }
@@ -633,8 +724,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-// --- Trang hồ sơ (detail) ---------------------------------------------------
-
 type Tab = "info" | "salary" | "events" | "files" | "activity";
 
 function EmployeeDetailPanel({
@@ -659,15 +748,23 @@ function EmployeeDetailPanel({
   const [tab, setTab] = useState<Tab>("info");
   const [error, setError] = useState<string | null>(null);
   const [action, setAction] = useState<string | null>(null); // dialog kind
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [editInfo, setEditInfo] = useState(false);
+  const [editSalary, setEditSalary] = useState(false);
 
   const reload = useCallback(() => {
     api.employees.get(token, employeeId).then(setEmp).catch((e) => setError(errMsg(e)));
   }, [token, employeeId]);
 
-  useEffect(() => { setTab("info"); reload(); }, [reload]);
+  useEffect(() => {
+    setTab("info");
+    setEditInfo(false);
+    setEditSalary(false);
+    reload();
+  }, [reload]);
 
   if (!emp) {
-    return <div className="ns2-detail__loading">{error ?? "Đang tải…"}</div>;
+    return <div className="ns2-detail__loading">{error ?? "Đang tải hồ sơ…"}</div>;
   }
 
   const resigned = emp.status === "resigned";
@@ -682,37 +779,139 @@ function EmployeeDetailPanel({
   return (
     <div className="ns2-detail">
       <header className="ns2-detail__head">
-        <button className="ns2-detail__back" onClick={onClose} aria-label="Quay lại danh sách">‹</button>
-        <div className="ns-avatar ns-avatar--lg">{assetUrl(emp.photo_url) ? <img src={assetUrl(emp.photo_url)!} alt="" /> : emp.full_name.slice(0, 1)}</div>
+        <button type="button" className="ns-modal__close-btn" onClick={onClose} aria-label="Đóng">
+          <X size={18} />
+        </button>
+        <div className="ns-avatar ns-avatar--lg">
+          {assetUrl(emp.photo_url) ? (
+            <img src={assetUrl(emp.photo_url)!} alt={emp.full_name} />
+          ) : (
+            emp.full_name.trim().slice(0, 1).toUpperCase()
+          )}
+        </div>
         <div className="ns2-detail__id">
-          <h2>{emp.full_name} <StatusBadge status={emp.status} /></h2>
-          <p className="ns-detail__meta">{emp.code} · {emp.department_name ?? "—"} · {emp.position ?? "—"}{emp.job_grade ? ` · Bậc ${emp.job_grade}` : ""}</p>
-          <p className="ns-detail__meta">Vào làm {fmtDate(emp.hire_date)} · {emp.account_username ? `🔑 ${emp.account_username}` : "chưa nối tài khoản"}</p>
+          <h2>
+            {emp.full_name}
+            <StatusBadge status={emp.status} />
+          </h2>
+          <p className="ns-detail__meta">
+            <Briefcase size={13} />
+            {emp.code} · {emp.department_name ?? "—"} · {emp.position ?? "—"}{emp.job_grade ? ` · Bậc ${emp.job_grade}` : ""}
+          </p>
+          <p className="ns-detail__meta">
+            <Calendar size={13} />
+            Vào làm {fmtDate(emp.hire_date)} · {emp.account_username ? `🔑 ${emp.account_username}` : "chưa nối tài khoản"}
+          </p>
         </div>
       </header>
 
-      {navigate && (
-        <div className="ns2-detail__links">
-          <span className="ns2-detail__linkslabel">Xem của NV này:</span>
-          <button className="btn btn--ghost" onClick={() => navigate("cham-cong", { focusEmployeeId: emp.id })}>🕒 Chấm công</button>
-          <button className="btn btn--ghost" onClick={() => navigate("nghi-phep", { focusEmployeeId: emp.id })}>📅 Nghỉ phép</button>
-          <button className="btn btn--ghost" onClick={() => navigate("luong", { focusEmployeeId: emp.id })}>💰 Lương</button>
-        </div>
-      )}
-
-      {canUpdate && (
+      {(navigate || canUpdate) && (
         <div className="ns-detail__actions">
-          {emp.status === "probation" && <button className="btn btn--ghost" onClick={() => setAction("confirm")}>Chuyển chính thức</button>}
-          {emp.status === "active" && <button className="btn btn--ghost" onClick={() => setAction("leave_start")}>Cho nghỉ dài hạn</button>}
-          {emp.status === "on_leave" && <button className="btn btn--ghost" onClick={() => setAction("leave_end")}>Đi làm lại</button>}
-          {!resigned && <button className="btn btn--ghost" onClick={() => setAction("transfer")}>Điều chuyển</button>}
-          {!resigned && <button className="btn btn--ghost" onClick={() => setAction("promote")}>Nâng bậc</button>}
-          {!resigned && <button className="btn btn--ghost" onClick={() => setAction("suspend")}>Đình chỉ</button>}
-          {!resigned && <button className="btn btn--ghost ns-danger" onClick={() => setAction("resign")}>Nghỉ việc</button>}
-          {resigned && <button className="btn btn--ghost" onClick={() => setAction("reinstate")}>Tuyển lại</button>}
-          {emp.account_username
-            ? <button className="btn btn--ghost" onClick={() => setAction("unlink")}>Gỡ tài khoản</button>
-            : <button className="btn btn--ghost" onClick={() => setAction("link")}>Nối tài khoản</button>}
+          <div className="ns-detail__shortcuts">
+            {navigate && (
+              <>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => navigate("cham-cong", { focusEmployeeId: emp.id })}>
+                  <Clock size={12} />
+                  Chấm công
+                </button>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => navigate("nghi-phep", { focusEmployeeId: emp.id })}>
+                  <Calendar size={12} />
+                  Nghỉ phép
+                </button>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => navigate("luong", { focusEmployeeId: emp.id })}>
+                  <CreditCard size={12} />
+                  Lương
+                </button>
+              </>
+            )}
+          </div>
+          <div className="ns-detail__ops">
+            {canUpdate && tab === "info" && !resigned && (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => setEditInfo(!editInfo)}
+              >
+                <Edit2 size={12} />
+                {editInfo ? "Hủy sửa" : "Sửa thông tin"}
+              </button>
+            )}
+            {canUpdate && tab === "salary" && canViewSalary && !resigned && (
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => setEditSalary(!editSalary)}
+              >
+                <Edit2 size={12} />
+                {editSalary ? "Hủy sửa" : "Sửa lương & BHXH"}
+              </button>
+            )}
+            {canUpdate && (
+              <div className="ns-dropdown">
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  onClick={() => setDropdownOpen(!dropdownOpen)}
+                >
+                  Thao tác hồ sơ
+                  <ChevronDown size={12} />
+                </button>
+                {dropdownOpen && (
+                  <div className="ns-dropdown-menu">
+                    {emp.status === "probation" && (
+                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("confirm"); setDropdownOpen(false); }}>
+                        <UserCheck size={14} /> Chuyển chính thức
+                      </button>
+                    )}
+                    {emp.status === "active" && (
+                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("leave_start"); setDropdownOpen(false); }}>
+                        <UserMinus size={14} /> Cho nghỉ dài hạn
+                      </button>
+                    )}
+                    {emp.status === "on_leave" && (
+                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("leave_end"); setDropdownOpen(false); }}>
+                        <UserCheck size={14} /> Đi làm lại
+                      </button>
+                    )}
+                    {!resigned && (
+                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("transfer"); setDropdownOpen(false); }}>
+                        <TrendingUp size={14} /> Điều chuyển tổ
+                      </button>
+                    )}
+                    {!resigned && (
+                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("promote"); setDropdownOpen(false); }}>
+                        <TrendingUp size={14} /> Nâng bậc / Chức danh
+                      </button>
+                    )}
+                    {!resigned && (
+                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("suspend"); setDropdownOpen(false); }}>
+                        <AlertTriangle size={14} /> Đình chỉ công tác
+                      </button>
+                    )}
+                    {!resigned && (
+                      <button type="button" className="ns-dropdown-item ns-danger" onClick={() => { setAction("resign"); setDropdownOpen(false); }}>
+                        <UserMinus size={14} /> Thôi việc / Nghỉ việc
+                      </button>
+                    )}
+                    {resigned && (
+                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("reinstate"); setDropdownOpen(false); }}>
+                        <UserPlus size={14} /> Tuyển dụng lại
+                      </button>
+                    )}
+                    {emp.account_username ? (
+                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("unlink"); setDropdownOpen(false); }}>
+                        <Link2Off size={14} /> Gỡ liên kết tài khoản
+                      </button>
+                    ) : (
+                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("link"); setDropdownOpen(false); }}>
+                        <Link2 size={14} /> Liên kết tài khoản
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -723,8 +922,8 @@ function EmployeeDetailPanel({
       </nav>
 
       <div className="ns2-detail__body">
-        {tab === "info" && <InfoTab token={token} emp={emp} canUpdate={canUpdate && !resigned} onSaved={() => { reload(); onChanged(); }} />}
-        {tab === "salary" && canViewSalary && <SalaryTab token={token} emp={emp} canUpdate={canUpdate && !resigned} onSaved={() => { reload(); onChanged(); }} />}
+        {tab === "info" && <InfoTab token={token} emp={emp} edit={editInfo} setEdit={setEditInfo} onSaved={() => { reload(); onChanged(); }} />}
+        {tab === "salary" && canViewSalary && <SalaryTab token={token} emp={emp} edit={editSalary} setEdit={setEditSalary} onSaved={() => { reload(); onChanged(); }} />}
         {tab === "events" && <EventsTab token={token} employeeId={employeeId} meta={meta} />}
         {tab === "files" && <FilesTab token={token} employeeId={employeeId} canUpdate={canUpdate} />}
         {tab === "activity" && <ActivityTab token={token} employeeId={employeeId} />}
@@ -744,8 +943,19 @@ function EmployeeDetailPanel({
   );
 }
 
-function InfoTab({ token, emp, canUpdate, onSaved }: { token: string; emp: EmployeeDetail; canUpdate: boolean; onSaved: () => void }) {
-  const [edit, setEdit] = useState(false);
+function InfoTab({
+  token,
+  emp,
+  edit,
+  setEdit,
+  onSaved,
+}: {
+  token: string;
+  emp: EmployeeDetail;
+  edit: boolean;
+  setEdit: (e: boolean) => void;
+  onSaved: () => void;
+}) {
   const [form, setForm] = useState<EmployeeInput>({ ...emp } as unknown as EmployeeInput);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -806,28 +1016,34 @@ function InfoTab({ token, emp, canUpdate, onSaved }: { token: string; emp: Emplo
 
   return (
     <div>
-      {canUpdate && (
-        <div className="ns-inforow"><button className="btn btn--ghost" onClick={() => setEdit(true)}>Sửa thông tin</button></div>
-      )}
-      <Section title="Định danh & việc làm">
-        <Row k="Mã NV" v={emp.code} /><Row k="Phòng/Tổ" v={emp.department_name} />
-        <Row k="Chức danh" v={emp.position} /><Row k="Bậc thợ" v={emp.job_grade} />
-        <Row k="Ngày vào" v={fmtDate(emp.hire_date)} /><Row k="Hết thử việc" v={fmtDate(emp.probation_end_date)} />
-        <Row k="Ca làm việc" v={shiftName} />
-        {emp.resign_date && <Row k="Ngày nghỉ" v={fmtDate(emp.resign_date)} />}
-        {emp.resign_reason && <Row k="Lý do nghỉ" v={emp.resign_reason} />}
-      </Section>
-      <Section title="Cá nhân">
-        <Row k="Ngày sinh" v={fmtDate(emp.date_of_birth)} /><Row k="Giới tính" v={emp.gender ? GENDER_LABEL[emp.gender] : null} />
-        <Row k="CCCD" v={emp.national_id} /><Row k="Ngày cấp" v={fmtDate(emp.national_id_date)} />
-        <Row k="Nơi cấp" v={emp.national_id_place} />
-        <Row k="SĐT" v={emp.phone} /><Row k="Email" v={emp.email} />
-        <Row k="Hộ khẩu" v={emp.permanent_address} /><Row k="Chỗ ở" v={emp.current_address} />
-        <Row k="Liên hệ khẩn" v={emp.emergency_contact_name ? `${emp.emergency_contact_name} · ${emp.emergency_contact_phone ?? ""}` : null} />
-      </Section>
-      <Section title="Khác">
-        <Row k="Ghi chú" v={emp.note} />
-      </Section>
+      <div className="ns-info-sections">
+        <InfoCard title="Định danh & việc làm" icon={Briefcase}>
+          <InfoField label="Mã NV" value={emp.code} icon={Briefcase} />
+          <InfoField label="Phòng/Tổ" value={emp.department_name} icon={Users} />
+          <InfoField label="Chức danh" value={emp.position} icon={UserCheck} />
+          <InfoField label="Bậc thợ" value={emp.job_grade} icon={TrendingUp} />
+          <InfoField label="Ngày vào" value={fmtDate(emp.hire_date)} icon={Calendar} />
+          <InfoField label="Hết thử việc" value={fmtDate(emp.probation_end_date)} icon={Calendar} />
+          <InfoField label="Ca làm việc" value={shiftName} icon={Clock} />
+          {emp.resign_date && <InfoField label="Ngày nghỉ" value={fmtDate(emp.resign_date)} icon={Calendar} />}
+          {emp.resign_reason && <InfoField label="Lý do nghỉ" value={emp.resign_reason} icon={FileText} />}
+        </InfoCard>
+        <InfoCard title="Cá nhân" icon={Users}>
+          <InfoField label="Ngày sinh" value={fmtDate(emp.date_of_birth)} icon={Calendar} />
+          <InfoField label="Giới tính" value={emp.gender ? GENDER_LABEL[emp.gender] : null} icon={Users} />
+          <InfoField label="CCCD" value={emp.national_id} icon={FileText} />
+          <InfoField label="Ngày cấp" value={fmtDate(emp.national_id_date)} icon={Calendar} />
+          <InfoField label="Nơi cấp" value={emp.national_id_place} icon={MapPin} />
+          <InfoField label="SĐT" value={emp.phone} icon={Phone} />
+          <InfoField label="Email" value={emp.email} icon={Mail} />
+          <InfoField label="Hộ khẩu" value={emp.permanent_address} icon={MapPin} />
+          <InfoField label="Chỗ ở" value={emp.current_address} icon={MapPin} />
+          <InfoField label="Liên hệ khẩn" value={emp.emergency_contact_name ? `${emp.emergency_contact_name} · ${emp.emergency_contact_phone ?? ""}` : null} icon={Phone} />
+        </InfoCard>
+      </div>
+      <InfoCard title="Khác" icon={FileText}>
+        <InfoField label="Ghi chú" value={emp.note} icon={FileText} />
+      </InfoCard>
     </div>
   );
 }
@@ -842,8 +1058,19 @@ const PGK_LABEL: Record<string, string> = {
 };
 
 // Tab Lương & BHXH — dữ liệu nhạy cảm (chỉ hiện với quyền `nhan_su:view_salary`).
-function SalaryTab({ token, emp, canUpdate, onSaved }: { token: string; emp: EmployeeDetail; canUpdate: boolean; onSaved: () => void }) {
-  const [edit, setEdit] = useState(false);
+function SalaryTab({
+  token,
+  emp,
+  edit,
+  setEdit,
+  onSaved,
+}: {
+  token: string;
+  emp: EmployeeDetail;
+  edit: boolean;
+  setEdit: (e: boolean) => void;
+  onSaved: () => void;
+}) {
   const [form, setForm] = useState<EmployeeInput>({ ...emp } as unknown as EmployeeInput);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -887,36 +1114,49 @@ function SalaryTab({ token, emp, canUpdate, onSaved }: { token: string; emp: Emp
   }
   return (
     <div>
-      {canUpdate && (
-        <div className="ns-inforow"><button className="btn btn--ghost" onClick={() => setEdit(true)}>Sửa lương & BHXH</button></div>
-      )}
-      <Section title="Nhóm & bậc lương">
-        <Row k="Nhóm lương" v={emp.payroll_group ? (PG_LABEL[emp.payroll_group] ?? emp.payroll_group) : null} />
-        <Row k="Bậc lương" v={emp.pay_grade_key ? (PGK_LABEL[emp.pay_grade_key] ?? emp.pay_grade_key) : null} />
-        <Row k="Bậc thợ" v={emp.job_grade} />
-      </Section>
-      <Section title="BHXH / TNCN">
-        <Row k="Số sổ BHXH" v={emp.social_insurance_no} /><Row k="MST cá nhân" v={emp.pit_tax_code} />
-        <Row k="Người phụ thuộc" v={String(emp.dependents_count)} />
-      </Section>
-      <Section title="Ngân hàng">
-        <Row k="Tài khoản NH" v={emp.bank_account ? `${emp.bank_account} · ${emp.bank_name ?? ""}` : null} />
-      </Section>
+      <div className="ns-info-sections">
+        <InfoCard title="Nhóm & bậc lương" icon={CreditCard}>
+          <InfoField label="Nhóm lương" value={emp.payroll_group ? (PG_LABEL[emp.payroll_group] ?? emp.payroll_group) : null} icon={Briefcase} />
+          <InfoField label="Bậc lương" value={emp.pay_grade_key ? (PGK_LABEL[emp.pay_grade_key] ?? emp.pay_grade_key) : null} icon={TrendingUp} />
+          <InfoField label="Bậc thợ" value={emp.job_grade} icon={TrendingUp} />
+        </InfoCard>
+        <InfoCard title="BHXH / TNCN" icon={FileText}>
+          <InfoField label="Số sổ BHXH" value={emp.social_insurance_no} icon={FileText} />
+          <InfoField label="MST cá nhân" value={emp.pit_tax_code} icon={FileText} />
+          <InfoField label="Người phụ thuộc" value={String(emp.dependents_count)} icon={Users} />
+        </InfoCard>
+      </div>
+      <InfoCard title="Ngân hàng" icon={Lock}>
+        <InfoField label="Tài khoản NH" value={emp.bank_account ? `${emp.bank_account} · ${emp.bank_name ?? ""}` : null} icon={CreditCard} />
+      </InfoCard>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function InfoCard({ title, icon: Icon, children }: { title: string; icon: any; children: ReactNode }) {
   return (
-    <div className="ns-section">
-      <h4 className="ns-section__title">{title}</h4>
-      <div className="ns-section__grid">{children}</div>
+    <div className="ns-info-card">
+      <h4 className="ns-info-card__title">
+        {Icon && <Icon size={14} />} {title}
+      </h4>
+      <div className="ns-info-grid">{children}</div>
     </div>
   );
 }
-function Row({ k, v }: { k: string; v: string | null | undefined }) {
+
+function InfoField({ label, value, icon: Icon }: { label: string; value: string | null | undefined; icon?: any }) {
   return (
-    <div className="ns-kv"><span className="ns-kv__k">{k}</span><span className="ns-kv__v">{v || "—"}</span></div>
+    <div className="ns-info-field">
+      {Icon && <Icon className="ns-info-field__icon" size={14} />}
+      <div className="ns-info-field__content">
+        <span className="ns-info-field__label">{label}</span>
+        {value ? (
+          <span className="ns-info-field__value">{value}</span>
+        ) : (
+          <span className="ns-info-field__value ns-info-field__value--empty">—</span>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -985,15 +1225,18 @@ function FilesTab({ token, employeeId, canUpdate }: { token: string; employeeId:
         {items?.map((a) => (
           <li key={a.id}>
             <a href={assetUrl(a.file_url) ?? "#"} target="_blank" rel="noreferrer">
-              {DOC_KIND_LABEL[a.doc_kind] ?? a.doc_kind} · {a.file_name}
+              <Paperclip size={14} />
+              <span>{DOC_KIND_LABEL[a.doc_kind] ?? a.doc_kind} · {a.file_name}</span>
             </a>
             <span className="ns-file__date">{fmtDate(a.uploaded_at)}</span>
             {canUpdate && (
-              <button className="btn btn--ghost" onClick={async () => { await api.employees.deleteAttachment(token, employeeId, a.id); load(); }}>Xóa</button>
+              <button type="button" className="btn btn--ghost ns-danger" style={{ padding: "4px 8px", display: "inline-flex", alignItems: "center" }} onClick={async () => { await api.employees.deleteAttachment(token, employeeId, a.id); load(); }}>
+                <Trash2 size={13} />
+              </button>
             )}
           </li>
         ))}
-        {items?.length === 0 && <li className="ns__empty">Chưa có tệp nào.</li>}
+        {items?.length === 0 && <li className="ns__empty" style={{ gridColumn: "span 2" }}>Chưa có tệp nào.</li>}
       </ul>
     </div>
   );

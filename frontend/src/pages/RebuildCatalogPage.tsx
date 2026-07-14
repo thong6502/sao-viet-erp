@@ -11,7 +11,7 @@ import "./rebuild-catalog.css";
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "bands";
+  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "bands" | "size_tiers";
   options?: { value: string; label: string }[];
   refPrefix?: string;           // ref / ref-multi: endpoint danh mục nguồn (đổ dropdown theo TÊN)
   required?: boolean;
@@ -376,6 +376,55 @@ function BandsField({ value, onChange }: { value: BacRow[]; onChange: (v: BacRow
   );
 }
 
+// ── SIZE-TIER EDITOR (bậc đơn giá theo kích thước: Đến cỡ cm · Đơn giá đ) ─────────
+interface SizeTierRow { den_cm?: number | null; don_gia?: number }
+function SizeTiersField({ value, onChange }: { value: SizeTierRow[]; onChange: (v: SizeTierRow[]) => void }) {
+  const rows = value ?? [];
+  const setRow = (i: number, patch: Partial<SizeTierRow>) =>
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const add = () => {
+    const last = rows[rows.length - 1];
+    const nextCap = last && last.den_cm != null ? last.den_cm : 0;
+    onChange([...rows, { den_cm: nextCap ? nextCap * 2 : 20, don_gia: 0 }]);
+  };
+  const del = (i: number) => onChange(rows.filter((_, j) => j !== i));
+  const num = (v: unknown) => (v === "" || v == null ? "" : String(v));
+  return (
+    <div className="rc-bands">
+      <table className="rc-bands__table">
+        <thead>
+          <tr><th>Đến cỡ (cm)</th><th>Đơn giá (đ)</th><th></th></tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={3} className="rc-bands__empty">Chưa có bậc — bấm “＋ Thêm bậc”. Cỡ = cạnh dài thành phẩm.</td></tr>
+          )}
+          {rows.map((r, i) => (
+            <tr key={i}>
+              <td>
+                <input className="rc-input rc-input--num" type="number" step="any" placeholder="∞ (trên các mức)"
+                  value={num(r.den_cm)}
+                  onChange={(e) => setRow(i, { den_cm: e.target.value === "" ? null : Number(e.target.value) })} />
+              </td>
+              <td>
+                <input className="rc-input rc-input--num" type="number" step="any"
+                  value={num(r.don_gia)}
+                  onChange={(e) => setRow(i, { don_gia: e.target.value === "" ? 0 : Number(e.target.value) })} />
+              </td>
+              <td style={{ textAlign: "center" }}>
+                <button type="button" className="rc-bands__del" onClick={() => del(i)} title="Xóa bậc">
+                  <TrashIcon />
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button type="button" className="rc-bands__add" onClick={add}>＋ Thêm bậc</button>
+    </div>
+  );
+}
+
 // ── DRAWER COMPONENT ─────────────────────────────────────────────────────────────
 function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   config: CatalogConfig; existing: Row | null; allRows: Row[]; onClose: () => void; onSaved: () => void;
@@ -389,7 +438,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi" || f.type === "bands") {
+      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -464,7 +513,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     const body: Record<string, unknown> = { ma: form.ma, ten: form.ten };
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi" || f.type === "bands") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) { if (!f.required) continue; }
       if ((f.type === "number" || f.type === "ref") && v !== "" && v != null) v = Number(v);
       if (f.type === "json" && typeof v === "string" && v.trim()) {
@@ -556,12 +605,15 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                   <div className="rc-grid">
                     {g.fields.map((f) => {
                       const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
-                      const isFullWidth = f.type === "bands" || f.type === "ref-multi" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+                      const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "ref-multi" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
                       return (
                         <label className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}${isFullWidth ? " rc-field--full" : ""}`} key={f.key}>
                           <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
                           {f.type === "bands" ? (
                             <BandsField value={Array.isArray(form[f.key]) ? (form[f.key] as BacRow[]) : []}
+                              onChange={(v) => set(f.key, v)} />
+                          ) : f.type === "size_tiers" ? (
+                            <SizeTiersField value={Array.isArray(form[f.key]) ? (form[f.key] as SizeTierRow[]) : []}
                               onChange={(v) => set(f.key, v)} />
                           ) : f.type === "select" ? (
                             <div className="rc-input-wrapper">

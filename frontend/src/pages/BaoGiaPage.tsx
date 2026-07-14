@@ -2121,6 +2121,8 @@ function QuotationDetailView({
                   ? `${d.contact_name_snapshot}${d.contact_phone_snapshot ? ` · ${d.contact_phone_snapshot}` : ""}`
                   : "—"}</b>
               </div>
+              {/* Người duyệt biết báo giá này của NV nào (P8b). */}
+              <div><span>Nhân viên soạn</span><b>{d.salesperson_name ?? "—"}</b></div>
               <div><span>MST</span><b>{d.customer?.tax_code ?? "—"}</b></div>
               <div><span>Tín dụng</span><b>{d.customer?.credit_status_display ?? "—"}</b></div>
               <div>

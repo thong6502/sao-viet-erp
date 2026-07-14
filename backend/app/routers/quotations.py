@@ -209,10 +209,15 @@ def _detail(
             )
         )
 
+    salesperson_name = (
+        svc.user_names({q.salesperson_id}).get(q.salesperson_id) if q.salesperson_id else None
+    )
     return QuotationDetailOut(
         id=q.id,
         code=q.quote_number,
         version=active_version.version_number if active_version else 1,
+        salesperson_id=q.salesperson_id,
+        salesperson_name=salesperson_name,
         customer_id=q.customer_id,
         customer=customer,
         estimate_id=q.estimate_id,
@@ -357,6 +362,19 @@ def quotation_stats(
 ) -> QuotationStatsOut:
     """Số đếm cho thanh tab list Báo giá."""
     return QuotationStatsOut(**svc.stats())
+
+
+@router.get("/pending-approval-count")
+def pending_approval_count(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> dict:
+    """Badge nav 'Báo giá in ấn' = số báo giá 'Chờ duyệt' trong phạm vi — CHỈ ai có quyền duyệt
+    đặc thù mới có số (người khác = 0). Sidebar gọi để hiển thị con số 'chờ tôi duyệt'."""
+    scope = _scope_for(authz, user)
+    can_approve = authz.can(user, MODULE, "approve_exception")
+    return {"count": svc.pending_approval_count(scope=scope, actor=user, can_approve=can_approve)}
 
 
 # --- create / read / update ---------------------------------------------------

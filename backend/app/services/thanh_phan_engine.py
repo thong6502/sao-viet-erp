@@ -122,8 +122,16 @@ def binh_bai_con(*, kho_in_dai: float, kho_in_rong: float, dai_tp: float, rong_t
                            dai_tp=dai_tp, rong_tp=rong_tp, chua_mm=chua_mm)["con"]
 
 
+def _vi(n) -> str:
+    """Số → chuỗi vi-VN (chấm ngăn nghìn, phẩy thập phân) cho ghi chú diễn giải."""
+    n = _f(n)
+    if n == int(n):
+        return f"{int(n):,}".replace(",", ".")
+    return f"{n:,.2f}".replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+
+
 def _step_cost_safe(cd: dict, ctx: dict, warnings: list[str], ten: str) -> tuple[float, str]:
-    """Tiền 1 công đoạn theo compute_step_cost, KHÔNG crash."""
+    """Tiền 1 công đoạn theo compute_step_cost, KHÔNG crash. Ghi chú = diễn giải `số × đơn giá`."""
     if cd.get("che_do_tinh", "theo_san_luong") == "theo_gio":
         warnings.append(f"Công đoạn '{ten}': tính theo giờ — bản này theo sản lượng, tính 0đ.")
         return 0.0, "theo giờ — không tính (bản sản lượng)"
@@ -132,7 +140,10 @@ def _step_cost_safe(cd: dict, ctx: dict, warnings: list[str], ten: str) -> tuple
     except Exception as e:  # noqa: BLE001 — không crash, gom vào warnings
         warnings.append(f"Công đoạn '{ten}': không tính được ({e}) — tính 0đ.")
         return 0.0, "lỗi cấu hình — 0đ"
-    return _f(res.get("total")), ""
+    rate = res.get("rate_used")
+    bq = res.get("basis_qty")
+    ghi = f"{_vi(bq)} × {_vi(rate)}đ" if (rate is not None and bq is not None) else ""
+    return _f(res.get("total")), ghi
 
 
 def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: dict) -> dict:
@@ -236,6 +247,8 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         "so_luong_thanh_pham": sl,
         "dt_to_in_cm2": (kho_in_d / 10.0) * (kho_in_r / 10.0),
         "so_con": con,
+        # Cạnh dài thành phẩm (cm) — trục cho bậc đơn giá theo kích thước (công dán/bế…).
+        "size_cm": max(dai_tp, rong_tp) / 10.0,
         "so_trang": 0, "so_cuon": 0, "so_bao": 0, "so_thung": 0,
     }
     for row in tp.get("thanh_phams") or []:

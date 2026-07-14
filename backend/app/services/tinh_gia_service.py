@@ -47,6 +47,7 @@ def _cong_doan_to_dict(cd: CongDoan) -> dict:
         "setup_time": _f(cd.setup_time),
         "run_rate": _f(cd.run_rate) if cd.run_rate is not None else None,
         "rate_tiers": cd.rate_tiers,
+        "size_tiers": cd.size_tiers,
         "first_unit_floor": _f(cd.first_unit_floor) if cd.first_unit_floor is not None else None,
         "min_charge": _f(cd.min_charge) if cd.min_charge is not None else None,
         "spoilage_pct": _f(cd.spoilage_pct),

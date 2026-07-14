@@ -11,6 +11,7 @@ from ..models.quotation import (
     STATUS_ACCEPTED,
     STATUS_CANCELLED,
     STATUS_EXPIRED,
+    STATUS_PENDING_APPROVAL,
     STATUS_REJECTED,
     Quote,
     QuoteApproval,
@@ -123,6 +124,16 @@ class QuotationRepository:
             dept_sales = select(User.id).where(User.department_id.in_(dept_ids))
             return Quote.salesperson_id.in_(dept_sales)
         raise ValueError(f"Unknown scope: {scope!r}")
+
+    def count_pending_approval(self, *, scope: str, actor) -> int:
+        """Số báo giá đang 'Chờ duyệt' TRONG PHẠM VI của người duyệt (badge nav 'chờ tôi duyệt')."""
+        stmt = select(func.count()).select_from(Quote).where(
+            Quote.status == STATUS_PENDING_APPROVAL
+        )
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        return int(self.db.execute(stmt).scalar_one())
 
     def can_access(self, *, quote: Quote, scope: str, actor) -> bool:
         if scope == SCOPE_ALL:

@@ -34,6 +34,7 @@ PRICING_BASIS = (
     "per_area_sides",     # Theo diện tích (cm²) và số mặt
     "per_sheet_area",     # Theo diện tích tờ in (cm²)
     "per_book_page_q4",   # Theo số trang sách chia 4
+    "per_job",            # Trọn gói một lần (cả đơn) — engine ÷ SL ở đơn giá bình quân (khuôn bế…)
     "per_other",          # Khác (nhập tay, giá phẳng)
 )
 TOOLING_TYPE = ("khuon_be", "khuon_ep", "kem")
@@ -77,6 +78,9 @@ class CongDoan(Base):
     setup_time: Mapped[float] = mapped_column(Numeric(8, 2), nullable=False, server_default="0", default=0)  # phút
     run_rate: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)   # đơn giá theo basis
     rate_tiers: Mapped[list | None] = mapped_column(JSON, nullable=True)            # [{from_qty,rate,kieu,driver}]
+    # Bậc đơn giá theo KÍCH THƯỚC thành phẩm (cạnh dài, cm): [{den_cm, don_gia}] — "≤ den_cm → đơn giá".
+    # Khi có, engine chọn đơn giá theo cỡ (thay run_rate); vd công dán ≤20cm=100 · 20–40=200 · 40–100=800.
+    size_tiers: Mapped[list | None] = mapped_column(JSON, nullable=True)
     first_unit_floor: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)  # sàn bậc đầu (≠ min_charge)
     min_charge: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)         # sàn cả công đoạn
 
