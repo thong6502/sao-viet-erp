@@ -1674,7 +1674,7 @@ function QuotationDetailView({
             <Button
               variant="accent"
               disabled={busy}
-              title="Báo giá đặc thù — trình Giám đốc Kinh doanh duyệt trước khi gửi khách"
+              title="Báo giá đặc thù — trình duyệt trước khi gửi khách"
               onClick={() => doTransition("pending_approval")}
             >⇪ Trình duyệt</Button>
           )}
@@ -1691,7 +1691,7 @@ function QuotationDetailView({
           {viewingLatest && d.status === "accepted" && navigate && (
             <Button variant="accent" disabled={busy} onClick={handleCreateOrder}>🛒 Tạo đơn hàng</Button>
           )}
-          {canRequote && viewingLatest && (d.status === "rejected" || d.status === "expired") && d.allowed_transitions.includes("change_order") && (
+          {canRequote && viewingLatest && d.status === "rejected" && d.allowed_transitions.includes("change_order") && (
             <Button variant="primary" disabled={busy} onClick={openRequote}>⎇ Tạo phiên bản mới</Button>
           )}
         </div>
@@ -1706,10 +1706,14 @@ function QuotationDetailView({
       {err && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "14px" }}>{err}</div>
       )}
-      {/* Giám đốc Kinh doanh TỪ CHỐI duyệt đặc thù → báo giá về Nháp (Q4): banner nhắc sửa & trình lại. */}
-      {d.status === "draft" && d.exception_required && d.exception_status === "rejected" && (
+      {/* Báo giá BỊ TỪ CHỐI (khách HOẶC GĐ/TP từ chối đặc thù) → nhắc "Tạo phiên bản mới" để sửa. */}
+      {d.status === "rejected" && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "14px" }}>
-          <span>🔙 Giám đốc Kinh doanh đã <b>trả lại</b> báo giá đặc thù{d.exception_note ? `: ${d.exception_note}` : ""}. Chỉnh sửa rồi bấm <b>Trình duyệt</b> lại.</span>
+          {d.exception_decision === "rejected" ? (
+            <span>🔙 Giám đốc/Trưởng phòng KD đã <b>từ chối</b> báo giá đặc thù{d.exception_note ? `: ${d.exception_note}` : ""}. Bấm <b>Tạo phiên bản mới</b> để sửa rồi trình duyệt lại.</span>
+          ) : (
+            <span>✕ <b>Khách hàng từ chối</b>{d.cancel_reason ? `: ${d.cancel_reason}` : ""}. Bấm <b>Tạo phiên bản mới</b> để báo lại giá mới.</span>
+          )}
         </div>
       )}
 
@@ -2024,7 +2028,7 @@ function QuotationDetailView({
                 trạng thái báo giá (d.status), KHÔNG bám riêng exception_status (redesign-bao-gia §3). */}
             {d.exception_required && (
               <div className="appr-block appr-block--exc">
-                <div className="exc-title">Báo giá đặc thù — cần Giám đốc Kinh doanh duyệt</div>
+                <div className="exc-title">Báo giá đặc thù — cần duyệt</div>
                 <div className="exc-chips">
                   {d.exceptions.map((e) => (
                     <span key={e.key} className="exc-chip">{e.label}</span>
@@ -2033,21 +2037,21 @@ function QuotationDetailView({
                     <span className="exc-chip exc-chip--num">Biên {d.margin_pct}%</span>
                   )}
                 </div>
-                <div className={`exc-status exc-status--${d.status === "pending_approval" ? "pending" : d.status === "approved" ? "approved" : d.exception_status}`}>
+                <div className={`exc-status exc-status--${d.status === "pending_approval" ? "pending" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : d.exception_status}`}>
                   {d.status === "pending_approval"
                     ? canApproveException
-                      ? "Chờ quyết định của bạn (Giám đốc Kinh doanh)."
-                      : "Đã trình — đang chờ Giám đốc Kinh doanh duyệt."
+                      ? "Chờ quyết định của bạn."
+                      : "Đã trình — đang chờ duyệt."
                     : d.status === "approved"
-                      ? "Giám đốc Kinh doanh đã DUYỆT — bấm ‘Gửi khách’ để gửi báo giá cho khách."
+                      ? "Đã DUYỆT — bấm ‘Gửi khách’ để gửi báo giá cho khách."
                     : d.status === "sent" || d.status === "accepted" || d.status === "converted_to_order"
                       ? ""
-                      : d.exception_status === "rejected"
-                        ? `Giám đốc Kinh doanh đã trả lại — sửa & Trình duyệt lại.${d.exception_note ? " Lý do: " + d.exception_note : ""}`
+                      : d.status === "rejected"
+                        ? `Bị từ chối — bấm ‘Tạo phiên bản mới’ để sửa rồi trình duyệt lại.${d.exception_note ? " Lý do: " + d.exception_note : ""}`
                         : d.exception_status === "stale"
                           ? "Báo giá đã đổi so với lần duyệt trước — cần Trình duyệt lại."
                           : canManageStatus
-                            ? "Bấm ‘Trình duyệt’ để gửi Giám đốc Kinh doanh duyệt."
+                            ? "Bấm ‘Trình duyệt’ để gửi duyệt."
                             : "Chưa trình duyệt."}
                 </div>
                 {/* AI đã quyết định gần nhất — để NV biết ai duyệt/từ chối + khi nào + lý do (P8b). */}

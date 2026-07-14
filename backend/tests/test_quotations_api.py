@@ -251,7 +251,9 @@ def test_requote_new_version(client):
     token = _admin_token(client)
     eid, opts = _mk_estimate()
     q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
+    # Đưa về "Bị từ chối" (khách từ chối) — trạng thái DUY NHẤT tạo được phiên bản mới.
     client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
+    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "rejected"}, headers=_h(token))
 
     # Tạo phiên bản mới BẮT BUỘC ghi chú — thiếu → 422.
     r0 = client.post(f"/api/quotations/{q['id']}/requote", json={"change_reason": "  "}, headers=_h(token))
@@ -265,23 +267,44 @@ def test_requote_new_version(client):
     assert len(body["versions"]) == 2
     # phiên bản cũ giữ nguyên trong lịch sử
     assert {v["version"] for v in body["versions"]} == {1, 2}
-    # ghi chú in vào phiên bản mới (Lịch sử phiên bản)
+    # ghi chú in vào phiên bản mới (Lịch sử phiên bản); phiên bản mới về nháp để sửa
     v2 = next(v for v in body["versions"] if v["version"] == 2)
     assert v2["change_reason"] == "KH đổi số lượng"
+    assert body["status"] == "draft"
 
 
-def test_requote_from_draft_allowed(client):
-    """Ngay khi còn NHÁP vẫn tạo được phiên bản mới (giữ v1, làm variant giá khác) — bắt buộc ghi chú."""
+def test_requote_blocked_unless_rejected(client):
+    """Tạo phiên bản mới CHỈ khi báo giá BỊ TỪ CHỐI — nháp / đã gửi → 409."""
     token = _admin_token(client)
     eid, opts = _mk_estimate()
     q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}])
+    # Nháp → chặn 409.
+    r = client.post(f"/api/quotations/{q['id']}/requote", json={"change_reason": "thử"}, headers=_h(token))
+    assert r.status_code == 409, r.text
+    # Đã gửi khách → vẫn chặn.
+    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
+    r2 = client.post(f"/api/quotations/{q['id']}/requote", json={"change_reason": "thử"}, headers=_h(token))
+    assert r2.status_code == 409, r2.text
+    # Khách từ chối → CHO tạo phiên bản mới.
+    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "rejected"}, headers=_h(token))
+    r3 = client.post(f"/api/quotations/{q['id']}/requote",
+                     json={"change_reason": "báo lại giá"}, headers=_h(token))
+    assert r3.status_code == 201, r3.text
+    assert r3.json()["version"] == 2
+
+
+def test_valid_until_defaults_30_days(client):
+    """Hạn hiệu lực mặc định = 30 ngày kể từ hôm nay khi KHÔNG truyền valid_until."""
+    token = _admin_token(client)
+    eid, opts = _mk_estimate()
+    q = _create_multi(client, token, [{"estimate_id": eid, "option_ids": opts}], valid_until=None)
+    assert q["valid_until"] == (date.today() + timedelta(days=30)).isoformat()
+    # Tạo phiên bản mới cũng reset hạn = +30 ngày (từ phiên bản mới nhất).
+    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
+    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "rejected"}, headers=_h(token))
     r = client.post(f"/api/quotations/{q['id']}/requote",
-                    json={"change_reason": "thử giá 25%"}, headers=_h(token))
-    assert r.status_code == 201, r.text
-    body = r.json()
-    assert body["version"] == 2
-    assert {v["version"] for v in body["versions"]} == {1, 2}
-    assert body["status"] == "draft"
+                    json={"change_reason": "báo lại"}, headers=_h(token))
+    assert r.json()["valid_until"] == (date.today() + timedelta(days=30)).isoformat()
 
 
 def test_activity_feed_records_who_did_what(client):

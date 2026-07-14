@@ -108,15 +108,20 @@ def test_gd_reject_blocks_send(client):
     q = _make_high_value_quote(client, token)
     client.post(f"/api/quotations/{q['id']}/transition",
                 json={"to_status": "pending_approval"}, headers=_h(token))
-    # GĐ Kinh doanh TỪ CHỐI duyệt → quay về Nháp (Q4) + ghi lý do.
+    # GĐ Kinh doanh TỪ CHỐI duyệt → báo giá "Bị từ chối" (rejected) + ghi lý do; sale tạo phiên bản mới.
     r = client.post(f"/api/quotations/{q['id']}/approval",
                     json={"decision": "rejected", "note": "giá quá cao"}, headers=_h(token))
     assert r.status_code == 200
-    assert r.json()["status"] == "draft"
-    assert r.json()["exception_status"] == "rejected"
-    # Gửi khách vẫn bị chặn (đặc thù — phải trình duyệt lại).
+    assert r.json()["status"] == "rejected"
+    assert r.json()["exception_decision"] == "rejected"
+    # Gửi khách bị chặn (từ 'rejected' không gửi thẳng — phải Tạo phiên bản mới rồi trình/gửi lại).
     r2 = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
-    assert r2.status_code == 422
+    assert r2.status_code == 409
+    # Tạo phiên bản mới hợp lệ từ 'rejected'.
+    r3 = client.post(f"/api/quotations/{q['id']}/requote",
+                     json={"change_reason": "sửa theo góp ý GĐ"}, headers=_h(token))
+    assert r3.status_code == 201, r3.text
+    assert r3.json()["version"] == 2
 
 
 def test_approve_rejects_non_exceptional(client):

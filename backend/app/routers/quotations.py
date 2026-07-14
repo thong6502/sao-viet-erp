@@ -66,7 +66,7 @@ STATUS_LABELS = {
     "approved": "Đã duyệt",             # GĐ KD duyệt xong, CHỜ sale gửi khách (tách duyệt/gửi)
     "sent": "Đã gửi khách",             # sale tự gửi (tách khỏi "duyệt")
     "accepted": "Khách hàng đồng ý",
-    "rejected": "Khách hàng từ chối",
+    "rejected": "Bị từ chối",   # khách từ chối HOẶC GĐ/TP từ chối đặc thù (phân biệt bằng banner/nhật ký)
     "expired": "Hết hiệu lực",
     "converted_to_order": "Đã lên đơn",
     "cancelled": "Hủy báo giá",
@@ -77,10 +77,10 @@ def _scope_for(authz: AuthorizationService, user: User) -> str:
     return authz.scope_for(user, MODULE) or "own"
 
 
-# Trạng thái cho phép "Tạo phiên bản mới" (requote) — mọi trạng thái CHƯA lên đơn/chưa hủy.
-# `change_order` KHÔNG phải transition state-machine (requote đẻ version mới rồi về draft) nên gắn
-# tay ở đây để FE hiện nút "⎇ Tạo phiên bản mới". KHỚP với các trạng thái svc.requote chấp nhận.
-_REQUOTE_FROM = {"draft", "pending_approval", "sent", "approved", "accepted", "rejected", "expired"}
+# "Tạo phiên bản mới" (requote) CHỈ khi báo giá BỊ TỪ CHỐI (khách từ chối HOẶC GĐ/TP từ chối đặc
+# thù — cả hai đều status `rejected`) → sale sửa lại + trình duyệt/gửi lại. `change_order` KHÔNG
+# phải transition state-machine nên gắn tay ở đây để FE hiện nút. KHỚP với svc.requote.
+_REQUOTE_FROM = {"rejected"}
 
 
 def _allowed_transitions(current_status: str) -> list[str]:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import json
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -330,6 +330,10 @@ class QuotationService:
     ) -> Quote:
         if valid_until and valid_until < date.today():
             raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
+        # Mặc định hạn hiệu lực = 30 ngày kể từ hôm nay (ngày tạo phiên bản mới nhất). Để trống chủ ý
+        # (không truyền) → auto +30; muốn "đến khi có thông báo" thì xoá ở màn chi tiết sau.
+        if valid_until is None:
+            valid_until = date.today() + timedelta(days=30)
 
         # BG-1: nguồn MỚI = 1 Phiếu tính giá (PTG) → 1 báo giá (dòng = từng "sản phẩm" PhieuThanhPhan,
         # giá vốn khóa = gia_von_tp). Ưu tiên nếu có. Đường Estimate cũ giữ tới BG-4.
@@ -764,16 +768,17 @@ class QuotationService:
             decided_by=actor.id,
         )
         # Lái trạng thái: GĐ DUYỆT → "Đã duyệt" (approved, khóa; KHÔNG gửi, KHÔNG freeze — sale tự gửi
-        # khách sau, freeze lúc gửi). Từ chối → về Nháp (draft) để sửa & trình lại. (Tách duyệt/gửi.)
+        # khách sau, freeze lúc gửi). TỪ CHỐI → "Bị từ chối" (rejected, KHÓA) — sale bấm "Tạo phiên
+        # bản mới" để sửa rồi trình duyệt lại (versioning CHỈ ở trạng thái từ chối).
         version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
         if decision == _EXC_APPROVED:
             quote.status = STATUS_APPROVED
             if version:
                 version.status = VERSION_STATUS_LOCKED
         else:
-            quote.status = STATUS_DRAFT
+            quote.status = STATUS_REJECTED
             if version:
-                version.status = VERSION_STATUS_DRAFT
+                version.status = VERSION_STATUS_REJECTED
         self.quotations.update(quote)
         verb = "duyệt" if decision == _EXC_APPROVED else "từ chối"
         self.audit.create(
@@ -1042,14 +1047,14 @@ class QuotationService:
             raise QuotationValidationError("Phải ghi chú/lý do cho phiên bản mới trước khi tạo.")
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
 
-        # Tạo phiên bản mới hợp lệ ở mọi trạng thái CHƯA chốt đơn: nháp (giữ bản cũ + làm variant
-        # giá khác) / đã gửi khách / đã duyệt / khách đồng ý / khách từ chối / hết hiệu lực. Chỉ chặn
-        # khi ĐÃ lên đơn (converted) hoặc đã hủy (cancelled). KHỚP _REQUOTE_FROM ở router.
-        if quote.status not in (
-            STATUS_DRAFT, STATUS_PENDING_APPROVAL, STATUS_SENT, STATUS_APPROVED,
-            STATUS_ACCEPTED, STATUS_REJECTED, STATUS_EXPIRED,
-        ):
-            raise QuotationConflict(f"Không thể tạo phiên bản mới từ trạng thái '{quote.status}'.")
+        # Tạo phiên bản mới CHỈ khi báo giá BỊ TỪ CHỐI (khách từ chối HOẶC GĐ/TP từ chối đặc thù —
+        # cả hai đều `rejected`) → sale sửa lại rồi trình duyệt/gửi lại. Trạng thái khác: nháp thì
+        # sửa thẳng; đang chạy (chờ duyệt/đã duyệt/đã gửi) hoặc kết thúc (đồng ý/hết hạn/lên đơn/hủy)
+        # thì KHÔNG đẻ phiên bản.
+        if quote.status != STATUS_REJECTED:
+            raise QuotationConflict(
+                f"Chỉ tạo phiên bản mới khi báo giá BỊ TỪ CHỐI (hiện: '{quote.status}')."
+            )
 
         # Mark current version as superseded
         current_version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
@@ -1102,6 +1107,8 @@ class QuotationService:
 
         quote.current_version_id = new_version.id
         quote.status = STATUS_DRAFT
+        # Hạn hiệu lực reset = 30 ngày kể từ phiên bản mới nhất (vừa tạo).
+        quote.valid_until = date.today() + timedelta(days=30)
         self.quotations.update(quote)
 
         self.audit.create(
