@@ -31,7 +31,6 @@ from .security import hash_password
 MODULES: list[tuple[str, str]] = [
     ("dashboard", "Dashboard"),
     ("khach_hang", "Khách hàng"),
-    ("don_hang_ban", "Đơn hàng bán"),
     ("bao_gia", "Báo giá in ấn"),
     ("tinh_gia_thanh", "Tính giá thành"),
     ("san_pham", "Sản phẩm"),
@@ -64,7 +63,6 @@ ALL_MODULE_KEYS = [k for k, _ in MODULES]
 KD_MODULE_KEYS = [
     "dashboard",
     "khach_hang",
-    "don_hang_ban",
     "bao_gia",
     "tinh_gia_thanh",
     "san_pham",
@@ -164,8 +162,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         ADMIN_ROLE,
         {
             **{k: _full(SCOPE_ALL) for k in ALL_MODULE_KEYS},
-            # Chỉ GĐ được DUYỆT "đơn/báo giá đặc thù" (A2 + BG-2) — TP KD giữ _full nhưng KHÔNG có quyền này.
-            "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
+            # Chỉ GĐ được DUYỆT "báo giá đặc thù" (BG-2) — TP KD giữ _full nhưng KHÔNG có quyền này.
             "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
         },
     ),
@@ -214,10 +211,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Trưởng phòng KD",
         {
             **{k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS},
-            # TP KD DUYỆT được "đặc thù" cả BÁO GIÁ lẫn ĐƠN HÀNG (cùng Giám đốc Kinh doanh) — chủ đầu tư
-            # chốt sau P7.
+            # TP KD DUYỆT được "báo giá đặc thù" (cùng Giám đốc Kinh doanh) — chủ đầu tư chốt sau P7.
             "bao_gia": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
-            "don_hang_ban": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
             "nghi_phep": _leave_self(),
         },
     ),
@@ -229,7 +224,6 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Giám đốc Kinh doanh",
         {
             **{k: _full(SCOPE_ALL) for k in KD_MODULE_KEYS},
-            "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
             "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
             "nghi_phep": _leave_self(),
         },
@@ -240,7 +234,6 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "khach_hang": _rcu(SCOPE_OWN),
-            "don_hang_ban": _rcu(SCOPE_OWN),
             # Báo giá: NV Sales có ĐỦ thao tác thường trên phiếu CỦA MÌNH (gửi khách, ghi nhận khách
             # đồng ý/từ chối, hủy, xuất PDF, tạo bản mới) — các quyền này KHÔNG tách vụn, ai làm KD cũng có.
             # Riêng báo giá ĐẶC THÙ (biên thấp / giá trị cao) phải TRÌNH DUYỆT: chỉ TP KD / GĐ KD cầm

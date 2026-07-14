@@ -28,7 +28,6 @@ type StatusFilter = "all" | DepartmentPurchaseRequestStatus;
 const REQUEST_MODULES = [
   "thu_mua",
   "bao_gia",
-  "don_hang_ban",
   "kho",
   "san_xuat",
   "dm_giay_vat_tu",

@@ -14,7 +14,6 @@ import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
-import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
 import { ChamCongPage } from "../pages/ChamCongPage";
 import { NghiPhepPage } from "../pages/NghiPhepPage";
@@ -301,10 +300,13 @@ export function AppShell() {
         );
       case "don-hang-ban":
         return (
-          <DonHangBanPage
-            pinnedCustomer={navParams?.customer ?? null}
-            openOrderId={navParams?.openOrderId ?? null}
-          />
+          <main style={{ padding: "48px 32px", maxWidth: 640 }}>
+            <p className="eyebrow">Kinh doanh</p>
+            <h1 style={{ margin: "4px 0 12px" }}>Đơn hàng bán</h1>
+            <div className="banner" role="status">
+              Phân hệ Đơn hàng bán hiện đã được tạm gỡ khỏi hệ thống.
+            </div>
+          </main>
         );
       case "dinh-muc-bu-hao":
         return <NormsCatalogPage />;

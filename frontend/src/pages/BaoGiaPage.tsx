@@ -1573,15 +1573,6 @@ function QuotationDetailView({
     }
   }
 
-  function handleCreateOrder() {
-    if (!d || !navigate) return;
-    navigate("don-hang-ban", {
-      customer: d.customer ? { id: d.customer_id!, name: d.customer.name, code: "" } : undefined,
-      openQuoteId: d.id,
-    });
-    onClose();
-  }
-
   // ---- Follow-up handler ---------------------------------------------------
   function recordContact() {
     if (!d) return;
@@ -1653,9 +1644,6 @@ function QuotationDetailView({
               title={d.status === "approved" ? "Giám đốc đã duyệt — gửi báo giá cho khách" : undefined}
               onClick={() => doTransition("sent")}
             >➤ Gửi khách</Button>
-          )}
-          {viewingLatest && d.status === "accepted" && navigate && (
-            <Button variant="accent" disabled={busy} onClick={handleCreateOrder}>🛒 Tạo đơn hàng</Button>
           )}
           {canRequote && viewingLatest && d.status === "rejected" && d.allowed_transitions.includes("change_order") && (
             <Button variant="primary" disabled={busy} onClick={openRequote}>⎇ Tạo phiên bản mới</Button>

@@ -55,7 +55,6 @@ import {
   Phone,
   ReceiptText,
   Search,
-  ShoppingBag,
   Tags,
   Users,
   X,
@@ -1382,14 +1381,7 @@ function CustomerObjectPage({
                 />
               )}
               {tab === "orders" && (
-                <OrdersTab
-                  customerId={customerId}
-                  code={customer.code}
-                  onOpenOrder={(id) => {
-                    onClose();
-                    navigate("don-hang-ban", { openOrderId: id });
-                  }}
-                />
+                <OrdersTab customerId={customerId} code={customer.code} />
               )}
               {tab === "quotes" && (
                 <QuotesTab
@@ -1407,10 +1399,9 @@ function CustomerObjectPage({
               {tab === "audit" && (
                 <AuditTab
                   customerId={customerId}
-                  onDrill={(refType, id) => {
+                  onDrill={(_refType, id) => {
                     onClose();
-                    if (refType === "order") navigate("don-hang-ban", { openOrderId: id });
-                    else navigate("bao-gia", { openQuoteId: id });
+                    navigate("bao-gia", { openQuoteId: id });
                   }}
                 />
               )}
@@ -1497,17 +1488,6 @@ function ObjectHeader({
           }}
         >
           <FileText size={15} strokeWidth={2} /> Tạo báo giá
-        </button>
-        <button
-          type="button"
-          className="btn kh__btn-dark"
-          title={`Mở màn Đơn hàng bán và ghim khách ${customer.name} (${customer.code})`}
-          onClick={() => {
-            onClose();
-            navigate("don-hang-ban", { customer: pinOf(customer) });
-          }}
-        >
-          <ShoppingBag size={15} strokeWidth={2} /> Tạo đơn hàng
         </button>
         <button
           type="button"
@@ -1928,11 +1908,9 @@ function Heatmap({ dash }: { dash: CustomerDashboard }) {
 function OrdersTab({
   customerId,
   code,
-  onOpenOrder,
 }: {
   customerId: number;
   code: string;
-  onOpenOrder: (id: number) => void;
 }) {
   const { token } = useAuth();
   const canExport = useCan()("khach_hang", "export");
@@ -2173,17 +2151,10 @@ function OrdersTab({
           </thead>
           <tbody>
             {filteredRows.map((o) => (
-              <tr
-                key={o.id}
-                className="kh__drillrow"
-                onClick={() => onOpenOrder(o.id)}
-                tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && onOpenOrder(o.id)}
-                title={`Mở chi tiết đơn ${o.order_no}`}
-              >
+              <tr key={o.id}>
                 <td>
                   <div className="kh__order-code-cell">
-                    <span className="kh__link kh__mono">{o.order_no}</span>
+                    <span className="kh__mono">{o.order_no}</span>
                     <span className="kh__order-code-sub">
                       <span className="kh__mono kh__muted">{fmtDate(o.created_at)}</span>
                       {fmtTime(o.created_at) && (
@@ -2490,7 +2461,8 @@ function AuditTab({
       <ol className="kh__tl-list">
         {rows.map((r, i) => {
           const meta = AUDIT_KIND_META[r.kind];
-          const drillable = r.ref_type != null && r.ref_id != null;
+          // Đơn hàng bán đã gỡ → chỉ báo giá còn mở được chi tiết (order-ref hiển thị nhưng không dẫn đi đâu).
+          const drillable = r.ref_type === "quotation" && r.ref_id != null;
           return (
             <li
               key={`${r.kind}-${r.ref_id ?? "p"}-${i}`}

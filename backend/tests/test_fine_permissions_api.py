@@ -1,8 +1,7 @@
 """Quyền CHI TIẾT (Cách B) cho các module ngoài Khách hàng — chặn thật ở backend.
 
-Chứng minh 3 quyền mới tách khỏi CRUD:
+Chứng minh các quyền mới tách khỏi CRUD:
   - bao_gia `approve`      : duyệt báo giá (→ accepted) tách khỏi `update`.
-  - don_hang_ban `manage_status`: chốt/hủy đơn tách khỏi `update`.
   - nguoi_dung `reset_password` : đặt lại mật khẩu tách khỏi `update`.
 Mỗi test dựng một vai trò CÓ `update` nhưng THIẾU quyền chi tiết → thao tác phải 403.
 """
@@ -78,39 +77,6 @@ def test_quotation_accept_requires_update_permission(client):
     token = _user_with_role("fp-quote", "bao_gia", can_read=True)
     r = client.post(
         "/api/quotations/1/transition", json={"to_status": "accepted"}, headers=_h(token)
-    )
-    assert r.status_code == 403, r.text
-
-
-def test_order_chot_requires_approve(client):
-    # CÓ update + manage_status nhưng KHÔNG `approve` → CHỐT đơn (ordered) bị 403.
-    token = _user_with_role(
-        "fp-chot", "don_hang_ban", can_read=True, can_update=True, can_manage_status=True
-    )
-    r = client.post(
-        "/api/orders/1/transition", json={"to_status": "ordered"}, headers=_h(token)
-    )
-    assert r.status_code == 403, r.text
-
-
-def test_order_huy_requires_cancel(client):
-    # CÓ update + manage_status nhưng KHÔNG `cancel` → HỦY đơn (cancelled) bị 403.
-    token = _user_with_role(
-        "fp-huy", "don_hang_ban", can_read=True, can_update=True, can_manage_status=True
-    )
-    r = client.post(
-        "/api/orders/1/transition",
-        json={"to_status": "cancelled", "cancel_reason": "x"},
-        headers=_h(token),
-    )
-    assert r.status_code == 403, r.text
-
-
-def test_order_other_transition_requires_manage_status(client):
-    # CÓ update nhưng KHÔNG `manage_status` → đổi trạng thái khác (on_hold) bị 403.
-    token = _user_with_role("fp-order", "don_hang_ban", can_read=True, can_update=True)
-    r = client.post(
-        "/api/orders/1/transition", json={"to_status": "on_hold"}, headers=_h(token)
     )
     assert r.status_code == 403, r.text
 

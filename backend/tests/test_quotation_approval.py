@@ -276,26 +276,3 @@ def test_gd_sees_margin_number(client):
     # GĐ có approve_exception → thấy số biên.
     assert q["margin_pct"] is not None
     assert {e["key"] for e in q["exceptions"]} == {"high_value"}
-
-
-# --- đơn hàng TỰ THÔNG từ báo giá đã duyệt -----------------------------------
-
-def test_order_auto_clears_from_approved_quote(client):
-    token = _token(client)
-    q = _make_high_value_quote(client, token)
-    # Trình duyệt → GĐ duyệt (→ Đã duyệt) → SALE gửi khách (→ Đã gửi khách) → khách chốt (accepted).
-    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "pending_approval"}, headers=_h(token))
-    client.post(f"/api/quotations/{q['id']}/approval", json={"decision": "approved", "note": "OK khách lớn"}, headers=_h(token))
-    client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "sent"}, headers=_h(token))
-    ra = client.post(f"/api/quotations/{q['id']}/transition", json={"to_status": "accepted"}, headers=_h(token))
-    assert ra.status_code == 200, ra.text
-    # Tạo đơn từ báo giá đã duyệt.
-    body = {"quotation_id": q["id"], "order_type": "theo_yc", "order_kind": "moi",
-            "parent_order_id": None, "has_customer_paper": False, "vat_pct_estimate": 8}
-    o = client.post("/api/orders", json=body, headers=_h(token))
-    assert o.status_code == 201, o.text
-    gate = o.json()["gate"]
-    # Đơn vẫn thuộc diện đặc thù (giá trị cao) NHƯNG TỰ THÔNG (không hỏi GĐ lại).
-    assert gate["exception_required"] is True
-    assert gate["exception_cleared"] is True
-    assert gate["exception_status"] == "approved"

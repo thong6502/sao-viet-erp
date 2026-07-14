@@ -41,7 +41,7 @@ def test_sales_permissions_are_limited(client):
     token = _sales_token()
     mods = set(client.get("/api/auth/permissions", headers=_h(token)).json()["modules"])
     # NV Sales can read its KD modules…
-    assert {"dashboard", "khach_hang", "don_hang_ban", "bao_gia"} <= mods
+    assert {"dashboard", "khach_hang", "bao_gia"} <= mods
     # …but not admin modules or other KD modules it has no permission for.
     assert "vai_tro" not in mods
     assert "nguoi_dung" not in mods

@@ -62,12 +62,6 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
   bao_gia: [
     { key: "can_approve_exception", label: "Duyệt báo giá đặc thù" },
   ],
-  don_hang_ban: [
-    { key: "can_approve", label: "Chốt đơn" },
-    { key: "can_cancel", label: "Hủy đơn" },
-    { key: "can_manage_status", label: "Đổi trạng thái khác" },
-    { key: "can_approve_exception", label: "Duyệt đơn đặc thù" },
-  ],
   vai_tro: [{ key: "can_manage_permissions", label: "Sửa ma trận phân quyền" }],
   nguoi_dung: [
     { key: "can_reset_password", label: "Đặt lại mật khẩu" },

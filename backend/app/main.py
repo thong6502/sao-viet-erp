@@ -36,7 +36,6 @@ from .routers import (
     kho_stock,
     kho_voucher,
     kho_count,
-    orders,
     products,
     product_types_catalog,
     purchases,
@@ -110,7 +109,6 @@ app.include_router(products.router)
 app.include_router(costings.router)
 app.include_router(estimates.router)
 app.include_router(quotations.router)
-app.include_router(orders.router)
 app.include_router(product_types_catalog.router)
 app.include_router(purchases.router)
 app.include_router(accounting.router)

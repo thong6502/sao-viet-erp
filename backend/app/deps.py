@@ -31,9 +31,6 @@ from .repositories.material_repo import MaterialRepository
 from .repositories.operation_repo import OperationRepository
 from .repositories.warehouse_repo import WarehouseRepository
 from .repositories.warehouse_item_repo import WarehouseItemRepository
-from .repositories.order_approval_repo import OrderApprovalRepository
-from .repositories.order_repo import OrderRepository
-from .repositories.payment_repo import PaymentRepository
 from .repositories.product_repo import ProductRepository
 from .repositories.product_type_catalog_repo import ProductTypeCatalogRepository
 from .repositories.purchase_repo import (
@@ -78,7 +75,6 @@ from .services.warehouse_item_service import WarehouseItemService
 from .services.product_service import ProductService
 from .services.product_type_catalog_service import ProductTypeCatalogService
 from .services.purchase_service import PurchaseService
-from .services.order_service import OrderService
 from .services.quotation_service import QuotationService
 from .services.profile_service import ProfileService
 from .services.rbac_service import AuthorizationService
@@ -421,41 +417,6 @@ def get_quotation_service(
     # display name (read-only). SEAM-13 CLOSED: the Tính giá (Estimate) repo is injected so
     # a quotation referencing a calculated estimate pulls the frozen giá vốn + snapshots.
     return QuotationService(quotations, audit, customers=customers, estimates=estimates, sequence=sequence)
-
-
-def get_order_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> OrderRepository:
-    return OrderRepository(db)
-
-
-def get_payments_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> PaymentRepository:
-    return PaymentRepository(db)
-
-
-def get_order_approval_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> OrderApprovalRepository:
-    return OrderApprovalRepository(db)
-
-
-def get_order_service(
-    orders: Annotated[OrderRepository, Depends(get_order_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-    quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
-    customers: Annotated[CustomerRepository, Depends(get_customer_repository)],
-    payments: Annotated[PaymentRepository, Depends(get_payments_repository)],
-    approvals: Annotated[OrderApprovalRepository, Depends(get_order_approval_repository)],
-) -> OrderService:
-    # SEAM-04 CLOSED-live: quotation_ref (Báo giá repo, read-only) + deposit (Payment repo, ghi/đọc
-    # cọc — feat-048). CRM repo resolves the customer display name (kéo từ báo giá, read-only).
-    # A2: OrderApproval repo — duyệt "đơn đặc thù" (Giám đốc).
-    return OrderService(
-        orders, audit, quotations=quotations, customers=customers,
-        payments=payments, approvals=approvals,
-    )
 
 
 def require_permission(module_key: str, action: str):
