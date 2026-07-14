@@ -1,19 +1,19 @@
 // Trang danh mục GENERIC (rebuild) — list + drawer form theo SECTION + search + filter tab.
 // 1 component cho 6 module (Máy · Vật liệu · Công đoạn · Loại SP) qua `config`. On-brand với
 // design system app (tokens rust/ink/paper). Form lean nhưng có nhóm; đủ theo spec là follow-up.
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ApiError } from "../api/client";
-import { crud, type Row } from "../api/rebuildCatalog";
+import { crud, giayVersions, addGiayVersion, type GiayGiaVersion, type Row } from "../api/rebuildCatalog";
 import "./rebuild-catalog.css";
 
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "bands" | "size_tiers";
+  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "bands" | "size_tiers" | "suggest";
   options?: { value: string; label: string }[];
-  refPrefix?: string;           // ref / ref-multi: endpoint danh mục nguồn (đổ dropdown theo TÊN)
+  refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   required?: boolean;
   hint?: string;
   group?: string;               // nhóm section trong drawer
@@ -40,6 +40,8 @@ export interface CatalogConfig {
   renderExtra?: (form: Record<string, unknown>) => ReactNode;  // block phụ cuối drawer (vd preview BHR)
   hasVersions?: boolean;        // bật lịch sử giá (Giấy): thêm cột "Phiên bản" bấm mở lịch sử
   softDelete?: boolean;         // "Xóa" = ẩn mềm (active=false), giữ dữ liệu; list chỉ hiện active
+  deriveInitial?: (existing: Row | null) => Record<string, unknown>;  // giá trị UI suy ra khi mở form (vd _method)
+  transformSubmit?: (body: Record<string, unknown>, form: Record<string, unknown>) => Record<string, unknown>;  // map field UI → body API trước khi gửi
 }
 
 export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
@@ -49,6 +51,7 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<Row | "new" | null>(null);
+  const [pricingRow, setPricingRow] = useState<Row | null>(null);  // hasVersions: mở drawer Lịch sử giá
   const [q, setQ] = useState("");
   const [facet, setFacet] = useState("all");
 
@@ -188,6 +191,12 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
                       <EditIcon />
                       <span>Sửa</span>
                     </button>
+                    {config.hasVersions && (
+                      <button type="button" className="rc__link-btn" onClick={() => setPricingRow(r)} title="Lịch sử giá / nhập đơn giá">
+                        <TagIcon />
+                        <span>Giá</span>
+                      </button>
+                    )}
                     <button type="button" className="rc__link-btn rc__link-btn--danger" onClick={() => remove(r)} title="Xóa">
                       <TrashIcon2 />
                       <span>Xóa</span>
@@ -204,9 +213,182 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
         <CatalogDrawer config={config} existing={editing === "new" ? null : editing} allRows={rows}
           onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
       )}
+
+      {pricingRow && (
+        <PriceHistoryDrawer row={pricingRow}
+          onClose={() => setPricingRow(null)}
+          onSaved={() => { setPricingRow(null); load(); }} />
+      )}
     </main>
   );
 }
+
+// ── PRICE HISTORY DRAWER (Lịch sử giá Giấy — xem phiên bản + thêm đơn giá mới) ────
+function PriceHistoryDrawer({ row, onClose, onSaved }: {
+  row: Row; onClose: () => void; onSaved: () => void;
+}) {
+  const { token } = useAuth();
+  const [versions, setVersions] = useState<GiayGiaVersion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const numOf = (v: unknown) => Number(v) || 0;
+  const [form, setForm] = useState({
+    don_gia: "",
+    don_vi_gia: String(row.don_vi_gia ?? "kg"),
+    ngay_hieu_luc: "",
+    ghi_chu: "",
+  });
+  const set = (k: keyof typeof form, v: string) => setForm((p) => ({ ...p, [k]: v }));
+
+  const reload = useCallback(() => {
+    if (!token) return;
+    setLoading(true);
+    giayVersions(token, row.id)
+      .then((v) => setVersions(v))
+      .catch((e) => setErr(e instanceof ApiError ? e.message : "Không tải được lịch sử giá."))
+      .finally(() => setLoading(false));
+  }, [token, row.id]);
+  useEffect(() => { reload(); }, [reload]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  async function submit() {
+    if (!token) return;
+    const dg = Number(form.don_gia);
+    if (!(dg >= 0) || form.don_gia === "") { setErr("Nhập đơn giá hợp lệ."); return; }
+    setSaving(true); setErr(null);
+    try {
+      // Ảnh chụp: giữ nguyên gsm/khổ hiện hành của giấy, chỉ đổi đơn giá + ĐVT + ngày + lý do.
+      await addGiayVersion(token, row.id, {
+        gsm: numOf(row.gsm),
+        kho_dai: numOf(row.kho_dai),
+        kho_rong: numOf(row.kho_rong),
+        don_vi_gia: form.don_vi_gia,
+        don_gia: dg,
+        gia_thi_truong: row.gia_thi_truong != null ? numOf(row.gia_thi_truong) : null,
+        ngay_hieu_luc: form.ngay_hieu_luc || null,
+        ghi_chu: form.ghi_chu.trim() || null,
+      });
+      setForm((p) => ({ ...p, don_gia: "", ghi_chu: "" }));
+      reload();
+      onSaved();  // reload danh sách chính để cột Giá (don_gia mirror) cập nhật
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Lưu đơn giá thất bại.");
+    } finally { setSaving(false); }
+  }
+
+  const DVT: Record<string, string> = { kg: "KG", cai: "CÁI", ram: "Ram", to: "Tờ", tan: "Tấn" };
+  const vnd = (v: unknown) => (v == null ? "—" : Number(v).toLocaleString("vi-VN"));
+
+  return (
+    <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
+      <aside className="rc-drawer" onClick={(e) => e.stopPropagation()}>
+        <header className="rc-drawer__head">
+          <div>
+            <div className="rc-drawer__kicker">Lịch sử giá</div>
+            <h2 className="rc-drawer__title">{String(row.ma)} · {String(row.ten)}</h2>
+          </div>
+          <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </header>
+
+        <div className="rc-drawer__body">
+          {err && <div className="banner banner--error" style={{ marginBottom: "var(--sp-4)" }}>{err}</div>}
+
+          <section className="rc-sec">
+            <div className="rc-sec__title">Thêm đơn giá mới</div>
+            <div className="rc-grid">
+              <label className="rc-field">
+                <span className="rc-field__label">Đơn giá *</span>
+                <div className="rc-input-wrapper">
+                  <input className="rc-input rc-input--num" type="number" step="any" inputMode="decimal"
+                    value={form.don_gia} placeholder="0" onChange={(e) => set("don_gia", e.target.value)} />
+                </div>
+              </label>
+              <label className="rc-field">
+                <span className="rc-field__label">ĐVT</span>
+                <div className="rc-input-wrapper">
+                  <select className="rc-input" value={form.don_vi_gia} onChange={(e) => set("don_vi_gia", e.target.value)}>
+                    {Object.entries(DVT).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                  </select>
+                </div>
+              </label>
+              <label className="rc-field">
+                <span className="rc-field__label">Ngày hiệu lực</span>
+                <div className="rc-input-wrapper">
+                  <input className="rc-input" type="date" value={form.ngay_hieu_luc} onChange={(e) => set("ngay_hieu_luc", e.target.value)} />
+                </div>
+              </label>
+              <label className="rc-field rc-field--full">
+                <span className="rc-field__label">Lý do đổi giá</span>
+                <div className="rc-input-wrapper">
+                  <input className="rc-input" type="text" value={form.ghi_chu} placeholder="vd: NCC tăng giá"
+                    onChange={(e) => set("ghi_chu", e.target.value)} />
+                </div>
+              </label>
+            </div>
+            <div style={{ marginTop: "var(--sp-3)" }}>
+              <Button type="button" variant="primary" loading={saving} onClick={submit}>Lưu đơn giá</Button>
+            </div>
+            <span className="rc-field__hint">Giữ nguyên định lượng {vnd(row.gsm)}g · khổ {vnd(row.kho_rong)}×{vnd(row.kho_dai)} hiện hành; tạo phiên bản mới và cập nhật giá đang dùng.</span>
+          </section>
+
+          <section className="rc-sec">
+            <div className="rc-sec__title">Các phiên bản giá</div>
+            {loading ? (
+              <div className="rc__msg">Đang tải…</div>
+            ) : versions.length === 0 ? (
+              <div className="rc-bands__empty">Chưa có phiên bản giá.</div>
+            ) : (
+              <div className="rc__tablewrap">
+                <table className="rc__table">
+                  <thead>
+                    <tr>
+                      <th>#</th><th className="text-center">Hiện dùng</th>
+                      <th className="rc__nowrap">Đơn giá</th><th>ĐVT</th>
+                      <th className="rc__nowrap">Hiệu lực</th><th>Lý do</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {versions.map((v) => (
+                      <tr key={v.id} className="rc__row">
+                        <td className="rc__mono">{v.version_no}</td>
+                        <td className="text-center">{v.is_current ? "✓" : ""}</td>
+                        <td className="rc__nowrap">{vnd(v.don_gia)}</td>
+                        <td>{DVT[v.don_vi_gia] ?? v.don_vi_gia}</td>
+                        <td className="rc__nowrap">{v.ngay_hieu_luc ?? "—"}</td>
+                        <td>{v.ghi_chu ?? "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
+
+        <footer className="rc-drawer__foot">
+          <Button type="button" variant="ghost" onClick={onClose}>Đóng</Button>
+        </footer>
+      </aside>
+    </div>
+  );
+}
+
+const TagIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.59 13.41 13.42 20.58a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82Z" />
+    <circle cx="7" cy="7" r="1.2" />
+  </svg>
+);
 
 // ── UTILITY: PARSE UNIT SUFFIX FROM LABEL ─────────────────────────────────────────
 function parseLabelAndSuffix(label: string): { cleanLabel: string; suffix: string | null } {
@@ -287,6 +469,103 @@ const PlusIcon = () => (
     <path d="M5 12h14M12 5v14"/>
   </svg>
 );
+
+// ── CUSTOM SUGGEST COMPONENT (Dropdown + Text input toggle) ──────────────────────────
+function SuggestField({
+  value,
+  options,
+  allRows,
+  fieldKey,
+  placeholder,
+  onChange
+}: {
+  value: string;
+  options?: { value: string; label: string }[];
+  allRows: Row[];
+  fieldKey: string;
+  placeholder?: string;
+  onChange: (v: string) => void;
+}) {
+  const suggestions = useMemo(() => {
+    const set = new Set<string>();
+    options?.forEach((o) => set.add(o.value));
+    allRows.forEach((r) => {
+      const val = String(r[fieldKey] || "").trim();
+      if (val) set.add(val);
+    });
+    return Array.from(set);
+  }, [options, allRows, fieldKey]);
+
+  const isCustomVal = value !== "" && !suggestions.includes(value);
+  const [isCustomMode, setIsCustomMode] = useState(isCustomVal);
+
+  useEffect(() => {
+    setIsCustomMode(isCustomVal);
+  }, [value, isCustomVal]);
+
+  if (isCustomMode) {
+    return (
+      <div className="rc-suggest-custom" style={{ display: "flex", gap: "var(--sp-2)", width: "100%" }}>
+        <input
+          className="rc-input"
+          style={{ flex: 1 }}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={`Nhập ${placeholder || "tên mới"}...`}
+          autoFocus
+        />
+        <button
+          type="button"
+          className="btn btn--secondary"
+          style={{
+            padding: "0 var(--sp-3)",
+            height: "36px",
+            whiteSpace: "nowrap",
+            fontSize: "13px",
+            borderRadius: "var(--rd-md)",
+            border: "1px solid var(--border-neutral)",
+            backgroundColor: "var(--bg-card)",
+            cursor: "pointer"
+          }}
+          onClick={() => {
+            setIsCustomMode(false);
+            onChange("");
+          }}
+        >
+          Chọn từ danh sách
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rc-input-wrapper">
+      <select
+        className="rc-input"
+        value={value}
+        onChange={(e) => {
+          const val = e.target.value;
+          if (val === "_new_") {
+            setIsCustomMode(true);
+            onChange("");
+          } else {
+            onChange(val);
+          }
+        }}
+      >
+        <option value="">— Chọn {placeholder || "giá trị"} —</option>
+        {suggestions.map((s) => (
+          <option key={s} value={s}>
+            {s}
+          </option>
+        ))}
+        <option value="_new_" style={{ fontWeight: "600", color: "var(--brand, #c2410c)" }}>
+          + Thêm mới...
+        </option>
+      </select>
+    </div>
+  );
+}
 
 // ── BANDS EDITOR (bậc số lượng động: Từ SL · Đến SL · Giá trị · Đơn vị) ──────────
 interface BacRow { sl_tu?: number | null; sl_den?: number | null; gia_tri?: number; don_vi?: string }
@@ -449,6 +728,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
         init[f.key] = existing ? existing[f.key] ?? "" : f.default ?? "";
       }
     }
+    if (config.deriveInitial) Object.assign(init, config.deriveInitial(existing));  // vd suy _method từ pricing_basis
     return init;
   });
   const [saving, setSaving] = useState(false);
@@ -460,7 +740,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   useEffect(() => {
     if (!token) return;
     const prefixes = [...new Set(
-      config.fields.filter((f) => f.type === "ref" || f.type === "ref-multi").map((f) => f.refPrefix).filter(Boolean) as string[],
+      config.fields.filter((f) => f.type === "ref" || f.type === "ref-multi" || f.type === "ref-search").map((f) => f.refPrefix).filter(Boolean) as string[],
     )];
     if (prefixes.length === 0) return;
     let alive = true;
@@ -515,7 +795,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       let v = form[f.key];
       if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) { if (!f.required) continue; }
-      if ((f.type === "number" || f.type === "ref") && v !== "" && v != null) v = Number(v);
+      if ((f.type === "number" || f.type === "ref" || f.type === "ref-search") && v !== "" && v != null) v = Number(v);
       if (f.type === "json" && typeof v === "string" && v.trim()) {
         try { v = JSON.parse(v); } catch { setErr(`${f.label}: JSON không hợp lệ.`); setSaving(false); return; }
       }
@@ -529,11 +809,12 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       }
       body[f.key] = v;
     }
+    const finalBody = config.transformSubmit ? config.transformSubmit(body, form) : body;
     try {
       if (isEdit && existing) {
-        await api.update(token, existing.id, body);
+        await api.update(token, existing.id, finalBody);
       } else {
-        await api.create(token, body);
+        await api.create(token, finalBody);
       }
       onSaved();
     } catch (e2) { setErr(e2 instanceof ApiError ? e2.message : "Lưu thất bại."); setSaving(false); }
@@ -622,6 +903,15 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                                 {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                               </select>
                             </div>
+                          ) : f.type === "suggest" ? (
+                            <SuggestField
+                              value={String(form[f.key] ?? "")}
+                              options={f.options}
+                              allRows={allRows}
+                              fieldKey={f.key}
+                              placeholder={cleanLabel}
+                              onChange={(v) => set(f.key, v)}
+                            />
                           ) : f.type === "ref" ? (
                             <div className="rc-input-wrapper">
                               <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)}>
@@ -631,6 +921,13 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                                 ))}
                               </select>
                             </div>
+                          ) : f.type === "ref-search" ? (
+                            <RefSearchField
+                              value={form[f.key] == null || form[f.key] === "" ? null : Number(form[f.key])}
+                              options={refData[f.refPrefix ?? ""] ?? []}
+                              placeholder={f.hint ?? "Gõ mã / tên để tìm…"}
+                              onChange={(v) => set(f.key, v)}
+                            />
                           ) : f.type === "ref-multi" ? (
                             <RefMultiField
                               value={Array.isArray(form[f.key]) ? (form[f.key] as number[]) : []}
@@ -731,6 +1028,65 @@ function RefMultiField({ value, options, onChange }: {
           {remaining.map((o) => <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>)}
         </select>
       </div>
+    </div>
+  );
+}
+
+// Ô tìm-chọn 1 danh mục theo MÃ (typeahead, bỏ dấu vẫn khớp) — vd chọn bù hao cho công đoạn.
+function RefSearchField({ value, options, placeholder, onChange }: {
+  value: number | null; options: Row[]; placeholder?: string; onChange: (v: number | null) => void;
+}) {
+  const [q, setQ] = useState("");
+  const [open, setOpen] = useState(false);
+  const norm = (s: string) =>
+    s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/đ/g, "d");
+  const selected = value == null ? null : options.find((o) => o.id === value) ?? null;
+  const nq = norm(q.trim());
+  const matches = (nq
+    ? options.filter((o) => norm(`${o.ma} ${o.ten}`).includes(nq))
+    : options
+  ).slice(0, 20);
+
+  if (selected) {
+    return (
+      <div className="rc-input-wrapper" style={{ display: "flex", gap: "6px", alignItems: "stretch" }}>
+        <span className="rc-input" style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span><b style={{ fontFamily: "var(--ff-mono, monospace)" }}>{selected.ma}</b> · {selected.ten}</span>
+          <button type="button" className="rc-timeline__btn rc-timeline__btn--danger" title="Bỏ chọn — tìm lại"
+            onClick={() => { onChange(null); setQ(""); setOpen(true); }}>✕</button>
+        </span>
+      </div>
+    );
+  }
+  const panel: CSSProperties = {
+    position: "absolute", top: "100%", left: 0, right: 0, zIndex: 30, marginTop: "2px",
+    background: "var(--rc-surface, #fffdf7)", border: "1px solid rgba(0,0,0,0.15)",
+    borderRadius: "8px", maxHeight: "240px", overflowY: "auto", boxShadow: "0 8px 24px rgba(0,0,0,0.14)",
+  };
+  return (
+    <div className="rc-input-wrapper" style={{ position: "relative" }}>
+      <input className="rc-input" value={q} placeholder={placeholder ?? "Gõ mã / tên để tìm…"}
+        onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)} />
+      {open && matches.length > 0 && (
+        <div style={panel}>
+          {matches.map((o) => (
+            <button type="button" key={o.id}
+              style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px",
+                background: "transparent", border: "none", cursor: "pointer" }}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { onChange(o.id); setQ(""); setOpen(false); }}>
+              <b style={{ fontFamily: "var(--ff-mono, monospace)" }}>{o.ma}</b> · {o.ten}
+            </button>
+          ))}
+        </div>
+      )}
+      {open && nq && matches.length === 0 && (
+        <div style={{ ...panel, padding: "8px 10px", color: "var(--ash, #8a8577)" }}>
+          Không thấy mã/tên khớp “{q}”.
+        </div>
+      )}
     </div>
   );
 }

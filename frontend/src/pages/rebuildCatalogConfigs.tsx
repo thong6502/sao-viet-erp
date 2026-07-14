@@ -29,12 +29,10 @@ const PRICING_BASIS: Lbls = {
   per_job: "Trọn gói một lần (cả đơn)",
   per_other: "Khác",
 };
-const TRUC_BU_HAO: Lbls = { so_mau: "Theo số màu (giấy in)", so_con: "Theo số con (sóng bồi/bế)" };
-// Cách công đoạn góp bù hao — nối tới trục module Bù hao, hoặc cộng cố định.
+// Cách công đoạn góp bù hao — trỏ 1 mã bù hao (tra bảng theo SL), hoặc cộng cố định.
 const KIEU_BU_HAO: Lbls = {
   khong: "Không bù hao",
-  theo_so_mau: "Theo số màu (tra bảng)",
-  theo_so_con: "Theo số con (tra bảng)",
+  tra_bang: "Tra bảng theo mã bù hao",
   co_dinh: "Cộng cố định (số tờ)",
 };
 
@@ -73,6 +71,11 @@ export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   ],
 };
 
+const isMayIn = (val: unknown) => {
+  const s = String(val || "").trim().toLowerCase();
+  return s === "máy in" || s === "in ngoài" || s.startsWith("in ") || s.includes("máy in") || s.includes("in offset");
+};
+
 // Form MỞ (phẳng): mọi ô luôn hiện, không phân loại cứng. Chủ xưởng tự đặt "Nhóm máy"
 // (chữ tự do) rồi nhập khổ kẽm / nhíp / khổ giấy / vùng in / ghi chú.
 export const CFG_MAY: CatalogConfig = {
@@ -85,19 +88,31 @@ export const CFG_MAY: CatalogConfig = {
       render: (r) => (r.kho_max_rong || r.kho_max_dai ? `${r.kho_max_rong ?? "?"}×${r.kho_max_dai ?? "?"}` : "—") },
   ],
   fields: [
-    // ── Nhóm máy (chữ tự do — chỉ để nhóm/lọc, không điều khiển ẩn/hiện) ─────────
-    { key: "loai_may", label: "Nhóm máy", type: "text", required: true, group: "Phân loại",
-      hint: "Gõ tự do, vd: Máy in, Cán màng, Bồi sóng, Bế…" },
+    // ── Nhóm máy (chữ gợi ý + tự do) ──────────────────────────────────────────
+    { key: "loai_may", label: "Nhóm máy", type: "suggest", required: true, group: "Phân loại",
+      options: [
+        { value: "Máy in", label: "Máy in" },
+        { value: "In ngoài", label: "In ngoài" },
+        { value: "Cán màng / UV", label: "Cán màng / UV" },
+        { value: "Bồi", label: "Bồi" },
+        { value: "Bế", label: "Bế" },
+      ],
+      hint: "Gợi ý hoặc gõ tự do: Máy in, Cán màng / UV, Bồi, Bế…" },
     // ── Khổ kẽm + nhíp kẽm ─────────────────────────────────────────────────────
     { key: "kho_kem_rong", label: "Khổ kẽm — rộng (mm)", type: "number", group: "Khổ kẽm & vùng in",
+      showIf: (f) => isMayIn(f.loai_may),
       hint: "Bản kẽm máy nhận, vd 800*1030 (rộng*dài)" },
-    { key: "kho_kem_dai", label: "Khổ kẽm — dài (mm)", type: "number", group: "Khổ kẽm & vùng in" },
+    { key: "kho_kem_dai", label: "Khổ kẽm — dài (mm)", type: "number", group: "Khổ kẽm & vùng in",
+      showIf: (f) => isMayIn(f.loai_may) },
     { key: "gripper_mm", label: "Nhíp kẽm (mm)", type: "number", group: "Khổ kẽm & vùng in",
+      showIf: (f) => isMayIn(f.loai_may),
       hint: "Mép nhíp trên kẽm, vd 44 mm" },
     // ── Vùng in lớn nhất ───────────────────────────────────────────────────────
     { key: "vung_in_rong", label: "Vùng in max — rộng (mm)", type: "number", group: "Khổ kẽm & vùng in",
+      showIf: (f) => isMayIn(f.loai_may),
       hint: "Vùng in được lớn nhất, vd 710*1010 (rộng*dài)" },
-    { key: "vung_in_dai", label: "Vùng in max — dài (mm)", type: "number", group: "Khổ kẽm & vùng in" },
+    { key: "vung_in_dai", label: "Vùng in max — dài (mm)", type: "number", group: "Khổ kẽm & vùng in",
+      showIf: (f) => isMayIn(f.loai_may) },
     // ── Khổ giấy min/max ───────────────────────────────────────────────────────
     { key: "kho_min_rong", label: "Khổ giấy min — rộng (mm)", type: "number", group: "Khổ giấy" },
     { key: "kho_min_dai", label: "Khổ giấy min — dài (mm)", type: "number", group: "Khổ giấy" },
@@ -124,37 +139,77 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "ten_hien_thi", label: "Tên hiển thị cho sản xuất", type: "text", group: "Thông tin",
       hint: "Tên in cho thợ dưới xưởng đọc (bỏ trống = dùng Tên)" },
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
-    { key: "pricing_basis", label: "Đơn vị tính giá", type: "select", group: "Giá", options: mapOpt(PRICING_BASIS),
-      hint: "Đếm theo cái gì (tờ / m² / cuốn…). 'Trọn gói một lần' cho khuôn bế — engine tự ÷ SL." },
+    // Ô CHÍNH: chọn 1 cách tính → chỉ hiện đúng ô cần nhập. Chỉ 6 cách công ty thật dùng.
+    { key: "_method", label: "Cách tính giá", type: "select", group: "Giá", default: "sheet",
+      options: [
+        { value: "sheet", label: "Theo tờ in — đơn giá × số tờ ÷ SL" },
+        { value: "piece_flat", label: "Theo con — giá cố định (đ / sản phẩm)" },
+        { value: "piece_size", label: "Theo con — giá theo cỡ sản phẩm" },
+        { value: "job", label: "Trọn gói cả đơn — tổng ÷ SL (khuôn / bế)" },
+        { value: "area_sides", label: "Theo diện tích bề mặt (cán màng, phủ UV)" },
+        { value: "position", label: "Theo số vị trí (ép kim, khoan lỗ…)" },
+      ],
+      hint: "Chọn cách máy tính tiền công đoạn này. Chọn xong bên dưới chỉ hiện ô cần nhập." },
+    // run_rate — 2 biến thể cùng key: đa số là 'đơn giá / đơn vị', riêng trọn gói là 'tổng tiền'.
     { key: "run_rate", label: "Đơn giá / đơn vị (đ)", type: "number", group: "Giá",
-      hint: "Bỏ trống nếu dùng bậc theo kích thước bên dưới" },
+      showIf: (f) => ["sheet", "piece_flat", "area_sides", "position"].includes(String(f._method)),
+      hint: "Đơn giá cho 1 đơn vị theo cách tính đã chọn ở trên." },
+    { key: "run_rate", label: "Tổng tiền cả đơn (đ)", type: "number", group: "Giá",
+      showIf: (f) => f._method === "job",
+      hint: "Cả đơn tính 1 lần, máy tự chia ÷ SL. VD khuôn bế 800.000 ÷ 4.000 = 200đ/sp." },
     { key: "size_tiers", label: "Bậc đơn giá theo kích thước", type: "size_tiers", group: "Giá",
-      hint: "Đơn giá theo cạnh dài thành phẩm (cm). VD dán: ≤20cm=100 · ≤40cm=200 · ≤100cm=800. Có bậc thì thay Đơn giá ở trên." },
-    { key: "min_charge", label: "Giá tối thiểu (đ)", type: "number", group: "Giá", hint: "Thu tối thiểu dù ít" },
+      showIf: (f) => f._method === "piece_size",
+      hint: "Đơn giá theo cạnh dài thành phẩm (cm). VD dán hộp: ≤20cm=100 · ≤40cm=200 · ≤100cm=800." },
+    { key: "min_charge", label: "Giá tối thiểu (đ)", type: "number", group: "Giá",
+      hint: "Thu tối thiểu dù số lượng ít (bỏ trống nếu không cần)." },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong",
-      hint: "In → Theo số màu · Bồi/Bế sóng → Theo số con · Ép kim/UV → Cộng cố định · Ghi kẽm → Không" },
+      hint: "In / Bồi / Bế sóng → Tra bảng (chọn mã bù hao) · Ép kim/UV → Cộng cố định · Ghi kẽm → Không" },
+    { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
+      showIf: (f) => f.kieu_bu_hao === "tra_bang",
+      hint: "Gõ mã / tên bù hao để tìm (vd 3-4 → In 3-4 màu) — engine tra bậc theo số lượng" },
     { key: "so_to_bu_hao", label: "Số tờ cộng cố định", type: "number", group: "Bù hao", default: 50,
       showIf: (f) => f.kieu_bu_hao === "co_dinh",
       hint: "Mặc định 50; bế nổi / dán móc đáy = 30" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Bù hao" },
   ],
+  // Suy "Cách tính giá" (_method) từ dữ liệu đã lưu khi mở form sửa. Chỉ 6 cách; kiểu khác → "—".
+  deriveInitial: (existing) => {
+    if (!existing) return { _method: "sheet" };
+    if (existing.che_do_tinh === "theo_gio") return { _method: "" };  // theo giờ đã bỏ khỏi lựa chọn
+    const pb = existing.pricing_basis;
+    const st = existing.size_tiers;
+    const hasSt = Array.isArray(st) && st.length > 0;
+    if (pb === "per_sheet") return { _method: "sheet" };
+    if (pb === "per_finished_qty") return { _method: hasSt ? "piece_size" : "piece_flat" };
+    if (pb === "per_job") return { _method: "job" };
+    if (pb === "per_area_sides") return { _method: "area_sides" };
+    if (pb === "per_position") return { _method: "position" };
+    return { _method: "" };  // basis khác/rỗng → để trống, người dùng chọn lại
+  },
+  // Map "Cách tính giá" → pricing_basis + dọn ô không dùng. m="" (bản cũ chưa chọn) → không đụng gì.
+  transformSubmit: (body, form) => {
+    const m = form._method;
+    delete body._method;
+    const sl = (pb: string) => { body.che_do_tinh = "theo_san_luong"; body.pricing_basis = pb; };
+    if (m === "sheet") { sl("per_sheet"); body.size_tiers = []; }
+    else if (m === "piece_flat") { sl("per_finished_qty"); body.size_tiers = []; }
+    else if (m === "piece_size") { sl("per_finished_qty"); body.run_rate = null; }
+    else if (m === "job") { sl("per_job"); body.size_tiers = []; }
+    else if (m === "area_sides") { sl("per_area_sides"); body.size_tiers = []; }
+    else if (m === "position") { sl("per_position"); body.size_tiers = []; }
+    // m === "" : giữ nguyên dữ liệu cũ (không map, không xóa) → bản theo_gio cũ an toàn.
+    return body;
+  },
 };
 
 export const CFG_BU_HAO: CatalogConfig = {
   title: "Bù hao",
-  subtitle: "Tra số tờ bù hao theo trục (số màu / số con) × bậc số lượng. Bậc là dữ liệu — thêm/bớt tự do.",
+  subtitle: "Mỗi mã bù hao = danh sách bậc số lượng → số tờ / %. Công đoạn trỏ mã bù hao để tra bậc theo SL.",
   prefix: "/api/bu-hao",
-  facet: { key: "truc", values: mapOpt(TRUC_BU_HAO) },
   columns: [
-    { key: "truc", label: "Tra theo", render: (r) => lbl(TRUC_BU_HAO)(r.truc) },
-    { key: "dai", label: "Dải", render: (r) => `${r.key_tu}–${r.key_den}` },
     { key: "bac", label: "Số bậc", render: (r) => `${Array.isArray(r.bac) ? r.bac.length : 0} bậc` },
   ],
   fields: [
-    { key: "truc", label: "Tra theo trục", type: "select", required: true, group: "Phân loại",
-      options: mapOpt(TRUC_BU_HAO), hint: "Số màu (giấy) hay số con (sóng)" },
-    { key: "key_tu", label: "Dải: từ", type: "number", group: "Phân loại", hint: "vd 3 (in 3-4 màu → từ 3)" },
-    { key: "key_den", label: "Dải: đến", type: "number", group: "Phân loại", hint: "vd 4" },
     { key: "bac", label: "Bậc số lượng → giá trị (tờ / %)", type: "bands", group: "Bậc số lượng" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Bậc số lượng" },
   ],
@@ -179,9 +234,10 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
 
 export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
-  subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy.",
+  subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy. Đơn giá nhập ở “Lịch sử giá”.",
   prefix: "/api/vat-lieu-kho/giay",
   softDelete: true,
+  hasVersions: true,
   facet: KHO_FACET,
   columns: [
     { key: "gsm", label: "Định lượng" },
