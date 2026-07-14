@@ -1300,6 +1300,8 @@ function QuotationDetailView({
   // Gộp modal "Chỉnh sửa" vào detail (bỏ modal): điều khoản giao nhận + địa chỉ giao editable ngay đây.
   const [deliveryAddressEdit, setDeliveryAddressEdit] = useState("");
   const [deliveryTermsEdit, setDeliveryTermsEdit] = useState("");
+  // % tạm ứng/cọc khi chốt đơn (giữ dạng chuỗi để cho phép ô rỗng = chưa đặt).
+  const [depositPctEdit, setDepositPctEdit] = useState<string>("");
 
   // Feed Hoạt động — nhật ký tương tác THẬT (ai làm gì) đọc từ backend.
   const [acts, setActs] = useState<QuotationActivity[]>([]);
@@ -1323,6 +1325,7 @@ function QuotationDetailView({
         setValidUntilEdit(det.valid_until ?? "");
         setDeliveryAddressEdit(det.delivery_address ?? "");
         setDeliveryTermsEdit(det.delivery_terms ?? "");
+        setDepositPctEdit(det.deposit_pct != null ? String(det.deposit_pct) : "");
         // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
         const vr = det.versions.find((v) => v.version === det.version);
         const created = vr?.created_at ?? null;
@@ -1409,6 +1412,7 @@ function QuotationDetailView({
         customer_id: d.customer_id,
         valid_until: validUntilEdit || null,
         payment_terms: terms,
+        deposit_pct: depositPctEdit === "" ? null : Number(depositPctEdit),
         delivery_terms: deliveryTermsEdit,
         delivery_address: deliveryAddressEdit,
         items: d.items.map((it) => {
@@ -1469,6 +1473,7 @@ function QuotationDetailView({
         customer_id: newId,
         valid_until: d.valid_until,
         payment_terms: terms,
+        deposit_pct: depositPctEdit === "" ? null : Number(depositPctEdit),
         delivery_terms: d.delivery_terms,
         delivery_address: null,
         items: null,
@@ -1492,6 +1497,7 @@ function QuotationDetailView({
         customer_id: d.customer_id,
         valid_until: validUntilEdit || null,
         payment_terms: terms,
+        deposit_pct: depositPctEdit === "" ? null : Number(depositPctEdit),
         delivery_terms: deliveryTermsEdit,
         delivery_address: deliveryAddressEdit,
         items: null,
@@ -1818,6 +1824,24 @@ function QuotationDetailView({
             <div className="field-row">
               <span className="field-lbl">Điều khoản thanh toán</span>
               <textarea className="field-in" rows={2} value={terms} disabled={!editable} onChange={(e) => setTerms(e.target.value)} />
+            </div>
+            <div className="field-inline">
+              <span className="field-lbl">% Tạm ứng / cọc</span>
+              <input
+                className="field-in"
+                type="number" min={0} max={100} step={5}
+                style={{ width: "110px" }}
+                value={depositPctEdit}
+                disabled={!editable}
+                onChange={(e) => setDepositPctEdit(e.target.value)}
+                placeholder="—"
+              />
+              <span>%</span>
+              {depositPctEdit !== "" && Number(depositPctEdit) > 0 && (
+                <span style={{ color: "var(--ash)", fontSize: "12px" }}>
+                  Tiền cọc ≈ {vnd(Math.round((grandT * Number(depositPctEdit)) / 100))} (trên tổng đã VAT)
+                </span>
+              )}
             </div>
             <div className="field-row">
               <span className="field-lbl">Điều khoản giao nhận</span>

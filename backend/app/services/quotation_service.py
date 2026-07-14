@@ -834,6 +834,7 @@ class QuotationService:
         customer_id: int | None,
         valid_until: date | None,
         payment_terms: str | None = None,
+        deposit_pct: float | None = None,
         delivery_terms: str | None = None,
         delivery_address: str | None = None,
         customer_note: str | None = None,
@@ -861,6 +862,7 @@ class QuotationService:
             quote.delivery_address = delivery_address
         quote.valid_until = valid_until
         quote.payment_terms = payment_terms
+        quote.deposit_pct = deposit_pct
         quote.delivery_terms = delivery_terms
         quote.customer_note = customer_note
         quote.internal_note = internal_note

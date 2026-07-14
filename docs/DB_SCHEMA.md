@@ -556,6 +556,7 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `created_at` | `DateTime(tz)` | — | no | now (UTC) | Tạo lúc. |
 | `updated_at` | `DateTime(tz)` | — | no | now (UTC) | Sửa lần cuối (onupdate). |
 | `decision_seen_at` | `DateTime(tz)` | — | yes | — | Mốc người soạn đã xem quyết định GĐ gần nhất (real-time gửi duyệt); NULL = có quyết định mới chưa xem. |
+| `deposit_pct` | `Float` | — | yes | — | % tạm ứng/cọc khi chốt đơn (0–100), nhập ở màn Báo giá; NULL = chưa đặt. |
 
 ### `quote_versions`
 

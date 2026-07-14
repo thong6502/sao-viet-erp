@@ -49,6 +49,7 @@ class QuotationUpdate(BaseModel):
     customer_id: int | None = None
     valid_until: date | None = None
     payment_terms: str | None = None
+    deposit_pct: float | None = None      # % tạm ứng/cọc khi chốt đơn (0–100)
     delivery_terms: str | None = None
     delivery_address: str | None = None
     customer_note: str | None = None
@@ -163,6 +164,7 @@ class QuotationDetailOut(BaseModel):
     status: str
     cancel_reason: str | None
     payment_terms: str | None
+    deposit_pct: float | None = None      # % tạm ứng/cọc (nhập ở màn Báo giá)
     delivery_terms: str | None
     delivery_address: str | None
     contact_name_snapshot: str | None = None

@@ -7,6 +7,7 @@ from sqlalchemy import (
     BigInteger,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -84,6 +85,8 @@ class Quote(Base):
     
     valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     payment_terms: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # % tạm ứng/cọc khi chốt đơn (0–100). Nhập ở màn Báo giá; None = chưa đặt.
+    deposit_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     delivery_terms: Mapped[str | None] = mapped_column(String(255), nullable=True)
     delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Người liên hệ SNAPSHOT trên báo giá (redesign-bao-gia §4/§5) — auto-fill từ CRM

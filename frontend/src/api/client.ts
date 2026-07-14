@@ -1420,6 +1420,7 @@ export interface QuotationDetail {
   status: string;
   cancel_reason: string | null;
   payment_terms: string | null;
+  deposit_pct: number | null;
   delivery_terms: string | null;
   delivery_address: string | null;
   contact_name_snapshot: string | null;
@@ -1490,6 +1491,8 @@ export interface QuotationUpdateInput {
   customer_id: number | null;
   valid_until: string | null;
   payment_terms: string | null;
+  /** % tạm ứng/cọc khi chốt đơn (0–100); null = chưa đặt. */
+  deposit_pct?: number | null;
   delivery_terms: string | null;
   delivery_address: string | null;
   // Ghi chú đối ngoại/nội bộ đã BỎ khỏi UI — vẫn optional để tương thích payload cũ.

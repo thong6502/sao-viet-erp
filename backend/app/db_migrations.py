@@ -1517,6 +1517,15 @@ def _migrate_quote_decision_seen_at(db: Session) -> None:
     db.commit()
 
 
+def _migrate_quote_deposit_pct(db: Session) -> None:
+    """% tạm ứng/cọc nhập ở màn Báo giá (0–100, nullable). No-op nếu cột đã có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "quotes" in tables and "deposit_pct" not in _existing_columns(insp, "quotes"):
+        db.execute(text("ALTER TABLE quotes ADD COLUMN deposit_pct FLOAT"))
+    db.commit()
+
+
 def _migrate_ptg_created_by(db: Session) -> None:
     """redesign-bao-gia §10 (P8): thêm chủ sở hữu `created_by` cho Phiếu tính giá để lọc phạm vi
     (NV Sales chỉ thấy phiếu của mình; TP KD/GĐ thấy cả phòng/tất cả). Best-effort backfill từ `ktv`
@@ -1655,6 +1664,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0060_customer_kind_and_pricing_bounds", _migrate_customer_kind_and_pricing_bounds),
     ("0061_ptg_tinh_bu_hao_cd", _migrate_ptg_tinh_bu_hao_cd),
     ("0062_quote_decision_seen_at", _migrate_quote_decision_seen_at),
+    ("0063_quote_deposit_pct", _migrate_quote_deposit_pct),
 ]
 
 
