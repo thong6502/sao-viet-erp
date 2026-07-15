@@ -31,6 +31,10 @@ from ..models.accounting import (
     PaymentVoucherAttachment,
     SupplierBankAccount,
 )
+from ..models.document_sequence import (
+    SEQ_DOC_TYPE_PAYMENT_RECEIPT,
+    SEQ_DOC_TYPE_PAYMENT_VOUCHER,
+)
 from ..models.purchase import (
     DPR_CANCELLED,
     DPR_DONE,
@@ -46,6 +50,7 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
 from ..repositories.user_repo import UserRepository
 from .purchase_service import _purchase_line_amounts
+from .sequence_service import SequenceService
 
 
 class AccountingError(Exception):
@@ -100,12 +105,14 @@ class AccountingService:
         suppliers: SupplierRepository,
         users: UserRepository,
         audit: AuditLogRepository,
+        sequences: SequenceService,
     ) -> None:
         self.repo = repo
         self.purchases = purchases
         self.suppliers = suppliers
         self.users = users
         self.audit = audit
+        self.sequences = sequences
 
     # --- bank accounts ----------------------------------------------------
 
@@ -249,7 +256,8 @@ class AccountingService:
         prepared = self._prepare_voucher(
             purchase, values, allow_pending_purchase=False, exclude_voucher_id=None
         )
-        voucher = self._new_voucher(purchase, prepared, actor.id)
+        doc_no = self._next_voucher_doc_no()
+        voucher = self._new_voucher(purchase, prepared, actor.id, doc_no=doc_no)
         saved = self.repo.save_voucher(voucher)
         self.audit.create(
             actor_user_id=actor.id,
@@ -266,13 +274,17 @@ class AccountingService:
         prepared = self._prepare_voucher(
             purchase, values, allow_pending_purchase=True, exclude_voucher_id=None
         )
+        # Cấp số TRƯỚC khi chạm ORM object: increment_and_get() tự commit và dùng chung
+        # Session — nếu gọi sau các mutation dưới, nó sẽ commit sớm PR_APPROVED +
+        # DPR_IN_PURCHASE; save_voucher lỗi → PMH đã duyệt mà không có phiếu chi.
+        doc_no = self._next_voucher_doc_no()
         purchase.status = PR_APPROVED
         purchase.approved_by_user_id = actor.id
         purchase.approved_at = _now()
         for link in purchase.sources:
             if link.department_request and link.department_request.status not in (DPR_DONE, DPR_CANCELLED):
                 link.department_request.status = DPR_IN_PURCHASE
-        voucher = self._new_voucher(purchase, prepared, actor.id)
+        voucher = self._new_voucher(purchase, prepared, actor.id, doc_no=doc_no)
         saved = self.repo.save_voucher(voucher)
         self.audit.create(
             actor_user_id=actor.id,
@@ -369,8 +381,12 @@ class AccountingService:
         if voucher.status != PAYMENT_VOUCHER_PAID:
             raise AccountingConflict("Chỉ Phiếu chi/UNC đã chi mới được lập phiếu thu.")
         prepared = self._prepare_receipt(voucher, values, exclude_receipt_id=None)
+        # Cấp số trước khi chạm ORM object — increment_and_get() tự commit (xem
+        # _next_voucher_doc_no).
+        doc_no = self.sequences.generate_flat_code(SEQ_DOC_TYPE_PAYMENT_RECEIPT)
         receipt = PaymentReceipt(
             code=self._new_receipt_code(),
+            doc_no=doc_no,
             payment_voucher_id=voucher.id,
             purchase_request_id=voucher.purchase_request_id,
             status=PAYMENT_RECEIPT_WAITING,
@@ -492,8 +508,13 @@ class AccountingService:
 
         return {
             "payer_name": payer_name,
+            "payer_address": _text(
+                values.get("payer_address"), label="Địa chỉ người nộp", max_length=500
+            ),
             "receipt_method": receipt_method,
             "receipt_date": values.get("receipt_date"),
+            "debit_account": _text(values.get("debit_account"), label="Tài khoản Nợ", max_length=64),
+            "credit_account": _text(values.get("credit_account"), label="Tài khoản Có", max_length=64),
             "amount": amount,
             "amount_vnd": amount_vnd,
             "currency": currency,
@@ -538,12 +559,16 @@ class AccountingService:
         return {
             "id": row.id,
             "code": row.code,
+            "doc_no": row.doc_no,
             "payment_voucher_id": row.payment_voucher_id,
             "payment_voucher_code": row.voucher_code_snapshot,
             "purchase_request_id": row.purchase_request_id,
             "purchase_request_code": row.purchase_code_snapshot,
             "supplier_name": row.supplier_name_snapshot,
             "payer_name": row.payer_name,
+            "payer_address": row.payer_address,
+            "debit_account": row.debit_account,
+            "credit_account": row.credit_account,
             "receipt_method": row.receipt_method,
             "status": row.status,
             "receipt_date": row.receipt_date,
@@ -849,12 +874,24 @@ class AccountingService:
             "cash_recipient_address": _text(values.get("cash_recipient_address"), label="Địa chỉ người nhận", max_length=500),
             "cash_recipient_identity": _text(values.get("cash_recipient_identity"), label="Giấy tờ người nhận", max_length=64),
             "bank_fee_bearer": bank_fee_bearer,
+            "debit_account": _text(values.get("debit_account"), label="Tài khoản Nợ", max_length=64),
+            "credit_account": _text(values.get("credit_account"), label="Tài khoản Có", max_length=64),
             "note": _text(values.get("note"), label="Ghi chú", max_length=2000),
         }
 
-    def _new_voucher(self, purchase: PurchaseRequest, prepared: dict, actor_id: int) -> PaymentVoucher:
+    def _next_voucher_doc_no(self) -> str:
+        """Số IN trên mẫu 02-TT (PC00445) — chung bộ đếm cho tiền mặt lẫn UNC.
+
+        LƯU Ý: gọi hàm này SAU khi validate xong và TRƯỚC mọi mutation ORM — nó commit.
+        """
+        return self.sequences.generate_flat_code(SEQ_DOC_TYPE_PAYMENT_VOUCHER)
+
+    def _new_voucher(
+        self, purchase: PurchaseRequest, prepared: dict, actor_id: int, *, doc_no: str | None = None
+    ) -> PaymentVoucher:
         voucher = PaymentVoucher(
             code=self._new_voucher_code(prepared["voucher_type"]),
+            doc_no=doc_no,
             purchase_request_id=purchase.id,
             supplier_id=purchase.supplier_id,
             status=PAYMENT_VOUCHER_WAITING,
@@ -972,6 +1009,9 @@ class AccountingService:
         return {
             "id": row.id,
             "code": row.code,
+            "doc_no": row.doc_no,
+            "debit_account": row.debit_account,
+            "credit_account": row.credit_account,
             "receipt_received_amount": receipt_received_amount,
             "receipt_pending_amount": receipt_pending_amount,
             "attachment_count": len(row.attachments),

@@ -13,14 +13,8 @@ import { useCan } from "../auth/permissions";
 import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
-import {
-  amountInWords,
-  escapeHtml,
-  fmtDate,
-  fmtDateTime,
-  money,
-  originalMoney,
-} from "../utils/format";
+import { fmtDate, fmtDateTime, money, originalMoney } from "../utils/format";
+import { printTT200 } from "../utils/printTT200";
 import { PaymentReceiptDialog } from "./PaymentReceiptDialog";
 import "./accounting.css";
 import "./purchase.css";
@@ -42,31 +36,37 @@ function methodText(row: PaymentReceiptRow): string {
     : "Nhập quỹ tiền mặt";
 }
 
-/** In Phiếu thu ra cửa sổ mới (A4) — mirror printVoucher của phiếu chi. */
+/** In Phiếu thu theo mẫu 01-TT. */
 function printReceipt(row: PaymentReceiptRow): boolean {
-  const win = window.open("", "_blank", "width=980,height=760");
-  if (!win) return false;
-  const isBank = row.receipt_method === "bank_transfer";
-  const receiveBlock = isBank
-    ? `<section class="accounts"><div><h3>Tài khoản nhận tiền</h3><p><b>${escapeHtml(row.company_account_holder)}</b></p><p>${escapeHtml(row.company_account_number)}</p><p>${escapeHtml(row.company_bank_name)} · ${escapeHtml(row.company_bank_branch)}</p></div></section>`
-    : `<section class="accounts"><div><h3>Nhập quỹ tiền mặt</h3><p>Người nộp: <b>${escapeHtml(row.payer_name)}</b></p></div></section>`;
-  win.document
-    .write(`<!doctype html><html lang="vi"><head><meta charset="utf-8"><title>PHIẾU THU ${escapeHtml(row.code)}</title><style>
-    @page{size:A4;margin:16mm}*{box-sizing:border-box}body{font:13px Arial,sans-serif;color:#171713;margin:0}header{display:flex;justify-content:space-between;border-bottom:2px solid #171713;padding-bottom:12px}.brand{font-weight:700}.muted{color:#6f6c64}h1{text-align:center;font-size:24px;margin:24px 0 5px}h2{text-align:center;font:700 14px monospace;margin:0 0 22px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 26px}.label{display:block;font-size:10px;text-transform:uppercase;color:#77736a;font-weight:700;margin-bottom:4px}.purpose{margin:18px 0;padding:12px;border:1px solid #cfcac0}.amount{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:16px 0}.amount div{padding:14px;background:#f3f1eb}.amount strong{display:block;font-size:20px;margin-top:5px}.words{padding:12px;border:1px solid #cfcac0;margin-bottom:16px}.accounts{display:grid;grid-template-columns:1fr;gap:14px;margin-top:16px}.accounts>div{border:1px solid #cfcac0;padding:12px}.accounts h3{font-size:12px;text-transform:uppercase;margin:0 0 10px}.accounts p{margin:5px 0}.refs{margin-top:18px;border-top:1px solid #cfcac0;padding-top:12px}.status{font-weight:700;text-transform:uppercase}@media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
-  </style></head><body>
-    <header><div><div class="brand">Sao Việt Nhật ERP</div><div class="muted">Chứng từ từ phân hệ Kế toán</div></div><div><div>Ngày in: ${escapeHtml(fmtDate(new Date().toISOString()))}</div><div class="muted">Lập lúc: ${escapeHtml(fmtDateTime(row.created_at))}</div><div class="status">${escapeHtml(STATUS_META[row.status].label)}</div></div></header>
-    <h1>PHIẾU THU</h1><h2>${escapeHtml(row.code)}</h2>
-    <section class="grid"><div><span class="label">Ngày thu</span>${escapeHtml(fmtDate(row.receipt_date))}</div><div><span class="label">Người nộp tiền</span>${escapeHtml(row.payer_name)}</div><div><span class="label">Nhà cung cấp</span>${escapeHtml(row.supplier_name)}</div><div><span class="label">Hình thức</span>${escapeHtml(methodText(row))}</div><div><span class="label">Phiếu chi nguồn</span>${escapeHtml(row.payment_voucher_code)}</div><div><span class="label">PMH nguồn</span>${escapeHtml(row.purchase_request_code)}</div></section>
-    <section class="purpose"><span class="label">Nội dung thu</span><b>${escapeHtml(row.content)}</b></section>
-    <section class="amount"><div><span class="label">Số tiền nguyên tệ</span><strong>${escapeHtml(originalMoney(row.amount, row.currency))}</strong></div><div><span class="label">Quy đổi VND / tỷ giá</span><strong>${escapeHtml(money(row.amount_vnd))} · ${escapeHtml(row.exchange_rate)}</strong></div></section>
-    <section class="words"><span class="label">Số tiền quy đổi bằng chữ</span>${escapeHtml(amountInWords(row.amount_vnd))}</section>
-    ${receiveBlock}
-    <section class="refs"><span class="label">Chứng từ tham chiếu</span>Mã giao dịch: ${escapeHtml(row.bank_reference || "—")}</section>
-  </body></html>`);
-  win.document.close();
-  win.focus();
-  window.setTimeout(() => win.print(), 250);
-  return true;
+  return printTT200({
+    kind: "thu",
+    docNo: row.doc_no,
+    docDate: row.receipt_date,
+    debitAccount: row.debit_account,
+    creditAccount: row.credit_account,
+    personName: row.payer_name,
+    personAddress: row.payer_address,
+    reason: row.content,
+    extraLines: [
+      { label: "Hình thức", value: methodText(row) },
+      ...(row.receipt_method === "bank_transfer"
+        ? [
+            {
+              label: "Tài khoản nhận",
+              value: `${row.company_account_number ?? "—"} tại ${row.company_bank_name ?? "—"}`,
+            },
+          ]
+        : []),
+      { label: "Phiếu chi nguồn", value: row.payment_voucher_code },
+      ...(row.bank_reference ? [{ label: "Mã giao dịch", value: row.bank_reference }] : []),
+    ],
+    amount: row.amount,
+    amountVnd: row.amount_vnd,
+    currency: row.currency,
+    exchangeRate: row.exchange_rate,
+    attachmentCount: row.attachment_count,
+    cancelled: row.status === "cancelled",
+  });
 }
 
 export function PaymentReceiptsPage({
@@ -504,6 +504,9 @@ export function PaymentReceiptsPage({
                 <div>
                   <p className="eyebrow">Phiếu thu</p>
                   <h2>{selected.code}</h2>
+                  {selected.doc_no && (
+                    <p className="md-page__muted">Số phiếu: {selected.doc_no}</p>
+                  )}
                 </div>
                 <div className="acct-status-stack">
                   <span

@@ -1206,6 +1206,102 @@ def _migrate_drop_payment_refunds_renamed(db: Session) -> None:
         db.rollback()
 
 
+def _migrate_payment_doc_no_and_accounts(db: Session) -> None:
+    """Kế toán — in theo mẫu Bộ Tài chính (TT 200/2014/TT-BTC):
+
+    - `doc_no`: số IN trên phiếu (PC00445 / PT00027), chạy LIÊN TỤC không reset theo năm
+      (bộ đếm `document_sequences` với year = SEQ_YEAR_GLOBAL). Phiếu CŨ được đánh số bổ
+      sung theo thứ tự id, rồi nhấc bộ đếm lên đúng mức để phiếu mới nối tiếp.
+    - `debit_account` / `credit_account`: định khoản Nợ/Có nhập tay (cả 2 bảng).
+    - `payer_address`: địa chỉ người nộp (mẫu 01-TT), chỉ ở phiếu thu.
+
+    Idempotent KHÔNG dựa vào `schema_migrations` (test gọi hàm 2 lần): guard bằng
+    `_existing_columns` + `IF NOT EXISTS` + `WHERE doc_no IS NULL`. No-op trên DB fresh
+    (create_all đã dựng đủ cột + index; bảng rỗng nên không seed bộ đếm).
+    """
+    from .models.document_sequence import (
+        SEQ_DOC_TYPE_PAYMENT_RECEIPT,
+        SEQ_DOC_TYPE_PAYMENT_VOUCHER,
+        SEQ_YEAR_GLOBAL,
+    )
+
+    insp = inspect(db.get_bind())
+    names = set(insp.get_table_names())
+
+    specs = [
+        ("payment_vouchers", SEQ_DOC_TYPE_PAYMENT_VOUCHER, "PC"),
+        ("payment_receipts", SEQ_DOC_TYPE_PAYMENT_RECEIPT, "PT"),
+    ]
+    coldefs = {
+        "doc_no": "VARCHAR(16)",
+        "debit_account": "VARCHAR(64)",
+        "credit_account": "VARCHAR(64)",
+    }
+
+    for table, _doc_type, _prefix in specs:
+        if table not in names:
+            continue
+        existing = _existing_columns(insp, table)
+        for name, ddl in coldefs.items():
+            if name not in existing:
+                db.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
+        if table == "payment_receipts" and "payer_address" not in existing:
+            db.execute(text("ALTER TABLE payment_receipts ADD COLUMN payer_address VARCHAR(500)"))
+        db.commit()  # đóng đợt DDL trước khi tạo index / chạy DML (gotcha pysqlite)
+        # ALTER ADD COLUMN KHÔNG tạo index — phải tạo riêng, tên khớp create_all.
+        db.execute(
+            text(f"CREATE UNIQUE INDEX IF NOT EXISTS ix_{table}_doc_no ON {table} (doc_no)")
+        )
+        db.commit()
+
+    if "document_sequences" not in names:
+        return  # chưa có bộ đếm (DB rất cũ) — phiếu mới sẽ tự tạo khi lập
+
+    for table, doc_type, prefix in specs:
+        if table not in names:
+            continue
+        ids = [
+            row[0]
+            for row in db.execute(
+                text(f"SELECT id FROM {table} WHERE doc_no IS NULL ORDER BY id")
+            ).all()
+        ]
+        if not ids:
+            continue  # DB fresh/không có phiếu cũ → KHÔNG tạo dòng counter (giữ PC00001)
+        start = db.execute(
+            text(
+                "SELECT current_number FROM document_sequences "
+                "WHERE doc_type = :t AND year = :y"
+            ),
+            {"t": doc_type, "y": SEQ_YEAR_GLOBAL},
+        ).scalar()
+        next_number = int(start or 0)
+        for row_id in ids:
+            next_number += 1
+            db.execute(
+                text(f"UPDATE {table} SET doc_no = :no WHERE id = :i"),
+                {"no": f"{prefix}{next_number:05d}", "i": row_id},
+            )
+        # Nhấc bộ đếm lên; `current_number < :n` chặn tụt số nếu chạy lại.
+        if start is None:
+            db.execute(
+                text(
+                    "INSERT INTO document_sequences (doc_type, year, current_number) "
+                    "VALUES (:t, :y, :n)"
+                ),
+                {"t": doc_type, "y": SEQ_YEAR_GLOBAL, "n": next_number},
+            )
+        else:
+            db.execute(
+                text(
+                    "UPDATE document_sequences SET current_number = :n "
+                    "WHERE doc_type = :t AND year = :y AND current_number < :n"
+                ),
+                {"t": doc_type, "y": SEQ_YEAR_GLOBAL, "n": next_number},
+            )
+        db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1245,6 +1341,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0037_stock_count_phaseA", _migrate_stock_count_phaseA),
     ("0038_purchase_request_expected_receipt_date", _migrate_purchase_request_expected_receipt_date),
     ("0039_drop_payment_refunds_renamed", _migrate_drop_payment_refunds_renamed),
+    ("0040_payment_doc_no_and_accounts", _migrate_payment_doc_no_and_accounts),
 ]
 
 

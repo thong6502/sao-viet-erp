@@ -121,6 +121,10 @@ class PaymentVoucher(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    # Số IN trên mẫu 02-TT (PC00445): thứ tự LẬP phiếu, KHÔNG phải thứ tự ngày chứng từ
+    # (voucher_date sửa được sau khi đã cấp số). Phiếu hủy vẫn giữ số. Dùng chung một bộ
+    # đếm cho tiền mặt lẫn UNC — cùng quyển phiếu chi.
+    doc_no: Mapped[str | None] = mapped_column(String(16), nullable=True, unique=True, index=True)
     purchase_request_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=False, index=True
     )
@@ -153,6 +157,10 @@ class PaymentVoucher(Base):
     cash_recipient_identity: Mapped[str | None] = mapped_column(String(64), nullable=True)
     bank_fee_bearer: Mapped[str | None] = mapped_column(String(16), nullable=True)
     bank_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Định khoản in trên mẫu ("Nợ: 242, 1331" / "Có: 1111") — nhập tay, hệ thống chưa
+    # có danh mục tài khoản kế toán.
+    debit_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    credit_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     source_code_snapshot: Mapped[str] = mapped_column(String(32), nullable=False)
     supplier_name_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -211,6 +219,8 @@ class PaymentReceipt(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    # Số IN trên mẫu 01-TT (PT00027) — xem ghi chú doc_no ở PaymentVoucher.
+    doc_no: Mapped[str | None] = mapped_column(String(16), nullable=True, unique=True, index=True)
     payment_voucher_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("payment_vouchers.id", ondelete="RESTRICT"), nullable=False, index=True
     )
@@ -218,8 +228,9 @@ class PaymentReceipt(Base):
     purchase_request_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=False, index=True
     )
-    # Người nộp lại tiền — mặc định suy từ phiếu chi (người nhận TM / tên NCC).
+    # Người nộp lại tiền — mặc định suy từ phiếu chi (người phụ trách mua / người nhận TM).
     payer_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    payer_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     receipt_method: Mapped[str] = mapped_column(String(24), nullable=False)
     status: Mapped[str] = mapped_column(
         String(24), nullable=False, default=PAYMENT_RECEIPT_WAITING, index=True
@@ -234,6 +245,9 @@ class PaymentReceipt(Base):
         Integer, ForeignKey("company_bank_accounts.id", ondelete="SET NULL"), nullable=True, index=True
     )
     bank_reference: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Định khoản in trên mẫu ("Nợ: 1111" / "Có: 131") — nhập tay.
+    debit_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    credit_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     voucher_code_snapshot: Mapped[str] = mapped_column(String(32), nullable=False)
     purchase_code_snapshot: Mapped[str] = mapped_column(String(32), nullable=False)

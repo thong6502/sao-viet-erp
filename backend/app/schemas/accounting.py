@@ -61,6 +61,9 @@ class PaymentVoucherBaseIn(BaseModel):
     cash_recipient_address: str | None = Field(default=None, max_length=500)
     cash_recipient_identity: str | None = Field(default=None, max_length=64)
     bank_fee_bearer: str | None = Field(default=None, max_length=16)
+    # Định khoản in trên mẫu 02-TT — nhập tay, không bắt buộc.
+    debit_account: str | None = Field(default=None, max_length=64)
+    credit_account: str | None = Field(default=None, max_length=64)
     note: str | None = Field(default=None, max_length=2000)
 
 
@@ -83,6 +86,9 @@ class CancelPaymentVoucherIn(BaseModel):
 class PaymentVoucherOut(BaseModel):
     id: int
     code: str
+    doc_no: str | None = None
+    debit_account: str | None = None
+    credit_account: str | None = None
     purchase_request_id: int
     purchase_request_code: str
     purchase_request_total: int | None = None
@@ -165,8 +171,12 @@ class PaymentVoucherAttachmentListOut(BaseModel):
 
 class PaymentReceiptIn(BaseModel):
     payer_name: str = Field(min_length=1, max_length=255)
+    # Ô "Địa chỉ" của mẫu 01-TT — không bắt buộc.
+    payer_address: str | None = Field(default=None, max_length=500)
     receipt_method: str = Field(min_length=1, max_length=24)
     receipt_date: date
+    debit_account: str | None = Field(default=None, max_length=64)
+    credit_account: str | None = Field(default=None, max_length=64)
     amount: int = Field(gt=0)
     # None → dùng tỷ giá của phiếu chi gốc.
     exchange_rate: float | None = Field(default=None, gt=0)
@@ -186,12 +196,16 @@ class CancelPaymentReceiptIn(BaseModel):
 class PaymentReceiptOut(BaseModel):
     id: int
     code: str
+    doc_no: str | None = None
     payment_voucher_id: int
     payment_voucher_code: str
     purchase_request_id: int
     purchase_request_code: str
     supplier_name: str
     payer_name: str
+    payer_address: str | None = None
+    debit_account: str | None = None
+    credit_account: str | None = None
     receipt_method: str
     status: str
     receipt_date: date
