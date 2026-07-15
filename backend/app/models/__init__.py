@@ -1,5 +1,11 @@
 """ORM models. Importing this package registers every model on Base.metadata."""
-from .attendance import AttendanceLog, WorkLocation, WorkShift
+from .attendance import (
+    AttendanceLog,
+    AttendancePeriod,
+    AttendancePeriodLine,
+    WorkLocation,
+    WorkShift,
+)
 from .audit import AuditLog
 from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
@@ -7,16 +13,19 @@ from .department import Department
 from .employee import Employee, EmployeeAttachment, EmployeeEvent
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
+from .work_calendar import SpecialDay, WorkCalendarConfig
 from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
 from .module import Module
 from .operation import Operation, OperationRate
-from .order import Order, OrderLine
+from .order import Order, OrderApproval, OrderLine
+from .payment import Payment
 from .payroll import (
     EmployeeSalary,
     PayrollLine,
     PayrollParams,
     PayrollPeriod,
+    PitTaxBracket,
     SalaryAdvance,
     SalaryRateRule,
 )
@@ -39,7 +48,14 @@ from .accounting import (
     PaymentVoucherAttachment,
     SupplierBankAccount,
 )
-from .quotation import Quote, QuoteVersion, QuoteItem, QuoteAttachment, QuoteActivityLog
+from .quotation import (
+    Quote,
+    QuoteApproval,
+    QuoteActivityLog,
+    QuoteAttachment,
+    QuoteItem,
+    QuoteVersion,
+)
 from .refresh_token import RefreshToken
 from .role import Role, RolePermission
 from .unit_level import UnitLevel
@@ -57,9 +73,11 @@ from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, KhoGiayChua
 from .cong_doan import CongDoan
 from .bu_hao import BuHao
 from .loai_san_pham import LoaiSanPham
+from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
 from .production import ProductionOrder, ProductionOrderAttachment
+from .production_output import ProductionOutput
 
 __all__ = [
     "User",
@@ -77,8 +95,12 @@ __all__ = [
     "WorkLocation",
     "WorkShift",
     "AttendanceLog",
+    "AttendancePeriod",
+    "AttendancePeriodLine",
     "LeaveType",
     "LeaveRequest",
+    "WorkCalendarConfig",
+    "SpecialDay",
     "Warehouse",
     "WarehouseItem",
     "StockLot",
@@ -118,17 +140,21 @@ __all__ = [
     "QuoteItem",
     "QuoteAttachment",
     "QuoteActivityLog",
+    "QuoteApproval",
     "Costing",
     "CostingPaperOption",
     "CostingOperation",
     "Order",
     "OrderLine",
+    "OrderApproval",
+    "Payment",
     "PayrollParams",
     "SalaryRateRule",
     "EmployeeSalary",
     "SalaryAdvance",
     "PayrollPeriod",
     "PayrollLine",
+    "PitTaxBracket",
     "PieceRate",
     "PieceBatch",
     "PieceBatchEntry",
@@ -141,4 +167,8 @@ __all__ = [
     "EstimateCostLine",
     "ProductionOrder",
     "ProductionOrderAttachment",
+    "ProductionOutput",
+    "PhieuTinhGia",
+    "PhieuThanhPhan",
+    "PhieuThanhPham",
 ]

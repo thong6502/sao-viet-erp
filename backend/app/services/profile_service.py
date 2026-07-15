@@ -10,8 +10,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from ..models.user import User
+from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
 from ..repositories.user_repo import UserRepository
+
+
+class ProfileError(Exception):
+    """Profile domain error (mapped to HTTP 400 by the router)."""
 
 
 @dataclass(frozen=True)
@@ -33,10 +38,12 @@ class ProfileService:
         users: UserRepository,
         departments: DepartmentRepository,
         roles: RoleRepository,
+        employees: EmployeeRepository,
     ) -> None:
         self.users = users
         self.departments = departments
         self.roles = roles
+        self.employees = employees
 
     def get_profile(self, user: User) -> ProfileData:
         dept = self.departments.get_by_id(user.department_id) if user.department_id else None
@@ -52,11 +59,22 @@ class ProfileService:
         )
 
     def update_name(self, user: User, name: str) -> User:
-        """Set the display name. The schema already trimmed/validated 1..100 chars."""
+        """Set the display name. Chặn nếu user CÓ hồ sơ nhân sự — tên hiển thị do hồ sơ quyết
+        (Đ1); chỉ tài khoản KHÔNG gắn hồ sơ (vd admin) mới tự đổi tên được."""
+        if self.employees.get_by_user_id(user.id) is not None:
+            raise ProfileError("Tên hiển thị lấy từ hồ sơ nhân sự — nhờ HCNS cập nhật.")
         return self.users.set_name(user, name.strip())
 
     def set_avatar(self, user: User, avatar_url: str) -> User:
+        """Đặt ảnh. User CÓ hồ sơ → ảnh gốc là ảnh hồ sơ (Đ1): ghi employees.photo_url rồi
+        phản chiếu xuống avatar tài khoản. Admin không hồ sơ → chỉ users.avatar_url."""
+        emp = self.employees.get_by_user_id(user.id)
+        if emp is not None:
+            self.employees.update(emp, photo_url=avatar_url)
         return self.users.set_avatar(user, avatar_url)
 
     def clear_avatar(self, user: User) -> User:
+        emp = self.employees.get_by_user_id(user.id)
+        if emp is not None:
+            self.employees.update(emp, photo_url=None)
         return self.users.set_avatar(user, None)

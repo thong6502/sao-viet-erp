@@ -82,6 +82,36 @@ class OrderRepository:
         ).scalar()
         return int(val) if val is not None else None
 
+    def unpriced_line_count(self, order_id: int) -> int:
+        """Số dòng đơn CHƯA có giá (line_total IS NULL) — chặn chốt khi còn dòng chưa định giá
+        (nếu không, tổng cọc yêu cầu bị thiếu vì Σ bỏ qua dòng null)."""
+        val = self.db.execute(
+            select(func.count())
+            .select_from(OrderLine)
+            .where(OrderLine.order_id == order_id, OrderLine.line_total.is_(None))
+        ).scalar()
+        return int(val or 0)
+
+    def order_cost_sum(self, order_id: int) -> int | None:
+        """Tổng giá vốn snapshot của đơn = Σ OrderLine.cost_snapshot (A2, soi biên). None nếu
+        MỌI dòng đều thiếu giá vốn (đơn cũ trước A2 / báo giá không có cost) → không soi được biên.
+        Dòng có cost + dòng None lẫn lộn: func.sum bỏ qua None → trả tổng phần có (chấp nhận được;
+        đơn A2 thật thì mọi dòng đều có cost)."""
+        val = self.db.execute(
+            select(func.sum(OrderLine.cost_snapshot)).where(OrderLine.order_id == order_id)
+        ).scalar()
+        return int(val) if val is not None else None
+
+    def total_with_vat(self, order_id: int) -> int:
+        """Tổng đơn GỒM VAT ước = Σ line_total·(1 + vat_pct_estimate/100) — base tính cọc (cọc là
+        tiền mặt thật khách đưa, gồm VAT). Dòng chưa định giá (line_total NULL) bỏ qua như
+        line_total_sum. Số nguyên (floor) — đủ cho ngưỡng cọc."""
+        val = self.db.execute(
+            select(func.sum(OrderLine.line_total * (100 + OrderLine.vat_pct_estimate)))
+            .where(OrderLine.order_id == order_id)
+        ).scalar()
+        return int(val) // 100 if val is not None else 0
+
     def list(
         self,
         *,
@@ -213,6 +243,7 @@ class OrderRepository:
                     norm_snapshot=ln.get("norm_snapshot"),
                     vat_pct_estimate=ln.get("vat_pct_estimate", 0),
                     line_total=ln.get("line_total"),
+                    cost_snapshot=ln.get("cost_snapshot"),  # A2: giá vốn dòng (soi biên)
                 )
             )
         self.db.add(order)

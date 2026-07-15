@@ -72,10 +72,10 @@ def test_employee_salary_fields_masked_without_view_salary(client):
     assert seen["bank_account"] == "9999" and seen["payroll_group"] == "van_phong"
 
 
-def test_quotation_approve_requires_approve_permission(client):
-    # Vai trò CÓ update báo giá nhưng KHÔNG có `approve` → duyệt (accepted) bị 403.
-    # Chốt approve nằm TRƯỚC lookup nên không cần báo giá thật để chứng minh gate.
-    token = _user_with_role("fp-quote", "bao_gia", can_read=True, can_update=True)
+def test_quotation_accept_requires_update_permission(client):
+    # P8: ghi nhận "Khách đồng ý" (accepted) = thao tác thường, gộp vào "Sửa". Vai chỉ-đọc → 403.
+    # (Chốt quyền nằm TRƯỚC lookup nên không cần báo giá thật để chứng minh gate.)
+    token = _user_with_role("fp-quote", "bao_gia", can_read=True)
     r = client.post(
         "/api/quotations/1/transition", json={"to_status": "accepted"}, headers=_h(token)
     )
@@ -169,26 +169,27 @@ def test_assign_role_requires_assign_permission(client):
     assert r.status_code == 403, r.text
 
 
-def test_requote_requires_requote_permission(client):
-    # CÓ quyền Thêm báo giá nhưng KHÔNG có `requote` → tạo bản mới bị 403.
-    token = _user_with_role("fp-requote", "bao_gia", can_read=True, can_create=True)
+# P8: vòng đời báo giá (gửi/ghi nhận đồng ý-từ chối/hủy/hết hạn/tạo bản mới) KHÔNG tách quyền vụn — gộp
+# vào "Sửa" (can_update). Vai chỉ-đọc (không Sửa) → mọi thao tác này bị 403.
+def test_requote_requires_update_permission(client):
+    # Chỉ-đọc báo giá (không Sửa) → tạo bản mới bị 403.
+    token = _user_with_role("fp-requote", "bao_gia", can_read=True)
     r = client.post("/api/quotations/1/requote", headers=_h(token))
     assert r.status_code == 403, r.text
 
 
-def test_manage_status_requires_permission_bao_gia(client):
-    # CÓ read+update báo giá nhưng KHÔNG `manage_status` → gửi/từ chối/hết hạn bị 403.
-    token = _user_with_role("fp-qstatus", "bao_gia", can_read=True, can_update=True)
+def test_transition_requires_update_bao_gia(client):
+    # Chỉ-đọc (không Sửa) → gửi khách bị 403 (thao tác vòng đời cần quyền Sửa).
+    token = _user_with_role("fp-qstatus", "bao_gia", can_read=True)
     r = client.post(
         "/api/quotations/1/transition", json={"to_status": "sent"}, headers=_h(token)
     )
     assert r.status_code == 403, r.text
 
 
-def test_cancel_quotation_requires_cancel_permission(client):
-    # CÓ quyền Sửa báo giá nhưng KHÔNG có `cancel` → hủy (→ cancelled) bị 403.
-    # Chốt cancel nằm TRƯỚC lookup nên không cần báo giá thật để chứng minh gate.
-    token = _user_with_role("fp-cancel", "bao_gia", can_read=True, can_update=True)
+def test_cancel_quotation_requires_update_permission(client):
+    # Chỉ-đọc (không Sửa) → hủy bị 403 (chốt quyền nằm TRƯỚC lookup nên không cần báo giá thật).
+    token = _user_with_role("fp-cancel", "bao_gia", can_read=True)
     r = client.post(
         "/api/quotations/1/transition",
         json={"to_status": "cancelled", "cancel_reason": "x"},

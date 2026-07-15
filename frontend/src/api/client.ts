@@ -182,9 +182,12 @@ export interface Department {
   /** This department's own role/user counts. */
   role_count?: number;
   user_count?: number;
+  /** Số HỒ SƠ nhân sự của phòng (Đ2: 'số nhân sự' theo hồ sơ, tách khỏi số tài khoản). */
+  employee_count?: number;
   /** Branch-rolled-up counts (department + every descendant) — PBI-4001. */
   total_role_count?: number;
   total_user_count?: number;
+  total_employee_count?: number;
   /** Org tier tag + its head-title label (spec-06 / PBI-4009). Null = untagged. */
   level_id?: number | null;
   head_title?: string | null;
@@ -275,6 +278,8 @@ export interface ModuleCapability {
   can_reparent: boolean;
   can_view_salary: boolean;
   can_adjust: boolean;
+  /** A2: don_hang_ban — GĐ duyệt "đơn đặc thù" (chỉ Giám đốc). */
+  can_approve_exception: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -320,6 +325,7 @@ export interface PermissionRow {
   can_reparent: boolean;
   can_view_salary: boolean;
   can_adjust: boolean;
+  can_approve_exception: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 ----------------------------------------------
@@ -746,6 +752,262 @@ export interface CostingListOut {
   size: number;
 }
 
+// Phiếu tính giá 4 nhóm (BE: estimate_to_phieu) — snake_case y hệt JSON trả về.
+export interface PhieuTinhGiaColOut {
+  key: string;
+  label: string;
+  align?: "left" | "right" | "center";
+  // Engine mới trả "number"/"money"; giữ "num"/"formula" cho tương thích phiếu in.
+  kind?: "text" | "num" | "formula" | "number" | "money";
+}
+export interface PhieuTinhGiaGroupOut {
+  idx: string;
+  name: string;
+  columns: PhieuTinhGiaColOut[];
+  rows: Array<Record<string, string | number | null>>;
+  subtotal: number;
+}
+export interface PhieuTinhGiaPrintOut {
+  header: {
+    so_phieu: string;
+    ngay_lap: string | null;
+    ten_an_pham: string;
+    so_luong: number;
+    kho_thanh_pham: string;
+    dvt: string;
+  };
+  noi_dung: Array<{ label: string; text: string }>;
+  groups: PhieuTinhGiaGroupOut[];
+  grand_total: number;
+}
+
+// Engine tính giá MỚI (/api/tinh-gia/preview) — không lưu, trả 4 nhóm + cảnh báo.
+export interface TinhGiaPreviewIn {
+  qty: number;
+  pieces_per_sheet: number;
+  so_mau: number;
+  so_mat: number;
+  giay_id: number | null;
+  loai_san_pham_id?: number | null;
+  cong_doan_ids?: number[];
+}
+/** Số [Hiện] read-only của 1 thành phần (từ result.meta.components) — soi số cho KTV. */
+export interface TinhGiaComponentMeta {
+  idx: number;
+  name: string;
+  gia_von_tp: number;
+  so_luong: number; // SL dùng cho sản phẩm này (0 = lấy SL mặc định phiếu)
+  gia_von_don: number; // giá vốn / SL của sản phẩm này (đơn giá riêng)
+  con: number; // ④ con/tờ engine chốt
+  con_auto: boolean;
+  so_manh_xa: number; // ① → ② số mảnh xả
+  to_net: number; // tờ in NET
+  to_gross: number; // tờ in GROSS (đã bù hao)
+  to_nguyen: number; // tờ giấy nguyên
+  so_kem: number;
+  so_luot: number;
+}
+/** Meta cấp phiếu — tổng hợp nhiều sản phẩm. */
+export interface TinhGiaMeta {
+  so_luong?: number; // SL mặc định phiếu
+  tong_so_luong?: number; // Σ SL các sản phẩm
+  so_thanh_phan?: number; // = số sản phẩm
+  gia_von_don?: number; // đơn giá BÌNH QUÂN (Σ giá vốn / Σ SL)
+  components?: TinhGiaComponentMeta[];
+}
+export interface TinhGiaPreviewOut {
+  meta?: TinhGiaMeta;
+  groups: PhieuTinhGiaGroupOut[];
+  grand_total: number;
+  warnings: string[];
+}
+
+/** Bình bài live (POST /api/tinh-gia/binh-bai) — mm; chua_mm = tổng 5 chừa (cm) × 10. */
+export interface BinhBaiIn {
+  kho_in_dai: number;
+  kho_in_rong: number;
+  dai_thanh_pham: number;
+  rong_thanh_pham: number;
+  chua_mm: number;
+}
+export interface BinhBaiOut {
+  con: number;
+  cols: number;
+  rows: number;
+  rotated: boolean;
+  usable_dai: number;
+  usable_rong: number;
+  kho_in_dai: number;
+  kho_in_rong: number;
+  dai_tp: number;
+  rong_tp: number;
+  hieu_suat: number;
+}
+
+// --- Phiếu tính giá (PERSISTED costing tickets) — master/detail của "Tính giá" ---
+// Mô hình MỚI theo THÀNH PHẦN: 1 phiếu = nhiều "Thành phần" (mỗi cái = giấy + kỹ thuật in +
+// màu + gia công sau in). List item 2 tầng (sản phẩm + số thành phần); detail lồng nested.
+export interface PhieuTinhGiaListItem {
+  id: number;
+  ma: string;
+  ten_san_pham: string;
+  loai_san_pham_id: number | null;
+  kho_thanh_pham: string | null;
+  so_luong: number;
+  gia_von_don: number;
+  tong_gia_von: number;
+  ktv: string | null;
+  so_thanh_phan: number;
+  ngay: string | null;
+}
+export interface PhieuTinhGiaListOut {
+  items: PhieuTinhGiaListItem[];
+  total: number;
+}
+
+/** 1 dòng gia công sau in (finishing) thuộc 1 thành phần. */
+export interface ThanhPhamOut {
+  id: number;
+  thanh_phan_id: number;
+  thu_tu: number;
+  cong_doan_id: number | null;
+  ten: string;
+  don_gia: number;
+  so_luong: number;
+  bu_hao: boolean;
+  so_mat: number;
+  so_vi_tri: number;
+  dien_tich: number;
+  nha_cung_cap: string | null;
+  ghi_chu: string | null;
+}
+
+/** 1 thành phần giấy (paper component): giấy + kỹ thuật in + màu + list gia công. */
+export interface ThanhPhanOut {
+  id: number;
+  phieu_id: number;
+  thu_tu: number;
+  loai_thanh_phan: string;
+  ten: string;
+  kho_thanh_pham: string | null; // nhãn hiển thị tự do
+  dai_thanh_pham: number; // ③ khổ thành phẩm (mm)
+  rong_thanh_pham: number; // ③
+  kho_mo_rong: string | null;
+  tay_gap: string | null;
+  so_to_per_sp: number;
+  so_luong: number; // SL đặt của sản phẩm này (0 = lấy SL mặc định phiếu)
+  loai_san_pham_id: number | null; // loại SP của sản phẩm này
+  // Giấy in
+  giay_id: number | null;
+  kho_nguyen: string | null; // ① nhãn hiển thị
+  don_gia_giay: number;
+  don_gia_don_vi: string; // "to" | "tan"
+  nguon_giay: string; // "cong_ty" | "khach"
+  bu_hao_so_to: number;
+  chua_xen: number;
+  chua_tay_ke: number;
+  chua_nhip: number;
+  chua_duoi: number;
+  chua_ca_gay: number;
+  // Kỹ thuật in
+  co_in: boolean;
+  che_ban_loai: string | null;
+  che_ban_don_gia: number;
+  quy_cach_in: string; // "mot_mat" | "hai_mat" | "tu_tro"
+  kho_in_dai: number; // ② khổ tờ in (mm)
+  kho_in_rong: number; // ②
+  so_con: number; // ④ con/tờ (override khi con_auto=false)
+  con_auto: boolean; // true: engine tự bình bài
+  may_id: number | null;
+  don_gia_cong_in: number; // mực GỘP trong đây
+  // Màu in (gộp — chỉ số màu mỗi mặt)
+  so_mau_a: number;
+  so_mau_b: number;
+  gia_von_tp: number;
+  thanh_phams: ThanhPhamOut[];
+}
+
+/** Detail đầy đủ 1 phiếu — `result` tái dùng TinhGiaPreviewOut (engine dict 4 nhóm). */
+export interface PhieuTinhGiaOut {
+  id: number;
+  ma: string;
+  ten_san_pham: string;
+  kho_thanh_pham: string | null;
+  loai_san_pham_id: number | null;
+  so_luong: number;
+  tong_gia_von: number;
+  gia_von_don: number;
+  result: TinhGiaPreviewOut | null;
+  warnings: string[] | null;
+  ktv: string | null;
+  ghi_chu: string | null;
+  thanh_phans: ThanhPhanOut[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+/** Input 1 dòng gia công — tất cả optional (BE tự đổ mặc định). */
+export interface ThanhPhamIn {
+  cong_doan_id?: number | null;
+  ten?: string;
+  don_gia?: number;
+  so_luong?: number;
+  bu_hao?: boolean;
+  so_mat?: number;
+  so_vi_tri?: number;
+  dien_tich?: number;
+  nha_cung_cap?: string | null;
+  ghi_chu?: string | null;
+}
+/** Input 1 thành phần — mọi field optional + list gia công. */
+export interface ThanhPhanIn {
+  loai_thanh_phan?: string;
+  ten?: string;
+  kho_thanh_pham?: string | null;
+  dai_thanh_pham?: number;
+  rong_thanh_pham?: number;
+  kho_mo_rong?: string | null;
+  tay_gap?: string | null;
+  so_to_per_sp?: number;
+  so_luong?: number; // SL đặt của sản phẩm này (0 = SL mặc định phiếu)
+  loai_san_pham_id?: number | null; // loại SP của sản phẩm này
+  giay_id?: number | null;
+  kho_nguyen?: string | null;
+  don_gia_giay?: number;
+  don_gia_don_vi?: string;
+  nguon_giay?: string;
+  bu_hao_so_to?: number;
+  chua_xen?: number;
+  chua_tay_ke?: number;
+  chua_nhip?: number;
+  chua_duoi?: number;
+  chua_ca_gay?: number;
+  co_in?: boolean;
+  che_ban_loai?: string | null;
+  che_ban_don_gia?: number;
+  quy_cach_in?: string;
+  kho_in_dai?: number;
+  kho_in_rong?: number;
+  so_con?: number;
+  con_auto?: boolean;
+  may_id?: number | null;
+  don_gia_cong_in?: number;
+  so_mau_a?: number;
+  so_mau_b?: number;
+  thanh_phams?: ThanhPhamIn[];
+}
+/** Field khởi tạo phiếu (tất cả optional — BE auto `ma`). */
+export interface PhieuTinhGiaCreate {
+  ten_san_pham?: string;
+  kho_thanh_pham?: string | null;
+  loai_san_pham_id?: number | null;
+  so_luong?: number;
+  ghi_chu?: string | null;
+  thanh_phans?: ThanhPhanIn[];
+}
+/** PUT: REPLACE-ALL con — BE tự tính lại + snapshot. */
+export type PhieuTinhGiaUpdate = PhieuTinhGiaCreate;
+
 export interface PaperOptionOut {
   id: number;
   sheet_paper_master_id: number | null;
@@ -977,6 +1239,7 @@ export interface QuotationListOut {
 export interface QuotationStats {
   total: number;
   draft: number;
+  pending_approval: number;
   sent: number;
   accepted: number;
   rejected: number;
@@ -1037,12 +1300,17 @@ export interface QuotationDetail {
   customer_id: number | null;
   customer: CustomerDisplay | null;
   estimate_id: number | null;
+  phieu_tinh_gia_id: number | null;
+  phieu_tinh_gia_ma: string | null;
   valid_until: string | null;
   status: string;
   cancel_reason: string | null;
   payment_terms: string | null;
   delivery_terms: string | null;
   delivery_address: string | null;
+  contact_name_snapshot: string | null;
+  contact_phone_snapshot: string | null;
+  contact_title_snapshot: string | null;
   customer_note: string | null;
   internal_note: string | null;
   
@@ -1057,13 +1325,29 @@ export interface QuotationDetail {
   can_approve: boolean;
   versions: VersionRow[];
   items: QuoteItemDetail[];
+  // BG-2 — báo giá đặc thù (GĐ duyệt trước khi gửi khách). `margin_pct` null nếu người xem không có
+  // quyền duyệt đặc thù (không rò biên cho Sales).
+  exception_required: boolean;
+  exception_status: "none" | "pending" | "approved" | "rejected" | "stale";
+  exception_cleared: boolean;
+  exceptions: { key: string; label: string }[];
+  exception_note: string | null;
+  margin_pct: number | null;
+  // Ai SOẠN (người duyệt biết báo giá của NV nào) + ai ĐÃ DUYỆT/từ chối (NV biết ai xử lý).
+  salesperson_id?: number | null;
+  salesperson_name?: string | null;
+  exception_decision?: "approved" | "rejected" | null;
+  exception_decided_by_name?: string | null;
+  exception_decided_at?: string | null;
 }
 
 export interface QuotationInput {
   customer_id: number | null;
+  /** BG-1 (nguồn MỚI): 1 Phiếu tính giá (PTG) → 1 báo giá. */
+  phieu_tinh_gia_id?: number | null;
   estimate_id?: number | null;
   selected_option_ids?: number[] | null;
-  /** Đường đa phiếu: mỗi pick = 1 phiếu tính giá + option đã tick. Ưu tiên nếu có. */
+  /** Đường đa phiếu (cũ): mỗi pick = 1 phiếu tính giá + option đã tick. */
   picks?: QuotePick[] | null;
   /** Gói biên áp chung khi tạo (per dòng chỉnh sau). */
   margin_percent?: number | null;
@@ -1163,16 +1447,53 @@ export interface OrderLineOut {
   line_total: number | null;
 }
 
-/** ③→④ gate (F3). deposit_paid=null + deposit_available=false while SEAM-04 (Payment) is TREO. */
+/** Một điều kiện "đơn đặc thù" đang bật (A2) — nhãn định tính, an toàn cho mọi vai. */
+export interface OrderException {
+  key: string;   // high_value | low_margin | below_cost
+  label: string;
+}
+
+/** ③→④ gate (F3). deposit_paid=null + deposit_available=false while SEAM-04 (Payment) is TREO.
+ *  A2: thêm khối "đơn đặc thù" — Giám đốc duyệt mới chốt được. */
 export interface OrderGate {
   total: number;
+  total_payment: number;        // tổng GỒM VAT — base tính cọc (số khách phải trả)
   min_deposit_pct: number;
   deposit_required: number;
   deposit_paid: number | null;
   deposit_available: boolean;
   deposit_shortfall: number;
   quotation_approved: boolean;
+  all_lines_priced: boolean;
+  // A2 — đơn đặc thù (GĐ duyệt).
+  exception_required: boolean;
+  exception_status: "none" | "pending" | "approved" | "rejected" | "stale";
+  exception_cleared: boolean;
+  exceptions: OrderException[];
+  exception_note: string | null;
+  margin_pct: number | null;    // số nhạy cảm — null nếu người xem không có quyền duyệt đặc thù
   can_confirm: boolean;
+}
+
+/** Một bản duyệt/từ chối "đơn đặc thù" (A2) — chỉ GĐ xem (chứa số biên/giá vốn). */
+export interface OrderApproval {
+  id: number;
+  order_id: number;
+  decision: string;             // approved | rejected
+  triggers_json: string[] | null;
+  order_total: number;
+  order_subtotal: number;
+  order_cost: number | null;
+  margin_pct_snapshot: number | null;
+  min_margin_pct: number | null;
+  high_value_threshold: number | null;
+  note: string | null;
+  decided_by: number | null;
+  decided_at: string;
+}
+
+export interface OrderApprovalListOut {
+  items: OrderApproval[];
 }
 
 export interface OrderDetail {
@@ -1195,6 +1516,25 @@ export interface OrderDetail {
   lines: OrderLineOut[];
   gate: OrderGate | null;
   allowed_transitions: string[];
+}
+
+/** Khoản thu của đơn (cọc/đợt) — SEAM-04 deposit (feat-048). */
+export interface Payment {
+  id: number;
+  order_id: number;
+  customer_id: number | null;
+  kind: string;
+  direction: string;
+  amount: number;
+  method: string;
+  paid_at: string;
+  voucher_no: string | null;
+  note: string | null;
+}
+
+export interface PaymentListOut {
+  items: Payment[];
+  deposit_total: number;
 }
 
 export interface OrderInput {
@@ -2032,8 +2372,9 @@ export interface TimesheetDay {
   early: boolean;
   ot_minutes: number;
   night: boolean;
-  leave: string | null;  // tên loại nghỉ (nếu ngày nghỉ đã duyệt)
+  leave: string | null;  // tên loại nghỉ (nếu ngày nghỉ đã duyệt) HOẶC tên ngày lễ
   leave_paid: boolean;   // nghỉ có lương (P) hay không (KL)
+  holiday?: boolean;     // ngày nghỉ lễ hưởng lương (cộng 1 công tự động)
 }
 
 export interface TimesheetRow {
@@ -2130,6 +2471,11 @@ export interface PayrollParams {
   deduction_self: number;
   deduction_dependent: number;
   chuyen_can_default: number;
+  standard_hours_per_day: number;
+  ot_multiplier: number;
+  night_pct: number;
+  bh_base_cap: number;
+  bhtn_base_cap: number;
 }
 export interface SalaryRule {
   id: number;
@@ -2218,6 +2564,8 @@ export interface PayrollPeriod {
   status: string;
   standard_cong: number;
   locked_at: string | null;
+  paid_at: string | null;
+  paid_by: number | null;
 }
 export interface PayrollLine {
   id: number;
@@ -2236,12 +2584,18 @@ export interface PayrollLine {
   chuyen_can: number;
   allowance: number;
   khoan: number;
+  ot_minutes: number;
+  ot_pay: number;
+  night_days: number;
+  night_pay: number;
   vi_pham: number;
   other_bonus: number;
   gross: number;
   insurance_base: number;
   bhxh: number;
   pit: number;
+  pit_manual: boolean;
+  pit_taxable: number;
   advance_total: number;
   net_pay: number;
   note: string | null;
@@ -2250,8 +2604,20 @@ export interface PayrollLineInput {
   vi_pham?: number | null;
   other_bonus?: number | null;
   pit?: number | null;
+  pit_manual?: boolean | null;
   monthly_override?: number | null;
   note?: string | null;
+}
+export interface PitBracket {
+  id: number;
+  seq: number;
+  up_to: number | null;
+  rate: number;
+}
+export interface PitBracketInput {
+  seq: number;
+  up_to?: number | null;
+  rate: number;
 }
 export interface PayrollTable {
   period: PayrollPeriod | null;
@@ -2295,6 +2661,8 @@ export interface PieceBatch {
   over_target: number;
   over_bonus_pct: number;
   note: string | null;
+  status: string;
+  locked_at: string | null;
 }
 export interface PieceBatchConfig {
   leader_employee_id?: number | null;
@@ -2337,6 +2705,10 @@ export interface PieceSheetMeta {
   total: number;
   leader_cut: number;
   pool: number;
+  valid: boolean;
+  no_shares: boolean;
+  zero_weight: boolean;
+  leader_no_share: boolean;
 }
 export interface PieceSheet {
   batch: PieceBatch | null;
@@ -2345,11 +2717,146 @@ export interface PieceSheet {
   meta: PieceSheetMeta | null;
 }
 
+export interface CongDoanLite {
+  id: number;
+  ma: string;
+  ten: string;
+  khoan_ghi_theo: string;
+}
+
+// Phiếu sản lượng công đoạn (Pha 5b)
+export interface ProductionOutput {
+  id: number;
+  production_order_id: number;
+  cong_doan: string;
+  ghi_theo: string;
+  year: number;
+  month: number;
+  group_name: string | null;
+  employee_id: number | null;
+  may_id: number | null;
+  piece_rate_id: number | null;
+  work_name: string;
+  unit: string;
+  unit_price: number;
+  quantity: number;
+  amount: number;
+  defect_qty: number;
+  defect_cause: string | null;
+  defect_deduction: number;
+  net_amount: number;
+  tinh_khoan: boolean;
+  work_date: string | null;
+  note: string | null;
+}
+export interface ProductionOutputInput {
+  production_order_id: number;
+  cong_doan: string;
+  year: number;
+  month: number;
+  group_name?: string | null;
+  employee_id?: number | null;
+  piece_rate_id?: number | null;
+  work_name?: string | null;
+  unit?: string | null;
+  unit_price?: number | null;
+  quantity: number;
+  defect_qty?: number;
+  defect_cause?: string | null;
+  may_id?: number | null;
+  tinh_khoan?: boolean | null;
+  work_date?: string | null;
+  note?: string | null;
+}
+export interface DefectReportRow {
+  scope: string;
+  employee_id: number | null;
+  group_name: string | null;
+  quantity: number;
+  defect_qty: number;
+  deduction: number;
+  defect_rate: number;
+}
+
 export interface Timesheet {
   year: number;
   month: number;
   days_in_month: number;
+  standard_cong?: number | null;   // công chuẩn động của tháng (số ngày làm việc theo lịch)
+  holidays?: HolidayMark[];        // ngày nghỉ lễ hưởng lương trong tháng
   rows: TimesheetRow[];
+}
+
+// --- Chốt công tháng (kỳ công) ---
+export interface AttendancePeriod {
+  year: number;
+  month: number;
+  status: "draft" | "locked";
+  locked_at: string | null;
+  locked_by: number | null;
+  line_count: number;
+  employee_count: number;
+  hanging_days: number;      // ngày treo (thiếu chấm RA) — xử trước khi Chốt
+  pending_leaves: number;    // đơn nghỉ phép chưa duyệt của tháng
+  pending_adjusts: number;   // yêu cầu chỉnh công chưa duyệt
+  payroll_locked: boolean;   // kỳ lương tháng này đã chốt → không mở lại kỳ công
+}
+
+// --- Lịch làm việc & Ngày lễ (calendar) ---
+export interface HolidayMark {
+  day: number;
+  date: string;   // ISO "YYYY-MM-DD"
+  name: string;
+}
+
+export interface WorkCalendarConfig {
+  works_mon: boolean;
+  works_tue: boolean;
+  works_wed: boolean;
+  works_thu: boolean;
+  works_fri: boolean;
+  works_sat: boolean;
+  works_sun: boolean;
+  updated_at: string;
+}
+export type WorkCalendarConfigInput = Partial<Omit<WorkCalendarConfig, "updated_at">>;
+
+export interface SpecialDay {
+  id: number;
+  day: string;      // ISO date
+  kind: "off" | "work";
+  name: string;
+  is_paid: boolean;
+  note: string | null;
+}
+export interface SpecialDayInput {
+  day: string;
+  kind: "off" | "work";
+  name: string;
+  is_paid?: boolean;
+  note?: string | null;
+}
+export interface SpecialDaysOut {
+  year: number;
+  items: SpecialDay[];
+  paid_off_count: number;   // số ngày nghỉ lễ hưởng lương đã khai trong năm
+  statutory_paid: number;   // mức luật (11) — cảnh báo nếu paid_off_count < mức này
+}
+export interface CalendarDayCell {
+  day: number;
+  date: string;
+  weekday: number;   // Mon=0..Sun=6
+  kind: "work" | "weekend" | "holiday" | "makeup";
+  name: string | null;
+  is_working: boolean;
+}
+export interface CalendarMonth {
+  year: number;
+  month: number;
+  working_days: number;
+  paid_holiday_count: number;
+  days: CalendarDayCell[];
+  holidays: { date: string; name: string | null; is_paid: boolean }[];
 }
 
 export interface DayPunch {
@@ -4009,6 +4516,18 @@ export const api = {
     deleteShift(token: string, id: number): Promise<void> {
       return authed<void>(`/api/attendance/shifts/${id}`, token, { method: "DELETE" });
     },
+    // --- Chốt công tháng (kỳ công) ---
+    period(token: string, year: number, month: number): Promise<AttendancePeriod> {
+      return authed<AttendancePeriod>(`/api/attendance/period?year=${year}&month=${month}`, token);
+    },
+    lockPeriod(token: string, year: number, month: number): Promise<AttendancePeriod> {
+      return authed<AttendancePeriod>("/api/attendance/period/lock", token,
+        { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+    reopenPeriod(token: string, year: number, month: number): Promise<AttendancePeriod> {
+      return authed<AttendancePeriod>("/api/attendance/period/reopen", token,
+        { method: "POST", body: JSON.stringify({ year, month }) });
+    },
   },
 
   // --- Nghỉ phép (nhan_su) --------------------------------------------------
@@ -4060,6 +4579,31 @@ export const api = {
     /** NV xác nhận đã xem kết quả các đơn của mình (đóng chuông Topbar). */
     markSeen(token: string): Promise<void> {
       return authed<void>("/api/leaves/mark-seen", token, { method: "POST" });
+    },
+  },
+
+  // --- Lịch làm việc & Ngày lễ (nhan_su) ------------------------------------
+  calendar: {
+    getConfig(token: string): Promise<WorkCalendarConfig> {
+      return authed<WorkCalendarConfig>("/api/calendar/config", token);
+    },
+    updateConfig(token: string, input: WorkCalendarConfigInput): Promise<WorkCalendarConfig> {
+      return authed<WorkCalendarConfig>("/api/calendar/config", token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    specialDays(token: string, year: number): Promise<SpecialDaysOut> {
+      return authed<SpecialDaysOut>(`/api/calendar/special-days?year=${year}`, token);
+    },
+    createSpecialDay(token: string, input: SpecialDayInput): Promise<SpecialDay> {
+      return authed<SpecialDay>("/api/calendar/special-days", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateSpecialDay(token: string, id: number, input: SpecialDayInput): Promise<SpecialDay> {
+      return authed<SpecialDay>(`/api/calendar/special-days/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteSpecialDay(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/calendar/special-days/${id}`, token, { method: "DELETE" });
+    },
+    month(token: string, year: number, month: number): Promise<CalendarMonth> {
+      return authed<CalendarMonth>(`/api/calendar/month?year=${year}&month=${month}`, token);
     },
   },
 
@@ -4126,11 +4670,44 @@ export const api = {
     updateLine(token: string, id: number, input: PayrollLineInput): Promise<PayrollLine> {
       return authed<PayrollLine>(`/api/luong/lines/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
     },
+    pitBrackets(token: string): Promise<{ items: PitBracket[] }> {
+      return authed<{ items: PitBracket[] }>("/api/luong/pit-brackets", token);
+    },
+    createPitBracket(token: string, input: PitBracketInput): Promise<PitBracket> {
+      return authed<PitBracket>("/api/luong/pit-brackets", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updatePitBracket(token: string, id: number, input: PitBracketInput): Promise<PitBracket> {
+      return authed<PitBracket>(`/api/luong/pit-brackets/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deletePitBracket(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/luong/pit-brackets/${id}`, token, { method: "DELETE" });
+    },
     lock(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/lock", token, { method: "POST", body: JSON.stringify({ year, month }) });
     },
     reopen(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/reopen", token, { method: "POST", body: JSON.stringify({ year, month }) });
+    },
+    pay(token: string, year: number, month: number, note?: string): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/pay", token, { method: "POST", body: JSON.stringify({ year, month, note: note ?? null }) });
+    },
+    unpay(token: string, year: number, month: number, note?: string): Promise<PayrollPeriod> {
+      return authed<PayrollPeriod>("/api/luong/unpay", token, { method: "POST", body: JSON.stringify({ year, month, note: note ?? null }) });
+    },
+    /** Xuất bảng lương / file chuyển khoản .xlsx — fetch as blob (bearer + refresh-aware). */
+    async xlsxBlobUrl(token: string, kind: "table" | "bank", year: number, month: number): Promise<string> {
+      const path = kind === "bank" ? "bank.xlsx" : "export.xlsx";
+      const doFetch = (bearer: string) =>
+        fetch(`${BASE_URL}/api/luong/${path}?year=${year}&month=${month}`, {
+          credentials: "include", cache: "no-store", headers: authHeader(bearer),
+        });
+      let resp = await doFetch(token);
+      if (resp.status === 401) {
+        const fresh = await refreshAccessToken();
+        if (fresh) resp = await doFetch(fresh);
+      }
+      if (!resp.ok) throw new ApiError(`Export failed (${resp.status}).`, resp.status);
+      return URL.createObjectURL(await resp.blob());
     },
     myPayslip(token: string): Promise<MyPayslip> {
       return authed<MyPayslip>("/api/luong/payslip/me", token);
@@ -4174,6 +4751,15 @@ export const api = {
     },
     deleteKhoanShare(token: string, shareId: number): Promise<PieceSheet> {
       return authed<PieceSheet>(`/api/luong/khoan/shares/${shareId}`, token, { method: "DELETE" });
+    },
+    khoanLockSheet(token: string, batchId: number): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/lock`, token, { method: "POST" });
+    },
+    khoanReopenSheet(token: string, batchId: number): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/reopen`, token, { method: "POST" });
+    },
+    khoanSyncOutputs(token: string, batchId: number): Promise<PieceSheet> {
+      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/sync-outputs`, token, { method: "POST" });
     },
   },
 
@@ -4250,6 +4836,10 @@ export const api = {
     get(token: string, id: number): Promise<CostingDetailOut> {
       return authed<CostingDetailOut>(`/api/costings/${id}`, token);
     },
+    getPhieu(token: string, id: number, qty?: number): Promise<PhieuTinhGiaPrintOut> {
+      const s = qty ? `?qty=${qty}` : "";
+      return authed<PhieuTinhGiaPrintOut>(`/api/costings/${id}/phieu${s}`, token);
+    },
     create(token: string, input: CostingInput): Promise<CostingDetailOut> {
       return authed<CostingDetailOut>("/api/costings", token, {
         method: "POST",
@@ -4264,6 +4854,53 @@ export const api = {
     },
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/costings/${id}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Tính giá thành (engine MỚI) — preview 4 nhóm, không lưu ---------------
+  tinhGia: {
+    preview(token: string, body: TinhGiaPreviewIn): Promise<TinhGiaPreviewOut> {
+      return authed<TinhGiaPreviewOut>("/api/tinh-gia/preview", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    binhBai(token: string, body: BinhBaiIn): Promise<BinhBaiOut> {
+      return authed<BinhBaiOut>("/api/tinh-gia/binh-bai", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+  },
+
+  // --- Phiếu tính giá (persisted) — master/detail của "Tính giá" -------------
+  phieuTinhGia: {
+    list(
+      token: string,
+      params: { q?: string } = {},
+    ): Promise<PhieuTinhGiaListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<PhieuTinhGiaListOut>(`/api/phieu-tinh-gia${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<PhieuTinhGiaOut> {
+      return authed<PhieuTinhGiaOut>(`/api/phieu-tinh-gia/${id}`, token);
+    },
+    create(token: string, body: PhieuTinhGiaCreate): Promise<PhieuTinhGiaOut> {
+      return authed<PhieuTinhGiaOut>("/api/phieu-tinh-gia", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    update(token: string, id: number, body: PhieuTinhGiaUpdate): Promise<PhieuTinhGiaOut> {
+      return authed<PhieuTinhGiaOut>(`/api/phieu-tinh-gia/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/phieu-tinh-gia/${id}`, token, { method: "DELETE" });
     },
   },
 
@@ -4371,6 +5008,33 @@ export const api = {
         method: "POST",
       });
     },
+    /** BG-1: báo giá ĐANG HIỆU LỰC của 1 Phiếu tính giá (màn PTG quyết Tạo mới / Mở cái có sẵn). */
+    byPhieu(token: string, phieuId: number): Promise<{ quote_id: number | null; quote_number: string | null }> {
+      return authed(`/api/quotations/by-phieu/${phieuId}`, token);
+    },
+    /** PTG đổi số → đồng bộ sang báo giá đang hiệu lực (Phương án A). Nháp = cập nhật tại chỗ;
+     *  đã chốt = tạo phiên bản mới. Trả mode để màn PTG báo cho người dùng. */
+    resyncFromPhieu(
+      token: string,
+      phieuId: number,
+    ): Promise<{ quote_id: number; quote_number: string; mode: "draft_synced" | "new_version" }> {
+      return authed(`/api/quotations/resync-from-ptg/${phieuId}`, token, { method: "POST" });
+    },
+    /** Badge nav: số báo giá 'Chờ duyệt' trong phạm vi — chỉ ai có quyền duyệt đặc thù mới >0. */
+    pendingApprovalCount(token: string): Promise<{ count: number }> {
+      return authed(`/api/quotations/pending-approval-count`, token);
+    },
+    /** BG-2: GĐ DUYỆT / TỪ CHỐI báo giá đặc thù → mở khóa "gửi khách". */
+    recordApproval(
+      token: string,
+      id: number,
+      body: { decision: "approved" | "rejected"; note?: string | null },
+    ): Promise<QuotationDetail> {
+      return authed<QuotationDetail>(`/api/quotations/${id}/approval`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
     /** Open the đối-ngoại PDF in a new tab (auth via bearer; returns a blob URL). Refresh-
      *  aware: if the in-memory access token has expired the fetch gets a 401, so we refresh
      *  ONCE (shared in-flight promise, no storm) and retry with the rotated token — exactly
@@ -4434,6 +5098,34 @@ export const api = {
         method: "POST",
         body: JSON.stringify(body),
       });
+    },
+    /** Ghi CỌC (kind=deposit) → mở khóa cổng chốt ③→④. Trả về đơn kèm gate đã cập nhật. */
+    recordDeposit(
+      token: string,
+      id: number,
+      body: { amount: number; method: string; note?: string | null },
+    ): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/payments`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    payments(token: string, id: number): Promise<PaymentListOut> {
+      return authed<PaymentListOut>(`/api/orders/${id}/payments`, token);
+    },
+    /** A2: GĐ DUYỆT / TỪ CHỐI "đơn đặc thù" → mở khóa cổng chốt. Trả về đơn kèm gate cập nhật. */
+    recordApproval(
+      token: string,
+      id: number,
+      body: { decision: "approved" | "rejected"; note?: string | null },
+    ): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/approval`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    approvals(token: string, id: number): Promise<OrderApprovalListOut> {
+      return authed<OrderApprovalListOut>(`/api/orders/${id}/approvals`, token);
     },
   },
 
@@ -5301,6 +5993,32 @@ export const api = {
     },
     deleteOrderAttachment(token: string, id: number, attachmentId: number): Promise<void> {
       return authed<void>(`/api/san-xuat/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
+    },
+  },
+
+  // --- Công đoạn (danh mục, lite cho dropdown) -----------------------------
+  congDoan: {
+    list(token: string): Promise<{ items: CongDoanLite[] }> {
+      return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=500", token);
+    },
+  },
+
+  // --- Phiếu sản lượng công đoạn (Pha 5b) ----------------------------------
+  sanLuong: {
+    listByOrder(token: string, orderId: number): Promise<{ items: ProductionOutput[] }> {
+      return authed<{ items: ProductionOutput[] }>(`/api/san-luong/outputs?order_id=${orderId}`, token);
+    },
+    create(token: string, input: ProductionOutputInput): Promise<ProductionOutput> {
+      return authed<ProductionOutput>("/api/san-luong/outputs", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    update(token: string, id: number, input: Partial<ProductionOutputInput>): Promise<ProductionOutput> {
+      return authed<ProductionOutput>(`/api/san-luong/outputs/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/san-luong/outputs/${id}`, token, { method: "DELETE" });
+    },
+    defectReport(token: string, year: number, month: number): Promise<{ items: DefectReportRow[] }> {
+      return authed<{ items: DefectReportRow[] }>(`/api/san-luong/defect-report?year=${year}&month=${month}`, token);
     },
   },
 

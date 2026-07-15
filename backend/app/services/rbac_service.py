@@ -37,8 +37,11 @@ ACTION_CLONE = "clone"  # dm_giay_vat_tu: nhân bản giấy
 ACTION_TOGGLE_ACTIVE = "toggle_active"  # dm_giay_vat_tu: bật/tắt hoạt động
 ACTION_REPARENT = "reparent"  # phong_ban: đổi cấp trên (cây tổ chức)
 ACTION_VIEW_SALARY = "view_salary"  # nhan_su: xem dữ liệu nhạy cảm (lương/BHXH) của hồ sơ
+ACTION_EDIT_SALARY = "edit_salary"  # nhan_su: SỬA dữ liệu nhạy cảm hồ sơ (tách khỏi view_salary)
 ACTION_ADJUST = "adjust"  # nhan_su (Chấm công): điều chỉnh công qua punch nguồn (chấm bù/sửa)
-# Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn").
+ACTION_APPROVE_EXCEPTION = "approve_exception"  # don_hang_ban (A2): GĐ duyệt "đơn đặc thù"
+# Ghi chú: don_hang_ban tái dùng ACTION_APPROVE (= "Chốt đơn") và ACTION_CANCEL (= "Hủy đơn");
+# ACTION_APPROVE_EXCEPTION TÁCH RIÊNG (chỉ GĐ) — duyệt đơn đặc thù mới được chốt.
 
 _ACTION_ATTR = {
     ACTION_READ: "can_read",
@@ -65,7 +68,9 @@ _ACTION_ATTR = {
     ACTION_TOGGLE_ACTIVE: "can_toggle_active",
     ACTION_REPARENT: "can_reparent",
     ACTION_VIEW_SALARY: "can_view_salary",
+    ACTION_EDIT_SALARY: "can_edit_salary",
     ACTION_ADJUST: "can_adjust",
+    ACTION_APPROVE_EXCEPTION: "can_approve_exception",
 }
 
 
@@ -127,7 +132,9 @@ class AuthorizationService:
                 "can_toggle_active": p.can_toggle_active,
                 "can_reparent": p.can_reparent,
                 "can_view_salary": p.can_view_salary,
+                "can_edit_salary": p.can_edit_salary,
                 "can_adjust": p.can_adjust,
+                "can_approve_exception": p.can_approve_exception,
             }
             for p in self.roles.permissions_for(user.role_id)
         ]

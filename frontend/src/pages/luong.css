@@ -1,26 +1,101 @@
 /* Lương (module `luong`) — dùng chung tokens + nhan-su.css / cham-cong.css. */
 
-.lg-toolbar { flex-wrap: wrap; }
+.lg-toolbar { flex-wrap: wrap; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
+
 .lg-search {
   padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--r-3);
   background: var(--canvas); font: inherit; color: var(--ink); min-width: 240px;
 }
 
-/* Segmented CT/TV filter */
-.lg-seg { display: inline-flex; border: 1px solid var(--rule); border-radius: var(--r-3); overflow: hidden; }
-.lg-seg button {
-  border: none; background: var(--canvas); color: var(--ash); padding: 7px 14px;
-  font: inherit; cursor: pointer; border-left: 1px solid var(--rule);
+/* Date picker wrapper */
+.lg-date-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
 }
-.lg-seg button:first-child { border-left: none; }
-.lg-seg button.is-active { background: var(--rust); color: #fff; font-weight: var(--fw-medium); }
+.lg-date-icon {
+  position: absolute;
+  left: 10px;
+  color: var(--ash-2);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+.lg-date-wrapper input[type="month"] {
+  padding: 8px 10px 8px 32px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  cursor: pointer;
+  height: 33px;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.lg-date-wrapper input[type="month"]:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+
+/* Segmented CT/TV filter */
+.lg-seg {
+  display: inline-flex;
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 3px;
+  overflow: hidden;
+}
+.lg-seg button {
+  border: none;
+  background: transparent;
+  color: var(--ash);
+  padding: 5px 14px;
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+.lg-seg button:hover {
+  color: var(--ink);
+}
+.lg-seg button.is-active {
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+}
 
 /* Bảng lương — số căn phải, thực lĩnh nổi bật */
-.lg-table .ns__table th, .lg-table .ns__table td { padding: 7px 10px; white-space: nowrap; }
+.lg-table {
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-1);
+  border: 1px solid var(--rule-soft);
+  overflow: hidden;
+  background: var(--canvas);
+}
+.lg-table .ns__table {
+  margin-top: 0;
+  border-collapse: collapse;
+}
+.lg-table .ns__table th {
+  background: var(--paper-contrast);
+  color: var(--ash);
+  font-weight: var(--fw-bold);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid var(--rule);
+}
+.lg-table .ns__table th, .lg-table .ns__table td { padding: 8px 12px; white-space: nowrap; }
+.lg-table .ns__table tbody tr:hover {
+  background: var(--rule-hair);
+}
 .lg-num { text-align: right; font-variant-numeric: tabular-nums; }
-.lg-net { font-weight: var(--fw-bold); color: var(--moss-deep); }
-.lg-minus { color: var(--signal); }
-.lg-foot td { border-top: 2px solid var(--rule); font-weight: var(--fw-bold); background: var(--paper); }
+.lg-net { font-weight: var(--fw-bold); color: var(--moss-deep); font-size: 14.5px; }
+.lg-minus { color: var(--rust); font-weight: var(--fw-medium); }
+.lg-plus-val { color: var(--moss-deep); }
+.lg-foot td { border-top: 2px solid var(--rule); font-weight: var(--fw-bold); background: var(--paper-contrast); }
 
 .ns-badge--danger { background: var(--signal-soft); color: var(--signal); }
 
@@ -64,13 +139,368 @@
 .lg-payslip__card {
   width: 460px; max-width: 100%; background: var(--canvas);
   border: 1px solid var(--rule); border-radius: var(--r-5); padding: var(--sp-6);
+  box-shadow: var(--shadow-4);
 }
 .lg-payslip__head { display: flex; justify-content: space-between; align-items: start; margin-bottom: var(--sp-5); }
 .lg-payslip__who { font-size: 18px; font-weight: var(--fw-bold); }
 .lg-payslip__table { width: 100%; border-collapse: collapse; }
-.lg-payslip__table td { padding: 6px 0; border-bottom: 1px dashed var(--rule); }
+.lg-payslip__table td { padding: 8px 0; border-bottom: 1px dashed var(--rule-soft); }
 .lg-payslip__sub td { font-weight: var(--fw-bold); border-bottom: 1px solid var(--rule); }
 .lg-payslip__net td {
   padding-top: var(--sp-4); font-size: 18px; font-weight: var(--fw-bold); color: var(--moss-deep);
   border-bottom: none;
+}
+
+/* === Cải tiến UI/UX mới: KPI Cards === */
+.lg-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+  animation: fadeInUp 0.4s ease-out;
+}
+@media (max-width: 960px) {
+  .lg-kpi-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .lg-kpi-grid { grid-template-columns: 1fr; }
+}
+.lg-kpi-card {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: var(--sp-4);
+  box-shadow: 0 2px 8px rgba(20, 19, 15, 0.02);
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  transition: all 0.25s ease;
+}
+.lg-kpi-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-4);
+  border-color: var(--rule);
+}
+.lg-kpi-card::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--rule);
+}
+.lg-kpi-card--net::after { background: var(--moss); }
+.lg-kpi-card--staff::after { background: var(--steel); }
+.lg-kpi-card--workday::after { background: var(--amber); }
+.lg-kpi-card--deduct::after { background: var(--rust); }
+
+.lg-kpi-card-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: var(--sp-1);
+}
+.lg-kpi-card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-3);
+  color: var(--ash);
+  background: var(--rule-hair);
+}
+.lg-kpi-card--net .lg-kpi-card-icon { background: var(--moss-soft); color: var(--moss-deep); }
+.lg-kpi-card--staff .lg-kpi-card-icon { background: var(--steel-soft); color: var(--steel); }
+.lg-kpi-card--workday .lg-kpi-card-icon { background: var(--amber-soft); color: var(--amber-deep); }
+.lg-kpi-card--deduct .lg-kpi-card-icon { background: var(--rust-soft); color: var(--rust-deep); }
+
+.lg-kpi-card-label {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.lg-kpi-card-val {
+  font-family: var(--ff-mono);
+  font-size: 18px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin-top: 2px;
+}
+.lg-kpi-card-sub {
+  font-size: 11.5px;
+  color: var(--ash-2);
+  margin-top: 2px;
+}
+
+/* === Cải tiến UI/UX mới: Giao diện Khởi tạo Kỳ lương mới (Không có AI sparkles) === */
+.lg-init-dashboard {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: var(--sp-6);
+  margin-top: var(--sp-4);
+  box-shadow: var(--shadow-1);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  animation: fadeInUp 0.4s ease-out;
+}
+
+.lg-init-grid {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: var(--sp-8);
+}
+@media (max-width: 900px) {
+  .lg-init-grid {
+    grid-template-columns: 1fr;
+    gap: var(--sp-6);
+  }
+}
+
+.lg-init-section {
+  display: flex;
+  flex-direction: column;
+}
+.lg-init-section-title {
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0 0 var(--sp-2) 0;
+  letter-spacing: -0.01em;
+}
+.lg-init-section-desc {
+  font-size: 13px;
+  color: var(--ash);
+  margin: 0 0 var(--sp-4) 0;
+  line-height: 1.5;
+}
+
+/* Danh sách nguồn dữ liệu */
+.lg-source-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.lg-source-item {
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: 14px 16px;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.lg-source-item:hover {
+  border-color: var(--rule);
+  transform: translateY(-1px);
+}
+.lg-source-item-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-bottom: 4px;
+}
+.lg-source-bullet {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--ash-2);
+}
+.lg-source-bullet--active {
+  background: var(--moss);
+}
+.lg-source-name {
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.lg-source-text {
+  font-size: 12.5px;
+  color: var(--ash);
+  line-height: 1.5;
+  display: block;
+}
+
+/* Bảng tham số */
+.lg-param-table {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--paper-contrast);
+  overflow: hidden;
+}
+.lg-param-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10.5px 14px;
+  border-bottom: 1px solid var(--rule-soft);
+  font-size: 13px;
+}
+.lg-param-row:last-child {
+  border-bottom: none;
+}
+.lg-param-name {
+  color: var(--ash);
+}
+.lg-param-val {
+  font-family: var(--ff-mono);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.lg-param-loading {
+  font-size: 13px;
+  color: var(--ash);
+  font-style: italic;
+  padding: 12px;
+}
+
+/* Thẻ hành động khởi tạo */
+.lg-init-action-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-5);
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-6);
+  padding: var(--sp-5) var(--sp-6);
+  box-shadow: var(--shadow-4);
+}
+@media (max-width: 640px) {
+  .lg-init-action-card {
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    gap: var(--sp-4);
+  }
+}
+.lg-init-action-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lg-init-action-title {
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0;
+}
+.lg-init-action-desc {
+  font-size: 13px;
+  color: var(--ash);
+  margin: 0;
+}
+.lg-init-action-card .btn--accent {
+  padding: 10px 24px;
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
+  border-radius: var(--r-3);
+  white-space: nowrap;
+}
+
+/* === Cải tiến UI/UX mới: Danh sách lương nhân viên (NhanVienTab) === */
+.lg-search-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: var(--sp-2);
+}
+.lg-search-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--ash-2);
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+}
+.lg-search-input {
+  padding: 8px 12px 8px 36px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  min-width: 280px;
+  height: 34px;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.lg-search-input:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+
+.lg-emp-table-wrapper {
+  max-width: 1200px;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  margin-top: var(--sp-2);
+}
+.lg-emp-table-wrapper .ns__table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0;
+}
+.lg-emp-table-wrapper .ns__table th {
+  background: var(--paper-contrast);
+  color: var(--ash);
+  font-weight: var(--fw-bold);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 10px 16px;
+  border-bottom: 2px solid var(--rule-soft);
+  text-align: left;
+}
+.lg-emp-table-wrapper .ns__table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rule-hair);
+  text-align: left;
+}
+.lg-emp-table-wrapper .ns__table tbody tr:hover {
+  background: var(--rule-hair);
+}
+.lg-emp-table-wrapper .ns__table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.ns-badge--warn {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+.ns-badge--info {
+  background: var(--steel-soft);
+  color: var(--steel);
+}
+.ns-badge--danger {
+  background: var(--signal-soft);
+  color: var(--signal);
+}
+
+.lg-edit-salary-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: 6px 12px;
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule);
+  background: var(--canvas);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+.lg-edit-salary-btn:hover {
+  background: var(--rust-soft);
+  border-color: var(--rust);
+  color: var(--rust-deep);
 }

@@ -26,12 +26,11 @@ def _svc():
 def test_create_flat_and_multipage():
     db, svc = _svc()
     nc = svc.create(dict(ma="NAMECARD", ten="Name card", structural_type="flat",
-                         imposition_rule_id=1, default_so_mat=2, vat_rate=8,
-                         routing_template=[10, 20, 30]))
+                         imposition_rule_id=1, routing_template=[10, 20, 30]))
     assert nc.id and nc.structural_type == "flat" and nc.routing_template == [10, 20, 30]
     cat = svc.create(dict(ma="CATALOGUE", ten="Catalogue", structural_type="multipage",
-                          has_cover=True, cover_type="bia_roi", default_binding="keo", vat_rate=5))
-    assert cat.has_cover and cat.vat_rate == 5
+                          has_cover=True, cover_type="bia_roi", default_binding="keo"))
+    assert cat.has_cover and cat.cover_type == "bia_roi"
 
 
 def test_duplicate_ma():
@@ -41,14 +40,12 @@ def test_duplicate_ma():
         svc.create(dict(ma="NAMECARD", ten="y", structural_type="flat"))
 
 
-def test_validate_box_cover_vat():
+def test_validate_box_cover():
     db, svc = _svc()
     with pytest.raises(LoaiSanPhamValidationError):        # box thiếu box_sub_type
         svc.create(dict(ma="H1", ten="Hộp", structural_type="box"))
     with pytest.raises(LoaiSanPhamValidationError):        # has_cover thiếu cover_type [E-SP-COVER]
         svc.create(dict(ma="S1", ten="Sách", structural_type="multipage", has_cover=True))
-    with pytest.raises(LoaiSanPhamValidationError):        # vat_rate sai
-        svc.create(dict(ma="X1", ten="x", structural_type="flat", vat_rate=7))
     with pytest.raises(LoaiSanPhamValidationError):        # structural_type sai
         svc.create(dict(ma="X2", ten="x", structural_type="khong_co"))
 

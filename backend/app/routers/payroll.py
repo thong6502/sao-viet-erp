@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..deps import (
     CurrentUser,
@@ -32,6 +32,10 @@ from ..schemas.payroll import (
     ParamsIn,
     ParamsOut,
     PayslipOut,
+    PeriodPayIn,
+    PitBracketIn,
+    PitBracketOut,
+    PitBracketsOut,
     PeriodOut,
     PeriodsOut,
     RuleIn,
@@ -201,6 +205,43 @@ def delete_rule(rule_id: int, svc: Service,
         _raise(exc)
 
 
+# --- biểu thuế TNCN (sửa được) ----------------------------------------------
+
+
+@router.get("/pit-brackets", response_model=PitBracketsOut)
+def list_pit_brackets(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> PitBracketsOut:
+    return PitBracketsOut(items=[PitBracketOut.model_validate(b) for b in svc.get_pit_brackets()])
+
+
+@router.post("/pit-brackets", response_model=PitBracketOut, status_code=status.HTTP_201_CREATED)
+def create_pit_bracket(body: PitBracketIn, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PitBracketOut:
+    try:
+        b = svc.create_pit_bracket(seq=body.seq, up_to=body.up_to, rate=body.rate)
+    except PayrollError as exc:
+        _raise(exc)
+    return PitBracketOut.model_validate(b)
+
+
+@router.put("/pit-brackets/{bracket_id}", response_model=PitBracketOut)
+def update_pit_bracket(bracket_id: int, body: PitBracketIn, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PitBracketOut:
+    try:
+        b = svc.update_pit_bracket(bracket_id, seq=body.seq, up_to=body.up_to, rate=body.rate)
+    except PayrollError as exc:
+        _raise(exc)
+    return PitBracketOut.model_validate(b)
+
+
+@router.delete("/pit-brackets/{bracket_id}", status_code=204)
+def delete_pit_bracket(bracket_id: int, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    try:
+        svc.delete_pit_bracket(bracket_id)
+    except PayrollError as exc:
+        _raise(exc)
+
+
 # --- lương nhân viên (khai báo + điều chỉnh) --------------------------------
 
 
@@ -339,7 +380,7 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LineOut:
     try:
         ln = svc.update_line(line_id=line_id, actor=user, vi_pham=body.vi_pham,
-                             other_bonus=body.other_bonus, pit=body.pit,
+                             other_bonus=body.other_bonus, pit=body.pit, pit_manual=body.pit_manual,
                              monthly_override=body.monthly_override, note=body.note)
     except PayrollError as exc:
         _raise(exc)
@@ -364,6 +405,97 @@ def reopen_period(body: GenerateIn, svc: Service,
     except PayrollError as exc:
         _raise(exc)
     return PeriodOut.model_validate(p)
+
+
+@router.post("/pay", response_model=PeriodOut)
+def pay_period(body: PeriodPayIn, svc: Service,
+               user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+    try:
+        p = svc.pay_period(year=body.year, month=body.month, actor=user, note=body.note)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
+@router.post("/unpay", response_model=PeriodOut)
+def unpay_period(body: PeriodPayIn, svc: Service,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+    try:
+        p = svc.unpay_period(year=body.year, month=body.month, actor=user, note=body.note)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
+# --- xuất file .xlsx (bảng lương + chuyển khoản) ----------------------------
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    return Response(content=content, media_type=_XLSX_MEDIA,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+def _build_table_xlsx(year: int, month: int, lines) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook  # lazy import: thiếu dep chỉ hỏng endpoint này, không sập app
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"Luong {month:02d}-{year}"
+    ws.append(["Mã", "Họ tên", "Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
+               "Khoán", "Tăng ca", "Ca đêm", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
+               "Tạm ứng", "Thực lĩnh"])
+    for l in lines:
+        ws.append([l.employee_code or "", l.employee_name or "", l.payroll_group or "",
+                   "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
+                   int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
+                   int(l.ot_pay), int(l.night_pay), int(l.vi_pham), int(l.other_bonus),
+                   int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _build_bank_xlsx(year: int, month: int, lines) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Chuyen khoan"
+    ws.append(["Mã", "Họ tên", "Số tài khoản", "Ngân hàng", "Số tiền", "Nội dung"])
+    for l in lines:
+        if int(l.net_pay) <= 0:
+            continue   # NV net ≤ 0 (tạm ứng vượt lương) → không đưa vào file chuyển khoản
+        ws.append([l.employee_code or "", l.employee_name or "", l.bank_account or "",
+                   l.bank_name or "", int(l.net_pay), f"Luong T{month:02d}/{year} - {l.employee_code or ''}"])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/export.xlsx")
+def export_table_xlsx(svc: Service, employees: Employees, departments: Departments,
+                      user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                      year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
+    data = svc.get_table(year=year, month=month)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
+    lines = _lines_out(data["lines"], employees, departments)
+    return _xlsx_response(_build_table_xlsx(year, month, lines), f"bang-luong-{year}-{month:02d}.xlsx")
+
+
+@router.get("/bank.xlsx")
+def export_bank_xlsx(svc: Service, employees: Employees, departments: Departments,
+                     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                     year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
+    data = svc.get_table(year=year, month=month)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
+    lines = _lines_out(data["lines"], employees, departments)
+    return _xlsx_response(_build_bank_xlsx(year, month, lines), f"chuyen-khoan-{year}-{month:02d}.xlsx")
 
 
 # --- self-service -----------------------------------------------------------
@@ -505,3 +637,41 @@ def delete_share(share_id: int, svc: PieceService, employees: Employees,
     except PieceWorkError as exc:
         _raise(exc)
     return _sheet_for_batch(svc, employees, batch)
+
+
+@router.post("/khoan/batches/{batch_id}/lock", response_model=SheetOut)
+def lock_sheet(batch_id: int, svc: PieceService, employees: Employees,
+               user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    if svc.piece.get_batch(batch_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sổ khoán.")
+    try:
+        b = svc.lock_sheet(batch_id, actor=user)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, b)
+
+
+@router.post("/khoan/batches/{batch_id}/reopen", response_model=SheetOut)
+def reopen_sheet(batch_id: int, svc: PieceService, employees: Employees,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    if svc.piece.get_batch(batch_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sổ khoán.")
+    try:
+        b = svc.reopen_sheet(batch_id, actor=user)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, b)
+
+
+@router.post("/khoan/batches/{batch_id}/sync-outputs", response_model=SheetOut)
+def sync_outputs(batch_id: int, svc: PieceService, employees: Employees,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
+    """Kéo Phiếu sản lượng công đoạn (theo tổ) của kỳ vào sổ khoán để xem trước quỹ (sổ còn nháp)."""
+    b = svc.piece.get_batch(batch_id)
+    if b is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sổ khoán.")
+    try:
+        svc.sync_outputs(b)
+    except PieceWorkError as exc:
+        _raise(exc)
+    return _sheet_for_batch(svc, employees, b)

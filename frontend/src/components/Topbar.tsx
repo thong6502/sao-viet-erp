@@ -1,8 +1,8 @@
 // Global top header bar (ERP shell). Light `--paper` surface that sits above the
 // scrolling content on every page. Hosts the user widget on the right — avatar +
-// name + a dropdown (Thông tin tài khoản · Đổi tên · Đổi avatar · Đổi mật khẩu +
-// Đăng xuất). Replaces the per-page Log out button (moved here from the sidebar
-// bottom — feat-018). Click outside closes the dropdown.
+// name + a dropdown (Hồ sơ của tôi + Đăng xuất). "Hồ sơ của tôi" is the single
+// shortcut into the self-service page (HoSoCuaToiPage), the shared home for both
+// staff and admins (replaces the old 4-item account menu + ProfileDialog).
 import { useEffect, useRef, useState } from "react";
 import { assetUrl } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -10,15 +10,15 @@ import { Icon } from "./Icons";
 import "./topbar.css";
 
 interface TopbarProps {
-  /** Open a profile panel by key (feat-019..022 wire these). */
-  onProfileAction?: (action: "info" | "name" | "avatar" | "password") => void;
+  /** Mở trang "Hồ sơ của tôi" (nhà chung self-service tài khoản). */
+  onOpenProfile?: () => void;
   /** Chuông: số đơn nghỉ của tôi vừa được quyết mà chưa xem. */
   leaveUnseen?: number;
   /** Bấm chuông → mở Nghỉ phép (Đơn của tôi) + đánh dấu đã xem. */
   onOpenLeave?: () => void;
 }
 
-export function Topbar({ onProfileAction, leaveUnseen = 0, onOpenLeave }: TopbarProps) {
+export function Topbar({ onOpenProfile, leaveUnseen = 0, onOpenLeave }: TopbarProps) {
   return (
     <header className="topbar">
       {onOpenLeave && (
@@ -33,16 +33,16 @@ export function Topbar({ onProfileAction, leaveUnseen = 0, onOpenLeave }: Topbar
           {leaveUnseen > 0 && <span className="tb-bell__badge">{leaveUnseen > 9 ? "9+" : leaveUnseen}</span>}
         </button>
       )}
-      <UserWidget onProfileAction={onProfileAction} />
+      <UserWidget onOpenProfile={onOpenProfile} />
     </header>
   );
 }
 
 interface UserWidgetProps {
-  onProfileAction?: (action: "info" | "name" | "avatar" | "password") => void;
+  onOpenProfile?: () => void;
 }
 
-function UserWidget({ onProfileAction }: UserWidgetProps) {
+function UserWidget({ onOpenProfile }: UserWidgetProps) {
   const { user, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -70,9 +70,9 @@ function UserWidget({ onProfileAction }: UserWidgetProps) {
     .map((w) => w[0]?.toUpperCase() ?? "")
     .join("");
 
-  function handleAction(action: "info" | "name" | "avatar" | "password") {
+  function openProfile() {
     setOpen(false);
-    onProfileAction?.(action);
+    onOpenProfile?.();
   }
 
   return (
@@ -109,44 +109,14 @@ function UserWidget({ onProfileAction }: UserWidgetProps) {
           </div>
           <div className="tb-user__divider" />
           <button
-            id="profile-action-info"
+            id="profile-action-open"
             type="button"
             className="tb-user__item"
             role="menuitem"
-            onClick={() => handleAction("info")}
+            onClick={openProfile}
           >
             <Icon name="users" size={15} />
-            Thông tin tài khoản
-          </button>
-          <button
-            id="profile-action-name"
-            type="button"
-            className="tb-user__item"
-            role="menuitem"
-            onClick={() => handleAction("name")}
-          >
-            <Icon name="fileText" size={15} />
-            Đổi tên hiển thị
-          </button>
-          <button
-            id="profile-action-avatar"
-            type="button"
-            className="tb-user__item"
-            role="menuitem"
-            onClick={() => handleAction("avatar")}
-          >
-            <Icon name="grid" size={15} />
-            Đổi avatar
-          </button>
-          <button
-            id="profile-action-password"
-            type="button"
-            className="tb-user__item"
-            role="menuitem"
-            onClick={() => handleAction("password")}
-          >
-            <Icon name="shield" size={15} />
-            Đổi mật khẩu
+            Hồ sơ của tôi
           </button>
           <div className="tb-user__divider" />
           <button

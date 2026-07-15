@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ..models.loai_san_pham import (
-    BOX_SUB_TYPE, COVER_TYPE, STRUCT_LAYOUT_MATRIX, STRUCTURAL_TYPE, VAT_RATE, LoaiSanPham,
+    BOX_SUB_TYPE, COVER_TYPE, STRUCT_LAYOUT_MATRIX, STRUCTURAL_TYPE, LoaiSanPham,
 )
 from ..repositories.loai_san_pham_repo import LoaiSanPhamRepository
 
@@ -44,8 +44,6 @@ class LoaiSanPhamService:
             raise LoaiSanPhamValidationError("Hộp cần box_sub_type (folding_carton/corrugated/rigid).")
         if data.get("has_cover") and data.get("cover_type") not in COVER_TYPE:
             raise LoaiSanPhamValidationError("Có bìa cần cover_type (tự bìa / bìa rời). [E-SP-COVER]")
-        if int(data.get("vat_rate", 8)) not in VAT_RATE:
-            raise LoaiSanPhamValidationError("vat_rate phải 5/8/10.")
         # imposition_rule_id: §2 nói bắt buộc; ở MVP cho phép NULL (gán sau khi Bình bài land)
         # để không hard-block, nhưng cảnh báo ở engine nếu thiếu khi báo giá.
 

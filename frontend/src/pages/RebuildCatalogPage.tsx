@@ -5,13 +5,13 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNo
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ApiError } from "../api/client";
-import { crud, addVersion, type Row } from "../api/rebuildCatalog";
+import { crud, type Row } from "../api/rebuildCatalog";
 import "./rebuild-catalog.css";
 
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "bands";
+  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "bands" | "size_tiers";
   options?: { value: string; label: string }[];
   refPrefix?: string;           // ref / ref-multi: endpoint danh mục nguồn (đổ dropdown theo TÊN)
   required?: boolean;
@@ -105,7 +105,7 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
         </div>
         <div className="rc__spacer" />
         <Button variant="accent" onClick={() => setEditing("new")}>
-          <span style={{ fontSize: "16px", marginRight: "4px", fontWeight: "bold" }}>+</span> Thêm {config.title.toLowerCase()}
+          <PlusIcon /> Thêm {config.title.toLowerCase()}
         </Button>
       </div>
 
@@ -136,17 +136,19 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
             <tr>
               <th style={{ width: "15%" }}>Mã</th>
               <th style={{ width: "35%" }}>Tên</th>
-              {config.columns.map((c) => <th key={c.key}>{c.label}</th>)}
-              {config.hasVersions && <th>Phiên bản</th>}
+              {config.columns.map((c) => {
+                const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
+                return <th key={c.key} className={isCenter ? "text-center" : ""}>{c.label}</th>;
+              })}
               <th className="rc__actcol" style={{ width: "180px" }}>Hành động</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={config.columns.length + 3 + (config.hasVersions ? 1 : 0)} className="rc__msg">Đang tải dữ liệu…</td></tr>
+              <tr><td colSpan={config.columns.length + 3} className="rc__msg">Đang tải dữ liệu…</td></tr>
             ) : shown.length === 0 ? (
               <tr>
-                <td colSpan={config.columns.length + 3 + (config.hasVersions ? 1 : 0)} className="rc__empty-state-td">
+                <td colSpan={config.columns.length + 3} className="rc__empty-state-td">
                   <div className="rc__empty-state">
                     <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="rc__empty-icon">
                       <circle cx="12" cy="12" r="10"/>
@@ -156,37 +158,44 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
                       {rows.length === 0 ? `Chưa có ${config.title.toLowerCase()} nào trong hệ thống.` : "Không tìm thấy kết quả phù hợp với bộ lọc."}
                     </p>
                     {rows.length === 0 ? (
-                      <Button variant="ghost" onClick={() => setEditing("new")}>+ Tạo {config.title.toLowerCase()}</Button>
+                      <Button variant="ghost" onClick={() => setEditing("new")}><PlusIcon /> Tạo {config.title.toLowerCase()}</Button>
                     ) : (
                       <Button variant="ghost" onClick={() => { setQ(""); setFacet("all"); }}>Xóa bộ lọc</Button>
                     )}
                   </div>
                 </td>
               </tr>
-            ) : shown.map((r) => (
-              <tr key={r.id} className="rc__row" onClick={() => setEditing(r)}>
-                <td className="rc__mono"><span className="rc__code-badge">{String(r.ma)}</span></td>
-                <td className="rc__name">{String(r.ten)}</td>
-                {config.columns.map((c) => (
-                  <td key={c.key}>{c.render ? c.render(r) : (r[c.key] == null || r[c.key] === "" ? "—" : String(r[c.key]))}</td>
-                ))}
-                {config.hasVersions && (
-                  <td title="Phiên bản hiện hành — sửa bản ghi để tạo phiên bản mới">
-                    <span className="rc__code-badge">v{Number(r.version_no ?? 1)}</span>
+            ) : shown.map((r) => {
+              const noWrapKeys = ["ma", "dai", "bac", "active", "version_no", "gsm", "kho", "don_vi_gia", "don_gia", "kho_max", "so_to_bu_hao"];
+              return (
+                <tr key={r.id} className="rc__row" onClick={() => setEditing(r)}>
+                  <td className="rc__mono rc__nowrap"><span className="rc__code-badge">{String(r.ma)}</span></td>
+                  <td className="rc__name">{String(r.ten)}</td>
+                  {config.columns.map((c) => {
+                    const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
+                    const classes = [
+                      isCenter ? "text-center" : "",
+                      noWrapKeys.includes(c.key) ? "rc__nowrap" : ""
+                    ].filter(Boolean).join(" ");
+                    return (
+                      <td key={c.key} className={classes || undefined}>
+                        {c.render ? c.render(r) : (r[c.key] == null || r[c.key] === "" ? "—" : String(r[c.key]))}
+                      </td>
+                    );
+                  })}
+                  <td className="rc__actcol" onClick={(e) => e.stopPropagation()}>
+                    <button type="button" className="rc__link-btn" onClick={() => setEditing(r)} title="Chỉnh sửa">
+                      <EditIcon />
+                      <span>Sửa</span>
+                    </button>
+                    <button type="button" className="rc__link-btn rc__link-btn--danger" onClick={() => remove(r)} title="Xóa">
+                      <TrashIcon2 />
+                      <span>Xóa</span>
+                    </button>
                   </td>
-                )}
-                <td className="rc__actcol" onClick={(e) => e.stopPropagation()}>
-                  <button type="button" className="rc__link-btn" onClick={() => setEditing(r)} title="Chỉnh sửa">
-                    <EditIcon />
-                    <span>Sửa</span>
-                  </button>
-                  <button type="button" className="rc__link-btn rc__link-btn--danger" onClick={() => remove(r)} title="Xóa">
-                    <TrashIcon2 />
-                    <span>Xóa</span>
-                  </button>
-                </td>
-              </tr>
-            ))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -273,13 +282,23 @@ const TrashIcon = () => (
   </svg>
 );
 
+const PlusIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px" }}>
+    <path d="M5 12h14M12 5v14"/>
+  </svg>
+);
+
 // ── BANDS EDITOR (bậc số lượng động: Từ SL · Đến SL · Giá trị · Đơn vị) ──────────
 interface BacRow { sl_tu?: number | null; sl_den?: number | null; gia_tri?: number; don_vi?: string }
 function BandsField({ value, onChange }: { value: BacRow[]; onChange: (v: BacRow[]) => void }) {
   const rows = value ?? [];
   const setRow = (i: number, patch: Partial<BacRow>) =>
     onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
-  const add = () => onChange([...rows, { sl_tu: 0, sl_den: null, gia_tri: 0, don_vi: "to" }]);
+  const add = () => {
+    const lastRow = rows[rows.length - 1];
+    const nextTu = lastRow && lastRow.sl_den != null ? lastRow.sl_den : 0;
+    onChange([...rows, { sl_tu: nextTu, sl_den: null, gia_tri: 0, don_vi: lastRow?.don_vi ?? "to" }]);
+  };
   const del = (i: number) => onChange(rows.filter((_, j) => j !== i));
   const num = (v: unknown) => (v === "" || v == null ? "" : String(v));
   return (
@@ -292,21 +311,111 @@ function BandsField({ value, onChange }: { value: BacRow[]; onChange: (v: BacRow
           {rows.length === 0 && (
             <tr><td colSpan={5} className="rc-bands__empty">Chưa có bậc — bấm “＋ Thêm bậc”.</td></tr>
           )}
+          {rows.map((r, i) => {
+            const isRangeInvalid = r.sl_den !== null && r.sl_den !== undefined && (r.sl_tu ?? 0) >= r.sl_den;
+            return (
+              <tr key={i} className={isRangeInvalid ? "rc-bands__row--invalid" : ""}>
+                <td>
+                  <input
+                    className={`rc-input rc-input--num${isRangeInvalid ? " rc-input--invalid" : ""}`}
+                    type="number"
+                    value={num(r.sl_tu)}
+                    title={isRangeInvalid ? "Từ SL phải bé hơn Đến SL" : undefined}
+                    onChange={(e) => setRow(i, { sl_tu: e.target.value === "" ? 0 : Number(e.target.value) })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className={`rc-input rc-input--num${isRangeInvalid ? " rc-input--invalid" : ""}`}
+                    type="number"
+                    placeholder="∞"
+                    value={num(r.sl_den)}
+                    title={isRangeInvalid ? "Từ SL phải bé hơn Đến SL" : undefined}
+                    onChange={(e) => setRow(i, { sl_den: e.target.value === "" ? null : Number(e.target.value) })}
+                  />
+                </td>
+                <td>
+                  <input
+                    className="rc-input rc-input--num"
+                    type="number"
+                    step="any"
+                    value={num(r.gia_tri)}
+                    onChange={(e) => setRow(i, { gia_tri: e.target.value === "" ? 0 : Number(e.target.value) })}
+                  />
+                </td>
+                <td style={{ textAlign: "center" }}>
+                  <div className="rc-bands__unit-toggle">
+                    <button
+                      type="button"
+                      className={`rc-bands__unit-btn${(r.don_vi ?? "to") === "to" ? " is-active" : ""}`}
+                      onClick={() => setRow(i, { don_vi: "to" })}
+                    >
+                      Tờ
+                    </button>
+                    <button
+                      type="button"
+                      className={`rc-bands__unit-btn${(r.don_vi ?? "to") === "pct" ? " is-active" : ""}`}
+                      onClick={() => setRow(i, { don_vi: "pct" })}
+                    >
+                      %
+                    </button>
+                  </div>
+                </td>
+                <td style={{ textAlign: "center" }}>
+                  <button type="button" className="rc-bands__del" onClick={() => del(i)} title="Xóa bậc">
+                    <TrashIcon />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <button type="button" className="rc-bands__add" onClick={add}>＋ Thêm bậc</button>
+    </div>
+  );
+}
+
+// ── SIZE-TIER EDITOR (bậc đơn giá theo kích thước: Đến cỡ cm · Đơn giá đ) ─────────
+interface SizeTierRow { den_cm?: number | null; don_gia?: number }
+function SizeTiersField({ value, onChange }: { value: SizeTierRow[]; onChange: (v: SizeTierRow[]) => void }) {
+  const rows = value ?? [];
+  const setRow = (i: number, patch: Partial<SizeTierRow>) =>
+    onChange(rows.map((r, j) => (j === i ? { ...r, ...patch } : r)));
+  const add = () => {
+    const last = rows[rows.length - 1];
+    const nextCap = last && last.den_cm != null ? last.den_cm : 0;
+    onChange([...rows, { den_cm: nextCap ? nextCap * 2 : 20, don_gia: 0 }]);
+  };
+  const del = (i: number) => onChange(rows.filter((_, j) => j !== i));
+  const num = (v: unknown) => (v === "" || v == null ? "" : String(v));
+  return (
+    <div className="rc-bands">
+      <table className="rc-bands__table">
+        <thead>
+          <tr><th>Đến cỡ (cm)</th><th>Đơn giá (đ)</th><th></th></tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr><td colSpan={3} className="rc-bands__empty">Chưa có bậc — bấm “＋ Thêm bậc”. Cỡ = cạnh dài thành phẩm.</td></tr>
+          )}
           {rows.map((r, i) => (
             <tr key={i}>
-              <td><input className="rc-input rc-input--num" type="number" value={num(r.sl_tu)}
-                onChange={(e) => setRow(i, { sl_tu: e.target.value === "" ? 0 : Number(e.target.value) })} /></td>
-              <td><input className="rc-input rc-input--num" type="number" placeholder="∞" value={num(r.sl_den)}
-                onChange={(e) => setRow(i, { sl_den: e.target.value === "" ? null : Number(e.target.value) })} /></td>
-              <td><input className="rc-input rc-input--num" type="number" step="any" value={num(r.gia_tri)}
-                onChange={(e) => setRow(i, { gia_tri: e.target.value === "" ? 0 : Number(e.target.value) })} /></td>
               <td>
-                <select className="rc-input" value={r.don_vi ?? "to"} onChange={(e) => setRow(i, { don_vi: e.target.value })}>
-                  <option value="to">Tờ</option>
-                  <option value="pct">%</option>
-                </select>
+                <input className="rc-input rc-input--num" type="number" step="any" placeholder="∞ (trên các mức)"
+                  value={num(r.den_cm)}
+                  onChange={(e) => setRow(i, { den_cm: e.target.value === "" ? null : Number(e.target.value) })} />
               </td>
-              <td><button type="button" className="rc-bands__del" onClick={() => del(i)} title="Xóa bậc"><TrashIcon /></button></td>
+              <td>
+                <input className="rc-input rc-input--num" type="number" step="any"
+                  value={num(r.don_gia)}
+                  onChange={(e) => setRow(i, { don_gia: e.target.value === "" ? 0 : Number(e.target.value) })} />
+              </td>
+              <td style={{ textAlign: "center" }}>
+                <button type="button" className="rc-bands__del" onClick={() => del(i)} title="Xóa bậc">
+                  <TrashIcon />
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -329,7 +438,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
-      if (f.type === "ref-multi" || f.type === "bands") {
+      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers") {
         const ev = existing?.[f.key];
         init[f.key] = Array.isArray(ev) ? ev : [];
       } else if (f.jsonKey) {
@@ -404,7 +513,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     const body: Record<string, unknown> = { ma: form.ma, ten: form.ten };
     for (const f of visibleFields) {
       let v = form[f.key];
-      if (f.type === "ref-multi" || f.type === "bands") { body[f.key] = Array.isArray(v) ? v : []; continue; }
+      if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers") { body[f.key] = Array.isArray(v) ? v : []; continue; }
       if (v === "" || v === undefined) { if (!f.required) continue; }
       if ((f.type === "number" || f.type === "ref") && v !== "" && v != null) v = Number(v);
       if (f.type === "json" && typeof v === "string" && v.trim()) {
@@ -422,11 +531,6 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     }
     try {
       if (isEdit && existing) {
-        if (config.hasVersions) {
-          // Sửa bản ghi versioned = đẻ 1 phiên bản mới (v++ + snapshot), rồi cập nhật field.
-          // Giữ đơn giá hiện tại vì form không có ô đơn giá (tránh mirror về 0).
-          await addVersion(token, config.prefix, existing.id, { ...body, don_gia: existing.don_gia ?? 0 });
-        }
         await api.update(token, existing.id, body);
       } else {
         await api.create(token, body);
@@ -443,7 +547,11 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             <div className="rc-drawer__kicker">{isEdit ? "Chỉnh sửa" : "Thêm mới"}</div>
             <h2 className="rc-drawer__title">{isEdit ? String(existing?.ten) : config.title}</h2>
           </div>
-          <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">✕</button>
+          <button type="button" className="rc-drawer__x" onClick={onClose} aria-label="Đóng">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
         </header>
 
         <form className="rc-drawer__body" onSubmit={submit}>
@@ -497,11 +605,15 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                   <div className="rc-grid">
                     {g.fields.map((f) => {
                       const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
+                      const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "ref-multi" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
                       return (
-                        <label className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}`} key={f.key}>
+                        <label className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}${isFullWidth ? " rc-field--full" : ""}`} key={f.key}>
                           <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
                           {f.type === "bands" ? (
                             <BandsField value={Array.isArray(form[f.key]) ? (form[f.key] as BacRow[]) : []}
+                              onChange={(v) => set(f.key, v)} />
+                          ) : f.type === "size_tiers" ? (
+                            <SizeTiersField value={Array.isArray(form[f.key]) ? (form[f.key] as SizeTierRow[]) : []}
                               onChange={(v) => set(f.key, v)} />
                           ) : f.type === "select" ? (
                             <div className="rc-input-wrapper">

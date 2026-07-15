@@ -27,7 +27,7 @@ def _svc():
 def test_crud_and_duplicate():
     db, svc = _svc()
     cd = svc.create(dict(ma="IN", ten="In offset", nhom="print",
-                         che_do_tinh="theo_san_luong", pricing_basis="per_1000_luot",
+                         che_do_tinh="theo_san_luong", pricing_basis="per_finished_qty",
                          first_unit_floor=350000))
     assert cd.id and cd.nhom == "print"
     with pytest.raises(CongDoanDuplicate):
@@ -50,28 +50,35 @@ def test_print_spoilage_forced_zero():
 
 # ---- routing_engine ----
 def test_basis_qty_table():
-    ctx = dict(so_to_in_gross=1000, so_luot=666, dt_to_in_m2=0.28, so_mat=1, so_cuon=500, so_con=44000)
+    ctx = dict(so_to_in_gross=1000, so_mat=2, dt_to_in_cm2=5000, dt_thanh_pham_cm2=100,
+               so_luong_thanh_pham=44000, so_trang=200, so_cuon=500, so_vi_tri=2,
+               so_bao=88, so_thung=12)
     assert re.basis_qty("per_sheet", ctx) == 1000
-    assert re.basis_qty("per_ram", ctx) == 2.0
-    assert abs(re.basis_qty("per_1000_luot", ctx) - 0.666) < 1e-9
-    assert re.basis_qty("per_pass", ctx) == 666
-    assert re.basis_qty("per_book", ctx) == 500
-    assert re.basis_qty("per_number", ctx) == 44000
+    assert re.basis_qty("per_finished_qty", ctx) == 44000
+    assert re.basis_qty("per_finished_area", ctx) == 100 * 44000
+    assert re.basis_qty("per_book_page", ctx) == 200 * 500
+    assert re.basis_qty("per_book_page_q4", ctx) == 200 * 500 / 4
+    assert re.basis_qty("per_position", ctx) == 2 * 44000
+    assert re.basis_qty("per_bag", ctx) == 88
+    assert re.basis_qty("per_carton", ctx) == 12
+    assert re.basis_qty("per_area_sides", ctx) == 5000 * 2 * 1000
+    assert re.basis_qty("per_sheet_area", ctx) == 5000 * 1000
+    assert re.basis_qty("per_other", ctx) == 1.0
 
 
 def test_step_cost_floor_and_pass():
-    # §7A IN: 666 lượt < 1.000 → sàn 350.000
-    cd_in = dict(che_do_tinh="theo_san_luong", pricing_basis="per_1000_luot",
+    # Sàn 350.000 khi lượng nhỏ (per_finished_qty × run_rate < sàn)
+    cd_in = dict(che_do_tinh="theo_san_luong", pricing_basis="per_finished_qty",
                  run_rate=200000, first_unit_floor=350000)
-    r = re.compute_step_cost(cd_in, dict(so_luot=666))
+    r = re.compute_step_cost(cd_in, dict(so_luong_thanh_pham=1))
     assert r["total"] == 350000
-    # §7A BẾ per_pass: 333 lượt × 180 + khuôn 200k
-    cd_be = dict(che_do_tinh="theo_san_luong", pricing_basis="per_pass", run_rate=180)
-    r2 = re.compute_step_cost(cd_be, dict(so_luot=333), tooling_one_time=200000)
+    # BẾ per_sheet: 333 tờ × 180 + khuôn 200k
+    cd_be = dict(che_do_tinh="theo_san_luong", pricing_basis="per_sheet", run_rate=180)
+    r2 = re.compute_step_cost(cd_be, dict(so_to_in_gross=333), tooling_one_time=200000)
     assert r2["run_cost"] == round(333 * 180, 2)
     assert r2["tooling_cost"] == 200000
     # tái bản → bỏ tiền khuôn
-    r3 = re.compute_step_cost(cd_be, dict(so_luot=333), reuse_tooling=True, tooling_one_time=200000)
+    r3 = re.compute_step_cost(cd_be, dict(so_to_in_gross=333), reuse_tooling=True, tooling_one_time=200000)
     assert r3["tooling_cost"] == 0
 
 

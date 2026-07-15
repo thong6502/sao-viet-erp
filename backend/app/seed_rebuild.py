@@ -199,27 +199,24 @@ def seed_rebuild_catalog(db: Session) -> None:
         db.add_all(rows)
         db.commit()
 
-    # --- Công đoạn (spec-cong-doan §9); may_id nối máy vừa seed ---
+    # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 4 kiểu bù hao (khong/số màu/số con/cố định) ---
     if _empty(db, CongDoan):
-        may = {m.ma: m.id for m in db.execute(select(MayThietBi)).scalars()}
         db.add_all([
-            CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", may_id=may.get("TB-0004"),
-                     che_do_tinh="theo_gio", setup_time=10),
-            CongDoan(ma="CD-0002", ten="In offset", nhom="print", may_id=may.get("TB-0001"),
-                     che_do_tinh="theo_san_luong", pricing_basis="per_1000_luot", run_rate=8000,
-                     first_unit_floor=350000, requires_tooling=True, tooling_type="kem"),
-            CongDoan(ma="CD-0003", ten="Cắt xén", nhom="finishing", may_id=may.get("TB-0005"),
-                     che_do_tinh="theo_san_luong", pricing_basis="per_ram", run_rate=60000, min_charge=60000),
-            CongDoan(ma="CD-0004", ten="Cán màng bóng", nhom="finishing", may_id=may.get("TB-0006"),
-                     che_do_tinh="theo_san_luong", pricing_basis="per_m2", run_rate=2200, min_charge=110000),
-            CongDoan(ma="CD-0005", ten="Bế", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_pass", run_rate=180, requires_tooling=True, tooling_type="khuon_be"),
-            CongDoan(ma="CD-0006", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_pass", run_rate=400, requires_tooling=True, tooling_type="khuon_ep"),
-            CongDoan(ma="CD-0007", ten="Đóng keo (vào bìa)", nhom="finishing",
-                     che_do_tinh="theo_san_luong", pricing_basis="per_book", run_rate=180),
-            CongDoan(ma="CD-0008", ten="Đánh số nhảy", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_number", run_rate=10),
+            CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_gio",
+                     setup_time=10, kieu_bu_hao="khong"),
+            CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_sheet", run_rate=350, kieu_bu_hao="theo_so_mau"),
+            CongDoan(ma="CD-0003", ten="Cán màng bóng", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_area_sides", run_rate=2.2, min_charge=110000,
+                     kieu_bu_hao="co_dinh", so_to_bu_hao=50),
+            CongDoan(ma="CD-0004", ten="Bồi sóng", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_sheet", run_rate=200, kieu_bu_hao="theo_so_con"),
+            CongDoan(ma="CD-0005", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_position", run_rate=400, requires_tooling=True,
+                     tooling_type="khuon_ep", kieu_bu_hao="co_dinh", so_to_bu_hao=50),
+            CongDoan(ma="CD-0006", ten="Bế nổi", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_finished_qty", run_rate=20, requires_tooling=True,
+                     tooling_type="khuon_be", kieu_bu_hao="co_dinh", so_to_bu_hao=30),
         ])
         db.commit()
 
@@ -258,19 +255,18 @@ def seed_rebuild_catalog(db: Session) -> None:
         rt_flat = [cd.get("CD-0001"), cd.get("CD-0002"), cd.get("CD-0005"), cd.get("CD-0003")]
         rt_book = [cd.get("CD-0001"), cd.get("CD-0002"), cd.get("CD-0004"), cd.get("CD-0007"), cd.get("CD-0003")]
         db.add_all([
-            LoaiSanPham(ma="LSP-0001", ten="Name card", structural_type="flat", default_so_mat=2,
-                        vat_rate=8, routing_template=[x for x in rt_flat if x]),
-            LoaiSanPham(ma="LSP-0002", ten="Tờ phơi / brochure gấp", structural_type="flat",
-                        default_so_mat=2, vat_rate=8),
+            LoaiSanPham(ma="LSP-0001", ten="Name card", structural_type="flat",
+                        routing_template=[x for x in rt_flat if x]),
+            LoaiSanPham(ma="LSP-0002", ten="Tờ phơi / brochure gấp", structural_type="flat"),
             LoaiSanPham(ma="LSP-0003", ten="Catalogue đóng keo", structural_type="multipage",
-                        has_cover=True, cover_type="bia_roi", default_binding="keo", vat_rate=5,
+                        has_cover=True, cover_type="bia_roi", default_binding="keo",
                         routing_template=[x for x in rt_book if x]),
             LoaiSanPham(ma="LSP-0004", ten="Sách đóng ghim", structural_type="multipage",
-                        has_cover=True, cover_type="tu_bia", default_binding="ghim", vat_rate=5),
+                        has_cover=True, cover_type="tu_bia", default_binding="ghim"),
             LoaiSanPham(ma="LSP-0005", ten="Hộp giấy Ivory", structural_type="box",
-                        box_sub_type="folding_carton", vat_rate=8),
+                        box_sub_type="folding_carton"),
             LoaiSanPham(ma="LSP-0006", ten="Thùng carton sóng", structural_type="box",
-                        box_sub_type="corrugated", vat_rate=8),
-            LoaiSanPham(ma="LSP-0007", ten="Tem decal cuộn", structural_type="label", vat_rate=8),
+                        box_sub_type="corrugated"),
+            LoaiSanPham(ma="LSP-0007", ten="Tem decal cuộn", structural_type="label"),
         ])
         db.commit()

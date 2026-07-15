@@ -18,9 +18,12 @@ from .repositories.audit_repo import AuditLogRepository
 from .repositories.accounting_repo import AccountingRepository
 from .repositories.costing_repo import CostingRepository
 from .repositories.attendance_repo import AttendanceRepository
+from .repositories.calendar_repo import CalendarRepository
 from .repositories.leave_repo import LeaveRepository
 from .repositories.payroll_repo import PayrollRepository
 from .repositories.piece_work_repo import PieceWorkRepository
+from .repositories.production_output_repo import ProductionOutputRepository
+from .repositories.cong_doan_repo import CongDoanRepository
 from .repositories.customer_repo import CustomerRepository
 from .repositories.employee_repo import EmployeeRepository
 from .repositories.machine_repo import MachineRepository
@@ -28,7 +31,9 @@ from .repositories.material_repo import MaterialRepository
 from .repositories.operation_repo import OperationRepository
 from .repositories.warehouse_repo import WarehouseRepository
 from .repositories.warehouse_item_repo import WarehouseItemRepository
+from .repositories.order_approval_repo import OrderApprovalRepository
 from .repositories.order_repo import OrderRepository
+from .repositories.payment_repo import PaymentRepository
 from .repositories.product_repo import ProductRepository
 from .repositories.product_type_catalog_repo import ProductTypeCatalogRepository
 from .repositories.purchase_repo import (
@@ -57,9 +62,11 @@ from .services.costing_service import CostingService
 from .services.estimate_service import EstimateService
 from .services.customer_analytics import CustomerAnalyticsService
 from .services.attendance_service import AttendanceService
+from .services.calendar_service import CalendarService
 from .services.leave_service import LeaveService
 from .services.payroll_service import PayrollService
 from .services.piece_work_service import PieceWorkService
+from .services.production_output_service import ProductionOutputService
 from .services.customer_service import CustomerService
 from .services.department_service import DepartmentService
 from .services.employee_service import EmployeeService
@@ -188,13 +195,14 @@ def get_unit_level_repository(
 
 
 def get_department_service(
+    db: Annotated[Session, Depends(get_db)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     roles: Annotated[RoleRepository, Depends(get_role_repository)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     levels: Annotated[UnitLevelRepository, Depends(get_unit_level_repository)],
 ) -> DepartmentService:
-    return DepartmentService(departments, roles, users, audit, levels)
+    return DepartmentService(departments, roles, users, audit, levels, EmployeeRepository(db))
 
 
 def get_unit_level_service(
@@ -206,21 +214,23 @@ def get_unit_level_service(
 
 
 def get_user_admin_service(
+    db: Annotated[Session, Depends(get_db)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     roles: Annotated[RoleRepository, Depends(get_role_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     tokens: Annotated[RefreshTokenRepository, Depends(get_refresh_token_repository)],
 ) -> UserAdminService:
-    return UserAdminService(users, departments, roles, audit, tokens)
+    return UserAdminService(users, departments, roles, audit, tokens, EmployeeRepository(db))
 
 
 def get_profile_service(
+    db: Annotated[Session, Depends(get_db)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
     roles: Annotated[RoleRepository, Depends(get_role_repository)],
 ) -> ProfileService:
-    return ProfileService(users, departments, roles)
+    return ProfileService(users, departments, roles, EmployeeRepository(db))
 
 
 def get_activity_service(
@@ -261,8 +271,22 @@ def get_employee_service(
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
 ) -> EmployeeService:
-    return EmployeeService(employees, audit, users)
+    return EmployeeService(employees, audit, users, departments)
+
+
+def get_calendar_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> CalendarRepository:
+    return CalendarRepository(db)
+
+
+def get_calendar_service(
+    calendar: Annotated[CalendarRepository, Depends(get_calendar_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> CalendarService:
+    return CalendarService(calendar, audit)
 
 
 def get_attendance_repository(
@@ -282,17 +306,22 @@ def get_attendance_service(
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     leaves: Annotated[LeaveRepository, Depends(get_leave_repository)],
+    calendar: Annotated[CalendarService, Depends(get_calendar_service)],
+    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
 ) -> AttendanceService:
-    # leaves injected so Bảng công tháng đánh dấu ngày nghỉ đã duyệt (P/KL).
-    return AttendanceService(attendance, employees, audit, leaves=leaves)
+    # leaves → đánh dấu ngày nghỉ (P/KL); calendar → công lễ; payroll (REPO) → chặn mở kỳ công
+    # khi kỳ lương đã chốt (Q3). Chỉ đọc payroll REPO nên không vòng service↔service.
+    return AttendanceService(attendance, employees, audit, leaves=leaves, calendar=calendar, payroll=payroll)
 
 
 def get_leave_service(
     leaves: Annotated[LeaveRepository, Depends(get_leave_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    calendar: Annotated[CalendarService, Depends(get_calendar_service)],
 ) -> LeaveService:
-    return LeaveService(leaves, employees, audit)
+    # calendar → loại ngày lễ khỏi quota + tuần T2–T7 (Thứ 7 nay trừ phép).
+    return LeaveService(leaves, employees, audit, calendar=calendar)
 
 
 def get_payroll_repository(
@@ -307,11 +336,35 @@ def get_piece_work_repository(
     return PieceWorkRepository(db)
 
 
+def get_production_output_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> ProductionOutputRepository:
+    return ProductionOutputRepository(db)
+
+
+def get_cong_doan_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> CongDoanRepository:
+    return CongDoanRepository(db)
+
+
 def get_piece_work_service(
     piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    outputs: Annotated[ProductionOutputRepository, Depends(get_production_output_repository)],
 ) -> PieceWorkService:
-    return PieceWorkService(piece, employees)
+    # payroll (REPO, chỉ đọc) → đồng bộ khóa kỳ; audit → nhật ký; outputs → materialize phiếu SL (Pha 5b).
+    return PieceWorkService(piece, employees, payroll=payroll, audit=audit, outputs=outputs)
+
+
+def get_production_output_service(
+    outputs: Annotated[ProductionOutputRepository, Depends(get_production_output_repository)],
+    cong_doan: Annotated[CongDoanRepository, Depends(get_cong_doan_repository)],
+    piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
+) -> ProductionOutputService:
+    return ProductionOutputService(outputs, cong_doan, piece)
 
 
 def get_payroll_service(
@@ -376,17 +429,33 @@ def get_order_repository(
     return OrderRepository(db)
 
 
+def get_payments_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> PaymentRepository:
+    return PaymentRepository(db)
+
+
+def get_order_approval_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> OrderApprovalRepository:
+    return OrderApprovalRepository(db)
+
+
 def get_order_service(
     orders: Annotated[OrderRepository, Depends(get_order_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
     customers: Annotated[CustomerRepository, Depends(get_customer_repository)],
+    payments: Annotated[PaymentRepository, Depends(get_payments_repository)],
+    approvals: Annotated[OrderApprovalRepository, Depends(get_order_approval_repository)],
 ) -> OrderService:
-    # SEAM-04 quotation_ref half CLOSED-live: the Báo giá repo is injected so the order can
-    # pull an approved quotation (read-only). The deposit half (Payment) stays a raising stub
-    # inside order_ports until the Payment table is built (feat-048). CRM repo resolves the
-    # customer display name (kéo từ báo giá, read-only).
-    return OrderService(orders, audit, quotations=quotations, customers=customers)
+    # SEAM-04 CLOSED-live: quotation_ref (Báo giá repo, read-only) + deposit (Payment repo, ghi/đọc
+    # cọc — feat-048). CRM repo resolves the customer display name (kéo từ báo giá, read-only).
+    # A2: OrderApproval repo — duyệt "đơn đặc thù" (Giám đốc).
+    return OrderService(
+        orders, audit, quotations=quotations, customers=customers,
+        payments=payments, approvals=approvals,
+    )
 
 
 def require_permission(module_key: str, action: str):

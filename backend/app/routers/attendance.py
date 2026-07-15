@@ -40,6 +40,9 @@ from ..schemas.attendance import (
     RejectRequestIn,
     RequestAdjustIn,
     TodayKpiOut,
+    HolidayMark,
+    PeriodActionIn,
+    AttendancePeriodOut,
     TimesheetDay,
     TimesheetOut,
     TimesheetRow,
@@ -294,6 +297,8 @@ def my_timesheet(
         _raise(exc)
     return TimesheetOut(
         year=data["year"], month=data["month"], days_in_month=data["days_in_month"],
+        standard_cong=data.get("standard_cong"),
+        holidays=[HolidayMark(**h) for h in data.get("holidays", [])],
         rows=_timesheet_rows(svc, depts, data),
     )
 
@@ -361,6 +366,8 @@ def timesheet(
         _raise(exc)
     return TimesheetOut(
         year=data["year"], month=data["month"], days_in_month=data["days_in_month"],
+        standard_cong=data.get("standard_cong"),
+        holidays=[HolidayMark(**h) for h in data.get("holidays", [])],
         rows=_timesheet_rows(svc, depts, data),
     )
 
@@ -410,6 +417,41 @@ def timesheet_csv(
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="bang-cong-{year}-{month:02d}.csv"'},
     )
+
+
+# --- Chốt công tháng (kỳ công) ----------------------------------------------
+
+
+@router.get("/period", response_model=AttendancePeriodOut)
+def get_period(svc: Service,
+               user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+               year: int = Query(ge=2000, le=2100),
+               month: int = Query(ge=1, le=12)) -> AttendancePeriodOut:
+    try:
+        data = svc.period_status(year=year, month=month)
+    except AttendanceError as exc:
+        _raise(exc)
+    return AttendancePeriodOut(**data)
+
+
+@router.post("/period/lock", response_model=AttendancePeriodOut)
+def lock_period(body: PeriodActionIn, svc: Service,
+                user: Annotated[User, Depends(require_permission(MODULE, "adjust"))]) -> AttendancePeriodOut:
+    try:
+        data = svc.lock_period(year=body.year, month=body.month, actor=user)
+    except AttendanceError as exc:
+        _raise(exc)
+    return AttendancePeriodOut(**data)
+
+
+@router.post("/period/reopen", response_model=AttendancePeriodOut)
+def reopen_period(body: PeriodActionIn, svc: Service,
+                  user: Annotated[User, Depends(require_permission(MODULE, "adjust"))]) -> AttendancePeriodOut:
+    try:
+        data = svc.reopen_period(year=body.year, month=body.month, actor=user)
+    except AttendanceError as exc:
+        _raise(exc)
+    return AttendancePeriodOut(**data)
 
 
 # --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch (HR) -------------------

@@ -13,6 +13,8 @@ import {
   type KhoMaterialOption,
   type KhoItemStatus,
   type WarehouseRow,
+  type ProductionOutput,
+  type CongDoanLite,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
@@ -230,7 +232,7 @@ export function ProductionOrderDetail({
 }) {
   const { token } = useAuth();
   const [cur, setCur] = useState<ProductionOrderRow>(order);
-  const [tab, setTab] = useState<"info" | "files">("info");
+  const [tab, setTab] = useState<"info" | "files" | "san_luong">("info");
   const [editing, setEditing] = useState(false);
   const [atts, setAtts] = useState<ProductionAttachment[]>([]);
   const [busy, setBusy] = useState(false);
@@ -322,6 +324,10 @@ export function ProductionOrderDetail({
               style={{ padding: "6px 2px", background: "none", border: "none", cursor: "pointer", borderBottom: tab === "files" ? "2px solid var(--accent, #b5531f)" : "2px solid transparent", fontWeight: tab === "files" ? 600 : 400 }}>
               Tập tin{atts.length ? ` (${atts.length})` : ""}
             </button>
+            <button type="button" className="md-page__tab" onClick={() => setTab("san_luong")}
+              style={{ padding: "6px 2px", background: "none", border: "none", cursor: "pointer", borderBottom: tab === "san_luong" ? "2px solid var(--accent, #b5531f)" : "2px solid transparent", fontWeight: tab === "san_luong" ? 600 : 400 }}>
+              Sản lượng
+            </button>
           </div>
 
           <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
@@ -396,7 +402,7 @@ export function ProductionOrderDetail({
                 </div>
               )}
             </>
-          ) : (
+          ) : tab === "files" ? (
             <>
               {atts.length === 0 ? (
                 <p className="md-page__muted" style={{ margin: "4px 0" }}>Chưa có tập tin đính kèm.</p>
@@ -415,6 +421,8 @@ export function ProductionOrderDetail({
                   onChange={(e) => { onUploadFiles(e.target.files); e.target.value = ""; }} />
               )}
             </>
+          ) : (
+            <OutputsTab order={cur} />
           )}
 
           {error && <div className="banner banner--error" role="alert" style={{ marginTop: 12 }}>{error}</div>}
@@ -604,6 +612,146 @@ export function ProductionOrderForm({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// Tổ khoán (khớp KHOAN_GROUPS ở LuongPage).
+const KHOAN_GROUPS: { key: string; label: string }[] = [
+  { key: "to_boi", label: "Tổ Bồi" },
+  { key: "to_can_phu", label: "Tổ Cán/Phủ" },
+  { key: "to_cat", label: "Tổ Cắt" },
+  { key: "may_in_5mau", label: "Máy in 5 màu" },
+  { key: "may_in_2mau", label: "Máy in 2 màu" },
+  { key: "to_thanh_pham", label: "Tổ Thành phẩm" },
+];
+
+const DEFECT_CAUSES: { key: string; label: string }[] = [
+  { key: "", label: "— Nguyên nhân hỏng —" },
+  { key: "loi_tho", label: "Lỗi thợ (bị trừ)" },
+  { key: "vat_tu", label: "Vật tư" },
+  { key: "thiet_bi", label: "Thiết bị/máy" },
+  { key: "file_thiet_ke", label: "File/thiết kế" },
+  { key: "cong_doan_truoc", label: "Công đoạn trước" },
+];
+const DEFECT_CAUSE_LABEL: Record<string, string> = Object.fromEntries(DEFECT_CAUSES.map((c) => [c.key, c.label]));
+
+// Tab "Sản lượng" trong màn LSX (Pha 5b): ghi phiếu sản lượng công đoạn theo TỔ hoặc NGƯỜI + trừ lỗi.
+function OutputsTab({ order }: { order: ProductionOrderRow }) {
+  const { token } = useAuth();
+  const can = useCan();
+  const canWrite = can("san_luong", "create");
+  const [rows, setRows] = useState<ProductionOutput[]>([]);
+  const [cds, setCds] = useState<CongDoanLite[]>([]);
+  const [emps, setEmps] = useState<{ id: number; full_name: string }[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const now = new Date();
+  const [f, setF] = useState({
+    cong_doan: "", group_name: KHOAN_GROUPS[0].key, employee_id: "", year: now.getFullYear(),
+    month: now.getMonth() + 1, quantity: "", unit: "m2", unit_price: "", work_name: "",
+    defect_qty: "", defect_cause: "",
+  });
+  const selCd = cds.find((c) => c.ma === f.cong_doan);
+  const isNguoi = selCd?.khoan_ghi_theo === "nguoi";
+
+  const load = useCallback(() => {
+    if (!token) return;
+    api.sanLuong.listByOrder(token, order.id).then((r) => setRows(r.items)).catch(() => setRows([]));
+  }, [token, order.id]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!token) return;
+    api.congDoan.list(token).then((r) => setCds(r.items.filter((c) => c.khoan_ghi_theo !== "khong"))).catch(() => setCds([]));
+    api.employees.list(token, { size: 200, sort: "code" }).then((r) => setEmps(r.items)).catch(() => setEmps([]));
+  }, [token]);
+
+  async function add() {
+    if (!token) return;
+    setErr(null);
+    try {
+      await api.sanLuong.create(token, {
+        production_order_id: order.id, cong_doan: f.cong_doan, year: Number(f.year), month: Number(f.month),
+        group_name: f.group_name, employee_id: isNguoi && f.employee_id ? Number(f.employee_id) : null,
+        quantity: Number(f.quantity) || 0, unit: f.unit || null,
+        unit_price: f.unit_price ? Number(f.unit_price) : null, work_name: f.work_name || null,
+        defect_qty: Number(f.defect_qty) || 0, defect_cause: f.defect_cause || null,
+      });
+      setF({ ...f, quantity: "", unit_price: "", work_name: "", defect_qty: "", defect_cause: "" });
+      load();
+    } catch (e) { setErr(e instanceof ApiError ? e.message : "Ghi phiếu thất bại."); }
+  }
+  async function del(id: number) {
+    if (!token) return;
+    try { await api.sanLuong.remove(token, id); load(); } catch (e) { setErr(e instanceof ApiError ? e.message : "Xóa thất bại."); }
+  }
+
+  const money = (n: number) => Number(n).toLocaleString("vi-VN");
+  const empName = (id: number | null) => (id ? emps.find((e) => e.id === id)?.full_name ?? `NV#${id}` : "");
+  return (
+    <div>
+      <p className="md-page__muted" style={{ margin: "0 0 10px" }}>
+        Ghi sản lượng thực từng công đoạn (theo tổ hoặc theo người). Số này chảy vào lương khoán khi HCNS <b>Chốt sổ</b> tổ tương ứng.
+        Hỏng chỉ bị trừ khi <b>lỗi do thợ</b> và vượt ngưỡng hao của công đoạn.
+      </p>
+      {order.order_kind === "bu" && (
+        <div className="banner banner--warn" style={{ marginBottom: 10 }}>Lệnh bù: phiếu mặc định <b>không tính khoán</b> (chỉ HCNS bật khi bù do khách/vật tư).</div>
+      )}
+      {err && <div className="banner banner--error" style={{ marginBottom: 10 }}>{err}</div>}
+      <div className="md-page__tablewrap">
+        <table className="md-page__table">
+          <thead><tr>
+            <th>Công đoạn</th><th>Tổ / Người</th><th>Kỳ</th>
+            <th style={{ textAlign: "right" }}>Đạt</th><th style={{ textAlign: "right" }}>Hỏng</th>
+            <th>Nguyên nhân</th><th style={{ textAlign: "right" }}>Đơn giá</th>
+            <th style={{ textAlign: "right" }}>Trừ lỗi</th><th style={{ textAlign: "right" }}>Thực nhận</th>
+            <th>Khoán?</th><th></th>
+          </tr></thead>
+          <tbody>
+            {rows.map((o) => (
+              <tr key={o.id}>
+                <td>{o.cong_doan}</td>
+                <td>{o.ghi_theo === "nguoi" ? empName(o.employee_id) : o.group_name}</td>
+                <td>{o.month}/{o.year}</td>
+                <td style={{ textAlign: "right" }}>{money(o.quantity)}</td>
+                <td style={{ textAlign: "right" }}>{o.defect_qty ? money(o.defect_qty) : "—"}</td>
+                <td>{o.defect_cause ? DEFECT_CAUSE_LABEL[o.defect_cause] ?? o.defect_cause : "—"}</td>
+                <td style={{ textAlign: "right" }}>{money(o.unit_price)}</td>
+                <td style={{ textAlign: "right" }}>{o.defect_deduction ? `−${money(o.defect_deduction)}` : "—"}</td>
+                <td style={{ textAlign: "right", fontWeight: 600 }}>{money(o.net_amount)}</td>
+                <td>{o.tinh_khoan ? "✓" : "—"}</td>
+                <td>{canWrite && <button type="button" className="md-page__file-x" onClick={() => del(o.id)}>✕</button>}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={11} className="md-page__muted">Chưa có phiếu sản lượng.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {canWrite && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+          <select className="input" value={f.cong_doan} onChange={(e) => setF({ ...f, cong_doan: e.target.value })}>
+            <option value="">— Công đoạn —</option>
+            {cds.map((c) => <option key={c.id} value={c.ma}>{c.ma} · {c.ten}{c.khoan_ghi_theo === "nguoi" ? " (theo người)" : ""}</option>)}
+          </select>
+          <select className="input" value={f.group_name} onChange={(e) => setF({ ...f, group_name: e.target.value })} title="Tổ (để chốt sổ)">
+            {KHOAN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+          </select>
+          {isNguoi && (
+            <select className="input" value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })}>
+              <option value="">— Nhân viên —</option>
+              {emps.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+            </select>
+          )}
+          <input className="input" type="number" style={{ width: 62 }} value={f.month} onChange={(e) => setF({ ...f, month: Number(e.target.value) })} title="Tháng" />
+          <input className="input" type="number" style={{ width: 82 }} value={f.year} onChange={(e) => setF({ ...f, year: Number(e.target.value) })} title="Năm" />
+          <input className="input" type="number" style={{ width: 92 }} value={f.quantity} onChange={(e) => setF({ ...f, quantity: e.target.value })} placeholder="Đạt" />
+          <input className="input" type="number" style={{ width: 82 }} value={f.defect_qty} onChange={(e) => setF({ ...f, defect_qty: e.target.value })} placeholder="Hỏng" />
+          <select className="input" value={f.defect_cause} onChange={(e) => setF({ ...f, defect_cause: e.target.value })}>
+            {DEFECT_CAUSES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+          <input className="input" type="number" style={{ width: 92 }} value={f.unit_price} onChange={(e) => setF({ ...f, unit_price: e.target.value })} placeholder="Đơn giá" />
+          <Button variant="primary" onClick={add} disabled={!f.cong_doan || !f.quantity || (isNguoi && !f.employee_id)}>Ghi phiếu</Button>
+        </div>
+      )}
     </div>
   );
 }

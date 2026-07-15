@@ -45,7 +45,11 @@ TRANSITIONS: dict[tuple[str, str], Transition] = {
     (STATUS_DRAFT, STATUS_ON_HOLD): Transition(action="hold_order"),
     (STATUS_ON_HOLD, STATUS_DRAFT): Transition(action="resume_order"),
     (STATUS_ORDERED, STATUS_ON_HOLD): Transition(action="hold_order"),
-    (STATUS_ON_HOLD, STATUS_ORDERED): Transition(action="resume_order"),
+    # on_hold → ordered là CHỐT ĐƠN: phải qua CÙNG cổng ③→④ (cọc + đơn đặc thù) + khóa snapshot,
+    # nếu không đơn đi draft→on_hold→ordered sẽ lách toàn bộ gate (phản biện kiến trúc #2).
+    (STATUS_ON_HOLD, STATUS_ORDERED): Transition(
+        action="confirm_order", gated=True, locks_snapshot=True
+    ),
     # Đổi đơn (re-quote giữ lịch sử qua Quotation-version). draft | ordered → change_order.
     (STATUS_DRAFT, STATUS_CHANGE_ORDER): Transition(action="change_order"),
     (STATUS_ORDERED, STATUS_CHANGE_ORDER): Transition(action="change_order"),

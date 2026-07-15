@@ -34,6 +34,7 @@ from ..services.estimate_service import (
     EstimateValidationError,
 )
 from ..services.costing_service import suggest_pieces_per_sheet
+from ..services.phieu_tinh_gia import estimate_to_phieu
 
 router = APIRouter(prefix="/api/costings", tags=["costings"])
 
@@ -326,6 +327,27 @@ def get_costing(
         ) from None
     qty = est.quantity_list_json[0] if est.quantity_list_json else 1000
     return _detail_from_estimate(est, qty)
+
+
+@router.get("/{costing_id}/phieu")
+def get_costing_phieu(
+    costing_id: int,
+    svc: Annotated[EstimateService, Depends(get_estimate_service)],
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    qty: int | None = Query(default=None),
+) -> dict:
+    """Kết quả tính giá của 1 phiếu gom thành 4 nhóm (A Giấy · B Công in · C Chế bản ·
+    D Gia công sau in) + tổng giá vốn, phục vụ in "Phiếu tính giá".
+
+    `qty` chọn mức số lượng muốn in; bỏ trống ⇒ lấy phương án đầu tiên của phiếu."""
+    try:
+        est = svc.get_estimate(costing_id)
+    except EstimateNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Không tìm thấy phương án tính giá.",
+        ) from None
+    return estimate_to_phieu(est, qty)
 
 
 @router.put("/{costing_id}", response_model=CostingDetailOut)

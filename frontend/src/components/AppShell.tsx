@@ -11,6 +11,7 @@ import {
 } from "../auth/permissions";
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
+import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
@@ -38,7 +39,6 @@ import { KhoConfigPage } from "../pages/KhoConfigPage";
 import { KhoBaoCaoPage } from "../pages/KhoBaoCaoPage";
 import { KhoKiemKePage } from "../pages/KhoKiemKePage";
 import { ProductionOrdersPage } from "../pages/ProductionOrdersPage";
-import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
 import { MODULES_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -63,6 +63,8 @@ export interface NavParams {
   focusVoucherQuery?: string;
   /** Liên thông: mở màn Phiếu thu với ô tìm kiếm điền sẵn (mã PC/PT...). */
   focusReceiptQuery?: string;
+  /** P3 (redesign-bao-gia §6): mở thẳng 1 Phiếu tính giá (link "↳ PTG" từ Báo giá). */
+  focusPhieuId?: number;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -80,7 +82,6 @@ export function AppShell() {
   const [navParams, setNavParams] = useState<NavParams | null>(null);
   const [readable, setReadable] = useState<Set<string> | null>(null);
   const [caps, setCaps] = useState<Capabilities>(new Map());
-  const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
   // Các kho admin đã cấu hình → menu con động dưới "Tồn kho" trong sidebar.
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   // Badge số theo nav id (vd "nghi-phep": số đơn chờ duyệt) — chỉ người có quyền duyệt.
@@ -155,6 +156,16 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Báo giá in ấn: số báo giá 'Chờ duyệt' trong scope — endpoint tự trả 0 nếu người
+    // gọi KHÔNG có quyền duyệt đặc thù (chỉ người duyệt mới thấy "chờ tôi duyệt").
+    if (readable.has("bao_gia")) {
+      api.quotations
+        .pendingApprovalCount(token)
+        .then((r) => {
+          setBadges((prev) => ({ ...prev, "bao-gia": r.count > 0 ? r.count : 0 }));
+        })
+        .catch(() => {});
+    }
   }, [token, readable]);
   useEffect(() => {
     reloadBadges();
@@ -222,6 +233,8 @@ export function AppShell() {
         return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} />;
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
+      case "tinh-gia":
+        return <TinhGiaPage navigate={navigate} openPhieuId={navParams?.focusPhieuId} />;
       case "bao-gia":
         return (
           <BaoGiaPage
@@ -300,10 +313,9 @@ export function AppShell() {
           badges={badges}
         />
         <div className="shell__main">
-          <Topbar onProfileAction={setProfileAction} leaveUnseen={leaveUnseen} onOpenLeave={openLeaveFromBell} />
+          <Topbar onOpenProfile={() => navigate("ho-so-cua-toi")} leaveUnseen={leaveUnseen} onOpenLeave={openLeaveFromBell} />
           <div className="shell__content">{renderContent()}</div>
         </div>
-        <ProfileDialog action={profileAction} onClose={() => setProfileAction(null)} />
       </div>
     </PermissionsProvider>
   );

@@ -238,27 +238,65 @@ def test_no_physical_fields_in_any_view(client):
 
 # --- gate ③→④ + chốt blocked while cọc TREO (F3) ------------------------------
 
-def test_gate_deposit_unavailable(client):
+def test_gate_deposit_available_unpaid(client):
     token = _admin_token(client)
     qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_000_000)
     order = _create_order(client, token, qid).json()
     gate = order["gate"]
     assert gate["quotation_approved"] is True
-    assert gate["deposit_available"] is False
-    assert gate["deposit_paid"] is None
+    # SEAM-04 deposit LIVE: cọc đọc thật, chưa thu → 0 (KHÔNG phải None); cổng chưa mở.
+    assert gate["deposit_available"] is True
+    assert gate["deposit_paid"] == 0
     assert gate["can_confirm"] is False
-    assert gate["deposit_required"] == 300_000
+    assert gate["total_payment"] == 1_080_000    # 1tr + VAT 8%
+    assert gate["deposit_required"] == 540_000    # 50% của tổng gồm VAT
+    assert gate["all_lines_priced"] is True
 
 
-def test_confirm_blocked_while_deposit_treo(client):
+def test_confirm_blocked_without_deposit(client):
     token = _admin_token(client)
     qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_000_000)
     order = _create_order(client, token, qid).json()
     r = client.post(
         f"/api/orders/{order['id']}/transition", json={"to_status": "ordered"}, headers=_h(token)
     )
-    # Chốt cần cọc, ghi cọc TREO (SEAM-04 Payment) → 409, nêu rõ chờ phân hệ.
-    assert r.status_code == 409
+    # Cọc LIVE nhưng chưa thu (0 < 300k) → chưa đủ điều kiện chốt → 422 (không còn 409 TREO).
+    assert r.status_code == 422
+    assert "cọc" in r.json()["detail"].lower()
+
+
+def test_record_deposit_unlocks_confirm(client):
+    token = _admin_token(client)
+    qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_000_000)
+    oid = _create_order(client, token, qid).json()["id"]
+    # Ghi cọc đủ ngưỡng (50% của tổng gồm VAT 1.080.000 = 540k) → cổng ③→④ mở.
+    r = client.post(
+        f"/api/orders/{oid}/payments", json={"amount": 540_000, "method": "bank"}, headers=_h(token)
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["gate"]["deposit_paid"] == 540_000
+    assert r.json()["gate"]["can_confirm"] is True
+    # Danh sách khoản thu phản ánh cọc.
+    lst = client.get(f"/api/orders/{oid}/payments", headers=_h(token)).json()
+    assert lst["deposit_total"] == 540_000
+    assert len(lst["items"]) == 1 and lst["items"][0]["kind"] == "deposit"
+    # Chốt đơn → 200, status ordered.
+    r = client.post(
+        f"/api/orders/{oid}/transition", json={"to_status": "ordered"}, headers=_h(token)
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "ordered"
+
+
+def test_record_deposit_rejects_nonpositive(client):
+    token = _admin_token(client)
+    qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_000_000)
+    oid = _create_order(client, token, qid).json()["id"]
+    # Pydantic gt=0 → 422 cho số ≤ 0.
+    r = client.post(
+        f"/api/orders/{oid}/payments", json={"amount": 0, "method": "bank"}, headers=_h(token)
+    )
+    assert r.status_code == 422
 
 
 # --- đổi/hủy (F8) -------------------------------------------------------------

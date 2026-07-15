@@ -141,8 +141,19 @@ class RolePermission(Base):
     can_view_salary: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # nhan_su: SỬA dữ liệu nhạy cảm hồ sơ (lương/BHXH/bank/nhóm-bậc lương) — TÁCH khỏi
+    # `view_salary` (chỉ xem). Thiếu quyền này thì các field nhạy cảm bị BỎ QUA khi ghi (N5).
+    can_edit_salary: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     # nhan_su (Chấm công): điều chỉnh CÔNG bằng cách thêm/xóa PUNCH NGUỒN (chấm bù, sửa)
     # — tách khỏi "sửa hồ sơ" (update). Người khai ca chưa chắc được sửa công NV.
     can_adjust: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # don_hang_ban (A2): DUYỆT "đơn đặc thù" (giá trị cao / biên thấp / dưới giá vốn) — CHỈ Giám đốc.
+    # TÁCH khỏi `can_approve` (= chốt đơn thường, Trưởng phòng KD cũng có): đơn đặc thù chỉ GĐ ký,
+    # Sales/TP KD không tự miễn cho mình. Mặc định tắt.
+    can_approve_exception: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

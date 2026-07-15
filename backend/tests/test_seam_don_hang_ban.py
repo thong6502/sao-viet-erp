@@ -20,19 +20,19 @@ import pytest
 from app.services import order_ports
 
 
-@pytest.mark.skip(
-    reason="SEAM-04 chờ Báo giá + Tài chính(Payment): Order tham chiếu quotation "
-    "approved (id+version+effective_from) và ghi cọc deposit — port quotation_ref/deposit_payment"
-)
-def test_seam_04_quotation_ref_and_deposit():
-    """Kinh doanh sở hữu port `quotation_ref(quotation_id) -> {approved, version,
-    effective_from, total}` + `record_deposit(order_id, amount) -> Payment(kind=deposit)`.
+def test_seam_04_deposit_backfilled(client):
+    """SEAM-04 (deposit half) ĐÃ back-fill (feat-048): đọc/ghi cọc qua bảng Payment (LIVE). Với
+    repo Payment, `deposit_total` trả số thật (0 khi chưa thu) — KHÔNG còn raise. `client` để chắc
+    bảng `payments` đã dựng. Luồng ghi cọc → mở khóa cổng chốt được phủ ở test_orders_api/model.
+    Nửa quotation_ref đã LIVE từ trước (Báo giá built)."""
+    from app.db import SessionLocal
+    from app.repositories.payment_repo import PaymentRepository
 
-    Gate ③→④ (§32 dòng 827-828): `quotation.approved AND deposit >= total*min_deposit_pct`.
-    Order-line snapshot copy-on-write từ báo giá (P0 §43 #5). Back-fill khi phân hệ Báo giá +
-    bảng Payment tồn tại.
-    """
-    raise NotImplementedError("SEAM-04 chưa back-fill")
+    db = SessionLocal()
+    try:
+        assert order_ports.deposit_total(order_id=999999, payments=PaymentRepository(db)) == 0
+    finally:
+        db.close()
 
 
 @pytest.mark.skip(
@@ -68,12 +68,12 @@ def test_seam_06_customer_paper_lot():
 # these switch to asserting the live behaviour (the module-level convenience keeps raising for
 # a mis-wired caller).
 
-def test_seam_04_deposit_payment_stub_raises():
-    """SEAM-04 (deposit half): ghi/đọc cọc = Payment(kind=deposit) — Payment chưa build
-    (feat-048). The stub must raise, never fabricate a paid amount."""
-    with pytest.raises(NotImplementedError, match="SEAM-04 .deposit_payment. chưa back-fill"):
+def test_seam_04_deposit_needs_repo():
+    """SEAM-04 (deposit half): module-level convenience RAISES when a caller forgot to wire the
+    Payment repo — no fake cọc slips through (mirrors get_quotation_ref)."""
+    with pytest.raises(NotImplementedError, match="SEAM-04 .deposit_payment. cần repository"):
         order_ports.record_deposit(order_id=1, amount=100)
-    with pytest.raises(NotImplementedError, match="SEAM-04 .deposit_payment. chưa back-fill"):
+    with pytest.raises(NotImplementedError, match="SEAM-04 .deposit_payment. cần repository"):
         order_ports.deposit_total(order_id=1)
 
 

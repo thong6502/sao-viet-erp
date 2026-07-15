@@ -6,14 +6,14 @@ values).
 Seam registry (source of truth = these markers + the matching skip-tests in
 ``backend/tests/test_seam_don_hang_ban.py``; ``docs/CROSS_MODULE_LINKS.md`` is only an index):
 
-- SEAM-04 (⏳ TREO — quotation_ref LIVE, deposit_payment TREO): Đơn hàng bán ← Báo giá +
-  Tài chính (Payment). TWO halves under one seam id:
+- SEAM-04 (✅ CLOSED — quotation_ref LIVE + deposit_payment LIVE): Đơn hàng bán ← Báo giá +
+  Tài chính (Payment). TWO halves under one seam id, both back-filled:
     * ``quotation_ref(quotation_id) -> {approved, version, effective_from, total, customer_id,
-      lines}`` — Báo giá IS built (feat-043..045), so this half is back-filled by a real
-      adapter (``QuotationRefAdapter``) reading the live quotations repository (read-only).
-    * ``record_deposit(order_id, amount) -> Payment(kind=deposit)`` — the Payment table is
-      NOT built (feat-048), so this half keeps raising. The seam as a whole stays ⏳ until
-      the deposit half closes; the enabling test ``test_seam_04_...`` stays skip.
+      lines}`` — Báo giá IS built (feat-043..045), back-filled by ``QuotationRefAdapter``
+      reading the live quotations repository (read-only).
+    * ``record_deposit(order_id, amount) -> Payment(kind=deposit)`` + ``deposit_total(order_id)``
+      — bảng Payment ĐÃ build (feat-048); back-filled by ``DepositPaymentAdapter`` over the
+      Payment repo. The module-level convenience keeps raising for a mis-wired caller (no repo).
 - SEAM-05 (⏳ TREO): Đơn hàng bán ← Chế bản & Duyệt mẫu. ``proof_gate(order_id) ->
   {customer_approved}`` (read-only cổng ⑤→⑥ chỉ-báo, F6). Màn Đơn KHÔNG sở hữu gate này.
 - SEAM-06 (⏳ TREO): Đơn hàng bán ← Kho. ``customer_paper_lot(order_id) -> [StockLot{...}]``
@@ -53,6 +53,9 @@ class QuotationRefLine:
     qty: int
     unit_price_snapshot: int | None
     norm_snapshot: dict = field(default_factory=dict)
+    # A2: giá vốn TỔNG của dòng (VND) để soi biên lợi nhuận (đơn đặc thù). None = báo giá không có
+    # giá vốn → bỏ qua soi biên cho dòng đó (không bịa 0 thành "lỗ").
+    cost_snapshot: int | None = None
 
 
 @dataclass
@@ -94,11 +97,24 @@ class QuotationRefAdapter:
         # The physical layer (khổ/màu/kẽm/imposition) is NEVER read here — ẩn khỏi Sale (§29 P0).
         lines = []
         for item in active_version.items:
+            qty = int(item.quantity) or 1
+            # Doanh thu dòng phải khớp SỐ KHÁCH ĐÃ CHỐT = SAU chiết khấu (trước VAT). `unit_price`
+            # gốc là giá TRƯỚC chiết khấu (calculate_pricing: unit_price=selling_price/qty; chiết
+            # khấu trừ riêng ở subtotal) → KHÔNG dùng trực tiếp, nếu không tổng đơn + cọc lệch số
+            # khách chốt và biên A2 nhìn CAO hơn thực (đơn giảm giá sâu lách cổng biên). Lấy
+            # net = selling_price − discount_amount rồi chia lại đơn giá (chiết khấu bake vào đơn giá).
+            gross = float(item.selling_price) if item.selling_price else float(item.unit_price) * qty
+            net = max(0.0, gross - float(item.discount_amount or 0))
+            unit_net = int(round(net / qty))
+            # A2: giá vốn TỔNG dòng = QuoteItem.total_cost_snapshot (từ EstimateOption.total_cost —
+            # đã là tổng cả SL, cùng grain với line_total). NOT NULL nhưng guard None cho an toàn.
+            cost = item.total_cost_snapshot
             lines.append(
                 QuotationRefLine(
                     description=f"{item.product_name} - SL {item.quantity}",
-                    qty=int(item.quantity),
-                    unit_price_snapshot=int(item.unit_price),
+                    qty=qty,
+                    unit_price_snapshot=unit_net,
+                    cost_snapshot=int(cost) if cost is not None else None,
                     norm_snapshot={
                         "source": "quotation",
                         "quotation_id": q.id,
@@ -148,14 +164,40 @@ class DepositPaymentPort(Protocol):
         ...
 
 
-def record_deposit(order_id: int, amount: int) -> int:
-    # SEAM-04: chờ Tài chính (Payment) — bảng Payment chưa build (feat-048)
-    raise NotImplementedError("SEAM-04 (deposit_payment) chưa back-fill")
+class DepositPaymentAdapter:
+    """SEAM-04 (deposit_payment half) back-fill (feat-048): ghi/đọc CỌC qua bảng Payment (LIVE).
+    Cọc = ``Payment(kind=deposit)``. Read-only ``deposit_total`` cho cổng chốt đơn; ghi cọc qua
+    PaymentService/repo. Read-only — không đụng tới hóa đơn/doanh thu (chân lý ở ⑬, MISA)."""
+
+    def __init__(self, payments) -> None:
+        self._payments = payments
+
+    def record_deposit(self, order_id: int, amount: int, *, customer_id=None, created_by=None) -> int:
+        from ..models.payment import PAYMENT_KIND_DEPOSIT, PAYMENT_METHOD_BANK
+
+        p = self._payments.create(
+            order_id=order_id, customer_id=customer_id, kind=PAYMENT_KIND_DEPOSIT,
+            amount=amount, method=PAYMENT_METHOD_BANK, created_by=created_by,
+        )
+        return p.id
+
+    def deposit_total(self, order_id: int) -> int:
+        return self._payments.deposit_total(order_id)
 
 
-def deposit_total(order_id: int) -> int:
-    # SEAM-04: chờ Tài chính (Payment) — cọc đã thu đọc từ Payment (feat-048)
-    raise NotImplementedError("SEAM-04 (deposit_payment) chưa back-fill")
+def record_deposit(order_id: int, amount: int, *, payments=None) -> int:
+    # SEAM-04 (deposit half) back-filled: with a Payment repo it writes a real cọc; without one a
+    # mis-wired caller must fail loudly (never a fake write). Mirrors get_quotation_ref.
+    if payments is None:
+        raise NotImplementedError("SEAM-04 (deposit_payment) cần repository Payment")
+    return DepositPaymentAdapter(payments).record_deposit(order_id, amount)
+
+
+def deposit_total(order_id: int, *, payments=None) -> int:
+    # SEAM-04 (deposit half): cọc đã thu = Σ Payment(kind=deposit). Mis-wired (no repo) → raise.
+    if payments is None:
+        raise NotImplementedError("SEAM-04 (deposit_payment) cần repository Payment")
+    return DepositPaymentAdapter(payments).deposit_total(order_id)
 
 
 # --- SEAM-05: proof_gate — Chế bản & Duyệt mẫu — ⏳ TREO ----------------------

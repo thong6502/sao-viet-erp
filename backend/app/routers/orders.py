@@ -33,6 +33,9 @@ from ..models.order import (
 )
 from ..models.user import User
 from ..schemas.order import (
+    ApprovalIn,
+    ApprovalListOut,
+    ApprovalOut,
     ApprovedQuotationListOut,
     ApprovedQuotationRow,
     CustomerDisplayOut,
@@ -43,6 +46,9 @@ from ..schemas.order import (
     OrderEnumsOut,
     OrderListOut,
     OrderRow,
+    PaymentIn,
+    PaymentListOut,
+    PaymentOut,
     TransitionRequest,
 )
 from ..services.order_service import (
@@ -86,13 +92,23 @@ def _allowed_transitions(current_status: str) -> list[str]:
     return [to for (frm, to) in _ALL_TRANSITIONS if frm == current_status]
 
 
-def _detail(svc: OrderService, order: Order) -> OrderDetailOut:
+def _detail(svc: OrderService, order: Order, *, show_numbers: bool = True) -> OrderDetailOut:
     out = OrderDetailOut.model_validate(order)
     ref = svc.customer_display(order)
     out.customer = CustomerDisplayOut(**ref) if ref is not None else None
-    out.gate = GateOut(**svc.gate_status(order))
+    gate = svc.gate_status(order)
+    if not show_numbers:
+        # A2: KHÔNG rò biên/giá vốn cho người không có quyền duyệt đặc thù — chỉ giữ nhãn định tính
+        # (giá trị cao / lời mỏng / dưới giá vốn). Sales thấy "cần Giám đốc duyệt", không thấy số.
+        gate = {**gate, "margin_pct": None}
+    out.gate = GateOut(**gate)
     out.allowed_transitions = _allowed_transitions(order.status)
     return out
+
+
+def _can_see_exception_numbers(authz: AuthorizationService, user: User) -> bool:
+    """Được xem con số biên/giá vốn của khối đơn đặc thù = có quyền duyệt đặc thù (Giám đốc)."""
+    return authz.can(user, MODULE, "approve_exception")
 
 
 # --- enums + approved-quotation picker (F1, SEAM-04 quotation_ref) -------------
@@ -188,6 +204,7 @@ def list_orders(
 def create_order(
     payload: OrderCreate,
     svc: Service,
+    authz: Authz,
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
 ) -> OrderDetailOut:
     try:
@@ -205,7 +222,7 @@ def create_order(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
     except OrderValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, order)
+    return _detail(svc, order, show_numbers=_can_see_exception_numbers(authz, user))
 
 
 @router.get("/{order_id}", response_model=OrderDetailOut)
@@ -220,7 +237,7 @@ def get_order(
         order = svc.get_order(order_id=order_id, scope=scope, actor=user)
     except (OrderNotFound, OrderForbidden):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy đơn hàng.") from None
-    return _detail(svc, order)
+    return _detail(svc, order, show_numbers=_can_see_exception_numbers(authz, user))
 
 
 # --- lifecycle transitions (F8; chốt gated F3) --------------------------------
@@ -259,8 +276,99 @@ def transition_order(
     except OrderConflict as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
     except DepositUnavailable as e:
-        # Chốt cần cọc, nhưng ghi cọc TREO (SEAM-04 Payment) — 409, nêu rõ chờ phân hệ.
+        # Mis-wire (repo Payment không được inject) — an toàn: 409 nêu rõ. Bình thường cọc LIVE.
         raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
     except OrderValidationError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, order)
+    return _detail(svc, order, show_numbers=_can_see_exception_numbers(authz, user))
+
+
+# --- payments: ghi cọc (SEAM-04 deposit LIVE) → mở khóa cổng chốt ③→④ ----------
+
+@router.post("/{order_id}/payments", response_model=OrderDetailOut)
+def record_deposit(
+    order_id: int,
+    payload: PaymentIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))],
+) -> OrderDetailOut:
+    """Ghi CỌC cho đơn (Payment kind=deposit). Đủ ngưỡng → cổng chốt ③→④ mở. Cọc KHÔNG sinh hóa
+    đơn (N5, NĐ123/2020). Trả về đơn kèm gate đã cập nhật để UI phản ánh ngay."""
+    scope = _scope_for(authz, user)
+    try:
+        svc.record_deposit(
+            order_id=order_id, amount=payload.amount, method=payload.method,
+            note=payload.note, scope=scope, actor=user,
+        )
+        order = svc.get_order(order_id=order_id, scope=scope, actor=user)
+    except (OrderNotFound, OrderForbidden):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy đơn hàng.") from None
+    except DepositUnavailable as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
+    except OrderValidationError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    return _detail(svc, order, show_numbers=_can_see_exception_numbers(authz, user))
+
+
+@router.get("/{order_id}/payments", response_model=PaymentListOut)
+def list_payments(
+    order_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> PaymentListOut:
+    scope = _scope_for(authz, user)
+    try:
+        items = svc.list_payments(order_id=order_id, scope=scope, actor=user)
+        total = svc.deposit_total(order_id)
+    except (OrderNotFound, OrderForbidden):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy đơn hàng.") from None
+    except DepositUnavailable as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
+    return PaymentListOut(
+        items=[PaymentOut.model_validate(p) for p in items], deposit_total=total
+    )
+
+
+# --- A2: duyệt "đơn đặc thù" (Giám đốc) → mở khóa cổng chốt ③→④ ----------------
+
+@router.post("/{order_id}/approval", response_model=OrderDetailOut)
+def record_approval(
+    order_id: int,
+    payload: ApprovalIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "approve_exception"))],
+) -> OrderDetailOut:
+    """GĐ DUYỆT / TỪ CHỐI đơn đặc thù (perm `approve_exception` — CHỈ Giám đốc). Duyệt 'bao phủ' →
+    cổng chốt ③→④ mở. Trả về đơn kèm gate cập nhật (người duyệt có quyền → thấy đủ số biên)."""
+    scope = _scope_for(authz, user)
+    try:
+        svc.record_approval(
+            order_id=order_id, decision=payload.decision, note=payload.note,
+            scope=scope, actor=user,
+        )
+        order = svc.get_order(order_id=order_id, scope=scope, actor=user)
+    except (OrderNotFound, OrderForbidden):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy đơn hàng.") from None
+    except OrderValidationError as e:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
+    return _detail(svc, order, show_numbers=_can_see_exception_numbers(authz, user))
+
+
+@router.get("/{order_id}/approvals", response_model=ApprovalListOut)
+def list_approvals(
+    order_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "approve_exception"))],
+) -> ApprovalListOut:
+    """Lịch sử duyệt/từ chối đơn đặc thù — chứa số biên/giá vốn nên CHỈ người có quyền duyệt
+    (Giám đốc) xem được."""
+    scope = _scope_for(authz, user)
+    try:
+        items = svc.list_approvals(order_id=order_id, scope=scope, actor=user)
+    except (OrderNotFound, OrderForbidden):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy đơn hàng.") from None
+    return ApprovalListOut(items=[ApprovalOut.model_validate(a) for a in items])

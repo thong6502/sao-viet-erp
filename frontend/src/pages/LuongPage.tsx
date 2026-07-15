@@ -4,7 +4,16 @@
 //   • Tạm ứng — ghi nhiều lần → duyệt → tự trừ.
 //   • Quy tắc lương — tham số + bảng mức chuẩn.
 //   • Phiếu lương của tôi — self-service.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Calendar,
+  DollarSign,
+  Users,
+  Clock,
+  TrendingDown,
+  Search,
+  Sliders,
+} from "lucide-react";
 import {
   api,
   type EmployeeRow,
@@ -12,6 +21,7 @@ import {
   type PayrollLine,
   type PayrollParams,
   type PayrollPeriod,
+  type PitBracket,
   type PieceRate,
   type PieceSheet,
   type SalaryAdvance,
@@ -111,7 +121,12 @@ function BangLuongTab({ token }: { token: string }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<PayrollLine | null>(null);
+  const [params, setParams] = useState<PayrollParams | null>(null);
   const [year, month] = ym.split("-").map(Number);
+
+  useEffect(() => {
+    api.luong.getParams(token).then(setParams).catch(() => setParams(null));
+  }, [token]);
 
   const load = useCallback(() => {
     api.luong.table(token, year, month)
@@ -127,40 +142,35 @@ function BangLuongTab({ token }: { token: string }) {
 
   const shown = lines.filter((l) => filter === "all" || (filter === "tv" ? l.is_probation : !l.is_probation));
   const totalNet = shown.reduce((s, l) => s + l.net_pay, 0);
-  const locked = period?.status === "locked";
+  const totalStaff = shown.length;
+  const officialCount = shown.filter((l) => !l.is_probation).length;
+  const probationCount = shown.filter((l) => l.is_probation).length;
+  const totalWorkdays = shown.reduce((s, l) => s + (l.actual_cong ?? 0), 0);
+  const totalDeductions = shown.reduce((s, l) => s + (l.vi_pham ?? 0) + (l.bhxh ?? 0) + (l.advance_total ?? 0), 0);
 
-  function exportCsv(kind: "full" | "bank") {
-    const rows: string[][] = [];
-    if (kind === "full") {
-      rows.push(["Mã", "Họ tên", "Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-        "Khoán", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN", "Tạm ứng", "Thực lĩnh"]);
-      for (const l of shown) rows.push([
-        l.employee_code ?? "", l.employee_name ?? "", GROUP_LABEL[l.payroll_group ?? ""] ?? (l.payroll_group ?? ""),
-        l.is_probation ? "Thử việc" : "Chính thức", String(l.actual_cong),
-        String(Math.round(l.luong_cong)), String(Math.round(l.chuyen_can)), String(Math.round(l.allowance)),
-        String(Math.round(l.khoan)), String(Math.round(l.vi_pham)), String(Math.round(l.other_bonus)),
-        String(Math.round(l.gross)), String(Math.round(l.bhxh)), String(Math.round(l.pit)),
-        String(Math.round(l.advance_total)), String(Math.round(l.net_pay)),
-      ]);
-    } else {
-      rows.push(["Mã", "Họ tên", "Số tài khoản", "Ngân hàng", "Thực lĩnh"]);
-      for (const l of shown) rows.push([
-        l.employee_code ?? "", l.employee_name ?? "", l.bank_account ?? "", l.bank_name ?? "",
-        String(Math.round(l.net_pay)),
-      ]);
-    }
-    const csv = "﻿" + rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\r\n");
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${kind === "bank" ? "chuyen-khoan" : "bang-luong"}-${ym}.csv`;
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  const status = period?.status;
+  const isDraft = !period || status === "draft";
+  const locked = status === "locked";
+  const paid = status === "paid";
+
+  async function downloadXlsx(kind: "table" | "bank") {
+    setBusy(true); setErr(null);
+    try {
+      const url = await api.luong.xlsxBlobUrl(token, kind, year, month);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${kind === "bank" ? "chuyen-khoan" : "bang-luong"}-${ym}.xlsx`;
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
   }
 
   return (
     <div>
       <div className="cc-toolbar cc-ts-toolbar lg-toolbar">
-        <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+        <div className="lg-date-wrapper">
+          <span className="lg-date-icon"><Calendar size={14} /></span>
+          <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} />
+        </div>
         <div className="lg-seg">
           {(["all", "ct", "tv"] as const).map((f) => (
             <button key={f} className={filter === f ? "is-active" : ""} onClick={() => setFilter(f)}>
@@ -168,23 +178,150 @@ function BangLuongTab({ token }: { token: string }) {
             </button>
           ))}
         </div>
-        {!locked
-          ? <button className="btn btn--primary" onClick={() => run(() => api.luong.generate(token, year, month))} disabled={busy}>
-              {busy ? "Đang tính…" : period ? "↻ Tính lại" : "Tạo bảng lương"}
-            </button>
-          : <button className="btn btn--ghost" onClick={() => run(() => api.luong.reopen(token, year, month))} disabled={busy}>Mở lại</button>}
-        {period && !locked && (
+        {isDraft && period && (
+          <button className="btn btn--primary" onClick={() => run(() => api.luong.generate(token, year, month))} disabled={busy}>
+            {busy ? "Đang tính…" : "↻ Tính lại"}
+          </button>
+        )}
+        {period && isDraft && (
           <button className="btn btn--ghost" onClick={() => run(() => api.luong.lock(token, year, month))} disabled={busy}>🔒 Chốt</button>
         )}
-        {period && <button className="btn btn--ghost" onClick={() => exportCsv("full")}>⬇ Xuất Excel</button>}
-        {period && <button className="btn btn--ghost" onClick={() => exportCsv("bank")}>⬇ File chuyển khoản</button>}
+        {locked && (
+          <button className="btn btn--ghost" onClick={() => run(() => api.luong.reopen(token, year, month))} disabled={busy}>Mở lại</button>
+        )}
+        {locked && (
+          <button className="btn btn--primary" onClick={() => run(() => api.luong.pay(token, year, month))} disabled={busy}>💵 Đã chi</button>
+        )}
+        {paid && (
+          <button className="btn btn--ghost" onClick={() => run(() => api.luong.unpay(token, year, month, "hủy đã chi"))} disabled={busy}>↩ Hủy đã chi</button>
+        )}
+        {period && <button className="btn btn--ghost" onClick={() => downloadXlsx("table")} disabled={busy}>⬇ Xuất Excel</button>}
+        {(locked || paid) && <button className="btn btn--ghost" onClick={() => downloadXlsx("bank")} disabled={busy}>⬇ File chuyển khoản</button>}
         {locked && <span className="ns-badge ns-badge--muted">Đã chốt</span>}
+        {paid && <span className="ns-badge ns-badge--muted">💵 Đã chi{period?.paid_at ? ` ${new Date(period.paid_at).toLocaleDateString("vi-VN")}` : ""}</span>}
       </div>
 
       {err && <div className="banner banner--error" style={{ marginBottom: 12 }}>{err}</div>}
 
+      {period && (
+        <div className="lg-kpi-grid">
+          <div className="lg-kpi-card lg-kpi-card--net">
+            <div className="lg-kpi-card-header">
+              <span className="lg-kpi-card-icon"><DollarSign size={15} /></span>
+              <span className="lg-kpi-card-label">Tổng thực lĩnh</span>
+            </div>
+            <div className="lg-kpi-card-val">{money(totalNet)}đ</div>
+            <div className="lg-kpi-card-sub">Chi trả cho {totalStaff} nhân sự</div>
+          </div>
+
+          <div className="lg-kpi-card lg-kpi-card--staff">
+            <div className="lg-kpi-card-header">
+              <span className="lg-kpi-card-icon"><Users size={15} /></span>
+              <span className="lg-kpi-card-label">Quy mô nhân sự</span>
+            </div>
+            <div className="lg-kpi-card-val">{totalStaff} người</div>
+            <div className="lg-kpi-card-sub">{officialCount} chính thức · {probationCount} thử việc</div>
+          </div>
+
+          <div className="lg-kpi-card lg-kpi-card--workday">
+            <div className="lg-kpi-card-header">
+              <span className="lg-kpi-card-icon"><Clock size={15} /></span>
+              <span className="lg-kpi-card-label">Tổng ngày công</span>
+            </div>
+            <div className="lg-kpi-card-val">{totalWorkdays.toLocaleString("vi-VN")} công</div>
+            <div className="lg-kpi-card-sub">Trung bình {(totalStaff ? totalWorkdays / totalStaff : 0).toFixed(1)} công/người</div>
+          </div>
+
+          <div className="lg-kpi-card lg-kpi-card--deduct">
+            <div className="lg-kpi-card-header">
+              <span className="lg-kpi-card-icon"><TrendingDown size={15} /></span>
+              <span className="lg-kpi-card-label">Khấu trừ & Tạm ứng</span>
+            </div>
+            <div className="lg-kpi-card-val">−{money(totalDeductions)}đ</div>
+            <div className="lg-kpi-card-sub">Bảo hiểm, phạt và ứng lương</div>
+          </div>
+        </div>
+      )}
+
       {!period ? (
-        <p className="ns__empty">Chưa có bảng lương tháng này. Bấm <b>“Tạo bảng lương”</b> để máy tính từ Chấm công + quy tắc + tạm ứng.</p>
+        <div className="lg-init-dashboard">
+          <div className="lg-init-grid">
+            <div className="lg-init-section lg-init-section--sources">
+              <h3 className="lg-init-section-title">Dữ liệu nguồn đồng bộ</h3>
+              <p className="lg-init-section-desc">Hệ thống tự động liên kết các phân hệ dữ liệu để tính toán lương chính xác:</p>
+              
+              <div className="lg-source-list">
+                <div className="lg-source-item">
+                  <div className="lg-source-item-head">
+                    <span className="lg-source-bullet lg-source-bullet--active"></span>
+                    <span className="lg-source-name">Dữ liệu Chấm công</span>
+                  </div>
+                  <span className="lg-source-text">Lấy số ngày công thực tế, giờ tăng ca, số ngày làm ca đêm đã chốt từ phân hệ Chấm công.</span>
+                </div>
+
+                <div className="lg-source-item">
+                  <div className="lg-source-item-head">
+                    <span className="lg-source-bullet lg-source-bullet--active"></span>
+                    <span className="lg-source-name">Quy tắc lương chuẩn</span>
+                  </div>
+                  <span className="lg-source-text">Áp dụng mức lương chuẩn theo vị trí, tổ nhóm công tác, thâm niên và giới tính đã cấu hình.</span>
+                </div>
+
+                <div className="lg-source-item">
+                  <div className="lg-source-item-head">
+                    <span className="lg-source-bullet lg-source-bullet--active"></span>
+                    <span className="lg-source-name">Khấu trừ & Tạm ứng</span>
+                  </div>
+                  <span className="lg-source-text">Tự động trừ các khoản tạm ứng đã phê duyệt trong tháng, tính BHXH bắt buộc và thuế TNCN lũy tiến.</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg-init-section lg-init-section--params">
+              <h3 className="lg-init-section-title">Tham số cấu hình hiện tại</h3>
+              <p className="lg-init-section-desc">Các tham số chung đang áp dụng trong hệ thống (sửa tại tab Quy tắc lương):</p>
+              
+              {params ? (
+                <div className="lg-param-table">
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Công chuẩn mặc định</span>
+                    <span className="lg-param-val">{params.standard_cong_default} ngày</span>
+                  </div>
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Giờ công tiêu chuẩn</span>
+                    <span className="lg-param-val">{params.standard_hours_per_day}h/ngày</span>
+                  </div>
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Tỷ lệ lương thử việc</span>
+                    <span className="lg-param-val">{params.probation_ratio * 100}%</span>
+                  </div>
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Giảm trừ bản thân</span>
+                    <span className="lg-param-val">{money(params.deduction_self)}đ</span>
+                  </div>
+                  <div className="lg-param-row">
+                    <span className="lg-param-name">Giảm trừ người phụ thuộc</span>
+                    <span className="lg-param-val">{money(params.deduction_dependent)}đ</span>
+                  </div>
+                </div>
+              ) : (
+                <p className="lg-param-loading">Đang tải tham số...</p>
+              )}
+            </div>
+          </div>
+
+          <div className="lg-init-action-card">
+            <div className="lg-init-action-info">
+              <h4 className="lg-init-action-title">Kỳ lương tháng {month}/{year} chưa được tạo</h4>
+              <p className="lg-init-action-desc">Xác nhận các thông tin dữ liệu nguồn và tham số ở trên trước khi tiến hành khởi tạo.</p>
+            </div>
+            {isDraft && (
+              <button className="btn btn--accent btn--large" onClick={() => run(() => api.luong.generate(token, year, month))} disabled={busy}>
+                {busy ? "Đang tính toán..." : "Khởi tạo bảng lương"}
+              </button>
+            )}
+          </div>
+        </div>
       ) : (
         <div className="ns__tablewrap lg-table">
           <table className="ns__table">
@@ -192,7 +329,9 @@ function BangLuongTab({ token }: { token: string }) {
               <tr>
                 <th>Mã</th><th>Họ tên</th><th>Tổ</th><th className="lg-num">Công</th>
                 <th className="lg-num">Lương công</th><th className="lg-num">Chuyên cần</th>
-                <th className="lg-num">Phụ cấp</th><th className="lg-num">Khoán</th><th className="lg-num">Vi phạm</th>
+                <th className="lg-num">Phụ cấp</th><th className="lg-num">Khoán</th>
+                <th className="lg-num">Tăng ca</th><th className="lg-num">Ca đêm</th>
+                <th className="lg-num">Vi phạm</th>
                 <th className="lg-num">Thưởng</th><th className="lg-num">BHXH</th>
                 <th className="lg-num">Tạm ứng</th><th className="lg-num lg-net">Thực lĩnh</th><th></th>
               </tr>
@@ -208,6 +347,8 @@ function BangLuongTab({ token }: { token: string }) {
                   <td className="lg-num">{money(l.chuyen_can)}</td>
                   <td className="lg-num">{money(l.allowance)}</td>
                   <td className="lg-num">{l.khoan ? money(l.khoan) : "—"}</td>
+                  <td className="lg-num" title={l.ot_minutes ? `${(l.ot_minutes / 60).toFixed(1)}h tăng ca` : ""}>{l.ot_pay ? money(l.ot_pay) : "—"}</td>
+                  <td className="lg-num" title={l.night_days ? `${l.night_days} ngày ca đêm` : ""}>{l.night_pay ? money(l.night_pay) : "—"}</td>
                   <td className={`lg-num ${l.vi_pham ? "lg-minus" : ""}`}>{l.vi_pham ? "−" + money(l.vi_pham) : "—"}</td>
                   <td className="lg-num">{l.other_bonus ? money(l.other_bonus) : "—"}</td>
                   <td className="lg-num lg-minus">{l.bhxh ? "−" + money(l.bhxh) : "—"}</td>
@@ -216,11 +357,11 @@ function BangLuongTab({ token }: { token: string }) {
                   <td>{!locked && <button className="btn btn--ghost" onClick={() => setEditing(l)}>Sửa</button>}</td>
                 </tr>
               ))}
-              {shown.length === 0 && <tr><td colSpan={14} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
+              {shown.length === 0 && <tr><td colSpan={16} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
             </tbody>
             <tfoot>
               <tr className="lg-foot">
-                <td colSpan={12}>Tổng thực lĩnh ({shown.length} người)</td>
+                <td colSpan={14}>Tổng thực lĩnh ({shown.length} người)</td>
                 <td className="lg-num lg-net">{money(totalNet)}</td><td></td>
               </tr>
             </tfoot>
@@ -242,6 +383,7 @@ function LineEditModal({ token, line, onClose, onSaved }: {
   const [viPham, setViPham] = useState(line.vi_pham);
   const [bonus, setBonus] = useState(line.other_bonus);
   const [pit, setPit] = useState(line.pit);
+  const [pitTouched, setPitTouched] = useState(false);
   const [note, setNote] = useState(line.note ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -249,9 +391,18 @@ function LineEditModal({ token, line, onClose, onSaved }: {
   async function save() {
     setBusy(true); setErr(null);
     try {
-      await api.luong.updateLine(token, line.id, {
-        vi_pham: viPham, other_bonus: bonus, pit, note: note || null,
-      });
+      // Chỉ gửi `pit` khi HCNS thực sự sửa ô TNCN → không vô tình khóa cứng số tự tính.
+      const input = pitTouched
+        ? { vi_pham: viPham, other_bonus: bonus, pit, note: note || null }
+        : { vi_pham: viPham, other_bonus: bonus, note: note || null };
+      await api.luong.updateLine(token, line.id, input);
+      onSaved();
+    } catch (e) { setErr(errText(e)); setBusy(false); }
+  }
+  async function resetPit() {
+    setBusy(true); setErr(null);
+    try {
+      await api.luong.updateLine(token, line.id, { pit_manual: false });
       onSaved();
     } catch (e) { setErr(errText(e)); setBusy(false); }
   }
@@ -264,19 +415,22 @@ function LineEditModal({ token, line, onClose, onSaved }: {
         </header>
         <div className="ns-modal__body">
           {err && <div className="banner banner--error">{err}</div>}
-          <p className="cc-note">Lương công {money(line.luong_cong)} · chuyên cần {money(line.chuyen_can)} · phụ cấp {money(line.allowance)} (tự tính, không sửa ở đây).</p>
+          <p className="cc-note">Lương công {money(line.luong_cong)} · chuyên cần {money(line.chuyen_can)} · phụ cấp {money(line.allowance)} · thu nhập tính thuế {money(line.pit_taxable)} (tự tính, không sửa ở đây).</p>
           <div className="ns-grid" style={{ marginTop: 12 }}>
             <label className="ns-field"><span className="ns-field__label">Vi phạm (trừ)</span>
               <input type="number" min={0} value={viPham} onChange={(e) => setViPham(Number(e.target.value))} /></label>
             <label className="ns-field"><span className="ns-field__label">Thưởng / hoa hồng</span>
               <input type="number" min={0} value={bonus} onChange={(e) => setBonus(Number(e.target.value))} /></label>
-            <label className="ns-field"><span className="ns-field__label">Thuế TNCN (trừ)</span>
-              <input type="number" min={0} value={pit} onChange={(e) => setPit(Number(e.target.value))} /></label>
+            <label className="ns-field"><span className="ns-field__label">
+                Thuế TNCN (trừ) <span className="ns-badge ns-badge--muted">{line.pit_manual ? "sửa tay" : "tự tính"}</span>
+              </span>
+              <input type="number" min={0} value={pit} onChange={(e) => { setPit(Number(e.target.value)); setPitTouched(true); }} /></label>
           </div>
           <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Ghi chú</span>
             <input value={note} onChange={(e) => setNote(e.target.value)} /></label>
         </div>
         <footer className="ns-modal__foot">
+          {line.pit_manual && <button className="btn btn--ghost" onClick={resetPit} disabled={busy} style={{ marginRight: "auto" }}>↺ Tự tính TNCN</button>}
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
           <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? "Đang lưu…" : "Lưu"}</button>
         </footer>
@@ -298,11 +452,14 @@ function NhanVienTab({ token, focusEmployeeId }: { token: string; focusEmployeeI
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
-  // Liên thông: khi mở từ Hồ sơ NV, tự bật modal lương của NV đó khi danh sách sẵn sàng.
+  // Liên thông: khi mở từ Hồ sơ NV, tự bật modal lương của NV đó — CHỈ MỘT LẦN cho mỗi
+  // focusEmployeeId. Không dùng ref-guard thì reload danh sách sau khi Đóng sẽ mở lại modal
+  // (dep `emps` đổi) → tưởng "không đóng được".
+  const autoOpenedFor = useRef<number | null>(null);
   useEffect(() => {
-    if (focusEmployeeId && emps.length) {
+    if (focusEmployeeId && emps.length && autoOpenedFor.current !== focusEmployeeId) {
       const e = emps.find((x) => x.id === focusEmployeeId);
-      if (e) setPicked(e);
+      if (e) { setPicked(e); autoOpenedFor.current = focusEmployeeId; }
     }
   }, [focusEmployeeId, emps]);
 
@@ -311,23 +468,40 @@ function NhanVienTab({ token, focusEmployeeId }: { token: string; focusEmployeeI
   return (
     <div>
       <div className="cc-toolbar">
-        <input className="lg-search" placeholder="Tìm theo tên / mã…" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="lg-search-wrapper">
+          <span className="lg-search-icon"><Search size={14} /></span>
+          <input className="lg-search-input" placeholder="Tìm theo tên / mã…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
       </div>
-      <div className="ns__tablewrap">
+      <div className="lg-emp-table-wrapper">
         <table className="ns__table">
           <thead>
-            <tr><th>Mã</th><th>Họ tên</th><th>Vị trí</th><th>Trạng thái</th><th></th></tr>
+            <tr><th>Mã</th><th>Họ tên</th><th>Vị trí</th><th>Trạng thái</th><th>Hành động</th></tr>
           </thead>
           <tbody>
-            {shown.map((e) => (
-              <tr key={e.id}>
-                <td className="ns__code">{e.code}</td>
-                <td>{e.full_name}</td>
-                <td>{e.position ?? "—"}</td>
-                <td>{e.status === "probation" ? <span className="ns-badge ns-badge--muted">Thử việc</span> : e.status === "active" ? <span className="ns-badge ns-badge--ok">Chính thức</span> : e.status}</td>
-                <td><button className="btn btn--ghost" onClick={() => setPicked(e)}>Lương</button></td>
-              </tr>
-            ))}
+            {shown.map((e) => {
+              const statusLabels: Record<string, { label: string; className: string }> = {
+                probation: { label: "Thử việc", className: "ns-badge ns-badge--warn" },
+                active: { label: "Chính thức", className: "ns-badge ns-badge--ok" },
+                on_leave: { label: "Nghỉ phép", className: "ns-badge ns-badge--info" },
+                suspended: { label: "Tạm đình chỉ", className: "ns-badge ns-badge--danger" },
+                resigned: { label: "Đã thôi việc", className: "ns-badge ns-badge--muted" },
+              };
+              const statusInfo = statusLabels[e.status] ?? { label: e.status, className: "ns-badge ns-badge--muted" };
+              return (
+                <tr key={e.id}>
+                  <td className="ns__code">{e.code}</td>
+                  <td><b>{e.full_name}</b></td>
+                  <td>{e.position ?? "—"}</td>
+                  <td><span className={statusInfo.className}>{statusInfo.label}</span></td>
+                  <td>
+                    <button className="lg-edit-salary-btn" onClick={() => setPicked(e)}>
+                      <Sliders size={13} /> Thiết lập lương
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
             {shown.length === 0 && <tr><td colSpan={5} className="ns__empty">Không có nhân viên.</td></tr>}
           </tbody>
         </table>
@@ -522,8 +696,15 @@ function KhoanSheet({ token }: { token: string }) {
     try { setSheet(await fn()); } catch (e) { setErr(errText(e)); }
   }
   const batch = sheet?.batch ?? null;
+  const locked = batch?.status === "locked";
+  const meta = sheet?.meta ?? null;
   const groupRates = rates.filter((r) => r.group_name === group && r.is_active);
   const empName = (id: number) => emps.find((e) => e.id === id)?.full_name ?? `NV#${id}`;
+  const invalidMsg = !meta || meta.valid ? null
+    : meta.no_shares ? "Chưa chia cho ai — thêm người vào danh sách chia."
+    : meta.leader_no_share ? "Tổ trưởng chưa có trong danh sách chia — thêm dòng cho tổ trưởng."
+    : meta.zero_weight ? "Chưa nhập hệ số chia (tất cả đang = 0)."
+    : "Sổ chưa hợp lệ.";
 
   return (
     <div>
@@ -533,8 +714,28 @@ function KhoanSheet({ token }: { token: string }) {
           {KHOAN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
         </select>
         {!batch && <button className="btn btn--primary" onClick={() => run(() => api.luong.openKhoanSheet(token, year, month, group))}>Mở sổ khoán tổ này</button>}
+        {batch && (
+          <span className={`ns-badge ${locked ? "ns-badge--ok" : "ns-badge--warn"}`}>
+            {locked ? "✓ Đã chốt sổ" : "Nháp"}
+          </span>
+        )}
+        {batch && !locked && (
+          <button className="btn btn--ghost"
+                  title="Kéo Phiếu sản lượng công đoạn (theo tổ) của kỳ vào sổ để xem quỹ"
+                  onClick={() => run(() => api.luong.khoanSyncOutputs(token, batch.id))}>↺ Kéo sản lượng</button>
+        )}
+        {batch && !locked && (
+          <button className="btn btn--primary" disabled={!meta?.valid}
+                  title={invalidMsg ?? ""}
+                  onClick={() => run(() => api.luong.khoanLockSheet(token, batch.id))}>Chốt sổ</button>
+        )}
+        {batch && locked && (
+          <button className="btn btn--ghost" onClick={() => run(() => api.luong.khoanReopenSheet(token, batch.id))}>Mở lại sổ</button>
+        )}
       </div>
       {err && <div className="banner banner--error" style={{ marginBottom: 12 }}>{err}</div>}
+      {batch && invalidMsg && !locked && <div className="banner banner--warn" style={{ marginBottom: 12 }}>⚠ {invalidMsg} Sổ chưa hợp lệ sẽ KHÔNG vào bảng lương.</div>}
+      {locked && <div className="banner banner--info" style={{ marginBottom: 12 }}>Sổ đã chốt — chảy vào bảng lương, khóa sửa. Bấm <b>Mở lại sổ</b> để chỉnh (kỳ lương phải chưa chốt).</div>}
 
       {!batch ? (
         <p className="ns__empty">Chưa mở sổ khoán cho <b>{KHOAN_GROUP_LABEL[group]}</b> tháng này. Bấm <b>“Mở sổ khoán tổ này”</b>.</p>
@@ -549,7 +750,7 @@ function KhoanSheet({ token }: { token: string }) {
             </div>
           )}
 
-          <KhoanConfig token={token} batch={batch} emps={emps} onSaved={run} />
+          {!locked && <KhoanConfig token={token} batch={batch} emps={emps} onSaved={run} />}
 
           <h4 className="ns-section__title" style={{ marginTop: 16 }}>Sản lượng (nhập tay)</h4>
           <div className="ns__tablewrap">
@@ -563,14 +764,14 @@ function KhoanSheet({ token }: { token: string }) {
                     <td className="lg-num">{money(en.unit_price)}</td>
                     <td className="lg-num">{Number(en.quantity).toLocaleString("vi-VN")}</td>
                     <td className="lg-num lg-net">{money(en.amount)}</td>
-                    <td><button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanEntry(token, en.id))}>Xóa</button></td>
+                    <td>{!locked && <button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanEntry(token, en.id))}>Xóa</button>}</td>
                   </tr>
                 ))}
                 {sheet?.entries.length === 0 && <tr><td colSpan={6} className="ns__empty">Chưa có dòng sản lượng.</td></tr>}
               </tbody>
             </table>
           </div>
-          <AddEntryRow token={token} batchId={batch.id} rates={groupRates} onAdded={run} />
+          {!locked && <AddEntryRow token={token} batchId={batch.id} rates={groupRates} onAdded={run} />}
 
           <h4 className="ns-section__title" style={{ marginTop: 16 }}>Chia về người (hệ số nhóm tự thỏa thuận)</h4>
           <div className="ns__tablewrap">
@@ -582,14 +783,14 @@ function KhoanSheet({ token }: { token: string }) {
                     <td>{s.employee_name ?? empName(s.employee_id)} {batch.leader_employee_id === s.employee_id && <span className="ns-badge ns-badge--ok">Tổ trưởng</span>}</td>
                     <td className="lg-num">{s.weight}</td>
                     <td className="lg-num lg-net">{money(s.amount)}</td>
-                    <td><button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanShare(token, s.id))}>Xóa</button></td>
+                    <td>{!locked && <button className="btn btn--ghost ns-danger" onClick={() => run(() => api.luong.deleteKhoanShare(token, s.id))}>Xóa</button>}</td>
                   </tr>
                 ))}
                 {sheet?.shares.length === 0 && <tr><td colSpan={4} className="ns__empty">Chưa chia cho ai.</td></tr>}
               </tbody>
             </table>
           </div>
-          <AddShareRow token={token} batchId={batch.id} emps={emps} onAdded={run} />
+          {!locked && <AddShareRow token={token} batchId={batch.id} emps={emps} onAdded={run} />}
         </>
       )}
     </div>
@@ -884,12 +1085,14 @@ function AddAdvanceModal({ token, emps, year, month, onClose, onSaved }: {
 function QuyTacTab({ token }: { token: string }) {
   const [params, setParams] = useState<PayrollParams | null>(null);
   const [rules, setRules] = useState<SalaryRule[]>([]);
+  const [brackets, setBrackets] = useState<PitBracket[]>([]);
   const [editing, setEditing] = useState<SalaryRule | "new" | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
   const load = useCallback(() => {
     api.luong.getParams(token).then(setParams).catch(() => setParams(null));
     api.luong.rules(token).then((r) => setRules(r.items)).catch(() => setRules([]));
+    api.luong.pitBrackets(token).then((r) => setBrackets(r.items)).catch(() => setBrackets([]));
   }, [token]);
   useEffect(() => { load(); }, [load]);
 
@@ -899,6 +1102,12 @@ function QuyTacTab({ token }: { token: string }) {
     setOk("Đã lưu tham số."); setTimeout(() => setOk(null), 2000);
   }
   async function removeRule(id: number) { await api.luong.deleteRule(token, id); load(); }
+  async function saveBrackets() {
+    for (const b of brackets) await api.luong.updatePitBracket(token, b.id, { seq: b.seq, up_to: b.up_to, rate: b.rate });
+    setOk("Đã lưu biểu thuế TNCN."); setTimeout(() => setOk(null), 2000); load();
+  }
+  async function addBracket() { await api.luong.createPitBracket(token, { seq: brackets.length + 1, up_to: null, rate: 0.35 }); load(); }
+  async function removeBracket(id: number) { await api.luong.deletePitBracket(token, id); load(); }
 
   return (
     <div>
@@ -915,10 +1124,45 @@ function QuyTacTab({ token }: { token: string }) {
             <NumField label="Chuyên cần" v={params.chuyen_can_default} on={(x) => setParams({ ...params, chuyen_can_default: x })} />
             <NumField label="Giảm trừ bản thân" v={params.deduction_self} on={(x) => setParams({ ...params, deduction_self: x })} />
             <NumField label="Giảm trừ/người PT" v={params.deduction_dependent} on={(x) => setParams({ ...params, deduction_dependent: x })} />
+            <NumField label="Giờ công/ngày" v={params.standard_hours_per_day} step={0.5} on={(x) => setParams({ ...params, standard_hours_per_day: x })} />
+            <NumField label="Hệ số tăng ca" v={params.ot_multiplier} step={0.1} on={(x) => setParams({ ...params, ot_multiplier: x })} />
+            <NumField label="Phụ cấp ca đêm" v={params.night_pct} step={0.05} on={(x) => setParams({ ...params, night_pct: x })} />
+            <NumField label="Trần BHXH/BHYT" v={params.bh_base_cap} on={(x) => setParams({ ...params, bh_base_cap: x })} />
+            <NumField label="Trần BHTN" v={params.bhtn_base_cap} on={(x) => setParams({ ...params, bhtn_base_cap: x })} />
           </div>
           <button className="btn btn--primary" style={{ marginTop: 12 }} onClick={saveParams}>Lưu tham số</button>
         </div>
       )}
+
+      <div className="lg-params" style={{ marginTop: 20 }}>
+        <h4 className="ns-section__title">Biểu thuế TNCN (lũy tiến từng phần, biểu tháng)</h4>
+        <p className="cc-note">Thu nhập tính thuế = thu nhập chịu thuế − BHXH − giảm trừ. Sửa khi luật đổi (mặc định 2026: Luật 109/2025).</p>
+        <div className="ns__tablewrap">
+          <table className="ns__table">
+            <thead><tr><th>Bậc</th><th className="lg-num">Đến mức (thu nhập tính thuế/tháng)</th><th className="lg-num">Thuế suất %</th><th></th></tr></thead>
+            <tbody>
+              {brackets.map((b, i) => (
+                <tr key={b.id}>
+                  <td>{b.seq}</td>
+                  <td className="lg-num">
+                    <input type="number" min={0} value={b.up_to ?? ""} placeholder="∞ (bậc cao nhất)"
+                      onChange={(e) => setBrackets(brackets.map((x, j) => j === i ? { ...x, up_to: e.target.value === "" ? null : Number(e.target.value) } : x))} />
+                  </td>
+                  <td className="lg-num">
+                    <input type="number" min={0} step={1} value={Math.round(b.rate * 100)}
+                      onChange={(e) => setBrackets(brackets.map((x, j) => j === i ? { ...x, rate: Number(e.target.value) / 100 } : x))} />
+                  </td>
+                  <td><button className="btn btn--ghost" onClick={() => removeBracket(b.id)}>Xóa</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+          <button className="btn btn--primary" onClick={saveBrackets}>Lưu biểu thuế</button>
+          <button className="btn btn--ghost" onClick={addBracket}>+ Thêm bậc</button>
+        </div>
+      </div>
 
       <div className="cc-toolbar" style={{ marginTop: 20 }}>
         <h4 className="ns-section__title" style={{ margin: 0, flex: 1 }}>Bảng mức lương chuẩn</h4>
@@ -1037,7 +1281,10 @@ function PhieuLuongTab({ token }: { token: string }) {
 
   const rows: [string, number, boolean?][] = [
     ["Lương theo công", l.luong_cong], ["Chuyên cần", l.chuyen_can], ["Phụ cấp", l.allowance],
-    ["Lương khoán", l.khoan], ["Thưởng / hoa hồng", l.other_bonus], ["Vi phạm", -l.vi_pham, true],
+    ["Lương khoán", l.khoan],
+    ...(l.ot_pay ? ([["Tăng ca", l.ot_pay]] as [string, number][]) : []),
+    ...(l.night_pay ? ([["Phụ cấp ca đêm", l.night_pay]] as [string, number][]) : []),
+    ["Thưởng / hoa hồng", l.other_bonus], ["Vi phạm", -l.vi_pham, true],
     ["Tổng thu nhập", l.gross], ["BHXH/BHYT/BHTN", -l.bhxh, true], ["Thuế TNCN", -l.pit, true],
     ["Tạm ứng đã nhận", -l.advance_total, true],
   ];
@@ -1049,7 +1296,7 @@ function PhieuLuongTab({ token }: { token: string }) {
             <div className="lg-payslip__who">{data.employee_name}</div>
             <div className="cc-card__hint">Phiếu lương tháng {String(data.period.month).padStart(2, "0")}/{data.period.year} · {l.actual_cong}/{l.standard_cong} công {l.is_probation && "· thử việc"}</div>
           </div>
-          <span className={`ns-badge ${data.period.status === "locked" ? "ns-badge--ok" : "ns-badge--muted"}`}>{data.period.status === "locked" ? "Đã chốt" : "Tạm tính"}</span>
+          <span className={`ns-badge ${data.period.status !== "draft" ? "ns-badge--ok" : "ns-badge--muted"}`}>{data.period.status === "paid" ? "Đã chi" : data.period.status === "locked" ? "Đã chốt" : "Tạm tính"}</span>
         </div>
         <table className="lg-payslip__table">
           <tbody>

@@ -13,6 +13,7 @@ from ..models.payroll import (
     PayrollLine,
     PayrollParams,
     PayrollPeriod,
+    PitTaxBracket,
     SalaryAdvance,
     SalaryRateRule,
 )
@@ -68,6 +69,32 @@ class PayrollRepository:
 
     def delete_rule(self, r: SalaryRateRule) -> None:
         self.db.delete(r)
+        self.db.commit()
+
+    # --- pit_tax_brackets (biểu thuế TNCN, sửa được) ------------------------
+
+    def list_pit_brackets(self) -> list[PitTaxBracket]:
+        return list(self.db.execute(select(PitTaxBracket).order_by(PitTaxBracket.seq, PitTaxBracket.id)).scalars())
+
+    def get_pit_bracket(self, bracket_id: int) -> PitTaxBracket | None:
+        return self.db.get(PitTaxBracket, bracket_id)
+
+    def create_pit_bracket(self, **fields) -> PitTaxBracket:
+        b = PitTaxBracket(**fields)
+        self.db.add(b)
+        self.db.commit()
+        self.db.refresh(b)
+        return b
+
+    def update_pit_bracket(self, b: PitTaxBracket, **fields) -> PitTaxBracket:
+        for k, v in fields.items():
+            setattr(b, k, v)
+        self.db.commit()
+        self.db.refresh(b)
+        return b
+
+    def delete_pit_bracket(self, b: PitTaxBracket) -> None:
+        self.db.delete(b)
         self.db.commit()
 
     # --- employee_salaries (versioned) --------------------------------------

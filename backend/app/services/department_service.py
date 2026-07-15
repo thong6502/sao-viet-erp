@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from ..models.department import Department
 from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository, UnitLevelRepository
 from ..repositories.user_repo import UserRepository
 
@@ -68,12 +69,14 @@ class DepartmentService:
         users: UserRepository,
         audit: AuditLogRepository,
         levels: UnitLevelRepository,
+        employees: EmployeeRepository,
     ) -> None:
         self.departments = departments
         self.roles = roles
         self.users = users
         self.audit = audit
         self.levels = levels
+        self.employees = employees
 
     def _head_name(self, dept: Department) -> str | None:
         if dept.head_user_id is None:
@@ -135,6 +138,8 @@ class DepartmentService:
         depts = self.departments.list_all()
         own_roles = {d.id: self.roles.count_by_department(d.id) for d in depts}
         own_users = {d.id: self.users.count_by_department(d.id) for d in depts}
+        # Đ2: "số nhân sự" đếm theo HỒ SƠ (employees), tách khỏi "số tài khoản" (users).
+        own_emps = {d.id: self.employees.count_by_department(d.id) for d in depts}
 
         children: dict[int, list[int]] = {}
         for d in depts:
@@ -143,23 +148,25 @@ class DepartmentService:
 
         role_total: dict[int, int] = {}
         user_total: dict[int, int] = {}
+        emp_total: dict[int, int] = {}
 
-        def totals(dept_id: int, visiting: frozenset[int]) -> tuple[int, int]:
+        def totals(dept_id: int, visiting: frozenset[int]) -> tuple[int, int, int]:
             if dept_id in role_total:
-                return role_total[dept_id], user_total[dept_id]
-            r, u = own_roles.get(dept_id, 0), own_users.get(dept_id, 0)
+                return role_total[dept_id], user_total[dept_id], emp_total[dept_id]
+            r, u, e = own_roles.get(dept_id, 0), own_users.get(dept_id, 0), own_emps.get(dept_id, 0)
             for child_id in children.get(dept_id, []):
                 if child_id in visiting:  # defensive: never recurse a cycle
                     continue
-                cr, cu = totals(child_id, visiting | {dept_id})
+                cr, cu, ce = totals(child_id, visiting | {dept_id})
                 r += cr
                 u += cu
-            role_total[dept_id], user_total[dept_id] = r, u
-            return r, u
+                e += ce
+            role_total[dept_id], user_total[dept_id], emp_total[dept_id] = r, u, e
+            return r, u, e
 
         rows: list[dict] = []
         for dept in depts:
-            tr, tu = totals(dept.id, frozenset())
+            tr, tu, te = totals(dept.id, frozenset())
             rows.append(
                 {
                     "id": dept.id,
@@ -173,8 +180,10 @@ class DepartmentService:
                     "head_title": self._head_title(dept),
                     "role_count": own_roles[dept.id],
                     "user_count": own_users[dept.id],
+                    "employee_count": own_emps[dept.id],
                     "total_role_count": tr,
                     "total_user_count": tu,
+                    "total_employee_count": te,
                 }
             )
         return rows
@@ -185,6 +194,7 @@ class DepartmentService:
         branch = self.departments.subtree(dept.id)
         total_roles = sum(self.roles.count_by_department(d.id) for d in branch)
         total_users = sum(self.users.count_by_department(d.id) for d in branch)
+        total_emps = sum(self.employees.count_by_department(d.id) for d in branch)
         return {
             "id": dept.id,
             "name": dept.name,
@@ -197,8 +207,10 @@ class DepartmentService:
             "head_title": self._head_title(dept),
             "role_count": self.roles.count_by_department(dept.id),
             "user_count": self.users.count_by_department(dept.id),
+            "employee_count": self.employees.count_by_department(dept.id),
             "total_role_count": total_roles,
             "total_user_count": total_users,
+            "total_employee_count": total_emps,
         }
 
     def members_of_department(self, department_id: int) -> list[dict]:
@@ -337,11 +349,14 @@ class DepartmentService:
         if dept is None:
             raise DepartmentNotFound("Không tìm thấy phòng ban")
         branch = self.departments.subtree(dept_id)  # root first (breadth-first)
-        offenders = [
-            (d, self.users.count_by_department(d.id))
-            for d in branch
-            if self.users.count_by_department(d.id) > 0
-        ]
+        # Đ2: chặn nếu nhánh còn HỒ SƠ nhân sự (không để employees.department_id mồ côi) HOẶC
+        # còn TÀI KHOẢN (users.department_id là FK cứng — xóa sẽ vỡ). Chặn theo hồ-sơ ∪ tài-khoản.
+        offenders: list[tuple[Department, int]] = []
+        for d in branch:
+            u = self.users.count_by_department(d.id)
+            e = self.employees.count_by_department(d.id)
+            if u > 0 or e > 0:
+                offenders.append((d, max(u, e)))
         if offenders:
             raise DepartmentBranchHasUsers(offenders)
         # Delete leaves first (reverse of the breadth-first order) so a parent's self-FK is

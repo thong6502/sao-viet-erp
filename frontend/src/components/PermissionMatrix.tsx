@@ -39,7 +39,8 @@ export type ActionKey =
   | "can_toggle_active"
   | "can_reparent"
   | "can_view_salary"
-  | "can_adjust";
+  | "can_adjust"
+  | "can_approve_exception";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -54,17 +55,17 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
     { key: "can_view_debt", label: "Xem công nợ" },
     { key: "can_view_discount", label: "Xem/sửa chiết khấu riêng" },
   ],
+  // Báo giá: thao tác vòng đời THƯỜNG (gửi khách · ghi nhận Khách đồng ý/từ chối · hủy · PDF · tạo bản mới)
+  // KHÔNG tách quyền chi tiết — ai có "Sửa" báo giá đều làm được (chủ đầu tư chốt P8). Quyền chi tiết DUY NHẤT
+  // còn lại = DUYỆT BÁO GIÁ ĐẶC THÙ (biên thấp / giá trị cao): chỉ vai bật cờ này mới duyệt được đơn trình lên.
   bao_gia: [
-    { key: "can_manage_status", label: "Thao tác trạng thái (gửi/từ chối/hết hạn)" },
-    { key: "can_approve", label: "Duyệt báo giá" },
-    { key: "can_cancel", label: "Hủy báo giá" },
-    { key: "can_export", label: "Xuất PDF" },
-    { key: "can_requote", label: "Tạo bản mới (Re-quote)" },
+    { key: "can_approve_exception", label: "Duyệt báo giá đặc thù" },
   ],
   don_hang_ban: [
     { key: "can_approve", label: "Chốt đơn" },
     { key: "can_cancel", label: "Hủy đơn" },
     { key: "can_manage_status", label: "Đổi trạng thái khác" },
+    { key: "can_approve_exception", label: "Duyệt đơn đặc thù" },
   ],
   vai_tro: [{ key: "can_manage_permissions", label: "Sửa ma trận phân quyền" }],
   nguoi_dung: [
@@ -142,6 +143,7 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_reparent: false,
     can_view_salary: false,
     can_adjust: false,
+    can_approve_exception: false,
   }));
 }
 

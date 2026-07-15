@@ -31,6 +31,12 @@ UNIT_TO = "to"          # tờ
 UNIT_KHAC = "khac"      # khác
 PIECE_UNITS = (UNIT_M2, UNIT_BAI_IN, UNIT_TAN, UNIT_CUON, UNIT_LUOT, UNIT_HOP, UNIT_TO, UNIT_KHAC)
 
+# Trạng thái sổ khoán (nhịp Pha 5): draft = đang soạn (sửa được); locked = đã chốt (chỉ sổ đã
+# chốt mới chảy vào bảng lương; cấm sửa sản lượng/hệ số/cấu hình cho tới khi mở lại).
+BATCH_DRAFT = "draft"
+BATCH_LOCKED = "locked"
+PIECE_BATCH_STATUSES = (BATCH_DRAFT, BATCH_LOCKED)
+
 _MONEY = Numeric(14, 2)
 
 
@@ -48,6 +54,8 @@ class PieceRate(Base):
     group_name: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
     code: Mapped[str | None] = mapped_column(String(20), nullable=True)  # mã (A–F cho máy in)
     name: Mapped[str] = mapped_column(String(255), nullable=False)       # tên công việc
+    # Công đoạn gắn đơn giá (mã cong_doan.ma) — Pha 5b: tra đơn giá theo (tổ + công đoạn) khi ghi phiếu.
+    cong_doan: Mapped[str | None] = mapped_column(String(30), index=True, nullable=True)
     unit: Mapped[str] = mapped_column(String(12), nullable=False, default=UNIT_KHAC, server_default=UNIT_KHAC)
     unit_price: Mapped[float] = mapped_column(_MONEY, nullable=False)
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -74,6 +82,10 @@ class PieceBatch(Base):
     over_target: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     over_bonus_pct: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False, default=0, server_default="0")
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Chốt sổ: draft/locked. Đồng bộ với kỳ lương — chỉ sổ locked mới vào bảng lương.
+    status: Mapped[str] = mapped_column(String(8), nullable=False, default=BATCH_DRAFT, server_default=BATCH_DRAFT)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -95,6 +107,9 @@ class PieceBatchEntry(Base):
     quantity: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     amount: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Nguồn dòng (Pha 5b): manual = gõ tay; phieu = materialize từ Phiếu sản lượng lúc chốt sổ.
+    source: Mapped[str] = mapped_column(String(8), nullable=False, default="manual", server_default="manual")
+    production_output_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # soft link → production_outputs.id
 
 
 class PieceBatchShare(Base):

@@ -7,7 +7,17 @@ from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..models.customer import Customer
-from ..models.quotation import Quote, QuoteVersion, QuoteItem, STATUS_ACCEPTED
+from ..models.quotation import (
+    STATUS_ACCEPTED,
+    STATUS_CANCELLED,
+    STATUS_EXPIRED,
+    STATUS_PENDING_APPROVAL,
+    STATUS_REJECTED,
+    Quote,
+    QuoteApproval,
+    QuoteItem,
+    QuoteVersion,
+)
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from .org_scope import dept_subtree_ids
@@ -27,6 +37,46 @@ class QuotationRepository:
 
     def get_by_id(self, quote_id: int) -> Quote | None:
         return self.db.get(Quote, quote_id)
+
+    # --- BG-2: quote_approvals (GĐ duyệt báo giá đặc thù) -------------------
+
+    def latest_approval(self, quote_id: int) -> QuoteApproval | None:
+        """Bản duyệt GẦN NHẤT của báo giá (quyết định cổng 'gửi khách')."""
+        return self.db.execute(
+            select(QuoteApproval)
+            .where(QuoteApproval.quote_id == quote_id)
+            .order_by(desc(QuoteApproval.decided_at), desc(QuoteApproval.id))
+            .limit(1)
+        ).scalar_one_or_none()
+
+    def list_approvals(self, quote_id: int) -> list[QuoteApproval]:
+        return list(
+            self.db.execute(
+                select(QuoteApproval)
+                .where(QuoteApproval.quote_id == quote_id)
+                .order_by(desc(QuoteApproval.decided_at), desc(QuoteApproval.id))
+            ).scalars()
+        )
+
+    def create_approval(self, **fields) -> QuoteApproval:
+        row = QuoteApproval(**fields)
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def active_for_phieu(self, phieu_tinh_gia_id: int) -> Quote | None:
+        """BG-1: báo giá ĐANG HIỆU LỰC của 1 Phiếu tính giá (draft/sent/accepted/converted). Báo giá
+        rejected/expired/cancelled = NHẢ chỗ (cho báo giá lại / repeat order). Guard '1 PTG → 1 BG'."""
+        return self.db.execute(
+            select(Quote)
+            .where(
+                Quote.phieu_tinh_gia_id == phieu_tinh_gia_id,
+                Quote.status.notin_([STATUS_REJECTED, STATUS_EXPIRED, STATUS_CANCELLED]),
+            )
+            .order_by(Quote.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
 
     def list_approved_selectable(
         self, *, scope: str, actor, today: date, limit: int = 50
@@ -74,6 +124,16 @@ class QuotationRepository:
             dept_sales = select(User.id).where(User.department_id.in_(dept_ids))
             return Quote.salesperson_id.in_(dept_sales)
         raise ValueError(f"Unknown scope: {scope!r}")
+
+    def count_pending_approval(self, *, scope: str, actor) -> int:
+        """Số báo giá đang 'Chờ duyệt' TRONG PHẠM VI của người duyệt (badge nav 'chờ tôi duyệt')."""
+        stmt = select(func.count()).select_from(Quote).where(
+            Quote.status == STATUS_PENDING_APPROVAL
+        )
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        return int(self.db.execute(stmt).scalar_one())
 
     def can_access(self, *, quote: Quote, scope: str, actor) -> bool:
         if scope == SCOPE_ALL:
@@ -170,6 +230,7 @@ class QuotationRepository:
         return {
             "total": sum(int(v) for v in by_status.values()),
             "draft": get("draft"),
+            "pending_approval": get("pending_approval"),
             "sent": get("sent"),
             "accepted": get("accepted"),
             "rejected": get("rejected"),

@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_permission
+from datetime import date
 from ..models.user import User
 from ..repositories.bu_hao_repo import BuHaoRepository
 from ..schemas.bu_hao import BuHaoIn, BuHaoListOut, BuHaoRow
@@ -60,9 +61,9 @@ def get_item(bh_id: int, svc: Service, _: Annotated[User, Depends(require_permis
 
 
 @router.post("", response_model=BuHaoRow, status_code=status.HTTP_201_CREATED)
-def create_item(payload: BuHaoIn, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "create"))]):
+def create_item(payload: BuHaoIn, svc: Service, current_user: Annotated[User, Depends(require_permission(MODULE, "create"))]):
     try:
-        return BuHaoRow.model_validate(svc.create(payload.model_dump(exclude_unset=True)))
+        return BuHaoRow.model_validate(svc.create(payload.model_dump(exclude_unset=True), created_by=current_user.id))
     except (BuHaoDuplicate, BuHaoValidationError) as e:
         raise _err(e) from None
 

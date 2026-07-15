@@ -25,7 +25,6 @@ BOX_SUB_TYPE = ("folding_carton", "corrugated", "rigid")
 COVER_TYPE = ("tu_bia", "bia_roi")               # tự bìa dùng giấy ruột / bìa rời cần giấy bìa
 BINDING = ("ghim", "keo", "khau")
 STOCK_CLASS = ("couche", "ford", "ivory", "duplex", "kraft")
-VAT_RATE = (5, 8, 10)
 
 # §5.1 ma trận tương thích structural_type ↔ layout_mode (engine kiểm khi gán rule).
 STRUCT_LAYOUT_MATRIX = {
@@ -52,7 +51,6 @@ class LoaiSanPham(Base):
     # Gán bình bài (soft int → quy_tac_binh_bai.id) — §2 bắt buộc.
     imposition_rule_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
-    default_so_mat: Mapped[int | None] = mapped_column(Integer, nullable=True)  # flat 1/2
     has_cover: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_false(), default=False)
     cover_type: Mapped[str | None] = mapped_column(String(12), nullable=True)   # khi has_cover
     default_binding: Mapped[str | None] = mapped_column(String(8), nullable=True)
@@ -61,7 +59,6 @@ class LoaiSanPham(Base):
     # routing template mặc định — list cong_doan.id (soft).
     routing_template: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
-    vat_rate: Mapped[int] = mapped_column(Integer, nullable=False, server_default="8", default=8)
     ghi_chu: Mapped[str | None] = mapped_column(Text, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
 

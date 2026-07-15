@@ -225,3 +225,33 @@ def test_assign_shift_endpoint_does_not_clobber(client):
 
     r2 = client.put(f"/api/employees/{emp['id']}/shift", json={"default_shift_id": None}, headers=_h(token))
     assert r2.status_code == 200 and r2.json()["default_shift_id"] is None
+
+
+def test_timesheet_credits_paid_holiday(client):
+    """PP-B (nền lịch Pha 1): ngày nghỉ lễ hưởng lương được cộng 1 công vào Bảng công (tử số),
+    công chuẩn tháng loại lễ. NV 'xuất hiện' trong tháng 9 qua 1 đơn nghỉ đã duyệt → được cộng
+    công lễ 2/9 (lễ seed)."""
+    token = _admin_token(client)
+    emp = client.post(
+        "/api/employees",
+        json={"full_name": "NV Lễ", "department_id": _dept_id("Hành chính nhân sự"), "hire_date": "2020-01-01"},
+        headers=_h(token),
+    ).json()["employee"]
+    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))
+
+    # Đơn nghỉ có lương 2026-09-10 (Thứ 5) đã duyệt → NV có mặt trong bảng công tháng 9.
+    tid = client.post("/api/leaves/types", json={"name": "Phép năm", "is_paid": True, "annual_quota": 12},
+                      headers=_h(token)).json()["id"]
+    req = client.post("/api/leaves",
+                      json={"leave_type_id": tid, "start_date": "2026-09-10", "end_date": "2026-09-10"},
+                      headers=_h(token))
+    assert req.status_code == 201
+    client.post(f"/api/leaves/{req.json()['id']}/approve", json={}, headers=_h(token))
+
+    ts = client.get("/api/attendance/timesheet?year=2026&month=9", headers=_h(token)).json()
+    assert ts["standard_cong"] == 25  # 26 ngày làm − lễ 2/9
+    assert any(h["date"] == "2026-09-02" for h in ts["holidays"])
+    row = next(r for r in ts["rows"] if r["employee_name"] == "NV Lễ")
+    holiday_cell = row["days"]["2"]
+    assert holiday_cell["holiday"] is True and holiday_cell["cong"] == 1.0
+    assert row["total_cong"] >= 2.0  # công lễ 2/9 (1) + nghỉ phép 10/9 (1)

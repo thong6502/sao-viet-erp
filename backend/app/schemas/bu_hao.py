@@ -1,7 +1,7 @@
 """Pydantic schemas — Danh mục Bù hao (trục số màu/số con + bậc số lượng ĐỘNG)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -35,8 +35,12 @@ class BuHaoRow(BaseModel):
     key_den: int
     bac: list | None = None
     ghi_chu: str | None = None
+
     active: bool
     updated_at: datetime | None = None
+
+
+
 
 
 class BuHaoListOut(BaseModel):

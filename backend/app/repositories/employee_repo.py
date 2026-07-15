@@ -41,6 +41,13 @@ class EmployeeRepository:
             select(Employee).where(Employee.user_id == user_id)
         ).scalars().first()
 
+    def count_by_department(self, department_id: int) -> int:
+        """Số HỒ SƠ nhân sự thuộc phòng (Đ2: 'số nhân sự' đếm theo hồ sơ, không theo tài
+        khoản). Chỉ phòng trực tiếp — cuộn cây do service lo."""
+        return self.db.execute(
+            select(func.count()).select_from(Employee).where(Employee.department_id == department_id)
+        ).scalar_one()
+
     def find_by_national_id(self, national_id: str | None) -> Employee | None:
         """First employee carrying this CCCD, for the soft duplicate warning. None for
         an empty value. Does NOT enforce uniqueness (deliberate soft check)."""

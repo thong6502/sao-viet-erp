@@ -35,7 +35,7 @@
 | nhom | enum(prepress, print, finishing) | ✓ | | |
 | may_id | FK → máy | ✓ | | máy chạy công đoạn |
 | che_do_tinh | enum(theo_gio, theo_san_luong) | ✓ | theo_san_luong | **trục tính tiền** (khác `pricing_basis`) |
-| pricing_basis | enum(per_sheet, per_ram, per_1000_luot, per_m2, per_pass, per_book, per_number) | khi theo_san_luong | | **đơn vị** đo (KHÔNG còn `per_hour_BHR` — đó là việc của `che_do_tinh`) |
+| pricing_basis | enum(per_sheet, per_finished_area, per_finished_qty, per_book_page, per_position, per_bag, per_carton, per_area_sides, per_sheet_area, per_book_page_q4, per_other) | khi theo_san_luong | | **đơn vị** đo (§4.3) |
 | setup_cost | money | | 0 | phí cố định/lần |
 | setup_time | number | phút | 0 | (dùng khi theo_gio) |
 | run_rate | money | | | đơn giá theo basis |
@@ -94,15 +94,22 @@ Tính từ bước CUỐI (thành phẩm) ngược lên:
 > Không cascade thì **mua giấy/in THIẾU** vì mỗi công đoạn ăn thêm hao.
 
 ### 4.3 Bảng quy đổi `basis_qty` (dùng SL GROSS đã cộng hao)
-| pricing_basis | basis_qty = | Ghi chú |
+Bộ đơn vị bao trùm chế bản · in · sau in (ctx: `so_to_in_gross`, `so_mat`, `dt_to_in_cm2`,
+`dt_thanh_pham_cm2`, `so_luong_thanh_pham`, `so_trang`, `so_cuon`, `so_vi_tri`, `so_bao`, `so_thung`).
+
+| pricing_basis | Nhãn | basis_qty = |
 |---|---|---|
-| per_sheet | số tờ in gross | |
-| per_ram | số tờ / 500 | (tờ in hoặc tờ nguyên — ghi rõ theo công đoạn) |
-| per_1000_luot | số lượt / 1000 | **công in**; + first_unit_floor (1.000 lượt đầu) |
-| per_m2 | dt_tờ × số tờ × số mặt | cán/phủ/bồi |
-| per_pass | số lượt qua máy | bế, ép, số nhảy |
-| per_book | số cuốn = so_luong | đóng |
-| per_number | số con | đánh số |
+| per_sheet | Theo số tờ in | số tờ in gross |
+| per_finished_area | Theo diện tích thành phẩm (cm²) | dt_thành_phẩm_cm² × SL thành phẩm |
+| per_finished_qty | Theo số lượng thành phẩm | SL thành phẩm |
+| per_book_page | Theo số trang sách | số trang × số cuốn |
+| per_position | Theo số vị trí | số vị trí × SL thành phẩm |
+| per_bag | Theo bao | số bao |
+| per_carton | Theo thùng | số thùng |
+| per_area_sides | Theo diện tích (cm²) và số mặt | dt_tờ_cm² × số mặt × số tờ in |
+| per_sheet_area | Theo diện tích tờ in (cm²) | dt_tờ_cm² × số tờ in |
+| per_book_page_q4 | Theo số trang sách chia 4 | (số trang × số cuốn) / 4 |
+| per_other | Khác | 1 (nhập tay, giá phẳng) |
 
 > **Chuyển đơn vị giữa bước** (tờ→tay→cuốn): input_qty bước sau suy từ output_qty bước trước theo đơn vị của nó (VD đóng cuốn: cuốn = số tờ ruột / số tay).
 

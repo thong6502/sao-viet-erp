@@ -92,8 +92,16 @@ def test_list_requires_read_permission(client):
 
 
 def test_create_requires_create_permission(client):
-    # NV Sales has no tinh_gia_thanh permission → 403.
-    token = _role_token("sales-cg", "NV Sales")
+    # Vai KHÔNG có quyền tinh_gia_thanh (user no-role) → tạo phiếu bị 403.
+    # (NV Sales NAY đã có quyền Tính giá scope "Của tôi" — xem test_phieu_tinh_gia_scope.)
+    db = SessionLocal()
+    try:
+        u = UserRepository(db).create(
+            username="norole-create-cg", name="No Role", password_hash=hash_password("x")
+        )
+        token = create_access_token(str(u.id))
+    finally:
+        db.close()
     resp = client.post("/api/costings", json=_payload(), headers=_h(token))
     assert resp.status_code == 403
 

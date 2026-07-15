@@ -10,9 +10,9 @@ tờ|% (bậc SL lớn thường %). Danh mục tra cứu — engine (khi dựng
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, JSON, String, true as sa_true
+from sqlalchemy import Boolean, Date, DateTime, Integer, JSON, String, true as sa_true
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -40,8 +40,12 @@ class BuHao(Base):
     # Bậc số lượng ĐỘNG: [{sl_tu, sl_den(None=∞), gia_tri, don_vi}]
     bac: Mapped[list | None] = mapped_column(JSON, nullable=True)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+
+
+

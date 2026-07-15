@@ -324,3 +324,98 @@ def test_forbidden_without_permission(client):
     token = _sales_token()
     assert client.get("/api/employees", headers=_h(token)).status_code == 403
     assert _create(client, token).status_code == 403
+
+
+# --- N5: tách quyền SỬA lương/BHXH khỏi quyền sửa hồ sơ ---------------------
+
+
+def _ns_no_salary_token() -> str:
+    """User có quyền nhan_su read/create/update nhưng KHÔNG view_salary/edit_salary (N5)."""
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        existing = users.get_by_username("ns-nosalary")
+        if existing is not None:
+            return create_access_token(str(existing.id))
+        hcns = DepartmentRepository(db).get_by_name("Hành chính nhân sự")
+        roles = RoleRepository(db)
+        role = roles.get_by_name_and_department("NS Không Lương", hcns.id)
+        if role is None:
+            role = roles.create(name="NS Không Lương", department_id=hcns.id)
+            roles.set_permission(
+                role_id=role.id, module_key="nhan_su", scope="all",
+                can_read=True, can_create=True, can_update=True,
+            )
+        u = users.create(username="ns-nosalary", name="NS", password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=hcns.id, role_id=role.id, is_active=True)
+        return create_access_token(str(u.id))
+    finally:
+        db.close()
+
+
+def test_edit_salary_gate_blocks_sensitive_write(client):
+    """Người có nhan_su:update nhưng KHÔNG edit_salary → field lương/BHXH bị BỎ QUA khi
+    tạo/sửa (field thường vẫn ghi). Admin (có view_salary) đọc lại để kiểm."""
+    admin = _admin_token(client)
+    tok = _ns_no_salary_token()
+
+    # Tạo NV kèm field nhạy cảm → bị bỏ (không lưu lén)
+    created = _create(client, tok, full_name="NV No Salary",
+                      bank_account="123456", payroll_group="van_phong", phone="0900")
+    assert created.status_code == 201
+    eid = created.json()["employee"]["id"]
+
+    seen = client.get(f"/api/employees/{eid}", headers=_h(admin)).json()
+    assert seen["phone"] == "0900"          # field thường: ghi được
+    assert seen["bank_account"] is None     # nhạy cảm: bị bỏ khi tạo
+    assert seen["payroll_group"] is None
+
+    # Admin đặt số TK nền (full_name bắt buộc ở EmployeeUpdate)
+    r_admin = client.put(f"/api/employees/{eid}",
+                         json={"full_name": "NV No Salary", "bank_account": "111"}, headers=_h(admin))
+    assert r_admin.status_code == 200
+    # user không-quyền-lương PUT đổi bank + phone → bank bị bỏ, phone đổi
+    upd = client.put(f"/api/employees/{eid}",
+                     json={"full_name": "NV No Salary", "bank_account": "999", "phone": "0911"}, headers=_h(tok))
+    assert upd.status_code == 200
+    seen2 = client.get(f"/api/employees/{eid}", headers=_h(admin)).json()
+    assert seen2["phone"] == "0911"         # field thường: ghi được
+    assert seen2["bank_account"] == "111"   # nhạy cảm: KHÔNG đổi
+
+
+# --- Đ1: hồ sơ là GỐC — đồng bộ danh tính xuống tài khoản gắn kèm ------------
+
+
+def test_employee_edit_syncs_name_and_department_to_user(client):
+    """Đ1/Đ2: sửa tên hồ sơ + điều chuyển phòng → tài khoản gắn kèm đồng bộ tên + phòng
+    (phòng = trục data-scope RBAC). Đồng bộ 1 chiều hồ-sơ→tài-khoản."""
+    admin = _admin_token(client)
+    hcns = _dept_id("Hành chính nhân sự")
+    kd = _dept_id("Kinh doanh")
+    created = _create(client, admin, full_name="Tên Cũ", department_id=hcns,
+                      account={"username": "synced", "password": "synced123"})
+    eid = created.json()["employee"]["id"]
+
+    client.put(f"/api/employees/{eid}", json={"full_name": "Tên Mới"}, headers=_h(admin))
+    client.post(f"/api/employees/{eid}/transitions",
+                json={"kind": "transfer", "new_department_id": kd}, headers=_h(admin))
+
+    db = SessionLocal()
+    try:
+        u = UserRepository(db).get_by_username("synced")
+        assert u.name == "Tên Mới"        # tên đồng bộ
+        assert u.department_id == kd       # phòng (scope) đồng bộ theo điều chuyển
+    finally:
+        db.close()
+
+
+def test_user_with_profile_cannot_self_rename(client):
+    """Đ1: tài khoản CÓ hồ sơ → không tự đổi tên hiển thị qua /api/users/me (tên do hồ sơ
+    quyết, HCNS cập nhật). Chặn ở backend, không chỉ ẩn ở FE."""
+    admin = _admin_token(client)
+    _create(client, admin, full_name="Khoa Nguyen",
+            account={"username": "hasprofile", "password": "hasprofile1"})
+    tok = client.post("/api/auth/login",
+                      json={"username": "hasprofile", "password": "hasprofile1"}).json()["access_token"]
+    r = client.patch("/api/users/me", json={"name": "Tên Tự Đặt"}, headers=_h(tok))
+    assert r.status_code == 400

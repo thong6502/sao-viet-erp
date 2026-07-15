@@ -12,9 +12,11 @@ import {
   api,
   type ApprovedQuotationRow,
   type EnumOption,
+  type OrderApproval,
   type OrderDetail,
   type OrderEnumsOut,
   type OrderRow,
+  type Payment,
   type PinnedCustomer,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -680,20 +682,45 @@ function OrderDetailDialog({
   // Tách theo từng chuyển trạng thái: Chốt (ordered)=approve, Hủy (cancelled)=cancel, khác=manage_status.
   const canChot = useCan()("don_hang_ban", "approve");
   const canHuy = useCan()("don_hang_ban", "cancel");
+  // A2: duyệt "đơn đặc thù" — CHỈ Giám đốc. Người có quyền này cũng là người được thấy số biên.
+  const canApproveException = useCan()("don_hang_ban", "approve_exception");
   const [d, setD] = useState<OrderDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
   const [askCancel, setAskCancel] = useState(false);
+  // Ghi cọc (SEAM-04 deposit LIVE): mở khóa cổng chốt ③→④.
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [depAmount, setDepAmount] = useState("");
+  const [depMethod, setDepMethod] = useState("bank");
+  const [depSaving, setDepSaving] = useState(false);
+  const [depErr, setDepErr] = useState<string | null>(null);
+  // A2: duyệt "đơn đặc thù" (Giám đốc).
+  const [approvals, setApprovals] = useState<OrderApproval[]>([]);
+  const [apprNote, setApprNote] = useState("");
+  const [apprSaving, setApprSaving] = useState(false);
+  const [apprErr, setApprErr] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     if (!token) return;
     try {
       setD(await api.orders.get(token, orderId));
+      try {
+        setPayments((await api.orders.payments(token, orderId)).items);
+      } catch {
+        /* danh sách cọc là phụ — không chặn xem đơn */
+      }
+      if (canApproveException) {
+        try {
+          setApprovals((await api.orders.approvals(token, orderId)).items);
+        } catch {
+          /* lịch sử duyệt chỉ GĐ thấy — không chặn xem đơn */
+        }
+      }
     } catch {
       setErr("Không tải được chi tiết đơn hàng.");
     }
-  }, [token, orderId]);
+  }, [token, orderId, canApproveException]);
 
   useEffect(() => {
     reload();
@@ -721,6 +748,50 @@ function OrderDetailDialog({
       else setErr("Thao tác không thành công.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function submitDeposit(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !d) return;
+    const amt = Number(depAmount.replace(/[^\d]/g, ""));
+    if (!amt || amt <= 0) {
+      setDepErr("Nhập số tiền cọc lớn hơn 0.");
+      return;
+    }
+    setDepSaving(true);
+    setDepErr(null);
+    try {
+      await api.orders.recordDeposit(token, d.id, { amount: amt, method: depMethod });
+      setDepAmount("");
+      await reload();
+      onChanged();
+    } catch (e2) {
+      if (e2 instanceof ApiError) setDepErr(e2.message);
+      else setDepErr("Ghi cọc không thành công.");
+    } finally {
+      setDepSaving(false);
+    }
+  }
+
+  async function submitApproval(decision: "approved" | "rejected") {
+    if (!token || !d) return;
+    if (decision === "rejected" && !apprNote.trim()) {
+      setApprErr("Nhập lý do từ chối.");
+      return;
+    }
+    setApprSaving(true);
+    setApprErr(null);
+    try {
+      await api.orders.recordApproval(token, d.id, { decision, note: apprNote.trim() || null });
+      setApprNote("");
+      await reload();
+      onChanged();
+    } catch (e2) {
+      if (e2 instanceof ApiError) setApprErr(e2.message);
+      else setApprErr("Ghi duyệt không thành công.");
+    } finally {
+      setApprSaving(false);
     }
   }
 
@@ -810,39 +881,165 @@ function OrderDetailDialog({
           {/* F3 Cổng ③→④: gate cứng approved + cọc ≥ ngưỡng; ghi cọc TREO SEAM-04 Payment. */}
           {gate && (
             <div className="dh__gatepanel">
-              <p className="dh__section-title">Cổng ③→④ (chốt đơn)</p>
+              <p className="dh__section-title">Cọc &amp; cổng chốt đơn</p>
               <div className="dh__gategrid">
                 <div>
-                  <span className="dh__muted">Tổng dự kiến</span>
-                  <strong>{fmtVnd(gate.total)}</strong>
+                  <span className="dh__muted">Khách phải trả (gồm VAT)</span>
+                  <strong>{fmtVnd(gate.total_payment)}</strong>
                 </div>
                 <div>
-                  <span className="dh__muted">Ngưỡng cọc ({gate.min_deposit_pct}%)</span>
+                  <span className="dh__muted">Cần cọc ({gate.min_deposit_pct}%)</span>
                   <strong>{fmtVnd(gate.deposit_required)}</strong>
                 </div>
                 <div>
-                  <span className="dh__muted">Đã duyệt giá</span>
-                  <strong>{gate.quotation_approved ? "Có" : "Chưa"}</strong>
+                  <span className="dh__muted">Đã thu cọc</span>
+                  <strong>{fmtVnd(gate.deposit_paid ?? 0)}</strong>
                 </div>
                 <div>
-                  <span className="dh__muted">Cọc đã thu</span>
-                  {gate.deposit_available ? (
-                    <strong>{fmtVnd(gate.deposit_paid)}</strong>
-                  ) : (
-                    <span className="dh__seam-inline">chờ phân hệ Tài chính (Payment)</span>
-                  )}
+                  <span className="dh__muted">Còn thiếu</span>
+                  <strong>{fmtVnd(gate.deposit_shortfall)}</strong>
                 </div>
               </div>
-              {!gate.deposit_available ? (
-                <div className="dh__seam-tag">
-                  Chưa ghi được cọc — phân hệ Tài chính (Payment) chưa sẵn sàng (SEAM-04). Chưa
-                  thể chốt đơn. Ngưỡng/còn thiếu tính theo tổng, không bịa số đã thu.
+
+              {/* Ghi cọc — chỉ khi đơn còn nháp + có quyền. Cọc KHÔNG xuất hóa đơn. */}
+              {!locked && canManageStatus && (
+                <form className="dh__depositform" onSubmit={submitDeposit}>
+                  <input
+                    className="input"
+                    value={depAmount}
+                    onChange={(e) => setDepAmount(e.target.value)}
+                    inputMode="numeric"
+                    placeholder="Số tiền cọc (đ)"
+                    aria-label="Số tiền cọc"
+                  />
+                  <select
+                    className="input dh__depositmethod"
+                    value={depMethod}
+                    onChange={(e) => setDepMethod(e.target.value)}
+                    aria-label="Hình thức thu"
+                  >
+                    <option value="bank">Chuyển khoản</option>
+                    <option value="cash">Tiền mặt</option>
+                  </select>
+                  <Button type="submit" variant="ghost" disabled={depSaving}>
+                    {depSaving ? "Đang ghi…" : "Ghi cọc"}
+                  </Button>
+                </form>
+              )}
+              {depErr && <div className="dh__err">{depErr}</div>}
+
+              {payments.length > 0 && (
+                <ul className="dh__paylist">
+                  {payments.map((p) => (
+                    <li key={p.id}>
+                      <span className="dh__mono">{fmtVnd(p.amount)}</span>
+                      <span className="dh__muted">
+                        {" · "}
+                        {p.method === "cash" ? "Tiền mặt" : "Chuyển khoản"}
+                        {p.direction === "hoan" ? " · HOÀN" : ""} · {fmtDate(p.paid_at)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {/* Trạng thái CỌC (độc lập với đơn đặc thù — báo đúng bản chất blocker). */}
+              {!gate.all_lines_priced ? (
+                <div className="dh__warn-tag">Còn dòng đơn chưa định giá — chưa thể chốt.</div>
+              ) : gate.deposit_shortfall > 0 ? (
+                <div className="dh__pending-tag">
+                  Cần thu thêm {fmtVnd(gate.deposit_shortfall)} tiền cọc để chốt.
                 </div>
-              ) : gate.can_confirm ? (
-                <div className="dh__ok-tag">Đủ điều kiện chốt đơn.</div>
               ) : (
+                <div className="dh__ok-tag">Đã đủ cọc.</div>
+              )}
+            </div>
+          )}
+
+          {/* A2 — Đơn đặc thù: Giám đốc duyệt mới chốt được. Hiện khi có điều kiện đặc thù bật.
+              Sales chỉ thấy nhãn + "cần Giám đốc duyệt"; GĐ thấy số biên + nút Duyệt/Từ chối. */}
+          {gate?.exception_required && (
+            <div className="dh__gatepanel dh__excpanel">
+              <p className="dh__section-title">Đơn đặc thù — cần Giám đốc duyệt</p>
+              <div className="dh__exc-chips">
+                {gate.exceptions.map((e) => (
+                  <span key={e.key} className="dh__exc-chip">{e.label}</span>
+                ))}
+                {gate.margin_pct != null && (
+                  <span className="dh__exc-chip dh__exc-chip--num">
+                    Biên lợi nhuận {gate.margin_pct}%
+                  </span>
+                )}
+              </div>
+
+              {/* Trạng thái duyệt */}
+              {gate.exception_status === "approved" ? (
+                <div className="dh__ok-tag">
+                  Giám đốc đã duyệt — đơn đủ điều kiện chốt (khi đã đủ cọc).
+                </div>
+              ) : gate.exception_status === "rejected" ? (
                 <div className="dh__warn-tag">
-                  Còn thiếu {fmtVnd(gate.deposit_shortfall)} để đạt ngưỡng chốt.
+                  Giám đốc đã từ chối — không thể chốt.
+                  {gate.exception_note && ` Lý do: ${gate.exception_note}`}
+                </div>
+              ) : gate.exception_status === "stale" ? (
+                <div className="dh__warn-tag">
+                  Đơn đã thay đổi so với lúc Giám đốc duyệt — cần trình duyệt lại.
+                </div>
+              ) : (
+                <div className="dh__pending-tag">
+                  {canApproveException
+                    ? "Chờ quyết định của bạn (Giám đốc)."
+                    : "Đang chờ Giám đốc duyệt."}
+                </div>
+              )}
+
+              {/* GĐ: ô lý do + nút Duyệt / Từ chối — chỉ khi đơn còn nháp. */}
+              {!locked && canApproveException && (
+                <div className="dh__apprbox">
+                  <textarea
+                    className="input dh__apprnote"
+                    value={apprNote}
+                    onChange={(e) => setApprNote(e.target.value)}
+                    placeholder="Lý do / ghi chú (bắt buộc khi từ chối)"
+                    rows={2}
+                    aria-label="Lý do duyệt/từ chối"
+                  />
+                  <div className="dh__apprbtns">
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={apprSaving}
+                      onClick={() => submitApproval("approved")}
+                    >
+                      {apprSaving ? "Đang ghi…" : "Duyệt đơn"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      disabled={apprSaving}
+                      onClick={() => submitApproval("rejected")}
+                    >
+                      Từ chối
+                    </Button>
+                  </div>
+                  {apprErr && <div className="dh__err">{apprErr}</div>}
+                  {approvals.length > 0 && (
+                    <ul className="dh__paylist">
+                      {approvals.map((a) => (
+                        <li key={a.id}>
+                          <span className="dh__mono">
+                            {a.decision === "approved" ? "Đã duyệt" : "Từ chối"}
+                          </span>
+                          <span className="dh__muted">
+                            {" · "}
+                            {fmtDate(a.decided_at)}
+                            {a.note ? ` · ${a.note}` : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
               )}
             </div>
@@ -918,7 +1115,9 @@ function OrderDetailDialog({
                     onClick={() => doTransition(t)}
                     title={
                       isConfirm && !(gate?.can_confirm ?? false)
-                        ? "Cần đã duyệt giá và cọc đạt ngưỡng (cọc chờ phân hệ Tài chính)"
+                        ? gate?.exception_required && !gate?.exception_cleared
+                          ? "Đơn đặc thù — cần Giám đốc duyệt trước khi chốt"
+                          : "Cần đã duyệt giá, đủ cọc, và mọi dòng đã có giá"
                         : undefined
                     }
                   >

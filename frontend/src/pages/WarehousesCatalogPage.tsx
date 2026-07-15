@@ -133,20 +133,19 @@ export function WarehousesCatalogPage() {
               <th>Tên kho</th>
               <th>Mô tả</th>
               <th>Ghi chú</th>
-              <th>Trạng thái</th>
               <th className="md-page__actions-col">Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="md-page__status">
+                <td colSpan={5} className="md-page__status">
                   Đang tải dữ liệu...
                 </td>
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="md-page__empty">
+                <td colSpan={5} className="md-page__empty">
                   Chưa có kho nào. Bấm “Tạo kho mới” để thêm.
                 </td>
               </tr>
@@ -171,13 +170,6 @@ export function WarehousesCatalogPage() {
                   </td>
                   <td>{row.description || <span className="md-page__muted">—</span>}</td>
                   <td>{row.notes || <span className="md-page__muted">—</span>}</td>
-                  <td>
-                    <span
-                      className={`md-page__status-badge ${row.is_active ? "is-active" : "is-inactive"}`}
-                    >
-                      {row.is_active ? "Kích hoạt" : "Đã ẩn"}
-                    </span>
-                  </td>
                   <td className="md-page__actions-col" onClick={(e) => e.stopPropagation()}>
                     {canUpdate && (
                       <button

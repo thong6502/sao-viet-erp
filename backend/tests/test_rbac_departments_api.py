@@ -230,3 +230,22 @@ def test_non_admin_forbidden(client):
     token = _sales_token()
     assert client.post("/api/departments", json={"name": "X"}, headers=_h(token)).status_code == 403
     assert client.get("/api/departments", headers=_h(token)).status_code == 403
+
+
+def test_employee_count_and_delete_blocked_by_employees(client):
+    """Đ2: 'số nhân sự' đếm theo HỒ SƠ (tách khỏi tài khoản); xóa phòng còn hồ sơ — kể cả khi
+    phòng KHÔNG có tài khoản nào — bị chặn (không để employees.department_id mồ côi)."""
+    token = _admin_token(client)
+    did = client.post("/api/departments", json={"name": "Tổ Test EC"}, headers=_h(token)).json()["id"]
+    # 1 hồ sơ nhân sự thuộc phòng, KHÔNG tạo tài khoản
+    r = client.post(
+        "/api/employees",
+        json={"full_name": "NV EC", "department_id": did, "hire_date": "2024-01-01"},
+        headers=_h(token),
+    )
+    assert r.status_code == 201
+    row = next(x for x in client.get("/api/departments", headers=_h(token)).json() if x["id"] == did)
+    assert row["employee_count"] == 1   # đếm theo hồ sơ
+    assert row["user_count"] == 0       # phòng không có tài khoản
+    # xóa phòng còn hồ sơ (dù 0 tài khoản) → chặn theo hồ-sơ ∪ tài-khoản
+    assert client.delete(f"/api/departments/{did}", headers=_h(token)).status_code >= 400

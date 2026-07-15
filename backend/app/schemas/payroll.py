@@ -18,6 +18,11 @@ class ParamsIn(BaseModel):
     deduction_self: float | None = Field(default=None, ge=0)
     deduction_dependent: float | None = Field(default=None, ge=0)
     chuyen_can_default: float | None = Field(default=None, ge=0)
+    standard_hours_per_day: float | None = Field(default=None, gt=0, le=24)
+    ot_multiplier: float | None = Field(default=None, ge=1, le=5)
+    night_pct: float | None = Field(default=None, ge=0, le=2)
+    bh_base_cap: float | None = Field(default=None, ge=0)
+    bhtn_base_cap: float | None = Field(default=None, ge=0)
 
 
 class ParamsOut(BaseModel):
@@ -31,6 +36,33 @@ class ParamsOut(BaseModel):
     deduction_self: float
     deduction_dependent: float
     chuyen_can_default: float
+    standard_hours_per_day: float
+    ot_multiplier: float
+    night_pct: float
+    bh_base_cap: float
+    bhtn_base_cap: float
+
+
+# --- biểu thuế TNCN ---------------------------------------------------------
+
+
+class PitBracketIn(BaseModel):
+    seq: int = Field(ge=1)
+    up_to: float | None = Field(default=None, ge=0)   # None = bậc cao nhất (∞)
+    rate: float = Field(ge=0, le=1)
+
+
+class PitBracketOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    seq: int
+    up_to: float | None = None
+    rate: float
+
+
+class PitBracketsOut(BaseModel):
+    items: list[PitBracketOut]
 
 
 # --- salary_rate_rules ------------------------------------------------------
@@ -161,6 +193,8 @@ class PeriodOut(BaseModel):
     status: str
     standard_cong: float
     locked_at: datetime | None = None
+    paid_at: datetime | None = None
+    paid_by: int | None = None
 
 
 class PeriodsOut(BaseModel):
@@ -170,6 +204,12 @@ class PeriodsOut(BaseModel):
 class GenerateIn(BaseModel):
     year: int = Field(ge=2000, le=2100)
     month: int = Field(ge=1, le=12)
+
+
+class PeriodPayIn(BaseModel):
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    note: str | None = Field(default=None, max_length=255)
 
 
 class LineOut(BaseModel):
@@ -191,12 +231,18 @@ class LineOut(BaseModel):
     chuyen_can: float
     allowance: float
     khoan: float = 0
+    ot_minutes: int = 0
+    ot_pay: float = 0
+    night_days: int = 0
+    night_pay: float = 0
     vi_pham: float
     other_bonus: float
     gross: float
     insurance_base: float
     bhxh: float
     pit: float
+    pit_manual: bool = False
+    pit_taxable: float = 0
     advance_total: float
     net_pay: float
     note: str | None = None
@@ -211,6 +257,7 @@ class LineUpdateIn(BaseModel):
     vi_pham: float | None = Field(default=None, ge=0)
     other_bonus: float | None = Field(default=None, ge=0)
     pit: float | None = Field(default=None, ge=0)
+    pit_manual: bool | None = None   # False = reset về tự tính; None = giữ nguyên
     monthly_override: float | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=255)
 

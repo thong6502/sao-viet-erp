@@ -1,0 +1,704 @@
+/* Phân hệ Nghỉ phép — Thiết kế SaaS cao cấp, giao diện đồng bộ, tinh tế */
+
+/* 1. Thanh Hạn mức Phép (Quota Cards Strip) */
+.cc-quota-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+
+.cc-quota-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  padding: 16px 20px;
+  margin-bottom: var(--sp-5);
+  box-shadow: var(--shadow-1);
+}
+
+.cc-quota-list {
+  display: flex;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.cc-quota-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+  .cc-quota-container {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .cc-quota-actions {
+    align-items: flex-start;
+    margin-top: var(--sp-2);
+  }
+}
+
+
+.cc-quota-card {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-left: 4px solid var(--rule);
+  border-radius: var(--r-5);
+  padding: 12px 16px;
+  box-shadow: var(--shadow-1);
+  transition: all var(--duration-base);
+}
+
+.cc-quota-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-3);
+  border-color: var(--rule);
+}
+
+.cc-quota-card-title {
+  font-size: 11.5px;
+  color: var(--ash-2);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  margin-bottom: 4px;
+}
+
+.cc-quota-card-val {
+  font-size: 20px;
+  font-weight: var(--fw-bold);
+  line-height: 1.2;
+}
+
+.cc-quota-card-total {
+  font-size: 12.5px;
+  color: var(--ash);
+  font-weight: var(--fw-medium);
+}
+
+.cc-quota-card-used {
+  font-size: 11px;
+  color: var(--ash-2);
+  margin-top: 4px;
+}
+
+/* Accent colors for Quota cards based on remaining count */
+.cc-quota-card--high { border-left-color: var(--moss); }
+.cc-quota-card--high .cc-quota-card-val { color: var(--moss-deep); }
+
+.cc-quota-card--medium { border-left-color: var(--amber-deep); }
+.cc-quota-card--medium .cc-quota-card-val { color: var(--amber-deep); }
+
+.cc-quota-card--low { border-left-color: var(--signal); }
+.cc-quota-card--low .cc-quota-card-val { color: var(--signal); }
+
+
+/* 2. Danh sách Đơn bên trái (Requests Left List) */
+.ns2__grid {
+  display: grid !important;
+  grid-template-columns: 330px 1fr !important;
+  gap: var(--sp-5) !important;
+  align-items: start !important;
+  width: 100%;
+}
+
+.ns2__list {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-3);
+  box-shadow: var(--shadow-1);
+  width: auto !important;
+}
+
+.ns2__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.ns2-row {
+  background: var(--canvas) !important;
+  border: 1px solid var(--rule-soft) !important;
+  border-left: 4px solid var(--rule) !important;
+  border-radius: var(--r-4) !important;
+  padding: 10px 14px !important;
+  text-align: left !important;
+  cursor: pointer;
+  transition: all var(--duration-fast) !important;
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.02);
+}
+
+.ns2-row:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
+  border-color: var(--rule);
+}
+
+.ns2-row.is-active {
+  background: var(--paper) !important;
+  border-color: var(--rust-soft) !important;
+  border-left-width: 5px !important;
+  box-shadow: var(--shadow-3);
+}
+
+.ns2-row__name {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ns2-row__sub {
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  color: var(--ash-2);
+  margin-top: 4px;
+}
+
+/* Left Accent borders for row states */
+.ns2-row--pending { border-left-color: var(--steel) !important; }
+.ns2-row--approved { border-left-color: var(--moss) !important; }
+.ns2-row--rejected { border-left-color: var(--signal) !important; }
+.ns2-row--cancelled { border-left-color: var(--rule-soft) !important; }
+
+
+/* 3. Chi tiết Đơn bên phải (Requests Right Detail/Form) */
+.ns2__detail {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+
+.ns2-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.ns2-detail__head {
+  padding: var(--sp-4) var(--sp-5);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-soft);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+.ns2-detail__head h2 {
+  font-size: 16px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ns2-detail__back {
+  background: var(--rule-soft) !important;
+  border: none !important;
+  color: var(--ash) !important;
+  width: 28px;
+  height: 28px;
+  border-radius: 50% !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-weight: var(--fw-bold);
+  transition: all var(--duration-fast);
+}
+
+.ns2-detail__back:hover {
+  background: var(--rule) !important;
+  color: var(--ink) !important;
+}
+
+.ns2-detail__body {
+  padding: var(--sp-5);
+}
+
+/* Form controls visual polish */
+.ns2-detail__body .ns-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ns2-detail__body select,
+.ns2-detail__body input {
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-4);
+  height: 38px;
+  padding: 0 12px;
+  outline: none;
+  transition: all var(--duration-fast);
+  width: 100%;
+}
+
+.ns2-detail__body select {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b665b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px;
+  padding-right: 32px;
+}
+
+.ns2-detail__body select:focus,
+.ns2-detail__body input:focus {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+
+/* Modern key-value fields layout */
+.ns-kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 10px 0;
+  border-bottom: 1px dashed var(--rule-soft);
+}
+
+.ns-kv__k {
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  color: var(--ash-2);
+  text-transform: uppercase;
+}
+
+.ns-kv__v {
+  font-size: 13.5px;
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+  text-align: right;
+  max-width: 70%;
+}
+
+
+/* 4. Tab Duyệt đơn (Approve requests) */
+.cc-focus {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-left: 4px solid var(--rust);
+  padding: 10px 16px;
+  border-radius: var(--r-4);
+  margin-bottom: var(--sp-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+}
+
+/* Bulk actions bar (Floating Action Sheet) */
+.cc-bulk-actions-floating {
+  position: sticky;
+  top: 10px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 10px 18px;
+  margin-bottom: var(--sp-4);
+  background: linear-gradient(135deg, var(--rust-soft) 0%, rgba(239, 235, 222, 0.95) 100%);
+  border: 1px solid var(--rust);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-lg);
+  backdrop-filter: blur(8px);
+  animation: slideDownFade 0.3s var(--easing-standard);
+}
+
+.cc-bulk-label {
+  font-size: 13px;
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+}
+
+.cc-bulk-btn-group {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Table Approve actions cell */
+.cc-approve-actions-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+
+/* 5. Tab Lịch nghỉ tháng (Calendar Grid redone) */
+.cc-calendar-tab-wrapper {
+  animation: slideDownFade var(--duration-base) var(--easing-standard);
+}
+
+/* Dashboard: Search & Quick stats strip */
+.cc-calendar-dashboard {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+  flex-wrap: wrap;
+}
+
+.cc-calendar-search-wrapper {
+  position: relative;
+  flex: 1;
+  min-width: 260px;
+  max-width: 400px;
+  display: flex;
+  align-items: center;
+}
+
+.cc-calendar-search-icon {
+  position: absolute;
+  left: 12px;
+  color: var(--ash-2);
+  pointer-events: none;
+}
+
+.cc-calendar-search-input {
+  width: 100%;
+  padding: 8px 12px 8px 36px !important;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  transition: all var(--duration-base) ease;
+}
+
+.cc-calendar-search-input:focus {
+  border-color: var(--rust);
+  background: #fff;
+  outline: none;
+}
+
+.cc-calendar-stats-strip {
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.cc-calendar-stat-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: 8px var(--sp-4);
+  box-shadow: var(--shadow-1);
+}
+
+.cc-calendar-stat-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cc-calendar-stat-icon--users {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+
+.cc-calendar-stat-icon--clock {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+.cc-calendar-stat-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.cc-calendar-stat-val {
+  font-size: 16px;
+  font-weight: var(--fw-bold);
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.cc-calendar-stat-label {
+  font-size: 10.5px;
+  color: var(--ash-2);
+  font-weight: var(--fw-medium);
+}
+
+/* Calendar Grid Header redone */
+.cc-calendar-grid-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-3);
+  flex-wrap: wrap;
+}
+
+.cc-calendar-navigator {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.cc-calendar-month-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 50% !important;
+  border: 1px solid var(--rule-soft) !important;
+  background: var(--canvas) !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--ash) !important;
+  transition: all var(--duration-fast);
+}
+
+.cc-calendar-month-btn:hover {
+  background: var(--rule-soft) !important;
+  color: var(--ink) !important;
+  transform: translateY(-0.5px);
+}
+
+.cc-calendar-month-picker-wrapper {
+  position: relative;
+}
+
+.cc-calendar-month-title-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px var(--sp-4);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  cursor: pointer;
+  transition: all var(--duration-fast);
+  box-shadow: var(--shadow-1);
+}
+
+.cc-calendar-month-title-pill:hover {
+  border-color: var(--rule);
+  background: #fff;
+}
+
+.cc-calendar-legends {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+}
+
+.cc-calendar-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ash);
+}
+
+/* Calendar status indicators inside grids */
+.cc-calendar-grid-cell-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 9.5px;
+  font-weight: var(--fw-bold);
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.04);
+}
+
+.cc-calendar-grid-cell-badge--paid {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  border: 1px solid rgba(47, 93, 58, 0.15);
+}
+
+.cc-calendar-grid-cell-badge--unpaid {
+  background: var(--steel-soft);
+  color: var(--steel);
+  border: 1px solid rgba(74, 85, 96, 0.15);
+}
+
+.cc-calendar-grid-cell-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--amber);
+  box-shadow: 0 0 0 3px var(--amber-soft);
+}
+
+/* Today Highlights */
+.cc-day-hdr-v2--today {
+  background: var(--rust-soft) !important;
+  color: var(--rust-deep) !important;
+  font-weight: var(--fw-bold) !important;
+  position: relative;
+}
+
+.cc-today-indicator-dot {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--rust);
+}
+
+.cc-day-cell--today {
+  background: rgba(197, 64, 10, 0.03) !important;
+  box-shadow: inset 1px 0 0 rgba(197, 64, 10, 0.08), inset -1px 0 0 rgba(197, 64, 10, 0.08);
+}
+
+/* Hover cell details Interactive Tooltip */
+.cc-calendar-tooltip {
+  width: 230px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-lg);
+  padding: 10px 14px;
+  animation: slideDownFade 120ms ease-out;
+  pointer-events: none;
+}
+
+.cc-calendar-tooltip-header {
+  border-bottom: 1px solid var(--rule-soft);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cc-calendar-tooltip-title {
+  font-weight: var(--fw-bold);
+  font-size: 13.5px;
+  color: var(--ink);
+}
+
+.cc-calendar-tooltip-date {
+  font-size: 11px;
+  color: var(--ash-2);
+  font-family: var(--ff-mono);
+}
+
+.cc-calendar-tooltip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cc-calendar-tooltip-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+}
+
+.cc-calendar-tooltip-label {
+  color: var(--ash);
+}
+
+.cc-calendar-tooltip-val {
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  text-align: right;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-calendar-tooltip-val--paid-true {
+  color: var(--moss);
+}
+
+.cc-calendar-tooltip-val--paid-false {
+  color: var(--steel);
+}
+
+.cc-calendar-tooltip-status {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  padding: 1px 6px;
+  border-radius: var(--r-2);
+}
+
+.cc-calendar-tooltip-status--approved {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+
+.cc-calendar-tooltip-status--pending {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+
+
+/* Calendar Table Row Sticky Name styles */
+.cc-calendar-sticky-name {
+  position: sticky;
+  left: 0;
+  background: var(--canvas) !important;
+  font-weight: var(--fw-bold) !important;
+  border-right: 2px solid var(--rule-soft) !important;
+  z-index: 2;
+  box-shadow: 4px 0 8px -4px rgba(20, 19, 15, 0.05);
+}
+
+.cc-calendar-table th.cc-calendar-sticky-name {
+  background: var(--canvas) !important;
+  color: var(--ash) !important;
+  z-index: 3;
+  border-right: 2px solid var(--rule-soft) !important;
+}
+
+
+/* Keyframe animations */
+@keyframes slideDownFade {
+  from {
+    transform: translateY(-10px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
