@@ -132,37 +132,39 @@ A user holds exactly one role; its permissions decide access.
 **Purpose:** one row per (role × module): the CRUD flags and the data scope that role
 gets on that module.
 
-| Column                   | Type (SQLAlchemy → SQLite / Postgres) | Key                     | Null | Default        | Meaning                                                                                                                                                                         |
-| ------------------------ | ------------------------------------- | ----------------------- | ---- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`                     | `Integer` → `INTEGER` / `SERIAL`      | **PK**                  | no   | auto-increment | Surrogate primary key.                                                                                                                                                          |
-| `role_id`                | `Integer` → `INTEGER`                 | **FK→roles.id**, **IX** | no   | —              | The role this permission belongs to.                                                                                                                                            |
-| `module_key`             | `String(64)` → `VARCHAR(64)`          | **FK→modules.key**      | no   | —              | The module/resource this permission applies to.                                                                                                                                 |
-| `can_read`               | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | May view (Xem) records of this module.                                                                                                                                          |
-| `can_create`             | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | May create (Thêm) records of this module.                                                                                                                                       |
-| `can_update`             | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | May edit (Sửa) records of this module.                                                                                                                                          |
-| `can_delete`             | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | May delete (Xóa) records of this module.                                                                                                                                        |
-| `scope`                  | `String(16)` → `VARCHAR(16)`          | —                       | no   | `own`          | Data scope: `own` (của tôi) / `department` (cả phòng) / `all` (tất cả).                                                                                                         |
-| `can_reassign`           | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết (Cách B) — điều chuyển người phụ trách (vd Khách hàng).                                                                                                          |
-| `can_export`             | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — xuất file đối ngoại (CSV khách hàng, PDF báo giá).                                                                                                             |
-| `can_view_debt`          | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — xem công nợ / hạn mức khách hàng.                                                                                                                              |
-| `can_view_discount`      | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết (khach_hang) — xem/sửa chiết khấu riêng theo khách (#14, nhạy cảm).                                                                                              |
-| `can_approve`            | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — duyệt báo giá (chuyển trạng thái → Khách duyệt).                                                                                                               |
-| `can_manage_status`      | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — chốt / hủy đơn hàng (đổi trạng thái vòng đời).                                                                                                                 |
-| `can_reset_password`     | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — đặt lại mật khẩu người dùng.                                                                                                                                   |
-| `can_lock`               | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — khóa / mở tài khoản người dùng.                                                                                                                                |
-| `can_revoke_sessions`    | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — thu hồi mọi phiên đăng nhập của người dùng.                                                                                                                    |
-| `can_assign_role`        | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — gán vai trò cho người dùng (đơn + hàng loạt).                                                                                                                  |
-| `can_transfer`           | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — chuyển người dùng sang phòng ban khác.                                                                                                                         |
-| `can_set_head`           | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — đặt / đổi trưởng phòng (phong_ban).                                                                                                                            |
-| `can_requote`            | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — tạo bản báo giá mới (re-quote).                                                                                                                                |
-| `can_manage_price`       | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — cập nhật bảng giá theo mốc (vật liệu / thiết bị / công đoạn).                                                                                                  |
-| `can_cancel`             | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — hủy báo giá (→ Đã hủy) / hủy đơn hàng.                                                                                                                         |
-| `can_manage_permissions` | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — sửa MA TRẬN phân quyền của vai trò (tách khỏi đổi tên; chống leo thang quyền).                                                                                 |
-| `can_clone`              | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — nhân bản giấy (vật liệu).                                                                                                                                      |
-| `can_toggle_active`      | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — bật/tắt hoạt động vật liệu.                                                                                                                                    |
-| `can_reparent`           | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết — đổi cấp trên phòng ban (tái cấu trúc cây tổ chức).                                                                                                             |
-| `can_view_salary`        | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết (nhan_su) — xem dữ liệu nhạy cảm của hồ sơ (lương/BHXH/MST/số phụ thuộc/TK ngân hàng/nhóm-bậc lương). Thiếu quyền → các field đó bị ẩn. Thêm qua migration 0014. |
-| `can_adjust`             | `Boolean` → `BOOLEAN`                 | —                       | no   | `false`        | Quyền chi tiết (nhan_su · Chấm công) — chấm bù / sửa công qua punch nguồn (`attendance_logs.is_manual`), tách khỏi `can_update`. Thêm qua migration 0015.                       |
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `role_id` | `Integer` → `INTEGER` | **FK→roles.id**, **IX** | no | — | The role this permission belongs to. |
+| `module_key` | `String(64)` → `VARCHAR(64)` | **FK→modules.key** | no | — | The module/resource this permission applies to. |
+| `can_read` | `Boolean` → `BOOLEAN` | — | no | `false` | May view (Xem) records of this module. |
+| `can_create` | `Boolean` → `BOOLEAN` | — | no | `false` | May create (Thêm) records of this module. |
+| `can_update` | `Boolean` → `BOOLEAN` | — | no | `false` | May edit (Sửa) records of this module. |
+| `can_delete` | `Boolean` → `BOOLEAN` | — | no | `false` | May delete (Xóa) records of this module. |
+| `scope` | `String(16)` → `VARCHAR(16)` | — | no | `own` | Data scope: `own` (của tôi) / `department` (cả phòng) / `all` (tất cả). |
+| `can_reassign` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (Cách B) — điều chuyển người phụ trách (vd Khách hàng). |
+| `can_export` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — xuất file đối ngoại (CSV khách hàng, PDF báo giá). |
+| `can_view_debt` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — xem công nợ / hạn mức khách hàng. |
+| `can_view_discount` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (khach_hang) — xem/sửa chiết khấu riêng theo khách (#14, nhạy cảm). |
+| `can_approve` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — duyệt báo giá (chuyển trạng thái → Khách duyệt). |
+| `can_manage_status` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — chốt / hủy đơn hàng (đổi trạng thái vòng đời). |
+| `can_reset_password` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đặt lại mật khẩu người dùng. |
+| `can_lock` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — khóa / mở tài khoản người dùng. |
+| `can_revoke_sessions` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — thu hồi mọi phiên đăng nhập của người dùng. |
+| `can_assign_role` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — gán vai trò cho người dùng (đơn + hàng loạt). |
+| `can_transfer` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — chuyển người dùng sang phòng ban khác. |
+| `can_set_head` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đặt / đổi trưởng phòng (phong_ban). |
+| `can_requote` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — tạo bản báo giá mới (re-quote). |
+| `can_manage_price` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — cập nhật bảng giá theo mốc (vật liệu / thiết bị / công đoạn). |
+| `can_cancel` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — hủy báo giá (→ Đã hủy) / hủy đơn hàng. |
+| `can_manage_permissions` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — sửa MA TRẬN phân quyền của vai trò (tách khỏi đổi tên; chống leo thang quyền). |
+| `can_clone` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — nhân bản giấy (vật liệu). |
+| `can_toggle_active` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — bật/tắt hoạt động vật liệu. |
+| `can_reparent` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết — đổi cấp trên phòng ban (tái cấu trúc cây tổ chức). |
+| `can_view_salary` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su) — xem dữ liệu nhạy cảm của hồ sơ (lương/BHXH/MST/số phụ thuộc/TK ngân hàng/nhóm-bậc lương). Thiếu quyền → các field đó bị ẩn. Thêm qua migration 0014. |
+| `can_edit_salary` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su) — SỬA dữ liệu nhạy cảm của hồ sơ (lương/BHXH/bank/nhóm-bậc lương), tách khỏi `can_view_salary` (chỉ xem). Thiếu quyền → các field đó bị BỎ QUA khi ghi (N5). Thêm qua migration 0041. |
+| `can_adjust` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su · Chấm công) — chấm bù / sửa công qua punch nguồn (`attendance_logs.is_manual`), tách khỏi `can_update`. Thêm qua migration 0015. |
+| `can_approve_exception` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (don_hang_ban · A2) — DUYỆT "đơn đặc thù" (giá trị cao / biên thấp / dưới giá vốn), tách khỏi `can_approve` (= chốt đơn thường). CHỈ Giám đốc; Trưởng phòng KD giữ `_full` nhưng KHÔNG có quyền này. Thêm qua migration 0050. |
 
 **Keys & indexes**
 
@@ -499,26 +501,30 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 `quote_items`. Logic **pick từ phiếu tính giá**: 1 báo giá pick từ NHIỀU phiếu (per-item
 `quote_items.estimate_id`); header `estimate_id` chỉ là phiếu đầu tiên (tương thích cũ).
 
-| Column                   | Type (SQLAlchemy → SQLite / Postgres) | Key                                    | Null | Default   | Meaning                                                                                         |
-| ------------------------ | ------------------------------------- | -------------------------------------- | ---- | --------- | ----------------------------------------------------------------------------------------------- |
-| `id`                     | `Integer`                             | **PK**                                 | no   | auto      | Surrogate primary key.                                                                          |
-| `quote_number`           | `String(20)`                          | **UQ**, **IX**                         | no   | —         | Mã phiếu (BG26-0001…) — duy nhất; version nằm ở `quote_versions.version_number`.                |
-| `customer_id`            | `Integer`                             | **FK→customers.id** (SET NULL), **IX** | yes  | —         | Khách hàng (SEAM-14 CRM read).                                                                  |
-| `customer_name_snapshot` | `String(255)`                         | —                                      | yes  | —         | Tên KH chốt tại thời điểm tạo (copy-on-write hiển thị).                                         |
-| `estimate_id`            | `Integer`                             | **FK→estimates.id** (SET NULL), **IX** | yes  | —         | Phiếu tính giá ĐẦU TIÊN (tương thích cũ); tham chiếu thật per dòng ở `quote_items.estimate_id`. |
-| `salesperson_id`         | `Integer`                             | **FK→users.id** (SET NULL), **IX**     | yes  | —         | Sale phụ trách — RBAC data-scope owner.                                                         |
-| `status`                 | `String(20)`                          | —                                      | no   | `draft`   | draft/sent/accepted/rejected/expired/converted_to_order/cancelled.                              |
-| `current_version_id`     | `Integer`                             | **IX**                                 | yes  | —         | Phiên bản đang hiệu lực (con trỏ, không FK để tránh vòng).                                      |
-| `valid_until`            | `Date`                                | —                                      | yes  | —         | Hạn hiệu lực; quá hạn → expired (chặn duyệt).                                                   |
-| `payment_terms`          | `String(255)`                         | —                                      | yes  | —         | Điều khoản thanh toán.                                                                          |
-| `delivery_terms`         | `String(255)`                         | —                                      | yes  | —         | Điều khoản giao hàng.                                                                           |
-| `delivery_address`       | `String(500)`                         | —                                      | yes  | —         | Địa chỉ giao.                                                                                   |
-| `customer_note`          | `String(1000)`                        | —                                      | yes  | —         | Ghi chú hiện cho khách.                                                                         |
-| `internal_note`          | `String(1000)`                        | —                                      | yes  | —         | Ghi chú nội bộ.                                                                                 |
-| `cancel_reason`          | `String(500)`                         | —                                      | yes  | —         | Lý do hủy (bắt buộc khi cancelled).                                                             |
-| `created_by`             | `Integer`                             | **FK→users.id** (SET NULL)             | yes  | —         | Người tạo.                                                                                      |
-| `created_at`             | `DateTime(tz)`                        | —                                      | no   | now (UTC) | Tạo lúc.                                                                                        |
-| `updated_at`             | `DateTime(tz)`                        | —                                      | no   | now (UTC) | Sửa lần cuối (onupdate).                                                                        |
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | Surrogate primary key. |
+| `quote_number` | `String(20)` | **UQ**, **IX** | no | — | Mã phiếu (BG26-0001…) — duy nhất; version nằm ở `quote_versions.version_number`. |
+| `customer_id` | `Integer` | **FK→customers.id** (SET NULL), **IX** | yes | — | Khách hàng (SEAM-14 CRM read). |
+| `customer_name_snapshot` | `String(255)` | — | yes | — | Tên KH chốt tại thời điểm tạo (copy-on-write hiển thị). |
+| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá ĐẦU TIÊN (tương thích cũ); tham chiếu thật per dòng ở `quote_items.estimate_id`. Gỡ ở BG-4. |
+| `phieu_tinh_gia_id` | `Integer` → `INTEGER` | **IX** (soft) | yes | — | **BG-1**: nguồn MỚI = 1 Phiếu tính giá (PTG). Soft link (plain int). 1 PTG → 1 BG đang hiệu lực — guard ở service (KHÔNG unique cứng; cancelled/rejected/expired nhả chỗ). Migration 0051. |
+| `salesperson_id` | `Integer` | **FK→users.id** (SET NULL), **IX** | yes | — | Sale phụ trách — RBAC data-scope owner. |
+| `status` | `String(20)` | — | no | `draft` | draft/**pending_approval**/sent/accepted/rejected/expired/converted_to_order/cancelled (redesign-bao-gia §3). |
+| `current_version_id` | `Integer` | **IX** | yes | — | Phiên bản đang hiệu lực (con trỏ, không FK để tránh vòng). |
+| `valid_until` | `Date` | — | yes | — | Hạn hiệu lực; quá hạn → expired (chặn duyệt). |
+| `payment_terms` | `String(255)` | — | yes | — | Điều khoản thanh toán. |
+| `delivery_terms` | `String(255)` | — | yes | — | Điều khoản giao hàng. |
+| `delivery_address` | `String(500)` | — | yes | — | Địa chỉ giao (auto-fill từ `CustomerAddress.is_default`, sửa được). |
+| `contact_name_snapshot` | `String(255)` | — | yes | — | **redesign-bao-gia §5**: người liên hệ snapshot (auto-fill CRM `CustomerContact.is_primary`). Migration 0052. |
+| `contact_phone_snapshot` | `String(30)` | — | yes | — | SĐT người liên hệ snapshot. Migration 0052. |
+| `contact_title_snapshot` | `String(120)` | — | yes | — | Chức vụ người liên hệ snapshot. Migration 0052. |
+| `customer_note` | `String(1000)` | — | yes | — | Ghi chú hiện cho khách. |
+| `internal_note` | `String(1000)` | — | yes | — | Ghi chú nội bộ. |
+| `cancel_reason` | `String(500)` | — | yes | — | Lý do hủy (bắt buộc khi cancelled). |
+| `created_by` | `Integer` | **FK→users.id** (SET NULL) | yes | — | Người tạo. |
+| `created_at` | `DateTime(tz)` | — | no | now (UTC) | Tạo lúc. |
+| `updated_at` | `DateTime(tz)` | — | no | now (UTC) | Sửa lần cuối (onupdate). |
 
 ### `quote_versions`
 
@@ -557,28 +563,30 @@ copy-on-write: `estimate_snapshot_json` (spec phiếu tính giá) + `internal_co
 pick** (logic chốt: báo giá không soạn tay, chỉ pick từ phiếu tính giá `calculated`). Giá vốn
 đóng băng per dòng (`total_cost_snapshot`); markup/VAT per dòng.
 
-| Column                       | Type            | Key                                        | Null | Default | Meaning                                               |
-| ---------------------------- | --------------- | ------------------------------------------ | ---- | ------- | ----------------------------------------------------- |
-| `id`                         | `Integer`       | **PK**                                     | no   | auto    | PK.                                                   |
-| `quote_version_id`           | `Integer`       | **FK→quote_versions.id** (CASCADE), **IX** | no   | —       | Version cha.                                          |
-| `estimate_id`                | `Integer`       | **FK→estimates.id** (SET NULL), **IX**     | yes  | —       | Phiếu tính giá gốc của DÒNG NÀY (đa phiếu/1 báo giá). |
-| `estimate_option_id`         | `Integer`       | —                                          | yes  | —       | Mức số lượng (option) đã pick trong phiếu.            |
-| `line_no`                    | `Integer`       | —                                          | no   | —       | Thứ tự dòng.                                          |
-| `product_type`               | `String(50)`    | —                                          | no   | —       | Loại SP (snapshot từ phiếu).                          |
-| `product_name`               | `String(255)`   | —                                          | no   | —       | Tên SP (snapshot).                                    |
-| `product_spec_text`          | `String(1000)`  | —                                          | yes  | —       | Spec đọc được ("21×29,7 cm · 4 màu/2 mặt").           |
-| `product_spec_snapshot_json` | `JSON`          | —                                          | yes  | —       | Spec đầy đủ copy-on-write.                            |
-| `quantity`                   | `Integer`       | —                                          | no   | —       | Số lượng của mức đã pick.                             |
-| `unit`                       | `String(16)`    | —                                          | no   | `cái`   | Đơn vị bán.                                           |
-| `total_cost_snapshot`        | `Numeric(15,2)` | —                                          | no   | `0`     | Giá vốn KHÓA của dòng (không sửa ở Báo giá).          |
-| `margin_percent`             | `Numeric(5,2)`  | —                                          | no   | `0`     | % biên lợi nhuận dòng.                                |
-| `selling_price`              | `Numeric(15,2)` | —                                          | no   | `0`     | Giá bán dòng (trước VAT).                             |
-| `unit_price`                 | `Numeric(15,2)` | —                                          | no   | `0`     | Đơn giá bán /sp.                                      |
-| `discount_amount`            | `Numeric(15,2)` | —                                          | no   | `0`     | Chiết khấu dòng.                                      |
-| `vat_percent`                | `Numeric(5,2)`  | —                                          | no   | `0`     | %VAT dòng.                                            |
-| `vat_amount`                 | `Numeric(15,2)` | —                                          | no   | `0`     | Tiền VAT dòng.                                        |
-| `final_amount`               | `Numeric(15,2)` | —                                          | no   | `0`     | Thành tiền dòng (đã VAT).                             |
-| `note`                       | `String(500)`   | —                                          | yes  | —       | Ghi chú dòng.                                         |
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `quote_version_id` | `Integer` | **FK→quote_versions.id** (CASCADE), **IX** | no | — | Version cha. |
+| `estimate_id` | `Integer` | **FK→estimates.id** (SET NULL), **IX** | yes | — | Phiếu tính giá gốc của DÒNG NÀY (đa phiếu/1 báo giá — hệ cũ, gỡ ở BG-4). |
+| `phieu_thanh_phan_id` | `Integer` → `INTEGER` | (soft) | yes | — | **BG-1**: dòng báo giá nguồn từ 1 "sản phẩm" (`PhieuThanhPhan`) của PTG. Soft ref. Migration 0051. |
+| `estimate_option_id` | `Integer` | — | yes | — | Mức số lượng (option) đã pick trong phiếu. |
+| `line_no` | `Integer` | — | no | — | Thứ tự dòng. |
+| `po_code` | `String(60)` | — | yes | — | Mã PO của khách cho dòng (cột "MÃ PO" mẫu báo giá thật). Migration 0052. |
+| `product_type` | `String(50)` | — | no | — | Loại SP (snapshot từ phiếu). |
+| `product_name` | `String(255)` | — | no | — | Tên SP (snapshot). |
+| `product_spec_text` | `String(1000)` | — | yes | — | Spec đọc được ("21×29,7 cm · 4 màu/2 mặt"). |
+| `product_spec_snapshot_json` | `JSON` | — | yes | — | Spec đầy đủ copy-on-write. |
+| `quantity` | `Integer` | — | no | — | Số lượng của mức đã pick. |
+| `unit` | `String(16)` | — | no | `cái` | Đơn vị bán. |
+| `total_cost_snapshot` | `Numeric(15,2)` | — | no | `0` | Giá vốn KHÓA của dòng (không sửa ở Báo giá). |
+| `margin_percent` | `Numeric(5,2)` | — | no | `0` | % biên lợi nhuận dòng. |
+| `selling_price` | `Numeric(15,2)` | — | no | `0` | Giá bán dòng (trước VAT). |
+| `unit_price` | `Numeric(15,2)` | — | no | `0` | Đơn giá bán /sp. |
+| `discount_amount` | `Numeric(15,2)` | — | no | `0` | Chiết khấu dòng. |
+| `vat_percent` | `Numeric(5,2)` | — | no | `0` | %VAT dòng. |
+| `vat_amount` | `Numeric(15,2)` | — | no | `0` | Tiền VAT dòng. |
+| `final_amount` | `Numeric(15,2)` | — | no | `0` | Thành tiền dòng (đã VAT). |
+| `note` | `String(500)` | — | yes | — | Ghi chú dòng. |
 
 ### `quote_attachments`
 
@@ -706,6 +714,7 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 | `norm_snapshot`       | `JSON` → `JSON`                       | —                        | yes  | —              | **P0 copy-on-write**: frozen norm/định mức snapshot (ngang hàng unit_price_snapshot). |
 | `vat_pct_estimate`    | `Integer` → `INTEGER`                 | —                        | no   | `0`            | VAT DỰ KIẾN (%) cho dòng — chân lý ở InvoiceLine (⑬).                                 |
 | `line_total`          | `Integer` → `INTEGER`                 | —                        | yes  | —              | Thành tiền = qty × unit_price_snapshot (derived + stored; null khi chưa có giá).      |
+| `cost_snapshot`       | `BigInteger` → `BIGINT`               | —                        | yes  | —              | **Copy-on-write**: giá vốn đông cứng từ `QuoteItem.total_cost_snapshot` lúc tạo — CÙNG GRAIN với `line_total` (tổng cả SL), dùng soi biên lợi nhuận. NULL cho đơn cũ (trước A2). |
 
 **Keys & indexes**
 
@@ -2504,18 +2513,23 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 
 **Purpose:** tham số cấu hình Lương (module `luong`) — 1 dòng active. Không hardcode.
 
-| Column                  | Type            | Null | Default    | Meaning                                      |
-| ----------------------- | --------------- | ---- | ---------- | -------------------------------------------- |
-| `id`                    | `Integer`       | no   | auto       | PK.                                          |
-| `standard_cong_default` | `Numeric(6,2)`  | no   | `26`       | Công chuẩn/tháng để prorate lương thời gian. |
-| `probation_ratio`       | `Numeric(5,4)`  | no   | `0.8`      | Thử việc hưởng % của lương chính thức.       |
-| `bhxh_rate`             | `Numeric(6,4)`  | no   | `0.08`     | Tỷ lệ NV đóng BHXH.                          |
-| `bhyt_rate`             | `Numeric(6,4)`  | no   | `0.015`    | Tỷ lệ NV đóng BHYT.                          |
-| `bhtn_rate`             | `Numeric(6,4)`  | no   | `0.01`     | Tỷ lệ NV đóng BHTN.                          |
-| `deduction_self`        | `Numeric(14,2)` | no   | `11000000` | Giảm trừ gia cảnh bản thân (TNCN).           |
-| `deduction_dependent`   | `Numeric(14,2)` | no   | `4400000`  | Giảm trừ mỗi người phụ thuộc.                |
-| `chuyen_can_default`    | `Numeric(14,2)` | no   | `300000`   | Mức chuyên cần mặc định (đủ công).           |
-| `updated_at`            | `DateTime(tz)`  | no   | now        | Lần cập nhật.                                |
+| Column | Type | Null | Default | Meaning |
+|---|---|---|---|---|
+| `id` | `Integer` | no | auto | PK. |
+| `standard_cong_default` | `Numeric(6,2)` | no | `26` | Công chuẩn/tháng để prorate lương thời gian. |
+| `probation_ratio` | `Numeric(5,4)` | no | `0.85` | Thử việc hưởng % của lương chính thức (Đ26 BLLĐ ≥85%). |
+| `bhxh_rate` | `Numeric(6,4)` | no | `0.08` | Tỷ lệ NV đóng BHXH. |
+| `bhyt_rate` | `Numeric(6,4)` | no | `0.015` | Tỷ lệ NV đóng BHYT. |
+| `bhtn_rate` | `Numeric(6,4)` | no | `0.01` | Tỷ lệ NV đóng BHTN. |
+| `deduction_self` | `Numeric(14,2)` | no | `15500000` | Giảm trừ gia cảnh bản thân (TNCN, mức 2026 NQ 110/2025). |
+| `deduction_dependent` | `Numeric(14,2)` | no | `6200000` | Giảm trừ mỗi người phụ thuộc (mức 2026). |
+| `chuyen_can_default` | `Numeric(14,2)` | no | `300000` | Mức chuyên cần mặc định (đủ công). |
+| `standard_hours_per_day` | `Numeric(5,2)` | no | `8` | Giờ công chuẩn/ngày (quy đơn giá giờ OT — Pha 4a). |
+| `ot_multiplier` | `Numeric(5,2)` | no | `1.5` | Hệ số tăng ca phẳng (Đ98 ngày thường ≥1.5 — Pha 4a). |
+| `night_pct` | `Numeric(5,4)` | no | `0.3` | Phụ cấp ca đêm: % đơn giá 1 công/ngày ca đêm (Đ98 ≥30% — Pha 4a). |
+| `bh_base_cap` | `Numeric(14,2)` | no | `50600000` | Trần đóng BHXH+BHYT = 20× mức tham chiếu; 0 = không trần (Pha 4a). |
+| `bhtn_base_cap` | `Numeric(14,2)` | no | `106200000` | Trần đóng BHTN = 20× lương tối thiểu vùng; 0 = không trần (Pha 4a). |
+| `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
 
 ---
 
@@ -2586,17 +2600,19 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 
 **Purpose:** kỳ lương 1 tháng. UNIQUE(`year`,`month`). draft → locked (chốt, khóa số).
 
-| Column          | Type           | Key                | Null | Default | Meaning            |
-| --------------- | -------------- | ------------------ | ---- | ------- | ------------------ |
-| `id`            | `Integer`      | **PK**             | no   | auto    | PK.                |
-| `year`          | `Integer`      | **UQ(year,month)** | no   | —       | Năm.               |
-| `month`         | `Integer`      | **UQ(year,month)** | no   | —       | Tháng.             |
-| `status`        | `String(8)`    | —                  | no   | `draft` | draft/locked.      |
-| `standard_cong` | `Numeric(6,2)` | —                  | no   | `26`    | Công chuẩn của kỳ. |
-| `locked_at`     | `DateTime(tz)` | —                  | yes  | —       | Thời điểm chốt.    |
-| `locked_by`     | `Integer`      | **FK→users.id**    | yes  | —       | Người chốt.        |
-| `created_by`    | `Integer`      | **FK→users.id**    | yes  | —       | Người tạo kỳ.      |
-| `created_at`    | `DateTime(tz)` | —                  | no   | now     | Khi tạo.           |
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `year` | `Integer` | **UQ(year,month)** | no | — | Năm. |
+| `month` | `Integer` | **UQ(year,month)** | no | — | Tháng. |
+| `status` | `String(8)` | — | no | `draft` | draft/locked/paid. |
+| `standard_cong` | `Numeric(6,2)` | — | no | `26` | Công chuẩn của kỳ. |
+| `locked_at` | `DateTime(tz)` | — | yes | — | Thời điểm chốt. |
+| `locked_by` | `Integer` | **FK→users.id** | yes | — | Người chốt. |
+| `paid_at` | `DateTime(tz)` | — | yes | — | Thời điểm đánh dấu đã chi. Thêm qua migration 0045. |
+| `paid_by` | `Integer` | **FK→users.id** | yes | — | Người đánh dấu đã chi. Thêm qua migration 0045. |
+| `created_by` | `Integer` | **FK→users.id** | yes | — | Người tạo kỳ. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
 
 ---
 
@@ -2604,29 +2620,35 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 
 **Purpose:** dòng lương 1 NV trong 1 kỳ (snapshot). UNIQUE(`period_id`,`employee_id`).
 
-| Column           | Type            | Key                               | Null | Default | Meaning                                                     |
-| ---------------- | --------------- | --------------------------------- | ---- | ------- | ----------------------------------------------------------- |
-| `id`             | `Integer`       | **PK**                            | no   | auto    | PK.                                                         |
-| `period_id`      | `Integer`       | **FK→payroll_periods.id**, **IX** | no   | —       | Kỳ lương; `ON DELETE CASCADE`.                              |
-| `employee_id`    | `Integer`       | **FK→employees.id**, **IX**       | no   | —       | NV; `ON DELETE CASCADE`.                                    |
-| `is_probation`   | `Boolean`       | —                                 | no   | `false` | Thử việc (áp %thử việc).                                    |
-| `actual_cong`    | `Numeric(6,2)`  | —                                 | no   | `0`     | Số công thực (từ Chấm công).                                |
-| `standard_cong`  | `Numeric(6,2)`  | —                                 | no   | `26`    | Công chuẩn kỳ.                                              |
-| `monthly_salary` | `Numeric(14,2)` | —                                 | no   | `0`     | Mức lương tháng (đã giải).                                  |
-| `luong_cong`     | `Numeric(14,2)` | —                                 | no   | `0`     | Lương theo công.                                            |
-| `chuyen_can`     | `Numeric(14,2)` | —                                 | no   | `0`     | Thưởng chuyên cần.                                          |
-| `allowance`      | `Numeric(14,2)` | —                                 | no   | `0`     | Phụ cấp cố định.                                            |
-| `khoan`          | `Numeric(14,2)` | —                                 | no   | `0`     | Lương khoán (nhịp 2, từ sổ khoán). Thêm qua migration 0013. |
-| `vi_pham`        | `Numeric(14,2)` | —                                 | no   | `0`     | Trừ vi phạm (nhập tay).                                     |
-| `other_bonus`    | `Numeric(14,2)` | —                                 | no   | `0`     | Thưởng/hoa hồng (nhập tay).                                 |
-| `gross`          | `Numeric(14,2)` | —                                 | no   | `0`     | Tổng thu nhập trước khấu trừ.                               |
-| `insurance_base` | `Numeric(14,2)` | —                                 | no   | `0`     | Mức đóng BH.                                                |
-| `bhxh`           | `Numeric(14,2)` | —                                 | no   | `0`     | Khấu trừ BHXH/BHYT/BHTN.                                    |
-| `pit`            | `Numeric(14,2)` | —                                 | no   | `0`     | Thuế TNCN (nhập tay Phase 1).                               |
-| `advance_total`  | `Numeric(14,2)` | —                                 | no   | `0`     | Tổng tạm ứng đã duyệt.                                      |
-| `net_pay`        | `Numeric(14,2)` | —                                 | no   | `0`     | Thực lĩnh.                                                  |
-| `note`           | `String(255)`   | —                                 | yes  | —       | Ghi chú.                                                    |
-| `updated_at`     | `DateTime(tz)`  | —                                 | no   | now     | Lần cập nhật.                                               |
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `period_id` | `Integer` | **FK→payroll_periods.id**, **IX** | no | — | Kỳ lương; `ON DELETE CASCADE`. |
+| `employee_id` | `Integer` | **FK→employees.id**, **IX** | no | — | NV; `ON DELETE CASCADE`. |
+| `is_probation` | `Boolean` | — | no | `false` | Thử việc (áp %thử việc). |
+| `actual_cong` | `Numeric(6,2)` | — | no | `0` | Số công thực (từ Chấm công). |
+| `standard_cong` | `Numeric(6,2)` | — | no | `26` | Công chuẩn kỳ. |
+| `monthly_salary` | `Numeric(14,2)` | — | no | `0` | Mức lương tháng (đã giải). |
+| `luong_cong` | `Numeric(14,2)` | — | no | `0` | Lương theo công. |
+| `chuyen_can` | `Numeric(14,2)` | — | no | `0` | Thưởng chuyên cần. |
+| `allowance` | `Numeric(14,2)` | — | no | `0` | Phụ cấp cố định. |
+| `khoan` | `Numeric(14,2)` | — | no | `0` | Lương khoán (nhịp 2, từ sổ khoán). Thêm qua migration 0013. |
+| `ot_minutes` | `Integer` | — | no | `0` | Tổng phút tăng ca (từ Chấm công). Thêm qua migration 0043. |
+| `ot_pay` | `Numeric(14,2)` | — | no | `0` | Tiền tăng ca (hệ số phẳng). Thêm qua migration 0043. |
+| `night_days` | `Integer` | — | no | `0` | Số ngày làm ca đêm. Thêm qua migration 0043. |
+| `night_pay` | `Numeric(14,2)` | — | no | `0` | Phụ cấp ca đêm. Thêm qua migration 0043. |
+| `vi_pham` | `Numeric(14,2)` | — | no | `0` | Trừ vi phạm (nhập tay). |
+| `other_bonus` | `Numeric(14,2)` | — | no | `0` | Thưởng/hoa hồng (nhập tay). |
+| `gross` | `Numeric(14,2)` | — | no | `0` | Tổng thu nhập trước khấu trừ. |
+| `insurance_base` | `Numeric(14,2)` | — | no | `0` | Mức đóng BH. |
+| `bhxh` | `Numeric(14,2)` | — | no | `0` | Khấu trừ BHXH/BHYT/BHTN. |
+| `pit` | `Numeric(14,2)` | — | no | `0` | Thuế TNCN (tự tính, có thể ghi đè tay). |
+| `pit_manual` | `Boolean` | — | no | `false` | TNCN do HCNS ghi đè tay (không auto ghi đè). Thêm qua migration 0044. |
+| `pit_taxable` | `Numeric(14,2)` | — | no | `0` | Thu nhập tính thuế đã dùng để tính TNCN. Thêm qua migration 0044. |
+| `advance_total` | `Numeric(14,2)` | — | no | `0` | Tổng tạm ứng đã duyệt. |
+| `net_pay` | `Numeric(14,2)` | — | no | `0` | Thực lĩnh. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `updated_at` | `DateTime(tz)` | — | no | now | Lần cập nhật. |
 
 ---
 
@@ -2648,17 +2670,18 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 
 **Purpose:** đơn giá khoán (Lương khoán nhịp 2) theo tổ + đơn vị (m²/bài in/tấn/cuốn/lượt/hộp).
 
-| Column       | Type            | Key    | Null | Default | Meaning                                       |
-| ------------ | --------------- | ------ | ---- | ------- | --------------------------------------------- |
-| `id`         | `Integer`       | **PK** | no   | auto    | PK.                                           |
-| `group_name` | `String(40)`    | **IX** | no   | —       | Tổ khoán (to_boi/to_cat/may_in_5mau…).        |
-| `code`       | `String(20)`    | —      | yes  | —       | Mã (A–F cho máy in).                          |
-| `name`       | `String(255)`   | —      | no   | —       | Tên công việc.                                |
-| `unit`       | `String(12)`    | —      | no   | `khac`  | Đơn vị (m2/bai_in/tan/cuon/luot/hop/to/khac). |
-| `unit_price` | `Numeric(14,2)` | —      | no   | —       | Đơn giá/đơn vị.                               |
-| `note`       | `String(255)`   | —      | yes  | —       | Ghi chú.                                      |
-| `is_active`  | `Boolean`       | —      | no   | `true`  | Đang dùng.                                    |
-| `created_at` | `DateTime(tz)`  | —      | no   | now     | Khi tạo.                                      |
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `group_name` | `String(40)` | **IX** | no | — | Tổ khoán (to_boi/to_cat/may_in_5mau…). |
+| `code` | `String(20)` | — | yes | — | Mã (A–F cho máy in). |
+| `name` | `String(255)` | — | no | — | Tên công việc. |
+| `cong_doan` | `String(30)` | **IX** | yes | — | Mã công đoạn gắn đơn giá (Pha 5b, ref `cong_doan.ma`). |
+| `unit` | `String(12)` | — | no | `khac` | Đơn vị (m2/bai_in/tan/cuon/luot/hop/to/khac). |
+| `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá/đơn vị. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `is_active` | `Boolean` | — | no | `true` | Đang dùng. |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
 
 ---
 
@@ -2666,19 +2689,22 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 
 **Purpose:** sổ khoán 1 tổ / 1 kỳ. UNIQUE(`year`,`month`,`group_name`). Cấu hình %tổ trưởng/bù lỗ/thưởng vượt.
 
-| Column               | Type            | Key        | Null | Default | Meaning                                 |
-| -------------------- | --------------- | ---------- | ---- | ------- | --------------------------------------- |
-| `id`                 | `Integer`       | **PK**     | no   | auto    | PK.                                     |
-| `year`               | `Integer`       | **IX, UQ** | no   | —       | Năm.                                    |
-| `month`              | `Integer`       | **IX, UQ** | no   | —       | Tháng.                                  |
-| `group_name`         | `String(40)`    | **UQ**     | no   | —       | Tổ khoán.                               |
-| `leader_employee_id` | `Integer`       | —          | yes  | —       | Tổ trưởng (logical link, nhận % trước). |
-| `leader_pct`         | `Numeric(5,4)`  | —          | no   | `0.05`  | % tổ trưởng lấy trước.                  |
-| `min_guarantee`      | `Numeric(14,2)` | —          | no   | `0`     | Bù lỗ (mức tối thiểu đảm bảo).          |
-| `over_target`        | `Numeric(14,2)` | —          | no   | `0`     | Mốc vượt năng suất.                     |
-| `over_bonus_pct`     | `Numeric(5,4)`  | —          | no   | `0`     | % thưởng phần vượt mốc.                 |
-| `note`               | `String(255)`   | —          | yes  | —       | Ghi chú.                                |
-| `created_at`         | `DateTime(tz)`  | —          | no   | now     | Khi tạo.                                |
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `year` | `Integer` | **IX, UQ** | no | — | Năm. |
+| `month` | `Integer` | **IX, UQ** | no | — | Tháng. |
+| `group_name` | `String(40)` | **UQ** | no | — | Tổ khoán. |
+| `leader_employee_id` | `Integer` | — | yes | — | Tổ trưởng (logical link, nhận % trước). |
+| `leader_pct` | `Numeric(5,4)` | — | no | `0.05` | % tổ trưởng lấy trước. |
+| `min_guarantee` | `Numeric(14,2)` | — | no | `0` | Bù lỗ (mức tối thiểu đảm bảo). |
+| `over_target` | `Numeric(14,2)` | — | no | `0` | Mốc vượt năng suất. |
+| `over_bonus_pct` | `Numeric(5,4)` | — | no | `0` | % thưởng phần vượt mốc. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `status` | `String(8)` | — | no | `draft` | Chốt sổ: draft/locked. Chỉ locked mới vào bảng lương + cấm sửa (Pha 5). |
+| `locked_at` | `DateTime(tz)` | — | yes | — | Khi chốt sổ. |
+| `locked_by` | `Integer` | — | yes | — | User chốt sổ (logical link). |
+| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
 
 ---
 
@@ -2686,17 +2712,19 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 
 **Purpose:** dòng sản lượng trong sổ khoán (khối lượng × đơn giá = tiền).
 
-| Column          | Type            | Key                             | Null | Default | Meaning                              |
-| --------------- | --------------- | ------------------------------- | ---- | ------- | ------------------------------------ |
-| `id`            | `Integer`       | **PK**                          | no   | auto    | PK.                                  |
-| `batch_id`      | `Integer`       | **FK→piece_batches.id**, **IX** | no   | —       | Sổ khoán; `ON DELETE CASCADE`.       |
-| `piece_rate_id` | `Integer`       | **FK→piece_rates.id**           | yes  | —       | Đơn giá nguồn; `ON DELETE SET NULL`. |
-| `work_name`     | `String(255)`   | —                               | no   | —       | Tên công việc (snapshot).            |
-| `unit`          | `String(12)`    | —                               | no   | `khac`  | Đơn vị (snapshot).                   |
-| `unit_price`    | `Numeric(14,2)` | —                               | no   | —       | Đơn giá (snapshot).                  |
-| `quantity`      | `Numeric(14,2)` | —                               | no   | `0`     | Khối lượng làm được.                 |
-| `amount`        | `Numeric(14,2)` | —                               | no   | `0`     | Thành tiền = qty × price.            |
-| `note`          | `String(255)`   | —                               | yes  | —       | Ghi chú.                             |
+| Column | Type | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` | **PK** | no | auto | PK. |
+| `batch_id` | `Integer` | **FK→piece_batches.id**, **IX** | no | — | Sổ khoán; `ON DELETE CASCADE`. |
+| `piece_rate_id` | `Integer` | **FK→piece_rates.id** | yes | — | Đơn giá nguồn; `ON DELETE SET NULL`. |
+| `work_name` | `String(255)` | — | no | — | Tên công việc (snapshot). |
+| `unit` | `String(12)` | — | no | `khac` | Đơn vị (snapshot). |
+| `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá (snapshot). |
+| `quantity` | `Numeric(14,2)` | — | no | `0` | Khối lượng làm được. |
+| `amount` | `Numeric(14,2)` | — | no | `0` | Thành tiền = qty × price. |
+| `note` | `String(255)` | — | yes | — | Ghi chú. |
+| `source` | `String(8)` | — | no | `manual` | Nguồn dòng (Pha 5b): manual (gõ tay) / phieu (materialize từ Phiếu sản lượng lúc chốt sổ). |
+| `production_output_id` | `Integer` | **IX** | yes | — | Soft link → `production_outputs.id` (dòng sinh từ phiếu). |
 
 ---
 
