@@ -549,14 +549,29 @@ def get_accounting_repository(
     return AccountingRepository(db)
 
 
+# Đánh số chứng từ — đặt TRƯỚC get_accounting_service vì nó Depends vào (Depends resolve
+# ở thời điểm định nghĩa hàm).
+def get_document_sequence_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> DocumentSequenceRepository:
+    return DocumentSequenceRepository(db)
+
+
+def get_sequence_service(
+    repo: Annotated[DocumentSequenceRepository, Depends(get_document_sequence_repository)],
+) -> SequenceService:
+    return SequenceService(repo)
+
+
 def get_accounting_service(
     repo: Annotated[AccountingRepository, Depends(get_accounting_repository)],
     requests: Annotated[PurchaseRequestRepository, Depends(get_purchase_request_repository)],
     suppliers: Annotated[SupplierRepository, Depends(get_supplier_repository)],
     users: Annotated[UserRepository, Depends(get_user_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    sequences: Annotated[SequenceService, Depends(get_sequence_service)],
 ) -> AccountingService:
-    return AccountingService(repo, requests, suppliers, users, audit)
+    return AccountingService(repo, requests, suppliers, users, audit, sequences)
 
 
 def get_material_repository(
@@ -650,18 +665,6 @@ def get_norm_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> NormService:
     return NormService(repo, audit)
-
-
-def get_document_sequence_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> DocumentSequenceRepository:
-    return DocumentSequenceRepository(db)
-
-
-def get_sequence_service(
-    repo: Annotated[DocumentSequenceRepository, Depends(get_document_sequence_repository)],
-) -> SequenceService:
-    return SequenceService(repo)
 
 
 def get_estimate_repository(

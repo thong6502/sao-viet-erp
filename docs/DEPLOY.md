@@ -106,6 +106,11 @@ Mở `http://<VPS_HOST>` → đăng nhập bằng `SEED_ADMIN_USERNAME` / `SEED_
     pg_dump -U "$POSTGRES_USER" "$POSTGRES_DB" > backup-$(date +%F).sql
   ```
 - **Dữ liệu Postgres** nằm ở volume `pgdata` — deploy KHÔNG xóa dữ liệu.
+- **File upload** (`/static`: avatar, đính kèm phiếu kho/LSX/phiếu chi kế toán) nằm ở volume
+  `uploads` (mount `/app/static`) — deploy không xóa. Backup kèm DB:
+  ```bash
+  docker compose -f docker-compose.prod.yml cp backend:/app/static ./static-backup-$(date +%F)
+  ```
 
 ## 4. Lưu ý
 - `git reset --hard origin/main` **ghi đè mọi thay đổi local** trên VPS (trừ file gitignore như `.env`). Đừng sửa code trực tiếp trên server.

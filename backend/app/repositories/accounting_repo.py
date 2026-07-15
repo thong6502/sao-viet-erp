@@ -153,6 +153,7 @@ class AccountingRepository:
             conditions.append(
                 or_(
                     func.lower(PaymentVoucher.code).like(like),
+                    func.lower(func.coalesce(PaymentVoucher.doc_no, "")).like(like),
                     func.lower(PaymentVoucher.source_code_snapshot).like(like),
                     func.lower(PaymentVoucher.supplier_name_snapshot).like(like),
                     func.lower(PaymentVoucher.content).like(like),
@@ -279,6 +280,7 @@ class AccountingRepository:
             conditions.append(
                 or_(
                     func.lower(PaymentReceipt.code).like(like),
+                    func.lower(func.coalesce(PaymentReceipt.doc_no, "")).like(like),
                     func.lower(PaymentReceipt.voucher_code_snapshot).like(like),
                     func.lower(PaymentReceipt.purchase_code_snapshot).like(like),
                     func.lower(PaymentReceipt.supplier_name_snapshot).like(like),
