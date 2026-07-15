@@ -205,5 +205,10 @@ class AttendancePeriodLine(Base):
     total_hours: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0, server_default="0")
     ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút vượt ca (chờ duyệt OT — Pha 4)
     night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày làm ca đêm
+    # Pha 4d (Đ98): phân loại công/OT theo LOẠI NGÀY để Lương trả premium (đóng băng lúc Chốt).
+    holiday_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")  # công LÀM ngày lễ
+    restday_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")  # công LÀM ngày nghỉ tuần
+    ot_holiday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # phút OT ngày lễ
+    ot_restday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # phút OT ngày nghỉ tuần
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

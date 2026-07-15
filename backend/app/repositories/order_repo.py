@@ -120,6 +120,7 @@ class OrderRepository:
         q: str | None = None,
         status: str | None = None,
         order_kind: str | None = None,
+        approval_state: str | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -148,6 +149,8 @@ class OrderRepository:
             conditions.append(Order.status == status)
         if order_kind:
             conditions.append(Order.order_kind == order_kind)
+        if approval_state:
+            conditions.append(Order.approval_state == approval_state)
 
         for c in conditions:
             base = base.where(c)
@@ -204,36 +207,11 @@ class OrderRepository:
                     continue
         return f"DH{max_n + 1:03d}"
 
-    def create(
-        self,
-        *,
-        customer_id: int | None,
-        quotation_id: int | None,
-        quotation_version: int | None,
-        quotation_effective_from: date | None,
-        order_type: str,
-        order_kind: str,
-        parent_order_id: int | None,
-        sale_user_id: int | None,
-        status: str,
-        has_customer_paper: bool,
-        vat_pct_estimate: int,
-        lines: list[dict],
-    ) -> Order:
-        order = Order(
-            order_no=self._next_order_no(),
-            customer_id=customer_id,
-            quotation_id=quotation_id,
-            quotation_version=quotation_version,
-            quotation_effective_from=quotation_effective_from,
-            order_type=order_type,
-            order_kind=order_kind,
-            parent_order_id=parent_order_id,
-            sale_user_id=sale_user_id,
-            status=status,
-            has_customer_paper=has_customer_paper,
-            vat_pct_estimate=vat_pct_estimate,
-        )
+    def create(self, *, lines: list[dict], **order_fields) -> Order:
+        """Tạo đơn + dòng. `order_fields` = giá trị các cột `orders` do OrderService chuẩn bị
+        (source_type/customer_id/quotation_*/deposit_pct/cost_basis/needs_approval/... — service
+        kiểm hợp lệ). `order_no` tự sinh (DH###). Mỗi phần tử `lines` là dict cột `order_lines`."""
+        order = Order(order_no=self._next_order_no(), **order_fields)
         for ln in lines:
             order.lines.append(
                 OrderLine(
@@ -243,13 +221,54 @@ class OrderRepository:
                     norm_snapshot=ln.get("norm_snapshot"),
                     vat_pct_estimate=ln.get("vat_pct_estimate", 0),
                     line_total=ln.get("line_total"),
-                    cost_snapshot=ln.get("cost_snapshot"),  # A2: giá vốn dòng (soi biên)
+                    cost_snapshot=ln.get("cost_snapshot"),  # giá vốn dòng (soi biên)
                 )
             )
         self.db.add(order)
         self.db.commit()
         self.db.refresh(order)
         return order
+
+    def stats(self, *, scope: str, actor) -> dict[str, int]:
+        """Đếm đơn theo trạng thái (cho thanh tab), tôn trọng data-scope."""
+        from ..models.order import STATUS_CANCELLED, STATUS_DRAFT, STATUS_ORDERED
+
+        base = self._scope_condition(scope=scope, actor=actor)
+
+        def cnt(*extra) -> int:
+            stmt = select(func.count()).select_from(Order)
+            if base is not None:
+                stmt = stmt.where(base)
+            for c in extra:
+                stmt = stmt.where(c)
+            return int(self.db.execute(stmt).scalar_one())
+
+        return {
+            "all": cnt(),
+            "draft": cnt(Order.status == STATUS_DRAFT),
+            "ordered": cnt(Order.status == STATUS_ORDERED),
+            "cancelled": cnt(Order.status == STATUS_CANCELLED),
+            "pending_approval": cnt(Order.status == STATUS_DRAFT, Order.approval_state == "pending"),
+        }
+
+    def deposit_received_sum(self, order_id: int) -> int:
+        """Σ số tiền THỰC nhận của các phiếu cọc (base cổng chốt). 0 nếu chưa có phiếu."""
+        from ..models.order import OrderDeposit
+
+        val = self.db.execute(
+            select(func.sum(OrderDeposit.amount_received)).where(OrderDeposit.order_id == order_id)
+        ).scalar()
+        return int(val) if val is not None else 0
+
+    def active_order_for_quotation(self, quotation_id: int) -> Order | None:
+        """Đơn CHƯA hủy đang tham chiếu báo giá này (guard 1 báo giá → 1 đơn)."""
+        from ..models.order import STATUS_CANCELLED
+
+        return self.db.execute(
+            select(Order)
+            .where(Order.quotation_id == quotation_id, Order.status != STATUS_CANCELLED)
+            .limit(1)
+        ).scalar_one_or_none()
 
     def update(self, order: Order, **fields) -> Order:
         for key, value in fields.items():

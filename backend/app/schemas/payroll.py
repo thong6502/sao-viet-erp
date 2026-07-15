@@ -20,6 +20,10 @@ class ParamsIn(BaseModel):
     chuyen_can_default: float | None = Field(default=None, ge=0)
     standard_hours_per_day: float | None = Field(default=None, gt=0, le=24)
     ot_multiplier: float | None = Field(default=None, ge=1, le=5)
+    ot_multiplier_restday: float | None = Field(default=None, ge=1, le=5)
+    ot_multiplier_holiday: float | None = Field(default=None, ge=1, le=5)
+    restday_work_multiplier: float | None = Field(default=None, ge=1, le=5)
+    holiday_work_multiplier: float | None = Field(default=None, ge=1, le=5)
     night_pct: float | None = Field(default=None, ge=0, le=2)
     bh_base_cap: float | None = Field(default=None, ge=0)
     bhtn_base_cap: float | None = Field(default=None, ge=0)
@@ -38,6 +42,10 @@ class ParamsOut(BaseModel):
     chuyen_can_default: float
     standard_hours_per_day: float
     ot_multiplier: float
+    ot_multiplier_restday: float
+    ot_multiplier_holiday: float
+    restday_work_multiplier: float
+    holiday_work_multiplier: float
     night_pct: float
     bh_base_cap: float
     bhtn_base_cap: float

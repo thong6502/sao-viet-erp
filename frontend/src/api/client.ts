@@ -349,6 +349,7 @@ export interface ModuleCapability {
   can_approve_exception: boolean;
   /** khach_hang — thiết lập điều khoản tín dụng khách (hạn mức + điều khoản thanh toán). */
   can_set_credit_terms: boolean;
+  can_record_deposit: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -396,6 +397,7 @@ export interface PermissionRow {
   can_adjust: boolean;
   can_approve_exception: boolean;
   can_set_credit_terms: boolean;
+  can_record_deposit: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 v2 -------------------------------------------
@@ -3676,6 +3678,176 @@ export interface PaymentReceiptListOut {
   size: number;
 }
 
+// --- Đơn hàng bán (redesign-don-hang-ban.md) --------------------------------
+export interface OrderLineOut {
+  id: number;
+  description: string;
+  qty: number;
+  unit_price_snapshot: number | null;
+  vat_pct_estimate: number;
+  line_total: number | null;
+  cost_snapshot: number | null;
+}
+export interface AttachmentOut {
+  id: number;
+  url: string;
+  file_name: string | null;
+  content_type: string | null;
+  uploaded_at: string;
+}
+export interface OrderDepositOut {
+  id: number;
+  deposit_kind: string;
+  amount_expected: number;
+  amount_received: number;
+  reconciled: boolean;
+  reconciled_by: number | null;
+  reconciled_at: string | null;
+  note: string | null;
+  received_at: string | null;
+  recorded_by: number | null;
+  recorded_by_name: string | null;
+  created_at: string;
+  attachments: AttachmentOut[];
+}
+export interface OrderDepositInput {
+  deposit_kind: string;
+  amount_expected?: number;
+  amount_received?: number;
+  reconciled?: boolean;
+  note?: string | null;
+  received_at?: string | null;
+}
+export interface OrderApprovalOut {
+  id: number;
+  decision: string;
+  triggers_json: string[] | null;
+  note: string | null;
+  decided_by: number | null;
+  decided_by_name: string | null;
+  decided_at: string;
+  order_total: number;
+  order_subtotal: number;
+  order_cost: number | null;
+  margin_pct_snapshot: number | null;
+}
+export interface OrderRow {
+  id: number;
+  order_no: string;
+  customer_id: number | null;
+  customer_name: string | null;
+  quotation_id: number | null;
+  source_type: string;
+  order_kind: string;
+  order_nature: string;
+  status: string;
+  approval_state: string;
+  needs_approval: boolean;
+  cost_basis: string;
+  total: number | null;
+  total_with_vat: number;
+  deposit_pct: number | null;
+  deposit_required: number;
+  deposit_received: number;
+  deposit_ok: boolean;
+  delivery_committed_date: string | null;
+  sale_user_id: number | null;
+  sale_name: string | null;
+  created_at: string;
+  ordered_at: string | null;
+}
+export interface OrderListOut {
+  items: OrderRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+export interface OrderDetail extends OrderRow {
+  quotation_version: number | null;
+  quotation_effective_from: string | null;
+  parent_order_id: number | null;
+  customer_po_no: string | null;
+  delivery_address: string | null;
+  invoice_entity_name: string | null;
+  invoice_entity_tax_code: string | null;
+  vat_pct_estimate: number;
+  lines: OrderLineOut[];
+  order_cost: number | null;
+  margin_pct: number | null;
+  cancel_reason: string | null;
+  cancel_fault: string | null;
+  cancel_stage_snapshot: string | null;
+  deposit_disposition: string;
+  production_stage: string;
+  deposits: OrderDepositOut[];
+  approvals: OrderApprovalOut[];
+  consent_attachments: AttachmentOut[];
+  can_confirm: boolean;
+  confirm_blockers: string[];
+}
+export interface OrderStatsOut {
+  all: number;
+  draft: number;
+  ordered: number;
+  cancelled: number;
+  pending_approval: number;
+}
+export interface OrderLineInput {
+  description?: string;
+  qty: number;
+  unit_price?: number | null;
+  vat_pct?: number;
+}
+export interface OrderCreateInput {
+  source_type: string;
+  quotation_id?: number | null;
+  order_kind?: string;
+  parent_order_id?: number | null;
+  order_nature?: string;
+  customer_id?: number | null;
+  lines?: OrderLineInput[];
+  vat_pct_estimate?: number;
+  customer_po_no?: string | null;
+  delivery_committed_date?: string | null;
+  delivery_address?: string | null;
+  invoice_entity_name?: string | null;
+  invoice_entity_tax_code?: string | null;
+}
+export interface OrderUpdateInput {
+  order_nature?: string | null;
+  customer_po_no?: string | null;
+  delivery_committed_date?: string | null;
+  delivery_address?: string | null;
+  invoice_entity_name?: string | null;
+  invoice_entity_tax_code?: string | null;
+}
+export interface OrderEnumOption {
+  value: string;
+  label: string;
+}
+export interface OrderEnumsOut {
+  source_types: OrderEnumOption[];
+  order_natures: OrderEnumOption[];
+  statuses: OrderEnumOption[];
+}
+export interface OrderActivity {
+  at: string;
+  actor_id: number | null;
+  actor_name: string | null;
+  action: string;
+  detail: string;
+}
+export interface OrderListParams {
+  q?: string;
+  status?: string;
+  order_kind?: string;
+  approval_state?: string;
+  view_scope?: string;
+  sort?: string;
+  page?: number;
+  size?: number;
+}
+
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -5063,6 +5235,102 @@ export const api = {
   },
 
   // --- Product Types Catalog ------------------------------------------------
+  orders: {
+    list(token: string, params: OrderListParams = {}): Promise<OrderListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.status) qs.set("status", params.status);
+      if (params.order_kind) qs.set("order_kind", params.order_kind);
+      if (params.approval_state) qs.set("approval_state", params.approval_state);
+      if (params.view_scope) qs.set("view_scope", params.view_scope);
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<OrderListOut>(`/api/orders${suffix}`, token);
+    },
+    enums(token: string): Promise<OrderEnumsOut> {
+      return authed<OrderEnumsOut>("/api/orders/enums", token);
+    },
+    get(token: string, id: number): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}`, token);
+    },
+    create(token: string, input: OrderCreateInput): Promise<OrderDetail> {
+      return authed<OrderDetail>("/api/orders", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: OrderUpdateInput): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    activity(token: string, id: number): Promise<{ items: OrderActivity[] }> {
+      return authed(`/api/orders/${id}/activity`, token);
+    },
+    addDeposit(token: string, orderId: number, input: OrderDepositInput): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${orderId}/deposits`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    updateDeposit(token: string, orderId: number, depositId: number, input: OrderDepositInput): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${orderId}/deposits/${depositId}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    deleteDeposit(token: string, orderId: number, depositId: number): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${orderId}/deposits/${depositId}`, token, {
+        method: "DELETE",
+      });
+    },
+    submit(token: string, id: number): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/submit`, token, { method: "POST" });
+    },
+    approve(token: string, id: number, note: string | null): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/approve`, token, {
+        method: "POST",
+        body: JSON.stringify({ note }),
+      });
+    },
+    reject(token: string, id: number, note: string): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/reject`, token, {
+        method: "POST",
+        body: JSON.stringify({ note }),
+      });
+    },
+    confirm(token: string, id: number): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/confirm`, token, { method: "POST" });
+    },
+    cancel(token: string, id: number, reason: string, fault: string | null): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/cancel`, token, {
+        method: "POST",
+        body: JSON.stringify({ reason, fault }),
+      });
+    },
+    stats(token: string, viewScope?: string): Promise<OrderStatsOut> {
+      return authed<OrderStatsOut>(`/api/orders/stats${viewScope ? `?view_scope=${viewScope}` : ""}`, token);
+    },
+    uploadConsent(token: string, id: number, file: File): Promise<OrderDetail> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<OrderDetail>(`/api/orders/${id}/attachments`, token, { method: "POST", body: form });
+    },
+    deleteConsent(token: string, id: number, attachmentId: number): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
+    },
+    uploadDepositProof(token: string, id: number, depositId: number, file: File): Promise<OrderDetail> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<OrderDetail>(`/api/orders/${id}/deposits/${depositId}/attachments`, token, { method: "POST", body: form });
+    },
+    deleteDepositProof(token: string, id: number, depositId: number, attachmentId: number): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/deposits/${depositId}/attachments/${attachmentId}`, token, { method: "DELETE" });
+    },
+  },
   productTypesCatalog: {
     list(token: string, params: CatalogListParams = {}): Promise<ProductTypeCatalogListOut> {
       const qs = new URLSearchParams();

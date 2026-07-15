@@ -41,7 +41,8 @@ export type ActionKey =
   | "can_view_salary"
   | "can_adjust"
   | "can_approve_exception"
-  | "can_set_credit_terms";
+  | "can_set_credit_terms"
+  | "can_record_deposit";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -61,6 +62,11 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
   // còn lại = DUYỆT BÁO GIÁ ĐẶC THÙ (biên thấp / giá trị cao): chỉ vai bật cờ này mới duyệt được đơn trình lên.
   bao_gia: [
     { key: "can_approve_exception", label: "Duyệt báo giá đặc thù" },
+  ],
+  // Đơn hàng bán: duyệt đơn đặc thù (nhập tay/bổ sung) + hủy đơn đã chốt = 1 cờ; ghi cọc = Kế toán.
+  don_hang_ban: [
+    { key: "can_approve_exception", label: "Duyệt đơn đặc thù · hủy đơn đã chốt" },
+    { key: "can_record_deposit", label: "Ghi phiếu thu cọc" },
   ],
   vai_tro: [{ key: "can_manage_permissions", label: "Sửa ma trận phân quyền" }],
   nguoi_dung: [
@@ -140,6 +146,7 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_adjust: false,
     can_approve_exception: false,
     can_set_credit_terms: false,
+    can_record_deposit: false,
   }));
 }
 

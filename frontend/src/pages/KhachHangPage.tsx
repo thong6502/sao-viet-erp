@@ -2727,6 +2727,7 @@ function NotesTab({ customerId }: { customerId: number }) {
   const [busy, setBusy] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [editBody, setEditBody] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const reload = useCallback(() => {
     if (!token) return;
@@ -2781,9 +2782,9 @@ function NotesTab({ customerId }: { customerId: number }) {
 
   async function remove(n: CustomerNote) {
     if (!token) return;
-    if (!window.confirm("Xóa ghi chú này?")) return;
     try {
       await api.customers.deleteNote(token, customerId, n.id);
+      setConfirmDeleteId(null);
       reload();
     } catch {
       setError("Xóa ghi chú không thành công.");
@@ -2796,27 +2797,29 @@ function NotesTab({ customerId }: { customerId: number }) {
     <div className="kh__notes">
       {canUpdate && (
         <div className="kh__note-composer">
-          <textarea
-            className="input kh__note-input"
-            rows={2}
-            placeholder="Thêm ghi chú về khách (vd: thích giao buổi sáng, chốt qua Zalo nhanh nhất, hay trả trễ…)"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") add();
-            }}
-          />
-          <div className="kh__note-composer-actions">
-            <span className="kh__note-hint">⌘/Ctrl + Enter để lưu nhanh</span>
-            <Button
-              type="button"
-              variant="primary"
-              loading={busy}
-              disabled={!draft.trim()}
-              onClick={add}
-            >
-              <Plus size={14} /> Thêm ghi chú
-            </Button>
+          <div className="kh__note-composer-card">
+            <textarea
+              className="kh__note-input"
+              rows={2}
+              placeholder="Thêm ghi chú về khách (vd: thích giao buổi sáng, chốt qua Zalo nhanh nhất, hay trả trễ…)"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") add();
+              }}
+            />
+            <div className="kh__note-composer-toolbar">
+              <span className="kh__note-hint">⌘/Ctrl + Enter để lưu nhanh</span>
+              <Button
+                type="button"
+                variant="primary"
+                loading={busy}
+                disabled={!draft.trim()}
+                onClick={add}
+              >
+                <Plus size={14} /> Thêm ghi chú
+              </Button>
+            </div>
           </div>
         </div>
       )}
@@ -2828,10 +2831,17 @@ function NotesTab({ customerId }: { customerId: number }) {
       )}
 
       {notes.length === 0 ? (
-        <p className="kh__muted kh__note-empty">
-          Chưa có ghi chú nào cho khách này.
-          {canUpdate && " Thêm lưu ý đầu tiên ở trên."}
-        </p>
+        <div className="kh__note-empty-container">
+          <div className="kh__note-empty-icon">
+            <StickyNote size={40} strokeWidth={1.5} />
+          </div>
+          <h3 className="kh__note-empty-title">Chưa có ghi chú nào</h3>
+          <p className="kh__note-empty-desc">
+            {canUpdate
+              ? "Thêm ghi chú đầu tiên ở trên để lưu trữ các thông tin liên lạc, sở thích hoặc lưu ý quan trọng về khách hàng này."
+              : "Chưa có lưu ý nào được ghi nhận cho khách hàng này."}
+          </p>
+        </div>
       ) : (
         <ul className="kh__note-list">
           {notes.map((n) => (
@@ -2867,18 +2877,26 @@ function NotesTab({ customerId }: { customerId: number }) {
                 </div>
               ) : (
                 <>
-                  <div className="kh__note-body">
-                    {n.pinned && <Pin size={12} className="kh__note-pin-ic" />}
-                    <span>{n.body}</span>
-                  </div>
-                  <div className="kh__note-meta">
-                    <span className="kh__note-author">
-                      {n.author_name || "—"} · {fmtDateTime(n.created_at)}
+                  <div className="kh__note-header">
+                    <div className="kh__note-author-info">
+                      <div className="kh__note-avatar">
+                        {n.author_name ? getInitials(n.author_name) : "?"}
+                      </div>
+                      <span className="kh__note-author-name">{n.author_name || "—"}</span>
+                      <span className="kh__note-dot">•</span>
+                      <span className="kh__note-time" title={fmtDateTime(n.created_at)}>
+                        {fmtDateTime(n.created_at)}
+                      </span>
                       {n.edited && n.updated_at && (
-                        <em className="kh__note-edited"> · đã sửa {fmtDateTime(n.updated_at)}</em>
+                        <>
+                          <span className="kh__note-dot">•</span>
+                          <span className="kh__note-edited" title={`Đã sửa ${fmtDateTime(n.updated_at)}`}>
+                            đã sửa
+                          </span>
+                        </>
                       )}
-                    </span>
-                    {canUpdate && (
+                    </div>
+                    {canUpdate && confirmDeleteId !== n.id && (
                       <span className="kh__note-actions">
                         <button
                           type="button"
@@ -2903,13 +2921,38 @@ function NotesTab({ customerId }: { customerId: number }) {
                           type="button"
                           className="kh__note-act kh__note-act--danger"
                           title="Xóa"
-                          onClick={() => remove(n)}
+                          onClick={() => setConfirmDeleteId(n.id)}
                         >
                           <Trash2 size={13} />
                         </button>
                       </span>
                     )}
                   </div>
+                  <div className="kh__note-body">
+                    {n.pinned && <Pin size={12} className="kh__note-pin-ic" />}
+                    <span>{n.body}</span>
+                  </div>
+                  {confirmDeleteId === n.id && (
+                    <div className="kh__note-delete-confirm">
+                      <span className="kh__note-delete-confirm-msg">Xác nhận xóa ghi chú này?</span>
+                      <div className="kh__note-delete-confirm-actions">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          Hủy
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="danger"
+                          onClick={() => remove(n)}
+                        >
+                          Xác nhận
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </li>

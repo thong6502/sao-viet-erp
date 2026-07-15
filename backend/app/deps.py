@@ -39,6 +39,7 @@ from .repositories.purchase_repo import (
     SupplierRepository,
 )
 from .repositories.quotation_repo import QuotationRepository
+from .repositories.order_repo import OrderRepository
 from .repositories.rbac_repo import (
     DepartmentRepository,
     ModuleRepository,
@@ -76,6 +77,7 @@ from .services.product_service import ProductService
 from .services.product_type_catalog_service import ProductTypeCatalogService
 from .services.purchase_service import PurchaseService
 from .services.quotation_service import QuotationService
+from .services.order_service import OrderService
 from .services.profile_service import ProfileService
 from .services.rbac_service import AuthorizationService
 from .services.refresh_service import RefreshTokenService
@@ -417,6 +419,22 @@ def get_quotation_service(
     # display name (read-only). SEAM-13 CLOSED: the Tính giá (Estimate) repo is injected so
     # a quotation referencing a calculated estimate pulls the frozen giá vốn + snapshots.
     return QuotationService(quotations, audit, customers=customers, estimates=estimates, sequence=sequence)
+
+
+def get_order_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> OrderRepository:
+    return OrderRepository(db)
+
+
+def get_order_service(
+    db: Annotated[Session, Depends(get_db)],
+    repo: Annotated[OrderRepository, Depends(get_order_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
+) -> OrderService:
+    # SEAM-04: đọc báo giá (QuotationRepository) để snapshot dòng + deposit_pct khi tạo đơn.
+    return OrderService(repo, audit, quotations, db)
 
 
 def require_permission(module_key: str, action: str):

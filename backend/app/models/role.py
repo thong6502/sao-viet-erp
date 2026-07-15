@@ -166,3 +166,8 @@ class RolePermission(Base):
     can_set_credit_terms: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # don_hang_ban: GHI PHIẾU THU CỌC (Kế toán) — tách khỏi CRUD đơn. NV KD lập đơn nhưng
+    # KHÔNG tự ghi cọc (tiền vào két là việc Kế toán). Mặc định tắt.
+    can_record_deposit: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

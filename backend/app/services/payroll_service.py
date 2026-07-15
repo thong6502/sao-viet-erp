@@ -114,7 +114,9 @@ class PayrollService:
         allowed = {
             "standard_cong_default", "probation_ratio", "bhxh_rate", "bhyt_rate",
             "bhtn_rate", "deduction_self", "deduction_dependent", "chuyen_can_default",
-            "standard_hours_per_day", "ot_multiplier", "night_pct", "bh_base_cap", "bhtn_base_cap",
+            "standard_hours_per_day", "ot_multiplier", "ot_multiplier_restday",
+            "ot_multiplier_holiday", "restday_work_multiplier", "holiday_work_multiplier",
+            "night_pct", "bh_base_cap", "bhtn_base_cap",
         }
         data = {k: v for k, v in fields.items() if k in allowed and v is not None}
         data["updated_at"] = datetime.now(timezone.utc)
@@ -330,8 +332,9 @@ class PayrollService:
     # --- engine tính 1 dòng -------------------------------------------------
 
     def _compute(self, *, employee, salary, params, actual_cong, standard_cong,
-                 vi_pham=0.0, other_bonus=0.0, khoan=0.0,
-                 ot_minutes=0, night_days=0, brackets=None, on: date) -> dict:
+                 vi_pham=0.0, other_bonus=0.0, khoan=0.0, khoan_defect=0.0,
+                 ot_minutes=0, night_days=0, holiday_cong=0.0, restday_cong=0.0,
+                 ot_holiday_minutes=0, ot_restday_minutes=0, brackets=None, on: date) -> dict:
         is_probation = employee.status == STATUS_PROBATION
         ratio = float(params.probation_ratio) if is_probation else 1.0
         res = self._resolve_salary(employee, salary, params, on)
@@ -344,16 +347,32 @@ class PayrollService:
         chuyen_can = res["chuyen_can_amt"] if float(actual_cong) >= float(standard_cong) else 0.0
         allowance = float(salary.allowance) if salary else 0.0
 
-        # Tăng ca (hệ số phẳng) + phụ cấp ca đêm — KHÔNG prorate theo công (tính trên đơn giá chuẩn).
+        # Tăng ca + làm ngày đặc biệt (Đ98) — KHÔNG prorate theo công (tính trên đơn giá chuẩn).
+        # OT tách theo LOẠI NGÀY: thường ×ot_multiplier · nghỉ tuần ×restday · lễ ×holiday.
+        # Làm NGUYÊN CÔNG ngày nghỉ tuần/lễ: cộng THÊM premium (hệ số − 1)×đơn giá công (base 1×
+        # đã nằm trong luong_cong vì holiday_cong/restday_cong là tập con của actual_cong).
         hours_per_day = float(getattr(params, "standard_hours_per_day", 8) or 8)
         hourly_rate = daily_rate / hours_per_day if hours_per_day else 0.0
-        ot_pay = _round(hourly_rate * (float(ot_minutes) / 60.0)
-                        * float(getattr(params, "ot_multiplier", 1.5) or 0))
+        ot_h = max(0, int(ot_minutes) - int(ot_holiday_minutes) - int(ot_restday_minutes)) / 60.0
+        m_ot = float(getattr(params, "ot_multiplier", 1.5) or 0)
+        m_ot_rest = float(getattr(params, "ot_multiplier_restday", 2.0) or 0)
+        m_ot_hol = float(getattr(params, "ot_multiplier_holiday", 3.0) or 0)
+        m_rest = float(getattr(params, "restday_work_multiplier", 2.0) or 0)
+        m_hol = float(getattr(params, "holiday_work_multiplier", 3.0) or 0)
+        ot_pay = _round(
+            hourly_rate * (ot_h * m_ot
+                           + (int(ot_restday_minutes) / 60.0) * m_ot_rest
+                           + (int(ot_holiday_minutes) / 60.0) * m_ot_hol)
+            + daily_rate * (float(holiday_cong) * max(0.0, m_hol - 1.0)
+                            + float(restday_cong) * max(0.0, m_rest - 1.0))
+        )
         night_pay = _round(float(night_days) * daily_rate
                            * float(getattr(params, "night_pct", 0) or 0))
 
-        gross = (luong_cong + chuyen_can + allowance + float(khoan)
-                 + ot_pay + night_pay + float(other_bonus) - float(vi_pham))
+        # Lương TRƯỚC khấu trừ kỷ luật. vi_pham là khấu trừ SAU thuế (bồi thường/kỷ luật) — KHÔNG
+        # giảm thu nhập chịu thuế TNCN, và bị kẹp trần 30% (Điều 102) ở dưới.
+        gross_pre = (luong_cong + chuyen_can + allowance + float(khoan)
+                     + ot_pay + night_pay + float(other_bonus))
 
         # BHXH: thử việc KHÔNG đóng (HĐ thử việc, Đ2 Luật BHXH); áp trần RIÊNG BHXH/BHYT vs BHTN.
         if is_probation:
@@ -371,16 +390,24 @@ class PayrollService:
             bhxh = (bh_base * (float(params.bhxh_rate) + float(params.bhyt_rate))
                     + bhtn_base * float(params.bhtn_rate))
 
-        gross_r = _round(gross)
+        gross_pre_r = _round(gross_pre)
         bhxh_r = _round(bhxh)
-        # TNCN tự tính (7→5 bậc lũy tiến) — miễn toàn bộ OT+ca đêm, trừ BHXH + giảm trừ gia cảnh.
+        # TNCN tự tính (5 bậc lũy tiến) — miễn toàn bộ OT+ca đêm, trừ BHXH + giảm trừ gia cảnh.
+        # Tính trên lương TRƯỚC khấu trừ kỷ luật (khấu trừ kỷ luật không giảm thu nhập chịu thuế).
         if brackets is None:
             brackets = self.get_pit_brackets()
         dependents = int(getattr(employee, "dependents_count", 0) or 0)
         pit_taxable, pit_auto = self._auto_pit(
-            gross=gross_r, bhxh=bhxh_r, ot_pay=ot_pay, night_pay=night_pay,
+            gross=gross_pre_r, bhxh=bhxh_r, ot_pay=ot_pay, night_pay=night_pay,
             dependents_count=dependents, params=params, brackets=brackets,
         )
+
+        # Điều 102 BLLĐ: tổng khấu trừ BỒI THƯỜNG/KỶ LUẬT (vi_pham lương thời gian + trừ lỗi khoán)
+        # ≤ 30% lương tháng SAU khi trích BHXH + TNCN. Phần vượt KHÔNG trừ kỳ này.
+        base_102 = max(0.0, gross_pre_r - bhxh_r - pit_auto)
+        room = max(0.0, 0.30 * base_102 - float(khoan_defect))
+        vi_pham_eff = min(float(vi_pham), room)
+        gross_r = _round(gross_pre_r - vi_pham_eff)
 
         return {
             "is_probation": is_probation,
@@ -393,7 +420,7 @@ class PayrollService:
             "ot_pay": ot_pay,
             "night_days": int(night_days),
             "night_pay": night_pay,
-            "vi_pham": _round(vi_pham),
+            "vi_pham": _round(vi_pham_eff),
             "other_bonus": _round(other_bonus),
             "gross": gross_r,
             "insurance_base": _round(insurance_base),
@@ -419,33 +446,46 @@ class PayrollService:
             raise PayrollValidationError("Tháng phải trong 1–12.")
         period = self.payroll.get_period_by_ym(year, month)
         params = self.get_params()
+        # Công chuẩn ĐỘNG theo Lịch chung (Đ3/N4): số ngày làm việc thực của tháng — KHÔNG cố định 26.
+        # Fallback về `standard_cong_default` khi chưa cấu hình lịch.
+        std_days = self.attendance.standard_working_days(year, month) if self.attendance is not None else None
+        std = float(std_days) if std_days else float(params.standard_cong_default)
+        if std <= 0:
+            std = 1.0
         if period is None:
             period = self.payroll.create_period(
                 year=year, month=month, status=PERIOD_DRAFT,
-                standard_cong=params.standard_cong_default, created_by=getattr(actor, "id", None),
+                standard_cong=std, created_by=getattr(actor, "id", None),
             )
         if period.status != PERIOD_DRAFT:
             raise PayrollLocked("Kỳ lương đã chốt/đã chi — mở lại trước khi tính lại.")
+        # Đồng bộ công chuẩn của kỳ (draft) theo Lịch mỗi lần tính lại (snapshot khớp mẫu số đã dùng).
+        if float(period.standard_cong) != std:
+            self.payroll.update_period(period, standard_cong=std)
 
         on = date(int(year), int(month), 1)
         metrics_map = self.attendance.metrics_map(year, month)   # {emp: {cong, ot_minutes, night_days}}
         advance_map = self.payroll.approved_advance_map(year, month)
         salary_map = self.payroll.latest_salaries_map(on)
         khoan_map = self.piece.khoan_map(year, month) if self.piece is not None else {}
+        # Trừ lỗi khoán theo NGƯỜI (Điều 102: gộp vào trần khấu trừ 30%).
+        defect_map = self.piece.defect_map(year, month) if self.piece is not None else {}
         brackets = self.get_pit_brackets()
-        std = float(period.standard_cong)
 
         employees = self.employees.list_scoped_all(scope=scope, actor=actor)
         for emp in employees:
-            if emp.status == STATUS_RESIGNED:
-                continue
             existing = self.payroll.get_line_by_pe(period.id, emp.id)
+            m = metrics_map.get(emp.id) or {}   # NV không chấm công → rỗng (KHÔNG KeyError)
+            has_work = bool(m) or emp.id in khoan_map or existing is not None
+            # NV nghỉ việc: CHỈ bỏ khi không có công/khoán/dòng lương trong kỳ — còn làm thì vẫn
+            # trả lương tháng cuối (không quỵt).
+            if emp.status == STATUS_RESIGNED and not has_work:
+                continue
             vi_pham = float(existing.vi_pham) if existing else 0.0
             other_bonus = float(existing.other_bonus) if existing else 0.0
             note = existing.note if existing else None
 
             salary = salary_map.get(emp.id)
-            m = metrics_map.get(emp.id) or {}   # NV không chấm công → rỗng (KHÔNG KeyError)
             actual_cong = float(m.get("cong", 0.0))
             ot_minutes = int(m.get("ot_minutes", 0))
             night_days = int(m.get("night_days", 0))
@@ -453,7 +493,13 @@ class PayrollService:
             vals = self._compute(
                 employee=emp, salary=salary, params=params, actual_cong=actual_cong,
                 standard_cong=std, vi_pham=vi_pham, other_bonus=other_bonus, khoan=khoan,
-                ot_minutes=ot_minutes, night_days=night_days, brackets=brackets, on=on,
+                khoan_defect=float(defect_map.get(emp.id, 0.0)),
+                ot_minutes=ot_minutes, night_days=night_days,
+                holiday_cong=float(m.get("holiday_cong", 0.0)),
+                restday_cong=float(m.get("restday_cong", 0.0)),
+                ot_holiday_minutes=int(m.get("ot_holiday_minutes", 0)),
+                ot_restday_minutes=int(m.get("ot_restday_minutes", 0)),
+                brackets=brackets, on=on,
             )
             # TNCN: GIỮ số HCNS đã ghi đè tay (pit_manual); ngược lại dùng số tự tính.
             if existing is not None and existing.pit_manual:
@@ -461,7 +507,8 @@ class PayrollService:
             else:
                 pit_eff, pit_manual = vals["pit"], False
             advance_total = _round(advance_map.get(emp.id, 0.0))
-            net = vals["gross"] - vals["bhxh"] - pit_eff - advance_total
+            # Sàn 0: thực nhận không bao giờ âm (khấu trừ đã bị kẹp trần 30% ở _compute + Điều 102).
+            net = max(0.0, vals["gross"] - vals["bhxh"] - pit_eff - advance_total)
 
             fields = dict(
                 is_probation=vals["is_probation"], actual_cong=actual_cong, standard_cong=std,
@@ -512,9 +559,11 @@ class PayrollService:
         if note is not None:
             ln.note = note
 
-        ln.gross = _round(float(ln.luong_cong) + float(ln.chuyen_can) + float(ln.allowance)
-                          + float(ln.khoan) + float(ln.ot_pay) + float(ln.night_pay)
-                          + float(ln.other_bonus) - float(ln.vi_pham))
+        # Lương TRƯỚC khấu trừ kỷ luật → TNCN tính trên số này (vi_pham không giảm thu nhập chịu thuế).
+        gross_pre = _round(float(ln.luong_cong) + float(ln.chuyen_can) + float(ln.allowance)
+                           + float(ln.khoan) + float(ln.ot_pay) + float(ln.night_pay)
+                           + float(ln.other_bonus))
+        ln.gross = gross_pre
         # TNCN: reset về tự tính (pit_manual=False) / ghi đè tay (pit) / else cập nhật auto theo gross mới.
         if pit_manual is False:
             self._apply_auto_pit(ln)
@@ -524,7 +573,12 @@ class PayrollService:
             ln.pit_manual = True
         elif not ln.pit_manual:
             self._apply_auto_pit(ln)
-        ln.net_pay = _round(float(ln.gross) - float(ln.bhxh) - float(ln.pit) - float(ln.advance_total))
+        # Điều 102: kẹp khấu trừ kỷ luật vi_pham ≤ 30% lương sau BHXH+TNCN; net sàn 0.
+        base_102 = max(0.0, gross_pre - float(ln.bhxh) - float(ln.pit))
+        vi_pham_eff = min(float(ln.vi_pham), 0.30 * base_102)
+        ln.vi_pham = _round(vi_pham_eff)
+        ln.gross = _round(gross_pre - vi_pham_eff)
+        ln.net_pay = _round(max(0.0, float(ln.gross) - float(ln.bhxh) - float(ln.pit) - float(ln.advance_total)))
         ln.updated_at = datetime.now(timezone.utc)
         saved = self.payroll.update_line(ln)
         self._audit(actor, "payroll_update_line", f"payroll_line:{ln.id}", "sửa ô tay")

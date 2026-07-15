@@ -1844,9 +1844,15 @@ function ComponentModal({
                 <span>= Tờ sau in</span>
                 <b>{liveMeta ? `${fmt(liveMeta.to_sau_in)} tờ` : "…"}</b>
               </div>
+              <div className="tg-sheetrow tg-sheetrow--total">
+                <span>= Tờ nguyên (giấy to)</span>
+                <b>{liveMeta ? `${fmt(liveMeta.to_nguyen)} tờ` : "…"}</b>
+              </div>
               <div className="tg-sheetbox__foot">
                 {liveMeta
-                  ? `${fmt(liveMeta.con)} con/tờ · ${fmt(liveMeta.so_kem)} kẽm · ${fmt(liveMeta.to_nguyen)} tờ nguyên`
+                  ? `${fmt(liveMeta.con)} con/tờ · ${fmt(liveMeta.so_kem)} kẽm · 1 tờ nguyên = ${
+                      liveMeta.to_nguyen > 0 ? fmt(Math.round((liveMeta.to_dau_vao / liveMeta.to_nguyen) * 10) / 10) : "—"
+                    } tờ in`
                   : "Nhập đủ khổ + số lượng để tính"}
               </div>
             </div>

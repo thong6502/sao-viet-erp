@@ -32,6 +32,7 @@ MODULES: list[tuple[str, str]] = [
     ("dashboard", "Dashboard"),
     ("khach_hang", "Khách hàng"),
     ("bao_gia", "Báo giá in ấn"),
+    ("don_hang_ban", "Đơn hàng bán"),
     ("tinh_gia_thanh", "Tính giá thành"),
     ("san_pham", "Sản phẩm"),
     ("hop_dong", "Hợp đồng"),
@@ -64,6 +65,7 @@ KD_MODULE_KEYS = [
     "dashboard",
     "khach_hang",
     "bao_gia",
+    "don_hang_ban",
     "tinh_gia_thanh",
     "san_pham",
     "hop_dong",
@@ -164,6 +166,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             **{k: _full(SCOPE_ALL) for k in ALL_MODULE_KEYS},
             # Chỉ GĐ được DUYỆT "báo giá đặc thù" (BG-2) — TP KD giữ _full nhưng KHÔNG có quyền này.
             "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
+            # Đơn hàng bán: GĐ duyệt "đơn đặc thù" + hủy đơn đã chốt + ghi cọc (GĐ toàn quyền).
+            # SoD: `can_record_deposit` KHÔNG ở `_full` (TP KD/GĐ KD không tự ghi cọc) — chỉ GĐ + vai Kế toán.
+            "don_hang_ban": {**_full(SCOPE_ALL, can_approve_exception=True), "can_record_deposit": True},
         },
     ),
     (
@@ -213,6 +218,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             **{k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS},
             # TP KD DUYỆT được "báo giá đặc thù" (cùng Giám đốc Kinh doanh) — chủ đầu tư chốt sau P7.
             "bao_gia": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
+            # Đơn hàng bán: TP KD duyệt đơn đặc thù + hủy đơn đã chốt (cùng GĐ KD).
+            "don_hang_ban": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
             "nghi_phep": _leave_self(),
         },
     ),
@@ -225,6 +232,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             **{k: _full(SCOPE_ALL) for k in KD_MODULE_KEYS},
             "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
+            "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
             "nghi_phep": _leave_self(),
         },
     ),
@@ -239,6 +247,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # Riêng báo giá ĐẶC THÙ (biên thấp / giá trị cao) phải TRÌNH DUYỆT: chỉ TP KD / GĐ KD cầm
             # `can_approve_exception` mới duyệt được (redesign-bao-gia §10). NV Sales KHÔNG có cờ đó.
             "bao_gia": _full(SCOPE_OWN),
+            # Đơn hàng bán: NV KD lập/sửa/chốt đơn CỦA MÌNH (_rcu own + quản trạng thái). Đơn đặc thù
+            # (nhập tay/bổ sung) phải TRÌNH lên TP/GĐ (can_approve_exception). Ghi cọc = Kế toán (P2).
+            "don_hang_ban": {**_rcu(SCOPE_OWN), "can_manage_status": True},
             # Tính giá: NV Sales tự lập phiếu tính giá của mình; phạm vi "Của tôi" (chỉ thấy phiếu mình lập),
             # TP KD/GĐ scope phòng/tất cả thấy hết (lọc theo `created_by`).
             "tinh_gia_thanh": _rcu(SCOPE_OWN),
@@ -265,6 +276,15 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "kho": _full(SCOPE_ALL),
             "dm_kho": _full(SCOPE_ALL),      # cấu hình kho + loại phiếu + trạng thái hàng
             "san_xuat": _read(SCOPE_ALL),
+        },
+    ),
+    # Kế toán bán hàng: xem mọi đơn + GHI PHIẾU THU CỌC (can_record_deposit). Không đụng thương mại.
+    (
+        "Kế toán",
+        "Kế toán bán hàng",
+        {
+            "dashboard": _read(SCOPE_ALL),
+            "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
         },
     ),
     # Kế toán kho: DUYỆT & ghi sổ + xem GIÁ VỐN/giá trị tồn; đối chiếu. Không tạo phiếu.

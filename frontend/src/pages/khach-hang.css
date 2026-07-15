@@ -217,6 +217,9 @@
   border-bottom: 1px solid var(--rule);
   white-space: nowrap;
 }
+.kh__table thead th.kh__num {
+  text-align: right;
+}
 .kh__table tbody tr {
   transition: background var(--duration-fast) var(--easing-standard);
 }
@@ -3708,27 +3711,78 @@
 .kh__note-composer {
   display: flex;
   flex-direction: column;
-  gap: 8px;
 }
-.kh__note-input {
+.kh__note-composer-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  overflow: hidden;
+  transition: border-color var(--duration-base) var(--easing-standard);
+}
+.kh__note-composer-card:focus-within {
+  border-color: var(--rust);
+}
+.kh__note-composer-card .kh__note-input {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: var(--sp-3) var(--sp-4);
   width: 100%;
   resize: vertical;
-  min-height: 56px;
+  min-height: 64px;
   font-family: var(--ff-sans);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
 }
-.kh__note-composer-actions {
+.kh__note-composer-toolbar {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 12px;
+  justify-content: space-between;
+  padding: 8px var(--sp-4);
+  background: var(--paper);
+  border-top: 1px solid var(--rule-soft);
 }
 .kh__note-hint {
-  margin-right: auto;
   font-size: 11px;
   color: var(--ash-2);
+  font-style: italic;
 }
-.kh__note-empty {
-  padding: 20px 4px;
+.kh__note-empty-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--sp-8) var(--sp-4);
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  animation: khFadeIn var(--duration-base) var(--easing-standard);
+}
+.kh__note-empty-icon {
+  color: var(--ash-2);
+  opacity: 0.4;
+  margin-bottom: var(--sp-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.kh__note-empty-title {
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  margin: 0 0 6px 0;
+}
+.kh__note-empty-desc {
+  font-size: 12px;
+  color: var(--ash);
+  max-width: 320px;
+  margin: 0;
+  line-height: 1.5;
 }
 .kh__note-list {
   list-style: none;
@@ -3736,20 +3790,70 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 .kh__note {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 14px;
-  border: 1px solid var(--rule);
+  gap: 10px;
+  padding: var(--sp-4);
+  border: 1px solid var(--rule-soft);
   border-radius: var(--r-3);
   background: var(--paper);
+  transition: border-color var(--duration-base) var(--easing-standard);
+}
+.kh__note:hover {
+  border-color: var(--rule);
 }
 .kh__note.is-pinned {
-  border-color: color-mix(in srgb, var(--rust) 40%, var(--rule));
-  background: color-mix(in srgb, var(--rust) 5%, var(--paper));
+  border-color: var(--rule-soft);
+  border-left: 3px solid var(--rust);
+  background: var(--canvas);
+}
+.kh__note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.kh__note-author-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kh__note-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-pill);
+  background: var(--charcoal-2);
+  color: var(--on-charcoal);
+  font-family: var(--ff-mono);
+  font-weight: var(--fw-bold);
+  font-size: 10px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.kh__note-author-name {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.kh__note-dot {
+  font-size: 10px;
+  color: var(--ash-2);
+}
+.kh__note-time {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.kh__note-edited {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--ash-2);
 }
 .kh__note-body {
   display: flex;
@@ -3760,37 +3864,33 @@
   color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
+  padding-left: 0;
 }
 .kh__note-pin-ic {
   flex: none;
   margin-top: 3px;
   color: var(--rust);
 }
-.kh__note-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.kh__note-author {
-  font-size: 12px;
-  color: var(--ash);
-}
-.kh__note-edited {
-  font-style: italic;
-  color: var(--ash-2);
-}
 .kh__note-actions {
   display: inline-flex;
-  gap: 4px;
+  gap: 2px;
+  opacity: 0.5;
+  transition: opacity var(--duration-base) var(--easing-standard);
+}
+.kh__note:hover .kh__note-actions {
+  opacity: 1;
+}
+@media (min-width: 768px) {
+  .kh__note-actions {
+    opacity: 0;
+  }
 }
 .kh__note-act {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   border: 1px solid transparent;
   border-radius: var(--r-2);
   background: transparent;
@@ -3819,9 +3919,35 @@
   width: 100%;
   resize: vertical;
   font-family: var(--ff-sans);
+  background: var(--canvas);
 }
 .kh__note-edit-actions {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+.kh__note-delete-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  margin-top: 4px;
+  animation: khFadeIn var(--duration-base) var(--easing-standard);
+}
+.kh__note-delete-confirm-msg {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--signal);
+}
+.kh__note-delete-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+@keyframes khFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }

@@ -351,6 +351,21 @@ class PieceWorkService:
                     out[o.employee_id] = out.get(o.employee_id, 0.0) + _r(amt)
         return out
 
+    def defect_map(self, year: int, month: int) -> dict[int, float]:
+        """{employee_id → tổng TRỪ LỖI khoán theo NGƯỜI} của các sổ ĐÃ CHỐT — để Lương gộp vào
+        trần khấu trừ 30% (Điều 102). Cùng gate sổ tổ đã chốt + phiếu tính khoán như khoan_map."""
+        out: dict[int, float] = {}
+        if self.outputs is None:
+            return out
+        for b in self.piece.list_batches(year, month):
+            if b.status != BATCH_LOCKED or not b.group_name:
+                continue
+            for o in self.outputs.list_nguoi_by_month_group(year, month, b.group_name):
+                if not o.tinh_khoan or not o.employee_id:
+                    continue
+                out[o.employee_id] = out.get(o.employee_id, 0.0) + _r(float(o.defect_deduction or 0))
+        return out
+
     def pending_batches(self, year: int, month: int) -> list[dict]:
         """Sổ khoán tháng có TIỀN nhưng chưa vào lương được (chưa chốt / còn lỗi) — cảnh báo mềm."""
         res: list[dict] = []

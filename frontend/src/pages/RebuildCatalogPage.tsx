@@ -704,6 +704,61 @@ function SizeTiersField({ value, onChange }: { value: SizeTierRow[]; onChange: (
   );
 }
 
+function getGroupIcon(name: string) {
+  const n = name.toLowerCase();
+  if (n.includes("thông tin") || n.includes("phân loại") || n.includes("thông số") || n.includes("nhận diện")) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M12 16v-4M12 8h.01"/>
+      </svg>
+    );
+  }
+  if (n.includes("giá") || n.includes("tính giá") || n.includes("đơn giá")) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <line x1="12" x2="12" y1="2" y2="22"/>
+        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+      </svg>
+    );
+  }
+  if (n.includes("bù hao") || n.includes("quy tắc")) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+    );
+  }
+  if (n.includes("mặc định") || n.includes("công đoạn")) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect width="18" height="18" x="3" y="3" rx="2"/>
+        <path d="M9 22V12h6v10M2 17l10-10 10 10"/>
+      </svg>
+    );
+  }
+  if (n.includes("khổ kẽm") || n.includes("khổ giấy") || n.includes("kích thước") || n.includes("thiết bị")) {
+    return (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <rect width="18" height="18" x="3" y="3" rx="2"/>
+        <path d="M7 3v4M17 3v4M3 7h18M3 17h18M7 21v-4M17 21v-4"/>
+      </svg>
+    );
+  }
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="8" y1="6" x2="21" y2="6"/>
+      <line x1="8" y1="12" x2="21" y2="12"/>
+      <line x1="8" y1="18" x2="21" y2="18"/>
+      <line x1="3" y1="6" x2="3.01" y2="6"/>
+      <line x1="3" y1="12" x2="3.01" y2="12"/>
+      <line x1="3" y1="18" x2="3.01" y2="18"/>
+    </svg>
+  );
+}
+
 // ── DRAWER COMPONENT ─────────────────────────────────────────────────────────────
 function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   config: CatalogConfig; existing: Row | null; allRows: Row[]; onClose: () => void; onSaved: () => void;
@@ -786,6 +841,93 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     return allRows.some((r) => String(r.ma).trim().toUpperCase() === typedMa);
   }, [isEdit, typedMa, allRows]);
 
+  const hasFormulaField = useMemo(() => {
+    return visibleFields.some((f) => f.type === "formula");
+  }, [visibleFields]);
+
+  const renderField = (f: FieldDef) => {
+    const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
+    const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "ref-multi" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
+    const Tag = f.type === "formula" || f.type === "bands" || f.type === "size_tiers" ? "div" : "label";
+    return (
+      <Tag className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}${isFullWidth ? " rc-field--full" : ""}`} key={f.key}>
+        <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
+        {f.type === "bands" ? (
+          <BandsField value={Array.isArray(form[f.key]) ? (form[f.key] as BacRow[]) : []}
+            onChange={(v) => set(f.key, v)} />
+        ) : f.type === "size_tiers" ? (
+          <SizeTiersField value={Array.isArray(form[f.key]) ? (form[f.key] as SizeTierRow[]) : []}
+            onChange={(v) => set(f.key, v)} />
+        ) : f.type === "select" ? (
+          <div className="rc-input-wrapper">
+            <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)}>
+              <option value="">—</option>
+              {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
+        ) : f.type === "suggest" ? (
+          <SuggestField
+            value={String(form[f.key] ?? "")}
+            options={f.options}
+            allRows={allRows}
+            fieldKey={f.key}
+            placeholder={cleanLabel}
+            onChange={(v) => set(f.key, v)}
+          />
+        ) : f.type === "ref" ? (
+          <div className="rc-input-wrapper">
+            <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)}>
+              <option value="">— chọn —</option>
+              {(refData[f.refPrefix ?? ""] ?? []).map((o) => (
+                <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>
+              ))}
+            </select>
+          </div>
+        ) : f.type === "ref-search" ? (
+          <RefSearchField
+            value={form[f.key] == null || form[f.key] === "" ? null : Number(form[f.key])}
+            options={refData[f.refPrefix ?? ""] ?? []}
+            placeholder={f.hint ?? "Gõ mã / tên để tìm…"}
+            onChange={(v) => set(f.key, v)}
+          />
+        ) : f.type === "ref-multi" ? (
+          <RefMultiField
+            value={Array.isArray(form[f.key]) ? (form[f.key] as number[]) : []}
+            options={refData[f.refPrefix ?? ""] ?? []}
+            onChange={(v) => set(f.key, v)}
+          />
+        ) : f.type === "formula" ? (
+          <FormulaField
+            value={String(form[f.key] ?? "")}
+            onChange={(v) => set(f.key, v)}
+            configPrefix={config.prefix}
+          />
+        ) : f.type === "checkbox" ? (
+          <label className="rc-switch">
+            <input type="checkbox" checked={!!form[f.key]} onChange={(e) => set(f.key, e.target.checked)} />
+            <span className="rc-switch__slider" />
+            <span className="rc-switch__label">{form[f.key] ? "Có" : "Không"}</span>
+          </label>
+        ) : f.type === "json" ? (
+          <div className="rc-input-wrapper">
+            <input className="rc-input rc-mono" placeholder='[1,2] hoặc {"k":1}'
+              value={typeof form[f.key] === "string" ? String(form[f.key]) : JSON.stringify(form[f.key] ?? "")}
+              onChange={(e) => set(f.key, e.target.value)} />
+          </div>
+        ) : (
+          <div className="rc-input-wrapper">
+            <input className={`rc-input${f.type === "number" ? " rc-input--num" : ""}`}
+              type={f.type === "number" ? "number" : "text"} step="any" inputMode={f.type === "number" ? "decimal" : undefined}
+              placeholder={f.type === "number" ? (f.default != null ? String(f.default) : "0") : (f.hint ?? "")}
+              value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} />
+            {suffix && <span className="rc-input-suffix">{suffix}</span>}
+          </div>
+        )}
+        {f.hint && <span className="rc-field__hint">{f.hint}</span>}
+      </Tag>
+    );
+  };
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!token || isMaDuplicate) return;
@@ -838,136 +980,151 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
         <form className="rc-drawer__body" onSubmit={submit}>
           {err && <div className="banner banner--error" style={{ marginBottom: "var(--sp-4)" }}>{err}</div>}
           
-          <section className="rc-sec rc-sec--ident">
-            <div className="rc-grid">
-              <label className="rc-field">
-                <span className="rc-field__label">Mã <em>*</em></span>
-                <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
-                  <input className="rc-input rc-mono" value={String(form.ma ?? "")}
-                    disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
-                </div>
-                {!isEdit && typedMa && (
-                  <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
-                    {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
-                  </span>
-                )}
-              </label>
-              <label className="rc-field">
-                <span className="rc-field__label">Tên <em>*</em></span>
-                <div className="rc-input-wrapper">
-                  <input className="rc-input" value={String(form.ten ?? "")} onChange={(e) => set("ten", e.target.value)} required />
-                </div>
-              </label>
-            </div>
-          </section>
-
-          {useTabs && groups.length > 1 && (
-            <div className="rc-drawer__tabs">
-              {groups.map((g) => (
-                <button
-                  key={g.name}
-                  type="button"
-                  className={`rc-drawer__tab${activeTab === g.name ? " is-active" : ""}`}
-                  onClick={() => setActiveTab(g.name)}
-                >
-                  {g.name}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div className="rc-drawer__fields-container">
-            {groups
-              .filter((g) => !useTabs || groups.length <= 1 || g.name === activeTab)
-              .map((g) => (
-                <section className="rc-sec" key={g.name}>
-                  {(!useTabs || groups.length <= 1) && <div className="rc-sec__title">{g.name}</div>}
+          {hasFormulaField ? (
+            <div className="rc-drawer__body-split">
+              <div className="rc-drawer__col-form">
+                <section className="rc-card-section rc-sec--ident">
+                  <div className="rc-card-section__title">
+                    {getGroupIcon("Nhận diện")}
+                    <span>Nhận diện</span>
+                  </div>
                   <div className="rc-grid">
-                    {g.fields.map((f) => {
-                      const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
-                      const isFullWidth = f.type === "bands" || f.type === "size_tiers" || f.type === "ref-multi" || f.type === "json" || f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta";
-                      return (
-                        <label className={`rc-field${f.type === "checkbox" ? " rc-field--check" : ""}${isFullWidth ? " rc-field--full" : ""}`} key={f.key}>
-                          <span className="rc-field__label">{cleanLabel}{f.required ? " *" : ""}</span>
-                          {f.type === "bands" ? (
-                            <BandsField value={Array.isArray(form[f.key]) ? (form[f.key] as BacRow[]) : []}
-                              onChange={(v) => set(f.key, v)} />
-                          ) : f.type === "size_tiers" ? (
-                            <SizeTiersField value={Array.isArray(form[f.key]) ? (form[f.key] as SizeTierRow[]) : []}
-                              onChange={(v) => set(f.key, v)} />
-                          ) : f.type === "select" ? (
-                            <div className="rc-input-wrapper">
-                              <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)}>
-                                <option value="">—</option>
-                                {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                              </select>
-                            </div>
-                          ) : f.type === "suggest" ? (
-                            <SuggestField
-                              value={String(form[f.key] ?? "")}
-                              options={f.options}
-                              allRows={allRows}
-                              fieldKey={f.key}
-                              placeholder={cleanLabel}
-                              onChange={(v) => set(f.key, v)}
-                            />
-                          ) : f.type === "ref" ? (
-                            <div className="rc-input-wrapper">
-                              <select className="rc-input" value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)}>
-                                <option value="">— chọn —</option>
-                                {(refData[f.refPrefix ?? ""] ?? []).map((o) => (
-                                  <option key={o.id} value={o.id}>{o.ma} · {o.ten}</option>
-                                ))}
-                              </select>
-                            </div>
-                          ) : f.type === "ref-search" ? (
-                            <RefSearchField
-                              value={form[f.key] == null || form[f.key] === "" ? null : Number(form[f.key])}
-                              options={refData[f.refPrefix ?? ""] ?? []}
-                              placeholder={f.hint ?? "Gõ mã / tên để tìm…"}
-                              onChange={(v) => set(f.key, v)}
-                            />
-                          ) : f.type === "ref-multi" ? (
-                            <RefMultiField
-                              value={Array.isArray(form[f.key]) ? (form[f.key] as number[]) : []}
-                              options={refData[f.refPrefix ?? ""] ?? []}
-                              onChange={(v) => set(f.key, v)}
-                            />
-                          ) : f.type === "formula" ? (
-                            <FormulaField
-                              value={String(form[f.key] ?? "")}
-                              onChange={(v) => set(f.key, v)}
-                              configPrefix={config.prefix}
-                            />
-                          ) : f.type === "checkbox" ? (
-                            <label className="rc-switch">
-                              <input type="checkbox" checked={!!form[f.key]} onChange={(e) => set(f.key, e.target.checked)} />
-                              <span className="rc-switch__slider" />
-                              <span className="rc-switch__label">{form[f.key] ? "Có" : "Không"}</span>
-                            </label>
-                          ) : f.type === "json" ? (
-                            <div className="rc-input-wrapper">
-                              <input className="rc-input rc-mono" placeholder='[1,2] hoặc {"k":1}'
-                                value={typeof form[f.key] === "string" ? String(form[f.key]) : JSON.stringify(form[f.key] ?? "")}
-                                onChange={(e) => set(f.key, e.target.value)} />
-                            </div>
-                          ) : (
-                            <div className="rc-input-wrapper">
-                              <input className={`rc-input${f.type === "number" ? " rc-input--num" : ""}`}
-                                type={f.type === "number" ? "number" : "text"} step="any" inputMode={f.type === "number" ? "decimal" : undefined}
-                                placeholder={f.type === "number" ? (f.default != null ? String(f.default) : "0") : (f.hint ?? "")}
-                                value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} />
-                              {suffix && <span className="rc-input-suffix">{suffix}</span>}
-                            </div>
-                          )}
-                          {f.hint && <span className="rc-field__hint">{f.hint}</span>}
-                        </label>
-                      );
-                    })}
+                    <label className="rc-field">
+                      <span className="rc-field__label">Mã <em>*</em></span>
+                      <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
+                        <input className="rc-input rc-mono" value={String(form.ma ?? "")}
+                          disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
+                      </div>
+                      {!isEdit && typedMa && (
+                        <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
+                          {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
+                        </span>
+                      )}
+                    </label>
+                    <label className="rc-field">
+                      <span className="rc-field__label">Tên <em>*</em></span>
+                      <div className="rc-input-wrapper">
+                        <input className="rc-input" value={String(form.ten ?? "")} onChange={(e) => set("ten", e.target.value)} required />
+                      </div>
+                    </label>
                   </div>
                 </section>
-              ))}
-          </div>
+
+                {groups
+                  .map((g) => {
+                    const fields = g.fields.filter((f) => f.type !== "formula");
+                    if (fields.length === 0) return null;
+                    const isActive = !useTabs || groups.length <= 1 || g.name === activeTab;
+                    if (!isActive) return null;
+                    return (
+                      <section className="rc-card-section" key={g.name}>
+                        {(!useTabs || groups.length <= 1) && (
+                          <div className="rc-card-section__title">
+                            {getGroupIcon(g.name)}
+                            <span>{g.name}</span>
+                          </div>
+                        )}
+                        <div className="rc-grid">
+                          {fields.map(renderField)}
+                        </div>
+                      </section>
+                    );
+                  })
+                  .filter(Boolean)}
+              </div>
+
+              <div className="rc-drawer__col-formula">
+                {groups
+                  .map((g) => {
+                    const fields = g.fields.filter((f) => f.type === "formula");
+                    if (fields.length === 0) return null;
+                    const isActive = !useTabs || groups.length <= 1 || g.name === activeTab;
+                    if (!isActive) return null;
+                    return (
+                      <section className="rc-card-section" key={g.name} style={{ height: "100%" }}>
+                        {(!useTabs || groups.length <= 1) && (
+                          <div className="rc-card-section__title">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px" }}>
+                              <rect x="4" y="4" width="16" height="16" rx="2"/>
+                              <line x1="9" y1="9" x2="15" y2="9"/>
+                              <line x1="9" y1="13" x2="15" y2="13"/>
+                              <line x1="9" y1="17" x2="15" y2="17"/>
+                            </svg>
+                            <span>Công thức tính</span>
+                          </div>
+                        )}
+                        <div className="rc-grid" style={{ gridTemplateColumns: "1fr" }}>
+                          {fields.map(renderField)}
+                        </div>
+                      </section>
+                    );
+                  })
+                  .filter(Boolean)}
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
+              <section className="rc-card-section rc-sec--ident">
+                <div className="rc-card-section__title">
+                  {getGroupIcon("Nhận diện")}
+                  <span>Nhận diện</span>
+                </div>
+                <div className="rc-grid">
+                  <label className="rc-field">
+                    <span className="rc-field__label">Mã <em>*</em></span>
+                    <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
+                      <input className="rc-input rc-mono" value={String(form.ma ?? "")}
+                        disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
+                    </div>
+                    {!isEdit && typedMa && (
+                      <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
+                        {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
+                      </span>
+                    )}
+                  </label>
+                  <label className="rc-field">
+                    <span className="rc-field__label">Tên <em>*</em></span>
+                    <div className="rc-input-wrapper">
+                      <input className="rc-input" value={String(form.ten ?? "")} onChange={(e) => set("ten", e.target.value)} required />
+                    </div>
+                  </label>
+                </div>
+              </section>
+
+              {useTabs && groups.length > 1 && (
+                <div className="rc-drawer__tabs">
+                  {groups.map((g) => (
+                    <button
+                      key={g.name}
+                      type="button"
+                      className={`rc-drawer__tab${activeTab === g.name ? " is-active" : ""}`}
+                      onClick={() => setActiveTab(g.name)}
+                    >
+                      {g.name}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="rc-drawer__fields-container">
+                {groups
+                  .filter((g) => !useTabs || groups.length <= 1 || g.name === activeTab)
+                  .map((g) => (
+                    <section className="rc-card-section" key={g.name}>
+                      {(!useTabs || groups.length <= 1) && (
+                        <div className="rc-card-section__title">
+                          {getGroupIcon(g.name)}
+                          <span>{g.name}</span>
+                        </div>
+                      )}
+                      <div className="rc-grid">
+                        {g.fields.map(renderField)}
+                      </div>
+                    </section>
+                  ))}
+              </div>
+            </div>
+          )}
 
           {config.renderExtra?.(form)}
         </form>
@@ -1096,11 +1253,10 @@ function RefSearchField({ value, options, placeholder, onChange }: {
   );
 }
 
-
 // ── FORMULA FIELD EDITOR AND VALIDATOR (Live math preview + click-to-insert variable tags) ──
-// CHỈ 14 biến LẤY ĐƯỢC TỪ PHIẾU (kích thước + sản lượng). Đơn giá/định lượng → gõ SỐ trực tiếp
-// trong công thức (kiểu báo giá Excel). Bỏ don_gia*/dinh_luong khỏi palette (công thức cũ vẫn chạy
-// vì engine vẫn cấp biến — chỉ không gợi ý chip nữa).
+// PALETTE gợi ý CHỈ 14 biến TỪ PHIẾU (kích thước + sản lượng). Đơn giá/định lượng KHÔNG làm chip —
+// chúng kéo từ field của mục (ô "Đơn giá", ô "Định lượng"); nhưng vẫn GÕ được trong công thức và
+// validator chấp nhận (xem EXTRA_VALID_VARS) nên công thức mặc định (giấy theo cân) vẫn chạy.
 const PHIEU_VARS = [
   "dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
   "so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen",
@@ -1112,20 +1268,24 @@ const WHITELIST_VARS = {
 
 // Giải thích ngắn từng biến — hiện khi hover chip. Kích thước ở đơn vị MÉT trong công thức.
 const VAR_DESC: Record<string, string> = {
-  dai_tp: "Dài sản phẩm — đơn vị MÉT (vd 0,21)",
-  rong_tp: "Rộng sản phẩm — mét",
-  dai_nguyen: "Dài tờ giấy nguyên (mua về) — mét",
-  rong_nguyen: "Rộng tờ giấy nguyên — mét",
-  dai_in: "Dài tờ chạy máy in — mét (vd 0,64)",
-  rong_in: "Rộng tờ chạy máy in — mét",
+  dai_tp: "Dài sản phẩm (vd 0,21)",
+  rong_tp: "Rộng sản phẩm",
+  dai_nguyen: "Dài tờ giấy nguyên (khổ to, chưa cắt)",
+  rong_nguyen: "Rộng tờ giấy nguyên",
+  dai_in: "Dài tờ chạy máy in (vd 0,64)",
+  rong_in: "Rộng tờ chạy máy in",
   so_luong: "Số cái cần làm (số lượng đặt)",
   so_tp: "Số con/tờ — 1 tờ in ra mấy cái",
   so_mau: "Tổng số màu in (mặt A + mặt B)",
-  so_mat: "Số mặt qua máy in (1 mặt = 1 · 2 mặt/tự trở = 2)",
+  so_mat: "Số mặt qua máy (1 mặt = 1 · 2 mặt/tự trở = 2)",
   so_kem: "Số bản kẽm (bằng số màu)",
-  to_dau_vao: "Số tờ vào máy in = tờ cần in + bù hao",
+  to_dau_vao: "Số tờ vào máy = tờ cần in + bù hao",
   to_sau_in: "Số tờ tốt sau in (dùng cho gia công)",
-  to_nguyen: "Số tờ giấy nguyên phải mua",
+  to_nguyen: "Số tờ giấy nguyên tiêu hao (giấy to chưa cắt)",
+  dinh_luong: "Định lượng giấy (gsm) — lấy từ ô Định lượng",
+  don_gia: "Đơn giá — lấy từ ô Giá / Lịch sử giá của mục",
+  don_gia_kg: "Đơn giá theo cân (đ/kg)",
+  don_gia_m2: "Đơn giá theo diện tích (đ/m²)",
 };
 // Biến engine VẪN chấp nhận trong công thức (KHÔNG gợi ý chip, nhưng gõ tay vẫn hợp lệ) — để
 // công thức cũ (dùng đơn giá / ép kim theo vị trí・diện tích) không bị validator báo đỏ oan.
@@ -1133,6 +1293,84 @@ const EXTRA_VALID_VARS = [
   "dinh_luong", "don_gia", "don_gia_kg", "don_gia_m2", "don_gia_luot", "don_gia_kem",
   "so_vi_tri", "dien_tich",
 ];
+function translateFormula(formula: string): ReactNode[] {
+  if (!formula.trim()) return [<span key="empty" style={{ color: "var(--ash, #8a8676)", fontStyle: "italic" }}>Trống (trả về 0đ)</span>];
+  let s = formula.replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-");
+  const regex = /([a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)\,])/g;
+  const matches = s.match(regex) || [];
+  
+  const friendlyNames: Record<string, string> = {
+    dai_tp: "Dài sản phẩm",
+    rong_tp: "Rộng sản phẩm",
+    dai_nguyen: "Dài tờ nguyên",
+    rong_nguyen: "Rộng tờ nguyên",
+    dai_in: "Dài tờ in",
+    rong_in: "Rộng tờ in",
+    so_luong: "Số lượng đặt",
+    so_tp: "Số con/tờ in",
+    so_mau: "Số màu in",
+    so_mat: "Số mặt in",
+    so_kem: "Số bản kẽm",
+    to_dau_vao: "Tờ vào máy",
+    to_sau_in: "Tờ tốt sau in",
+    to_nguyen: "Tờ giấy nguyên",
+    dinh_luong: "Định lượng giấy",
+    don_gia: "Đơn giá",
+    don_gia_kg: "Đơn giá giấy (kg)",
+    don_gia_m2: "Đơn giá (m²)",
+    don_gia_luot: "Đơn giá lượt in",
+    don_gia_kem: "Đơn giá kẽm",
+    so_vi_tri: "Số vị trí",
+    dien_tich: "Diện tích",
+  };
+  
+  const elements: ReactNode[] = [];
+  let index = 0;
+  
+  for (const m of matches) {
+    const trimmed = m.trim();
+    if (!trimmed) continue;
+    
+    if (friendlyNames[trimmed]) {
+      elements.push(
+        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--var">
+          {friendlyNames[trimmed]}
+        </span>
+      );
+    } else if (MATH_FUNCS.includes(trimmed)) {
+      elements.push(
+        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--func">
+          {trimmed.toUpperCase()}
+        </span>
+      );
+    } else if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
+      elements.push(
+        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--num">
+          {trimmed}
+        </span>
+      );
+    } else if (/^[\+\-\*\/\(\)\,]$/.test(trimmed)) {
+      let displayOp = trimmed;
+      if (trimmed === "*") displayOp = " × ";
+      if (trimmed === "/") displayOp = " ÷ ";
+      if (trimmed === "-") displayOp = " − ";
+      if (trimmed === "+") displayOp = " + ";
+      elements.push(
+        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--op">
+          {displayOp}
+        </span>
+      );
+    } else {
+      elements.push(
+        <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--error">
+          {trimmed}
+        </span>
+      );
+    }
+  }
+  return elements;
+}
+
 const MATH_FUNCS = ["ceil", "floor", "round", "max", "min"];
 
 function FormulaField({
@@ -1147,8 +1385,8 @@ function FormulaField({
   const isCd = configPrefix.includes("cong-doan");
   const whitelist = isCd ? WHITELIST_VARS.cong_doan : WHITELIST_VARS.vat_tu; // chip gợi ý (14 biến phiếu)
   const validVars = useMemo(() => [...whitelist, ...EXTRA_VALID_VARS], [whitelist]); // validator (rộng hơn)
+  const [hoveredVar, setHoveredVar] = useState<string | null>(null);
 
-  // Insert a variable at the current cursor position in textarea
   const insertVar = (varName: string) => {
     const el = document.getElementById("formula-textarea") as HTMLTextAreaElement | null;
     if (!el) {
@@ -1162,7 +1400,6 @@ function FormulaField({
     const after = text.substring(end, text.length);
     const newValue = before + varName + after;
     onChange(newValue);
-    // Focus back and set selection range
     setTimeout(() => {
       el.focus();
       el.setSelectionRange(start + varName.length, start + varName.length);
@@ -1215,9 +1452,9 @@ function FormulaField({
     ].filter(g => g.vars.length > 0);
   }, [whitelist]);
 
-  // Real-time formula validation and preview formatting
-  const { valid, error, formatted } = useMemo(() => {
-    if (!value.trim()) return { valid: true, error: null, formatted: <span style={{ color: "var(--ash, #8a8676)", fontStyle: "italic" }}>Trống (trả về 0đ)</span> };
+  // Real-time formula validation
+  const { valid, error } = useMemo(() => {
+    if (!value.trim()) return { valid: true, error: null };
     
     // Check balanced parenthesis
     let openParen = 0;
@@ -1225,65 +1462,35 @@ function FormulaField({
       if (char === '(') openParen++;
       if (char === ')') openParen--;
       if (openParen < 0) {
-        return { valid: false, error: "Đóng mở ngoặc đơn không hợp lệ", formatted: null };
+        return { valid: false, error: "Đóng mở ngoặc đơn không hợp lệ" };
       }
     }
     if (openParen !== 0) {
-      return { valid: false, error: "Thiếu dấu đóng hoặc mở ngoặc đơn", formatted: null };
+      return { valid: false, error: "Thiếu dấu đóng hoặc mở ngoặc đơn" };
     }
 
     // Tokenize
     const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)]|\s+/g;
     const tokens = value.match(tokenRegex) || [];
     
-    const formattedElements: ReactNode[] = [];
-    let index = 0;
-    
     for (const token of tokens) {
       const trimmed = token.trim();
-      if (!trimmed) {
-        formattedElements.push(<span key={index++}> </span>);
-        continue;
-      }
+      if (!trimmed) continue;
       
-      if (validVars.includes(trimmed)) {
-        formattedElements.push(
-          <span key={index++} className="rc-formula__token rc-formula__token--var" title="Biến hệ thống">
-            {trimmed}
-          </span>
-        );
-      } else if (MATH_FUNCS.includes(trimmed)) {
-        formattedElements.push(
-          <span key={index++} className="rc-formula__token rc-formula__token--func" title="Hàm toán học">
-            {trimmed}
-          </span>
-        );
-      } else if (/^\d+(?:\.\d+)?$/.test(trimmed)) {
-        formattedElements.push(
-          <span key={index++} className="rc-formula__token rc-formula__token--num" title="Hằng số">
-            {trimmed}
-          </span>
-        );
-      } else if (/^[\+\-\*\/\(\)]$/.test(trimmed)) {
-        let displayOp = trimmed;
-        if (trimmed === "*") displayOp = "×";
-        if (trimmed === "/") displayOp = "÷";
-        if (trimmed === "-") displayOp = "−";
-        formattedElements.push(
-          <span key={index++} className="rc-formula__token rc-formula__token--op">
-            {displayOp}
-          </span>
-        );
-      } else {
+      if (
+        !validVars.includes(trimmed) &&
+        !MATH_FUNCS.includes(trimmed) &&
+        !/^\d+(?:\.\d+)?$/.test(trimmed) &&
+        !/^[\+\-\*\/\(\)]$/.test(trimmed)
+      ) {
         return {
           valid: false,
-          error: `Biến hoặc hàm "${trimmed}" không được hỗ trợ trong hệ thống`,
-          formatted: null
+          error: `Biến hoặc hàm "${trimmed}" không được hỗ trợ trong hệ thống`
         };
       }
     }
 
-    return { valid: true, error: null, formatted: formattedElements };
+    return { valid: true, error: null };
   }, [value, validVars]);
 
   return (
@@ -1302,7 +1509,8 @@ function FormulaField({
                   type="button"
                   className={`rc-formula__var-tag ${g.colorClass}`}
                   onClick={() => insertVar(v)}
-                  title={VAR_DESC[v] ? `${v} — ${VAR_DESC[v]}` : `Chèn biến ${v}`}
+                  onMouseEnter={() => setHoveredVar(v)}
+                  onMouseLeave={() => setHoveredVar(null)}
                 >
                   {v}
                 </button>
@@ -1312,28 +1520,51 @@ function FormulaField({
         ))}
       </div>
 
+      <div className="rc-formula__legend">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px", color: "var(--rust)" }}>
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="16" x2="12" y2="12"/>
+          <line x1="12" y1="8" x2="12.01" y2="8"/>
+        </svg>
+        <span>
+          {hoveredVar ? (
+            <><strong>{hoveredVar}</strong>: {VAR_DESC[hoveredVar]}</>
+          ) : (
+            "Rê chuột vào biến để giải nghĩa, click để chèn nhanh vào công thức..."
+          )}
+        </span>
+      </div>
+
       <div className="rc-formula__editor-container">
+        <div className="rc-formula__editor-header">
+          <div className="rc-formula__editor-dots">
+            <span className="rc-formula__editor-dot rc-formula__editor-dot--red"></span>
+            <span className="rc-formula__editor-dot rc-formula__editor-dot--yellow"></span>
+            <span className="rc-formula__editor-dot rc-formula__editor-dot--green"></span>
+          </div>
+          <div className="rc-formula__editor-title">formula_expr.js</div>
+        </div>
         <textarea
           id="formula-textarea"
           className="rc-formula__textarea"
           rows={3}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Nhập công thức tính giá vốn động..."
+          placeholder="Nhập công thức tính giá vốn động (vd: dai_tp * rong_tp * 250)..."
         />
       </div>
 
-      <div className="rc-formula__preview-container">
-        <div className="rc-formula__preview-title">Xem trước công thức hiển thị:</div>
-        <div className="rc-formula__preview">
-          {formatted}
+      <div className="rc-formula__trans-container">
+        <div className="rc-formula__trans-title">Dịch nghĩa công thức (tiếng Việt):</div>
+        <div className="rc-formula__trans-content">
+          {translateFormula(value)}
         </div>
       </div>
 
       {!valid && (
         <div className="rc-formula__validation">
           <div className="rc-formula__status rc-formula__status--error">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px" }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "6px" }}>
               <circle cx="12" cy="12" r="10"/>
               <path d="m15 9-6 6M9 9l6 6"/>
             </svg>

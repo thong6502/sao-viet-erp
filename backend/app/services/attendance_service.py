@@ -556,6 +556,10 @@ class AttendanceService:
             total_cong = 0.0
             total_ot = 0
             night_days = 0
+            holiday_cong = 0.0   # công LÀM ngày lễ (Đ98 → premium)
+            restday_cong = 0.0   # công LÀM ngày nghỉ tuần (Đ98 → premium)
+            ot_holiday = 0       # phút OT ngày lễ
+            ot_restday = 0       # phút OT ngày nghỉ tuần
             paid_leave = 0
             unpaid_leave = 0
             hanging = 0
@@ -590,6 +594,15 @@ class AttendanceService:
                         total_ot += info["ot_minutes"]
                         if shift.night_shift:
                             night_days += 1
+                        # Đ98: phân loại công/OT theo LOẠI NGÀY (làm việc ngày lễ/nghỉ tuần → premium).
+                        if d in paid_holidays:
+                            holiday_cong += info["cong"]
+                            ot_holiday += info["ot_minutes"]
+                            cell["holiday"] = True
+                        elif (self._work_calendar is not None
+                              and not self._work_calendar.is_working_day(date(year, month, d))):
+                            restday_cong += info["cong"]
+                            ot_restday += info["ot_minutes"]
                 elif d in emp_holidays:  # NGÀY LỄ thắng đơn phép: 1 công lễ, KHÔNG tiêu ngày phép
                     lv = lv_days.get(d)   # đơn phép phủ ngày lễ (nếu có) → công lễ theo is_paid đơn
                     paid = lv["is_paid"] if lv is not None else True
@@ -620,6 +633,8 @@ class AttendanceService:
                 "total_days": total_days, "total_leave": total_leave,
                 "paid_leave_days": paid_leave, "unpaid_leave_days": unpaid_leave,
                 "holiday_days": len(emp_holidays), "ot_minutes": total_ot, "night_days": night_days,
+                "holiday_cong": round(holiday_cong, 2), "restday_cong": round(restday_cong, 2),
+                "ot_holiday_minutes": ot_holiday, "ot_restday_minutes": ot_restday,
                 "hanging_days": hanging,
                 "total_hours": round(total_hours, 2),
                 "total_cong": round(total_cong, 2) if has_cong else None,
@@ -703,6 +718,9 @@ class AttendanceService:
                 unpaid_leave_days=r.get("unpaid_leave_days", 0), holiday_days=r.get("holiday_days", 0),
                 total_hours=r["total_hours"], ot_minutes=r.get("ot_minutes", 0),
                 night_days=r.get("night_days", 0),
+                holiday_cong=r.get("holiday_cong", 0), restday_cong=r.get("restday_cong", 0),
+                ot_holiday_minutes=r.get("ot_holiday_minutes", 0),
+                ot_restday_minutes=r.get("ot_restday_minutes", 0),
             )
         self.attendance.update_period(
             p, status=APERIOD_LOCKED, locked_at=datetime.now(timezone.utc),
@@ -747,12 +765,23 @@ class AttendanceService:
                 "cong": float(cong if cong is not None else r.get("total_days") or 0),
                 "ot_minutes": int(r.get("ot_minutes") or 0),
                 "night_days": int(r.get("night_days") or 0),
+                "holiday_cong": float(r.get("holiday_cong") or 0),
+                "restday_cong": float(r.get("restday_cong") or 0),
+                "ot_holiday_minutes": int(r.get("ot_holiday_minutes") or 0),
+                "ot_restday_minutes": int(r.get("ot_restday_minutes") or 0),
             }
         return out
 
     def cong_map(self, year: int, month: int) -> dict[int, float]:
         """Số công/NV cho Lương (giữ tương thích) — rút cong từ metrics_map (1 nguồn)."""
         return {eid: m["cong"] for eid, m in self.metrics_map(year, month).items()}
+
+    def standard_working_days(self, year: int, month: int) -> int | None:
+        """Công chuẩn ĐỘNG của tháng (số ngày làm việc thực theo Lịch chung — Đ3/N4) cho Lương.
+        None nếu chưa cấu hình lịch → Lương fallback về `standard_cong_default`."""
+        if self._work_calendar is None:
+            return None
+        return self._work_calendar.standard_working_days(year, month)
 
     # --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch nguồn -------------
 

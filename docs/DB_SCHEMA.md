@@ -166,6 +166,7 @@ gets on that module.
 | `can_adjust` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (nhan_su · Chấm công) — chấm bù / sửa công qua punch nguồn (`attendance_logs.is_manual`), tách khỏi `can_update`. Thêm qua migration 0015. |
 | `can_approve_exception` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (don_hang_ban · A2) — DUYỆT "đơn đặc thù" (giá trị cao / biên thấp / dưới giá vốn), tách khỏi `can_approve` (= chốt đơn thường). CHỈ Giám đốc; Trưởng phòng KD giữ `_full` nhưng KHÔNG có quyền này. Thêm qua migration 0050. |
 | `can_set_credit_terms` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (khach_hang) — THIẾT LẬP **chính sách tài chính** khách: hạn mức công nợ + điều khoản thanh toán + **chiết khấu min/max + biên lợi nhuận min/max** (redesign spec-06 v2 mở rộng nghĩa từ "điều khoản tín dụng"). Mọi số tài chính ai cũng XEM; chỉ quyền này mới SỬA. Quyết định "cho nợ/chiết khấu bao nhiêu" bàn NGOÀI ĐỜI — quyền chỉ gate ai NHẬP, KHÔNG phải bước duyệt. Thiếu quyền → các field tài chính bị BỎ QUA khi ghi (giữ nguyên / về default an toàn). Bật qua `_full` (GĐ/GĐ KD/TP KD). Thêm qua migration 0059. |
+| `can_record_deposit` | `Boolean` → `BOOLEAN` | — | no | `false` | Quyền chi tiết (don_hang_ban) — GHI **phiếu thu cọc** (Kế toán). Tách khỏi CRUD đơn: NV KD lập đơn nhưng KHÔNG tự ghi cọc (tiền vào két là việc Kế toán). Gán vai Kế toán. Thêm qua migration 0067. |
 
 **Keys & indexes**
 
@@ -656,19 +657,17 @@ liệu cho khung timeline trên UI detail.
 
 ### `orders`
 
-**Purpose:** the Đơn hàng bán header — spec-10-don-hang-ban (bước ④ CHỐT ĐƠN). One row per đơn
-created AFTER a khách chấp nhận a **báo giá đã duyệt** (`Quotation.status == approved` còn hạn).
-It pins the quotation reference C1 (`quotation_id` + `quotation_version` + `quotation_effective_from`
-via SEAM-04 `quotation_ref`, Báo giá LIVE) and moves through the lifecycle
-`draft → ordered` (+ `on_hold` / `change_order` / `cancelled`, §32 L825-829). The ③→④ hard gate to
-`ordered` needs `quotation.approved AND deposit ≥ total·min_deposit_pct` (§32 L827-828); the deposit
-write is TREO behind SEAM-04 (Payment, feat-048). `parent_order_id` (self-FK) is used **ONLY** for an
-**đơn bổ sung** (sub-job trỏ đơn gốc, §32 L807-813); đổi (`change_order`) giữ lịch sử qua
-Quotation-version, KHÔNG dùng `parent_order_id` (decision #5). The physical layer (khổ/màu/kẽm/
-imposition/PrintForm) is NEVER stored here — ẩn khỏi Sale (§29 P0 L730, §43 #1). `row_version`
-(optimistic locking) is deliberately NOT modelled (doc chỉ Job/Quotation, §34 L898 — Out-of-scope).
-VAT chân lý ở `InvoiceLine` (⑬); the order carries only `vat_pct_estimate`. Portable across SQLite
-and Postgres.
+**Purpose:** the Đơn hàng bán header — redesign-don-hang-ban.md (bước ④ CHỐT ĐƠN). One row per đơn.
+**2 nguồn** (`source_type`): `bao_gia` (tạo từ báo giá đã duyệt — ghim C1 `quotation_id`+`quotation_version`+
+`quotation_effective_from` qua SEAM-04, snapshot giá+giá vốn bất biến) · `nhap_tay` (không giá vốn →
+`cost_basis='none'`, biên "không xác định", LUÔN cần duyệt). Vòng đời ACTIVE `draft → ordered → cancelled`
+(`on_hold`/`change_order` = hằng số DORMANT, không dùng). Cổng chốt: báo giá còn duyệt & còn hạn AND Σ cọc thực
+nhận ≥ `deposit_pct`×tổng (deposit_pct **ghim từ báo giá**) AND đủ PO+ngày giao AND chứng cứ đồng ý AND
+(nhập tay: đã duyệt) AND không đặc thù treo — cọc ghi ở `order_deposits`. `parent_order_id` (self-FK) CHỈ cho
+**đơn bổ sung** (`order_kind=bo_sung`, giữ kẽm → giá riêng). `order_nature` {hang_hoa, gia_cong} thay
+`has_customer_paper` (2 gốc thuế). Layer vật lý (khổ/màu/kẽm/imposition) NEVER lưu ở đây — ẩn khỏi Sale. VAT chân
+lý ở `InvoiceLine` (⑬). Seam: duyệt bản in (`proof_*`, Sản xuất) · `production_stage` (read-only SX) · hủy
+(`cancel_*`+`deposit_disposition`). Portable across SQLite and Postgres.
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
@@ -678,16 +677,39 @@ and Postgres.
 | `quotation_id` | `Integer` → `INTEGER` | **IX** | yes | — | Referenced approved quotation (SEAM-04 quotation_ref). Plain Integer (NO FK) — báo giá versioned, pin the exact version below. |
 | `quotation_version` | `Integer` → `INTEGER` | — | yes | — | The exact quotation version pinned (C1); không tự nhảy sang version mới hơn. |
 | `quotation_effective_from` | `Date` → `DATE` | — | yes | — | Effective-from of the snapshotted quotation price window (copy-on-write source pointer, not a FK). |
-| `order_type` | `String(16)` → `VARCHAR(16)` | — | no | `theo_yc` | Loại đơn ∈ {noi_bo, theo_yc} (§41 L1135). |
+| `order_type` | `String(16)` → `VARCHAR(16)` | — | no | `theo_yc` | **DORMANT** (P1 redesign cố định `theo_yc`; nguồn/bản chất dùng `source_type`/`order_nature`). |
 | `order_kind` | `String(16)` → `VARCHAR(16)` | — | no | `moi` | Loại ∈ {moi, bo_sung}. Đơn bổ sung mang giá bán riêng, giữ kẽm cũ → rẻ (§32). |
 | `parent_order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | yes | — | Đơn gốc — set **CHỈ** khi order_kind=bo_sung (bắt buộc). NULL cho đơn mới; KHÔNG dùng cho change_order. |
 | `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | NV kinh doanh phụ trách (hoa hồng) + RBAC data-scope owner (own/department/all, §41). |
-| `status` | `String(16)` → `VARCHAR(16)` | — | no | `draft` | Lifecycle: draft/ordered/on_hold/change_order/cancelled. |
-| `has_customer_paper` | `Boolean` → `BOOLEAN` | — | no | `false` | F4 cờ ứng giấy khách; chi tiết lô (ownership=customer, cost=0) sống ở Kho — read-only link via SEAM-06. |
+| `status` | `String(16)` → `VARCHAR(16)` | — | no | `draft` | Lifecycle ACTIVE: draft/ordered/cancelled (P1 redesign). `on_hold`/`change_order` = giá trị DORMANT (không dùng trong luồng). |
+| `has_customer_paper` | `Boolean` → `BOOLEAN` | — | no | `false` | **DORMANT** (P1 thay bằng `order_nature` {hang_hoa, gia_cong}). |
 | `vat_pct_estimate` | `Integer` → `INTEGER` | — | no | `0` | VAT DỰ KIẾN (%) để ước tổng — chân lý ở InvoiceLine (⑬). |
 | `cancel_reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Set only when status=cancelled (F8). |
-| `cancelled_at_state` | `String(16)` → `VARCHAR(16)` | — | yes | — | The status khi hủy (để biết hoàn/không hoàn vật tư-cọc theo §32 L817-825). |
+| `cancelled_at_state` | `String(16)` → `VARCHAR(16)` | — | yes | — | **DORMANT** (P1 dùng `cancel_stage_snapshot` + `cancel_fault`). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the order row was created. |
+| `source_type` | `String(16)` → `VARCHAR(16)` | — | no | `bao_gia` | Nguồn tạo đơn ∈ {bao_gia, nhap_tay} (P1 redesign). Migration 0066. |
+| `order_nature` | `String(16)` → `VARCHAR(16)` | — | no | `hang_hoa` | Bản chất ∈ {hang_hoa, gia_cong} (2 gốc thuế) — thay has_customer_paper. Migration 0066. |
+| `customer_po_no` | `String(100)` → `VARCHAR(100)` | — | yes | — | Số PO khách (mức đơn). |
+| `delivery_committed_date` | `Date` → `DATE` | — | yes | — | Ngày giao cam kết ban đầu; dời lịch = module Kế hoạch giao hàng (SEAM-02). |
+| `delivery_address` | `String(500)` → `VARCHAR(500)` | — | yes | — | Địa chỉ giao (snapshot, sửa khi nháp). |
+| `invoice_entity_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Pháp nhân xuất HĐ (khi khách xin tên khác; mặc định = khách). |
+| `invoice_entity_tax_code` | `String(20)` → `VARCHAR(20)` | — | yes | — | MST pháp nhân xuất HĐ. |
+| `deposit_pct` | `Float` → `FLOAT` | — | yes | — | % cọc GHIM TỪ BÁO GIÁ (khóa trên đơn) — base cổng chốt. |
+| `cost_basis` | `String(16)` → `VARCHAR(16)` | — | no | `quote` | Nguồn giá vốn ∈ {quote, none}; none = nhập tay → biên "không xác định". |
+| `needs_approval` | `Boolean` → `BOOLEAN` | — | no | `false` | Đơn cần duyệt tại đơn (nhập tay / bổ sung tự đặt giá). |
+| `approval_state` | `String(16)` → `VARCHAR(16)` | — | no | `none` | Trình-duyệt ∈ {none, pending, approved, rejected}. |
+| `ordered_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Đóng dấu lúc chốt đơn (P4). |
+| `ordered_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người chốt đơn. |
+| `proof_required` | `Boolean` → `BOOLEAN` | — | no | `false` | SEAM duyệt bản in: cần khách ký bản in trước chạy máy (thao tác ở Sản xuất). |
+| `proof_approved_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm khách duyệt bản in (SEAM). |
+| `proof_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người xác nhận duyệt bản in (SEAM). |
+| `proof_attachment_id` | `Integer` → `INTEGER` | — | yes | — | Đính kèm bản in đã duyệt (SEAM). |
+| `production_stage` | `String(20)` → `VARCHAR(20)` | — | no | `none` | Giai đoạn SX (read-only từ Sản xuất) ∈ {none, plate_made, material_bought, printing, printed}. |
+| `cancel_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người hủy đơn. |
+| `cancel_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm hủy. |
+| `cancel_fault` | `String(16)` → `VARCHAR(16)` | — | yes | — | Lỗi tại ai khi hủy ∈ {khach, xuong}. |
+| `cancel_stage_snapshot` | `String(20)` → `VARCHAR(20)` | — | yes | — | Giai đoạn SX chụp lúc hủy (base xử cọc ở phân hệ hoàn). |
+| `deposit_disposition` | `String(24)` → `VARCHAR(24)` | — | no | `none` | Cờ chờ hoàn cọc ∈ {none, pending_settlement, settled} — cọc không xóa khi hủy. |
 
 **Keys & indexes**
 
@@ -697,7 +719,7 @@ and Postgres.
 
 ### `payments`
 
-**Purpose:** thu tiền bán (CỌC + đợt thu) của một Đơn hàng bán — Pha A "Lát Tài chính". `deposit_total(order) = NET Σ(thu)−Σ(hoàn)` trên `kind=deposit` là điều kiện chốt đơn ③→④ (§32 L827-828), đóng **SEAM-04 (deposit)**. Cọc **KHÔNG sinh hóa đơn** (N5, NĐ123/2020 — chỉ treo Nợ 111/112 / Có 131); chân lý hóa đơn/doanh thu ở ⑬ (MISA). Khác `payment_vouchers` (Phiếu CHI mua hàng, AP). Bảng MỚI do `create_all` dựng (không cần migration). Portable across SQLite và Postgres.
+**Purpose:** ⚠️ **OBSOLETE (2026-07-15):** bảng `payments` (cơ chế cọc sell-side cũ) ĐÃ GỠ khỏi model — cọc mới dùng `order_deposits` (+ `order_deposit_attachments`) đa hình thức, xem trên. Đoạn dưới GIỮ để tham chiếu lịch sử, KHÔNG còn là bảng thực. — (cũ) thu tiền bán (CỌC + đợt thu) của một Đơn hàng bán — Pha A "Lát Tài chính". `deposit_total(order) = NET Σ(thu)−Σ(hoàn)` trên `kind=deposit` là điều kiện chốt đơn ③→④ (§32 L827-828), đóng **SEAM-04 (deposit)**. Cọc **KHÔNG sinh hóa đơn** (N5, NĐ123/2020 — chỉ treo Nợ 111/112 / Có 131); chân lý hóa đơn/doanh thu ở ⑬ (MISA). Khác `payment_vouchers` (Phiếu CHI mua hàng, AP). Bảng MỚI do `create_all` dựng (không cần migration). Portable across SQLite và Postgres.
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
@@ -790,6 +812,78 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 **Relationships**
 
 - Many `order_approvals` belong to one `orders`. Bản GẦN NHẤT (theo `decided_at`, tie-break `id`) quyết định cổng chốt: `approved`+bao phủ → cleared; `rejected`/`stale`/chưa có → chặn.
+
+---
+
+### `order_deposits`
+
+**Purpose:** P2 — phiếu thu cọc của một Đơn hàng bán (Kế toán ghi, quyền `can_record_deposit`; nhiều phiếu/1 đơn). Cổng chốt tính trên **Σ `amount_received`** (tiền thực nhận quy đổi). Đa hình thức (`deposit_kind`); đối chiếu sao kê CHỈ có nghĩa với CK. Cọc **không** sinh hóa đơn VAT. Bảng MỚI do `create_all` dựng. Portable across SQLite và Postgres.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | no | — | Đơn gắn phiếu thu (ON DELETE CASCADE). |
+| `deposit_kind` | `String(20)` → `VARCHAR(20)` | — | no | `ck` | Hình thức ∈ {ck, tien_mat, vat_tu_ung, can_tru_cong_no}. |
+| `amount_expected` | `BigInteger` → `BIGINT` | — | no | `0` | Số kỳ vọng (VND). |
+| `amount_received` | `BigInteger` → `BIGINT` | — | no | `0` | Số thực nhận (VND) — base cổng chốt. |
+| `reconciled` | `Boolean` → `BOOLEAN` | — | no | `false` | Đã đối chiếu sao kê (CHỈ có nghĩa với CK). |
+| `reconciled_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người đối chiếu. ON DELETE SET NULL. |
+| `reconciled_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm đối chiếu. |
+| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú. |
+| `received_at` | `Date` → `DATE` | — | yes | — | Ngày thu. |
+| `recorded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Kế toán ghi phiếu. ON DELETE SET NULL. |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `ix_order_deposits_order_id`. Foreign keys: `order_id`→orders.id (CASCADE), `reconciled_by`/`recorded_by`→users.id (SET NULL).
+
+**Relationships**
+
+- Many `order_deposits` belong to one `orders`; each has many `order_deposit_attachments` (cascade delete).
+
+---
+
+### `order_attachments`
+
+**Purpose:** Đính kèm CẤP ĐƠN — chứng cứ khách đồng ý (`kind=consent`, ảnh PO/Zalo…) làm điều kiện cổng chốt §8(d) cho đơn nhập tay. Bytes dưới `<backend>/static/don-hang/<order_id>/`, phục vụ qua `/static`. Bảng MỚI do `create_all` dựng. Portable.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | no | — | Đơn gắn đính kèm (ON DELETE CASCADE). |
+| `kind` | `String(16)` → `VARCHAR(16)` | — | no | `consent` | Loại đính kèm (hiện: consent = chứng cứ khách đồng ý). |
+| `file_url` | `String(500)` → `VARCHAR(500)` | — | no | — | URL phục vụ qua /static. |
+| `file_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Tên file gốc. |
+| `content_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
+| `size_bytes` | `Integer` → `INTEGER` | — | no | `0` | Kích thước file (byte). |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tải lên. ON DELETE SET NULL. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When uploaded. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `ix_order_attachments_order_id`. Foreign keys: `order_id`→orders.id (CASCADE), `uploaded_by`→users.id (SET NULL).
+
+---
+
+### `order_deposit_attachments`
+
+**Purpose:** P2 — minh chứng đã thu (ảnh/PDF) đính kèm một phiếu thu cọc. Bytes dưới `<backend>/static/don-hang-coc/<deposit_id>/`, phục vụ qua `/static`. Bảng MỚI do `create_all` dựng. Portable.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+|---|---|---|---|---|---|
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
+| `deposit_id` | `Integer` → `INTEGER` | **FK→order_deposits.id**, **IX** | no | — | Phiếu thu gắn minh chứng (ON DELETE CASCADE). |
+| `file_path` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn file dưới static. |
+| `original_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Tên file gốc. |
+| `content_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
+| `size_bytes` | `Integer` → `INTEGER` | — | no | `0` | Kích thước file (byte). |
+| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tải lên. ON DELETE SET NULL. |
+| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When uploaded. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Indexes: `ix_order_deposit_attachments_deposit_id`. Foreign keys: `deposit_id`→order_deposits.id (CASCADE), `uploaded_by`→users.id (SET NULL).
 
 ---
 
@@ -1782,6 +1876,10 @@ từ đây khi kỳ đã `locked`. Xóa + ghi lại mỗi lần Chốt / Mở l�
 | `total_hours` | `Numeric(7,2)` → `NUMERIC` | — | no | `0` | Tổng giờ có mặt. |
 | `ot_minutes` | `Integer` → `INTEGER` | — | no | `0` | Tổng phút vượt ca (chờ duyệt OT — Pha 4). |
 | `night_days` | `Integer` → `INTEGER` | — | no | `0` | Số ngày làm ca đêm. |
+| `holiday_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công LÀM ngày lễ (Đ98 → Lương trả premium). Thêm qua migration 0065. |
+| `restday_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công LÀM ngày nghỉ tuần (Đ98 → premium). Thêm qua migration 0065. |
+| `ot_holiday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày lễ. Thêm qua migration 0065. |
+| `ot_restday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày nghỉ tuần. Thêm qua migration 0065. |
 | `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú. |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
 
@@ -2189,7 +2287,11 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `deduction_dependent` | `Numeric(14,2)` | no | `6200000` | Giảm trừ mỗi người phụ thuộc (mức 2026). |
 | `chuyen_can_default` | `Numeric(14,2)` | no | `300000` | Mức chuyên cần mặc định (đủ công). |
 | `standard_hours_per_day` | `Numeric(5,2)` | no | `8` | Giờ công chuẩn/ngày (quy đơn giá giờ OT — Pha 4a). |
-| `ot_multiplier` | `Numeric(5,2)` | no | `1.5` | Hệ số tăng ca phẳng (Đ98 ngày thường ≥1.5 — Pha 4a). |
+| `ot_multiplier` | `Numeric(5,2)` | no | `1.5` | Hệ số OT ngày thường (Đ98 ≥1.5 — Pha 4a). |
+| `ot_multiplier_restday` | `Numeric(5,2)` | no | `2` | Hệ số OT ngày nghỉ tuần (Đ98 ≥2.0). Thêm qua migration 0064. |
+| `ot_multiplier_holiday` | `Numeric(5,2)` | no | `3` | Hệ số OT ngày lễ (Đ98 ≥3.0). Thêm qua migration 0064. |
+| `restday_work_multiplier` | `Numeric(5,2)` | no | `2` | Làm nguyên công ngày nghỉ tuần (Đ98 ≥200%). Thêm qua migration 0064. |
+| `holiday_work_multiplier` | `Numeric(5,2)` | no | `3` | Làm nguyên công ngày lễ (Đ98 ≥300%). Thêm qua migration 0064. |
 | `night_pct` | `Numeric(5,4)` | no | `0.3` | Phụ cấp ca đêm: % đơn giá 1 công/ngày ca đêm (Đ98 ≥30% — Pha 4a). |
 | `bh_base_cap` | `Numeric(14,2)` | no | `50600000` | Trần đóng BHXH+BHYT = 20× mức tham chiếu; 0 = không trần (Pha 4a). |
 | `bhtn_base_cap` | `Numeric(14,2)` | no | `106200000` | Trần đóng BHTN = 20× lương tối thiểu vùng; 0 = không trần (Pha 4a). |

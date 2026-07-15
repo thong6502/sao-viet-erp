@@ -1615,6 +1615,90 @@ def _migrate_ptg_kho_nguyen_override(db: Session) -> None:
     db.commit()
 
 
+def _migrate_payroll_special_day_multipliers(db: Session) -> None:
+    """Pha 4d (Đ98): hệ số làm thêm/làm ngày đặc biệt trong `payroll_params`.
+    OT ngày nghỉ tuần ×2, OT ngày lễ ×3; làm nguyên công nghỉ tuần ×2, lễ ×3. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "payroll_params" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "payroll_params")
+    for col, default in (("ot_multiplier_restday", "2"), ("ot_multiplier_holiday", "3"),
+                         ("restday_work_multiplier", "2"), ("holiday_work_multiplier", "3")):
+        if col not in cols:
+            db.execute(text(
+                f"ALTER TABLE payroll_params ADD COLUMN {col} NUMERIC(5,2) NOT NULL DEFAULT {default}"))
+    db.commit()
+
+
+def _migrate_attendance_line_special_day(db: Session) -> None:
+    """Pha 4d (Đ98): snapshot công/OT theo LOẠI NGÀY vào `attendance_period_lines` (đóng băng lúc
+    Chốt công để Lương trả premium sau khi đã chốt). No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "attendance_period_lines" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "attendance_period_lines")
+    for col, typ in (("holiday_cong", "NUMERIC(6,2)"), ("restday_cong", "NUMERIC(6,2)"),
+                     ("ot_holiday_minutes", "INTEGER"), ("ot_restday_minutes", "INTEGER")):
+        if col not in cols:
+            db.execute(text(
+                f"ALTER TABLE attendance_period_lines ADD COLUMN {col} {typ} NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_order_redesign_fields(db: Session) -> None:
+    """Redesign Đơn hàng bán (P1, redesign-don-hang-ban.md): thêm cột mới vào `orders`
+    (nguồn/bản chất/đặt hàng/duyệt/chốt/seam hủy+bản in+sản xuất). Chỉ ADD COLUMN với default
+    an toàn (đơn cũ giữ nghĩa: source_type='bao_gia', order_nature='hang_hoa', approval_state='none').
+    Bảng cọc `order_deposits`(+attachments) là bảng MỚI → create_all tự tạo, không ALTER ở đây.
+    No-op trên DB fresh / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "orders" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "orders")
+    order_cols = [
+        ("source_type", "VARCHAR(16) NOT NULL DEFAULT 'bao_gia'"),
+        ("order_nature", "VARCHAR(16) NOT NULL DEFAULT 'hang_hoa'"),
+        ("customer_po_no", "VARCHAR(100)"),
+        ("delivery_committed_date", "DATE"),
+        ("delivery_address", "VARCHAR(500)"),
+        ("invoice_entity_name", "VARCHAR(255)"),
+        ("invoice_entity_tax_code", "VARCHAR(20)"),
+        ("deposit_pct", "FLOAT"),
+        ("cost_basis", "VARCHAR(16) NOT NULL DEFAULT 'quote'"),
+        ("needs_approval", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("approval_state", "VARCHAR(16) NOT NULL DEFAULT 'none'"),
+        ("ordered_at", "TIMESTAMP WITH TIME ZONE"),
+        ("ordered_by", "INTEGER"),
+        ("proof_required", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("proof_approved_at", "TIMESTAMP WITH TIME ZONE"),
+        ("proof_by", "INTEGER"),
+        ("proof_attachment_id", "INTEGER"),
+        ("production_stage", "VARCHAR(20) NOT NULL DEFAULT 'none'"),
+        ("cancel_by", "INTEGER"),
+        ("cancel_at", "TIMESTAMP WITH TIME ZONE"),
+        ("cancel_fault", "VARCHAR(16)"),
+        ("cancel_stage_snapshot", "VARCHAR(20)"),
+        ("deposit_disposition", "VARCHAR(24) NOT NULL DEFAULT 'none'"),
+    ]
+    for name, ddl in order_cols:
+        if name not in cols:
+            db.execute(text(f"ALTER TABLE orders ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
+def _migrate_role_permission_record_deposit(db: Session) -> None:
+    """don_hang_ban: thêm cột `role_permissions.can_record_deposit` (Kế toán ghi phiếu thu cọc).
+    Chỉ ADD COLUMN DEFAULT FALSE — quyền do seed_roles upsert lại mỗi khởi động. No-op DB fresh."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_record_deposit" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_record_deposit BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1679,6 +1763,10 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0062_quote_decision_seen_at", _migrate_quote_decision_seen_at),
     ("0063_quote_deposit_pct", _migrate_quote_deposit_pct),
     ("0063_ptg_kho_nguyen_override", _migrate_ptg_kho_nguyen_override),
+    ("0064_payroll_special_day_multipliers", _migrate_payroll_special_day_multipliers),
+    ("0065_attendance_line_special_day", _migrate_attendance_line_special_day),
+    ("0066_order_redesign_fields", _migrate_order_redesign_fields),
+    ("0067_role_permission_record_deposit", _migrate_role_permission_record_deposit),
 ]
 
 

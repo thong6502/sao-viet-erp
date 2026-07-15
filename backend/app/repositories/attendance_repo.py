@@ -233,6 +233,10 @@ class AttendanceRepository:
                 "cong": float(ln.total_cong),
                 "ot_minutes": int(ln.ot_minutes or 0),
                 "night_days": int(ln.night_days or 0),
+                "holiday_cong": float(getattr(ln, "holiday_cong", 0) or 0),
+                "restday_cong": float(getattr(ln, "restday_cong", 0) or 0),
+                "ot_holiday_minutes": int(getattr(ln, "ot_holiday_minutes", 0) or 0),
+                "ot_restday_minutes": int(getattr(ln, "ot_restday_minutes", 0) or 0),
             }
             for ln in self.list_period_lines(period_id)
         }

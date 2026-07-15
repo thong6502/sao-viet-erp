@@ -15,20 +15,7 @@ export const COVER: Lbls = { tu_bia: "Bìa tự thân (cùng ruột)", bia_roi: 
 export const BINDING: Lbls = { ghim: "Đóng ghim", keo: "Vào keo", khau: "Khâu chỉ" };
 
 const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in" };
-const PRICING_BASIS: Lbls = {
-  per_sheet: "Theo số tờ in",
-  per_finished_area: "Theo diện tích thành phẩm (cm²)",
-  per_finished_qty: "Theo số lượng thành phẩm",
-  per_book_page: "Theo số trang sách",
-  per_position: "Theo số vị trí",
-  per_bag: "Theo bao",
-  per_carton: "Theo thùng",
-  per_area_sides: "Theo diện tích (cm²) và số mặt",
-  per_sheet_area: "Theo diện tích tờ in (cm²)",
-  per_book_page_q4: "Theo số trang sách chia 4",
-  per_job: "Trọn gói một lần (cả đơn)",
-  per_other: "Khác",
-};
+
 // Cách công đoạn góp bù hao — trỏ 1 mã bù hao (tra bảng theo SL), hoặc cộng cố định.
 const KIEU_BU_HAO: Lbls = {
   khong: "Không bù hao",
@@ -133,7 +120,6 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
-    { key: "pricing_basis", label: "Đơn vị tính giá", render: (r) => lbl(PRICING_BASIS)(r.pricing_basis) },
     { key: "kieu_bu_hao", label: "Bù hao", render: (r) =>
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
   ],
@@ -224,10 +210,10 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
 
 export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
-  subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy. Đơn giá nhập ở “Lịch sử giá”.",
+  subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy. Đơn giá nhập thẳng; công thức mặc định tính theo cân.",
   prefix: "/api/vat-lieu-kho/giay",
   softDelete: true,
-  hasVersions: true,
+  hasVersions: false,
   facet: KHO_FACET,
   columns: [
     { key: "gsm", label: "Định lượng" },
@@ -242,8 +228,8 @@ export const CFG_GIAY: CatalogConfig = {
     { key: "don_vi_gia", label: "ĐVT", type: "select", group: "Thông số", options: mapOpt(DV_GIA_GIAY) },
     { key: "kho_rong", label: "Khổ rộng (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
     { key: "kho_dai", label: "Khổ dài (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
-    { key: "kho_tinh_gia", label: "Khổ dùng để tính giá?", type: "checkbox", group: "Giá" },
-    { key: "gia_thi_truong", label: "Giá thị trường (đ)", type: "number", group: "Giá", hint: "tham khảo; đơn giá bán quản ở Lịch sử giá" },
+    { key: "don_gia", label: "Đơn giá (đ)", type: "number", group: "Giá",
+      hint: "Theo ĐVT đã chọn (đ/kg, đ/tờ…) — công thức lấy qua biến đơn giá." },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],

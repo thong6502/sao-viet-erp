@@ -79,7 +79,7 @@ def update_output(output_id: int, body: OutputUpdateIn, svc: Svc, authz: Authz,
 
 @router.delete("/outputs/{output_id}", status_code=204)
 def delete_output(output_id: int, svc: Svc,
-                  user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+                  user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
     try:
         svc.delete(output_id)
     except OutputError as exc:

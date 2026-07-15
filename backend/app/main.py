@@ -41,6 +41,7 @@ from .routers import (
     purchases,
     profile,
     quotations,
+    orders,
     rbac,
     plate_die_rates,
     norms,
@@ -109,6 +110,7 @@ app.include_router(products.router)
 app.include_router(costings.router)
 app.include_router(estimates.router)
 app.include_router(quotations.router)
+app.include_router(orders.router)
 app.include_router(product_types_catalog.router)
 app.include_router(purchases.router)
 app.include_router(accounting.router)

@@ -143,6 +143,41 @@ def test_theo_nguoi_flows_to_payroll(client):
     assert next(l for l in gen["lines"] if l["employee_id"] == e)["khoan"] == 100000   # 500×200
 
 
+def _nvsx_token(client) -> str:
+    """Token NV sản xuất: role 'Nhân viên sản xuất' (san_luong = read/create/update, KHÔNG delete)."""
+    from app.repositories.user_repo import UserRepository
+    from app.repositories.rbac_repo import RoleRepository
+    from app.security import create_access_token, hash_password
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        ex = users.get_by_username("nvsx-test")
+        if ex is not None:
+            return create_access_token(str(ex.id))
+        dept = DepartmentRepository(db).get_by_name("Sản xuất")
+        role = RoleRepository(db).get_by_name_and_department("Nhân viên sản xuất", dept.id)
+        u = users.create(username="nvsx-test", name="SX", password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
+        return create_access_token(str(u.id))
+    finally:
+        db.close()
+
+
+def test_delete_output_requires_delete_permission(client):
+    """#9: xóa phiếu SL cần quyền `delete` — NV sản xuất (_rcu: update nhưng KHÔNG delete) bị chặn;
+    admin (full) xóa được. Trước fix: DELETE gác bằng `update` nên _rcu xóa lọt."""
+    token = _token(client)
+    _make_cd(client, token, "IN-DEL", "to")
+    lsx = _make_lsx(client, token)
+    oid = client.post("/api/san-luong/outputs", json={
+        "production_order_id": lsx, "cong_doan": "IN-DEL", "year": 2027, "month": 8,
+        "group_name": "to_boi", "unit": "m2", "unit_price": 100, "quantity": 10,
+    }, headers=_h(token)).json()["id"]
+    nvsx = _nvsx_token(client)
+    assert client.delete(f"/api/san-luong/outputs/{oid}", headers=_h(nvsx)).status_code == 403
+    assert client.delete(f"/api/san-luong/outputs/{oid}", headers=_h(token)).status_code == 204
+
+
 def test_defect_report(client):
     """Report tỉ lệ hỏng theo tổ."""
     token = _token(client)

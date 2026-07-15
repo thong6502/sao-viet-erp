@@ -80,8 +80,13 @@ class PayrollParams(Base):
     # --- Pha 4a: tăng ca (OT) + phụ cấp ca đêm ---
     # Giờ công chuẩn/ngày để quy đơn giá giờ khi tính OT.
     standard_hours_per_day: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=8, server_default="8")
-    # Hệ số OT phẳng (Đ98: ngày thường ≥1.5; phần CN/lễ nhập bù qua ô Thưởng).
+    # Hệ số OT theo LOẠI NGÀY (Đ98): ngày thường ≥1.5 · ngày nghỉ tuần ≥2.0 · ngày lễ ≥3.0.
     ot_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=1.5, server_default="1.5")
+    ot_multiplier_restday: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=2.0, server_default="2")
+    ot_multiplier_holiday: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=3.0, server_default="3")
+    # Làm NGUYÊN CÔNG ngày nghỉ tuần / ngày lễ (Đ98 kh.1): CN ≥200% · lễ ≥300% (gồm cả lương công).
+    restday_work_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=2.0, server_default="2")
+    holiday_work_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=3.0, server_default="3")
     # Phụ cấp ca đêm: % đơn giá 1 công cho mỗi ngày làm ca đêm (Đ98 kh.2: ≥30%).
     night_pct: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False, default=0.30, server_default="0.3")
     # --- Pha 4a: trần đóng BHXH (mức tham chiếu × 20; đổi hằng năm → sửa ở tham số) ---

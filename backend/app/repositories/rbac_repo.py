@@ -249,6 +249,7 @@ class RoleRepository:
         can_adjust: bool = False,
         can_approve_exception: bool = False,
         can_set_credit_terms: bool = False,
+        can_record_deposit: bool = False,
     ) -> RolePermission:
         """Upsert the (role, module) permission row."""
         perm = self.get_permission(role_id, module_key)
@@ -284,6 +285,7 @@ class RoleRepository:
         perm.can_adjust = can_adjust
         perm.can_approve_exception = can_approve_exception
         perm.can_set_credit_terms = can_set_credit_terms
+        perm.can_record_deposit = can_record_deposit
         self.db.commit()
         self.db.refresh(perm)
         return perm
