@@ -61,6 +61,8 @@ function initialForm(
       cash_recipient_address: voucher.cash_recipient_address,
       cash_recipient_identity: voucher.cash_recipient_identity,
       bank_fee_bearer: voucher.bank_fee_bearer ?? "payer",
+      debit_account: voucher.debit_account,
+      credit_account: voucher.credit_account,
       note: voucher.note,
     };
   }
@@ -84,6 +86,8 @@ function initialForm(
     cash_recipient_address: null,
     cash_recipient_identity: null,
     bank_fee_bearer: "payer",
+    debit_account: null,
+    credit_account: null,
     note: null,
   };
 }
@@ -318,6 +322,8 @@ export function PaymentVoucherDialog({
       cash_recipient_name: optional(form.cash_recipient_name),
       cash_recipient_address: optional(form.cash_recipient_address),
       cash_recipient_identity: optional(form.cash_recipient_identity),
+      debit_account: optional(form.debit_account),
+      credit_account: optional(form.credit_account),
       note: optional(form.note),
       company_bank_account_id:
         form.voucher_type === "bank_transfer"
@@ -717,6 +723,34 @@ export function PaymentVoucherDialog({
               )}
             </section>
           )}
+
+          <section className="acct-form-section">
+            <h3>Định khoản (in trên phiếu)</h3>
+            <div className="acct-form-grid acct-form-grid--3">
+              <label className="acct-field">
+                <span>Nợ</span>
+                <input
+                  className="input"
+                  maxLength={64}
+                  placeholder="VD: 242, 1331"
+                  value={form.debit_account ?? ""}
+                  onChange={(e) => set("debit_account", e.target.value)}
+                />
+              </label>
+              <label className="acct-field">
+                <span>Có</span>
+                <input
+                  className="input"
+                  maxLength={64}
+                  placeholder={
+                    form.voucher_type === "cash" ? "VD: 1111" : "VD: 1121"
+                  }
+                  value={form.credit_account ?? ""}
+                  onChange={(e) => set("credit_account", e.target.value)}
+                />
+              </label>
+            </div>
+          </section>
 
           <section className="acct-form-section">
             <h3>Chứng từ tham chiếu</h3>

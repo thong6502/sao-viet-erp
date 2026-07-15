@@ -31,6 +31,18 @@ export function fmtDateISO(value?: string | null): string {
   return d && m && y ? `${d}/${m}/${y}` : value;
 }
 
+/** Tách ngày/tháng/năm cho mẫu chứng từ "Ngày … tháng … năm …".
+ *  Đọc thẳng chuỗi ISO — KHÔNG qua `new Date()` vì "2026-07-13" bị hiểu là UTC
+ *  midnight, lệch 1 ngày ở múi giờ âm; trên chứng từ pháp lý là không chấp nhận được.
+ *  Rỗng/không parse được → dấu chấm để viết tay. */
+export function dmyParts(value?: string | null): { d: string; m: string; y: string } {
+  const blank = { d: "......", m: "......", y: "............" };
+  if (!value) return blank;
+  const [y, m, d] = value.slice(0, 10).split("-");
+  if (!y || !m || !d) return blank;
+  return { d: String(Number(d)), m: String(Number(m)), y };
+}
+
 /** Ngày + giờ (có giây) theo giờ VN; rỗng → "—"; không parse được → trả nguyên.
  *  Backend lưu UTC nhưng SQLite trả ISO KHÔNG có hậu tố Z — nếu để nguyên,
  *  new Date() hiểu là giờ địa phương và hiển thị lệch −7h, nên chuỗi naive

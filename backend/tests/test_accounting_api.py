@@ -307,6 +307,202 @@ def _accounting_user_token(*, approve: bool, manage_status: bool = False) -> str
         db.close()
 
 
+def test_doc_no_shared_counter_across_voucher_types(client):
+    """Số IN trên mẫu: PC00001, PC00002… — tiền mặt và UNC dùng CHUNG một bộ đếm
+    (cùng quyển phiếu chi), trong khi mã nội bộ vẫn PC-…/UNC-…"""
+    headers = _headers(client)
+    supplier = _supplier(client, headers)
+    purchase, _ = _purchase(client, headers, supplier["id"])
+    company, beneficiary = _bank_accounts(client, headers, supplier["id"])
+
+    cash = client.post(
+        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
+        json=_cash_payload(500_000),
+        headers=headers,
+    )
+    assert cash.status_code == 201, cash.text
+    assert cash.json()["doc_no"] == "PC00001"
+    assert cash.json()["code"].startswith("PC-")
+
+    bank = client.post(
+        "/api/accounting/payment-vouchers",
+        json={
+            "purchase_request_id": purchase["id"],
+            "voucher_type": "bank_transfer",
+            "payment_stage": "partial",
+            "voucher_date": "2026-07-10",
+            "amount": 400_000,
+            "currency": "VND",
+            "exchange_rate": 1,
+            "content": "Chuyển khoản đợt 2",
+            "company_bank_account_id": company["id"],
+            "supplier_bank_account_id": beneficiary["id"],
+            "bank_fee_bearer": "payer",
+        },
+        headers=headers,
+    )
+    assert bank.status_code == 201, bank.text
+    # Chung bộ đếm → PC00002 dù mã nội bộ là UNC-…
+    assert bank.json()["doc_no"] == "PC00002"
+    assert bank.json()["code"].startswith("UNC-")
+
+
+def test_receipt_doc_no_has_own_counter(client):
+    headers = _headers(client)
+    supplier = _supplier(client, headers)
+    purchase, _ = _purchase(client, headers, supplier["id"])
+    voucher = _paid_cash_voucher(client, headers, purchase["id"], 2_200_000)
+    assert voucher["doc_no"] == "PC00001"
+
+    receipt = client.post(
+        f"/api/accounting/payment-vouchers/{voucher['id']}/receipts",
+        json=_receipt_payload(300_000),
+        headers=headers,
+    )
+    assert receipt.status_code == 201, receipt.text
+    assert receipt.json()["doc_no"] == "PT00001"  # bộ đếm riêng, không nối tiếp PC
+
+
+def test_approve_and_create_voucher_failure_leaves_purchase_pending(client, monkeypatch):
+    """Khóa hazard: cấp số (tự commit) phải xảy ra TRƯỚC khi đổi trạng thái PMH —
+    nếu lưu phiếu lỗi thì PMH không được kẹt ở 'đã duyệt' mà không có phiếu chi."""
+    from app.repositories.accounting_repo import AccountingRepository
+
+    headers = _headers(client)
+    supplier = _supplier(client, headers)
+    purchase, _ = _purchase(client, headers, supplier["id"])
+
+    def boom(self, voucher):
+        raise RuntimeError("DB nổ giữa chừng")
+
+    monkeypatch.setattr(AccountingRepository, "save_voucher", boom)
+    try:
+        client.post(
+            f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
+            json=_cash_payload(500_000),
+            headers=headers,
+        )
+    except RuntimeError:
+        pass  # TestClient dội lỗi ra — đúng kỳ vọng
+    monkeypatch.undo()
+
+    refreshed = client.get(f"/api/purchase-requests/{purchase['id']}", headers=headers)
+    assert refreshed.json()["status"] == "pending_approval"  # KHÔNG bị duyệt oan
+
+
+def test_search_by_doc_no_and_debit_credit_roundtrip(client):
+    headers = _headers(client)
+    supplier = _supplier(client, headers)
+    purchase, _ = _purchase(client, headers, supplier["id"])
+    created = client.post(
+        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
+        json={**_cash_payload(500_000), "debit_account": "242, 1331", "credit_account": "1111"},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    voucher = created.json()
+    assert voucher["debit_account"] == "242, 1331"
+    assert voucher["credit_account"] == "1111"
+
+    # Tra cứu theo số in trên phiếu (kể cả gõ chữ thường).
+    for term in (voucher["doc_no"], voucher["doc_no"].lower()):
+        found = client.get(f"/api/accounting/payment-vouchers?q={term}", headers=headers)
+        assert found.status_code == 200
+        assert [row["id"] for row in found.json()["items"]] == [voucher["id"]]
+
+    # Sửa phiếu: đổi được định khoản, GIỮ NGUYÊN số phiếu.
+    updated = client.put(
+        f"/api/accounting/payment-vouchers/{voucher['id']}",
+        json={
+            "purchase_request_id": purchase["id"],
+            **_cash_payload(500_000),
+            "debit_account": "156",
+            "credit_account": "1111",
+        },
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["doc_no"] == voucher["doc_no"]
+    assert updated.json()["debit_account"] == "156"
+
+
+def test_voucher_accepts_payload_without_accounts_and_rejects_too_long(client):
+    headers = _headers(client)
+    supplier = _supplier(client, headers)
+    purchase, _ = _purchase(client, headers, supplier["id"])
+
+    # Payload cũ (không có debit/credit) vẫn phải chạy.
+    ok = client.post(
+        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
+        json=_cash_payload(500_000),
+        headers=headers,
+    )
+    assert ok.status_code == 201, ok.text
+    assert ok.json()["debit_account"] is None
+
+    too_long = client.post(
+        "/api/accounting/payment-vouchers",
+        json={
+            "purchase_request_id": purchase["id"],
+            **_cash_payload(100_000),
+            "debit_account": "x" * 65,
+        },
+        headers=headers,
+    )
+    assert too_long.status_code == 422
+
+
+def test_receipt_payer_address_and_accounts_roundtrip(client):
+    headers = _headers(client)
+    supplier = _supplier(client, headers)
+    purchase, _ = _purchase(client, headers, supplier["id"])
+    voucher = _paid_cash_voucher(client, headers, purchase["id"], 2_200_000)
+
+    created = client.post(
+        f"/api/accounting/payment-vouchers/{voucher['id']}/receipts",
+        json={
+            **_receipt_payload(300_000),
+            "payer_address": "36/30/27 Bùi Tư Toàn, Phường An Lạc, TP Hồ Chí Minh",
+            "debit_account": "1111",
+            "credit_account": "141",
+        },
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["payer_address"].startswith("36/30/27 Bùi Tư Toàn")
+    assert body["debit_account"] == "1111"
+    assert body["credit_account"] == "141"
+
+    # Payload không có 3 trường mới vẫn hợp lệ.
+    plain = client.post(
+        f"/api/accounting/payment-vouchers/{voucher['id']}/receipts",
+        json=_receipt_payload(100_000),
+        headers=headers,
+    )
+    assert plain.status_code == 201, plain.text
+    assert plain.json()["payer_address"] is None
+
+
+def test_cancelled_voucher_keeps_doc_no(client):
+    headers = _headers(client)
+    supplier = _supplier(client, headers)
+    purchase, _ = _purchase(client, headers, supplier["id"])
+    created = client.post(
+        f"/api/accounting/purchase-requests/{purchase['id']}/approve-and-create-voucher",
+        json=_cash_payload(500_000),
+        headers=headers,
+    ).json()
+    cancelled = client.post(
+        f"/api/accounting/payment-vouchers/{created['id']}/cancel",
+        json={"reason": "Lập nhầm"},
+        headers=headers,
+    )
+    assert cancelled.status_code == 200
+    # Phiếu hủy vẫn giữ số trong quyển (chuẩn kế toán VN).
+    assert cancelled.json()["doc_no"] == created["doc_no"]
+
+
 def _receipt_payload(amount: int, **overrides) -> dict:
     payload = {
         "payer_name": "Nguyễn Văn Mua",

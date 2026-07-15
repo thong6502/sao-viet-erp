@@ -3439,7 +3439,13 @@ export interface SupplierBankAccountRow extends SupplierBankAccountInput {
   updated_at: string;
 }
 
-export interface PaymentVoucherBaseInput {
+export interface PaymentVoucherAccountsInput {
+  /** Định khoản in trên mẫu ("242, 1331" / "1111") — nhập tay, không bắt buộc. */
+  debit_account?: string | null;
+  credit_account?: string | null;
+}
+
+export interface PaymentVoucherBaseInput extends PaymentVoucherAccountsInput {
   voucher_type: PaymentVoucherType;
   payment_stage: PaymentStage;
   voucher_date: string;
@@ -3467,6 +3473,10 @@ export interface PaymentVoucherInput extends PaymentVoucherBaseInput {
 export interface PaymentVoucherRow {
   id: number;
   code: string;
+  /** Số IN trên mẫu 02-TT (PC00445) — khác `code` (mã tra cứu nội bộ). */
+  doc_no: string | null;
+  debit_account: string | null;
+  credit_account: string | null;
   purchase_request_id: number;
   purchase_request_code: string;
   purchase_request_total: number | null;
@@ -3545,8 +3555,10 @@ export interface PaymentVoucherAttachment {
 
 export type PaymentReceiptStatus = "waiting_receipt" | "received" | "cancelled";
 
-export interface PaymentReceiptInput {
+export interface PaymentReceiptInput extends PaymentVoucherAccountsInput {
   payer_name: string;
+  /** Ô "Địa chỉ" của mẫu 01-TT — không bắt buộc. */
+  payer_address?: string | null;
   receipt_method: PaymentVoucherType;
   receipt_date: string;
   amount: number;
@@ -3559,12 +3571,17 @@ export interface PaymentReceiptInput {
 export interface PaymentReceiptRow {
   id: number;
   code: string;
+  /** Số IN trên mẫu 01-TT (PT00027). */
+  doc_no: string | null;
   payment_voucher_id: number;
   payment_voucher_code: string;
   purchase_request_id: number;
   purchase_request_code: string;
   supplier_name: string;
   payer_name: string;
+  payer_address: string | null;
+  debit_account: string | null;
+  credit_account: string | null;
   receipt_method: PaymentVoucherType;
   status: PaymentReceiptStatus;
   receipt_date: string;

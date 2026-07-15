@@ -36,12 +36,15 @@ function initialForm(
   if (receipt) {
     return {
       payer_name: receipt.payer_name,
+      payer_address: receipt.payer_address,
       receipt_method: receipt.receipt_method,
       receipt_date: receipt.receipt_date,
       amount: receipt.amount,
       exchange_rate: receipt.exchange_rate,
       content: receipt.content,
       company_bank_account_id: receipt.company_bank_account_id,
+      debit_account: receipt.debit_account,
+      credit_account: receipt.credit_account,
       note: receipt.note,
     };
   }
@@ -50,8 +53,12 @@ function initialForm(
     // người nhận tiền mặt trên phiếu chi. KHÔNG dùng tên công ty NCC.
     payer_name:
       voucher.purchase_created_by_name || voucher.cash_recipient_name || "",
+    // Mẫu 01-TT có ô Địa chỉ — suy sẵn từ phiếu chi, sửa được.
+    payer_address: voucher.cash_recipient_address ?? voucher.supplier_address,
     receipt_method: "cash",
     receipt_date: isoToday(),
+    debit_account: null,
+    credit_account: null,
     // Để trống bắt kế toán tự gõ số thực nộp (ca phổ biến là thu tiền thừa,
     // không phải thu trọn) — "Còn được thu" hiện ở dải tổng quan để đối chiếu.
     amount: 0,
@@ -157,6 +164,9 @@ export function PaymentReceiptDialog({
     const payload: PaymentReceiptInput = {
       ...form,
       payer_name: form.payer_name.trim(),
+      payer_address: optional(form.payer_address),
+      debit_account: optional(form.debit_account),
+      credit_account: optional(form.credit_account),
       amount: Math.round(Number(form.amount)),
       exchange_rate: Number(form.exchange_rate || voucher.exchange_rate || 1),
       content: form.content.trim(),
@@ -234,17 +244,51 @@ export function PaymentReceiptDialog({
             </div>
           </div>
 
-          <label className="acct-field">
-            <span>
-              Người nộp tiền <b>*</b>
-            </span>
-            <input
-              className="input"
-              value={form.payer_name}
-              onChange={(e) => set("payer_name", e.target.value)}
-              placeholder="NCC hoặc nhân viên phụ trách mua"
-            />
-          </label>
+          <div className="acct-form-grid acct-form-grid--2">
+            <label className="acct-field">
+              <span>
+                Người nộp tiền <b>*</b>
+              </span>
+              <input
+                className="input"
+                value={form.payer_name}
+                onChange={(e) => set("payer_name", e.target.value)}
+                placeholder="NCC hoặc nhân viên phụ trách mua"
+              />
+            </label>
+            <label className="acct-field">
+              <span>Địa chỉ người nộp</span>
+              <input
+                className="input"
+                maxLength={500}
+                value={form.payer_address ?? ""}
+                onChange={(e) => set("payer_address", e.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="acct-form-grid acct-form-grid--2">
+            <label className="acct-field">
+              <span>Định khoản — Nợ</span>
+              <input
+                className="input"
+                maxLength={64}
+                placeholder="VD: 1111"
+                value={form.debit_account ?? ""}
+                onChange={(e) => set("debit_account", e.target.value)}
+              />
+            </label>
+            <label className="acct-field">
+              <span>Định khoản — Có</span>
+              <input
+                className="input"
+                maxLength={64}
+                placeholder="VD: 141"
+                value={form.credit_account ?? ""}
+                onChange={(e) => set("credit_account", e.target.value)}
+              />
+            </label>
+          </div>
 
           <div className="acct-segment" aria-label="Hình thức thu">
             <button
