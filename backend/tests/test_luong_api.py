@@ -527,17 +527,19 @@ def test_standard_cong_dynamic_from_calendar(client):
 
 
 def test_resigned_with_khoan_still_paid(client):
-    """#4: NV nghỉ việc nhưng có tiền khoán đã chốt trong kỳ → VẪN có dòng lương (không quỵt)."""
+    """#4: NV nghỉ việc nhưng có tiền khoán (Phiếu sản lượng) trong kỳ → VẪN có dòng lương (không quỵt)."""
     from app.models.employee import STATUS_RESIGNED
     token = _admin_token(client)
     eid = _make_emp(client, token, name="NV Nghỉ", status="active")
-    bid = client.post("/api/luong/khoan/sheet?year=2027&month=7&group_name=to_x",
-                      headers=_h(token)).json()["batch"]["id"]
-    client.post(f"/api/luong/khoan/batches/{bid}/entries", json={"work_name": "In", "unit": "m2",
-                "unit_price": 1000, "quantity": 100}, headers=_h(token))
-    client.post(f"/api/luong/khoan/batches/{bid}/shares", json={"employee_id": eid, "weight": 1},
-                headers=_h(token))
-    client.post(f"/api/luong/khoan/batches/{bid}/lock", headers=_h(token))
+    client.post("/api/cong-doan", json={"ma": "KH-NGHI", "ten": "In", "nhom": "print",
+                "khoan_ghi_theo": "nguoi", "allowed_defect_pct": 0, "allowed_defect_abs": 0,
+                "che_do_tinh": "theo_san_luong", "pricing_basis": "per_other"}, headers=_h(token))
+    lsx = client.post("/api/san-xuat/orders", json={"product_name": "SP", "quantity": 100},
+                      headers=_h(token)).json()["id"]
+    client.post("/api/san-luong/outputs", json={
+        "production_order_id": lsx, "cong_doan": "KH-NGHI", "year": 2027, "month": 7,
+        "group_name": "to_x", "employee_id": eid, "unit": "m2", "unit_price": 1000, "quantity": 100,
+    }, headers=_h(token))
     # Cho nghỉ việc TRƯỚC khi tính lương tháng đó.
     with SessionLocal() as db:
         repo = EmployeeRepository(db)

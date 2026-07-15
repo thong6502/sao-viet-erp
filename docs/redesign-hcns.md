@@ -119,3 +119,60 @@
 
 ---
 *Khảo sát nguồn: `models/{employee,department,profile_request,attendance,leave,payroll,piece_work}.py` · `services/{employee,department,attendance,leave,payroll,piece_work}_service.py` · routers tương ứng · FE `NhanSuPage/ChamCongPage/NghiPhepPage/LuongPage/HoSoCuaToiPage/DepartmentsPage.tsx` · `docs/spec-luong.md` · `docs/spec-nhan-su-ho-so.md`.*
+
+---
+
+## 7. CHỐT phân quyền HCNS + Kế toán lương (2026-07-15)
+
+> **Trạng thái:** đã chốt thiết kế · **chưa build.**
+> **Phạm vi lần này:** CHỈ mảng **HCNS** và **Kế toán liên quan tới lương**. Phía sản xuất (Quản đốc/Kỹ thuật/KCS/Tổ trưởng · đơn giá khoán · sản lượng · phân loại lỗi) **gác lại**, bàn đợt sau.
+
+### 7.1 Nguyên tắc nền
+Tách vai **đề xuất ≠ duyệt ≠ nhập ≠ chi**. **HCNS giữ *luật chơi + dấu vết*; Sản xuất giữ *định mức + hiện trường*; Kế toán giữ *khâu chi tiền*.** Không vai nào chạm cả hai đầu.
+
+### 7.2 Vai
+| Vai | Xử lý |
+|---|---|
+| **HCNS** (Trưởng phòng HCNS) | Giữ; **gỡ chi trả + gỡ nhập sản lượng** |
+| **Kế toán lương** | **Role MỚI** (phòng Kế toán) — chỉ chi trả lương |
+| **GĐ** (Giám đốc) | Thêm quyền **Duyệt chi** (duyệt quỹ = tổng tiền lương cả kỳ) |
+| Kỹ thuật, KCS | **Gộp vào Quản đốc** — *deferred (phía sản xuất)* |
+| Tổ trưởng | **Gộp vào Sản xuất** — *deferred (phía sản xuất)* |
+
+### 7.3 Vòng đời bảng lương (thêm chặng "Đã duyệt")
+```
+Draft ─(HCNS: tính + Chốt số)─▶ Locked ─(GĐ: Duyệt chi)─▶ Approved ─(Kế toán: Chi)─▶ Paid
+        ◀── Mở lại (HCNS) ──         ◀── Bỏ duyệt (GĐ) ──       ◀── Hủy chi (Kế toán) ──
+```
+- **GĐ duyệt quỹ = TRONG HỆ** (đã chốt): chưa duyệt thì nút "Chi" của Kế toán **bị khóa**; có dấu vết ai duyệt lúc nào.
+- Hiện code chỉ có `draft → locked → paid`; **thêm trạng thái `approved`** vào giữa.
+
+### 7.4 Ma trận quyền (3 vai liên quan)
+| Module | **HCNS** | **Kế toán lương** | **GĐ** |
+|---|---|---|---|
+| `nhan_su` | full + view/edit_salary + adjust *(giữ)* | — | full |
+| `nghi_phep` | duyệt tập trung *(giữ)* | self-service | full |
+| `luong` | read·create·update·delete·export·manage_price — **KHÔNG approve, KHÔNG pay** | **read + `pay`(mới) + export** | full + **`approve` = Duyệt chi** |
+| `san_luong` | **read** *(bỏ create/update)* | — | full |
+| `nguoi_dung`/`phong_ban`/`vai_tro` | quản trị / read *(giữ)* | — | full |
+
+→ HCNS mất đúng **2 thứ**: *chi trả* (→ Kế toán) và *nhập sản lượng* (→ read). Kế toán chỉ có **1 quyền mới**: bấm Chi + kéo file chuyển khoản (không sửa được số nào).
+
+### 7.5 Việc kỹ thuật khi build (theo thứ tự)
+1. 🔴 **Vá bug `get_matrix`/`save_matrix`** (`role_service.py`): `get_matrix` bỏ sót 3 cờ `can_view_salary`/`can_edit_salary`/`can_adjust` → mỗi lần Lưu ma trận qua UI, 3 cờ này **reset về False**. *Tiên quyết* (không vá thì cột `can_pay` mới cũng dễ dính lỗi y hệt).
+2. **Thêm 1 cột `can_pay`** trên `role_permissions` (migration `db_migrations.py` + `DB_SCHEMA.md` + từ-vựng RBAC `rbac_service.py` + toggle FE). *"Duyệt chi" tái dùng `can_approve` đã có sẵn — không cần cột mới.*
+3. **Trạng thái `approved`** cho `payroll_periods` + endpoint `POST /api/luong/approve` (GĐ) + re-gate `/pay`,`/unpay` từ `update` → `pay` (Kế toán); `pay` chỉ cho kỳ `approved`.
+4. **Bổ sung audit** cho các thao tác HCNS đang KHÔNG ghi nhật ký: `params`, `rules`, `pit-brackets`, `set_salary/delete_salary`, duyệt/từ chối/hủy tạm ứng.
+5. **Seed** (`seed.py`): thêm role *"Kế toán lương"* (phòng Kế toán, `luong` read+pay+export); sửa role HCNS (`luong` từ `_full` → bỏ `approve`+`pay`; `san_luong` từ `_full` → `read`).
+6. **FE**: thêm toggle `can_pay` (+ vá luôn toggle `can_edit_salary` đang thiếu ở `PermissionMatrix`); nút "Duyệt chi" (GĐ) + khóa nút "Chi" theo trạng thái kỳ/vai.
+
+### 7.6 Đơn giá khoán — hiểu chung (chưa build)
+- Chỉ là **bảng giá công việc**: mỗi bộ phận (Dán/In/Bồi/Cắt…) một bảng; **mỗi việc một dòng, một giá** theo đơn vị (đ/hộp, đ/dây…). Biến thể "2 người / 3 người / móc đáy" = **các dòng việc khác nhau, mỗi dòng một giá** — không phải cấu trúc phức tạp.
+- Hệ **đã có `piece_rates`** lưu đúng kiểu (1 dòng = 1 việc + 1 giá) — không phải dựng mới cấu trúc.
+- Quyền: **Quản đốc đề xuất → GĐ duyệt → HCNS quản bản + lịch sử**. Nên tách thành **module "Đơn giá khoán" riêng** — thuộc **đợt bàn phía sản xuất**.
+
+### 7.7 Còn treo (đã thống nhất gác)
+- **Chia lương nội bộ tổ** (`piece_batch_shares`): ai gõ hệ số chia — để **"chưa bàn"**. Tạm thời quyền `luong` vẫn xử được.
+- **Module đơn giá khoán + workflow đề xuất/duyệt** và các vai **Quản đốc/Kỹ thuật/KCS/Tổ trưởng** — bàn đợt phía sản xuất.
+- **Độ sâu SoD** cho *sản lượng* (bước "Quản đốc xác nhận" + đối chiếu SL↔lệnh SX↔nhập kho) và *phân loại lỗi* (KCS + biên bản ký) — mới ở mức đề xuất, **chưa chốt**.
+- **Lỗ hổng Tầng 3** (ghi nhận từ context, chưa quyết): thêm ô *"lao động nặng nhọc–độc hại"* trên hồ sơ; chỗ ghi nhận *tai nạn lao động (TNLĐ)*.

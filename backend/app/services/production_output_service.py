@@ -1,8 +1,8 @@
-"""Phiếu sản lượng công đoạn (Pha 5b-1) — nghiệp vụ.
+"""Phiếu sản lượng công đoạn — nghiệp vụ.
 
-Ghi sản lượng thực mỗi công đoạn của một LSX. 5b-1 CHỈ hỗ trợ ghi theo TỔ (chia hệ số ở sổ khoán).
-Phiếu vào `production_outputs` (luôn cho ghi nếu có quyền `san_luong`); tiền chỉ chảy vào lương khi
-HCNS Chốt sổ khoán tổ (materialize — xem PieceWorkService.sync_outputs). Trừ lỗi + ghi theo NGƯỜI = 5b-2.
+Ghi sản lượng thực mỗi công đoạn của một LSX (quyền `san_luong`). Khoán ghi theo NGƯỜI: mỗi phiếu
+= 1 người · SL × đơn giá − trừ lỗi = tiền khoán, cộng thẳng vào cột `khoan` bảng lương khi tính lương
+(xem PieceWorkService.khoan_map). Không còn tầng "sổ khoán" ở giữa.
 """
 from __future__ import annotations
 
@@ -57,17 +57,12 @@ class ProductionOutputService:
         cd = self.cong_doan.find_by_ma(f.get("cong_doan"))
         if cd is None:
             raise OutputNotFound("Không tìm thấy công đoạn.")
-        mode = cd.khoan_ghi_theo
-        if mode == "khong":
-            raise OutputValidationError(f"Công đoạn '{cd.ten}' không tính khoán (khai 'theo tổ/người' ở danh mục Công đoạn).")
-        group = f.get("group_name")
+        if cd.khoan_ghi_theo == "khong":
+            raise OutputValidationError(f"Công đoạn '{cd.ten}' không tính khoán (khai 'theo người' ở danh mục Công đoạn).")
         emp = f.get("employee_id")
-        if mode == "to" and not group:
-            raise OutputValidationError("Thiếu tổ khoán.")
-        if mode == "nguoi" and not emp:
-            raise OutputValidationError("Công đoạn ghi theo NGƯỜI — thiếu nhân viên.")
-        if mode == "nguoi" and not group:
-            raise OutputValidationError("Thiếu tổ (để chốt sổ khoán tổ tương ứng).")
+        if not emp:
+            raise OutputValidationError("Thiếu nhân viên — Phiếu sản lượng khoán ghi theo người.")
+        group = f.get("group_name")   # tùy chọn — chỉ để tra đơn giá theo tổ
         cause = f.get("defect_cause")
         if float(f.get("defect_qty") or 0) > 0 and cause and cause not in DEFECT_CAUSES:
             raise OutputValidationError("Nguyên nhân hỏng không hợp lệ.")
@@ -95,9 +90,8 @@ class ProductionOutputService:
 
         ded = self._deduction(cd, f.get("quantity") or 0, f.get("defect_qty") or 0, cause, unit_price)
         return self.outputs.create(
-            production_order_id=f["production_order_id"], cong_doan=f["cong_doan"], ghi_theo=mode,
-            year=f["year"], month=f["month"], group_name=group,
-            employee_id=(emp if mode == "nguoi" else None),
+            production_order_id=f["production_order_id"], cong_doan=f["cong_doan"], ghi_theo="nguoi",
+            year=f["year"], month=f["month"], group_name=group, employee_id=emp,
             may_id=f.get("may_id"), piece_rate_id=(rate.id if rate else None),
             work_name=work_name, unit=unit, unit_price=unit_price, quantity=f.get("quantity") or 0,
             defect_qty=f.get("defect_qty") or 0, defect_cause=cause, defect_deduction=ded,

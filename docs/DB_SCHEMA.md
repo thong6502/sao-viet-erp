@@ -666,8 +666,8 @@ nhận ≥ `deposit_pct`×tổng (deposit_pct **ghim từ báo giá**) AND đủ
 (nhập tay: đã duyệt) AND không đặc thù treo — cọc ghi ở `order_deposits`. `parent_order_id` (self-FK) CHỈ cho
 **đơn bổ sung** (`order_kind=bo_sung`, giữ kẽm → giá riêng). `order_nature` {hang_hoa, gia_cong} thay
 `has_customer_paper` (2 gốc thuế). Layer vật lý (khổ/màu/kẽm/imposition) NEVER lưu ở đây — ẩn khỏi Sale. VAT chân
-lý ở `InvoiceLine` (⑬). Seam: duyệt bản in (`proof_*`, Sản xuất) · `production_stage` (read-only SX) · hủy
-(`cancel_*`+`deposit_disposition`). Portable across SQLite and Postgres.
+lý ở `InvoiceLine` (⑬). Hủy: `cancel_*` (lý do + lỗi tại ai) — cọc KHÔNG xóa, "còn cọc chưa quyết toán" suy từ
+data. Duyệt bản in + tiến độ SX = luồng NGOÀI hệ thống (không lưu field). Portable across SQLite and Postgres.
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
@@ -685,7 +685,7 @@ lý ở `InvoiceLine` (⑬). Seam: duyệt bản in (`proof_*`, Sản xuất) ·
 | `has_customer_paper` | `Boolean` → `BOOLEAN` | — | no | `false` | **DORMANT** (P1 thay bằng `order_nature` {hang_hoa, gia_cong}). |
 | `vat_pct_estimate` | `Integer` → `INTEGER` | — | no | `0` | VAT DỰ KIẾN (%) để ước tổng — chân lý ở InvoiceLine (⑬). |
 | `cancel_reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Set only when status=cancelled (F8). |
-| `cancelled_at_state` | `String(16)` → `VARCHAR(16)` | — | yes | — | **DORMANT** (P1 dùng `cancel_stage_snapshot` + `cancel_fault`). |
+| `cancelled_at_state` | `String(16)` → `VARCHAR(16)` | — | yes | — | **DORMANT** (P1 dùng `cancel_fault` + lý do hủy). |
 | `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the order row was created. |
 | `source_type` | `String(16)` → `VARCHAR(16)` | — | no | `bao_gia` | Nguồn tạo đơn ∈ {bao_gia, nhap_tay} (P1 redesign). Migration 0066. |
 | `order_nature` | `String(16)` → `VARCHAR(16)` | — | no | `hang_hoa` | Bản chất ∈ {hang_hoa, gia_cong} (2 gốc thuế) — thay has_customer_paper. Migration 0066. |
@@ -700,16 +700,9 @@ lý ở `InvoiceLine` (⑬). Seam: duyệt bản in (`proof_*`, Sản xuất) ·
 | `approval_state` | `String(16)` → `VARCHAR(16)` | — | no | `none` | Trình-duyệt ∈ {none, pending, approved, rejected}. |
 | `ordered_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Đóng dấu lúc chốt đơn (P4). |
 | `ordered_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người chốt đơn. |
-| `proof_required` | `Boolean` → `BOOLEAN` | — | no | `false` | SEAM duyệt bản in: cần khách ký bản in trước chạy máy (thao tác ở Sản xuất). |
-| `proof_approved_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm khách duyệt bản in (SEAM). |
-| `proof_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người xác nhận duyệt bản in (SEAM). |
-| `proof_attachment_id` | `Integer` → `INTEGER` | — | yes | — | Đính kèm bản in đã duyệt (SEAM). |
-| `production_stage` | `String(20)` → `VARCHAR(20)` | — | no | `none` | Giai đoạn SX (read-only từ Sản xuất) ∈ {none, plate_made, material_bought, printing, printed}. |
 | `cancel_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người hủy đơn. |
 | `cancel_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm hủy. |
 | `cancel_fault` | `String(16)` → `VARCHAR(16)` | — | yes | — | Lỗi tại ai khi hủy ∈ {khach, xuong}. |
-| `cancel_stage_snapshot` | `String(20)` → `VARCHAR(20)` | — | yes | — | Giai đoạn SX chụp lúc hủy (base xử cọc ở phân hệ hoàn). |
-| `deposit_disposition` | `String(24)` → `VARCHAR(24)` | — | no | `none` | Cờ chờ hoàn cọc ∈ {none, pending_settlement, settled} — cọc không xóa khi hủy. |
 
 **Keys & indexes**
 
@@ -2451,78 +2444,20 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 
 ---
 
-### `piece_batches`
-
-**Purpose:** sổ khoán 1 tổ / 1 kỳ. UNIQUE(`year`,`month`,`group_name`). Cấu hình %tổ trưởng/bù lỗ/thưởng vượt.
-
-| Column | Type | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` | **PK** | no | auto | PK. |
-| `year` | `Integer` | **IX, UQ** | no | — | Năm. |
-| `month` | `Integer` | **IX, UQ** | no | — | Tháng. |
-| `group_name` | `String(40)` | **UQ** | no | — | Tổ khoán. |
-| `leader_employee_id` | `Integer` | — | yes | — | Tổ trưởng (logical link, nhận % trước). |
-| `leader_pct` | `Numeric(5,4)` | — | no | `0.05` | % tổ trưởng lấy trước. |
-| `min_guarantee` | `Numeric(14,2)` | — | no | `0` | Bù lỗ (mức tối thiểu đảm bảo). |
-| `over_target` | `Numeric(14,2)` | — | no | `0` | Mốc vượt năng suất. |
-| `over_bonus_pct` | `Numeric(5,4)` | — | no | `0` | % thưởng phần vượt mốc. |
-| `note` | `String(255)` | — | yes | — | Ghi chú. |
-| `status` | `String(8)` | — | no | `draft` | Chốt sổ: draft/locked. Chỉ locked mới vào bảng lương + cấm sửa (Pha 5). |
-| `locked_at` | `DateTime(tz)` | — | yes | — | Khi chốt sổ. |
-| `locked_by` | `Integer` | — | yes | — | User chốt sổ (logical link). |
-| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
-
----
-
-### `piece_batch_entries`
-
-**Purpose:** dòng sản lượng trong sổ khoán (khối lượng × đơn giá = tiền).
-
-| Column | Type | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` | **PK** | no | auto | PK. |
-| `batch_id` | `Integer` | **FK→piece_batches.id**, **IX** | no | — | Sổ khoán; `ON DELETE CASCADE`. |
-| `piece_rate_id` | `Integer` | **FK→piece_rates.id** | yes | — | Đơn giá nguồn; `ON DELETE SET NULL`. |
-| `work_name` | `String(255)` | — | no | — | Tên công việc (snapshot). |
-| `unit` | `String(12)` | — | no | `khac` | Đơn vị (snapshot). |
-| `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá (snapshot). |
-| `quantity` | `Numeric(14,2)` | — | no | `0` | Khối lượng làm được. |
-| `amount` | `Numeric(14,2)` | — | no | `0` | Thành tiền = qty × price. |
-| `note` | `String(255)` | — | yes | — | Ghi chú. |
-| `source` | `String(8)` | — | no | `manual` | Nguồn dòng (Pha 5b): manual (gõ tay) / phieu (materialize từ Phiếu sản lượng lúc chốt sổ). |
-| `production_output_id` | `Integer` | **IX** | yes | — | Soft link → `production_outputs.id` (dòng sinh từ phiếu). |
-
----
-
-### `piece_batch_shares`
-
-**Purpose:** chia quỹ khoán về 1 thành viên theo hệ số. UNIQUE(`batch_id`,`employee_id`).
-
-| Column | Type | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` | **PK** | no | auto | PK. |
-| `batch_id` | `Integer` | **FK→piece_batches.id**, **IX** | no | — | Sổ khoán; `ON DELETE CASCADE`. |
-| `employee_id` | `Integer` | **FK→employees.id**, **IX** | no | — | Thành viên; `ON DELETE CASCADE`. |
-| `weight` | `Numeric(10,2)` | — | no | `1` | Hệ số chia (tỷ lệ nhóm thỏa thuận). |
-| `amount` | `Numeric(14,2)` | — | no | `0` | Tiền khoán tính được. |
-| `note` | `String(255)` | — | yes | — | Ghi chú. |
-
----
-
 ### `production_outputs`
 
-**Purpose:** Phiếu sản lượng công đoạn (Pha 5b) — ghi sản lượng thực mỗi công đoạn của một LSX; phiếu theo TỔ → materialize thành dòng sổ khoán lúc Chốt sổ. Ghi theo NGƯỜI + trừ lỗi = 5b-2.
+**Purpose:** Phiếu sản lượng công đoạn — ghi sản lượng thực mỗi công đoạn của một LSX theo NGƯỜI; mỗi phiếu (SL × đơn giá − trừ lỗi) cộng thẳng vào cột `khoan` của bảng lương khi tính lương (nguồn khoán duy nhất — không còn sổ khoán).
 
 | Column | Type | Key | Null | Default | Meaning |
 |---|---|---|---|---|---|
 | `id` | `Integer` | **PK** | no | auto | PK. |
 | `production_order_id` | `Integer` | **IX** | no | — | LSX (soft-ref `production_orders.id`). |
 | `cong_doan` | `String(30)` | **IX** | no | — | Mã công đoạn (`cong_doan.ma`). |
-| `ghi_theo` | `String(8)` | — | no | `to` | to (theo tổ) / nguoi (5b-2). |
+| `ghi_theo` | `String(8)` | — | no | `nguoi` | Khoán ghi theo người (`nguoi`). |
 | `year` | `Integer` | **IX** | no | — | Năm kỳ khoán. |
 | `month` | `Integer` | **IX** | no | — | Tháng kỳ khoán. |
-| `group_name` | `String(40)` | **IX** | yes | — | Tổ (khi ghi_theo=to) — khớp `piece_batches.group_name`. |
-| `employee_id` | `Integer` | **IX** | yes | — | NV (khi ghi_theo=nguoi, 5b-2). |
+| `group_name` | `String(40)` | **IX** | yes | — | Tổ / bộ phận — để tra đơn giá theo tổ. |
+| `employee_id` | `Integer` | **IX** | yes | — | NV nhận tiền khoán. |
 | `may_id` | `Integer` | — | yes | — | Máy (soft-ref, thống kê). |
 | `piece_rate_id` | `Integer` | — | yes | — | Đơn giá nguồn. |
 | `work_name` | `String(255)` | — | no | — | Tên công việc (snapshot). |
@@ -2623,7 +2558,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 `size_tiers` (JSON): bậc đơn giá theo KÍCH THƯỚC thành phẩm (cạnh dài, cm) — `[{den_cm, don_gia}]`, "≤ den_cm → đơn giá"; engine chọn giá theo cỡ thay `run_rate` (vd công dán ≤20cm=100 · 40cm=200 · 100cm=800). `pricing_basis="per_job"` = trọn gói một lần (khuôn bế) — engine ÷ SL.
 
-`khoan_ghi_theo` (Pha 5b): cách ghi sản lượng khoán — `to` (theo tổ, chia hệ số) / `nguoi` (từng người, 5b-2) / `khong`. `allowed_defect_pct`/`allowed_defect_abs` (5b-2): ngưỡng hao cho phép (max của 2), phần vượt mới trừ lỗi.
+`khoan_ghi_theo`: công đoạn có tính khoán không — `nguoi` (ghi Phiếu sản lượng theo từng người → cột Khoán bảng lương) / `khong`. `allowed_defect_pct`/`allowed_defect_abs`: ngưỡng hao cho phép (max của 2), phần vượt mới trừ lỗi.
 
 `kieu_bu_hao`: nối bù hao — `khong` / `tra_bang` (trỏ 1 mã bù hao qua `bu_hao_id` → tra bậc theo SL) / `co_dinh` (cộng `so_to_bu_hao` tờ). `bu_hao_id`: soft int → `bu_hao.id` (dùng khi `kieu_bu_hao='tra_bang'`).
 

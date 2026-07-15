@@ -1,8 +1,8 @@
-"""Phiếu sản lượng công đoạn (Pha 5b) — nguồn khoán thật.
+"""Phiếu sản lượng công đoạn — nguồn khoán thật.
 
 Ghi sản lượng THỰC mỗi công đoạn của một Lệnh sản xuất (LSX), do người có quyền (`san_luong`)
-nhập. Là nguồn cho lương khoán: phiếu theo TỔ → materialize thành dòng sổ khoán lúc HCNS Chốt sổ.
-Ghi theo NGƯỜI + trừ lỗi (defect) = nhịp 5b-2 (chưa mô hình ở đây).
+nhập. Là NGUỒN DUY NHẤT của lương khoán: mỗi phiếu = 1 NGƯỜI · SL × đơn giá − trừ lỗi = tiền khoán,
+cộng thẳng vào cột `khoan` của bảng lương khi tính lương (không còn tầng "sổ khoán" ở giữa).
 
 Bảng mới → create_all tự dựng (PHẢI đăng ký models/__init__). Link mềm (plain int) tới LSX/máy/công
 đoạn theo convention soft-ref của repo — tránh coupling khóa cứng.
@@ -18,8 +18,7 @@ from ..db import Base
 
 _MONEY = Numeric(14, 2)
 
-# Chế độ ghi (khớp cong_doan.khoan_ghi_theo).
-OUTPUT_BY_TO = "to"
+# Chế độ ghi (khớp cong_doan.khoan_ghi_theo). Khoán chỉ ghi theo NGƯỜI.
 OUTPUT_BY_NGUOI = "nguoi"
 
 # Nguyên nhân hỏng (5b-2). CHỈ 'loi_tho' mới trừ tiền thợ.
@@ -40,12 +39,12 @@ class ProductionOutput(Base):
     # LSX (soft-ref production_orders.id) — bắt buộc: sản lượng luôn thuộc một lệnh.
     production_order_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     cong_doan: Mapped[str] = mapped_column(String(30), index=True, nullable=False)   # mã cong_doan.ma
-    ghi_theo: Mapped[str] = mapped_column(String(8), nullable=False, default=OUTPUT_BY_TO, server_default=OUTPUT_BY_TO)
-    # Kỳ khoán (năm/tháng) + tổ — trục materialize vào sổ khoán. group_name khớp piece_batches.group_name.
+    ghi_theo: Mapped[str] = mapped_column(String(8), nullable=False, default=OUTPUT_BY_NGUOI, server_default=OUTPUT_BY_NGUOI)
+    # Kỳ khoán (năm/tháng) → cột `khoan` bảng lương của kỳ đó.
     year: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
     month: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
-    group_name: Mapped[str | None] = mapped_column(String(40), index=True, nullable=True)   # khi ghi_theo=to
-    employee_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)      # khi ghi_theo=nguoi (5b-2)
+    group_name: Mapped[str | None] = mapped_column(String(40), index=True, nullable=True)   # tổ/bộ phận — để tra đơn giá
+    employee_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)      # người nhận tiền khoán
     may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)                       # soft-ref máy (thống kê)
     piece_rate_id: Mapped[int | None] = mapped_column(Integer, nullable=True)                # đơn giá nguồn
     work_name: Mapped[str] = mapped_column(String(255), nullable=False)                      # tên công việc (snapshot)
@@ -59,7 +58,7 @@ class ProductionOutput(Base):
     defect_cause: Mapped[str | None] = mapped_column(String(20), nullable=True)
     defect_deduction: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # LSX bù (order_kind='bu'): mặc định KHÔNG tính khoán (công làm lại = trách nhiệm); HCNS bật khi
-    # bù do lỗi khách/vật tư. Chỉ output tinh_khoan=true mới materialize vào quỹ.
+    # bù do lỗi khách/vật tư. Chỉ output tinh_khoan=true mới cộng vào cột khoán.
     tinh_khoan: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     work_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     recorded_by: Mapped[int | None] = mapped_column(Integer, nullable=True)                  # user ghi

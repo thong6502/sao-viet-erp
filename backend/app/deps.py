@@ -348,13 +348,10 @@ def get_cong_doan_repository(
 
 def get_piece_work_service(
     piece: Annotated[PieceWorkRepository, Depends(get_piece_work_repository)],
-    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
-    payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     outputs: Annotated[ProductionOutputRepository, Depends(get_production_output_repository)],
 ) -> PieceWorkService:
-    # payroll (REPO, chỉ đọc) → đồng bộ khóa kỳ; audit → nhật ký; outputs → materialize phiếu SL (Pha 5b).
-    return PieceWorkService(piece, employees, payroll=payroll, audit=audit, outputs=outputs)
+    # outputs → nguồn tiền khoán theo người (cộng thẳng vào cột khoán bảng lương khi tính lương).
+    return PieceWorkService(piece, outputs=outputs)
 
 
 def get_production_output_service(

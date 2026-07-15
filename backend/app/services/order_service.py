@@ -24,7 +24,6 @@ from ..models.order import (
     COST_BASIS_QUOTE,
     DEPOSIT_KIND_CK,
     DEPOSIT_KINDS,
-    DISPOSITION_PENDING,
     EXC_NO_COST,
     FAULT_KHACH,
     FAULT_XUONG,
@@ -152,6 +151,15 @@ class OrderService:
         rows = self.db.query(User.id, User.name).filter(User.id.in_(ids)).all()
         return {uid: name for uid, name in rows}
 
+    def _quote_codes(self, ids: list[int | None]) -> dict[int, str]:
+        """Map quotation_id → mã báo giá (quote_number) để hiển thị 'Nguồn'."""
+        out: dict[int, str] = {}
+        for qid in {i for i in ids if i}:
+            q = self.quotations.get_by_id(qid)
+            if q is not None:
+                out[qid] = q.quote_number
+        return out
+
     def _money(self, order: Order) -> dict:
         """Các số tiền suy diễn của 1 đơn (dùng chung cho row + detail)."""
         total = self.repo.line_total_sum(order.id)
@@ -208,7 +216,8 @@ class OrderService:
             blockers.append("Đơn đặc thù chưa được duyệt")
         return (len(blockers) == 0), blockers
 
-    def _row(self, order: Order, customer_name: str | None, sale_name: str | None) -> OrderRow:
+    def _row(self, order: Order, customer_name: str | None, sale_name: str | None,
+             quotation_code: str | None = None) -> OrderRow:
         m = self._money(order)
         return OrderRow(
             id=order.id,
@@ -216,6 +225,7 @@ class OrderService:
             customer_id=order.customer_id,
             customer_name=customer_name,
             quotation_id=order.quotation_id,
+            quotation_code=quotation_code,
             source_type=order.source_type,
             order_kind=order.order_kind,
             order_nature=order.order_nature,
@@ -278,8 +288,12 @@ class OrderService:
             for a in order.attachments if a.kind == ATTACH_KIND_CONSENT
         ]
         can_confirm, blockers = self._confirm_gate(order)
+        q_code = None
+        if order.quotation_id:
+            qq = self.quotations.get_by_id(order.quotation_id)
+            q_code = qq.quote_number if qq else None
         return OrderDetailOut(
-            **self._row(order, cust_name, names.get(order.sale_user_id)).model_dump(),
+            **self._row(order, cust_name, names.get(order.sale_user_id), q_code).model_dump(),
             quotation_version=order.quotation_version,
             quotation_effective_from=order.quotation_effective_from,
             parent_order_id=order.parent_order_id,
@@ -293,9 +307,6 @@ class OrderService:
             margin_pct=m["margin_pct"],
             cancel_reason=order.cancel_reason,
             cancel_fault=order.cancel_fault,
-            cancel_stage_snapshot=order.cancel_stage_snapshot,
-            deposit_disposition=order.deposit_disposition,
-            production_stage=order.production_stage,
             deposits=deposits,
             approvals=approvals,
             consent_attachments=consent_atts,
@@ -314,8 +325,11 @@ class OrderService:
             approval_state=approval_state, sort=sort, page=page, size=size,
         )
         sale_names = self._user_names([r.sale_user_id for r in rows])
+        q_codes = self._quote_codes([r.quotation_id for r in rows])
         items = [
-            self._row(o, names.get(o.id), sale_names.get(o.sale_user_id)) for o in rows
+            self._row(o, names.get(o.id), sale_names.get(o.sale_user_id),
+                      q_codes.get(o.quotation_id))
+            for o in rows
         ]
         return OrderListOut(items=items, total=total, page=page, size=size)
 
@@ -657,19 +671,14 @@ class OrderService:
         if not reason or not reason.strip():
             raise OrderValidationError("Hủy đơn phải nêu lý do")
         if order.status == STATUS_ORDERED:
-            # Hủy sau chốt: chỉ TP/GĐ (approve_exception); bắt lỗi tại ai + chụp giai đoạn SX; cọc
-            # KHÔNG xóa (đổi cờ chờ phân hệ hoàn xử); báo giá KHÔNG mở lại (giữ converted_to_order).
+            # Hủy sau chốt: chỉ TP/GĐ (approve_exception); bắt lỗi tại ai. Cọc KHÔNG xóa (giữ
+            # nguyên order_deposits → "còn cọc chưa quyết toán" suy từ data); báo giá KHÔNG mở lại
+            # (giữ converted_to_order). Hoàn/giữ cọc bao nhiêu = đàm phán NGOÀI hệ thống.
             if not can_cancel_ordered:
                 raise OrderForbidden("Hủy đơn đã chốt cần quyền duyệt (TP KD / Giám đốc)")
             if fault not in (FAULT_KHACH, FAULT_XUONG):
                 raise OrderValidationError("Hủy đơn đã chốt phải nêu lỗi tại ai (khách / xưởng)")
             order.cancel_fault = fault
-            order.cancel_stage_snapshot = order.production_stage
-            order.deposit_disposition = DISPOSITION_PENDING
-        else:
-            # Hủy khi NHÁP: báo giá tự dùng lại (chưa từng khóa). Cọc (nếu lỡ có) → chờ xử.
-            if self.repo.deposit_received_sum(order.id) > 0:
-                order.deposit_disposition = DISPOSITION_PENDING
         order.status = STATUS_CANCELLED
         order.cancel_reason = reason
         order.cancel_by = actor.id

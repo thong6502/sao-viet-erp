@@ -14,8 +14,9 @@
 ## 1. Phạm vi
 
 - **Làm:** lập đơn (nháp) → thu cọc → cổng chốt → chốt (khóa đơn + khóa báo giá) → đẩy xuống Sản xuất.
-- **Chỉ đặt SEAM (không làm nay):** thao tác duyệt bản in (ở Sản xuất), hóa đơn VAT + công nợ AR,
-  hoàn cọc / tính tiền khi hủy, in bù / hàng bán trả lại, hoa hồng, số thực giao / dung sai.
+- **Ngoài hệ thống / để dành:** duyệt bản in (khách xem market → OK ngoài đời, KHÔNG lưu field), tiến độ sản
+  xuất, hóa đơn VAT + công nợ AR, hoàn cọc / tính tiền khi hủy (đàm phán ngoài), in bù / hàng bán trả lại,
+  hoa hồng, số thực giao / dung sai.
 
 ## 2. Nguyên tắc (đã chốt với chủ đầu tư)
 
@@ -53,14 +54,13 @@
 
 `draft` (Nháp) → `ordered` (Đã chốt) → `cancelled` (Hủy). *(Bỏ `on_hold`, `change_order`.)*
 
-`ordered` là trạng thái DUY NHẤT module quản. Ba mốc mở khóa là **điều kiện đọc-được**, không phải status mới:
+`ordered` là trạng thái DUY NHẤT module quản. Sau khi chốt, mọi việc sản xuất là **luồng NGOÀI hệ thống** (module
+này không quan sát → không đặt field):
 
-1. **Chốt đơn** (cổng §8) → mở khóa *mua giấy + ra kẽm* (`material_gate` = đủ cọc).
-2. **Khách ký duyệt bản in** → mở khóa *chạy máy* (`run_gate` = `proof_approved`). ⚠️ Thời điểm chốt thì market/
-   bản bông thường CHƯA xong → **KHÔNG** nhét điều kiện này vào cổng chốt. Module chỉ **đặt sẵn field seam**
-   (`proof_required`, `proof_approved_at/by`, `proof_attachment_id`); **thao tác duyệt bản in nằm ở phân hệ Sản xuất**.
-   Với đơn `gia_cong` có brand khách → `proof_required = true` cứng.
-3. Chạy máy (Sản xuất).
+1. **Chốt đơn** (cổng §8) → xuống Sản xuất (mua giấy + ra kẽm + in). Đây là mốc DUY NHẤT module quản.
+2. **Duyệt bản in** (gửi market cho khách xem, khách OK qua Zalo / điện thoại / ký giấy) → **luồng ngoài đời**,
+   KHÔNG phải việc của hệ thống. Bỏ hẳn field seam `proof_*` — không dựng cổng cho việc hệ thống không quan sát được.
+3. Chạy máy / tiến độ sản xuất → phân hệ Sản xuất (chưa build). Đơn hàng **không lưu** `production_stage`.
 
 ## 6. Kiểm soát & phê duyệt
 
@@ -121,16 +121,15 @@ ngày giao cam kết · **(d)** có **chứng cứ khách đồng ý** · **(e)*
 ## 10. Hủy đơn + seam sản xuất (giữ móc, không kéo công thức)
 
 - `ordered → cancelled`: người có `can_approve_exception` (TP/GĐ), hoặc người khác **"Gửi yêu cầu hủy"**. Bắt
-  `cancel_reason` + `cancel_fault` ∈ {`khach`, `xuong`}.
-- Chụp `cancel_stage_snapshot` = `production_stage` lúc hủy (map giai đoạn A/B/C/D của nghiệp vụ nhà in).
-- Cọc **không xóa** — chỉ set `deposit_disposition = pending_settlement`. Việc quy ra hoàn bao nhiêu = phân hệ
-  hoàn cọc sau đọc (stage + fault + Σ cọc). → audit + linkage tiền **không đứt**.
-- `production_stage` ∈ {`none`, `plate_made`, `material_bought`, `printing`, `printed`} — **read-only với đơn**,
-  do Sản xuất ghi qua 1 endpoint (seam).
+  `cancel_reason` (kể luôn tình trạng lúc hủy) + `cancel_fault` ∈ {`khach`, `xuong`} — nhãn để **thống kê lỗi**.
+- Cọc **không xóa** — `order_deposits` giữ nguyên. "Còn cọc chưa quyết toán" **suy ra từ data** (đơn hủy + Σ cọc
+  đã nhận > 0), không cần field cờ. → audit + linkage tiền **không đứt**.
+- **Hoàn / giữ cọc bao nhiêu = ĐÀM PHÁN NGOÀI hệ thống** (Sale + quản lý thỏa thuận với khách). Hệ thống không
+  mô hình hóa cuộc thương lượng đó — chỉ ghi nhận sự thật đã chốt (đơn đã hủy + cọc đã nhận).
 
-**Bảng mốc xử cọc khi hủy (lỗi khách; lỗi xưởng thì đảo ngược = hoàn cọc)** — *tham chiếu nghiệp vụ, tính tiền ở phân hệ hoàn:*
+**Bảng mốc xử cọc khi hủy (lỗi khách; lỗi xưởng thì đảo ngược = hoàn cọc)** — *CHỈ là tham chiếu nghiệp vụ cho cuộc đàm phán NGOÀI hệ thống + phân hệ hoàn cọc sau; hệ thống KHÔNG tính, KHÔNG lưu giai đoạn này:*
 
-| Giai đoạn (`cancel_stage_snapshot`) | Xưởng đã chi | Hướng xử cọc |
+| Giai đoạn (người hủy tự biết, kể trong lý do) | Xưởng đã chi | Hướng xử cọc (thỏa thuận ngoài) |
 |---|---|---|
 | A. chưa ra kẽm / chưa mua giấy | thiết kế, bình bài | hoàn gần đủ, trừ phí chế bản thực phát sinh |
 | B. đã ra kẽm và/hoặc mua giấy | kẽm + CTP; giấy đặc chủng không trả được | trừ kẽm + CTP + giấy đặc chủng; giấy tiêu chuẩn nhập lại thì hoàn phần đó |
@@ -143,9 +142,9 @@ ngày giao cam kết · **(d)** có **chứng cứ khách đồng ý** · **(e)*
 `parent_order_id`, `sale_user_id`, `status`, `vat_pct_estimate`, `cancel_reason`, `created_at`.
 *Thêm:* `source_type`, `order_nature` {`hang_hoa`, `gia_cong`}, `approval_state`, `ordered_at`, `ordered_by`,
 `delivery_committed_date`, `delivery_address`, `customer_po_no`, `invoice_entity_name`, `invoice_entity_tax_code`,
-`deposit_pct` *(ghim từ báo giá)*, `cost_basis`, `needs_approval`, `proof_required`, `proof_approved_at`, `proof_by`,
-`proof_attachment_id`, `production_stage`, `cancel_by`, `cancel_at`, `cancel_fault`, `cancel_stage_snapshot`,
-`deposit_disposition`.
+`deposit_pct` *(ghim từ báo giá)*, `cost_basis`, `needs_approval`, `cancel_by`, `cancel_at`, `cancel_fault`.
+*Bỏ khỏi thiết kế (luồng ngoài hệ thống):* `proof_*` (duyệt bản in), `production_stage` (tiến độ SX),
+`deposit_disposition` + `cancel_stage_snapshot` (hoàn cọc = đàm phán ngoài; "còn cọc" suy từ data).
 *Dormant:* `has_customer_paper` (thay bằng `order_nature`), `order_type` (cố định `theo_yc`), `cancelled_at_state`.
 
 **`order_lines`** — *giữ:* `description`, `qty`, `unit_price_snapshot`, `norm_snapshot`, `cost_snapshot`,
@@ -201,5 +200,6 @@ giao nhiều đợt → khâu Giao hàng (sau).
 - **P3 — Kiểm soát & duyệt:** % cọc ghim từ báo giá (khóa trên đơn) · giá dòng bất biến · `needs_approval`/`approval_state`
   + luật trình-duyệt (§6.1) · giá vốn trung thực.
 - **P4 — Cổng chốt:** checklist §8 + transaction compare-and-set + khóa báo giá + push SX (seam) + `ordered_at/by`.
-- **P5 — Hủy + seam:** `cancel_*` + `production_stage` (read-only seam) + `deposit_disposition` + proof seam field.
+- **P5 — Hủy:** `cancel_*` (lý do + `cancel_fault` để thống kê); cọc giữ nguyên, "còn cọc" suy từ data. Duyệt bản
+  in + tiến độ SX + hoàn cọc = luồng NGOÀI hệ thống (không field).
 - Xuyên suốt: nhật ký audit + RBAC scope + guard test `DB_SCHEMA.md`.

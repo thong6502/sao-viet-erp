@@ -636,7 +636,7 @@ const DEFECT_CAUSES: { key: string; label: string }[] = [
 ];
 const DEFECT_CAUSE_LABEL: Record<string, string> = Object.fromEntries(DEFECT_CAUSES.map((c) => [c.key, c.label]));
 
-// Tab "Sản lượng" trong màn LSX (Pha 5b): ghi phiếu sản lượng công đoạn theo TỔ hoặc NGƯỜI + trừ lỗi.
+// Tab "Sản lượng" trong màn LSX: ghi phiếu sản lượng công đoạn theo NGƯỜI + trừ lỗi → cột Khoán bảng lương.
 function OutputsTab({ order }: { order: ProductionOrderRow }) {
   const { token } = useAuth();
   const can = useCan();
@@ -651,8 +651,6 @@ function OutputsTab({ order }: { order: ProductionOrderRow }) {
     month: now.getMonth() + 1, quantity: "", unit: "m2", unit_price: "", work_name: "",
     defect_qty: "", defect_cause: "",
   });
-  const selCd = cds.find((c) => c.ma === f.cong_doan);
-  const isNguoi = selCd?.khoan_ghi_theo === "nguoi";
 
   const load = useCallback(() => {
     if (!token) return;
@@ -671,7 +669,7 @@ function OutputsTab({ order }: { order: ProductionOrderRow }) {
     try {
       await api.sanLuong.create(token, {
         production_order_id: order.id, cong_doan: f.cong_doan, year: Number(f.year), month: Number(f.month),
-        group_name: f.group_name, employee_id: isNguoi && f.employee_id ? Number(f.employee_id) : null,
+        group_name: f.group_name, employee_id: f.employee_id ? Number(f.employee_id) : null,
         quantity: Number(f.quantity) || 0, unit: f.unit || null,
         unit_price: f.unit_price ? Number(f.unit_price) : null, work_name: f.work_name || null,
         defect_qty: Number(f.defect_qty) || 0, defect_cause: f.defect_cause || null,
@@ -690,7 +688,7 @@ function OutputsTab({ order }: { order: ProductionOrderRow }) {
   return (
     <div>
       <p className="md-page__muted" style={{ margin: "0 0 10px" }}>
-        Ghi sản lượng thực từng công đoạn (theo tổ hoặc theo người). Số này chảy vào lương khoán khi HCNS <b>Chốt sổ</b> tổ tương ứng.
+        Ghi sản lượng thực từng công đoạn theo <b>từng người</b>. Số này cộng thẳng vào cột <b>Khoán</b> của bảng lương khi tính lương.
         Hỏng chỉ bị trừ khi <b>lỗi do thợ</b> và vượt ngưỡng hao của công đoạn.
       </p>
       {order.order_kind === "bu" && (
@@ -730,17 +728,15 @@ function OutputsTab({ order }: { order: ProductionOrderRow }) {
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
           <select className="input" value={f.cong_doan} onChange={(e) => setF({ ...f, cong_doan: e.target.value })}>
             <option value="">— Công đoạn —</option>
-            {cds.map((c) => <option key={c.id} value={c.ma}>{c.ma} · {c.ten}{c.khoan_ghi_theo === "nguoi" ? " (theo người)" : ""}</option>)}
+            {cds.map((c) => <option key={c.id} value={c.ma}>{c.ma} · {c.ten}</option>)}
           </select>
-          <select className="input" value={f.group_name} onChange={(e) => setF({ ...f, group_name: e.target.value })} title="Tổ (để chốt sổ)">
+          <select className="input" value={f.group_name} onChange={(e) => setF({ ...f, group_name: e.target.value })} title="Tổ / bộ phận (để tra đơn giá)">
             {KHOAN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
           </select>
-          {isNguoi && (
-            <select className="input" value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })}>
-              <option value="">— Nhân viên —</option>
-              {emps.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
-            </select>
-          )}
+          <select className="input" value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })}>
+            <option value="">— Nhân viên —</option>
+            {emps.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+          </select>
           <input className="input" type="number" style={{ width: 62 }} value={f.month} onChange={(e) => setF({ ...f, month: Number(e.target.value) })} title="Tháng" />
           <input className="input" type="number" style={{ width: 82 }} value={f.year} onChange={(e) => setF({ ...f, year: Number(e.target.value) })} title="Năm" />
           <input className="input" type="number" style={{ width: 92 }} value={f.quantity} onChange={(e) => setF({ ...f, quantity: e.target.value })} placeholder="Đạt" />
@@ -749,7 +745,7 @@ function OutputsTab({ order }: { order: ProductionOrderRow }) {
             {DEFECT_CAUSES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
           </select>
           <input className="input" type="number" style={{ width: 92 }} value={f.unit_price} onChange={(e) => setF({ ...f, unit_price: e.target.value })} placeholder="Đơn giá" />
-          <Button variant="primary" onClick={add} disabled={!f.cong_doan || !f.quantity || (isNguoi && !f.employee_id)}>Ghi phiếu</Button>
+          <Button variant="primary" onClick={add} disabled={!f.cong_doan || !f.quantity || !f.employee_id}>Ghi phiếu</Button>
         </div>
       )}
     </div>

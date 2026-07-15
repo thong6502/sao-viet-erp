@@ -191,7 +191,7 @@ def test_cancel_ordered_needs_permission_and_fault(svc, admin, customer, db):
         svc.cancel(order_id=d.id, actor=admin, scope="all", reason="Khách bỏ", fault=None, can_cancel_ordered=True)
     d = svc.cancel(order_id=d.id, actor=admin, scope="all", reason="Khách bỏ", fault="xuong", can_cancel_ordered=True)
     assert d.status == "cancelled" and d.cancel_fault == "xuong"
-    assert d.deposit_disposition == "pending_settlement" and len(d.deposits) >= 1  # cọc KHÔNG xóa
+    assert len(d.deposits) >= 1  # cọc KHÔNG xóa khi hủy (hoàn/quyết toán ngoài hệ thống)
 
 
 def test_manual_confirm_requires_consent_evidence(svc, admin, customer):

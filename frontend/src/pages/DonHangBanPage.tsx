@@ -38,6 +38,9 @@ const STATUS_META: Record<string, { label: string; bg: string; fg: string }> = {
   draft: { label: "Nháp", bg: "#eef1f6", fg: "#48566a" },
   ordered: { label: "Đã chốt", bg: "#e4f5ec", fg: "#1f8a52" },
   cancelled: { label: "Hủy", bg: "#fdecea", fg: "#b4432b" },
+  // dormant (thiết kế đã bỏ) — map để dữ liệu cũ không phun enum thô ra UI
+  on_hold: { label: "Tạm giữ", bg: "#fdf2e0", fg: "#a9631a" },
+  change_order: { label: "Đổi đơn", bg: "#fdf2e0", fg: "#a9631a" },
 };
 
 type TabDef = {
@@ -246,7 +249,7 @@ export function DonHangBanPage({ navigate }: Props) {
                   <td style={td}>{o.customer_name ?? "—"}</td>
                   <td style={td}>
                     {o.source_type === "bao_gia" ? (
-                      <span style={{ color: "#2b6cb0" }}>BG #{o.quotation_id}</span>
+                      <span style={{ color: "#2b6cb0" }}>{o.quotation_code ?? "—"}</span>
                     ) : (
                       "Nhập tay"
                     )}
@@ -322,14 +325,6 @@ function DepositBar({ o }: { o: OrderRow }) {
 }
 
 // --- Drawer chi tiết ----------------------------------------------------------
-const PROD_STAGE_LABEL: Record<string, string> = {
-  none: "Chưa vào sản xuất",
-  plate_made: "Đã ra kẽm",
-  material_bought: "Đã mua vật tư",
-  printing: "Đang in",
-  printed: "In xong",
-};
-
 function OrderDrawer({
   order, canUpdate, canRecordDeposit, canApproveException, canManageStatus, onClose, onSaved, navigate,
 }: {
@@ -409,7 +404,7 @@ function OrderDrawer({
                     style={{ color: "#2b6cb0", background: "none", border: 0, cursor: "pointer", padding: 0 }}
                     onClick={() => navigate?.("bao-gia", { openQuoteId: order.quotation_id })}
                   >
-                    BG #{order.quotation_id} · v{order.quotation_version} ↗
+                    {order.quotation_code ?? "Báo giá"} · v{order.quotation_version} ↗
                   </button>
                 }
               />
@@ -528,18 +523,14 @@ function OrderDrawer({
           ) : order.status === "ordered" ? (
             <Section title="Sau chốt">
               <KV k="Đã chốt lúc" v={fmtDate(order.ordered_at)} />
-              <KV k="Giai đoạn SX" v={PROD_STAGE_LABEL[order.production_stage] ?? order.production_stage} />
-              <p style={{ color: "#8a97a8", fontSize: 12 }}>Duyệt bản in + tiến độ SX do phân hệ Sản xuất cập nhật (seam).</p>
+              <p style={{ color: "#8a97a8", fontSize: 12 }}>Duyệt bản in + tiến độ sản xuất là luồng ngoài hệ thống.</p>
             </Section>
           ) : order.status === "cancelled" ? (
             <Section title="Đã hủy">
               <KV k="Lý do" v={order.cancel_reason ?? "—"} />
               {order.cancel_fault && <KV k="Lỗi tại" v={order.cancel_fault === "khach" ? "Khách hàng" : "Xưởng in"} />}
-              {order.cancel_stage_snapshot && order.cancel_stage_snapshot !== "none" && (
-                <KV k="Giai đoạn SX lúc hủy" v={PROD_STAGE_LABEL[order.cancel_stage_snapshot] ?? order.cancel_stage_snapshot} />
-              )}
-              {order.deposit_disposition === "pending_settlement" && (
-                <KV k="Xử lý cọc" v="Chờ hoàn / quyết toán (phân hệ hoàn cọc)" />
+              {order.deposit_received > 0 && (
+                <KV k="Cọc" v={`Còn ${vnd(order.deposit_received)} chưa quyết toán — xử lý ngoài hệ thống`} />
               )}
             </Section>
           ) : null}
@@ -594,7 +585,7 @@ function CancelDialog({ order, onClose, onSaved }: { order: OrderDetail; onClose
         <h3 style={{ margin: "0 0 4px", fontSize: 18 }}>Hủy đơn {order.order_no}</h3>
         <p style={{ color: "#8a97a8", fontSize: 13, marginTop: 0 }}>
           {isOrdered
-            ? "Đơn đã chốt — báo giá KHÔNG mở lại; cọc chờ hoàn/quyết toán theo mốc sản xuất."
+            ? "Đơn đã chốt — báo giá KHÔNG mở lại; cọc giữ nguyên, hoàn/quyết toán xử lý ngoài hệ thống."
             : "Đơn nháp — hủy xong báo giá vẫn dùng lại được."}
         </p>
         {isOrdered && (
@@ -606,7 +597,7 @@ function CancelDialog({ order, onClose, onSaved }: { order: OrderDetail; onClose
           </Field>
         )}
         <Field label="Lý do hủy">
-          <textarea value={reason} onChange={(e) => setReason(e.target.value)} style={{ ...inp, minHeight: 60, resize: "vertical" }} />
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Nêu lý do; nếu đã chốt, kể luôn tình trạng lúc hủy (vd: đã ra kẽm, khách đổi ý)." style={{ ...inp, minHeight: 60, resize: "vertical" }} />
         </Field>
         {err && <div className="banner banner--error">{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>

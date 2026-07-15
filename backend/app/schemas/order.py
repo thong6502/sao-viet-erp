@@ -126,6 +126,7 @@ class OrderRow(BaseModel):
     customer_id: int | None
     customer_name: str | None
     quotation_id: int | None
+    quotation_code: str | None = None   # mã báo giá (BG26-xxxx) để hiển thị, None nếu nhập tay
     source_type: str
     order_kind: str
     order_nature: str
@@ -175,9 +176,6 @@ class OrderDetailOut(OrderRow):
     margin_pct: int | None             # None ⇒ "biên không xác định" (nhập tay)
     cancel_reason: str | None
     cancel_fault: str | None
-    cancel_stage_snapshot: str | None
-    deposit_disposition: str
-    production_stage: str
     deposits: list[OrderDepositOut] = []
     approvals: list[OrderApprovalOut] = []
     consent_attachments: list[AttachmentOut] = []

@@ -600,9 +600,9 @@ def seed_sales_history(db: Session) -> None:
     from .models.order import (
         STATUS_CANCELLED,
         STATUS_DRAFT,
-        STATUS_ON_HOLD,
         STATUS_ORDERED,
         Order,
+        OrderDeposit,
         OrderLine,
     )
     from .models.quotation import (
@@ -655,31 +655,59 @@ def seed_sales_history(db: Session) -> None:
         d = min(max(day, 1), 28)
         return datetime(y, m, d, 10, 0, 0, tzinfo=timezone.utc)
 
-    def _mk_order(customer, sale_id, months_ago, lines, status=STATUS_ORDERED, day=15):
+    def _mk_order(customer, sale_id, months_ago, lines, status=STATUS_ORDERED, day=15,
+                  quote=None, qv=None, deposit_pct=30.0):
+        """Đơn demo — CHỈ status draft/ordered/cancelled (không dùng dormant on_hold/change_order).
+        quote!=None → đơn TỪ BÁO GIÁ: ghim quotation + snapshot giá vốn (cost_basis=quote) + %cọc,
+        đánh dấu quote `converted_to_order`, và nếu đã chốt thì seed 1 phiếu cọc đủ ngưỡng.
+        quote=None → đơn NHẬP TAY: không giá vốn → biên 'không xác định' (cost_basis=none)."""
         created = _month_mid(months_ago, day)
+        from_quote = quote is not None
         o = Order(
             order_no=OrderRepository(db)._next_order_no(),
             customer_id=customer.id,
+            source_type="bao_gia" if from_quote else "nhap_tay",
             order_type="theo_yc",
             order_kind="moi",
             sale_user_id=sale_id,
             status=status,
             has_customer_paper=False,
             vat_pct_estimate=8,
+            cost_basis="quote" if from_quote else "none",
+            deposit_pct=(deposit_pct if from_quote else None),
             created_at=created,
         )
+        if from_quote:
+            o.quotation_id = quote.id
+            o.quotation_version = (qv.version_number if qv else 1)
+            o.quotation_effective_from = created.date()
+            quote.status = "converted_to_order"  # → báo giá tab "Đã lên đơn"
+            if status == STATUS_ORDERED:
+                o.ordered_at = created
+                o.ordered_by = sale_id
+        subtotal = 0
         for desc, qty, unit in lines:
+            subtotal += qty * unit
             o.lines.append(
                 OrderLine(
                     description=desc,
                     qty=qty,
                     unit_price_snapshot=unit,  # P0 snapshot: đơn kế thừa giá đã chốt
+                    cost_snapshot=(int(qty * unit * 0.8) if from_quote else None),
                     line_total=qty * unit,
                     vat_pct_estimate=8,
                 )
             )
+        # Đơn báo giá đã chốt → seed 1 phiếu cọc đủ ngưỡng (Đã thu = ngưỡng cần thu)
+        if from_quote and status == STATUS_ORDERED and deposit_pct:
+            required = int(round(deposit_pct * subtotal * 1.08 / 100))
+            o.deposits.append(OrderDeposit(
+                deposit_kind="ck", amount_expected=required, amount_received=required,
+                reconciled=True, recorded_by=sale_id, received_at=created.date(), created_at=created,
+            ))
         db.add(o)
         db.flush()  # so the next _next_order_no() sees this row (unique DH###)
+        return o
 
     from .repositories.order_repo import OrderRepository
 
@@ -788,6 +816,14 @@ def seed_sales_history(db: Session) -> None:
         db.flush()
         return q, qv
 
+    def _mk_order_bg(customer, sale_id, months_ago, desc, qty, unit,
+                     status=STATUS_ORDERED, day=15, deposit_pct=30.0):
+        """Đơn TỪ BÁO GIÁ: tạo báo giá ĐÃ DUYỆT khớp SP rồi chốt thành đơn (ghim + snapshot)."""
+        q, qv = _mk_quote(customer, sale_id, months_ago, qty * unit, status=STATUS_ACCEPTED,
+                          product_name=desc, quantity=qty, day=max(day - 2, 1))
+        return _mk_order(customer, sale_id, months_ago, [(desc, qty, unit)],
+                         status=status, day=day, quote=q, qv=qv, deposit_pct=deposit_pct)
+
     sale1 = users.get_by_username("sale1")
     sale2 = users.get_by_username("sale2")
 
@@ -795,17 +831,16 @@ def seed_sales_history(db: Session) -> None:
     # Sản phẩm in thật: catalogue / tờ rơi / name card / lịch. Spread mọi tháng để bar
     # chart 12T KHÔNG có lỗ, donut đủ 4 nhóm SP, heatmap rải nhiều thứ trong tuần.
     if an_phat is not None and sale1 is not None:
-        _mk_order(an_phat, sale1.id, 11, [("Catalogue A4 32 trang", 2000, 15_000)], day=8)
+        _mk_order_bg(an_phat, sale1.id, 11, "Catalogue A4 32 trang", 2000, 15_000, day=8)
         _mk_order(an_phat, sale1.id, 10, [("Tờ rơi A5 4 màu", 10000, 1_200)], day=22)
         _mk_order(an_phat, sale1.id, 9, [("Name card 4 màu", 5000, 900),
                                          ("Tờ rơi A5 4 màu", 8000, 1_200)], day=5)
-        _mk_order(an_phat, sale1.id, 7, [("Catalogue A4 32 trang", 1500, 15_000)], day=17)
-        _mk_order(an_phat, sale1.id, 6, [("Name card 4 màu", 3000, 900)],
-                  status=STATUS_ON_HOLD, day=12)
+        _mk_order_bg(an_phat, sale1.id, 7, "Catalogue A4 32 trang", 1500, 15_000, day=17)
+        _mk_order(an_phat, sale1.id, 6, [("Name card 4 màu", 3000, 900)], day=12)
         _mk_order(an_phat, sale1.id, 4, [("Lịch tết 2026 (bộ 7 tờ)", 500, 45_000)], day=26)
         _mk_order(an_phat, sale1.id, 3, [("Tờ rơi A5 4 màu", 12000, 1_200),
                                          ("Name card 4 màu", 2000, 900)], day=9)
-        _mk_order(an_phat, sale1.id, 1, [("Catalogue A4 32 trang", 1000, 15_000)], day=20)
+        _mk_order_bg(an_phat, sale1.id, 1, "Catalogue A4 32 trang", 1000, 15_000, day=20)
         _mk_order(an_phat, sale1.id, 0, [("Name card 4 màu", 4000, 900)], day=3)
         # Báo giá: đủ trạng thái (duyệt / gửi / từ chối) cho lịch sử báo giá + win-rate.
         _mk_quote(an_phat, sale1.id, 11, 30_000_000, status=STATUS_ACCEPTED)
@@ -816,11 +851,11 @@ def seed_sales_history(db: Session) -> None:
 
     # --- KH: Công ty CP Bao Bì Việt (sale2) — bao bì, đơn to thưa, có đơn hủy/nháp ---
     if bao_bi is not None and sale2 is not None:
-        _mk_order(bao_bi, sale2.id, 10, [("Hộp giấy cao cấp", 5000, 6_000)], day=14)
+        _mk_order_bg(bao_bi, sale2.id, 10, "Hộp giấy cao cấp", 5000, 6_000, day=14)
         _mk_order(bao_bi, sale2.id, 8, [("Túi giấy in offset", 20000, 3_500)], day=19)
         _mk_order(bao_bi, sale2.id, 6, [("Tem nhãn decal", 50000, 500)],
                   status=STATUS_CANCELLED, day=11)  # đã hủy → loại khỏi doanh số
-        _mk_order(bao_bi, sale2.id, 5, [("Hộp giấy cao cấp", 8000, 6_000)], day=24)
+        _mk_order_bg(bao_bi, sale2.id, 5, "Hộp giấy cao cấp", 8000, 6_000, day=24)
         _mk_order(bao_bi, sale2.id, 2, [("Túi giấy in offset", 15000, 3_500)], day=7)
         _mk_order(bao_bi, sale2.id, 1, [("Hộp giấy cao cấp", 3000, 6_000)],
                   status=STATUS_DRAFT, day=16)  # đang lập
@@ -832,7 +867,7 @@ def seed_sales_history(db: Session) -> None:
     if minh_khai is not None and sale1 is not None:
         _mk_order(minh_khai, sale1.id, 9, [("Tờ rơi A5 4 màu", 5000, 1_200)], day=13)
         _mk_order(minh_khai, sale1.id, 5, [("Name card 4 màu", 2000, 900)], day=21)
-        _mk_order(minh_khai, sale1.id, 2, [("Catalogue A4 32 trang", 800, 15_000)], day=6)
+        _mk_order_bg(minh_khai, sale1.id, 2, "Catalogue A4 32 trang", 800, 15_000, day=6)
         _mk_quote(minh_khai, sale1.id, 5, 6_000_000, status=STATUS_ACCEPTED)
         _mk_quote(minh_khai, sale1.id, 2, 12_000_000, status=STATUS_SENT)
 
@@ -1607,14 +1642,9 @@ def seed_payroll(db: Session) -> None:
 
 
 def seed_piece_work(db: Session) -> None:
-    """Seed đơn giá khoán demo (Lương khoán nhịp 2) — số hóa các bảng CÔNG KHOÁN thật +
-    1 sổ khoán demo Tổ Bồi kỳ hiện tại. Idempotent: bỏ qua nếu đã có đơn giá."""
-    from datetime import date
-
-    from .models.employee import Employee
-    from .repositories.employee_repo import EmployeeRepository
+    """Seed đơn giá khoán demo (Lương khoán nhịp 2) — số hóa các bảng CÔNG KHOÁN thật.
+    Idempotent: bỏ qua nếu đã có đơn giá. (Tiền khoán = Phiếu sản lượng theo người, không seed.)"""
     from .repositories.piece_work_repo import PieceWorkRepository
-    from .services.piece_work_service import PieceWorkService
 
     repo = PieceWorkRepository(db)
     if repo.list_rates():
@@ -1637,18 +1667,6 @@ def seed_piece_work(db: Session) -> None:
     for g, code, name, unit, price in rates:
         repo.create_rate(group_name=g, code=code, name=name, unit=unit, unit_price=price,
                          note="Đơn giá khoán demo")
-
-    # Sổ khoán demo: Tổ Bồi, kỳ hiện tại, 1 dòng sản lượng + chia cho 2 NV sản xuất.
-    prod = db.query(Employee).filter(Employee.payroll_group == "san_xuat").limit(2).all()
-    if len(prod) >= 2:
-        svc = PieceWorkService(repo, EmployeeRepository(db))
-        today = date.today()
-        batch = svc.get_or_create_batch(year=today.year, month=today.month, group_name="to_boi")
-        svc.update_batch(batch.id, leader_employee_id=prod[0].id, leader_pct=0.05)
-        boi_rate = next(r for r in repo.list_rates() if r.name.startswith("Bồi carton 3"))
-        svc.add_entry(batch_id=batch.id, piece_rate_id=boi_rate.id, quantity=30_000)  # 30.000 m² × 170
-        svc.set_share(batch_id=batch.id, employee_id=prod[0].id, weight=1)
-        svc.set_share(batch_id=batch.id, employee_id=prod[1].id, weight=1)
 
 
 def seed_kho_engine(db: Session) -> None:

@@ -35,7 +35,7 @@ from .payroll import (
     SalaryAdvance,
     SalaryRateRule,
 )
-from .piece_work import PieceBatch, PieceBatchEntry, PieceBatchShare, PieceRate
+from .piece_work import PieceRate
 from .product import Product, ProductComponent
 from .product_type_catalog import ProductTypeCatalog
 from .purchase import (
@@ -164,9 +164,6 @@ __all__ = [
     "PayrollLine",
     "PitTaxBracket",
     "PieceRate",
-    "PieceBatch",
-    "PieceBatchEntry",
-    "PieceBatchShare",
     "PlateDieRate",
     "Norm",
     "DocumentSequence",

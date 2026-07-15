@@ -2619,73 +2619,6 @@ export interface PieceRateInput {
   note?: string | null;
   is_active?: boolean;
 }
-export interface PieceBatch {
-  id: number;
-  year: number;
-  month: number;
-  group_name: string;
-  leader_employee_id: number | null;
-  leader_pct: number;
-  min_guarantee: number;
-  over_target: number;
-  over_bonus_pct: number;
-  note: string | null;
-  status: string;
-  locked_at: string | null;
-}
-export interface PieceBatchConfig {
-  leader_employee_id?: number | null;
-  leader_pct?: number | null;
-  min_guarantee?: number | null;
-  over_target?: number | null;
-  over_bonus_pct?: number | null;
-  note?: string | null;
-}
-export interface PieceEntry {
-  id: number;
-  batch_id: number;
-  piece_rate_id: number | null;
-  work_name: string;
-  unit: string;
-  unit_price: number;
-  quantity: number;
-  amount: number;
-  note: string | null;
-}
-export interface PieceEntryInput {
-  piece_rate_id?: number | null;
-  work_name?: string | null;
-  unit?: string | null;
-  unit_price?: number | null;
-  quantity: number;
-  note?: string | null;
-}
-export interface PieceShare {
-  id: number;
-  batch_id: number;
-  employee_id: number;
-  employee_name: string | null;
-  weight: number;
-  amount: number;
-  note: string | null;
-}
-export interface PieceSheetMeta {
-  revenue: number;
-  total: number;
-  leader_cut: number;
-  pool: number;
-  valid: boolean;
-  no_shares: boolean;
-  zero_weight: boolean;
-  leader_no_share: boolean;
-}
-export interface PieceSheet {
-  batch: PieceBatch | null;
-  entries: PieceEntry[];
-  shares: PieceShare[];
-  meta: PieceSheetMeta | null;
-}
-
 export interface CongDoanLite {
   id: number;
   ma: string;
@@ -3737,6 +3670,7 @@ export interface OrderRow {
   customer_id: number | null;
   customer_name: string | null;
   quotation_id: number | null;
+  quotation_code: string | null;
   source_type: string;
   order_kind: string;
   order_nature: string;
@@ -3776,9 +3710,6 @@ export interface OrderDetail extends OrderRow {
   margin_pct: number | null;
   cancel_reason: string | null;
   cancel_fault: string | null;
-  cancel_stage_snapshot: string | null;
-  deposit_disposition: string;
-  production_stage: string;
   deposits: OrderDepositOut[];
   approvals: OrderApprovalOut[];
   consent_attachments: AttachmentOut[];
@@ -4883,42 +4814,6 @@ export const api = {
     },
     deleteKhoanRate(token: string, id: number): Promise<void> {
       return authed<void>(`/api/luong/khoan/rates/${id}`, token, { method: "DELETE" });
-    },
-    khoanBatches(token: string, year: number, month: number): Promise<{ items: PieceBatch[] }> {
-      return authed<{ items: PieceBatch[] }>(`/api/luong/khoan/batches?year=${year}&month=${month}`, token);
-    },
-    khoanSheet(token: string, year: number, month: number, group: string): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/sheet?year=${year}&month=${month}&group_name=${encodeURIComponent(group)}`, token);
-    },
-    openKhoanSheet(token: string, year: number, month: number, group: string): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/sheet?year=${year}&month=${month}&group_name=${encodeURIComponent(group)}`, token, { method: "POST" });
-    },
-    updateKhoanConfig(token: string, batchId: number, cfg: PieceBatchConfig): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/config`, token, { method: "PUT", body: JSON.stringify(cfg) });
-    },
-    addKhoanEntry(token: string, batchId: number, input: PieceEntryInput): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/entries`, token, { method: "POST", body: JSON.stringify(input) });
-    },
-    updateKhoanEntry(token: string, entryId: number, input: { quantity?: number; unit_price?: number; note?: string | null }): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/entries/${entryId}`, token, { method: "PUT", body: JSON.stringify(input) });
-    },
-    deleteKhoanEntry(token: string, entryId: number): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/entries/${entryId}`, token, { method: "DELETE" });
-    },
-    setKhoanShare(token: string, batchId: number, input: { employee_id: number; weight: number; note?: string | null }): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/shares`, token, { method: "POST", body: JSON.stringify(input) });
-    },
-    deleteKhoanShare(token: string, shareId: number): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/shares/${shareId}`, token, { method: "DELETE" });
-    },
-    khoanLockSheet(token: string, batchId: number): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/lock`, token, { method: "POST" });
-    },
-    khoanReopenSheet(token: string, batchId: number): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/reopen`, token, { method: "POST" });
-    },
-    khoanSyncOutputs(token: string, batchId: number): Promise<PieceSheet> {
-      return authed<PieceSheet>(`/api/luong/khoan/batches/${batchId}/sync-outputs`, token, { method: "POST" });
     },
   },
 

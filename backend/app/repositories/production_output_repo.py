@@ -1,4 +1,4 @@
-"""Phiếu sản lượng công đoạn (Pha 5b) — data access."""
+"""Phiếu sản lượng công đoạn — data access."""
 from __future__ import annotations
 
 from sqlalchemy import select
@@ -21,21 +21,12 @@ class ProductionOutputRepository:
             .order_by(ProductionOutput.cong_doan, ProductionOutput.id)
         ).scalars())
 
-    def list_by_month_group(self, year: int, month: int, group_name: str) -> list[ProductionOutput]:
-        """Phiếu theo TỔ của 1 kỳ+tổ — nguồn materialize vào sổ khoán."""
+    def list_nguoi_by_period(self, year: int, month: int) -> list[ProductionOutput]:
+        """Phiếu theo NGƯỜI của 1 kỳ — nguồn tiền khoán cộng thẳng vào cột `khoan` bảng lương."""
         return list(self.db.execute(
             select(ProductionOutput).where(
                 ProductionOutput.year == year, ProductionOutput.month == month,
-                ProductionOutput.group_name == group_name, ProductionOutput.ghi_theo == "to",
-            ).order_by(ProductionOutput.id)
-        ).scalars())
-
-    def list_nguoi_by_month_group(self, year: int, month: int, group_name: str) -> list[ProductionOutput]:
-        """Phiếu theo NGƯỜI của 1 kỳ+tổ (5b-2) — cộng thẳng vào lương, gate bởi khóa sổ tổ."""
-        return list(self.db.execute(
-            select(ProductionOutput).where(
-                ProductionOutput.year == year, ProductionOutput.month == month,
-                ProductionOutput.group_name == group_name, ProductionOutput.ghi_theo == "nguoi",
+                ProductionOutput.ghi_theo == "nguoi",
             ).order_by(ProductionOutput.id)
         ).scalars())
 

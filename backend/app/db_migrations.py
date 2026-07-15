@@ -1418,6 +1418,21 @@ def _migrate_phieu_san_luong_5b2(db: Session) -> None:
     db.commit()
 
 
+def _migrate_drop_piece_batches_khoan_theo_nguoi(db: Session) -> None:
+    """Bỏ tầng "sổ khoán": DROP piece_batches + entries + shares. Lương khoán giờ = Phiếu sản lượng
+    THEO NGƯỜI cộng thẳng vào cột `khoan` (không quỹ/hệ số/chốt sổ). Đổi công đoạn khoán 'theo tổ'
+    → 'theo người'. No-op trên DB fresh (models đã bỏ 3 bảng → create_all không dựng)."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    # DROP con trước (FK → piece_batches) rồi tới bảng cha.
+    for t in ("piece_batch_entries", "piece_batch_shares", "piece_batches"):
+        if t in tables:
+            db.execute(text(f"DROP TABLE {t}"))
+    if "cong_doan" in tables and "khoan_ghi_theo" in _existing_columns(insp, "cong_doan"):
+        db.execute(text("UPDATE cong_doan SET khoan_ghi_theo = 'nguoi' WHERE khoan_ghi_theo = 'to'"))
+    db.commit()
+
+
 def _migrate_order_line_cost_snapshot(db: Session) -> None:
     """A2 (đơn đặc thù): thêm cột `order_lines.cost_snapshot` (giá vốn TỔNG dòng, VND) để soi biên
     lợi nhuận. Đơn cũ = NULL → bỏ qua soi biên. No-op trên DB fresh / bảng chưa có.
@@ -1647,7 +1662,7 @@ def _migrate_attendance_line_special_day(db: Session) -> None:
 
 def _migrate_order_redesign_fields(db: Session) -> None:
     """Redesign Đơn hàng bán (P1, redesign-don-hang-ban.md): thêm cột mới vào `orders`
-    (nguồn/bản chất/đặt hàng/duyệt/chốt/seam hủy+bản in+sản xuất). Chỉ ADD COLUMN với default
+    (nguồn/bản chất/đặt hàng/duyệt/chốt/hủy). Chỉ ADD COLUMN với default
     an toàn (đơn cũ giữ nghĩa: source_type='bao_gia', order_nature='hang_hoa', approval_state='none').
     Bảng cọc `order_deposits`(+attachments) là bảng MỚI → create_all tự tạo, không ALTER ở đây.
     No-op trên DB fresh / bảng chưa có."""
@@ -1669,16 +1684,9 @@ def _migrate_order_redesign_fields(db: Session) -> None:
         ("approval_state", "VARCHAR(16) NOT NULL DEFAULT 'none'"),
         ("ordered_at", "TIMESTAMP WITH TIME ZONE"),
         ("ordered_by", "INTEGER"),
-        ("proof_required", "BOOLEAN NOT NULL DEFAULT FALSE"),
-        ("proof_approved_at", "TIMESTAMP WITH TIME ZONE"),
-        ("proof_by", "INTEGER"),
-        ("proof_attachment_id", "INTEGER"),
-        ("production_stage", "VARCHAR(20) NOT NULL DEFAULT 'none'"),
         ("cancel_by", "INTEGER"),
         ("cancel_at", "TIMESTAMP WITH TIME ZONE"),
         ("cancel_fault", "VARCHAR(16)"),
-        ("cancel_stage_snapshot", "VARCHAR(20)"),
-        ("deposit_disposition", "VARCHAR(24) NOT NULL DEFAULT 'none'"),
     ]
     for name, ddl in order_cols:
         if name not in cols:
@@ -1767,6 +1775,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0065_attendance_line_special_day", _migrate_attendance_line_special_day),
     ("0066_order_redesign_fields", _migrate_order_redesign_fields),
     ("0067_role_permission_record_deposit", _migrate_role_permission_record_deposit),
+    ("0068_drop_piece_batches_khoan_theo_nguoi", _migrate_drop_piece_batches_khoan_theo_nguoi),
 ]
 
 

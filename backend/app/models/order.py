@@ -13,8 +13,8 @@ P1 redesign (2026-07-15) — quyết định đã khóa (xem docs/redesign-don-h
   - **Trạng thái active:** draft → ordered → cancelled. (`on_hold`/`change_order` dormant.)
   - **order_nature** {hang_hoa, gia_cong} thay cờ `has_customer_paper` (2 gốc thuế).
   - **Duyệt tại đơn** cho nguồn không-qua-báo-giá qua `approval_state` + `order_approvals`.
-  - **Seam:** duyệt bản in (`proof_*`, thao tác ở Sản xuất) · `production_stage` (read-only từ SX) ·
-    hủy (`cancel_*` + `deposit_disposition`, cọc không xóa — chỉ đổi cờ chờ xử).
+  - **Hủy:** `cancel_*` (lý do + lỗi tại ai) — cọc KHÔNG xóa; "còn cọc chưa quyết toán" SUY RA từ
+    data (đơn hủy + Σ cọc đã nhận > 0). Duyệt bản in + tiến độ SX là luồng NGOÀI hệ thống (bỏ field).
 """
 from __future__ import annotations
 
@@ -84,30 +84,10 @@ APPROVAL_STATES = (
 COST_BASIS_QUOTE = "quote"          # từ báo giá (có giá vốn)
 COST_BASIS_NONE = "none"            # nhập tay không giá vốn → biên "không xác định"
 
-# --- production_stage (seam read-only từ Sản xuất) -----------------------------
-PROD_STAGE_NONE = "none"
-PROD_STAGE_PLATE_MADE = "plate_made"
-PROD_STAGE_MATERIAL_BOUGHT = "material_bought"
-PROD_STAGE_PRINTING = "printing"
-PROD_STAGE_PRINTED = "printed"
-PRODUCTION_STAGES = (
-    PROD_STAGE_NONE,
-    PROD_STAGE_PLATE_MADE,
-    PROD_STAGE_MATERIAL_BOUGHT,
-    PROD_STAGE_PRINTING,
-    PROD_STAGE_PRINTED,
-)
-
 # --- cancel_fault --------------------------------------------------------------
 FAULT_KHACH = "khach"
 FAULT_XUONG = "xuong"
 CANCEL_FAULTS = (FAULT_KHACH, FAULT_XUONG)
-
-# --- deposit_disposition (khi hủy — cờ chờ phân hệ hoàn cọc xử) -----------------
-DISPOSITION_NONE = "none"
-DISPOSITION_PENDING = "pending_settlement"
-DISPOSITION_SETTLED = "settled"
-DEPOSIT_DISPOSITIONS = (DISPOSITION_NONE, DISPOSITION_PENDING, DISPOSITION_SETTLED)
 
 
 def _utcnow() -> datetime:
@@ -173,26 +153,12 @@ class Order(Base):
         Integer, ForeignKey("users.id"), nullable=True
     )
 
-    # --- Seam duyệt bản in (P5) — thao tác ở Sản xuất, module chỉ đặt field ------
-    proof_required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    proof_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    proof_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
-    proof_attachment_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-
-    # --- Seam Sản xuất (read-only từ SX) ----------------------------------------
-    production_stage: Mapped[str] = mapped_column(String(20), nullable=False, default=PROD_STAGE_NONE)
-
     # --- Hủy (P5) ---------------------------------------------------------------
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     cancelled_at_state: Mapped[str | None] = mapped_column(String(16), nullable=True)  # dormant
     cancel_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     cancel_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     cancel_fault: Mapped[str | None] = mapped_column(String(16), nullable=True)  # khach/xuong
-    cancel_stage_snapshot: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    # Cờ chờ phân hệ hoàn cọc xử (cọc KHÔNG xóa khi hủy).
-    deposit_disposition: Mapped[str] = mapped_column(
-        String(24), nullable=False, default=DISPOSITION_NONE
-    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
