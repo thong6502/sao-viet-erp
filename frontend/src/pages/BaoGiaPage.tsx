@@ -206,10 +206,6 @@ export function BaoGiaPage({
       <header className="bg__head">
         <p className="eyebrow">Kinh doanh</p>
         <h1 className="bg__title">Báo giá thương mại</h1>
-        <p className="bg__sub">
-          Quản lý báo giá chuyên nghiệp theo mô hình Header-Version-Item (H-V-I). Hỗ trợ nhiều mức số lượng độc lập, 
-          lịch sử phiên bản đông cứng, bảo mật giá vốn nội bộ và tự động bàn giao sang Đơn hàng bán.
-        </p>
       </header>
 
       <div className="bg__toolbar">

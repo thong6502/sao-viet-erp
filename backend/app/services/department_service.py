@@ -214,24 +214,31 @@ class DepartmentService:
         }
 
     def members_of_department(self, department_id: int) -> list[dict]:
-        """Staff in a department with their role name, active status, and head flag (PBI-4001)."""
+        """NHÂN SỰ của một phòng — liệt kê theo HỒ SƠ, không phải theo tài khoản (Đ2:
+        "ai thuộc phòng nào" bám hồ sơ). Kèm thông tin tài khoản nếu có: mọi tài khoản đều
+        thuộc một hồ sơ, nhưng hồ sơ thì CÓ THỂ chưa có tài khoản (công nhân xưởng không
+        cần đăng nhập) — những người đó trước đây bị màn Phòng ban bỏ sót."""
         dept = self.departments.get_by_id(department_id)
         head_id = dept.head_user_id if dept is not None else None
         members: list[dict] = []
-        for user in self.users.list_by_department(department_id):
+        for emp in self.employees.list_by_department(department_id):
+            user = self.users.get_by_id(emp.user_id) if emp.user_id is not None else None
             role_name = None
-            if user.role_id is not None:
+            if user is not None and user.role_id is not None:
                 role = self.roles.get_by_id(user.role_id)
                 role_name = role.name if role is not None else None
             members.append(
                 {
-                    "id": user.id,
-                    "code": user.code,
-                    "name": user.name,
-                    "username": user.username,
+                    "employee_id": emp.id,
+                    "code": emp.code,
+                    "name": emp.full_name,
+                    "position": emp.position,
+                    "status": emp.status,
+                    "user_id": user.id if user is not None else None,
+                    "username": user.username if user is not None else None,
                     "role_name": role_name,
-                    "is_active": user.is_active,
-                    "is_head": user.id == head_id,
+                    "is_active": user.is_active if user is not None else None,
+                    "is_head": user is not None and user.id == head_id,
                 }
             )
         return members

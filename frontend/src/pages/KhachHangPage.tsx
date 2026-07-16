@@ -1438,10 +1438,6 @@ function ObjectHeader({
   // // Gauge uy tín thanh toán: chỉ khi Công nợ sẵn sàng; nếu không → seam trung thực.
   // const usage = rec.available && rec.usage_pct != null ? rec.usage_pct : null;
 
-  const tel = customer.phone ? `tel:${customer.phone}` : undefined;
-  const mail = customer.email ? `mailto:${customer.email}` : undefined;
-  const zalo = customer.phone ? `https://zalo.me/${customer.phone.replace(/\D/g, "")}` : undefined;
-
   return (
     <header className="kh__so-head">
       <div className="kh__so-headmain">
@@ -1465,43 +1461,6 @@ function ObjectHeader({
             <strong>Liên hệ:</strong> {customer.contact_name ?? "—"} {customer.phone ? `· ${customer.phone}` : ""} &middot; <strong>NV phụ trách:</strong> {customer.sale_name ?? "Chưa gán"}
           </p>
         </div>
-      </div>
-
-      <div className="kh__toolbar-actions" role="toolbar" aria-label="Hành động">
-        <a className={`btn btn--accent${tel ? "" : " is-disabled"}`} href={tel} aria-disabled={!tel}>
-          <Phone size={15} strokeWidth={2} /> Gọi
-        </a>
-        <a className={`btn kh__btn-dark${mail ? "" : " is-disabled"}`} href={mail} aria-disabled={!mail}>
-          <Mail size={15} strokeWidth={2} /> Email
-        </a>
-        <a
-          className={`btn kh__btn-dark${zalo ? "" : " is-disabled"}`}
-          href={zalo}
-          target="_blank"
-          rel="noreferrer"
-          aria-disabled={!zalo}
-        >
-          <MessageCircle size={15} strokeWidth={2} /> Zalo
-        </a>
-        <button
-          type="button"
-          className="btn kh__btn-dark"
-          title={`Mở màn Báo giá và ghim khách ${customer.name} (${customer.code})`}
-          onClick={() => {
-            onClose();
-            navigate("bao-gia", { customer: pinOf(customer) });
-          }}
-        >
-          <FileText size={15} strokeWidth={2} /> Tạo báo giá
-        </button>
-        <button
-          type="button"
-          className="btn kh__btn-dark"
-          title="Mở tab Chăm sóc để tạo lịch hẹn follow-up"
-          onClick={onSchedule}
-        >
-          <CalendarClock size={15} strokeWidth={2} /> Lịch hẹn
-        </button>
       </div>
     </header>
   );

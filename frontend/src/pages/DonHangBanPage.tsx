@@ -13,7 +13,9 @@ import {
   type OrderLineInput,
   type OrderRow,
   type OrderStatsOut,
+  type ProductionOrderRow,
 } from "../api/client";
+import "./don-hang-ban.css";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
 
@@ -62,29 +64,17 @@ const TABS: TabDef[] = [
 ];
 
 function Chip({ icon, label, tone }: { icon: IconName; label: string; tone: "warn" | "muted" | "info" }) {
-  const c =
-    tone === "warn"
-      ? { bg: "#fff3e0", fg: "#b4681f" }
-      : tone === "info"
-      ? { bg: "#e7f0fb", fg: "#2b6cb0" }
-      : { bg: "#eef1f6", fg: "#5a6a7d" };
   return (
-    <span
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 4, padding: "1px 7px",
-        borderRadius: 999, background: c.bg, color: c.fg, fontSize: 11, fontWeight: 600,
-        whiteSpace: "nowrap",
-      }}
-    >
+    <span className={`dhb__chip tone--${tone}`}>
       <Icon name={icon} size={12} /> {label}
     </span>
   );
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const m = STATUS_META[status] ?? { label: status, bg: "#eef1f6", fg: "#48566a" };
+  const m = STATUS_META[status] ?? { label: status };
   return (
-    <span style={{ padding: "2px 9px", borderRadius: 999, background: m.bg, color: m.fg, fontSize: 12, fontWeight: 600 }}>
+    <span className={`dhb__status-badge status--${status}`}>
       {m.label}
     </span>
   );
@@ -92,7 +82,7 @@ function StatusBadge({ status }: { status: string }) {
 
 function RowFlags({ o }: { o: OrderRow }) {
   return (
-    <span style={{ display: "inline-flex", gap: 4, flexWrap: "wrap" }}>
+    <span className="dhb__flags">
       {o.needs_approval && o.approval_state !== "approved" && (
         <Chip icon="clock" label="Chờ duyệt" tone="warn" />
       )}
@@ -161,51 +151,55 @@ export function DonHangBanPage({ navigate }: Props) {
   }
 
   return (
-    <main style={{ padding: "28px 32px", maxWidth: 1180 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-        <div>
+    <main className="dhb-container">
+      <header className="dhb__header">
+        <div className="dhb__title-group">
           <p className="eyebrow">Kinh doanh</p>
-          <h1 style={{ margin: "4px 0 0" }}>Đơn hàng bán</h1>
+          <h1 className="dhb__title">Đơn hàng bán</h1>
         </div>
         {canCreate && (
           <button className="btn btn--primary" onClick={() => setCreating(true)}>
             <Icon name="plus" size={16} /> Tạo đơn
           </button>
         )}
-      </div>
+      </header>
 
       {/* Tabs + tìm */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "18px 0 10px", flexWrap: "wrap" }}>
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              padding: "6px 13px", borderRadius: 999, border: "1px solid",
-              borderColor: tab === t.id ? "#2b3a4d" : "#d7dee7",
-              background: tab === t.id ? "#2b3a4d" : "#fff",
-              color: tab === t.id ? "#fff" : "#48566a", fontSize: 13, fontWeight: 600, cursor: "pointer",
-            }}
-          >
-            {t.label}{t.countKey && stats ? ` · ${stats[t.countKey]}` : ""}
-          </button>
-        ))}
-        <div style={{ flex: 1 }} />
-        <select value={viewScope} onChange={(e) => setViewScope(e.target.value)} title="Phạm vi dữ liệu"
-          style={{ padding: "7px 10px", borderRadius: 8, border: "1px solid #d7dee7", fontSize: 13, color: "#48566a" }}>
+      <div className="dhb__toolbar">
+        <div className="dhb__tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`dhb__tab ${tab === t.id ? "is-active" : ""}`}
+            >
+              {t.label}
+              {t.countKey && stats && stats[t.countKey] !== undefined && (
+                <span className="dhb__tab-count">{stats[t.countKey]}</span>
+              )}
+            </button>
+          ))}
+        </div>
+        <div className="dhb__spacer" />
+        <select
+          value={viewScope}
+          onChange={(e) => setViewScope(e.target.value)}
+          title="Phạm vi dữ liệu"
+          className="dhb__select"
+        >
           <option value="">Phạm vi</option>
           <option value="own">Của tôi</option>
           <option value="department">Cả phòng</option>
           <option value="all">Tất cả</option>
         </select>
-        <div style={{ position: "relative" }}>
+        <div className="dhb__search-wrapper">
           <input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Tìm mã / khách / PO…"
-            style={{ padding: "7px 12px 7px 32px", borderRadius: 8, border: "1px solid #d7dee7", fontSize: 13, minWidth: 240 }}
+            className="dhb__search-input"
           />
-          <span style={{ position: "absolute", left: 10, top: 8, color: "#8a97a8" }}>
+          <span className="dhb__search-icon">
             <Icon name="search" size={15} />
           </span>
         </div>
@@ -214,59 +208,73 @@ export function DonHangBanPage({ navigate }: Props) {
       {err && <div className="banner banner--error" role="alert">{err}</div>}
 
       {/* Bảng */}
-      <div style={{ border: "1px solid #e6ebf1", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+      <div className="dhb__tablewrap">
+        <table className="dhb__table">
           <thead>
-            <tr style={{ background: "#f7f9fc", textAlign: "left", color: "#5a6a7d" }}>
-              <th style={th}>Mã đơn</th>
-              <th style={th}>Khách hàng</th>
-              <th style={th}>Nguồn</th>
-              <th style={{ ...th, textAlign: "right" }}>Giá trị</th>
-              <th style={th}>Cọc</th>
-              <th style={th}>Ngày giao</th>
-              <th style={th}>NV</th>
-              <th style={th}>Trạng thái</th>
+            <tr>
+              <th>Mã đơn</th>
+              <th>Khách hàng</th>
+              <th>Nguồn</th>
+              <th className="dhb__text-right">Giá trị</th>
+              <th>Cọc</th>
+              <th>Ngày giao</th>
+              <th>NV</th>
+              <th>Trạng thái</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={8} style={{ padding: 24, textAlign: "center", color: "#8a97a8" }}>Đang tải…</td></tr>
+              <tr>
+                <td colSpan={8} className="text-center" style={{ padding: 24, color: "var(--ash)" }}>
+                  Đang tải…
+                </td>
+              </tr>
             )}
             {!loading && rows.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: 24, textAlign: "center", color: "#8a97a8" }}>Chưa có đơn hàng.</td></tr>
+              <tr>
+                <td colSpan={8} className="text-center" style={{ padding: 24, color: "var(--ash)" }}>
+                  Chưa có đơn hàng.
+                </td>
+              </tr>
             )}
             {!loading &&
               rows.map((o) => (
                 <tr
                   key={o.id}
                   onClick={() => openDetail(o.id)}
-                  style={{ borderTop: "1px solid #eef1f6", cursor: "pointer" }}
+                  className="dhb__row"
                 >
-                  <td style={td}>
-                    <strong>{o.order_no}</strong>
-                    <div style={{ marginTop: 3 }}><RowFlags o={o} /></div>
+                  <td>
+                    <span className="dhb__order-code">{o.order_no}</span>
+                    <div style={{ marginTop: 4 }}>
+                      <RowFlags o={o} />
+                    </div>
                   </td>
-                  <td style={td}>{o.customer_name ?? "—"}</td>
-                  <td style={td}>
+                  <td>{o.customer_name ?? "—"}</td>
+                  <td>
                     {o.source_type === "bao_gia" ? (
-                      <span style={{ color: "#2b6cb0" }}>{o.quotation_code ?? "—"}</span>
+                      <span className="dhb__order-source-bg">{o.quotation_code ?? "—"}</span>
                     ) : (
-                      "Nhập tay"
+                      <span className="dhb__order-source-manual">Nhập tay</span>
                     )}
                   </td>
-                  <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                  <td className="dhb__mono dhb__text-right">
                     {vnd(o.total_with_vat)}
                   </td>
-                  <td style={td}><DepositBar o={o} /></td>
-                  <td style={td}>{fmtDate(o.delivery_committed_date)}</td>
-                  <td style={td}>{o.sale_name ?? "—"}</td>
-                  <td style={td}><StatusBadge status={o.status} /></td>
+                  <td>
+                    <DepositBar o={o} />
+                  </td>
+                  <td className="dhb__mono">{fmtDate(o.delivery_committed_date)}</td>
+                  <td>{o.sale_name ?? "—"}</td>
+                  <td>
+                    <StatusBadge status={o.status} />
+                  </td>
                 </tr>
               ))}
           </tbody>
         </table>
       </div>
-      <p style={{ color: "#8a97a8", fontSize: 12, marginTop: 8 }}>{total} đơn</p>
+      <p style={{ color: "var(--ash)", fontSize: 12, marginTop: 8 }}>{total} đơn</p>
 
       {selected && (
         <OrderDrawer
@@ -298,27 +306,30 @@ export function DonHangBanPage({ navigate }: Props) {
   );
 }
 
-const th: React.CSSProperties = { padding: "10px 14px", fontWeight: 600, fontSize: 12 };
-const td: React.CSSProperties = { padding: "11px 14px", verticalAlign: "top" };
-
 function DepositBar({ o }: { o: OrderRow }) {
   if (!o.deposit_required)
-    return <span style={{ color: "#8a97a8", fontSize: 12 }}>—</span>;
+    return <span className="dhb__mono" style={{ color: "var(--ash)" }}>—</span>;
   const pct = Math.min(100, Math.round((o.deposit_received / o.deposit_required) * 100));
   return (
-    <div style={{ minWidth: 120 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#5a6a7d", marginBottom: 2 }}>
+    <div className="dhb__deposit-container">
+      <div className="dhb__deposit-header">
         <span>{vnd(o.deposit_received)}</span>
         {o.deposit_ok ? (
-          <span style={{ color: "#1f8a52", display: "inline-flex", gap: 2, alignItems: "center" }}>
+          <span className="dhb__deposit-ok">
             <Icon name="check" size={11} /> đủ
           </span>
         ) : (
           <span>/ {vnd(o.deposit_required)}</span>
         )}
       </div>
-      <div style={{ height: 5, borderRadius: 3, background: "#eef1f6", overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: o.deposit_ok ? "#1f8a52" : "#e0a92b" }} />
+      <div className="dhb__deposit-progress-bg">
+        <div
+          className="dhb__deposit-progress-bar"
+          style={{
+            width: `${pct}%`,
+            background: o.deposit_ok ? "var(--moss)" : "var(--amber)",
+          }}
+        />
       </div>
     </div>
   );
@@ -352,199 +363,404 @@ function OrderDrawer({
   async function upDepProof(did: number, f: File) { if (token) onSaved(await api.orders.uploadDepositProof(token, order.id, did, f)); }
   async function delDepProof(did: number, aid: number) { if (token) onSaved(await api.orders.deleteDepositProof(token, order.id, did, aid)); }
   const [acts, setActs] = useState<{ at: string; actor_name: string | null; action: string; detail: string }[]>([]);
+  const [prodOrders, setProdOrders] = useState<ProductionOrderRow[]>([]);
   const isDraft = order.status === "draft";
+  const [drawerTab, setDrawerTab] = useState<"overview" | "commercial" | "history">("overview");
+
+  const isChotDone = order.status === "ordered" || order.ordered_at != null;
+  const isCocDone = order.deposit_ok;
+  const isSxDone = prodOrders.length > 0 && prodOrders.every((x) => x.status === "done");
+  const isSxActive = prodOrders.length > 0 && !isSxDone && prodOrders.some((x) => x.status === "open");
+
+  const chotDate = order.ordered_at ? fmtDate(order.ordered_at) : (order.created_at ? fmtDate(order.created_at) : "—");
+  const cocText = isCocDone ? "đủ" : "chờ cọc";
+  const sxText = isSxDone ? "hoàn thành" : (isSxActive ? "đang làm" : "—");
+
+  const [activeStep, setActiveStep] = useState<"chot" | "coc" | "sx" | "giao" | "hoadon">("coc");
 
   useEffect(() => {
     if (token) api.orders.activity(token, order.id).then((r) => setActs(r.items)).catch(() => {});
   }, [token, order.id]);
 
+  useEffect(() => {
+    const defaultStep = !isChotDone ? "chot" : (!isCocDone ? "coc" : (isSxDone ? "giao" : "sx"));
+    setActiveStep(defaultStep);
+  }, [order.id, isChotDone, isCocDone, isSxDone]);
+
+  useEffect(() => {
+    if (token && order.id) {
+      api.production.listOrders(token, { size: 100 })
+        .then((res) => {
+          setProdOrders(res.items.filter((x) => x.order_id === order.id));
+        })
+        .catch((e) => console.error(e));
+    }
+  }, [token, order.id]);
+
   return (
     <div
       onClick={onClose}
-      style={{ position: "fixed", inset: 0, background: "rgba(20,28,38,.32)", zIndex: 50, display: "flex", justifyContent: "flex-end" }}
+      className="dhb__drawer-overlay"
     >
       <aside
         onClick={(e) => e.stopPropagation()}
-        style={{ width: 560, maxWidth: "94vw", height: "100%", background: "#fff", overflowY: "auto", boxShadow: "-8px 0 24px rgba(0,0,0,.12)" }}
+        className="dhb__drawer-content"
       >
-        <header style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 22px", borderBottom: "1px solid #eef1f6", position: "sticky", top: 0, background: "#fff", zIndex: 1 }}>
-          <h2 style={{ margin: 0, fontSize: 20 }}>{order.order_no}</h2>
+        <header className="dhb__drawer-header">
+          <h2 className="dhb__drawer-title">{order.order_no}</h2>
           <StatusBadge status={order.status} />
+          {order.source_type === "bao_gia" && order.quotation_code && (
+            <Chip icon="fileText" label={order.quotation_code} tone="muted" />
+          )}
           <RowFlags o={order} />
           <div style={{ flex: 1 }} />
           {isDraft && canUpdate && !editing && (
-            <button className="btn" onClick={() => setEditing(true)}><Icon name="pencil" size={14} /> Sửa</button>
+            <button className="btn btn--secondary" style={{ height: 32 }} onClick={() => setEditing(true)}><Icon name="pencil" size={14} /> Sửa</button>
           )}
           {canCancel && (
-            <button className="btn" onClick={() => setCancelling(true)}><Icon name="ban" size={14} /> Hủy</button>
+            <button className="btn btn--secondary" style={{ height: 32 }} onClick={() => setCancelling(true)}><Icon name="ban" size={14} /> Hủy</button>
           )}
-          <button className="btn btn--ghost" onClick={onClose} aria-label="Đóng"><Icon name="x" size={16} /></button>
+          <button className="btn btn--ghost" style={{ height: 32 }} onClick={onClose} aria-label="Đóng"><Icon name="x" size={16} /></button>
         </header>
 
-        <div style={{ padding: "18px 22px", display: "grid", gap: 22 }}>
-          {/* ① Thông tin chung */}
-          <Section title="Thông tin chung">
-            <KV k="Nguồn" v={order.source_type === "bao_gia" ? "Từ báo giá" : "Nhập giá tay"} />
-            <KV k="Loại" v={order.order_kind === "bo_sung" ? "Đơn bổ sung" : "Đơn mới"} />
-            <KV k="Bản chất" v={order.order_nature === "gia_cong" ? "Gia công" : "Hàng hóa"} />
-            <KV k="NV phụ trách" v={order.sale_name ?? "—"} />
-            <KV k="Ngày tạo" v={fmtDate(order.created_at)} />
-            {order.ordered_at && <KV k="Ngày chốt" v={fmtDate(order.ordered_at)} />}
-          </Section>
+        <div className="dhb__drawer-tabs">
+          <button
+            onClick={() => setDrawerTab("overview")}
+            className={`dhb__drawer-tab ${drawerTab === "overview" ? "is-active" : ""}`}
+          >
+            <Icon name="grid" size={13} /> Tổng quan & Vòng đời
+          </button>
+          <button
+            onClick={() => setDrawerTab("commercial")}
+            className={`dhb__drawer-tab ${drawerTab === "commercial" ? "is-active" : ""}`}
+          >
+            <Icon name="cart" size={13} /> Thương mại
+          </button>
+          <button
+            onClick={() => setDrawerTab("history")}
+            className={`dhb__drawer-tab ${drawerTab === "history" ? "is-active" : ""}`}
+          >
+            <Icon name="fileText" size={13} /> Đính kèm & Nhật ký
+          </button>
+        </div>
 
-          {/* ② Thương mại */}
-          <Section title="Thương mại (khóa)">
-            <KV k="Khách hàng" v={order.customer_name ?? "—"} />
-            {order.source_type === "bao_gia" && (
-              <KV
-                k="Báo giá"
-                v={
-                  <button
-                    className="link"
-                    style={{ color: "#2b6cb0", background: "none", border: 0, cursor: "pointer", padding: 0 }}
-                    onClick={() => navigate?.("bao-gia", { openQuoteId: order.quotation_id })}
+        <div className="dhb__drawer-body">
+          {drawerTab === "overview" && (
+            <>
+              {/* ① Thông tin đơn hàng */}
+              <Section title="Thông tin đơn hàng">
+                <div className="dhb__kv-grid">
+                  <KV k="Nguồn" v={order.source_type === "bao_gia" ? "Từ báo giá" : "Nhập giá tay"} />
+                  <KV k="Loại" v={order.order_kind === "bo_sung" ? "Đơn bổ sung" : "Đơn mới"} />
+                  <KV k="Bản chất" v={order.order_nature === "gia_cong" ? "Gia công" : "Hàng hóa"} />
+                  <KV k="NV phụ trách" v={order.sale_name ?? "—"} />
+                  <KV k="Ngày tạo" v={<span className="dhb__mono">{fmtDate(order.created_at)}</span>} />
+                  {order.ordered_at && <KV k="Ngày chốt" v={<span className="dhb__mono">{fmtDate(order.ordered_at)}</span>} />}
+                  {order.customer_po_no && <KV k="Số PO khách" v={<span className="dhb__mono">{order.customer_po_no}</span>} />}
+                  {order.delivery_committed_date && <KV k="Ngày giao cam kết" v={<span className="dhb__mono">{fmtDate(order.delivery_committed_date)}</span>} />}
+                  {order.delivery_address && <KV k="Địa chỉ giao" v={order.delivery_address} />}
+                  {order.invoice_entity_name && (
+                    <KV
+                      k="Pháp nhân xuất HĐ"
+                      v={`${order.invoice_entity_name}${order.invoice_entity_tax_code ? " · MST " + order.invoice_entity_tax_code : ""}`}
+                    />
+                  )}
+                  {order.deposit_pct != null && <KV k="% cọc (từ báo giá)" v={<span className="dhb__mono">{order.deposit_pct}%</span>} />}
+                </div>
+                {editing && (
+                  <div style={{ marginTop: 12 }}>
+                    <EditForm order={order} onCancel={() => setEditing(false)} onSaved={(d) => { setEditing(false); onSaved(d); }} />
+                  </div>
+                )}
+              </Section>
+ 
+              {/* Vòng đời đơn */}
+              <Section title="Vòng đời đơn">
+                <div className="dhb__lifecycle-header">
+                  <span className="dhb__lifecycle-subtitle">read-only · bấm chọn từng bước để xem chi tiết</span>
+                </div>
+                
+                {/* 1. Timeline */}
+                <div className="dhb__timeline">
+                  <div
+                    className={`dhb__timeline-step ${isChotDone ? "is-done" : ""} ${activeStep === "chot" ? "is-selected" : ""}`}
+                    onClick={() => setActiveStep("chot")}
                   >
-                    {order.quotation_code ?? "Báo giá"} · v{order.quotation_version} ↗
-                  </button>
-                }
-              />
-            )}
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginTop: 6 }}>
-              <thead>
-                <tr style={{ color: "#5a6a7d", textAlign: "left" }}>
-                  <th style={thS}>Mô tả</th>
-                  <th style={{ ...thS, textAlign: "right" }}>SL</th>
-                  <th style={{ ...thS, textAlign: "right" }}>Đơn giá</th>
-                  <th style={{ ...thS, textAlign: "right" }}>VAT</th>
-                  <th style={{ ...thS, textAlign: "right" }}>Thành tiền</th>
-                </tr>
-              </thead>
-              <tbody>
-                {order.lines.map((l) => (
-                  <tr key={l.id} style={{ borderTop: "1px solid #eef1f6" }}>
-                    <td style={tdS}>{l.description}</td>
-                    <td style={{ ...tdS, textAlign: "right" }}>{l.qty.toLocaleString("vi-VN")}</td>
-                    <td style={{ ...tdS, textAlign: "right" }}>{vnd(l.unit_price_snapshot)}</td>
-                    <td style={{ ...tdS, textAlign: "right" }}>{l.vat_pct_estimate}%</td>
-                    <td style={{ ...tdS, textAlign: "right" }}>{vnd(l.line_total)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <div style={{ marginTop: 8, display: "grid", gap: 3 }}>
-              <KV k="Cộng trước VAT" v={vnd(order.total)} right />
-              <KV k="Tổng gồm VAT" v={<strong>{vnd(order.total_with_vat)}</strong>} right />
-              {order.margin_pct != null ? (
-                <KV k="Biên lợi nhuận" v={`${order.margin_pct}% (giá vốn ${vnd(order.order_cost)})`} right />
-              ) : (
-                <KV k="Biên lợi nhuận" v={<em style={{ color: "#8a97a8" }}>không xác định (nhập tay)</em>} right />
-              )}
-            </div>
-          </Section>
-
-          {/* ③ Đặt hàng */}
-          <Section title="Thông tin đặt hàng">
-            {editing ? (
-              <EditForm order={order} onCancel={() => setEditing(false)} onSaved={(d) => { setEditing(false); onSaved(d); }} />
-            ) : (
-              <>
-                <KV k="Số PO khách" v={order.customer_po_no ?? "—"} />
-                <KV k="Ngày giao cam kết" v={fmtDate(order.delivery_committed_date)} />
-                <KV k="Địa chỉ giao" v={order.delivery_address ?? "—"} />
-                <KV k="Pháp nhân xuất HĐ" v={order.invoice_entity_name ? `${order.invoice_entity_name}${order.invoice_entity_tax_code ? " · MST " + order.invoice_entity_tax_code : ""}` : "— (mặc định = khách)"} />
-                <KV k="% cọc (ghim từ báo giá)" v={order.deposit_pct != null ? `${order.deposit_pct}%` : "—"} />
-              </>
-            )}
-          </Section>
-
-          {/* Chứng cứ khách đồng ý (cổng chốt §8d — bắt buộc với đơn nhập tay) */}
-          <Section title="Chứng cứ khách đồng ý">
-            {order.consent_attachments.length === 0 && !(isDraft && canUpdate) && (
-              <p style={{ color: "#8a97a8", fontSize: 13 }}>Chưa có.</p>
-            )}
-            <AttachmentList
-              items={order.consent_attachments}
-              canEdit={isDraft && canUpdate}
-              onUpload={upConsent}
-              onDelete={delConsent}
-              addLabel="Đính kèm chứng cứ (ảnh PO/Zalo…)"
-            />
-          </Section>
-
-          {/* ④ Cọc */}
-          <Section title="Cọc & thu tiền">
-            <KV k="Ngưỡng cần thu" v={vnd(order.deposit_required)} right />
-            <KV k="Đã thu" v={<strong>{vnd(order.deposit_received)}</strong>} right />
-            <div style={{ margin: "6px 0" }}><DepositBar o={order} /></div>
-            {order.deposits.length > 0 && (
-              <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
-                {order.deposits.map((d) => (
-                  <div key={d.id} style={{ background: "#f7f9fc", borderRadius: 8, padding: "7px 10px" }}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-                      <strong style={{ fontVariantNumeric: "tabular-nums" }}>{vnd(d.amount_received)}</strong>
-                      <span style={{ color: "#7a8698" }}>{DEPOSIT_KIND_LABELS[d.deposit_kind] ?? d.deposit_kind}</span>
-                      {d.deposit_kind === "ck" && d.reconciled && (
-                        <span style={{ color: "#1f8a52", display: "inline-flex", gap: 2, alignItems: "center" }}><Icon name="check" size={12} /> đối chiếu</span>
-                      )}
-                      {d.received_at && <span style={{ color: "#8a97a8" }}>{fmtDate(d.received_at)}</span>}
-                      <div style={{ flex: 1 }} />
-                      {d.recorded_by_name && <span style={{ color: "#8a97a8", fontSize: 12 }}>{d.recorded_by_name}</span>}
-                      {canRecordDeposit && isDraft && (
-                        <button className="btn btn--ghost" title="Xóa phiếu thu" onClick={() => removeDeposit(d.id)}><Icon name="trash" size={13} /></button>
-                      )}
+                    <div className="dhb__timeline-dot">
+                      {isChotDone ? <Icon name="check" size={12} /> : "1"}
                     </div>
-                    {(d.attachments.length > 0 || (canRecordDeposit && isDraft)) && (
-                      <div style={{ marginTop: 5 }}>
-                        <AttachmentList items={d.attachments} canEdit={canRecordDeposit && isDraft}
-                          onUpload={(f) => upDepProof(d.id, f)} onDelete={(aid) => delDepProof(d.id, aid)}
-                          addLabel="Đính kèm minh chứng" />
+                    <span className="dhb__timeline-label">Chốt</span>
+                    <span className="dhb__timeline-sub">{chotDate}</span>
+                  </div>
+                  <div
+                    className={`dhb__timeline-step ${isCocDone ? "is-done" : ""} ${activeStep === "coc" ? "is-selected" : ""}`}
+                    onClick={() => setActiveStep("coc")}
+                  >
+                    <div className="dhb__timeline-dot">
+                      {isCocDone ? <Icon name="check" size={12} /> : "2"}
+                    </div>
+                    <span className="dhb__timeline-label">Cọc</span>
+                    <span className="dhb__timeline-sub">{cocText}</span>
+                  </div>
+                  <div
+                    className={`dhb__timeline-step ${isSxDone ? "is-done" : (isSxActive ? "is-active" : "")} ${activeStep === "sx" ? "is-selected" : ""}`}
+                    onClick={() => setActiveStep("sx")}
+                  >
+                    <div className="dhb__timeline-dot">
+                      {isSxDone ? <Icon name="check" size={12} /> : (isSxActive ? <Icon name="clock" size={12} /> : "3")}
+                    </div>
+                    <span className="dhb__timeline-label">Sản xuất</span>
+                    <span className="dhb__timeline-sub">{sxText}</span>
+                  </div>
+                  <div
+                    className={`dhb__timeline-step ${activeStep === "giao" ? "is-selected" : ""}`}
+                    onClick={() => setActiveStep("giao")}
+                  >
+                    <div className="dhb__timeline-dot">4</div>
+                    <span className="dhb__timeline-label">Giao hàng</span>
+                    <span className="dhb__timeline-sub">—</span>
+                  </div>
+                  <div
+                    className={`dhb__timeline-step ${activeStep === "hoadon" ? "is-selected" : ""}`}
+                    onClick={() => setActiveStep("hoadon")}
+                  >
+                    <div className="dhb__timeline-dot">5</div>
+                    <span className="dhb__timeline-label">Hóa đơn</span>
+                    <span className="dhb__timeline-sub">—</span>
+                  </div>
+                </div>
+ 
+                {/* 2. Active Lifecycle Step Card */}
+                {activeStep === "chot" && (
+                  <div className="dhb__lifecycle-box">
+                    <div className="dhb__lifecycle-box-header">
+                      <h4 className="dhb__lifecycle-box-title">Chốt đơn hàng</h4>
+                      <span className={`dhb__lifecycle-badge ${isChotDone ? "dhb__lifecycle-badge--done" : "dhb__lifecycle-badge--active"}`}>
+                        {order.status === "draft" ? "BẢN NHÁP" : (order.status === "ordered" ? "ĐÃ CHỐT" : "ĐÃ HỦY")}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 4 }}>
+                      {isDraft ? (
+                        <ConfirmPanel order={order} canManage={canManageStatus} onSaved={onSaved} />
+                      ) : order.status === "ordered" ? (
+                        <>
+                          <KV k="Đã chốt lúc" v={<span className="dhb__mono">{fmtDate(order.ordered_at)}</span>} />
+                          <p style={{ color: "var(--ash)", fontSize: 12, margin: "6px 0 0" }}>Duyệt bản in + tiến độ sản xuất là luồng ngoài hệ thống.</p>
+                        </>
+                      ) : order.status === "cancelled" ? (
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <KV k="Lý do hủy" v={order.cancel_reason ?? "—"} />
+                          {order.cancel_fault && <KV k="Lỗi tại" v={order.cancel_fault === "khach" ? "Khách hàng" : "Xưởng in"} />}
+                          {order.deposit_received > 0 && (
+                            <KV k="Cọc" v={`Còn ${vnd(order.deposit_received)} chưa quyết toán — xử lý ngoài hệ thống`} />
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+ 
+                {activeStep === "coc" && (
+                  <div className="dhb__lifecycle-box">
+                    <div className="dhb__lifecycle-box-header">
+                      <h4 className="dhb__lifecycle-box-title">Cọc & thu tiền</h4>
+                      <span className={`dhb__lifecycle-badge ${isCocDone ? "dhb__lifecycle-badge--done" : "dhb__lifecycle-badge--active"}`}>
+                        {isCocDone ? "ĐỦ CỌC" : "CHỜ CỌC"}
+                      </span>
+                    </div>
+                    <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
+                      <KV k="Ngưỡng cần thu (30% ghim từ báo giá)" v={<span className="dhb__mono">{vnd(order.deposit_required)}</span>} right />
+                      <KV k="Đã thu" v={<strong className="dhb__mono" style={{ color: "var(--ink)" }}>{vnd(order.deposit_received)}</strong>} right />
+                    </div>
+                    <div style={{ margin: "4px 0" }}><DepositBar o={order} /></div>
+                    {order.deposits.length > 0 && (
+                      <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
+                        {order.deposits.map((d) => (
+                          <div key={d.id} style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-3)", padding: "8px 12px" }}>
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+                              <strong className="dhb__mono">{vnd(d.amount_received)}</strong>
+                              <span style={{ color: "var(--ash)" }}>{DEPOSIT_KIND_LABELS[d.deposit_kind] ?? d.deposit_kind}</span>
+                              {d.deposit_kind === "ck" && d.reconciled && (
+                                <span style={{ color: "var(--moss)", display: "inline-flex", gap: 2, alignItems: "center" }}><Icon name="check" size={12} /> đối chiếu</span>
+                              )}
+                              {d.received_at && <span style={{ color: "var(--ash-2)" }} className="dhb__mono">{fmtDate(d.received_at)}</span>}
+                              <div style={{ flex: 1 }} />
+                              {d.recorded_by_name && <span style={{ color: "var(--ash-2)", fontSize: 12 }}>{d.recorded_by_name}</span>}
+                              {canRecordDeposit && isDraft && (
+                                <button className="btn btn--ghost" style={{ height: 26, padding: "4px 8px" }} title="Xóa phiếu thu" onClick={() => removeDeposit(d.id)}><Icon name="trash" size={13} /></button>
+                              )}
+                            </div>
+                            {(d.attachments.length > 0 || (canRecordDeposit && isDraft)) && (
+                              <div style={{ marginTop: 6 }}>
+                                <AttachmentList items={d.attachments} canEdit={canRecordDeposit && isDraft}
+                                  onUpload={(f) => upDepProof(d.id, f)} onDelete={(aid) => delDepProof(d.id, aid)}
+                                  addLabel="Đính kèm minh chứng" />
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     )}
+                    {canRecordDeposit && isDraft && <DepositForm order={order} onSaved={onSaved} />}
+                    {!isDraft && <p style={{ color: "var(--ash)", fontSize: 12, marginTop: 4, margin: 0 }}>Đơn đã chốt — phiếu thu khóa.</p>}
                   </div>
-                ))}
-              </div>
-            )}
-            {canRecordDeposit && isDraft && <DepositForm order={order} onSaved={onSaved} />}
-            {!isDraft && <p style={{ color: "#8a97a8", fontSize: 12, marginTop: 6 }}>Đơn đã chốt — phiếu thu khóa.</p>}
-          </Section>
-
-          {/* ⑤ Duyệt (chỉ đơn cần duyệt: nhập tay / bổ sung tự đặt giá) */}
-          {order.needs_approval && (
-            <Section title="Duyệt đơn đặc thù">
-              <ApprovalPanel order={order} canApprove={canApproveException} onSaved={onSaved} />
-            </Section>
+                )}
+ 
+                {activeStep === "sx" && (
+                  <div className="dhb__lifecycle-box">
+                    <div className="dhb__lifecycle-box-header">
+                      <h4 className="dhb__lifecycle-box-title">Sản xuất</h4>
+                      {prodOrders.length > 0 ? (
+                        <>
+                          <span className={`dhb__lifecycle-badge ${isSxDone ? "dhb__lifecycle-badge--done" : "dhb__lifecycle-badge--active"}`}>
+                            {isSxDone ? "HOÀN THÀNH" : "ĐANG SẢN XUẤT"}
+                          </span>
+                          <button
+                            className="link dhb__mono"
+                            style={{ color: "var(--rust)", background: "none", border: 0, cursor: "pointer", padding: 0, fontWeight: 700 }}
+                            onClick={() => navigate?.("lenh-san-xuat")}
+                          >
+                            {prodOrders[0].code} ↗
+                          </button>
+                        </>
+                      ) : (
+                        <span className="dhb__lifecycle-badge dhb__lifecycle-badge--upcoming">CHƯA BẮT ĐẦU</span>
+                      )}
+                    </div>
+                    {prodOrders.length > 0 ? (
+                      <>
+                        <p className="dhb__lifecycle-desc" style={{ marginTop: 4 }}>
+                          Trạng thái lệnh sản xuất: <strong>{prodOrders[0].status === "done" ? "Hoàn thành" : (prodOrders[0].status === "cancelled" ? "Đã hủy" : "open (đang làm)")}</strong>
+                        </p>
+                        <p className="dhb__lifecycle-desc" style={{ opacity: 0.7, fontSize: 11, fontStyle: "italic" }}>
+                          Kéo từ Lệnh sản xuất qua liên kết đơn. Chỉ mức thô open / done / cancelled mà Sản xuất đang có — tiến độ theo công đoạn là P2, khi có sẽ tự hiện thêm.
+                        </p>
+                      </>
+                    ) : (
+                      <p className="dhb__lifecycle-desc">Đơn chưa lập Lệnh sản xuất (LSX).</p>
+                    )}
+                  </div>
+                )}
+ 
+                {activeStep === "giao" && (
+                  <div className="dhb__lifecycle-box dhb__lifecycle-box--dotted">
+                    <div className="dhb__lifecycle-box-header">
+                      <h4 className="dhb__lifecycle-box-title">Giao hàng</h4>
+                      <span className="dhb__lifecycle-badge dhb__lifecycle-badge--upcoming">SẮP CÓ - KẾ HOẠCH GIAO HÀNG</span>
+                    </div>
+                    <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
+                      <KV k="Ngày giao cam kết (đã có ở đơn)" v={<span className="dhb__mono">{fmtDate(order.delivery_committed_date)}</span>} />
+                    </div>
+                    <p className="dhb__lifecycle-desc" style={{ opacity: 0.7, fontSize: 11, fontStyle: "italic", marginTop: 4 }}>
+                      Khi có module sẽ hiện thực tế: Lịch giao thực | Đã giao _ / 1.000 | Biên bản giao (POD)
+                    </p>
+                  </div>
+                )}
+ 
+                {activeStep === "hoadon" && (
+                  <div className="dhb__lifecycle-box dhb__lifecycle-box--dotted">
+                    <div className="dhb__lifecycle-box-header">
+                      <h4 className="dhb__lifecycle-box-title">Hóa đơn & công nợ</h4>
+                      <span className="dhb__lifecycle-badge dhb__lifecycle-badge--upcoming">SẮP CÓ - HÓA ĐƠN/AR</span>
+                    </div>
+                    <p className="dhb__lifecycle-desc" style={{ opacity: 0.7, fontSize: 11, fontStyle: "italic" }}>
+                      Khi có module sẽ hiện: Số hóa đơn | Còn nợ = tổng – đã thu | Hạn công nợ
+                    </p>
+                  </div>
+                )}
+              </Section>
+ 
+              {/* ⑤ Duyệt (chỉ đơn cần duyệt) */}
+              {order.needs_approval && (
+                <Section title="Duyệt đơn đặc thù">
+                  <ApprovalPanel order={order} canApprove={canApproveException} onSaved={onSaved} />
+                </Section>
+              )}
+            </>
           )}
 
-          {/* Cổng chốt (khi nháp) / trạng thái sau chốt */}
-          {isDraft ? (
-            <Section title="Cổng chốt đơn">
-              <ConfirmPanel order={order} canManage={canManageStatus} onSaved={onSaved} />
-            </Section>
-          ) : order.status === "ordered" ? (
-            <Section title="Sau chốt">
-              <KV k="Đã chốt lúc" v={fmtDate(order.ordered_at)} />
-              <p style={{ color: "#8a97a8", fontSize: 12 }}>Duyệt bản in + tiến độ sản xuất là luồng ngoài hệ thống.</p>
-            </Section>
-          ) : order.status === "cancelled" ? (
-            <Section title="Đã hủy">
-              <KV k="Lý do" v={order.cancel_reason ?? "—"} />
-              {order.cancel_fault && <KV k="Lỗi tại" v={order.cancel_fault === "khach" ? "Khách hàng" : "Xưởng in"} />}
-              {order.deposit_received > 0 && (
-                <KV k="Cọc" v={`Còn ${vnd(order.deposit_received)} chưa quyết toán — xử lý ngoài hệ thống`} />
-              )}
-            </Section>
-          ) : null}
+          {drawerTab === "commercial" && (
+            <>
+              {/* ② Thương mại */}
+              <Section title="Thương mại (khóa)">
+                <KV k="Khách hàng" v={order.customer_name ?? "—"} />
+                {order.source_type === "bao_gia" && order.quotation_code && (
+                  <KV
+                    k="Báo giá"
+                    v={
+                      <button
+                        className="link dhb__mono"
+                        style={{ color: "var(--rust)", background: "none", border: 0, cursor: "pointer", padding: 0 }}
+                        onClick={() => navigate?.("bao-gia", { openQuoteId: order.quotation_id })}
+                      >
+                        {order.quotation_code} · v{order.quotation_version} ↗
+                      </button>
+                    }
+                  />
+                )}
+                <table className="dhb__comm-table">
+                  <thead>
+                    <tr>
+                      <th>Mô tả</th>
+                      <th className="dhb__text-right">SL</th>
+                      <th className="dhb__text-right">Đơn giá</th>
+                      <th className="dhb__text-right">VAT</th>
+                      <th className="dhb__text-right">Thành tiền</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {order.lines.map((l) => (
+                      <tr key={l.id}>
+                        <td>{l.description}</td>
+                        <td className="dhb__mono dhb__text-right">{l.qty.toLocaleString("vi-VN")}</td>
+                        <td className="dhb__mono dhb__text-right">{vnd(l.unit_price_snapshot)}</td>
+                        <td className="dhb__mono dhb__text-right">{l.vat_pct_estimate}%</td>
+                        <td className="dhb__mono dhb__text-right">{vnd(l.line_total)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="dhb__summary-box">
+                  <KV k="Cộng trước VAT" v={<span className="dhb__mono">{vnd(order.total)}</span>} right />
+                  <KV k="Tổng gồm VAT" v={<strong className="dhb__mono" style={{ color: "var(--ink)", fontSize: 14 }}>{vnd(order.total_with_vat)}</strong>} right />
+                  {order.margin_pct != null ? (
+                    <KV k="Biên lợi nhuận" v={<span className="dhb__mono">{order.margin_pct}% (giá vốn {vnd(order.order_cost)})</span>} right />
+                  ) : (
+                    <KV k="Biên lợi nhuận" v={<em style={{ color: "var(--ash)" }}>không xác định (nhập tay)</em>} right />
+                  )}
+                </div>
+              </Section>
+            </>
+          )}
 
-          {/* ⑥ Nhật ký */}
-          <Section title="Nhật ký hoạt động">
-            {acts.length === 0 && <p style={{ color: "#8a97a8", fontSize: 13 }}>Chưa có.</p>}
-            {acts.map((a, i) => (
-              <div key={i} style={{ display: "flex", gap: 8, fontSize: 13, padding: "5px 0", borderTop: i ? "1px solid #f2f5f9" : undefined }}>
-                <span style={{ color: "#8a97a8", minWidth: 88 }}>{new Date(a.at).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
-                <span><strong>{a.actor_name ?? "—"}</strong> · {a.detail || a.action}</span>
-              </div>
-            ))}
-          </Section>
+          {drawerTab === "history" && (
+            <>
+              {/* Chứng cứ khách đồng ý */}
+              <Section title="Chứng cứ khách đồng ý">
+                {order.consent_attachments.length === 0 && !(isDraft && canUpdate) && (
+                  <p style={{ color: "var(--ash)", fontSize: 13, margin: 0 }}>Chưa có.</p>
+                )}
+                <AttachmentList
+                  items={order.consent_attachments}
+                  canEdit={isDraft && canUpdate}
+                  onUpload={upConsent}
+                  onDelete={delConsent}
+                  addLabel="Đính kèm chứng cứ (ảnh PO/Zalo…)"
+                />
+              </Section>
+
+              {/* ⑥ Nhật ký */}
+              <Section title="Nhật ký hoạt động">
+                {acts.length === 0 && <p style={{ color: "var(--ash)", fontSize: 13, margin: 0 }}>Chưa có.</p>}
+                {acts.map((a, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, fontSize: 13, padding: "6px 0", borderTop: i ? "1px solid var(--rule-hair)" : undefined }}>
+                    <span className="dhb__mono" style={{ color: "var(--ash-2)", minWidth: 92 }}>{new Date(a.at).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}</span>
+                    <span><strong>{a.actor_name ?? "—"}</strong> · {a.detail || a.action}</span>
+                  </div>
+                ))}
+              </Section>
+            </>
+          )}
         </div>
         {cancelling && (
           <CancelDialog
@@ -580,17 +796,17 @@ function CancelDialog({ order, onClose, onSaved }: { order: OrderDetail; onClose
   }
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(20,28,38,.32)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 440, maxWidth: "92vw", background: "#fff", borderRadius: 14, padding: 22 }}>
-        <h3 style={{ margin: "0 0 4px", fontSize: 18 }}>Hủy đơn {order.order_no}</h3>
-        <p style={{ color: "#8a97a8", fontSize: 13, marginTop: 0 }}>
+    <div onClick={onClose} className="dhb__modal-overlay" style={{ zIndex: 70 }}>
+      <div onClick={(e) => e.stopPropagation()} className="dhb__modal-content" style={{ width: 440 }}>
+        <h3 className="dhb__modal-title" style={{ fontSize: 18 }}>Hủy đơn {order.order_no}</h3>
+        <p style={{ color: "var(--ash)", fontSize: 13, marginTop: 0, marginBottom: 12 }}>
           {isOrdered
             ? "Đơn đã chốt — báo giá KHÔNG mở lại; cọc giữ nguyên, hoàn/quyết toán xử lý ngoài hệ thống."
             : "Đơn nháp — hủy xong báo giá vẫn dùng lại được."}
         </p>
         {isOrdered && (
           <Field label="Lỗi tại ai">
-            <select value={fault} onChange={(e) => setFault(e.target.value)} style={inp}>
+            <select value={fault} onChange={(e) => setFault(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
               <option value="khach">Khách hàng</option>
               <option value="xuong">Xưởng in</option>
             </select>
@@ -609,23 +825,20 @@ function CancelDialog({ order, onClose, onSaved }: { order: OrderDetail; onClose
   );
 }
 
-const thS: React.CSSProperties = { padding: "6px 8px", fontWeight: 600, fontSize: 11 };
-const tdS: React.CSSProperties = { padding: "6px 8px" };
-
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section>
-      <h3 style={{ margin: "0 0 8px", fontSize: 13, textTransform: "uppercase", letterSpacing: ".04em", color: "#7a8698" }}>{title}</h3>
-      <div style={{ display: "grid", gap: 5 }}>{children}</div>
+    <section className="dhb__section">
+      <h3 className="dhb__section-title">{title}</h3>
+      <div style={{ display: "grid", gap: 6 }}>{children}</div>
     </section>
   );
 }
 
 function KV({ k, v, right }: { k: string; v: React.ReactNode; right?: boolean }) {
   return (
-    <div style={{ display: "flex", justifyContent: right ? "space-between" : undefined, gap: 10, fontSize: 13 }}>
-      <span style={{ color: "#7a8698", minWidth: right ? undefined : 150 }}>{k}</span>
-      <span style={{ color: "#2b3a4d" }}>{v}</span>
+    <div className="dhb__kv" style={{ justifyContent: right ? "space-between" : undefined }}>
+      <span className="dhb__kv-key" style={{ minWidth: right ? undefined : 150 }}>{k}</span>
+      <span className="dhb__kv-val">{v}</span>
     </div>
   );
 }
@@ -735,9 +948,9 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
   }
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(20,28,38,.32)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 520, maxWidth: "94vw", maxHeight: "90vh", overflowY: "auto", background: "#fff", borderRadius: 14, padding: 24 }}>
-        <h2 style={{ margin: "0 0 14px", fontSize: 19 }}>Tạo đơn hàng</h2>
+    <div onClick={onClose} className="dhb__modal-overlay">
+      <div onClick={(e) => e.stopPropagation()} className="dhb__modal-content" style={{ maxHeight: "90vh", overflowY: "auto" }}>
+        <h2 className="dhb__modal-title">Tạo đơn hàng</h2>
 
         <Field label="Nguồn đơn">
           <div style={{ display: "flex", gap: 8 }}>
@@ -745,7 +958,19 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
               <button
                 key={s.value}
                 onClick={() => setSource(s.value)}
-                style={{ flex: 1, padding: "8px", borderRadius: 8, border: "1px solid", borderColor: source === s.value ? "#2b3a4d" : "#d7dee7", background: source === s.value ? "#eef2f8" : "#fff", fontWeight: 600, fontSize: 13, cursor: "pointer" }}
+                style={{
+                  flex: 1,
+                  padding: "8px 12px",
+                  borderRadius: "var(--r-3)",
+                  border: "1px solid",
+                  borderColor: source === s.value ? "var(--charcoal)" : "var(--rule-soft)",
+                  background: source === s.value ? "var(--charcoal)" : "var(--canvas)",
+                  color: source === s.value ? "var(--on-charcoal)" : "var(--ash)",
+                  fontWeight: 600,
+                  fontSize: 13,
+                  cursor: "pointer",
+                  transition: "all var(--duration-fast) var(--easing-standard)",
+                }}
               >
                 {s.label}
               </button>
@@ -755,7 +980,7 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
 
         {source === "bao_gia" ? (
           <Field label="Báo giá đã duyệt (khách đồng ý)">
-            <select value={quotationId} onChange={(e) => setQuotationId(e.target.value)} style={inp}>
+            <select value={quotationId} onChange={(e) => setQuotationId(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
               <option value="">— Chọn báo giá —</option>
               {quotes.map((qu) => (
                 <option key={qu.id} value={qu.id}>{qu.code} · {qu.customer_name ?? ""}</option>
@@ -765,15 +990,15 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
         ) : (
           <>
             <Field label="Khách hàng">
-              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={inp}>
+              <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
                 <option value="">— Chọn khách —</option>
                 {custs.map((c) => (
                   <option key={c.id} value={c.id}>{c.name} ({c.code})</option>
                 ))}
               </select>
             </Field>
-            <div style={{ margin: "6px 0" }}>
-              <span style={{ fontSize: 12, color: "#7a8698" }}>Dòng hàng (nhập tay — không giá vốn, sẽ cần duyệt)</span>
+            <div style={{ margin: "10px 0" }}>
+              <span style={{ fontSize: 12, color: "var(--ash)", display: "block", marginBottom: 6 }}>Dòng hàng (nhập tay — không giá vốn, sẽ cần duyệt)</span>
               {lines.map((l, i) => (
                 <div key={i} style={{ display: "flex", gap: 6, marginTop: 6 }}>
                   <input placeholder="Mô tả" value={l.description} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} style={{ ...inp, flex: 2 }} />
@@ -781,7 +1006,7 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
                   <input type="number" placeholder="Đơn giá" value={l.unit_price ?? 0} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, unit_price: Number(e.target.value) } : x)))} style={{ ...inp, width: 100 }} />
                 </div>
               ))}
-              <button className="btn btn--ghost" style={{ marginTop: 6 }} onClick={() => setLines((ls) => [...ls, { description: "", qty: 1, unit_price: 0, vat_pct: 8 }])}>
+              <button className="btn btn--ghost" style={{ marginTop: 8, height: 28, padding: "4px 10px", fontSize: 12 }} onClick={() => setLines((ls) => [...ls, { description: "", qty: 1, unit_price: 0, vat_pct: 8 }])}>
                 <Icon name="plus" size={13} /> Thêm dòng
               </button>
             </div>
@@ -789,17 +1014,17 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
         )}
 
         <Field label="Bản chất">
-          <select value={nature} onChange={(e) => setNature(e.target.value)} style={inp}>
+          <select value={nature} onChange={(e) => setNature(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
             <option value="hang_hoa">Hàng hóa</option>
             <option value="gia_cong">Gia công (khách ứng giấy)</option>
           </select>
         </Field>
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginBottom: 8 }}>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginBottom: 12, cursor: "pointer", userSelect: "none" }}>
           <input type="checkbox" checked={isSupp} onChange={(e) => setIsSupp(e.target.checked)} /> Đơn bổ sung (in thêm — giữ kẽm cũ)
         </label>
         {isSupp && (
           <Field label="Đơn gốc (giữ kẽm)">
-            <select value={parentId} onChange={(e) => setParentId(e.target.value)} style={inp}>
+            <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
               <option value="">— Chọn đơn gốc đã chốt —</option>
               {parents.map((p) => (
                 <option key={p.id} value={p.id}>{p.order_no} · {p.customer_name ?? ""}</option>
@@ -810,7 +1035,7 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
         <Field label="Số PO khách (tùy chọn)"><input value={po} onChange={(e) => setPo(e.target.value)} style={inp} /></Field>
 
         {err && <div className="banner banner--error">{err}</div>}
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 14 }}>
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
           <button className="btn btn--ghost" onClick={onClose} disabled={saving}>Hủy</button>
           <button className="btn btn--primary" onClick={submit} disabled={saving}>{saving ? "Đang tạo…" : "Tạo đơn"}</button>
         </div>
@@ -1010,18 +1235,18 @@ function AttachmentList({
     try { await onUpload(f); } finally { setBusy(false); if (ref.current) ref.current.value = ""; }
   }
   return (
-    <div style={{ display: "grid", gap: 4 }}>
+    <div className="dhb__attachment-list">
       {items.map((a) => (
-        <div key={a.id} style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12 }}>
-          <Icon name="fileText" size={13} />
-          <a href={`${API_BASE}${a.url}`} target="_blank" rel="noreferrer" style={{ color: "#2b6cb0", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.file_name ?? "tệp"}</a>
-          {canEdit && <button className="btn btn--ghost" title="Xóa" onClick={() => onDelete(a.id)}><Icon name="trash" size={11} /></button>}
+        <div key={a.id} className="dhb__attachment-item">
+          <Icon name="fileText" size={13} style={{ color: "var(--ash)" }} />
+          <a href={`${API_BASE}${a.url}`} target="_blank" rel="noreferrer" className="dhb__attachment-link">{a.file_name ?? "tệp"}</a>
+          {canEdit && <button className="btn btn--ghost" style={{ height: 24, padding: "2px 6px" }} title="Xóa" onClick={() => onDelete(a.id)}><Icon name="trash" size={11} /></button>}
         </div>
       ))}
       {canEdit && (
         <>
           <input ref={ref} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={pick} />
-          <button className="btn btn--ghost" style={{ justifySelf: "start" }} disabled={busy} onClick={() => ref.current?.click()}>
+          <button className="btn btn--ghost" style={{ justifySelf: "start", height: 28, padding: "4px 10px", fontSize: 12 }} disabled={busy} onClick={() => ref.current?.click()}>
             <Icon name="plus" size={12} /> {busy ? "Đang tải…" : addLabel}
           </button>
         </>

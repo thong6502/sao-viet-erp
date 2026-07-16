@@ -73,7 +73,6 @@ from .services.material_service import MaterialService
 from .services.operation_service import OperationService
 from .services.warehouse_service import WarehouseService
 from .services.warehouse_item_service import WarehouseItemService
-from .services.product_service import ProductService
 from .services.product_type_catalog_service import ProductTypeCatalogService
 from .services.purchase_service import PurchaseService
 from .services.quotation_service import QuotationService
@@ -84,8 +83,6 @@ from .services.refresh_service import RefreshTokenService
 from .services.role_service import RoleService
 from .services.unit_level_service import UnitLevelService
 from .services.user_admin_service import UserAdminService
-from .services.plate_die_rate_service import PlateDieRateService
-from .services.norm_service import NormService
 from .services.sequence_service import SequenceService
 
 
@@ -99,8 +96,11 @@ def get_user_repository(db: Annotated[Session, Depends(get_db)]) -> UserReposito
 
 def get_auth_service(
     users: Annotated[UserRepository, Depends(get_user_repository)],
+    db: Annotated[Session, Depends(get_db)],
 ) -> AuthService:
-    return AuthService(users)
+    # EmployeeRepository dựng thẳng từ db (get_employee_repository khai bên dưới file này):
+    # login cần đọc hồ sơ để chặn tài khoản của người ĐÃ NGHỈ VIỆC.
+    return AuthService(users, EmployeeRepository(db))
 
 
 def get_refresh_token_repository(
@@ -373,19 +373,6 @@ def get_payroll_service(
     return PayrollService(payroll, employees, attendance, audit=audit, piece=piece)
 
 
-def get_product_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> ProductRepository:
-    return ProductRepository(db)
-
-
-def get_product_service(
-    products: Annotated[ProductRepository, Depends(get_product_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-) -> ProductService:
-    return ProductService(products, audit)
-
-
 def get_costing_repository(
     db: Annotated[Session, Depends(get_db)],
 ) -> CostingRepository:
@@ -617,30 +604,9 @@ def get_warehouse_item_service(
     return WarehouseItemService(repo, warehouses, users, audit)
 
 
-def get_plate_die_rate_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> PlateDieRateRepository:
-    return PlateDieRateRepository(db)
-
-
-def get_plate_die_rate_service(
-    repo: Annotated[PlateDieRateRepository, Depends(get_plate_die_rate_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-) -> PlateDieRateService:
-    return PlateDieRateService(repo, audit)
-
-
-def get_norm_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> NormRepository:
-    return NormRepository(db)
-
-
-def get_norm_service(
-    repo: Annotated[NormRepository, Depends(get_norm_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-) -> NormService:
-    return NormService(repo, audit)
+# Gỡ 2026-07-16: get_{product,plate_die_rate,norm}_{repository,service} — chỉ nuôi 3 router
+# products/plate_die_rates/norms đã gỡ. Engine tính giá tự dựng NormService từ db (pricing_engine),
+# không đi qua DI, nên bảng + logic vẫn chạy.
 
 
 def get_estimate_repository(

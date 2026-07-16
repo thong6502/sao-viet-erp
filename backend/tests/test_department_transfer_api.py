@@ -48,6 +48,20 @@ def _make_user(username: str, dept_id: int, role_id: int | None) -> int:
         db.close()
 
 
+def _make_employee(client, token, *, name: str, dept_id: int, username: str | None = None,
+                   role_id: int | None = None) -> dict:
+    """Tạo hồ sơ NV (kèm tài khoản nếu có `username`). Trả EmployeeDetail."""
+    body: dict = {"full_name": name, "department_id": dept_id, "hire_date": "2024-01-15"}
+    if username is not None:
+        acc: dict = {"username": username, "password": "password123"}
+        if role_id is not None:
+            acc["role_id"] = role_id
+        body["account"] = acc
+    resp = client.post("/api/employees", json=body, headers=_h(token))
+    assert resp.status_code == 201, resp.text
+    return resp.json()["employee"]
+
+
 def test_bulk_transfer_moves_drops_role_clears_head_and_audits(client):
     token = _admin_token(client)
     source = client.post("/api/departments", json={"name": "Nguồn"}, headers=_h(token)).json()
@@ -56,27 +70,31 @@ def test_bulk_transfer_moves_drops_role_clears_head_and_audits(client):
         "/api/roles", json={"name": "NV Nguồn", "department_id": source["id"]}, headers=_h(token)
     ).json()
 
-    u1 = _make_user("xfer-1", source["id"], role["id"])
-    u2 = _make_user("xfer-2", source["id"], role["id"])
-    # u1 heads the source department.
+    e1 = _make_employee(client, token, name="Xfer Một", dept_id=source["id"],
+                        username="xfer-1", role_id=role["id"])
+    e2 = _make_employee(client, token, name="Xfer Hai", dept_id=source["id"],
+                        username="xfer-2", role_id=role["id"])
+    # e1's account heads the source department.
     client.put(
         f"/api/departments/{source['id']}",
-        json={"name": source["name"], "head_user_id": u1},
+        json={"name": source["name"], "head_user_id": e1["user_id"]},
         headers=_h(token),
     )
 
     resp = client.post(
         "/api/departments/transfer",
-        json={"user_ids": [u1, u2], "target_department_id": target["id"]},
+        json={"employee_ids": [e1["id"], e2["id"]], "target_department_id": target["id"]},
         headers=_h(token),
     )
     assert resp.status_code == 200
     assert resp.json()["transferred"] == 2
 
-    # Both users now belong to the target with no role.
+    # Hồ sơ sang phòng đích, và tài khoản đi theo — KHÔNG còn vai trò của phòng cũ.
     users = client.get("/api/users", headers=_h(token)).json()
-    for uid in (u1, u2):
-        row = next(r for r in users if r["id"] == uid)
+    for emp in (e1, e2):
+        detail = client.get(f"/api/employees/{emp['id']}", headers=_h(token)).json()
+        assert detail["department_id"] == target["id"]
+        row = next(r for r in users if r["id"] == emp["user_id"])
         assert row["department_id"] == target["id"]
         assert row["role_id"] is None
 
@@ -87,8 +105,30 @@ def test_bulk_transfer_moves_drops_role_clears_head_and_audits(client):
 
     # One audit row per moved person.
     audit = client.get("/api/audit", headers=_h(token)).json()
-    moved = [a for a in audit if a["action"] == "transfer_user"]
+    moved = [a for a in audit if a["action"] == "employee_transferred"]
     assert len({a["target"] for a in moved}) >= 2
+
+
+def test_bulk_transfer_moves_staff_without_account(client):
+    """Cả điểm của việc chuyển theo HỒ SƠ: công nhân chưa có tài khoản cũng chuyển được
+    (bản cũ chuyển theo tài khoản nên bỏ sót họ), và có ghi Quá trình công tác."""
+    token = _admin_token(client)
+    source = client.post("/api/departments", json={"name": "Xưởng A"}, headers=_h(token)).json()
+    target = client.post("/api/departments", json={"name": "Xưởng B"}, headers=_h(token)).json()
+    emp = _make_employee(client, token, name="Thợ Không Tài Khoản", dept_id=source["id"])
+    assert emp["user_id"] is None
+
+    resp = client.post(
+        "/api/departments/transfer",
+        json={"employee_ids": [emp["id"]], "target_department_id": target["id"]},
+        headers=_h(token),
+    )
+    assert resp.status_code == 200 and resp.json()["transferred"] == 1
+
+    detail = client.get(f"/api/employees/{emp['id']}", headers=_h(token)).json()
+    assert detail["department_id"] == target["id"]
+    events = client.get(f"/api/employees/{emp['id']}/events", headers=_h(token)).json()
+    assert any(e["event_type"] == "transferred" for e in events["items"])
 
 
 def test_transfer_validation(client):
@@ -98,7 +138,7 @@ def test_transfer_validation(client):
     # Empty selection -> 422 (schema min_length).
     empty = client.post(
         "/api/departments/transfer",
-        json={"user_ids": [], "target_department_id": target["id"]},
+        json={"employee_ids": [], "target_department_id": target["id"]},
         headers=_h(token),
     )
     assert empty.status_code == 422
@@ -106,7 +146,7 @@ def test_transfer_validation(client):
     # Unknown target -> 404.
     bad_target = client.post(
         "/api/departments/transfer",
-        json={"user_ids": [1], "target_department_id": 999999},
+        json={"employee_ids": [1], "target_department_id": 999999},
         headers=_h(token),
     )
     assert bad_target.status_code == 404
@@ -116,7 +156,7 @@ def test_transfer_forbidden_without_permission(client):
     token = _sales_token()
     resp = client.post(
         "/api/departments/transfer",
-        json={"user_ids": [1], "target_department_id": 1},
+        json={"employee_ids": [1], "target_department_id": 1},
         headers=_h(token),
     )
     assert resp.status_code == 403

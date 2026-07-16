@@ -7,6 +7,7 @@ import {
   api,
   ApiError,
   assetUrl,
+  type AuditRow,
   type EmployeeAttachment,
   type EmployeeDetail,
   type EmployeeEvent,
@@ -15,7 +16,9 @@ import {
   type EmployeeMeta,
   type EmployeeRow,
   type EmployeeTransitionInput,
+  type Session,
   type UpdateRequest,
+  type UserRow,
   type WorkShift,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -44,8 +47,6 @@ import {
   Paperclip,
   Trash2,
   Edit2,
-  Link2,
-  Link2Off,
   TrendingUp,
   UserMinus,
   AlertTriangle,
@@ -126,6 +127,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [deptFilter, setDeptFilter] = useState<number | "">("");
+  const [accountFilter, setAccountFilter] = useState(""); // "" | "yes" | "no"
   const [sort, setSort] = useState("code");
   const [endingSoon, setEndingSoon] = useState(false); // KPI "sắp hết thử việc" (lọc client)
   const [exporting, setExporting] = useState(false);
@@ -152,6 +154,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
         q: q || undefined,
         status: statusFilter || undefined,
         department_id: deptFilter === "" ? undefined : deptFilter,
+        has_account: accountFilter === "" ? undefined : accountFilter === "yes",
         sort,
         page,
         size,
@@ -162,7 +165,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
       })
       .catch((e) => setError(errMsg(e)))
       .finally(() => setLoading(false));
-  }, [token, q, statusFilter, deptFilter, sort, page]);
+  }, [token, q, statusFilter, deptFilter, accountFilter, sort, page]);
 
   async function exportExcel() {
     if (!token) return;
@@ -248,6 +251,18 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                 <select value={deptFilter} onChange={(e) => { setPage(1); setDeptFilter(e.target.value === "" ? "" : Number(e.target.value)); }}>
                   <option value="">Mọi phòng/tổ</option>
                   {meta?.departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                </select>
+                <ChevronDown className="ns-select-chevron" size={14} />
+              </div>
+              <div className="ns-select-wrapper">
+                <select
+                  value={accountFilter}
+                  onChange={(e) => { setPage(1); setEndingSoon(false); setAccountFilter(e.target.value); }}
+                  title="Lọc theo tài khoản đăng nhập"
+                >
+                  <option value="">Tài khoản: tất cả</option>
+                  <option value="yes">Có tài khoản</option>
+                  <option value="no">Chưa có tài khoản</option>
                 </select>
                 <ChevronDown className="ns-select-chevron" size={14} />
               </div>
@@ -672,12 +687,25 @@ function EmployeeWizard({
                 <div className="ns-grid" style={{ marginTop: 12 }}>
                   <Field label="Tên đăng nhập *"><input value={acc.username} onChange={(e) => setAcc({ ...acc, username: e.target.value })} /></Field>
                   <Field label="Mật khẩu tạm *"><input type="text" value={acc.password} onChange={(e) => setAcc({ ...acc, password: e.target.value })} /></Field>
+                  {/* Không có vai trò thì NV đăng nhập được nhưng không thấy gì — phải chọn ngay
+                      tại đây, đừng bắt sang màn khác gán. Vai trò thuộc phòng của hồ sơ. */}
+                  <Field label="Vai trò">
+                    <select
+                      value={acc.role_id}
+                      onChange={(e) => setAcc({ ...acc, role_id: e.target.value ? Number(e.target.value) : "" })}
+                    >
+                      <option value="">— chưa gán (đăng nhập nhưng chưa thấy gì) —</option>
+                      {meta.roles
+                        .filter((r) => r.department_id === form.department_id)
+                        .map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                    </select>
+                  </Field>
                 </div>
               )}
               <div className="ns-review">
                 <h4>Xem lại</h4>
                 <p><strong>{form.full_name || "(chưa nhập tên)"}</strong> · {meta.departments.find((d) => d.id === form.department_id)?.name ?? "—"} · {form.status === "active" ? "Chính thức" : "Thử việc"}</p>
-                <p>Ngày vào {fmtDate(form.hire_date)} · {files.length} tệp đính kèm{makeAccount && acc.username ? ` · tài khoản "${acc.username}"` : ""}</p>
+                <p>Ngày vào {fmtDate(form.hire_date)} · {files.length} tệp đính kèm{makeAccount && acc.username ? ` · tài khoản "${acc.username}"${acc.role_id ? ` (${meta.roles.find((r) => r.id === acc.role_id)?.name})` : " — CHƯA gán vai trò"}` : ""}</p>
               </div>
             </div>
           )}
@@ -724,7 +752,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-type Tab = "info" | "salary" | "events" | "files" | "activity";
+type Tab = "info" | "salary" | "account" | "events" | "files" | "activity";
 
 function EmployeeDetailPanel({
   token,
@@ -744,6 +772,7 @@ function EmployeeDetailPanel({
   const can = useCan();
   const canUpdate = can("nhan_su", "update");
   const canViewSalary = can("nhan_su", "view_salary");
+  const canViewAccount = can("nguoi_dung", "read");
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [tab, setTab] = useState<Tab>("info");
   const [error, setError] = useState<string | null>(null);
@@ -771,6 +800,8 @@ function EmployeeDetailPanel({
   const tabs: [Tab, string][] = [
     ["info", "Thông tin"],
     ...(canViewSalary ? [["salary", "Lương & BHXH"] as [Tab, string]] : []),
+    // Gộp từ màn Người dùng (đã bỏ): mọi tài khoản thuộc một hồ sơ nên quản ngay tại đây.
+    ...(canViewAccount ? [["account", "Tài khoản & Quyền"] as [Tab, string]] : []),
     ["events", "Quá trình công tác"],
     ["files", "Đính kèm"],
     ["activity", "Nhật ký"],
@@ -898,15 +929,8 @@ function EmployeeDetailPanel({
                         <UserPlus size={14} /> Tuyển dụng lại
                       </button>
                     )}
-                    {emp.account_username ? (
-                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("unlink"); setDropdownOpen(false); }}>
-                        <Link2Off size={14} /> Gỡ liên kết tài khoản
-                      </button>
-                    ) : (
-                      <button type="button" className="ns-dropdown-item" onClick={() => { setAction("link"); setDropdownOpen(false); }}>
-                        <Link2 size={14} /> Liên kết tài khoản
-                      </button>
-                    )}
+                    {/* Tài khoản đăng nhập quản ở tab "Tài khoản & Quyền" — mọi tài khoản
+                        thuộc một hồ sơ nên không còn "gỡ liên kết". */}
                   </div>
                 )}
               </div>
@@ -924,6 +948,7 @@ function EmployeeDetailPanel({
       <div className="ns2-detail__body">
         {tab === "info" && <InfoTab token={token} emp={emp} edit={editInfo} setEdit={setEditInfo} onSaved={() => { reload(); onChanged(); }} />}
         {tab === "salary" && canViewSalary && <SalaryTab token={token} emp={emp} edit={editSalary} setEdit={setEditSalary} onSaved={() => { reload(); onChanged(); }} />}
+        {tab === "account" && canViewAccount && <AccountTab token={token} emp={emp} meta={meta} onChanged={() => { reload(); onChanged(); }} />}
         {tab === "events" && <EventsTab token={token} employeeId={employeeId} meta={meta} />}
         {tab === "files" && <FilesTab token={token} employeeId={employeeId} canUpdate={canUpdate} />}
         {tab === "activity" && <ActivityTab token={token} employeeId={employeeId} />}
@@ -1133,6 +1158,220 @@ function SalaryTab({
   );
 }
 
+/** Mật khẩu tạm dễ đọc (bỏ 0/O/1/l/I để khỏi đọc nhầm khi bàn giao). */
+function genPassword(len = 12): string {
+  const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+  const buf = new Uint32Array(len);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (n) => chars[n % chars.length]).join("");
+}
+
+function deviceLabel(ua: string | null): string {
+  if (!ua) return "Thiết bị không rõ";
+  const browser = /Edg\//.test(ua) ? "Edge" : /Chrome\//.test(ua) ? "Chrome"
+    : /Safari\//.test(ua) ? "Safari" : /Firefox\//.test(ua) ? "Firefox" : "Trình duyệt khác";
+  const os = /Windows/.test(ua) ? "Windows" : /Mac OS/.test(ua) ? "macOS"
+    : /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS" : "Hệ khác";
+  return `${browser} · ${os}`;
+}
+
+/** Tab "Tài khoản & Quyền" — gộp từ màn Người dùng cũ (đã bỏ). Mọi tài khoản đều thuộc một
+ * hồ sơ, nên đây là nơi DUY NHẤT cấp/quản tài khoản đăng nhập của nhân viên. */
+function AccountTab({
+  token,
+  emp,
+  meta,
+  onChanged,
+}: {
+  token: string;
+  emp: EmployeeDetail;
+  meta: EmployeeMeta | null;
+  onChanged: () => void;
+}) {
+  const can = useCan();
+  const canCreate = can("nhan_su", "update");
+  const canAssignRole = can("nguoi_dung", "assign_role");
+  const canReset = can("nguoi_dung", "reset_password");
+  const canLock = can("nguoi_dung", "lock");
+  const canRevoke = can("nguoi_dung", "revoke_sessions");
+
+  const [row, setRow] = useState<UserRow | null>(null);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [activity, setActivity] = useState<AuditRow[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [tempPw, setTempPw] = useState<string | null>(null);
+  // form tạo tài khoản (khi hồ sơ chưa có)
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState(() => genPassword());
+  const [roleId, setRoleId] = useState<number | "">("");
+
+  const uid = emp.user_id;
+  const reload = useCallback(() => {
+    if (uid == null) { setRow(null); return; }
+    api.rbac.users(token).then((rows) => setRow(rows.find((u) => u.id === uid) ?? null)).catch(() => {});
+    api.rbac.userSessions(token, uid).then(setSessions).catch(() => setSessions([]));
+    api.rbac.userActivity(token, uid).then(setActivity).catch(() => setActivity([]));
+  }, [token, uid]);
+  useEffect(() => { reload(); }, [reload]);
+
+  const roleOpts = (meta?.roles ?? []).filter((r) => r.department_id === emp.department_id);
+
+  async function run(fn: () => Promise<unknown>) {
+    setBusy(true); setError(null);
+    try { await fn(); reload(); onChanged(); }
+    catch (e) { setError(errMsg(e)); }
+    finally { setBusy(false); }
+  }
+
+  // --- Chưa có tài khoản → cấp tài khoản ---
+  if (uid == null) {
+    return (
+      <div>
+        {error && <div className="banner banner--error">{error}</div>}
+        <InfoCard title="Chưa có tài khoản đăng nhập" icon={Key}>
+          <p className="ns-info-field__label" style={{ gridColumn: "1 / -1" }}>
+            Nhân viên chưa đăng nhập được vào hệ thống. Công nhân xưởng có thể không cần tài khoản.
+          </p>
+        </InfoCard>
+        {canCreate && (
+          <div className="ns-grid">
+            <Field label="Tên đăng nhập *">
+              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="vd nguyenvana" />
+            </Field>
+            <Field label="Mật khẩu ban đầu *">
+              <input value={password} onChange={(e) => setPassword(e.target.value)} />
+            </Field>
+            <Field label="Vai trò">
+              <select value={roleId} onChange={(e) => setRoleId(e.target.value ? Number(e.target.value) : "")}>
+                <option value="">— chưa gán (đăng nhập nhưng chưa thấy gì) —</option>
+                {roleOpts.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+            </Field>
+          </div>
+        )}
+        {canCreate && (
+          <div className="ns2-editfoot">
+            <button type="button" className="btn btn--ghost" onClick={() => setPassword(genPassword())} disabled={busy}>
+              Tạo mật khẩu khác
+            </button>
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy || !username.trim() || password.length < 6}
+              onClick={() => run(async () => {
+                await api.employees.createAccount(token, emp.id, {
+                  username: username.trim(), password, role_id: roleId === "" ? null : roleId,
+                });
+                setTempPw(password);
+              })}
+            >
+              {busy ? "Đang tạo…" : "Cấp tài khoản"}
+            </button>
+          </div>
+        )}
+        {tempPw && (
+          <div className="banner banner--ok">
+            Đã cấp tài khoản. Mật khẩu ban đầu: <strong>{tempPw}</strong> — bàn giao cho nhân viên rồi đổi khi đăng nhập lần đầu.
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // --- Đã có tài khoản ---
+  const locked = row !== null && !row.is_active;
+  return (
+    <div>
+      {error && <div className="banner banner--error">{error}</div>}
+      {tempPw && (
+        <div className="banner banner--ok">
+          Mật khẩu tạm: <strong>{tempPw}</strong> — mọi phiên đã bị thu hồi, bàn giao cho nhân viên.
+        </div>
+      )}
+      <div className="ns-info-sections">
+        <InfoCard title="Tài khoản" icon={Key}>
+          <InfoField label="Tên đăng nhập" value={row?.username ?? emp.account_username} icon={Key} />
+          <InfoField label="Mã tài khoản" value={row?.code ?? null} icon={FileText} />
+          <InfoField label="Trạng thái" value={locked ? "Đã khóa" : "Hoạt động"} icon={Lock} />
+        </InfoCard>
+        <InfoCard title="Vai trò" icon={Users}>
+          {canAssignRole ? (
+            <div className="ns-info-field" style={{ gridColumn: "1 / -1" }}>
+              <div className="ns-info-field__content">
+                <span className="ns-info-field__label">Vai trò (theo phòng của hồ sơ)</span>
+                <select
+                  value={row?.role_id ?? ""}
+                  disabled={busy}
+                  onChange={(e) => {
+                    const v = e.target.value ? Number(e.target.value) : null;
+                    run(() => api.rbac.assignUserRole(token, uid, v));
+                  }}
+                >
+                  <option value="">— chưa gán —</option>
+                  {roleOpts.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                </select>
+              </div>
+            </div>
+          ) : (
+            <InfoField label="Vai trò" value={row?.role_name} icon={Users} />
+          )}
+        </InfoCard>
+      </div>
+
+      <InfoCard title="Bảo mật" icon={Lock}>
+        <div className="ns-detail__shortcuts" style={{ gridColumn: "1 / -1" }}>
+          {canReset && (
+            <button type="button" className="btn btn--ghost btn--sm" disabled={busy}
+              onClick={() => run(async () => {
+                const r = await api.rbac.resetUserPassword(token, uid);
+                setTempPw(r.temporary_password);
+              })}>
+              <Key size={12} /> Đặt lại mật khẩu
+            </button>
+          )}
+          {canRevoke && (
+            <button type="button" className="btn btn--ghost btn--sm" disabled={busy}
+              onClick={() => run(() => api.rbac.revokeUserSessions(token, uid))}>
+              <Lock size={12} /> Thu hồi mọi phiên
+            </button>
+          )}
+          {canLock && (
+            <button type="button" className={`btn btn--sm ${locked ? "btn--primary" : "btn--ghost"}`} disabled={busy}
+              onClick={() => run(() => api.rbac.setUserActive(token, uid, locked))}>
+              <Lock size={12} /> {locked ? "Mở khóa tài khoản" : "Khóa tài khoản"}
+            </button>
+          )}
+        </div>
+        <p className="ns-info-field__label" style={{ gridColumn: "1 / -1" }}>
+          Nhân viên <strong>đã nghỉ việc</strong> tự động không đăng nhập được (theo trạng thái hồ sơ) —
+          không cần khóa tay. Khóa dùng khi muốn chặn một người <strong>đang làm việc</strong>.
+        </p>
+      </InfoCard>
+
+      <InfoCard title={`Phiên đang hoạt động (${sessions.length})`} icon={Activity}>
+        {sessions.length === 0 ? (
+          <InfoField label="Phiên" value={null} icon={Activity} />
+        ) : (
+          sessions.map((s) => (
+            <InfoField key={s.id} label={deviceLabel(s.user_agent)} value={`Đăng nhập ${fmtDate(s.created_at)}`} icon={Activity} />
+          ))
+        )}
+      </InfoCard>
+
+      <InfoCard title="Hoạt động tài khoản gần đây" icon={Activity}>
+        {activity.length === 0 ? (
+          <InfoField label="Hoạt động" value={null} icon={Activity} />
+        ) : (
+          activity.slice(0, 8).map((a) => (
+            <InfoField key={a.id} label={`${a.action} · ${fmtDate(a.created_at)}`} value={a.actor_name ?? a.detail} icon={Activity} />
+          ))
+        )}
+      </InfoCard>
+    </div>
+  );
+}
+
 function InfoCard({ title, icon: Icon, children }: { title: string; icon: any; children: ReactNode }) {
   return (
     <div className="ns-info-card">
@@ -1292,28 +1531,20 @@ function ActionDialog({
   const [newGrade, setNewGrade] = useState("");
   const [newPos, setNewPos] = useState("");
   const [resignReason, setResignReason] = useState("");
-  const [linkUser, setLinkUser] = useState<number | "">("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isTransition = kind !== "link" && kind !== "unlink";
+  const isTransition = true;
 
   async function submit() {
     setBusy(true);
     setError(null);
     try {
-      if (kind === "link") {
-        if (linkUser === "") throw new ApiError("Chọn tài khoản để nối.", 400);
-        await api.employees.linkAccount(token, emp.id, linkUser);
-      } else if (kind === "unlink") {
-        await api.employees.unlinkAccount(token, emp.id);
-      } else {
-        const input: EmployeeTransitionInput = { kind, effective_date: effective, note: note || undefined };
-        if (kind === "transfer") input.new_department_id = newDept === "" ? undefined : newDept;
-        if (kind === "promote") { input.new_job_grade = newGrade || undefined; input.new_position = newPos || undefined; }
-        if (kind === "resign") input.resign_reason = resignReason;
-        await api.employees.transition(token, emp.id, input);
-      }
+      const input: EmployeeTransitionInput = { kind, effective_date: effective, note: note || undefined };
+      if (kind === "transfer") input.new_department_id = newDept === "" ? undefined : newDept;
+      if (kind === "promote") { input.new_job_grade = newGrade || undefined; input.new_position = newPos || undefined; }
+      if (kind === "resign") input.resign_reason = resignReason;
+      await api.employees.transition(token, emp.id, input);
       onDone();
     } catch (e) {
       setError(errMsg(e));
@@ -1330,17 +1561,6 @@ function ActionDialog({
         </header>
         <div className="ns-modal__body">
           {error && <div className="banner banner--error">{error}</div>}
-
-          {kind === "unlink" && <p>Gỡ liên kết tài khoản <strong>{emp.account_username}</strong> khỏi hồ sơ này?</p>}
-
-          {kind === "link" && (
-            <Field label="Tài khoản chưa gắn">
-              <select value={linkUser} onChange={(e) => setLinkUser(e.target.value === "" ? "" : Number(e.target.value))}>
-                <option value="">— chọn —</option>
-                {meta?.unlinked_users.map((u) => <option key={u.id} value={u.id}>{u.username} · {u.name}</option>)}
-              </select>
-            </Field>
-          )}
 
           {isTransition && (
             <Field label="Ngày hiệu lực"><input type="date" value={effective} onChange={(e) => setEffective(e.target.value)} /></Field>

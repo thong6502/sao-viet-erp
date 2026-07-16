@@ -5,7 +5,9 @@ route maps to HTTP — the service itself stays framework-agnostic.
 """
 from __future__ import annotations
 
+from ..models.employee import STATUS_RESIGNED
 from ..models.user import User
+from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.user_repo import UserRepository
 from ..security import create_access_token, hash_password, verify_password
 
@@ -21,8 +23,11 @@ class PasswordChangeError(Exception):
 
 
 class AuthService:
-    def __init__(self, users: UserRepository) -> None:
+    def __init__(
+        self, users: UserRepository, employees: EmployeeRepository | None = None
+    ) -> None:
         self.users = users
+        self.employees = employees
 
     def authenticate(self, username: str, password: str) -> User:
         """Return the user on valid credentials, else raise AuthError.
@@ -37,6 +42,13 @@ class AuthService:
         # A locked account cannot authenticate (generic message — no enumeration).
         if not user.is_active:
             raise AuthError("Invalid username or password")
+        # Hồ sơ đã nghỉ việc ⇒ tài khoản hết cửa. Suy ra TỪ HỒ SƠ, không ai phải đi khóa tay:
+        # đổi trạng thái hồ sơ về đang-làm là đăng nhập lại được ngay (tuyển lại). Tài khoản
+        # hệ thống không gắn hồ sơ (vd `admin`) không bị chặn.
+        if self.employees is not None:
+            employee = self.employees.get_by_user_id(user.id)
+            if employee is not None and employee.status == STATUS_RESIGNED:
+                raise AuthError("Invalid username or password")
         return user
 
     def login(self, username: str, password: str) -> tuple[str, User]:

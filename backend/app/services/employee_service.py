@@ -435,6 +435,12 @@ class EmployeeService:
             updates["resign_date"] = None
             updates["resign_reason"] = None
         self.employees.update(employee, **updates)
+        if kind == "resign" and employee.user_id is not None:
+            # Login đã tự chặn theo trạng thái hồ sơ, nhưng token đã phát thì vẫn còn hạn —
+            # bump token_version để cắt luôn phiên đang sống của người vừa nghỉ.
+            account = self.users.get_by_id(employee.user_id)
+            if account is not None:
+                self.users.bump_token_version(account)
         self.employees.add_event(
             employee_id=employee.id,
             event_type=event_type,
@@ -468,6 +474,16 @@ class EmployeeService:
             old_dept = self.departments.get_by_id(old)
             if old_dept is not None and old_dept.head_user_id == employee.user_id:
                 self.departments.set_head(old_dept, None)
+        # Vai trò thuộc ĐÚNG 1 phòng → chuyển phòng phải GỠ vai trò cũ, về mức tối thiểu tới khi
+        # trưởng phòng mới gán lại (khớp bulk transfer_users). Không gỡ thì tài khoản giữ vai trò
+        # của phòng khác — trạng thái mà chính API gán-vai-trò từ chối (400).
+        if employee.user_id is not None:
+            account = self.users.get_by_id(employee.user_id)
+            if account is not None and account.role_id is not None:
+                self.users.set_assignment(
+                    account, department_id=new_department_id, role_id=None,
+                    is_active=account.is_active,
+                )
         self.employees.add_event(
             employee_id=employee.id,
             event_type=EVENT_TRANSFERRED,
@@ -485,6 +501,34 @@ class EmployeeService:
             detail=f"{employee.code} phòng {old}→{new_department_id}",
         )
         return employee
+
+    def transfer_many(
+        self, *, employee_ids: list[int], target_department_id: int, scope: str, actor,
+        note: str | None = None,
+    ) -> int:
+        """Bulk điều chuyển theo HỒ SƠ (màn Phòng ban) — kể cả người CHƯA có tài khoản.
+
+        Kiểm tra TOÀN BỘ trước rồi mới ghi, để một id hỏng không làm chuyển dở dang. Mỗi
+        người đi qua đúng luồng điều chuyển đơn `_apply_transfer` nên được: đồng bộ phòng
+        xuống tài khoản, gỡ vai trò cũ, gỡ chức trưởng phòng cũ, ghi Quá trình công tác +
+        nhật ký. (Bản cũ chuyển theo TÀI KHOẢN nên bỏ sót người không có tài khoản và
+        không ghi Quá trình công tác.)
+        """
+        if self.departments.get_by_id(target_department_id) is None:
+            raise EmployeeNotFound("Không tìm thấy phòng đích.")
+        employees = []
+        for eid in employee_ids:
+            emp = self.get_employee(employee_id=eid, scope=scope, actor=actor)
+            if emp.status == STATUS_RESIGNED:
+                raise EmployeeValidationError(
+                    f"{emp.code} đã nghỉ việc — không điều chuyển được."
+                )
+            if emp.department_id == target_department_id:
+                raise EmployeeValidationError(f"{emp.code} đã thuộc phòng đích.")
+            employees.append(emp)
+        for emp in employees:
+            self._apply_transfer(emp, actor, None, note, target_department_id)
+        return len(employees)
 
     def _apply_promote(self, employee, actor, effective_date, note, new_job_grade, new_position) -> Employee:
         if employee.status == STATUS_RESIGNED:
@@ -578,17 +622,8 @@ class EmployeeService:
         )
         return employee, user
 
-    def unlink_account(self, *, employee_id: int, scope: str, actor) -> Employee:
-        employee = self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
-        old = employee.user_id
-        self.employees.update(employee, user_id=None)
-        self.audit.create(
-            actor_user_id=actor.id,
-            action="employee_unlink_account",
-            target=f"employee:{employee.id}",
-            detail=f"{employee.code} gỡ user:{old}",
-        )
-        return employee
+    # `unlink_account` ĐÃ GỠ: mọi tài khoản phải thuộc một hồ sơ (gỡ liên kết = đẻ tài khoản
+    # mồ côi). Chặn một người = KHÓA tài khoản; nghỉ việc = login tự chặn theo trạng thái hồ sơ.
 
     # --- attachments (router does the disk IO; service records metadata) ---
 

@@ -1803,6 +1803,27 @@ def _migrate_payment_doc_no_and_accounts(db: Session) -> None:
         db.commit()
 
 
+def _migrate_drop_ghost_modules(db: Session) -> None:
+    """Gỡ 5 module khỏi ma trận phân quyền: san_pham · dm_gia_click · dm_gia_khuon_ban ·
+    dm_dinh_muc · dm_binh_bai (không màn nào dùng; router đã gỡ khỏi main.py). `seed_modules`
+    chỉ thêm/đổi-nhãn nên DB đã chạy vẫn giữ dòng cũ → phải xóa tay ở đây (đúng lý do
+    "Quy tắc bình bài" còn hiện dù module bỏ từ 0021). Xóa `role_permissions` TRƯỚC vì
+    module_key là FK → modules.key. GIỮ NGUYÊN dữ liệu norms/plate_die_rates/products: engine
+    tính giá đọc thẳng repo, đây chỉ gỡ cửa phân quyền. Best-effort; no-op trên DB fresh."""
+    keys = ("san_pham", "dm_gia_click", "dm_gia_khuon_ban", "dm_dinh_muc", "dm_binh_bai")
+    marks = ", ".join(f":k{i}" for i in range(len(keys)))
+    params = {f"k{i}": k for i, k in enumerate(keys)}
+    for sql in (
+        f"DELETE FROM role_permissions WHERE module_key IN ({marks})",
+        f"DELETE FROM modules WHERE key IN ({marks})",
+    ):
+        try:
+            db.execute(text(sql), params)
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1873,6 +1894,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0066_order_redesign_fields", _migrate_order_redesign_fields),
     ("0067_role_permission_record_deposit", _migrate_role_permission_record_deposit),
     ("0068_drop_piece_batches_khoan_theo_nguoi", _migrate_drop_piece_batches_khoan_theo_nguoi),
+    ("0069_drop_ghost_modules", _migrate_drop_ghost_modules),
 ]
 
 

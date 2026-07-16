@@ -34,7 +34,6 @@ MODULES: list[tuple[str, str]] = [
     ("bao_gia", "Báo giá in ấn"),
     ("don_hang_ban", "Đơn hàng bán"),
     ("tinh_gia_thanh", "Tính giá thành"),
-    ("san_pham", "Sản phẩm"),
     ("hop_dong", "Hợp đồng"),
     ("thu_mua", "Thu mua"),
     ("ke_toan", "Kế toán"),
@@ -45,14 +44,14 @@ MODULES: list[tuple[str, str]] = [
     ("nguoi_dung", "Người dùng"),
     ("activity_log", "Nhật ký hoạt động"),
     # Cấu hình danh mục (spec-06): mỗi trang là một module quyền riêng để tích quyền độc lập.
+    # Chỉ liệt kê module CÓ MÀN dùng tới — module không màn = dòng ma trong ma trận, tick vào
+    # không đổi gì. Đã gỡ (migration 0069): san_pham · dm_gia_click · dm_gia_khuon_ban ·
+    # dm_dinh_muc · dm_binh_bai. Dữ liệu norms/plate_die_rates/products GIỮ NGUYÊN — engine
+    # tính giá đọc thẳng repo, không qua ma trận quyền.
     ("dm_loai_san_pham", "Loại sản phẩm"),
     ("dm_giay_vat_tu", "Vật liệu & Giá"),
     ("dm_thiet_bi", "Thiết bị & Máy in"),
     ("dm_cong_doan", "Công đoạn gia công"),
-    ("dm_gia_click", "Bảng giá Click"),
-    ("dm_gia_khuon_ban", "Bảng giá Khuôn & Bản"),
-    ("dm_dinh_muc", "Định mức & Bù hao"),
-    ("dm_binh_bai", "Quy tắc bình bài"),
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
     ("luong", "Lương"),
@@ -67,7 +66,6 @@ KD_MODULE_KEYS = [
     "bao_gia",
     "don_hang_ban",
     "tinh_gia_thanh",
-    "san_pham",
     "hop_dong",
 ]
 
@@ -1524,6 +1522,31 @@ def backfill_user_codes(db: Session) -> None:
         db.commit()
 
 
+def backfill_employee_profiles(db: Session) -> None:
+    """LUẬT: mọi tài khoản đăng nhập PHẢI thuộc một hồ sơ nhân viên — ngoại lệ DUY NHẤT là
+    tài khoản hệ thống `admin`. Tạo hồ sơ cho mọi tài khoản còn mồ côi (tài khoản demo cũ
+    hoặc dữ liệu cũ có trước luật này). Idempotent: tài khoản đã có hồ sơ thì bỏ qua."""
+    from datetime import date
+
+    from .models.employee import STATUS_ACTIVE
+    from .repositories.employee_repo import EmployeeRepository
+
+    repo = EmployeeRepository(db)
+    users = UserRepository(db)
+    for u in users.list_all():
+        if u.username == settings.seed_admin_username:
+            continue  # tài khoản hệ thống — được phép mồ côi
+        if repo.get_by_user_id(u.id) is not None:
+            continue
+        emp = repo.create(
+            full_name=u.name or u.username,
+            department_id=u.department_id,
+            status=STATUS_ACTIVE,
+            hire_date=date.today(),
+        )
+        repo.update(emp, user_id=u.id)
+
+
 def seed_leaves(db: Session) -> None:
     """Seed loại nghỉ demo (Nghỉ phép) + 1 đơn đã duyệt + 1 đơn chờ cho NV admin-linked.
     Idempotent."""
@@ -1890,3 +1913,6 @@ def seed_all(db: Session) -> None:
         seed_phieu_tinh_gia(db)
         seed_document_sequences(db)
     backfill_user_codes(db)
+    # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),
+    # và phải chạy SAU các seed tài khoản demo ở trên để dọn luôn đám vừa tạo.
+    backfill_employee_profiles(db)

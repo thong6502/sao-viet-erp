@@ -269,13 +269,19 @@ export interface UnitLevel {
 }
 
 /** A staff member of a department (PBI-4001 detail panel). */
+/** Nhân sự của một phòng — một dòng = một HỒ SƠ (Đ2), kèm tài khoản nếu có.
+ *  `user_id`/`username` null = chưa có tài khoản đăng nhập (công nhân xưởng): vẫn thuộc
+ *  phòng và vẫn chuyển phòng được, chỉ là không gán vai trò được. */
 export interface DepartmentMember {
-  id: number;
+  employee_id: number;
   code?: string | null;
   name: string;
-  username: string;
+  position?: string | null;
+  status: string;
+  user_id?: number | null;
+  username?: string | null;
   role_name?: string | null;
-  is_active: boolean;
+  is_active?: boolean | null;
   is_head: boolean;
 }
 
@@ -2126,6 +2132,8 @@ export interface EmployeeActivityRow {
 export interface EmployeeMeta {
   departments: { id: number; name: string }[];
   unlinked_users: { id: number; username: string; name: string }[];
+  /** Vai trò để gán cho tài khoản. Role thuộc ĐÚNG 1 phòng ban → lọc theo phòng của hồ sơ. */
+  roles: { id: number; name: string; department_id: number }[];
 }
 
 export interface EmployeeAccountInput {
@@ -3959,17 +3967,8 @@ export const api = {
     users(token: string): Promise<UserRow[]> {
       return authed<UserRow[]>("/api/users", token);
     },
-    createUser(
-      token: string, name: string, username: string, departmentId: number, password?: string | null,
-    ): Promise<UserRow & { initial_password: string }> {
-      return authed<UserRow & { initial_password: string }>("/api/users", token, {
-        method: "POST",
-        body: JSON.stringify({
-          name, username, department_id: departmentId,
-          password: password && password.trim() ? password.trim() : undefined,
-        }),
-      });
-    },
+    // `createUser` ĐÃ GỠ: mọi tài khoản phải thuộc một hồ sơ nhân viên → tạo tài khoản
+    // qua Hồ sơ nhân sự (`api.employees.create` kèm `account`, hoặc `api.employees.linkAccount`).
     assignUserRole(token: string, userId: number, roleId: number | null): Promise<UserRow> {
       return authed<UserRow>(`/api/users/${userId}/role`, token, {
         method: "PUT",
@@ -4008,14 +4007,19 @@ export const api = {
       return authed<AuditRow[]>(`/api/users/${userId}/activity`, token);
     },
     /** Bulk-move people to a target department (spec-06 / PBI-4008); old roles are dropped. */
-    transferUsers(
+    /** Bulk điều chuyển NHÂN SỰ sang phòng khác — theo hồ sơ, nên người chưa có tài khoản
+     *  cũng chuyển được; mỗi lần chuyển ghi Quá trình công tác + gỡ vai trò cũ. */
+    transferStaff(
       token: string,
-      userIds: number[],
+      employeeIds: number[],
       targetDepartmentId: number,
     ): Promise<{ transferred: number }> {
       return authed<{ transferred: number }>("/api/departments/transfer", token, {
         method: "POST",
-        body: JSON.stringify({ user_ids: userIds, target_department_id: targetDepartmentId }),
+        body: JSON.stringify({
+          employee_ids: employeeIds,
+          target_department_id: targetDepartmentId,
+        }),
       });
     },
     /** Gán một vai trò cho nhiều người cùng lúc từ màn Phòng ban (bulk). */
@@ -4483,15 +4487,26 @@ export const api = {
     rejectRequest(token: string, id: number, note?: string): Promise<UpdateRequest> {
       return authed<UpdateRequest>(`/api/employees/update-requests/${id}/reject`, token, { method: "POST", body: JSON.stringify({ note: note ?? null }) });
     },
+    /** Cấp tài khoản MỚI cho hồ sơ đã có — đường chính (mọi tài khoản sinh ra từ một hồ sơ). */
+    createAccount(
+      token: string,
+      id: number,
+      input: { username: string; password: string; role_id?: number | null },
+    ): Promise<EmployeeDetail> {
+      return authed<EmployeeDetail>(`/api/employees/${id}/account`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Liên kết một tài khoản CÓ SẴN — chỉ dùng để dọn tài khoản mồ côi cũ. */
     linkAccount(token: string, id: number, userId: number): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}/account`, token, {
         method: "POST",
         body: JSON.stringify({ user_id: userId }),
       });
     },
-    unlinkAccount(token: string, id: number): Promise<EmployeeDetail> {
-      return authed<EmployeeDetail>(`/api/employees/${id}/account`, token, { method: "DELETE" });
-    },
+    // `unlinkAccount` ĐÃ GỠ: gỡ liên kết = đẻ ra tài khoản mồ côi (vi phạm luật "mọi tài
+    // khoản thuộc một hồ sơ"). Chặn một người = KHÓA tài khoản (`api.rbac.setUserActive`).
   },
 
   // --- Chấm công GPS (nhan_su) ----------------------------------------------
@@ -4831,45 +4846,6 @@ export const api = {
     },
     deleteKhoanRate(token: string, id: number): Promise<void> {
       return authed<void>(`/api/luong/khoan/rates/${id}`, token, { method: "DELETE" });
-    },
-  },
-
-  // --- Sản phẩm in (Product catalog), spec-07 -------------------------------
-  products: {
-    list(token: string, params: ProductListParams = {}): Promise<ProductListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.product_type) qs.set("product_type", params.product_type);
-      if (params.sort) qs.set("sort", params.sort);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<ProductListOut>(`/api/products${suffix}`, token);
-    },
-    enums(token: string): Promise<ProductEnumsOut> {
-      return authed<ProductEnumsOut>("/api/products/enums", token);
-    },
-    papers(token: string, q?: string): Promise<PaperPickerOut> {
-      const suffix = q ? `?q=${encodeURIComponent(q)}` : "";
-      return authed<PaperPickerOut>(`/api/products/papers${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<ProductDetailOut> {
-      return authed<ProductDetailOut>(`/api/products/${id}`, token);
-    },
-    create(token: string, input: ProductInput): Promise<ProductDetailOut> {
-      return authed<ProductDetailOut>("/api/products", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    update(token: string, id: number, input: ProductInput): Promise<ProductDetailOut> {
-      return authed<ProductDetailOut>(`/api/products/${id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/products/${id}`, token, { method: "DELETE" });
     },
   },
 
@@ -6170,112 +6146,6 @@ export const api = {
     },
   },
 
-  // --- Plate/Die Rates ------------------------------------------------------
-  plateDieRates: {
-    list(token: string, params: { q?: string | null; plate_type?: string | null; technology?: string | null; machine_id?: number | null; is_active?: boolean | null; current_only?: boolean; page?: number; size?: number } = {}): Promise<PlateDieRateListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.plate_type) qs.set("plate_type", params.plate_type);
-      if (params.technology) qs.set("technology", params.technology);
-      if (params.machine_id != null) qs.set("machine_id", String(params.machine_id));
-      if (params.is_active !== undefined && params.is_active !== null) qs.set("is_active", String(params.is_active));
-      if (params.current_only) qs.set("current_only", "true");
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<PlateDieRateListOut>(`/api/plate-die-rates${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<PlateDieRateRow> {
-      return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}`, token);
-    },
-    history(token: string, id: number): Promise<PlateDieRateListOut> {
-      return authed<PlateDieRateListOut>(`/api/plate-die-rates/${id}/history`, token);
-    },
-    create(token: string, input: PlateDieRateInput): Promise<PlateDieRateRow> {
-      return authed<PlateDieRateRow>("/api/plate-die-rates", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    createVersion(token: string, id: number, input: PlateDieRateInput): Promise<PlateDieRateRow> {
-      return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}/version`, token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    clone(token: string, id: number): Promise<PlateDieRateRow> {
-      return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}/clone`, token, { method: "POST" });
-    },
-    usage(token: string, id: number): Promise<PlateDieRateUsageOut> {
-      return authed<PlateDieRateUsageOut>(`/api/plate-die-rates/${id}/usage`, token);
-    },
-    close(token: string, id: number, effectiveTo: string): Promise<PlateDieRateRow> {
-      return authed<PlateDieRateRow>(`/api/plate-die-rates/${id}/close`, token, {
-        method: "POST",
-        body: JSON.stringify({ effective_to: effectiveTo }),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/plate-die-rates/${id}`, token, { method: "DELETE" });
-    },
-  },
-
-  // --- Norms Catalog (Định mức & Bù hao) ------------------------------------
-  norms: {
-    list(token: string, params: { q?: string | null; norm_key?: string | null; waste_group?: string | null; product_type?: string | null; machine_id?: number | null; operation_id?: number | null; only_current?: boolean; page?: number; size?: number } = {}): Promise<NormListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.norm_key) qs.set("norm_key", params.norm_key);
-      if (params.waste_group) qs.set("waste_group", params.waste_group);
-      if (params.product_type) qs.set("product_type", params.product_type);
-      if (params.machine_id !== undefined && params.machine_id !== null) qs.set("machine_id", String(params.machine_id));
-      if (params.operation_id !== undefined && params.operation_id !== null) qs.set("operation_id", String(params.operation_id));
-      if (params.only_current) qs.set("only_current", "true");
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<NormListOut>(`/api/norms${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<NormRow> {
-      return authed<NormRow>(`/api/norms/${id}`, token);
-    },
-    create(token: string, input: NormInput): Promise<NormRow> {
-      return authed<NormRow>("/api/norms", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    close(token: string, id: number, effectiveTo: string): Promise<NormRow> {
-      return authed<NormRow>(`/api/norms/${id}/close`, token, {
-        method: "POST",
-        body: JSON.stringify({ effective_to: effectiveTo }),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/norms/${id}`, token, { method: "DELETE" });
-    },
-    duplicate(token: string, id: number, effectiveFrom: string, code?: string | null): Promise<NormRow> {
-      return authed<NormRow>(`/api/norms/${id}/duplicate`, token, {
-        method: "POST",
-        body: JSON.stringify({ effective_from: effectiveFrom, code: code ?? null }),
-      });
-    },
-    history(token: string, id: number): Promise<NormListOut> {
-      return authed<NormListOut>(`/api/norms/${id}/history`, token);
-    },
-    usage(token: string, id: number): Promise<NormUsageOut> {
-      return authed<NormUsageOut>(`/api/norms/${id}/usage`, token);
-    },
-    conflicts(token: string): Promise<NormConflictsOut> {
-      return authed<NormConflictsOut>("/api/norms/conflicts", token);
-    },
-    test(token: string, input: NormTestInput): Promise<NormTestOutput> {
-      return authed<NormTestOutput>("/api/norms/test", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-  },
 };
 
 export interface PlateDieRateRow {

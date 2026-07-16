@@ -167,6 +167,17 @@ class EmployeeRepository:
             stmt = stmt.where(cond)
         return list(self.db.execute(stmt).scalars())
 
+    def list_by_department(self, department_id: int) -> list[Employee]:
+        """Mọi hồ sơ thuộc MỘT phòng, sắp theo mã (không phân trang, không lọc scope) —
+        cho màn Phòng ban: "ai thuộc phòng nào" tính theo HỒ SƠ (Đ2), kể cả người chưa
+        có tài khoản đăng nhập."""
+        stmt = (
+            select(Employee)
+            .where(Employee.department_id == department_id)
+            .order_by(Employee.code)
+        )
+        return list(self.db.execute(stmt).scalars())
+
     # --- writes -------------------------------------------------------------
 
     def _next_code(self) -> str:

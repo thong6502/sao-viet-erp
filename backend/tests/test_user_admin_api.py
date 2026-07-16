@@ -55,57 +55,64 @@ def _sales_token() -> str:
         db.close()
 
 
-def test_create_user_default_password(client):
+def test_create_orphan_user_endpoint_is_gone(client):
+    """Mọi tài khoản phải thuộc một hồ sơ NV → không còn cửa tạo tài khoản rời."""
     token = _admin_token(client)
-    kd = _dept_id("Kinh doanh")
-    res = client.post(
+    r = client.post(
         "/api/users",
-        json={"name": "U mặc định", "username": "u-default-pw", "department_id": kd},
+        json={"name": "U", "username": "u-orphan", "department_id": _dept_id("Kinh doanh")},
         headers=_h(token),
-    ).json()
-    assert res["initial_password"] == "password123"  # mật khẩu mặc định
-    login = client.post("/api/auth/login", json={"username": "u-default-pw", "password": "password123"})
-    assert login.status_code == 200
+    )
+    assert r.status_code == 405
 
 
-def test_create_user_custom_password(client):
+def test_account_created_via_employee_can_login(client):
     token = _admin_token(client)
-    kd = _dept_id("Kinh doanh")
-    res = client.post(
-        "/api/users",
-        json={"name": "U tự đặt", "username": "u-custom-pw", "department_id": kd, "password": "MyPass2026"},
+    client.post(
+        "/api/employees",
+        json={
+            "full_name": "U tự đặt", "department_id": _dept_id("Kinh doanh"),
+            "hire_date": "2024-01-15",
+            "account": {"username": "u-custom-pw", "password": "MyPass2026"},
+        },
         headers=_h(token),
-    ).json()
-    assert res["initial_password"] == "MyPass2026"
+    )
     login = client.post("/api/auth/login", json={"username": "u-custom-pw", "password": "MyPass2026"})
     assert login.status_code == 200
 
 
-def test_create_user_short_password_rejected(client):
+def test_account_short_password_rejected(client):
     token = _admin_token(client)
-    kd = _dept_id("Kinh doanh")
     r = client.post(
-        "/api/users",
-        json={"name": "U ngắn", "username": "u-short-pw", "department_id": kd, "password": "123"},
+        "/api/employees",
+        json={
+            "full_name": "U ngắn", "department_id": _dept_id("Kinh doanh"),
+            "hire_date": "2024-01-15",
+            "account": {"username": "u-short-pw", "password": "123"},
+        },
         headers=_h(token),
     )
-    assert r.status_code == 422
+    assert r.status_code in (400, 422)
 
 
 def _make_target(client, token, username="target-1") -> int:
-    kd = _dept_id("Kinh doanh")
+    """Tạo tài khoản qua HỒ SƠ NV — đường duy nhất còn lại. Trả user_id của tài khoản.
+    Gán sẵn vai trò trong Kinh doanh để quan sát được việc đổi phòng làm rớt vai trò."""
     created = client.post(
-        "/api/users",
-        json={"name": "Người Mục Tiêu", "username": username, "department_id": kd},
+        "/api/employees",
+        json={
+            "full_name": "Người Mục Tiêu",
+            "department_id": _dept_id("Kinh doanh"),
+            "hire_date": "2024-01-15",
+            "account": {
+                "username": username,
+                "password": "password123",
+                "role_id": _role_id("Kinh doanh", "NV Sales"),
+            },
+        },
         headers=_h(token),
     ).json()
-    # give them a role in Kinh doanh so the dept-change drop is observable
-    client.put(
-        f"/api/users/{created['id']}/role",
-        json={"role_id": _role_id("Kinh doanh", "NV Sales")},
-        headers=_h(token),
-    )
-    return created["id"]
+    return created["employee"]["user_id"]
 
 
 def test_update_user_name_and_department_drops_role(client):
@@ -178,14 +185,21 @@ def test_sessions_list_and_revoke(client):
 
 
 def test_activity_lists_actions_on_user(client):
+    """Hoạt động của TÀI KHOẢN = các thao tác tài khoản (gán vai trò, reset MK, khóa…).
+    Việc TẠO tài khoản nay ghi nhật ký vào hồ sơ (`employee_create_account`) vì tài khoản
+    sinh ra TỪ hồ sơ — xem ở tab Nhật ký của hồ sơ, không phải ở đây."""
     token = _admin_token(client)
     uid = _make_target(client, token, "act-user")
+    client.put(
+        f"/api/users/{uid}/role",
+        json={"role_id": _role_id("Kinh doanh", "NV Sales")},
+        headers=_h(token),
+    )
     client.post(f"/api/users/{uid}/reset-password", headers=_h(token))
 
     activity = client.get(f"/api/users/{uid}/activity", headers=_h(token)).json()
     actions = {a["action"] for a in activity}
-    # create_user + assign_role + reset_password all target this user
-    assert {"create_user", "assign_role", "reset_password"} <= actions
+    assert {"assign_role", "reset_password"} <= actions
     assert all(a["target"] == f"user:{uid}" for a in activity)
 
 

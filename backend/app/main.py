@@ -36,15 +36,12 @@ from .routers import (
     kho_stock,
     kho_voucher,
     kho_count,
-    products,
     product_types_catalog,
     purchases,
     profile,
     quotations,
     orders,
     rbac,
-    plate_die_rates,
-    norms,
     may_thiet_bi,
     vat_lieu_kho,
     cong_doan,
@@ -106,7 +103,6 @@ app.include_router(attendance.router)
 app.include_router(calendar.router)
 app.include_router(leaves.router)
 app.include_router(payroll.router)
-app.include_router(products.router)
 app.include_router(costings.router)
 app.include_router(estimates.router)
 app.include_router(quotations.router)
@@ -122,8 +118,8 @@ app.include_router(warehouse_items.router)
 app.include_router(kho_stock.router)
 app.include_router(kho_voucher.router)
 app.include_router(kho_count.router)
-app.include_router(plate_die_rates.router)
-app.include_router(norms.router)
+# Gỡ (2026-07-16): products · plate_die_rates · norms — không màn nào gọi, module quyền đã bỏ
+# (migration 0069). Bảng + repo GIỮ: engine tính giá vẫn đọc norms/plate_die_rates.
 app.include_router(may_thiet_bi.router)
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)

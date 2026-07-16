@@ -21,8 +21,6 @@ import { NghiPhepPage } from "../pages/NghiPhepPage";
 import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
-import { UsersPage } from "../pages/UsersPage";
-import { NormsCatalogPage } from "../pages/NormsCatalogPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
@@ -274,8 +272,6 @@ export function AppShell() {
     switch (baseId) {
       case "phong-ban":
         return <DepartmentsPage />;
-      case "nguoi-dung":
-        return <UsersPage />;
       case "nhan-su":
         return <NhanSuPage navigate={navigate} />;
       case "ho-so-cua-toi":
@@ -301,8 +297,6 @@ export function AppShell() {
         );
       case "don-hang-ban":
         return <DonHangBanPage navigate={navigate} />;
-      case "dinh-muc-bu-hao":
-        return <NormsCatalogPage />;
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage

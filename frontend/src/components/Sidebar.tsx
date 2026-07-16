@@ -119,6 +119,10 @@ const NAV: NavSection[] = [
     id: "nhan-su-luong",
     label: "Nhân sự & Lương",
     items: [
+      // Phòng ban = cây tổ chức: liệt kê theo HỒ SƠ, đếm theo hồ sơ, điều chuyển ghi Quá
+      // trình công tác → việc của HCNS, không phải quản trị hệ thống. Đứng trước Hồ sơ nhân
+      // sự vì nó là cái khung chứa.
+      { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
       { id: "nhan-su", label: "Hồ sơ nhân sự", icon: "users", module: "nhan_su" },
       { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su" },
       { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nghi_phep" },
@@ -129,8 +133,9 @@ const NAV: NavSection[] = [
     id: "quan-tri",
     label: "Quản lý hệ thống",
     items: [
-      { id: "nguoi-dung", label: "Người dùng", icon: "users", module: "nguoi_dung" },
-      { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
+      // Màn "Người dùng" ĐÃ BỎ: mọi tài khoản thuộc một hồ sơ nhân viên → quản tài khoản
+      // ngay trong Hồ sơ nhân sự (tab "Tài khoản & Quyền"). Quyền `nguoi_dung` vẫn gác các
+      // thao tác đó, chỉ là không còn màn riêng. "Phòng ban" dời sang Nhân sự & Lương.
       { id: "nhat-ky", label: "Nhật ký", icon: "activity", module: "activity_log" },
     ],
   },

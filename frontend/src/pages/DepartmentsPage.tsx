@@ -65,6 +65,13 @@ export function DepartmentsPage() {
   const canCreateRole = can("vai_tro", "create");
   const canUpdateRole = can("vai_tro", "update");
   const canDeleteRole = can("vai_tro", "delete");
+  // Sửa MA TRẬN tách khỏi đổi tên vai trò (chống leo thang quyền): HCNS dựng được chỗ ngồi,
+  // chỉ Admin cấp được quyền cho nó. Backend đã gác `PUT /roles/{id}/permissions` bằng cờ này
+  // — FE trước đây mở ma trận theo `vai_tro:update` nên bấm Lưu là ăn 403.
+  const canManagePerms = can("vai_tro", "manage_permissions");
+  // Hộp "Sửa vai trò" gom 2 thứ tách quyền: ĐỔI TÊN (`update`) và MA TRẬN (`manage_permissions`).
+  // Có một trong hai là còn nút Lưu; không có cả hai thì mở ở chế độ chỉ xem.
+  const canEditRoleAnything = canUpdateRole || canManagePerms;
   // Quyền chi tiết nhóm 1: chuyển phòng + gán vai trò (module Người dùng), đặt trưởng phòng (Phòng ban).
   const canTransfer = can("nguoi_dung", "transfer");
   const canAssignRole = can("nguoi_dung", "assign_role");
@@ -247,20 +254,26 @@ export function DepartmentsPage() {
     setStaffMax("");
   }
 
-  // Staff list, filtered + paginated (search by name/username/role, filter by lock status).
+  // Nhân sự của phòng (theo HỒ SƠ), lọc + phân trang. Lọc "Đã khóa" chỉ áp cho người CÓ
+  // tài khoản — người chưa có tài khoản không có trạng thái khóa/mở nào để lọc.
   const [memberPageSize, setMemberPageSize] = useState(8);
   const filteredMembers = useMemo(() => {
     const q = memberSearch.trim().toLowerCase();
     return members.filter((m) => {
-      if (memberStatusFilter === "active" && !m.is_active) return false;
-      if (memberStatusFilter === "locked" && m.is_active) return false;
+      if (memberStatusFilter === "active" && m.is_active !== true) return false;
+      if (memberStatusFilter === "locked" && m.is_active !== false) return false;
       if (q) {
-        const hay = `${m.name} ${m.username} ${m.role_name ?? ""}`.toLowerCase();
+        const hay = `${m.code ?? ""} ${m.name} ${m.username ?? ""} ${m.position ?? ""} ${m.role_name ?? ""}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
   }, [members, memberSearch, memberStatusFilter]);
+  // Gán vai trò chỉ áp cho người CÓ tài khoản → đếm sẵn để nói rõ trong hộp xác nhận.
+  const selectedWithAccount = members.filter(
+    (m) => selectedMemberIds.has(m.employee_id) && m.user_id != null,
+  ).length;
+  const selectedWithoutAccount = selectedMemberIds.size - selectedWithAccount;
   const memberPageCount = Math.max(1, Math.ceil(filteredMembers.length / memberPageSize));
   const pageMembers = filteredMembers.slice(
     (memberPage - 1) * memberPageSize,
@@ -397,7 +410,8 @@ export function DepartmentsPage() {
     setTransferBusy(true);
     setTransferError(null);
     try {
-      await api.rbac.transferUsers(token, [...selectedMemberIds], transferTarget);
+      // Chuyển theo HỒ SƠ → người chưa có tài khoản cũng đi được.
+      await api.rbac.transferStaff(token, [...selectedMemberIds], transferTarget);
       setSelectedMemberIds(new Set());
       setTransferTarget(null);
       // Reload this department's members + the tree counts.
@@ -425,7 +439,15 @@ export function DepartmentsPage() {
     setAssignRoleBusy(true);
     setAssignRoleError(null);
     try {
-      await api.rbac.bulkAssignRole(token, [...selectedMemberIds], assignRoleTarget);
+      // Vai trò gắn vào TÀI KHOẢN → chỉ áp cho người đã có tài khoản; người chưa có bị bỏ qua.
+      const userIds = members
+        .filter((m) => selectedMemberIds.has(m.employee_id) && m.user_id != null)
+        .map((m) => m.user_id as number);
+      if (userIds.length === 0) {
+        setAssignRoleError("Những người đã chọn đều chưa có tài khoản — không gán vai trò được.");
+        return;
+      }
+      await api.rbac.bulkAssignRole(token, userIds, assignRoleTarget);
       setSelectedMemberIds(new Set());
       setAssignRoleTarget(null);
       // Reload members so the new role shows on each row.
@@ -574,7 +596,10 @@ export function DepartmentsPage() {
     setAddRoleError(null);
     try {
       const role = await api.rbac.createRole(token, name, selectedId);
-      await api.rbac.savePermissions(token, role.id, addRoleMatrix);
+      // Không có quyền sửa ma trận → tạo vai trò với quyền TRỐNG, Admin cấp sau. (Gọi
+      // savePermissions ở đây sẽ 403 SAU KHI vai trò đã tạo → báo "không tạo được" trong khi
+      // nó đã nằm trong DB.)
+      if (canManagePerms) await api.rbac.savePermissions(token, role.id, addRoleMatrix);
       const rs = await api.rbac.roles(token, selectedId); // refresh this department's roles
       setRoles(rs);
       setAddRoleOpen(false);
@@ -627,7 +652,7 @@ export function DepartmentsPage() {
       if (current && current.name !== name) {
         await api.rbac.renameRole(token, editRoleId, name);
       }
-      await api.rbac.savePermissions(token, editRoleId, editRoleMatrix);
+      if (canManagePerms) await api.rbac.savePermissions(token, editRoleId, editRoleMatrix);
       if (selectedId != null) setRoles(await api.rbac.roles(token, selectedId));
       setEditRoleOpen(false);
     } catch (err) {
@@ -761,7 +786,7 @@ export function DepartmentsPage() {
     <main className="depts">
       <header className="depts__head">
         <div>
-          <p className="eyebrow">Quản trị</p>
+          <p className="eyebrow">Nhân sự &amp; Lương</p>
           <h1 className="depts__title">Phòng ban</h1>
           <p className="depts__sub">
             Quản lý cơ cấu phòng ban, nhân sự và vai trò trong từng phòng.
@@ -799,17 +824,20 @@ export function DepartmentsPage() {
                       {currentDept.code && <span className="depts__code">{currentDept.code}</span>}
                       <h2 className="depts__id-name">{currentDept.name}</h2>
                     </div>
+                    {/* "Người" của phòng LUÔN đếm theo HỒ SƠ nhân viên (Đ2) — khớp với cột
+                        "Nhân sự" ở danh sách + KPI. Trước đây fallback `?? members.length`
+                        trộn hồ sơ với tài khoản nên hai chỗ ra hai số khác nhau. */}
                     <p className="depts__id-meta">
                       {parentName(currentDept.parent_id)
                         ? `Thuộc ${parentName(currentDept.parent_id)}`
                         : "Phòng gốc"}
                       {" · "}
-                      {roles.length} vai trò · {members.length} người
+                      {roles.length} vai trò · {currentDept.employee_count} người
                     </p>
                     {(childrenOf.get(currentDept.id)?.length ?? 0) > 0 && (
                       <p className="depts__id-branch">
                         Gồm cả nhánh con: {currentDept.total_role_count ?? roles.length} vai trò ·{" "}
-                        {currentDept.total_employee_count ?? members.length} người
+                        {currentDept.total_employee_count ?? currentDept.employee_count} người
                       </p>
                     )}
                   </div>
@@ -1009,12 +1037,12 @@ export function DepartmentsPage() {
               <div className="card depts__section">
                 <div className="depts__section-head">
                   <div className="depts__eyebrow-row">
-                    <p className="eyebrow">Tài khoản trong phòng</p>
+                    <p className="eyebrow">Nhân sự trong phòng</p>
                     <InfoHint
                       label={
                         canTransfer
-                          ? "Người thuộc phòng này. Tích chọn nhiều người để gán vai trò hàng loạt hoặc chuyển sang phòng khác — thanh thao tác hiện ở cuối danh sách. Chuyển phòng: vai trò cũ bị gỡ, trưởng phòng mới gán lại."
-                          : "Người thuộc phòng này."
+                          ? "Liệt kê theo HỒ SƠ nhân sự — gồm cả người chưa có tài khoản đăng nhập (công nhân xưởng). Tích chọn nhiều người để chuyển sang phòng khác (ai cũng chuyển được) hoặc gán vai trò hàng loạt (chỉ áp cho người có tài khoản). Chuyển phòng: vai trò cũ bị gỡ, trưởng phòng mới gán lại."
+                          : "Liệt kê theo HỒ SƠ nhân sự — gồm cả người chưa có tài khoản đăng nhập."
                       }
                     />
                   </div>
@@ -1028,7 +1056,7 @@ export function DepartmentsPage() {
                   </span>
                 ) : members.length === 0 ? (
                   <p className="depts__hint">
-                    Phòng chưa có nhân sự. Thêm người ở màn “Người dùng”.
+                    Phòng chưa có nhân sự. Thêm người ở màn “Hồ sơ nhân sự”.
                   </p>
                 ) : (
                   <>
@@ -1095,8 +1123,12 @@ export function DepartmentsPage() {
                                       title: "Xác nhận gán vai trò",
                                       message:
                                         `Bạn sắp gán vai trò "${roles.find((r) => r.id === assignRoleTarget)?.name ?? ""}" ` +
-                                        `cho ${selectedMemberIds.size} người đã chọn. Vai trò cũ của họ sẽ bị thay thế. ` +
-                                        "Kiểm tra kỹ trước khi xác nhận.",
+                                        `cho ${selectedWithAccount} người đã chọn. Vai trò cũ của họ sẽ bị thay thế.` +
+                                        // Vai trò gắn vào tài khoản → nói rõ ai bị bỏ qua, đừng để họ tưởng đã gán hết.
+                                        (selectedWithoutAccount > 0
+                                          ? ` ${selectedWithoutAccount} người chưa có tài khoản sẽ được BỎ QUA (phải cấp tài khoản trước).`
+                                          : "") +
+                                        " Kiểm tra kỹ trước khi xác nhận.",
                                       confirmLabel: "Gán vai trò",
                                       run: doAssignRole,
                                     })
@@ -1182,13 +1214,13 @@ export function DepartmentsPage() {
                         }
                       >
                         {pageMembers.map((m) => (
-                          <li key={m.id} className="depts__member">
+                          <li key={m.employee_id} className="depts__member">
                             {canBulk && (
                               <input
                                 type="checkbox"
                                 className="depts__member-check"
-                                checked={selectedMemberIds.has(m.id)}
-                                onChange={() => toggleMember(m.id)}
+                                checked={selectedMemberIds.has(m.employee_id)}
+                                onChange={() => toggleMember(m.employee_id)}
                                 aria-label={`Chọn ${m.name} để chuyển`}
                               />
                             )}
@@ -1206,15 +1238,26 @@ export function DepartmentsPage() {
                                 {m.code && (
                                   <span className="depts__member-code">{m.code}</span>
                                 )}
-                                <span className="depts__member-user">{m.username}</span>
-                                <span className="depts__member-role">
-                                  {m.role_name ?? "Chưa gán vai trò"}
-                                </span>
-                                <span
-                                  className={`depts__member-status${m.is_active ? "" : " is-locked"}`}
-                                >
-                                  {m.is_active ? "Đang hoạt động" : "Đã khóa"}
-                                </span>
+                                {m.position && (
+                                  <span className="depts__member-role">{m.position}</span>
+                                )}
+                                {/* Chưa có tài khoản = công nhân xưởng không cần đăng nhập:
+                                    vẫn thuộc phòng, vẫn chuyển phòng được, chỉ không có vai trò. */}
+                                {m.user_id == null ? (
+                                  <span className="depts__member-status">Chưa có tài khoản</span>
+                                ) : (
+                                  <>
+                                    <span className="depts__member-user">{m.username}</span>
+                                    <span className="depts__member-role">
+                                      {m.role_name ?? "Chưa gán vai trò"}
+                                    </span>
+                                    <span
+                                      className={`depts__member-status${m.is_active ? "" : " is-locked"}`}
+                                    >
+                                      {m.is_active ? "Đang hoạt động" : "Đã khóa"}
+                                    </span>
+                                  </>
+                                )}
                               </span>
                             </span>
                           </li>
@@ -1495,28 +1538,35 @@ export function DepartmentsPage() {
           )}
         </div>
         <p className="eyebrow depts__matrix-label">Phân quyền</p>
-        <div className="matrix-scroll">
-          <PermissionMatrix
-            modules={modules}
-            matrix={addRoleMatrix}
-            onToggle={toggleAddRole}
-            onScope={scopeAddRole}
-          />
-        </div>
+        {canManagePerms ? (
+          <div className="matrix-scroll">
+            <PermissionMatrix
+              modules={modules}
+              matrix={addRoleMatrix}
+              onToggle={toggleAddRole}
+              onScope={scopeAddRole}
+            />
+          </div>
+        ) : (
+          <p className="depts__status">
+            Bạn không có quyền cấu hình phân quyền. Vai trò sẽ được tạo với quyền trống —
+            quản trị hệ thống cấp quyền sau.
+          </p>
+        )}
       </ConfirmDialog>
 
       {/* Edit a role in this department: its name + permission matrix.
           Không có quyền sửa → mở ở chế độ chỉ xem (input khóa, ma trận khóa, không nút Lưu). */}
       <ConfirmDialog
         open={editRoleOpen}
-        title={canUpdateRole ? "Sửa vai trò" : "Chi tiết vai trò (chỉ xem)"}
+        title={canEditRoleAnything ? "Sửa vai trò" : "Chi tiết vai trò (chỉ xem)"}
         confirmLabel="Lưu"
-        cancelLabel={canUpdateRole ? "Hủy" : "Đóng"}
+        cancelLabel={canEditRoleAnything ? "Hủy" : "Đóng"}
         wide
         busy={editRoleBusy}
         error={editRoleError}
         confirmDisabled={editRoleLoading || !editRoleName.trim()}
-        hideConfirm={!canUpdateRole}
+        hideConfirm={!canEditRoleAnything}
         onConfirm={submitEditRole}
         onCancel={() => {
           if (!editRoleBusy && !editRoleDeleting) setEditRoleOpen(false);
@@ -1549,7 +1599,7 @@ export function DepartmentsPage() {
               matrix={editRoleMatrix}
               onToggle={toggleEditRole}
               onScope={scopeEditRole}
-              readOnly={!canUpdateRole}
+              readOnly={!canManagePerms}
             />
           </div>
         )}

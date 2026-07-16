@@ -263,7 +263,7 @@ def test_transfer_and_promote_record_events(client):
 # --- account link -----------------------------------------------------------
 
 
-def test_create_account_in_wizard_then_unlink_and_relink(client):
+def test_create_account_in_wizard_then_login(client):
     token = _admin_token(client)
     resp = _create(
         client, token, full_name="Có Tài Khoản",
@@ -272,23 +272,96 @@ def test_create_account_in_wizard_then_unlink_and_relink(client):
     assert resp.status_code == 201
     payload = resp.json()
     assert payload["account_username"] == "nv_login"
-    eid = payload["employee"]["id"]
 
     # the new account can authenticate
     login = client.post("/api/auth/login", json={"username": "nv_login", "password": "secret1"})
     assert login.status_code == 200
 
-    # unlink, then link it back via the account endpoint
-    unlinked = client.delete(f"/api/employees/{eid}/account", headers=_h(token)).json()
-    assert unlinked["user_id"] is None
 
-    uid = login.json()  # not the user id; fetch via meta
-    meta = client.get("/api/employees/meta", headers=_h(token)).json()
-    user_id = next(u["id"] for u in meta["unlinked_users"] if u["username"] == "nv_login")
-    relinked = client.post(
-        f"/api/employees/{eid}/account", json={"user_id": user_id}, headers=_h(token)
+def test_create_account_for_existing_employee(client):
+    """NV tạo trước, cấp tài khoản sau — đường chính vì không còn tài khoản mồ côi để liên kết."""
+    token = _admin_token(client)
+    eid = _create(client, token, full_name="Cấp Sau").json()["employee"]["id"]
+    resp = client.post(
+        f"/api/employees/{eid}/account",
+        json={"username": "nv_capsau", "password": "secret1"},
+        headers=_h(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["account_username"] == "nv_capsau"
+    login = client.post(
+        "/api/auth/login", json={"username": "nv_capsau", "password": "secret1"}
+    )
+    assert login.status_code == 200
+
+
+def test_attach_account_needs_username_or_user_id(client):
+    token = _admin_token(client)
+    eid = _create(client, token, full_name="Thiếu Tham Số").json()["employee"]["id"]
+    resp = client.post(f"/api/employees/{eid}/account", json={}, headers=_h(token))
+    assert resp.status_code == 400
+
+
+def test_unlink_account_endpoint_is_gone(client):
+    """Mọi tài khoản phải thuộc một hồ sơ → không còn cửa 'gỡ liên kết' (đẻ tài khoản mồ côi)."""
+    token = _admin_token(client)
+    payload = _create(
+        client, token, full_name="Không Gỡ Được",
+        account={"username": "nv_nogo", "password": "secret1"},
     ).json()
-    assert relinked["account_username"] == "nv_login"
+    eid = payload["employee"]["id"]
+    resp = client.delete(f"/api/employees/{eid}/account", headers=_h(token))
+    assert resp.status_code == 405  # method gone; chặn người = KHÓA tài khoản
+
+
+def test_create_orphan_user_endpoint_is_gone(client):
+    """Đường tạo tài khoản duy nhất là qua hồ sơ NV → POST /api/users không còn."""
+    token = _admin_token(client)
+    resp = client.post(
+        "/api/users",
+        json={"name": "Mồ Côi", "username": "mocoi", "department_id": _dept_id("Kinh doanh")},
+        headers=_h(token),
+    )
+    assert resp.status_code == 405
+
+
+def test_resigned_employee_cannot_login_and_reinstate_restores(client):
+    """Trạng thái hồ sơ 'Đã nghỉ' ⇒ không đăng nhập được. Đổi trạng thái lại ⇒ vào được."""
+    token = _admin_token(client)
+    payload = _create(
+        client, token, full_name="Sắp Nghỉ",
+        account={"username": "nv_nghi", "password": "secret1"},
+    ).json()
+    eid = payload["employee"]["id"]
+    creds = {"username": "nv_nghi", "password": "secret1"}
+    assert client.post("/api/auth/login", json=creds).status_code == 200
+
+    # nghỉ việc → login đóng cửa (không ai phải đi khóa tay)
+    resp = client.post(
+        f"/api/employees/{eid}/transitions",
+        json={"kind": "resign", "effective_date": "2026-07-31", "resign_reason": "Chuyển việc"},
+        headers=_h(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "resigned"
+    assert client.post("/api/auth/login", json=creds).status_code == 401
+
+    # tuyển lại → tự mở, không cần nhớ mở khóa
+    back = client.post(
+        f"/api/employees/{eid}/transitions",
+        json={"kind": "reinstate", "effective_date": "2026-09-01"},
+        headers=_h(token),
+    )
+    assert back.status_code == 200
+    assert client.post("/api/auth/login", json=creds).status_code == 200
+
+
+def test_meta_returns_roles_for_account_form(client):
+    token = _admin_token(client)
+    meta = client.get("/api/employees/meta", headers=_h(token)).json()
+    assert meta["roles"], "meta phải trả vai trò để form tài khoản chọn"
+    kd = _dept_id("Kinh doanh")
+    assert any(r["name"] == "NV Sales" and r["department_id"] == kd for r in meta["roles"])
 
 
 # --- attachments ------------------------------------------------------------

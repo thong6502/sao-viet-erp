@@ -49,14 +49,21 @@ class DepartmentSummaryOut(BaseModel):
 
 
 class DepartmentMemberOut(BaseModel):
-    """A staff member of a department (PBI-4001 detail): identity + role + status + head flag."""
+    """NHÂN SỰ của một phòng — một dòng = một HỒ SƠ (Đ2), kèm tài khoản nếu có.
 
-    id: int
+    `user_id`/`username` null = người này chưa có tài khoản đăng nhập (công nhân xưởng).
+    Họ vẫn thuộc phòng và vẫn chuyển phòng được, chỉ là không gán vai trò được.
+    """
+
+    employee_id: int
     code: str | None = None
     name: str
-    username: str
+    position: str | None = None
+    status: str
+    user_id: int | None = None
+    username: str | None = None
     role_name: str | None = None
-    is_active: bool = True
+    is_active: bool | None = None
     is_head: bool = False
 
 
@@ -176,9 +183,13 @@ class ActiveUpdate(BaseModel):
 
 
 class DepartmentTransferIn(BaseModel):
-    """Bulk-move personnel to a target department (spec-06 / PBI-4008)."""
+    """Bulk điều chuyển nhân sự sang phòng khác (spec-06 / PBI-4008).
 
-    user_ids: list[int] = Field(min_length=1)
+    Chuyển theo HỒ SƠ (`employee_ids`), không theo tài khoản — để người chưa có tài khoản
+    (công nhân xưởng) cũng chuyển được, và để mỗi lần chuyển đều ghi Quá trình công tác.
+    """
+
+    employee_ids: list[int] = Field(min_length=1)
     target_department_id: int
 
 
