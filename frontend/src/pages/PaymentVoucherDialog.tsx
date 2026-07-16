@@ -13,6 +13,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
+import { UNC_ENABLED } from "../constants/features";
 
 const STAGE_LABELS: Record<PaymentStage, string> = {
   advance: "Tạm ứng / đặt cọc",
@@ -445,26 +446,31 @@ export function PaymentVoucherDialog({
             </div>
           </div>
 
-          <div className="acct-segment" aria-label="Loại chứng từ">
-            <button
-              type="button"
-              className={form.voucher_type === "cash" ? "is-active" : ""}
-              onClick={() => selectType("cash")}
-              disabled={!!voucher}
-            >
-              Phiếu chi
-            </button>
-            <button
-              type="button"
-              className={
-                form.voucher_type === "bank_transfer" ? "is-active" : ""
-              }
-              onClick={() => selectType("bank_transfer")}
-              disabled={!!voucher}
-            >
-              Ủy nhiệm chi
-            </button>
-          </div>
+          {/* Tạm ẩn UNC: lập mới thì không cho chọn loại (mặc định tiền mặt). Vẫn
+              hiện khi MỞ SỬA một UNC cũ để người dùng biết đây là chứng từ gì —
+              lúc đó hai nút vốn đã khóa. */}
+          {(UNC_ENABLED || form.voucher_type === "bank_transfer") && (
+            <div className="acct-segment" aria-label="Loại chứng từ">
+              <button
+                type="button"
+                className={form.voucher_type === "cash" ? "is-active" : ""}
+                onClick={() => selectType("cash")}
+                disabled={!!voucher}
+              >
+                Phiếu chi
+              </button>
+              <button
+                type="button"
+                className={
+                  form.voucher_type === "bank_transfer" ? "is-active" : ""
+                }
+                onClick={() => selectType("bank_transfer")}
+                disabled={!!voucher}
+              >
+                Ủy nhiệm chi
+              </button>
+            </div>
+          )}
 
           <div className="acct-form-grid acct-form-grid--3">
             <label className="acct-field">

@@ -13,6 +13,9 @@ import { useCan } from "../auth/permissions";
 import type { NavigateFn } from "../components/AppShell";
 import { Button } from "../components/Button";
 import { CodeLink } from "../components/CodeLink";
+import { DetailModal } from "../components/DetailModal";
+import { Icon } from "../components/Icons";
+import { VOUCHER_PAGE_LABEL } from "../constants/features";
 import { fmtDate, fmtDateTime, money, originalMoney } from "../utils/format";
 import { printTT200 } from "../utils/printTT200";
 import { PaymentReceiptDialog } from "./PaymentReceiptDialog";
@@ -122,7 +125,7 @@ export function PaymentReceiptsPage({
         setSelectedId((current) =>
           current != null && response.items.some((row) => row.id === current)
             ? current
-            : (response.items[0]?.id ?? null),
+            : null,
         );
       })
       .catch((err) =>
@@ -145,13 +148,18 @@ export function PaymentReceiptsPage({
   }, [focusQuery]);
 
   const selected = useMemo(
-    () => rows.find((row) => row.id === selectedId) ?? rows[0] ?? null,
+    () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
   );
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const openVoucher = (code: string) =>
     navigate("ke-toan-phieu-chi", { focusVoucherQuery: code });
   const selectedReceiptId = selected?.id ?? null;
+  /** Đóng popup rồi mới mở form — không chồng hai lớp cửa sổ. */
+  function closeDetailThen(action: () => void) {
+    setSelectedId(null);
+    action();
+  }
 
   useEffect(() => {
     if (!token || selectedReceiptId == null) {
@@ -310,17 +318,23 @@ export function PaymentReceiptsPage({
           </Button>
         )}
         {canApprove && row.status === "waiting_receipt" && (
-          <Button variant="ghost" onClick={() => openEdit(row)} disabled={busy}>
+          <Button
+            variant="ghost"
+            onClick={() => closeDetailThen(() => openEdit(row))}
+            disabled={busy}
+          >
             Sửa
           </Button>
         )}
         {canMarkReceived && row.status === "waiting_receipt" && (
           <Button
             variant="accent"
-            onClick={() => {
-              setMarking(row);
-              setBankReference("");
-            }}
+            onClick={() =>
+              closeDetailThen(() => {
+                setMarking(row);
+                setBankReference("");
+              })
+            }
           >
             Xác nhận đã thu
           </Button>
@@ -328,10 +342,12 @@ export function PaymentReceiptsPage({
         {canCancel && row.status === "waiting_receipt" && (
           <Button
             variant="danger"
-            onClick={() => {
-              setCancelling(row);
-              setCancelReason("");
-            }}
+            onClick={() =>
+              closeDetailThen(() => {
+                setCancelling(row);
+                setCancelReason("");
+              })
+            }
           >
             Hủy
           </Button>
@@ -392,308 +408,319 @@ export function PaymentReceiptsPage({
           </select>
         </div>
       </section>
-      <div className="acct-master-detail">
-        <section className="card md-page__tablewrap acct-list">
-          <table className="md-page__table">
-            <thead>
+      <section className="card md-page__tablewrap acct-list">
+        <table className="md-page__table">
+          <thead>
+            <tr>
+              <th>Mã phiếu thu</th>
+              <th>Người nộp</th>
+              <th>Người lập</th>
+              <th>Lập lúc</th>
+              <th className="acct-amount-cell">Số tiền</th>
+              <th>Trạng thái</th>
+              <th className="acct-action-cell">Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading && (
               <tr>
-                <th>Mã phiếu thu</th>
-                <th>Người nộp</th>
-                <th>Lập lúc</th>
-                <th className="acct-amount-cell">Số tiền</th>
-                <th>Trạng thái</th>
+                <td colSpan={7}>Đang tải...</td>
               </tr>
-            </thead>
-            <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={5}>Đang tải...</td>
-                </tr>
-              )}
-              {!loading && rows.length === 0 && (
-                <tr>
-                  <td colSpan={5}>
-                    Chưa có phiếu thu phù hợp. Lập phiếu thu từ trang Phiếu chi
-                    / UNC — nút "Lập phiếu thu" trên phiếu đã chi.
+            )}
+            {!loading && rows.length === 0 && (
+              <tr>
+                <td colSpan={7}>
+                  Chưa có phiếu thu phù hợp. Lập phiếu thu từ trang{" "}
+                  {VOUCHER_PAGE_LABEL} — nút "Lập phiếu thu" trên phiếu đã chi.
+                </td>
+              </tr>
+            )}
+            {!loading &&
+              rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className={
+                    row.id === selected?.id ? "purchase__row--selected" : ""
+                  }
+                  onClick={() => setSelectedId(row.id)}
+                >
+                  <td className="acct-code-cell">
+                    <strong>{row.code}</strong>
+                    <div className="purchase__source-codes">
+                      <CodeLink
+                        code={row.payment_voucher_code}
+                        onOpen={openVoucher}
+                      />
+                    </div>
+                  </td>
+                  <td
+                    className="acct-supplier-cell"
+                    title={`${row.payer_name} · ${methodText(row)}`}
+                  >
+                    {row.payer_name}
+                  </td>
+                  <td className="acct-user-cell">
+                    <div title={row.created_by_name ?? undefined}>
+                      {row.created_by_name || "—"}
+                    </div>
+                  </td>
+                  <td className="acct-time-cell">
+                    {fmtDateTime(row.created_at)}
+                  </td>
+                  <td className="acct-amount-cell">
+                    <strong>{money(row.amount_vnd)}</strong>
+                    {row.currency !== "VND" && (
+                      <small>
+                        {originalMoney(row.amount, row.currency)}
+                      </small>
+                    )}
+                  </td>
+                  <td>
+                    <span
+                      className={`acct-voucher-status acct-voucher-status--${STATUS_META[row.status].tone}`}
+                    >
+                      {STATUS_META[row.status].label}
+                    </span>
+                    {row.status === "received" &&
+                      row.attachment_count === 0 && (
+                        <span className="acct-missing-doc">
+                          Thiếu chứng từ
+                        </span>
+                      )}
+                  </td>
+                  <td className="acct-action-cell">
+                    <button
+                      type="button"
+                      className="acct-eye"
+                      aria-label={`Xem chi tiết ${row.code}`}
+                      title="Xem chi tiết"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setSelectedId(row.id);
+                      }}
+                    >
+                      <Icon name="eye" size={17} />
+                    </button>
                   </td>
                 </tr>
-              )}
-              {!loading &&
-                rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={
-                      row.id === selected?.id ? "purchase__row--selected" : ""
-                    }
-                    onClick={() => setSelectedId(row.id)}
-                  >
-                    <td className="acct-code-cell">
-                      <strong>{row.code}</strong>
-                      <div className="purchase__source-codes">
-                        <CodeLink
-                          code={row.payment_voucher_code}
-                          onOpen={openVoucher}
-                        />
-                      </div>
-                    </td>
-                    <td
-                      className="acct-supplier-cell"
-                      title={`${row.payer_name} · ${methodText(row)}`}
-                    >
-                      {row.payer_name}
-                    </td>
-                    <td className="acct-time-cell">
-                      {fmtDateTime(row.created_at)}
-                    </td>
-                    <td className="acct-amount-cell">
-                      <strong>{money(row.amount_vnd)}</strong>
-                      {row.currency !== "VND" && (
-                        <small>
-                          {originalMoney(row.amount, row.currency)}
-                        </small>
-                      )}
-                    </td>
-                    <td>
-                      <span
-                        className={`acct-voucher-status acct-voucher-status--${STATUS_META[row.status].tone}`}
-                      >
-                        {STATUS_META[row.status].label}
-                      </span>
-                      {row.status === "received" &&
-                        row.attachment_count === 0 && (
-                          <span className="acct-missing-doc">
-                            Thiếu chứng từ
-                          </span>
-                        )}
-                    </td>
-                  </tr>
-                ))}
-            </tbody>
-          </table>
-          <div className="md-page__pager">
-            <span>{total} phiếu thu</span>
-            <div>
-              <Button
-                variant="ghost"
-                disabled={page <= 1}
-                onClick={() => setPage((value) => value - 1)}
-              >
-                Trước
-              </Button>
-              <span>
-                {page}/{totalPages}
-              </span>
-              <Button
-                variant="ghost"
-                disabled={page >= totalPages}
-                onClick={() => setPage((value) => value + 1)}
-              >
-                Sau
-              </Button>
-            </div>
+              ))}
+          </tbody>
+        </table>
+        <div className="md-page__pager">
+          <span>{total} phiếu thu</span>
+          <div>
+            <Button
+              variant="ghost"
+              disabled={page <= 1}
+              onClick={() => setPage((value) => value - 1)}
+            >
+              Trước
+            </Button>
+            <span>
+              {page}/{totalPages}
+            </span>
+            <Button
+              variant="ghost"
+              disabled={page >= totalPages}
+              onClick={() => setPage((value) => value + 1)}
+            >
+              Sau
+            </Button>
           </div>
-        </section>
-        <aside className="purchase__detail">
-          {!selected ? (
-            <div className="purchase__empty-detail">
-              Chọn một phiếu thu để xem chi tiết.
+        </div>
+      </section>
+      {selected && (
+        <DetailModal
+          kicker="Phiếu thu"
+          title={selected.code}
+          subtitle={selected.doc_no ? `Số phiếu: ${selected.doc_no}` : undefined}
+          badge={
+            <div className="acct-status-stack">
+              <span
+                className={`acct-voucher-status acct-voucher-status--${STATUS_META[selected.status].tone}`}
+              >
+                {STATUS_META[selected.status].label}
+              </span>
+              {selected.status === "received" &&
+                selected.attachment_count === 0 && (
+                  <span className="acct-missing-doc">Thiếu chứng từ</span>
+                )}
             </div>
-          ) : (
-            <>
-              <div className="purchase__detail-head">
-                <div>
-                  <p className="eyebrow">Phiếu thu</p>
-                  <h2>{selected.code}</h2>
-                  {selected.doc_no && (
-                    <p className="md-page__muted">Số phiếu: {selected.doc_no}</p>
-                  )}
-                </div>
-                <div className="acct-status-stack">
-                  <span
-                    className={`acct-voucher-status acct-voucher-status--${STATUS_META[selected.status].tone}`}
-                  >
-                    {STATUS_META[selected.status].label}
-                  </span>
-                  {selected.status === "received" &&
-                    selected.attachment_count === 0 && (
-                      <span className="acct-missing-doc">Thiếu chứng từ</span>
-                    )}
-                </div>
+          }
+          footer={actions(selected)}
+          onClose={() => setSelectedId(null)}
+        >
+          <dl className="purchase__facts">
+            <div>
+              <dt>Phiếu chi nguồn</dt>
+              <dd>
+                <CodeLink
+                  code={selected.payment_voucher_code}
+                  onOpen={openVoucher}
+                />
+              </dd>
+            </div>
+            <div>
+              <dt>PMH nguồn</dt>
+              <dd>{selected.purchase_request_code}</dd>
+            </div>
+            <div>
+              <dt>Nhà cung cấp</dt>
+              <dd>{selected.supplier_name}</dd>
+            </div>
+            <div>
+              <dt>Ngày thu</dt>
+              <dd>{fmtDate(selected.receipt_date)}</dd>
+            </div>
+            <div>
+              <dt>Người nộp</dt>
+              <dd>{selected.payer_name}</dd>
+            </div>
+            <div>
+              <dt>Hình thức</dt>
+              <dd>{methodText(selected)}</dd>
+            </div>
+            <div>
+              <dt>Người lập</dt>
+              <dd>{selected.created_by_name || "—"}</dd>
+            </div>
+            <div>
+              <dt>Lập lúc</dt>
+              <dd>{fmtDateTime(selected.created_at)}</dd>
+            </div>
+            {selected.received_at && (
+              <div>
+                <dt>Đã thu lúc</dt>
+                <dd>
+                  {fmtDateTime(selected.received_at)}
+                  {selected.received_by_name
+                    ? ` · ${selected.received_by_name}`
+                    : ""}
+                </dd>
               </div>
-              <dl className="purchase__facts">
-                <div>
-                  <dt>Phiếu chi nguồn</dt>
-                  <dd>
-                    <CodeLink
-                      code={selected.payment_voucher_code}
-                      onOpen={openVoucher}
-                    />
-                  </dd>
-                </div>
-                <div>
-                  <dt>PMH nguồn</dt>
-                  <dd>{selected.purchase_request_code}</dd>
-                </div>
-                <div>
-                  <dt>Nhà cung cấp</dt>
-                  <dd>{selected.supplier_name}</dd>
-                </div>
-                <div>
-                  <dt>Ngày thu</dt>
-                  <dd>{fmtDate(selected.receipt_date)}</dd>
-                </div>
-                <div>
-                  <dt>Người nộp</dt>
-                  <dd>{selected.payer_name}</dd>
-                </div>
-                <div>
-                  <dt>Hình thức</dt>
-                  <dd>{methodText(selected)}</dd>
-                </div>
-                <div>
-                  <dt>Người lập</dt>
-                  <dd>{selected.created_by_name || "—"}</dd>
-                </div>
-                <div>
-                  <dt>Lập lúc</dt>
-                  <dd>{fmtDateTime(selected.created_at)}</dd>
-                </div>
-                {selected.received_at && (
-                  <div>
-                    <dt>Đã thu lúc</dt>
-                    <dd>
-                      {fmtDateTime(selected.received_at)}
-                      {selected.received_by_name
-                        ? ` · ${selected.received_by_name}`
-                        : ""}
-                    </dd>
-                  </div>
-                )}
-              </dl>
-              <div className="acct-purpose">
-                <span>Nội dung thu</span>
-                <strong>{selected.content}</strong>
+            )}
+          </dl>
+          <div className="acct-purpose">
+            <span>Nội dung thu</span>
+            <strong>{selected.content}</strong>
+          </div>
+          <div className="acct-voucher-amount">
+            <span>Số tiền quy đổi</span>
+            <strong>{money(selected.amount_vnd)}</strong>
+            {selected.currency !== "VND" && (
+              <small>
+                {originalMoney(selected.amount, selected.currency)} · tỷ giá{" "}
+                {selected.exchange_rate}
+              </small>
+            )}
+          </div>
+          {selected.receipt_method === "bank_transfer" && (
+            <div className="acct-account-pair">
+              <div>
+                <span>Tài khoản nhận</span>
+                <strong>{selected.company_account_holder}</strong>
+                <small>
+                  {selected.company_account_number} ·{" "}
+                  {selected.company_bank_name}
+                </small>
               </div>
-              <div className="acct-voucher-amount">
-                <span>Số tiền quy đổi</span>
-                <strong>{money(selected.amount_vnd)}</strong>
-                {selected.currency !== "VND" && (
-                  <small>
-                    {originalMoney(selected.amount, selected.currency)} · tỷ giá{" "}
-                    {selected.exchange_rate}
-                  </small>
-                )}
-              </div>
-              {selected.receipt_method === "bank_transfer" && (
-                <div className="acct-account-pair">
-                  <div>
-                    <span>Tài khoản nhận</span>
-                    <strong>{selected.company_account_holder}</strong>
-                    <small>
-                      {selected.company_account_number} ·{" "}
-                      {selected.company_bank_name}
-                    </small>
-                  </div>
-                </div>
-              )}
-              {selected.bank_reference && (
-                <div className="purchase__note">
-                  Mã giao dịch: <strong>{selected.bank_reference}</strong>
-                </div>
-              )}
-              <div className="acct-attachments">
-                <span className="acct-attachments__label">
-                  Chứng từ minh chứng đã thu
-                </span>
-                {attachments.length === 0 && (
-                  <small className="acct-attachments__empty">
-                    Chưa có file đính kèm.
-                    {selected.status === "received" &&
-                      " Phiếu đã thu — cần bổ sung biên nhận/ảnh minh chứng."}
-                  </small>
-                )}
-                {attachments.length > 0 && (
-                  <div className="acct-att-grid">
-                    {attachments.map((attachment) => {
-                      const isImage = [
-                        "image/jpeg",
-                        "image/png",
-                        "image/webp",
-                        "image/gif",
-                      ].includes(attachment.file_type ?? "");
-                      const href = assetUrl(attachment.file_url) ?? "#";
-                      return (
-                        <div className="acct-att-item" key={attachment.id}>
-                          {isImage ? (
-                            <a
-                              href={href}
-                              target="_blank"
-                              rel="noreferrer"
-                              title={attachment.file_name}
-                            >
-                              <img
-                                className="acct-att-thumb"
-                                src={href}
-                                alt={attachment.file_name}
-                              />
-                            </a>
-                          ) : (
-                            <a
-                              className="acct-att-file"
-                              href={href}
-                              target="_blank"
-                              rel="noreferrer"
-                              title={attachment.file_name}
-                            >
-                              📎 {attachment.file_name}
-                            </a>
-                          )}
-                          {canApprove && (
-                            <button
-                              type="button"
-                              className="acct-att-x"
-                              aria-label={`Xóa ${attachment.file_name}`}
-                              disabled={attachmentBusy}
-                              onClick={() => removeAttachment(attachment)}
-                            >
-                              ×
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                {canApprove && selected.status !== "cancelled" && (
-                  <label className="acct-field">
-                    <span>Thêm ảnh biên nhận / PDF (tối đa 10 MB)</span>
-                    <input
-                      className="input"
-                      type="file"
-                      multiple
-                      accept="image/*,application/pdf"
-                      disabled={attachmentBusy}
-                      onChange={(event) => {
-                        uploadAttachments(event.target.files);
-                        event.target.value = "";
-                      }}
-                    />
-                  </label>
-                )}
-              </div>
-              {selected.note && (
-                <div className="purchase__note">{selected.note}</div>
-              )}
-              {selected.cancel_reason && (
-                <div className="banner banner--error">
-                  Lý do hủy: {selected.cancel_reason}
-                </div>
-              )}
-              {actions(selected)}
-            </>
+            </div>
           )}
-        </aside>
-      </div>
+          {selected.bank_reference && (
+            <div className="purchase__note">
+              Mã giao dịch: <strong>{selected.bank_reference}</strong>
+            </div>
+          )}
+          <div className="acct-attachments">
+            <span className="acct-attachments__label">
+              Chứng từ minh chứng đã thu
+            </span>
+            {attachments.length === 0 && (
+              <small className="acct-attachments__empty">
+                Chưa có file đính kèm.
+                {selected.status === "received" &&
+                  " Phiếu đã thu — cần bổ sung biên nhận/ảnh minh chứng."}
+              </small>
+            )}
+            {attachments.length > 0 && (
+              <div className="acct-att-grid">
+                {attachments.map((attachment) => {
+                  const isImage = [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                    "image/gif",
+                  ].includes(attachment.file_type ?? "");
+                  const href = assetUrl(attachment.file_url) ?? "#";
+                  return (
+                    <div className="acct-att-item" key={attachment.id}>
+                      {isImage ? (
+                        <a
+                          href={href}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={attachment.file_name}
+                        >
+                          <img
+                            className="acct-att-thumb"
+                            src={href}
+                            alt={attachment.file_name}
+                          />
+                        </a>
+                      ) : (
+                        <a
+                          className="acct-att-file"
+                          href={href}
+                          target="_blank"
+                          rel="noreferrer"
+                          title={attachment.file_name}
+                        >
+                          📎 {attachment.file_name}
+                        </a>
+                      )}
+                      {canApprove && (
+                        <button
+                          type="button"
+                          className="acct-att-x"
+                          aria-label={`Xóa ${attachment.file_name}`}
+                          disabled={attachmentBusy}
+                          onClick={() => removeAttachment(attachment)}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {canApprove && selected.status !== "cancelled" && (
+              <label className="acct-field">
+                <span>Thêm ảnh biên nhận / PDF (tối đa 10 MB)</span>
+                <input
+                  className="input"
+                  type="file"
+                  multiple
+                  accept="image/*,application/pdf"
+                  disabled={attachmentBusy}
+                  onChange={(event) => {
+                    uploadAttachments(event.target.files);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+            )}
+          </div>
+          {selected.note && (
+            <div className="purchase__note">{selected.note}</div>
+          )}
+          {selected.cancel_reason && (
+            <div className="banner banner--error">
+              Lý do hủy: {selected.cancel_reason}
+            </div>
+          )}
+        </DetailModal>
+      )}
 
       {editState && (
         <PaymentReceiptDialog
