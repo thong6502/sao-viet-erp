@@ -16,19 +16,19 @@
   width: 220px;
 }
 
-.acct-master-detail {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
-  gap: var(--sp-5);
-  align-items: start;
-}
-
 .acct-list {
   min-width: 0;
 }
 
 .acct-list tbody tr {
   cursor: pointer;
+}
+
+/* Dòng bấm được thì sáng lên khi rê chuột — dạy người dùng "bấm vào xem". Dải
+   nhóm PMH có nền riêng đè lên nên tự miễn nhiễm. Dùng chung cho cả 3 màn
+   .acct-list (Phiếu chi/Phiếu thu/YC kế toán). */
+.acct-list tbody tr:hover {
+  background: var(--rule-hair);
 }
 
 .acct-list td small,
@@ -125,13 +125,6 @@
   color: var(--ash);
 }
 
-/* Dòng phụ "− đã thu X đ" dưới số tiền phiếu chi (display block — không flex trong td). */
-.acct-list td .acct-receipt-sub {
-  display: block;
-  font-size: 12px;
-  color: var(--signal);
-}
-
 /* Badge đỏ "Thiếu chứng từ" — nằm DƯỚI badge trạng thái trong cùng ô/khối
    (block-level child, KHÔNG flex trên td). */
 .acct-missing-doc {
@@ -159,6 +152,81 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+}
+
+/* ── Bảng Phiếu chi (.acct-list--voucher): mỗi ô đúng MỘT dòng → mọi dòng cao
+   bằng nhau, hết nhấp nhô. Sự đều đến từ đồng nhất nội dung; `height` chỉ là sàn
+   cho thoáng + chốt chặn hồi quy (trên <tr>, height = min-height, KHÔNG cắt được
+   dòng cao). Chi tiết phụ (YCMH, đã thu, nguyên tệ) đã có đủ trong popup.
+   Khoanh bằng --voucher để KHÔNG đụng Phiếu thu / YC kế toán cùng dùng .acct-list. */
+.acct-list--voucher tbody tr {
+  height: 52px;
+}
+
+/* Dải nhóm PMH cố tình thấp — miễn trừ khỏi sàn 52px. */
+.acct-list--voucher tbody tr.acct-group-row {
+  height: auto;
+}
+
+/* "Thiếu chứng từ" nằm INLINE cạnh badge trạng thái → ô luôn 1 dòng.
+   Ghi đè .acct-list td .acct-missing-doc{display:block} (specificity cao hơn). */
+.acct-list--voucher td.acct-status-cell {
+  white-space: nowrap;
+}
+
+.acct-list--voucher td .acct-missing-doc {
+  display: inline-flex;
+  margin: 0 0 0 6px;
+  vertical-align: middle;
+}
+
+/* Người lập (dùng chung Phiếu chi + Phiếu thu, KHÔNG khóa theo --voucher):
+   cắt bằng <div>, KHÔNG max-width trên <td> (vô hiệu với table-layout auto →
+   ô nong theo tên dài nhất, đẻ cuộn ngang). */
+.acct-list td.acct-user-cell {
+  font-size: 13px;
+}
+
+.acct-list td.acct-user-cell > div {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Cột thao tác (dùng chung cho mọi bảng kế toán, KHÔNG khóa theo --voucher):
+   nút mắt 32px, canh phải, padding dọc thu lại để không đẩy cao dòng. */
+.acct-list th.acct-action-cell,
+.acct-list td.acct-action-cell {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.acct-list td.acct-action-cell {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.acct-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  vertical-align: middle;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  background: none;
+  color: var(--ash);
+  cursor: pointer;
+}
+
+.acct-eye:hover {
+  border-color: var(--rule);
+  background: var(--canvas);
+  color: var(--ink);
 }
 
 /* Khối "Chứng từ đính kèm" trong panel chi tiết phiếu chi. */
@@ -569,14 +637,6 @@
   border-radius: var(--r-3);
   background: #fff5d9;
   color: #6d4b00;
-}
-
-/* Laptop (≤1440): bảng + panel chi tiết xếp dọc — hai cột cạnh nhau chỉ đủ chỗ
-   trên màn hình lớn; dưới ngưỡng này bảng bị bóp làm gãy layout. */
-@media (max-width: 1440px) {
-  .acct-master-detail {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 1180px) {

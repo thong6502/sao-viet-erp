@@ -1,0 +1,67 @@
+/* Nút thao tác trên dòng bảng — dense = icon + tooltip CSS thuần (không JS).
+   `.btn.rowact__icon-btn` cố tình dùng 2 class (specificity 0,2,0) để LUÔN thắng
+   `.md-page__rowbtn` (master-data.css, 0,1,0) — bất kể thứ tự CSS trong bundle.
+   Không có phần này thì tùy thứ tự import mà nút icon dính padding 2px 10px và lệch. */
+.rowact__tip {
+  position: relative;
+  display: inline-flex;
+}
+
+.btn.rowact__icon-btn {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  margin-left: 0;
+  padding: 0;
+  border-radius: var(--r-2);
+}
+
+.rowact__icon-btn > svg {
+  flex: none;
+}
+
+.rowact__icon-btn[aria-busy="true"] > svg {
+  display: none;
+}
+
+.rowact__tip-bubble {
+  position: absolute;
+  z-index: 80;
+  right: 0;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: 180px;
+  padding: 6px 9px;
+  border-radius: var(--r-2);
+  background: var(--ink);
+  color: var(--paper-contrast);
+  box-shadow: 0 4px 12px rgba(20, 19, 15, 0.2);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  line-height: 1.3;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity var(--duration-fast) var(--easing-standard),
+    transform var(--duration-fast) var(--easing-standard),
+    visibility 0s linear var(--duration-fast);
+}
+
+.rowact__tip-bubble::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  right: 11px;
+  border: 5px solid transparent;
+  border-top-color: var(--ink);
+}
+
+.rowact__tip:hover .rowact__tip-bubble,
+.rowact__tip:focus-within .rowact__tip-bubble {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}

@@ -6,6 +6,7 @@
 // The user widget lives in the top header (Topbar), not here (feat-018).
 import { useEffect, useState } from "react";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
+import { VOUCHER_PAGE_LABEL } from "../constants/features";
 import { Icon, type IconName } from "./Icons";
 import "./sidebar.css";
 
@@ -94,7 +95,7 @@ const NAV: NavSection[] = [
     label: "Kế toán",
     items: [
       { id: "ke-toan-yeu-cau-mua", label: "Yêu cầu mua hàng", icon: "fileCheck", module: "ke_toan" },
-      { id: "ke-toan-phieu-chi", label: "Phiếu chi / UNC", icon: "calculator", module: "ke_toan" },
+      { id: "ke-toan-phieu-chi", label: VOUCHER_PAGE_LABEL, icon: "calculator", module: "ke_toan" },
       { id: "ke-toan-phieu-thu", label: "Phiếu thu", icon: "fileText", module: "ke_toan" },
       { id: "ke-toan-tai-khoan", label: "Tài khoản ngân hàng", icon: "building", module: "ke_toan" },
     ],

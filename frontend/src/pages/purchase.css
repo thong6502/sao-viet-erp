@@ -26,13 +26,6 @@
   font-family: inherit;
 }
 
-.purchase__layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
-  gap: var(--sp-5);
-  align-items: start;
-}
-
 .purchase__list {
   min-width: 0;
 }
@@ -68,32 +61,6 @@
 
 .purchase__row--selected {
   background: var(--rule-hair);
-}
-
-.purchase__detail {
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
-  background: var(--canvas);
-  padding: var(--sp-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-  position: sticky;
-  top: var(--sp-5);
-}
-
-.purchase__detail-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  border-bottom: 1px solid var(--rule);
-  padding-bottom: var(--sp-4);
-}
-
-.purchase__detail-head h2 {
-  margin: var(--sp-1) 0 0;
-  font-size: 18px;
 }
 
 .purchase__facts {
@@ -177,77 +144,6 @@
   justify-content: flex-end;
   flex-wrap: nowrap;
   gap: 4px;
-}
-
-.purchase__action-tip {
-  position: relative;
-  display: inline-flex;
-}
-
-.purchase__action-icon-btn {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  margin-left: 0;
-  padding: 0;
-  border-radius: var(--r-2);
-}
-
-.purchase__action-icon-btn > svg {
-  flex: none;
-}
-
-.purchase__action-icon-btn[aria-busy="true"] > svg {
-  display: none;
-}
-
-.purchase__action-tip-bubble {
-  position: absolute;
-  z-index: 80;
-  right: 0;
-  bottom: calc(100% + 8px);
-  width: max-content;
-  max-width: 180px;
-  padding: 6px 9px;
-  border-radius: var(--r-2);
-  background: var(--ink);
-  color: var(--paper-contrast);
-  box-shadow: 0 4px 12px rgba(20, 19, 15, 0.2);
-  font-size: 12px;
-  font-weight: var(--fw-medium);
-  line-height: 1.3;
-  white-space: nowrap;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: translateY(4px);
-  transition: opacity var(--duration-fast) var(--easing-standard),
-    transform var(--duration-fast) var(--easing-standard),
-    visibility 0s linear var(--duration-fast);
-}
-
-.purchase__action-tip-bubble::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  right: 11px;
-  border: 5px solid transparent;
-  border-top-color: var(--ink);
-}
-
-.purchase__action-tip:hover .purchase__action-tip-bubble,
-.purchase__action-tip:focus-within .purchase__action-tip-bubble {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-  transition-delay: 0s;
-}
-
-.purchase__empty-detail {
-  color: var(--ash);
-  font-size: 14px;
-  text-align: center;
-  padding: var(--sp-8) var(--sp-3);
 }
 
 .purchase__status {
@@ -539,18 +435,6 @@
 .md-purchase__status-badge.is-inactive {
   background: var(--steel-soft);
   color: var(--steel);
-}
-
-/* Laptop (≤1440): bảng PMH + panel chi tiết xếp dọc — hai cột cạnh nhau chỉ đủ
-   chỗ trên màn hình lớn; dưới ngưỡng này bảng bị bóp làm gãy dòng lung tung. */
-@media (max-width: 1440px) {
-  .purchase__layout {
-    grid-template-columns: 1fr;
-  }
-
-  .purchase__detail {
-    position: static;
-  }
 }
 
 @media (max-width: 1200px) {

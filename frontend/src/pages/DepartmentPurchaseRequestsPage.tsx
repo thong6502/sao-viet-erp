@@ -19,6 +19,8 @@ import { useCan } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DetailModal } from "../components/DetailModal";
+import { RowActionButton } from "../components/RowActionButton";
 import { fmtDate } from "../utils/format";
 import "./master-data.css";
 import "./purchase.css";
@@ -111,6 +113,14 @@ export function DepartmentPurchaseRequestsPage({
     null,
   );
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  // Lấy lại từ `rows` (không lưu cả object) để sau khi Hủy cập nhật `rows` thì
+  // popup đang mở tự thấy trạng thái mới.
+  const selected = useMemo(
+    () => rows.find((row) => row.id === selectedId) ?? null,
+    [rows, selectedId],
+  );
 
   const load = useCallback(() => {
     if (!token) return;
@@ -347,10 +357,11 @@ export function DepartmentPurchaseRequestsPage({
                 <tr
                   key={row.id}
                   className={`md-page__row${
-                    row.code === focusRequestCode
+                    row.code === focusRequestCode || selectedId === row.id
                       ? " purchase__row--selected"
                       : ""
                   }`}
+                  onClick={() => setSelectedId(row.id)}
                 >
                   <td>
                     <strong className="md-page__mono">{row.code}</strong>
@@ -363,13 +374,16 @@ export function DepartmentPurchaseRequestsPage({
                     </div>
                   </td>
                   <td>{fmtDate(row.needed_date)}</td>
-                  <td>
+                  <td
+                    title={row.lines.map((line) => line.item_name).join(", ")}
+                  >
                     <strong>{row.lines.length} dòng</strong>
                     <div className="md-page__muted">
                       {row.lines
                         .slice(0, 2)
                         .map((line) => line.item_name)
                         .join(", ")}
+                      {row.lines.length > 2 ? "…" : ""}
                     </div>
                   </td>
                   <td>
@@ -379,19 +393,29 @@ export function DepartmentPurchaseRequestsPage({
                     {row.requested_by_name || "—"}
                     <div className="md-page__muted">{fmtDate(row.created_at)}</div>
                   </td>
-                  <td>
-                    {row.status === "open" &&
-                    (canAdminCancel || row.requested_by_user_id === user?.id) ? (
-                      <button
-                        type="button"
-                        className="btn btn--ghost md-page__rowbtn"
-                        onClick={() => setCanceling(row)}
-                      >
-                        Hủy
-                      </button>
-                    ) : (
-                      <span className="md-page__muted">—</span>
-                    )}
+                  <td
+                    className="md-page__actions-col"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div className="purchase__actions purchase__actions--dense">
+                      <RowActionButton
+                        dense
+                        label="Xem chi tiết"
+                        icon="eye"
+                        onClick={() => setSelectedId(row.id)}
+                      />
+                      {row.status === "open" &&
+                        (canAdminCancel ||
+                          row.requested_by_user_id === user?.id) && (
+                          <button
+                            type="button"
+                            className="btn btn--ghost md-page__rowbtn"
+                            onClick={() => setCanceling(row)}
+                          >
+                            Hủy
+                          </button>
+                        )}
+                    </div>
                   </td>
                 </tr>
               ))
@@ -402,6 +426,63 @@ export function DepartmentPurchaseRequestsPage({
           <span className="md-page__muted">Tổng {total} yêu cầu</span>
         </div>
       </section>
+
+      {selected && (
+        <DetailModal
+          kicker="Chi tiết yêu cầu"
+          title={selected.code}
+          subtitle={selected.purpose}
+          badge={<SourceStatusBadge status={selected.status} />}
+          onClose={() => setSelectedId(null)}
+        >
+          <dl className="purchase__facts">
+            <div>
+              <dt>Bộ phận phát sinh</dt>
+              <dd>{SOURCE_TYPE_LABELS[selected.source_type]}</dd>
+            </div>
+            <div>
+              <dt>Phòng ban</dt>
+              <dd>{selected.requesting_department_name || "Nội bộ"}</dd>
+            </div>
+            <div>
+              <dt>Ngày cần hàng</dt>
+              <dd>{fmtDate(selected.needed_date)}</dd>
+            </div>
+            <div>
+              <dt>Người tạo</dt>
+              <dd>{selected.requested_by_name || "—"}</dd>
+            </div>
+            <div>
+              <dt>Tạo lúc</dt>
+              <dd>{fmtDate(selected.created_at)}</dd>
+            </div>
+          </dl>
+          {selected.note && (
+            <div className="purchase__note">{selected.note}</div>
+          )}
+          <p className="eyebrow">
+            Vật tư đã yêu cầu ({selected.lines.length} dòng)
+          </p>
+          <div className="purchase__lines">
+            {selected.lines.map((line) => (
+              <div className="purchase__line" key={line.id}>
+                <span>
+                  <strong>{line.item_name}</strong>
+                  {line.note && (
+                    <>
+                      <br />
+                      <small>{line.note}</small>
+                    </>
+                  )}
+                </span>
+                <strong>
+                  {line.quantity.toLocaleString("vi-VN")} {line.unit}
+                </strong>
+              </div>
+            ))}
+          </div>
+        </DetailModal>
+      )}
 
       {mode && (
         <div className="md-page__overlay" role="presentation">
