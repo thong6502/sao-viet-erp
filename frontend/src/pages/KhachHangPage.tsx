@@ -26,7 +26,6 @@ import {
   type FollowupRow,
   type ImportResultOut,
   type OrderHistoryRow,
-  type PinnedCustomer,
   type QuoteHistoryRow,
   type ReceivableCard,
   type SaleOption,
@@ -84,10 +83,6 @@ import {
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
 
-/** The customer slice CRM hands to a target screen when navigating (pin, no hand-typed ID). */
-function pinOf(c: CustomerRow): PinnedCustomer {
-  return { id: c.id, code: c.code, name: c.name, tax_code: c.tax_code };
-}
 
 const MST_RE = /^(\d{10}|\d{13})$/;
 const PAGE_SIZES = [25, 50, 100];
@@ -1343,9 +1338,6 @@ function CustomerObjectPage({
               customer={customer}
               dash={dash}
               onEdit={() => onEdit(customer)}
-              navigate={navigate}
-              onClose={onClose}
-              onSchedule={() => setTab("care")}
             />
             <nav className="kh__so-tabs" aria-label="Nội dung">
               {(
@@ -1422,16 +1414,10 @@ function ObjectHeader({
   customer,
   dash,
   onEdit,
-  navigate,
-  onClose,
-  onSchedule,
 }: {
   customer: CustomerRow;
   dash: CustomerDashboard;
   onEdit: () => void;
-  navigate: NavigateFn;
-  onClose: () => void;
-  onSchedule: () => void;
 }) {
   // const canDebt = useCan()("khach_hang", "view_debt");
   // const rec = dash.receivable;
