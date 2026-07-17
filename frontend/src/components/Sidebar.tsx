@@ -52,13 +52,6 @@ const NAV: NavSection[] = [
     ],
   },
   {
-    id: "san-xuat",
-    label: "Sản xuất",
-    items: [
-      { id: "lenh-san-xuat", label: "Lệnh sản xuất", icon: "clipboard", module: "san_xuat" },
-    ],
-  },
-  {
     id: "kho",
     label: "Kho",
     items: [

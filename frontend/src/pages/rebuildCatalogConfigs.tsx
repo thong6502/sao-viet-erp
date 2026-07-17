@@ -126,6 +126,8 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   fields: [
     { key: "ten_hien_thi", label: "Tên hiển thị cho sản xuất", type: "text", group: "Thông tin" },
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
+    { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin",
+      hint: "Tổ/bộ phận sẽ nhận việc công đoạn này khi phát lệnh sản xuất" },
 
     // run_rate — 2 biến thể cùng key: đa số là 'đơn giá / đơn vị', riêng trọn gói là 'tổng tiền'.
     { key: "run_rate", label: "Đơn giá / đơn vị (đ)", type: "number", group: "Giá",

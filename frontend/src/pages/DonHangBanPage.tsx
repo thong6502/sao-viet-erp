@@ -13,7 +13,6 @@ import {
   type OrderLineInput,
   type OrderRow,
   type OrderStatsOut,
-  type ProductionOrderRow,
 } from "../api/client";
 import "./don-hang-ban.css";
 
@@ -363,39 +362,25 @@ function OrderDrawer({
   async function upDepProof(did: number, f: File) { if (token) onSaved(await api.orders.uploadDepositProof(token, order.id, did, f)); }
   async function delDepProof(did: number, aid: number) { if (token) onSaved(await api.orders.deleteDepositProof(token, order.id, did, aid)); }
   const [acts, setActs] = useState<{ at: string; actor_name: string | null; action: string; detail: string }[]>([]);
-  const [prodOrders, setProdOrders] = useState<ProductionOrderRow[]>([]);
   const isDraft = order.status === "draft";
   const [drawerTab, setDrawerTab] = useState<"overview" | "commercial" | "history">("overview");
 
   const isChotDone = order.status === "ordered" || order.ordered_at != null;
   const isCocDone = order.deposit_ok;
-  const isSxDone = prodOrders.length > 0 && prodOrders.every((x) => x.status === "done");
-  const isSxActive = prodOrders.length > 0 && !isSxDone && prodOrders.some((x) => x.status === "open");
 
   const chotDate = order.ordered_at ? fmtDate(order.ordered_at) : (order.created_at ? fmtDate(order.created_at) : "—");
   const cocText = isCocDone ? "đủ" : "chờ cọc";
-  const sxText = isSxDone ? "hoàn thành" : (isSxActive ? "đang làm" : "—");
 
-  const [activeStep, setActiveStep] = useState<"chot" | "coc" | "sx" | "giao" | "hoadon">("coc");
+  const [activeStep, setActiveStep] = useState<"chot" | "coc" | "giao" | "hoadon">("coc");
 
   useEffect(() => {
     if (token) api.orders.activity(token, order.id).then((r) => setActs(r.items)).catch(() => {});
   }, [token, order.id]);
 
   useEffect(() => {
-    const defaultStep = !isChotDone ? "chot" : (!isCocDone ? "coc" : (isSxDone ? "giao" : "sx"));
+    const defaultStep = !isChotDone ? "chot" : (!isCocDone ? "coc" : "giao");
     setActiveStep(defaultStep);
-  }, [order.id, isChotDone, isCocDone, isSxDone]);
-
-  useEffect(() => {
-    if (token && order.id) {
-      api.production.listOrders(token, { size: 100 })
-        .then((res) => {
-          setProdOrders(res.items.filter((x) => x.order_id === order.id));
-        })
-        .catch((e) => console.error(e));
-    }
-  }, [token, order.id]);
+  }, [order.id, isChotDone, isCocDone]);
 
   return (
     <div
@@ -503,20 +488,10 @@ function OrderDrawer({
                     <span className="dhb__timeline-sub">{cocText}</span>
                   </div>
                   <div
-                    className={`dhb__timeline-step ${isSxDone ? "is-done" : (isSxActive ? "is-active" : "")} ${activeStep === "sx" ? "is-selected" : ""}`}
-                    onClick={() => setActiveStep("sx")}
-                  >
-                    <div className="dhb__timeline-dot">
-                      {isSxDone ? <Icon name="check" size={12} /> : (isSxActive ? <Icon name="clock" size={12} /> : "3")}
-                    </div>
-                    <span className="dhb__timeline-label">Sản xuất</span>
-                    <span className="dhb__timeline-sub">{sxText}</span>
-                  </div>
-                  <div
                     className={`dhb__timeline-step ${activeStep === "giao" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("giao")}
                   >
-                    <div className="dhb__timeline-dot">4</div>
+                    <div className="dhb__timeline-dot">3</div>
                     <span className="dhb__timeline-label">Giao hàng</span>
                     <span className="dhb__timeline-sub">—</span>
                   </div>
@@ -524,7 +499,7 @@ function OrderDrawer({
                     className={`dhb__timeline-step ${activeStep === "hoadon" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("hoadon")}
                   >
-                    <div className="dhb__timeline-dot">5</div>
+                    <div className="dhb__timeline-dot">4</div>
                     <span className="dhb__timeline-label">Hóa đơn</span>
                     <span className="dhb__timeline-sub">—</span>
                   </div>
@@ -606,41 +581,6 @@ function OrderDrawer({
                   </div>
                 )}
  
-                {activeStep === "sx" && (
-                  <div className="dhb__lifecycle-box">
-                    <div className="dhb__lifecycle-box-header">
-                      <h4 className="dhb__lifecycle-box-title">Sản xuất</h4>
-                      {prodOrders.length > 0 ? (
-                        <>
-                          <span className={`dhb__lifecycle-badge ${isSxDone ? "dhb__lifecycle-badge--done" : "dhb__lifecycle-badge--active"}`}>
-                            {isSxDone ? "HOÀN THÀNH" : "ĐANG SẢN XUẤT"}
-                          </span>
-                          <button
-                            className="link dhb__mono"
-                            style={{ color: "var(--rust)", background: "none", border: 0, cursor: "pointer", padding: 0, fontWeight: 700 }}
-                            onClick={() => navigate?.("lenh-san-xuat")}
-                          >
-                            {prodOrders[0].code} ↗
-                          </button>
-                        </>
-                      ) : (
-                        <span className="dhb__lifecycle-badge dhb__lifecycle-badge--upcoming">CHƯA BẮT ĐẦU</span>
-                      )}
-                    </div>
-                    {prodOrders.length > 0 ? (
-                      <>
-                        <p className="dhb__lifecycle-desc" style={{ marginTop: 4 }}>
-                          Trạng thái lệnh sản xuất: <strong>{prodOrders[0].status === "done" ? "Hoàn thành" : (prodOrders[0].status === "cancelled" ? "Đã hủy" : "open (đang làm)")}</strong>
-                        </p>
-                        <p className="dhb__lifecycle-desc" style={{ opacity: 0.7, fontSize: 11, fontStyle: "italic" }}>
-                          Kéo từ Lệnh sản xuất qua liên kết đơn. Chỉ mức thô open / done / cancelled mà Sản xuất đang có — tiến độ theo công đoạn là P2, khi có sẽ tự hiện thêm.
-                        </p>
-                      </>
-                    ) : (
-                      <p className="dhb__lifecycle-desc">Đơn chưa lập Lệnh sản xuất (LSX).</p>
-                    )}
-                  </div>
-                )}
  
                 {activeStep === "giao" && (
                   <div className="dhb__lifecycle-box dhb__lifecycle-box--dotted">

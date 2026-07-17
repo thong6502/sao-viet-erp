@@ -13,7 +13,8 @@ from ..db import get_db
 from ..deps import require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.cong_doan_repo import CongDoanRepository
-from ..schemas.cong_doan import CongDoanIn, CongDoanListOut, CongDoanRow
+from ..repositories.rbac_repo import DepartmentRepository
+from ..schemas.cong_doan import CongDoanIn, CongDoanListOut, CongDoanRow, RefOption, RefOptionListOut
 from ..services.cong_doan_service import (
     CongDoanDuplicate, CongDoanNotFound, CongDoanService, CongDoanValidationError,
 )
@@ -51,6 +52,17 @@ def list_items(
 ) -> CongDoanListOut:
     rows, total = svc.list(q=q, nhom=nhom, active=active, page=page, size=size)
     return CongDoanListOut(items=[CongDoanRow.model_validate(r) for r in rows], total=total, page=page, size=size)
+
+
+@router.get("/phong-ban", response_model=RefOptionListOut)
+def list_phong_ban_options(
+    db: Annotated[Session, Depends(get_db)],
+    # Đọc được nếu có quyền cấu hình Công đoạn HOẶC Tính giá (đổ dropdown 'Phòng ban phụ trách').
+    _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
+) -> RefOptionListOut:
+    """Phòng ban / tổ cho dropdown 'Phòng ban phụ trách' ở form Công đoạn (khớp field ref: {id, ma, ten})."""
+    depts = DepartmentRepository(db).list_all()
+    return RefOptionListOut(items=[RefOption(id=d.id, ma=d.code, ten=d.name) for d in depts])
 
 
 @router.get("/{cd_id}", response_model=CongDoanRow)
