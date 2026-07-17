@@ -259,14 +259,7 @@ class OrderRepository:
             "pending_approval": cnt(Order.status == STATUS_DRAFT, Order.approval_state == "pending"),
         }
 
-    def deposit_received_sum(self, order_id: int) -> int:
-        """Σ số tiền THỰC nhận của các phiếu cọc (base cổng chốt). 0 nếu chưa có phiếu."""
-        from ..models.order import OrderDeposit
-
-        val = self.db.execute(
-            select(func.sum(OrderDeposit.amount_received)).where(OrderDeposit.order_id == order_id)
-        ).scalar()
-        return int(val) if val is not None else 0
+    # V5: Σ cọc đã thu chuyển sang AccountingRepository.received_deposit_sum (cọc = PaymentReceipt).
 
     def active_order_for_quotation(self, quotation_id: int) -> Order | None:
         """Đơn CHƯA hủy đang tham chiếu báo giá này (guard 1 báo giá → 1 đơn)."""

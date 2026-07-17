@@ -411,14 +411,8 @@ def get_order_repository(
     return OrderRepository(db)
 
 
-def get_order_service(
-    db: Annotated[Session, Depends(get_db)],
-    repo: Annotated[OrderRepository, Depends(get_order_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-    quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
-) -> OrderService:
-    # SEAM-04: đọc báo giá (QuotationRepository) để snapshot dòng + deposit_pct khi tạo đơn.
-    return OrderService(repo, audit, quotations, db)
+# get_order_service khai SAU get_accounting_service (bên dưới) vì nó Depends vào — Depends resolve
+# tên ở thời điểm định nghĩa hàm (xem ghi chú get_sequence_service ↔ get_accounting_service).
 
 
 def require_permission(module_key: str, action: str):
@@ -535,6 +529,19 @@ def get_accounting_service(
     sequences: Annotated[SequenceService, Depends(get_sequence_service)],
 ) -> AccountingService:
     return AccountingService(repo, requests, suppliers, users, audit, sequences)
+
+
+def get_order_service(
+    db: Annotated[Session, Depends(get_db)],
+    repo: Annotated[OrderRepository, Depends(get_order_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
+    accounting_repo: Annotated[AccountingRepository, Depends(get_accounting_repository)],
+    accounting: Annotated[AccountingService, Depends(get_accounting_service)],
+) -> OrderService:
+    # SEAM-04: đọc báo giá (QuotationRepository) để snapshot dòng + deposit_pct khi tạo đơn.
+    # V5: accounting_repo → đọc Σ cọc received + list phiếu; accounting (service) → LẬP phiếu thu cọc.
+    return OrderService(repo, audit, quotations, db, accounting_repo, accounting)
 
 
 def get_material_repository(

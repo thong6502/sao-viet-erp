@@ -22,8 +22,6 @@ from ..models.order import (
     APPROVAL_STATE_REJECTED,
     COST_BASIS_NONE,
     COST_BASIS_QUOTE,
-    DEPOSIT_KIND_CK,
-    DEPOSIT_KINDS,
     EXC_NO_COST,
     FAULT_KHACH,
     FAULT_XUONG,
@@ -38,11 +36,10 @@ from ..models.order import (
     Order,
     OrderApproval,
     OrderAttachment,
-    OrderDeposit,
-    OrderDepositAttachment,
 )
 from ..models.quotation import STATUS_ACCEPTED, Quote
 from ..models.user import User
+from ..repositories.accounting_repo import AccountingRepository
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.order_repo import OrderRepository
 from ..repositories.quotation_repo import QuotationRepository
@@ -52,7 +49,7 @@ from ..schemas.order import (
     OrderActivityOut,
     AttachmentOut,
     OrderApprovalOut,
-    OrderDepositOut,
+    OrderDepositReceiptOut,
     OrderDetailOut,
     OrderEnumsOut,
     OrderLineOut,
@@ -60,6 +57,7 @@ from ..schemas.order import (
     OrderRow,
     OrderStatsOut,
 )
+from .accounting_service import AccountingService, AccountingValidationError
 
 
 class OrderError(Exception):
@@ -137,11 +135,17 @@ class OrderService:
         audit: AuditLogRepository,
         quotations: QuotationRepository,
         db: Session,
+        accounting_repo: AccountingRepository,
+        accounting: AccountingService,
     ) -> None:
         self.repo = repo
         self.audit = audit
         self.quotations = quotations
         self.db = db
+        # V5: cọc = PaymentReceipt (Kế toán). accounting_repo → đọc Σ received + list phiếu; accounting
+        # (service) → LẬP phiếu thu cọc. Cùng Session request-scoped nên chung transaction.
+        self.accounting_repo = accounting_repo
+        self.accounting = accounting
 
     # --- helpers ------------------------------------------------------------
     def _user_names(self, ids: list[int]) -> dict[int, str]:
@@ -165,7 +169,8 @@ class OrderService:
         total = self.repo.line_total_sum(order.id)
         total_with_vat = self.repo.total_with_vat(order.id)
         order_cost = self.repo.order_cost_sum(order.id)
-        received = self.repo.deposit_received_sum(order.id)
+        # V5: cọc đọc từ phiếu thu THẬT (Kế toán) — Σ PaymentReceipt(order, source=đơn, received).
+        received = self.accounting_repo.received_deposit_sum(order.id)
         pct = order.deposit_pct
         required = int(round(float(pct) * total_with_vat / 100)) if pct else 0
         # biên: chỉ khi có giá vốn (cost_basis=quote) + có total
@@ -253,23 +258,17 @@ class OrderService:
 
             c = self.db.get(Customer, order.customer_id)
             cust_name = c.name if c else None
-        dep_recorders = [d.recorded_by for d in order.deposits if d.recorded_by]
-        names = self._user_names([order.sale_user_id, *dep_recorders])
+        names = self._user_names([order.sale_user_id])
         m = self._money(order)
-        deposits = []
-        for d in order.deposits:
-            deposits.append(OrderDepositOut(
-                id=d.id, deposit_kind=d.deposit_kind, amount_expected=d.amount_expected,
-                amount_received=d.amount_received, reconciled=d.reconciled,
-                reconciled_by=d.reconciled_by, reconciled_at=d.reconciled_at, note=d.note,
-                received_at=d.received_at, recorded_by=d.recorded_by,
-                recorded_by_name=names.get(d.recorded_by), created_at=d.created_at,
-                attachments=[
-                    AttachmentOut(id=x.id, url=x.file_path, file_name=x.original_name,
-                                  content_type=x.content_type, uploaded_at=x.uploaded_at)
-                    for x in d.attachments
-                ],
-            ))
+        # V5: danh sách phiếu thu cọc (PaymentReceipt nguồn đơn) — thay bản ghi OrderDeposit cũ.
+        deposits = [
+            OrderDepositReceiptOut(
+                id=r.id, code=r.code, doc_no=r.doc_no, amount=int(r.amount),
+                receipt_method=r.receipt_method, status=r.status,
+                receipt_date=r.receipt_date, created_at=r.created_at,
+            )
+            for r in self.accounting_repo.list_order_receipts(order.id)
+        ]
         aps = (
             self.db.query(OrderApproval)
             .filter(OrderApproval.order_id == order.id)
@@ -581,64 +580,33 @@ class OrderService:
             "ready_to_confirm": ready_to_confirm,
         }
 
-    # --- Cọc (P2) — Kế toán ghi phiếu thu, chỉ khi đơn còn NHÁP -------------
-    def _load_draft_for_deposit(self, order_id: int, actor, scope: str) -> Order:
+    # --- Cọc (V5) — Kế toán LẬP PHIẾU THU THẬT từ đơn, chỉ khi đơn còn NHÁP -
+    def add_deposit_receipt(self, *, order_id: int, actor, scope: str, payload) -> OrderDetailOut:
+        """Kế toán bấm trên drawer đơn → tạo PaymentReceipt(source='don_hang_ban', received) gắn đơn.
+        Chỉ ghi khi đơn còn NHÁP (cọc là cổng TRƯỚC chốt). Quyền gate ở router = record_deposit."""
         order = self.repo.get_by_id(order_id)
         if order is None or not self.repo.can_access(order=order, scope=scope, actor=actor):
             raise OrderNotFound("Không tìm thấy đơn hàng")
         if order.status != STATUS_DRAFT:
-            raise OrderConflict("Đơn đã chốt/hủy — không ghi/sửa cọc")
-        return order
+            raise OrderConflict("Đơn đã chốt/hủy — không ghi cọc")
+        customer_name = None
+        if order.customer_id:
+            from ..models.customer import Customer
 
-    def _apply_deposit_fields(self, dep: OrderDeposit, payload, actor) -> None:
-        if payload.deposit_kind not in DEPOSIT_KINDS:
-            raise OrderValidationError("Hình thức cọc không hợp lệ")
-        dep.deposit_kind = payload.deposit_kind
-        dep.amount_expected = payload.amount_expected
-        dep.amount_received = payload.amount_received
-        dep.note = payload.note
-        dep.received_at = payload.received_at
-        # đối chiếu sao kê CHỈ có nghĩa với CK
-        rec = bool(payload.reconciled) and payload.deposit_kind == DEPOSIT_KIND_CK
-        dep.reconciled = rec
-        dep.reconciled_by = actor.id if rec else None
-        dep.reconciled_at = datetime.now(timezone.utc) if rec else None
-
-    def add_deposit(self, *, order_id: int, actor, scope: str, payload) -> OrderDetailOut:
-        order = self._load_draft_for_deposit(order_id, actor, scope)
-        dep = OrderDeposit(order_id=order.id, recorded_by=actor.id)
-        self._apply_deposit_fields(dep, payload, actor)
-        self.db.add(dep)
-        self.db.commit()
+            c = self.db.get(Customer, order.customer_id)
+            customer_name = c.name if c else None
+        try:
+            self.accounting.create_order_deposit_receipt(
+                order=order, customer_name=customer_name, actor=actor,
+                receipt_method=payload.receipt_method, amount=payload.amount,
+                receipt_date=payload.receipt_date, note=payload.note,
+                company_bank_account_id=payload.company_bank_account_id,
+            )
+        except AccountingValidationError as exc:
+            raise OrderValidationError(str(exc)) from exc
         self.audit.create(
             actor_user_id=actor.id, action="record_deposit", target=f"order:{order.id}",
-            detail=f"Ghi cọc {payload.amount_received:,}đ ({payload.deposit_kind}) — đơn {order.order_no}",
-        )
-        return self._detail(self.repo.get_with_lines(order_id))
-
-    def update_deposit(self, *, order_id: int, deposit_id: int, actor, scope: str, payload) -> OrderDetailOut:
-        order = self._load_draft_for_deposit(order_id, actor, scope)
-        dep = self.db.get(OrderDeposit, deposit_id)
-        if dep is None or dep.order_id != order.id:
-            raise OrderNotFound("Không tìm thấy phiếu thu")
-        self._apply_deposit_fields(dep, payload, actor)
-        self.db.commit()
-        self.audit.create(
-            actor_user_id=actor.id, action="update_deposit", target=f"order:{order.id}",
-            detail=f"Sửa phiếu thu #{deposit_id} — đơn {order.order_no}",
-        )
-        return self._detail(self.repo.get_with_lines(order_id))
-
-    def delete_deposit(self, *, order_id: int, deposit_id: int, actor, scope: str) -> OrderDetailOut:
-        order = self._load_draft_for_deposit(order_id, actor, scope)
-        dep = self.db.get(OrderDeposit, deposit_id)
-        if dep is None or dep.order_id != order.id:
-            raise OrderNotFound("Không tìm thấy phiếu thu")
-        self.db.delete(dep)
-        self.db.commit()
-        self.audit.create(
-            actor_user_id=actor.id, action="delete_deposit", target=f"order:{order.id}",
-            detail=f"Xóa phiếu thu #{deposit_id} — đơn {order.order_no}",
+            detail=f"Thu cọc {int(payload.amount):,}đ ({payload.receipt_method}) — đơn {order.order_no}",
         )
         return self._detail(self.repo.get_with_lines(order_id))
 
@@ -791,29 +759,5 @@ class OrderService:
             target=f"order:{order.id}", detail=f"Xóa chứng cứ #{attachment_id}")
         return self._detail(self.repo.get_with_lines(order_id))
 
-    def add_deposit_attachment(self, *, order_id, deposit_id, actor, scope, file_name, content_type, data) -> OrderDetailOut:
-        order = self._load_editable_draft(order_id, actor, scope)
-        dep = self.db.get(OrderDeposit, deposit_id)
-        if dep is None or dep.order_id != order.id:
-            raise OrderNotFound("Không tìm thấy phiếu thu")
-        if len(dep.attachments) >= _MAX_ATTACH_PER:
-            raise OrderValidationError(f"Tối đa {_MAX_ATTACH_PER} minh chứng")
-        url, safe, size = _save_static("don-hang-coc", dep.id, file_name, content_type, data)
-        self.db.add(OrderDepositAttachment(deposit_id=dep.id, file_path=url, original_name=safe,
-            content_type=content_type, size_bytes=size, uploaded_by=actor.id))
-        self.db.commit()
-        self.audit.create(actor_user_id=actor.id, action="upload_deposit_proof",
-            target=f"order:{order.id}", detail=f"Minh chứng cọc + {safe}")
-        return self._detail(self.repo.get_with_lines(order_id))
-
-    def delete_deposit_attachment(self, *, order_id, deposit_id, attachment_id, actor, scope) -> OrderDetailOut:
-        order = self._load_editable_draft(order_id, actor, scope)
-        att = self.db.get(OrderDepositAttachment, attachment_id)
-        if att is None or att.deposit_id != deposit_id:
-            raise OrderNotFound("Không tìm thấy minh chứng")
-        _unlink_static(att.file_path)
-        self.db.delete(att)
-        self.db.commit()
-        self.audit.create(actor_user_id=actor.id, action="delete_deposit_proof",
-            target=f"order:{order.id}", detail=f"Xóa minh chứng #{attachment_id}")
-        return self._detail(self.repo.get_with_lines(order_id))
+    # V5: minh chứng đã thu cọc KHÔNG còn đính ở đơn — dùng PaymentReceiptAttachment (màn Phiếu thu
+    # Kế toán, endpoint /api/accounting/payment-receipts/{id}/attachments).

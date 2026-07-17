@@ -3658,28 +3658,22 @@ export interface AttachmentOut {
   content_type: string | null;
   uploaded_at: string;
 }
-export interface OrderDepositOut {
+export interface OrderDepositReceipt {
   id: number;
-  deposit_kind: string;
-  amount_expected: number;
-  amount_received: number;
-  reconciled: boolean;
-  reconciled_by: number | null;
-  reconciled_at: string | null;
-  note: string | null;
-  received_at: string | null;
-  recorded_by: number | null;
-  recorded_by_name: string | null;
+  code: string;
+  doc_no: string | null;
+  amount: number;
+  receipt_method: string;   // cash | bank_transfer
+  status: string;           // received (V5: lập là đã thu)
+  receipt_date: string | null;
   created_at: string;
-  attachments: AttachmentOut[];
 }
-export interface OrderDepositInput {
-  deposit_kind: string;
-  amount_expected?: number;
-  amount_received?: number;
-  reconciled?: boolean;
+export interface OrderDepositReceiptInput {
+  receipt_method: string;   // cash | bank_transfer
+  amount: number;
+  receipt_date?: string | null;
   note?: string | null;
-  received_at?: string | null;
+  company_bank_account_id?: number | null;
 }
 export interface OrderApprovalOut {
   id: number;
@@ -3740,7 +3734,7 @@ export interface OrderDetail extends OrderRow {
   margin_pct: number | null;
   cancel_reason: string | null;
   cancel_fault: string | null;
-  deposits: OrderDepositOut[];
+  deposits: OrderDepositReceipt[];   // V5: phiếu thu cọc THẬT (PaymentReceipt nguồn đơn)
   approvals: OrderApprovalOut[];
   consent_attachments: AttachmentOut[];
   can_confirm: boolean;
@@ -5175,21 +5169,11 @@ export const api = {
     activity(token: string, id: number): Promise<{ items: OrderActivity[] }> {
       return authed(`/api/orders/${id}/activity`, token);
     },
-    addDeposit(token: string, orderId: number, input: OrderDepositInput): Promise<OrderDetail> {
-      return authed<OrderDetail>(`/api/orders/${orderId}/deposits`, token, {
+    /** V5: Kế toán lập phiếu thu cọc THẬT từ đơn (tạo PaymentReceipt received, gắn order_id). */
+    addDepositReceipt(token: string, orderId: number, input: OrderDepositReceiptInput): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${orderId}/deposit-receipts`, token, {
         method: "POST",
         body: JSON.stringify(input),
-      });
-    },
-    updateDeposit(token: string, orderId: number, depositId: number, input: OrderDepositInput): Promise<OrderDetail> {
-      return authed<OrderDetail>(`/api/orders/${orderId}/deposits/${depositId}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    deleteDeposit(token: string, orderId: number, depositId: number): Promise<OrderDetail> {
-      return authed<OrderDetail>(`/api/orders/${orderId}/deposits/${depositId}`, token, {
-        method: "DELETE",
       });
     },
     submit(token: string, id: number): Promise<OrderDetail> {
@@ -5230,14 +5214,6 @@ export const api = {
     },
     deleteConsent(token: string, id: number, attachmentId: number): Promise<OrderDetail> {
       return authed<OrderDetail>(`/api/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
-    },
-    uploadDepositProof(token: string, id: number, depositId: number, file: File): Promise<OrderDetail> {
-      const form = new FormData();
-      form.append("file", file);
-      return authed<OrderDetail>(`/api/orders/${id}/deposits/${depositId}/attachments`, token, { method: "POST", body: form });
-    },
-    deleteDepositProof(token: string, id: number, depositId: number, attachmentId: number): Promise<OrderDetail> {
-      return authed<OrderDetail>(`/api/orders/${id}/deposits/${depositId}/attachments/${attachmentId}`, token, { method: "DELETE" });
     },
   },
   productTypesCatalog: {

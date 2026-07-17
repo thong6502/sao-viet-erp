@@ -663,7 +663,7 @@ liệu cho khung timeline trên UI detail.
 `cost_basis='none'`, biên "không xác định", LUÔN cần duyệt). Vòng đời ACTIVE `draft → ordered → cancelled`
 (`on_hold`/`change_order` = hằng số DORMANT, không dùng). Cổng chốt: báo giá còn duyệt & còn hạn AND Σ cọc thực
 nhận ≥ `deposit_pct`×tổng (deposit_pct **ghim từ báo giá**) AND đủ PO+ngày giao AND chứng cứ đồng ý AND
-(nhập tay: đã duyệt) AND không đặc thù treo — cọc ghi ở `order_deposits`. `parent_order_id` (self-FK) CHỈ cho
+(nhập tay: đã duyệt) AND không đặc thù treo — cọc = Σ `payment_receipts`(`order_id`, `received`) (V5). `parent_order_id` (self-FK) CHỈ cho
 **đơn bổ sung** (`order_kind=bo_sung`, giữ kẽm → giá riêng). `order_nature` {hang_hoa, gia_cong} thay
 `has_customer_paper` (2 gốc thuế). Layer vật lý (khổ/màu/kẽm/imposition) NEVER lưu ở đây — ẩn khỏi Sale. VAT chân
 lý ở `InvoiceLine` (⑬). Hủy: `cancel_*` (lý do + lỗi tại ai) — cọc KHÔNG xóa, "còn cọc chưa quyết toán" suy từ
@@ -808,35 +808,6 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 
 ---
 
-### `order_deposits`
-
-**Purpose:** P2 — phiếu thu cọc của một Đơn hàng bán (Kế toán ghi, quyền `can_record_deposit`; nhiều phiếu/1 đơn). Cổng chốt tính trên **Σ `amount_received`** (tiền thực nhận quy đổi). Đa hình thức (`deposit_kind`); đối chiếu sao kê CHỈ có nghĩa với CK. Cọc **không** sinh hóa đơn VAT. Bảng MỚI do `create_all` dựng. Portable across SQLite và Postgres.
-
-| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | no | — | Đơn gắn phiếu thu (ON DELETE CASCADE). |
-| `deposit_kind` | `String(20)` → `VARCHAR(20)` | — | no | `ck` | Hình thức ∈ {ck, tien_mat, vat_tu_ung, can_tru_cong_no}. |
-| `amount_expected` | `BigInteger` → `BIGINT` | — | no | `0` | Số kỳ vọng (VND). |
-| `amount_received` | `BigInteger` → `BIGINT` | — | no | `0` | Số thực nhận (VND) — base cổng chốt. |
-| `reconciled` | `Boolean` → `BOOLEAN` | — | no | `false` | Đã đối chiếu sao kê (CHỈ có nghĩa với CK). |
-| `reconciled_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người đối chiếu. ON DELETE SET NULL. |
-| `reconciled_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm đối chiếu. |
-| `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú. |
-| `received_at` | `Date` → `DATE` | — | yes | — | Ngày thu. |
-| `recorded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Kế toán ghi phiếu. ON DELETE SET NULL. |
-| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When the row was created. |
-
-**Keys & indexes**
-
-- Primary key: `id`. Indexes: `ix_order_deposits_order_id`. Foreign keys: `order_id`→orders.id (CASCADE), `reconciled_by`/`recorded_by`→users.id (SET NULL).
-
-**Relationships**
-
-- Many `order_deposits` belong to one `orders`; each has many `order_deposit_attachments` (cascade delete).
-
----
-
 ### `order_attachments`
 
 **Purpose:** Đính kèm CẤP ĐƠN — chứng cứ khách đồng ý (`kind=consent`, ảnh PO/Zalo…) làm điều kiện cổng chốt §8(d) cho đơn nhập tay. Bytes dưới `<backend>/static/don-hang/<order_id>/`, phục vụ qua `/static`. Bảng MỚI do `create_all` dựng. Portable.
@@ -856,27 +827,6 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 **Keys & indexes**
 
 - Primary key: `id`. Indexes: `ix_order_attachments_order_id`. Foreign keys: `order_id`→orders.id (CASCADE), `uploaded_by`→users.id (SET NULL).
-
----
-
-### `order_deposit_attachments`
-
-**Purpose:** P2 — minh chứng đã thu (ảnh/PDF) đính kèm một phiếu thu cọc. Bytes dưới `<backend>/static/don-hang-coc/<deposit_id>/`, phục vụ qua `/static`. Bảng MỚI do `create_all` dựng. Portable.
-
-| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
-| `deposit_id` | `Integer` → `INTEGER` | **FK→order_deposits.id**, **IX** | no | — | Phiếu thu gắn minh chứng (ON DELETE CASCADE). |
-| `file_path` | `String(500)` → `VARCHAR(500)` | — | no | — | Đường dẫn file dưới static. |
-| `original_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Tên file gốc. |
-| `content_type` | `String(100)` → `VARCHAR(100)` | — | yes | — | MIME type. |
-| `size_bytes` | `Integer` → `INTEGER` | — | no | `0` | Kích thước file (byte). |
-| `uploaded_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người tải lên. ON DELETE SET NULL. |
-| `uploaded_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | When uploaded. |
-
-**Keys & indexes**
-
-- Primary key: `id`. Indexes: `ix_order_deposit_attachments_deposit_id`. Foreign keys: `deposit_id`→order_deposits.id (CASCADE), `uploaded_by`→users.id (SET NULL).
 
 ---
 
@@ -2444,8 +2394,10 @@ mới trừ vào số đã-chi-thực của PMH (mở lại hạn mức lập ch
 | `id`                              | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                                  | no   | auto-increment      | Surrogate primary key.                                             |
 | `code`                            | `String(32)` → `VARCHAR(32)`                           | **U**, **IX**                           | no   | generated           | Mã `PT-YYMMDD-XXXX`.                                               |
 | `doc_no`                          | `String(16)` → `VARCHAR(16)`                           | **U**, **IX**                           | yes  | generated           | Số IN trên mẫu 01-TT (`PT00027`) — thứ tự lập, chạy liên tục không reset theo năm. Migration 0040. |
-| `payment_voucher_id`              | `Integer` → `INTEGER`                                  | **FK→payment_vouchers.id**, **IX**      | no   | —                   | Phiếu chi gốc (RESTRICT — không xóa khi còn phiếu thu).            |
-| `purchase_request_id`             | `Integer` → `INTEGER`                                  | **FK→purchase_requests.id**, **IX**     | no   | —                   | PMH nguồn (denormalize từ phiếu chi để SUM không join).            |
+| `source_type`                     | `String(20)` → `VARCHAR(20)`                           | **IX**                                  | no   | `"phieu_chi"`       | Nguồn (V5): `phieu_chi` (hoàn ứng NCC/NV) \| `don_hang_ban` (thu cọc khách). Migration 0070. |
+| `payment_voucher_id`              | `Integer` → `INTEGER`                                  | **FK→payment_vouchers.id**, **IX**      | yes  | —                   | Phiếu chi gốc (RESTRICT). NULL với nhánh đơn hàng bán (V5). Migration 0070 nới nullable. |
+| `purchase_request_id`             | `Integer` → `INTEGER`                                  | **FK→purchase_requests.id**, **IX**     | yes  | —                   | PMH nguồn (denormalize từ phiếu chi để SUM không join). NULL nhánh đơn (V5). |
+| `order_id`                        | `Integer` → `INTEGER`                                  | **FK→orders.id**, **IX**                | yes  | —                   | Đơn hàng bán gắn phiếu thu cọc (RESTRICT). Chỉ nhánh `don_hang_ban` (V5). Migration 0070. |
 | `payer_name`                      | `String(255)` → `VARCHAR(255)`                         | —                                       | no   | —                   | Người nộp tiền (NCC/nhân viên) — default suy từ phiếu chi.         |
 | `payer_address`                   | `String(500)` → `VARCHAR(500)`                         | —                                       | yes  | —                   | Địa chỉ người nộp — ô "Địa chỉ" bắt buộc của mẫu 01-TT. Migration 0040. |
 | `receipt_method`                  | `String(24)` → `VARCHAR(24)`                           | —                                       | no   | —                   | `cash` (nhập quỹ) hoặc `bank_transfer` (về TK công ty).            |
@@ -2460,9 +2412,11 @@ mới trừ vào số đã-chi-thực của PMH (mở lại hạn mức lập ch
 | `bank_reference`                  | `String(64)` → `VARCHAR(64)`                           | —                                       | yes  | —                   | Mã giao dịch/số báo có, bắt buộc khi xác nhận đã thu qua CK.       |
 | `debit_account`                   | `String(64)` → `VARCHAR(64)`                           | —                                       | yes  | —                   | Định khoản Nợ in trên mẫu (vd "1111") — nhập tay. Migration 0040.  |
 | `credit_account`                  | `String(64)` → `VARCHAR(64)`                           | —                                       | yes  | —                   | Định khoản Có in trên mẫu (vd "131") — nhập tay. Migration 0040.   |
-| `voucher_code_snapshot`           | `String(32)` → `VARCHAR(32)`                           | —                                       | no   | —                   | Mã PC/UNC gốc snapshot — truy vết bất biến.                        |
-| `purchase_code_snapshot`          | `String(32)` → `VARCHAR(32)`                           | —                                       | no   | —                   | Mã PMH snapshot.                                                   |
-| `supplier_name_snapshot`          | `String(255)` → `VARCHAR(255)`                         | —                                       | no   | —                   | Tên NCC snapshot từ phiếu chi gốc.                                 |
+| `voucher_code_snapshot`           | `String(32)` → `VARCHAR(32)`                           | —                                       | yes  | —                   | Mã PC/UNC gốc snapshot — truy vết bất biến. NULL nhánh đơn (V5, Migration 0070 nới nullable). |
+| `purchase_code_snapshot`          | `String(32)` → `VARCHAR(32)`                           | —                                       | yes  | —                   | Mã PMH snapshot. NULL nhánh đơn (V5).                             |
+| `supplier_name_snapshot`          | `String(255)` → `VARCHAR(255)`                         | —                                       | yes  | —                   | Tên NCC snapshot từ phiếu chi gốc. NULL nhánh đơn (V5).           |
+| `customer_name_snapshot`          | `String(255)` → `VARCHAR(255)`                         | —                                       | yes  | —                   | Tên khách snapshot (V5, nhánh `don_hang_ban`) — hiện trên phiếu không join. Migration 0070. |
+| `order_code_snapshot`             | `String(32)` → `VARCHAR(32)`                           | —                                       | yes  | —                   | Mã đơn (`order_no`) snapshot (V5, nhánh `don_hang_ban`). Migration 0070. |
 | `company_account_holder_snapshot` | `String(255)` → `VARCHAR(255)`                         | —                                       | yes  | —                   | Chủ TK nhận snapshot.                                              |
 | `company_account_number_snapshot` | `String(64)` → `VARCHAR(64)`                           | —                                       | yes  | —                   | Số TK nhận snapshot.                                               |
 | `company_bank_name_snapshot`      | `String(255)` → `VARCHAR(255)`                         | —                                       | yes  | —                   | Ngân hàng nhận snapshot.                                           |
@@ -2479,16 +2433,20 @@ mới trừ vào số đã-chi-thực của PMH (mở lại hạn mức lập ch
 
 **Keys, indexes & rules**
 
-- Primary key: `id`; unique index on `code`.
-- Chỉ lập trên phiếu chi `paid`; tổng `amount_vnd` phiếu thu `waiting_receipt` + `received`
-  không vượt `amount_vnd` phiếu chi gốc.
-- Chỉ `waiting_receipt` mới được sửa/hủy; `received` bất biến (giao dịch tiền thật).
-- Rollup PMH: `receipt_received_amount` = SUM phiếu thu `received`; `available_amount` /
-  `payment_status` tính theo đã-chi-thực = paid − thu về (repo `reserved_amount` trừ tương ứng).
+- Primary key: `id`; unique index on `code`. Indexes: `source_type`, `order_id` (V5).
+- **Đa nguồn (V5):** `source_type='phieu_chi'` → nhánh hoàn ứng NCC/NV (bắt buộc `payment_voucher_id`
+  + `purchase_request_id`; hành vi cũ nguyên vẹn). `source_type='don_hang_ban'` → thu cọc khách gắn
+  `order_id`; tạo THẲNG `received` (Kế toán bấm = đã thu), không qua phiếu chi.
+- Nhánh Phiếu chi: chỉ lập trên phiếu chi `paid`; tổng `amount_vnd` phiếu thu `waiting_receipt` +
+  `received` không vượt `amount_vnd` phiếu chi gốc. Chỉ `waiting_receipt` mới sửa/hủy; `received` bất
+  biến. Rollup PMH: `receipt_received_amount` = SUM phiếu thu `received`.
+- Nhánh Đơn hàng bán: cổng "đủ cọc" của đơn = Σ `amount` phiếu thu (`order_id`, `received`) ≥
+  `deposit_required`.
 
 **Relationships**
 
-- Many payment receipts belong to one `payment_vouchers` row (và một `purchase_requests` row).
+- Nhánh Phiếu chi: many payment receipts belong to one `payment_vouchers` row (và một
+  `purchase_requests` row). Nhánh Đơn hàng bán: many receipts belong to one `orders` row.
 - Bank transfer references one `company_bank_accounts` row while retaining snapshots.
 
 ---
@@ -3066,9 +3024,9 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 ### `payment_receipts`
 
-**Purpose:** Kế toán — Phiếu thu tiền thừa hoàn về từ Phiếu chi đã chi.
+**Purpose:** Kế toán — Phiếu thu đa nguồn (V5): hoàn ứng từ Phiếu chi đã chi (`phieu_chi`) HOẶC thu cọc khách từ Đơn hàng bán (`don_hang_ban`).
 
-**Tất cả cột:** `id`, `code`, `payment_voucher_id`, `purchase_request_id`, `payer_name`, `receipt_method`, `status`, `receipt_date`, `amount`, `amount_vnd`, `currency`, `exchange_rate`, `content`, `company_bank_account_id`, `bank_reference`, `voucher_code_snapshot`, `purchase_code_snapshot`, `supplier_name_snapshot`, `company_account_holder_snapshot`, `company_account_number_snapshot`, `company_bank_name_snapshot`, `company_bank_branch_snapshot`, `created_by_user_id`, `received_by_user_id`, `received_at`, `cancelled_by_user_id`, `cancelled_at`, `cancel_reason`, `note`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `code`, `doc_no`, `source_type`, `payment_voucher_id`, `purchase_request_id`, `order_id`, `payer_name`, `payer_address`, `receipt_method`, `status`, `receipt_date`, `amount`, `amount_vnd`, `currency`, `exchange_rate`, `content`, `company_bank_account_id`, `bank_reference`, `debit_account`, `credit_account`, `voucher_code_snapshot`, `purchase_code_snapshot`, `supplier_name_snapshot`, `customer_name_snapshot`, `order_code_snapshot`, `company_account_holder_snapshot`, `company_account_number_snapshot`, `company_bank_name_snapshot`, `company_bank_branch_snapshot`, `created_by_user_id`, `received_by_user_id`, `received_at`, `cancelled_by_user_id`, `cancelled_at`, `cancel_reason`, `note`, `created_at`, `updated_at`.
 
 ---
 

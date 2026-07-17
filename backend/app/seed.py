@@ -600,8 +600,12 @@ def seed_sales_history(db: Session) -> None:
         STATUS_DRAFT,
         STATUS_ORDERED,
         Order,
-        OrderDeposit,
         OrderLine,
+    )
+    from .models.accounting import (
+        PAYMENT_RECEIPT_RECEIVED,
+        RECEIPT_SOURCE_DON_HANG,
+        PaymentReceipt,
     )
     from .models.quotation import (
         STATUS_SENT,
@@ -696,15 +700,33 @@ def seed_sales_history(db: Session) -> None:
                     vat_pct_estimate=8,
                 )
             )
-        # Đơn báo giá đã chốt → seed 1 phiếu cọc đủ ngưỡng (Đã thu = ngưỡng cần thu)
+        db.add(o)
+        db.flush()  # so the next _next_order_no() sees this row (unique DH###) + o.id cho phiếu thu
+        # V5: đơn báo giá đã chốt → seed 1 PHIẾU THU CỌC THẬT (PaymentReceipt nguồn đơn, received)
+        # đủ ngưỡng — thay OrderDeposit cũ. Cổng đủ cọc đọc Σ phiếu thu received.
         if from_quote and status == STATUS_ORDERED and deposit_pct:
             required = int(round(deposit_pct * subtotal * 1.08 / 100))
-            o.deposits.append(OrderDeposit(
-                deposit_kind="ck", amount_expected=required, amount_received=required,
-                reconciled=True, recorded_by=sale_id, received_at=created.date(), created_at=created,
+            db.add(PaymentReceipt(
+                code=f"PT-SEED-{o.id}",
+                source_type=RECEIPT_SOURCE_DON_HANG,
+                order_id=o.id,
+                payer_name=customer.name,
+                receipt_method="bank_transfer",
+                status=PAYMENT_RECEIPT_RECEIVED,
+                receipt_date=created.date(),
+                amount=required,
+                amount_vnd=required,
+                currency="VND",
+                exchange_rate=1,
+                content=f"Thu cọc đơn {o.order_no}",
+                customer_name_snapshot=customer.name,
+                order_code_snapshot=o.order_no,
+                created_by_user_id=sale_id,
+                received_by_user_id=sale_id,
+                received_at=created,
+                created_at=created,
             ))
-        db.add(o)
-        db.flush()  # so the next _next_order_no() sees this row (unique DH###)
+            db.flush()
         return o
 
     from .repositories.order_repo import OrderRepository

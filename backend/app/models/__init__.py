@@ -22,8 +22,6 @@ from .order import (
     Order,
     OrderApproval,
     OrderAttachment,
-    OrderDeposit,
-    OrderDepositAttachment,
     OrderLine,
 )
 from .payroll import (
@@ -154,8 +152,6 @@ __all__ = [
     "OrderLine",
     "OrderApproval",
     "OrderAttachment",
-    "OrderDeposit",
-    "OrderDepositAttachment",
     "PayrollParams",
     "SalaryRateRule",
     "EmployeeSalary",

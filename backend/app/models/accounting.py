@@ -62,6 +62,11 @@ PAYMENT_RECEIPT_STATUSES = (
     PAYMENT_RECEIPT_CANCELLED,
 )
 
+# Nguồn phiếu thu (V5): nhánh Phiếu chi (hoàn ứng NCC/NV) vs Đơn hàng bán (thu cọc khách).
+RECEIPT_SOURCE_PHIEU_CHI = "phieu_chi"
+RECEIPT_SOURCE_DON_HANG = "don_hang_ban"
+RECEIPT_SOURCES = (RECEIPT_SOURCE_PHIEU_CHI, RECEIPT_SOURCE_DON_HANG)
+
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
@@ -221,12 +226,22 @@ class PaymentReceipt(Base):
     code: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
     # Số IN trên mẫu 01-TT (PT00027) — xem ghi chú doc_no ở PaymentVoucher.
     doc_no: Mapped[str | None] = mapped_column(String(16), nullable=True, unique=True, index=True)
-    payment_voucher_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("payment_vouchers.id", ondelete="RESTRICT"), nullable=False, index=True
+    # Nguồn (V5): 'phieu_chi' (hoàn ứng NCC/NV) | 'don_hang_ban' (thu cọc khách).
+    source_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=RECEIPT_SOURCE_PHIEU_CHI,
+        server_default=RECEIPT_SOURCE_PHIEU_CHI, index=True,
+    )
+    # Nhánh Phiếu chi — nullable từ V5 để nhánh đơn khỏi cần.
+    payment_voucher_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("payment_vouchers.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     # Denormalize từ phiếu chi gốc để SUM theo PMH không phải join.
-    purchase_request_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=False, index=True
+    purchase_request_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("purchase_requests.id", ondelete="RESTRICT"), nullable=True, index=True
+    )
+    # Nhánh Đơn hàng bán (V5): thu cọc khách gắn đơn.
+    order_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("orders.id", ondelete="RESTRICT"), nullable=True, index=True
     )
     # Người nộp lại tiền — mặc định suy từ phiếu chi (người phụ trách mua / người nhận TM).
     payer_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -249,9 +264,12 @@ class PaymentReceipt(Base):
     debit_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
     credit_account: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    voucher_code_snapshot: Mapped[str] = mapped_column(String(32), nullable=False)
-    purchase_code_snapshot: Mapped[str] = mapped_column(String(32), nullable=False)
-    supplier_name_snapshot: Mapped[str] = mapped_column(String(255), nullable=False)
+    voucher_code_snapshot: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    purchase_code_snapshot: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    supplier_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Nhánh đơn (V5): snapshot khách + mã đơn để hiện trên phiếu thu không phải join.
+    customer_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    order_code_snapshot: Mapped[str | None] = mapped_column(String(32), nullable=True)
     company_account_holder_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
     company_account_number_snapshot: Mapped[str | None] = mapped_column(String(64), nullable=True)
     company_bank_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -276,6 +294,7 @@ class PaymentReceipt(Base):
     )
 
     payment_voucher = relationship("PaymentVoucher", back_populates="receipts")
+    order = relationship("Order")   # V5: phiếu thu cọc → đơn (một chiều, đọc để hiện)
     company_bank_account = relationship("CompanyBankAccount")
     attachments: Mapped[list["PaymentReceiptAttachment"]] = relationship(
         "PaymentReceiptAttachment",

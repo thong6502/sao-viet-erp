@@ -1,5 +1,6 @@
-"""Đơn hàng bán (Order + OrderLine + OrderApproval + OrderDeposit) ORM models —
-redesign-don-hang-ban.md (khâu ④ CHỐT ĐƠN).
+"""Đơn hàng bán (Order + OrderLine + OrderApproval + OrderAttachment) ORM models —
+redesign-don-hang-ban.md (khâu ④ CHỐT ĐƠN). V5: cọc KHÔNG còn ở đây — Kế toán lập
+PaymentReceipt(source='don_hang_ban', order_id) (models/accounting.py).
 
 An **order** (đơn hàng bán) is created từ một **báo giá đã duyệt** (`accepted`, còn hạn) HOẶC
 **nhập giá tay** (`source_type`). At chốt đơn it **snapshots** the priced line copy-on-write so a
@@ -170,12 +171,9 @@ class Order(Base):
         cascade="all, delete-orphan",
         order_by="OrderLine.id",
     )
-    deposits: Mapped[list["OrderDeposit"]] = relationship(
-        "OrderDeposit",
-        back_populates="order",
-        cascade="all, delete-orphan",
-        order_by="OrderDeposit.id",
-    )
+    # V5: cọc KHÔNG còn là bảng tự chứa. Kế toán lập PaymentReceipt(source='don_hang_ban',
+    # order_id) — cổng đủ cọc đọc Σ PaymentReceipt(order, received). Không relationship ngược
+    # ở đây (đọc 1 chiều qua accounting_repo để tránh order phụ thuộc cứng vào kế toán).
     attachments: Mapped[list["OrderAttachment"]] = relationship(
         "OrderAttachment",
         back_populates="order",
@@ -250,54 +248,6 @@ class OrderApproval(Base):
     )
 
 
-# --- P2: Cọc — phiếu thu cọc (Kế toán ghi, nhiều phiếu/1 đơn) ------------------
-DEPOSIT_KIND_CK = "ck"                    # chuyển khoản (có đối chiếu sao kê)
-DEPOSIT_KIND_TIEN_MAT = "tien_mat"        # tiền mặt
-DEPOSIT_KIND_VAT_TU = "vat_tu_ung"        # vật tư khách ứng (quy đổi)
-DEPOSIT_KIND_CAN_TRU = "can_tru_cong_no"  # cấn trừ công nợ cũ
-DEPOSIT_KINDS = (
-    DEPOSIT_KIND_CK,
-    DEPOSIT_KIND_TIEN_MAT,
-    DEPOSIT_KIND_VAT_TU,
-    DEPOSIT_KIND_CAN_TRU,
-)
-
-
-class OrderDeposit(Base):
-    __tablename__ = "order_deposits"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    order_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    deposit_kind: Mapped[str] = mapped_column(String(20), nullable=False, default=DEPOSIT_KIND_CK)
-    # Kỳ vọng vs thực nhận (quy đổi tiền) — cổng chốt tính trên Σ amount_received.
-    amount_expected: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    amount_received: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    # Đối chiếu sao kê — CHỈ có nghĩa với CK.
-    reconciled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    reconciled_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    reconciled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    received_at: Mapped[date | None] = mapped_column(Date, nullable=True)
-    recorded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, nullable=False
-    )
-
-    order: Mapped["Order"] = relationship("Order", back_populates="deposits")
-    attachments: Mapped[list["OrderDepositAttachment"]] = relationship(
-        "OrderDepositAttachment",
-        back_populates="deposit",
-        cascade="all, delete-orphan",
-        order_by="OrderDepositAttachment.id",
-    )
-
-
 # --- Đính kèm CẤP ĐƠN (chứng cứ khách đồng ý — cổng chốt §8d) ------------------
 ATTACH_KIND_CONSENT = "consent"     # chứng cứ khách đồng ý (ảnh PO/Zalo…)
 ATTACH_KINDS = (ATTACH_KIND_CONSENT,)
@@ -324,25 +274,3 @@ class OrderAttachment(Base):
     )
 
     order: Mapped["Order"] = relationship("Order", back_populates="attachments")
-
-
-class OrderDepositAttachment(Base):
-    __tablename__ = "order_deposit_attachments"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    deposit_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("order_deposits.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    # Bytes lưu dưới <backend>/static/don-hang-coc/<deposit_id>/, phục vụ qua /static.
-    file_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    original_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    uploaded_by: Mapped[int | None] = mapped_column(
-        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
-    )
-    uploaded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, nullable=False
-    )
-
-    deposit: Mapped["OrderDeposit"] = relationship("OrderDeposit", back_populates="attachments")

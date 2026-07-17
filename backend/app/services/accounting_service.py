@@ -22,6 +22,8 @@ from ..models.accounting import (
     PAYMENT_VOUCHER_STATUSES,
     PAYMENT_VOUCHER_TYPES,
     PAYMENT_VOUCHER_WAITING,
+    RECEIPT_SOURCE_DON_HANG,
+    RECEIPT_SOURCE_PHIEU_CHI,
     VOUCHER_BANK_TRANSFER,
     VOUCHER_CASH,
     CompanyBankAccount,
@@ -387,6 +389,7 @@ class AccountingService:
         receipt = PaymentReceipt(
             code=self._new_receipt_code(),
             doc_no=doc_no,
+            source_type=RECEIPT_SOURCE_PHIEU_CHI,
             payment_voucher_id=voucher.id,
             purchase_request_id=voucher.purchase_request_id,
             status=PAYMENT_RECEIPT_WAITING,
@@ -457,6 +460,77 @@ class AccountingService:
             detail=f"{saved.code}: {cleaned_reason}",
         )
         return self._receipt_out(saved)
+
+    # --- V5: phiếu thu cọc lập TỪ đơn hàng bán (nguồn 'don_hang_ban') --------
+    def create_order_deposit_receipt(
+        self,
+        *,
+        order,
+        customer_name: str | None,
+        actor,
+        receipt_method: str,
+        amount: int,
+        receipt_date=None,
+        note: str | None = None,
+        company_bank_account_id: int | None = None,
+    ) -> PaymentReceipt:
+        """Kế toán bấm ngay trên drawer đơn = ĐÃ thu → tạo PaymentReceipt(source='don_hang_ban',
+        status='received') gắn `order_id`, cấp code + doc_no như phiếu thu thường. Cổng đủ cọc của
+        đơn cộng Σ các phiếu này (received). Nhánh nhẹ hơn Phiếu chi: KHÔNG bắt buộc tài khoản NH khi
+        chuyển khoản (cho phép NULL), nhưng nếu có chọn thì phải là TK VND đang hoạt động."""
+        method = (receipt_method or "").strip()
+        if method not in PAYMENT_VOUCHER_TYPES:
+            raise AccountingValidationError("Hình thức thu không hợp lệ.")
+        amount = int(amount or 0)
+        if amount <= 0:
+            raise AccountingValidationError("Số tiền thu cọc phải lớn hơn 0.")
+
+        company_account = None
+        if method == VOUCHER_BANK_TRANSFER and company_bank_account_id:
+            company_account = self.repo.get_company_account(int(company_bank_account_id))
+            if company_account is None or not company_account.is_active:
+                raise AccountingValidationError("Vui lòng chọn tài khoản công ty đang hoạt động.")
+            if company_account.currency != "VND":
+                raise AccountingValidationError("Thu cọc đơn hàng bằng VND — chọn tài khoản VND.")
+
+        payer = _text(customer_name, label="Khách hàng", max_length=255) or "Khách hàng"
+        # Cấp số TRƯỚC khi chạm ORM object (generate_flat_code tự commit — xem _next_voucher_doc_no).
+        doc_no = self.sequences.generate_flat_code(SEQ_DOC_TYPE_PAYMENT_RECEIPT)
+        now = _now()
+        receipt = PaymentReceipt(
+            code=self._new_receipt_code(),
+            doc_no=doc_no,
+            source_type=RECEIPT_SOURCE_DON_HANG,
+            order_id=order.id,
+            payer_name=payer,
+            receipt_method=method,
+            status=PAYMENT_RECEIPT_RECEIVED,
+            receipt_date=receipt_date or now.date(),
+            amount=amount,
+            amount_vnd=amount,   # cọc đơn = VND (tỷ giá 1) → amount_vnd trùng amount
+            currency="VND",
+            exchange_rate=1,
+            content=f"Thu cọc đơn {order.order_no}",
+            company_bank_account_id=company_account.id if company_account else None,
+            customer_name_snapshot=payer,
+            order_code_snapshot=order.order_no,
+            company_account_holder_snapshot=company_account.account_holder if company_account else None,
+            company_account_number_snapshot=company_account.account_number if company_account else None,
+            company_bank_name_snapshot=company_account.bank_name if company_account else None,
+            company_bank_branch_snapshot=company_account.bank_branch if company_account else None,
+            note=_text(note, label="Ghi chú", max_length=2000),
+            created_by_user_id=actor.id,
+            received_by_user_id=actor.id,
+            received_at=now,
+        )
+        saved = self.repo.save_receipt(receipt)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="create_order_deposit_receipt",
+            target=f"payment_receipt:{saved.id}",
+            detail=f"{saved.code} <- đơn {order.order_no} ({amount:,}đ)",
+        )
+        return saved
 
     def _prepare_receipt(
         self, voucher: PaymentVoucher, values: dict, *, exclude_receipt_id: int | None
@@ -560,11 +634,17 @@ class AccountingService:
             "id": row.id,
             "code": row.code,
             "doc_no": row.doc_no,
+            # Nguồn (V5): 'phieu_chi' (hoàn ứng NCC/NV) | 'don_hang_ban' (thu cọc khách).
+            "source_type": row.source_type,
             "payment_voucher_id": row.payment_voucher_id,
             "payment_voucher_code": row.voucher_code_snapshot,
             "purchase_request_id": row.purchase_request_id,
             "purchase_request_code": row.purchase_code_snapshot,
             "supplier_name": row.supplier_name_snapshot,
+            # Nhánh đơn (V5) — None với phiếu thu nguồn Phiếu chi.
+            "order_id": row.order_id,
+            "order_code": row.order_code_snapshot,
+            "customer_name": row.customer_name_snapshot,
             "payer_name": row.payer_name,
             "payer_address": row.payer_address,
             "debit_account": row.debit_account,

@@ -9,6 +9,7 @@ from ..models.accounting import (
     PAYMENT_RECEIPT_WAITING,
     PAYMENT_VOUCHER_PAID,
     PAYMENT_VOUCHER_WAITING,
+    RECEIPT_SOURCE_DON_HANG,
     CompanyBankAccount,
     PaymentReceipt,
     PaymentReceiptAttachment,
@@ -340,6 +341,31 @@ class AccountingRepository:
             PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
         )
         return int(self.db.execute(stmt).scalar_one())
+
+    # --- V5: phiếu thu cọc nguồn Đơn hàng bán -------------------------------
+    def received_deposit_sum(self, order_id: int) -> int:
+        """Σ tiền THỰC thu của phiếu thu cọc (source='don_hang_ban', đã 'received') gắn đơn —
+        base cổng đủ cọc. 0 nếu chưa có phiếu received."""
+        stmt = select(func.coalesce(func.sum(PaymentReceipt.amount), 0)).where(
+            PaymentReceipt.order_id == order_id,
+            PaymentReceipt.source_type == RECEIPT_SOURCE_DON_HANG,
+            PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+        )
+        return int(self.db.execute(stmt).scalar_one())
+
+    def list_order_receipts(self, order_id: int) -> list[PaymentReceipt]:
+        """Mọi phiếu thu cọc của một đơn (mọi trạng thái) — FE hiện danh sách + đi tới màn
+        Phiếu thu Kế toán. Sắp theo thứ tự lập (id tăng dần)."""
+        return list(
+            self.db.execute(
+                select(PaymentReceipt)
+                .where(
+                    PaymentReceipt.order_id == order_id,
+                    PaymentReceipt.source_type == RECEIPT_SOURCE_DON_HANG,
+                )
+                .order_by(PaymentReceipt.id.asc())
+            ).scalars()
+        )
 
     def save_receipt(self, receipt: PaymentReceipt) -> PaymentReceipt:
         self.db.add(receipt)

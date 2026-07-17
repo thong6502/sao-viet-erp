@@ -14,22 +14,28 @@ from app.db_migrations import run_migrations
 from app.models.customer import Customer
 from app.models.quotation import STATUS_ACCEPTED, Quote, QuoteItem, QuoteVersion
 from app.models.user import User
+from app.repositories.accounting_repo import AccountingRepository
 from app.repositories.audit_repo import AuditLogRepository
+from app.repositories.document_sequence_repo import DocumentSequenceRepository
 from app.repositories.order_repo import OrderRepository
+from app.repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
 from app.repositories.quotation_repo import QuotationRepository
+from app.repositories.user_repo import UserRepository
 from app.schemas.order import (
     OrderCreate,
-    OrderDepositIn,
+    OrderDepositReceiptIn,
     OrderLineIn,
     OrderUpdate,
 )
 from app.seed import seed_all
+from app.services.accounting_service import AccountingService
 from app.services.order_service import (
     OrderConflict,
     OrderForbidden,
     OrderService,
     OrderValidationError,
 )
+from app.services.sequence_service import SequenceService
 
 
 @pytest.fixture
@@ -58,7 +64,20 @@ def customer(db):
 
 @pytest.fixture
 def svc(db):
-    return OrderService(OrderRepository(db), AuditLogRepository(db), QuotationRepository(db), db)
+    audit = AuditLogRepository(db)
+    accounting_repo = AccountingRepository(db)
+    # V5: OrderService lập phiếu thu cọc qua AccountingService (chung Session).
+    accounting = AccountingService(
+        accounting_repo,
+        PurchaseRequestRepository(db),
+        SupplierRepository(db),
+        UserRepository(db),
+        audit,
+        SequenceService(DocumentSequenceRepository(db)),
+    )
+    return OrderService(
+        OrderRepository(db), audit, QuotationRepository(db), db, accounting_repo, accounting
+    )
 
 
 def _accepted_quote(db, customer, *, selling=1_000_000, discount=100_000, vat=8, qty=1000, cost=600_000, deposit_pct=50):
@@ -119,18 +138,29 @@ def test_one_quote_one_order_guard(svc, admin, customer, db):
         svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
 
 
-# --- P2: cọc đa hình thức + đối chiếu CK --------------------------------------
-def test_deposit_reconcile_only_for_ck_and_gate_flips(svc, admin, customer, db):
+# --- V5: cọc = PHIẾU THU THẬT (PaymentReceipt nguồn đơn) — cổng đủ cọc lật ----
+def test_deposit_receipts_accumulate_and_gate_flips(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
     d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
-    d = svc.add_deposit(order_id=d.id, actor=admin, scope="all",
-                        payload=OrderDepositIn(deposit_kind="ck", amount_received=300_000, reconciled=True))
+    # Kế toán lập phiếu thu cọc = tạo thẳng 'received' → cộng vào cổng đủ cọc.
+    d = svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                                payload=OrderDepositReceiptIn(receipt_method="bank_transfer", amount=300_000))
     assert d.deposit_received == 300_000 and d.deposit_ok is False
-    assert d.deposits[0].reconciled is True
-    d = svc.add_deposit(order_id=d.id, actor=admin, scope="all",
-                        payload=OrderDepositIn(deposit_kind="tien_mat", amount_received=200_000, reconciled=True))
+    assert len(d.deposits) == 1
+    assert d.deposits[0].status == "received" and d.deposits[0].amount == 300_000
+    assert d.deposits[0].code.startswith("PT") and d.deposits[0].doc_no is not None
+    d = svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                                payload=OrderDepositReceiptIn(receipt_method="cash", amount=200_000))
     assert d.deposit_received == 500_000 and d.deposit_ok is True   # 500k ≥ 486k
-    assert d.deposits[1].reconciled is False                        # tiền mặt: ép False
+    assert len(d.deposits) == 2
+
+
+def test_deposit_receipt_rejects_bad_method_and_amount(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    with pytest.raises(OrderValidationError):   # hình thức thu không thuộc {cash, bank_transfer}
+        svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                                payload=OrderDepositReceiptIn(receipt_method="vang", amount=100_000))
 
 
 # --- P3: duyệt đơn đặc thù ----------------------------------------------------
@@ -163,8 +193,8 @@ def test_confirm_gate_blocks_then_locks_quote(svc, admin, customer, db):
     assert d.can_confirm is False
     with pytest.raises(OrderValidationError):
         svc.confirm(order_id=d.id, actor=admin, scope="all")
-    svc.add_deposit(order_id=d.id, actor=admin, scope="all",
-                    payload=OrderDepositIn(deposit_kind="ck", amount_received=486_000, reconciled=True))
+    svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                    payload=OrderDepositReceiptIn(receipt_method="bank_transfer", amount=486_000))
     svc.update(order_id=d.id, actor=admin, scope="all",
                payload=OrderUpdate(customer_po_no="PO1", delivery_committed_date=date.today()))
     d = svc.get(order_id=d.id, actor=admin, scope="all")
@@ -206,8 +236,8 @@ def test_extend_source_quote_rejects_manual_order(svc, admin, customer):
 def test_cancel_ordered_needs_permission_and_fault(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
     d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
-    svc.add_deposit(order_id=d.id, actor=admin, scope="all",
-                    payload=OrderDepositIn(deposit_kind="ck", amount_received=486_000, reconciled=True))
+    svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                    payload=OrderDepositReceiptIn(receipt_method="bank_transfer", amount=486_000))
     svc.update(order_id=d.id, actor=admin, scope="all",
                payload=OrderUpdate(customer_po_no="PO1", delivery_committed_date=date.today()))
     svc.confirm(order_id=d.id, actor=admin, scope="all")
@@ -239,16 +269,8 @@ def test_manual_confirm_requires_consent_evidence(svc, admin, customer):
     assert d.status == "ordered"
 
 
-def test_deposit_attachment_upload(svc, admin, customer, db):
-    q = _accepted_quote(db, customer)
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
-    d = svc.add_deposit(order_id=d.id, actor=admin, scope="all",
-                        payload=OrderDepositIn(deposit_kind="ck", amount_received=486_000, reconciled=True))
-    did = d.deposits[0].id
-    d = svc.add_deposit_attachment(order_id=d.id, deposit_id=did, actor=admin, scope="all",
-        file_name="uy-nhiem-chi.pdf", content_type="application/pdf", data=b"%PDF-1.4 fake")
-    assert len(d.deposits[0].attachments) == 1
-    assert d.deposits[0].attachments[0].url.startswith("/static/don-hang-coc/")
+# V5: minh chứng đã thu cọc chuyển sang PaymentReceiptAttachment (màn Phiếu thu Kế toán) — phủ ở
+# test_accounting_api.py, không còn đính ở đơn.
 
 
 def test_cancel_draft(svc, admin, customer):

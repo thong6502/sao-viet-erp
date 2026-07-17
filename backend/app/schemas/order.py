@@ -35,14 +35,15 @@ class AttachmentOut(BaseModel):
     uploaded_at: datetime
 
 
-# --- Cọc (P2) -----------------------------------------------------------------
-class OrderDepositIn(BaseModel):
-    deposit_kind: str = "ck"                 # ck | tien_mat | vat_tu_ung | can_tru_cong_no
-    amount_expected: int = Field(default=0, ge=0)
-    amount_received: int = Field(default=0, ge=0)
-    reconciled: bool = False                 # chỉ có nghĩa với CK
+# --- Cọc (V5) — Kế toán lập PHIẾU THU THẬT (PaymentReceipt) từ drawer đơn ------
+class OrderDepositReceiptIn(BaseModel):
+    """Body lập phiếu thu cọc từ đơn. `receipt_method` ∈ bộ PAYMENT_VOUCHER_TYPES của Kế toán
+    (`cash` | `bank_transfer`). Kế toán bấm = đã thu → phiếu tạo thẳng status='received'."""
+    receipt_method: str                      # cash | bank_transfer
+    amount: int = Field(gt=0)                # tiền thực thu (VND)
+    receipt_date: date | None = None         # None → hôm nay
     note: str | None = None
-    received_at: date | None = None
+    company_bank_account_id: int | None = None  # chỉ dùng khi bank_transfer (cho phép NULL)
 
 
 class ApprovalActionIn(BaseModel):
@@ -69,20 +70,17 @@ class OrderApprovalOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class OrderDepositOut(BaseModel):
+class OrderDepositReceiptOut(BaseModel):
+    """Phiếu thu cọc (PaymentReceipt nguồn 'don_hang_ban') của đơn — FE hiện danh sách + link sang
+    màn Phiếu thu Kế toán. status='received' được cộng vào cổng đủ cọc."""
     id: int
-    deposit_kind: str
-    amount_expected: int
-    amount_received: int
-    reconciled: bool
-    reconciled_by: int | None
-    reconciled_at: datetime | None
-    note: str | None
-    received_at: date | None
-    recorded_by: int | None
-    recorded_by_name: str | None = None
+    code: str
+    doc_no: str | None = None
+    amount: int
+    receipt_method: str
+    status: str
+    receipt_date: date | None = None
     created_at: datetime
-    attachments: list[AttachmentOut] = []
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -141,7 +139,7 @@ class OrderRow(BaseModel):
     total_with_vat: int
     deposit_pct: float | None
     deposit_required: int               # deposit_pct% × total_with_vat
-    deposit_received: int               # Σ amount_received
+    deposit_received: int               # Σ phiếu thu cọc received (V5)
     deposit_ok: bool
     delivery_committed_date: date | None
     sale_user_id: int | None
@@ -179,7 +177,9 @@ class OrderDetailOut(OrderRow):
     margin_pct: int | None             # None ⇒ "biên không xác định" (nhập tay)
     cancel_reason: str | None
     cancel_fault: str | None
-    deposits: list[OrderDepositOut] = []
+    # V5: danh sách PHIẾU THU CỌC (PaymentReceipt nguồn đơn). Giữ tên field `deposits` để giảm thay
+    # đổi FE; mỗi phần tử là OrderDepositReceiptOut.
+    deposits: list[OrderDepositReceiptOut] = []
     approvals: list[OrderApprovalOut] = []
     consent_attachments: list[AttachmentOut] = []
     # Cổng chốt (P4): checklist đọc-được cho FE.

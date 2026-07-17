@@ -197,11 +197,18 @@ class PaymentReceiptOut(BaseModel):
     id: int
     code: str
     doc_no: str | None = None
-    payment_voucher_id: int
-    payment_voucher_code: str
-    purchase_request_id: int
-    purchase_request_code: str
-    supplier_name: str
+    # Nguồn (V5): 'phieu_chi' (hoàn ứng NCC/NV) | 'don_hang_ban' (thu cọc khách).
+    source_type: str = "phieu_chi"
+    # Nhánh Phiếu chi — nullable từ V5 (phiếu thu cọc đơn không có phiếu chi/PMH/NCC).
+    payment_voucher_id: int | None = None
+    payment_voucher_code: str | None = None
+    purchase_request_id: int | None = None
+    purchase_request_code: str | None = None
+    supplier_name: str | None = None
+    # Nhánh Đơn hàng bán (V5) — None với phiếu thu nguồn Phiếu chi.
+    order_id: int | None = None
+    order_code: str | None = None
+    customer_name: str | None = None
     payer_name: str
     payer_address: str | None = None
     debit_account: str | None = None

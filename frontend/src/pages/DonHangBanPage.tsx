@@ -29,11 +29,10 @@ function fmtDate(s: string | null): string {
   return d.toLocaleDateString("vi-VN");
 }
 
-const DEPOSIT_KIND_LABELS: Record<string, string> = {
-  ck: "Chuyển khoản",
-  tien_mat: "Tiền mặt",
-  vat_tu_ung: "Vật tư khách ứng",
-  can_tru_cong_no: "Cấn trừ công nợ",
+// V5: hình thức thu của Phiếu thu Kế toán (PAYMENT_VOUCHER_TYPES).
+const RECEIPT_METHOD_LABELS: Record<string, string> = {
+  cash: "Tiền mặt",
+  bank_transfer: "Chuyển khoản",
 };
 
 const STATUS_META: Record<string, { label: string; bg: string; fg: string }> = {
@@ -353,15 +352,8 @@ function OrderDrawer({
   const [cancelling, setCancelling] = useState(false);
   const canCancel = (order.status === "draft" && canUpdate) || (order.status === "ordered" && canApproveException);
 
-  async function removeDeposit(depId: number) {
-    if (!token) return;
-    const d = await api.orders.deleteDeposit(token, order.id, depId);
-    onSaved(d);
-  }
   async function upConsent(f: File) { if (token) onSaved(await api.orders.uploadConsent(token, order.id, f)); }
   async function delConsent(aid: number) { if (token) onSaved(await api.orders.deleteConsent(token, order.id, aid)); }
-  async function upDepProof(did: number, f: File) { if (token) onSaved(await api.orders.uploadDepositProof(token, order.id, did, f)); }
-  async function delDepProof(did: number, aid: number) { if (token) onSaved(await api.orders.deleteDepositProof(token, order.id, did, aid)); }
   const [acts, setActs] = useState<{ at: string; actor_name: string | null; action: string; detail: string }[]>([]);
   const [prodOrders, setProdOrders] = useState<ProductionOrderRow[]>([]);
   const isDraft = order.status === "draft";
@@ -578,25 +570,20 @@ function OrderDrawer({
                         {order.deposits.map((d) => (
                           <div key={d.id} style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-3)", padding: "8px 12px" }}>
                             <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-                              <strong className="dhb__mono">{vnd(d.amount_received)}</strong>
-                              <span style={{ color: "var(--ash)" }}>{DEPOSIT_KIND_LABELS[d.deposit_kind] ?? d.deposit_kind}</span>
-                              {d.deposit_kind === "ck" && d.reconciled && (
-                                <span style={{ color: "var(--moss)", display: "inline-flex", gap: 2, alignItems: "center" }}><Icon name="check" size={12} /> đối chiếu</span>
+                              <strong className="dhb__mono">{vnd(d.amount)}</strong>
+                              <span style={{ color: "var(--ash)" }}>{RECEIPT_METHOD_LABELS[d.receipt_method] ?? d.receipt_method}</span>
+                              {d.status === "received" && (
+                                <span style={{ color: "var(--moss)", display: "inline-flex", gap: 2, alignItems: "center" }}><Icon name="check" size={12} /> đã thu</span>
                               )}
-                              {d.received_at && <span style={{ color: "var(--ash-2)" }} className="dhb__mono">{fmtDate(d.received_at)}</span>}
+                              {d.receipt_date && <span style={{ color: "var(--ash-2)" }} className="dhb__mono">{fmtDate(d.receipt_date)}</span>}
                               <div style={{ flex: 1 }} />
-                              {d.recorded_by_name && <span style={{ color: "var(--ash-2)", fontSize: 12 }}>{d.recorded_by_name}</span>}
-                              {canRecordDeposit && isDraft && (
-                                <button className="btn btn--ghost" style={{ height: 26, padding: "4px 8px" }} title="Xóa phiếu thu" onClick={() => removeDeposit(d.id)}><Icon name="trash" size={13} /></button>
-                              )}
+                              <button type="button" className="dhb__mono"
+                                style={{ color: "var(--rust)", fontSize: 12, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}
+                                title="Mở phiếu thu này bên Kế toán"
+                                onClick={() => navigate?.("ke-toan-phieu-thu", { focusReceiptQuery: d.code })}>
+                                {d.doc_no ?? d.code}
+                              </button>
                             </div>
-                            {(d.attachments.length > 0 || (canRecordDeposit && isDraft)) && (
-                              <div style={{ marginTop: 6 }}>
-                                <AttachmentList items={d.attachments} canEdit={canRecordDeposit && isDraft}
-                                  onUpload={(f) => upDepProof(d.id, f)} onDelete={(aid) => delDepProof(d.id, aid)}
-                                  addLabel="Đính kèm minh chứng" />
-                              </div>
-                            )}
                           </div>
                         ))}
                       </div>
@@ -1176,9 +1163,8 @@ function ApprovalPanel({ order, canApprove, onSaved }: { order: OrderDetail; can
 function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: OrderDetail) => void }) {
   const { token } = useAuth();
   const [open, setOpen] = useState(false);
-  const [kind, setKind] = useState("ck");
-  const [received, setReceived] = useState(String(Math.max(0, order.deposit_required - order.deposit_received)));
-  const [reconciled, setReconciled] = useState(false);
+  const [method, setMethod] = useState("cash");
+  const [amount, setAmount] = useState(String(Math.max(0, order.deposit_required - order.deposit_received)));
   const [date, setDate] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1189,17 +1175,15 @@ function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: Orde
     setSaving(true);
     setErr(null);
     try {
-      const d = await api.orders.addDeposit(token, order.id, {
-        deposit_kind: kind,
-        amount_received: Number(received) || 0,
-        amount_expected: Number(received) || 0,
-        reconciled: kind === "ck" ? reconciled : false,
-        received_at: date || null,
+      const d = await api.orders.addDepositReceipt(token, order.id, {
+        receipt_method: method,
+        amount: Number(amount) || 0,
+        receipt_date: date || null,
         note: note || null,
       });
       onSaved(d);
       setOpen(false);
-      setReceived("");
+      setAmount("");
       setNote("");
     } catch (e: unknown) {
       setErr(String((e as Error)?.message ?? e));
@@ -1211,30 +1195,26 @@ function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: Orde
   if (!open)
     return (
       <button className="btn" style={{ marginTop: 8 }} onClick={() => setOpen(true)}>
-        <Icon name="plus" size={14} /> Tạo phiếu thu cọc
+        <Icon name="plus" size={14} /> Lập phiếu thu cọc
       </button>
     );
   return (
     <div style={{ marginTop: 8, border: "1px solid #e6ebf1", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
+      <p style={{ margin: 0, fontSize: 12, color: "var(--ash)" }}>Lập Phiếu thu THẬT bên Kế toán, gắn đơn này (bấm = đã thu).</p>
       <Field label="Hình thức thu">
-        <select value={kind} onChange={(e) => setKind(e.target.value)} style={inp}>
-          {Object.entries(DEPOSIT_KIND_LABELS).map(([v, l]) => (
+        <select value={method} onChange={(e) => setMethod(e.target.value)} style={inp}>
+          {Object.entries(RECEIPT_METHOD_LABELS).map(([v, l]) => (
             <option key={v} value={v}>{l}</option>
           ))}
         </select>
       </Field>
-      <Field label="Số tiền thực nhận"><input type="number" value={received} onChange={(e) => setReceived(e.target.value)} style={inp} /></Field>
+      <Field label="Số tiền thực thu"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={inp} /></Field>
       <Field label="Ngày thu"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inp} /></Field>
-      {kind === "ck" && (
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13 }}>
-          <input type="checkbox" checked={reconciled} onChange={(e) => setReconciled(e.target.checked)} /> Đã đối chiếu sao kê
-        </label>
-      )}
       <Field label="Ghi chú"><input value={note} onChange={(e) => setNote(e.target.value)} style={inp} /></Field>
       {err && <div className="banner banner--error">{err}</div>}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button className="btn btn--ghost" onClick={() => setOpen(false)} disabled={saving}>Hủy</button>
-        <button className="btn btn--primary" onClick={submit} disabled={saving}>{saving ? "Đang ghi…" : "Ghi phiếu"}</button>
+        <button className="btn btn--primary" onClick={submit} disabled={saving}>{saving ? "Đang lập…" : "Lập phiếu thu"}</button>
       </div>
     </div>
   );

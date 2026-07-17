@@ -21,7 +21,7 @@ from ..schemas.order import (
     OrderActivityOut,
     OrderCancelIn,
     OrderCreate,
-    OrderDepositIn,
+    OrderDepositReceiptIn,
     OrderDetailOut,
     OrderEnumsOut,
     OrderListOut,
@@ -295,61 +295,28 @@ def reject_order(
     return d
 
 
-# --- Cọc (P2) — quyền `record_deposit` (Kế toán) ------------------------------
-@router.post("/{order_id}/deposits", response_model=OrderDetailOut)
-def add_deposit(
+# --- Cọc (V5) — Kế toán LẬP PHIẾU THU CỌC THẬT, quyền `record_deposit` --------
+@router.post("/{order_id}/deposit-receipts", response_model=OrderDetailOut)
+def add_deposit_receipt(
     order_id: int,
-    payload: OrderDepositIn,
+    payload: OrderDepositReceiptIn,
     user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
     svc: Service,
     authz: Authz,
 ) -> OrderDetailOut:
+    """Kế toán bấm trên drawer đơn → tạo PaymentReceipt(nguồn đơn, received) gắn order_id. Cổng đủ
+    cọc = Σ phiếu thu received ≥ deposit_required."""
     try:
-        d = svc.add_deposit(order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload)
+        d = svc.add_deposit_receipt(order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload)
     except Exception as exc:
         raise _map(exc)
-    if d.deposit_ok and d.sale_user_id:   # Kế toán ghi ĐỦ cọc → báo Sale 'chốt được rồi'
+    if d.deposit_ok and d.sale_user_id:   # Kế toán thu ĐỦ cọc → báo Sale 'chốt được rồi' (Việc 3)
         hub.publish(d.sale_user_id, {"type": "order_deposit_ok", "code": d.order_no})
     _order_changed(d.order_no)
     return d
 
 
-@router.put("/{order_id}/deposits/{deposit_id}", response_model=OrderDetailOut)
-def update_deposit(
-    order_id: int,
-    deposit_id: int,
-    payload: OrderDepositIn,
-    user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
-    svc: Service,
-    authz: Authz,
-) -> OrderDetailOut:
-    try:
-        d = svc.update_deposit(order_id=order_id, deposit_id=deposit_id, actor=user, scope=_scope_for(authz, user), payload=payload)
-    except Exception as exc:
-        raise _map(exc)
-    if d.deposit_ok and d.sale_user_id:
-        hub.publish(d.sale_user_id, {"type": "order_deposit_ok", "code": d.order_no})
-    _order_changed(d.order_no)
-    return d
-
-
-@router.delete("/{order_id}/deposits/{deposit_id}", response_model=OrderDetailOut)
-def delete_deposit(
-    order_id: int,
-    deposit_id: int,
-    user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
-    svc: Service,
-    authz: Authz,
-) -> OrderDetailOut:
-    try:
-        d = svc.delete_deposit(order_id=order_id, deposit_id=deposit_id, actor=user, scope=_scope_for(authz, user))
-    except Exception as exc:
-        raise _map(exc)
-    _order_changed(d.order_no)   # xóa cọc → có thể tụt dưới ngưỡng, danh sách đổi
-    return d
-
-
-# --- Đính kèm (chứng cứ khách đồng ý = `update`; minh chứng cọc = `record_deposit`) ---
+# --- Đính kèm chứng cứ khách đồng ý (`update`) — minh chứng đã thu cọc nằm ở màn Phiếu thu Kế toán ---
 @router.post("/{order_id}/attachments", response_model=OrderDetailOut)
 async def upload_consent(
     order_id: int,
@@ -377,38 +344,5 @@ def delete_consent(
     try:
         return svc.delete_consent_attachment(order_id=order_id, attachment_id=attachment_id,
             actor=user, scope=_scope_for(authz, user))
-    except Exception as exc:
-        raise _map(exc)
-
-
-@router.post("/{order_id}/deposits/{deposit_id}/attachments", response_model=OrderDetailOut)
-async def upload_deposit_proof(
-    order_id: int,
-    deposit_id: int,
-    user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
-    svc: Service,
-    authz: Authz,
-    file: UploadFile = File(...),
-) -> OrderDetailOut:
-    data = await file.read()
-    try:
-        return svc.add_deposit_attachment(order_id=order_id, deposit_id=deposit_id, actor=user,
-            scope=_scope_for(authz, user), file_name=file.filename, content_type=file.content_type, data=data)
-    except Exception as exc:
-        raise _map(exc)
-
-
-@router.delete("/{order_id}/deposits/{deposit_id}/attachments/{attachment_id}", response_model=OrderDetailOut)
-def delete_deposit_proof(
-    order_id: int,
-    deposit_id: int,
-    attachment_id: int,
-    user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
-    svc: Service,
-    authz: Authz,
-) -> OrderDetailOut:
-    try:
-        return svc.delete_deposit_attachment(order_id=order_id, deposit_id=deposit_id,
-            attachment_id=attachment_id, actor=user, scope=_scope_for(authz, user))
     except Exception as exc:
         raise _map(exc)

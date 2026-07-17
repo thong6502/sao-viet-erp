@@ -1824,6 +1824,64 @@ def _migrate_drop_ghost_modules(db: Session) -> None:
             db.rollback()
 
 
+def _migrate_receipt_source_and_drop_order_deposits(db: Session) -> None:
+    """V5 — Thu cọc đơn hàng bán = Phiếu thu THẬT (Kế toán) lập từ đơn.
+
+    (a) `payment_receipts` đa nguồn: thêm `source_type` (server_default 'phieu_chi' cho data
+        cũ), `order_id` (nhánh đơn), `customer_name_snapshot`, `order_code_snapshot`. NỚI NULLABLE
+        5 cột nhánh Phiếu chi (`payment_voucher_id`, `purchase_request_id`, `voucher_code_snapshot`,
+        `purchase_code_snapshot`, `supplier_name_snapshot`) để phiếu thu cọc khỏi cần.
+    (b) DROP bảng `order_deposit_attachments` → `order_deposits` (module đơn CHƯA live → cọc cũ chỉ
+        là seed throwaway; KHÔNG migrate dữ liệu).
+
+    Idempotent + guard `_existing_columns`: trên DB fresh (test/new install) create_all đã dựng đúng
+    model mới (cột mới có sẵn, 5 cột kia đã nullable, bảng cọc không còn) → no-op hoàn toàn. Nới NOT
+    NULL chỉ chạy trên Postgres (prod) vì SQLite fresh vốn đã nullable; SQLite cũ thì dev drop dev.db.
+    """
+    bind = db.get_bind()
+    insp = inspect(bind)
+    names = set(insp.get_table_names())
+    dialect = bind.dialect.name
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    if "payment_receipts" in names:
+        cols = {c["name"]: c for c in insp.get_columns("payment_receipts")}
+        add_cols = [
+            ("source_type", "VARCHAR(20) NOT NULL DEFAULT 'phieu_chi'"),
+            ("order_id", "INTEGER"),
+            ("customer_name_snapshot", "VARCHAR(255)"),
+            ("order_code_snapshot", "VARCHAR(32)"),
+        ]
+        for name, ddl in add_cols:
+            if name not in cols:
+                db.execute(text(f"ALTER TABLE payment_receipts ADD COLUMN {name} {ddl}"))
+        db.commit()  # đóng đợt DDL trước khi tạo index (gotcha pysqlite)
+        # ADD COLUMN không tạo index — tạo riêng, tên khớp create_all.
+        run("CREATE INDEX IF NOT EXISTS ix_payment_receipts_source_type "
+            "ON payment_receipts (source_type)")
+        run("CREATE INDEX IF NOT EXISTS ix_payment_receipts_order_id "
+            "ON payment_receipts (order_id)")
+        # Nới NOT NULL nhánh Phiếu chi (chỉ Postgres — SQLite fresh vốn nullable, SQLite cũ drop db).
+        if dialect == "postgresql":
+            for c in (
+                "payment_voucher_id", "purchase_request_id", "voucher_code_snapshot",
+                "purchase_code_snapshot", "supplier_name_snapshot",
+            ):
+                col = cols.get(c)
+                if col is not None and not col.get("nullable", True):
+                    run(f"ALTER TABLE payment_receipts ALTER COLUMN {c} DROP NOT NULL")
+
+    # Drop bảng cọc cũ (attachments trước vì FK → order_deposits).
+    run("DROP TABLE IF EXISTS order_deposit_attachments")
+    run("DROP TABLE IF EXISTS order_deposits")
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1895,6 +1953,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0067_role_permission_record_deposit", _migrate_role_permission_record_deposit),
     ("0068_drop_piece_batches_khoan_theo_nguoi", _migrate_drop_piece_batches_khoan_theo_nguoi),
     ("0069_drop_ghost_modules", _migrate_drop_ghost_modules),
+    ("0070_receipt_source_and_drop_order_deposits", _migrate_receipt_source_and_drop_order_deposits),
 ]
 
 

@@ -98,6 +98,53 @@ gia hạn thì bàn thêm.
 
 ---
 
+### Việc 5 — [NẶNG · SEAM MỚI] Thu cọc = **Phiếu thu THẬT** (Kế toán) lập từ đơn
+
+> Trạng thái: **ĐÃ CHỐT HƯỚNG (2026-07-17), CHỜ LÀM.** Việc 1–4 đã xong + commit.
+
+**Vấn đề.** "Thu cọc" hiện là bản ghi `OrderDeposit` **tự chứa** trong đơn — KHÔNG đẻ ra Phiếu
+thu kế toán, không vào sổ quỹ. Yêu cầu đúng: Kế toán **lập Phiếu thu thật** (module Kế toán) TỪ
+đơn, phiếu thu link `order_id`; **thu đủ (theo phiếu thu đã thực thu `received`) mới `đủ cọc`** →
+Sale mới sang bước sau. Giống luồng lập Phiếu thu từ Phiếu chi.
+
+**Thực trạng — 2 hệ tách rời.**
+- `OrderDeposit` (đơn) — standalone, không link kế toán.
+- `PaymentReceipt` (Phiếu thu) — **hardwire vào Phiếu chi**: `payment_voucher_id` + `purchase_request_id`
+  + snapshot NCC/voucher đều **NOT NULL** (`models/accounting.py:224-254`); chỉ lập từ
+  `POST /payment-vouchers/{id}/receipts`. Không có `order_id`, không có nguồn "cọc khách".
+
+**Quyết định đã chốt (Hướng A).**
+1. **PaymentReceipt đa nguồn:** thêm `source_type` ('phieu_chi' | 'don_hang_ban') + `order_id`
+   (nullable). **Nới NULLABLE** 4 cột nhánh Phiếu chi (`payment_voucher_id`, `purchase_request_id`,
+   `voucher_code_snapshot`, `purchase_code_snapshot`, `supplier_name_snapshot`) để nhánh đơn khỏi cần;
+   thêm snapshot **khách + mã đơn** cho nhánh đơn. Nhánh Phiếu chi giữ nguyên hành vi (validate
+   source_type='phieu_chi' bắt buộc đủ các cột cũ).
+2. **Lập từ drawer đơn** — Kế toán bấm ngay trên đơn. Endpoint mới tạo `PaymentReceipt(source=đơn)`,
+   gate **`record_deposit`** (dùng lại quyền "Ghi phiếu thu cọc" của Kế toán bán hàng — KHÔNG quyền mới).
+3. **Cổng đủ cọc đọc lại:** `deposit_received` = Σ `PaymentReceipt(order_id, status=received)`;
+   `deposit_ok = received ≥ required`. Bỏ đọc từ OrderDeposit.
+4. **Bỏ hẳn `OrderDeposit` + `OrderDepositAttachment`** (model + bảng + endpoint add/update/delete +
+   attachment). Minh chứng cọc → `PaymentReceiptAttachment` (đã có).
+5. Phiếu thu cọc hiện trong **màn Phiếu thu Kế toán** (cùng danh sách), nguồn = đơn.
+
+**Điểm phải lo khi code (vùng vỡ-DB).**
+- **Migration BẮT BUỘC** (`db_migrations.py`): (a) ALTER `payment_receipts` — thêm `source_type`
+  (server_default `'phieu_chi'` cho data cũ), `order_id`, snapshot khách; nới NOT NULL các cột nhánh
+  Phiếu chi (SQLite không ALTER cột dễ → dùng kỹ thuật **recreate table** đã có trong db_migrations).
+  (b) **Drop** `order_deposits` + `order_deposit_attachments`. Cập nhật `DB_SCHEMA.md` (guard test) cùng lúc.
+- **Data cọc cũ:** module đơn hàng bán **CHƯA live** → OrderDeposit chỉ là seed throwaway → **drop,
+  KHÔNG migrate** (dev drop dev.db; prod chưa có data thật). ⚠️ *Cần xác nhận không có prod data.*
+- **Seed:** đơn seed "đủ cọc" (DH008/013/…) đổi sang tạo `PaymentReceipt(source=đơn, received)`.
+- **Trạng thái phiếu thu cọc:** Kế toán bấm = đã thu → tạo thẳng `received` (cổng chỉ tính `received`);
+  hoặc theo mẫu 2 bước `waiting → xác nhận đã thu` như nhánh Phiếu chi. *(chốt khi code)*
+- **Số chứng từ:** cấp code PT qua document sequence sẵn có.
+- **Real-time (Việc 3) giữ:** đủ cọc (received ≥ required) → publish Sale toast.
+
+**Ưu tiên: CAO nhưng NẶNG** — schema surgery bảng kế toán lõi (đang có data + test) + drop bảng.
+Làm theo tầng, verify `./init.ps1` sau mỗi bước lớn.
+
+---
+
 ## Phụ lục — điểm nhẹ (nhặt khi tiện)
 
 - **Dropdown "Phạm vi"** bày lựa chọn chết cho NV Sales (chọn Cả phòng/Tất cả không đổi gì vì backend kẹp về own) → nên **ẩn options vượt scope** của vai. Không rò dữ liệu (an toàn), chỉ gây hiểu nhầm.
