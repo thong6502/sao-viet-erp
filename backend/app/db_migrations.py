@@ -1827,8 +1827,8 @@ def _migrate_drop_ghost_modules(db: Session) -> None:
 def _migrate_receipt_source_and_drop_order_deposits(db: Session) -> None:
     """V5 — Thu cọc đơn hàng bán = Phiếu thu THẬT (Kế toán) lập từ đơn.
 
-    (a) `payment_receipts` đa nguồn: thêm `source_type` (server_default 'phieu_chi' cho data
-        cũ), `order_id` (nhánh đơn), `customer_name_snapshot`, `order_code_snapshot`. NỚI NULLABLE
+    (a) `payment_receipts` đa nguồn: thêm `source_type` (default 'purchase_refund' cho data
+        cũ), `order_id` (nhánh đơn), `customer_name_snapshot`, `order_no_snapshot`. NỚI NULLABLE
         5 cột nhánh Phiếu chi (`payment_voucher_id`, `purchase_request_id`, `voucher_code_snapshot`,
         `purchase_code_snapshot`, `supplier_name_snapshot`) để phiếu thu cọc khỏi cần.
     (b) DROP bảng `order_deposit_attachments` → `order_deposits` (module đơn CHƯA live → cọc cũ chỉ
@@ -1853,10 +1853,13 @@ def _migrate_receipt_source_and_drop_order_deposits(db: Session) -> None:
     if "payment_receipts" in names:
         cols = {c["name"]: c for c in insp.get_columns("payment_receipts")}
         add_cols = [
-            ("source_type", "VARCHAR(20) NOT NULL DEFAULT 'phieu_chi'"),
+            # TÍCH HỢP: dùng ĐÚNG hằng nguồn của model kế toán (accounting-wip): purchase_refund
+            # (data cũ = phiếu chi hoàn) · order_deposit (cọc đơn). Cột snapshot = order_no_snapshot
+            # để khớp AccountingService.create_order_receipt + model PaymentReceipt.
+            ("source_type", "VARCHAR(20) NOT NULL DEFAULT 'purchase_refund'"),
             ("order_id", "INTEGER"),
             ("customer_name_snapshot", "VARCHAR(255)"),
-            ("order_code_snapshot", "VARCHAR(32)"),
+            ("order_no_snapshot", "VARCHAR(32)"),
         ]
         for name, ddl in add_cols:
             if name not in cols:
@@ -1904,6 +1907,64 @@ def _migrate_cong_doan_department_id(db: Session) -> None:
         return
     if "department_id" not in _existing_columns(insp, "cong_doan"):
         db.execute(text("ALTER TABLE cong_doan ADD COLUMN department_id INTEGER"))
+    db.commit()
+
+
+def _migrate_quote_terms_text(db: Session) -> None:
+    """Báo giá gộp 3 ô điều khoản thành 1 khối text tự do `terms_text` (mỗi dòng = 1 điều khoản,
+    bản in đánh số theo dòng) + chuyển % cọc sang Đơn hàng bán:
+      - THÊM quotes.terms_text, back-fill từ payment_terms/delivery_terms của phiếu cũ,
+      - GỠ quotes.payment_terms / delivery_terms / deposit_pct (không màn nào nhập nữa).
+    GIỮ quotes.delivery_address: không hiện/không in ở báo giá nhưng đơn hàng lấy làm ĐC giao mặc
+    định. Best-effort mỗi câu (SQLite cũ có thể từ chối DROP COLUMN → cột mồ côi vô hại).
+    No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "quotes" not in tables:
+        return
+    cols = _existing_columns(insp, "quotes")
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    if "terms_text" not in cols:
+        run("ALTER TABLE quotes ADD COLUMN terms_text TEXT")
+        # Back-fill 2 ô cũ thành 2 dòng (nối ở Python — `||`/char(10) khác nhau giữa SQLite ↔ Postgres).
+        # Phiếu không có gì → để NULL, API tự trả bộ điều khoản mặc định.
+        if "payment_terms" in cols and "delivery_terms" in cols:
+            try:
+                rows = db.execute(
+                    text("SELECT id, payment_terms, delivery_terms FROM quotes")
+                ).all()
+                for qid, pay, deliv in rows:
+                    merged = "\n".join(x.strip() for x in (pay, deliv) if x and x.strip())
+                    if merged:
+                        db.execute(
+                            text("UPDATE quotes SET terms_text = :t WHERE id = :i"),
+                            {"t": merged, "i": qid},
+                        )
+                db.commit()
+            except Exception:
+                db.rollback()
+    for col in ("payment_terms", "delivery_terms", "deposit_pct"):
+        if col in cols:
+            run(f"ALTER TABLE quotes DROP COLUMN {col}")
+
+
+def _migrate_ptg_don_vi_tinh(db: Session) -> None:
+    """Tính giá: thêm cột `phieu_thanh_phan.don_vi_tinh` (ĐVT sản phẩm — text tự do, mặc định 'cái').
+    Chảy sang Báo giá (thay 'cái' hardcode). No-op trên DB fresh / bảng chưa có / đã có cột."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    if "don_vi_tinh" not in _existing_columns(insp, "phieu_thanh_phan"):
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_phan ADD COLUMN don_vi_tinh VARCHAR(30) NOT NULL DEFAULT 'cái'"
+        ))
     db.commit()
 
 
@@ -1981,6 +2042,9 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0070_receipt_source_and_drop_order_deposits", _migrate_receipt_source_and_drop_order_deposits),
     ("0071_order_line_phieu_thanh_phan", _migrate_order_line_phieu_thanh_phan),
     ("0072_cong_doan_department_id", _migrate_cong_doan_department_id),
+    # Tích hợp accounting-wip (đánh số tiếp, KHÔNG đụng id đã ship): báo giá terms_text + PTG ĐVT.
+    ("0073_quote_terms_text", _migrate_quote_terms_text),
+    ("0074_ptg_don_vi_tinh", _migrate_ptg_don_vi_tinh),
 ]
 
 

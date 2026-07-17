@@ -80,8 +80,9 @@ def svc(db):
     )
 
 
-def _accepted_quote(db, customer, *, selling=1_000_000, discount=100_000, vat=8, qty=1000, cost=600_000, deposit_pct=50):
-    q = Quote(quote_number="BG-T", customer_id=customer.id, status=STATUS_ACCEPTED, deposit_pct=deposit_pct)
+def _accepted_quote(db, customer, *, selling=1_000_000, discount=100_000, vat=8, qty=1000, cost=600_000):
+    # Báo giá KHÔNG còn giữ % cọc (tích hợp accounting-wip) — % cọc đặt trên đơn khi tạo/ghi cọc.
+    q = Quote(quote_number="BG-T", customer_id=customer.id, status=STATUS_ACCEPTED)
     db.add(q)
     db.flush()
     v = QuoteVersion(quote_id=q.id, version_number=1, vat_percent=vat)
@@ -121,7 +122,8 @@ def test_manual_requires_customer_and_lines(svc, admin):
 # --- P1: nguồn báo giá — snapshot NET sau chiết khấu --------------------------
 def test_create_from_quote_line_total_is_net_after_discount(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    # % cọc đặt trên đơn (báo giá không còn giữ) — truyền qua payload khi tạo đơn.
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id, deposit_pct=50))
     assert d.cost_basis == "quote"
     assert d.needs_approval is False
     assert d.total == 900_000            # NET (1.000.000 − 100.000), KHÔNG phồng theo unit_price gộp
@@ -141,7 +143,7 @@ def test_one_quote_one_order_guard(svc, admin, customer, db):
 # --- V5: cọc = PHIẾU THU THẬT (PaymentReceipt nguồn đơn) — cổng đủ cọc lật ----
 def test_deposit_receipts_accumulate_and_gate_flips(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id, deposit_pct=50))
     # Kế toán lập phiếu thu cọc = tạo thẳng 'received' → cộng vào cổng đủ cọc.
     d = svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
                                 payload=OrderDepositReceiptIn(receipt_method="bank_transfer", amount=300_000))
@@ -167,7 +169,7 @@ def test_stats_money_aggregate_tracks_deposit_shortfall(svc, admin, customer, db
     """KPI tiền: chờ cọc + Σ cần-thu-còn-thiếu bám phiếu thu THẬT (dùng delta vì seed có sẵn đơn)."""
     base = svc.stats(actor=admin, scope="all")
     q = _accepted_quote(db, customer)  # 50% của total_with_vat 972.000 → cần cọc 486.000
-    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id, deposit_pct=50))
     s = svc.stats(actor=admin, scope="all")
     assert s.awaiting_deposit == base.awaiting_deposit + 1
     assert s.deposit_shortfall == base.deposit_shortfall + 486_000

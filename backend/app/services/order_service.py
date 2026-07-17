@@ -467,7 +467,9 @@ class OrderService:
             status=STATUS_DRAFT,
             vat_pct_estimate=_i(version.vat_percent),
             # % cọc nhập trên đơn ưu tiên; chưa nhập thì ghim từ báo giá.
-            deposit_pct=(payload.deposit_pct if payload.deposit_pct is not None else quote.deposit_pct),
+            # % cọc đặt TẠI ĐƠN (báo giá không còn giữ deposit_pct — tích hợp accounting-wip):
+            # nhập trên đơn thì lấy, chưa nhập để None → Kế toán đặt lúc ghi cọc.
+            deposit_pct=payload.deposit_pct,
             cost_basis=COST_BASIS_QUOTE,
             needs_approval=False,
             approval_state=APPROVAL_STATE_NONE,
@@ -619,10 +621,11 @@ class OrderService:
             c = self.db.get(Customer, order.customer_id)
             customer_name = c.name if c else None
         try:
-            self.accounting.create_order_deposit_receipt(
-                order=order, customer_name=customer_name, actor=actor,
+            # Cầu nối kế toán canonical (accounting-wip): lập phiếu thu 01-TT cọc đơn (Nợ 111/112·Có 131).
+            self.accounting.create_order_receipt(
+                order_id=order.id, order_no=order.order_no, customer_name=customer_name, actor=actor,
                 receipt_method=payload.receipt_method, amount=payload.amount,
-                receipt_date=payload.receipt_date, note=payload.note,
+                receipt_date=(payload.receipt_date or date.today()), note=payload.note,
                 company_bank_account_id=payload.company_bank_account_id,
             )
         except AccountingValidationError as exc:

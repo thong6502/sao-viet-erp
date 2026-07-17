@@ -9,6 +9,7 @@ from decimal import Decimal
 from typing import Any
 
 from ..models.quotation import (
+    DEFAULT_TERMS,
     Quote,
     QuoteVersion,
     QuoteItem,
@@ -125,6 +126,15 @@ class QuotationService:
         primary = next((c for c in contacts if c.is_primary), contacts[0] if contacts else None)
         if primary is not None:
             out.update(contact_name=primary.name, contact_phone=primary.phone, contact_title=primary.title)
+        else:
+            # Chưa có danh bạ liên hệ riêng → lấy tạm liên hệ ngay trên hồ sơ khách
+            # (Customer.contact_name / phone) để ô "Người liên hệ" không trống.
+            cust = self._customers.get_by_id(customer_id)
+            if cust is not None:
+                out.update(
+                    contact_name=getattr(cust, "contact_name", None),
+                    contact_phone=getattr(cust, "phone", None),
+                )
         addrs = list(getattr(self._customers, "list_addresses", lambda _cid: [])(customer_id))
         default_addr = next((a for a in addrs if a.is_default), addrs[0] if addrs else None)
         if default_addr is not None:
@@ -276,10 +286,15 @@ class QuotationService:
     def activity(self, *, quotation_id: int, scope: str, actor) -> list[dict]:
         """Nhật ký tương tác THẬT của 1 báo giá (feed Hoạt động) — ai làm gì, khi nào. Đọc audit
         log theo target `quote:{id}` (mọi vai trò sale/TP/GĐ đụng cùng phiếu đều để lại dấu vết),
-        cũ→mới ĐẢO thành mới→cũ, kèm TÊN người thao tác. RBAC: qua get_quotation (đúng phạm vi)."""
+        cũ→mới ĐẢO thành mới→cũ, kèm NGƯỜI thao tác. RBAC: qua get_quotation (đúng phạm vi).
+
+        Người thao tác ghi theo HỒ SƠ ("Ban giám đốc · Giám đốc · Nguyễn Văn Giám") — xem
+        `actor_display`; KHÔNG dùng `user_names` (tên tài khoản, chỉ hợp cho cột phụ trách ở list)."""
+        from .actor_display import actor_labels
+
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
         rows = self.audit.list_by_target(f"quote:{quote.id}", limit=200)
-        names = self.user_names({r.actor_user_id for r in rows if r.actor_user_id})
+        names = actor_labels(self.quotations.db, {r.actor_user_id for r in rows if r.actor_user_id})
         return [
             {
                 "action": r.action,
@@ -289,6 +304,19 @@ class QuotationService:
             }
             for r in rows
         ]
+
+    def effective_contact(self, quote: Quote) -> dict:
+        """Người liên hệ để HIỂN THỊ ở chi tiết báo giá: ưu tiên SNAPSHOT (đã đóng băng khi
+        gửi/khóa); nếu snapshot trống (phiếu cũ / khách chưa có danh bạ) thì lấy tạm liên hệ chính
+        hiện tại của khách để ô "Người liên hệ" không trống. Không ghi đè snapshot (chỉ để xem)."""
+        if quote.contact_name_snapshot or quote.contact_phone_snapshot:
+            return {
+                "name": quote.contact_name_snapshot,
+                "phone": quote.contact_phone_snapshot,
+                "title": quote.contact_title_snapshot,
+            }
+        d = self._customer_defaults(quote.customer_id)
+        return {"name": d["contact_name"], "phone": d["contact_phone"], "title": d["contact_title"]}
 
     def version_history(self, quote: Quote) -> list[QuoteVersion]:
         return self.quotations.versions_of(quote.quote_number)
@@ -337,9 +365,7 @@ class QuotationService:
         phieu_tinh_gia_id: int | None = None,
         margin_percent: float | None = None,
         valid_until: date | None = None,
-        payment_terms: str | None = None,
-        delivery_terms: str | None = None,
-        delivery_address: str | None = None,
+        terms_text: str | None = None,
         customer_note: str | None = None,
         internal_note: str | None = None,
         actor,
@@ -351,6 +377,9 @@ class QuotationService:
         if valid_until is None:
             valid_until = date.today() + timedelta(days=30)
 
+        # Điều khoản: caller bỏ trống → điền sẵn bộ mặc định để sale sửa ngay trên màn báo giá.
+        terms_text = (terms_text or "").strip() or DEFAULT_TERMS
+
         # BG-1: nguồn MỚI = 1 Phiếu tính giá (PTG) → 1 báo giá (dòng = từng "sản phẩm" PhieuThanhPhan,
         # giá vốn khóa = gia_von_tp). Ưu tiên nếu có. Đường Estimate cũ giữ tới BG-4.
         if phieu_tinh_gia_id is not None:
@@ -359,9 +388,7 @@ class QuotationService:
                 customer_id=customer_id,
                 margin_percent=margin_percent,
                 valid_until=valid_until,
-                payment_terms=payment_terms,
-                delivery_terms=delivery_terms,
-                delivery_address=delivery_address,
+                terms_text=terms_text,
                 customer_note=customer_note,
                 internal_note=internal_note,
                 actor=actor,
@@ -391,9 +418,8 @@ class QuotationService:
             salesperson_id=actor.id,
             status=STATUS_DRAFT,
             valid_until=valid_until,
-            payment_terms=payment_terms,
-            delivery_terms=delivery_terms,
-            delivery_address=delivery_address or defaults["delivery_address"],
+            terms_text=terms_text,
+            delivery_address=defaults["delivery_address"],
             contact_name_snapshot=defaults["contact_name"],
             contact_phone_snapshot=defaults["contact_phone"],
             contact_title_snapshot=defaults["contact_title"],
@@ -503,8 +529,7 @@ class QuotationService:
 
     def _create_from_ptg(
         self, *, phieu_tinh_gia_id: int, customer_id: int | None, margin_percent: float | None,
-        valid_until: date | None, payment_terms, delivery_terms, delivery_address,
-        customer_note, internal_note, actor,
+        valid_until: date | None, terms_text, customer_note, internal_note, actor,
     ) -> Quote:
         """BG-1: tạo báo giá TỪ 1 Phiếu tính giá (PTG) — 1 dòng / mỗi "sản phẩm" (PhieuThanhPhan). Giá
         vốn KHÓA = `gia_von_tp` (snapshot copy-on-write, sửa PTG sau không đổi báo giá). SL = so_luong
@@ -540,9 +565,8 @@ class QuotationService:
             salesperson_id=actor.id,
             status=STATUS_DRAFT,
             valid_until=valid_until,
-            payment_terms=payment_terms,
-            delivery_terms=delivery_terms,
-            delivery_address=delivery_address or defaults["delivery_address"],
+            terms_text=terms_text,
+            delivery_address=defaults["delivery_address"],
             contact_name_snapshot=defaults["contact_name"],
             contact_phone_snapshot=defaults["contact_phone"],
             contact_title_snapshot=defaults["contact_title"],
@@ -600,7 +624,7 @@ class QuotationService:
                 product_name=tp.ten or ptg.ten_san_pham or f"Sản phẩm {i}",
                 product_spec_text=tp.kho_thanh_pham,
                 quantity=qty,
-                unit="cái",
+                unit=(getattr(tp, "don_vi_tinh", None) or "cái"),   # ĐVT chảy từ sản phẩm PTG
                 total_cost_snapshot=cost,
                 margin_percent=margin,
                 selling_price=pricing["selling_price"],
@@ -814,9 +838,12 @@ class QuotationService:
         quote.decision_seen_at = None
         self.quotations.update(quote)
         verb = "duyệt" if decision == _EXC_APPROVED else "từ chối"
+        # KHÔNG ghim vai vào câu log ("Giám đốc KD …"): người bấm có thể là GĐ Kinh doanh, TP Kinh
+        # doanh hay Giám đốc công ty — ai cũng cầm `can_approve_exception`. Vai thật lấy từ HỒ SƠ
+        # của người thao tác (`actor_display`), câu log chỉ tả VIỆC.
         self.audit.create(
             actor_user_id=actor.id, action=f"quote_exception_{decision}", target=f"quote:{quote.id}",
-            detail=f"{quote.quote_number}: Giám đốc KD {verb} báo giá đặc thù "
+            detail=f"{quote.quote_number}: {verb} báo giá đặc thù "
             f"({', '.join(t['key'] for t in exc['triggers'])})",
         )
         return row
@@ -833,10 +860,7 @@ class QuotationService:
         actor,
         customer_id: int | None,
         valid_until: date | None,
-        payment_terms: str | None = None,
-        deposit_pct: float | None = None,
-        delivery_terms: str | None = None,
-        delivery_address: str | None = None,
+        terms_text: str | None = None,
         customer_note: str | None = None,
         internal_note: str | None = None,
         items_payload: list[dict] | None = None,
@@ -849,6 +873,7 @@ class QuotationService:
             raise QuotationValidationError("Hạn hiệu lực không được ở quá khứ.")
 
         # Update Header — đổi khách → làm mới liên hệ chính + ĐC giao mặc định (redesign-bao-gia §4).
+        # ĐC giao không sửa được ở màn báo giá → chỉ làm mới khi ĐỔI KHÁCH, ngoài ra giữ nguyên.
         customer_changed = customer_id != quote.customer_id
         quote.customer_id = customer_id
         quote.customer_name_snapshot = self._customer_display_name(customer_id)
@@ -857,13 +882,9 @@ class QuotationService:
             quote.contact_name_snapshot = defaults["contact_name"]
             quote.contact_phone_snapshot = defaults["contact_phone"]
             quote.contact_title_snapshot = defaults["contact_title"]
-            quote.delivery_address = defaults["delivery_address"] or delivery_address
-        else:
-            quote.delivery_address = delivery_address
+            quote.delivery_address = defaults["delivery_address"]
         quote.valid_until = valid_until
-        quote.payment_terms = payment_terms
-        quote.deposit_pct = deposit_pct
-        quote.delivery_terms = delivery_terms
+        quote.terms_text = (terms_text or "").strip() or DEFAULT_TERMS
         quote.customer_note = customer_note
         quote.internal_note = internal_note
 
@@ -929,7 +950,9 @@ class QuotationService:
 
         self.quotations.update(quote)
 
-        self.audit.create(
+        # Gộp các lần "Cập nhật báo giá" liên tiếp của cùng người → 1 mục (bump thời điểm), tránh
+        # nhật ký Hoạt động phình vô tận khi lưu nháp/sửa nhiều lần.
+        self.audit.create_collapsing(
             actor_user_id=actor.id,
             action="update_quote",
             target=f"quote:{quote.id}",

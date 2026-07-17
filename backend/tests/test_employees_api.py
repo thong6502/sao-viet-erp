@@ -128,7 +128,10 @@ def test_create_assigns_code_probation_and_hired_event(client):
 
 def test_list_has_kpis_and_status_filter(client):
     token = _admin_token(client)
-    _create(client, token, full_name="A")
+    # Baseline: mọi tài khoản đều có hồ sơ (`backfill_employee_profiles`) nên DB đã có sẵn hồ sơ
+    # nền (vd admin, active). Đo DELTA thay vì số tuyệt đối để không phụ thuộc dữ liệu nền.
+    base = client.get("/api/employees", headers=_h(token)).json()["kpis"]
+    _create(client, token, full_name="A")   # probation (mặc định)
     active = _create(client, token, full_name="B").json()["employee"]
     client.post(
         f"/api/employees/{active['id']}/transitions",
@@ -137,13 +140,13 @@ def test_list_has_kpis_and_status_filter(client):
     )
 
     data = client.get("/api/employees", headers=_h(token)).json()
-    assert data["kpis"]["total"] == 2
-    assert data["kpis"]["probation"] == 1
-    assert data["kpis"]["active"] == 1
+    assert data["kpis"]["total"] == base["total"] + 2
+    assert data["kpis"]["probation"] == base["probation"] + 1
+    assert data["kpis"]["active"] == base["active"] + 1
 
     only_active = client.get("/api/employees?status=active", headers=_h(token)).json()
-    assert only_active["total"] == 1
-    assert only_active["items"][0]["status"] == "active"
+    assert only_active["total"] == base["active"] + 1
+    assert all(it["status"] == "active" for it in only_active["items"])
 
 
 # --- soft duplicate ---------------------------------------------------------

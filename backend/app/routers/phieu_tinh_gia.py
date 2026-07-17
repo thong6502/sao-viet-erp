@@ -22,6 +22,7 @@ from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.org_scope import dept_subtree_ids
+from ..services.actor_display import actor_labels
 from ..schemas.phieu_tinh_gia import (
     PhieuTinhGiaCreate,
     PhieuTinhGiaListItem,
@@ -233,14 +234,12 @@ def phieu_activity(
 ) -> PtgActivityOut:
     """Nhật ký hoạt động THẬT của 1 phiếu tính giá (ai làm gì · khi nào) — nhiều vai trò
     (KTV/sale/TP) có thể cùng sửa 1 phiếu nên mỗi thao tác để lại dấu vết. Đọc audit theo
-    target `phieu_tinh_gia:{id}`, mới→cũ, kèm TÊN người thao tác. RBAC + phạm vi qua
-    `_fetch_in_scope` (ngoài phạm vi = 404, không lộ tồn tại)."""
+    target `phieu_tinh_gia:{id}`, mới→cũ, kèm NGƯỜI thao tác ghi theo HỒ SƠ ("Phòng ban · Chức vụ
+    · Tên" — `actor_display`, dùng chung với feed Báo giá). RBAC + phạm vi qua `_fetch_in_scope`
+    (ngoài phạm vi = 404, không lộ tồn tại)."""
     _fetch_in_scope(db, p_id, user, authz)
     rows = AuditLogRepository(db).list_by_target(f"phieu_tinh_gia:{p_id}")
-    ids = {r.actor_user_id for r in rows if r.actor_user_id is not None}
-    names: dict[int, str] = (
-        dict(db.execute(select(User.id, User.name).where(User.id.in_(ids))).all()) if ids else {}
-    )
+    names = actor_labels(db, {r.actor_user_id for r in rows if r.actor_user_id is not None})
     items = [
         PtgActivityItem(
             action=r.action,

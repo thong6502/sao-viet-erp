@@ -99,9 +99,10 @@ function RowFlags({ o }: { o: OrderRow }) {
 
 interface Props {
   navigate?: (id: string, params?: Record<string, unknown>) => void;
+  openOrderId?: number | null;   // deep-link từ Báo giá ("Xem đơn") → mở drawer đơn vừa tạo
 }
 
-export function DonHangBanPage({ navigate }: Props) {
+export function DonHangBanPage({ navigate, openOrderId }: Props) {
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("don_hang_ban", "create");
@@ -154,6 +155,12 @@ export function DonHangBanPage({ navigate }: Props) {
     if (!token) return;
     api.orders.get(token, id).then(setSelected).catch((e) => setErr(String(e?.message ?? e)));
   }
+
+  // Deep-link từ Báo giá (nút "Xem đơn" sau khi tạo đơn) → mở drawer đơn ngay khi vào màn.
+  useEffect(() => {
+    if (token && openOrderId) openDetail(openOrderId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, openOrderId]);
 
   return (
     <main className="dhb-container">

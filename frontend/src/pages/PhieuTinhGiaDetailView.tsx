@@ -129,6 +129,7 @@ interface EditableComponent {
   tay_gap: string;
   so_to_per_sp: number;
   so_luong: number; // SL đặt của SP này (0 = lấy SL mặc định phiếu)
+  don_vi_tinh: string; // ĐVT sản phẩm (text tự do, mặc định "cái") → chảy sang Báo giá
   loai_san_pham_id: number | null; // loại SP của sản phẩm này
   // Giấy ①
   giay_id: number | null;
@@ -191,6 +192,7 @@ function blankComponent(ten = ""): EditableComponent {
     tay_gap: "",
     so_to_per_sp: 1,
     so_luong: 0,
+    don_vi_tinh: "cái",
     loai_san_pham_id: null,
     giay_id: null,
     kho_nguyen: "",
@@ -258,6 +260,7 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     tay_gap: c.tay_gap ?? "",
     so_to_per_sp: c.so_to_per_sp ?? 1,
     so_luong: c.so_luong ?? 0,
+    don_vi_tinh: c.don_vi_tinh ?? "cái",
     loai_san_pham_id: c.loai_san_pham_id ?? null,
     giay_id: c.giay_id ?? null,
     kho_nguyen: c.kho_nguyen ?? "",
@@ -299,6 +302,7 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     tay_gap: c.tay_gap.trim() || null,
     so_to_per_sp: c.so_to_per_sp,
     so_luong: c.so_luong,
+    don_vi_tinh: c.don_vi_tinh.trim() || "cái",
     loai_san_pham_id: c.loai_san_pham_id,
     giay_id: c.giay_id,
     kho_nguyen: c.kho_nguyen.trim() || null,
@@ -847,7 +851,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     try {
       const q = await api.quotations.create(token, {
         phieu_tinh_gia_id: id, customer_id: null, valid_until: null,
-        payment_terms: null, delivery_terms: null, delivery_address: null,
         customer_note: null, internal_note: null,
       });
       navigate("bao-gia", { openQuoteId: q.id });
@@ -1358,7 +1361,7 @@ function ComponentModal({
                 <span className="tg-step-badge">1</span> Sản phẩm &amp; khổ thành phẩm
               </div>
               <div className="tg-grid">
-                <label className="tg-field tg-span-8">
+                <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Tên sản phẩm</span>
                   <input
                     className="tg-input"
@@ -1368,7 +1371,7 @@ function ComponentModal({
                     onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
                   />
                 </label>
-                <div className="tg-span-4">
+                <div className="tg-span-3">
                   <NumField
                     label="Số lượng"
                     value={c.so_luong > 0 ? c.so_luong : phieuSL}
@@ -1376,6 +1379,16 @@ function ComponentModal({
                     onChange={(n) => patchComp(c.uid, { so_luong: Math.max(0, n) })}
                   />
                 </div>
+                <label className="tg-field tg-span-3">
+                  <span className="tg-microlabel">ĐVT</span>
+                  <input
+                    className="tg-input"
+                    type="text"
+                    value={c.don_vi_tinh}
+                    placeholder="cái / tờ / cuốn / hộp…"
+                    onChange={(e) => patchComp(c.uid, { don_vi_tinh: e.target.value })}
+                  />
+                </label>
                 <label className="tg-field tg-span-12">
                   <span className="tg-microlabel">
                     Loại sản phẩm <span className="tg-microlabel__opt">tự bung công đoạn mặc định</span>

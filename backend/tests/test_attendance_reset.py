@@ -39,12 +39,15 @@ def _uid(username: str) -> int:
 
 
 def _emp_linked(client, token) -> dict:
-    emp = client.post(
-        "/api/employees",
-        json={"full_name": "NV Reset", "department_id": _dept_id("Hành chính nhân sự"), "hire_date": "2020-01-01"},
+    """Hồ sơ SẴN CÓ của admin (mọi tài khoản đều có hồ sơ — `backfill_employee_profiles`), nắn lại
+    tên/phòng ban; KHÔNG tạo hồ sơ thứ 2 rồi gán (link tài khoản 1–1 sẽ chối)."""
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+    client.put(
+        f"/api/employees/{emp['id']}",
+        json={"full_name": "NV Reset", "department_id": _dept_id("Hành chính nhân sự"),
+              "hire_date": "2020-01-01"},
         headers=_h(token),
-    ).json()["employee"]
-    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))
+    )
     return emp
 
 

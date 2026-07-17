@@ -143,6 +143,10 @@ ngày giao cam kết · **(d)** có **chứng cứ khách đồng ý** · **(e)*
 *Thêm:* `source_type`, `order_nature` {`hang_hoa`, `gia_cong`}, `approval_state`, `ordered_at`, `ordered_by`,
 `delivery_committed_date`, `delivery_address`, `customer_po_no`, `invoice_entity_name`, `invoice_entity_tax_code`,
 `deposit_pct` *(ghim từ báo giá)*, `cost_basis`, `needs_approval`, `cancel_by`, `cancel_at`, `cancel_fault`.
+*Thêm (mig 0071 — người nhận + lưu ý giao):* `delivery_contact_name` / `delivery_contact_phone` *(Sale xổ chọn từ
+danh bạ `customer_contacts`, snapshot — KHÔNG auto-fill `is_primary` vì liên hệ chính thường là kế toán/mua hàng,
+không phải người ra nhận ở kho)*, `delivery_note` *(→ tài xế/khâu Giao)*, `production_note` *(→ tổ in/LSX)* — 2 ô lưu ý
+tách theo đích đến, không gộp 1 ô ghi chú chung. Điểm giao xổ chọn từ `customer_addresses` (điền vào `delivery_address`).
 *Bỏ khỏi thiết kế (luồng ngoài hệ thống):* `proof_*` (duyệt bản in), `production_stage` (tiến độ SX),
 `deposit_disposition` + `cancel_stage_snapshot` (hoàn cọc = đàm phán ngoài; "còn cọc" suy từ data).
 *Dormant:* `has_customer_paper` (thay bằng `order_nature`), `order_type` (cố định `theo_yc`), `cancelled_at_state`.
@@ -203,3 +207,29 @@ giao nhiều đợt → khâu Giao hàng (sau).
 - **P5 — Hủy:** `cancel_*` (lý do + `cancel_fault` để thống kê); cọc giữ nguyên, "còn cọc" suy từ data. Duyệt bản
   in + tiến độ SX + hoàn cọc = luồng NGOÀI hệ thống (không field).
 - Xuyên suốt: nhật ký audit + RBAC scope + guard test `DB_SCHEMA.md`.
+
+## 17. Đợt 2 (2026-07-16) — 5 việc theo phản biện chủ đầu tư
+
+Sau khi soi kỹ 5 điểm ("có chưa"), tất cả CHƯA có → build. Quyết định qua hỏi–đáp.
+
+- **17.1 Cọc = Phiếu thu 01-TT dùng CHUNG quyển sổ PT** *(thay `order_deposits` ở production)*. Nguyên tắc kế toán:
+  một sổ quỹ = một dãy số PT liên tục → cọc bán KHÔNG đẻ dãy riêng. Cách làm: **tổng quát hóa `PaymentReceipt`**
+  (`source_type` ∈ {`purchase_refund` cũ, `order_deposit` mới}, nới `payment_voucher_id`/`purchase_request_id` thành
+  nullable, thêm `order_id`/`order_no_snapshot`/`customer_name_snapshot`). Nút **"Tạo phiếu thu"** trên đơn (quyền
+  `record_deposit`, Kế toán) → `AccountingService.create_order_receipt` sinh PT thật (số `PT#####` từ dãy chung,
+  Nợ 1111/1121 · Có 131, người nộp = khách), **in 01-TT** (tái dùng `printTT200 kind:"thu"`), **đính kèm UNC** (tái dùng
+  `payment_receipt_attachments`). Đơn **đọc NGƯỢC Σ phiếu thu `received`** theo `order_id` để tính cọc + cổng chốt
+  (`_money` gọi `accounting.received_sum_for_order`, fallback `order_deposits` khi service không inject accounting → test
+  cũ xanh). Hủy phiếu thu cọc: cho hủy cả khi đã-thu (ghi nhầm, giữ vết) — khác phiếu thu mua (chỉ hủy chờ-thu).
+  Migration 0072 nới cột + migrate `order_deposits` (đã nhận) → phiếu thu (`doc_no`=NULL, status=received). TK công ty
+  nhận là TÙY CHỌN với cọc (bank_reference đủ vết). `order_deposits` GIỮ bảng (legacy + fallback test), production
+  không ghi nữa. *(Bỏ được 4 kiểu cọc phi-tiền-mặt cũ: 01-TT chỉ thu tiền mặt/CK; vật tư ứng/cấn trừ ngoài phạm vi.)*
+- **17.2 Sửa đơn SAU chốt (có kiểm soát).** `update()` tách 2 nhóm: **HẬU CẦN** (ngày giao, địa chỉ, người nhận, 2 lưu ý,
+  cờ gấp) sửa được CẢ SAU CHỐT (ghi vết "Sửa sau chốt"); **THƯƠNG MẠI** (bản chất, pháp nhân xuất HĐ, % cọc) chỉ khi nháp
+  — đụng sau chốt = 409. Đổi số lượng/quy cách/giá vẫn = báo giá mới. FE: nút "Sửa giao hàng" + form ẩn nhóm thương mại.
+- **17.3 Bản in "Xác nhận đơn hàng"** (A4, `printOrderConfirm`) — khách ký/lưu sau chốt; nút "In xác nhận" hiện khi `ordered`.
+- **17.4 Đơn GẤP** — cột `is_rush` (mig 0073), Sale bật ở tạo/sửa, **chip đỏ "Gấp"** ở list + drawer + bản in; chảy xuống
+  LSX (chưa reorder hàng đợi — SX còn mỏng). **Dung sai giao: user chốt BỎ**, không làm.
+- **17.5 Đơn nội bộ (`order_type`) — BỎ HẲN** (mig 0073 drop). In nội bộ đi thẳng Lệnh sản xuất, không đội lốt đơn bán.
+- **Quyền/SoD:** nút Tạo/hủy/đính-kèm phiếu thu ở **router đơn** (`don_hang_ban:record_deposit`) ủy thác `AccountingService`
+  (inject vào `OrderService` qua `deps`). Verify: `test_order_receipts` (4) + `test_orders_api` (fallback) + `test_accounting_api` xanh.

@@ -85,6 +85,7 @@ class ModuleCapability(BaseModel):
     can_adjust: bool = False
     can_approve_exception: bool = False   # A2: don_hang_ban — GĐ duyệt "đơn đặc thù"
     can_set_credit_terms: bool = False   # khach_hang: thiết lập điều khoản tín dụng khách
+    can_record_deposit: bool = False     # don_hang_ban — Kế toán ghi cọc + đặt % cọc phải thu
 
 
 class PermissionsOut(BaseModel):

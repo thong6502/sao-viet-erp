@@ -35,6 +35,7 @@ from ..models.employee import (
     STATUS_SUSPENDED,
     Employee,
 )
+from ..config import settings
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
@@ -391,6 +392,13 @@ class EmployeeService:
 
     # --- transitions (stage changes) ---------------------------------------
 
+    def _is_system_account(self, user_id: int | None) -> bool:
+        """Hồ sơ này có đang gắn tài khoản QUẢN TRỊ HỆ THỐNG (`settings.seed_admin_username`) không?"""
+        if user_id is None:
+            return False
+        account = self.users.get_by_id(user_id)
+        return account is not None and account.username == settings.seed_admin_username
+
     def apply_transition(
         self,
         *,
@@ -421,6 +429,14 @@ class EmployeeService:
         if employee.status not in allowed_from:
             raise EmployeeValidationError(
                 f"Không thể '{kind}' từ trạng thái hiện tại ({employee.status})."
+            )
+        if kind == "resign" and self._is_system_account(employee.user_id):
+            # Admin CÓ hồ sơ (seed backfill) ⇒ "nghỉ việc ⇒ chặn login" sẽ khóa cứng đường vào hệ
+            # thống, mà luật là KHÔNG có cửa hậu admin ⇒ chỉ còn nước sửa DB tay. Chặn ở NGUỒN
+            # thay vì đẻ ngoại lệ trong xác thực (auth_service giữ nguyên 1 luật cho mọi người).
+            raise EmployeeValidationError(
+                "Hồ sơ này đang gắn tài khoản quản trị hệ thống — không cho nghỉ việc "
+                "(sẽ khóa cứng đường đăng nhập). Gỡ liên kết tài khoản trước nếu thật sự cần."
             )
         old_status = employee.status
         updates: dict = {"status": to_status}

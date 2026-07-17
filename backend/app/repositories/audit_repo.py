@@ -1,6 +1,8 @@
 """Audit-log data access. The only layer that touches the DB for audit rows."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -26,6 +28,34 @@ class AuditLogRepository:
         self.db.commit()
         self.db.refresh(entry)
         return entry
+
+    def create_collapsing(
+        self,
+        *,
+        actor_user_id: int | None,
+        action: str,
+        target: str,
+        detail: str = "",
+    ) -> AuditLog:
+        """Như `create` nhưng GỘP thao tác lặp liên tiếp: nếu bản ghi MỚI NHẤT của cùng `target`
+        trùng cả `action` lẫn actor → CẬP NHẬT thời điểm + chi tiết của nó thay vì thêm dòng mới.
+        Dùng cho các thao tác dễ lặp (vd lưu nháp báo giá nhiều lần) để nhật ký không phình vô tận;
+        một action KHÁC xen vào giữa sẽ tách thành mục mới. Không dùng cho audit tuân thủ (cần đủ dòng)."""
+        latest = self.db.execute(
+            select(AuditLog)
+            .where(AuditLog.target == target)
+            .order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if latest is not None and latest.action == action and latest.actor_user_id == actor_user_id:
+            latest.created_at = datetime.now(timezone.utc)
+            latest.detail = detail
+            self.db.commit()
+            self.db.refresh(latest)
+            return latest
+        return self.create(
+            actor_user_id=actor_user_id, action=action, target=target, detail=detail
+        )
 
     def list_recent(self, limit: int = 100) -> list[AuditLog]:
         return list(

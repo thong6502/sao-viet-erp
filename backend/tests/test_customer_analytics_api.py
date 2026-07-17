@@ -63,7 +63,6 @@ def _add_orders(customer_id: int, sale_username: str) -> None:
             o = Order(
                 order_no=f"DHX{months_ago}",
                 customer_id=customer_id,
-                order_type="theo_yc",
                 order_kind="moi",
                 sale_user_id=sale.id if sale else None,
                 status="ordered",
