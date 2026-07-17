@@ -100,14 +100,21 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
     if _f(d.get("kho_nguyen_rong")):
         d["kho_rong"] = _f(d.get("kho_nguyen_rong"))
 
-    # Máy: bơm khổ tờ in ② (kho_max) khi thành phần CHƯA set khổ in (để xả giấy + bình bài).
-    if (not _f(d.get("kho_in_dai")) or not _f(d.get("kho_in_rong"))) and tp.may_id is not None:
+    # Máy: bơm 2 khổ KHÁC nhau (đừng gộp):
+    #  · kho_may_*  = khổ giấy CHẠY máy (kho_max) → dùng XẢ GIẤY (cắt tờ in từ giấy nguyên). Luôn lấy.
+    #  · kho_in_*   = khổ tờ in ② cho bình bài con + tính m²: ưu tiên VÙNG IN (đã trừ nhíp/lề); chỉ đổ
+    #                 khi thành phần chưa set. Máy chưa khai vùng in → fallback khổ giấy max.
+    if tp.may_id is not None:
         may = db.get(MayThietBi, tp.may_id)
         if may is not None:
+            if may.kho_max_dai:
+                d["kho_may_dai"] = may.kho_max_dai
+            if may.kho_max_rong:
+                d["kho_may_rong"] = may.kho_max_rong
             if not _f(d.get("kho_in_dai")):
-                d["kho_in_dai"] = may.kho_max_dai or 0
+                d["kho_in_dai"] = may.vung_in_dai or may.kho_max_dai or 0
             if not _f(d.get("kho_in_rong")):
-                d["kho_in_rong"] = may.kho_max_rong or 0
+                d["kho_in_rong"] = may.vung_in_rong or may.kho_max_rong or 0
 
     # Dòng gia công sau in: bơm cấu hình công đoạn khi dòng KHÔNG có đơn giá phẳng.
     rows: list[dict] = []
