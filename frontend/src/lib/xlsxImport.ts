@@ -10,29 +10,62 @@ export interface ImportLine {
   unit: string;
   unitCost: number | null;
   note: string;
+  group: string;    // "Nhóm phiếu" — dòng cùng nhóm gộp vào 1 phiếu/đề nghị
+  typeText: string; // "Loại phiếu" — mã/tên loại phiếu (để trống = dùng loại mặc định ở hộp thoại)
+  partner: string;  // "Đối tượng" — NCC / khách / bộ phận của phiếu
 }
 
 export const LINE_HEADERS = ["Mã vật tư", "Tên vật tư", "Số lượng", "Đơn vị", "Nhà cung cấp", "Ghi chú"];
-const LINE_HEADERS_PRICE = ["Mã vật tư", "Tên vật tư", "Số lượng", "Đơn vị", "Đơn giá", "Nhà cung cấp", "Ghi chú"];
 
-/** Tải file mẫu .xlsx (header + vài dòng ví dụ). `withPrice` = có cột Đơn giá (cho phiếu nhập/xuất).
- * Cột "Nhà cung cấp" chỉ để tham chiếu khi điền — import không ghi đè NCC của vật tư. */
-export function downloadLineTemplate(filename: string, opts?: { withPrice?: boolean }): void {
+/** Tải file mẫu .xlsx (header + vài dòng ví dụ).
+ *  `withPrice` = có cột Đơn giá (phiếu nhập mua). `withGroups` = có cột Loại phiếu + Nhóm phiếu + Đối tượng
+ *  (1 file tạo nhiều phiếu; dòng cùng "Nhóm phiếu" gộp thành 1 phiếu).
+ *  `types` = danh sách loại phiếu → kèm sheet tra cứu "LoaiPhieu" để user biết mã điền. */
+export function downloadLineTemplate(
+  filename: string,
+  opts?: { withPrice?: boolean; withGroups?: boolean; types?: { code: string; name: string; group: string }[] },
+): void {
   const withPrice = !!opts?.withPrice;
-  const headers = withPrice ? LINE_HEADERS_PRICE : LINE_HEADERS;
-  const examples = withPrice
+  const withGroups = !!opts?.withGroups;
+  const headers = [
+    ...(withGroups ? ["Loại phiếu", "Nhóm phiếu"] : []),
+    "Mã vật tư", "Tên vật tư", "Số lượng", "Đơn vị",
+    ...(withPrice ? ["Đơn giá"] : []),
+    withGroups ? "Đối tượng" : "Nhà cung cấp", "Ghi chú",
+  ];
+  const row = (
+    type: string, grp: string, code: string, name: string, qty: number, unit: string,
+    price: number, partner: string, note: string,
+  ) => [
+    ...(withGroups ? [type, grp] : []),
+    code, name, qty, unit, ...(withPrice ? [price] : []), partner, note,
+  ];
+  const examples = withGroups
     ? [
-        ["", "Giấy Couche 150gsm 65x86", 1000, "tờ", 2000, "Cty Giấy An Bình", "Ví dụ – có thể xóa dòng này"],
-        ["GY002", "", 500, "tờ", 2500, "", "Điền Mã HOẶC Tên để khớp vật tư"],
+        row("NK-GK", "1", "", "Giấy Couche 150gsm 65x86", 1000, "tờ", 2000, "Khách A", "Phiếu 1 · sản phẩm 1"),
+        row("NK-GK", "1", "GY002", "", 500, "tờ", 2500, "Khách A", "Phiếu 1 · sản phẩm 2 (cùng Nhóm 1 → chung 1 phiếu)"),
+        row("NK-NVL", "2", "VT001", "", 50, "kg", 8000, "Cty ABC", "Phiếu 2 · Nhóm khác → phiếu riêng"),
       ]
     : [
-        ["", "Giấy Couche 150gsm 65x86", 1000, "tờ", "Cty Giấy An Bình", "Ví dụ – có thể xóa dòng này"],
-        ["GY002", "", 500, "tờ", "", "Điền Mã HOẶC Tên để khớp vật tư"],
+        row("", "", "", "Giấy Couche 150gsm 65x86", 1000, "tờ", 2000, "Cty Giấy An Bình", "Ví dụ – có thể xóa dòng này"),
+        row("", "", "GY002", "", 500, "tờ", 2500, "", "Điền Mã HOẶC Tên để khớp vật tư"),
       ];
   const ws = XLSX.utils.aoa_to_sheet([headers, ...examples]);
-  ws["!cols"] = headers.map((h) => ({ wch: h.length + (h === "Tên vật tư" ? 18 : 6) }));
+  ws["!cols"] = headers.map((h) => ({ wch: h.length + (h === "Tên vật tư" ? 18 : h === "Ghi chú" ? 22 : 5) }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "DongHang");
+
+  // Sheet tra cứu loại phiếu: copy "Mã loại" vào cột "Loại phiếu" của sheet DongHang.
+  const types = opts?.types;
+  if (withGroups && types && types.length) {
+    const refAoa: (string | number)[][] = [
+      ["Mã loại", "Tên loại", "Nhóm"],
+      ...types.map((t) => [t.code, t.name, t.group === "xuat" ? "Xuất kho" : "Nhập kho"]),
+    ];
+    const refWs = XLSX.utils.aoa_to_sheet(refAoa);
+    refWs["!cols"] = [{ wch: 14 }, { wch: 34 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, refWs, "LoaiPhieu");
+  }
   XLSX.writeFile(wb, filename);
 }
 
@@ -73,6 +106,9 @@ export async function parseLineFile(file: File): Promise<ImportLine[]> {
   const iUnit = idx(["đơn vị", "don vi", "đvt", "dvt", "unit"]);
   const iCost = idx(["đơn giá", "don gia", "gia", "unit_cost", "price"]);
   const iNote = idx(["ghi chú", "ghi chu", "note"]);
+  const iType = idx(["loại phiếu", "loai phieu", "loại", "loai", "type"]);
+  const iGroup = idx(["nhóm phiếu", "nhom phieu", "nhóm", "nhom", "group", "phiếu số", "stt phiếu"]);
+  const iPartner = idx(["đối tượng", "doi tuong", "nhà cung cấp", "nha cung cap", "ncc", "khách hàng", "khach hang", "partner"]);
   const cell = (r: string[], i: number) => (i >= 0 ? (r[i] ?? "").trim() : "");
   const numOf = (s: string): number | null => {
     const v = s.replace(/[.,](?=\d{3}\b)/g, "").replace(",", ".");
@@ -91,6 +127,9 @@ export async function parseLineFile(file: File): Promise<ImportLine[]> {
       unit: cell(cells, iUnit),
       unitCost: numOf(cell(cells, iCost)),
       note: cell(cells, iNote),
+      group: cell(cells, iGroup),
+      typeText: cell(cells, iType),
+      partner: cell(cells, iPartner),
     });
   }
   return out;

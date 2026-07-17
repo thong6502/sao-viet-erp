@@ -77,18 +77,25 @@ export function MaterialsCatalogPage({ warehouseId = null, embedded = false, onC
   }
 
   // Xuất Excel toàn bộ vật tư (theo bộ lọc hiện tại) — cột trùng mẫu import để có thể sửa & import lại.
+  // Backend giới hạn size ≤ 200 → tải lần lượt từng trang 200 rồi gộp.
   async function exportMaterials() {
     if (!token) return;
     setExporting(true); setError(null);
     try {
-      const res = await api.materials.list(token, {
-        q: q.trim() || undefined,
-        material_type: typeF || undefined,
-        is_active: activeF === "" ? undefined : activeF === "1",
-        warehouse_id: warehouseId ?? undefined,
-        page: 1, size: 5000,
-      });
-      const rows = res.items.map((m) => [
+      const PAGE = 200;
+      const all: MaterialRow[] = [];
+      for (let page = 1; page <= 200; page++) { // trần 40.000 dòng, phòng vòng lặp vô hạn
+        const res = await api.materials.list(token, {
+          q: q.trim() || undefined,
+          material_type: typeF || undefined,
+          is_active: activeF === "" ? undefined : activeF === "1",
+          warehouse_id: warehouseId ?? undefined,
+          page, size: PAGE,
+        });
+        all.push(...res.items);
+        if (res.items.length < PAGE || all.length >= res.total) break;
+      }
+      const rows = all.map((m) => [
         m.code, m.name, TYPE_LABEL[m.material_type] ?? m.material_type, m.unit,
         m.group_name ?? "", m.default_supplier ?? "",
         m.purchase_uom ?? "", m.consumption_uom ?? "", m.spec_text ?? "",
@@ -97,8 +104,8 @@ export function MaterialsCatalogPage({ warehouseId = null, embedded = false, onC
         m.note ?? "", m.is_active ? "Hoạt động" : "Đã ẩn",
       ]);
       exportXlsx("danh-muc-vat-tu.xlsx", MATERIAL_HEADERS, rows, "VatTu");
-    } catch {
-      setError("Xuất Excel thất bại.");
+    } catch (e) {
+      setError(e instanceof ApiError ? `Xuất Excel thất bại: ${e.message}` : "Xuất Excel thất bại.");
     } finally {
       setExporting(false);
     }
@@ -321,9 +328,28 @@ export function MaterialForm({
   const [note, setNote] = useState(material?.note ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Ngưỡng tồn (dùng chung bảng min_levels với tab Báo cáo & cột "Ngưỡng tồn" ở Tồn kho).
+  const levelWh = material?.warehouse_id ?? defaultWarehouseId; // kho để đặt ngưỡng
+  const showLevel = !inVoucher && levelWh != null; // chỉ ở form Danh mục (không ở quick-create của phiếu)
+  const [minStock, setMinStock] = useState("");
+  const [nearStock, setNearStock] = useState("");
+  const [levelId, setLevelId] = useState<number | null>(null); // id bản ghi ngưỡng hiện có
 
   const isPaper = type === "paper";
   const num = (v: string): number | null => (v.trim() === "" ? null : Number(v));
+
+  // Nạp ngưỡng tồn hiện có của vật tư (khi sửa) từ min_levels của kho.
+  useEffect(() => {
+    if (!token || isNew || !material || levelWh == null) return;
+    api.kho.listMinLevels(token, levelWh).then((r) => {
+      const lv = r.items.find((x) => x.material_id === material.id);
+      if (lv) {
+        setLevelId(lv.id);
+        setMinStock(lv.min_qty ? String(lv.min_qty) : "");
+        setNearStock(lv.near_min_qty ? String(lv.near_min_qty) : "");
+      }
+    }).catch(() => {});
+  }, [token, isNew, material, levelWh]);
 
   // Gợi ý NCC từ danh mục Nhà cung cấp (gated kho:read → thủ kho dùng được). Vẫn cho gõ tên lạ.
   useEffect(() => {
@@ -360,6 +386,10 @@ export function MaterialForm({
     if (!name.trim()) { setTab("chung"); return setError("Nhập tên vật tư."); }
     if (!unit.trim()) { setTab("chung"); return setError("Nhập đơn vị tính."); }
     if (isPaper && !paperFamily.trim()) { setTab("thuoctinh"); return setError("Vật tư là Giấy cần điền Họ giấy."); }
+    if (showLevel) {
+      const mn = Number(minStock) || 0, nr = Number(nearStock) || 0;
+      if (nr > 0 && mn > 0 && nr <= mn) { setTab("chung"); return setError("Tồn báo sớm phải lớn hơn Tồn tối thiểu."); }
+    }
     // Đơn vị quy đổi: bỏ dòng trống; dòng có tên thì hệ số phải > 0.
     const cleanUoms = [] as { uom: string; factor: number }[];
     for (const r of uoms) {
@@ -413,6 +443,15 @@ export function MaterialForm({
       const saved = isNew
         ? await api.materials.create(token, payload)
         : await api.materials.update(token, material!.id, payload);
+      // Ghi ngưỡng tồn vào min_levels theo kho của vật tư (sau khi lưu vật tư).
+      const wh = saved.warehouse_id ?? levelWh;
+      if (showLevel && wh != null) {
+        const mn = Number(minStock) || 0, nr = Number(nearStock) || 0;
+        try {
+          if (mn > 0 || nr > 0) await api.kho.upsertMinLevel(token, { material_id: saved.id, warehouse_id: wh, min_qty: mn, near_min_qty: nr });
+          else if (levelId != null) await api.kho.deleteMinLevel(token, levelId);
+        } catch { /* lỗi ngưỡng không chặn việc lưu vật tư; có thể đặt lại ở tab Báo cáo */ }
+      }
       onSaved(saved);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Lưu vật tư thất bại.");
@@ -515,6 +554,20 @@ export function MaterialForm({
                     <span className="field__label">Ghi chú</span>
                     <input className="input" value={note} onChange={(e) => setNote(e.target.value)} disabled={readOnly} />
                   </label>
+                  {showLevel && (
+                    <>
+                      <label className="field">
+                        <span className="field__label">Tồn tối thiểu <InfoHint label="Tồn xuống dưới mức này = Thiếu hàng (đỏ), cần nhập bổ sung. Dùng chung với tab Báo cáo & cột Ngưỡng tồn ở Tồn kho." /></span>
+                        <input className="input" type="number" min={0} step="0.001" placeholder="VD: 100"
+                          value={minStock} onChange={(e) => setMinStock(e.target.value)} disabled={readOnly} />
+                      </label>
+                      <label className="field">
+                        <span className="field__label">Tồn báo sớm <InfoHint label="Còn trên mức tối thiểu nhưng dưới mức này = Sắp hết (vàng). Để trống nếu không dùng." /></span>
+                        <input className="input" type="number" min={0} step="0.001" placeholder="VD: 150 (tùy chọn)"
+                          value={nearStock} onChange={(e) => setNearStock(e.target.value)} disabled={readOnly} />
+                      </label>
+                    </>
+                  )}
                   <label className="field">
                     <span className="field__label">Mã vật tư {isNew && <InfoHint label="Bỏ trống mã để hệ thống tự sinh theo loại. Nhập mã riêng thì mã phải chưa tồn tại." />}</span>
                     <input className="input md-page__mono" value={code} onChange={(e) => setCode(e.target.value)} disabled={readOnly}

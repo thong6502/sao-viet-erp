@@ -23,7 +23,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { toast } from "../components/Toast";
 import { Icon, type IconName } from "../components/Icons";
 import { Select, type SelectOption } from "../components/Select";
-import { downloadLineTemplate, exportXlsx, matchMaterial, parseLineFile, type ImportLine } from "../lib/xlsxImport";
+import { downloadLineTemplate, exportXlsx, matchMaterial, parseLineFile } from "../lib/xlsxImport";
 import { VoucherForm, VoucherDetail, printVoucher, specForType, openKhoPrint } from "./StockVoucherPage";
 
 /** Định dạng ngày-giờ VN; rỗng nếu null. */
@@ -132,7 +132,10 @@ export function StockRequestPanel({
   const [statusF, setStatusF] = useState("");
   const [q, setQ] = useState(""); // tìm mã / người đề nghị / mã phiếu kho
   const [formOpen, setFormOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false); // dialog import Excel (đề nghị/phiếu)
+  // Import Excel trực tiếp (không qua form): chọn file → kiểm tra → tạo → báo kết quả.
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState<{ ok: number; errs: string[] } | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<StockRequestRow | null>(null);
   const [detail, setDetail] = useState<StockRequestRow | null>(null);
   // Xác nhận Xóa (nháp) / Hủy (đã gửi/duyệt) từ icon ngoài danh sách.
@@ -181,6 +184,64 @@ export function StockRequestPanel({
           .then((rs) => setRows(rs.items));
     p.catch(() => {}).finally(() => setLoading(false));
   }, [token, warehouse.id, view]);
+
+  // Import Excel thẳng: đọc file → gộp theo "Nhóm phiếu" → kiểm tra tất cả → tạo nhiều đề nghị/phiếu.
+  async function runImport(file: File) {
+    if (!token) return;
+    const kind: "request" | "voucher" = view === "vouchers" ? "voucher" : "request";
+    const docLabel = kind === "request" ? "đề nghị" : "phiếu";
+    setImportBusy(true); setImportResult(null);
+    try {
+      const lines = await parseLineFile(file);
+      if (lines.length === 0) { setImportResult({ ok: 0, errs: ["File trống hoặc chưa có dòng dữ liệu."] }); setImportBusy(false); return; }
+      const types = voucherTypes.filter((t) => t.is_active !== false && (t.voucher_group === "nhap" || t.voucher_group === "xuat"));
+      const defType = types.find((t) => t.voucher_group === "nhap") ?? types[0] ?? null;
+      const parsed = lines.map((line) => ({ line, mat: matchMaterial(materials, line.code, line.name) }));
+      // Gộp theo "Nhóm phiếu" (trống → chung 1 nhóm).
+      const map = new Map<string, typeof parsed>();
+      for (const r of parsed) { const key = r.line.group.trim() || "1"; if (!map.has(key)) map.set(key, []); map.get(key)!.push(r); }
+      const groups = [...map.entries()].map(([key, grows]) => {
+        const typeText = grows.map((g) => g.line.typeText).find((t) => t.trim())?.trim() ?? "";
+        const s = typeText.toLowerCase();
+        const type = s ? (types.find((t) => t.code.toLowerCase() === s || t.name.toLowerCase() === s) ?? null) : defType;
+        const partner = grows.map((g) => g.line.partner).find((p) => p.trim())?.trim() || "";
+        return { key, rows: grows, type, typeText, partner };
+      });
+      // Kiểm tra toàn bộ — 1 lỗi là chặn hết.
+      const errs: string[] = [];
+      parsed.forEach((r, i) => {
+        if (!r.mat) errs.push(`Dòng ${i + 2}: không khớp vật tư "${r.line.code || r.line.name}"`);
+        else if (!(r.line.qty > 0)) errs.push(`Dòng ${i + 2} (${r.mat.code}): SL ≤ 0`);
+      });
+      groups.forEach((g) => { if (!g.type) errs.push(`Nhóm "${g.key}": không rõ Loại phiếu${g.typeText ? ` ("${g.typeText}")` : ""}`); });
+      if (errs.length) { setImportResult({ ok: 0, errs }); setImportBusy(false); return; }
+      // Tạo từng nhóm.
+      const codes: string[] = [];
+      for (const g of groups) {
+        const type = g.type!;
+        const isNhap = type.voucher_group !== "xuat";
+        if (kind === "request") {
+          const rlines = g.rows.map((r) => ({ material_id: r.mat!.id, quantity: r.line.qty, uom: r.line.unit || r.mat!.unit || null, note: r.line.note || null }));
+          const rr = await api.kho.createRequest(token, { request_type: isNhap ? "nhap" : "xuat", voucher_type_id: type.id, warehouse_id: warehouse.id, partner_ref: g.partner || null, reason: null, lines: rlines });
+          codes.push(rr.code);
+        } else {
+          const hasCost = specForType(type).showCost;
+          const vlines = g.rows.map((r) => ({ material_id: r.mat!.id, quantity: r.line.qty, uom: r.line.unit || r.mat!.unit || null, unit_cost: hasCost ? (r.line.unitCost ?? null) : null, note: r.line.note || null }));
+          const header: VoucherInput = { voucher_type_id: type.id, doc_date: new Date().toISOString().slice(0, 10), partner_ref: g.partner || null, ref_type: "import", reason: null, lines: vlines };
+          if (isNhap) header.dst_warehouse_id = warehouse.id; else header.src_warehouse_id = warehouse.id;
+          const vv = await api.kho.createVoucher(token, header);
+          codes.push(vv.code);
+        }
+      }
+      setImportResult({ ok: codes.length, errs: [] });
+      load(); if (kind === "voucher") onFulfilled();
+      toast(codes.length === 1 ? `✓ Đã tạo ${codes[0]} từ Excel` : `✓ Đã tạo ${codes.length} ${docLabel} từ Excel`, "success");
+    } catch (e) {
+      setImportResult({ ok: 0, errs: [e instanceof ApiError ? e.message : "Import thất bại."] });
+    } finally {
+      setImportBusy(false);
+    }
+  }
 
   // Thao tác phiếu trực tiếp từ icon (gửi duyệt / duyệt). Reload cả 2 bảng + báo trang cha.
   async function doVoucher(fn: () => Promise<unknown>) {
@@ -243,6 +304,14 @@ export function StockRequestPanel({
   const reqCur = Math.min(reqPage, reqPages);
   const reqPageRows = filtered.slice((reqCur - 1) * reqPageSize, reqCur * reqPageSize);
 
+  // Danh sách loại phiếu (nhập/xuất, đang bật) → kèm sheet tra cứu "LoaiPhieu" trong file mẫu.
+  const docTypeOpts = useMemo(
+    () => voucherTypes
+      .filter((t) => t.is_active !== false && (t.voucher_group === "nhap" || t.voucher_group === "xuat"))
+      .map((t) => ({ code: t.code, name: t.name, group: t.voucher_group })),
+    [voucherTypes],
+  );
+
   // Lọc + phân trang bảng phiếu lập từ đề nghị.
   const vTypeById = useMemo(() => new Map(voucherTypes.map((t) => [t.id, t])), [voucherTypes]);
   const vKw = vq.trim().toLowerCase();
@@ -258,9 +327,36 @@ export function StockRequestPanel({
   const vCurPage = Math.min(vPage, vPages);
   const vPageRows = vFiltered.slice((vCurPage - 1) * vPageSize, vCurPage * vPageSize);
 
+  const docLabel = view === "vouchers" ? "phiếu" : "đề nghị";
+  // Input file ẩn + banner kết quả (dùng chung cho cả 2 tab).
+  const importUI = (
+    <>
+      <input ref={importFileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }}
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) runImport(f); e.target.value = ""; }} />
+      {importResult && (
+        <div className="banner" role="status" style={{ marginBottom: 10, background: importResult.errs.length ? "#fdf6e3" : "#dcecdc", color: importResult.errs.length ? "#8a5a00" : "#244a2e", border: "1px solid rgba(0,0,0,.08)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span>{importResult.errs.length
+              ? `Không import — có ${importResult.errs.length} lỗi (sửa hết trong file rồi import lại).`
+              : `✓ Đã tạo ${importResult.ok} ${docLabel} từ Excel.`}</span>
+            <div className="md-page__toolbar-spacer" />
+            <button type="button" onClick={() => setImportResult(null)} style={{ background: "none", border: "none", cursor: "pointer" }}>✕</button>
+          </div>
+          {importResult.errs.length > 0 && (
+            <ul style={{ margin: "6px 0 0", paddingLeft: 18, maxHeight: 140, overflowY: "auto", fontSize: 13 }}>
+              {importResult.errs.slice(0, 30).map((m, i) => <li key={i}>{m}</li>)}
+              {importResult.errs.length > 30 && <li>… và {importResult.errs.length - 30} lỗi nữa</li>}
+            </ul>
+          )}
+        </div>
+      )}
+    </>
+  );
+
   return (
     <>
       {view === "requests" && (<>
+      {importUI}
       <div className="md-page__toolbar" style={{ marginBottom: 10 }}>
         <input className="input" placeholder="Tìm mã / người đề nghị / mã phiếu…" value={q}
           onChange={(e) => { setQ(e.target.value); setReqPage(1); }} style={{ minWidth: 240 }} />
@@ -279,13 +375,20 @@ export function StockRequestPanel({
         <span className="md-page__muted" style={{ marginRight: 10 }}>{filtered.length} đề nghị</span>
         <Button variant="ghost" onClick={() => exportXlsx(
           `de-nghi-${warehouse.code}.xlsx`,
-          ["Mã", "Loại", "Số dòng", "Người đề nghị", "Phiếu kho", "Trạng thái"],
-          filtered.map((r) => [r.code, TYPE_LABEL[r.request_type] ?? r.request_type, r.lines.length,
-            r.requested_by_name ?? "", r.voucher_code ?? "", R_STATUS[r.status]?.label ?? r.status]),
+          ["Loại phiếu", "Nhóm phiếu", "Mã vật tư", "Tên vật tư", "Số lượng", "Đơn vị", "Đối tượng", "Ghi chú", "Trạng thái", "Người đề nghị", "Phiếu kho"],
+          // Chi tiết: mỗi sản phẩm 1 dòng; "Nhóm phiếu" = mã đề nghị (gộp các dòng cùng 1 đề nghị) → import lại được.
+          filtered.flatMap((r) => {
+            const typeCode = r.voucher_type_id != null ? (vTypeById.get(r.voucher_type_id)?.code ?? "") : "";
+            const st = R_STATUS[r.status]?.label ?? r.status;
+            const tail = [r.partner_ref ?? "", st, r.requested_by_name ?? "", r.voucher_code ?? ""];
+            return r.lines.length
+              ? r.lines.map((ln) => [typeCode, r.code, ln.material_code ?? "", ln.material_name ?? "", ln.quantity, ln.uom ?? "", tail[0], ln.note ?? "", tail[1], tail[2], tail[3]])
+              : [[typeCode, r.code, "", "", "", "", tail[0], "", tail[1], tail[2], tail[3]]];
+          }),
           "DeNghi",
         )}>⭱ Xuất Excel</Button>
-        <Button variant="ghost" onClick={() => downloadLineTemplate("mau-de-nghi.xlsx")}>⭳ Tải mẫu Excel</Button>
-        <Button variant="ghost" onClick={() => setImportOpen(true)}>⭱ Import Excel</Button>
+        <Button variant="ghost" onClick={() => downloadLineTemplate("mau-de-nghi.xlsx", { withGroups: true, types: docTypeOpts })}>⭳ Tải mẫu Excel</Button>
+        <Button variant="ghost" loading={importBusy} onClick={() => importFileRef.current?.click()}>⭱ Import Excel</Button>
         <Button variant="primary" onClick={() => { setEditing(null); setFormOpen(true); }}>+ Tạo đề nghị</Button>
       </div>
 
@@ -357,6 +460,7 @@ export function StockRequestPanel({
 
       {/* ===== TAB RIÊNG: PHIẾU KHO lập từ đề nghị đã duyệt ===== */}
       {view === "vouchers" && (<>
+      {importUI}
       <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "0 0 8px" }}>
         <span className="md-page__muted">{vFiltered.length} phiếu (từ đề nghị / import)</span>
         <div className="md-page__toolbar-spacer" />
@@ -369,8 +473,8 @@ export function StockRequestPanel({
         )}>⭱ Xuất Excel</Button>
         {canCreate && (
           <>
-            <Button variant="ghost" onClick={() => downloadLineTemplate("mau-phieu-kho.xlsx", { withPrice: true })}>⭳ Tải mẫu Excel</Button>
-            <Button variant="ghost" onClick={() => setImportOpen(true)}>⭱ Import Excel</Button>
+            <Button variant="ghost" onClick={() => downloadLineTemplate("mau-phieu-kho.xlsx", { withPrice: true, withGroups: true, types: docTypeOpts })}>⭳ Tải mẫu Excel</Button>
+            <Button variant="ghost" loading={importBusy} onClick={() => importFileRef.current?.click()}>⭱ Import Excel</Button>
           </>
         )}
       </div>
@@ -458,16 +562,6 @@ export function StockRequestPanel({
           editing={editing}
           onClose={() => { setFormOpen(false); setEditing(null); }}
           onSaved={() => { setFormOpen(false); setEditing(null); load(); }}
-        />
-      )}
-      {importOpen && (
-        <ImportDocDialog
-          kind={view === "vouchers" ? "voucher" : "request"}
-          warehouse={warehouse}
-          materials={materials}
-          voucherTypes={voucherTypes}
-          onClose={() => setImportOpen(false)}
-          onDone={(code) => { setImportOpen(false); load(); if (view === "vouchers") onFulfilled(); if (code) toast(`✓ Đã tạo ${code} từ Excel`, "success"); }}
         />
       )}
       {detail && (
@@ -983,165 +1077,6 @@ function RequestDetail({
           {request.status === "approved" && (
             <Button variant="ghost" loading={busy} onClick={() => act(() => api.kho.cancelRequest(token!, request.id))}>Hủy đề nghị</Button>
           )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Import Excel → tạo 1 ĐỀ NGHỊ (kind="request") hoặc 1 PHIẾU (kind="voucher") với dòng hàng từ file.
-// Khớp vật tư theo Mã/Tên trong kho; dòng không khớp / SL≤0 sẽ bị bỏ và cảnh báo.
-function ImportDocDialog({
-  kind, warehouse, materials, voucherTypes, onClose, onDone,
-}: {
-  kind: "request" | "voucher";
-  warehouse: WarehouseRow;
-  materials: KhoMaterialOption[];
-  voucherTypes: KhoVoucherType[];
-  onClose: () => void;
-  onDone: (code?: string) => void;
-}) {
-  const { token } = useAuth();
-  const shownTypes = useMemo(
-    () => voucherTypes.filter((t) => t.is_active !== false && (t.voucher_group === "nhap" || t.voucher_group === "xuat")),
-    [voucherTypes],
-  );
-  const [vtypeId, setVtypeId] = useState<number | null>(
-    shownTypes.find((t) => t.voucher_group === "nhap")?.id ?? shownTypes[0]?.id ?? null,
-  );
-  const selType = shownTypes.find((t) => t.id === vtypeId);
-  const requestType: "nhap" | "xuat" = selType?.voucher_group === "xuat" ? "xuat" : "nhap";
-  // Chỉ loại phiếu có giá vốn (NK-NVL / nhập mua) mới cần cột Đơn giá.
-  const typeHasCost = kind === "voucher" && specForType(selType).showCost;
-  const [partnerRef, setPartnerRef] = useState("");
-  const [reason, setReason] = useState("");
-  const [rows, setRows] = useState<{ line: ImportLine; mat: KhoMaterialOption | null }[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  async function onFile(file: File) {
-    setError(null);
-    try {
-      const lines = await parseLineFile(file);
-      if (lines.length === 0) { setError("File trống hoặc chưa có dòng dữ liệu."); return; }
-      setRows(lines.map((line) => ({ line, mat: matchMaterial(materials, line.code, line.name) })));
-    } catch {
-      setError("Không đọc được file. Hãy dùng đúng file mẫu (.xlsx).");
-    }
-  }
-
-  const matched = rows.filter((r) => r.mat && r.line.qty > 0);
-  const badCount = rows.length - matched.length;
-
-  async function submit() {
-    if (!token || saving) return;
-    setError(null);
-    if (!vtypeId) return setError("Chọn loại phiếu.");
-    if (rows.length === 0) return setError("Chưa chọn file dữ liệu.");
-    // Toàn bộ đúng mới cho tạo — còn 1 dòng lỗi là chặn hết.
-    if (badCount > 0) return setError(`Có ${badCount} dòng lỗi (không khớp vật tư hoặc SL ≤ 0). Sửa file cho đúng hết rồi import lại.`);
-    setSaving(true);
-    try {
-      if (kind === "request") {
-        const lines = matched.map((r) => ({
-          material_id: r.mat!.id, quantity: r.line.qty,
-          uom: r.line.unit || r.mat!.unit || null, note: r.line.note || null,
-        }));
-        const r = await api.kho.createRequest(token, {
-          request_type: requestType, voucher_type_id: vtypeId, warehouse_id: warehouse.id,
-          partner_ref: partnerRef.trim() || null, reason: reason.trim() || null, lines,
-        });
-        onDone(r.code);
-      } else {
-        const lines = matched.map((r) => ({
-          material_id: r.mat!.id, quantity: r.line.qty,
-          uom: r.line.unit || r.mat!.unit || null,
-          unit_cost: typeHasCost ? (r.line.unitCost ?? null) : null, note: r.line.note || null,
-        }));
-        const header: VoucherInput = {
-          voucher_type_id: vtypeId, doc_date: new Date().toISOString().slice(0, 10),
-          partner_ref: partnerRef.trim() || null, ref_type: "import", reason: reason.trim() || null, lines,
-        };
-        if (requestType === "nhap") header.dst_warehouse_id = warehouse.id;
-        else header.src_warehouse_id = warehouse.id;
-        const v = await api.kho.createVoucher(token, header);
-        onDone(v.code);
-      }
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Tạo thất bại.");
-      setSaving(false);
-    }
-  }
-
-  const docLabel = kind === "request" ? "đề nghị" : "phiếu";
-  return (
-    <div className="md-page__overlay" role="dialog">
-      <div className="md-page__dialog card" style={{ maxWidth: 760, width: "94%", maxHeight: "88vh", display: "flex", flexDirection: "column" }}>
-        <div className="md-page__dialog-head">
-          <h2>Import Excel → tạo {docLabel} · {warehouse.code} {warehouse.name}</h2>
-          <button type="button" className="md-page__close" onClick={onClose}>✕</button>
-        </div>
-        <div className="md-page__dialog-body" style={{ overflowY: "auto" }}>
-          <div className="md-page__form-grid">
-            <label className="field">
-              <span className="field__label">Loại phiếu *</span>
-              <select className="input" value={vtypeId ?? ""} onChange={(e) => setVtypeId(e.target.value ? Number(e.target.value) : null)}>
-                <optgroup label="Nhập kho">
-                  {shownTypes.filter((t) => t.voucher_group === "nhap").map((t) => <option key={t.id} value={t.id}>{t.code} · {t.name}</option>)}
-                </optgroup>
-                <optgroup label="Xuất kho">
-                  {shownTypes.filter((t) => t.voucher_group === "xuat").map((t) => <option key={t.id} value={t.id}>{t.code} · {t.name}</option>)}
-                </optgroup>
-              </select>
-            </label>
-            <label className="field">
-              <span className="field__label">Đối tượng</span>
-              <input className="input" placeholder="NCC / Bộ phận (tùy chọn)" value={partnerRef} onChange={(e) => setPartnerRef(e.target.value)} />
-            </label>
-            <label className="field md-page__form-wide">
-              <span className="field__label">Lý do / Diễn giải</span>
-              <input className="input" value={reason} onChange={(e) => setReason(e.target.value)} />
-            </label>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "8px 0" }}>
-            <Button type="button" variant="ghost" onClick={() => downloadLineTemplate(kind === "request" ? "mau-de-nghi.xlsx" : "mau-phieu-kho.xlsx", { withPrice: typeHasCost })}>⭳ Tải mẫu</Button>
-            <Button type="button" variant="ghost" onClick={() => fileRef.current?.click()}>⭱ Chọn file Excel</Button>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }}
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); e.target.value = ""; }} />
-            {rows.length > 0 && (
-              <span className="md-page__muted" style={badCount ? { color: "var(--rust)" } : undefined}>
-                Khớp {matched.length}/{rows.length} dòng{badCount ? ` · ${badCount} dòng lỗi (phải sửa hết)` : " · OK"}
-              </span>
-            )}
-          </div>
-
-          {rows.length > 0 && (
-            <div className="md-page__tablewrap" style={{ maxHeight: "40vh", overflowY: "auto" }}>
-              <table className="md-page__table">
-                <thead><tr><th>Vật tư (khớp)</th><th style={{ textAlign: "right" }}>SL</th><th>ĐVT</th>{typeHasCost && <th style={{ textAlign: "right" }}>Đơn giá</th>}<th>NCC</th><th>Trạng thái</th></tr></thead>
-                <tbody>
-                  {rows.map((r, i) => (
-                    <tr key={i} style={{ background: r.mat && r.line.qty > 0 ? undefined : "#fbeaea" }}>
-                      <td>{r.mat ? <><strong>{r.mat.code}</strong> <span className="md-page__muted">· {r.mat.name}</span></> : <span className="md-page__muted">{r.line.code || r.line.name}</span>}</td>
-                      <td style={{ textAlign: "right" }}>{r.line.qty.toLocaleString("vi-VN")}</td>
-                      <td>{r.line.unit || r.mat?.unit || "—"}</td>
-                      {typeHasCost && <td style={{ textAlign: "right" }}>{r.line.unitCost != null ? r.line.unitCost.toLocaleString("vi-VN") : <span className="md-page__muted">—</span>}</td>}
-                      <td>{r.mat?.default_supplier || <span className="md-page__muted">—</span>}</td>
-                      <td>{!r.mat ? <span style={{ color: "var(--rust)" }}>Không khớp vật tư</span> : r.line.qty > 0 ? <span style={{ color: "#244a2e" }}>OK</span> : <span style={{ color: "var(--rust)" }}>SL ≤ 0</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {error && <div className="banner banner--error" role="alert" style={{ marginTop: 10 }}>{error}</div>}
-        </div>
-        <div className="md-page__dialog-actions">
-          <Button variant="ghost" onClick={onClose}>Hủy</Button>
-          <Button variant="primary" onClick={submit} loading={saving} disabled={rows.length === 0 || badCount > 0}>Tạo {docLabel} ({rows.length})</Button>
         </div>
       </div>
     </div>
