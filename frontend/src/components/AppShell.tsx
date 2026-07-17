@@ -322,9 +322,7 @@ export function AppShell() {
       case "bao-gia":
         return (
           <BaoGiaPage
-            pinnedCustomer={navParams?.customer ?? null}
             openQuoteId={navParams?.openQuoteId ?? null}
-            estimateId={navParams?.estimateId ?? null}
             navigate={navigate}
           />
         );
