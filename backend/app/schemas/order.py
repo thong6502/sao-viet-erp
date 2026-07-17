@@ -100,6 +100,8 @@ class OrderCreate(BaseModel):
     customer_id: int | None = None
     lines: list[OrderLineIn] = Field(default_factory=list)
     vat_pct_estimate: int = 0
+    # % cọc do sale nhập TRÊN ĐƠN (0–100). None: đơn báo giá ghim từ báo giá; đơn nhập tay = chưa đặt.
+    deposit_pct: float | None = None
     # thông tin đặt hàng (tùy chọn lúc tạo, sửa sau khi nháp):
     customer_po_no: str | None = None
     delivery_committed_date: date | None = None
@@ -112,6 +114,7 @@ class OrderUpdate(BaseModel):
     """Chỉ sửa khi đơn còn NHÁP — chỉ thông tin ĐẶT HÀNG. Dòng + giá + VAT BẤT BIẾN (đổi = tạo
     nháp mới), KHÔNG sửa qua đây. Field None = giữ nguyên."""
     order_nature: str | None = None
+    deposit_pct: float | None = None   # % cọc — sale sửa trên đơn khi còn nháp
     customer_po_no: str | None = None
     delivery_committed_date: date | None = None
     delivery_address: str | None = None
@@ -182,6 +185,7 @@ class OrderDetailOut(OrderRow):
     # Cổng chốt (P4): checklist đọc-được cho FE.
     can_confirm: bool = False
     confirm_blockers: list[str] = []
+    quote_expired: bool = False   # Việc 4: báo giá nguồn accepted đã hết hạn → FE bật nút "Gia hạn"
 
 
 class OrderActivityItem(BaseModel):

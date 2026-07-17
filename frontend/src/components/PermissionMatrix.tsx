@@ -50,7 +50,7 @@ const WRITE_ACTIONS: ActionKey[] = ["can_create", "can_update", "can_delete"];
 
 // Quyền CHI TIẾT khai báo theo từng module (Cách B). Module không có tên ở đây → không hiện
 // cột chi tiết. Thêm module/hành động mới chỉ cần bổ sung vào bảng này + cột ở backend.
-const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
+const FINE_ACTIONS: Record<string, { key: ActionKey; label: string; hint?: string }[]> = {
   khach_hang: [
     { key: "can_reassign", label: "Điều chuyển" },
     { key: "can_export", label: "Xuất file" },
@@ -65,8 +65,16 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
   ],
   // Đơn hàng bán: duyệt đơn đặc thù (nhập tay/bổ sung) + hủy đơn đã chốt = 1 cờ; ghi cọc = Kế toán.
   don_hang_ban: [
-    { key: "can_approve_exception", label: "Duyệt đơn đặc thù · hủy đơn đã chốt" },
-    { key: "can_record_deposit", label: "Ghi phiếu thu cọc" },
+    {
+      key: "can_approve_exception",
+      label: "Duyệt đơn đặc thù · hủy đơn đã chốt",
+      hint: 'Gộp 2 quyền vào 1 cờ: (1) Duyệt "đơn đặc thù" — đơn nhập tay KHÔNG có giá vốn nên không soi được biên lời/lỗ, Sale phải trình lên; (2) Hủy đơn ĐÃ CHỐT (đã lên trạng thái "ordered"). Thường chỉ TP/GĐ Kinh doanh có — NV Sales không.',
+    },
+    {
+      key: "can_record_deposit",
+      label: "Ghi phiếu thu cọc",
+      hint: 'Ghi / sửa / xóa phiếu thu tiền cọc của khách trên đơn (tiền mặt hoặc chuyển khoản, có đối chiếu). Tách riêng cho Kế toán bán hàng — Sale lập đơn nhưng KHÔNG tự ghi tiền cọc (chống "tự thu tự chốt").',
+    },
   ],
   vai_tro: [{ key: "can_manage_permissions", label: "Sửa ma trận phân quyền" }],
   nguoi_dung: [
@@ -285,7 +293,7 @@ function FinePopover({
 }: {
   rect: DOMRect;
   row: PermissionRow;
-  acts: { key: ActionKey; label: string }[];
+  acts: { key: ActionKey; label: string; hint?: string }[];
   label: string;
   readOnly: boolean;
   onToggle: (moduleKey: string, action: ActionKey, value: boolean) => void;
@@ -335,7 +343,10 @@ function FinePopover({
             aria-label={`${a.label} — ${label}`}
             onChange={(e) => onToggle(row.module_key, a.key, e.target.checked)}
           />
-          <span>{a.label}</span>
+          <span className="matrix__fine-text" title={a.hint || undefined}>
+            {a.label}
+            {a.hint && <span className="matrix__fine-hint" aria-hidden="true">ⓘ</span>}
+          </span>
         </label>
       ))}
     </div>,

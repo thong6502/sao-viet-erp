@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 import secrets
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy.orm import Session
@@ -289,9 +289,19 @@ class OrderService:
         ]
         can_confirm, blockers = self._confirm_gate(order)
         q_code = None
+        quote_expired = False
         if order.quotation_id:
             qq = self.quotations.get_by_id(order.quotation_id)
             q_code = qq.quote_number if qq else None
+            # Việc 4: cờ có cấu trúc để FE bật nút "Gia hạn báo giá" — khớp ĐÚNG blocker hết-hạn ở
+            # cổng chốt (đơn nháp nguồn báo giá + báo giá accepted đã quá hạn), khỏi dò chuỗi.
+            quote_expired = bool(
+                order.status == STATUS_DRAFT
+                and order.source_type == SOURCE_BAO_GIA
+                and qq is not None
+                and qq.status in (STATUS_ACCEPTED, "converted_to_order")
+                and qq.valid_until and qq.valid_until < date.today()
+            )
         return OrderDetailOut(
             **self._row(order, cust_name, names.get(order.sale_user_id), q_code).model_dump(),
             quotation_version=order.quotation_version,
@@ -312,6 +322,7 @@ class OrderService:
             consent_attachments=consent_atts,
             can_confirm=can_confirm,
             confirm_blockers=blockers,
+            quote_expired=quote_expired,
         )
 
     # --- reads --------------------------------------------------------------
@@ -374,6 +385,8 @@ class OrderService:
             raise OrderValidationError("Đơn bổ sung phải trỏ đơn gốc (giữ kẽm)")
         if payload.order_nature not in ORDER_NATURES:
             raise OrderValidationError("Bản chất đơn không hợp lệ")
+        if payload.deposit_pct is not None and not 0 <= payload.deposit_pct <= 100:
+            raise OrderValidationError("% cọc phải trong khoảng 0–100")
 
         if payload.source_type == SOURCE_BAO_GIA:
             order = self._create_from_quotation(actor=actor, payload=payload)
@@ -431,7 +444,8 @@ class OrderService:
             sale_user_id=(quote.salesperson_id or actor.id),
             status=STATUS_DRAFT,
             vat_pct_estimate=_i(version.vat_percent),
-            deposit_pct=quote.deposit_pct,
+            # % cọc nhập trên đơn ưu tiên; chưa nhập thì ghim từ báo giá.
+            deposit_pct=(payload.deposit_pct if payload.deposit_pct is not None else quote.deposit_pct),
             cost_basis=COST_BASIS_QUOTE,
             needs_approval=False,
             approval_state=APPROVAL_STATE_NONE,
@@ -472,7 +486,7 @@ class OrderService:
             sale_user_id=actor.id,
             status=STATUS_DRAFT,
             vat_pct_estimate=payload.vat_pct_estimate,
-            deposit_pct=None,
+            deposit_pct=payload.deposit_pct,   # sale nhập trên đơn (nhập tay không có báo giá để ghim)
             cost_basis=COST_BASIS_NONE,
             needs_approval=True,   # nhập tay LUÔN cần duyệt (trình duyệt ở P3)
             approval_state=APPROVAL_STATE_NONE,
@@ -503,6 +517,10 @@ class OrderService:
             if payload.order_nature not in ORDER_NATURES:
                 raise OrderValidationError("Bản chất đơn không hợp lệ")
             fields["order_nature"] = payload.order_nature
+        if payload.deposit_pct is not None:
+            if not 0 <= payload.deposit_pct <= 100:
+                raise OrderValidationError("% cọc phải trong khoảng 0–100")
+            fields["deposit_pct"] = payload.deposit_pct
         if fields:
             self.repo.update(order, **fields)
         self.audit.create(
@@ -510,6 +528,58 @@ class OrderService:
             target=f"order:{order.id}", detail=f"Cập nhật đơn {order.order_no}",
         )
         return self._detail(self.repo.get_with_lines(order_id))
+
+    def extend_source_quote(self, *, order_id: int, actor, scope: str) -> OrderDetailOut:
+        """Việc 4 — Gia hạn báo giá NGUỒN ngay từ đơn (gỡ blocker 'báo giá hết hạn' ở cổng chốt).
+        Gộp vào luồng đơn, KHÔNG nhảy màn: đặt lại valid_until = hôm nay + 30 ngày (đúng quy ước
+        bản mới ở quotation_service:1146). Quyền = `update` (router đã chặn — Sale + TP/GĐ), scope
+        kẹp qua can_access. Chỉ áp cho đơn NHÁP nguồn báo giá + báo giá accepted đã hết hạn; ghi vết
+        vào audit để hiện trên timeline báo giá."""
+        order = self.repo.get_by_id(order_id)
+        if order is None or not self.repo.can_access(order=order, scope=scope, actor=actor):
+            raise OrderNotFound("Không tìm thấy đơn hàng")
+        if order.status != STATUS_DRAFT:
+            raise OrderConflict("Đơn đã chốt/hủy — không cần gia hạn báo giá")
+        if order.source_type != SOURCE_BAO_GIA or not order.quotation_id:
+            raise OrderValidationError("Đơn nhập giá tay không gắn báo giá để gia hạn")
+        quote = self.quotations.get_by_id(order.quotation_id)
+        if quote is None or quote.status not in (STATUS_ACCEPTED, "converted_to_order"):
+            raise OrderValidationError("Báo giá nguồn không ở trạng thái gia hạn được")
+        if not (quote.valid_until and quote.valid_until < date.today()):
+            raise OrderValidationError("Báo giá còn hạn — không cần gia hạn")
+        new_until = date.today() + timedelta(days=30)
+        quote.valid_until = new_until
+        self.quotations.update(quote)
+        self.audit.create(
+            actor_user_id=actor.id, action="extend_quote_validity",
+            target=f"quote:{quote.id}",
+            detail=f"Gia hạn báo giá {quote.quote_number} tới {new_until.isoformat()} "
+                   f"(từ đơn {order.order_no})",
+        )
+        return self._detail(self.repo.get_with_lines(order_id))
+
+    def notify_summary(self, *, actor, scope: str, can_approve: bool,
+                       can_record_deposit: bool, can_manage_status: bool) -> dict:
+        """Số nuôi badge/toast real-time — 'việc chờ TÔI xử lý' theo vai (đơn còn NHÁP trong phạm vi):
+        TP/GĐ = đơn chờ duyệt; Kế toán = đơn chờ ghi cọc; Sale = đơn đủ điều kiện chờ chốt. Tự giảm
+        khi người dùng thao tác (không cần cờ 'seen'). Đếm trên tập nháp nhỏ nên rẻ."""
+        approval_pending = deposit_pending = ready_to_confirm = 0
+        for o in self.repo.drafts_in_scope(scope=scope, actor=actor):
+            m = self._money(o)
+            if can_approve and o.approval_state == APPROVAL_STATE_PENDING:
+                approval_pending += 1
+            if can_record_deposit and (o.deposit_pct or 0) > 0 and not m["deposit_ok"]:
+                deposit_pending += 1
+            if can_manage_status and m["deposit_ok"] and (
+                not o.needs_approval or o.approval_state == APPROVAL_STATE_APPROVED
+            ):
+                ready_to_confirm += 1
+        return {
+            "action_count": approval_pending + deposit_pending + ready_to_confirm,
+            "approval_pending": approval_pending,
+            "deposit_pending": deposit_pending,
+            "ready_to_confirm": ready_to_confirm,
+        }
 
     # --- Cọc (P2) — Kế toán ghi phiếu thu, chỉ khi đơn còn NHÁP -------------
     def _load_draft_for_deposit(self, order_id: int, actor, scope: str) -> Order:

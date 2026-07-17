@@ -465,7 +465,7 @@ function OrderDrawer({
                       v={`${order.invoice_entity_name}${order.invoice_entity_tax_code ? " · MST " + order.invoice_entity_tax_code : ""}`}
                     />
                   )}
-                  {order.deposit_pct != null && <KV k="% cọc (từ báo giá)" v={<span className="dhb__mono">{order.deposit_pct}%</span>} />}
+                  {order.deposit_pct != null && <KV k="% cọc" v={<span className="dhb__mono">{order.deposit_pct}%</span>} />}
                 </div>
                 {editing && (
                   <div style={{ marginTop: 12 }}>
@@ -541,7 +541,7 @@ function OrderDrawer({
                     </div>
                     <div style={{ marginTop: 4 }}>
                       {isDraft ? (
-                        <ConfirmPanel order={order} canManage={canManageStatus} onSaved={onSaved} />
+                        <ConfirmPanel order={order} canManage={canManageStatus} canExtend={canUpdate} onSaved={onSaved} />
                       ) : order.status === "ordered" ? (
                         <>
                           <KV k="Đã chốt lúc" v={<span className="dhb__mono">{fmtDate(order.ordered_at)}</span>} />
@@ -852,6 +852,7 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   const [entity, setEntity] = useState(order.invoice_entity_name ?? "");
   const [taxCode, setTaxCode] = useState(order.invoice_entity_tax_code ?? "");
   const [nature, setNature] = useState(order.order_nature);
+  const [depositPct, setDepositPct] = useState(order.deposit_pct != null ? String(order.deposit_pct) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -867,6 +868,7 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
         invoice_entity_name: entity || null,
         invoice_entity_tax_code: taxCode || null,
         order_nature: nature,
+        deposit_pct: depositPct.trim() === "" ? null : Number(depositPct),
       });
       onSaved(d);
     } catch (e: unknown) {
@@ -879,6 +881,7 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   return (
     <div style={{ display: "grid", gap: 8 }}>
       <Field label="Số PO khách"><input value={po} onChange={(e) => setPo(e.target.value)} style={inp} /></Field>
+      <Field label="% cọc"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" style={inp} /></Field>
       <Field label="Ngày giao cam kết"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inp} /></Field>
       <Field label="Địa chỉ giao"><input value={addr} onChange={(e) => setAddr(e.target.value)} style={inp} /></Field>
       <Field label="Bản chất đơn">
@@ -907,6 +910,7 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
   const [nature, setNature] = useState("hang_hoa");
   const [lines, setLines] = useState<OrderLineInput[]>([{ description: "", qty: 1, unit_price: 0, vat_pct: 8 }]);
   const [po, setPo] = useState("");
+  const [depositPct, setDepositPct] = useState("");
   const [isSupp, setIsSupp] = useState(false);
   const [parentId, setParentId] = useState("");
   const [quotes, setQuotes] = useState<{ id: number; code: string; customer_name: string | null }[]>([]);
@@ -938,6 +942,7 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
         input.lines = lines.filter((l) => l.description);
         input.vat_pct_estimate = lines[0]?.vat_pct ?? 8;
       }
+      if (depositPct.trim() !== "") input.deposit_pct = Number(depositPct);
       const d = await api.orders.create(token, input);
       onCreated(d);
     } catch (e: unknown) {
@@ -1032,6 +1037,7 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
             </select>
           </Field>
         )}
+        <Field label="% cọc (tùy chọn — báo giá: trống = ghim theo báo giá)"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" style={inp} /></Field>
         <Field label="Số PO khách (tùy chọn)"><input value={po} onChange={(e) => setPo(e.target.value)} style={inp} /></Field>
 
         {err && <div className="banner banner--error">{err}</div>}
@@ -1044,7 +1050,7 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
   );
 }
 
-function ConfirmPanel({ order, canManage, onSaved }: { order: OrderDetail; canManage: boolean; onSaved: (d: OrderDetail) => void }) {
+function ConfirmPanel({ order, canManage, canExtend, onSaved }: { order: OrderDetail; canManage: boolean; canExtend: boolean; onSaved: (d: OrderDetail) => void }) {
   const { token } = useAuth();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1054,6 +1060,18 @@ function ConfirmPanel({ order, canManage, onSaved }: { order: OrderDetail; canMa
     setErr(null);
     try {
       onSaved(await api.orders.confirm(token, order.id));
+    } catch (e: unknown) {
+      setErr(String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function doExtend() {
+    if (!token) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      onSaved(await api.orders.extendQuote(token, order.id));
     } catch (e: unknown) {
       setErr(String((e as Error)?.message ?? e));
     } finally {
@@ -1074,6 +1092,11 @@ function ConfirmPanel({ order, canManage, onSaved }: { order: OrderDetail; canMa
             </div>
           ))}
         </div>
+      )}
+      {order.quote_expired && canExtend && (
+        <button className="btn btn--ghost" style={{ justifySelf: "start" }} disabled={busy} onClick={doExtend} title="Đặt lại hạn hiệu lực báo giá nguồn = hôm nay + 30 ngày">
+          <Icon name="clock" size={14} /> Gia hạn báo giá (+30 ngày)
+        </button>
       )}
       {err && <div className="banner banner--error">{err}</div>}
       {canManage && (

@@ -271,6 +271,7 @@ class PermissionRow(BaseModel):
     can_adjust: bool = False
     can_approve_exception: bool = False
     can_set_credit_terms: bool = False
+    can_record_deposit: bool = False   # don_hang_ban — Kế toán ghi phiếu thu cọc
 
 
 class PermissionMatrixIn(BaseModel):

@@ -174,7 +174,12 @@ export interface QuoteNotifySummary {
 
 export type QuoteEvent =
   | { type: "quote_decision"; quote_id: number; code: string; decision: "approved" | "rejected" }
-  | { type: "quote_pending_changed"; code?: string };
+  | { type: "quote_pending_changed"; code?: string }
+  // Đơn hàng bán dùng CHUNG kênh hub (bám logic SSE báo giá): quyết định duyệt/đủ cọc gửi riêng
+  // người soạn; 'pending_changed' là tín hiệu danh sách chờ đổi → refetch notify-summary theo vai.
+  | { type: "order_decision"; code: string; decision: "approved" | "rejected" }
+  | { type: "order_deposit_ok"; code: string }
+  | { type: "order_pending_changed"; code?: string };
 
 export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
   let closed = false;
@@ -3740,6 +3745,7 @@ export interface OrderDetail extends OrderRow {
   consent_attachments: AttachmentOut[];
   can_confirm: boolean;
   confirm_blockers: string[];
+  quote_expired: boolean;   // Việc 4: báo giá nguồn hết hạn → bật nút "Gia hạn báo giá"
 }
 export interface OrderStatsOut {
   all: number;
@@ -3763,6 +3769,7 @@ export interface OrderCreateInput {
   customer_id?: number | null;
   lines?: OrderLineInput[];
   vat_pct_estimate?: number;
+  deposit_pct?: number | null;
   customer_po_no?: string | null;
   delivery_committed_date?: string | null;
   delivery_address?: string | null;
@@ -3771,11 +3778,18 @@ export interface OrderCreateInput {
 }
 export interface OrderUpdateInput {
   order_nature?: string | null;
+  deposit_pct?: number | null;
   customer_po_no?: string | null;
   delivery_committed_date?: string | null;
   delivery_address?: string | null;
   invoice_entity_name?: string | null;
   invoice_entity_tax_code?: string | null;
+}
+export interface OrderNotifySummary {
+  action_count: number;
+  approval_pending: number;
+  deposit_pending: number;
+  ready_to_confirm: number;
 }
 export interface OrderEnumOption {
   value: string;
@@ -5140,6 +5154,9 @@ export const api = {
     enums(token: string): Promise<OrderEnumsOut> {
       return authed<OrderEnumsOut>("/api/orders/enums", token);
     },
+    notifySummary(token: string): Promise<OrderNotifySummary> {
+      return authed<OrderNotifySummary>("/api/orders/notify-summary", token);
+    },
     get(token: string, id: number): Promise<OrderDetail> {
       return authed<OrderDetail>(`/api/orders/${id}`, token);
     },
@@ -5192,6 +5209,10 @@ export const api = {
     },
     confirm(token: string, id: number): Promise<OrderDetail> {
       return authed<OrderDetail>(`/api/orders/${id}/confirm`, token, { method: "POST" });
+    },
+    /** Việc 4: gia hạn báo giá nguồn +30 ngày (gỡ blocker hết-hạn ở cổng chốt). Quyền `update`. */
+    extendQuote(token: string, id: number): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/extend-quote`, token, { method: "POST" });
     },
     cancel(token: string, id: number, reason: string, fault: string | null): Promise<OrderDetail> {
       return authed<OrderDetail>(`/api/orders/${id}/cancel`, token, {

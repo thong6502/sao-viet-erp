@@ -90,6 +90,7 @@ export function AppShell() {
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: "ok" | "warn" | "info" }[]>([]);
   const toastSeq = useRef(0);
   const lastPending = useRef(0);
+  const lastOrderAction = useRef(0);
   const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { id, text, tone }]);
@@ -177,6 +178,17 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Đơn hàng bán = 'việc chờ TÔI' theo vai (TP: chờ duyệt; Kế toán: chờ ghi cọc; Sale:
+    // sẵn sàng chốt). Số real-time: SSE đẩy sự kiện → refetch; đây là snapshot lúc đổi màn/mở app.
+    if (readable.has("don_hang_ban")) {
+      api.orders
+        .notifySummary(token)
+        .then((s) => {
+          lastOrderAction.current = s.action_count;
+          setBadges((prev) => ({ ...prev, "don-hang-ban": s.action_count }));
+        })
+        .catch(() => {});
+    }
   }, [token, readable]);
   useEffect(() => {
     reloadBadges();
@@ -187,9 +199,9 @@ export function AppShell() {
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !readable.has("bao_gia")) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban"))) return;
     const close = connectQuoteEvents(token, (e) => {
-      if (e.type === "quote_decision") {
+      if (readable.has("bao_gia") && e.type === "quote_decision") {
         pushToast(
           e.decision === "approved"
             ? `✓ Báo giá ${e.code} đã được duyệt`
@@ -197,7 +209,7 @@ export function AppShell() {
           e.decision === "approved" ? "ok" : "warn",
         );
         reloadBadges();
-      } else if (e.type === "quote_pending_changed") {
+      } else if (readable.has("bao_gia") && e.type === "quote_pending_changed") {
         // Danh sách 'chờ duyệt' đổi → refetch số; chỉ toast khi số 'chờ TÔI duyệt' TĂNG (có việc mới).
         api.quotations
           .notifySummary(token)
@@ -210,6 +222,27 @@ export function AppShell() {
               pushToast(`🔔 Có báo giá${e.code ? " " + e.code : ""} chờ bạn duyệt`, "info");
             }
             lastPending.current = s.pending_approval_count;
+          })
+          .catch(() => {});
+      } else if (readable.has("don_hang_ban") && e.type === "order_decision") {
+        pushToast(
+          e.decision === "approved" ? `✓ Đơn ${e.code} đã được duyệt` : `✕ Đơn ${e.code} bị từ chối`,
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("don_hang_ban") && e.type === "order_deposit_ok") {
+        pushToast(`🔔 Đơn ${e.code} đã đủ cọc — chốt được rồi`, "info");
+        reloadBadges();
+      } else if (readable.has("don_hang_ban") && e.type === "order_pending_changed") {
+        // Danh sách 'chờ (duyệt/ghi cọc/chốt)' đổi → refetch số theo vai; toast khi số 'chờ TÔI' TĂNG.
+        api.orders
+          .notifySummary(token)
+          .then((s) => {
+            setBadges((prev) => ({ ...prev, "don-hang-ban": s.action_count }));
+            if (s.action_count > lastOrderAction.current) {
+              pushToast("🔔 Có đơn hàng chờ bạn xử lý", "info");
+            }
+            lastOrderAction.current = s.action_count;
           })
           .catch(() => {});
       }

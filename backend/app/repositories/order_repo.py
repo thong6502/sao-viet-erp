@@ -75,6 +75,14 @@ class OrderRepository:
             return owner.department_id in dept_subtree_ids(self.db, actor.department_id)
         raise ValueError(f"Unknown scope: {scope!r}")
 
+    def drafts_in_scope(self, *, scope: str, actor) -> list[Order]:
+        """Đơn còn NHÁP trong phạm vi — nuôi badge 'việc chờ TÔI' (tập nháp nhỏ, bounded)."""
+        stmt = select(Order).where(Order.status == "draft")
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        return list(self.db.execute(stmt).scalars().all())
+
     def line_total_sum(self, order_id: int) -> int | None:
         """Tổng dự kiến = Σ line_total (None if no priced line)."""
         val = self.db.execute(

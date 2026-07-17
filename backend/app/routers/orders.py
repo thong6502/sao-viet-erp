@@ -36,8 +36,15 @@ from ..services.order_service import (
     OrderValidationError,
 )
 from ..services.rbac_service import AuthorizationService
+from ..realtime import hub
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+
+
+def _order_changed(order_no: str | None = None) -> None:
+    """Tín hiệu 'danh sách chờ (duyệt/ghi cọc/chốt) đã đổi' — mọi vai tự refetch notify-summary
+    (badge nhảy + toast khi số 'chờ TÔI' tăng). Bám đúng logic SSE báo giá (kênh hub chung)."""
+    hub.broadcast({"type": "order_pending_changed", "code": order_no})
 
 MODULE = "don_hang_ban"
 
@@ -111,6 +118,22 @@ def get_stats(
     return svc.stats(actor=user, scope=_effective_scope(_scope_for(authz, user), view_scope))
 
 
+@router.get("/notify-summary")
+def notify_summary(
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    svc: Service,
+    authz: Authz,
+) -> dict:
+    """Số nuôi badge/toast real-time Đơn hàng bán — 'việc chờ TÔI xử lý' theo vai (SSE snapshot lúc
+    connect + REST fallback khi có event). TP/GĐ=chờ duyệt; Kế toán=chờ ghi cọc; Sale=sẵn sàng chốt."""
+    return svc.notify_summary(
+        actor=user, scope=_scope_for(authz, user),
+        can_approve=authz.can(user, MODULE, "approve_exception"),
+        can_record_deposit=authz.can(user, MODULE, "record_deposit"),
+        can_manage_status=authz.can(user, MODULE, "manage_status"),
+    )
+
+
 @router.get("/{order_id}", response_model=OrderDetailOut)
 def get_order(
     order_id: int,
@@ -145,9 +168,11 @@ def create_order(
     authz: Authz,
 ) -> OrderDetailOut:
     try:
-        return svc.create(actor=user, scope=_scope_for(authz, user), payload=payload)
+        d = svc.create(actor=user, scope=_scope_for(authz, user), payload=payload)
     except Exception as exc:
         raise _map(exc)
+    _order_changed(d.order_no)   # đơn nháp mới → Kế toán thấy 'chờ ghi cọc'
+    return d
 
 
 @router.put("/{order_id}", response_model=OrderDetailOut)
@@ -175,12 +200,14 @@ def cancel_order(
 ) -> OrderDetailOut:
     elevated = authz.can(user, MODULE, "approve_exception")
     try:
-        return svc.cancel(
+        d = svc.cancel(
             order_id=order_id, actor=user, scope=_scope_for(authz, user),
             reason=payload.reason, fault=payload.fault, can_cancel_ordered=elevated,
         )
     except Exception as exc:
         raise _map(exc)
+    _order_changed(d.order_no)   # hủy nháp → rời tập chờ, badge 'chờ xử lý' các vai tụt
+    return d
 
 
 # --- Chốt đơn (P4) — quyền `manage_status` ------------------------------------
@@ -192,7 +219,26 @@ def confirm_order(
     authz: Authz,
 ) -> OrderDetailOut:
     try:
-        return svc.confirm(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+        d = svc.confirm(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)
+    _order_changed(d.order_no)   # chốt → rời tập nháp, badge 'sẵn sàng chốt' của Sale tụt
+    return d
+
+
+# --- Gia hạn báo giá nguồn (Việc 4) — quyền `update` (Sale + TP/GĐ) -----------
+@router.post("/{order_id}/extend-quote", response_model=OrderDetailOut)
+def extend_quote(
+    order_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    """Gỡ blocker 'báo giá hết hạn' ở cổng chốt: gia hạn báo giá nguồn +30 ngày ngay từ đơn.
+    Không broadcast — badge notify-summary không phụ thuộc hạn báo giá; actor nhận detail mới
+    (blocker biến mất) ngay trong response."""
+    try:
+        return svc.extend_source_quote(order_id=order_id, actor=user, scope=_scope_for(authz, user))
     except Exception as exc:
         raise _map(exc)
 
@@ -206,9 +252,11 @@ def submit_for_approval(
     authz: Authz,
 ) -> OrderDetailOut:
     try:
-        return svc.submit_for_approval(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+        d = svc.submit_for_approval(order_id=order_id, actor=user, scope=_scope_for(authz, user))
     except Exception as exc:
         raise _map(exc)
+    _order_changed(d.order_no)   # trình duyệt → TP/GĐ thấy 'chờ duyệt'
+    return d
 
 
 @router.post("/{order_id}/approve", response_model=OrderDetailOut)
@@ -220,9 +268,13 @@ def approve_order(
     authz: Authz,
 ) -> OrderDetailOut:
     try:
-        return svc.approve(order_id=order_id, actor=user, scope=_scope_for(authz, user), note=payload.note)
+        d = svc.approve(order_id=order_id, actor=user, scope=_scope_for(authz, user), note=payload.note)
     except Exception as exc:
         raise _map(exc)
+    if d.sale_user_id:   # báo NGƯỜI SOẠN kết quả duyệt NGAY (toast)
+        hub.publish(d.sale_user_id, {"type": "order_decision", "code": d.order_no, "decision": "approved"})
+    _order_changed(d.order_no)
+    return d
 
 
 @router.post("/{order_id}/reject", response_model=OrderDetailOut)
@@ -234,9 +286,13 @@ def reject_order(
     authz: Authz,
 ) -> OrderDetailOut:
     try:
-        return svc.reject(order_id=order_id, actor=user, scope=_scope_for(authz, user), note=payload.note)
+        d = svc.reject(order_id=order_id, actor=user, scope=_scope_for(authz, user), note=payload.note)
     except Exception as exc:
         raise _map(exc)
+    if d.sale_user_id:
+        hub.publish(d.sale_user_id, {"type": "order_decision", "code": d.order_no, "decision": "rejected"})
+    _order_changed(d.order_no)
+    return d
 
 
 # --- Cọc (P2) — quyền `record_deposit` (Kế toán) ------------------------------
@@ -249,9 +305,13 @@ def add_deposit(
     authz: Authz,
 ) -> OrderDetailOut:
     try:
-        return svc.add_deposit(order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload)
+        d = svc.add_deposit(order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload)
     except Exception as exc:
         raise _map(exc)
+    if d.deposit_ok and d.sale_user_id:   # Kế toán ghi ĐỦ cọc → báo Sale 'chốt được rồi'
+        hub.publish(d.sale_user_id, {"type": "order_deposit_ok", "code": d.order_no})
+    _order_changed(d.order_no)
+    return d
 
 
 @router.put("/{order_id}/deposits/{deposit_id}", response_model=OrderDetailOut)
@@ -264,9 +324,13 @@ def update_deposit(
     authz: Authz,
 ) -> OrderDetailOut:
     try:
-        return svc.update_deposit(order_id=order_id, deposit_id=deposit_id, actor=user, scope=_scope_for(authz, user), payload=payload)
+        d = svc.update_deposit(order_id=order_id, deposit_id=deposit_id, actor=user, scope=_scope_for(authz, user), payload=payload)
     except Exception as exc:
         raise _map(exc)
+    if d.deposit_ok and d.sale_user_id:
+        hub.publish(d.sale_user_id, {"type": "order_deposit_ok", "code": d.order_no})
+    _order_changed(d.order_no)
+    return d
 
 
 @router.delete("/{order_id}/deposits/{deposit_id}", response_model=OrderDetailOut)
@@ -278,9 +342,11 @@ def delete_deposit(
     authz: Authz,
 ) -> OrderDetailOut:
     try:
-        return svc.delete_deposit(order_id=order_id, deposit_id=deposit_id, actor=user, scope=_scope_for(authz, user))
+        d = svc.delete_deposit(order_id=order_id, deposit_id=deposit_id, actor=user, scope=_scope_for(authz, user))
     except Exception as exc:
         raise _map(exc)
+    _order_changed(d.order_no)   # xóa cọc → có thể tụt dưới ngưỡng, danh sách đổi
+    return d
 
 
 # --- Đính kèm (chứng cứ khách đồng ý = `update`; minh chứng cọc = `record_deposit`) ---

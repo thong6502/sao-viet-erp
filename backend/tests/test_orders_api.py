@@ -5,7 +5,7 @@ snapshot NET sau chiết khấu, cọc đa hình thức, duyệt, cổng chốt 
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 
@@ -174,6 +174,32 @@ def test_confirm_gate_blocks_then_locks_quote(svc, admin, customer, db):
     assert db.get(Quote, q.id).status == "converted_to_order"
     with pytest.raises(OrderValidationError):       # re-confirm chặn
         svc.confirm(order_id=d.id, actor=admin, scope="all")
+
+
+# --- Việc 4: gia hạn báo giá nguồn từ đơn (gỡ blocker "báo giá hết hạn") ------
+def test_extend_source_quote_clears_expiry_blocker(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    q.valid_until = date.today() - timedelta(days=1)   # báo giá hết hạn SAU khi đã lập đơn
+    db.commit()
+    d = svc.get(order_id=d.id, actor=admin, scope="all")
+    assert d.quote_expired is True
+    assert any("hết hạn" in b.lower() for b in d.confirm_blockers)
+    # gia hạn +30 ngày → CHỈ blocker hết-hạn biến mất, cờ tắt, quote.valid_until = hôm nay+30
+    d = svc.extend_source_quote(order_id=d.id, actor=admin, scope="all")
+    assert d.quote_expired is False
+    assert not any("hết hạn" in b.lower() for b in d.confirm_blockers)
+    assert db.get(Quote, q.id).valid_until == date.today() + timedelta(days=30)
+    with pytest.raises(OrderValidationError):          # còn hạn rồi → gia hạn lần 2 bị chặn
+        svc.extend_source_quote(order_id=d.id, actor=admin, scope="all")
+
+
+def test_extend_source_quote_rejects_manual_order(svc, admin, customer):
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
+        source_type="nhap_tay", customer_id=customer.id,
+        lines=[OrderLineIn(description="x", qty=1, unit_price=1000, vat_pct=8)]))
+    with pytest.raises(OrderValidationError):          # đơn nhập tay không gắn báo giá để gia hạn
+        svc.extend_source_quote(order_id=d.id, actor=admin, scope="all")
 
 
 # --- P5: hủy + seam -----------------------------------------------------------
