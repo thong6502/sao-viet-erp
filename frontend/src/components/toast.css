@@ -1,0 +1,33 @@
+/* Toast — cố định trên cùng, giữa màn hình, xếp chồng. */
+.toaster {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 4000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  pointer-events: auto;
+  cursor: pointer;
+  min-width: 260px;
+  max-width: 90vw;
+  padding: 11px 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+  box-shadow: 0 6px 20px rgba(20, 19, 15, 0.22);
+  animation: toast-in 160ms ease-out;
+}
+.toast--success { background: #2f7d43; }
+.toast--info { background: #1c4e8a; }
+.toast--error { background: #8a1f1f; }
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}

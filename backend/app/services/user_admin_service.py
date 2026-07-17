@@ -45,6 +45,10 @@ class CannotRevokeSelf(UserAdminError):
     """A user may not revoke their own sessions (would log themselves out)."""
 
 
+class CannotDeleteSelf(UserAdminError):
+    """A user may not soft-delete their own account."""
+
+
 class TransferForbidden(UserAdminError):
     """Đổi phòng ban của người dùng cần quyền chi tiết `transfer` (tách khỏi sửa hồ sơ)."""
 
@@ -64,11 +68,12 @@ class UserAdminService:
         self.audit = audit
         self.tokens = tokens
 
-    def list_users(self) -> list[dict]:
+    def list_users(self, *, deleted: bool = False) -> list[dict]:
         dept_names: dict[int, str] = {}
         role_names: dict[int, str] = {}
         rows: list[dict] = []
-        for u in self.users.list_all():
+        source = self.users.list_deleted() if deleted else self.users.list_all()
+        for u in source:
             dept_name = None
             if u.department_id is not None:
                 if u.department_id not in dept_names:
@@ -92,6 +97,7 @@ class UserAdminService:
                     "role_id": u.role_id,
                     "role_name": role_name,
                     "is_active": u.is_active,
+                    "deleted_at": u.deleted_at,
                 }
             )
         return rows
@@ -224,6 +230,39 @@ class UserAdminService:
         self.audit.create(
             actor_user_id=actor_id,
             action="lock_user" if not is_active else "unlock_user",
+            target=f"user:{user_id}",
+            detail=user.username,
+        )
+        return user
+
+    def soft_delete_user(self, *, user_id: int, actor_id: int | None) -> User:
+        """Xóa MỀM người dùng (spec-08): giữ bản ghi, ẩn khỏi danh sách, chặn đăng nhập.
+        Không cho tự xóa chính mình (tránh tự khóa toàn hệ thống)."""
+        if user_id == actor_id:
+            raise CannotDeleteSelf("Không thể tự xóa tài khoản của mình")
+        user = self.users.get_by_id(user_id)
+        if user is None or user.deleted_at is not None:
+            raise UserNotFound("Không tìm thấy người dùng")
+        self.users.soft_delete(user)
+        # Thu hồi refresh token để đăng xuất mọi phiên còn lại.
+        self.tokens.revoke_all_for_user(user_id)
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="soft_delete_user",
+            target=f"user:{user_id}",
+            detail=user.username,
+        )
+        return user
+
+    def restore_user(self, *, user_id: int, actor_id: int | None) -> User:
+        """Khôi phục người dùng đã xóa mềm (gỡ deleted_at + mở khóa)."""
+        user = self.users.get_by_id(user_id)
+        if user is None or user.deleted_at is None:
+            raise UserNotFound("Không tìm thấy người dùng đã xóa")
+        self.users.restore(user)
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="restore_user",
             target=f"user:{user_id}",
             detail=user.username,
         )

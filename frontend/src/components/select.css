@@ -55,27 +55,89 @@
 .sel__trigger.is-open .sel__caret {
   transform: rotate(180deg);
 }
+/* Chừa chỗ cho nút × để không đè lên chữ. */
+.sel__trigger--clearable {
+  padding-right: 44px;
+}
+/* Nút bỏ chọn (×) — nằm đè bên phải, trước mũi tên. */
+.sel__clear {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  color: var(--ash);
+  font-size: 13px;
+  cursor: pointer;
+}
+.sel__clear:hover {
+  color: var(--signal, #b5531f);
+}
 
-/* Popover list. */
-.sel__list {
+/* Popover container (bao ngoài: ô tìm kiếm + danh sách). */
+.sel__pop {
   position: absolute;
   z-index: 50;
   top: calc(100% + 4px);
   left: 0;
   right: 0;
-  list-style: none;
-  margin: 0;
-  padding: var(--sp-1);
   background: var(--canvas);
   border: 1px solid var(--rule);
   border-radius: var(--r-5);
   box-shadow: var(--shadow-4, 0 4px 12px rgba(20, 19, 15, 0.1));
-  max-height: 260px;
-  overflow-y: auto;
+  overflow: hidden;
 }
 /* Portal mode: sits above the modal (z-index 500); position comes from inline fixed coords. */
-.sel__list--portal {
+.sel__pop--portal {
   z-index: 2000;
+}
+/* Có tìm kiếm: nới rộng để không bị cắt tên vật tư khi trigger nằm trong ô hẹp. */
+.sel__pop--search {
+  min-width: 300px;
+  max-width: 460px;
+}
+/* Ô tìm kiếm ở đầu popover — cố định, danh sách bên dưới cuộn. */
+.sel__search {
+  padding: var(--sp-1);
+  border-bottom: 1px solid var(--rule);
+}
+.sel__search-input {
+  width: 100%;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  padding: 7px 10px;
+  outline: none;
+}
+.sel__search-input:focus {
+  border-color: var(--ink);
+}
+.sel__list {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-1);
+  max-height: 240px;
+  overflow-y: auto;
+}
+/* Không khớp tìm kiếm. */
+.sel__empty {
+  padding: 12px 10px;
+  text-align: center;
+  color: var(--ash);
+  font-size: 13px;
+}
+/* Gợi ý còn mục chưa render (render dần khi cuộn). */
+.sel__more {
+  padding: 8px 10px;
+  text-align: center;
+  color: var(--ash);
+  font-size: 12px;
+  font-style: italic;
 }
 .sel__opt {
   display: flex;

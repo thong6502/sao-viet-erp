@@ -104,6 +104,43 @@ class MaterialOption(BaseModel):
     code: str
     name: str
     unit: str
+    # Kho quản lý vật tư — để phiếu lọc mặt hàng theo đúng kho. Null = vật tư cũ chưa gán.
+    warehouse_id: int | None = None
+    # Ghi chú mặc định của vật tư — tự điền sang dòng phiếu khi chọn mặt hàng.
+    note: str | None = None
+    # NCC mặc định — hiển thị tham chiếu trên dòng hàng.
+    default_supplier: str | None = None
+
+
+class PartnerOption(BaseModel):
+    """Gợi ý đối tượng cho phiếu kho (NCC / Khách hàng) — chỉ tên, phiếu lưu partner_ref text."""
+    id: int
+    name: str
+
+
+class KhoItemIn(BaseModel):
+    """Tạo nhanh mặt hàng ngay tại phiếu nhập (popup tìm-hoặc-tạo). kind: nvl / thanh_pham /
+    ban_thanh_pham — quyết định loại + tiền tố mã (VT### / TP### / BTP###)."""
+    name: str = Field(min_length=1, max_length=255)
+    unit: str = Field(min_length=1, max_length=16)
+    kind: str = Field(default="nvl")
+
+
+class ItemOverviewWh(BaseModel):
+    id: int
+    code: str
+
+
+class ItemOverviewRow(BaseModel):
+    """Danh mục hàng nhìn từ kho: mặt hàng + các kho đang có tồn (BRD §3.4 dùng chung)."""
+    id: int
+    code: str
+    name: str
+    unit: str
+    material_type: str
+    material_group: str | None = None
+    is_active: bool
+    warehouses: list[ItemOverviewWh] = Field(default_factory=list)
 
 
 # --- Báo cáo Nhập–Xuất–Tồn (DacTa Table 7) ----------------------------------
@@ -165,6 +202,7 @@ class MinLevelIn(BaseModel):
     material_id: int
     warehouse_id: int
     min_qty: float = Field(ge=0)
+    near_min_qty: float = Field(default=0, ge=0)  # ngưỡng "sắp min" (0 = không dùng)
     note: str | None = Field(default=None, max_length=120)
 
 
@@ -174,6 +212,7 @@ class MinLevelRow(BaseModel):
     material_id: int
     warehouse_id: int
     min_qty: float
+    near_min_qty: float = 0
     note: str | None = None
 
 
@@ -186,9 +225,11 @@ class LowStockRow(BaseModel):
     material_id: int
     warehouse_id: int
     min_qty: float
+    near_min_qty: float = 0
     on_hand: float
     shortfall: float  # thiếu bao nhiêu so với min (0 nếu đủ)
     below: bool
+    level: str = "ok"  # below | near | ok
     note: str | None = None
 
 

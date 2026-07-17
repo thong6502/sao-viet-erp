@@ -104,6 +104,14 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
     { key: "can_cancel", label: "Hủy chứng từ chờ chi" },
     { key: "can_export", label: "In / xuất chứng từ" },
   ],
+  kho: [
+    { key: "can_approve", label: "Duyệt & ghi sổ phiếu" },
+    { key: "can_manage_price", label: "Xem giá vốn / giá trị tồn" },
+    { key: "can_manage_status", label: "Xác nhận nhận vật tư (bàn giao)" },
+  ],
+  san_xuat: [
+    { key: "can_approve", label: "Duyệt lệnh sản xuất" },
+  ],
 };
 
 export const SCOPES: { value: Scope; label: string }[] = [

@@ -185,6 +185,20 @@
 .md-page__rowbtn--danger {
   color: var(--signal);
 }
+/* Nút icon vuông cho cột "Thao tác" — đồng bộ với trang Mua hàng. */
+.md-page__rowbtn--icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+  border-radius: var(--r-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.md-page__rowbtn--icon > svg {
+  flex: none;
+}
 .md-page__status-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -202,6 +216,14 @@
   background: var(--steel-soft);
   color: var(--steel);
 }
+/* Màu riêng theo trạng thái phiếu/đề nghị kho. */
+.md-page__status-badge--draft { background: #ece9e2; color: #6b6456; }        /* Nháp — xám */
+.md-page__status-badge--pending { background: #fbeccd; color: #8a5a00; }      /* Chờ duyệt — hổ phách */
+.md-page__status-badge--approved { background: #d8e6fb; color: #1c4e8a; }     /* Đã duyệt — xanh dương */
+.md-page__status-badge--posted { background: #d8ecdb; color: #244a2e; }       /* Đã ghi sổ — xanh lá */
+.md-page__status-badge--fulfilled { background: #d3ece8; color: #14655a; }    /* Đã lập phiếu — xanh ngọc */
+.md-page__status-badge--rejected { background: #f7dcdc; color: #8a1f1f; }     /* Từ chối — đỏ */
+.md-page__status-badge--cancelled { background: #efe3e0; color: #8a4a3a; }    /* Đã hủy — nâu đỏ nhạt */
 
 /* Tags */
 .md-page__tag-calc {
@@ -645,3 +667,196 @@ a.md-page__file-name:hover {
   opacity: 0.5;
   cursor: default;
 }
+
+/* ============ Chi tiết phiếu kho — polish (vd-) ============ */
+.vd__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: stretch;
+  margin-bottom: 4px;
+}
+@media (max-width: 640px) { .vd__grid { grid-template-columns: 1fr; } }
+.vd__card {
+  background: rgba(20, 19, 15, 0.025);
+  border: 1px solid rgba(20, 19, 15, 0.09);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.vd__card--party { border-left: 3px solid var(--rust, #c5400a); }
+.vd__eyebrow {
+  font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--rust-deep, #8a2d07); font-weight: 700; margin: 0 0 8px;
+}
+.vd__party-name { font-size: 18px; font-weight: 700; color: var(--ink, #14130f); line-height: 1.3; }
+.vd__kv { display: grid; grid-template-columns: 128px 1fr; gap: 7px 12px; font-size: 13.5px; margin: 0; }
+.vd__kv dt { color: #6f6752; }
+.vd__kv dd { margin: 0; font-weight: 600; color: var(--ink, #14130f); }
+.vd__section-title {
+  font-size: 11px; letter-spacing: 0.07em; text-transform: uppercase;
+  color: var(--rust-deep, #8a2d07); font-weight: 700; margin: 0 0 10px;
+  display: flex; align-items: center; gap: 8px;
+}
+.vd__section-title::after { content: ""; flex: 1; height: 1px; background: rgba(20, 19, 15, 0.08); }
+.vd__status {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: 10px;
+  padding: 3px 12px; border-radius: 999px; font-size: 12px; font-weight: 700;
+}
+.vd__status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.vd__total { font-weight: 800; color: var(--rust-deep, #8a2d07); }
+.vd__filebtn {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+  font-size: 13px; font-weight: 600; padding: 6px 14px; margin-top: 4px;
+  border: 1px dashed var(--rust, #c5400a); border-radius: 8px;
+  color: var(--rust-deep, #8a2d07); background: transparent;
+}
+.vd__filebtn:hover { background: var(--rust-soft, #f4e2d6); }
+.vd__filebtn input { display: none; }
+
+/* Bảng dòng sản phẩm trong Chi tiết phiếu — khung gọn, header có nền, zebra, nhấn số lượng. */
+.vd__lines {
+  border: 1px solid rgba(20, 19, 15, 0.11);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.vd__lines .md-page__table thead th {
+  background: rgba(20, 19, 15, 0.04);
+  border-bottom: 1px solid rgba(20, 19, 15, 0.12);
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+.vd__lines .md-page__table tbody td {
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+.vd__lines .md-page__table tbody tr:nth-child(even) { background: rgba(20, 19, 15, 0.018); }
+.vd__lines .md-page__table tbody tr:hover { background: rgba(197, 64, 10, 0.055); }
+.vd__lines .md-page__table tbody tr:last-child td { border-bottom: none; }
+.vd__num { font-variant-numeric: tabular-nums; }
+.vd__qty { font-weight: 700; color: var(--ink, #14130f); }
+.vd__lines tfoot td {
+  background: rgba(20, 19, 15, 0.045);
+  border-top: 2px solid rgba(20, 19, 15, 0.15);
+  border-bottom: none;
+  padding-top: 12px;
+  padding-bottom: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============ Dialog xóa kho — callout gọn ============ */
+.whdel__intro { margin: 0; font-size: 14px; line-height: 1.6; color: var(--ink, #14130f); }
+.whdel__alert {
+  display: flex; gap: 11px; align-items: flex-start;
+  margin-top: 14px; padding: 12px 14px; border-radius: 10px;
+  font-size: 13.5px; line-height: 1.55;
+}
+.whdel__alert--block { background: var(--signal-soft, #efd5d5); color: var(--signal, #8a1f1f); }
+.whdel__alert--warn { background: var(--amber-soft, #efe4c4); color: var(--amber-deep, #7a5c0f); }
+.whdel__alert--ok { background: rgba(20,19,15,0.04); color: #6f6752; }
+.whdel__alert-ic {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 800; color: #fff;
+}
+.whdel__alert--block .whdel__alert-ic { background: var(--signal, #8a1f1f); }
+.whdel__alert--warn .whdel__alert-ic { background: var(--amber, #9c7714); }
+.whdel__alert-body { flex: 1; }
+.whdel__alert-body b { font-weight: 700; }
+
+/* Bảng cuộn chiều cao cố định (~8 dòng + header), chọn 20/50 dòng thì cuộn bên trong.
+   Lưu ý: border-collapse: collapse làm hỏng position: sticky trên th (Chromium),
+   nên bảng trong khung cuộn phải chuyển sang border-collapse: separate. */
+.card.md-page__tablewrap--scroll {
+  /* padding của .card làm sticky header bị neo tụt xuống, dòng cuộn hở ra phía trên → phải bỏ hẳn */
+  padding: 0;
+  height: 415px;
+  overflow-y: auto;
+  position: relative;
+}
+.md-page__tablewrap--scroll .md-page__table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.md-page__tablewrap--scroll thead th {
+  position: sticky; top: 0; z-index: 3;
+  /* nền ĐẶC (không dùng --canvas gần trắng → nhìn như trong suốt, đè lên dữ liệu).
+     Dùng --paper cho dải header rõ ràng, luôn nằm trên cùng khi cuộn. */
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+/* Mọi dòng cùng một chiều cao — nội dung căn giữa theo chiều dọc. */
+.md-page__tablewrap--scroll tbody td {
+  height: 46px;
+  box-sizing: border-box;
+}
+
+/* --- Đơn vị tính quy đổi: mỗi dòng đọc như 1 câu ------------------------- */
+.md-page__uom-empty {
+  border: 1px dashed var(--border, #e2ddd3);
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--muted, #8a8272);
+  background: var(--rule-hair, rgba(0, 0, 0, .015));
+  margin-bottom: 8px;
+}
+.md-page__uom-empty strong { color: var(--ink); }
+.md-page__uom-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.md-page__uom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 10px;
+  border: 1px solid var(--border, #e2ddd3);
+  border-radius: 10px;
+  background: var(--paper);
+}
+.md-page__uom-row .input { margin: 0; }
+.md-page__uom-row .input:first-of-type { flex: 1 1 auto; min-width: 0; }
+.md-page__uom-lead {
+  font-weight: 700;
+  color: var(--ink);
+  min-width: 12px;
+  text-align: center;
+}
+.md-page__uom-op {
+  color: var(--muted, #8a8272);
+  font-weight: 600;
+}
+.md-page__uom-factor { flex: 0 0 96px; text-align: right; }
+.md-page__uom-base {
+  color: var(--muted, #8a8272);
+  font-size: 13px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.md-page__uom-del {
+  border: none;
+  background: none;
+  color: var(--muted, #8a8272);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 6px 8px;
+  border-radius: 8px;
+  flex: 0 0 auto;
+}
+.md-page__uom-del:hover { background: var(--rule-hair); color: var(--signal); }
+.md-page__uom-add {
+  border: 1px dashed var(--border, #e2ddd3);
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 10px;
+  width: 100%;
+}
+.md-page__uom-add:hover { border-color: var(--ink); background: var(--rule-hair); }
+

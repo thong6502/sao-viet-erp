@@ -40,8 +40,18 @@ class MaterialCostOut(BaseModel):
     created_at: datetime
 
 
+class MaterialUomIO(BaseModel):
+    """1 dòng đơn vị quy đổi: factor = số đơn vị GỐC trên 1 đơn vị này."""
+    model_config = ConfigDict(from_attributes=True)
+
+    uom: str = Field(min_length=1, max_length=16)
+    factor: float = Field(gt=0)
+
+
 # Field vật tư dùng chung cho create/row/detail.
 class _MaterialFields(BaseModel):
+    # Kho quản lý vật tư (mỗi vật tư thuộc 1 kho) — danh mục lọc theo kho.
+    warehouse_id: int | None = None
     material_group: str | None = Field(default=None, max_length=20)
     default_supplier: str | None = Field(default=None, max_length=150)
     base_uom: str | None = Field(default=None, max_length=16)
@@ -53,9 +63,25 @@ class _MaterialFields(BaseModel):
     ink_color_system: str | None = Field(default=None, max_length=32)
     ink_color_code: str | None = Field(default=None, max_length=32)
     film_type: str | None = Field(default=None, max_length=32)
+    image_url: str | None = Field(default=None, max_length=255)
+    uoms: list[MaterialUomIO] = Field(default_factory=list)
+    # BRD §3.4
+    group_name: str | None = Field(default=None, max_length=120)
+    spec_text: str | None = Field(default=None, max_length=255)
+    track_lot: bool = False
+    track_expiry: bool = False
+    track_qr: bool = False
+    track_value: bool = True
+    lot_code: str | None = Field(default=None, max_length=60)
+    expiry_date: date | None = None
+    min_stock: float | None = Field(default=None, ge=0)
+    max_stock: float | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=2000)
 
 
 class MaterialCreate(_MaterialFields):
+    # Để trống → backend tự sinh GY###/VT###. Có giá trị → dùng làm mã (phải duy nhất).
+    code: str | None = Field(default=None, max_length=20)
     name: str = Field(min_length=1, max_length=255)
     material_type: str = Field(min_length=1, max_length=32)
     unit: str = Field(min_length=1, max_length=16)

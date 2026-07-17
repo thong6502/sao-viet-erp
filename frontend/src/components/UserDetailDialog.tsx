@@ -86,6 +86,7 @@ export function UserDetailDialog({
   const [resetBusy, setResetBusy] = useState(false);
   const [tempPassword, setTempPassword] = useState<string | null>(null);
   const [revokeBusy, setRevokeBusy] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -109,6 +110,7 @@ export function UserDetailDialog({
   // Quyền chi tiết nhóm 1 — mỗi thao tác tách riêng.
   const canLock = can("nguoi_dung", "lock");
   const canRevoke = can("nguoi_dung", "revoke_sessions");
+  const canDelete = can("nguoi_dung", "delete");
   const canAssignRole = can("nguoi_dung", "assign_role");
   const canTransfer = can("nguoi_dung", "transfer");
 
@@ -159,7 +161,7 @@ export function UserDetailDialog({
   const profileDirty = editName.trim() !== user.name || editDept !== user.department_id;
   const roleDirty = editRole !== (user.role_id ?? null);
   const deptChanging = editDept !== user.department_id;
-  const busy = profileSaving || roleSaving || activeBusy || resetBusy || revokeBusy;
+  const busy = profileSaving || roleSaving || activeBusy || resetBusy || revokeBusy || deleteBusy;
 
   function reloadSide(cancelled = false) {
     if (!token || userId == null) return;
@@ -264,6 +266,23 @@ export function UserDetailDialog({
       else setActionError("Không thu hồi được phiên. Vui lòng thử lại.");
     } finally {
       setRevokeBusy(false);
+    }
+  }
+
+  async function onDeleteUser() {
+    if (!token || !user || deleteBusy) return;
+    setDeleteBusy(true);
+    setActionError(null);
+    try {
+      await api.rbac.deleteUser(token, user.id);
+      onChanged(); // ẩn khỏi danh sách
+      onClose();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 400) setActionError(e.message);
+      else if (e instanceof ApiError && e.isForbidden) setActionError("Bạn không có quyền xóa người dùng.");
+      else setActionError("Không xóa được người dùng. Vui lòng thử lại.");
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -425,7 +444,7 @@ export function UserDetailDialog({
             {/* Thao tác bảo mật (PBI-2006 / PBI-2008). */}
             <section className="udlg__section">
               <p className="eyebrow">Bảo mật</p>
-              {canReset || canRevoke || canLock ? (
+              {canReset || canRevoke || canLock || canDelete ? (
                 <div className="udlg__row">
                   {canReset && (
                     <Button
@@ -488,13 +507,34 @@ export function UserDetailDialog({
                       {user.is_active ? "Khóa tài khoản" : "Mở khóa tài khoản"}
                     </button>
                   )}
+                  {canDelete && (
+                    <button
+                      type="button"
+                      className="btn btn--danger"
+                      disabled={deleteBusy || isSelf}
+                      onClick={() =>
+                        setPending({
+                          title: "Xóa người dùng?",
+                          message:
+                            "Tài khoản sẽ bị xóa (xóa mềm): ẩn khỏi danh sách, bị đăng xuất và " +
+                            "không đăng nhập lại được. Dữ liệu/lịch sử vẫn được giữ lại. " +
+                            "Liên hệ quản trị nếu cần khôi phục.",
+                          confirmLabel: "Xóa người dùng",
+                          danger: true,
+                          run: onDeleteUser,
+                        })
+                      }
+                    >
+                      Xóa người dùng
+                    </button>
+                  )}
                 </div>
               ) : (
                 <span className="udlg__hint">Bạn chỉ có quyền xem tài khoản này.</span>
               )}
-              {(canRevoke || canLock) && isSelf && (
+              {(canRevoke || canLock || canDelete) && isSelf && (
                 <span className="udlg__hint">
-                  Không thể tự khóa hoặc thu hồi phiên của tài khoản chính mình.
+                  Không thể tự khóa, thu hồi phiên hoặc xóa tài khoản chính mình.
                 </span>
               )}
               {actionError && (

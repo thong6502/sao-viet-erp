@@ -269,13 +269,14 @@ class StockRepo:
             )
         ).scalar_one_or_none()
 
-    def upsert_min_level(self, *, material_id: int, warehouse_id: int, min_qty: float, note: str | None) -> StockMinLevel:
+    def upsert_min_level(self, *, material_id: int, warehouse_id: int, min_qty: float, near_min_qty: float = 0, note: str | None) -> StockMinLevel:
         row = self.get_min_level(material_id, warehouse_id)
         if row is None:
-            row = StockMinLevel(material_id=material_id, warehouse_id=warehouse_id, min_qty=min_qty, note=note)
+            row = StockMinLevel(material_id=material_id, warehouse_id=warehouse_id, min_qty=min_qty, near_min_qty=near_min_qty, note=note)
             self.db.add(row)
         else:
             row.min_qty = min_qty
+            row.near_min_qty = near_min_qty
             row.note = note
         self.db.commit()
         self.db.refresh(row)
@@ -295,18 +296,27 @@ class StockRepo:
         return agg
 
     def low_stock(self, *, warehouse_id: int | None = None, only_below: bool = True) -> list[dict]:
-        """Cảnh báo tồn thấp: với mỗi ngưỡng (material×kho), so tồn thực tế với min_qty."""
+        """Cảnh báo tồn: mỗi ngưỡng (material×kho), so tồn với min_qty và near_min_qty.
+        level: 'below' (tồn < min → đỏ), 'near' (min ≤ tồn < near_min → vàng), 'ok'.
+        only_below=True → chỉ trả dòng có cảnh báo (below HOẶC near)."""
         onhand = self.onhand_by_material_warehouse()
         out = []
         for r in self.list_min_levels(warehouse_id=warehouse_id):
             cur = onhand.get((r.material_id, r.warehouse_id), 0.0)
-            below = cur < float(r.min_qty)
-            if only_below and not below:
+            mn = float(r.min_qty)
+            near = float(r.near_min_qty or 0)
+            if cur < mn:
+                level = "below"
+            elif near > mn and cur < near:
+                level = "near"
+            else:
+                level = "ok"
+            if only_below and level == "ok":
                 continue
             out.append({
                 "material_id": r.material_id, "warehouse_id": r.warehouse_id,
-                "min_qty": float(r.min_qty), "on_hand": cur,
-                "shortfall": max(0.0, float(r.min_qty) - cur), "below": below,
+                "min_qty": mn, "near_min_qty": near, "on_hand": cur,
+                "shortfall": max(0.0, mn - cur), "below": cur < mn, "level": level,
                 "note": r.note,
             })
         return out

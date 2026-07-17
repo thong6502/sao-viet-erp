@@ -34,6 +34,7 @@ router = APIRouter(prefix="/api/san-xuat", tags=["san-xuat"])
 MODULE = "san_xuat"
 _read = require_permission(MODULE, "read")
 _create = require_permission(MODULE, "create")
+_approve = require_permission(MODULE, "approve")
 
 _VN_TZ = timezone(timedelta(hours=7))
 # Tập tin đính kèm LSX → <backend>/static/san-xuat/<id>/.
@@ -65,9 +66,10 @@ def _name_map(db: Session, user_ids: set[int]) -> dict[int, str]:
 
 def _row(db: Session, o: ProductionOrder) -> ProductionOrderRow:
     row = ProductionOrderRow.model_validate(o)
-    names = _name_map(db, {o.created_by_user_id, o.updated_by_user_id})
+    names = _name_map(db, {o.created_by_user_id, o.updated_by_user_id, o.approved_by_user_id})
     row.created_by_name = names.get(o.created_by_user_id)
     row.updated_by_name = names.get(o.updated_by_user_id)
+    row.approved_by_name = names.get(o.approved_by_user_id)
     # Nếu có customer_id → hiển thị tên khách thật (không đè customer_name text nếu đã có).
     if o.customer_id and not o.customer_name:
         cust = db.get(Customer, o.customer_id)
@@ -297,5 +299,31 @@ def close_order(
     AuditLogRepository(db).create(
         actor_user_id=user.id, action="update_production_order_status",
         target=f"production_order:{o.id}", detail=f"{o.code} · {to_status}",
+    )
+    return _row(db, o)
+
+
+@router.post("/orders/{order_id}/approve", response_model=ProductionOrderRow)
+def approve_order(
+    order_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(_approve)],
+    approve: bool = Query(default=True, description="True=duyệt, False=bỏ duyệt"),
+):
+    """Duyệt / bỏ duyệt LSX (BRD §2.5). Chỉ LSX đã duyệt mới sinh được phiếu kho."""
+    o = db.get(ProductionOrder, order_id)
+    if o is None:
+        raise HTTPException(404, detail="Không tìm thấy lệnh sản xuất.")
+    if approve:
+        o.approved_at = datetime.now(_VN_TZ)
+        o.approved_by_user_id = user.id
+    else:
+        o.approved_at = None
+        o.approved_by_user_id = None
+    db.commit()
+    db.refresh(o)
+    AuditLogRepository(db).create(
+        actor_user_id=user.id, action="approve_production_order" if approve else "unapprove_production_order",
+        target=f"production_order:{o.id}", detail=o.code,
     )
     return _row(db, o)

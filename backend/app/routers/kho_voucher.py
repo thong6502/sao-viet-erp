@@ -5,6 +5,7 @@ Catalog gate `dm_kho`; phiếu gate `kho`; duyệt gate `kho:approve`.
 from __future__ import annotations
 
 import secrets
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Annotated
 
@@ -12,7 +13,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from ..deps import get_db, require_permission
+from ..deps import get_db, require_any_permission, require_permission
 from ..models.user import User
 from ..models.warehouse_catalog import WhItemStatus, WhVoucherType
 from ..models.warehouse_voucher import StockVoucher, StockVoucherAttachment
@@ -24,6 +25,7 @@ from ..schemas.warehouse_voucher import (
     ItemStatusRow,
     VoucherAttachmentListOut,
     VoucherAttachmentRow,
+    VoucherCancelIn,
     VoucherIn,
     VoucherListOut,
     VoucherRow,
@@ -39,6 +41,8 @@ from ..services.warehouse_voucher_service import VoucherError, VoucherService
 router = APIRouter(prefix="/api/kho", tags=["kho-voucher"])
 
 _dm_read = require_permission("dm_kho", "read")
+# ĐỌC danh mục (loại phiếu, trạng thái hàng) để VẬN HÀNH: người có kho:read cũng cần.
+_dm_or_kho_read = require_any_permission(("dm_kho", "read"), ("kho", "read"))
 _dm_create = require_permission("dm_kho", "create")
 _dm_update = require_permission("dm_kho", "update")
 _dm_delete = require_permission("dm_kho", "delete")
@@ -49,7 +53,7 @@ _kho_approve = require_permission("kho", "approve")
 
 # ============ Danh mục Trạng thái hàng (DacTa 3.15) ============
 @router.get("/item-statuses", response_model=ItemStatusListOut)
-def list_statuses(db: Annotated[Session, Depends(get_db)], _: Annotated[User, Depends(_dm_read)]):
+def list_statuses(db: Annotated[Session, Depends(get_db)], _: Annotated[User, Depends(_dm_or_kho_read)]):
     rows = db.execute(select(WhItemStatus).order_by(WhItemStatus.display_order, WhItemStatus.id)).scalars().all()
     return ItemStatusListOut(items=[ItemStatusRow.model_validate(r) for r in rows], total=len(rows))
 
@@ -88,7 +92,7 @@ def delete_status(obj_id: int, db: Annotated[Session, Depends(get_db)], _: Annot
 
 # ============ Danh mục Loại phiếu (DacTa 3.16) ============
 @router.get("/voucher-types", response_model=VoucherTypeListOut)
-def list_vtypes(db: Annotated[Session, Depends(get_db)], _: Annotated[User, Depends(_dm_read)]):
+def list_vtypes(db: Annotated[Session, Depends(get_db)], _: Annotated[User, Depends(_dm_or_kho_read)]):
     rows = db.execute(select(WhVoucherType).order_by(WhVoucherType.code)).scalars().all()
     return VoucherTypeListOut(items=[VoucherTypeRow.model_validate(r) for r in rows], total=len(rows))
 
@@ -142,7 +146,9 @@ def _name_map(db: Session, user_ids: set[int]) -> dict[int, str]:
 
 def _vrow(db: Session, v) -> VoucherRow:
     row = VoucherRow.model_validate(v)
-    row.created_by_name = _name_map(db, {v.created_by_user_id}).get(v.created_by_user_id)
+    names = _name_map(db, {v.created_by_user_id, v.handover_by_user_id})
+    row.created_by_name = names.get(v.created_by_user_id)
+    row.handover_by_name = names.get(v.handover_by_user_id)
     return row
 
 
@@ -155,12 +161,15 @@ def list_vouchers(
     warehouse_id: int | None = Query(default=None),
     partner_ref: str | None = Query(default=None, description="Lọc theo NCC/đối tượng (chứa)"),
     created_by_user_id: int | None = Query(default=None, description="Lọc theo người nhập"),
+    ref_type: str | None = Query(default=None, description="Lọc theo chứng từ gốc, VD 'lsx'"),
+    ref_id: int | None = Query(default=None, description="ID chứng từ gốc (VD id LSX)"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
 ):
     rows, total = VoucherRepo(db).list(
         voucher_type_id=voucher_type_id, status=status_f, warehouse_id=warehouse_id,
-        partner_ref=partner_ref, created_by_user_id=created_by_user_id, page=page, size=size,
+        partner_ref=partner_ref, created_by_user_id=created_by_user_id,
+        ref_type=ref_type, ref_id=ref_id, page=page, size=size,
     )
     names = _name_map(db, {r.created_by_user_id for r in rows})
     out = []
@@ -184,6 +193,14 @@ def create_voucher(payload: VoucherIn, db: Annotated[Session, Depends(get_db)], 
     vt = db.get(WhVoucherType, payload.voucher_type_id)
     if vt is None:
         raise HTTPException(422, detail="Loại phiếu không tồn tại.")
+    # BRD §2.5 — phiếu kho gắn LSX chỉ lập được khi LSX đã DUYỆT.
+    if payload.ref_type == "lsx" and payload.ref_id:
+        from ..models.production import ProductionOrder
+        lsx = db.get(ProductionOrder, payload.ref_id)
+        if lsx is None:
+            raise HTTPException(422, detail="Lệnh sản xuất tham chiếu không tồn tại.")
+        if lsx.approved_at is None:
+            raise HTTPException(409, detail=f"Lệnh sản xuất {lsx.code} chưa được duyệt — cần duyệt lệnh trước khi lập phiếu kho.")
     repo = VoucherRepo(db)
     header = payload.model_dump(exclude={"lines"})
     header["created_by_user_id"] = user.id
@@ -248,8 +265,22 @@ def approve_voucher(voucher_id: int, db: Annotated[Session, Depends(get_db)], us
     return _vrow(db, repo.get(voucher_id))
 
 
+def _release_request(db: Session, v) -> None:
+    """Phiếu sinh từ đề nghị bị hủy/xóa → trả đề nghị về 'Đã duyệt' để có thể lập phiếu lại."""
+    if v.ref_type != "stock_request" or not v.ref_id:
+        return
+    from ..models.stock_request import StockRequest
+    req = db.get(StockRequest, v.ref_id)
+    if req is not None and req.voucher_id == v.id:
+        req.voucher_id = None
+        req.status = "approved"
+
+
 @router.post("/vouchers/{voucher_id}/cancel", response_model=VoucherRow)
-def cancel_voucher(voucher_id: int, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_create)]):
+def cancel_voucher(
+    voucher_id: int, db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(_kho_create)], payload: VoucherCancelIn | None = None,
+):
     repo = VoucherRepo(db)
     v = repo.get(voucher_id)
     if v is None:
@@ -258,9 +289,57 @@ def cancel_voucher(voucher_id: int, db: Annotated[Session, Depends(get_db)], use
         raise HTTPException(409, detail="Phiếu đã ghi sổ — không hủy; hãy lập phiếu điều chỉnh.")
     if v.status == "cancelled":
         raise HTTPException(409, detail="Phiếu đã hủy.")
+    reason = (payload.reason or "").strip() if payload else ""
+    if reason:
+        v.note = f"{v.note} | Hủy: {reason}" if v.note else f"Hủy: {reason}"
     v.status = "cancelled"
+    _release_request(db, v)
     repo.save(v)
     _audit(db, user, "cancel_stock_voucher", v)
+    return _vrow(db, repo.get(voucher_id))
+
+
+@router.delete("/vouchers/{voucher_id}", status_code=204, response_class=Response)
+def delete_voucher(voucher_id: int, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_create)]):
+    """Xóa hẳn phiếu — CHỈ khi còn Nháp. Phiếu đã nộp/ghi sổ/hủy không xóa được."""
+    repo = VoucherRepo(db)
+    v = repo.get(voucher_id)
+    if v is None:
+        raise HTTPException(404, detail="Không tìm thấy phiếu.")
+    if v.status != "draft":
+        raise HTTPException(409, detail="Chỉ xóa được phiếu ở trạng thái Nháp. Phiếu đã nộp/ghi sổ hãy dùng Hủy.")
+    _release_request(db, v)
+    _audit(db, user, "delete_stock_voucher", v)
+    db.delete(v)
+    db.commit()
+    return Response(status_code=204)
+
+
+@router.post("/vouchers/{voucher_id}/confirm-receipt", response_model=VoucherRow)
+def confirm_receipt(
+    voucher_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_any_permission(("kho", "manage_status"), ("kho", "create")))],
+):
+    """Xác nhận đã bàn giao/nhận vật tư (BRD §2.5 bước 10) — chỉ phiếu xuất theo LSX, đã ghi sổ.
+    Quyền: `kho:manage_status` (cờ 'Xác nhận nhận vật tư') hoặc `kho:create` (người lập phiếu)."""
+    repo = VoucherRepo(db)
+    v = repo.get(voucher_id)
+    if v is None:
+        raise HTTPException(404, detail="Không tìm thấy phiếu.")
+    if v.ref_type != "lsx":
+        raise HTTPException(409, detail="Chỉ xác nhận nhận vật tư cho phiếu xuất theo lệnh sản xuất.")
+    if v.status != "posted":
+        raise HTTPException(409, detail="Phiếu chưa ghi sổ — chưa thể xác nhận bàn giao.")
+    if v.handover_at is not None:
+        raise HTTPException(409, detail="Phiếu đã được xác nhận bàn giao.")
+    v.handover_at = datetime.now(timezone(timedelta(hours=7)))
+    v.handover_by_user_id = user.id
+    repo.save(v)
+    AuditLogRepository(db).create(
+        actor_user_id=user.id, action="confirm_voucher_receipt",
+        target=f"stock_voucher:{v.id}", detail=f"{v.code} · handover",
+    )
     return _vrow(db, repo.get(voucher_id))
 
 

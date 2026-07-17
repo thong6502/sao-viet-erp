@@ -41,6 +41,9 @@ class User(Base):
         Integer, ForeignKey("roles.id"), index=True, nullable=True
     )
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Xóa mềm (spec phân quyền): giữ lại bản ghi cho lịch sử/kiểm toán, ẩn khỏi danh sách,
+    # chặn đăng nhập. Null = chưa xóa. Set kèm is_active=False + bump token_version.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Optional profile picture (spec-04). Stores the server-relative path of the
     # uploaded file (e.g. `/static/avatars/<file>`); null means "use the initials
     # fallback". The frontend prefixes it with the API origin to render the <img>.

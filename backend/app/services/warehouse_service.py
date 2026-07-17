@@ -107,12 +107,13 @@ class WarehouseService:
         return warehouse
 
     def delete_warehouse(self, *, warehouse_id: int, actor) -> None:
+        """XÓA MỀM: ẩn kho (is_active=False), giữ nguyên tồn/phiếu/lịch sử để khôi phục được."""
         warehouse = self.get_warehouse(warehouse_id)
         code, name = warehouse.code, warehouse.name
-        self.repo.delete(warehouse)
+        self.repo.set_active(warehouse, False)
         self.audit.create(
             actor_user_id=actor.id,
-            action="delete_warehouse",
+            action="soft_delete_warehouse",
             target=f"warehouse:{warehouse_id}",
             detail=f"{code} {name}",
         )

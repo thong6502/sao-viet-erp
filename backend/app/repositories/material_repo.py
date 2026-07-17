@@ -50,6 +50,7 @@ class MaterialRepository:
         q: str | None = None,
         material_type: str | None = None,
         is_active: bool | None = None,
+        warehouse_id: int | None = None,
         sort: str = "code",
         page: int = 1,
         size: int = 20,
@@ -67,8 +68,13 @@ class MaterialRepository:
             conditions.append(Material.material_type == material_type)
         if is_active is not None:
             conditions.append(Material.is_active == is_active)
+        # Danh mục theo kho: chỉ vật tư thuộc kho này (mỗi vật tư thuộc 1 kho).
+        if warehouse_id is not None:
+            conditions.append(Material.warehouse_id == warehouse_id)
 
-        base = select(Material)
+        base = select(Material).options(
+            selectinload(Material.uoms), selectinload(Material.costs)
+        )
         count_stmt = select(func.count()).select_from(Material)
         for c in conditions:
             base = base.where(c)
@@ -94,13 +100,17 @@ class MaterialRepository:
     # --- writes -------------------------------------------------------------
 
     def _next_code(self, material_type: str) -> str:
-        prefix = "GY" if material_type == "paper" else "VT"
+        prefix = {
+            "paper": "GY", "thanh_pham": "TP", "ban_thanh_pham": "BTP",
+            "ccdc": "CC", "phu_tung": "PT", "hang_khach_gui": "HK",
+        }.get(material_type, "VT")
         max_n = 0
+        plen = len(prefix)
         for code in self.db.execute(
             select(Material.code).where(Material.code.like(f"{prefix}%"))
         ).scalars():
             try:
-                max_n = max(max_n, int(code[2:]))
+                max_n = max(max_n, int(code[plen:]))
             except ValueError:
                 continue
         return f"{prefix}{max_n + 1:03d}"
@@ -111,6 +121,7 @@ class MaterialRepository:
         name: str,
         material_type: str,
         unit: str,
+        code: str | None = None,
         min_fee: int = 0,
         width_cm: float | None = None,
         height_cm: float | None = None,
@@ -124,7 +135,7 @@ class MaterialRepository:
         **extra,
     ) -> Material:
         material = Material(
-            code=self._next_code(material_type),
+            code=code or self._next_code(material_type),
             name=name,
             material_type=material_type,
             unit=unit,

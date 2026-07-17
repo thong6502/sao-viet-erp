@@ -18,12 +18,17 @@ import {
   type PurchaseRequestRow,
   type PurchaseRequestStatus,
   type SupplierRow,
+  type KhoVoucherType,
+  type KhoMaterialOption,
+  type KhoItemStatus,
+  type WarehouseRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Icon, type IconName } from "../components/Icons";
+import { VoucherForm } from "./StockVoucherPage";
 import "./master-data.css";
 import "./purchase.css";
 
@@ -429,6 +434,13 @@ export function PurchaseRequestsPage() {
   const canUpdate = can("thu_mua", "update");
   const canDelete = can("thu_mua", "delete");
   const canCancel = can("thu_mua", "cancel");
+  const canKhoCreate = can("kho", "create"); // để "Tạo phiếu nhập kho từ PO"
+
+  // Dữ liệu kho (loại phiếu, vật tư, trạng thái, kho) — nạp khi có quyền tạo phiếu kho.
+  const [khoData, setKhoData] = useState<{
+    types: KhoVoucherType[]; materials: KhoMaterialOption[]; statuses: KhoItemStatus[]; warehouses: WarehouseRow[];
+  } | null>(null);
+  const [poVoucher, setPoVoucher] = useState<PurchaseRequestRow | null>(null); // PO đang tạo phiếu nhập
 
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -542,6 +554,19 @@ export function PurchaseRequestsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Nạp dữ liệu kho để "Tạo phiếu nhập kho từ PO" (chỉ khi có quyền tạo phiếu kho).
+  useEffect(() => {
+    if (!token || !canKhoCreate) return;
+    Promise.all([
+      api.kho.voucherTypes(token),
+      api.kho.materialOptions(token),
+      api.kho.itemStatuses(token),
+      api.warehouses.list(token, { size: 200, sort: "code" }),
+    ]).then(([t, m, s, w]) =>
+      setKhoData({ types: t.items, materials: m, statuses: s.items, warehouses: w.items }),
+    ).catch(() => {});
+  }, [token, canKhoCreate]);
 
   const selected = useMemo(
     () => rows.find((row) => row.id === selectedId) ?? rows[0] ?? null,
@@ -868,6 +893,14 @@ export function PurchaseRequestsPage() {
                 api.purchaseRequests.markReceived(token!, row.id),
               )
             }
+          />
+        )}
+        {canKhoCreate && khoData && (row.status === "received" || row.status === "purchased") && (
+          <PurchaseActionButton
+            dense={dense}
+            label="Tạo phiếu nhập kho"
+            icon="warehouse"
+            onClick={() => setPoVoucher(row)}
           />
         )}
         {canCancel &&
@@ -1637,6 +1670,29 @@ export function PurchaseRequestsPage() {
           />
         </label>
       </ConfirmDialog>
+
+      {/* Tạo phiếu nhập kho (NK-NVL) từ PO — điền sẵn NCC + gắn cứng PO. */}
+      {poVoucher && khoData && (() => {
+        const nk = khoData.types.find((t) => t.code === "NK-NVL");
+        if (!nk) { setPoVoucher(null); return null; }
+        return (
+          <VoucherForm
+            types={khoData.types}
+            warehouses={khoData.warehouses}
+            materials={khoData.materials}
+            statuses={khoData.statuses}
+            lockedTypeId={nk.id}
+            prefillPo={{
+              id: poVoucher.id,
+              code: poVoucher.code,
+              supplierName: poVoucher.supplier_name,
+              items: poVoucher.lines.map((l) => ({ name: l.item_name, unit: l.unit, qty: l.quantity })),
+            }}
+            onClose={() => setPoVoucher(null)}
+            onSaved={() => setPoVoucher(null)}
+          />
+        );
+      })()}
     </main>
   );
 }

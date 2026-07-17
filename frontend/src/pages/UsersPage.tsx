@@ -22,6 +22,8 @@ export function UsersPage() {
   const { token, user: me } = useAuth();
   const can = useCan();
   const canCreate = can("nguoi_dung", "create");
+  const canDelete = can("nguoi_dung", "delete");
+  const [restoringId, setRestoringId] = useState<number | null>(null);
 
   const [users, setUsers] = useState<UserRow[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -32,7 +34,7 @@ export function UsersPage() {
 
   // List: search + filters + pagination.
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "locked">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "locked" | "deleted">("all");
   const [deptFilter, setDeptFilter] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -56,7 +58,7 @@ export function UsersPage() {
   const current = users.find((u) => u.id === selectedId) ?? null;
 
   function loadUsers(): Promise<UserRow[]> {
-    return token ? api.rbac.users(token) : Promise.resolve([]);
+    return token ? api.rbac.users(token, statusFilter === "deleted") : Promise.resolve([]);
   }
 
   useEffect(() => {
@@ -85,6 +87,23 @@ export function UsersPage() {
   async function refresh() {
     setUsers(await loadUsers());
   }
+
+  async function onRestore(userId: number) {
+    if (!token || restoringId != null) return;
+    setRestoringId(userId);
+    try { await api.rbac.restoreUser(token, userId); await refresh(); }
+    catch { /* giữ nguyên danh sách; có thể do mất quyền/đã khôi phục */ }
+    finally { setRestoringId(null); }
+  }
+
+  // Danh sách "Đã xóa" và "Đang hoạt động" đến từ 2 nguồn backend khác nhau
+  // (deleted=true / false) → phải nạp lại khi chuyển vào/ra chế độ "Đã xóa".
+  const viewingDeleted = statusFilter === "deleted";
+  useEffect(() => {
+    if (!token || booting) return;
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingDeleted]);
 
   const filtersActive =
     search.trim() !== "" || statusFilter !== "all" || deptFilter != null;
@@ -250,6 +269,7 @@ export function UsersPage() {
                 { value: "all", label: "Tất cả trạng thái" },
                 { value: "active", label: "Đang hoạt động" },
                 { value: "locked", label: "Đã khóa" },
+                { value: "deleted", label: "Đã xóa" },
               ]}
             />
           </div>
@@ -306,10 +326,10 @@ export function UsersPage() {
                   <tr
                     key={u.id}
                     className="users__row"
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => openDetail(u)}
-                    onKeyDown={(e) => {
+                    role={viewingDeleted ? undefined : "button"}
+                    tabIndex={viewingDeleted ? undefined : 0}
+                    onClick={viewingDeleted ? undefined : () => openDetail(u)}
+                    onKeyDown={viewingDeleted ? undefined : (e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
                         openDetail(u);
@@ -322,9 +342,22 @@ export function UsersPage() {
                     <td>{u.department_name ?? "—"}</td>
                     <td>{u.role_name ?? <span className="users__muted">Chưa gán</span>}</td>
                     <td>
-                      <span className={`users__badge${u.is_active ? "" : " users__badge--locked"}`}>
-                        {u.is_active ? "Hoạt động" : "Đã khóa"}
-                      </span>
+                      {viewingDeleted ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span className="users__badge users__badge--locked">Đã xóa</span>
+                          {canDelete && (
+                            <button type="button" className="btn btn--ghost" style={{ padding: "2px 10px" }}
+                              disabled={restoringId === u.id}
+                              onClick={(e) => { e.stopPropagation(); void onRestore(u.id); }}>
+                              {restoringId === u.id ? "Đang khôi phục…" : "Khôi phục"}
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className={`users__badge${u.is_active ? "" : " users__badge--locked"}`}>
+                          {u.is_active ? "Hoạt động" : "Đã khóa"}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

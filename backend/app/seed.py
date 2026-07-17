@@ -232,33 +232,34 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dm_kho": _read(SCOPE_ALL),
         },
     ),
-    # Nhân viên sản xuất: xuất NVL / nhập TP theo LSX; tạo lệnh SX.
+    # Nhân viên sản xuất: tạo lệnh SX; XEM phiếu kho + XÁC NHẬN nhận vật tư (BRD §2.5 bước 10).
+    # KHÔNG lập phiếu kho — việc lập phiếu là của Kho (thủ kho/quản lý kho).
     (
         "Sản xuất",
         "Nhân viên sản xuất",
         {
             "dashboard": _read(SCOPE_OWN),
-            "kho": {**_read(SCOPE_ALL), "can_create": True},
+            "kho": {**_read(SCOPE_ALL), "can_manage_status": True},
             "san_xuat": _rcu(SCOPE_ALL),
         },
     ),
-    # Quản lý sản xuất: như trên + duyệt phiếu SX-liên-quan + quản lý lệnh SX.
+    # Quản lý sản xuất: như trên + duyệt lệnh SX + duyệt phiếu kho liên quan SX.
     (
         "Sản xuất",
         "Quản lý sản xuất",
         {
             "dashboard": _read(SCOPE_ALL),
-            "kho": {**_read(SCOPE_ALL), "can_create": True, "can_approve": True},
+            "kho": {**_read(SCOPE_ALL), "can_approve": True, "can_manage_status": True},
             "san_xuat": _full(SCOPE_ALL),
         },
     ),
-    # Nhân viên mua hàng: nhập NVL từ NCC (PO), xuất trả NCC.
+    # Nhân viên mua hàng: theo dõi nhập NVL từ NCC theo PO — chỉ XEM phiếu kho, không lập.
     (
         "Mua hàng",
         "Nhân viên mua hàng",
         {
             "dashboard": _read(SCOPE_OWN),
-            "kho": {**_read(SCOPE_ALL), "can_create": True},
+            "kho": _read(SCOPE_ALL),
         },
     ),
 ]
@@ -421,6 +422,30 @@ def seed_kho_staff(db: Session) -> None:
         role_id = role.id if role is not None else None
         if u.department_id != dept.id or u.role_id != role_id or not u.is_active:
             users.set_assignment(u, department_id=dept.id, role_id=role_id, is_active=True)
+
+
+# Nhà cung cấp demo: (tên, MST, điện thoại, nhóm, địa chỉ). Chỉ seed khi SEED_DEMO=true.
+SUPPLIERS_DEMO: list[tuple[str, str, str, str, str]] = [
+    ("Công ty CP Giấy An Bình", "0301111111", "02838111111", "paper", "KCN Sóng Thần, Bình Dương"),
+    ("Công ty TNHH Mực In Đại Phát", "0302222222", "02838222222", "ink", "Q. Tân Bình, TP.HCM"),
+    ("Cửa hàng Vật tư In Hồng Hà", "0303333333", "02838333333", "auxiliary", "Q.5, TP.HCM"),
+]
+
+
+def seed_suppliers(db: Session) -> None:
+    """Seed vài nhà cung cấp mẫu cho module Thu mua. Idempotent: bỏ qua nếu bảng đã có NCC."""
+    from sqlalchemy import select as _select
+
+    from .models.purchase import Supplier
+
+    if db.execute(_select(Supplier.id).limit(1)).first():
+        return
+    for name, tax, phone, group, addr in SUPPLIERS_DEMO:
+        db.add(Supplier(
+            name=name, tax_code=tax, phone=phone, supplier_group=group,
+            address=addr, status="active",
+        ))
+    db.commit()
 
 
 def seed_customers(db: Session) -> None:
@@ -1643,6 +1668,11 @@ def seed_kho_engine(db: Session) -> None:
     if giay is not None and giay.is_active:
         giay.is_active = False
         dirty = True
+    # Bỏ tính năng định mức: vô hiệu hóa loại "Xuất cấp bù" (XK-BU) nếu còn.
+    capbu = by_code.get("XK-BU")
+    if capbu is not None and capbu.is_active:
+        capbu.is_active = False
+        dirty = True
     if dirty:
         db.commit()
 
@@ -1669,6 +1699,7 @@ def seed_all(db: Session) -> None:
     if settings.seed_demo:
         seed_kd_staff(db)
         seed_kho_staff(db)
+        seed_suppliers(db)
         seed_employees(db)
         seed_work_shifts(db)
         seed_work_locations(db)

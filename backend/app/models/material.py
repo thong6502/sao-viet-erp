@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -26,13 +27,21 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 # Nhóm vật tư (trục UI). material_type (trục engine) map về group qua GROUP_FROM_TYPE.
-MATERIAL_GROUPS = ("paper", "ink", "film", "glue", "packaging", "auxiliary")
+# thanh_pham/ban_thanh_pham: hàng làm-theo-đơn (BRD §3.9) — tạo self-service ở phiếu nhập TP.
+MATERIAL_GROUPS = (
+    "paper", "ink", "film", "glue", "packaging", "auxiliary",
+    "thanh_pham", "ban_thanh_pham",
+)
 GROUP_FROM_TYPE = {
     "paper": "paper", "carton": "paper",
     "lamination": "film", "film": "film",
     "glue": "glue",
     "decal": "auxiliary", "pp": "auxiliary", "canvas": "auxiliary",
     "formex": "auxiliary", "chemical": "auxiliary",
+    "vat_tu": "auxiliary",
+    "vat_tu_tieu_hao": "auxiliary", "ccdc": "auxiliary",
+    "phu_tung": "auxiliary", "hang_khach_gui": "auxiliary",
+    "thanh_pham": "thanh_pham", "ban_thanh_pham": "ban_thanh_pham",
 }
 
 class Material(Base):
@@ -45,6 +54,11 @@ class Material(Base):
     # paper, decal, pp, canvas, carton, film, lamination, glue, chemical...
     material_type: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     unit: Mapped[str] = mapped_column(String(16), nullable=False)
+    # Kho quản lý vật tư này (mỗi vật tư thuộc 1 kho) — lọc danh mục theo từng kho.
+    # Nullable: vật tư cũ / dùng chung chưa gán kho.
+    warehouse_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("warehouses.id"), index=True, nullable=True
+    )
     min_fee: Mapped[int] = mapped_column(
         BigInteger, CheckConstraint("min_fee >= 0"), nullable=False, default=0
     )
@@ -92,6 +106,29 @@ class Material(Base):
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )
+    # Ảnh đại diện — path tương đối dưới /static (mirror users.avatar_url). Null = không có.
+    image_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # ---- BRD §3.4: nhóm hàng + quy cách + cờ theo dõi + ngưỡng tồn + ghi chú ----
+    group_name: Mapped[str | None] = mapped_column(String(120), nullable=True)   # Nhóm hàng
+    spec_text: Mapped[str | None] = mapped_column(String(255), nullable=True)     # Quy cách
+    track_lot: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    lot_code: Mapped[str | None] = mapped_column(String(60), nullable=True)  # Số lô (nhập ở form)
+    track_expiry: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # Hạn sử dụng (BRD §3.9)
+    track_qr: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"), default=False
+    )
+    track_value: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"), default=True
+    )
+    min_stock: Mapped[float | None] = mapped_column(Numeric(18, 3), nullable=True)
+    max_stock: Mapped[float | None] = mapped_column(Numeric(18, 3), nullable=True)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -107,6 +144,32 @@ class Material(Base):
         cascade="all, delete-orphan",
         order_by="MaterialCost.effective_from.desc()",
     )
+    # Theo dõi theo nhiều đơn vị tính (BRAVO): mỗi dòng = 1 đơn vị + hệ số quy đổi về đơn vị gốc.
+    uoms: Mapped[list["MaterialUom"]] = relationship(
+        "MaterialUom",
+        back_populates="material",
+        cascade="all, delete-orphan",
+        order_by="MaterialUom.sort_order",
+    )
+
+
+class MaterialUom(Base):
+    """Đơn vị tính quy đổi của 1 vật tư (bảng phụ). factor = số đơn vị GỐC (materials.unit)
+    trên 1 đơn vị này. VD unit='tờ', dòng (uom='ream', factor=500) nghĩa là 1 ream = 500 tờ.
+    Bảng mới → create_all tự tạo (không cần migration)."""
+    __tablename__ = "material_uoms"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    material_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("materials.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    uom: Mapped[str] = mapped_column(String(16), nullable=False)
+    factor: Mapped[float] = mapped_column(
+        Numeric(14, 4), CheckConstraint("factor > 0"), nullable=False, default=1.0
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    material: Mapped[Material] = relationship("Material", back_populates="uoms")
 
 class MaterialCost(Base):
     __tablename__ = "material_costs"

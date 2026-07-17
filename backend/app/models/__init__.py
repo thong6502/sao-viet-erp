@@ -42,6 +42,7 @@ from .warehouse_item import WarehouseItem
 from .warehouse_stock import StockLot, StockMinLevel, StockMove
 from .warehouse_catalog import WhItemStatus, WhVoucherType
 from .warehouse_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLine
+from .stock_request import StockRequest, StockRequestLine
 from .warehouse_count import StockCount, StockCountLine
 from .plate_die_rate import PlateDieRate
 from .norm import Norm

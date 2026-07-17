@@ -54,14 +54,15 @@ const NAV: NavSection[] = [
     label: "Sản xuất",
     items: [
       { id: "lenh-san-xuat", label: "Lệnh sản xuất", icon: "clipboard", module: "san_xuat" },
+      // "Định mức NVL" không đứng menu riêng — quản lý ngay trong form Lệnh sản xuất (ô Định mức + nút Tạo/Sửa).
     ],
   },
   {
     id: "kho",
     label: "Kho",
     items: [
+      // Danh mục vật tư nằm trong từng kho (tab "Danh mục"), không đứng menu riêng.
       { id: "kho-hang", label: "Kho", icon: "warehouse", module: "kho" },
-      { id: "kho-kiem-ke", label: "Kiểm kê", icon: "clipboard", module: "kho" },
       { id: "kho-bao-cao", label: "Báo cáo kho", icon: "grid", module: "kho" },
     ],
   },

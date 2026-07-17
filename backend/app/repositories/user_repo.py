@@ -2,6 +2,8 @@
 formatting of input — docs/SECURITY.md)."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -102,28 +104,62 @@ class UserRepository:
         self.db.refresh(user)
         return user
 
+    def soft_delete(self, user: User) -> User:
+        """Xóa mềm: đánh dấu deleted_at + khóa (is_active=False) + thu hồi mọi phiên."""
+        user.deleted_at = datetime.now(timezone.utc)
+        user.is_active = False
+        user.token_version = (user.token_version or 0) + 1
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def restore(self, user: User) -> User:
+        """Khôi phục người dùng đã xóa mềm: gỡ deleted_at + mở khóa (is_active=True)."""
+        user.deleted_at = None
+        user.is_active = True
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
     def list_all(self) -> list[User]:
-        return list(self.db.execute(select(User).order_by(User.id)).scalars())
+        # Ẩn người dùng đã xóa mềm khỏi danh sách quản trị.
+        return list(self.db.execute(
+            select(User).where(User.deleted_at.is_(None)).order_by(User.id)
+        ).scalars())
+
+    def list_deleted(self) -> list[User]:
+        """Người dùng đã xóa mềm — cho bộ lọc 'Đã xóa' + khôi phục."""
+        return list(self.db.execute(
+            select(User).where(User.deleted_at.is_not(None)).order_by(User.id)
+        ).scalars())
 
     def count(self) -> int:
         from sqlalchemy import func
 
-        return self.db.execute(select(func.count()).select_from(User)).scalar_one()
+        return self.db.execute(
+            select(func.count()).select_from(User).where(User.deleted_at.is_(None))
+        ).scalar_one()
 
     def count_by_role(self, role_id: int) -> int:
         from sqlalchemy import func
 
         return self.db.execute(
-            select(func.count()).select_from(User).where(User.role_id == role_id)
+            select(func.count()).select_from(User)
+            .where(User.role_id == role_id, User.deleted_at.is_(None))
         ).scalar_one()
 
     def count_by_department(self, department_id: int) -> int:
         from sqlalchemy import func
 
         return self.db.execute(
-            select(func.count()).select_from(User).where(User.department_id == department_id)
+            select(func.count()).select_from(User)
+            .where(User.department_id == department_id, User.deleted_at.is_(None))
         ).scalar_one()
 
     def list_by_department(self, department_id: int) -> list[User]:
-        stmt = select(User).where(User.department_id == department_id).order_by(User.id)
+        stmt = (
+            select(User)
+            .where(User.department_id == department_id, User.deleted_at.is_(None))
+            .order_by(User.id)
+        )
         return list(self.db.execute(stmt).scalars())

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..config import settings
 from ..deps import (
@@ -74,6 +74,7 @@ from ..services.role_service import (
     RoleService,
 )
 from ..services.user_admin_service import (
+    CannotDeleteSelf,
     CannotLockSelf,
     CannotRevokeSelf,
     InvalidRoleForDepartment,
@@ -334,16 +335,24 @@ def delete_unit_level(
 def list_users(
     admin: Users,
     _: Annotated[object, Depends(require_permission("nguoi_dung", "read"))],
+    deleted: bool = Query(default=False, description="True = chỉ liệt kê người dùng đã xóa mềm"),
 ) -> list[UserRow]:
-    return admin.list_users()
+    return admin.list_users(deleted=deleted)
 
 
 @router.post("/users", response_model=UserCreatedOut, status_code=status.HTTP_201_CREATED)
 def create_user(
     payload: UserCreate,
     admin: Users,
+    authz: Authz,
     user: Annotated[object, Depends(require_permission("nguoi_dung", "create"))],
 ) -> dict:
+    # Gắn chức vụ ngay khi tạo cần thêm quyền gán vai trò (không để 'create' vượt rào 'assign_role').
+    if payload.role_id is not None and not authz.can(user, "nguoi_dung", "assign_role"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Bạn không có quyền gán chức vụ (vai trò). Hãy tạo người dùng không kèm vai trò.",
+        )
     try:
         created = admin.create_user(
             name=payload.name,
@@ -356,6 +365,12 @@ def create_user(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
     except UADeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    # Gắn chức vụ (vai trò) ngay khi tạo nếu được chọn — vai trò phải thuộc phòng ban.
+    if payload.role_id is not None:
+        try:
+            created = admin.assign_role(user_id=created.id, role_id=payload.role_id, actor_id=user.id)
+        except InvalidRoleForDepartment as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     # Mật khẩu ban đầu để admin bàn giao cho người dùng (đổi khi đăng nhập lần đầu).
     initial_password = (payload.password or "").strip() or settings.default_user_password
     return {
@@ -450,6 +465,44 @@ def update_user(
         "department_id": updated.department_id,
         "role_id": updated.role_id,
         "is_active": updated.is_active,
+    }
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+def delete_user(
+    user_id: int,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "delete"))],
+) -> Response:
+    """Xóa MỀM người dùng — giữ bản ghi cho lịch sử, ẩn khỏi danh sách, chặn đăng nhập."""
+    try:
+        admin.soft_delete_user(user_id=user_id, actor_id=user.id)
+    except CannotDeleteSelf as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/users/{user_id}/restore", response_model=UserRow)
+def restore_user(
+    user_id: int,
+    admin: Users,
+    user: Annotated[object, Depends(require_permission("nguoi_dung", "delete"))],
+) -> dict:
+    """Khôi phục người dùng đã xóa mềm — gỡ deleted_at + mở khóa (đăng nhập lại được)."""
+    try:
+        restored = admin.restore_user(user_id=user_id, actor_id=user.id)
+    except UserNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return {
+        "id": restored.id,
+        "code": restored.code,
+        "name": restored.name,
+        "username": restored.username,
+        "department_id": restored.department_id,
+        "role_id": restored.role_id,
+        "is_active": restored.is_active,
     }
 
 

@@ -4,10 +4,13 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from ..deps import get_authorization_service, get_db, require_permission
 from ..models.user import User
+from ..realtime import kho_event_stream
+from ..security import decode_access_token
 from ..services.rbac_service import AuthorizationService
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.warehouse_stock_repo import StockRepo
@@ -18,12 +21,16 @@ from ..schemas.warehouse_stock import (
     LocationStockRow,
     LowStockOut,
     LowStockRow,
+    ItemOverviewRow,
+    ItemOverviewWh,
+    KhoItemIn,
     MaterialOption,
     MinLevelIn,
     MinLevelListOut,
     MinLevelRow,
     NxtReportOut,
     NxtRow,
+    PartnerOption,
     StockBalanceListOut,
     StockBalanceRow,
     StockLotIn,
@@ -151,6 +158,7 @@ def material_options(
     db: Annotated[Session, Depends(get_db)],
     _: Annotated[User, Depends(_read)],
     q: str | None = Query(default=None),
+    warehouse_id: int | None = Query(default=None, description="Chỉ vật tư thuộc kho này"),
 ):
     from sqlalchemy import func, or_, select as _select
 
@@ -160,14 +168,120 @@ def material_options(
     if q:
         like = f"%{q.strip().lower()}%"
         stmt = stmt.where(or_(func.lower(Material.code).like(like), func.lower(Material.name).like(like)))
+    # Vật tư thuộc kho này; vật tư CŨ chưa gán kho (null) vẫn cho chọn để không kẹt dữ liệu cũ.
+    if warehouse_id is not None:
+        stmt = stmt.where(or_(Material.warehouse_id == warehouse_id, Material.warehouse_id.is_(None)))
     stmt = stmt.order_by(Material.code).limit(500)
     return [
         MaterialOption(
             id=m.id, code=m.code, name=m.name,
             unit=(getattr(m, "base_uom", None) or m.unit or ""),
+            warehouse_id=m.warehouse_id, note=m.note,
+            default_supplier=getattr(m, "default_supplier", None),
         )
         for m in db.execute(stmt).scalars()
     ]
+
+
+# --- Gợi ý đối tượng phiếu (NCC / Khách hàng) — gated `kho` để thủ kho dùng được -----
+@router.get("/partner-options", response_model=list[PartnerOption])
+def partner_options(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(_read)],
+    kind: str = Query(..., description="ncc = nhà cung cấp, khach = khách hàng"),
+    q: str | None = Query(default=None),
+):
+    from sqlalchemy import func, select as _select
+
+    if kind == "ncc":
+        from ..models.purchase import Supplier as Model
+    elif kind == "khach":
+        from ..models.customer import Customer as Model
+    else:
+        return []
+
+    stmt = _select(Model.id, Model.name)
+    if q:
+        stmt = stmt.where(func.lower(Model.name).like(f"%{q.strip().lower()}%"))
+    stmt = stmt.order_by(Model.name).limit(500)
+    return [PartnerOption(id=i, name=n) for i, n in db.execute(stmt).all()]
+
+
+# --- Danh mục hàng nhìn từ kho: mặt hàng + kho đang có tồn (gated `kho:read`) ------------
+@router.get("/items-overview", response_model=list[ItemOverviewRow])
+def items_overview(
+    db: Annotated[Session, Depends(get_db)],
+    _: Annotated[User, Depends(_read)],
+    q: str | None = Query(default=None),
+):
+    from sqlalchemy import func, or_, select as _select
+
+    from ..models.material import Material
+    from ..models.warehouse import Warehouse
+
+    # (material_id, warehouse_id) -> tồn thực tế; gom kho có tồn > 0 theo mặt hàng.
+    onhand = StockRepo(db).onhand_by_material_warehouse()
+    wh = {w.id: w for w in db.execute(_select(Warehouse)).scalars()}
+    mat_wh: dict[int, list[int]] = {}
+    for (mid, wid), qty in onhand.items():
+        if abs(float(qty)) > 1e-9 and wid in wh:
+            mat_wh.setdefault(mid, []).append(wid)
+
+    stmt = _select(Material)
+    if q:
+        like = f"%{q.strip().lower()}%"
+        stmt = stmt.where(or_(func.lower(Material.code).like(like), func.lower(Material.name).like(like)))
+    stmt = stmt.order_by(Material.code)
+
+    out: list[ItemOverviewRow] = []
+    for m in db.execute(stmt).scalars():
+        whs = [ItemOverviewWh(id=w, code=wh[w].code) for w in sorted(mat_wh.get(m.id, []))]
+        out.append(ItemOverviewRow(
+            id=m.id, code=m.code, name=m.name,
+            unit=(getattr(m, "base_uom", None) or m.unit or ""),
+            material_type=m.material_type, material_group=m.material_group,
+            is_active=m.is_active, warehouses=whs,
+        ))
+    return out
+
+
+# --- Tạo nhanh mặt hàng ngay tại phiếu (popup tìm-hoặc-tạo, gated `kho:create`) -----------
+# kind → (material_type, material_group). NVL & thành phẩm/BTP đều tạo self-service tại phiếu.
+_ITEM_KIND_MAP = {
+    "nvl": ("vat_tu", "auxiliary"),
+    "thanh_pham": ("thanh_pham", "thanh_pham"),
+    "ban_thanh_pham": ("ban_thanh_pham", "ban_thanh_pham"),
+}
+
+
+@router.post("/items", response_model=MaterialOption, status_code=status.HTTP_201_CREATED)
+def create_kho_item(
+    payload: KhoItemIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(_create)],
+):
+    """Người vận hành (Kho/Sản xuất) tạo mặt hàng ngay khi lập phiếu — mã tự sinh VT###/TP###/BTP###.
+    KHÔNG chặn trùng tên; định danh bằng mã. Popup có tìm hàng có sẵn nên hạn chế trùng."""
+    from ..repositories.material_repo import MaterialRepository
+
+    name = payload.name.strip()
+    unit = payload.unit.strip()
+    if not name or not unit:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Cần Tên + Đơn vị tính.")
+    mt, grp = _ITEM_KIND_MAP.get(payload.kind, _ITEM_KIND_MAP["nvl"])
+    m = MaterialRepository(db).create(
+        name=name, material_type=mt, unit=unit, material_group=grp, is_active=True,
+    )
+    AuditLogRepository(db).create(
+        actor_user_id=user.id, action="create_kho_item",
+        target=f"material:{m.id}", detail=f"{m.code} {m.name}",
+    )
+    return MaterialOption(
+        id=m.id, code=m.code, name=m.name,
+        unit=(getattr(m, "base_uom", None) or m.unit or ""),
+        warehouse_id=m.warehouse_id, note=m.note,
+        default_supplier=getattr(m, "default_supplier", None),
+    )
 
 
 # --- Báo cáo Nhập–Xuất–Tồn (DacTa Table 7) ----------------------------------
@@ -298,7 +412,7 @@ def list_min_levels(
 def upsert_min_level(payload: MinLevelIn, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_update)]):
     row = StockRepo(db).upsert_min_level(
         material_id=payload.material_id, warehouse_id=payload.warehouse_id,
-        min_qty=payload.min_qty, note=payload.note,
+        min_qty=payload.min_qty, near_min_qty=payload.near_min_qty, note=payload.note,
     )
     AuditLogRepository(db).create(
         actor_user_id=user.id, action="upsert_min_level",
@@ -331,6 +445,23 @@ def report_low_stock(
 ):
     rows = StockRepo(db).low_stock(warehouse_id=warehouse_id, only_below=only_below)
     return LowStockOut(items=[LowStockRow(**r) for r in rows], total=len(rows))
+
+
+# --- Cập nhật tức thời (SSE) -------------------------------------------------
+@router.get("/events")
+async def kho_events(
+    token: str = Query(..., description="JWT — EventSource không gửi header được"),
+    warehouse_id: int | None = Query(default=None),
+):
+    """Luồng SSE đẩy tín hiệu khi dữ liệu kho (đề nghị/phiếu) thay đổi → client tải lại ngay.
+    Xác thực qua query token vì trình duyệt EventSource không đặt được header Authorization."""
+    if decode_access_token(token) is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token không hợp lệ")
+    return StreamingResponse(
+        kho_event_stream(warehouse_id),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 # --- Tồn theo vị trí ---------------------------------------------------------

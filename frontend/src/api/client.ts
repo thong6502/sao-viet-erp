@@ -233,6 +233,7 @@ export interface UserRow {
   role_id: number | null;
   role_name: string | null;
   is_active: boolean;
+  deleted_at?: string | null;
 }
 
 export interface AuditRow {
@@ -1378,7 +1379,25 @@ export interface MaterialCostInput {
   quantity_to?: number | null;
 }
 
+export interface MaterialUomIO {
+  uom: string;
+  factor: number;
+}
+
+export interface ItemOverviewRow {
+  id: number;
+  code: string;
+  name: string;
+  unit: string;
+  material_type: string;
+  material_group: string | null;
+  is_active: boolean;
+  warehouses: { id: number; code: string }[];
+}
+
 interface MaterialFields {
+  /** Kho quản lý vật tư (mỗi vật tư thuộc 1 kho). */
+  warehouse_id?: number | null;
   material_group?: MaterialGroup | null;
   default_supplier?: string | null;
   base_uom?: string | null;
@@ -1390,6 +1409,20 @@ interface MaterialFields {
   ink_color_system?: string | null;
   ink_color_code?: string | null;
   film_type?: string | null;
+  image_url?: string | null;
+  uoms?: MaterialUomIO[];
+  // BRD §3.4
+  group_name?: string | null;
+  spec_text?: string | null;
+  track_lot?: boolean;
+  track_expiry?: boolean;
+  track_qr?: boolean;
+  track_value?: boolean;
+  lot_code?: string | null;
+  expiry_date?: string | null;
+  min_stock?: number | null;
+  max_stock?: number | null;
+  note?: string | null;
 }
 
 export interface MaterialRow extends MaterialFields {
@@ -1415,6 +1448,7 @@ export interface MaterialRow extends MaterialFields {
 }
 
 export interface MaterialInput extends MaterialFields {
+  code?: string | null;
   name: string;
   material_type: string;
   unit: string;
@@ -2483,6 +2517,8 @@ export interface VoucherLineInput {
 }
 export interface VoucherLineRow extends VoucherLineInput {
   id: number;
+  material_code?: string | null;
+  material_name?: string | null;
 }
 export interface VoucherInput {
   voucher_type_id: number;
@@ -2493,6 +2529,7 @@ export interface VoucherInput {
   dst_warehouse_id?: number | null;
   ref_type?: string | null;
   ref_id?: number | null;
+  receiver?: string | null;
   reason?: string | null;
   note?: string | null;
   lines: VoucherLineInput[];
@@ -2506,6 +2543,11 @@ export interface VoucherRow {
   partner_ref: string | null;
   src_warehouse_id: number | null;
   dst_warehouse_id: number | null;
+  ref_type: string | null;
+  ref_id: number | null;
+  receiver: string | null;
+  handover_at: string | null;
+  handover_by_name: string | null;
   reason: string | null;
   note: string | null;
   status: string;
@@ -2523,6 +2565,51 @@ export interface VoucherAttachment {
   uploaded_by: number | null;
   uploaded_at: string | null;
 }
+// --- Phiếu ĐỀ NGHỊ nhập/xuất kho ---
+export interface StockRequestLineInput {
+  material_id: number;
+  quantity: number;
+  uom?: string | null;
+  note?: string | null;
+}
+export interface StockRequestLineRow extends StockRequestLineInput {
+  id: number;
+  material_code: string | null;
+  material_name: string | null;
+}
+export interface StockRequestInput {
+  request_type: "nhap" | "xuat";
+  voucher_type_id?: number | null; // loại phiếu cụ thể (đủ case NK/XK)
+  warehouse_id: number;
+  partner_ref?: string | null;
+  reason?: string | null;
+  note?: string | null;
+  lines: StockRequestLineInput[];
+}
+export interface StockRequestRow {
+  id: number;
+  code: string;
+  request_type: string;
+  voucher_type_id: number | null;
+  voucher_type_name: string | null;
+  warehouse_id: number;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  partner_ref: string | null;
+  reason: string | null;
+  note: string | null;
+  status: string; // draft/pending/approved/rejected/fulfilled/cancelled
+  requested_by_user_id: number | null;
+  requested_by_name: string | null;
+  approved_by_user_id: number | null;
+  approved_by_name: string | null;
+  approved_at: string | null;
+  rejected_reason: string | null;
+  voucher_id: number | null;
+  voucher_code: string | null;
+  created_at: string;
+  lines: StockRequestLineRow[];
+}
 export interface ProductionOrderRow {
   id: number;
   code: string;
@@ -2538,6 +2625,9 @@ export interface ProductionOrderRow {
   doc_date: string | null;
   due_date: string | null;
   status: string;
+  approved_at: string | null;
+  approved_by_user_id: number | null;
+  approved_by_name: string | null;
   order_kind: string;
   parent_order_id: number | null;
   parent_code: string | null;
@@ -2650,6 +2740,12 @@ export interface KhoMaterialOption {
   code: string;
   name: string;
   unit: string;
+  /** Kho quản lý vật tư; null = vật tư cũ chưa gán kho. */
+  warehouse_id?: number | null;
+  /** Ghi chú mặc định của vật tư — tự điền sang dòng phiếu khi chọn. */
+  note?: string | null;
+  /** NCC mặc định — hiển thị tham chiếu trên dòng hàng. */
+  default_supplier?: string | null;
 }
 export interface NxtRow {
   material_id: number;
@@ -2707,15 +2803,18 @@ export interface MinLevelRow {
   material_id: number;
   warehouse_id: number;
   min_qty: number;
+  near_min_qty: number;
   note: string | null;
 }
 export interface LowStockRow {
   material_id: number;
   warehouse_id: number;
   min_qty: number;
+  near_min_qty: number;
   on_hand: number;
   shortfall: number;
   below: boolean;
+  level: "below" | "near" | "ok";
   note: string | null;
 }
 export interface LocationStockRow {
@@ -3271,17 +3370,19 @@ export const api = {
     deleteUnitLevel(token: string, id: number): Promise<void> {
       return authed<void>(`/api/unit-levels/${id}`, token, { method: "DELETE" });
     },
-    users(token: string): Promise<UserRow[]> {
-      return authed<UserRow[]>("/api/users", token);
+    users(token: string, deleted = false): Promise<UserRow[]> {
+      return authed<UserRow[]>(`/api/users${deleted ? "?deleted=true" : ""}`, token);
     },
     createUser(
       token: string, name: string, username: string, departmentId: number, password?: string | null,
+      roleId?: number | null,
     ): Promise<UserRow & { initial_password: string }> {
       return authed<UserRow & { initial_password: string }>("/api/users", token, {
         method: "POST",
         body: JSON.stringify({
           name, username, department_id: departmentId,
           password: password && password.trim() ? password.trim() : undefined,
+          role_id: roleId ?? undefined,
         }),
       });
     },
@@ -3296,6 +3397,12 @@ export const api = {
         method: "PUT",
         body: JSON.stringify({ is_active: isActive }),
       });
+    },
+    deleteUser(token: string, userId: number): Promise<void> {
+      return authed<void>(`/api/users/${userId}`, token, { method: "DELETE" });
+    },
+    restoreUser(token: string, userId: number): Promise<UserRow> {
+      return authed<UserRow>(`/api/users/${userId}/restore`, token, { method: "POST" });
     },
     /** Edit a user's name + department (spec-08 / PBI-2003); dept change drops the old role. */
     updateUser(token: string, userId: number, name: string, departmentId: number): Promise<UserRow> {
@@ -4374,10 +4481,12 @@ export const api = {
 
   // --- Materials Catalog ----------------------------------------------------
   materials: {
-    list(token: string, params: CatalogListParams & { material_type?: string | null } = {}): Promise<MaterialListOut> {
+    list(token: string, params: CatalogListParams & { material_type?: string | null; is_active?: boolean; warehouse_id?: number } = {}): Promise<MaterialListOut> {
       const qs = new URLSearchParams();
       if (params.q) qs.set("q", params.q);
       if (params.material_type) qs.set("material_type", params.material_type);
+      if (params.is_active != null) qs.set("is_active", String(params.is_active));
+      if (params.warehouse_id != null) qs.set("warehouse_id", String(params.warehouse_id));
       if (params.sort) qs.set("sort", params.sort);
       if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
@@ -4433,6 +4542,14 @@ export const api = {
     },
     remove(token: string, id: number): Promise<void> {
       return authed<void>(`/api/materials/${id}`, token, { method: "DELETE" });
+    },
+    uploadImage(token: string, file: File): Promise<{ image_url: string }> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<{ image_url: string }>("/api/materials/upload-image", token, {
+        method: "POST",
+        body: form,
+      });
     },
   },
 
@@ -4546,8 +4663,8 @@ export const api = {
         body: JSON.stringify(input),
       });
     },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/warehouses/${id}`, token, { method: "DELETE" });
+    remove(token: string, id: number, confirmCode: string): Promise<void> {
+      return authed<void>(`/api/warehouses/${id}?confirm=${encodeURIComponent(confirmCode)}`, token, { method: "DELETE" });
     },
   },
 
@@ -4587,6 +4704,10 @@ export const api = {
   },
 
   departmentPurchaseRequests: {
+    /** URL SSE cập nhật tức thời số YCMH chờ xử lý (badge + toast). Token qua query. */
+    eventsUrl(token: string): string {
+      return `${BASE_URL}/api/department-purchase-requests/events?token=${encodeURIComponent(token)}`;
+    },
     list(
       token: string,
       params: { q?: string; status?: string | null; source_type?: string | null; sort?: string; page?: number; size?: number } = {},
@@ -4819,9 +4940,31 @@ export const api = {
 
   // --- Kho P0: tồn dựa trên Material -----------------------------------------
   kho: {
-    materialOptions(token: string, q?: string): Promise<KhoMaterialOption[]> {
-      const s = q ? `?q=${encodeURIComponent(q)}` : "";
+    materialOptions(token: string, q?: string, warehouseId?: number | null): Promise<KhoMaterialOption[]> {
+      const qs = new URLSearchParams();
+      if (q) qs.set("q", q);
+      if (warehouseId != null) qs.set("warehouse_id", String(warehouseId));
+      const s = qs.toString() ? `?${qs.toString()}` : "";
       return authed<KhoMaterialOption[]>(`/api/kho/material-options${s}`, token);
+    },
+    // Gợi ý đối tượng phiếu (kind: "ncc" | "khach") — gated `kho`; phiếu vẫn lưu tên (text).
+    partnerOptions(token: string, kind: "ncc" | "khach", q?: string): Promise<{ id: number; name: string }[]> {
+      const qs = new URLSearchParams({ kind });
+      if (q) qs.set("q", q);
+      return authed<{ id: number; name: string }[]>(`/api/kho/partner-options?${qs.toString()}`, token);
+    },
+    // Tạo nhanh mặt hàng ngay tại phiếu (gated `kho:create`). kind: nvl/thanh_pham/ban_thanh_pham.
+    // Mã tự sinh VT###/TP###/BTP###.
+    createItem(token: string, input: { name: string; unit: string; kind?: "nvl" | "thanh_pham" | "ban_thanh_pham" }): Promise<KhoMaterialOption> {
+      return authed<KhoMaterialOption>("/api/kho/items", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    // Danh mục hàng nhìn từ kho: mặt hàng + các kho đang có tồn (gated `kho:read`).
+    itemsOverview(token: string, q?: string): Promise<ItemOverviewRow[]> {
+      const s = q ? `?q=${encodeURIComponent(q)}` : "";
+      return authed<ItemOverviewRow[]>(`/api/kho/items-overview${s}`, token);
     },
     // --- kiểm kê ---
     listCounts(token: string, params: { status?: string | null } = {}): Promise<{ items: CountRow[]; total: number }> {
@@ -4869,6 +5012,11 @@ export const api = {
       if (params.to) qs.set("to", params.to);
       return authed<LedgerOut>(`/api/kho/reports/ledger?${qs.toString()}`, token);
     },
+    /** URL luồng SSE cập nhật tức thời (dùng cho EventSource; token qua query, lọc theo kho). */
+    eventsUrl(token: string, warehouseId?: number | null): string {
+      const wh = warehouseId != null ? `&warehouse_id=${warehouseId}` : "";
+      return `${BASE_URL}/api/kho/events?token=${encodeURIComponent(token)}${wh}`;
+    },
     listMinLevels(token: string, warehouseId?: number | null): Promise<StockListOut<MinLevelRow>> {
       const qs = new URLSearchParams();
       if (warehouseId != null) qs.set("warehouse_id", String(warehouseId));
@@ -4876,7 +5024,7 @@ export const api = {
     },
     upsertMinLevel(
       token: string,
-      body: { material_id: number; warehouse_id: number; min_qty: number; note?: string | null },
+      body: { material_id: number; warehouse_id: number; min_qty: number; near_min_qty?: number; note?: string | null },
     ): Promise<MinLevelRow> {
       return authed<MinLevelRow>(`/api/kho/min-levels`, token, { method: "PUT", body: JSON.stringify(body) });
     },
@@ -4981,6 +5129,8 @@ export const api = {
         warehouse_id?: number | null;
         partner_ref?: string | null;
         created_by_user_id?: number | null;
+        ref_type?: string | null;
+        ref_id?: number | null;
         page?: number;
         size?: number;
       } = {},
@@ -4991,6 +5141,9 @@ export const api = {
       if (params.warehouse_id != null) qs.set("warehouse_id", String(params.warehouse_id));
       if (params.partner_ref) qs.set("partner_ref", params.partner_ref);
       if (params.created_by_user_id != null) qs.set("created_by_user_id", String(params.created_by_user_id));
+      if (params.ref_type) qs.set("ref_type", params.ref_type);
+      if (params.ref_id != null) qs.set("ref_id", String(params.ref_id));
+      if (params.page) qs.set("page", String(params.page));
       if (params.size) qs.set("size", String(params.size));
       const s = qs.toString() ? `?${qs.toString()}` : "";
       return authed<{ items: VoucherRow[]; total: number }>(`/api/kho/vouchers${s}`, token);
@@ -5001,14 +5154,26 @@ export const api = {
     createVoucher(token: string, input: VoucherInput): Promise<VoucherRow> {
       return authed<VoucherRow>("/api/kho/vouchers", token, { method: "POST", body: JSON.stringify(input) });
     },
+    updateVoucher(token: string, id: number, input: VoucherInput): Promise<VoucherRow> {
+      return authed<VoucherRow>(`/api/kho/vouchers/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
     submitVoucher(token: string, id: number): Promise<VoucherRow> {
       return authed<VoucherRow>(`/api/kho/vouchers/${id}/submit`, token, { method: "POST" });
     },
     approveVoucher(token: string, id: number): Promise<VoucherRow> {
       return authed<VoucherRow>(`/api/kho/vouchers/${id}/approve`, token, { method: "POST" });
     },
-    cancelVoucher(token: string, id: number): Promise<VoucherRow> {
-      return authed<VoucherRow>(`/api/kho/vouchers/${id}/cancel`, token, { method: "POST" });
+    cancelVoucher(token: string, id: number, reason?: string): Promise<VoucherRow> {
+      return authed<VoucherRow>(`/api/kho/vouchers/${id}/cancel`, token, {
+        method: "POST",
+        ...(reason ? { body: JSON.stringify({ reason }) } : {}),
+      });
+    },
+    deleteVoucher(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/kho/vouchers/${id}`, token, { method: "DELETE" });
+    },
+    confirmReceipt(token: string, id: number): Promise<VoucherRow> {
+      return authed<VoucherRow>(`/api/kho/vouchers/${id}/confirm-receipt`, token, { method: "POST" });
     },
     voucherAttachments(token: string, id: number): Promise<{ items: VoucherAttachment[] }> {
       return authed<{ items: VoucherAttachment[] }>(`/api/kho/vouchers/${id}/attachments`, token);
@@ -5020,6 +5185,51 @@ export const api = {
     },
     deleteVoucherAttachment(token: string, id: number, attachmentId: number): Promise<void> {
       return authed<void>(`/api/kho/vouchers/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
+    },
+
+    // --- Phiếu ĐỀ NGHỊ nhập/xuất kho (bước trước phiếu kho) ---
+    listRequests(
+      token: string,
+      params: { request_type?: string | null; status?: string | null; warehouse_id?: number | null; page?: number; size?: number } = {},
+    ): Promise<{ items: StockRequestRow[]; total: number; page: number; size: number }> {
+      const qs = new URLSearchParams();
+      if (params.request_type) qs.set("request_type", params.request_type);
+      if (params.status) qs.set("status", params.status);
+      if (params.warehouse_id != null) qs.set("warehouse_id", String(params.warehouse_id));
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const s = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<{ items: StockRequestRow[]; total: number; page: number; size: number }>(`/api/kho/requests${s}`, token);
+    },
+    getRequest(token: string, id: number): Promise<StockRequestRow> {
+      return authed<StockRequestRow>(`/api/kho/requests/${id}`, token);
+    },
+    createRequest(token: string, input: StockRequestInput): Promise<StockRequestRow> {
+      return authed<StockRequestRow>("/api/kho/requests", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateRequest(token: string, id: number, input: StockRequestInput): Promise<StockRequestRow> {
+      return authed<StockRequestRow>(`/api/kho/requests/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteRequest(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/kho/requests/${id}`, token, { method: "DELETE" });
+    },
+    submitRequest(token: string, id: number): Promise<StockRequestRow> {
+      return authed<StockRequestRow>(`/api/kho/requests/${id}/submit`, token, { method: "POST" });
+    },
+    approveRequest(token: string, id: number): Promise<StockRequestRow> {
+      return authed<StockRequestRow>(`/api/kho/requests/${id}/approve`, token, { method: "POST" });
+    },
+    rejectRequest(token: string, id: number, reason: string): Promise<StockRequestRow> {
+      return authed<StockRequestRow>(`/api/kho/requests/${id}/reject`, token, { method: "POST", body: JSON.stringify({ reason }) });
+    },
+    cancelRequest(token: string, id: number): Promise<StockRequestRow> {
+      return authed<StockRequestRow>(`/api/kho/requests/${id}/cancel`, token, { method: "POST" });
+    },
+    fulfillRequest(token: string, id: number, voucherTypeId?: number | null): Promise<StockRequestRow> {
+      return authed<StockRequestRow>(`/api/kho/requests/${id}/create-voucher`, token, {
+        method: "POST",
+        body: JSON.stringify(voucherTypeId != null ? { voucher_type_id: voucherTypeId } : {}),
+      });
     },
   },
 
@@ -5053,6 +5263,9 @@ export const api = {
     },
     updateOrder(token: string, id: number, input: ProductionOrderInput): Promise<ProductionOrderRow> {
       return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    approveOrder(token: string, id: number, approve = true): Promise<ProductionOrderRow> {
+      return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}/approve?approve=${approve}`, token, { method: "POST" });
     },
     closeOrder(token: string, id: number, toStatus: "done" | "cancelled" | "open"): Promise<ProductionOrderRow> {
       return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}/close?to_status=${toStatus}`, token, { method: "POST" });

@@ -69,6 +69,8 @@ class VoucherLineIn(BaseModel):
 class VoucherLineRow(VoucherLineIn):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    material_code: str | None = None
+    material_name: str | None = None
 
 
 class VoucherIn(BaseModel):
@@ -80,6 +82,7 @@ class VoucherIn(BaseModel):
     dst_warehouse_id: int | None = None
     ref_type: str | None = None
     ref_id: int | None = None
+    receiver: str | None = None
     reason: str | None = None
     note: str | None = None
     lines: list[VoucherLineIn] = Field(default_factory=list)
@@ -97,6 +100,10 @@ class VoucherRow(BaseModel):
     dst_warehouse_id: int | None = None
     ref_type: str | None = None
     ref_id: int | None = None
+    receiver: str | None = None
+    handover_at: datetime | None = None
+    handover_by_user_id: int | None = None
+    handover_by_name: str | None = None  # resolve ở router
     reason: str | None = None
     note: str | None = None
     status: str
@@ -114,6 +121,11 @@ class VoucherListOut(BaseModel):
     total: int
     page: int
     size: int
+
+
+class VoucherCancelIn(BaseModel):
+    """Lý do hủy phiếu (tùy chọn) — ghi kèm vào ghi chú khi hủy."""
+    reason: str | None = Field(default=None, max_length=300)
 
 
 # --- File đính kèm phiếu ----------------------------------------------------

@@ -38,7 +38,7 @@ class VoucherRepo:
 
     def list(
         self, *, voucher_type_id=None, status=None, warehouse_id=None,
-        partner_ref=None, created_by_user_id=None,
+        partner_ref=None, created_by_user_id=None, ref_type=None, ref_id=None,
         sort="-created_at", page=1, size=50,
     ) -> tuple[list[StockVoucher], int]:
         conds = []
@@ -55,6 +55,11 @@ class VoucherRepo:
             conds.append(func.lower(StockVoucher.partner_ref).like(f"%{partner_ref.strip().lower()}%"))
         if created_by_user_id:
             conds.append(StockVoucher.created_by_user_id == created_by_user_id)
+        # Truy vết theo chứng từ gốc (VD mọi phiếu kho của 1 LSX): ref_type='lsx' + ref_id.
+        if ref_type:
+            conds.append(StockVoucher.ref_type == ref_type)
+        if ref_id:
+            conds.append(StockVoucher.ref_id == ref_id)
         base = select(StockVoucher).options(selectinload(StockVoucher.lines))
         count_stmt = select(func.count()).select_from(StockVoucher)
         for c in conds:

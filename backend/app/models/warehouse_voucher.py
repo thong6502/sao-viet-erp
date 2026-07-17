@@ -48,6 +48,13 @@ class StockVoucher(Base):
     )
     ref_type: Mapped[str | None] = mapped_column(String(24), nullable=True)  # lsx/order/po
     ref_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Tổ/Người nhận vật tư (BRD §2.5 — xuất NVL cho sản xuất ghi rõ tổ/người nhận).
+    receiver: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    # Xác nhận đã bàn giao/nhận vật tư (BRD §2.5 bước 10 — người nhận xác nhận trên hệ thống).
+    handover_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    handover_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
     reason: Mapped[str | None] = mapped_column(String(200), nullable=True)
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     # draft / pending / posted / cancelled
@@ -94,6 +101,16 @@ class StockVoucherLine(Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     voucher: Mapped["StockVoucher"] = relationship(back_populates="lines")
+    # Chỉ đọc — để phiếu tự trả kèm mã/tên vật tư, không phụ thuộc danh mục phía client.
+    material = relationship("Material", lazy="selectin", viewonly=True)
+
+    @property
+    def material_code(self) -> str | None:
+        return self.material.code if self.material else None
+
+    @property
+    def material_name(self) -> str | None:
+        return self.material.name if self.material else None
 
 
 class StockVoucherAttachment(Base):

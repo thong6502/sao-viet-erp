@@ -126,6 +126,8 @@ class StockMinLevel(Base):
         Integer, ForeignKey("warehouses.id"), index=True, nullable=False
     )
     min_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
+    # Cận min: tồn < near_min_qty (mà vẫn ≥ min) → cảnh báo "sắp min" (vàng). 0 = không dùng.
+    near_min_qty: Mapped[float] = mapped_column(Numeric(18, 3), nullable=False, default=0)
     note: Mapped[str | None] = mapped_column(String(120), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False

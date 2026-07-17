@@ -43,6 +43,9 @@ class ProductionOrderRow(BaseModel):
     doc_date: date | None = None
     due_date: date | None = None
     status: str
+    approved_at: datetime | None = None
+    approved_by_user_id: int | None = None
+    approved_by_name: str | None = None  # resolve ở router
     order_kind: str = "thuong"
     parent_order_id: int | None = None
     parent_code: str | None = None  # mã LSX gốc (resolve ở router)

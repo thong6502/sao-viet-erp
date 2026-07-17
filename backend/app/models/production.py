@@ -46,6 +46,11 @@ class ProductionOrder(Base):
     due_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # ngày hoàn thành
     # open / done / cancelled
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="open", index=True)
+    # Duyệt lệnh (BRD §2.5 — kế hoạch/LSX phải được duyệt trước khi sinh phiếu kho).
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_by_user_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
     # Loại lệnh: thuong (thường) / bu (lệnh sản xuất bù — làm lại hàng lỗi/thiếu, BRD §2.13).
     order_kind: Mapped[str] = mapped_column(String(10), nullable=False, default="thuong", index=True)
     parent_order_id: Mapped[int | None] = mapped_column(

@@ -33,6 +33,7 @@ from .routers import (
     warehouse_items,
     kho_stock,
     kho_voucher,
+    kho_request,
     kho_count,
     orders,
     products,
@@ -111,6 +112,7 @@ app.include_router(warehouses.router)
 app.include_router(warehouse_items.router)
 app.include_router(kho_stock.router)
 app.include_router(kho_voucher.router)
+app.include_router(kho_request.router)
 app.include_router(kho_count.router)
 app.include_router(plate_die_rates.router)
 app.include_router(norms.router)

@@ -4,9 +4,12 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi.responses import StreamingResponse
 
 from ..deps import get_purchase_service, require_any_permission, require_permission
 from ..models.user import User
+from ..realtime import ycmh_event_stream
+from ..security import decode_access_token
 from ..schemas.purchase import (
     DepartmentPurchaseRequestIn,
     DepartmentPurchaseRequestListOut,
@@ -74,6 +77,19 @@ def list_department_purchase_requests(
         q=q, status=status_, source_type=source_type, sort=sort, page=page, size=size
     )
     return DepartmentPurchaseRequestListOut(items=rows, total=total, page=page, size=size)
+
+
+# Khai báo TRƯỚC route /{request_id} (int) để "events" không bị nuốt thành request_id.
+@router.get("/api/department-purchase-requests/events")
+async def ycmh_events(token: str = Query(..., description="JWT — EventSource không gửi header được")):
+    """SSE: đẩy số YCMH chờ xử lý (status='open') khi đổi → badge + toast realtime bên Mua hàng."""
+    if decode_access_token(token) is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail="Token không hợp lệ")
+    return StreamingResponse(
+        ycmh_event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+    )
 
 
 @router.get("/api/department-purchase-requests/{request_id}", response_model=DepartmentPurchaseRequestOut)

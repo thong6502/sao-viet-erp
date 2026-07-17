@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from sqlalchemy import select, func
-from ..models.material import Material, MaterialCost
+from ..models.material import Material, MaterialCost, MaterialUom
 from ..models.product import ProductComponent, Product
 from ..models.costing import CostingPaperOption, Costing
 from ..repositories.audit_repo import AuditLogRepository
@@ -16,9 +16,13 @@ from ..models.material import GROUP_FROM_TYPE, MATERIAL_GROUPS
 
 # Field vật tư mới (tái thiết kế #2) — service chuyển thẳng xuống repo.
 _EXTRA_MATERIAL_FIELDS = (
+    "warehouse_id",
     "material_group", "default_supplier", "base_uom", "purchase_uom", "consumption_uom",
     "conversion_method", "conversion_factor", "ink_type", "ink_color_system",
-    "ink_color_code", "film_type",
+    "ink_color_code", "film_type", "image_url",
+    # BRD §3.4
+    "group_name", "spec_text", "track_lot", "track_expiry", "track_qr", "track_value",
+    "min_stock", "max_stock", "note", "expiry_date", "lot_code",
 )
 
 VALID_MATERIAL_TYPES = {
@@ -32,6 +36,13 @@ VALID_MATERIAL_TYPES = {
     "lamination",
     "glue",
     "chemical",
+    "vat_tu",
+    "vat_tu_tieu_hao",
+    "ccdc",
+    "phu_tung",
+    "hang_khach_gui",
+    "thanh_pham",
+    "ban_thanh_pham",
 }
 
 class MaterialError(Exception):
@@ -123,10 +134,32 @@ class MaterialService:
             raise MaterialValidationError(f"Nhóm vật tư '{group}' không hợp lệ.")
         clean["material_group"] = group
         for s in ("default_supplier", "base_uom", "purchase_uom", "consumption_uom",
-                  "conversion_method", "ink_type", "ink_color_system", "ink_color_code", "film_type"):
+                  "conversion_method", "ink_type", "ink_color_system", "ink_color_code",
+                  "film_type", "image_url", "group_name", "spec_text", "note", "lot_code"):
             if isinstance(clean.get(s), str):
                 clean[s] = clean[s].strip() or None
         return clean
+
+    def _set_uoms(self, material: Material, uoms) -> None:
+        """Thay toàn bộ đơn vị quy đổi của vật tư (bảng material_uoms). uoms là list dict/obj
+        có `uom` + `factor`. None = giữ nguyên; [] = xóa hết."""
+        if uoms is None:
+            return
+        material.uoms.clear()
+        for i, u in enumerate(uoms):
+            uom = u.get("uom") if isinstance(u, dict) else getattr(u, "uom", None)
+            factor = u.get("factor") if isinstance(u, dict) else getattr(u, "factor", None)
+            uom = (uom or "").strip()
+            if not uom:
+                continue
+            try:
+                f = float(factor)
+            except (TypeError, ValueError):
+                raise MaterialValidationError(f"Hệ số quy đổi của '{uom}' không hợp lệ.")
+            if f <= 0:
+                raise MaterialValidationError(f"Hệ số quy đổi của '{uom}' phải lớn hơn 0.")
+            material.uoms.append(MaterialUom(uom=uom, factor=f, sort_order=i))
+        self.repo.db.commit()
 
     def list_materials(
         self,
@@ -134,12 +167,14 @@ class MaterialService:
         q: str | None = None,
         material_type: str | None = None,
         is_active: bool | None = None,
+        warehouse_id: int | None = None,
         sort: str = "code",
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[Material], int]:
         return self.repo.list(
-            q=q, material_type=material_type, is_active=is_active, sort=sort, page=page, size=size
+            q=q, material_type=material_type, is_active=is_active, warehouse_id=warehouse_id,
+            sort=sort, page=page, size=size,
         )
 
     def get_material(self, material_id: int) -> Material:
@@ -154,6 +189,7 @@ class MaterialService:
         name: str,
         material_type: str,
         unit: str,
+        code: str | None = None,
         min_fee: int = 0,
         width_cm: float | None = None,
         height_cm: float | None = None,
@@ -164,6 +200,7 @@ class MaterialService:
         paper_family: str | None = None,
         surface: str | None = None,
         is_active: bool = True,
+        uoms=None,
         actor,
         **extra,
     ) -> Material:
@@ -184,11 +221,16 @@ class MaterialService:
         if self.repo.find_by_name(name) is not None:
             raise MaterialDuplicate("Tên vật tư đã tồn tại.")
 
+        code = (code or "").strip() or None
+        if code and self.repo.get_by_code(code) is not None:
+            raise MaterialDuplicate(f"Mã vật tư “{code}” đã tồn tại.")
+
         clean_extra = self._clean_extra(extra, material_type)
         material = self.repo.create(
             name=name.strip(),
             material_type=material_type,
             unit=unit.strip(),
+            code=code,
             min_fee=min_fee,
             width_cm=width_cm,
             height_cm=height_cm,
@@ -201,6 +243,7 @@ class MaterialService:
             is_active=is_active,
             **clean_extra,
         )
+        self._set_uoms(material, uoms)
         self.audit.create(
             actor_user_id=actor.id,
             action="create_material",
@@ -216,6 +259,7 @@ class MaterialService:
         name: str,
         material_type: str,
         unit: str,
+        code: str | None = None,
         min_fee: int,
         width_cm: float | None = None,
         height_cm: float | None = None,
@@ -226,6 +270,7 @@ class MaterialService:
         paper_family: str | None = None,
         surface: str | None = None,
         is_active: bool | None = None,
+        uoms=None,
         actor,
         allow_toggle_active: bool = True,
         **extra,
@@ -257,6 +302,14 @@ class MaterialService:
         if dup is not None and dup.id != material.id:
             raise MaterialDuplicate("Tên vật tư đã tồn tại.")
 
+        # Cho phép sửa mã. Trống → giữ mã hiện tại. Có → phải duy nhất.
+        new_code = (code or "").strip()
+        if new_code and new_code != material.code:
+            dup_code = self.repo.get_by_code(new_code)
+            if dup_code is not None and dup_code.id != material.id:
+                raise MaterialDuplicate(f"Mã vật tư “{new_code}” đã tồn tại.")
+            material.code = new_code
+
         clean_extra = self._clean_extra(extra, material_type)
         material = self.repo.update(
             material,
@@ -275,6 +328,7 @@ class MaterialService:
             is_active=is_active,
             **clean_extra,
         )
+        self._set_uoms(material, uoms)
         self.audit.create(
             actor_user_id=actor.id,
             action="update_material",

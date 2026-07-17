@@ -84,15 +84,12 @@ function VoucherTypesTab({ canWrite, canDelete, onForbidden }: { canWrite: boole
       {error && <div className="banner banner--error" role="alert">{error}</div>}
       <div className="card md-page__tablewrap">
         <table className="md-page__table">
-          <thead><tr><th>Mã</th><th>Tên</th><th>Nhóm</th><th>Chiều tồn</th><th>Cần duyệt</th><th className="md-page__actions-col">Thao tác</th></tr></thead>
+          <thead><tr><th>Mã</th><th>Tên</th><th className="md-page__actions-col">Thao tác</th></tr></thead>
           <tbody>
             {rows.map((t) => (
               <tr key={t.id} className="md-page__row" onClick={canWrite ? () => setEditing(t) : undefined} style={canWrite ? undefined : { cursor: "default" }}>
                 <td className="md-page__mono">{t.code}</td>
                 <td><strong>{t.name}</strong></td>
-                <td><span className="md-page__chip">{GROUP_LABEL[t.voucher_group] ?? t.voucher_group}</span></td>
-                <td>{EFFECT_LABEL[t.stock_effect] ?? t.stock_effect}</td>
-                <td>{t.require_approval ? "Có" : "Không"}</td>
                 <td className="md-page__actions-col" onClick={(e) => e.stopPropagation()}>
                   {canWrite && <button type="button" className="btn btn--ghost md-page__rowbtn" onClick={() => setEditing(t)}>Sửa</button>}
                   {canDelete && <button type="button" className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger" onClick={() => remove(t.id)}>Xóa</button>}
@@ -110,15 +107,25 @@ function VoucherTypesTab({ canWrite, canDelete, onForbidden }: { canWrite: boole
   );
 }
 
+// Tự suy hành vi từ MÃ (đỡ phải chọn tay): NK-→nhập/tăng, XK-→xuất/giảm, DC-→chuyển kho.
+function inferBehavior(code: string): Pick<KhoVoucherType, "voucher_group" | "stock_effect" | "require_src_wh" | "require_dst_wh"> {
+  const prefix = code.trim().toUpperCase().split("-")[0];
+  if (prefix.startsWith("X")) return { voucher_group: "xuat", stock_effect: "giam", require_src_wh: true, require_dst_wh: false };
+  if (prefix.startsWith("D")) return { voucher_group: "dieu_chuyen", stock_effect: "chuyen_vi_tri", require_src_wh: true, require_dst_wh: true };
+  return { voucher_group: "nhap", stock_effect: "tang", require_src_wh: false, require_dst_wh: true };
+}
+
 function VoucherTypeForm({ existing, onClose, onSaved }: { existing: KhoVoucherType | null; onClose: () => void; onSaved: () => void }) {
   const { token } = useAuth();
   const [f, setF] = useState<Omit<KhoVoucherType, "id">>(() => existing ?? {
-    code: "", name: "", voucher_group: "nhap", stock_effect: "tang",
-    require_src_wh: false, require_dst_wh: false, require_approval: false, sync_misa: false, is_active: true,
+    code: "", name: "", ...inferBehavior(""),
+    require_approval: true, sync_misa: false, is_active: true,
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }));
+  // Đổi mã → tự suy hành vi (trừ khi đang sửa loại cũ để giữ nguyên cấu hình).
+  const onCode = (v: string) => setF((x) => ({ ...x, code: v, ...(existing ? {} : inferBehavior(v)) }));
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -142,25 +149,22 @@ function VoucherTypeForm({ existing, onClose, onSaved }: { existing: KhoVoucherT
         <form className="md-page__dialog-body" onSubmit={onSubmit}>
           <div className="md-page__form-grid">
             <label className="field"><span className="field__label">Mã *</span>
-              <input className="input" placeholder="NK-TP" value={f.code} onChange={(e) => set({ code: e.target.value })} /></label>
+              <input className="input" placeholder="VD: NK-TP (nhập) / XK-KH (xuất)" value={f.code} onChange={(e) => onCode(e.target.value)} /></label>
             <label className="field"><span className="field__label">Tên *</span>
-              <input className="input" placeholder="Nhập thành phẩm" value={f.name} onChange={(e) => set({ name: e.target.value })} /></label>
-            <label className="field"><span className="field__label">Nhóm phiếu</span>
-              <select className="input" value={f.voucher_group} onChange={(e) => set({ voucher_group: e.target.value })}>
-                {Object.entries(GROUP_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select></label>
-            <label className="field"><span className="field__label">Chiều tác động tồn</span>
-              <select className="input" value={f.stock_effect} onChange={(e) => set({ stock_effect: e.target.value })}>
-                {Object.entries(EFFECT_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-              </select></label>
+              <input className="input" placeholder="VD: Nhập thành phẩm" value={f.name} onChange={(e) => set({ name: e.target.value })} /></label>
           </div>
-          <div className="md-page__checks">
-            <label className="md-page__check"><input type="checkbox" checked={f.require_src_wh} onChange={(e) => set({ require_src_wh: e.target.checked })} /><span>Bắt buộc kho nguồn</span></label>
-            <label className="md-page__check"><input type="checkbox" checked={f.require_dst_wh} onChange={(e) => set({ require_dst_wh: e.target.checked })} /><span>Bắt buộc kho đích</span></label>
-            <label className="md-page__check"><input type="checkbox" checked={f.require_approval} onChange={(e) => set({ require_approval: e.target.checked })} /><span>Cần phê duyệt</span></label>
-            <label className="md-page__check"><input type="checkbox" checked={f.sync_misa} onChange={(e) => set({ sync_misa: e.target.checked })} /><span>Đồng bộ MISA (chưa hiện thực)</span></label>
-            <label className="md-page__check"><input type="checkbox" checked={f.is_active} onChange={(e) => set({ is_active: e.target.checked })} /><span>Đang dùng</span></label>
-          </div>
+          {/* Cho biết hệ tự nhận gì từ mã — người dùng không phải chọn. */}
+          <p className="md-page__muted" style={{ marginTop: 4 }}>
+            Tự nhận: <strong>{GROUP_LABEL[f.voucher_group] ?? f.voucher_group}</strong> ·{" "}
+            <strong>{EFFECT_LABEL[f.stock_effect] ?? f.stock_effect}</strong> ·{" "}
+            {f.require_approval ? "Cần duyệt" : "Ghi thẳng"}
+            {" — "}<span className="md-page__muted">mã bắt đầu NK-=nhập, XK-=xuất, DC-=chuyển kho.</span>
+          </p>
+
+          <label className="md-page__check" style={{ marginTop: 8 }}>
+            <input type="checkbox" checked={f.is_active} onChange={(e) => set({ is_active: e.target.checked })} /><span>Đang dùng</span>
+          </label>
+
           {error && <div className="banner banner--error" role="alert">{error}</div>}
           <div className="md-page__dialog-actions">
             <Button type="button" variant="ghost" onClick={onClose}>Hủy</Button>

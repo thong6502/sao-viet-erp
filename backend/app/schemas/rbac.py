@@ -127,6 +127,7 @@ class UserRow(BaseModel):
     role_id: int | None = None
     role_name: str | None = None
     is_active: bool = True
+    deleted_at: datetime | None = None
 
 
 class UserCreate(BaseModel):
@@ -135,6 +136,8 @@ class UserCreate(BaseModel):
     department_id: int
     # Tùy chọn: để trống → dùng mật khẩu mặc định (settings.default_user_password).
     password: str | None = Field(default=None, min_length=6, max_length=128)
+    # Tùy chọn: gắn chức vụ (vai trò) ngay khi tạo — vai trò phải thuộc phòng ban trên.
+    role_id: int | None = None
 
 
 class UserCreatedOut(UserRow):

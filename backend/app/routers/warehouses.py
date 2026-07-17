@@ -4,9 +4,11 @@ from __future__ import annotations
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from sqlalchemy.orm import Session
 
-from ..deps import get_warehouse_service, require_permission
+from ..deps import get_db, get_warehouse_service, require_any_permission, require_permission
 from ..models.user import User
+from ..repositories.warehouse_stock_repo import StockRepo
 from ..schemas.warehouse import (
     WarehouseCreate,
     WarehouseListOut,
@@ -22,12 +24,15 @@ from ..services.warehouse_service import (
 
 router = APIRouter(prefix="/api/warehouses", tags=["warehouses"])
 MODULE = "dm_kho"
+# ĐỌC danh sách kho: người vận hành kho (kho:read) cũng cần để chọn kho khi lập phiếu.
+# Quản lý (tạo/sửa/xóa) vẫn giữ dm_kho.
+_read_wh = require_any_permission(("dm_kho", "read"), ("kho", "read"))
 
 
 @router.get("", response_model=WarehouseListOut)
 def list_warehouses(
     svc: Annotated[WarehouseService, Depends(get_warehouse_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(_read_wh)],
     q: str | None = Query(default=None),
     is_active: bool | None = Query(default=None),
     sort: str = Query(default="code"),
@@ -47,7 +52,7 @@ def list_warehouses(
 def get_warehouse(
     warehouse_id: int,
     svc: Annotated[WarehouseService, Depends(get_warehouse_service)],
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    _: Annotated[User, Depends(_read_wh)],
 ) -> WarehouseRow:
     try:
         warehouse = svc.get_warehouse(warehouse_id)
@@ -110,10 +115,34 @@ def update_warehouse(
 def delete_warehouse(
     warehouse_id: int,
     svc: Annotated[WarehouseService, Depends(get_warehouse_service)],
+    db: Annotated[Session, Depends(get_db)],
     user: Annotated[User, Depends(require_permission(MODULE, "delete"))],
+    confirm: str = Query(..., description="Phải nhập ĐÚNG mã kho để xác nhận xóa (mềm)."),
 ) -> Response:
+    """Xóa MỀM (ẩn kho). Bắt nhập đúng mã kho; CHẶN nếu kho còn hàng CHỜ XỬ LÝ
+    (giữ chỗ / chờ KCS / lỗi) — phải xử lý xong trước."""
     try:
-        svc.delete_warehouse(warehouse_id=warehouse_id, actor=user)
+        wh = svc.get_warehouse(warehouse_id)
     except WarehouseNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+    if confirm.strip().upper() != wh.code.upper():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Nhập đúng mã kho “{wh.code}” để xác nhận xóa.",
+        )
+
+    # Guard: hàng chờ xử lý = tồn thực nhưng KHÔNG khả dụng (giữ chỗ/chờ KCS/lỗi).
+    rows = StockRepo(db).balance(warehouse_id=warehouse_id)
+    on_hand = sum(float(r["on_hand"]) for r in rows)
+    available = sum(float(r["available"]) for r in rows)
+    pending = on_hand - available
+    if pending > 1e-9:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Kho còn {pending:g} đơn vị hàng CHỜ XỬ LÝ (giữ chỗ / chờ KCS / lỗi). "
+                   "Xử lý xong (xuất/chuyển/hủy) mới xóa được kho.",
+        )
+
+    svc.delete_warehouse(warehouse_id=warehouse_id, actor=user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

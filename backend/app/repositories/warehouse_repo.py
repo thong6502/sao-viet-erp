@@ -140,6 +140,13 @@ class WarehouseRepository:
         self.db.refresh(warehouse)
         return warehouse
 
+    def set_active(self, warehouse: Warehouse, active: bool) -> Warehouse:
+        """Xóa mềm / kích hoạt lại kho (không đụng name/description)."""
+        warehouse.is_active = active
+        self.db.commit()
+        self.db.refresh(warehouse)
+        return warehouse
+
     def delete(self, warehouse: Warehouse) -> None:
         self.db.delete(warehouse)
         self.db.commit()

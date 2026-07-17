@@ -1183,6 +1183,147 @@ def _migrate_stock_count_phaseA(db: Session) -> None:
     db.commit()
 
 
+def _migrate_material_image_url(db: Session) -> None:
+    """Danh mục vật tư: thêm cột `image_url` (ảnh đại diện) vào `materials`. Bảng phụ
+    `material_uoms` (đơn vị quy đổi) do create_all tự tạo. No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "materials" not in insp.get_table_names():
+        return
+    if "image_url" not in _existing_columns(insp, "materials"):
+        db.execute(text("ALTER TABLE materials ADD COLUMN image_url VARCHAR(255)"))
+    db.commit()
+
+
+def _migrate_material_brd_fields(db: Session) -> None:
+    """Danh mục hàng BRD §3.4: thêm nhóm hàng/quy cách/cờ theo dõi (lô/HSD/QR/giá trị tồn)/
+    ngưỡng tồn min-max/ghi chú vào `materials`. No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "materials" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "materials")
+    cols = [
+        ("group_name", "VARCHAR(120)"),
+        ("spec_text", "VARCHAR(255)"),
+        ("track_lot", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("track_expiry", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("track_qr", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ("track_value", "BOOLEAN NOT NULL DEFAULT TRUE"),
+        ("min_stock", "NUMERIC(18,3)"),
+        ("max_stock", "NUMERIC(18,3)"),
+        ("note", "TEXT"),
+    ]
+    for name, ddl in cols:
+        if name not in existing:
+            db.execute(text(f"ALTER TABLE materials ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
+def _migrate_material_expiry_date(db: Session) -> None:
+    """Hạn sử dụng dạng NGÀY trên `materials` (BRD §3.9). No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "materials" not in insp.get_table_names():
+        return
+    if "expiry_date" not in _existing_columns(insp, "materials"):
+        db.execute(text("ALTER TABLE materials ADD COLUMN expiry_date DATE"))
+    db.commit()
+
+
+def _migrate_material_lot_code(db: Session) -> None:
+    """Số lô nhập trực tiếp ở form mặt hàng. No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "materials" not in insp.get_table_names():
+        return
+    if "lot_code" not in _existing_columns(insp, "materials"):
+        db.execute(text("ALTER TABLE materials ADD COLUMN lot_code VARCHAR(60)"))
+    db.commit()
+
+
+def _migrate_voucher_receiver(db: Session) -> None:
+    """Tổ/Người nhận vật tư trên phiếu kho (BRD §2.5). No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "stock_vouchers" not in insp.get_table_names():
+        return
+    if "receiver" not in _existing_columns(insp, "stock_vouchers"):
+        db.execute(text("ALTER TABLE stock_vouchers ADD COLUMN receiver VARCHAR(150)"))
+    db.commit()
+
+
+def _migrate_production_order_approval(db: Session) -> None:
+    """Duyệt LSX trước khi sinh phiếu kho (BRD §2.5). No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "production_orders" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "production_orders")
+    if "approved_at" not in cols:
+        db.execute(text("ALTER TABLE production_orders ADD COLUMN approved_at TIMESTAMP"))
+    if "approved_by_user_id" not in cols:
+        db.execute(text("ALTER TABLE production_orders ADD COLUMN approved_by_user_id INTEGER"))
+    db.commit()
+
+
+def _migrate_material_warehouse(db: Session) -> None:
+    """Kho quản lý vật tư — thêm cột materials.warehouse_id. No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "materials" not in insp.get_table_names():
+        return
+    if "warehouse_id" not in _existing_columns(insp, "materials"):
+        db.execute(text("ALTER TABLE materials ADD COLUMN warehouse_id INTEGER"))
+    db.commit()
+
+
+def _migrate_lsx_bom(db: Session) -> None:
+    """Nối định mức (BOM) vào LSX — thêm cột production_orders.bom_id. No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "production_orders" not in insp.get_table_names():
+        return
+    if "bom_id" not in _existing_columns(insp, "production_orders"):
+        db.execute(text("ALTER TABLE production_orders ADD COLUMN bom_id INTEGER"))
+    db.commit()
+
+
+def _migrate_user_soft_delete(db: Session) -> None:
+    """Xóa mềm người dùng — thêm cột users.deleted_at. No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "users" not in insp.get_table_names():
+        return
+    if "deleted_at" not in _existing_columns(insp, "users"):
+        db.execute(text("ALTER TABLE users ADD COLUMN deleted_at TIMESTAMP"))
+    db.commit()
+
+
+def _migrate_voucher_handover(db: Session) -> None:
+    """Xác nhận đã bàn giao/nhận vật tư trên phiếu kho (BRD §2.5 bước 10). No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "stock_vouchers" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "stock_vouchers")
+    if "handover_at" not in cols:
+        db.execute(text("ALTER TABLE stock_vouchers ADD COLUMN handover_at TIMESTAMP"))
+    if "handover_by_user_id" not in cols:
+        db.execute(text("ALTER TABLE stock_vouchers ADD COLUMN handover_by_user_id INTEGER"))
+    db.commit()
+
+
+def _migrate_stock_request_voucher_type(db: Session) -> None:
+    """Đề nghị kho: thêm cột stock_requests.voucher_type_id (giữ đủ case loại phiếu). No-op DB fresh."""
+    insp = inspect(db.get_bind())
+    if "stock_requests" not in insp.get_table_names():
+        return
+    if "voucher_type_id" not in _existing_columns(insp, "stock_requests"):
+        db.execute(text("ALTER TABLE stock_requests ADD COLUMN voucher_type_id INTEGER"))
+    db.commit()
+
+
+def _migrate_stock_min_level_near(db: Session) -> None:
+    """Cảnh báo tồn: thêm cột stock_min_levels.near_min_qty (ngưỡng 'sắp min'). No-op DB fresh."""
+    insp = inspect(db.get_bind())
+    if "stock_min_levels" not in insp.get_table_names():
+        return
+    if "near_min_qty" not in _existing_columns(insp, "stock_min_levels"):
+        db.execute(text("ALTER TABLE stock_min_levels ADD COLUMN near_min_qty NUMERIC(18,3) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1220,6 +1361,18 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0035_production_order_header_fields", _migrate_production_order_header_fields),
     ("0036_production_order_bu_fields", _migrate_production_order_bu_fields),
     ("0037_stock_count_phaseA", _migrate_stock_count_phaseA),
+    ("0038_material_image_url", _migrate_material_image_url),
+    ("0040_material_brd_fields", _migrate_material_brd_fields),
+    ("0041_material_expiry_date", _migrate_material_expiry_date),
+    ("0042_material_lot_code", _migrate_material_lot_code),
+    ("0043_voucher_receiver", _migrate_voucher_receiver),
+    ("0044_production_order_approval", _migrate_production_order_approval),
+    ("0045_voucher_handover", _migrate_voucher_handover),
+    ("0046_user_soft_delete", _migrate_user_soft_delete),
+    ("0047_lsx_bom", _migrate_lsx_bom),
+    ("0048_material_warehouse", _migrate_material_warehouse),
+    ("0049_stock_request_voucher_type", _migrate_stock_request_voucher_type),
+    ("0050_stock_min_level_near", _migrate_stock_min_level_near),
 ]
 
 
