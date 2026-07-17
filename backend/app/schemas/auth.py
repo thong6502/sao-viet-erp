@@ -81,7 +81,10 @@ class ModuleCapability(BaseModel):
     can_toggle_active: bool = False
     can_reparent: bool = False
     can_view_salary: bool = False
+    can_edit_salary: bool = False
     can_adjust: bool = False
+    can_approve_exception: bool = False   # A2: don_hang_ban — GĐ duyệt "đơn đặc thù"
+    can_set_credit_terms: bool = False   # khach_hang: thiết lập điều khoản tín dụng khách
 
 
 class PermissionsOut(BaseModel):

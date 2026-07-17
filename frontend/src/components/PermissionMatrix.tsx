@@ -39,7 +39,10 @@ export type ActionKey =
   | "can_toggle_active"
   | "can_reparent"
   | "can_view_salary"
-  | "can_adjust";
+  | "can_adjust"
+  | "can_approve_exception"
+  | "can_set_credit_terms"
+  | "can_record_deposit";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -47,24 +50,51 @@ const WRITE_ACTIONS: ActionKey[] = ["can_create", "can_update", "can_delete"];
 
 // Quyền CHI TIẾT khai báo theo từng module (Cách B). Module không có tên ở đây → không hiện
 // cột chi tiết. Thêm module/hành động mới chỉ cần bổ sung vào bảng này + cột ở backend.
-const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
+const FINE_ACTIONS: Record<string, { key: ActionKey; label: string; hint?: string }[]> = {
   khach_hang: [
-    { key: "can_reassign", label: "Điều chuyển" },
-    { key: "can_export", label: "Xuất file" },
-    { key: "can_view_debt", label: "Xem công nợ" },
-    { key: "can_view_discount", label: "Xem/sửa chiết khấu riêng" },
+    {
+      key: "can_reassign",
+      label: "Điều chuyển",
+      hint: "Chuyển khách sang NV sale khác (đổi người phụ trách) — một khách hoặc hàng loạt. Không có cờ này thì chỉ xem/sửa khách trong phạm vi của mình, không sang tay được.",
+    },
+    {
+      key: "can_export",
+      label: "Xuất file",
+      hint: "Xuất danh bạ khách (CSV) + lịch sử mua hàng của khách (Excel). Lịch sử báo giá chưa có nút xuất — BE chưa làm endpoint.",
+    },
+    {
+      key: "can_view_debt",
+      label: "Xem công nợ",
+      hint: 'Cho xem thẻ Công nợ của khách (số dư phải thu + hạn mức đã dùng). ⚠️ Module Công nợ (AR) CHƯA build — bật quyền vẫn chỉ hiện thẻ "chưa khả dụng", chưa có số thật; chỉ có tác dụng khi module Công nợ hoàn thành.',
+    },
+    {
+      key: "can_set_credit_terms",
+      label: "Thiết lập chính sách tài chính",
+      hint: 'Sửa chính sách tài chính khách: hạn mức công nợ + số ngày công nợ tối đa (từ ngày xuất HĐ) + rào chiết khấu/biên min–max. Ai cũng XEM, chỉ cờ này mới SỬA. Đây là rào mà "Duyệt báo giá đặc thù" dùng để chặn báo giá vượt ngưỡng.',
+    },
   ],
+  // Báo giá: thao tác vòng đời THƯỜNG (gửi khách · ghi nhận Khách đồng ý/từ chối · hủy · PDF · tạo bản mới)
+  // KHÔNG tách quyền chi tiết — ai có "Sửa" báo giá đều làm được (chủ đầu tư chốt P8). Quyền chi tiết DUY NHẤT
+  // còn lại = DUYỆT BÁO GIÁ ĐẶC THÙ (biên thấp / giá trị cao): chỉ vai bật cờ này mới duyệt được đơn trình lên.
   bao_gia: [
-    { key: "can_manage_status", label: "Thao tác trạng thái (gửi/từ chối/hết hạn)" },
-    { key: "can_approve", label: "Duyệt báo giá" },
-    { key: "can_cancel", label: "Hủy báo giá" },
-    { key: "can_export", label: "Xuất PDF" },
-    { key: "can_requote", label: "Tạo bản mới (Re-quote)" },
+    {
+      key: "can_approve_exception",
+      label: "Duyệt báo giá đặc thù",
+      hint: 'Duyệt / từ chối báo giá "đặc thù" — báo giá biên thấp hoặc vượt rào chiết khấu/biên (đặt ở chính sách tài chính khách) mà sale trình lên; duyệt xong mới gửi khách được. Loại thường thì ai Sửa được báo giá đều làm; riêng loại đặc thù cần cờ này. Thường chỉ TP/GĐ Kinh doanh.',
+    },
   ],
+  // Đơn hàng bán: duyệt đơn đặc thù (nhập tay/bổ sung) + hủy đơn đã chốt = 1 cờ; ghi cọc = Kế toán.
   don_hang_ban: [
-    { key: "can_approve", label: "Chốt đơn" },
-    { key: "can_cancel", label: "Hủy đơn" },
-    { key: "can_manage_status", label: "Đổi trạng thái khác" },
+    {
+      key: "can_approve_exception",
+      label: "Duyệt đơn đặc thù · hủy đơn đã chốt",
+      hint: 'Gộp 2 quyền vào 1 cờ: (1) Duyệt "đơn đặc thù" — đơn nhập tay KHÔNG có giá vốn nên không soi được biên lời/lỗ, Sale phải trình lên; (2) Hủy đơn ĐÃ CHỐT (đã lên trạng thái "ordered"). Thường chỉ TP/GĐ Kinh doanh có — NV Sales không.',
+    },
+    {
+      key: "can_record_deposit",
+      label: "Ghi phiếu thu cọc",
+      hint: 'Ghi / sửa / xóa phiếu thu tiền cọc của khách trên đơn (tiền mặt hoặc chuyển khoản, có đối chiếu). Tách riêng cho Kế toán bán hàng — Sale lập đơn nhưng KHÔNG tự ghi tiền cọc (chống "tự thu tự chốt").',
+    },
   ],
   vai_tro: [{ key: "can_manage_permissions", label: "Sửa ma trận phân quyền" }],
   nguoi_dung: [
@@ -149,6 +179,9 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_reparent: false,
     can_view_salary: false,
     can_adjust: false,
+    can_approve_exception: false,
+    can_set_credit_terms: false,
+    can_record_deposit: false,
   }));
 }
 
@@ -287,7 +320,7 @@ function FinePopover({
 }: {
   rect: DOMRect;
   row: PermissionRow;
-  acts: { key: ActionKey; label: string }[];
+  acts: { key: ActionKey; label: string; hint?: string }[];
   label: string;
   readOnly: boolean;
   onToggle: (moduleKey: string, action: ActionKey, value: boolean) => void;
@@ -337,7 +370,10 @@ function FinePopover({
             aria-label={`${a.label} — ${label}`}
             onChange={(e) => onToggle(row.module_key, a.key, e.target.checked)}
           />
-          <span>{a.label}</span>
+          <span className="matrix__fine-text" title={a.hint || undefined}>
+            {a.label}
+            {a.hint && <span className="matrix__fine-hint" aria-hidden="true">ⓘ</span>}
+          </span>
         </label>
       ))}
     </div>,

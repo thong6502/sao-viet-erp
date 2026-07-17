@@ -2,10 +2,8 @@
 // On entry it loads the current user's readable modules (feat-010) to gate both
 // the sidebar (handled in Sidebar) and the content (a forbidden module → 403).
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, type PinnedCustomer, type WarehouseOption } from "../api/client";
+import { api, connectQuoteEvents, type PinnedCustomer, type WarehouseOption } from "../api/client";
 import { useAuth } from "../auth/useAuth";
-import { Toaster, toast } from "./Toast";
-import { consumePurchaseToastSkip } from "../lib/realtimeFlags";
 import {
   buildCapabilities,
   PermissionsProvider,
@@ -13,17 +11,16 @@ import {
 } from "../auth/permissions";
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
+import { DonHangBanPage } from "../pages/DonHangBanPage";
+import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
-import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
 import { ChamCongPage } from "../pages/ChamCongPage";
 import { NghiPhepPage } from "../pages/NghiPhepPage";
 import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
-import { UsersPage } from "../pages/UsersPage";
-import { NormsCatalogPage } from "../pages/NormsCatalogPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
@@ -32,13 +29,14 @@ import { PurchaseRequestsPage } from "../pages/PurchaseRequestsPage";
 import { SuppliersPage } from "../pages/SuppliersPage";
 import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPage";
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
+import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
 import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
 import { WarehousesCatalogPage } from "../pages/WarehousesCatalogPage";
 import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
 import { KhoConfigPage } from "../pages/KhoConfigPage";
 import { KhoBaoCaoPage } from "../pages/KhoBaoCaoPage";
+import { KhoKiemKePage } from "../pages/KhoKiemKePage";
 import { ProductionOrdersPage } from "../pages/ProductionOrdersPage";
-import { ProfileDialog, type ProfileAction } from "./ProfileDialog";
 import { MODULES_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -57,6 +55,14 @@ export interface NavParams {
   openEstimateId?: number | null;
   /** Liên thông: mở Chấm công / Nghỉ phép / Lương lọc theo đúng nhân viên này. */
   focusEmployeeId?: number;
+  /** Liên thông: mở màn Yêu cầu mua hàng (YCMH) lọc + tô sáng đúng mã phiếu này. */
+  focusRequestCode?: string;
+  /** Liên thông: mở màn Phiếu chi / UNC với ô tìm kiếm điền sẵn (mã PC/PMH...). */
+  focusVoucherQuery?: string;
+  /** Liên thông: mở màn Phiếu thu với ô tìm kiếm điền sẵn (mã PC/PT...). */
+  focusReceiptQuery?: string;
+  /** P3 (redesign-bao-gia §6): mở thẳng 1 Phiếu tính giá (link "↳ PTG" từ Báo giá). */
+  focusPhieuId?: number;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -74,13 +80,22 @@ export function AppShell() {
   const [navParams, setNavParams] = useState<NavParams | null>(null);
   const [readable, setReadable] = useState<Set<string> | null>(null);
   const [caps, setCaps] = useState<Capabilities>(new Map());
-  const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
   // Các kho admin đã cấu hình → menu con động dưới "Tồn kho" trong sidebar.
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   // Badge số theo nav id (vd "nghi-phep": số đơn chờ duyệt) — chỉ người có quyền duyệt.
   const [badges, setBadges] = useState<Record<string, number>>({});
   // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
   const [leaveUnseen, setLeaveUnseen] = useState(0);
+  // Real-time luồng gửi duyệt (SSE): toast nổi + mốc 'chờ tôi duyệt' gần nhất để chỉ toast khi TĂNG.
+  const [toasts, setToasts] = useState<{ id: number; text: string; tone: "ok" | "warn" | "info" }[]>([]);
+  const toastSeq = useRef(0);
+  const lastPending = useRef(0);
+  const lastOrderAction = useRef(0);
+  const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
+    const id = ++toastSeq.current;
+    setToasts((prev) => [...prev, { id, text, tone }]);
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 6000);
+  }, []);
 
   // Single navigation entrypoint: switches the active screen AND carries an optional
   // payload (pinned customer / document to open). Every param object is fresh so the
@@ -149,56 +164,99 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Báo giá in ấn = 'chờ TÔI duyệt' (người duyệt) + 'quyết định chưa xem' (người soạn).
+    // Số real-time: SSE đẩy sự kiện → hàm này refetch; ở đây cũng là snapshot lúc đổi màn/mở app.
+    if (readable.has("bao_gia")) {
+      api.quotations
+        .notifySummary(token)
+        .then((s) => {
+          lastPending.current = s.pending_approval_count;
+          setBadges((prev) => ({
+            ...prev,
+            "bao-gia": s.pending_approval_count + s.my_decided_unseen,
+          }));
+        })
+        .catch(() => {});
+    }
+    // Badge Đơn hàng bán = 'việc chờ TÔI' theo vai (TP: chờ duyệt; Kế toán: chờ ghi cọc; Sale:
+    // sẵn sàng chốt). Số real-time: SSE đẩy sự kiện → refetch; đây là snapshot lúc đổi màn/mở app.
+    if (readable.has("don_hang_ban")) {
+      api.orders
+        .notifySummary(token)
+        .then((s) => {
+          lastOrderAction.current = s.action_count;
+          setBadges((prev) => ({ ...prev, "don-hang-ban": s.action_count }));
+        })
+        .catch(() => {});
+    }
   }, [token, readable]);
   useEffect(() => {
     reloadBadges();
     // Refetch khi đổi màn — cả 2 endpoint đều rất nhẹ, giữ badge tươi sau khi thao tác.
   }, [reloadBadges, activeId]);
 
-  // Realtime YCMH: SSE đẩy số yêu cầu mua "chờ xử lý". Badge = số CHƯA XEM (open - seen); vào
-  // trang Yêu cầu mua thì đánh dấu đã xem → badge về 0 (lưu localStorage để giữ qua reload).
-  const ycmhLast = useRef<number | null>(null);
-  const activeIdRef = useRef(activeId);
-  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
-  const [ycmhOpen, setYcmhOpen] = useState<number | null>(null); // số open thực tế (từ SSE)
-  const [ycmhSeen, setYcmhSeen] = useState<number>(() => {
-    const v = Number(localStorage.getItem("ycmhSeen"));
-    return Number.isFinite(v) && v > 0 ? v : 0;
-  });
+  // Real-time luồng gửi duyệt (CLAUDE.md "gửi nội bộ = real-time"): mở 1 kênh SSE sau đăng nhập →
+  // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
+  // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
+  useEffect(() => {
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban"))) return;
+    const close = connectQuoteEvents(token, (e) => {
+      if (readable.has("bao_gia") && e.type === "quote_decision") {
+        pushToast(
+          e.decision === "approved"
+            ? `✓ Báo giá ${e.code} đã được duyệt`
+            : `✕ Báo giá ${e.code} bị từ chối`,
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("bao_gia") && e.type === "quote_pending_changed") {
+        // Danh sách 'chờ duyệt' đổi → refetch số; chỉ toast khi số 'chờ TÔI duyệt' TĂNG (có việc mới).
+        api.quotations
+          .notifySummary(token)
+          .then((s) => {
+            setBadges((prev) => ({
+              ...prev,
+              "bao-gia": s.pending_approval_count + s.my_decided_unseen,
+            }));
+            if (s.pending_approval_count > lastPending.current) {
+              pushToast(`🔔 Có báo giá${e.code ? " " + e.code : ""} chờ bạn duyệt`, "info");
+            }
+            lastPending.current = s.pending_approval_count;
+          })
+          .catch(() => {});
+      } else if (readable.has("don_hang_ban") && e.type === "order_decision") {
+        pushToast(
+          e.decision === "approved" ? `✓ Đơn ${e.code} đã được duyệt` : `✕ Đơn ${e.code} bị từ chối`,
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("don_hang_ban") && e.type === "order_deposit_ok") {
+        pushToast(`🔔 Đơn ${e.code} đã đủ cọc — chốt được rồi`, "info");
+        reloadBadges();
+      } else if (readable.has("don_hang_ban") && e.type === "order_pending_changed") {
+        // Danh sách 'chờ (duyệt/ghi cọc/chốt)' đổi → refetch số theo vai; toast khi số 'chờ TÔI' TĂNG.
+        api.orders
+          .notifySummary(token)
+          .then((s) => {
+            setBadges((prev) => ({ ...prev, "don-hang-ban": s.action_count }));
+            if (s.action_count > lastOrderAction.current) {
+              pushToast("🔔 Có đơn hàng chờ bạn xử lý", "info");
+            }
+            lastOrderAction.current = s.action_count;
+          })
+          .catch(() => {});
+      }
+    });
+    return close;
+  }, [token, readable, reloadBadges, pushToast]);
 
+  // Mở màn Báo giá = người soạn đã xem các quyết định → đánh dấu seen + hạ badge (giống chuông Nghỉ phép).
   useEffect(() => {
     if (!token || readable === null) return;
-    const canSee = ["thu_mua", "bao_gia", "don_hang_ban", "kho", "san_xuat", "dm_giay_vat_tu"]
-      .some((m) => readable.has(m));
-    if (!canSee) return;
-    const es = new EventSource(api.departmentPurchaseRequests.eventsUrl(token));
-    es.onmessage = (e) => {
-      let n: number;
-      try { n = JSON.parse(e.data)?.open ?? 0; } catch { return; }
-      setYcmhOpen(n);
-      const prev = ycmhLast.current;
-      // Toast khi có cái MỚI — trừ khi đang ở chính trang đó, hoặc là do mình vừa tạo.
-      if (prev !== null && n > prev && activeIdRef.current !== "yeu-cau-mua-hang" && !consumePurchaseToastSkip()) {
-        toast(`🛒 Có ${n - prev} yêu cầu mua hàng mới`, "info");
-      }
-      ycmhLast.current = n;
-    };
-    return () => es.close();
-  }, [token, readable]);
-
-  // Badge = số chưa xem (>=0).
-  useEffect(() => {
-    const unseen = ycmhOpen == null ? 0 : Math.max(0, ycmhOpen - ycmhSeen);
-    setBadges((prev) => (prev["yeu-cau-mua-hang"] === unseen ? prev : { ...prev, "yeu-cau-mua-hang": unseen }));
-  }, [ycmhOpen, ycmhSeen]);
-
-  // Vào trang Yêu cầu mua → đánh dấu đã xem (badge về 0).
-  useEffect(() => {
-    if (activeId === "yeu-cau-mua-hang" && ycmhOpen != null && ycmhOpen !== ycmhSeen) {
-      setYcmhSeen(ycmhOpen);
-      localStorage.setItem("ycmhSeen", String(ycmhOpen));
+    if (activeId.split(":")[0] === "bao-gia" && readable.has("bao_gia")) {
+      api.quotations.markDecisionsSeen(token).then(reloadBadges).catch(() => {});
     }
-  }, [activeId, ycmhOpen, ycmhSeen]);
+  }, [activeId, token, readable, reloadBadges]);
 
   // Bấm chuông → mở Nghỉ phép (Đơn của tôi) + đánh dấu đã xem → đóng chuông.
   const openLeaveFromBell = useCallback(() => {
@@ -247,8 +305,6 @@ export function AppShell() {
     switch (baseId) {
       case "phong-ban":
         return <DepartmentsPage />;
-      case "nguoi-dung":
-        return <UsersPage />;
       case "nhan-su":
         return <NhanSuPage navigate={navigate} />;
       case "ho-so-cua-toi":
@@ -261,6 +317,8 @@ export function AppShell() {
         return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} />;
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
+      case "tinh-gia":
+        return <TinhGiaPage navigate={navigate} openPhieuId={navParams?.focusPhieuId} />;
       case "bao-gia":
         return (
           <BaoGiaPage
@@ -271,24 +329,33 @@ export function AppShell() {
           />
         );
       case "don-hang-ban":
+        return <DonHangBanPage navigate={navigate} />;
+      case "yeu-cau-mua-hang":
         return (
-          <DonHangBanPage
-            pinnedCustomer={navParams?.customer ?? null}
-            openOrderId={navParams?.openOrderId ?? null}
+          <DepartmentPurchaseRequestsPage
+            focusRequestCode={navParams?.focusRequestCode ?? null}
           />
         );
-      case "dinh-muc-bu-hao":
-        return <NormsCatalogPage />;
-      case "yeu-cau-mua-hang":
-        return <DepartmentPurchaseRequestsPage />;
       case "mua-hang":
-        return <PurchaseRequestsPage />;
+        return <PurchaseRequestsPage navigate={navigate} />;
       case "nha-cung-cap":
         return <SuppliersPage />;
       case "ke-toan-yeu-cau-mua":
-        return <AccountingPurchaseInboxPage />;
+        return <AccountingPurchaseInboxPage navigate={navigate} />;
       case "ke-toan-phieu-chi":
-        return <PaymentVouchersPage />;
+        return (
+          <PaymentVouchersPage
+            navigate={navigate}
+            focusQuery={navParams?.focusVoucherQuery ?? null}
+          />
+        );
+      case "ke-toan-phieu-thu":
+        return (
+          <PaymentReceiptsPage
+            navigate={navigate}
+            focusQuery={navParams?.focusReceiptQuery ?? null}
+          />
+        );
       case "ke-toan-tai-khoan":
         return <AccountingBankAccountsPage />;
       case "cau-hinh-kho":
@@ -297,6 +364,8 @@ export function AppShell() {
         return <KhoConfigPage />;
       case "kho-bao-cao":
         return <KhoBaoCaoPage />;
+      case "kho-kiem-ke":
+        return <KhoKiemKePage />;
       case "kho-hang":
         return (
           <WarehouseItemsPage key={activeId} initialWarehouseId={warehouseIdOf(activeId)} />
@@ -312,7 +381,6 @@ export function AppShell() {
 
   return (
     <PermissionsProvider caps={caps}>
-      <Toaster />
       <div className="shell">
         <Sidebar
           activeId={activeId}
@@ -322,10 +390,36 @@ export function AppShell() {
           badges={badges}
         />
         <div className="shell__main">
-          <Topbar onProfileAction={setProfileAction} leaveUnseen={leaveUnseen} onOpenLeave={openLeaveFromBell} />
+          <Topbar onOpenProfile={() => navigate("ho-so-cua-toi")} leaveUnseen={leaveUnseen} onOpenLeave={openLeaveFromBell} />
           <div className="shell__content">{renderContent()}</div>
         </div>
-        <ProfileDialog action={profileAction} onClose={() => setProfileAction(null)} />
+        {/* Toast real-time luồng gửi duyệt — nổi góc trên-phải, tự tắt sau 6s. */}
+        {toasts.length > 0 && (
+          <div
+            aria-live="polite"
+            style={{
+              position: "fixed", top: 16, right: 16, zIndex: 9999,
+              display: "flex", flexDirection: "column", gap: 8, maxWidth: 340,
+            }}
+          >
+            {toasts.map((t) => (
+              <div
+                key={t.id}
+                role="status"
+                onClick={() => setToasts((prev) => prev.filter((x) => x.id !== t.id))}
+                style={{
+                  padding: "10px 14px", borderRadius: 10, cursor: "pointer",
+                  color: "#fff", fontSize: 13, fontWeight: 600, lineHeight: 1.35,
+                  boxShadow: "0 10px 28px rgba(0,0,0,.28)",
+                  background:
+                    t.tone === "ok" ? "#1f8a52" : t.tone === "warn" ? "#b4432b" : "#2b6cb0",
+                }}
+              >
+                {t.text}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </PermissionsProvider>
   );

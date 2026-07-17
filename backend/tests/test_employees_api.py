@@ -263,7 +263,7 @@ def test_transfer_and_promote_record_events(client):
 # --- account link -----------------------------------------------------------
 
 
-def test_create_account_in_wizard_then_unlink_and_relink(client):
+def test_create_account_in_wizard_then_login(client):
     token = _admin_token(client)
     resp = _create(
         client, token, full_name="Có Tài Khoản",
@@ -272,23 +272,96 @@ def test_create_account_in_wizard_then_unlink_and_relink(client):
     assert resp.status_code == 201
     payload = resp.json()
     assert payload["account_username"] == "nv_login"
-    eid = payload["employee"]["id"]
 
     # the new account can authenticate
     login = client.post("/api/auth/login", json={"username": "nv_login", "password": "secret1"})
     assert login.status_code == 200
 
-    # unlink, then link it back via the account endpoint
-    unlinked = client.delete(f"/api/employees/{eid}/account", headers=_h(token)).json()
-    assert unlinked["user_id"] is None
 
-    uid = login.json()  # not the user id; fetch via meta
-    meta = client.get("/api/employees/meta", headers=_h(token)).json()
-    user_id = next(u["id"] for u in meta["unlinked_users"] if u["username"] == "nv_login")
-    relinked = client.post(
-        f"/api/employees/{eid}/account", json={"user_id": user_id}, headers=_h(token)
+def test_create_account_for_existing_employee(client):
+    """NV tạo trước, cấp tài khoản sau — đường chính vì không còn tài khoản mồ côi để liên kết."""
+    token = _admin_token(client)
+    eid = _create(client, token, full_name="Cấp Sau").json()["employee"]["id"]
+    resp = client.post(
+        f"/api/employees/{eid}/account",
+        json={"username": "nv_capsau", "password": "secret1"},
+        headers=_h(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["account_username"] == "nv_capsau"
+    login = client.post(
+        "/api/auth/login", json={"username": "nv_capsau", "password": "secret1"}
+    )
+    assert login.status_code == 200
+
+
+def test_attach_account_needs_username_or_user_id(client):
+    token = _admin_token(client)
+    eid = _create(client, token, full_name="Thiếu Tham Số").json()["employee"]["id"]
+    resp = client.post(f"/api/employees/{eid}/account", json={}, headers=_h(token))
+    assert resp.status_code == 400
+
+
+def test_unlink_account_endpoint_is_gone(client):
+    """Mọi tài khoản phải thuộc một hồ sơ → không còn cửa 'gỡ liên kết' (đẻ tài khoản mồ côi)."""
+    token = _admin_token(client)
+    payload = _create(
+        client, token, full_name="Không Gỡ Được",
+        account={"username": "nv_nogo", "password": "secret1"},
     ).json()
-    assert relinked["account_username"] == "nv_login"
+    eid = payload["employee"]["id"]
+    resp = client.delete(f"/api/employees/{eid}/account", headers=_h(token))
+    assert resp.status_code == 405  # method gone; chặn người = KHÓA tài khoản
+
+
+def test_create_orphan_user_endpoint_is_gone(client):
+    """Đường tạo tài khoản duy nhất là qua hồ sơ NV → POST /api/users không còn."""
+    token = _admin_token(client)
+    resp = client.post(
+        "/api/users",
+        json={"name": "Mồ Côi", "username": "mocoi", "department_id": _dept_id("Kinh doanh")},
+        headers=_h(token),
+    )
+    assert resp.status_code == 405
+
+
+def test_resigned_employee_cannot_login_and_reinstate_restores(client):
+    """Trạng thái hồ sơ 'Đã nghỉ' ⇒ không đăng nhập được. Đổi trạng thái lại ⇒ vào được."""
+    token = _admin_token(client)
+    payload = _create(
+        client, token, full_name="Sắp Nghỉ",
+        account={"username": "nv_nghi", "password": "secret1"},
+    ).json()
+    eid = payload["employee"]["id"]
+    creds = {"username": "nv_nghi", "password": "secret1"}
+    assert client.post("/api/auth/login", json=creds).status_code == 200
+
+    # nghỉ việc → login đóng cửa (không ai phải đi khóa tay)
+    resp = client.post(
+        f"/api/employees/{eid}/transitions",
+        json={"kind": "resign", "effective_date": "2026-07-31", "resign_reason": "Chuyển việc"},
+        headers=_h(token),
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "resigned"
+    assert client.post("/api/auth/login", json=creds).status_code == 401
+
+    # tuyển lại → tự mở, không cần nhớ mở khóa
+    back = client.post(
+        f"/api/employees/{eid}/transitions",
+        json={"kind": "reinstate", "effective_date": "2026-09-01"},
+        headers=_h(token),
+    )
+    assert back.status_code == 200
+    assert client.post("/api/auth/login", json=creds).status_code == 200
+
+
+def test_meta_returns_roles_for_account_form(client):
+    token = _admin_token(client)
+    meta = client.get("/api/employees/meta", headers=_h(token)).json()
+    assert meta["roles"], "meta phải trả vai trò để form tài khoản chọn"
+    kd = _dept_id("Kinh doanh")
+    assert any(r["name"] == "NV Sales" and r["department_id"] == kd for r in meta["roles"])
 
 
 # --- attachments ------------------------------------------------------------
@@ -324,3 +397,98 @@ def test_forbidden_without_permission(client):
     token = _sales_token()
     assert client.get("/api/employees", headers=_h(token)).status_code == 403
     assert _create(client, token).status_code == 403
+
+
+# --- N5: tách quyền SỬA lương/BHXH khỏi quyền sửa hồ sơ ---------------------
+
+
+def _ns_no_salary_token() -> str:
+    """User có quyền nhan_su read/create/update nhưng KHÔNG view_salary/edit_salary (N5)."""
+    db = SessionLocal()
+    try:
+        users = UserRepository(db)
+        existing = users.get_by_username("ns-nosalary")
+        if existing is not None:
+            return create_access_token(str(existing.id))
+        hcns = DepartmentRepository(db).get_by_name("Hành chính nhân sự")
+        roles = RoleRepository(db)
+        role = roles.get_by_name_and_department("NS Không Lương", hcns.id)
+        if role is None:
+            role = roles.create(name="NS Không Lương", department_id=hcns.id)
+            roles.set_permission(
+                role_id=role.id, module_key="nhan_su", scope="all",
+                can_read=True, can_create=True, can_update=True,
+            )
+        u = users.create(username="ns-nosalary", name="NS", password_hash=hash_password("x"))
+        users.set_assignment(u, department_id=hcns.id, role_id=role.id, is_active=True)
+        return create_access_token(str(u.id))
+    finally:
+        db.close()
+
+
+def test_edit_salary_gate_blocks_sensitive_write(client):
+    """Người có nhan_su:update nhưng KHÔNG edit_salary → field lương/BHXH bị BỎ QUA khi
+    tạo/sửa (field thường vẫn ghi). Admin (có view_salary) đọc lại để kiểm."""
+    admin = _admin_token(client)
+    tok = _ns_no_salary_token()
+
+    # Tạo NV kèm field nhạy cảm → bị bỏ (không lưu lén)
+    created = _create(client, tok, full_name="NV No Salary",
+                      bank_account="123456", payroll_group="van_phong", phone="0900")
+    assert created.status_code == 201
+    eid = created.json()["employee"]["id"]
+
+    seen = client.get(f"/api/employees/{eid}", headers=_h(admin)).json()
+    assert seen["phone"] == "0900"          # field thường: ghi được
+    assert seen["bank_account"] is None     # nhạy cảm: bị bỏ khi tạo
+    assert seen["payroll_group"] is None
+
+    # Admin đặt số TK nền (full_name bắt buộc ở EmployeeUpdate)
+    r_admin = client.put(f"/api/employees/{eid}",
+                         json={"full_name": "NV No Salary", "bank_account": "111"}, headers=_h(admin))
+    assert r_admin.status_code == 200
+    # user không-quyền-lương PUT đổi bank + phone → bank bị bỏ, phone đổi
+    upd = client.put(f"/api/employees/{eid}",
+                     json={"full_name": "NV No Salary", "bank_account": "999", "phone": "0911"}, headers=_h(tok))
+    assert upd.status_code == 200
+    seen2 = client.get(f"/api/employees/{eid}", headers=_h(admin)).json()
+    assert seen2["phone"] == "0911"         # field thường: ghi được
+    assert seen2["bank_account"] == "111"   # nhạy cảm: KHÔNG đổi
+
+
+# --- Đ1: hồ sơ là GỐC — đồng bộ danh tính xuống tài khoản gắn kèm ------------
+
+
+def test_employee_edit_syncs_name_and_department_to_user(client):
+    """Đ1/Đ2: sửa tên hồ sơ + điều chuyển phòng → tài khoản gắn kèm đồng bộ tên + phòng
+    (phòng = trục data-scope RBAC). Đồng bộ 1 chiều hồ-sơ→tài-khoản."""
+    admin = _admin_token(client)
+    hcns = _dept_id("Hành chính nhân sự")
+    kd = _dept_id("Kinh doanh")
+    created = _create(client, admin, full_name="Tên Cũ", department_id=hcns,
+                      account={"username": "synced", "password": "synced123"})
+    eid = created.json()["employee"]["id"]
+
+    client.put(f"/api/employees/{eid}", json={"full_name": "Tên Mới"}, headers=_h(admin))
+    client.post(f"/api/employees/{eid}/transitions",
+                json={"kind": "transfer", "new_department_id": kd}, headers=_h(admin))
+
+    db = SessionLocal()
+    try:
+        u = UserRepository(db).get_by_username("synced")
+        assert u.name == "Tên Mới"        # tên đồng bộ
+        assert u.department_id == kd       # phòng (scope) đồng bộ theo điều chuyển
+    finally:
+        db.close()
+
+
+def test_user_with_profile_cannot_self_rename(client):
+    """Đ1: tài khoản CÓ hồ sơ → không tự đổi tên hiển thị qua /api/users/me (tên do hồ sơ
+    quyết, HCNS cập nhật). Chặn ở backend, không chỉ ẩn ở FE."""
+    admin = _admin_token(client)
+    _create(client, admin, full_name="Khoa Nguyen",
+            account={"username": "hasprofile", "password": "hasprofile1"})
+    tok = client.post("/api/auth/login",
+                      json={"username": "hasprofile", "password": "hasprofile1"}).json()["access_token"]
+    r = client.patch("/api/users/me", json={"name": "Tên Tự Đặt"}, headers=_h(tok))
+    assert r.status_code == 400

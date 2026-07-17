@@ -26,45 +26,41 @@
   font-family: inherit;
 }
 
-.purchase__layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
-  gap: var(--sp-5);
-  align-items: start;
-}
-
 .purchase__list {
   min-width: 0;
 }
 
+/* Ô bảng PMH: mã phiếu/mã YCMH/ngày/tiền không được gãy giữa chừng — gãy dòng
+   trong các ô này là thứ làm bảng "vỡ" trên laptop. Nội dung dài thì cắt "…"
+   (xem đầy đủ ở panel chi tiết). */
+.purchase__list .purchase__code-cell {
+  white-space: nowrap;
+}
+
+.purchase__list .purchase__code-cell .purchase__source-codes,
+.purchase__list .purchase__row-purpose {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.purchase__list .purchase__supplier-cell {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.purchase__list .purchase__date-cell,
+.purchase__list .purchase__money-cell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .purchase__row--selected {
   background: var(--rule-hair);
-}
-
-.purchase__detail {
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
-  background: var(--canvas);
-  padding: var(--sp-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--sp-4);
-  position: sticky;
-  top: var(--sp-5);
-}
-
-.purchase__detail-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--sp-3);
-  border-bottom: 1px solid var(--rule);
-  padding-bottom: var(--sp-4);
-}
-
-.purchase__detail-head h2 {
-  margin: var(--sp-1) 0 0;
-  font-size: 18px;
 }
 
 .purchase__facts {
@@ -148,77 +144,6 @@
   justify-content: flex-end;
   flex-wrap: nowrap;
   gap: 4px;
-}
-
-.purchase__action-tip {
-  position: relative;
-  display: inline-flex;
-}
-
-.purchase__action-icon-btn {
-  width: 32px;
-  height: 32px;
-  flex: 0 0 32px;
-  margin-left: 0;
-  padding: 0;
-  border-radius: var(--r-2);
-}
-
-.purchase__action-icon-btn > svg {
-  flex: none;
-}
-
-.purchase__action-icon-btn[aria-busy="true"] > svg {
-  display: none;
-}
-
-.purchase__action-tip-bubble {
-  position: absolute;
-  z-index: 80;
-  right: 0;
-  bottom: calc(100% + 8px);
-  width: max-content;
-  max-width: 180px;
-  padding: 6px 9px;
-  border-radius: var(--r-2);
-  background: var(--ink);
-  color: var(--paper-contrast);
-  box-shadow: 0 4px 12px rgba(20, 19, 15, 0.2);
-  font-size: 12px;
-  font-weight: var(--fw-medium);
-  line-height: 1.3;
-  white-space: nowrap;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: translateY(4px);
-  transition: opacity var(--duration-fast) var(--easing-standard),
-    transform var(--duration-fast) var(--easing-standard),
-    visibility 0s linear var(--duration-fast);
-}
-
-.purchase__action-tip-bubble::after {
-  content: "";
-  position: absolute;
-  top: 100%;
-  right: 11px;
-  border: 5px solid transparent;
-  border-top-color: var(--ink);
-}
-
-.purchase__action-tip:hover .purchase__action-tip-bubble,
-.purchase__action-tip:focus-within .purchase__action-tip-bubble {
-  opacity: 1;
-  visibility: visible;
-  transform: translateY(0);
-  transition-delay: 0s;
-}
-
-.purchase__empty-detail {
-  color: var(--ash);
-  font-size: 14px;
-  text-align: center;
-  padding: var(--sp-8) var(--sp-3);
 }
 
 .purchase__status {
@@ -307,6 +232,25 @@
   font-family: var(--ff-mono);
   font-size: 11px;
   color: var(--moss-deep);
+}
+
+/* Mã chứng từ bấm được (CodeLink) — kế thừa font/cỡ chữ của chỗ chứa nó. */
+.code-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  text-underline-offset: 2px;
+}
+
+.code-link:hover,
+.code-link:focus-visible {
+  color: var(--ink);
+  text-decoration-color: currentColor;
 }
 
 .purchase__source-picker {
@@ -494,19 +438,11 @@
 }
 
 @media (max-width: 1200px) {
-  .purchase__layout {
-    grid-template-columns: 1fr;
-  }
-
   .purchase__source-head,
   .purchase__source-toolbar,
   .purchase__source-foot {
     align-items: stretch;
     flex-direction: column;
-  }
-
-  .purchase__detail {
-    position: static;
   }
 
   .purchase__line-edit {

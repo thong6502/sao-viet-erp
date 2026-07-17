@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_permission
+from datetime import date
 from ..models.user import User
 from ..repositories.bu_hao_repo import BuHaoRepository
 from ..schemas.bu_hao import BuHaoIn, BuHaoListOut, BuHaoRow
@@ -42,12 +43,11 @@ def list_items(
     svc: Service,
     _: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
-    truc: str | None = Query(default=None),
     active: bool | None = Query(default=None),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=50, ge=1, le=200),
 ) -> BuHaoListOut:
-    rows, total = svc.list(q=q, truc=truc, active=active, page=page, size=size)
+    rows, total = svc.list(q=q, active=active, page=page, size=size)
     return BuHaoListOut(items=[BuHaoRow.model_validate(r) for r in rows], total=total, page=page, size=size)
 
 
@@ -60,9 +60,9 @@ def get_item(bh_id: int, svc: Service, _: Annotated[User, Depends(require_permis
 
 
 @router.post("", response_model=BuHaoRow, status_code=status.HTTP_201_CREATED)
-def create_item(payload: BuHaoIn, svc: Service, _: Annotated[User, Depends(require_permission(MODULE, "create"))]):
+def create_item(payload: BuHaoIn, svc: Service, current_user: Annotated[User, Depends(require_permission(MODULE, "create"))]):
     try:
-        return BuHaoRow.model_validate(svc.create(payload.model_dump(exclude_unset=True)))
+        return BuHaoRow.model_validate(svc.create(payload.model_dump(exclude_unset=True), created_by=current_user.id))
     except (BuHaoDuplicate, BuHaoValidationError) as e:
         raise _err(e) from None
 

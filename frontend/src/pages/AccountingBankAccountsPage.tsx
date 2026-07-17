@@ -10,6 +10,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
+import { UNC_ENABLED } from "../constants/features";
 import { Button } from "../components/Button";
 import "./accounting.css";
 
@@ -170,9 +171,11 @@ export function AccountingBankAccountsPage() {
 
   return (
     <main className="md-page">
-      <header className="md-page__head"><p className="eyebrow">Kế toán</p><h1 className="md-page__title">Tài khoản ngân hàng</h1><p className="md-page__sub">Quản lý tài khoản trích nợ của công ty và tài khoản thụ hưởng của nhà cung cấp dùng khi lập UNC.</p></header>
+      <header className="md-page__head"><p className="eyebrow">Kế toán</p><h1 className="md-page__title">Tài khoản ngân hàng</h1><p className="md-page__sub">{UNC_ENABLED ? "Quản lý tài khoản trích nợ của công ty và tài khoản thụ hưởng của nhà cung cấp dùng khi lập UNC." : "Quản lý tài khoản ngân hàng của công ty, dùng khi thu tiền về qua chuyển khoản."}</p></header>
       {error && <div className="banner banner--error" role="alert">{error}</div>}
-      <div className="acct-tabs" role="tablist"><button className={tab === "company" ? "is-active" : ""} onClick={() => setTab("company")}>Tài khoản công ty</button><button className={tab === "supplier" ? "is-active" : ""} onClick={() => setTab("supplier")}>Tài khoản nhà cung cấp</button></div>
+      {/* Tạm ẩn TK nhà cung cấp: còn mỗi tab Công ty thì thanh tab vô nghĩa — ẩn cả
+          thanh. setTab("supplier") thành bất khả đạt nên tab tự kẹt ở "company". */}
+      {UNC_ENABLED && <div className="acct-tabs" role="tablist"><button className={tab === "company" ? "is-active" : ""} onClick={() => setTab("company")}>Tài khoản công ty</button><button className={tab === "supplier" ? "is-active" : ""} onClick={() => setTab("supplier")}>Tài khoản nhà cung cấp</button></div>}
       <section className="acct-toolbar">
         {tab === "supplier" ? <select className="input acct-toolbar__select" value={supplierFilter ?? ""} onChange={(event) => setSupplierFilter(event.target.value ? Number(event.target.value) : null)}><option value="">Tất cả nhà cung cấp</option>{suppliers.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select> : <div />}
         {canManage && <Button variant="primary" onClick={createForCurrentTab}>Thêm tài khoản</Button>}

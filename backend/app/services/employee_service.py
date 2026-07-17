@@ -37,6 +37,7 @@ from ..models.employee import (
 )
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
+from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
 from ..security import hash_password
 
@@ -72,6 +73,13 @@ REQUESTABLE_FIELDS = (
     "permanent_address", "bank_account", "bank_name", "dependents_count",
 )
 
+# Field lương/BHXH nhạy cảm — chỉ GHI được nếu actor có quyền `nhan_su:edit_salary` (N5).
+# Dùng CHUNG với router (che khi đọc `_mask_salary`) để đọc/ghi đối xứng, không lệch danh sách.
+SENSITIVE_FIELDS = (
+    "social_insurance_no", "pit_tax_code", "bank_account", "bank_name",
+    "payroll_group", "pay_grade_key",
+)
+
 
 class EmployeeError(Exception):
     """Base for employee domain errors."""
@@ -102,10 +110,12 @@ class EmployeeService:
         employees: EmployeeRepository,
         audit: AuditLogRepository,
         users: UserRepository,
+        departments: DepartmentRepository,
     ) -> None:
         self.employees = employees
         self.audit = audit
         self.users = users
+        self.departments = departments
 
     # --- validation helpers -------------------------------------------------
 
@@ -155,6 +165,18 @@ class EmployeeService:
                 out[key] = value
         return out
 
+    def _sync_user_from_employee(self, employee) -> None:
+        """Đồng bộ danh tính hồ sơ → tài khoản đã gắn (Đ1: hồ sơ là nguồn). No-op nếu chưa
+        gắn tài khoản. Ảnh chỉ ghi khi hồ sơ có ảnh (repo tự lo)."""
+        if employee.user_id is None:
+            return
+        user = self.users.get_by_id(employee.user_id)
+        if user is not None:
+            self.users.sync_from_employee(
+                user, name=employee.full_name,
+                department_id=employee.department_id, avatar_url=employee.photo_url,
+            )
+
     # --- reads --------------------------------------------------------------
 
     def list_employees(self, **kwargs) -> tuple[list[Employee], int]:
@@ -202,10 +224,14 @@ class EmployeeService:
         status: str | None,
         hire_date: date | None,
         fields: dict,
+        can_edit_salary: bool = True,
     ) -> tuple[Employee, Employee | None, Employee | None]:
         """Create an employee, record the first 'hired' event, return
         (employee, dup_by_CCCD, dup_by_BHXH). A duplicate does NOT block creation."""
         status = self._validate_status(status)
+        # N5: thiếu quyền edit_salary → bỏ field lương/BHXH ngay khi tạo (không lưu lén).
+        if not can_edit_salary:
+            fields = {k: v for k, v in fields.items() if k not in SENSITIVE_FIELDS}
         clean = self._clean_fields(fields)
         clean["full_name"] = self._validate_name(clean.get("full_name"))
 
@@ -242,7 +268,8 @@ class EmployeeService:
     # --- edit (no stage change) --------------------------------------------
 
     def update_employee(
-        self, *, employee_id: int, scope: str, actor, fields: dict
+        self, *, employee_id: int, scope: str, actor, fields: dict,
+        can_edit_salary: bool = True,
     ) -> tuple[Employee, Employee | None, Employee | None]:
         """Edit hồ sơ (personal / BHXH / contacts). Does NOT touch status /
         department / job_grade (those are transitions). Blocked once resigned."""
@@ -252,6 +279,9 @@ class EmployeeService:
                 "Hồ sơ đã nghỉ việc (khóa sửa). Dùng 'Tuyển lại' nếu cần mở lại."
             )
         clean = {k: v for k, v in fields.items() if k in EDITABLE_FIELDS}
+        # N5: thiếu quyền edit_salary → bỏ field lương/BHXH khỏi bản ghi (không chặn cả request).
+        if not can_edit_salary:
+            clean = {k: v for k, v in clean.items() if k not in SENSITIVE_FIELDS}
         clean = self._clean_fields(clean)
         if "full_name" in clean:
             clean["full_name"] = self._validate_name(clean["full_name"])
@@ -262,6 +292,7 @@ class EmployeeService:
             exclude_id=employee.id,
         )
         self.employees.update(employee, **clean)
+        self._sync_user_from_employee(employee)  # Đ1: đồng bộ tên/ảnh/phòng xuống tài khoản
         self.audit.create(
             actor_user_id=actor.id,
             action="update_employee",
@@ -331,7 +362,8 @@ class EmployeeService:
     def list_update_requests(self, *, status=None):
         return self.employees.list_update_requests(status=status)
 
-    def decide_update_request(self, *, request_id: int, actor, approve: bool, note=None):
+    def decide_update_request(self, *, request_id: int, actor, approve: bool, note=None,
+                              can_edit_salary: bool = True):
         req = self.employees.get_update_request(request_id)
         if req is None:
             raise EmployeeNotFound("Không tìm thấy yêu cầu cập nhật.")
@@ -341,8 +373,13 @@ class EmployeeService:
             emp = self.employees.get_by_id(req.employee_id)
             if emp is None:
                 raise EmployeeNotFound("Không tìm thấy nhân viên.")
-            clean = self._clean_fields({k: v for k, v in req.changes.items() if k in REQUESTABLE_FIELDS})
+            allowed = {k: v for k, v in req.changes.items() if k in REQUESTABLE_FIELDS}
+            # N5: người duyệt thiếu quyền edit_salary → bỏ field nhạy cảm (bank...) khi áp.
+            if not can_edit_salary:
+                allowed = {k: v for k, v in allowed.items() if k not in SENSITIVE_FIELDS}
+            clean = self._clean_fields(allowed)
             self.employees.update(emp, **clean)
+            self._sync_user_from_employee(emp)  # Đ1: duyệt đổi tên → đồng bộ tài khoản
             self.audit.create(
                 actor_user_id=actor.id, action="approve_profile_request",
                 target=f"employee:{emp.id}", detail=f"{emp.code} duyệt yêu cầu #{req.id}",
@@ -398,6 +435,12 @@ class EmployeeService:
             updates["resign_date"] = None
             updates["resign_reason"] = None
         self.employees.update(employee, **updates)
+        if kind == "resign" and employee.user_id is not None:
+            # Login đã tự chặn theo trạng thái hồ sơ, nhưng token đã phát thì vẫn còn hạn —
+            # bump token_version để cắt luôn phiên đang sống của người vừa nghỉ.
+            account = self.users.get_by_id(employee.user_id)
+            if account is not None:
+                self.users.bump_token_version(account)
         self.employees.add_event(
             employee_id=employee.id,
             event_type=event_type,
@@ -425,6 +468,22 @@ class EmployeeService:
         if old == new_department_id:
             raise EmployeeValidationError("Phòng/tổ mới trùng phòng hiện tại.")
         self.employees.update(employee, department_id=new_department_id)
+        self._sync_user_from_employee(employee)  # Đ1/Đ2: chuyển phòng → tài khoản đổi phòng (scope)
+        # Đ2: NV đang là trưởng phòng CŨ → gỡ chức (không để head phòng cũ treo người đã đi).
+        if old is not None and employee.user_id is not None:
+            old_dept = self.departments.get_by_id(old)
+            if old_dept is not None and old_dept.head_user_id == employee.user_id:
+                self.departments.set_head(old_dept, None)
+        # Vai trò thuộc ĐÚNG 1 phòng → chuyển phòng phải GỠ vai trò cũ, về mức tối thiểu tới khi
+        # trưởng phòng mới gán lại (khớp bulk transfer_users). Không gỡ thì tài khoản giữ vai trò
+        # của phòng khác — trạng thái mà chính API gán-vai-trò từ chối (400).
+        if employee.user_id is not None:
+            account = self.users.get_by_id(employee.user_id)
+            if account is not None and account.role_id is not None:
+                self.users.set_assignment(
+                    account, department_id=new_department_id, role_id=None,
+                    is_active=account.is_active,
+                )
         self.employees.add_event(
             employee_id=employee.id,
             event_type=EVENT_TRANSFERRED,
@@ -442,6 +501,34 @@ class EmployeeService:
             detail=f"{employee.code} phòng {old}→{new_department_id}",
         )
         return employee
+
+    def transfer_many(
+        self, *, employee_ids: list[int], target_department_id: int, scope: str, actor,
+        note: str | None = None,
+    ) -> int:
+        """Bulk điều chuyển theo HỒ SƠ (màn Phòng ban) — kể cả người CHƯA có tài khoản.
+
+        Kiểm tra TOÀN BỘ trước rồi mới ghi, để một id hỏng không làm chuyển dở dang. Mỗi
+        người đi qua đúng luồng điều chuyển đơn `_apply_transfer` nên được: đồng bộ phòng
+        xuống tài khoản, gỡ vai trò cũ, gỡ chức trưởng phòng cũ, ghi Quá trình công tác +
+        nhật ký. (Bản cũ chuyển theo TÀI KHOẢN nên bỏ sót người không có tài khoản và
+        không ghi Quá trình công tác.)
+        """
+        if self.departments.get_by_id(target_department_id) is None:
+            raise EmployeeNotFound("Không tìm thấy phòng đích.")
+        employees = []
+        for eid in employee_ids:
+            emp = self.get_employee(employee_id=eid, scope=scope, actor=actor)
+            if emp.status == STATUS_RESIGNED:
+                raise EmployeeValidationError(
+                    f"{emp.code} đã nghỉ việc — không điều chuyển được."
+                )
+            if emp.department_id == target_department_id:
+                raise EmployeeValidationError(f"{emp.code} đã thuộc phòng đích.")
+            employees.append(emp)
+        for emp in employees:
+            self._apply_transfer(emp, actor, None, note, target_department_id)
+        return len(employees)
 
     def _apply_promote(self, employee, actor, effective_date, note, new_job_grade, new_position) -> Employee:
         if employee.status == STATUS_RESIGNED:
@@ -486,6 +573,7 @@ class EmployeeService:
         if other is not None and other.id != employee.id:
             raise EmployeeValidationError(f"Tài khoản này đã gắn với nhân viên {other.code}.")
         self.employees.update(employee, user_id=user_id)
+        self._sync_user_from_employee(employee)  # Đ1: nối tài khoản → đồng bộ danh tính theo hồ sơ
         self.audit.create(
             actor_user_id=actor.id,
             action="employee_link_account",
@@ -525,6 +613,7 @@ class EmployeeService:
             user, department_id=employee.department_id, role_id=role_id, is_active=True
         )
         self.employees.update(employee, user_id=user.id)
+        self._sync_user_from_employee(employee)  # Đ1: đồng bộ danh tính hồ sơ xuống tài khoản mới
         self.audit.create(
             actor_user_id=actor.id,
             action="employee_create_account",
@@ -533,17 +622,8 @@ class EmployeeService:
         )
         return employee, user
 
-    def unlink_account(self, *, employee_id: int, scope: str, actor) -> Employee:
-        employee = self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
-        old = employee.user_id
-        self.employees.update(employee, user_id=None)
-        self.audit.create(
-            actor_user_id=actor.id,
-            action="employee_unlink_account",
-            target=f"employee:{employee.id}",
-            detail=f"{employee.code} gỡ user:{old}",
-        )
-        return employee
+    # `unlink_account` ĐÃ GỠ: mọi tài khoản phải thuộc một hồ sơ (gỡ liên kết = đẻ tài khoản
+    # mồ côi). Chặn một người = KHÓA tài khoản; nghỉ việc = login tự chặn theo trạng thái hồ sơ.
 
     # --- attachments (router does the disk IO; service records metadata) ---
 

@@ -1,5 +1,11 @@
 """ORM models. Importing this package registers every model on Base.metadata."""
-from .attendance import AttendanceLog, WorkLocation, WorkShift
+from .attendance import (
+    AttendanceLog,
+    AttendancePeriod,
+    AttendancePeriodLine,
+    WorkLocation,
+    WorkShift,
+)
 from .audit import AuditLog
 from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
@@ -7,20 +13,27 @@ from .department import Department
 from .employee import Employee, EmployeeAttachment, EmployeeEvent
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
+from .work_calendar import SpecialDay, WorkCalendarConfig
 from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
 from .module import Module
 from .operation import Operation, OperationRate
-from .order import Order, OrderLine
+from .order import (
+    Order,
+    OrderApproval,
+    OrderAttachment,
+    OrderLine,
+)
 from .payroll import (
     EmployeeSalary,
     PayrollLine,
     PayrollParams,
     PayrollPeriod,
+    PitTaxBracket,
     SalaryAdvance,
     SalaryRateRule,
 )
-from .piece_work import PieceBatch, PieceBatchEntry, PieceBatchShare, PieceRate
+from .piece_work import PieceRate
 from .product import Product, ProductComponent
 from .product_type_catalog import ProductTypeCatalog
 from .purchase import (
@@ -31,8 +44,22 @@ from .purchase import (
     PurchaseRequestSource,
     Supplier,
 )
-from .accounting import CompanyBankAccount, PaymentVoucher, SupplierBankAccount
-from .quotation import Quote, QuoteVersion, QuoteItem, QuoteAttachment, QuoteActivityLog
+from .accounting import (
+    CompanyBankAccount,
+    PaymentReceipt,
+    PaymentReceiptAttachment,
+    PaymentVoucher,
+    PaymentVoucherAttachment,
+    SupplierBankAccount,
+)
+from .quotation import (
+    Quote,
+    QuoteApproval,
+    QuoteActivityLog,
+    QuoteAttachment,
+    QuoteItem,
+    QuoteVersion,
+)
 from .refresh_token import RefreshToken
 from .role import Role, RolePermission
 from .unit_level import UnitLevel
@@ -51,9 +78,11 @@ from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, KhoGiayChua
 from .cong_doan import CongDoan
 from .bu_hao import BuHao
 from .loai_san_pham import LoaiSanPham
+from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
 from .production import ProductionOrder, ProductionOrderAttachment
+from .production_output import ProductionOutput
 
 __all__ = [
     "User",
@@ -71,8 +100,12 @@ __all__ = [
     "WorkLocation",
     "WorkShift",
     "AttendanceLog",
+    "AttendancePeriod",
+    "AttendancePeriodLine",
     "LeaveType",
     "LeaveRequest",
+    "WorkCalendarConfig",
+    "SpecialDay",
     "Warehouse",
     "WarehouseItem",
     "StockLot",
@@ -98,6 +131,9 @@ __all__ = [
     "CompanyBankAccount",
     "SupplierBankAccount",
     "PaymentVoucher",
+    "PaymentReceipt",
+    "PaymentVoucherAttachment",
+    "PaymentReceiptAttachment",
     "Material",
     "MaterialCost",
     "Machine",
@@ -109,21 +145,22 @@ __all__ = [
     "QuoteItem",
     "QuoteAttachment",
     "QuoteActivityLog",
+    "QuoteApproval",
     "Costing",
     "CostingPaperOption",
     "CostingOperation",
     "Order",
     "OrderLine",
+    "OrderApproval",
+    "OrderAttachment",
     "PayrollParams",
     "SalaryRateRule",
     "EmployeeSalary",
     "SalaryAdvance",
     "PayrollPeriod",
     "PayrollLine",
+    "PitTaxBracket",
     "PieceRate",
-    "PieceBatch",
-    "PieceBatchEntry",
-    "PieceBatchShare",
     "PlateDieRate",
     "Norm",
     "DocumentSequence",
@@ -132,4 +169,8 @@ __all__ = [
     "EstimateCostLine",
     "ProductionOrder",
     "ProductionOrderAttachment",
+    "ProductionOutput",
+    "PhieuTinhGia",
+    "PhieuThanhPhan",
+    "PhieuThanhPham",
 ]

@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useState,
   type FormEvent,
@@ -18,21 +17,21 @@ import {
   type PurchaseRequestRow,
   type PurchaseRequestStatus,
   type SupplierRow,
-  type KhoVoucherType,
-  type KhoMaterialOption,
-  type KhoItemStatus,
-  type WarehouseRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import type { NavigateFn } from "../components/AppShell";
+import { CodeLink } from "../components/CodeLink";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { Icon, type IconName } from "../components/Icons";
-import { VoucherForm } from "./StockVoucherPage";
+import { DetailModal } from "../components/DetailModal";
+import { RowActionButton } from "../components/RowActionButton";
+import { fmtDate, money } from "../utils/format";
 import "./master-data.css";
 import "./purchase.css";
 
 const PAGE_SIZE = 10;
+const SOURCE_PAGE_SIZE = 20;
 
 const STATUS_META: Record<
   PurchaseRequestStatus,
@@ -88,6 +87,7 @@ function emptyRequest(): PurchaseRequestInput {
     source_request_ids: [],
     purpose: "",
     needed_date: "",
+    expected_receipt_date: "",
     note: "",
     lines: [emptyLine()],
   };
@@ -101,6 +101,7 @@ function fromRequest(row: PurchaseRequestRow): PurchaseRequestInput {
     ),
     purpose: row.purpose ?? "",
     needed_date: row.needed_date ?? "",
+    expected_receipt_date: row.expected_receipt_date ?? "",
     note: row.note ?? "",
     lines: row.lines.map((line) => ({
       item_name: line.item_name,
@@ -112,15 +113,6 @@ function fromRequest(row: PurchaseRequestRow): PurchaseRequestInput {
       note: line.note ?? "",
     })),
   };
-}
-
-function money(value: number): string {
-  return `${Math.round(value).toLocaleString("vi-VN")} đ`;
-}
-
-function fmtDate(value?: string | null): string {
-  if (!value) return "—";
-  return new Intl.DateTimeFormat("vi-VN").format(new Date(value));
 }
 
 function lineTotal(line: PurchaseRequestLineInput): number {
@@ -326,6 +318,7 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
   <section class="info">
     <div><span class="label">Nhà cung cấp</span>${html(row.supplier_name || "Chưa chọn")}</div>
     <div><span class="label">Ngày cần hàng</span>${html(fmtDate(row.needed_date))}</div>
+    <div><span class="label">Ngày dự kiến nhận hàng</span>${html(fmtDate(row.expected_receipt_date))}</div>
     <div><span class="label">Yêu cầu nguồn</span>${html(sourceCodes)}</div>
     <div><span class="label">Bộ phận/người yêu cầu</span>${html(sourceDepartments || "Nội bộ")}</div>
     <div><span class="label">Người lập</span>${html(row.created_by_name || "—")}</div>
@@ -369,78 +362,15 @@ function printPurchaseRequest(row: PurchaseRequestRow): boolean {
   return true;
 }
 
-interface PurchaseActionButtonProps {
-  dense: boolean;
-  label: string;
-  icon: IconName;
-  variant?: "accent" | "ghost";
-  loading?: boolean;
-  danger?: boolean;
-  onClick: () => void;
-}
-
-function PurchaseActionButton({
-  dense,
-  label,
-  icon,
-  variant = "ghost",
-  loading = false,
-  danger = false,
-  onClick,
-}: PurchaseActionButtonProps) {
-  const tooltipId = useId();
-  const className = [
-    "md-page__rowbtn",
-    dense ? "purchase__action-icon-btn" : "",
-    danger ? "md-page__rowbtn--danger" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-
-  const button = (
-    <Button
-      type="button"
-      variant={variant}
-      className={className}
-      loading={loading}
-      aria-label={dense ? label : undefined}
-      aria-describedby={dense ? tooltipId : undefined}
-      onClick={onClick}
-    >
-      {dense ? <Icon name={icon} size={17} /> : label}
-    </Button>
-  );
-
-  if (!dense) return button;
-
-  return (
-    <span className="purchase__action-tip">
-      {button}
-      <span
-        id={tooltipId}
-        className="purchase__action-tip-bubble"
-        role="tooltip"
-      >
-        {label}
-      </span>
-    </span>
-  );
-}
-
-export function PurchaseRequestsPage() {
+export function PurchaseRequestsPage({ navigate }: { navigate: NavigateFn }) {
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("thu_mua", "create");
+  const openYcmh = (code: string) =>
+    navigate("yeu-cau-mua-hang", { focusRequestCode: code });
   const canUpdate = can("thu_mua", "update");
   const canDelete = can("thu_mua", "delete");
   const canCancel = can("thu_mua", "cancel");
-  const canKhoCreate = can("kho", "create"); // để "Tạo phiếu nhập kho từ PO"
-
-  // Dữ liệu kho (loại phiếu, vật tư, trạng thái, kho) — nạp khi có quyền tạo phiếu kho.
-  const [khoData, setKhoData] = useState<{
-    types: KhoVoucherType[]; materials: KhoMaterialOption[]; statuses: KhoItemStatus[]; warehouses: WarehouseRow[];
-  } | null>(null);
-  const [poVoucher, setPoVoucher] = useState<PurchaseRequestRow | null>(null); // PO đang tạo phiếu nhập
 
   const [rows, setRows] = useState<PurchaseRequestRow[]>([]);
   const [total, setTotal] = useState(0);
@@ -456,7 +386,12 @@ export function PurchaseRequestsPage() {
   const [sourceQ, setSourceQ] = useState("");
   const [sourceStatus, setSourceStatus] = useState<SourceStatusFilter>("all");
   const [sourceLoading, setSourceLoading] = useState(true);
-  const [checkedSourceIds, setCheckedSourceIds] = useState<number[]>([]);
+  const [sourcePage, setSourcePage] = useState(1);
+  // Lưu CẢ object (không chỉ id) để tick vẫn giữ khi lật sang trang khác — một
+  // phiếu mua có thể gom YCMH nằm ở nhiều trang.
+  const [checkedSources, setCheckedSources] = useState<
+    DepartmentPurchaseRequestRow[]
+  >([]);
 
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -493,16 +428,20 @@ export function PurchaseRequestsPage() {
         q: sourceQ.trim() || undefined,
         status: sourceStatus === "all" ? null : sourceStatus,
         sort: "-created_at",
-        page: 1,
-        size: 100,
+        page: sourcePage,
+        size: SOURCE_PAGE_SIZE,
       })
       .then((res) => {
         setSourceRows(res.items);
         setSourceTotal(res.total);
-        setCheckedSourceIds((current) =>
-          current.filter((id) =>
-            res.items.some((row) => row.id === id && row.status === "open"),
-          ),
+        // Giữ tick xuyên trang: một YCMH đang tick chỉ bị bỏ khi trang hiện tại
+        // cho thấy nó đã rời trạng thái "open" (đã được gom/hủy); nếu không xuất
+        // hiện ở trang này thì nó đang ở trang khác → giữ nguyên.
+        setCheckedSources((current) =>
+          current.filter((picked) => {
+            const fresh = res.items.find((row) => row.id === picked.id);
+            return !fresh || fresh.status === "open";
+          }),
         );
       })
       .catch(() => {
@@ -510,7 +449,7 @@ export function PurchaseRequestsPage() {
         setSourceTotal(0);
       })
       .finally(() => setSourceLoading(false));
-  }, [token, sourceQ, sourceStatus]);
+  }, [token, sourceQ, sourceStatus, sourcePage]);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -527,21 +466,18 @@ export function PurchaseRequestsPage() {
       .then((res) => {
         setRows(res.items);
         setTotal(res.total);
-        if (
-          selectedId != null &&
-          !res.items.some((row) => row.id === selectedId)
-        ) {
-          setSelectedId(res.items[0]?.id ?? null);
-        } else if (selectedId == null && res.items.length > 0) {
-          setSelectedId(res.items[0].id);
-        }
+        setSelectedId((current) =>
+          current != null && res.items.some((row) => row.id === current)
+            ? current
+            : null,
+        );
       })
       .catch((err) => {
         if (err instanceof ApiError && err.isForbidden) setForbidden(true);
         else setError("Không tải được danh sách phiếu mua hàng.");
       })
       .finally(() => setLoading(false));
-  }, [token, q, status, page, selectedId]);
+  }, [token, q, status, page]);
 
   useEffect(() => {
     loadSuppliers();
@@ -555,56 +491,45 @@ export function PurchaseRequestsPage() {
     load();
   }, [load]);
 
-  // Nạp dữ liệu kho để "Tạo phiếu nhập kho từ PO" (chỉ khi có quyền tạo phiếu kho).
-  useEffect(() => {
-    if (!token || !canKhoCreate) return;
-    Promise.all([
-      api.kho.voucherTypes(token),
-      api.kho.materialOptions(token),
-      api.kho.itemStatuses(token),
-      api.warehouses.list(token, { size: 200, sort: "code" }),
-    ]).then(([t, m, s, w]) =>
-      setKhoData({ types: t.items, materials: m, statuses: s.items, warehouses: w.items }),
-    ).catch(() => {});
-  }, [token, canKhoCreate]);
-
   const selected = useMemo(
-    () => rows.find((row) => row.id === selectedId) ?? rows[0] ?? null,
+    () => rows.find((row) => row.id === selectedId) ?? null,
     [rows, selectedId],
   );
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const selectedSources = useMemo(
-    () => sourceRows.filter((row) => checkedSourceIds.includes(row.id)),
-    [sourceRows, checkedSourceIds],
+  const sourceTotalPages = Math.max(
+    1,
+    Math.ceil(sourceTotal / SOURCE_PAGE_SIZE),
   );
+  // Lựa chọn tích lũy across trang — chính là danh sách gom vào phiếu mua.
+  const selectedSources = checkedSources;
+  // Gộp trang hiện tại với các YCMH đã tick ở trang khác — nếu không, phiếu gom
+  // xuyên trang sẽ thiếu ô chọn cho những YCMH nằm ngoài trang đang xem.
+  const formSourceRows = useMemo(() => {
+    const pool = new Map<number, DepartmentPurchaseRequestRow>();
+    for (const row of sourceRows) pool.set(row.id, row);
+    for (const row of checkedSources) pool.set(row.id, row);
+    return [...pool.values()].filter(
+      (row) =>
+        row.status === "open" || form.source_request_ids.includes(row.id),
+    );
+  }, [sourceRows, checkedSources, form.source_request_ids]);
 
-  const activeSourceRows = useMemo(
-    () => sourceRows.filter((row) => row.status === "open"),
-    [sourceRows],
-  );
-  const formSourceRows = useMemo(
-    () =>
-      sourceRows.filter(
-        (row) =>
-          row.status === "open" || form.source_request_ids.includes(row.id),
-      ),
-    [sourceRows, form.source_request_ids],
-  );
-
+  // Chỉ thay dòng trong danh sách, KHÔNG đụng selectedId: các nút thao tác nằm ở
+  // bảng, chọn dòng ở đây sẽ tự bung popup chi tiết. Popup đang mở thì `selected`
+  // tự lấy lại dòng mới từ `rows`.
   function updateRow(next: PurchaseRequestRow) {
     setRows((current) =>
       current.map((row) => (row.id === next.id ? next : row)),
     );
-    setSelectedId(next.id);
   }
 
   function toggleSource(row: DepartmentPurchaseRequestRow) {
     if (row.status !== "open") return;
-    setCheckedSourceIds((current) =>
-      current.includes(row.id)
-        ? current.filter((id) => id !== row.id)
-        : [...current, row.id],
+    setCheckedSources((current) =>
+      current.some((picked) => picked.id === row.id)
+        ? current.filter((picked) => picked.id !== row.id)
+        : [...current, row],
     );
   }
 
@@ -637,6 +562,7 @@ export function PurchaseRequestsPage() {
           ? selectedSources[0].purpose
           : `Mua theo ${selectedSources.map((source) => source.code).join(", ")}`,
       needed_date: dates[0] ?? "",
+      expected_receipt_date: "",
       note: "",
       lines: lines.length ? lines : [emptyLine()],
     });
@@ -663,6 +589,7 @@ export function PurchaseRequestsPage() {
         .filter((id) => Number.isFinite(id) && id > 0),
       purpose: (input.purpose ?? "").trim(),
       needed_date: (input.needed_date ?? "").trim(),
+      expected_receipt_date: trimOptional(input.expected_receipt_date),
       note: trimOptional(input.note),
       lines: input.lines.map((line) => ({
         item_name: (line.item_name ?? "").trim(),
@@ -737,9 +664,9 @@ export function PurchaseRequestsPage() {
       else {
         setRows((current) => [saved, ...current]);
         setTotal((t) => t + 1);
-        setSelectedId(saved.id);
       }
       setMode(null);
+      setCheckedSources([]); // tạo xong: bỏ chọn hết (các YCMH đã gom rời "open")
       loadSuppliers();
       loadSources();
     } catch (err) {
@@ -841,7 +768,15 @@ export function PurchaseRequestsPage() {
         }
       >
         {dense && (
-          <PurchaseActionButton
+          <RowActionButton
+            dense
+            label="Xem chi tiết"
+            icon="eye"
+            onClick={() => setSelectedId(row.id)}
+          />
+        )}
+        {dense && (
+          <RowActionButton
             dense
             label="In phiếu"
             icon="printer"
@@ -849,7 +784,7 @@ export function PurchaseRequestsPage() {
           />
         )}
         {canEdit && (
-          <PurchaseActionButton
+          <RowActionButton
             dense={dense}
             label="Sửa"
             icon="pencil"
@@ -857,7 +792,7 @@ export function PurchaseRequestsPage() {
           />
         )}
         {canUpdate && (row.status === "draft" || row.status === "rejected") && (
-          <PurchaseActionButton
+          <RowActionButton
             dense={dense}
             label="Gửi duyệt"
             icon="send"
@@ -870,7 +805,7 @@ export function PurchaseRequestsPage() {
           />
         )}
         {canUpdate && row.status === "approved" && (
-          <PurchaseActionButton
+          <RowActionButton
             dense={dense}
             label="Đã mua"
             icon="bag"
@@ -883,7 +818,7 @@ export function PurchaseRequestsPage() {
           />
         )}
         {canUpdate && row.status === "purchased" && (
-          <PurchaseActionButton
+          <RowActionButton
             dense={dense}
             label="Đã nhận"
             icon="packageCheck"
@@ -895,18 +830,10 @@ export function PurchaseRequestsPage() {
             }
           />
         )}
-        {canKhoCreate && khoData && (row.status === "received" || row.status === "purchased") && (
-          <PurchaseActionButton
-            dense={dense}
-            label="Tạo phiếu nhập kho"
-            icon="warehouse"
-            onClick={() => setPoVoucher(row)}
-          />
-        )}
         {canCancel &&
           row.status !== "received" &&
           row.status !== "cancelled" && (
-            <PurchaseActionButton
+            <RowActionButton
               dense={dense}
               label="Hủy"
               icon="ban"
@@ -917,7 +844,7 @@ export function PurchaseRequestsPage() {
             />
           )}
         {canDelete && row.status === "draft" && (
-          <PurchaseActionButton
+          <RowActionButton
             dense={dense}
             label="Xóa"
             icon="trash"
@@ -974,14 +901,17 @@ export function PurchaseRequestsPage() {
             className="md-page__search"
             onSubmit={(e) => {
               e.preventDefault();
-              loadSources();
+              setSourcePage(1);
             }}
           >
             <input
               className="input"
               placeholder="Tìm mã yêu cầu, mục đích..."
               value={sourceQ}
-              onChange={(e) => setSourceQ(e.target.value)}
+              onChange={(e) => {
+                setSourceQ(e.target.value);
+                setSourcePage(1);
+              }}
             />
             <Button type="submit" variant="ghost">
               Tìm
@@ -990,9 +920,10 @@ export function PurchaseRequestsPage() {
           <select
             className="input purchase__select"
             value={sourceStatus}
-            onChange={(e) =>
-              setSourceStatus(e.target.value as SourceStatusFilter)
-            }
+            onChange={(e) => {
+              setSourceStatus(e.target.value as SourceStatusFilter);
+              setSourcePage(1);
+            }}
           >
             <option value="all">Tất cả yêu cầu</option>
             {Object.entries(SOURCE_STATUS_META).map(([value, meta]) => (
@@ -1033,13 +964,15 @@ export function PurchaseRequestsPage() {
                 return (
                   <tr
                     key={row.id}
-                    className={`md-page__row${checkedSourceIds.includes(row.id) ? " purchase__row--selected" : ""}`}
+                    className={`md-page__row${checkedSources.some((picked) => picked.id === row.id) ? " purchase__row--selected" : ""}`}
                     onClick={() => toggleSource(row)}
                   >
                     <td onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
-                        checked={checkedSourceIds.includes(row.id)}
+                        checked={checkedSources.some(
+                          (picked) => picked.id === row.id,
+                        )}
                         disabled={disabled}
                         onChange={() => toggleSource(row)}
                         aria-label={`Chọn ${row.code}`}
@@ -1078,9 +1011,29 @@ export function PurchaseRequestsPage() {
         </table>
         <div className="purchase__source-foot">
           <span className="md-page__muted">
-            Đã chọn {selectedSources.length}/{activeSourceRows.length} yêu cầu
-            có thể mua · Tổng {sourceTotal}
+            Đã chọn {selectedSources.length} yêu cầu · Tổng {sourceTotal}
           </span>
+          {sourceTotalPages > 1 && (
+            <div className="md-page__pager-btns">
+              <Button
+                variant="ghost"
+                disabled={sourcePage <= 1}
+                onClick={() => setSourcePage((value) => value - 1)}
+              >
+                Trước
+              </Button>
+              <span className="md-page__muted">
+                Trang {sourcePage}/{sourceTotalPages}
+              </span>
+              <Button
+                variant="ghost"
+                disabled={sourcePage >= sourceTotalPages}
+                onClick={() => setSourcePage((value) => value + 1)}
+              >
+                Sau
+              </Button>
+            </div>
+          )}
         </div>
       </section>
 
@@ -1130,159 +1083,176 @@ export function PurchaseRequestsPage() {
         </div>
       )}
 
-      <div className="purchase__layout">
-        <section className="card md-page__tablewrap purchase__list">
-          <table className="md-page__table">
-            <thead>
+      <section className="card md-page__tablewrap purchase__list">
+        <table className="md-page__table">
+          <thead>
+            <tr>
+              <th>Mã phiếu</th>
+              <th>Trạng thái</th>
+              <th>Nhà cung cấp</th>
+              <th>Cần / Dự kiến nhận</th>
+              <th>Tổng dự kiến</th>
+              <th>Người tạo / duyệt</th>
+              <th>Thao tác</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
               <tr>
-                <th>Mã phiếu</th>
-                <th>Trạng thái</th>
-                <th>Nhà cung cấp</th>
-                <th>Cần hàng</th>
-                <th>Tổng dự kiến</th>
-                <th>Người tạo / duyệt</th>
-                <th style={{ display: "flex", justifyContent: "flex-center" }}>
-                  Thao tác
-                </th>
+                <td colSpan={7} className="md-page__status">
+                  Đang tải dữ liệu...
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={7} className="md-page__status">
-                    Đang tải dữ liệu...
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="md-page__empty">
+                  Chưa có phiếu mua hàng phù hợp.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className={`md-page__row${selected?.id === row.id ? " purchase__row--selected" : ""}`}
+                  onClick={() => setSelectedId(row.id)}
+                >
+                  <td className="purchase__code-cell">
+                    <strong className="md-page__mono">{row.code}</strong>
+                    <div className="purchase__source-codes">
+                      {row.sources.length
+                        ? row.sources.map((source, index) => (
+                            <span key={source.id}>
+                              {index > 0 && ", "}
+                              <CodeLink
+                                code={source.code}
+                                onOpen={openYcmh}
+                              />
+                            </span>
+                          ))
+                        : "Chưa gắn yêu cầu"}
+                    </div>
+                    <div className="md-page__muted purchase__row-purpose">
+                      {row.purpose || "—"}
+                    </div>
                   </td>
-                </tr>
-              ) : rows.length === 0 ? (
-                <tr>
-                  <td colSpan={7} className="md-page__empty">
-                    Chưa có phiếu mua hàng phù hợp.
+                  <td>
+                    <StatusBadge status={row.status} />
                   </td>
-                </tr>
-              ) : (
-                rows.map((row) => (
-                  <tr
-                    key={row.id}
-                    className={`md-page__row${selected?.id === row.id ? " purchase__row--selected" : ""}`}
-                    onClick={() => setSelectedId(row.id)}
+                  <td
+                    className="purchase__supplier-cell"
+                    title={row.supplier_name ?? undefined}
                   >
-                    <td>
-                      <strong className="md-page__mono">{row.code}</strong>
-                      <div className="purchase__source-codes">
-                        {row.sources.length
-                          ? row.sources.map((source) => source.code).join(", ")
-                          : "Chưa gắn yêu cầu"}
-                      </div>
-                      <div className="md-page__muted">{row.purpose || "—"}</div>
-                    </td>
-                    <td>
-                      <StatusBadge status={row.status} />
-                    </td>
-                    <td>
-                      {row.supplier_name || (
-                        <span className="md-page__muted">Chưa chọn</span>
-                      )}
-                    </td>
-                    <td>{fmtDate(row.needed_date)}</td>
-                    <td className="md-page__price">
-                      {money(row.total_estimate)}
-                    </td>
-                    <td>
-                      <div>
-                        {row.created_by_name || (
-                          <span className="md-page__muted">—</span>
-                        )}
-                      </div>
+                    {row.supplier_name || (
+                      <span className="md-page__muted">Chưa chọn</span>
+                    )}
+                  </td>
+                  <td className="purchase__date-cell">
+                    {fmtDate(row.needed_date)}
+                    {row.expected_receipt_date && (
                       <div className="md-page__muted">
-                        {row.approved_by_name || "Chưa duyệt"}
+                        Nhận: {fmtDate(row.expected_receipt_date)}
                       </div>
-                    </td>
-                    <td
-                      className="md-page__actions-col"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {actionButtons(row, true)}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </section>
-
-        <aside className="purchase__detail">
-          {selected ? (
-            <>
-              <div className="purchase__detail-head">
-                <div>
-                  <p className="eyebrow">Chi tiết phiếu</p>
-                  <h2>{selected.code}</h2>
-                </div>
-                <StatusBadge status={selected.status} />
-              </div>
-              <dl className="purchase__facts">
-                <div>
-                  <dt>Nhà cung cấp</dt>
-                  <dd>{selected.supplier_name || "Chưa chọn"}</dd>
-                </div>
-                <div>
-                  <dt>Yêu cầu nguồn</dt>
-                  <dd>
-                    {selected.sources.length
-                      ? selected.sources.map((source) => source.code).join(", ")
-                      : "Chưa gắn"}
-                  </dd>
-                </div>
-                <div>
-                  <dt>Cần hàng</dt>
-                  <dd>{fmtDate(selected.needed_date)}</dd>
-                </div>
-                <div>
-                  <dt>Gửi duyệt</dt>
-                  <dd>{fmtDate(selected.submitted_at)}</dd>
-                </div>
-                <div>
-                  <dt>Duyệt bởi</dt>
-                  <dd>{selected.approved_by_name || "—"}</dd>
-                </div>
-              </dl>
-              {selected.note && (
-                <div className="purchase__note">{selected.note}</div>
-              )}
-              <div className="purchase__lines">
-                {selected.lines.map((line) => (
-                  <div className="purchase__line" key={line.id}>
+                    )}
+                  </td>
+                  <td className="md-page__price purchase__money-cell">
+                    {money(row.total_estimate)}
+                  </td>
+                  <td>
                     <div>
-                      <strong>{line.item_name}</strong>
-                      <div className="md-page__muted">
-                        {line.quantity.toLocaleString("vi-VN")} {line.unit} ×{" "}
-                        {money(line.expected_unit_price)}
-                      </div>
-                      <div className="md-page__muted">
-                        Giảm {line.discount_percent}% ={" "}
-                        {money(line.discount_amount)} · VAT {line.vat_percent}%
-                        = {money(line.vat_amount)}
-                      </div>
-                      {line.note && (
-                        <div className="md-page__muted">{line.note}</div>
+                      {row.created_by_name || (
+                        <span className="md-page__muted">—</span>
                       )}
                     </div>
-                    <strong>{money(line.line_total)}</strong>
-                  </div>
-                ))}
-              </div>
-              <div className="purchase__detail-total">
-                <span>Tổng dự kiến</span>
-                <strong>{money(selected.total_estimate)}</strong>
-              </div>
-            </>
-          ) : (
-            <div className="purchase__empty-detail">
-              Chọn một phiếu để xem dòng hàng và trạng thái duyệt.
+                    <div className="md-page__muted">
+                      {row.approved_by_name || "Chưa duyệt"}
+                    </div>
+                  </td>
+                  <td
+                    className="md-page__actions-col"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {actionButtons(row, true)}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </section>
+
+      {selected && (
+        <DetailModal
+          kicker="Chi tiết phiếu"
+          title={selected.code}
+          badge={<StatusBadge status={selected.status} />}
+          onClose={() => setSelectedId(null)}
+        >
+          <dl className="purchase__facts">
+            <div>
+              <dt>Nhà cung cấp</dt>
+              <dd>{selected.supplier_name || "Chưa chọn"}</dd>
             </div>
+            <div>
+              <dt>Yêu cầu nguồn</dt>
+              <dd>
+                {selected.sources.length
+                  ? selected.sources.map((source, index) => (
+                      <span key={source.id}>
+                        {index > 0 && ", "}
+                        <CodeLink code={source.code} onOpen={openYcmh} />
+                      </span>
+                    ))
+                  : "Chưa gắn"}
+              </dd>
+            </div>
+            <div>
+              <dt>Cần hàng</dt>
+              <dd>{fmtDate(selected.needed_date)}</dd>
+            </div>
+            <div>
+              <dt>Dự kiến nhận hàng</dt>
+              <dd>{fmtDate(selected.expected_receipt_date)}</dd>
+            </div>
+            <div>
+              <dt>Gửi duyệt</dt>
+              <dd>{fmtDate(selected.submitted_at)}</dd>
+            </div>
+            <div>
+              <dt>Duyệt bởi</dt>
+              <dd>{selected.approved_by_name || "—"}</dd>
+            </div>
+          </dl>
+          {selected.note && (
+            <div className="purchase__note">{selected.note}</div>
           )}
-        </aside>
-      </div>
+          <div className="purchase__lines">
+            {selected.lines.map((line) => (
+              <div className="purchase__line" key={line.id}>
+                <div>
+                  <strong>{line.item_name}</strong>
+                  <div className="md-page__muted">
+                    {line.quantity.toLocaleString("vi-VN")} {line.unit} ×{" "}
+                    {money(line.expected_unit_price)}
+                  </div>
+                  <div className="md-page__muted">
+                    Giảm {line.discount_percent}% ={" "}
+                    {money(line.discount_amount)} · VAT {line.vat_percent}%
+                    = {money(line.vat_amount)}
+                  </div>
+                  {line.note && (
+                    <div className="md-page__muted">{line.note}</div>
+                  )}
+                </div>
+                <strong>{money(line.line_total)}</strong>
+              </div>
+            ))}
+          </div>
+          <div className="purchase__detail-total">
+            <span>Tổng dự kiến</span>
+            <strong>{money(selected.total_estimate)}</strong>
+          </div>
+        </DetailModal>
+      )}
 
       {!loading && rows.length > 0 && (
         <div className="md-page__pager">
@@ -1406,6 +1376,19 @@ export function PurchaseRequestsPage() {
                     value={form.needed_date ?? ""}
                     onChange={(e) =>
                       setForm({ ...form, needed_date: e.target.value })
+                    }
+                  />
+                </LocalField>
+                <LocalField label="Ngày dự kiến nhận hàng">
+                  <input
+                    className="input"
+                    type="date"
+                    value={form.expected_receipt_date ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        expected_receipt_date: e.target.value,
+                      })
                     }
                   />
                 </LocalField>
@@ -1670,29 +1653,6 @@ export function PurchaseRequestsPage() {
           />
         </label>
       </ConfirmDialog>
-
-      {/* Tạo phiếu nhập kho (NK-NVL) từ PO — điền sẵn NCC + gắn cứng PO. */}
-      {poVoucher && khoData && (() => {
-        const nk = khoData.types.find((t) => t.code === "NK-NVL");
-        if (!nk) { setPoVoucher(null); return null; }
-        return (
-          <VoucherForm
-            types={khoData.types}
-            warehouses={khoData.warehouses}
-            materials={khoData.materials}
-            statuses={khoData.statuses}
-            lockedTypeId={nk.id}
-            prefillPo={{
-              id: poVoucher.id,
-              code: poVoucher.code,
-              supplierName: poVoucher.supplier_name,
-              items: poVoucher.lines.map((l) => ({ name: l.item_name, unit: l.unit, qty: l.quantity })),
-            }}
-            onClose={() => setPoVoucher(null)}
-            onSaved={() => setPoVoucher(null)}
-          />
-        );
-      })()}
     </main>
   );
 }

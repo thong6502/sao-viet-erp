@@ -10,44 +10,43 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class _PaymentDiscountFields(BaseModel):
-    """Điều khoản thanh toán riêng (#12, dữ liệu chờ Công nợ) + chiết khấu mặc định
-    theo KH (#14 — chỉ nhận khi caller có quyền chi tiết `view_discount`, service bỏ
-    qua nếu thiếu quyền)."""
+class _CustomerIdentity(BaseModel):
+    """Thông tin ĐỊNH DANH khách (form Thêm/Sửa, redesign spec-06 v2). Không đụng chính sách
+    tài chính (sửa qua endpoint /financial riêng, tránh PUT định-danh xóa nhầm hạn mức/rào)."""
 
-    payment_term_type: str | None = Field(default=None, max_length=24)
+    name: str = Field(min_length=1, max_length=255)
+    # Loại KH: ca_nhan | cong_ty (service validate; default cong_ty).
+    customer_kind: str = Field(default="cong_ty", max_length=12)
+    tax_code: str | None = Field(default=None, max_length=20)
+    phone: str | None = Field(default=None, max_length=30)
+    email: str | None = Field(default=None, max_length=255)
+    address: str | None = Field(default=None, max_length=500)
+    contact_name: str | None = Field(default=None, max_length=255)
+    sale_user_id: int | None = None
+
+
+class CustomerCreate(_CustomerIdentity):
+    """Khách MỚI = thông tin định danh; chính sách tài chính về default an toàn
+    (credit_limit=0, chưa khai điều khoản, chưa đặt rào) — đặt sau qua /financial."""
+
+
+class CustomerUpdate(_CustomerIdentity):
+    pass
+
+
+class CustomerFinancialIn(BaseModel):
+    """Chính sách tài chính khách (redesign spec-06 v2) — endpoint /financial, gate
+    `set_credit_terms`. Ghi ĐẦY ĐỦ nhóm này: hạn mức công nợ (tiền) + số ngày công nợ tối đa
+    (net terms, kể từ ngày xuất HĐ) + rào chiết khấu/biên min–max. Lưu + hiển thị; chặn báo
+    giá / cảnh báo quá hạn là SEAM."""
+
+    credit_limit: int = Field(default=0, ge=0)
+    # Số ngày công nợ tối đa kể từ ngày xuất hóa đơn. None = chưa đặt hạn ngày.
     payment_term_days: int | None = Field(default=None, ge=0)
-    prepay_pct: float | None = Field(default=None, ge=0, le=100)
-    payment_term_note: str | None = Field(default=None, max_length=500)
-    discount_trade_pct: float | None = Field(default=None, ge=0, le=100)
-    discount_buyer_pct: float | None = Field(default=None, ge=0, le=100)
-
-
-class CustomerCreate(_PaymentDiscountFields):
-    name: str = Field(min_length=1, max_length=255)
-    tax_code: str | None = Field(default=None, max_length=20)
-    phone: str | None = Field(default=None, max_length=30)
-    email: str | None = Field(default=None, max_length=255)
-    address: str | None = Field(default=None, max_length=500)
-    contact_name: str | None = Field(default=None, max_length=255)
-    # ≥ 0 enforced here AND in the service (defense in depth).
-    credit_limit: int = Field(default=0, ge=0)
-    sale_user_id: int | None = None
-    # lead = tiềm năng (khảo sát #22) — cho tạo thẳng khách tiềm năng.
-    status: str = Field(default="active")
-
-
-class CustomerUpdate(_PaymentDiscountFields):
-    name: str = Field(min_length=1, max_length=255)
-    tax_code: str | None = Field(default=None, max_length=20)
-    phone: str | None = Field(default=None, max_length=30)
-    email: str | None = Field(default=None, max_length=255)
-    address: str | None = Field(default=None, max_length=500)
-    contact_name: str | None = Field(default=None, max_length=255)
-    credit_limit: int = Field(default=0, ge=0)
-    sale_user_id: int | None = None
-    # lead = tiềm năng, active = đang giao dịch, inactive = ngừng giao dịch.
-    status: str = Field(default="active")
+    discount_min_pct: float | None = Field(default=None, ge=0, le=100)
+    discount_max_pct: float | None = Field(default=None, ge=0, le=100)
+    margin_min_pct: float | None = Field(default=None, ge=0, le=100)
+    margin_max_pct: float | None = Field(default=None, ge=0, le=100)
 
 
 class DuplicateRef(BaseModel):
@@ -70,55 +69,52 @@ class DuplicateWarn(BaseModel):
 
 class CustomerRow(BaseModel):
     """A row in the Danh bạ list. `receivable` stays None + `no_ar_module=True` until
-    Công nợ (SEAM-16) is built — never a fabricated 0. The `tier` / `revenue_12m` /
-    `orders_total` / `last_order_at` fields are DERIVED FROM REAL ORDERS (feat-CRM360),
-    default to the honest zero/None when the customer has no history."""
+    Công nợ (SEAM-16) is built — never a fabricated 0. `revenue_12m` / `orders_total` /
+    `last_order_at` are DERIVED FROM REAL ORDERS, default to honest zero/None when the
+    customer has no history. Redesign spec-06 v2: bỏ `tier` (tự phân loại) + `status` +
+    chiết khấu mặc định cũ; thêm `customer_kind` + rào chiết khấu/biên. Chính sách tài
+    chính AI CŨNG XEM (không ẩn); sửa gate `set_credit_terms` ở service."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     code: str
     name: str
+    customer_kind: str = "cong_ty"
     tax_code: str | None
     phone: str | None
     email: str | None = None
     address: str | None = None
     contact_name: str | None = None
     credit_limit: int
+    # Số ngày công nợ tối đa (net terms, kể từ ngày xuất HĐ). None = chưa đặt hạn ngày.
+    payment_term_days: int | None = None
     sale_user_id: int | None
     sale_name: str | None = None
-    status: str
     created_at: datetime | None = None
     # Công nợ (chỉ-đọc). None + no_ar_module → UI shows "—" / "Chưa có phân hệ Công nợ".
     receivable: int | None = None
     no_ar_module: bool = True
-    # --- derived from real orders (CRM-360) ---
-    tier: str = "regular"
+    # --- derived from real orders (số THẬT; bỏ tier) ---
     revenue_12m: int = 0
     orders_total: int = 0
     last_order_at: date | None = None
-    # --- Điều khoản thanh toán (#12) — hiển thị cho mọi người có quyền read ---
-    payment_term_type: str | None = None
-    payment_term_days: int | None = None
-    prepay_pct: float | None = None
-    payment_term_note: str | None = None
-    # --- Chiết khấu mặc định (#14) — router ẨN (None + discount_hidden=True) khi
-    # caller thiếu quyền chi tiết `view_discount`; không bao giờ trả 0 giả ---
-    discount_trade_pct: float | None = None
-    discount_buyer_pct: float | None = None
-    discount_hidden: bool = False
+    # --- Rào chiết khấu / biên lợi nhuận (spec-06 v2) — hiển thị cho mọi người ---
+    discount_min_pct: float | None = None
+    discount_max_pct: float | None = None
+    margin_min_pct: float | None = None
+    margin_max_pct: float | None = None
     # --- Nhãn thủ công (#7) — sales gán tay, chips trên danh bạ ---
     tags: list[str] = []
 
 
 class CustomerKpis(BaseModel):
-    """The list header KPI strip — rolled up over the whole scoped book, real orders."""
+    """The list header KPI strip — rolled up over the whole scoped book, real orders.
+    Redesign spec-06 v2: bỏ tier (loyal/partner), chỉ còn số THẬT."""
 
     total_customers: int
-    loyal_count: int
     new_this_month: int
     avg_order_value: int
-    partner_count: int = 0
     total_revenue: int = 0
 
 
@@ -228,6 +224,38 @@ class TagOut(BaseModel):
 
 class TagsOut(BaseModel):
     items: list[TagOut]
+
+
+# --- Ghi chú tự do (tab Ghi chú — lưu ý team về khách) --------------------------
+
+
+class NoteIn(BaseModel):
+    body: str = Field(min_length=1, max_length=4000)
+
+
+class NoteUpdateIn(BaseModel):
+    """Sửa ghi chú. Cả hai optional để PUT lo được RIÊNG LẺ: chỉ sửa nội dung, hoặc chỉ
+    bật/tắt ghim. `body=None` → không đụng nội dung; `pinned=None` → không đụng ghim."""
+
+    body: str | None = Field(default=None, max_length=4000)
+    pinned: bool | None = None
+
+
+class NoteOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    body: str
+    pinned: bool
+    created_at: datetime
+    updated_at: datetime | None = None
+    # `edited` = đã sửa nội dung (updated_at != None). `author_name` do router nạp.
+    edited: bool = False
+    author_name: str | None = None
+
+
+class NotesOut(BaseModel):
+    items: list[NoteOut]
 
 
 # --- Chăm sóc khách hàng (#20/#27/#28) -----------------------------------------
@@ -414,7 +442,6 @@ class CustomerDashboardOut(BaseModel):
     win_rate_pct: int | None
     first_order_at: date | None
     last_order_at: date | None
-    tier: str
     months: list[MonthPointOut]
     product_mix: list[ProductSliceOut]
     heatmap: list[HeatCellOut]
@@ -477,6 +504,11 @@ class CustomerAuditOut(BaseModel):
 __all__ = [
     "CustomerCreate",
     "CustomerUpdate",
+    "CustomerFinancialIn",
+    "NoteIn",
+    "NoteUpdateIn",
+    "NoteOut",
+    "NotesOut",
     "DuplicateWarn",
     "ContactIn",
     "ContactOut",

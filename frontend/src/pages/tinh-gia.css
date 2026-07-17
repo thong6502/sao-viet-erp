@@ -1,0 +1,2124 @@
+/* Tính giá — màn "chi tiết giá vốn". 2 cột: thông số (trái) + tổng kết dán (phải).
+   Tokens-only (rust là accent duy nhất). Phiếu in có style riêng (phieu-tinh-gia.css). */
+
+.tg-page {
+  max-width: 1540px;
+  margin: 0 auto;
+  padding: var(--sp-5) var(--sp-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+/* ---------- HEAD ---------- */
+.tg-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--rule);
+}
+.tg-head__lead {
+  min-width: 0;
+}
+.tg-head__title {
+  font-family: var(--ff-sans);
+  font-size: 26px;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: var(--sp-1) 0 0;
+  line-height: 1.15;
+}
+.tg-head__sub {
+  font-size: 13px;
+  color: var(--ash);
+  margin: var(--sp-2) 0 0;
+  max-width: 62ch;
+  line-height: 1.5;
+}
+.tg-head__actions {
+  display: flex;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+/* Detail: back link + title row + status badge cạnh mã. */
+.tg-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  min-height: 28px;
+  padding: 2px 0;
+  margin-bottom: 2px;
+  border: none;
+  background: none;
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.tg-back:hover {
+  color: var(--rust);
+}
+.tg-back:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+  border-radius: var(--r-2);
+}
+.tg-head__titlerow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.tg-head__title-sub {
+  font-family: var(--ff-mono);
+  font-size: 16px;
+  font-weight: var(--fw-regular);
+  color: var(--ash-2);
+  letter-spacing: 0;
+}
+.tg-head__meta {
+  font-family: var(--ff-mono);
+  color: var(--ash-2);
+  font-size: 12px;
+}
+.tg-mono {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tg-tabrow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  margin-top: var(--sp-5);
+}
+/* Tab tương lai (mờ, không bấm) — cùng dáng .stabs__tab nhưng nằm ngoài container. */
+.tg-tab-ghost {
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ash-2);
+  padding: 6px 12px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+  cursor: not-allowed;
+  user-select: none;
+}
+
+/* ---------- SPLIT ---------- */
+.tg-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--sp-5);
+  align-items: start;
+  margin-top: var(--sp-5);
+}
+@media (max-width: 900px) {
+  .tg-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tg-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* ---------- CARD (canvas) ---------- */
+.canvas.tg-card,
+.canvas.tg-info {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-1);
+}
+.tg-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.tg-card__title {
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0;
+}
+.tg-card__body {
+  padding: var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+
+.tg-pill {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--rust);
+  background: var(--rust-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 9px;
+}
+
+/* ---------- Field / label ---------- */
+.tg-microlabel {
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ash);
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+}
+.tg-microlabel__opt {
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ash-2);
+  font-weight: 400;
+}
+
+.tg-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.tg-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.tg-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+}
+.tg-field--full {
+  grid-column: 1 / -1;
+}
+@media (max-width: 560px) {
+  .tg-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tg-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--paper-contrast);
+  color: var(--ink);
+  padding: 10px 12px;
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.tg-input:hover {
+  border-color: var(--ash-2);
+}
+.tg-input:focus {
+  outline: none;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 15%, transparent);
+}
+.tg-input--num {
+  font-family: var(--ff-mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+select.tg-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b665b' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 36px;
+}
+
+/* Read-only computed (Số kẽm tự tính) */
+.tg-readout {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+  background: var(--rule-hair);
+  color: var(--ink);
+  padding: 10px 12px;
+  font-family: var(--ff-mono);
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Segmented công nghệ in (dùng .stabs) ---------- */
+.tg-tech {
+  width: 100%;
+}
+.tg-tech .stabs__tab {
+  min-height: 34px;
+}
+.stabs__tab:disabled {
+  color: var(--ash-2);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.stabs__tab:disabled:hover {
+  color: var(--ash-2);
+}
+
+/* ---------- Chip công đoạn (toggle) ---------- */
+.tg-chipgrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+.tg-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--paper-contrast);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+.tg-chip:hover {
+  border-color: var(--ash-2);
+  background: var(--rule-hair);
+}
+.tg-chip--on,
+.tg-chip--on:hover {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--on-charcoal);
+}
+.tg-chip:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.tg-chipgrid__empty {
+  font-size: 12.5px;
+  color: var(--ash-2);
+  font-style: italic;
+  margin: 0;
+}
+
+/* Chip công đoạn: tên (bấm mở chi tiết) + nút xóa ✕ */
+.tg-chip__name {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.tg-chip__x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  color: inherit;
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity var(--duration-fast) var(--easing-standard);
+}
+.tg-chip__x:hover {
+  opacity: 1;
+}
+.tg-chip__x svg {
+  width: 12px;
+  height: 12px;
+}
+/* Ô "+ Thêm công đoạn" dạng chip nét đứt */
+.tg-chip-add {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--ash-2);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+.tg-chip-add:hover {
+  border-color: var(--ash-2);
+  background: var(--rule-hair);
+}
+/* Bảng chi tiết công đoạn khi bấm vào chip */
+.tg-chip-detail {
+  margin-top: var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  background: var(--rule-hair);
+}
+
+/* ---------- Bảng giá vốn ---------- */
+.tg-cost {
+  padding: var(--sp-3) var(--sp-5) var(--sp-5);
+}
+.tg-cost__grp + .tg-cost__grp {
+  border-top: 1px solid var(--rule-hair);
+}
+.tg-cost__grphead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-4) 0 var(--sp-2);
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.tg-cost__idx {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-2);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 10px;
+}
+.tg-cost__scroll {
+  overflow-x: auto;
+}
+.tg-cost__tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.tg-cost__tbl th {
+  text-align: left;
+  padding: 6px 10px;
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  border-bottom: 1px solid var(--rule-soft);
+  white-space: nowrap;
+}
+.tg-cost__tbl td {
+  padding: 7px 10px;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: top;
+}
+.tg-num {
+  font-family: var(--ff-mono);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.tg-center {
+  text-align: center;
+}
+.tg-formula {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.tg-cost__none {
+  color: var(--ash-2);
+  font-style: italic;
+}
+.tg-cost__sub td {
+  border-bottom: none;
+  padding-top: 8px;
+  padding-bottom: 4px;
+}
+.tg-cost__subrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+}
+.tg-cost__subrow .tg-num {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+}
+.tg-cost__grand {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+  padding-top: var(--sp-4);
+  border-top: 2px solid var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.tg-cost__grandval {
+  font-family: var(--ff-mono);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--rust);
+  white-space: nowrap;
+}
+
+/* ---------- Empty state ---------- */
+.tg-empty {
+  padding: var(--sp-12) var(--sp-6);
+  text-align: center;
+  color: var(--ash-2);
+}
+.tg-empty__icon {
+  color: var(--ash-2);
+  margin-bottom: var(--sp-2);
+}
+.tg-empty__title {
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  margin: 0 0 var(--sp-1);
+}
+.tg-empty__sub {
+  font-size: 12.5px;
+  color: var(--ash-2);
+  margin: 0 auto;
+  max-width: 48ch;
+  line-height: 1.5;
+}
+
+/* ---------- RIGHT column ---------- */
+.tg-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  position: sticky;
+  top: var(--sp-4);
+}
+@media (max-width: 900px) {
+  .tg-side {
+    position: static;
+  }
+}
+
+.tg-info {
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+}
+.tg-info__title {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: var(--sp-2);
+}
+.tg-info__list {
+  margin: 0;
+}
+.tg-info__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.tg-info__row:last-child {
+  border-bottom: none;
+}
+.tg-info__row dt {
+  font-size: 12.5px;
+  color: var(--ash);
+  margin: 0;
+}
+.tg-info__row dd {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+/* ---------- Warning (amber, calm) ---------- */
+.tg-warn {
+  border: 1px solid var(--amber-soft);
+  background: var(--amber-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-3) var(--sp-4);
+}
+.tg-warn__title {
+  font-size: 12.5px;
+  font-weight: var(--fw-bold);
+  color: var(--amber-deep);
+  margin-bottom: var(--sp-1);
+}
+.tg-warn__list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.tg-warn__list li {
+  font-size: 12px;
+  color: var(--amber-deep);
+  line-height: 1.45;
+}
+
+/* ================= MASTER LIST (Phiếu tính giá) ================= */
+.ptg-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.ptg-toolbar-spacer {
+  flex: 1 1 auto;
+}
+.ptg__sortbtn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-transform: inherit;
+  letter-spacing: inherit;
+}
+.ptg__sortbtn.is-active {
+  color: var(--rust);
+}
+.ptg__sortbtn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.ptg-search {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.ptg-search__icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ash-2);
+  pointer-events: none;
+}
+.ptg-search__input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper-contrast);
+  color: var(--ink);
+  padding: 10px 12px 10px 36px;
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.ptg-search__input:hover {
+  border-color: var(--ash-2);
+}
+.ptg-search__input:focus {
+  outline: none;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+.ptg-filter {
+  flex-shrink: 0;
+  min-height: 44px;
+}
+.ptg-tabrow {
+  margin-top: var(--sp-4);
+}
+
+/* ---- Table ---- */
+.ptg-tablewrap {
+  margin-top: var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  box-shadow: var(--shadow-1);
+  overflow-x: auto;
+}
+.ptg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ptg-table thead th {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ash);
+  text-align: left;
+  padding: var(--sp-4) var(--sp-4);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.ptg-table thead th.tg-num {
+  text-align: right;
+}
+.ptg-table td {
+  padding: var(--sp-3) var(--sp-4);
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: middle;
+}
+.ptg-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.ptg-row {
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+.ptg-row:hover {
+  background: var(--rule-hair);
+}
+.ptg-row:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: -2px;
+}
+.ptg-nowrap {
+  white-space: nowrap;
+}
+.ptg-code {
+  display: inline-block;
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  padding: 2px 8px;
+}
+.ptg-prod {
+  min-width: 220px;
+}
+.ptg-prod__name {
+  display: block;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.ptg-prod__spec {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ash-2);
+}
+.ptg-strong {
+  font-weight: var(--fw-bold);
+}
+.ptg-tech {
+  display: inline-block;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  color: var(--steel);
+  background: var(--steel-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 9px;
+  white-space: nowrap;
+}
+.ptg-when {
+  white-space: nowrap;
+}
+.ptg-when__date {
+  display: block;
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  color: var(--ink);
+}
+.ptg-when__ktv {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ash-2);
+}
+.ptg-msg {
+  padding: var(--sp-8) var(--sp-6);
+  text-align: center;
+  color: var(--ash-2);
+  font-size: 13px;
+}
+.ptg-empty-td {
+  padding: 0;
+}
+.ptg-empty {
+  padding: var(--sp-12) var(--sp-6);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.ptg-empty__icon {
+  color: var(--ash-2);
+}
+.ptg-empty__title {
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  color: var(--ash);
+  margin: 0;
+}
+.ptg-foot-note {
+  margin: var(--sp-3) 0 0;
+  font-size: 12px;
+  color: var(--ash-2);
+  font-family: var(--ff-mono);
+}
+
+/* ---- Status badge (dùng chung list + detail) ---- */
+.ptg-badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  font-weight: var(--fw-medium);
+  line-height: 1.2;
+  border-radius: var(--r-pill);
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.ptg-badge--neutral {
+  color: var(--ash);
+  background: var(--rule-hair);
+}
+.ptg-badge--amber {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+}
+.ptg-badge--steel {
+  color: var(--steel);
+  background: var(--steel-soft);
+}
+.ptg-badge--rust {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+}
+.ptg-badge--moss {
+  color: var(--moss-deep);
+  background: var(--moss-soft);
+}
+
+@media (max-width: 640px) {
+  .ptg-toolbar {
+    flex-wrap: wrap;
+  }
+  .ptg-search {
+    flex-basis: 100%;
+  }
+}
+
+.ptg-stats {
+  display: flex;
+  gap: var(--sp-6);
+  align-items: center;
+}
+.ptg-stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.ptg-stat-label {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ash-2);
+}
+.ptg-stat-val {
+  font-family: var(--ff-mono);
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  margin-top: 1px;
+}
+.ptg-stat-val--accent {
+  color: var(--rust);
+}
+
+/* ================= COMPONENT-BASED DETAIL ================= */
+
+/* ---------- Thành phần card ---------- */
+.canvas.tg-comp {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-1);
+}
+.tg-comp__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.tg-comp__collapse {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: none;
+  color: var(--ash);
+  cursor: pointer;
+  border-radius: var(--r-2);
+  flex-shrink: 0;
+}
+.tg-comp__collapse:hover {
+  color: var(--ink);
+  background: var(--rule-hair);
+}
+.tg-comp__collapse:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.tg-comp__titlewrap {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.tg-comp__title {
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  margin: 0;
+}
+.tg-comp__cost {
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
+}
+.tg-comp__cost b {
+  color: var(--rust);
+  font-weight: var(--fw-bold);
+}
+.tg-comp__body {
+  padding: var(--sp-4) var(--sp-5) var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+/* ---------- Sub-section (uppercase mono label) ---------- */
+.tg-subsec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.tg-subsec__label {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--rust);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--rule-hair);
+}
+
+/* ---------- Segmented (Tờ|Tấn, nguồn, quy cách) ---------- */
+.tg-seg {
+  display: inline-flex;
+  gap: var(--sp-1);
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: 3px;
+  width: fit-content;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.tg-seg__btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--r-2);
+  min-height: 34px;
+  padding: 6px 14px;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+.tg-seg__btn:hover {
+  color: var(--ink);
+}
+.tg-seg__btn--on,
+.tg-seg__btn--on:hover {
+  background: var(--canvas);
+  border-color: var(--rule);
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+  box-shadow: var(--shadow-1);
+}
+.tg-seg__btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
+/* ---------- Toggle (Có in?) ---------- */
+.tg-toggle {
+  appearance: none;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper-contrast);
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+.tg-toggle:hover {
+  border-color: var(--ash-2);
+}
+.tg-toggle--on,
+.tg-toggle--on:hover {
+  background: var(--charcoal);
+  border-color: var(--charcoal);
+  color: var(--on-charcoal);
+}
+.tg-toggle:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* ---------- Icon button (remove ×) ---------- */
+.tg-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--paper-contrast);
+  color: var(--ash);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+.tg-icon-btn:hover {
+  border-color: var(--ash-2);
+  color: var(--ink);
+}
+.tg-icon-btn--danger:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--rust-soft);
+}
+.tg-icon-btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* ---------- Add button (dashed) ---------- */
+.tg-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 8px 18px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper-contrast);
+  color: var(--rust);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    background var(--duration-fast) var(--easing-standard);
+}
+.tg-add:hover {
+  border-color: var(--rust);
+  background: var(--rust-soft);
+}
+.tg-add:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.tg-add--sm {
+  min-height: 36px;
+  padding: 6px 14px;
+  font-size: 12.5px;
+}
+
+/* ---------- Hint ---------- */
+.tg-hint {
+  display: block;
+  margin-top: var(--sp-2);
+  font-size: 12px;
+  color: var(--ash-2);
+  font-style: italic;
+}
+
+/* ---------- Input có hậu tố (mm) ---------- */
+.tg-suffixwrap {
+  position: relative;
+  display: block;
+}
+.tg-suffixwrap .tg-input {
+  padding-right: 34px;
+}
+.tg-suffix {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash-2);
+}
+
+/* ---------- Ô đã sửa-đè khác giá trị auto ---------- */
+.tg-input--edited {
+  border-color: var(--rust);
+  background: var(--rust-soft);
+}
+
+/* ---------- Tag "tự bình bài" + nút "về auto" (cạnh microlabel) ---------- */
+.tg-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
+  border-radius: var(--r-pill);
+  padding: 1px 7px;
+  margin-left: auto;
+}
+.tg-tag--auto {
+  color: var(--steel);
+  background: var(--steel-soft);
+}
+.tg-tag--todo {
+  color: var(--ink-3, #8a8175);
+  background: var(--paper-2, rgba(0, 0, 0, 0.04));
+  font-weight: var(--fw-regular, 400);
+}
+.tg-warn-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  color: var(--heat, #b4541f);
+  background: color-mix(in srgb, var(--heat, #b4541f) 12%, transparent);
+  vertical-align: middle;
+}
+.tg-revert {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--rust);
+}
+.tg-revert:hover {
+  text-decoration: underline;
+}
+.tg-revert:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+  border-radius: var(--r-2);
+}
+
+/* ---------- Dải số [Hiện] read-only (soi sản lượng) ---------- */
+.tg-hien {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 1px;
+  background: var(--rule-soft);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+@media (max-width: 620px) {
+  .tg-hien {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.tg-hien__item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px;
+  background: var(--rule-hair);
+}
+.tg-hien__k {
+  font-family: var(--ff-mono);
+  font-size: 9px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  white-space: nowrap;
+}
+.tg-hien__v {
+  font-family: var(--ff-mono);
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* ---------- Chừa giấy collapse ---------- */
+.tg-collapse {
+  border-top: 1px dashed var(--rule-hair);
+  padding-top: var(--sp-2);
+}
+.tg-collapse__sum {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash);
+  cursor: pointer;
+  list-style: none;
+  padding: var(--sp-1) 0;
+}
+.tg-collapse__sum::-webkit-details-marker {
+  display: none;
+}
+.tg-collapse__sum::before {
+  content: "▸ ";
+  color: var(--ash-2);
+}
+.tg-collapse[open] .tg-collapse__sum::before {
+  content: "▾ ";
+}
+.tg-chua {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+}
+@media (max-width: 620px) {
+  .tg-chua {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ---------- Màu grid (3×2 + hệ số) ---------- */
+.tg-mau {
+  display: grid;
+  grid-template-columns: minmax(64px, 0.8fr) 1fr 1fr 1fr;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.tg-mau__cell {
+  min-width: 0;
+}
+.tg-mau__head {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  text-align: center;
+}
+.tg-mau__rowlbl {
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.tg-kem {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-hair);
+}
+.tg-kem__val {
+  font-family: var(--ff-mono);
+  font-size: 16px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  min-width: 48px;
+  text-align: right;
+}
+
+/* ---------- Small input variant (tables/màu) ---------- */
+.tg-input--sm {
+  min-height: 36px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border-radius: var(--r-2);
+}
+select.tg-input--sm {
+  padding-right: 28px;
+  background-position: right 8px center;
+}
+
+/* ---------- Finishing table ---------- */
+.tg-fin-scroll {
+  overflow-x: auto;
+}
+.tg-fin {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  min-width: 760px;
+}
+.tg-fin thead th {
+  text-align: left;
+  padding: 4px 6px;
+  font-family: var(--ff-mono);
+  font-size: 9.5px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  border-bottom: 1px solid var(--rule-soft);
+  white-space: nowrap;
+}
+.tg-fin thead th.tg-num {
+  text-align: right;
+}
+.tg-fin td {
+  padding: 4px 6px;
+  vertical-align: top;
+}
+.tg-fin__cd {
+  min-width: 200px;
+}
+.tg-fin__ten {
+  margin-top: 4px;
+}
+.tg-fin__empty {
+  padding: var(--sp-3) var(--sp-2);
+  color: var(--ash-2);
+  font-style: italic;
+  text-align: center;
+}
+.tg-fin thead th:nth-child(2),
+.tg-fin thead th:nth-child(6) {
+  min-width: 84px;
+}
+.tg-fin thead th:nth-child(3),
+.tg-fin thead th:nth-child(4),
+.tg-fin thead th:nth-child(5) {
+  min-width: 68px;
+}
+
+/* ---------- Print ---------- */
+.tg-print-only {
+  display: none;
+}
+
+@media print {
+  /* Ẩn khung app (chỉ khi màn Tính giá đang mở) — dùng :has để không đụng trang khác. */
+  body:has(.tg-page) .shell > *:not(.shell__main),
+  body:has(.tg-page) .shell__main > *:not(.shell__content) {
+    display: none !important;
+  }
+  body:has(.tg-page) .shell__content {
+    padding: 0 !important;
+  }
+  /* Trong trang, chỉ chừa vùng phiếu in. */
+  .tg-page > *:not(.tg-print-only) {
+    display: none !important;
+  }
+  .tg-page {
+    padding: 0 !important;
+    max-width: none !important;
+  }
+  .tg-print-only {
+    display: block !important;
+  }
+}
+
+/* ---------- Chevron thu gọn thành phần ---------- */
+.tg-chev {
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+.tg-chev--open {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg-input,
+  .tg-chip,
+  .tg-chev {
+    transition: none;
+  }
+}
+
+/* ================= DANH SÁCH THÀNH PHẦN (list + drawer pattern) ================= */
+.tg-complist {
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.tg-complist__wrap {
+  overflow-x: auto;
+}
+/* Bảng thành phần dùng lại .rc__table nhưng padding gọn hơn cho vùng card hẹp. */
+.tg-complist__tbl td,
+.tg-complist__tbl thead th {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+.tg-complist__ten {
+  display: block;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+/* Readout [Hiện] engine (spec §6): con/tờ · số tờ vào máy / sau in · kẽm — khóa, chỉ đọc. */
+.tg-complist__meta {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash-2);
+  letter-spacing: 0.01em;
+}
+.tg-complist__loai {
+  display: inline-block;
+  margin-top: 3px;
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-medium);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+}
+.tg-complist__add {
+  align-self: flex-start;
+}
+.tg-empty--sm {
+  padding: var(--sp-6) var(--sp-4);
+}
+
+/* ---------- Chi tiết dòng giá vốn (collapsible, gọn) ---------- */
+.tg-costdetails {
+  overflow: hidden;
+}
+.tg-costdetails__sum {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  cursor: pointer;
+  list-style: none;
+  border-bottom: 1px solid transparent;
+}
+.tg-costdetails__sum::-webkit-details-marker {
+  display: none;
+}
+.tg-costdetails[open] .tg-costdetails__sum {
+  border-bottom-color: var(--rule-hair);
+}
+.tg-costdetails__sum .tg-chev {
+  color: var(--ash);
+}
+.tg-costdetails[open] .tg-costdetails__sum .tg-chev {
+  transform: rotate(90deg);
+}
+.tg-costdetails__sum:hover .tg-chev {
+  color: var(--rust);
+}
+
+/* ---------- Drawer rộng hơn (chứa sơ đồ + bảng gia công) ---------- */
+.rc-drawer--wide {
+  width: min(760px, 96vw);
+}
+
+/* ---------- Sơ đồ bình bài live ---------- */
+.tg-imp-wrap {
+  margin-top: var(--sp-2);
+}
+.tg-imp {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--rule-hair);
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.tg-imp--empty {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--ash-2);
+  padding: var(--sp-5) var(--sp-4);
+  border-style: dashed;
+}
+.tg-imp__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ash-2);
+  max-width: 40ch;
+  line-height: 1.4;
+}
+.tg-imp__stage {
+  display: flex;
+  justify-content: center;
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  padding: var(--sp-3);
+}
+.tg-imp__svg {
+  width: 100%;
+  max-height: 260px;
+  height: auto;
+}
+.tg-imp__sheet {
+  fill: var(--paper-contrast);
+  stroke: var(--ash-2);
+  stroke-width: 1.5;
+}
+.tg-imp__usable {
+  fill: none;
+  stroke: var(--ash-2);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.7;
+}
+.tg-imp__piece {
+  fill: var(--rust-soft);
+  stroke: var(--rust);
+  stroke-width: 1.2;
+  transition: all var(--duration-base) var(--easing-standard);
+}
+.tg-imp__piece--unused {
+  fill: transparent;
+  stroke: var(--rule);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+  opacity: 0.55;
+}
+.tg-imp--bad .tg-imp__sheet {
+  stroke: var(--signal, #8a1f1f);
+}
+.tg-imp__cross {
+  stroke: var(--signal, #8a1f1f);
+  stroke-width: 2;
+  opacity: 0.6;
+}
+.tg-imp__pnum {
+  fill: var(--rust-deep, var(--rust));
+  font-family: var(--ff-mono);
+  font-weight: 700;
+}
+.tg-imp__caption {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  color: var(--ash);
+}
+.tg-imp__con {
+  font-size: 18px;
+  font-weight: var(--fw-bold);
+  color: var(--rust);
+  font-variant-numeric: tabular-nums;
+}
+.tg-imp__con-unit {
+  font-size: 11px;
+  color: var(--ash);
+}
+.tg-imp__sep {
+  color: var(--rule);
+}
+.tg-imp__eff {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+}
+.tg-imp__grid {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.tg-imp__warn {
+  color: var(--signal, #8a1f1f);
+  font-weight: var(--fw-bold);
+}
+.tg-imp__loading {
+  color: var(--ash-2);
+  font-style: italic;
+}
+
+/* Trong drawer, tg-grid vẫn 2 cột; thu 1 cột khi drawer hẹp trên mobile. */
+@media (max-width: 640px) {
+  .rc-drawer--wide .tg-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ================= POPUP MODAL REDESIGN ================= */
+.rc-modal__scrim {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in srgb, var(--ink, #14130f) 50%, transparent);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  opacity: 0;
+  animation: rc-modal-fade var(--duration-base) var(--easing-standard) forwards;
+}
+
+.rc-modal {
+  width: min(1320px, 98vw);
+  height: min(900px, 94vh);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transform: scale(0.96);
+  opacity: 0;
+  animation: rc-modal-scale var(--duration-base) cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+
+@keyframes rc-modal-fade {
+  to { opacity: 1; }
+}
+
+@keyframes rc-modal-scale {
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.rc-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-4) var(--sp-6);
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.rc-modal__kicker {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--rust);
+}
+
+.rc-modal__title {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 2px 0 0;
+  letter-spacing: -0.01em;
+}
+
+.rc-modal__x {
+  background: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  color: var(--ash);
+  border-radius: var(--r-3);
+  transition: all var(--duration-fast) var(--easing-standard);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+
+.rc-modal__x:hover {
+  background: var(--rule-soft);
+  color: var(--ink);
+  transform: rotate(90deg);
+}
+
+.rc-modal__body-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1.35fr 1fr;
+  overflow: hidden;
+}
+
+.rc-modal__left-col {
+  padding: var(--sp-5) var(--sp-6);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  align-items: stretch;
+}
+
+@media (max-width: 1024px) {
+  .rc-modal__body-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.rc-modal__right-col {
+  background: var(--rule-hair);
+  border-left: 1px solid var(--rule-soft);
+  padding: var(--sp-5) var(--sp-6);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+}
+
+.rc-modal__foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--sp-4) var(--sp-6);
+  border-top: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.rc-modal__foot button {
+  transition: transform var(--duration-fast) var(--easing-standard), opacity var(--duration-fast) var(--easing-standard);
+}
+.rc-modal__foot button:hover {
+  transform: translateY(-1px);
+}
+.rc-modal__foot button:active {
+  transform: translateY(0);
+}
+
+/* Tinh chỉnh các thẻ form cấu hình */
+.rc-modal__left-col .rc-sec {
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--shadow-1);
+}
+
+.rc-modal__left-col .rc-sec__title {
+  margin-top: 0;
+  margin-bottom: var(--sp-4);
+  font-family: var(--ff-sans);
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+  border-bottom: 1px solid var(--rule-hair);
+  padding-bottom: var(--sp-2);
+  text-transform: none;
+  letter-spacing: -0.01em;
+  display: flex;
+  align-items: center;
+}
+
+/* Step badge tự vẽ */
+.tg-step-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 700;
+  margin-right: var(--sp-2);
+  border: 1px solid color-mix(in srgb, var(--rust) 20%, transparent);
+  flex-shrink: 0;
+}
+
+/* 12-column sub-grid for modal left side form fields */
+.rc-modal__left-col .tg-grid {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: var(--sp-3) var(--sp-4);
+}
+
+.tg-span-12 { grid-column: span 12; }
+.tg-span-10 { grid-column: span 10; }
+.tg-span-9 { grid-column: span 9; }
+.tg-span-8 { grid-column: span 8; }
+.tg-span-7 { grid-column: span 7; }
+.tg-span-6 { grid-column: span 6; }
+.tg-span-5 { grid-column: span 5; }
+.tg-span-4 { grid-column: span 4; }
+.tg-span-3 { grid-column: span 3; }
+.tg-span-2 { grid-column: span 2; }
+
+/* Overrides for compact properties panel inputs */
+.rc-modal__left-col .tg-field {
+  gap: 5px;
+}
+.rc-modal__left-col .tg-microlabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ash);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.rc-modal__left-col .tg-input {
+  min-height: 36px;
+  font-size: 13px;
+  padding: 4px var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--paper);
+}
+
+.rc-modal__left-col .tg-input:focus {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+  outline: none;
+}
+
+/* Redesigned Segmented Control for Modal */
+.rc-modal__left-col .tg-seg {
+  display: flex;
+  gap: 1px;
+  background: var(--rule-hair);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: 2px;
+  width: 100%;
+}
+.rc-modal__left-col .tg-seg__btn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  border-radius: var(--r-2);
+  min-height: 30px;
+  padding: 2px 6px;
+  font-size: 12.5px;
+  text-align: center;
+  color: var(--ash);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+.rc-modal__left-col .tg-seg__btn:hover {
+  color: var(--ink);
+}
+.rc-modal__left-col .tg-seg__btn--on {
+  background: var(--paper);
+  border-color: var(--rule);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(20, 19, 15, 0.08);
+}
+
+/* Timeline Flow layout for Step 4 */
+.tg-timeline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.tg-timeline-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.tg-timeline-arrow-wrap {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+.tg-timeline-select-arrow {
+  appearance: none;
+  -webkit-appearance: none;
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  text-align-last: center;
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  color: var(--ash);
+  cursor: pointer;
+  padding: 0;
+  outline: none;
+  transition: all var(--duration-fast) var(--easing-standard);
+  text-indent: 0;
+  line-height: 1;
+}
+.tg-timeline-select-arrow:hover {
+  background: var(--rust-soft);
+  border-color: var(--rust);
+  color: var(--rust-deep);
+  transform: scale(1.15);
+  box-shadow: 0 2px 4px rgba(20, 19, 15, 0.08);
+}
+.tg-timeline-select-arrow option {
+  background: var(--paper);
+  color: var(--ink);
+  text-align: left;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+}
+
+/* Right column styling overrides */
+.rc-modal__right-col .tg-imp-card {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--shadow-1);
+}
+
+.rc-modal__right-col .tg-imp-card__title {
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: var(--sp-4);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Compact receipt style estimation sheetbox */
+.rc-modal__right-col .tg-sheetbox {
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  padding: var(--sp-4) var(--sp-5);
+  box-shadow: var(--shadow-1);
+  margin-top: 0;
+}
+.rc-modal__right-col .tg-sheetbox__title {
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: var(--sp-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rc-modal__right-col .tg-sheetrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) 0;
+  font-size: 13.5px;
+  color: var(--ash);
+  border-bottom: 1px dashed var(--rule-soft);
+}
+.rc-modal__right-col .tg-sheetrow:last-of-type {
+  border-bottom: none;
+}
+.rc-modal__right-col .tg-sheetrow b {
+  font-family: var(--ff-mono);
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 14.5px;
+}
+.rc-modal__right-col .tg-sheetrow--total {
+  border-top: 1.5px solid var(--rule);
+  border-bottom: 1.5px solid var(--rule);
+  margin: var(--sp-2) 0;
+  padding: var(--sp-3) var(--sp-2);
+  background: color-mix(in srgb, var(--paper-contrast) 40%, transparent);
+}
+.rc-modal__right-col .tg-sheetrow--total span {
+  font-weight: 700;
+  color: var(--ink);
+}
+.rc-modal__right-col .tg-sheetrow--total b {
+  font-size: 17px;
+  color: var(--rust-deep);
+}
+.rc-modal__right-col .tg-sheetinput {
+  width: 80px;
+  min-height: 28px;
+  text-align: right;
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  padding: 2px 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--paper-contrast);
+  color: var(--ink);
+}
+.rc-modal__right-col .tg-sheetinput:focus {
+  outline: none;
+  border-color: var(--rust);
+}
+.rc-modal__right-col .tg-sheetbox__foot {
+  margin-top: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  color: var(--ash);
+  text-align: center;
+  line-height: 1.4;
+}
+
+/* Modern green/moss state switches for automatic spoilage */
+.rc-modal__right-col .tg-minitoggle {
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule-soft);
+  background: var(--paper-contrast);
+  color: var(--ash);
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+.rc-modal__right-col .tg-minitoggle--on {
+  background: var(--moss-soft);
+  border-color: var(--moss);
+  color: var(--moss-deep);
+}
+
+/* Auto/Revert styles inside fields */
+.tg-tag--auto {
+  background: var(--moss-soft) !important;
+  color: var(--moss-deep) !important;
+  border: 1px solid var(--moss) !important;
+  font-size: 10.5px !important;
+  padding: 2px 6px !important;
+  border-radius: var(--r-pill);
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.tg-revert {
+  font-size: 10.5px;
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+  border: 1px solid var(--rust);
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  transition: all var(--duration-fast) var(--easing-standard);
+}
+.tg-revert:hover {
+  background: var(--rust);
+  color: #fff;
+}
+
+/* Responsiveness overrides */
+@media (max-width: 992px) {
+  .rc-modal {
+    width: 96vw;
+    height: 94vh;
+  }
+  .rc-modal__body-grid {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+  .rc-modal__left-col,
+  .rc-modal__right-col {
+    overflow-y: visible;
+  }
+  .rc-modal__right-col {
+    border-left: none;
+    border-top: 1px solid var(--rule-soft);
+  }
+}
+

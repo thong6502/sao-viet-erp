@@ -1,10 +1,4 @@
-"""Pydantic request/response models for the Đơn hàng bán (Order) API — spec-10.
-
-Field constraints here are the first line of validation (422 shape); OrderService enforces
-the domain rules (báo giá approved còn hạn, đơn bổ sung bắt buộc parent, gate ③→④, transition
-legality). The physical layer (khổ giấy / số màu / số kẽm / imposition / PrintForm) is NEVER
-part of any response shape here — ẩn khỏi Sale (§29 P0, §43 #1).
-"""
+"""Đơn hàng bán (Order) API schemas — redesign-don-hang-ban.md (P1 khung đơn)."""
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -12,74 +6,146 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
-# --- create (from an approved quotation) --------------------------------------
+# --- Dòng đơn ------------------------------------------------------------------
+class OrderLineIn(BaseModel):
+    """Dòng nhập tay (nguồn nhap_tay). Đơn từ báo giá snapshot dòng từ báo giá, không nhận ở đây."""
+    description: str = ""
+    qty: int = Field(default=1, ge=1)
+    unit_price: int | None = None       # đơn giá (VND, trước VAT) sale gõ
+    vat_pct: int = Field(default=0, ge=0, le=100)
 
-class OrderCreate(BaseModel):
-    # F1: the approved quotation this order references (SEAM-04 quotation_ref, Báo giá LIVE).
-    quotation_id: int
-    # F2 loại đơn.
-    order_type: str = Field(min_length=1, max_length=16)
-    order_kind: str = Field(min_length=1, max_length=16)
-    # Đơn bổ sung → BẮT BUỘC (service enforces). Đơn mới → bỏ qua.
-    parent_order_id: int | None = None
-    # F4 cờ ứng giấy khách (chi tiết lô sống ở Kho — SEAM-06, TREO).
-    has_customer_paper: bool = False
-    # VAT DỰ KIẾN để ước tổng (chân lý ở InvoiceLine ⑬).
-    vat_pct_estimate: int = Field(default=0, ge=0, le=100)
-
-
-class TransitionRequest(BaseModel):
-    """Move an order to `to_status` (ordered/on_hold/change_order/cancelled)."""
-
-    to_status: str = Field(min_length=1, max_length=16)
-    cancel_reason: str | None = Field(default=None, max_length=500)
-
-
-# --- outputs ------------------------------------------------------------------
 
 class OrderLineOut(BaseModel):
-    """One order-line — mô tả SP thương mại + snapshot giá. NEVER a physical field."""
-
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     description: str
     qty: int
     unit_price_snapshot: int | None
-    norm_snapshot: dict | None
     vat_pct_estimate: int
     line_total: int | None
+    cost_snapshot: int | None
+    model_config = ConfigDict(from_attributes=True)
 
 
-class GateOut(BaseModel):
-    """The ③→④ gate view (F3). deposit_paid=null + deposit_available=false while SEAM-04
-    (Payment) is TREO — never a fabricated paid amount."""
-
-    total: int
-    min_deposit_pct: int
-    deposit_required: int
-    deposit_paid: int | None = None
-    deposit_available: bool
-    deposit_shortfall: int
-    quotation_approved: bool
-    can_confirm: bool
+# --- Đính kèm (chung cho consent + minh chứng cọc) ---------------------------
+class AttachmentOut(BaseModel):
+    id: int
+    url: str
+    file_name: str | None
+    content_type: str | None
+    uploaded_at: datetime
 
 
+# --- Cọc (V5) — Kế toán lập PHIẾU THU THẬT (PaymentReceipt) từ drawer đơn ------
+class OrderDepositReceiptIn(BaseModel):
+    """Body lập phiếu thu cọc từ đơn. `receipt_method` ∈ bộ PAYMENT_VOUCHER_TYPES của Kế toán
+    (`cash` | `bank_transfer`). Kế toán bấm = đã thu → phiếu tạo thẳng status='received'."""
+    receipt_method: str                      # cash | bank_transfer
+    amount: int = Field(gt=0)                # tiền thực thu (VND)
+    receipt_date: date | None = None         # None → hôm nay
+    note: str | None = None
+    company_bank_account_id: int | None = None  # chỉ dùng khi bank_transfer (cho phép NULL)
+
+
+class ApprovalActionIn(BaseModel):
+    note: str | None = None
+
+
+class OrderCancelIn(BaseModel):
+    reason: str
+    fault: str | None = None   # khach | xuong — BẮT BUỘC khi hủy đơn đã chốt
+
+
+class OrderApprovalOut(BaseModel):
+    id: int
+    decision: str
+    triggers_json: list | None = None
+    note: str | None
+    decided_by: int | None
+    decided_by_name: str | None = None
+    decided_at: datetime
+    order_total: int
+    order_subtotal: int
+    order_cost: int | None
+    margin_pct_snapshot: int | None
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OrderDepositReceiptOut(BaseModel):
+    """Phiếu thu cọc (PaymentReceipt nguồn 'don_hang_ban') của đơn — FE hiện danh sách + link sang
+    màn Phiếu thu Kế toán. status='received' được cộng vào cổng đủ cọc."""
+    id: int
+    code: str
+    doc_no: str | None = None
+    amount: int
+    receipt_method: str
+    status: str
+    receipt_date: date | None = None
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Tạo / sửa -----------------------------------------------------------------
+class OrderCreate(BaseModel):
+    # source_type ∈ {bao_gia, nhap_tay}
+    source_type: str = "bao_gia"
+    # bao_gia: báo giá đã duyệt (accepted). nhap_tay: bỏ qua.
+    quotation_id: int | None = None
+    # đơn bổ sung: order_kind=bo_sung + parent_order_id (đơn gốc giữ kẽm)
+    order_kind: str = "moi"
+    parent_order_id: int | None = None
+    order_nature: str = "hang_hoa"      # hang_hoa | gia_cong
+    # nhập tay:
+    customer_id: int | None = None
+    lines: list[OrderLineIn] = Field(default_factory=list)
+    vat_pct_estimate: int = 0
+    # % cọc do sale nhập TRÊN ĐƠN (0–100). None: đơn báo giá ghim từ báo giá; đơn nhập tay = chưa đặt.
+    deposit_pct: float | None = None
+    # thông tin đặt hàng (tùy chọn lúc tạo, sửa sau khi nháp):
+    customer_po_no: str | None = None
+    delivery_committed_date: date | None = None
+    delivery_address: str | None = None
+    invoice_entity_name: str | None = None
+    invoice_entity_tax_code: str | None = None
+
+
+class OrderUpdate(BaseModel):
+    """Chỉ sửa khi đơn còn NHÁP — chỉ thông tin ĐẶT HÀNG. Dòng + giá + VAT BẤT BIẾN (đổi = tạo
+    nháp mới), KHÔNG sửa qua đây. Field None = giữ nguyên."""
+    order_nature: str | None = None
+    deposit_pct: float | None = None   # % cọc — sale sửa trên đơn khi còn nháp
+    customer_po_no: str | None = None
+    delivery_committed_date: date | None = None
+    delivery_address: str | None = None
+    invoice_entity_name: str | None = None
+    invoice_entity_tax_code: str | None = None
+
+
+# --- Đọc -----------------------------------------------------------------------
 class OrderRow(BaseModel):
-    """A row in the Danh sách list: order_no, khách, loại đơn, trạng thái, tổng dự kiến,
-    cờ 2 cổng (③→④ computed; ⑤→⑥ chỉ-báo qua SEAM-05 read-only)."""
-
     id: int
     order_no: str
     customer_id: int | None
-    customer_name: str | None = None
-    order_type: str
+    customer_name: str | None
+    quotation_id: int | None
+    quotation_code: str | None = None   # mã báo giá (BG26-xxxx) để hiển thị, None nếu nhập tay
+    source_type: str
     order_kind: str
+    order_nature: str
     status: str
-    total_estimate: int | None
-    has_customer_paper: bool
-    gate_ordered_ok: bool           # ③→④ đã đạt (approved AND cọc ≥ ngưỡng)
+    approval_state: str
+    needs_approval: bool
+    cost_basis: str
+    total: int | None                   # Σ line_total (trước VAT)
+    total_with_vat: int
+    deposit_pct: float | None
+    deposit_required: int               # deposit_pct% × total_with_vat
+    deposit_received: int               # Σ phiếu thu cọc received (V5)
+    deposit_ok: bool
+    delivery_committed_date: date | None
+    sale_user_id: int | None
+    sale_name: str | None
     created_at: datetime
+    ordered_at: datetime | None
 
 
 class OrderListOut(BaseModel):
@@ -89,37 +155,49 @@ class OrderListOut(BaseModel):
     size: int
 
 
-class CustomerDisplayOut(BaseModel):
-    """Read-only customer display (kéo từ báo giá). NOT a block gate."""
+class OrderStatsOut(BaseModel):
+    all: int
+    draft: int
+    ordered: int
+    cancelled: int
+    pending_approval: int
 
-    customer_id: int
-    name: str
-    tax_code: str | None = None
-    credit_status_display: str
 
-
-class OrderDetailOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    order_no: str
-    customer_id: int | None
-    customer: CustomerDisplayOut | None = None
-    quotation_id: int | None
+class OrderDetailOut(OrderRow):
     quotation_version: int | None
     quotation_effective_from: date | None
-    order_type: str
-    order_kind: str
     parent_order_id: int | None
-    status: str
-    has_customer_paper: bool
+    customer_po_no: str | None
+    delivery_address: str | None
+    invoice_entity_name: str | None
+    invoice_entity_tax_code: str | None
     vat_pct_estimate: int
+    lines: list[OrderLineOut]
+    order_cost: int | None              # Σ cost_snapshot (None nếu cost_basis=none)
+    margin_pct: int | None             # None ⇒ "biên không xác định" (nhập tay)
     cancel_reason: str | None
-    cancelled_at_state: str | None
-    created_at: datetime
-    lines: list[OrderLineOut] = Field(default_factory=list)
-    gate: GateOut | None = None
-    allowed_transitions: list[str] = Field(default_factory=list)
+    cancel_fault: str | None
+    # V5: danh sách PHIẾU THU CỌC (PaymentReceipt nguồn đơn). Giữ tên field `deposits` để giảm thay
+    # đổi FE; mỗi phần tử là OrderDepositReceiptOut.
+    deposits: list[OrderDepositReceiptOut] = []
+    approvals: list[OrderApprovalOut] = []
+    consent_attachments: list[AttachmentOut] = []
+    # Cổng chốt (P4): checklist đọc-được cho FE.
+    can_confirm: bool = False
+    confirm_blockers: list[str] = []
+    quote_expired: bool = False   # Việc 4: báo giá nguồn accepted đã hết hạn → FE bật nút "Gia hạn"
+
+
+class OrderActivityItem(BaseModel):
+    at: datetime
+    actor_id: int | None
+    actor_name: str | None
+    action: str
+    detail: str
+
+
+class OrderActivityOut(BaseModel):
+    items: list[OrderActivityItem]
 
 
 class EnumOption(BaseModel):
@@ -128,38 +206,6 @@ class EnumOption(BaseModel):
 
 
 class OrderEnumsOut(BaseModel):
-    order_types: list[EnumOption]
-    order_kinds: list[EnumOption]
+    source_types: list[EnumOption]
+    order_natures: list[EnumOption]
     statuses: list[EnumOption]
-
-
-class ApprovedQuotationRow(BaseModel):
-    """A choosable báo giá đã duyệt còn hạn (F1 picker). Đối ngoại fields only — no buildup."""
-
-    id: int
-    code: str
-    version: int
-    customer_id: int | None
-    customer_name: str | None = None
-    total: int | None
-    valid_until: date | None
-
-
-class ApprovedQuotationListOut(BaseModel):
-    items: list[ApprovedQuotationRow]
-
-
-__all__ = [
-    "OrderCreate",
-    "TransitionRequest",
-    "OrderLineOut",
-    "GateOut",
-    "OrderRow",
-    "OrderListOut",
-    "CustomerDisplayOut",
-    "OrderDetailOut",
-    "EnumOption",
-    "OrderEnumsOut",
-    "ApprovedQuotationRow",
-    "ApprovedQuotationListOut",
-]

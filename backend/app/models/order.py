@@ -1,43 +1,32 @@
-"""Đơn hàng bán (Order + OrderLine) ORM models — spec-10-don-hang-ban (bước ④ CHỐT ĐƠN).
+"""Đơn hàng bán (Order + OrderLine + OrderApproval + OrderAttachment) ORM models —
+redesign-don-hang-ban.md (khâu ④ CHỐT ĐƠN). V5: cọc KHÔNG còn ở đây — Kế toán lập
+PaymentReceipt(source='don_hang_ban', order_id) (models/accounting.py).
 
-An **order** (đơn hàng bán) is created AFTER a khách chấp nhận a **báo giá đã duyệt**
-(``Quotation.status == approved`` còn hạn). At chốt đơn it **snapshots** the priced
-quotation copy-on-write so a later price/norm change never rewrites the đơn:
+An **order** (đơn hàng bán) is created từ một **báo giá đã duyệt** (`accepted`, còn hạn) HOẶC
+**nhập giá tay** (`source_type`). At chốt đơn it **snapshots** the priced line copy-on-write so a
+later price/norm change never rewrites the đơn.
 
-P0 invariants honoured here (§34 L877-879, §43 #5 L1209-1210):
-  - **Nguồn = Báo giá đã duyệt, KHÔNG Tính giá**: the order pins ``quotation_id`` **+**
-    ``quotation_version`` **+** ``quotation_effective_from`` (C1 — báo giá versioned, chỉ FK
-    là hụt). Read via **SEAM-04** (``quotation_ref``); Báo giá IS built (feat-043..045) so the
-    read is live, but the deposit half of SEAM-04 (Payment) is still TREO (feat-048).
-  - **Snapshot copy-on-write on the ORDER-LINE**: ``unit_price_snapshot`` (Int) **and**
-    ``norm_snapshot`` (JSON) are stored ON ``order_lines`` — there is NO live FK to the
-    price/norm tables. Đổi giá gốc sau đó KHÔNG đổi số trên đơn.
-  - **Ẩn field vật lý khỏi Sale (§29 P0 L730, §43 #1)**: khổ giấy / số màu / số kẽm /
-    imposition / PrintForm are NEVER stored or exposed here — that layer sống ở Sản xuất.
-
-Cardinality (§34/§43 #6): ``Order 1─n Job`` (thực tế n-n Order-line ↔ Job/PrintForm qua bảng
-nối, ghép bài) — so there is **no hard FK to Job** here (Sản xuất chưa build). ``parent_order_id``
-is a self-FK used **ONLY** for an **đơn bổ sung** (sub-job trỏ đơn gốc); ``change_order`` (đổi)
-giữ lịch sử qua Quotation-version, KHÔNG dùng ``parent_order_id`` (Resolved decision #5).
-
-``row_version`` (optimistic locking) is deliberately NOT modelled on Order (doc chỉ mandate
-cho Job/Quotation, §34 L898 — Out-of-scope). VAT chân lý ở ``InvoiceLine`` (⑬); the order carries
-only ``vat_pct_estimate`` to ước tổng. Portable across SQLite and Postgres.
-
-Cross-module reads are SEAMS (owned by this consumer per DIP; upstream implements later):
-  - ``quotation_id`` → **SEAM-04** (Báo giá + Payment) — quotation_ref live, deposit TREO.
-  - ``proof.customer_approved`` (cổng ⑤→⑥ chỉ-báo) → **SEAM-05** (Chế bản) — F6, TREO.
-  - ``has_customer_paper`` lô giấy chi tiết → **SEAM-06** (Kho) — F4, TREO.
-  - tiến độ SX → **SEAM-01** (Sản xuất) · trạng thái giao → **SEAM-02** (Giao hàng) — F7, TREO.
+P1 redesign (2026-07-15) — quyết định đã khóa (xem docs/redesign-don-hang-ban.md):
+  - **2 nguồn:** `bao_gia` (ghim quotation_id+version+effective_from, giá+giá vốn bất biến) ·
+    `nhap_tay` (không giá vốn → biên "không xác định"; luôn cần TP/GĐ duyệt). Bỏ "nhân bản".
+    Đơn bổ sung (`order_kind=bo_sung`, `parent_order_id`) giữ kẽm → giá riêng.
+  - **% cọc = ghim từ BÁO GIÁ** (`deposit_pct`), khóa trên đơn. Số ngày công nợ KHÔNG giữ ở đơn.
+  - **Trạng thái active:** draft → ordered → cancelled. (`on_hold`/`change_order` dormant.)
+  - **order_nature** {hang_hoa, gia_cong} thay cờ `has_customer_paper` (2 gốc thuế).
+  - **Duyệt tại đơn** cho nguồn không-qua-báo-giá qua `approval_state` + `order_approvals`.
+  - **Hủy:** `cancel_*` (lý do + lỗi tại ai) — cọc KHÔNG xóa; "còn cọc chưa quyết toán" SUY RA từ
+    data (đơn hủy + Σ cọc đã nhận > 0). Duyệt bản in + tiến độ SX là luồng NGOÀI hệ thống (bỏ field).
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     String,
@@ -47,31 +36,59 @@ from sqlalchemy.types import JSON
 
 from ..db import Base
 
-# --- order_type (§41 L1135) ----------------------------------------------------
-ORDER_TYPE_NOI_BO = "noi_bo"      # nội bộ
-ORDER_TYPE_THEO_YC = "theo_yc"    # theo yêu cầu
+# --- source_type (P1 redesign): nguồn tạo đơn ---------------------------------
+SOURCE_BAO_GIA = "bao_gia"        # từ báo giá đã duyệt (ghim quotation + snapshot giá/giá vốn)
+SOURCE_NHAP_TAY = "nhap_tay"      # nhập giá tay (không giá vốn → biên "không xác định")
+SOURCE_TYPES = (SOURCE_BAO_GIA, SOURCE_NHAP_TAY)
+
+# --- order_nature: bản chất giao dịch (gốc thuế, thay has_customer_paper) ------
+NATURE_HANG_HOA = "hang_hoa"      # xưởng lo hết → HĐ toàn bộ giá trị
+NATURE_GIA_CONG = "gia_cong"      # khách ứng giấy → HĐ chỉ tiền công (xử ở Pha Hóa đơn)
+ORDER_NATURES = (NATURE_HANG_HOA, NATURE_GIA_CONG)
+
+# --- order_type (§41, dormant) -------------------------------------------------
+ORDER_TYPE_NOI_BO = "noi_bo"
+ORDER_TYPE_THEO_YC = "theo_yc"
 ORDER_TYPES = (ORDER_TYPE_NOI_BO, ORDER_TYPE_THEO_YC)
 
-# --- order_kind (§32 L807-813) -------------------------------------------------
+# --- order_kind ----------------------------------------------------------------
 ORDER_KIND_MOI = "moi"            # đơn mới
-ORDER_KIND_BO_SUNG = "bo_sung"    # đơn bổ sung (sub-job, giữ kẽm cũ → rẻ), giá bán riêng
+ORDER_KIND_BO_SUNG = "bo_sung"    # đơn bổ sung (giữ kẽm → giá riêng), bắt buộc parent_order_id
 ORDER_KINDS = (ORDER_KIND_MOI, ORDER_KIND_BO_SUNG)
 
-# --- Lifecycle (state machine §9/§32 L825-829) ---------------------------------
-# Stored as plain strings; the transition table + guards live in order_state.py.
-STATUS_DRAFT = "draft"              # đang lập (chưa chốt) — dòng đơn còn sửa được
-STATUS_ORDERED = "ordered"         # đã chốt (gate ③→④ đạt) — snapshot khóa, dòng đơn read-only
-STATUS_ON_HOLD = "on_hold"         # tạm giữ
-STATUS_CHANGE_ORDER = "change_order"  # đổi đơn (re-quote giữ lịch sử qua Quotation-version)
-STATUS_CANCELLED = "cancelled"     # đã hủy (+cancel_reason, cancelled_at_state)
+# --- Lifecycle (state machine) — active: draft/ordered/cancelled ---------------
+STATUS_DRAFT = "draft"              # đang lập (chưa chốt) — dòng đơn còn sửa
+STATUS_ORDERED = "ordered"         # đã chốt (gate đạt) — khóa cứng, xuống SX
+STATUS_CANCELLED = "cancelled"     # đã hủy (+cancel_*)
+STATUS_ON_HOLD = "on_hold"         # DORMANT (redesign bỏ) — giữ hằng số cho tương thích
+STATUS_CHANGE_ORDER = "change_order"  # DORMANT (redesign bỏ)
 
 ORDER_STATUSES = (
     STATUS_DRAFT,
     STATUS_ORDERED,
-    STATUS_ON_HOLD,
-    STATUS_CHANGE_ORDER,
     STATUS_CANCELLED,
 )
+
+# --- approval_state (P3): trạng thái trình-duyệt của đơn cần duyệt --------------
+APPROVAL_STATE_NONE = "none"        # đơn không cần duyệt
+APPROVAL_STATE_PENDING = "pending"  # đã "Trình duyệt", chờ người có quyền
+APPROVAL_STATE_APPROVED = "approved"
+APPROVAL_STATE_REJECTED = "rejected"
+APPROVAL_STATES = (
+    APPROVAL_STATE_NONE,
+    APPROVAL_STATE_PENDING,
+    APPROVAL_STATE_APPROVED,
+    APPROVAL_STATE_REJECTED,
+)
+
+# --- cost_basis: nguồn/độ tin của giá vốn để báo cáo biên trung thực -----------
+COST_BASIS_QUOTE = "quote"          # từ báo giá (có giá vốn)
+COST_BASIS_NONE = "none"            # nhập tay không giá vốn → biên "không xác định"
+
+# --- cancel_fault --------------------------------------------------------------
+FAULT_KHACH = "khach"
+FAULT_XUONG = "xuong"
+CANCEL_FAULTS = (FAULT_KHACH, FAULT_XUONG)
 
 
 def _utcnow() -> datetime:
@@ -82,51 +99,67 @@ class Order(Base):
     __tablename__ = "orders"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # System-generated order number (DH001, DH002…). Unique. NOT `PB###` (PB = mã phòng ban).
-    # Pattern chưa xác nhận với SVN — DH### is the working default (documented as unconfirmed).
+    # System-generated order number (DH001, DH002…). Unique.
     order_no: Mapped[str] = mapped_column(String(20), unique=True, index=True, nullable=False)
 
-    # SEAM-04: the approved quotation this order references. customer_id is pulled FROM the
-    # quotation (§ form: khách chỉ-đọc). FK→customers.id (CRM same-app), nullable so a draft
-    # can exist while wiring, but create requires an approved quotation → customer.
     customer_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("customers.id", ondelete="SET NULL"), index=True, nullable=True
     )
     # --- C1 pin: quotation reference (id + version + effective_from) — SEAM-04 --
-    # Plain Integer (NO FK to a live price row): báo giá versioned nên a bare FK là hụt; we
-    # ghim the exact version + effective window at chốt (copy-on-write source pointer).
     quotation_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     quotation_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     quotation_effective_from: Mapped[date | None] = mapped_column(Date, nullable=True)
 
-    # order_type ∈ {noi_bo, theo_yc} (§41). order_kind ∈ {moi, bo_sung} (§32).
+    # Nguồn + bản chất
+    source_type: Mapped[str] = mapped_column(String(16), nullable=False, default=SOURCE_BAO_GIA)
+    order_nature: Mapped[str] = mapped_column(String(16), nullable=False, default=NATURE_HANG_HOA)
     order_type: Mapped[str] = mapped_column(String(16), nullable=False, default=ORDER_TYPE_THEO_YC)
     order_kind: Mapped[str] = mapped_column(String(16), nullable=False, default=ORDER_KIND_MOI)
-    # Đơn bổ sung → BẮT BUỘC trỏ đơn gốc (self-FK); NULL cho đơn mới (§32 L807-813).
-    # KHÔNG dùng cho change_order (đổi) — đổi giữ lịch sử qua Quotation-version (decision #5).
+    # Đơn bổ sung → BẮT BUỘC trỏ đơn gốc (self-FK); NULL cho đơn mới.
     parent_order_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("orders.id", ondelete="SET NULL"), index=True, nullable=True
     )
 
-    # NV kinh doanh phụ trách (hoa hồng) + RBAC data-scope owner (own/department/all, §41).
+    # NV kinh doanh phụ trách + RBAC data-scope owner.
     sale_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id"), index=True, nullable=True
     )
 
-    # Lifecycle status (see ORDER_STATUSES). Gate ③→④ để sang `ordered` (§32 L827-828).
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=STATUS_DRAFT)
 
-    # F4 cờ ứng giấy khách. Chi tiết lô giấy (ownership=customer, cost=0) sống ở Kho — read-only
-    # link qua SEAM-06 (TREO). KHÔNG nhập tồn ở màn này.
+    # DORMANT (thay bằng order_nature) — giữ cột để không mất dữ liệu cũ.
     has_customer_paper: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
-    # VAT DỰ KIẾN để ước tổng — nguồn chân lý VAT là InvoiceLine ở ⑬, KHÔNG chốt ở đây.
     vat_pct_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
-    # F8 Hủy (state cancelled): reason + the status khi hủy (để biết hoàn/không hoàn vật tư-cọc
-    # theo bảng mốc §32 L817-825).
+    # --- P1: thông tin đặt hàng (Sale nhập khi nháp) ----------------------------
+    customer_po_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    delivery_committed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Pháp nhân xuất HĐ (khi khách xin xuất tên khác; mặc định = khách).
+    invoice_entity_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    invoice_entity_tax_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # % cọc GHIM TỪ BÁO GIÁ (khóa trên đơn) — base cổng chốt.
+    deposit_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Nguồn/độ tin giá vốn: quote (có) / none (nhập tay → biên không xác định).
+    cost_basis: Mapped[str] = mapped_column(String(16), nullable=False, default=COST_BASIS_QUOTE)
+
+    # --- Duyệt tại đơn (P3) — nguồn không-qua-báo-giá ---------------------------
+    needs_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    approval_state: Mapped[str] = mapped_column(String(16), nullable=False, default=APPROVAL_STATE_NONE)
+
+    # --- Chốt (P4) --------------------------------------------------------------
+    ordered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    ordered_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+
+    # --- Hủy (P5) ---------------------------------------------------------------
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    cancelled_at_state: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    cancelled_at_state: Mapped[str | None] = mapped_column(String(16), nullable=True)  # dormant
+    cancel_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    cancel_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancel_fault: Mapped[str | None] = mapped_column(String(16), nullable=True)  # khach/xuong
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -138,6 +171,15 @@ class Order(Base):
         cascade="all, delete-orphan",
         order_by="OrderLine.id",
     )
+    # V5: cọc KHÔNG còn là bảng tự chứa. Kế toán lập PaymentReceipt(source='don_hang_ban',
+    # order_id) — cổng đủ cọc đọc Σ PaymentReceipt(order, received). Không relationship ngược
+    # ở đây (đọc 1 chiều qua accounting_repo để tránh order phụ thuộc cứng vào kế toán).
+    attachments: Mapped[list["OrderAttachment"]] = relationship(
+        "OrderAttachment",
+        back_populates="order",
+        cascade="all, delete-orphan",
+        order_by="OrderAttachment.id",
+    )
 
 
 class OrderLine(Base):
@@ -148,19 +190,87 @@ class OrderLine(Base):
         Integer, ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False
     )
 
-    # Mô tả SP thương mại (đối ngoại) — NEVER số màu/kẽm/khổ/imposition/PrintForm (§29 P0).
+    # Mô tả SP thương mại (đối ngoại) — NEVER số màu/kẽm/khổ/imposition/PrintForm.
     description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
-    # --- P0 snapshot copy-on-write (§34 L877-878, §43 #5) -----------------------
-    # Frozen unit price (Int, VND) + norm snapshot (JSON) captured từ báo giá at create/chốt.
-    # NO live FK to a price/norm table — đổi giá gốc sau KHÔNG đổi số trên đơn.
+    # --- P0 snapshot copy-on-write ----------------------------------------------
     unit_price_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     norm_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Giá vốn TỔNG của dòng (cùng grain với line_total). NULL cho đơn nhập tay (không giá vốn).
+    cost_snapshot: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
-    # VAT DỰ KIẾN cho dòng (ước tổng) — chân lý ở InvoiceLine (⑬).
     vat_pct_estimate: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    # Thành tiền = qty * unit_price_snapshot (derived + stored; null khi chưa có giá).
     line_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     order: Mapped["Order"] = relationship("Order", back_populates="lines")
+
+
+# --- A2/P3: "đơn đặc thù" → duyệt tại đơn (order_approvals) --------------------
+APPROVAL_DECISION_APPROVED = "approved"
+APPROVAL_DECISION_REJECTED = "rejected"
+APPROVAL_DECISIONS = (APPROVAL_DECISION_APPROVED, APPROVAL_DECISION_REJECTED)
+
+EXC_HIGH_VALUE = "high_value"
+EXC_LOW_MARGIN = "low_margin"
+EXC_BELOW_COST = "below_cost"
+EXC_NO_COST = "no_cost"            # nhập tay không giá vốn (luôn cần duyệt)
+EXC_DISCOUNT_OUT = "discount_out"
+EXC_MARGIN_OUT = "margin_out"
+
+
+class OrderApproval(Base):
+    __tablename__ = "order_approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    triggers_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    order_total: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    order_subtotal: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    order_cost: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    margin_pct_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_margin_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    high_value_threshold: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    decided_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
+# --- Đính kèm CẤP ĐƠN (chứng cứ khách đồng ý — cổng chốt §8d) ------------------
+ATTACH_KIND_CONSENT = "consent"     # chứng cứ khách đồng ý (ảnh PO/Zalo…)
+ATTACH_KINDS = (ATTACH_KIND_CONSENT,)
+
+
+class OrderAttachment(Base):
+    __tablename__ = "order_attachments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    order_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default=ATTACH_KIND_CONSENT)
+    # URL phục vụ qua /static (bytes dưới <backend>/static/don-hang/<order_id>/).
+    file_url: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    uploaded_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+    order: Mapped["Order"] = relationship("Order", back_populates="attachments")

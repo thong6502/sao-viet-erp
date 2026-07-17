@@ -16,13 +16,6 @@
   width: 220px;
 }
 
-.acct-master-detail {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 430px);
-  gap: var(--sp-5);
-  align-items: start;
-}
-
 .acct-list {
   min-width: 0;
 }
@@ -31,12 +24,312 @@
   cursor: pointer;
 }
 
+/* Dòng bấm được thì sáng lên khi rê chuột — dạy người dùng "bấm vào xem". Dải
+   nhóm PMH có nền riêng đè lên nên tự miễn nhiễm. Dùng chung cho cả 3 màn
+   .acct-list (Phiếu chi/Phiếu thu/YC kế toán). */
+.acct-list tbody tr:hover {
+  background: var(--rule-hair);
+}
+
 .acct-list td small,
 .acct-account-pair small,
 .acct-voucher-amount small {
   display: block;
   margin-top: 4px;
   color: var(--ash);
+}
+
+/* Cột số tiền: số trên một dòng (không gãy giữa chừng), tổng PMH/nguyên tệ
+   xuống dòng phụ — KHÔNG dùng flex trên <td> (phá hàng của bảng). */
+.acct-list th.acct-amount-cell,
+.acct-list td.acct-amount-cell {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.acct-list td.acct-amount-cell small {
+  font-size: 12px;
+}
+
+/* Mã chứng từ/PMH không gãy giữa mã; danh sách YCMH bên dưới vẫn được xuống dòng. */
+.acct-list td.acct-code-cell {
+  white-space: nowrap;
+}
+
+.acct-list td.acct-code-cell .purchase__source-codes {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tên NCC dài: cắt bằng ellipsis (đầy đủ xem ở panel chi tiết / title). */
+.acct-list td.acct-supplier-cell {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+/* Dải nhóm PMH: các phiếu chi cùng một PMH nằm liền dưới một dải; dòng đầu
+   mỗi trang luôn lặp lại dải nên sang trang không mất ngữ cảnh. Phân biệt
+   với dòng được chọn (.purchase__row--selected cùng nền rule-hair) bằng
+   border đậm phía trên + chữ mono, không chỉ bằng màu nền. */
+.acct-list tr.acct-group-row {
+  cursor: default;
+}
+
+.acct-list tr.acct-group-row td {
+  padding: 6px 12px;
+  background: var(--rule-hair);
+  border-top: 2px solid var(--rule);
+}
+
+.acct-list tr.acct-group-row td > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.acct-list tr.acct-group-row strong {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.acct-group-row__supplier {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ash);
+  font-size: 12px;
+}
+
+.acct-group-row__total {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--ash);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Ô "Lập lúc": giờ phút giây + ngày, không gãy dòng. */
+.acct-list td.acct-time-cell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  color: var(--ash);
+}
+
+/* Badge đỏ "Thiếu chứng từ" — nằm DƯỚI badge trạng thái trong cùng ô/khối
+   (block-level child, KHÔNG flex trên td). */
+.acct-missing-doc {
+  display: inline-flex;
+  width: max-content;
+  margin-top: 4px;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 9px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: #fde2df;
+  color: var(--signal);
+}
+
+.acct-list td .acct-missing-doc {
+  display: block;
+}
+
+.acct-status-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+/* ── Bảng Phiếu chi (.acct-list--voucher): mỗi ô đúng MỘT dòng → mọi dòng cao
+   bằng nhau, hết nhấp nhô. Sự đều đến từ đồng nhất nội dung; `height` chỉ là sàn
+   cho thoáng + chốt chặn hồi quy (trên <tr>, height = min-height, KHÔNG cắt được
+   dòng cao). Chi tiết phụ (YCMH, đã thu, nguyên tệ) đã có đủ trong popup.
+   Khoanh bằng --voucher để KHÔNG đụng Phiếu thu / YC kế toán cùng dùng .acct-list. */
+.acct-list--voucher tbody tr {
+  height: 52px;
+}
+
+/* Dải nhóm PMH cố tình thấp — miễn trừ khỏi sàn 52px. */
+.acct-list--voucher tbody tr.acct-group-row {
+  height: auto;
+}
+
+/* "Thiếu chứng từ" nằm INLINE cạnh badge trạng thái → ô luôn 1 dòng.
+   Ghi đè .acct-list td .acct-missing-doc{display:block} (specificity cao hơn). */
+.acct-list--voucher td.acct-status-cell {
+  white-space: nowrap;
+}
+
+.acct-list--voucher td .acct-missing-doc {
+  display: inline-flex;
+  margin: 0 0 0 6px;
+  vertical-align: middle;
+}
+
+/* Người lập (dùng chung Phiếu chi + Phiếu thu, KHÔNG khóa theo --voucher):
+   cắt bằng <div>, KHÔNG max-width trên <td> (vô hiệu với table-layout auto →
+   ô nong theo tên dài nhất, đẻ cuộn ngang). */
+.acct-list td.acct-user-cell {
+  font-size: 13px;
+}
+
+.acct-list td.acct-user-cell > div {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Cột thao tác (dùng chung cho mọi bảng kế toán, KHÔNG khóa theo --voucher):
+   nút mắt 32px, canh phải, padding dọc thu lại để không đẩy cao dòng. */
+.acct-list th.acct-action-cell,
+.acct-list td.acct-action-cell {
+  width: 1%;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.acct-list td.acct-action-cell {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.acct-eye {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  vertical-align: middle;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  background: none;
+  color: var(--ash);
+  cursor: pointer;
+}
+
+.acct-eye:hover {
+  border-color: var(--rule);
+  background: var(--canvas);
+  color: var(--ink);
+}
+
+/* Khối "Chứng từ đính kèm" trong panel chi tiết phiếu chi. */
+.acct-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
+}
+
+.acct-attachments__label {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  color: var(--ash-2);
+  text-transform: uppercase;
+}
+
+.acct-attachments__empty {
+  color: var(--ash);
+}
+
+.acct-att-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+}
+
+.acct-att-item {
+  position: relative;
+}
+
+.acct-att-thumb {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+}
+
+.acct-att-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 200px;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.acct-att-x {
+  position: absolute;
+  top: -7px;
+  right: -7px;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 50%;
+  background: var(--canvas);
+  color: var(--signal);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.acct-att-x:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* Danh sách file đã chọn trong dialog lập phiếu (trước khi upload). */
+.acct-filelist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.acct-filelist li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.acct-filelist__x {
+  width: 22px;
+  height: 22px;
+  font-size: 16px;
 }
 
 .acct-actions {
@@ -347,10 +640,6 @@
 }
 
 @media (max-width: 1180px) {
-  .acct-master-detail {
-    grid-template-columns: 1fr;
-  }
-
   .acct-form-grid--4,
   .acct-summary-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));

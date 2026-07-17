@@ -66,78 +66,81 @@ def _sales_token() -> str:
         db.close()
 
 
+def _mk_account(
+    client, token, username: str, *, dept_name: str = "Kinh doanh", role_id: int | None = None
+) -> int:
+    """Tạo tài khoản qua HỒ SƠ NV — đường duy nhất còn lại (mọi tài khoản thuộc một hồ sơ).
+    Trả `user_id` của tài khoản vừa tạo."""
+    account: dict = {"username": username, "password": DEFAULT_PW}
+    if role_id is not None:
+        account["role_id"] = role_id
+    resp = client.post(
+        "/api/employees",
+        json={
+            "full_name": f"NV {username}",
+            "department_id": _dept_id(dept_name),
+            "hire_date": "2024-01-15",
+            "account": account,
+        },
+        headers=_h(token),
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["employee"]["user_id"]
+
+
+def _user_row(client, token, uid: int) -> dict:
+    rows = client.get("/api/users", headers=_h(token)).json()
+    return next(u for u in rows if u["id"] == uid)
+
+
 def test_list_users_includes_admin(client):
     rows = client.get("/api/users", headers=_h(_admin_token(client))).json()
     assert any(u["username"] == "admin" for u in rows)
 
 
-def test_create_user_starts_with_no_role(client):
+def test_account_from_employee_starts_with_no_role(client):
     token = _admin_token(client)
     kd_id = _dept_id("Kinh doanh")
-    resp = client.post(
-        "/api/users",
-        json={"name": "Nguyễn A", "username": "nguyena", "department_id": kd_id},
-        headers=_h(token),
-    )
-    assert resp.status_code == 201
-    body = resp.json()
-    assert body["department_id"] == kd_id
+    uid = _mk_account(client, token, "nguyena")
+    body = _user_row(client, token, uid)
+    assert body["department_id"] == kd_id  # tài khoản thừa hưởng phòng của hồ sơ
     assert body["role_id"] is None  # most-minimal default until a head assigns
     assert body["is_active"] is True
-    # spec-07: every user gets a system-generated NVxxx business code.
+    # every user gets a system-generated TKxxx account code (Đ1: tách khỏi NV của hồ sơ).
     import re
 
-    assert re.fullmatch(r"NV\d{3,}", body["code"]), body["code"]
+    assert re.fullmatch(r"TK\d{3,}", body["code"]), body["code"]
 
 
 def test_user_codes_are_unique_and_listed(client):
     token = _admin_token(client)
-    kd_id = _dept_id("Kinh doanh")
     for uname in ("code1", "code2"):
-        client.post(
-            "/api/users",
-            json={"name": uname, "username": uname, "department_id": kd_id},
-            headers=_h(token),
-        )
+        _mk_account(client, token, uname)
     rows = client.get("/api/users", headers=_h(token)).json()
     codes = [u["code"] for u in rows if u["code"]]
-    assert all(c.startswith("NV") for c in codes)
+    assert all(c.startswith("TK") for c in codes)  # mã tài khoản đổi NV→TK (Đ1, migration 0042)
     assert len(codes) == len(set(codes))  # no duplicates
 
 
-def test_create_user_validation(client):
+def test_duplicate_username_rejected(client):
+    """Trùng tên đăng nhập bị chặn ở đường tạo-qua-hồ-sơ (400 từ tầng nghiệp vụ)."""
     token = _admin_token(client)
-    kd_id = _dept_id("Kinh doanh")
-    client.post(
-        "/api/users", json={"name": "Dup", "username": "dup", "department_id": kd_id}, headers=_h(token)
-    )
+    _mk_account(client, token, "dup")
     dup = client.post(
-        "/api/users", json={"name": "Dup2", "username": "dup", "department_id": kd_id}, headers=_h(token)
+        "/api/employees",
+        json={
+            "full_name": "Dup2", "department_id": _dept_id("Kinh doanh"),
+            "hire_date": "2024-01-15",
+            "account": {"username": "dup", "password": DEFAULT_PW},
+        },
+        headers=_h(token),
     )
-    assert dup.status_code == 409  # username taken
-
-    blank_username = client.post(
-        "/api/users", json={"name": "X", "username": "", "department_id": kd_id}, headers=_h(token)
-    )
-    assert blank_username.status_code == 422
-
-    no_name = client.post(
-        "/api/users", json={"name": "", "username": "y", "department_id": kd_id}, headers=_h(token)
-    )
-    assert no_name.status_code == 422
-
-    bad_dept = client.post(
-        "/api/users", json={"name": "Z", "username": "z", "department_id": 99999}, headers=_h(token)
-    )
-    assert bad_dept.status_code == 404
+    assert dup.status_code == 400
 
 
 def test_assign_role_must_match_department(client):
     token = _admin_token(client)
-    kd_id = _dept_id("Kinh doanh")
-    uid = client.post(
-        "/api/users", json={"name": "B", "username": "userb", "department_id": kd_id}, headers=_h(token)
-    ).json()["id"]
+    uid = _mk_account(client, token, "userb")
 
     # A KD role -> ok.
     sales = _role_id("NV Sales", "Kinh doanh")
@@ -153,10 +156,7 @@ def test_assign_role_must_match_department(client):
 
 def test_lock_blocks_login_and_me(client):
     token = _admin_token(client)
-    kd_id = _dept_id("Kinh doanh")
-    uid = client.post(
-        "/api/users", json={"name": "C", "username": "cuser", "department_id": kd_id}, headers=_h(token)
-    ).json()["id"]
+    uid = _mk_account(client, token, "cuser")
     creds = {"username": "cuser", "password": DEFAULT_PW}
 
     # The new user can log in with the default password and use /me.
@@ -189,10 +189,15 @@ def test_cannot_revoke_own_sessions(client):
 def test_non_admin_forbidden(client):
     token = _sales_token()
     assert client.get("/api/users", headers=_h(token)).status_code == 403
+    # Tạo tài khoản giờ đi qua hồ sơ NV — NV Sales không có quyền `nhan_su` nên vẫn bị chặn.
     assert (
         client.post(
-            "/api/users",
-            json={"name": "X", "username": "userx", "department_id": _dept_id("Kinh doanh")},
+            "/api/employees",
+            json={
+                "full_name": "X", "department_id": _dept_id("Kinh doanh"),
+                "hire_date": "2024-01-15",
+                "account": {"username": "userx", "password": DEFAULT_PW},
+            },
             headers=_h(token),
         ).status_code
         == 403

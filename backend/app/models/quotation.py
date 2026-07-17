@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     Numeric,
@@ -19,17 +21,21 @@ from ..db import Base
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
-# Status constants for Quote
-STATUS_DRAFT = "draft"
-STATUS_SENT = "sent"
-STATUS_ACCEPTED = "accepted"
-STATUS_REJECTED = "rejected"
-STATUS_EXPIRED = "expired"
-STATUS_CONVERTED_TO_ORDER = "converted_to_order"
-STATUS_CANCELLED = "cancelled"
+# Status constants for Quote (7 trạng thái nghiệp vụ, xem docs/redesign-bao-gia.md §3).
+STATUS_DRAFT = "draft"                       # Nháp
+STATUS_PENDING_APPROVAL = "pending_approval" # Chờ duyệt — CHỈ báo giá đặc thù, đã "Trình duyệt"
+STATUS_APPROVED = "approved"                 # Đã duyệt — GĐ Kinh doanh duyệt xong, CHỜ sale gửi khách
+STATUS_SENT = "sent"                         # Đã gửi khách (sale tự gửi; tách khỏi "duyệt" theo chủ đầu tư)
+STATUS_ACCEPTED = "accepted"                 # Khách hàng đồng ý
+STATUS_REJECTED = "rejected"                 # Khách hàng từ chối (SAU khi gửi — khác GĐ từ chối duyệt)
+STATUS_EXPIRED = "expired"                   # Hết hiệu lực
+STATUS_CONVERTED_TO_ORDER = "converted_to_order"  # (ẩn) Đã lên đơn — khóa 1 báo giá = 1 đơn
+STATUS_CANCELLED = "cancelled"               # Hủy báo giá
 
 QUOTE_STATUSES = (
     STATUS_DRAFT,
+    STATUS_PENDING_APPROVAL,
+    STATUS_APPROVED,
     STATUS_SENT,
     STATUS_ACCEPTED,
     STATUS_REJECTED,
@@ -63,7 +69,11 @@ class Quote(Base):
     estimate_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("estimates.id", ondelete="SET NULL"), index=True, nullable=True
     )
-    
+    # BG-1: nguồn báo giá MỚI = 1 Phiếu tính giá (PTG). Soft link (plain int — PTG dùng FK mềm theo
+    # convention repo). 1 PTG → 1 BG đang hiệu lực: GUARD ở service (KHÔNG unique cứng — báo giá
+    # cancelled/rejected/expired nhả chỗ, cho báo giá lại / repeat order). estimate_id = hệ CŨ (gỡ ở BG-4).
+    phieu_tinh_gia_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+
     salesperson_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, nullable=True
     )
@@ -75,8 +85,15 @@ class Quote(Base):
     
     valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     payment_terms: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # % tạm ứng/cọc khi chốt đơn (0–100). Nhập ở màn Báo giá; None = chưa đặt.
+    deposit_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     delivery_terms: Mapped[str | None] = mapped_column(String(255), nullable=True)
     delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Người liên hệ SNAPSHOT trên báo giá (redesign-bao-gia §4/§5) — auto-fill từ CRM
+    # `CustomerContact.is_primary` khi chọn khách, sửa được; đóng băng để bản in không đổi.
+    contact_name_snapshot: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    contact_phone_snapshot: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    contact_title_snapshot: Mapped[str | None] = mapped_column(String(120), nullable=True)
     customer_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     internal_note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
@@ -88,6 +105,10 @@ class Quote(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+    # Real-time "gửi duyệt": mốc người SOẠN (salesperson) đã xem quyết định duyệt/từ chối gần nhất
+    # của báo giá này. NULL = có quyết định MỚI chưa xem → nuôi badge/toast phía Sale. Timestamp,
+    # KHÔNG Boolean (né gotcha server_default Postgres). Reset về NULL mỗi lần GĐ ra quyết định.
+    decision_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Relationships
     versions: Mapped[list[QuoteVersion]] = relationship(
@@ -153,7 +174,11 @@ class QuoteItem(Base):
         Integer, ForeignKey("estimates.id", ondelete="SET NULL"), index=True, nullable=True
     )
     estimate_option_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # BG-1: dòng báo giá nguồn từ 1 "sản phẩm" (PhieuThanhPhan) của PTG. Soft ref (gỡ estimate_* ở BG-4).
+    phieu_thanh_phan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     line_no: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Mã PO của khách cho dòng này (cột "MÃ PO" trên mẫu báo giá thật) — tùy chọn, nhập tay.
+    po_code: Mapped[str | None] = mapped_column(String(60), nullable=True)
     
     product_type: Mapped[str] = mapped_column(String(50), nullable=False)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -216,3 +241,36 @@ class QuoteActivityLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
     quote: Mapped[Quote] = relationship("Quote", back_populates="activity_logs")
+
+
+class QuoteApproval(Base):
+    """BG-2: GĐ duyệt "báo giá ĐẶC THÙ" (biên thấp / dưới vốn / giá trị cao) — chặn "gửi khách" tới khi
+    duyệt. Song sinh với `order_approvals` (cùng máy `exception_gate`), khóa theo `quote_id`. Ghim SỐ +
+    NGƯỠNG lúc quyết định để re-check "bao phủ" (báo giá đổi xấu đi → phải trình lại) + audit. Bản GẦN
+    NHẤT quyết định cổng. Tiền = BigInteger. Bảng MỚI (create_all tự tạo, không cần migration)."""
+
+    __tablename__ = "quote_approvals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    quote_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("quotes.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)   # approved | rejected
+    triggers_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # GHIM số lúc quyết định. total = gồm VAT (mốc quy mô); subtotal = trước VAT (base biên).
+    total: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    subtotal: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    cost: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    margin_pct_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_margin_pct: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    high_value_threshold: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    decided_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decided_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )

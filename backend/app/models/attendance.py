@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -154,3 +154,61 @@ class AttendanceAdjustRequest(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
+
+
+# --- Chốt công tháng (Pha 2) ------------------------------------------------
+
+APERIOD_DRAFT = "draft"
+APERIOD_LOCKED = "locked"
+APERIOD_STATUSES = (APERIOD_DRAFT, APERIOD_LOCKED)
+
+
+class AttendancePeriod(Base):
+    """Kỳ CÔNG tháng (Chốt công). 1 dòng/(year,month): draft → locked = đóng băng Bảng công
+    để Lương đọc bản đã khóa (không tính lại). Mirror payroll_periods."""
+
+    __tablename__ = "attendance_periods"
+    __table_args__ = (UniqueConstraint("year", "month", name="uq_attendance_period_ym"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    year: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    month: Mapped[int] = mapped_column(Integer, index=True, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(12), nullable=False, default=APERIOD_DRAFT, server_default=APERIOD_DRAFT, index=True
+    )
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    locked_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class AttendancePeriodLine(Base):
+    """Snapshot CÔNG của 1 NV trong 1 kỳ, đóng băng lúc Chốt. Lương đọc `total_cong` từ đây."""
+
+    __tablename__ = "attendance_period_lines"
+    __table_args__ = (UniqueConstraint("period_id", "employee_id", name="uq_attendance_period_line_pe"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    period_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("attendance_periods.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    employee_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    total_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
+    total_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # ngày có chấm
+    total_leave: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")     # tổng ngày nghỉ phép
+    paid_leave_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0") # nghỉ phép CÓ lương
+    unpaid_leave_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")  # nghỉ KHÔNG lương
+    holiday_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # ngày nghỉ lễ hưởng công
+    total_hours: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0, server_default="0")
+    ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút vượt ca (chờ duyệt OT — Pha 4)
+    night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày làm ca đêm
+    # Pha 4d (Đ98): phân loại công/OT theo LOẠI NGÀY để Lương trả premium (đóng băng lúc Chốt).
+    holiday_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")  # công LÀM ngày lễ
+    restday_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")  # công LÀM ngày nghỉ tuần
+    ot_holiday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # phút OT ngày lễ
+    ot_restday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # phút OT ngày nghỉ tuần
+    note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

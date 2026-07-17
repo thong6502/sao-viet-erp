@@ -41,6 +41,13 @@ class EmployeeRepository:
             select(Employee).where(Employee.user_id == user_id)
         ).scalars().first()
 
+    def count_by_department(self, department_id: int) -> int:
+        """Số HỒ SƠ nhân sự thuộc phòng (Đ2: 'số nhân sự' đếm theo hồ sơ, không theo tài
+        khoản). Chỉ phòng trực tiếp — cuộn cây do service lo."""
+        return self.db.execute(
+            select(func.count()).select_from(Employee).where(Employee.department_id == department_id)
+        ).scalar_one()
+
     def find_by_national_id(self, national_id: str | None) -> Employee | None:
         """First employee carrying this CCCD, for the soft duplicate warning. None for
         an empty value. Does NOT enforce uniqueness (deliberate soft check)."""
@@ -158,6 +165,17 @@ class EmployeeRepository:
         cond = self._scope_condition(scope=scope, actor=actor)
         if cond is not None:
             stmt = stmt.where(cond)
+        return list(self.db.execute(stmt).scalars())
+
+    def list_by_department(self, department_id: int) -> list[Employee]:
+        """Mọi hồ sơ thuộc MỘT phòng, sắp theo mã (không phân trang, không lọc scope) —
+        cho màn Phòng ban: "ai thuộc phòng nào" tính theo HỒ SƠ (Đ2), kể cả người chưa
+        có tài khoản đăng nhập."""
+        stmt = (
+            select(Employee)
+            .where(Employee.department_id == department_id)
+            .order_by(Employee.code)
+        )
         return list(self.db.execute(stmt).scalars())
 
     # --- writes -------------------------------------------------------------

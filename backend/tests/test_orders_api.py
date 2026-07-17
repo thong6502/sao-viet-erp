@@ -1,318 +1,281 @@
-"""feat-047 — Đơn hàng bán API (spec-10 F1/F2).
+"""Đơn hàng bán — service-level tests (redesign-don-hang-ban.md P1–P5).
 
-Covers: enums; approved-quotation picker (only approved+còn hạn); list ?page&size&sort&q +
-scope; create from an approved quotation → pins quotation_id+version+effective_from + order-line
-snapshot (no live FK); order_type/order_kind; đơn bổ sung bắt buộc parent (422); ẩn field vật lý
-in every response shape; gate ③→④ deposit TREO (can_confirm=false, no fake cọc); chốt blocked
-while cọc TREO; cancel captures cancelled_at_state; RBAC 403/401.
+Dựng DB in-memory + seed, rồi chạy OrderService end-to-end: 2 nguồn (báo giá/nhập tay),
+snapshot NET sau chiết khấu, cọc đa hình thức, duyệt, cổng chốt + khóa báo giá, hủy + seam.
 """
 from __future__ import annotations
 
 from datetime import date, timedelta
 
-from app.db import SessionLocal
+import pytest
+
+from app.db import Base, SessionLocal, engine
+from app.db_migrations import run_migrations
+from app.models.customer import Customer
 from app.models.quotation import STATUS_ACCEPTED, Quote, QuoteItem, QuoteVersion
+from app.models.user import User
+from app.repositories.accounting_repo import AccountingRepository
+from app.repositories.audit_repo import AuditLogRepository
+from app.repositories.document_sequence_repo import DocumentSequenceRepository
+from app.repositories.order_repo import OrderRepository
+from app.repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
 from app.repositories.quotation_repo import QuotationRepository
-from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
-from app.security import create_access_token, hash_password
-
-ADMIN = {"username": "admin", "password": "admin123"}
-TOMORROW = (date.today() + timedelta(days=30)).isoformat()
-YESTERDAY = (date.today() - timedelta(days=1)).isoformat()
-
-# The physical layer must NEVER appear in any Sale response (§29 P0, §43 #1).
-PHYSICAL_KEYS = (
-    "kho_giay", "so_mau", "so_kem", "imposition", "printform",
-    "print_form", "so_to", "so_con", "bu_hao", "plate", "colors",
+from app.schemas.order import (
+    OrderCreate,
+    OrderDepositReceiptIn,
+    OrderLineIn,
+    OrderUpdate,
 )
+from app.seed import seed_all
+from app.services.accounting_service import AccountingService
+from app.services.order_service import (
+    OrderConflict,
+    OrderForbidden,
+    OrderService,
+    OrderValidationError,
+)
+from app.services.sequence_service import SequenceService
 
 
-def _admin_token(client) -> str:
-    return client.post("/api/auth/login", json=ADMIN).json()["access_token"]
+@pytest.fixture
+def db():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+    s = SessionLocal()
+    run_migrations(s)
+    seed_all(s)
+    yield s
+    s.close()
 
 
-def _h(token: str) -> dict[str, str]:
-    return {"Authorization": f"Bearer {token}"}
+@pytest.fixture
+def admin(db):
+    return db.query(User).filter(User.username == "admin").first()
 
 
-def _role_token(username: str, role_name: str, dept_name: str = "Kinh doanh") -> str:
-    db = SessionLocal()
-    try:
-        users = UserRepository(db)
-        existing = users.get_by_username(username)
-        if existing is not None:
-            return create_access_token(str(existing.id))
-        dept = DepartmentRepository(db).get_by_name(dept_name)
-        role = RoleRepository(db).get_by_name_and_department(role_name, dept.id)
-        u = users.create(username=username, name=username, password_hash=hash_password("x"))
-        users.set_assignment(u, department_id=dept.id, role_id=role.id, is_active=True)
-        return create_access_token(str(u.id))
-    finally:
-        db.close()
+@pytest.fixture
+def customer(db):
+    c = Customer(code="KH-T", name="KH Test")
+    db.add(c)
+    db.commit()
+    return c
 
 
-def _seed_quote(*, sale_user_id: int, total=1_000_000, valid_until=None, status=STATUS_ACCEPTED) -> int:
-    """Insert an H-V-I quote directly (Báo giá is a peer module; SEAM-04 reads it live).
-    qty=1 nên unit_price_snapshot của order line = total."""
-    db = SessionLocal()
-    try:
-        n = db.query(Quote).count() + 1
-        q = Quote(
-            quote_number=f"BGT-{n:04d}", customer_id=None, salesperson_id=sale_user_id,
-            status=status, valid_until=valid_until, created_by=sale_user_id,
-        )
-        db.add(q)
-        db.flush()
-        v = QuoteVersion(
-            quote_id=q.id, version_number=1,
-            status="accepted" if status == STATUS_ACCEPTED else "draft",
-            total_cost_snapshot=0, subtotal_amount=total, discount_amount=0,
-            vat_percent=0, vat_amount=0, final_amount=total, created_by=sale_user_id,
-        )
-        db.add(v)
-        db.flush()
-        db.add(QuoteItem(
-            quote_version_id=v.id, line_no=1, product_type="brochure", product_name="SP Test",
-            quantity=1, unit="cái", total_cost_snapshot=0, margin_percent=0,
-            selling_price=total, unit_price=total, discount_amount=0,
-            vat_percent=0, vat_amount=0, final_amount=total,
-        ))
-        q.current_version_id = v.id
-        db.commit()
-        return q.id
-    finally:
-        db.close()
-
-
-def _seed_approved_quotation(*, sale_user_id: int, total=1_000_000, valid_until=None) -> int:
-    return _seed_quote(sale_user_id=sale_user_id, total=total, valid_until=valid_until)
-
-
-def _admin_id() -> int:
-    db = SessionLocal()
-    try:
-        return UserRepository(db).get_by_username("admin").id
-    finally:
-        db.close()
-
-
-def _create_order(client, token, quotation_id, **over):
-    body = {
-        "quotation_id": quotation_id, "order_type": "theo_yc", "order_kind": "moi",
-        "parent_order_id": None, "has_customer_paper": False, "vat_pct_estimate": 8,
-    }
-    body.update(over)
-    return client.post("/api/orders", json=body, headers=_h(token))
-
-
-# --- enums + approved picker (F1) ---------------------------------------------
-
-def test_enums(client):
-    token = _admin_token(client)
-    r = client.get("/api/orders/enums", headers=_h(token))
-    assert r.status_code == 200
-    body = r.json()
-    assert {o["value"] for o in body["order_types"]} == {"noi_bo", "theo_yc"}
-    assert {o["value"] for o in body["order_kinds"]} == {"moi", "bo_sung"}
-    assert "ordered" in {o["value"] for o in body["statuses"]}
-
-
-def test_approved_picker_only_approved_and_in_date(client):
-    token = _admin_token(client)
-    admin_id = _admin_id()
-    good = _seed_approved_quotation(sale_user_id=admin_id, valid_until=date.today() + timedelta(days=10))
-    # An accepted-but-expired quotation must NOT be choosable.
-    _seed_quote(sale_user_id=admin_id, total=1, valid_until=date.today() - timedelta(days=1))
-
-    r = client.get("/api/orders/approved-quotations", headers=_h(token))
-    assert r.status_code == 200
-    ids = {row["id"] for row in r.json()["items"]}
-    assert good in ids
-    # The expired one is filtered out.
-    assert len(ids) == 1
-
-
-# --- list (F1) ----------------------------------------------------------------
-
-def test_list_empty_then_created(client):
-    token = _admin_token(client)
-    r = client.get("/api/orders", headers=_h(token))
-    assert r.status_code == 200 and r.json()["total"] == 0
-
-    qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_200_000)
-    created = _create_order(client, token, qid)
-    assert created.status_code == 201, created.text
-
-    r = client.get("/api/orders?sort=order_no&page=1&size=10", headers=_h(token))
-    body = r.json()
-    assert body["total"] == 1
-    row = body["items"][0]
-    assert row["order_no"].startswith("DH")
-    assert row["order_type"] == "theo_yc"
-    assert row["total_estimate"] == 1_200_000
-    # ③→④ gate not met (cọc TREO) → honest false, not a fake pass.
-    assert row["gate_ordered_ok"] is False
-
-
-# --- create pins quotation + snapshot (F1) ------------------------------------
-
-def test_create_pins_and_snapshots(client):
-    token = _admin_token(client)
-    qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_500_000)
-    r = _create_order(client, token, qid)
-    assert r.status_code == 201
-    d = r.json()
-    assert d["quotation_id"] == qid
-    assert d["quotation_version"] == 1
-    assert len(d["lines"]) == 1
-    assert d["lines"][0]["unit_price_snapshot"] == 1_500_000
-    assert d["lines"][0]["line_total"] == 1_500_000
-
-
-def test_snapshot_not_live_fk(client):
-    token = _admin_token(client)
-    qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_000_000)
-    order = _create_order(client, token, qid).json()
-    # Mutate the source quotation total (active version + item).
-    db = SessionLocal()
-    try:
-        q = QuotationRepository(db).get_by_id(qid)
-        for v in q.versions:
-            if v.id == q.current_version_id:
-                v.final_amount = 9_999_999
-                for it in v.items:
-                    it.unit_price = 9_999_999
-        db.commit()
-    finally:
-        db.close()
-    d = client.get(f"/api/orders/{order['id']}", headers=_h(token)).json()
-    assert d["lines"][0]["unit_price_snapshot"] == 1_000_000  # unchanged
-
-
-# --- reject non-approved / expired (F1 edge) ----------------------------------
-
-def test_create_from_draft_quotation_blocked(client):
-    token = _admin_token(client)
-    qid = _seed_quote(sale_user_id=_admin_id(), total=1, status="draft")
-    r = _create_order(client, token, qid)
-    assert r.status_code == 422
-    assert "duyệt" in r.json()["detail"]
-
-
-# --- loại đơn & đơn bổ sung (F2) ----------------------------------------------
-
-def test_bo_sung_requires_parent(client):
-    token = _admin_token(client)
-    qid = _seed_approved_quotation(sale_user_id=_admin_id())
-    r = _create_order(client, token, qid, order_kind="bo_sung", parent_order_id=None)
-    assert r.status_code == 422
-    assert "bổ sung" in r.json()["detail"]
-
-
-def test_bo_sung_with_parent_ok(client):
-    token = _admin_token(client)
-    q1 = _seed_approved_quotation(sale_user_id=_admin_id())
-    parent = _create_order(client, token, q1).json()
-    q2 = _seed_approved_quotation(sale_user_id=_admin_id())
-    r = _create_order(client, token, q2, order_kind="bo_sung", parent_order_id=parent["id"])
-    assert r.status_code == 201
-    assert r.json()["order_kind"] == "bo_sung"
-    assert r.json()["parent_order_id"] == parent["id"]
-
-
-# --- ẩn field vật lý (§29 P0) -------------------------------------------------
-
-def test_no_physical_fields_in_any_view(client):
-    token = _admin_token(client)
-    qid = _seed_approved_quotation(sale_user_id=_admin_id())
-    order = _create_order(client, token, qid).json()
-
-    # list + detail response bodies (raw text) must not carry any physical vocabulary as a key.
-    list_txt = client.get("/api/orders", headers=_h(token)).text.lower()
-    detail_txt = client.get(f"/api/orders/{order['id']}", headers=_h(token)).text.lower()
-    for key in PHYSICAL_KEYS:
-        assert key not in list_txt, f"physical key leaked in list: {key}"
-        assert key not in detail_txt, f"physical key leaked in detail: {key}"
-
-
-# --- gate ③→④ + chốt blocked while cọc TREO (F3) ------------------------------
-
-def test_gate_deposit_unavailable(client):
-    token = _admin_token(client)
-    qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_000_000)
-    order = _create_order(client, token, qid).json()
-    gate = order["gate"]
-    assert gate["quotation_approved"] is True
-    assert gate["deposit_available"] is False
-    assert gate["deposit_paid"] is None
-    assert gate["can_confirm"] is False
-    assert gate["deposit_required"] == 300_000
-
-
-def test_confirm_blocked_while_deposit_treo(client):
-    token = _admin_token(client)
-    qid = _seed_approved_quotation(sale_user_id=_admin_id(), total=1_000_000)
-    order = _create_order(client, token, qid).json()
-    r = client.post(
-        f"/api/orders/{order['id']}/transition", json={"to_status": "ordered"}, headers=_h(token)
+@pytest.fixture
+def svc(db):
+    audit = AuditLogRepository(db)
+    accounting_repo = AccountingRepository(db)
+    # V5: OrderService lập phiếu thu cọc qua AccountingService (chung Session).
+    accounting = AccountingService(
+        accounting_repo,
+        PurchaseRequestRepository(db),
+        SupplierRepository(db),
+        UserRepository(db),
+        audit,
+        SequenceService(DocumentSequenceRepository(db)),
     )
-    # Chốt cần cọc, ghi cọc TREO (SEAM-04 Payment) → 409, nêu rõ chờ phân hệ.
-    assert r.status_code == 409
-
-
-# --- đổi/hủy (F8) -------------------------------------------------------------
-
-def test_cancel_captures_state(client):
-    token = _admin_token(client)
-    qid = _seed_approved_quotation(sale_user_id=_admin_id())
-    order = _create_order(client, token, qid).json()
-    # cancel without reason → 422
-    r = client.post(
-        f"/api/orders/{order['id']}/transition", json={"to_status": "cancelled"}, headers=_h(token)
+    return OrderService(
+        OrderRepository(db), audit, QuotationRepository(db), db, accounting_repo, accounting
     )
-    assert r.status_code == 422
-    r = client.post(
-        f"/api/orders/{order['id']}/transition",
-        json={"to_status": "cancelled", "cancel_reason": "khách hủy"}, headers=_h(token),
-    )
-    assert r.status_code == 200
-    assert r.json()["status"] == "cancelled"
-    assert r.json()["cancelled_at_state"] == "draft"
 
 
-def test_change_order_transition(client):
-    token = _admin_token(client)
-    qid = _seed_approved_quotation(sale_user_id=_admin_id())
-    order = _create_order(client, token, qid).json()
-    r = client.post(
-        f"/api/orders/{order['id']}/transition", json={"to_status": "change_order"},
-        headers=_h(token),
-    )
-    assert r.status_code == 200
-    assert r.json()["status"] == "change_order"
-    # change_order does NOT set parent_order_id (đổi giữ lịch sử qua Quotation-version).
-    assert r.json()["parent_order_id"] is None
+def _accepted_quote(db, customer, *, selling=1_000_000, discount=100_000, vat=8, qty=1000, cost=600_000, deposit_pct=50):
+    q = Quote(quote_number="BG-T", customer_id=customer.id, status=STATUS_ACCEPTED, deposit_pct=deposit_pct)
+    db.add(q)
+    db.flush()
+    v = QuoteVersion(quote_id=q.id, version_number=1, vat_percent=vat)
+    db.add(v)
+    db.flush()
+    q.current_version_id = v.id
+    net = selling - discount
+    db.add(QuoteItem(
+        quote_version_id=v.id, line_no=1, product_type="tr", product_name="SP",
+        quantity=qty, unit="cái", selling_price=selling, discount_amount=discount,
+        unit_price=selling / qty, vat_percent=vat, vat_amount=net * vat / 100,
+        final_amount=net + net * vat / 100, total_cost_snapshot=cost, margin_percent=20,
+    ))
+    db.commit()
+    return q
 
 
-def test_illegal_transition_409(client):
-    token = _admin_token(client)
-    qid = _seed_approved_quotation(sale_user_id=_admin_id())
-    order = _create_order(client, token, qid).json()
-    r = client.post(
-        f"/api/orders/{order['id']}/transition", json={"to_status": "cancelled",
-        "cancel_reason": "x"}, headers=_h(token),
-    )
-    assert r.status_code == 200
-    # cancelled is terminal → any further transition illegal.
-    r = client.post(
-        f"/api/orders/{order['id']}/transition", json={"to_status": "ordered"}, headers=_h(token)
-    )
-    assert r.status_code == 409
+# --- P1: nguồn nhập tay -------------------------------------------------------
+def test_create_manual_no_cost_needs_approval(svc, admin, customer):
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
+        source_type="nhap_tay", customer_id=customer.id,
+        lines=[OrderLineIn(description="Danh thiếp", qty=1000, unit_price=500, vat_pct=8)],
+        vat_pct_estimate=8,
+    ))
+    assert d.cost_basis == "none"
+    assert d.needs_approval is True
+    assert d.margin_pct is None          # biên "không xác định", KHÔNG 0/100
+    assert d.total == 500_000
+    assert d.total_with_vat == 540_000
 
 
-# --- RBAC ---------------------------------------------------------------------
+def test_manual_requires_customer_and_lines(svc, admin):
+    with pytest.raises(OrderValidationError):
+        svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="nhap_tay", lines=[]))
 
-def test_requires_auth(client):
-    r = client.get("/api/orders")
-    assert r.status_code == 401
+
+# --- P1: nguồn báo giá — snapshot NET sau chiết khấu --------------------------
+def test_create_from_quote_line_total_is_net_after_discount(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    assert d.cost_basis == "quote"
+    assert d.needs_approval is False
+    assert d.total == 900_000            # NET (1.000.000 − 100.000), KHÔNG phồng theo unit_price gộp
+    assert d.total_with_vat == 972_000
+    assert d.deposit_pct == 50
+    assert d.deposit_required == 486_000
+    assert d.margin_pct == 33            # (900k−600k)/900k
+
+
+def test_one_quote_one_order_guard(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    with pytest.raises(OrderConflict):
+        svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+
+
+# --- V5: cọc = PHIẾU THU THẬT (PaymentReceipt nguồn đơn) — cổng đủ cọc lật ----
+def test_deposit_receipts_accumulate_and_gate_flips(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    # Kế toán lập phiếu thu cọc = tạo thẳng 'received' → cộng vào cổng đủ cọc.
+    d = svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                                payload=OrderDepositReceiptIn(receipt_method="bank_transfer", amount=300_000))
+    assert d.deposit_received == 300_000 and d.deposit_ok is False
+    assert len(d.deposits) == 1
+    assert d.deposits[0].status == "received" and d.deposits[0].amount == 300_000
+    assert d.deposits[0].code.startswith("PT") and d.deposits[0].doc_no is not None
+    d = svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                                payload=OrderDepositReceiptIn(receipt_method="cash", amount=200_000))
+    assert d.deposit_received == 500_000 and d.deposit_ok is True   # 500k ≥ 486k
+    assert len(d.deposits) == 2
+
+
+def test_deposit_receipt_rejects_bad_method_and_amount(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    with pytest.raises(OrderValidationError):   # hình thức thu không thuộc {cash, bank_transfer}
+        svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                                payload=OrderDepositReceiptIn(receipt_method="vang", amount=100_000))
+
+
+# --- P3: duyệt đơn đặc thù ----------------------------------------------------
+def test_submit_reject_then_approve(svc, admin, customer):
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
+        source_type="nhap_tay", customer_id=customer.id,
+        lines=[OrderLineIn(description="x", qty=1, unit_price=100, vat_pct=8)]))
+    d = svc.submit_for_approval(order_id=d.id, actor=admin, scope="all")
+    assert d.approval_state == "pending"
+    d = svc.reject(order_id=d.id, actor=admin, scope="all", note="Giá thấp")
+    assert d.approval_state == "rejected" and d.approvals[0].decision == "rejected"
+    with pytest.raises(OrderValidationError):
+        svc.reject(order_id=d.id, actor=admin, scope="all", note="")
+    svc.submit_for_approval(order_id=d.id, actor=admin, scope="all")
+    d = svc.approve(order_id=d.id, actor=admin, scope="all", note="OK")
+    assert d.approval_state == "approved" and d.approvals[0].triggers_json == ["no_cost"]
+
+
+def test_quote_order_does_not_need_approval(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    with pytest.raises(OrderValidationError):
+        svc.submit_for_approval(order_id=d.id, actor=admin, scope="all")
+
+
+# --- P4: cổng chốt + khóa báo giá ---------------------------------------------
+def test_confirm_gate_blocks_then_locks_quote(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    assert d.can_confirm is False
+    with pytest.raises(OrderValidationError):
+        svc.confirm(order_id=d.id, actor=admin, scope="all")
+    svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                    payload=OrderDepositReceiptIn(receipt_method="bank_transfer", amount=486_000))
+    svc.update(order_id=d.id, actor=admin, scope="all",
+               payload=OrderUpdate(customer_po_no="PO1", delivery_committed_date=date.today()))
+    d = svc.get(order_id=d.id, actor=admin, scope="all")
+    assert d.can_confirm is True
+    d = svc.confirm(order_id=d.id, actor=admin, scope="all")
+    assert d.status == "ordered" and d.ordered_at is not None
+    assert db.get(Quote, q.id).status == "converted_to_order"
+    with pytest.raises(OrderValidationError):       # re-confirm chặn
+        svc.confirm(order_id=d.id, actor=admin, scope="all")
+
+
+# --- Việc 4: gia hạn báo giá nguồn từ đơn (gỡ blocker "báo giá hết hạn") ------
+def test_extend_source_quote_clears_expiry_blocker(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    q.valid_until = date.today() - timedelta(days=1)   # báo giá hết hạn SAU khi đã lập đơn
+    db.commit()
+    d = svc.get(order_id=d.id, actor=admin, scope="all")
+    assert d.quote_expired is True
+    assert any("hết hạn" in b.lower() for b in d.confirm_blockers)
+    # gia hạn +30 ngày → CHỈ blocker hết-hạn biến mất, cờ tắt, quote.valid_until = hôm nay+30
+    d = svc.extend_source_quote(order_id=d.id, actor=admin, scope="all")
+    assert d.quote_expired is False
+    assert not any("hết hạn" in b.lower() for b in d.confirm_blockers)
+    assert db.get(Quote, q.id).valid_until == date.today() + timedelta(days=30)
+    with pytest.raises(OrderValidationError):          # còn hạn rồi → gia hạn lần 2 bị chặn
+        svc.extend_source_quote(order_id=d.id, actor=admin, scope="all")
+
+
+def test_extend_source_quote_rejects_manual_order(svc, admin, customer):
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
+        source_type="nhap_tay", customer_id=customer.id,
+        lines=[OrderLineIn(description="x", qty=1, unit_price=1000, vat_pct=8)]))
+    with pytest.raises(OrderValidationError):          # đơn nhập tay không gắn báo giá để gia hạn
+        svc.extend_source_quote(order_id=d.id, actor=admin, scope="all")
+
+
+# --- P5: hủy + seam -----------------------------------------------------------
+def test_cancel_ordered_needs_permission_and_fault(svc, admin, customer, db):
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                    payload=OrderDepositReceiptIn(receipt_method="bank_transfer", amount=486_000))
+    svc.update(order_id=d.id, actor=admin, scope="all",
+               payload=OrderUpdate(customer_po_no="PO1", delivery_committed_date=date.today()))
+    svc.confirm(order_id=d.id, actor=admin, scope="all")
+    with pytest.raises(OrderForbidden):
+        svc.cancel(order_id=d.id, actor=admin, scope="all", reason="x", fault=None, can_cancel_ordered=False)
+    with pytest.raises(OrderValidationError):
+        svc.cancel(order_id=d.id, actor=admin, scope="all", reason="Khách bỏ", fault=None, can_cancel_ordered=True)
+    d = svc.cancel(order_id=d.id, actor=admin, scope="all", reason="Khách bỏ", fault="xuong", can_cancel_ordered=True)
+    assert d.status == "cancelled" and d.cancel_fault == "xuong"
+    assert len(d.deposits) >= 1  # cọc KHÔNG xóa khi hủy (hoàn/quyết toán ngoài hệ thống)
+
+
+def test_manual_confirm_requires_consent_evidence(svc, admin, customer):
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
+        source_type="nhap_tay", customer_id=customer.id,
+        lines=[OrderLineIn(description="x", qty=1, unit_price=1000, vat_pct=8)]))
+    svc.submit_for_approval(order_id=d.id, actor=admin, scope="all")
+    svc.approve(order_id=d.id, actor=admin, scope="all", note="OK")
+    svc.update(order_id=d.id, actor=admin, scope="all",
+               payload=OrderUpdate(customer_po_no="PO1", delivery_committed_date=date.today()))
+    d = svc.get(order_id=d.id, actor=admin, scope="all")
+    assert d.can_confirm is False
+    assert any("chứng cứ" in b.lower() for b in d.confirm_blockers)   # thiếu chứng cứ đồng ý
+    d = svc.add_consent_attachment(order_id=d.id, actor=admin, scope="all",
+        file_name="po.png", content_type="image/png", data=b"\x89PNG\r\n\x1a\n fake")
+    assert len(d.consent_attachments) == 1
+    assert d.can_confirm is True
+    d = svc.confirm(order_id=d.id, actor=admin, scope="all")
+    assert d.status == "ordered"
+
+
+# V5: minh chứng đã thu cọc chuyển sang PaymentReceiptAttachment (màn Phiếu thu Kế toán) — phủ ở
+# test_accounting_api.py, không còn đính ở đơn.
+
+
+def test_cancel_draft(svc, admin, customer):
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
+        source_type="nhap_tay", customer_id=customer.id,
+        lines=[OrderLineIn(description="x", qty=1, unit_price=100, vat_pct=8)]))
+    d = svc.cancel(order_id=d.id, actor=admin, scope="all", reason="Đổi ý", fault=None, can_cancel_ordered=False)
+    assert d.status == "cancelled"

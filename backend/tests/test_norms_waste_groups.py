@@ -132,94 +132,10 @@ def test_full_chain_matches_spec_example():
     db.close()
 
 
-# --- API: tạo bằng waste_group + Test + duplicate + history -----------------
-
-def test_api_create_with_waste_group(client, seed_credentials):
-    tok = client.post("/api/auth/login", json=seed_credentials).json()["access_token"]
-    h = {"Authorization": f"Bearer {tok}"}
-    payload = {
-        "waste_group": "SETUP_WASTE", "calculation_method": "COMBINED",
-        "code": "MR_TEST", "name": "Makeready test",
-        "setup_waste_qty": 100, "setup_waste_per_color": 30, "setup_waste_per_side": 50,
-        "min_waste_qty": 100, "max_waste_qty": 500,
-        "effective_from": str(date.today()),
-    }
-    r = client.post("/api/norms", json=payload, headers=h)
-    assert r.status_code == 201, r.text
-    body = r.json()
-    assert body["waste_group"] == "SETUP_WASTE"
-    assert body["norm_key"] == "makeready_per_color_side"
-    assert body["setup_waste_per_color"] == 30
-    norm_id = body["id"]
-
-    # History
-    r = client.get(f"/api/norms/{norm_id}/history", headers=h)
-    assert r.status_code == 200 and r.json()["total"] >= 1
-
-    # Test endpoint
-    r = client.post("/api/norms/test", json={
-        "quantity": 1000, "pieces_per_sheet": 4, "colors": 4, "sides": 2, "forms": 1,
-        "operation_keys": [],
-    }, headers=h)
-    assert r.status_code == 200, r.text
-    out = r.json()
-    # makeready = clamp(100 + 30×4 + 50×2, 100, 500) = clamp(320) = 320
-    assert out["makeready_sheets"] == 320
-    assert out["production_sheets"] == out["sheets_after_yield"] + 320 + out["running_sheets"] - out["sheets_after_yield"]
-
-    # "1 quy tắc = 1 mã": tạo lại CÙNG mã với ngày sau → lên version 2 (bản cũ tự đóng).
-    next_year = date(date.today().year + 1, 1, 1)
-    r = client.post("/api/norms", json={**payload, "effective_from": str(next_year)}, headers=h)
-    assert r.status_code == 201, r.text
-    assert r.json()["version"] == 2
-
-    # Sao chép sang MÃ MỚI → quy tắc riêng (family mới) version 1, cùng tồn tại — không đè bản gốc.
-    r = client.post(f"/api/norms/{norm_id}/duplicate", json={
-        "effective_from": str(next_year), "code": "MR_TEST_COPY",
-    }, headers=h)
-    assert r.status_code == 201, r.text
-    assert r.json()["version"] == 1
-    assert r.json()["code"] == "MR_TEST_COPY"
-
-
-def test_two_codes_coexist_same_scope(client, seed_credentials):
-    """1 quy tắc = 1 mã: 2 rule khác mã, cùng phạm vi gốc (scalar rỗng, chỉ khác multi-select)
-    phải CÙNG đang mở — không âm thầm ghi đè nhau như bug multi-select cũ."""
-    tok = client.post("/api/auth/login", json=seed_credentials).json()["access_token"]
-    h = {"Authorization": f"Bearer {tok}"}
-    today = str(date.today())
-    r1 = client.post("/api/norms", json={
-        "waste_group": "RUNNING_WASTE", "value": 0.015, "code": "RW_CAT",
-        "applicable_product_types": ["catalogue"], "effective_from": today,
-    }, headers=h)
-    assert r1.status_code == 201, r1.text
-    r2 = client.post("/api/norms", json={
-        "waste_group": "RUNNING_WASTE", "value": 0.02, "code": "RW_HOP",
-        "applicable_product_types": ["hop"], "effective_from": today,
-    }, headers=h)
-    assert r2.status_code == 201, r2.text
-
-    lst = client.get(
-        "/api/norms",
-        params={"waste_group": "RUNNING_WASTE", "only_current": "true", "size": 50},
-        headers=h,
-    ).json()
-    open_codes = {it["code"] for it in lst["items"] if it["effective_to"] is None}
-    assert {"RW_CAT", "RW_HOP"} <= open_codes
-
-
-def test_api_yield_bounds_and_min_max(client, seed_credentials):
-    tok = client.post("/api/auth/login", json=seed_credentials).json()["access_token"]
-    h = {"Authorization": f"Bearer {tok}"}
-    # yield > 1 → 422
-    r = client.post("/api/norms", json={"waste_group": "YIELD_RATE", "value": 1.5, "effective_from": str(date.today())}, headers=h)
-    assert r.status_code == 422
-    # min > max → 422
-    r = client.post("/api/norms", json={
-        "waste_group": "RUNNING_WASTE", "value": 0.03, "min_waste_qty": 500, "max_waste_qty": 20,
-        "effective_from": str(date.today()),
-    }, headers=h)
-    assert r.status_code == 422
+# API `/api/norms` ĐÃ GỠ (2026-07-16: không màn nào gọi — NormsCatalogPage mồ côi đã xóa, module
+# quyền `dm_dinh_muc` bỏ theo migration 0069) → 3 test đi qua endpoint đó (tạo theo waste_group ·
+# 2-mã-cùng-phạm-vi · chặn yield>1 / min>max) đi cùng. Phần CÒN SỐNG là bảng norms + engine đọc
+# thẳng qua NormService, phủ bởi các test tính toán ở trên và test_estimate_norm_usage_scan dưới.
 
 
 # --- "Đang dùng trong" — quét snapshot tính giá tìm định mức đã dùng --------

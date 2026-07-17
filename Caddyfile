@@ -1,6 +1,17 @@
 # Auto-HTTPS cho subdomain. Caddy tự xin & gia hạn chứng chỉ Let's Encrypt,
 # tự chuyển http → https. Domain lấy từ biến SITE_DOMAIN trong .env.
 {$SITE_DOMAIN} {
-	encode gzip
-	reverse_proxy web:80
+	# SSE real-time luồng gửi duyệt: đẩy tức thì (flush_interval -1) + KHÔNG gzip (tránh đệm/vỡ
+	# stream). handle riêng, khớp trước phần còn lại.
+	@sse path /api/quotations/events*
+	handle @sse {
+		reverse_proxy web:80 {
+			flush_interval -1
+		}
+	}
+	# Phần còn lại: SPA + API thường, vẫn nén gzip.
+	handle {
+		encode gzip
+		reverse_proxy web:80
+	}
 }

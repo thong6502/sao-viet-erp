@@ -11,6 +11,7 @@ from ..models.audit import AuditLog
 from ..models.refresh_token import RefreshToken
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
+from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
 from ..repositories.refresh_token_repo import RefreshTokenRepository
 from ..repositories.user_repo import UserRepository
@@ -61,12 +62,14 @@ class UserAdminService:
         roles: RoleRepository,
         audit: AuditLogRepository,
         tokens: RefreshTokenRepository,
+        employees: EmployeeRepository,
     ) -> None:
         self.users = users
         self.departments = departments
         self.roles = roles
         self.audit = audit
         self.tokens = tokens
+        self.employees = employees
 
     def list_users(self, *, deleted: bool = False) -> list[dict]:
         dept_names: dict[int, str] = {}
@@ -210,6 +213,10 @@ class UserAdminService:
             self.users.set_assignment(
                 u, department_id=target_department_id, role_id=None, is_active=u.is_active
             )
+            # Đ2: tài khoản có hồ sơ → ghi XUYÊN phòng xuống hồ sơ (1 nguồn, không split-brain).
+            emp = self.employees.get_by_user_id(u.id)
+            if emp is not None and emp.department_id != target_department_id:
+                self.employees.update(emp, department_id=target_department_id)
             self.audit.create(
                 actor_user_id=actor_id,
                 action="transfer_user",
@@ -294,6 +301,10 @@ class UserAdminService:
         self.users.set_assignment(
             user, department_id=department_id, role_id=new_role_id, is_active=user.is_active
         )
+        # Đ2: đổi phòng tài khoản có hồ sơ → ghi xuyên xuống hồ sơ (giữ 1 nguồn).
+        emp = self.employees.get_by_user_id(user.id)
+        if emp is not None and emp.department_id != department_id:
+            self.employees.update(emp, department_id=department_id)
         self.audit.create(
             actor_user_id=actor_id,
             action="update_user",

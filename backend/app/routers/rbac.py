@@ -7,11 +7,11 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from ..config import settings
 from ..deps import (
     get_activity_service,
     get_authorization_service,
     get_department_service,
+    get_employee_service,
     get_role_service,
     get_unit_level_service,
     get_user_admin_service,
@@ -43,8 +43,6 @@ from ..schemas.rbac import (
     UnitLevelOut,
     UnitLevelUpdate,
     UserBrief,
-    UserCreate,
-    UserCreatedOut,
     UserRow,
     UserUpdate,
 )
@@ -59,6 +57,11 @@ from ..services.department_service import (
 )
 from ..services.department_service import DepartmentNotFound as DeptNotFound
 from ..services.department_service import DepartmentService
+from ..services.employee_service import (
+    EmployeeNotFound,
+    EmployeeService,
+    EmployeeValidationError,
+)
 from ..services.unit_level_service import (
     UnitLevelInUse,
     UnitLevelNameTaken,
@@ -79,7 +82,6 @@ from ..services.user_admin_service import (
     CannotRevokeSelf,
     InvalidRoleForDepartment,
     TransferForbidden,
-    UsernameTaken,
     UserAdminService,
     UserNotFound,
 )
@@ -93,6 +95,8 @@ Service = Annotated[RoleService, Depends(get_role_service)]
 Depts = Annotated[DepartmentService, Depends(get_department_service)]
 Levels = Annotated[UnitLevelService, Depends(get_unit_level_service)]
 Users = Annotated[UserAdminService, Depends(get_user_admin_service)]
+# Điều chuyển nhân sự đi qua HỒ SƠ (ghi Quá trình công tác) → màn Phòng ban cần EmployeeService.
+EmployeeSvc = Annotated[EmployeeService, Depends(get_employee_service)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 Activity = Annotated[ActivityService, Depends(get_activity_service)]
 
@@ -227,22 +231,26 @@ def department_head_candidates(
 
 
 @router.post("/departments/transfer", response_model=TransferResult)
-def transfer_department_users(
+def transfer_department_staff(
     payload: DepartmentTransferIn,
-    admin: Users,
+    employees: EmployeeSvc,
     user: Annotated[object, Depends(require_permission("nguoi_dung", "transfer"))],
 ) -> TransferResult:
-    # PBI-4008: bulk-move people to a target department (old role dropped, audited per person).
+    """PBI-4008 — bulk điều chuyển NHÂN SỰ sang phòng khác (vai trò cũ bị gỡ, ghi Quá trình
+    công tác + nhật ký cho từng người). Chuyển theo HỒ SƠ nên người chưa có tài khoản cũng đi
+    được. Đây là thao tác quản trị phòng ban nên đọc hồ sơ ở phạm vi `all` — cổng quyền là
+    `nguoi_dung:transfer` (giữ nguyên như trước)."""
     try:
-        n = admin.transfer_users(
-            user_ids=payload.user_ids,
+        n = employees.transfer_many(
+            employee_ids=payload.employee_ids,
             target_department_id=payload.target_department_id,
-            actor_id=user.id,
+            scope="all",
+            actor=user,
         )
-    except UADeptNotFound as e:
+    except EmployeeNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    except UserNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    except EmployeeValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     return TransferResult(transferred=n)
 
 
@@ -340,49 +348,10 @@ def list_users(
     return admin.list_users(deleted=deleted)
 
 
-@router.post("/users", response_model=UserCreatedOut, status_code=status.HTTP_201_CREATED)
-def create_user(
-    payload: UserCreate,
-    admin: Users,
-    authz: Authz,
-    user: Annotated[object, Depends(require_permission("nguoi_dung", "create"))],
-) -> dict:
-    # Gắn chức vụ ngay khi tạo cần thêm quyền gán vai trò (không để 'create' vượt rào 'assign_role').
-    if payload.role_id is not None and not authz.can(user, "nguoi_dung", "assign_role"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Bạn không có quyền gán chức vụ (vai trò). Hãy tạo người dùng không kèm vai trò.",
-        )
-    try:
-        created = admin.create_user(
-            name=payload.name,
-            username=payload.username,
-            department_id=payload.department_id,
-            actor_id=user.id,
-            password=payload.password,
-        )
-    except UsernameTaken as e:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
-    except UADeptNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    # Gắn chức vụ (vai trò) ngay khi tạo nếu được chọn — vai trò phải thuộc phòng ban.
-    if payload.role_id is not None:
-        try:
-            created = admin.assign_role(user_id=created.id, role_id=payload.role_id, actor_id=user.id)
-        except InvalidRoleForDepartment as e:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
-    # Mật khẩu ban đầu để admin bàn giao cho người dùng (đổi khi đăng nhập lần đầu).
-    initial_password = (payload.password or "").strip() or settings.default_user_password
-    return {
-        "id": created.id,
-        "code": created.code,
-        "name": created.name,
-        "username": created.username,
-        "department_id": created.department_id,
-        "role_id": created.role_id,
-        "is_active": created.is_active,
-        "initial_password": initial_password,
-    }
+# GỠ `POST /users`: mọi tài khoản đăng nhập PHẢI thuộc một hồ sơ nhân viên, nên đường tạo
+# tài khoản duy nhất là qua Hồ sơ nhân sự (`POST /api/employees` kèm `account`, hoặc
+# `POST /api/employees/{id}/account`). Không còn cửa nào đẻ ra tài khoản mồ côi.
+# Ngoại lệ duy nhất là tài khoản hệ thống `admin` do seed tạo.
 
 
 @router.put("/users/{user_id}/role", response_model=UserRow)

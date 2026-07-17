@@ -76,8 +76,17 @@ class TransitionIn(BaseModel):
     resign_reason: str | None = Field(default=None, max_length=255)  # resign
 
 
-class LinkAccountIn(BaseModel):
-    user_id: int
+class AccountIn(BaseModel):
+    """Gắn tài khoản đăng nhập cho một hồ sơ — hai kiểu, chọn MỘT:
+
+    - TẠO MỚI (đường chính): `username` + `password` (+ `role_id`).
+    - LIÊN KẾT tài khoản có sẵn: `user_id` — chỉ dùng để dọn tài khoản mồ côi cũ.
+    """
+
+    user_id: int | None = None
+    username: str | None = None
+    password: str | None = None
+    role_id: int | None = None
 
 
 class AssignShiftIn(BaseModel):
@@ -284,8 +293,18 @@ class UserOption(BaseModel):
     name: str
 
 
+class RoleOption(BaseModel):
+    """Vai trò để gán cho tài khoản. Role thuộc ĐÚNG 1 phòng ban, nên FE lọc theo
+    `department_id` của hồ sơ đang mở."""
+
+    id: int
+    name: str
+    department_id: int
+
+
 class EmployeeMetaOut(BaseModel):
-    """Dropdown data for the forms: departments + login accounts not yet linked to any NV."""
+    """Dropdown data for the forms: departments + roles + accounts not yet linked to any NV."""
 
     departments: list[DepartmentOption]
     unlinked_users: list[UserOption]
+    roles: list[RoleOption] = []

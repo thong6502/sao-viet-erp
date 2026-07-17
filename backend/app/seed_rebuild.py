@@ -199,31 +199,28 @@ def seed_rebuild_catalog(db: Session) -> None:
         db.add_all(rows)
         db.commit()
 
-    # --- Công đoạn (spec-cong-doan §9); may_id nối máy vừa seed ---
+    # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 3 kiểu bù hao (khong/tra_bang/cố định) ---
     if _empty(db, CongDoan):
-        may = {m.ma: m.id for m in db.execute(select(MayThietBi)).scalars()}
         db.add_all([
-            CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", may_id=may.get("TB-0004"),
-                     che_do_tinh="theo_gio", setup_time=10),
-            CongDoan(ma="CD-0002", ten="In offset", nhom="print", may_id=may.get("TB-0001"),
-                     che_do_tinh="theo_san_luong", pricing_basis="per_1000_luot", run_rate=8000,
-                     first_unit_floor=350000, requires_tooling=True, tooling_type="kem"),
-            CongDoan(ma="CD-0003", ten="Cắt xén", nhom="finishing", may_id=may.get("TB-0005"),
-                     che_do_tinh="theo_san_luong", pricing_basis="per_ram", run_rate=60000, min_charge=60000),
-            CongDoan(ma="CD-0004", ten="Cán màng bóng", nhom="finishing", may_id=may.get("TB-0006"),
-                     che_do_tinh="theo_san_luong", pricing_basis="per_m2", run_rate=2200, min_charge=110000),
-            CongDoan(ma="CD-0005", ten="Bế", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_pass", run_rate=180, requires_tooling=True, tooling_type="khuon_be"),
-            CongDoan(ma="CD-0006", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_pass", run_rate=400, requires_tooling=True, tooling_type="khuon_ep"),
-            CongDoan(ma="CD-0007", ten="Đóng keo (vào bìa)", nhom="finishing",
-                     che_do_tinh="theo_san_luong", pricing_basis="per_book", run_rate=180),
-            CongDoan(ma="CD-0008", ten="Đánh số nhảy", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_number", run_rate=10),
+            CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_gio",
+                     setup_time=10, kieu_bu_hao="khong"),
+            CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_sheet", run_rate=350, kieu_bu_hao="tra_bang"),  # → BH nối bên dưới
+            CongDoan(ma="CD-0003", ten="Cán màng bóng", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_area_sides", run_rate=2.2, min_charge=110000,
+                     kieu_bu_hao="co_dinh", so_to_bu_hao=50),
+            CongDoan(ma="CD-0004", ten="Bồi sóng", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_sheet", run_rate=200, kieu_bu_hao="tra_bang"),  # → BH nối bên dưới
+            CongDoan(ma="CD-0005", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_position", run_rate=400, requires_tooling=True,
+                     tooling_type="khuon_ep", kieu_bu_hao="co_dinh", so_to_bu_hao=50),
+            CongDoan(ma="CD-0006", ten="Bế nổi", nhom="finishing", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_finished_qty", run_rate=20, requires_tooling=True,
+                     tooling_type="khuon_be", kieu_bu_hao="co_dinh", so_to_bu_hao=30),
         ])
         db.commit()
 
-    # --- Bù hao (tra theo trục số màu/số con × bậc SL động) — số THẬT của xưởng ---
+    # --- Bù hao (mã bù hao × bậc SL động) — số THẬT của xưởng ---
     if _empty(db, BuHao):
         _SL = [(0, 3000), (3000, 7000), (7000, 10000), (10000, 15000), (15000, 20000), (20000, 30000)]
 
@@ -233,24 +230,24 @@ def seed_rebuild_catalog(db: Session) -> None:
             return b
 
         db.add_all([
-            # Giấy in + thành phẩm — tra theo SỐ MÀU
-            BuHao(ma="BH-KHONG-IN", ten="Hàng không in", truc="so_mau", key_tu=0, key_den=0,
-                  bac=_bac([50, 70, 100, 130, 150, 200], 1)),
-            BuHao(ma="BH-IN-1-2", ten="In 1-2 màu", truc="so_mau", key_tu=1, key_den=2,
-                  bac=_bac([120, 150, 200, 250, 300, 350], 1.5)),
-            BuHao(ma="BH-IN-3-4", ten="In 3-4 màu", truc="so_mau", key_tu=3, key_den=4,
-                  bac=_bac([150, 200, 250, 300, 350, 400], 1.7)),
-            BuHao(ma="BH-IN-5", ten="In 5 màu", truc="so_mau", key_tu=5, key_den=5,
-                  bac=_bac([200, 250, 300, 350, 400, 450], 2)),
-            BuHao(ma="BH-IN-6", ten="In 6 màu", truc="so_mau", key_tu=6, key_den=6,
-                  bac=_bac([250, 300, 350, 450, 500, 600], 2.5)),
-            # Sóng (bồi/bế) — tra theo SỐ CON
-            BuHao(ma="BH-SONG-1CON", ten="Sóng — 1 con", truc="so_con", key_tu=1, key_den=1,
+            BuHao(ma="BH-KHONG-IN", ten="Hàng không in", bac=_bac([50, 70, 100, 130, 150, 200], 1)),
+            BuHao(ma="BH-IN-1-2", ten="In 1-2 màu", bac=_bac([120, 150, 200, 250, 300, 350], 1.5)),
+            BuHao(ma="BH-IN-3-4", ten="In 3-4 màu", bac=_bac([150, 200, 250, 300, 350, 400], 1.7)),
+            BuHao(ma="BH-IN-5", ten="In 5 màu", bac=_bac([200, 250, 300, 350, 400, 450], 2)),
+            BuHao(ma="BH-IN-6", ten="In 6 màu", bac=_bac([250, 300, 350, 450, 500, 600], 2.5)),
+            BuHao(ma="BH-SONG-1CON", ten="Sóng — 1 con",
                   bac=_bac([70, 100, 150, 170, 200, 250], 1), ghi_chu="Sóng E, B, BC, BE — lưu ý chiều sóng trước"),
-            BuHao(ma="BH-SONG-NHIEU", ten="Sóng — nhiều con", truc="so_con", key_tu=2, key_den=999,
-                  bac=_bac([50, 70, 120, 150, 170, 200], 0.7)),
+            BuHao(ma="BH-SONG-NHIEU", ten="Sóng — nhiều con", bac=_bac([50, 70, 120, 150, 170, 200], 0.7)),
         ])
         db.commit()
+
+    # --- Nối công đoạn 'tra_bang' → 1 mã bù hao mặc định (mô hình MỚI: công đoạn trỏ thẳng mã) ---
+    for cd_ma, bh_ma in (("CD-0002", "BH-IN-3-4"), ("CD-0004", "BH-SONG-1CON")):
+        cd = db.execute(select(CongDoan).where(CongDoan.ma == cd_ma)).scalars().first()
+        bh = db.execute(select(BuHao).where(BuHao.ma == bh_ma)).scalars().first()
+        if cd is not None and bh is not None and cd.kieu_bu_hao == "tra_bang" and cd.bu_hao_id is None:
+            cd.bu_hao_id = bh.id
+    db.commit()
 
     # --- Loại sản phẩm (spec-san-pham §7) ---
     if _empty(db, LoaiSanPham):
@@ -258,19 +255,18 @@ def seed_rebuild_catalog(db: Session) -> None:
         rt_flat = [cd.get("CD-0001"), cd.get("CD-0002"), cd.get("CD-0005"), cd.get("CD-0003")]
         rt_book = [cd.get("CD-0001"), cd.get("CD-0002"), cd.get("CD-0004"), cd.get("CD-0007"), cd.get("CD-0003")]
         db.add_all([
-            LoaiSanPham(ma="LSP-0001", ten="Name card", structural_type="flat", default_so_mat=2,
-                        vat_rate=8, routing_template=[x for x in rt_flat if x]),
-            LoaiSanPham(ma="LSP-0002", ten="Tờ phơi / brochure gấp", structural_type="flat",
-                        default_so_mat=2, vat_rate=8),
+            LoaiSanPham(ma="LSP-0001", ten="Name card", structural_type="flat",
+                        routing_template=[x for x in rt_flat if x]),
+            LoaiSanPham(ma="LSP-0002", ten="Tờ phơi / brochure gấp", structural_type="flat"),
             LoaiSanPham(ma="LSP-0003", ten="Catalogue đóng keo", structural_type="multipage",
-                        has_cover=True, cover_type="bia_roi", default_binding="keo", vat_rate=5,
+                        has_cover=True, cover_type="bia_roi", default_binding="keo",
                         routing_template=[x for x in rt_book if x]),
             LoaiSanPham(ma="LSP-0004", ten="Sách đóng ghim", structural_type="multipage",
-                        has_cover=True, cover_type="tu_bia", default_binding="ghim", vat_rate=5),
+                        has_cover=True, cover_type="tu_bia", default_binding="ghim"),
             LoaiSanPham(ma="LSP-0005", ten="Hộp giấy Ivory", structural_type="box",
-                        box_sub_type="folding_carton", vat_rate=8),
+                        box_sub_type="folding_carton"),
             LoaiSanPham(ma="LSP-0006", ten="Thùng carton sóng", structural_type="box",
-                        box_sub_type="corrugated", vat_rate=8),
-            LoaiSanPham(ma="LSP-0007", ten="Tem decal cuộn", structural_type="label", vat_rate=8),
+                        box_sub_type="corrugated"),
+            LoaiSanPham(ma="LSP-0007", ten="Tem decal cuộn", structural_type="label"),
         ])
         db.commit()

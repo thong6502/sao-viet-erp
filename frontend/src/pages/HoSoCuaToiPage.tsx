@@ -1,18 +1,25 @@
-// "Hồ sơ của tôi" — self-service cho nhân viên thường (module không gate `nhan_su`).
-// Xem hồ sơ CỦA MÌNH (backend /me), tự sửa liên lạc; định danh/lương do HCNS quản lý.
-import { useCallback, useEffect, useState } from "react";
+// "Hồ sơ của tôi" — nhà chung self-service cho MỌI tài khoản (module không gate `nhan_su`).
+// - Nhân viên (có hồ sơ /me): xem hồ sơ của mình, tự sửa liên lạc; định danh/lương do HCNS quản lý.
+// - Admin / tài khoản chưa gắn hồ sơ: self-service tài khoản (ảnh · tên · mật khẩu) + xem thông tin tài khoản.
+// Gộp từ hộp thoại "Tài khoản" cũ (ProfileDialog) — 1 nhà chung thay cho menu 4 mục ở Topbar.
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import {
+  ApiError,
   api,
   assetUrl,
   type EmployeeAttachment,
   type EmployeeDetail,
   type EmployeeEvent,
   type MyContactInput,
+  type Profile,
   type UpdateRequest,
   type UpdateRequestInput,
   type WorkShift,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
+import { Button } from "../components/Button";
+import { Field } from "../components/Field";
+import { Icon } from "../components/Icons";
 import { Timeline, type TimelineEntry } from "../components/Timeline";
 import "./nhan-su.css";
 import "./ho-so-cua-toi.css";
@@ -40,21 +47,34 @@ function fmtDate(s: string | null | undefined): string {
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString("vi-VN");
 }
+function fmtDateTime(s: string | null | undefined): string {
+  if (!s) return "—";
+  const d = new Date(s);
+  return Number.isNaN(d.getTime())
+    ? s
+    : d.toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 
 export function HoSoCuaToiPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [hasEmp, setHasEmp] = useState<boolean | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [events, setEvents] = useState<EmployeeEvent[]>([]);
   const [files, setFiles] = useState<EmployeeAttachment[]>([]);
   const [shift, setShift] = useState<WorkShift | null>(null);
   const [editing, setEditing] = useState(false);
   const [reqs, setReqs] = useState<UpdateRequest[]>([]);
   const [requesting, setRequesting] = useState(false);
+  // Self-service tài khoản (gộp từ ProfileDialog): ảnh · mật khẩu · tên (tên chỉ cho tài khoản không hồ sơ).
+  const [avatarOpen, setAvatarOpen] = useState(false);
+  const [pwOpen, setPwOpen] = useState(false);
+  const [nameOpen, setNameOpen] = useState(false);
 
   const load = useCallback(() => {
     if (!token) return;
     api.employees.me(token).then((r) => { setHasEmp(r.has_employee); setEmp(r.employee); }).catch(() => setHasEmp(false));
+    api.profile(token).then(setProfile).catch(() => setProfile(null));
     api.employees.myEvents(token).then((r) => setEvents(r.items)).catch(() => setEvents([]));
     api.employees.myAttachments(token).then((r) => setFiles(r.items)).catch(() => setFiles([]));
     api.employees.myRequests(token).then((r) => setReqs(r.items)).catch(() => setReqs([]));
@@ -80,27 +100,80 @@ export function HoSoCuaToiPage() {
   });
 
   if (hasEmp === null) return <main className="ns"><p className="ns__empty">Đang tải…</p></main>;
+
+  // Nút ✎ overlay trên avatar → mở AvatarModal (dùng chung 2 nhánh).
+  const avatarEditBtn = (
+    <button type="button" className="mine__avatar-edit" aria-label="Đổi ảnh đại diện" onClick={() => setAvatarOpen(true)}>
+      <Icon name="pencil" size={15} />
+    </button>
+  );
+  // Các modal self-service (mount cuối mỗi nhánh). AvatarModal cập nhật KÉP (topbar + hero) qua updateUser+load.
+  const accountModals = (
+    <>
+      {avatarOpen && <AvatarModal onClose={() => setAvatarOpen(false)} onSaved={() => { setAvatarOpen(false); load(); }} />}
+      {pwOpen && <PasswordModal onClose={() => setPwOpen(false)} />}
+      {nameOpen && <NameModal onClose={() => setNameOpen(false)} onSaved={() => { setNameOpen(false); load(); }} />}
+    </>
+  );
+
+  // === NHÁNH ADMIN / TÀI KHOẢN CHƯA GẮN HỒ SƠ: self-service tài khoản ===
   if (!hasEmp || !emp) {
+    const display = user?.name?.trim() || user?.username || "—";
+    const avatarSrc = assetUrl(user?.avatar_url);
+    const initials = display.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
     return (
-      <main className="ns">
-        <header className="ns__head"><div><h1 className="ns__title">Hồ sơ của tôi</h1></div></header>
-        <div className="banner banner--warn" style={{ marginTop: 12 }}>
-          Tài khoản của bạn <strong>chưa gắn hồ sơ nhân viên</strong>. Liên hệ phòng HCNS để nối hồ sơ.
+      <main className="ns mine">
+        <div className="mine__hero">
+          <div className="mine__avatar-wrap">
+            <div className="ns-avatar ns-avatar--xl">{avatarSrc ? <img src={avatarSrc} alt="" /> : initials}</div>
+            {avatarEditBtn}
+          </div>
+          <div className="mine__heroid">
+            <h1>
+              {display}
+              <button type="button" className="mine__name-edit" aria-label="Đổi tên hiển thị" onClick={() => setNameOpen(true)}>
+                <Icon name="pencil" size={14} />
+              </button>
+            </h1>
+            <p className="mine__herosub">{user?.username ?? ""}</p>
+          </div>
         </div>
+
+        <div className="mine__card mine__wide">
+          <h4 className="ns-section__title">Tài khoản</h4>
+          <Row k="Tên đăng nhập" v={profile?.username} />
+          <Row k="Vai trò" v={profile?.role_name ?? "Chưa gán"} />
+          <Row k="Phòng ban" v={profile?.department_name ?? "Chưa gán"} />
+          <Row k="Ngày tạo" v={profile ? fmtDateTime(profile.created_at) : null} />
+        </div>
+
+        <div className="mine__card mine__wide">
+          <div className="mine__reqhead">
+            <h4 className="ns-section__title" style={{ margin: 0 }}>Bảo mật</h4>
+            <Button variant="ghost" onClick={() => setPwOpen(true)}>Đổi mật khẩu</Button>
+          </div>
+          <Row k="Mật khẩu" v="••••••••" />
+        </div>
+
+        {accountModals}
       </main>
     );
   }
 
+  // === NHÁNH NHÂN VIÊN: hồ sơ của tôi ===
   return (
     <main className="ns mine">
       <div className="mine__hero">
-        <div className="ns-avatar ns-avatar--xl">{assetUrl(emp.photo_url) ? <img src={assetUrl(emp.photo_url)!} alt="" /> : emp.full_name.slice(0, 1)}</div>
+        <div className="mine__avatar-wrap">
+          <div className="ns-avatar ns-avatar--xl">{assetUrl(emp.photo_url) ? <img src={assetUrl(emp.photo_url)!} alt="" /> : emp.full_name.slice(0, 1)}</div>
+          {avatarEditBtn}
+        </div>
         <div className="mine__heroid">
           <h1>{emp.full_name} <span className={`ns-badge ${STATUS_CLASS[emp.status] ?? "ns-badge--muted"}`}>{STATUS_LABEL[emp.status] ?? emp.status}</span></h1>
           <p>{emp.department_name ?? "—"}{emp.position ? ` · ${emp.position}` : ""}{emp.job_grade ? ` · Bậc ${emp.job_grade}` : ""}</p>
-          <p className="mine__herosub">{emp.code} · Vào làm {fmtDate(emp.hire_date)}{emp.account_username ? ` · 🔑 ${emp.account_username}` : ""}</p>
+          <p className="mine__herosub">{emp.code} · Vào làm {fmtDate(emp.hire_date)}{emp.account_username ? ` · Tài khoản ${emp.account_username}` : ""}</p>
+          <button type="button" className="mine__namehint" onClick={() => setRequesting(true)}>Cần đổi tên? Gửi đề nghị</button>
         </div>
-        <button className="btn btn--primary" onClick={() => setEditing(true)}>Cập nhật liên hệ</button>
       </div>
 
       <div className="mine__cards">
@@ -129,6 +202,14 @@ export function HoSoCuaToiPage() {
           <h4 className="ns-section__title">Ca làm việc</h4>
           <Row k="Ca mặc định" v={shift ? `${shift.name} (${shift.start_time}–${shift.end_time})` : null} />
         </div>
+      </div>
+
+      <div className="mine__card mine__wide">
+        <div className="mine__reqhead">
+          <h4 className="ns-section__title" style={{ margin: 0 }}>Bảo mật</h4>
+          <Button variant="ghost" onClick={() => setPwOpen(true)}>Đổi mật khẩu</Button>
+        </div>
+        <Row k="Mật khẩu" v="••••••••" />
       </div>
 
       <div className="mine__card mine__wide">
@@ -170,6 +251,7 @@ export function HoSoCuaToiPage() {
 
       {editing && <ContactModal token={token!} emp={emp} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />}
       {requesting && <RequestModal token={token!} emp={emp} onClose={() => setRequesting(false)} onSaved={() => { setRequesting(false); load(); }} />}
+      {accountModals}
     </main>
   );
 }
@@ -284,4 +366,201 @@ function RequestModal({ token, emp, onClose, onSaved }: {
       </div>
     </div>
   );
+}
+
+// === Self-service tài khoản (gộp từ ProfileDialog) — vỏ ns-modal, không dùng vỏ pd-* ===
+
+const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
+const AVATAR_TYPES = ["image/jpeg", "image/png"];
+
+// Đổi ảnh đại diện. Nhân viên & admin đều dùng; BE tự ghi vào ảnh hồ sơ nếu có hồ sơ.
+// Sau lưu/xóa: updateUser (topbar đọc user.avatar_url) + onSaved→load (hero đọc emp.photo_url) — CẬP NHẬT KÉP.
+function AvatarModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { token, user, updateUser } = useAuth();
+  const [file, setFile] = useState<File | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Revoke object URL khi preview đổi / unmount.
+  useEffect(() => () => { if (previewUrl) URL.revokeObjectURL(previewUrl); }, [previewUrl]);
+
+  const currentSrc = assetUrl(user?.avatar_url);
+  const shownSrc = previewUrl ?? currentSrc;
+  const initials = (user?.name?.trim() || user?.username || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() ?? "").join("");
+
+  function pick(e: ChangeEvent<HTMLInputElement>) {
+    setFormError(null);
+    const f = e.target.files?.[0] ?? null;
+    if (!f) return;
+    if (!AVATAR_TYPES.includes(f.type)) { setFieldError("Ảnh phải là JPG hoặc PNG."); setFile(null); return; }
+    if (f.size > AVATAR_MAX_BYTES) { setFieldError("Ảnh vượt quá 2 MB."); setFile(null); return; }
+    setFieldError(null);
+    setFile(f);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    setPreviewUrl(URL.createObjectURL(f));
+  }
+
+  async function save() {
+    if (!file || busy) return;
+    setBusy(true); setFormError(null);
+    try {
+      const { avatar_url } = await api.uploadAvatar(token!, file);
+      updateUser({ avatar_url });
+      onSaved();
+    } catch (err) { setFormError(messageFor(err)); setBusy(false); }
+  }
+
+  async function remove() {
+    if (busy) return;
+    setBusy(true); setFormError(null);
+    try {
+      await api.removeAvatar(token!);
+      updateUser({ avatar_url: null });
+      onSaved();
+    } catch (err) { setFormError(messageFor(err)); setBusy(false); }
+  }
+
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box">
+        <header className="ns-modal__head"><h2>Đổi ảnh đại diện</h2>
+          <button type="button" className="ns-modal__x" onClick={onClose}>×</button></header>
+        <div className="ns-modal__body">
+          {formError && <div className="banner banner--error" role="alert">{formError}</div>}
+          <div className="mine__avatar-modal">
+            <div className="ns-avatar ns-avatar--xl">{shownSrc ? <img src={shownSrc} alt="" /> : initials}</div>
+            <div className="mine__avatar-modal__controls">
+              <input ref={inputRef} type="file" accept="image/jpeg,image/png" className="mine__vh" onChange={pick} disabled={busy} />
+              <Button type="button" variant="ghost" onClick={() => inputRef.current?.click()} disabled={busy}>Chọn ảnh…</Button>
+              <p className="mine__hint">JPG hoặc PNG, tối đa 2 MB.</p>
+              {fieldError && <span className="field__error" role="alert">{fieldError}</span>}
+            </div>
+          </div>
+        </div>
+        <footer className="ns-modal__foot">
+          {currentSrc
+            ? <Button type="button" variant="ghost" onClick={remove} disabled={busy}>Xóa ảnh</Button>
+            : <span />}
+          <Button type="button" variant="primary" onClick={save} loading={busy} disabled={!file}>Lưu</Button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+interface PwErrors { current?: string; next?: string; confirm?: string; }
+
+// Đổi mật khẩu. Thành công (204) → báo + logout về Login. 400 (sai mật khẩu cũ) → lỗi inline, giữ form.
+function PasswordModal({ onClose }: { onClose: () => void }) {
+  const { token, logout, setNotice } = useAuth();
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [show, setShow] = useState(false);
+  const [errors, setErrors] = useState<PwErrors>({});
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  function validate(): PwErrors {
+    const e: PwErrors = {};
+    if (!current) e.current = "Vui lòng nhập mật khẩu hiện tại.";
+    if (next.length < 8) e.next = "Mật khẩu mới tối thiểu 8 ký tự.";
+    else if (!/[a-zA-Z]/.test(next) || !/\d/.test(next)) e.next = "Mật khẩu mới phải gồm cả chữ và số.";
+    if (confirm !== next) e.confirm = "Xác nhận mật khẩu không khớp.";
+    return e;
+  }
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (saving) return;
+    setFormError(null);
+    const errs = validate();
+    setErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+    setSaving(true);
+    try {
+      await api.changePassword(token!, current, next);
+      setNotice("Đổi mật khẩu thành công. Vui lòng đăng nhập lại.");
+      await logout();
+    } catch (err) { setFormError(messageFor(err)); setSaving(false); }
+  }
+
+  const inputType = show ? "text" : "password";
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <form className="ns-modal__box" onSubmit={onSubmit} noValidate>
+        <header className="ns-modal__head"><h2>Đổi mật khẩu</h2>
+          <button type="button" className="ns-modal__x" onClick={onClose}>×</button></header>
+        <div className="ns-modal__body">
+          {formError && <div className="banner banner--error" role="alert">{formError}</div>}
+          <div className="mine__form">
+            <Field label="Mật khẩu hiện tại" type={inputType} autoComplete="current-password" value={current} error={errors.current} onChange={(e) => setCurrent(e.target.value)} disabled={saving} />
+            <Field label="Mật khẩu mới" type={inputType} autoComplete="new-password" value={next} error={errors.next} onChange={(e) => setNext(e.target.value)} disabled={saving} />
+            <Field label="Xác nhận mật khẩu mới" type={inputType} autoComplete="new-password" value={confirm} error={errors.confirm} onChange={(e) => setConfirm(e.target.value)} disabled={saving} />
+            <label className="mine__pw-show"><input type="checkbox" checked={show} onChange={(e) => setShow(e.target.checked)} /> Hiện mật khẩu</label>
+          </div>
+        </div>
+        <footer className="ns-modal__foot">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Hủy</Button>
+          <Button type="submit" variant="primary" loading={saving}>Lưu</Button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+// Đổi tên hiển thị — chỉ cho tài khoản CHƯA gắn hồ sơ (BE trả 400 nếu tài khoản có hồ sơ: tên do HCNS/hồ sơ quyết).
+function NameModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const { token, user, updateUser } = useAuth();
+  const [name, setName] = useState(user?.name ?? "");
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function onSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (saving) return;
+    setFormError(null);
+    const trimmed = name.trim();
+    if (!trimmed) { setFieldError("Tên hiển thị không được để trống."); return; }
+    if (trimmed.length > 100) { setFieldError("Tên hiển thị tối đa 100 ký tự."); return; }
+    setFieldError(null);
+    setSaving(true);
+    try {
+      const updated = await api.updateName(token!, trimmed);
+      updateUser({ name: updated.name });
+      onSaved();
+    } catch (err) { setFormError(messageFor(err)); setSaving(false); }
+  }
+
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <form className="ns-modal__box" onSubmit={onSubmit} noValidate>
+        <header className="ns-modal__head"><h2>Đổi tên hiển thị</h2>
+          <button type="button" className="ns-modal__x" onClick={onClose}>×</button></header>
+        <div className="ns-modal__body">
+          {formError && <div className="banner banner--error" role="alert">{formError}</div>}
+          <div className="mine__form">
+            <Field label="Tên hiển thị" value={name} error={fieldError ?? undefined} maxLength={120} autoFocus onChange={(e) => setName(e.target.value)} disabled={saving} />
+          </div>
+        </div>
+        <footer className="ns-modal__foot">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={saving}>Hủy</Button>
+          <Button type="submit" variant="primary" loading={saving}>Lưu</Button>
+        </footer>
+      </form>
+    </div>
+  );
+}
+
+function messageFor(err: unknown): string {
+  if (err instanceof ApiError) {
+    if (err.isNetwork) return "Mất kết nối. Vui lòng thử lại.";
+    if (err.status >= 500) return "Có lỗi xảy ra, vui lòng thử lại sau.";
+    return err.message; // surfaces the backend's Vietnamese detail (400/422)
+  }
+  return "Đã có lỗi xảy ra. Vui lòng thử lại.";
 }

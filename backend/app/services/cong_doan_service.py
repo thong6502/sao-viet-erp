@@ -1,7 +1,7 @@
 """Công đoạn — service: CRUD + validate (§8)."""
 from __future__ import annotations
 
-from ..models.cong_doan import CHE_DO_TINH, NHOM, PRICING_BASIS, TOOLING_TYPE, CongDoan
+from ..models.cong_doan import CHE_DO_TINH, KIEU_BU_HAO, NHOM, PRICING_BASIS, TOOLING_TYPE, CongDoan
 from ..repositories.cong_doan_repo import CongDoanRepository
 
 
@@ -43,6 +43,8 @@ class CongDoanService:
                 raise CongDoanValidationError("Tính theo giờ cần chọn máy. [E-CD-HOUR-MAY]")
         if data.get("tooling_type") not in (None, "") and data["tooling_type"] not in TOOLING_TYPE:
             raise CongDoanValidationError("Loại khuôn/kẽm không hợp lệ.")
+        if data.get("kieu_bu_hao", "khong") not in KIEU_BU_HAO:
+            raise CongDoanValidationError("Kiểu bù hao không hợp lệ. [E-CD-BUHAO]")
         # W-CD-PRINT-SPOIL: bước in không nên có spoilage (bù hao lấy từ máy) — ép 0.
         if data.get("nhom") == "print" and data.get("spoilage_pct"):
             data["spoilage_pct"] = 0

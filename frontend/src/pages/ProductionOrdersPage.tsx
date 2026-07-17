@@ -13,19 +13,14 @@ import {
   type KhoMaterialOption,
   type KhoItemStatus,
   type WarehouseRow,
-  type VoucherRow,
+  type ProductionOutput,
+  type CongDoanLite,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
-import { ConfirmDialog } from "../components/ConfirmDialog";
-import { VoucherForm, VoucherDetail } from "./StockVoucherPage";
-import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
+import { VoucherForm } from "./StockVoucherPage";
 import "./master-data.css";
-
-// Thông tin công ty in trên phiếu — Sao Việt Nhật. Trường pháp lý để trống ("—")
-// chờ khảo sát, chỉ in dòng nào đã có dữ liệu thật.
-const SVN_COMPANY = { name: "CÔNG TY SAO VIỆT NHẬT", address: "—", taxCode: "—", phone: "—" };
 
 // 3 loại phiếu kho sinh từ LSX (giống hệ tham khảo): (mã loại, nhãn nút).
 const GEN_VOUCHERS: { code: string; label: string }[] = [
@@ -36,10 +31,6 @@ const GEN_VOUCHERS: { code: string; label: string }[] = [
 
 const STATUS_LABEL: Record<string, string> = {
   open: "Đang mở", done: "Hoàn thành", cancelled: "Đã hủy",
-};
-// Nhãn trạng thái phiếu kho (khác vòng đời LSX) — cho bảng "Phiếu kho của lệnh này".
-const V_STATUS_LABEL: Record<string, string> = {
-  draft: "Nháp", pending: "Chờ duyệt", posted: "Đã ghi sổ", cancelled: "Đã hủy",
 };
 
 function todayISO(): string {
@@ -62,22 +53,8 @@ function esc(v: unknown): string {
 // In "Phiếu sản xuất" — mở cửa sổ in, dựng HTML sạch rồi window.print(). 7 mẫu còn lại cần
 // dữ liệu Lớp B/C (phương án in, kẽm, giấy) nên chưa in được.
 function printProductionOrder(o: ProductionOrderRow): void {
-  const w = window.open("", "_blank", "width=920,height=1040");
+  const w = window.open("", "_blank", "width=820,height=1000");
   if (!w) return;
-  const logoAbs = new URL(logoUrl, window.location.href).href;
-
-  // "Ngày … tháng … năm …" theo ngày lập phiếu SX (fallback ngày đặt).
-  const dSrc = o.doc_date || o.order_date || "";
-  const [yy, mm, dd] = dSrc ? dSrc.split("-") : ["", "", ""];
-  const dateLine = dd && mm && yy ? `Ngày ${dd} tháng ${mm} năm ${yy}` : "";
-
-  // Dòng pháp lý công ty — chỉ hiện khi có dữ liệu thật (không in "—").
-  const legal = [
-    SVN_COMPANY.address !== "—" ? `Địa chỉ: ${esc(SVN_COMPANY.address)}` : "",
-    SVN_COMPANY.taxCode !== "—" ? `MST: ${esc(SVN_COMPANY.taxCode)}` : "",
-    SVN_COMPANY.phone !== "—" ? `Điện thoại: ${esc(SVN_COMPANY.phone)}` : "",
-  ].filter(Boolean).map((x) => `<div>${x}</div>`).join("");
-
   const rows: [string, string][] = [
     ["Khách hàng", esc(o.customer_name)],
     ["Theo hợp đồng số", esc(o.contract_no)],
@@ -87,8 +64,6 @@ function printProductionOrder(o: ProductionOrderRow): void {
     ["Yêu cầu nhận hàng", fmtDate(o.delivery_request_date)],
     ["Ngày lập phiếu SX", fmtDate(o.doc_date)],
     ["Ngày hoàn thành", fmtDate(o.due_date)],
-    ["Trạng thái", esc(STATUS_LABEL[o.status] ?? o.status)],
-    ["Duyệt lệnh", o.approved_at ? `Đã duyệt · ${esc(o.approved_by_name)} · ${fmtDateTime(o.approved_at)}` : "Chưa duyệt"],
     ["Người lập", esc(o.created_by_name)],
   ];
   const notes: [string, string | null][] = [
@@ -96,62 +71,34 @@ function printProductionOrder(o: ProductionOrderRow): void {
     ["Lưu ý kỹ thuật đóng xén", o.tech_note_finishing],
     ["Ghi chú", o.note],
   ];
-  // Ô ký theo chuỗi lệnh sản xuất: người lập → người duyệt → xưởng thực hiện.
-  const SIGN = ["Người lập phiếu", "Duyệt sản xuất", "Quản đốc xưởng"];
-
   w.document.write(`<!doctype html><html lang="vi"><head><meta charset="utf-8">
 <title>Phiếu sản xuất ${esc(o.code)}</title>
 <style>
-  * { font-family: 'Times New Roman', 'Segoe UI', serif; box-sizing: border-box; }
-  body { margin: 0; color: #111; font-size: 13.5px; line-height: 1.4; }
-  .sheet { padding: 16mm 14mm; }
-  .head { display: flex; align-items: flex-start; gap: 14px; padding-bottom: 8px; margin-bottom: 4px; }
-  .head img { height: 60px; }
-  .company__name { font-size: 16px; font-weight: 700; text-transform: uppercase; }
-  .company__legal { font-size: 12.5px; color: #222; margin-top: 2px; }
-  .company__legal div { margin: 1px 0; }
-  h1 { font-size: 22px; text-align: center; margin: 14px 0 4px; text-transform: uppercase; font-weight: 700; letter-spacing: .5px; }
-  .datebar { text-align: center; font-size: 13px; margin-bottom: 2px; }
-  .docno { text-align: center; font-size: 13px; margin-bottom: 14px; }
-  .info { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; margin-bottom: 14px; }
-  .info__row { display: flex; gap: 8px; padding: 4px 2px; border-bottom: 1px dotted #cfcac0; }
-  .info__k { color: #333; min-width: 122px; }
-  .info__v { font-weight: 700; flex: 1; }
-  .note { border: 1px solid #333; border-radius: 4px; padding: 8px 10px; margin-bottom: 10px; white-space: pre-wrap; font-size: 13px; }
-  .note .lbl { color: #333; font-weight: 700; display: block; margin-bottom: 3px; text-transform: uppercase; font-size: 12px; letter-spacing: .3px; }
-  .sign { display: flex; justify-content: space-around; gap: 12px; margin-top: 40px; text-align: center; font-size: 13px; }
-  .sign > div { flex: 1 1 0; max-width: 33%; }
-  .sign__role { font-weight: 700; }
-  .sign__hint { font-style: italic; font-size: 12px; color: #444; }
-  .sign__space { height: 80px; }
-  @media print { .sheet { padding: 12mm; } body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
-</style></head>
-<body onload="window.print()" onafterprint="window.close()">
-  <div class="sheet">
-    <div class="head">
-      <img src="${logoAbs}" alt="logo">
-      <div>
-        <div class="company__name">${esc(SVN_COMPANY.name)}</div>
-        ${legal ? `<div class="company__legal">${legal}</div>` : ""}
-      </div>
-    </div>
-
-    <h1>Phiếu sản xuất</h1>
-    ${dateLine ? `<div class="datebar">${dateLine}</div>` : ""}
-    <div class="docno">Số: <strong>${esc(o.code)}</strong></div>
-
-    <div class="info">
-      ${rows.map(([k, v]) => `<div class="info__row"><span class="info__k">${k}:</span><span class="info__v">${v}</span></div>`).join("")}
-    </div>
-
-    ${notes.filter(([, v]) => v && v.trim()).map(([k, v]) => `<div class="note"><span class="lbl">${k}</span>${esc(v)}</div>`).join("")}
-
-    <div class="sign">
-      ${SIGN.map((role) => `<div><div class="sign__role">${esc(role)}</div><div class="sign__hint">(Ký, họ tên)</div><div class="sign__space"></div></div>`).join("")}
-    </div>
-  </div>
+  * { font-family: 'Segoe UI', Arial, sans-serif; box-sizing: border-box; }
+  body { margin: 32px; color: #1a1a1a; }
+  h1 { font-size: 20px; text-align: center; margin: 0 0 4px; }
+  .code { text-align: center; color: #444; margin-bottom: 20px; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+  td { padding: 6px 8px; vertical-align: top; font-size: 14px; }
+  td.k { width: 190px; color: #555; }
+  td.v { font-weight: 600; }
+  .note { border: 1px solid #ddd; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; white-space: pre-wrap; font-size: 14px; }
+  .note .lbl { color: #555; font-weight: 600; display: block; margin-bottom: 2px; }
+  .sign { display: flex; justify-content: space-between; margin-top: 48px; text-align: center; font-size: 14px; }
+  .sign div { width: 45%; }
+  @media print { body { margin: 12mm; } }
+</style></head><body>
+  <h1>PHIẾU SẢN XUẤT</h1>
+  <div class="code">Mã số: <strong>${esc(o.code)}</strong></div>
+  <table><tbody>
+    ${rows.map(([k, v]) => `<tr><td class="k">${k}</td><td class="v">${v}</td></tr>`).join("")}
+  </tbody></table>
+  ${notes.filter(([, v]) => v && v.trim()).map(([k, v]) => `<div class="note"><span class="lbl">${k}</span>${esc(v)}</div>`).join("")}
+  <div class="sign"><div>Người lập phiếu<br><br><br>………………</div><div>Xưởng sản xuất<br><br><br>………………</div></div>
 </body></html>`);
   w.document.close();
+  w.focus();
+  w.print();
 }
 
 export function ProductionOrdersPage() {
@@ -223,13 +170,13 @@ export function ProductionOrdersPage() {
       <div className="card md-page__tablewrap">
         <table className="md-page__table">
           <thead>
-            <tr><th>Mã LSX</th><th>Khách hàng</th><th>Sản phẩm</th><th>Số lượng</th><th>Ngày lập</th><th>Hoàn thành</th><th>Duyệt</th><th>Trạng thái</th></tr>
+            <tr><th>Mã LSX</th><th>Khách hàng</th><th>Sản phẩm</th><th>Số lượng</th><th>Ngày lập</th><th>Hoàn thành</th><th>Trạng thái</th></tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} className="md-page__status">Đang tải...</td></tr>
+              <tr><td colSpan={7} className="md-page__status">Đang tải...</td></tr>
             ) : rows.length === 0 ? (
-              <tr><td colSpan={8} className="md-page__empty">Chưa có lệnh sản xuất. Bấm “Tạo lệnh”.</td></tr>
+              <tr><td colSpan={7} className="md-page__empty">Chưa có lệnh sản xuất. Bấm “Tạo lệnh”.</td></tr>
             ) : (
               rows.map((o) => (
                 <tr key={o.id} className="md-page__row" onClick={() => setDetail(o)}>
@@ -242,11 +189,6 @@ export function ProductionOrdersPage() {
                   <td>{o.quantity ?? <span className="md-page__muted">—</span>}</td>
                   <td>{fmtDate(o.doc_date)}</td>
                   <td>{fmtDate(o.due_date)}</td>
-                  <td>
-                    <span className="md-page__status-badge" style={{ background: o.approved_at ? "#dbe7dd" : "#efe4c4", color: o.approved_at ? "#244a2e" : "#7a5c0f" }}>
-                      {o.approved_at ? "✓ Đã duyệt" : "Chưa duyệt"}
-                    </span>
-                  </td>
                   <td>
                     <span className={`md-page__status-badge ${o.status === "open" ? "is-active" : "is-inactive"}`}>
                       {STATUS_LABEL[o.status] ?? o.status}
@@ -289,12 +231,8 @@ export function ProductionOrderDetail({
   order: ProductionOrderRow; canCreate: boolean; onClose: () => void; onChanged: () => void;
 }) {
   const { token } = useAuth();
-  const can = useCan();
-  const canApproveLsx = can("san_xuat", "approve");
-  // Sinh phiếu kho từ LSX cần quyền LẬP PHIẾU KHO (kho:create) — không phải quyền sản xuất.
-  const canKhoCreate = can("kho", "create");
   const [cur, setCur] = useState<ProductionOrderRow>(order);
-  const [tab, setTab] = useState<"info" | "files" | "vouchers">("info");
+  const [tab, setTab] = useState<"info" | "files" | "san_luong">("info");
   const [editing, setEditing] = useState(false);
   const [atts, setAtts] = useState<ProductionAttachment[]>([]);
   const [busy, setBusy] = useState(false);
@@ -304,19 +242,8 @@ export function ProductionOrderDetail({
     types: KhoVoucherType[]; materials: KhoMaterialOption[]; statuses: KhoItemStatus[]; warehouses: WarehouseRow[];
   } | null>(null);
   const [genCode, setGenCode] = useState<string | null>(null);
-  const [genMenuOpen, setGenMenuOpen] = useState(false); // menu "Sinh phiếu kho"
   const [buForm, setBuForm] = useState(false); // mở form tạo lệnh bù cho lệnh này
-  const [confirmCancel, setConfirmCancel] = useState(false); // popup xác nhận Hủy lệnh
   const [parentDetail, setParentDetail] = useState<ProductionOrderRow | null>(null); // LSX gốc đang mở
-  // Truy vết Mức A — mọi phiếu kho trỏ về LSX này (ref_type='lsx', ref_id=order.id).
-  const [linked, setLinked] = useState<VoucherRow[]>([]);
-  const [vtypes, setVtypes] = useState<KhoVoucherType[]>([]);
-  const [openVoucher, setOpenVoucher] = useState<VoucherRow | null>(null);
-  // Lọc + phân trang bảng "Phiếu kho của lệnh này" (client-side; linked nạp tối đa 200).
-  const [vTypeF, setVTypeF] = useState("");
-  const [vStatusF, setVStatusF] = useState("");
-  const [vPage, setVPage] = useState(1);
-  const V_PAGE_SIZE = 8;
 
   function openParent() {
     if (!token || !cur.parent_order_id) return;
@@ -329,22 +256,9 @@ export function ProductionOrderDetail({
   }, [token, order.id]);
   useEffect(() => { loadAtts(); }, [loadAtts]);
 
-  // Phiếu kho của lệnh này — cần quyền kho:read (không có thì im lặng để trống).
-  const loadLinked = useCallback(() => {
-    if (!token) return;
-    api.kho.listVouchers(token, { ref_type: "lsx", ref_id: order.id, size: 200 })
-      .then((r) => setLinked(r.items)).catch(() => setLinked([]));
-  }, [token, order.id]);
-  useEffect(() => { loadLinked(); }, [loadLinked]);
+  // Nạp dữ liệu kho (loại phiếu, vật tư, trạng thái, kho) để sinh phiếu — chỉ khi có quyền tạo.
   useEffect(() => {
-    if (!token) return;
-    api.kho.voucherTypes(token).then((r) => setVtypes(r.items)).catch(() => {});
-  }, [token]);
-
-  // Nạp dữ liệu kho (loại phiếu, vật tư, trạng thái, kho) — để sinh phiếu VÀ để mở
-  // chi tiết phiếu kho từ bảng truy vết. Cần quyền đọc kho; thiếu quyền thì im lặng.
-  useEffect(() => {
-    if (!token) return;
+    if (!token || !canCreate) return;
     Promise.all([
       api.kho.voucherTypes(token),
       api.kho.materialOptions(token),
@@ -353,20 +267,13 @@ export function ProductionOrderDetail({
     ]).then(([t, m, s, w]) =>
       setKhoData({ types: t.items, materials: m, statuses: s.items, warehouses: w.items }),
     ).catch(() => {});
-  }, [token]);
+  }, [token, canCreate]);
 
   async function setStatus(to: "done" | "cancelled" | "open") {
     if (!token) return;
     setBusy(true); setError(null);
     try { const r = await api.production.closeOrder(token, order.id, to); setCur(r); onChanged(); }
     catch (err) { setError(err instanceof ApiError ? err.message : "Cập nhật trạng thái thất bại."); setBusy(false); }
-  }
-  async function setApprove(approve: boolean) {
-    if (!token) return;
-    setBusy(true); setError(null);
-    try { const r = await api.production.approveOrder(token, order.id, approve); setCur(r); onChanged(); }
-    catch (err) { setError(err instanceof ApiError ? err.message : "Duyệt lệnh thất bại."); }
-    finally { setBusy(false); }
   }
   async function onUploadFiles(list: FileList | null) {
     if (!token || !list || !list.length) return;
@@ -393,15 +300,6 @@ export function ProductionOrderDetail({
     );
   }
 
-  // Dữ liệu bảng "Phiếu kho" — options lọc (chỉ loại/trạng thái thực sự xuất hiện), lọc + phân trang.
-  const vTypeOptions = vtypes.filter((t) => linked.some((v) => v.voucher_type_id === t.id));
-  const vStatusOptions = Array.from(new Set(linked.map((v) => v.status)));
-  const vFiltered = linked.filter((v) =>
-    (!vTypeF || String(v.voucher_type_id) === vTypeF) && (!vStatusF || v.status === vStatusF),
-  );
-  const vPages = Math.max(1, Math.ceil(vFiltered.length / V_PAGE_SIZE));
-  const vPageRows = vFiltered.slice((Math.min(vPage, vPages) - 1) * V_PAGE_SIZE, Math.min(vPage, vPages) * V_PAGE_SIZE);
-
   return (
     <div className="md-page__overlay" role="dialog">
       <div className="md-page__dialog card" style={{ maxWidth: 940, width: "94%" }}>
@@ -412,9 +310,6 @@ export function ProductionOrderDetail({
           )}
           <span className={`md-page__status-badge ${cur.status === "open" ? "is-active" : "is-inactive"}`} style={{ marginLeft: 10 }}>
             {STATUS_LABEL[cur.status] ?? cur.status}
-          </span>
-          <span className="md-page__status-badge" style={{ marginLeft: 10, background: cur.approved_at ? "#dbe7dd" : "#efe4c4", color: cur.approved_at ? "#244a2e" : "#7a5c0f" }}>
-            {cur.approved_at ? "✓ Đã duyệt" : "Chưa duyệt"}
           </span>
           <button type="button" className="md-page__close" onClick={onClose}>✕</button>
         </div>
@@ -429,63 +324,38 @@ export function ProductionOrderDetail({
               style={{ padding: "6px 2px", background: "none", border: "none", cursor: "pointer", borderBottom: tab === "files" ? "2px solid var(--accent, #b5531f)" : "2px solid transparent", fontWeight: tab === "files" ? 600 : 400 }}>
               Tập tin{atts.length ? ` (${atts.length})` : ""}
             </button>
-            <button type="button" className="md-page__tab" onClick={() => setTab("vouchers")}
-              style={{ padding: "6px 2px", background: "none", border: "none", cursor: "pointer", borderBottom: tab === "vouchers" ? "2px solid var(--accent, #b5531f)" : "2px solid transparent", fontWeight: tab === "vouchers" ? 600 : 400 }}>
-              Phiếu kho{linked.length ? ` (${linked.length})` : ""}
+            <button type="button" className="md-page__tab" onClick={() => setTab("san_luong")}
+              style={{ padding: "6px 2px", background: "none", border: "none", cursor: "pointer", borderBottom: tab === "san_luong" ? "2px solid var(--accent, #b5531f)" : "2px solid transparent", fontWeight: tab === "san_luong" ? 600 : 400 }}>
+              Sản lượng
             </button>
           </div>
 
-          {(() => {
-            const genList = khoData ? GEN_VOUCHERS.filter((g) => khoData.types.some((t) => t.code === g.code)) : [];
-            return (
-              <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-                {/* Nhóm 1 — thao tác trên lệnh */}
-                <Button variant="ghost" onClick={() => printProductionOrder(cur)}>🖨 In phiếu</Button>
-                {canCreate && <Button variant="ghost" onClick={() => setEditing(true)}>Cập nhật</Button>}
-                {canCreate && canApproveLsx && (cur.approved_at
-                  ? <Button variant="ghost" onClick={() => setApprove(false)} loading={busy}>Bỏ duyệt</Button>
-                  : <Button variant="primary" onClick={() => setApprove(true)} loading={busy}>Duyệt lệnh</Button>
-                )}
-                {canCreate && (cur.status === "open" ? (
-                  <>
-                    <Button variant="ghost" onClick={() => setStatus("done")} loading={busy}>Hoàn thành</Button>
-                    <Button variant="danger" onClick={() => setConfirmCancel(true)} disabled={busy}>Hủy</Button>
-                  </>
-                ) : (
-                  <Button variant="ghost" onClick={() => setStatus("open")} loading={busy}>Mở lại</Button>
-                ))}
-                {canCreate && cur.order_kind !== "bu" && (
-                  <Button variant="ghost" onClick={() => setBuForm(true)}>Tạo lệnh bù</Button>
-                )}
+          <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+            <Button variant="ghost" onClick={() => printProductionOrder(cur)}>🖨 In phiếu sản xuất</Button>
+          </div>
+          {canCreate && (
+            <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+              <Button variant="ghost" onClick={() => setEditing(true)}>Cập nhật</Button>
+              {cur.status === "open" ? (
+                <>
+                  <Button variant="ghost" onClick={() => setStatus("done")} loading={busy}>Hoàn thành</Button>
+                  <Button variant="danger" onClick={() => setStatus("cancelled")} loading={busy}>Hủy</Button>
+                </>
+              ) : (
+                <Button variant="ghost" onClick={() => setStatus("open")} loading={busy}>Mở lại</Button>
+              )}
+              {/* Tạo lệnh bù CHO chính lệnh này (không nằm trong nút Tạo lệnh thường). */}
+              {cur.order_kind !== "bu" && (
+                <Button variant="ghost" onClick={() => setBuForm(true)}>Tạo lệnh bù</Button>
+              )}
+              {/* Sinh phiếu kho từ LSX — chỉ hiện loại phiếu đã cấu hình trong kho. */}
+              {khoData && GEN_VOUCHERS.filter((g) => khoData.types.some((t) => t.code === g.code)).map((g) => (
+                <Button key={g.code} variant="primary" onClick={() => setGenCode(g.code)}>{g.label}</Button>
+              ))}
+            </div>
+          )}
 
-                {/* Nhóm 2 — sinh phiếu kho gộp vào 1 menu thả xuống (BRD §2.5: cần lệnh đã duyệt). */}
-                {canKhoCreate && genList.length > 0 && (
-                  <div style={{ position: "relative", marginLeft: "auto" }}>
-                    <Button variant="primary" disabled={!cur.approved_at}
-                      title={cur.approved_at ? undefined : "Cần duyệt lệnh trước khi sinh phiếu kho"}
-                      onClick={() => setGenMenuOpen((o) => !o)}>+ Sinh phiếu kho ▾</Button>
-                    {genMenuOpen && cur.approved_at && (
-                      <>
-                        <div style={{ position: "fixed", inset: 0, zIndex: 20 }} onClick={() => setGenMenuOpen(false)} />
-                        <div className="card" style={{ position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 21, minWidth: 240, padding: 4, boxShadow: "0 8px 24px rgba(0,0,0,.18)" }}>
-                          {genList.map((g) => (
-                            <button key={g.code} type="button" className="md-page__row"
-                              style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 10px", background: "none", border: "none", cursor: "pointer", borderRadius: 6 }}
-                              onClick={() => { setGenMenuOpen(false); setGenCode(g.code); }}>{g.label}</button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
-                {canKhoCreate && genList.length > 0 && !cur.approved_at && (
-                  <span className="md-page__muted" style={{ fontSize: 12 }}>Duyệt lệnh để sinh phiếu kho</span>
-                )}
-              </div>
-            );
-          })()}
-
-          {tab === "info" && (
+          {tab === "info" ? (
             <>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28, alignItems: "start" }}>
                 <section>
@@ -518,9 +388,6 @@ export function ProductionOrderDetail({
                   <DetailRow label="Yêu cầu nhận hàng" value={fmtDate(cur.delivery_request_date)} />
                   <DetailRow label="Ngày lập phiếu SX" value={fmtDate(cur.doc_date)} />
                   <DetailRow label="Ngày hoàn thành" value={fmtDate(cur.due_date)} />
-                  <DetailRow label="Duyệt lệnh" value={cur.approved_at
-                    ? <span style={{ color: "#244a2e", fontWeight: 600 }}>Đã duyệt · {cur.approved_by_name || "—"} · {fmtDateTime(cur.approved_at)}</span>
-                    : <span style={{ color: "#7a5c0f" }}>Chưa duyệt</span>} />
                   <DetailRow label="Người nhập" value={cur.created_by_name || "—"} />
                   <DetailRow label="Ngày tạo" value={fmtDateTime(cur.created_at)} />
                   <DetailRow label="Người cập nhật" value={cur.updated_by_name || "—"} />
@@ -535,77 +402,7 @@ export function ProductionOrderDetail({
                 </div>
               )}
             </>
-          )}
-
-          {/* Truy vết Mức A — mọi phiếu kho (xuất NVL / nhập TP / xuất giao khách) của lệnh này. */}
-          {tab === "vouchers" && (
-            <>
-              {linked.length === 0 ? (
-                <p className="md-page__muted" style={{ margin: "6px 0" }}>Chưa có phiếu kho nào gắn với lệnh này.</p>
-              ) : (
-                <>
-                  {/* Lọc theo loại phiếu + trạng thái */}
-                  <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                    <select className="input" style={{ width: "auto", minWidth: 180 }} value={vTypeF}
-                      onChange={(e) => { setVTypeF(e.target.value); setVPage(1); }}>
-                      <option value="">Tất cả loại phiếu</option>
-                      {vTypeOptions.map((o) => <option key={o.id} value={String(o.id)}>{o.name}</option>)}
-                    </select>
-                    <select className="input" style={{ width: "auto", minWidth: 150 }} value={vStatusF}
-                      onChange={(e) => { setVStatusF(e.target.value); setVPage(1); }}>
-                      <option value="">Tất cả trạng thái</option>
-                      {vStatusOptions.map((s) => <option key={s} value={s}>{V_STATUS_LABEL[s] ?? s}</option>)}
-                    </select>
-                    {(vTypeF || vStatusF) && (
-                      <button type="button" className="md-page__tab" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent, #b5531f)" }}
-                        onClick={() => { setVTypeF(""); setVStatusF(""); setVPage(1); }}>Xóa lọc</button>
-                    )}
-                  </div>
-
-                  {/* Bảng cuộn — giới hạn chiều cao, dài quá thì cuộn dọc */}
-                  <div className="card md-page__tablewrap" style={{ maxHeight: 360, overflowY: "auto" }}>
-                    <table className="md-page__table">
-                      <thead>
-                        <tr>
-                          <th>Mã phiếu</th><th>Loại phiếu</th><th>Ngày</th>
-                          <th style={{ textAlign: "right" }}>Số dòng</th><th>Trạng thái</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {vPageRows.length === 0 ? (
-                          <tr><td colSpan={5} className="md-page__muted" style={{ padding: "10px" }}>Không có phiếu khớp bộ lọc.</td></tr>
-                        ) : vPageRows.map((v) => {
-                          const vt = vtypes.find((t) => t.id === v.voucher_type_id);
-                          return (
-                            <tr key={v.id} style={{ cursor: "pointer" }} onClick={() => setOpenVoucher(v)}>
-                              <td className="md-page__mono" style={{ color: "var(--accent, #b5531f)", fontWeight: 600 }}>{v.code}</td>
-                              <td>{vt?.name ?? `#${v.voucher_type_id}`}</td>
-                              <td>{fmtDate(v.doc_date)}</td>
-                              <td style={{ textAlign: "right" }}>{v.lines?.length ?? 0}</td>
-                              <td>{V_STATUS_LABEL[v.status] ?? v.status}</td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Phân trang */}
-                  {vFiltered.length > V_PAGE_SIZE && (
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
-                      <span className="md-page__muted" style={{ fontSize: 13 }}>
-                        {vFiltered.length} phiếu · Trang {Math.min(vPage, vPages)}/{vPages}
-                      </span>
-                      <Button variant="ghost" disabled={vPage <= 1} onClick={() => setVPage((p) => Math.max(1, p - 1))}>‹ Trước</Button>
-                      <Button variant="ghost" disabled={vPage >= vPages} onClick={() => setVPage((p) => Math.min(vPages, p + 1))}>Sau ›</Button>
-                    </div>
-                  )}
-                </>
-              )}
-            </>
-          )}
-
-          {tab === "files" && (
+          ) : tab === "files" ? (
             <>
               {atts.length === 0 ? (
                 <p className="md-page__muted" style={{ margin: "4px 0" }}>Chưa có tập tin đính kèm.</p>
@@ -624,6 +421,8 @@ export function ProductionOrderDetail({
                   onChange={(e) => { onUploadFiles(e.target.files); e.target.value = ""; }} />
               )}
             </>
+          ) : (
+            <OutputsTab order={cur} />
           )}
 
           {error && <div className="banner banner--error" role="alert" style={{ marginTop: 12 }}>{error}</div>}
@@ -647,24 +446,10 @@ export function ProductionOrderDetail({
               customerName: cur.customer_name, productName: cur.product_name, quantity: cur.quantity,
             }}
             onClose={() => setGenCode(null)}
-            onSaved={() => { setGenCode(null); loadLinked(); }}
+            onSaved={() => setGenCode(null)}
           />
         );
       })()}
-      {/* Mở chi tiết một phiếu kho từ bảng truy vết (cần dữ liệu kho đã nạp). */}
-      {openVoucher && khoData && (
-        <VoucherDetail
-          voucher={openVoucher}
-          types={khoData.types}
-          warehouses={khoData.warehouses}
-          materials={khoData.materials}
-          statuses={khoData.statuses}
-          canApprove={can("kho", "approve")}
-          canCreate={can("kho", "create")}
-          onClose={() => setOpenVoucher(null)}
-          onChanged={() => { loadLinked(); }}
-        />
-      )}
       {/* Tạo lệnh bù CHO lệnh này — gắn sẵn gốc + điền sẵn khách/sản phẩm. */}
       {buForm && (
         <ProductionOrderForm
@@ -682,18 +467,6 @@ export function ProductionOrderDetail({
           onChanged={() => setParentDetail(null)}
         />
       )}
-      <ConfirmDialog
-        open={confirmCancel}
-        danger
-        title="Hủy lệnh sản xuất?"
-        message={`Hủy lệnh ${cur.code}? Lệnh sẽ chuyển sang "Đã hủy".`}
-        confirmLabel="Xác nhận hủy"
-        cancelLabel="Không"
-        busy={busy}
-        error={error}
-        onConfirm={() => setStatus("cancelled")}
-        onCancel={() => { if (!busy) { setConfirmCancel(false); setError(null); } }}
-      />
     </div>
   );
 }
@@ -839,6 +612,142 @@ export function ProductionOrderForm({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// Tổ khoán (khớp KHOAN_GROUPS ở LuongPage).
+const KHOAN_GROUPS: { key: string; label: string }[] = [
+  { key: "to_boi", label: "Tổ Bồi" },
+  { key: "to_can_phu", label: "Tổ Cán/Phủ" },
+  { key: "to_cat", label: "Tổ Cắt" },
+  { key: "may_in_5mau", label: "Máy in 5 màu" },
+  { key: "may_in_2mau", label: "Máy in 2 màu" },
+  { key: "to_thanh_pham", label: "Tổ Thành phẩm" },
+];
+
+const DEFECT_CAUSES: { key: string; label: string }[] = [
+  { key: "", label: "— Nguyên nhân hỏng —" },
+  { key: "loi_tho", label: "Lỗi thợ (bị trừ)" },
+  { key: "vat_tu", label: "Vật tư" },
+  { key: "thiet_bi", label: "Thiết bị/máy" },
+  { key: "file_thiet_ke", label: "File/thiết kế" },
+  { key: "cong_doan_truoc", label: "Công đoạn trước" },
+];
+const DEFECT_CAUSE_LABEL: Record<string, string> = Object.fromEntries(DEFECT_CAUSES.map((c) => [c.key, c.label]));
+
+// Tab "Sản lượng" trong màn LSX: ghi phiếu sản lượng công đoạn theo NGƯỜI + trừ lỗi → cột Khoán bảng lương.
+function OutputsTab({ order }: { order: ProductionOrderRow }) {
+  const { token } = useAuth();
+  const can = useCan();
+  const canWrite = can("san_luong", "create");
+  const [rows, setRows] = useState<ProductionOutput[]>([]);
+  const [cds, setCds] = useState<CongDoanLite[]>([]);
+  const [emps, setEmps] = useState<{ id: number; full_name: string }[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const now = new Date();
+  const [f, setF] = useState({
+    cong_doan: "", group_name: KHOAN_GROUPS[0].key, employee_id: "", year: now.getFullYear(),
+    month: now.getMonth() + 1, quantity: "", unit: "m2", unit_price: "", work_name: "",
+    defect_qty: "", defect_cause: "",
+  });
+
+  const load = useCallback(() => {
+    if (!token) return;
+    api.sanLuong.listByOrder(token, order.id).then((r) => setRows(r.items)).catch(() => setRows([]));
+  }, [token, order.id]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!token) return;
+    api.congDoan.list(token).then((r) => setCds(r.items.filter((c) => c.khoan_ghi_theo !== "khong"))).catch(() => setCds([]));
+    api.employees.list(token, { size: 200, sort: "code" }).then((r) => setEmps(r.items)).catch(() => setEmps([]));
+  }, [token]);
+
+  async function add() {
+    if (!token) return;
+    setErr(null);
+    try {
+      await api.sanLuong.create(token, {
+        production_order_id: order.id, cong_doan: f.cong_doan, year: Number(f.year), month: Number(f.month),
+        group_name: f.group_name, employee_id: f.employee_id ? Number(f.employee_id) : null,
+        quantity: Number(f.quantity) || 0, unit: f.unit || null,
+        unit_price: f.unit_price ? Number(f.unit_price) : null, work_name: f.work_name || null,
+        defect_qty: Number(f.defect_qty) || 0, defect_cause: f.defect_cause || null,
+      });
+      setF({ ...f, quantity: "", unit_price: "", work_name: "", defect_qty: "", defect_cause: "" });
+      load();
+    } catch (e) { setErr(e instanceof ApiError ? e.message : "Ghi phiếu thất bại."); }
+  }
+  async function del(id: number) {
+    if (!token) return;
+    try { await api.sanLuong.remove(token, id); load(); } catch (e) { setErr(e instanceof ApiError ? e.message : "Xóa thất bại."); }
+  }
+
+  const money = (n: number) => Number(n).toLocaleString("vi-VN");
+  const empName = (id: number | null) => (id ? emps.find((e) => e.id === id)?.full_name ?? `NV#${id}` : "");
+  return (
+    <div>
+      <p className="md-page__muted" style={{ margin: "0 0 10px" }}>
+        Ghi sản lượng thực từng công đoạn theo <b>từng người</b>. Số này cộng thẳng vào cột <b>Khoán</b> của bảng lương khi tính lương.
+        Hỏng chỉ bị trừ khi <b>lỗi do thợ</b> và vượt ngưỡng hao của công đoạn.
+      </p>
+      {order.order_kind === "bu" && (
+        <div className="banner banner--warn" style={{ marginBottom: 10 }}>Lệnh bù: phiếu mặc định <b>không tính khoán</b> (chỉ HCNS bật khi bù do khách/vật tư).</div>
+      )}
+      {err && <div className="banner banner--error" style={{ marginBottom: 10 }}>{err}</div>}
+      <div className="md-page__tablewrap">
+        <table className="md-page__table">
+          <thead><tr>
+            <th>Công đoạn</th><th>Tổ / Người</th><th>Kỳ</th>
+            <th style={{ textAlign: "right" }}>Đạt</th><th style={{ textAlign: "right" }}>Hỏng</th>
+            <th>Nguyên nhân</th><th style={{ textAlign: "right" }}>Đơn giá</th>
+            <th style={{ textAlign: "right" }}>Trừ lỗi</th><th style={{ textAlign: "right" }}>Thực nhận</th>
+            <th>Khoán?</th><th></th>
+          </tr></thead>
+          <tbody>
+            {rows.map((o) => (
+              <tr key={o.id}>
+                <td>{o.cong_doan}</td>
+                <td>{o.ghi_theo === "nguoi" ? empName(o.employee_id) : o.group_name}</td>
+                <td>{o.month}/{o.year}</td>
+                <td style={{ textAlign: "right" }}>{money(o.quantity)}</td>
+                <td style={{ textAlign: "right" }}>{o.defect_qty ? money(o.defect_qty) : "—"}</td>
+                <td>{o.defect_cause ? DEFECT_CAUSE_LABEL[o.defect_cause] ?? o.defect_cause : "—"}</td>
+                <td style={{ textAlign: "right" }}>{money(o.unit_price)}</td>
+                <td style={{ textAlign: "right" }}>{o.defect_deduction ? `−${money(o.defect_deduction)}` : "—"}</td>
+                <td style={{ textAlign: "right", fontWeight: 600 }}>{money(o.net_amount)}</td>
+                <td>{o.tinh_khoan ? "✓" : "—"}</td>
+                <td>{canWrite && <button type="button" className="md-page__file-x" onClick={() => del(o.id)}>✕</button>}</td>
+              </tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={11} className="md-page__muted">Chưa có phiếu sản lượng.</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {canWrite && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 10 }}>
+          <select className="input" value={f.cong_doan} onChange={(e) => setF({ ...f, cong_doan: e.target.value })}>
+            <option value="">— Công đoạn —</option>
+            {cds.map((c) => <option key={c.id} value={c.ma}>{c.ma} · {c.ten}</option>)}
+          </select>
+          <select className="input" value={f.group_name} onChange={(e) => setF({ ...f, group_name: e.target.value })} title="Tổ / bộ phận (để tra đơn giá)">
+            {KHOAN_GROUPS.map((g) => <option key={g.key} value={g.key}>{g.label}</option>)}
+          </select>
+          <select className="input" value={f.employee_id} onChange={(e) => setF({ ...f, employee_id: e.target.value })}>
+            <option value="">— Nhân viên —</option>
+            {emps.map((e) => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+          </select>
+          <input className="input" type="number" style={{ width: 62 }} value={f.month} onChange={(e) => setF({ ...f, month: Number(e.target.value) })} title="Tháng" />
+          <input className="input" type="number" style={{ width: 82 }} value={f.year} onChange={(e) => setF({ ...f, year: Number(e.target.value) })} title="Năm" />
+          <input className="input" type="number" style={{ width: 92 }} value={f.quantity} onChange={(e) => setF({ ...f, quantity: e.target.value })} placeholder="Đạt" />
+          <input className="input" type="number" style={{ width: 82 }} value={f.defect_qty} onChange={(e) => setF({ ...f, defect_qty: e.target.value })} placeholder="Hỏng" />
+          <select className="input" value={f.defect_cause} onChange={(e) => setF({ ...f, defect_cause: e.target.value })}>
+            {DEFECT_CAUSES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+          </select>
+          <input className="input" type="number" style={{ width: 92 }} value={f.unit_price} onChange={(e) => setF({ ...f, unit_price: e.target.value })} placeholder="Đơn giá" />
+          <Button variant="primary" onClick={add} disabled={!f.cong_doan || !f.quantity || !f.employee_id}>Ghi phiếu</Button>
+        </div>
+      )}
     </div>
   );
 }

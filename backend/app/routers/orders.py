@@ -1,266 +1,348 @@
-"""Đơn hàng bán (Order) routes — spec-10-don-hang-ban (F1/F2 làm-ngay; F3/F8 scaffolded).
+"""Đơn hàng bán (Order) routes — redesign-don-hang-ban.md (P1 khung đơn).
 
-Thin HTTP shell over OrderService. Every route is guarded by
-`require_permission('don_hang_ban', <action>)`; list/detail additionally narrow to the caller's
-data scope (own/department/all). SEAM reads:
-  - SEAM-04 (quotation_ref, Báo giá LIVE): the approved-quotation picker + create read the live
-    quotations; the deposit half (Payment) is TREO → the gate shows deposit_available=false
-    (never a fabricated cọc).
-  - SEAM-05/06/01/02 (proof / customer paper / progress / delivery): TREO — surfaced read-only
-    in F4/F6/F7 (feat-049); not wired here.
-
-The physical layer (khổ giấy / số màu / số kẽm / imposition / PrintForm) is NEVER in any
-response shape — ẩn khỏi Sale (§29 P0, §43 #1).
+P1: list / get / enums / activity / create (từ báo giá | nhập tay) / update (khi nháp).
+Cọc/duyệt/chốt/hủy = P2–P5.
 """
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 
 from ..deps import (
     get_authorization_service,
+    get_current_user,
     get_order_service,
     require_permission,
 )
-from ..models.order import (
-    ORDER_KINDS,
-    ORDER_STATUSES,
-    ORDER_TYPES,
-    STATUS_CANCELLED,
-    STATUS_ORDERED,
-    Order,
-)
 from ..models.user import User
 from ..schemas.order import (
-    ApprovedQuotationListOut,
-    ApprovedQuotationRow,
-    CustomerDisplayOut,
-    EnumOption,
-    GateOut,
+    ApprovalActionIn,
+    OrderActivityOut,
+    OrderCancelIn,
     OrderCreate,
+    OrderDepositReceiptIn,
     OrderDetailOut,
     OrderEnumsOut,
     OrderListOut,
-    OrderRow,
-    TransitionRequest,
+    OrderStatsOut,
+    OrderUpdate,
 )
 from ..services.order_service import (
-    DepositUnavailable,
     OrderConflict,
     OrderForbidden,
     OrderNotFound,
     OrderService,
     OrderValidationError,
-    QuotationNotSelectable,
 )
-from ..services.order_state import TRANSITIONS as _TRANS
 from ..services.rbac_service import AuthorizationService
+from ..realtime import hub
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
+
+
+def _order_changed(order_no: str | None = None) -> None:
+    """Tín hiệu 'danh sách chờ (duyệt/ghi cọc/chốt) đã đổi' — mọi vai tự refetch notify-summary
+    (badge nhảy + toast khi số 'chờ TÔI' tăng). Bám đúng logic SSE báo giá (kênh hub chung)."""
+    hub.broadcast({"type": "order_pending_changed", "code": order_no})
 
 MODULE = "don_hang_ban"
 
 Service = Annotated[OrderService, Depends(get_order_service)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
-
-TYPE_LABELS = {"noi_bo": "Nội bộ", "theo_yc": "Theo yêu cầu"}
-KIND_LABELS = {"moi": "Đơn mới", "bo_sung": "Đơn bổ sung"}
-STATUS_LABELS = {
-    "draft": "Nháp",
-    "ordered": "Đã chốt",
-    "on_hold": "Tạm giữ",
-    "change_order": "Đã đổi (re-quote)",
-    "cancelled": "Đã hủy",
-}
+CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
 def _scope_for(authz: AuthorizationService, user: User) -> str:
     return authz.scope_for(user, MODULE) or "own"
 
 
-_ALL_TRANSITIONS = list(_TRANS.keys())
+_SCOPE_RANK = {"own": 0, "department": 1, "all": 2}
 
 
-def _allowed_transitions(current_status: str) -> list[str]:
-    return [to for (frm, to) in _ALL_TRANSITIONS if frm == current_status]
+def _effective_scope(role_scope: str, view_scope: str | None) -> str:
+    """Lọc phạm vi FE (Của tôi/Cả phòng/Tất cả) — KẸP về quyền: không cho xem rộng hơn."""
+    if not view_scope or view_scope not in _SCOPE_RANK:
+        return role_scope
+    return view_scope if _SCOPE_RANK[view_scope] <= _SCOPE_RANK.get(role_scope, 2) else role_scope
 
 
-def _detail(svc: OrderService, order: Order) -> OrderDetailOut:
-    out = OrderDetailOut.model_validate(order)
-    ref = svc.customer_display(order)
-    out.customer = CustomerDisplayOut(**ref) if ref is not None else None
-    out.gate = GateOut(**svc.gate_status(order))
-    out.allowed_transitions = _allowed_transitions(order.status)
-    return out
+def _map(exc: Exception) -> HTTPException:
+    if isinstance(exc, OrderNotFound):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, OrderForbidden):
+        return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    if isinstance(exc, OrderConflict):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, OrderValidationError):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    raise exc
 
-
-# --- enums + approved-quotation picker (F1, SEAM-04 quotation_ref) -------------
 
 @router.get("/enums", response_model=OrderEnumsOut)
-def order_enums(
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> OrderEnumsOut:
-    return OrderEnumsOut(
-        order_types=[EnumOption(value=v, label=TYPE_LABELS.get(v, v)) for v in ORDER_TYPES],
-        order_kinds=[EnumOption(value=v, label=KIND_LABELS.get(v, v)) for v in ORDER_KINDS],
-        statuses=[EnumOption(value=v, label=STATUS_LABELS.get(v, v)) for v in ORDER_STATUSES],
-    )
-
-
-@router.get("/approved-quotations", response_model=ApprovedQuotationListOut)
-def approved_quotations(
+def get_enums(
+    _user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     svc: Service,
-    authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> ApprovedQuotationListOut:
-    """Báo giá đã duyệt còn hạn choosable for an order (F1). Reads the live Báo giá via
-    SEAM-04 (quotation_ref). When Báo giá is not wired the port raises → empty picker with a
-    clear state (the frontend shows 'phân hệ Báo giá chưa sẵn sàng')."""
-    scope = _scope_for(authz, user)
-    try:
-        rows, names = svc.approved_quotations(scope=scope, actor=user)
-    except NotImplementedError:
-        # SEAM-04 (quotation_ref) not wired — no fabricated list.
-        return ApprovedQuotationListOut(items=[])
-    items = []
-    for q in rows:
-        active = next((v for v in q.versions if v.id == q.current_version_id), None)
-        items.append(
-            ApprovedQuotationRow(
-                id=q.id,
-                code=q.quote_number,
-                version=active.version_number if active else 1,
-                customer_id=q.customer_id,
-                customer_name=names.get(q.id) or q.customer_name_snapshot,
-                total=int(active.final_amount) if active else None,
-                valid_until=q.valid_until,
-            )
-        )
-    return ApprovedQuotationListOut(items=items)
+) -> OrderEnumsOut:
+    return svc.enums()
 
-
-# --- list (F1) -----------------------------------------------------------------
 
 @router.get("", response_model=OrderListOut)
 def list_orders(
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
     status_filter: str | None = Query(default=None, alias="status"),
     order_kind: str | None = Query(default=None),
+    approval_state: str | None = Query(default=None),
+    view_scope: str | None = Query(default=None),
     sort: str = Query(default="-created_at"),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=200),
 ) -> OrderListOut:
-    scope = _scope_for(authz, user)
-    rows, total, names, totals = svc.list_orders(
-        scope=scope, actor=user, q=q, status=status_filter, order_kind=order_kind,
-        sort=sort, page=page, size=size,
+    scope = _effective_scope(_scope_for(authz, user), view_scope)
+    return svc.list(
+        actor=user, scope=scope, q=q, status=status_filter, order_kind=order_kind,
+        approval_state=approval_state, sort=sort, page=page, size=size,
     )
-    items = []
-    for r in rows:
-        # ③→④ gate flag: pinned from an approved quotation is the approved side; the cọc side
-        # is TREO (SEAM-04 Payment) so the gate is not yet met — honest false, not a fake pass.
-        gate = svc.gate_status(r)
-        items.append(
-            OrderRow(
-                id=r.id,
-                order_no=r.order_no,
-                customer_id=r.customer_id,
-                customer_name=names.get(r.id),
-                order_type=r.order_type,
-                order_kind=r.order_kind,
-                status=r.status,
-                total_estimate=totals.get(r.id),
-                has_customer_paper=r.has_customer_paper,
-                gate_ordered_ok=gate["can_confirm"],
-                created_at=r.created_at,
-            )
-        )
-    return OrderListOut(items=items, total=total, page=page, size=size)
 
 
-# --- create (F1/F2) ------------------------------------------------------------
-
-@router.post("", response_model=OrderDetailOut, status_code=status.HTTP_201_CREATED)
-def create_order(
-    payload: OrderCreate,
+@router.get("/stats", response_model=OrderStatsOut)
+def get_stats(
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-) -> OrderDetailOut:
-    try:
-        order = svc.create_order(
-            quotation_id=payload.quotation_id,
-            order_type=payload.order_type,
-            order_kind=payload.order_kind,
-            parent_order_id=payload.parent_order_id,
-            has_customer_paper=payload.has_customer_paper,
-            vat_pct_estimate=payload.vat_pct_estimate,
-            actor=user,
-        )
-    except QuotationNotSelectable as e:
-        # Báo giá không hợp lệ (chưa duyệt / hết hạn / không tồn tại) — chặn chọn + lý do.
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    except OrderValidationError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, order)
+    authz: Authz,
+    view_scope: str | None = Query(default=None),
+) -> OrderStatsOut:
+    return svc.stats(actor=user, scope=_effective_scope(_scope_for(authz, user), view_scope))
+
+
+@router.get("/notify-summary")
+def notify_summary(
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    svc: Service,
+    authz: Authz,
+) -> dict:
+    """Số nuôi badge/toast real-time Đơn hàng bán — 'việc chờ TÔI xử lý' theo vai (SSE snapshot lúc
+    connect + REST fallback khi có event). TP/GĐ=chờ duyệt; Kế toán=chờ ghi cọc; Sale=sẵn sàng chốt."""
+    return svc.notify_summary(
+        actor=user, scope=_scope_for(authz, user),
+        can_approve=authz.can(user, MODULE, "approve_exception"),
+        can_record_deposit=authz.can(user, MODULE, "record_deposit"),
+        can_manage_status=authz.can(user, MODULE, "manage_status"),
+    )
 
 
 @router.get("/{order_id}", response_model=OrderDetailOut)
 def get_order(
     order_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> OrderDetailOut:
-    scope = _scope_for(authz, user)
     try:
-        order = svc.get_order(order_id=order_id, scope=scope, actor=user)
-    except (OrderNotFound, OrderForbidden):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy đơn hàng.") from None
-    return _detail(svc, order)
+        return svc.get(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)
 
 
-# --- lifecycle transitions (F8; chốt gated F3) --------------------------------
-
-@router.post("/{order_id}/transition", response_model=OrderDetailOut)
-def transition_order(
+@router.get("/{order_id}/activity", response_model=OrderActivityOut)
+def get_activity(
     order_id: int,
-    payload: TransitionRequest,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     svc: Service,
     authz: Authz,
-    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> OrderDetailOut:
-    scope = _scope_for(authz, user)
-    # Mỗi chuyển trạng thái = một quyền chi tiết riêng (tách khỏi "sửa nội dung đơn"):
-    #   - Chốt đơn (ordered)   → `approve`
-    #   - Hủy đơn (cancelled)  → `cancel`
-    #   - Trạng thái khác      → `manage_status`
-    to_status = payload.to_status
-    if to_status == STATUS_ORDERED:
-        if not authz.can(user, MODULE, "approve"):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền chốt đơn.")
-    elif to_status == STATUS_CANCELLED:
-        if not authz.can(user, MODULE, "cancel"):
-            raise HTTPException(status.HTTP_403_FORBIDDEN, "Bạn không có quyền hủy đơn.")
-    elif not authz.can(user, MODULE, "manage_status"):
-        raise HTTPException(
-            status.HTTP_403_FORBIDDEN, "Bạn không có quyền đổi trạng thái đơn."
-        )
+) -> OrderActivityOut:
     try:
-        order = svc.transition(
-            order_id=order_id, to_status=payload.to_status, scope=scope, actor=user,
-            cancel_reason=payload.cancel_reason,
+        return svc.activity(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.post("", response_model=OrderDetailOut, status_code=status.HTTP_201_CREATED)
+def create_order(
+    payload: OrderCreate,
+    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        d = svc.create(actor=user, scope=_scope_for(authz, user), payload=payload)
+    except Exception as exc:
+        raise _map(exc)
+    _order_changed(d.order_no)   # đơn nháp mới → Kế toán thấy 'chờ ghi cọc'
+    return d
+
+
+@router.put("/{order_id}", response_model=OrderDetailOut)
+def update_order(
+    order_id: int,
+    payload: OrderUpdate,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        return svc.update(order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload)
+    except Exception as exc:
+        raise _map(exc)
+
+
+# --- Hủy đơn (P5) — nháp: `update`; đã chốt: cần `approve_exception` -----------
+@router.post("/{order_id}/cancel", response_model=OrderDetailOut)
+def cancel_order(
+    order_id: int,
+    payload: OrderCancelIn,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    elevated = authz.can(user, MODULE, "approve_exception")
+    try:
+        d = svc.cancel(
+            order_id=order_id, actor=user, scope=_scope_for(authz, user),
+            reason=payload.reason, fault=payload.fault, can_cancel_ordered=elevated,
         )
-    except (OrderNotFound, OrderForbidden):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Không tìm thấy đơn hàng.") from None
-    except OrderConflict as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
-    except DepositUnavailable as e:
-        # Chốt cần cọc, nhưng ghi cọc TREO (SEAM-04 Payment) — 409, nêu rõ chờ phân hệ.
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e)) from None
-    except OrderValidationError as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e)) from None
-    return _detail(svc, order)
+    except Exception as exc:
+        raise _map(exc)
+    _order_changed(d.order_no)   # hủy nháp → rời tập chờ, badge 'chờ xử lý' các vai tụt
+    return d
+
+
+# --- Chốt đơn (P4) — quyền `manage_status` ------------------------------------
+@router.post("/{order_id}/confirm", response_model=OrderDetailOut)
+def confirm_order(
+    order_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "manage_status"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        d = svc.confirm(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)
+    _order_changed(d.order_no)   # chốt → rời tập nháp, badge 'sẵn sàng chốt' của Sale tụt
+    return d
+
+
+# --- Gia hạn báo giá nguồn (Việc 4) — quyền `update` (Sale + TP/GĐ) -----------
+@router.post("/{order_id}/extend-quote", response_model=OrderDetailOut)
+def extend_quote(
+    order_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    """Gỡ blocker 'báo giá hết hạn' ở cổng chốt: gia hạn báo giá nguồn +30 ngày ngay từ đơn.
+    Không broadcast — badge notify-summary không phụ thuộc hạn báo giá; actor nhận detail mới
+    (blocker biến mất) ngay trong response."""
+    try:
+        return svc.extend_source_quote(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)
+
+
+# --- Duyệt đơn đặc thù (P3) — luật trình-duyệt --------------------------------
+@router.post("/{order_id}/submit", response_model=OrderDetailOut)
+def submit_for_approval(
+    order_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        d = svc.submit_for_approval(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)
+    _order_changed(d.order_no)   # trình duyệt → TP/GĐ thấy 'chờ duyệt'
+    return d
+
+
+@router.post("/{order_id}/approve", response_model=OrderDetailOut)
+def approve_order(
+    order_id: int,
+    payload: ApprovalActionIn,
+    user: Annotated[User, Depends(require_permission(MODULE, "approve_exception"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        d = svc.approve(order_id=order_id, actor=user, scope=_scope_for(authz, user), note=payload.note)
+    except Exception as exc:
+        raise _map(exc)
+    if d.sale_user_id:   # báo NGƯỜI SOẠN kết quả duyệt NGAY (toast)
+        hub.publish(d.sale_user_id, {"type": "order_decision", "code": d.order_no, "decision": "approved"})
+    _order_changed(d.order_no)
+    return d
+
+
+@router.post("/{order_id}/reject", response_model=OrderDetailOut)
+def reject_order(
+    order_id: int,
+    payload: ApprovalActionIn,
+    user: Annotated[User, Depends(require_permission(MODULE, "approve_exception"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        d = svc.reject(order_id=order_id, actor=user, scope=_scope_for(authz, user), note=payload.note)
+    except Exception as exc:
+        raise _map(exc)
+    if d.sale_user_id:
+        hub.publish(d.sale_user_id, {"type": "order_decision", "code": d.order_no, "decision": "rejected"})
+    _order_changed(d.order_no)
+    return d
+
+
+# --- Cọc (V5) — Kế toán LẬP PHIẾU THU CỌC THẬT, quyền `record_deposit` --------
+@router.post("/{order_id}/deposit-receipts", response_model=OrderDetailOut)
+def add_deposit_receipt(
+    order_id: int,
+    payload: OrderDepositReceiptIn,
+    user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    """Kế toán bấm trên drawer đơn → tạo PaymentReceipt(nguồn đơn, received) gắn order_id. Cổng đủ
+    cọc = Σ phiếu thu received ≥ deposit_required."""
+    try:
+        d = svc.add_deposit_receipt(order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload)
+    except Exception as exc:
+        raise _map(exc)
+    if d.deposit_ok and d.sale_user_id:   # Kế toán thu ĐỦ cọc → báo Sale 'chốt được rồi' (Việc 3)
+        hub.publish(d.sale_user_id, {"type": "order_deposit_ok", "code": d.order_no})
+    _order_changed(d.order_no)
+    return d
+
+
+# --- Đính kèm chứng cứ khách đồng ý (`update`) — minh chứng đã thu cọc nằm ở màn Phiếu thu Kế toán ---
+@router.post("/{order_id}/attachments", response_model=OrderDetailOut)
+async def upload_consent(
+    order_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    svc: Service,
+    authz: Authz,
+    file: UploadFile = File(...),
+) -> OrderDetailOut:
+    data = await file.read()
+    try:
+        return svc.add_consent_attachment(order_id=order_id, actor=user, scope=_scope_for(authz, user),
+            file_name=file.filename, content_type=file.content_type, data=data)
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.delete("/{order_id}/attachments/{attachment_id}", response_model=OrderDetailOut)
+def delete_consent(
+    order_id: int,
+    attachment_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        return svc.delete_consent_attachment(order_id=order_id, attachment_id=attachment_id,
+            actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)

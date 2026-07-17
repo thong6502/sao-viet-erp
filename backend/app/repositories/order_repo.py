@@ -75,12 +75,50 @@ class OrderRepository:
             return owner.department_id in dept_subtree_ids(self.db, actor.department_id)
         raise ValueError(f"Unknown scope: {scope!r}")
 
+    def drafts_in_scope(self, *, scope: str, actor) -> list[Order]:
+        """Đơn còn NHÁP trong phạm vi — nuôi badge 'việc chờ TÔI' (tập nháp nhỏ, bounded)."""
+        stmt = select(Order).where(Order.status == "draft")
+        cond = self._scope_condition(scope=scope, actor=actor)
+        if cond is not None:
+            stmt = stmt.where(cond)
+        return list(self.db.execute(stmt).scalars().all())
+
     def line_total_sum(self, order_id: int) -> int | None:
         """Tổng dự kiến = Σ line_total (None if no priced line)."""
         val = self.db.execute(
             select(func.sum(OrderLine.line_total)).where(OrderLine.order_id == order_id)
         ).scalar()
         return int(val) if val is not None else None
+
+    def unpriced_line_count(self, order_id: int) -> int:
+        """Số dòng đơn CHƯA có giá (line_total IS NULL) — chặn chốt khi còn dòng chưa định giá
+        (nếu không, tổng cọc yêu cầu bị thiếu vì Σ bỏ qua dòng null)."""
+        val = self.db.execute(
+            select(func.count())
+            .select_from(OrderLine)
+            .where(OrderLine.order_id == order_id, OrderLine.line_total.is_(None))
+        ).scalar()
+        return int(val or 0)
+
+    def order_cost_sum(self, order_id: int) -> int | None:
+        """Tổng giá vốn snapshot của đơn = Σ OrderLine.cost_snapshot (A2, soi biên). None nếu
+        MỌI dòng đều thiếu giá vốn (đơn cũ trước A2 / báo giá không có cost) → không soi được biên.
+        Dòng có cost + dòng None lẫn lộn: func.sum bỏ qua None → trả tổng phần có (chấp nhận được;
+        đơn A2 thật thì mọi dòng đều có cost)."""
+        val = self.db.execute(
+            select(func.sum(OrderLine.cost_snapshot)).where(OrderLine.order_id == order_id)
+        ).scalar()
+        return int(val) if val is not None else None
+
+    def total_with_vat(self, order_id: int) -> int:
+        """Tổng đơn GỒM VAT ước = Σ line_total·(1 + vat_pct_estimate/100) — base tính cọc (cọc là
+        tiền mặt thật khách đưa, gồm VAT). Dòng chưa định giá (line_total NULL) bỏ qua như
+        line_total_sum. Số nguyên (floor) — đủ cho ngưỡng cọc."""
+        val = self.db.execute(
+            select(func.sum(OrderLine.line_total * (100 + OrderLine.vat_pct_estimate)))
+            .where(OrderLine.order_id == order_id)
+        ).scalar()
+        return int(val) // 100 if val is not None else 0
 
     def list(
         self,
@@ -90,6 +128,7 @@ class OrderRepository:
         q: str | None = None,
         status: str | None = None,
         order_kind: str | None = None,
+        approval_state: str | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
@@ -118,6 +157,8 @@ class OrderRepository:
             conditions.append(Order.status == status)
         if order_kind:
             conditions.append(Order.order_kind == order_kind)
+        if approval_state:
+            conditions.append(Order.approval_state == approval_state)
 
         for c in conditions:
             base = base.where(c)
@@ -174,36 +215,11 @@ class OrderRepository:
                     continue
         return f"DH{max_n + 1:03d}"
 
-    def create(
-        self,
-        *,
-        customer_id: int | None,
-        quotation_id: int | None,
-        quotation_version: int | None,
-        quotation_effective_from: date | None,
-        order_type: str,
-        order_kind: str,
-        parent_order_id: int | None,
-        sale_user_id: int | None,
-        status: str,
-        has_customer_paper: bool,
-        vat_pct_estimate: int,
-        lines: list[dict],
-    ) -> Order:
-        order = Order(
-            order_no=self._next_order_no(),
-            customer_id=customer_id,
-            quotation_id=quotation_id,
-            quotation_version=quotation_version,
-            quotation_effective_from=quotation_effective_from,
-            order_type=order_type,
-            order_kind=order_kind,
-            parent_order_id=parent_order_id,
-            sale_user_id=sale_user_id,
-            status=status,
-            has_customer_paper=has_customer_paper,
-            vat_pct_estimate=vat_pct_estimate,
-        )
+    def create(self, *, lines: list[dict], **order_fields) -> Order:
+        """Tạo đơn + dòng. `order_fields` = giá trị các cột `orders` do OrderService chuẩn bị
+        (source_type/customer_id/quotation_*/deposit_pct/cost_basis/needs_approval/... — service
+        kiểm hợp lệ). `order_no` tự sinh (DH###). Mỗi phần tử `lines` là dict cột `order_lines`."""
+        order = Order(order_no=self._next_order_no(), **order_fields)
         for ln in lines:
             order.lines.append(
                 OrderLine(
@@ -213,12 +229,47 @@ class OrderRepository:
                     norm_snapshot=ln.get("norm_snapshot"),
                     vat_pct_estimate=ln.get("vat_pct_estimate", 0),
                     line_total=ln.get("line_total"),
+                    cost_snapshot=ln.get("cost_snapshot"),  # giá vốn dòng (soi biên)
                 )
             )
         self.db.add(order)
         self.db.commit()
         self.db.refresh(order)
         return order
+
+    def stats(self, *, scope: str, actor) -> dict[str, int]:
+        """Đếm đơn theo trạng thái (cho thanh tab), tôn trọng data-scope."""
+        from ..models.order import STATUS_CANCELLED, STATUS_DRAFT, STATUS_ORDERED
+
+        base = self._scope_condition(scope=scope, actor=actor)
+
+        def cnt(*extra) -> int:
+            stmt = select(func.count()).select_from(Order)
+            if base is not None:
+                stmt = stmt.where(base)
+            for c in extra:
+                stmt = stmt.where(c)
+            return int(self.db.execute(stmt).scalar_one())
+
+        return {
+            "all": cnt(),
+            "draft": cnt(Order.status == STATUS_DRAFT),
+            "ordered": cnt(Order.status == STATUS_ORDERED),
+            "cancelled": cnt(Order.status == STATUS_CANCELLED),
+            "pending_approval": cnt(Order.status == STATUS_DRAFT, Order.approval_state == "pending"),
+        }
+
+    # V5: Σ cọc đã thu chuyển sang AccountingRepository.received_deposit_sum (cọc = PaymentReceipt).
+
+    def active_order_for_quotation(self, quotation_id: int) -> Order | None:
+        """Đơn CHƯA hủy đang tham chiếu báo giá này (guard 1 báo giá → 1 đơn)."""
+        from ..models.order import STATUS_CANCELLED
+
+        return self.db.execute(
+            select(Order)
+            .where(Order.quotation_id == quotation_id, Order.status != STATUS_CANCELLED)
+            .limit(1)
+        ).scalar_one_or_none()
 
     def update(self, order: Order, **fields) -> Order:
         for key, value in fields.items():

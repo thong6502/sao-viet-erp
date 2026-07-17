@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from ..db import get_db
-from ..deps import require_permission
+from ..deps import require_any_permission, require_permission
 from ..models.user import User
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.vat_lieu_kho import (
@@ -47,7 +47,9 @@ def _make_crud(kind: str, InModel, RowModel, path: str):
     # rồi đăng ký route THỦ CÔNG sau khi gán (decorator chạy lúc def nên không kịp).
     def _list(
         svc: Service,
-        _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+        # Danh mục THAM CHIẾU (giấy/mực/bản): đọc được nếu có quyền Kho HOẶC quyền Tính giá
+        # (màn Tính giá cần đổ dropdown Giấy mà không phải mở module Kho hàng).
+        _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
         q: str | None = Query(default=None),
         active: bool | None = Query(default=None),
         page: int = Query(default=1, ge=1),

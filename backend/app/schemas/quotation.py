@@ -16,6 +16,7 @@ class QuoteItemUpdate(BaseModel):
     vat_percent: float = Field(default=10.0)
     rounding: str = Field(default="no_rounding")
     note: str | None = None
+    po_code: str | None = None
 
 
 # --- create / update ----------------------------------------------------------
@@ -28,10 +29,12 @@ class QuotePick(BaseModel):
 
 class QuotationCreate(BaseModel):
     customer_id: int | None = None
-    # Đường cũ (1 phiếu): estimate_id + selected_option_ids — giữ tương thích.
+    # BG-1 (nguồn MỚI): 1 Phiếu tính giá (PTG) → 1 báo giá. Ưu tiên nếu có.
+    phieu_tinh_gia_id: int | None = None
+    # Đường cũ (1 phiếu): estimate_id + selected_option_ids — giữ tương thích (gỡ ở BG-4).
     estimate_id: int | None = None
     selected_option_ids: list[int] | None = None
-    # Đường mới (đa phiếu): mỗi pick = 1 phiếu tính giá + option đã tick. Ưu tiên nếu có.
+    # Đường cũ (đa phiếu): mỗi pick = 1 phiếu tính giá + option đã tick.
     picks: list[QuotePick] | None = None
     margin_percent: float | None = None  # gói biên áp chung khi tạo (per dòng chỉnh sau)
     valid_until: date | None = None
@@ -46,6 +49,7 @@ class QuotationUpdate(BaseModel):
     customer_id: int | None = None
     valid_until: date | None = None
     payment_terms: str | None = None
+    deposit_pct: float | None = None      # % tạm ứng/cọc khi chốt đơn (0–100)
     delivery_terms: str | None = None
     delivery_address: str | None = None
     customer_note: str | None = None
@@ -56,6 +60,11 @@ class QuotationUpdate(BaseModel):
 class TransitionRequest(BaseModel):
     to_status: str = Field(min_length=1, max_length=20)
     cancel_reason: str | None = Field(default=None, max_length=500)
+
+
+class RequoteRequest(BaseModel):
+    """Tạo phiên bản mới — BẮT BUỘC ghi chú/lý do (in vào Hoạt động + Lịch sử phiên bản)."""
+    change_reason: str = Field(min_length=1, max_length=255)
 
 
 # --- outputs ------------------------------------------------------------------
@@ -97,6 +106,8 @@ class QuotationStatsOut(BaseModel):
     """Số đếm cho thanh tab list Báo giá."""
     total: int
     draft: int
+    pending_approval: int = 0   # đang "Chờ duyệt" (đặc thù đã Trình duyệt)
+    approved: int = 0           # "Đã duyệt" — GĐ duyệt xong, chờ sale gửi khách
     sent: int
     accepted: int
     rejected: int
@@ -121,6 +132,7 @@ class QuoteItemOut(BaseModel):
     estimate_number: str | None = None   # mã phiếu tính giá gốc của dòng (↳ link)
     estimate_option_id: int | None
     line_no: int
+    po_code: str | None = None
     product_type: str
     product_name: str
     product_spec_text: str | None
@@ -146,12 +158,18 @@ class QuotationDetailOut(BaseModel):
     customer_id: int | None
     customer: CustomerDisplayOut | None = None
     estimate_id: int | None
+    phieu_tinh_gia_id: int | None = None
+    phieu_tinh_gia_ma: str | None = None
     valid_until: date | None
     status: str
     cancel_reason: str | None
     payment_terms: str | None
+    deposit_pct: float | None = None      # % tạm ứng/cọc (nhập ở màn Báo giá)
     delivery_terms: str | None
     delivery_address: str | None
+    contact_name_snapshot: str | None = None
+    contact_phone_snapshot: str | None = None
+    contact_title_snapshot: str | None = None
     customer_note: str | None
     internal_note: str | None
     
@@ -166,6 +184,61 @@ class QuotationDetailOut(BaseModel):
     items: list[QuoteItemOut] = Field(default_factory=list)
     allowed_transitions: list[str] = Field(default_factory=list)
     can_approve: bool = False
+    # BG-2 — báo giá đặc thù (GĐ duyệt trước khi gửi khách). `exceptions` = nhãn định tính (an toàn);
+    # `margin_pct` nhạy cảm (router STRIP nếu người xem không có quyền duyệt đặc thù).
+    exception_required: bool = False
+    exception_status: str = "none"        # none|pending|approved|rejected|stale
+    exception_cleared: bool = True
+    exceptions: list[dict] = Field(default_factory=list)   # [{key,label}]
+    exception_note: str | None = None
+    margin_pct: int | None = None
+    # Ai SOẠN (để người duyệt biết báo giá của NV nào) + ai ĐÃ DUYỆT/từ chối (để NV biết ai xử lý).
+    salesperson_id: int | None = None
+    salesperson_name: str | None = None
+    exception_decision: str | None = None            # approved | rejected của lần quyết định gần nhất
+    exception_decided_by_name: str | None = None     # tên người đã duyệt/từ chối
+    exception_decided_at: datetime | None = None
+
+
+class QuoteApprovalIn(BaseModel):
+    """GĐ duyệt / từ chối báo giá đặc thù. `note` = lý do (khuyến nghị khi từ chối)."""
+
+    decision: str = Field(min_length=1, max_length=16)   # approved | rejected
+    note: str | None = Field(default=None, max_length=1000)
+
+
+class QuoteApprovalOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    quote_id: int
+    decision: str
+    triggers_json: list[str] | None = None
+    total: int
+    subtotal: int
+    cost: int | None = None
+    margin_pct_snapshot: int | None = None
+    min_margin_pct: int | None = None
+    high_value_threshold: int | None = None
+    note: str | None = None
+    decided_by: int | None = None
+    decided_at: datetime
+
+
+class QuoteApprovalListOut(BaseModel):
+    items: list[QuoteApprovalOut]
+
+
+class QuoteActivityItem(BaseModel):
+    """1 dòng nhật ký tương tác (feed Hoạt động) — ai làm gì, khi nào."""
+    action: str
+    actor_name: str | None = None
+    detail: str
+    at: datetime
+
+
+class QuoteActivityOut(BaseModel):
+    items: list[QuoteActivityItem]
 
 
 class EnumOption(BaseModel):

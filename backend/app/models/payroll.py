@@ -44,7 +44,8 @@ ADVANCE_STATUSES = (ADV_PENDING, ADV_APPROVED, ADV_REJECTED, ADV_CANCELLED)
 # --- Trạng thái kỳ lương ----------------------------------------------------
 PERIOD_DRAFT = "draft"    # đang soạn, sửa được
 PERIOD_LOCKED = "locked"  # đã chốt, khóa số
-PERIOD_STATUSES = (PERIOD_DRAFT, PERIOD_LOCKED)
+PERIOD_PAID = "paid"      # đã chi trả (khóa cứng; hủy chi → về locked)
+PERIOD_STATUSES = (PERIOD_DRAFT, PERIOD_LOCKED, PERIOD_PAID)
 
 _MONEY = Numeric(14, 2)
 
@@ -63,19 +64,36 @@ class PayrollParams(Base):
     standard_cong_default: Mapped[float] = mapped_column(
         Numeric(6, 2), nullable=False, default=26, server_default="26"
     )
-    # Thử việc hưởng % của lương chính thức.
+    # Thử việc hưởng % của lương chính thức (Đ26 BLLĐ: ít nhất 85%).
     probation_ratio: Mapped[float] = mapped_column(
-        Numeric(5, 4), nullable=False, default=0.8, server_default="0.8"
+        Numeric(5, 4), nullable=False, default=0.85, server_default="0.85"
     )
     # Tỷ lệ NV đóng: BHXH 8% + BHYT 1.5% + BHTN 1% = 10.5%.
     bhxh_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.08, server_default="0.08")
     bhyt_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.015, server_default="0.015")
     bhtn_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.01, server_default="0.01")
-    # Giảm trừ gia cảnh TNCN (để sẵn cho Phase TNCN auto).
-    deduction_self: Mapped[float] = mapped_column(_MONEY, nullable=False, default=11_000_000, server_default="11000000")
-    deduction_dependent: Mapped[float] = mapped_column(_MONEY, nullable=False, default=4_400_000, server_default="4400000")
+    # Giảm trừ gia cảnh TNCN — mức 2026 (NQ 110/2025/UBTVQH15, từ kỳ tính thuế 2026).
+    deduction_self: Mapped[float] = mapped_column(_MONEY, nullable=False, default=15_500_000, server_default="15500000")
+    deduction_dependent: Mapped[float] = mapped_column(_MONEY, nullable=False, default=6_200_000, server_default="6200000")
     # Mức chuyên cần mặc định (thưởng đủ công).
     chuyen_can_default: Mapped[float] = mapped_column(_MONEY, nullable=False, default=300_000, server_default="300000")
+    # --- Pha 4a: tăng ca (OT) + phụ cấp ca đêm ---
+    # Giờ công chuẩn/ngày để quy đơn giá giờ khi tính OT.
+    standard_hours_per_day: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=8, server_default="8")
+    # Hệ số OT theo LOẠI NGÀY (Đ98): ngày thường ≥1.5 · ngày nghỉ tuần ≥2.0 · ngày lễ ≥3.0.
+    ot_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=1.5, server_default="1.5")
+    ot_multiplier_restday: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=2.0, server_default="2")
+    ot_multiplier_holiday: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=3.0, server_default="3")
+    # Làm NGUYÊN CÔNG ngày nghỉ tuần / ngày lễ (Đ98 kh.1): CN ≥200% · lễ ≥300% (gồm cả lương công).
+    restday_work_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=2.0, server_default="2")
+    holiday_work_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=3.0, server_default="3")
+    # Phụ cấp ca đêm: % đơn giá 1 công cho mỗi ngày làm ca đêm (Đ98 kh.2: ≥30%).
+    night_pct: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False, default=0.30, server_default="0.3")
+    # --- Pha 4a: trần đóng BHXH (mức tham chiếu × 20; đổi hằng năm → sửa ở tham số) ---
+    # Trần BHXH+BHYT = 20× mức tham chiếu (2.53tr từ 1/7/2026 → 50.6tr). 0 = không áp trần.
+    bh_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=50_600_000, server_default="50600000")
+    # Trần BHTN = 20× lương tối thiểu vùng (vùng I 5.31tr từ 1/1/2026 → 106.2tr). 0 = không áp trần.
+    bhtn_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=106_200_000, server_default="106200000")
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -161,6 +179,8 @@ class PayrollPeriod(Base):
     standard_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=26, server_default="26")
     locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     locked_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)   # Pha 4c: đã chi
+    paid_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
@@ -187,13 +207,32 @@ class PayrollLine(Base):
     chuyen_can: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     allowance: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     khoan: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # lương khoán (nhịp 2)
+    ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút tăng ca (Pha 4a)
+    ot_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # tiền tăng ca (Pha 4a)
+    night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày ca đêm (Pha 4a)
+    night_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")       # phụ cấp ca đêm (Pha 4a)
     vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay
     other_bonus: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # tay (thưởng/hoa hồng)
     gross: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     insurance_base: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     bhxh: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
-    pit: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")            # tay
+    pit: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")            # thuế TNCN (tự tính, có thể ghi đè tay)
+    pit_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")  # HCNS ghi đè TNCN tay (Pha 4b)
+    pit_taxable: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # thu nhập tính thuế đã dùng (Pha 4b)
     advance_total: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     net_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
+class PitTaxBracket(Base):
+    """Bậc thuế TNCN lũy tiến từng phần (biểu THÁNG) — dữ liệu SỬA ĐƯỢC để cập nhật khi luật đổi.
+    Seed 2026 = 5 bậc (Luật 109/2025/QH15). `up_to` = trần thu nhập TÍNH THUẾ/tháng của bậc;
+    NULL = bậc cao nhất (∞). Bảng do create_all tạo (không migration), seed-once."""
+
+    __tablename__ = "pit_tax_brackets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)                 # thứ tự bậc (1..N)
+    up_to: Mapped[float | None] = mapped_column(_MONEY, nullable=True)        # trần bậc; NULL = ∞
+    rate: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)        # thuế suất (0.05 = 5%)

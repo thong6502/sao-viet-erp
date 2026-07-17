@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..deps import (
     CurrentUser,
@@ -32,6 +32,10 @@ from ..schemas.payroll import (
     ParamsIn,
     ParamsOut,
     PayslipOut,
+    PeriodPayIn,
+    PitBracketIn,
+    PitBracketOut,
+    PitBracketsOut,
     PeriodOut,
     PeriodsOut,
     RuleIn,
@@ -43,21 +47,7 @@ from ..schemas.payroll import (
     SalaryPreviewOut,
     TableOut,
 )
-from ..schemas.piece_work import (
-    BatchConfigIn,
-    BatchesOut,
-    BatchOut,
-    EntryIn,
-    EntryOut,
-    EntryUpdateIn,
-    RateIn,
-    RateOut,
-    RatesOut,
-    ShareIn,
-    ShareOut,
-    SheetMeta,
-    SheetOut,
-)
+from ..schemas.piece_work import RateIn, RateOut, RatesOut
 from ..services.payroll_service import (
     PayrollError,
     PayrollLocked,
@@ -90,31 +80,6 @@ def _raise(exc: Exception) -> None:
     if isinstance(exc, (PayrollValidationError, PieceWorkValidationError)):
         raise HTTPException(status_code=400, detail=str(exc))
     raise exc
-
-
-def _sheet_out(sheet: dict, employees: EmployeeRepository) -> SheetOut:
-    b = sheet["batch"]
-    if b is None:
-        return SheetOut()
-    names = {}
-    for s in sheet["shares"]:
-        emp = employees.get_by_id(s.employee_id)
-        names[s.employee_id] = emp.full_name if emp is not None else None
-    shares = []
-    for s in sheet["shares"]:
-        o = ShareOut.model_validate(s)
-        o.employee_name = names.get(s.employee_id)
-        shares.append(o)
-    return SheetOut(
-        batch=BatchOut.model_validate(b),
-        entries=[EntryOut.model_validate(e) for e in sheet["entries"]],
-        shares=shares,
-        meta=SheetMeta(**sheet["meta"]) if sheet["meta"] else None,
-    )
-
-
-def _sheet_for_batch(svc: PieceWorkService, employees: EmployeeRepository, batch) -> SheetOut:
-    return _sheet_out(svc.get_sheet(year=batch.year, month=batch.month, group_name=batch.group_name), employees)
 
 
 def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepository) -> list[LineOut]:
@@ -197,6 +162,43 @@ def delete_rule(rule_id: int, svc: Service,
                 user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
     try:
         svc.delete_rule(rule_id)
+    except PayrollError as exc:
+        _raise(exc)
+
+
+# --- biểu thuế TNCN (sửa được) ----------------------------------------------
+
+
+@router.get("/pit-brackets", response_model=PitBracketsOut)
+def list_pit_brackets(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> PitBracketsOut:
+    return PitBracketsOut(items=[PitBracketOut.model_validate(b) for b in svc.get_pit_brackets()])
+
+
+@router.post("/pit-brackets", response_model=PitBracketOut, status_code=status.HTTP_201_CREATED)
+def create_pit_bracket(body: PitBracketIn, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PitBracketOut:
+    try:
+        b = svc.create_pit_bracket(seq=body.seq, up_to=body.up_to, rate=body.rate)
+    except PayrollError as exc:
+        _raise(exc)
+    return PitBracketOut.model_validate(b)
+
+
+@router.put("/pit-brackets/{bracket_id}", response_model=PitBracketOut)
+def update_pit_bracket(bracket_id: int, body: PitBracketIn, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PitBracketOut:
+    try:
+        b = svc.update_pit_bracket(bracket_id, seq=body.seq, up_to=body.up_to, rate=body.rate)
+    except PayrollError as exc:
+        _raise(exc)
+    return PitBracketOut.model_validate(b)
+
+
+@router.delete("/pit-brackets/{bracket_id}", status_code=204)
+def delete_pit_bracket(bracket_id: int, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    try:
+        svc.delete_pit_bracket(bracket_id)
     except PayrollError as exc:
         _raise(exc)
 
@@ -339,7 +341,7 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LineOut:
     try:
         ln = svc.update_line(line_id=line_id, actor=user, vi_pham=body.vi_pham,
-                             other_bonus=body.other_bonus, pit=body.pit,
+                             other_bonus=body.other_bonus, pit=body.pit, pit_manual=body.pit_manual,
                              monthly_override=body.monthly_override, note=body.note)
     except PayrollError as exc:
         _raise(exc)
@@ -364,6 +366,97 @@ def reopen_period(body: GenerateIn, svc: Service,
     except PayrollError as exc:
         _raise(exc)
     return PeriodOut.model_validate(p)
+
+
+@router.post("/pay", response_model=PeriodOut)
+def pay_period(body: PeriodPayIn, svc: Service,
+               user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+    try:
+        p = svc.pay_period(year=body.year, month=body.month, actor=user, note=body.note)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
+@router.post("/unpay", response_model=PeriodOut)
+def unpay_period(body: PeriodPayIn, svc: Service,
+                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> PeriodOut:
+    try:
+        p = svc.unpay_period(year=body.year, month=body.month, actor=user, note=body.note)
+    except PayrollError as exc:
+        _raise(exc)
+    return PeriodOut.model_validate(p)
+
+
+# --- xuất file .xlsx (bảng lương + chuyển khoản) ----------------------------
+
+_XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+def _xlsx_response(content: bytes, filename: str) -> Response:
+    return Response(content=content, media_type=_XLSX_MEDIA,
+                    headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+def _build_table_xlsx(year: int, month: int, lines) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook  # lazy import: thiếu dep chỉ hỏng endpoint này, không sập app
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"Luong {month:02d}-{year}"
+    ws.append(["Mã", "Họ tên", "Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
+               "Khoán", "Tăng ca", "Ca đêm", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
+               "Tạm ứng", "Thực lĩnh"])
+    for l in lines:
+        ws.append([l.employee_code or "", l.employee_name or "", l.payroll_group or "",
+                   "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
+                   int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
+                   int(l.ot_pay), int(l.night_pay), int(l.vi_pham), int(l.other_bonus),
+                   int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _build_bank_xlsx(year: int, month: int, lines) -> bytes:
+    from io import BytesIO
+
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Chuyen khoan"
+    ws.append(["Mã", "Họ tên", "Số tài khoản", "Ngân hàng", "Số tiền", "Nội dung"])
+    for l in lines:
+        if int(l.net_pay) <= 0:
+            continue   # NV net ≤ 0 (tạm ứng vượt lương) → không đưa vào file chuyển khoản
+        ws.append([l.employee_code or "", l.employee_name or "", l.bank_account or "",
+                   l.bank_name or "", int(l.net_pay), f"Luong T{month:02d}/{year} - {l.employee_code or ''}"])
+    buf = BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+@router.get("/export.xlsx")
+def export_table_xlsx(svc: Service, employees: Employees, departments: Departments,
+                      user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                      year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
+    data = svc.get_table(year=year, month=month)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
+    lines = _lines_out(data["lines"], employees, departments)
+    return _xlsx_response(_build_table_xlsx(year, month, lines), f"bang-luong-{year}-{month:02d}.xlsx")
+
+
+@router.get("/bank.xlsx")
+def export_bank_xlsx(svc: Service, employees: Employees, departments: Departments,
+                     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                     year: int = Query(...), month: int = Query(ge=1, le=12)) -> Response:
+    data = svc.get_table(year=year, month=month)
+    if data is None:
+        raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
+    lines = _lines_out(data["lines"], employees, departments)
+    return _xlsx_response(_build_bank_xlsx(year, month, lines), f"chuyen-khoan-{year}-{month:02d}.xlsx")
 
 
 # --- self-service -----------------------------------------------------------
@@ -413,95 +506,3 @@ def delete_rate(rate_id: int, svc: PieceService,
         svc.delete_rate(rate_id)
     except PieceWorkError as exc:
         _raise(exc)
-
-
-@router.get("/khoan/batches", response_model=BatchesOut)
-def list_batches(svc: PieceService, user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-                 year: int = Query(...), month: int = Query(...)) -> BatchesOut:
-    return BatchesOut(items=[BatchOut.model_validate(b) for b in svc.list_batches(year, month)])
-
-
-@router.get("/khoan/sheet", response_model=SheetOut)
-def get_sheet(svc: PieceService, employees: Employees,
-              user: Annotated[User, Depends(require_permission(MODULE, "read"))],
-              year: int = Query(...), month: int = Query(...), group_name: str = Query(...)) -> SheetOut:
-    return _sheet_out(svc.get_sheet(year=year, month=month, group_name=group_name), employees)
-
-
-@router.post("/khoan/sheet", response_model=SheetOut)
-def open_sheet(svc: PieceService, employees: Employees,
-               user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-               year: int = Query(...), month: int = Query(...), group_name: str = Query(...)) -> SheetOut:
-    try:
-        batch = svc.get_or_create_batch(year=year, month=month, group_name=group_name)
-    except PieceWorkError as exc:
-        _raise(exc)
-    return _sheet_for_batch(svc, employees, batch)
-
-
-@router.put("/khoan/batches/{batch_id}/config", response_model=SheetOut)
-def update_batch_config(batch_id: int, body: BatchConfigIn, svc: PieceService, employees: Employees,
-                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
-    try:
-        batch = svc.update_batch(batch_id, **body.model_dump(exclude_none=True))
-    except PieceWorkError as exc:
-        _raise(exc)
-    return _sheet_for_batch(svc, employees, batch)
-
-
-@router.post("/khoan/batches/{batch_id}/entries", response_model=SheetOut)
-def add_entry(batch_id: int, body: EntryIn, svc: PieceService, employees: Employees,
-              user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
-    try:
-        e = svc.add_entry(batch_id=batch_id, **body.model_dump())
-    except PieceWorkError as exc:
-        _raise(exc)
-    return _sheet_for_batch(svc, employees, svc.piece.get_batch(e.batch_id))
-
-
-@router.put("/khoan/entries/{entry_id}", response_model=SheetOut)
-def update_entry(entry_id: int, body: EntryUpdateIn, svc: PieceService, employees: Employees,
-                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
-    try:
-        e = svc.update_entry(entry_id, **body.model_dump())
-    except PieceWorkError as exc:
-        _raise(exc)
-    return _sheet_for_batch(svc, employees, svc.piece.get_batch(e.batch_id))
-
-
-@router.delete("/khoan/entries/{entry_id}", response_model=SheetOut)
-def delete_entry(entry_id: int, svc: PieceService, employees: Employees,
-                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
-    e = svc.piece.get_entry(entry_id)
-    if e is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy dòng sản lượng.")
-    batch = svc.piece.get_batch(e.batch_id)
-    try:
-        svc.delete_entry(entry_id)
-    except PieceWorkError as exc:
-        _raise(exc)
-    return _sheet_for_batch(svc, employees, batch)
-
-
-@router.post("/khoan/batches/{batch_id}/shares", response_model=SheetOut)
-def set_share(batch_id: int, body: ShareIn, svc: PieceService, employees: Employees,
-              user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
-    try:
-        s = svc.set_share(batch_id=batch_id, employee_id=body.employee_id, weight=body.weight, note=body.note)
-    except PieceWorkError as exc:
-        _raise(exc)
-    return _sheet_for_batch(svc, employees, svc.piece.get_batch(s.batch_id))
-
-
-@router.delete("/khoan/shares/{share_id}", response_model=SheetOut)
-def delete_share(share_id: int, svc: PieceService, employees: Employees,
-                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> SheetOut:
-    s = svc.piece.get_share(share_id)
-    if s is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy phần chia.")
-    batch = svc.piece.get_batch(s.batch_id)
-    try:
-        svc.delete_share(share_id)
-    except PieceWorkError as exc:
-        _raise(exc)
-    return _sheet_for_batch(svc, employees, batch)

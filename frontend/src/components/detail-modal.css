@@ -1,0 +1,136 @@
+/* Popup xem chi tiết bản ghi — khuôn theo .acct-modal (accounting.css) + .cdlg
+   (confirm-dialog.css), nhưng là component dùng chung nên có CSS riêng.
+   z-index 400: trên nội dung trang, dưới ConfirmDialog (500). */
+.dmodal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(24, 23, 19, 0.48);
+  animation: dmodalFade var(--duration-base) var(--easing-standard);
+}
+
+@keyframes dmodalFade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.dmodal {
+  width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  box-shadow: var(--shadow-3);
+  animation: dmodalRise var(--duration-base) var(--easing-standard);
+}
+
+@keyframes dmodalRise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dmodal__head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--rule);
+}
+
+.dmodal__heading {
+  min-width: 0;
+}
+
+.dmodal__title {
+  margin: 2px 0 0;
+  font-size: 18px;
+  overflow-wrap: anywhere;
+}
+
+.dmodal__subtitle {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ash);
+}
+
+.dmodal__head-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex: none;
+}
+
+.dmodal__x {
+  width: 34px;
+  height: 34px;
+  /* Kéo × về sát góc thật để không đẩy cao đầu popup; badge nằm ngay dưới. */
+  margin: -6px -8px 0 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash);
+  font-size: 23px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dmodal__x:hover {
+  background: var(--rule-hair);
+  color: var(--ink);
+}
+
+/* Nội dung: các khối cũ của panel chi tiết (purchase__facts, acct-purpose,
+   acct-voucher-amount, acct-attachments…) chuyển thẳng vào đây. */
+.dmodal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-5);
+  overflow: auto;
+}
+
+.dmodal__foot {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  padding: var(--sp-4) var(--sp-5);
+  border-top: 1px solid var(--rule);
+}
+
+/* Điện thoại: full màn cho dễ đọc. */
+@media (max-width: 760px) {
+  .dmodal-overlay {
+    align-items: stretch;
+    padding: 0;
+  }
+
+  .dmodal {
+    width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+  }
+}

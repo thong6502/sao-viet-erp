@@ -18,23 +18,76 @@ def _f(v, d: float = 0.0) -> float:
 
 # --- §4.3 quy đổi số lượng hình học → basis_qty (dùng SL GROSS) ---
 def basis_qty(pricing_basis: str, ctx: dict) -> float:
-    """ctx: {so_to_in_gross, so_luot, dt_to_in_m2, so_mat, so_cuon, so_con}."""
+    """Quy đổi 1 đơn vị tính giá công đoạn → số lượng tính tiền, từ ctx job.
+
+    ctx: {
+      so_to_in_gross,        # số tờ in (gross, đã cộng bù hao)
+      so_mat,                # số mặt in (mặc định 1)
+      dt_to_in_cm2,          # diện tích 1 tờ in (cm²)
+      dt_thanh_pham_cm2,     # diện tích 1 thành phẩm (cm²)
+      so_luong_thanh_pham,   # SL thành phẩm (đơn đặt)
+      so_trang,              # số trang sách
+      so_cuon,               # số cuốn
+      so_vi_tri,             # số vị trí (ép kim/bế… mỗi thành phẩm)
+      so_bao, so_thung,      # số bao / số thùng theo quy cách đóng gói
+    }
+    """
     g = _f(ctx.get("so_to_in_gross"))
-    if pricing_basis == "per_sheet":
+    sl = _f(ctx.get("so_luong_thanh_pham"))
+    trang = _f(ctx.get("so_trang"))
+    cuon = _f(ctx.get("so_cuon"))
+    dt_to = _f(ctx.get("dt_to_in_cm2"))
+    if pricing_basis == "per_sheet":                    # Theo số tờ in
         return g
-    if pricing_basis == "per_ram":
-        return g / 500.0
-    if pricing_basis == "per_1000_luot":
-        return _f(ctx.get("so_luot")) / 1000.0
-    if pricing_basis == "per_m2":
-        return _f(ctx.get("dt_to_in_m2")) * g * _f(ctx.get("so_mat"), 1)
-    if pricing_basis == "per_pass":
-        return _f(ctx.get("so_luot"))
-    if pricing_basis == "per_book":
-        return _f(ctx.get("so_cuon"))
-    if pricing_basis == "per_number":
-        return _f(ctx.get("so_con"))
+    if pricing_basis == "per_finished_area":            # Theo diện tích thành phẩm (cm²)
+        return _f(ctx.get("dt_thanh_pham_cm2")) * sl
+    if pricing_basis == "per_finished_qty":             # Theo số lượng thành phẩm
+        return sl
+    if pricing_basis == "per_book_page":                # Theo số trang sách
+        return trang * cuon
+    if pricing_basis == "per_position":                 # Theo số vị trí
+        return _f(ctx.get("so_vi_tri")) * sl
+    if pricing_basis == "per_bag":                      # Theo bao
+        return _f(ctx.get("so_bao"))
+    if pricing_basis == "per_carton":                   # Theo thùng
+        return _f(ctx.get("so_thung"))
+    if pricing_basis == "per_area_sides":               # Theo diện tích (cm²) và số mặt
+        return dt_to * _f(ctx.get("so_mat"), 1) * g
+    if pricing_basis == "per_sheet_area":               # Theo diện tích tờ in (cm²)
+        return dt_to * g
+    if pricing_basis == "per_book_page_q4":             # Theo số trang sách chia 4
+        return (trang * cuon) / 4.0
+    if pricing_basis == "per_job":                      # Trọn gói một lần (cả đơn) — 1 lần cho đơn
+        return 1.0
+    if pricing_basis == "per_other":                    # Khác (nhập tay, giá phẳng)
+        return 1.0
     raise ValueError(f"pricing_basis không hợp lệ: {pricing_basis}")
+
+
+# --- Bậc đơn giá theo KÍCH THƯỚC (cạnh dài thành phẩm, cm) ---
+def pick_size_rate(size_tiers: list | None, size_cm: float) -> float:
+    """Chọn đơn giá theo cỡ. `size_tiers` = [{den_cm, don_gia}] nghĩa "≤ den_cm → don_gia".
+
+    Sắp xếp tăng theo `den_cm` (den_cm None/0 = bậc cuối "trên các mức"). Trả đơn giá của bậc ĐẦU
+    có `size_cm ≤ den_cm`; vượt hết → bậc cuối (đơn giá cao nhất). Rỗng → 0. size_cm ≤ 0 (chưa biết
+    cỡ) → bậc đầu (nhỏ nhất) làm sàn.
+    """
+    tiers = [t for t in (size_tiers or []) if isinstance(t, dict)]
+    if not tiers:
+        return 0.0
+
+    def cap(t) -> float:
+        v = _f(t.get("den_cm"))
+        return v if v > 0 else float("inf")
+
+    tiers = sorted(tiers, key=cap)
+    s = _f(size_cm)
+    if s <= 0:
+        return _f(tiers[0].get("don_gia"))
+    for t in tiers:
+        if s <= cap(t):
+            return _f(t.get("don_gia"))
+    return _f(tiers[-1].get("don_gia"))
 
 
 # --- §5.2 bậc thang rate_tiers ---
@@ -71,24 +124,37 @@ def compute_step_cost(cd: dict, ctx: dict, *, bhr: float | None = None,
     """cd = cấu hình công đoạn (che_do_tinh, pricing_basis, setup_*, run_rate, rate_tiers,
     first_unit_floor, min_charge). ctx = ngữ cảnh SL (§4.3) + toc_do/efficiency khi theo_gio."""
     che_do = cd.get("che_do_tinh", "theo_san_luong")
+    rate_used: float | None = None  # đơn giá đơn vị thực dùng (cho diễn giải phiếu)
+    basis_used: float | None = None  # số lượng tính tiền (cho diễn giải phiếu)
     if che_do == "theo_gio":
         if not bhr or _f(ctx.get("toc_do")) <= 0:
             raise ValueError("theo_gio cần BHR + tốc độ máy > 0. [E-CD-HOUR-MAY]")
         basis = basis_qty(cd["pricing_basis"], ctx) if cd.get("pricing_basis") else _f(ctx.get("so_to_in_gross"))
         gio = basis / (_f(ctx["toc_do"]) * _f(ctx.get("efficiency"), 1.0)) + _f(cd.get("setup_time")) / 60.0
         run_cost = bhr * gio
+        rate_used, basis_used = _f(bhr), round(gio, 4)
     else:
         if not cd.get("pricing_basis"):
             raise ValueError("theo_san_luong cần pricing_basis. [E-CD-BASIS]")
         b = basis_qty(cd["pricing_basis"], ctx)
-        run_cost = apply_tiers(cd.get("run_rate"), b, cd.get("rate_tiers"), cd.get("first_unit_floor"))
+        basis_used = b
+        size_tiers = cd.get("size_tiers")
+        if size_tiers:
+            # Bậc theo KÍCH THƯỚC: đơn giá chọn theo cạnh dài thành phẩm (ctx["size_cm"]), thay run_rate.
+            rate_used = pick_size_rate(size_tiers, _f(ctx.get("size_cm")))
+            run_cost = apply_tiers(rate_used, b, None, cd.get("first_unit_floor"))
+        else:
+            rate_used = _f(cd.get("run_rate"))
+            run_cost = apply_tiers(cd.get("run_rate"), b, cd.get("rate_tiers"), cd.get("first_unit_floor"))
 
     tooling_cost = 0.0 if reuse_tooling else _f(tooling_one_time)
     total = _f(cd.get("setup_cost")) + run_cost + tooling_cost
     if cd.get("min_charge") is not None:
         total = max(total, _f(cd["min_charge"]))
     return {"setup_cost": round(_f(cd.get("setup_cost")), 2), "run_cost": round(run_cost, 2),
-            "tooling_cost": round(tooling_cost, 2), "total": round(total, 2)}
+            "tooling_cost": round(tooling_cost, 2), "total": round(total, 2),
+            "rate_used": round(_f(rate_used), 4) if rate_used is not None else None,
+            "basis_qty": round(_f(basis_used), 3) if basis_used is not None else None}
 
 
 # --- §4.2 lan truyền hao NGƯỢC (bước cuối → đầu) ---

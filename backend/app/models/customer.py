@@ -25,6 +25,13 @@ STATUS_ACTIVE = "active"
 STATUS_INACTIVE = "inactive"
 CUSTOMER_STATUSES = (STATUS_LEAD, STATUS_ACTIVE, STATUS_INACTIVE)
 
+# Loại khách (redesign spec-06 v2) — quyết định có cần MST hay không.
+#   ca_nhan  — cá nhân / khách lẻ: KHÔNG bắt buộc MST (form ẩn ô MST).
+#   cong_ty  — doanh nghiệp: hiện MST (tùy chọn, cảnh báo trùng mềm).
+KIND_CA_NHAN = "ca_nhan"
+KIND_CONG_TY = "cong_ty"
+CUSTOMER_KINDS = (KIND_CA_NHAN, KIND_CONG_TY)
+
 # Kiểu mốc điều khoản thanh toán (khảo sát #12 — "mỗi khách một đặc thù, không cố định"):
 #   prepay        — trả trước X% khi đặt hàng
 #   net_delivery  — X ngày kể từ ngày nhận hàng
@@ -67,23 +74,41 @@ class Customer(Base):
     sale_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id"), index=True, nullable=True
     )
-    # lead = tiềm năng (chưa giao dịch), active = đang giao dịch, inactive = ngừng.
+    # DORMANT (redesign spec-06 v2): trạng thái lead/active/inactive đã BỎ khỏi UI + logic
+    # (không còn ô chọn / tab lọc). Cột giữ lại default 'active' để dữ liệu cũ không vỡ; đừng
+    # dùng cho nghiệp vụ mới.
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=STATUS_ACTIVE, server_default=STATUS_ACTIVE
     )
-    # --- Điều khoản thanh toán riêng theo KH (khảo sát #12) — DỮ LIỆU CHỜ: chỉ nhập +
-    # hiển thị; engine tính hạn nợ thuộc Công nợ (sẽ đọc cấu trúc này khi back-fill
-    # SEAM-16). type ∈ PAYMENT_TERM_TYPES; None = chưa khai điều khoản.
-    payment_term_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    # Loại KH (redesign spec-06 v2). Khách cũ mặc định 'cong_ty' (ERP in chủ yếu B2B); cá
+    # nhân sửa tay. Cá nhân → form ẩn MST; công ty → hiện MST (tùy chọn).
+    customer_kind: Mapped[str] = mapped_column(
+        String(12), nullable=False, default=KIND_CONG_TY, server_default=KIND_CONG_TY
+    )
+    # Số ngày công nợ TỐI ĐA — thời hạn khách phải thanh toán, tính từ NGÀY XUẤT HÓA ĐƠN
+    # (net terms; redesign spec-06 v2). Cặp với `credit_limit` thành chính sách "cho nợ":
+    # được nợ tối đa X đồng VÀ trong Y ngày. None = chưa đặt hạn ngày. Sửa cần quyền
+    # `set_credit_terms`. Đợt này chỉ LƯU + HIỂN THỊ; cảnh báo/chặn khi quá hạn là việc của
+    # Công nợ AR (SEAM để sau).
     payment_term_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # --- DORMANT (2026-07-15): kiểu điều khoản (dropdown prepay/net_eom/custom) + % trả trước
+    # + ghi chú tự do đã BỎ khỏi UI theo yêu cầu; giờ chỉ giữ SỐ NGÀY ở trên. Cột giữ lại
+    # (SQLite không drop gọn); đừng dùng.
+    payment_term_type: Mapped[str | None] = mapped_column(String(24), nullable=True)
     prepay_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     payment_term_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    # --- Chiết khấu mặc định theo KH (khảo sát #14). Chỉ là GIÁ TRỊ MẶC ĐỊNH điền sẵn
-    # ở tầng Báo giá (cho sửa từng báo giá) — KHÔNG nằm trong engine tính giá.
-    # `discount_buyer_pct` (CK cho người mua hàng của khách) là dữ liệu nhạy cảm — API
-    # ẩn cả hai trường sau quyền chi tiết `view_discount` (pattern view_debt/view_salary).
+    # DORMANT (redesign spec-06 v2): "chiết khấu mặc định" (trade/buyer) đã BỎ, thay bằng
+    # rào chiết khấu/biên min–max bên dưới. Cột giữ lại (SQLite không drop gọn); đừng dùng.
     discount_trade_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     discount_buyer_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # --- Chính sách CHIẾT KHẤU & BIÊN LỢI NHUẬN (rào chắn báo giá, redesign spec-06 v2).
+    # % ∈ [0,100], min ≤ max; None = chưa đặt rào. Sửa cần quyền `set_credit_terms` (đã mở
+    # rộng nghĩa = "chính sách tài chính"). Đợt này chỉ LƯU + HIỂN THỊ; việc CHẶN/cảnh báo
+    # khi lập báo giá là chỗ nối engine Báo giá (SEAM để lại).
+    discount_min_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    discount_max_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    margin_min_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    margin_max_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
@@ -236,6 +261,38 @@ class CustomerCareTask(Base):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
+class CustomerNote(Base):
+    """Ghi chú TỰ DO của team về một khách (tab "Ghi chú"). Khác hẳn:
+      - CustomerCareEvent (Chăm sóc): việc ĐÃ LÀM, có loại + timeline;
+      - AuditLog / mốc chứng từ (Nhật ký): sự kiện hệ thống.
+    Đây là LƯU Ý dùng chung ("khách khó tính · thích giao sáng · chốt qua Zalo nhanh nhất").
+    `pinned` đẩy ghi chú quan trọng lên đầu; `updated_at` chỉ set khi SỬA NỘI DUNG (None =
+    chưa sửa → FE hiện "đã sửa" khi != None; ghim/bỏ ghim KHÔNG tính là sửa). Xem cần quyền
+    `read`; thêm/sửa/xóa/ghim cần quyền `update` (không cần quyền tài chính). Bảng MỚI nên
+    create_all tự tạo — không cần migration cột. KHÔNG ghi audit (giữ tách khỏi Nhật ký)."""
+
+    __tablename__ = "customer_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("customers.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    body: Mapped[str] = mapped_column(String(4000), nullable=False)
+    pinned: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    created_by: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("users.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    # Chỉ set khi sửa NỘI DUNG (None = chưa sửa). Không dùng onupdate để ghim không bump.
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

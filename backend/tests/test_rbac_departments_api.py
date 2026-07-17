@@ -124,16 +124,16 @@ def test_set_head_must_belong_to_department(client):
     )
     assert bad.status_code == 400
 
-    # Create a user IN this department, then set them as head -> ok.
-    db = SessionLocal()
-    try:
-        user = UserRepository(db).create(
-            username="head", name="H", password_hash=hash_password("x")
-        )
-        UserRepository(db).set_assignment(user, department_id=dept_id, role_id=None, is_active=True)
-        uid = user.id
-    finally:
-        db.close()
+    # Create a person IN this department (hồ sơ + tài khoản), then set them as head -> ok.
+    emp = client.post(
+        "/api/employees",
+        json={
+            "full_name": "Người Đứng Đầu", "department_id": dept_id, "hire_date": "2024-01-15",
+            "account": {"username": "head", "password": "password123"},
+        },
+        headers=_h(token),
+    ).json()["employee"]
+    uid = emp["user_id"]
 
     ok = client.put(
         f"/api/departments/{dept_id}",
@@ -143,8 +143,10 @@ def test_set_head_must_belong_to_department(client):
     assert ok.status_code == 200
     assert ok.json()["head_user_id"] == uid
 
+    # Danh sách nhân sự của phòng liệt kê theo HỒ SƠ (Đ2) — một dòng = một hồ sơ.
     members = client.get(f"/api/departments/{dept_id}/users", headers=_h(token)).json()
-    assert any(m["id"] == uid for m in members)
+    me = next(m for m in members if m["employee_id"] == emp["id"])
+    assert me["user_id"] == uid and me["is_head"] is True
 
 
 def test_delete_department_blocked_by_personnel_then_ok(client):
@@ -190,20 +192,21 @@ def test_rolled_up_counts_and_member_detail(client):
         headers=_h(token),
     ).json()
 
-    # A role + a user placed in the CHILD; the user is the child's head.
+    # A role + a person (hồ sơ + tài khoản) placed in the CHILD; they head the child.
     role = client.post(
         "/api/roles",
         json={"name": "Tổ trưởng", "department_id": child["id"]},
         headers=_h(token),
     ).json()
-    db = SessionLocal()
-    try:
-        users = UserRepository(db)
-        u = users.create(username="khoia-1", name="Người A", password_hash=hash_password("x"))
-        users.set_assignment(u, department_id=child["id"], role_id=role["id"], is_active=True)
-        uid = u.id
-    finally:
-        db.close()
+    emp = client.post(
+        "/api/employees",
+        json={
+            "full_name": "Người A", "department_id": child["id"], "hire_date": "2024-01-15",
+            "account": {"username": "khoia-1", "password": "password123", "role_id": role["id"]},
+        },
+        headers=_h(token),
+    ).json()["employee"]
+    uid = emp["user_id"]
     client.put(
         f"/api/departments/{child['id']}",
         json={"name": child["name"], "head_user_id": uid},
@@ -220,13 +223,50 @@ def test_rolled_up_counts_and_member_detail(client):
     assert c["user_count"] == 1 and c["total_user_count"] == 1
 
     members = client.get(f"/api/departments/{child['id']}/users", headers=_h(token)).json()
-    me = next(m for m in members if m["id"] == uid)
+    me = next(m for m in members if m["employee_id"] == emp["id"])
     assert me["role_name"] == "Tổ trưởng"
     assert me["is_active"] is True
     assert me["is_head"] is True
+
+
+def test_members_list_includes_staff_without_account(client):
+    """Đ2: danh sách nhân sự của phòng liệt kê theo HỒ SƠ → công nhân chưa có tài khoản VẪN
+    hiện (bản cũ liệt kê theo tài khoản nên bỏ sót họ, khiến số 'Nhân sự' ở danh sách lệch
+    với số người thấy trong chi tiết)."""
+    token = _admin_token(client)
+    did = client.post("/api/departments", json={"name": "Tổ Không TK"}, headers=_h(token)).json()["id"]
+    emp = client.post(
+        "/api/employees",
+        json={"full_name": "Thợ Không TK", "department_id": did, "hire_date": "2024-01-01"},
+        headers=_h(token),
+    ).json()["employee"]
+
+    members = client.get(f"/api/departments/{did}/users", headers=_h(token)).json()
+    me = next(m for m in members if m["employee_id"] == emp["id"])
+    assert me["user_id"] is None and me["username"] is None  # chưa có tài khoản
+    assert me["name"] == "Thợ Không TK"
 
 
 def test_non_admin_forbidden(client):
     token = _sales_token()
     assert client.post("/api/departments", json={"name": "X"}, headers=_h(token)).status_code == 403
     assert client.get("/api/departments", headers=_h(token)).status_code == 403
+
+
+def test_employee_count_and_delete_blocked_by_employees(client):
+    """Đ2: 'số nhân sự' đếm theo HỒ SƠ (tách khỏi tài khoản); xóa phòng còn hồ sơ — kể cả khi
+    phòng KHÔNG có tài khoản nào — bị chặn (không để employees.department_id mồ côi)."""
+    token = _admin_token(client)
+    did = client.post("/api/departments", json={"name": "Tổ Test EC"}, headers=_h(token)).json()["id"]
+    # 1 hồ sơ nhân sự thuộc phòng, KHÔNG tạo tài khoản
+    r = client.post(
+        "/api/employees",
+        json={"full_name": "NV EC", "department_id": did, "hire_date": "2024-01-01"},
+        headers=_h(token),
+    )
+    assert r.status_code == 201
+    row = next(x for x in client.get("/api/departments", headers=_h(token)).json() if x["id"] == did)
+    assert row["employee_count"] == 1   # đếm theo hồ sơ
+    assert row["user_count"] == 0       # phòng không có tài khoản
+    # xóa phòng còn hồ sơ (dù 0 tài khoản) → chặn theo hồ-sơ ∪ tài-khoản
+    assert client.delete(f"/api/departments/{did}", headers=_h(token)).status_code >= 400

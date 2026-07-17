@@ -95,6 +95,14 @@
   border-radius: var(--r-3);
   background: var(--canvas);
   box-shadow: none;
+  transition: transform var(--duration-base) var(--easing-standard),
+              box-shadow var(--duration-base) var(--easing-standard),
+              border-color var(--duration-base) var(--easing-standard);
+}
+.kh__kpi.card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.04);
+  border-color: var(--rule);
 }
 .kh__kpi-label {
   font-family: var(--ff-mono);
@@ -133,6 +141,12 @@
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-5);
+  transition: border-color var(--duration-base) var(--easing-standard),
+              box-shadow var(--duration-base) var(--easing-standard);
+}
+.kh__toolbar:focus-within {
+  border-color: var(--rust-soft);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 12%, transparent);
 }
 .kh__search {
   flex: 1 1 260px;
@@ -191,11 +205,11 @@
 }
 /* Header prototype: nền paper (tối hơn card), mono 10px giãn 0.14em, vạch rule đậm hơn. */
 .kh__table thead th {
-  font-family: var(--ff-mono);
-  font-size: 10px;
-  font-weight: var(--fw-medium);
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.05em;
   color: var(--ash);
   text-align: left;
   padding: 10px var(--sp-4);
@@ -203,9 +217,11 @@
   border-bottom: 1px solid var(--rule);
   white-space: nowrap;
 }
+.kh__table thead th.kh__num {
+  text-align: right;
+}
 .kh__table tbody tr {
   transition: background var(--duration-fast) var(--easing-standard);
-  position: relative;
 }
 .kh__table tbody td {
   padding: 10px var(--sp-4);
@@ -218,14 +234,33 @@
 }
 .kh__row {
   cursor: pointer;
+  transition: background-color var(--duration-fast) var(--easing-standard);
 }
 .kh__row:hover,
 .kh__row:focus-visible {
-  background: var(--rule-hair);
+  background: color-mix(in srgb, var(--rust-soft) 22%, var(--canvas)) !important;
   outline: none;
 }
+.kh__row td {
+  position: relative;
+}
+.kh__row td:first-child::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--rust);
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform var(--duration-fast) var(--easing-standard);
+}
+.kh__row:hover td:first-child::before {
+  transform: scaleY(1);
+}
 .kh__row.is-open {
-  background: var(--rust-soft);
+  background: var(--rust-soft) !important;
 }
 .kh__mono {
   font-family: var(--ff-mono);
@@ -1043,10 +1078,178 @@
 .kh__form-wide {
   grid-column: 1 / -1;
 }
+.kh__dialog .field__label,
+.kh__finpolicy-edit .field__label {
+  font-family: var(--ff-sans);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ash-deep, #5e5349);
+  margin-bottom: 5px;
+  display: block;
+}
+.kh__dialog .input,
+.kh__finpolicy-edit .input {
+  border-radius: var(--r-3);
+  border-color: var(--rule);
+  transition: border-color var(--duration-base) var(--easing-standard),
+              box-shadow var(--duration-base) var(--easing-standard);
+}
+.kh__dialog .input:focus-visible,
+.kh__finpolicy-edit .input:focus-visible {
+  outline: none !important;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--rust) 14%, transparent);
+}
+.kh__dialog .input[readonly],
+.kh__dialog .input:disabled,
+.kh__finpolicy-edit .input[readonly],
+.kh__finpolicy-edit .input:disabled {
+  background: var(--paper-contrast, var(--paper));
+  border-style: dashed;
+  border-color: var(--rule);
+  color: var(--ash-2);
+  cursor: not-allowed;
+  opacity: 0.8;
+}
 .kh__err {
   color: var(--signal);
   font-size: 12px;
   margin-top: 2px;
+}
+/* Điều khoản tín dụng khóa theo quyền `set_credit_terms` — chỉ-đọc rõ ràng (khác input
+   thường: nền ấm hơn + chữ mờ + không con trỏ nhập), tách khỏi cảm giác "disabled/forbidden". */
+.kh__field--locked .input {
+  background: var(--paper);
+  color: var(--ash);
+  cursor: default;
+}
+.kh__field--locked .input:focus-visible {
+  outline: none;
+  border-color: var(--rule);
+}
+.kh__lock-note {
+  grid-column: 1 / -1;
+  color: var(--ash-2);
+  font-size: 12px;
+  margin-top: -4px;
+}
+
+/* Segmented "Loại khách hàng" (Cá nhân / Công ty) — trạng thái active rõ ràng. */
+.kh__seg {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+}
+.kh__seg-btn {
+  flex: 1;
+  padding: 7px 16px;
+  border: 0;
+  border-radius: calc(var(--r-2) - 3px);
+  background: transparent;
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--easing-standard), color var(--duration-base) var(--easing-standard);
+}
+.kh__seg-btn:hover {
+  color: var(--ink);
+}
+.kh__seg-btn.is-active {
+  background: var(--canvas);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+/* Card "Chính sách tài chính" (Dashboard chi tiết) — xem read-only + sửa inline. */
+.kh__finpolicy .kh__chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+/* Nút Sửa trên nền SÁNG (card dashboard) — rõ ràng, khác kh__btn-tag (dành nền tối). */
+.kh__fin-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 12px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--easing-standard), border-color var(--duration-base) var(--easing-standard);
+}
+.kh__fin-edit-btn:hover {
+  background: var(--paper);
+  border-color: var(--rust);
+  color: var(--rust);
+}
+.kh__fin-edit-btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.kh__finpolicy-view {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+.kh__fin-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px dashed var(--rule);
+}
+.kh__fin-row:last-of-type {
+  border-bottom: 0;
+}
+.kh__fin-label {
+  color: var(--ash);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.kh__finpolicy-edit {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+  padding-top: 6px;
+}
+.kh__fin-wide {
+  grid-column: 1 / -1;
+}
+.kh__fin-bounds {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+  padding-top: 8px;
+  border-top: 1px dashed var(--rule);
+}
+.kh__fin-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-3);
+  margin-top: 4px;
+}
+@media (max-width: 640px) {
+  .kh__finpolicy-edit,
+  .kh__fin-bounds {
+    grid-template-columns: 1fr;
+  }
 }
 .kh__dialog-actions {
   display: flex;
@@ -1983,6 +2186,27 @@
   font-weight: var(--fw-bold);
   letter-spacing: 0.04em;
   flex-shrink: 0;
+  transition: background-color var(--duration-base) var(--easing-standard), color var(--duration-base) var(--easing-standard);
+}
+.kh__avatar--rust {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+}
+.kh__avatar--plum {
+  background: var(--plum-soft);
+  color: var(--plum-deep);
+}
+.kh__avatar--moss {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+.kh__avatar--amber {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+}
+.kh__avatar--steel {
+  background: var(--steel-soft);
+  color: var(--steel);
 }
 
 .kh__row-badges {
@@ -2658,6 +2882,26 @@
   background: var(--rule-soft);
   color: var(--ash);
   border: 1px dashed var(--rule);
+}
+.kh__row-badge--tag-rust {
+  background: color-mix(in srgb, var(--rust) 8%, transparent);
+  color: var(--rust);
+  border: 1px solid color-mix(in srgb, var(--rust) 24%, transparent);
+}
+.kh__row-badge--tag-plum {
+  background: color-mix(in srgb, var(--plum) 8%, transparent);
+  color: var(--plum);
+  border: 1px solid color-mix(in srgb, var(--plum) 22%, transparent);
+}
+.kh__row-badge--tag-moss {
+  background: color-mix(in srgb, var(--moss) 8%, transparent);
+  color: var(--moss);
+  border: 1px solid color-mix(in srgb, var(--moss) 24%, transparent);
+}
+.kh__row-badge--tag-amber {
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  color: var(--amber);
+  border: 1px solid color-mix(in srgb, var(--amber) 24%, transparent);
 }
 .kh__badge-tag--manual {
   background: var(--rule-soft);
@@ -3455,4 +3699,255 @@
 .stat-strip__cell--action:focus-visible {
   outline: 2px solid var(--rust);
   outline-offset: -2px;
+}
+
+/* --- Ghi chú tab (lưu ý team về khách; ghim + sửa/xóa) ----------------------- */
+.kh__notes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-top: 4px;
+}
+.kh__note-composer {
+  display: flex;
+  flex-direction: column;
+}
+.kh__note-composer-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  overflow: hidden;
+  transition: border-color var(--duration-base) var(--easing-standard);
+}
+.kh__note-composer-card:focus-within {
+  border-color: var(--rust);
+}
+.kh__note-composer-card .kh__note-input {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  padding: var(--sp-3) var(--sp-4);
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  font-family: var(--ff-sans);
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.kh__note-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px var(--sp-4);
+  background: var(--paper);
+  border-top: 1px solid var(--rule-soft);
+}
+.kh__note-hint {
+  font-size: 11px;
+  color: var(--ash-2);
+  font-style: italic;
+}
+.kh__note-empty-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: var(--sp-8) var(--sp-4);
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  animation: khFadeIn var(--duration-base) var(--easing-standard);
+}
+.kh__note-empty-icon {
+  color: var(--ash-2);
+  opacity: 0.4;
+  margin-bottom: var(--sp-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.kh__note-empty-title {
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  margin: 0 0 6px 0;
+}
+.kh__note-empty-desc {
+  font-size: 12px;
+  color: var(--ash);
+  max-width: 320px;
+  margin: 0;
+  line-height: 1.5;
+}
+.kh__note-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kh__note {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--paper);
+  transition: border-color var(--duration-base) var(--easing-standard);
+}
+.kh__note:hover {
+  border-color: var(--rule);
+}
+.kh__note.is-pinned {
+  border-color: var(--rule-soft);
+  border-left: 3px solid var(--rust);
+  background: var(--canvas);
+}
+.kh__note-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.kh__note-author-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kh__note-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-pill);
+  background: var(--charcoal-2);
+  color: var(--on-charcoal);
+  font-family: var(--ff-mono);
+  font-weight: var(--fw-bold);
+  font-size: 10px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.kh__note-author-name {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.kh__note-dot {
+  font-size: 10px;
+  color: var(--ash-2);
+}
+.kh__note-time {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.kh__note-edited {
+  font-size: 11px;
+  font-style: italic;
+  color: var(--ash-2);
+}
+.kh__note-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  padding-left: 0;
+}
+.kh__note-pin-ic {
+  flex: none;
+  margin-top: 3px;
+  color: var(--rust);
+}
+.kh__note-actions {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0.5;
+  transition: opacity var(--duration-base) var(--easing-standard);
+}
+.kh__note:hover .kh__note-actions {
+  opacity: 1;
+}
+@media (min-width: 768px) {
+  .kh__note-actions {
+    opacity: 0;
+  }
+}
+.kh__note-act {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: var(--r-2);
+  background: transparent;
+  color: var(--ash);
+  cursor: pointer;
+  transition: background var(--duration-base) var(--easing-standard),
+              color var(--duration-base) var(--easing-standard);
+}
+.kh__note-act:hover {
+  background: var(--paper-contrast);
+  color: var(--ink);
+}
+.kh__note-act.is-on {
+  color: var(--rust);
+}
+.kh__note-act--danger:hover {
+  background: color-mix(in srgb, #c0392b 12%, transparent);
+  color: #c0392b;
+}
+.kh__note-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kh__note-edit .input {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--ff-sans);
+  background: var(--canvas);
+}
+.kh__note-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.kh__note-delete-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  margin-top: 4px;
+  animation: khFadeIn var(--duration-base) var(--easing-standard);
+}
+.kh__note-delete-confirm-msg {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--signal);
+}
+.kh__note-delete-confirm-actions {
+  display: flex;
+  gap: 8px;
+}
+@keyframes khFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }

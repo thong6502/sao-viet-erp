@@ -6,6 +6,7 @@
 // The user widget lives in the top header (Topbar), not here (feat-018).
 import { useEffect, useState } from "react";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
+import { VOUCHER_PAGE_LABEL } from "../constants/features";
 import { Icon, type IconName } from "./Icons";
 import "./sidebar.css";
 
@@ -44,6 +45,7 @@ const NAV: NavSection[] = [
     id: "kinh-doanh",
     label: "Kinh doanh",
     items: [
+      { id: "tinh-gia", label: "Tính giá", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
       { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart", module: "don_hang_ban" },
       { id: "khach-hang", label: "Khách hàng", icon: "users", module: "khach_hang" },
@@ -75,7 +77,15 @@ const NAV: NavSection[] = [
         label: "Yêu cầu mua hàng",
         icon: "clipboard",
         module: "thu_mua",
-        modules: ["thu_mua", "bao_gia", "don_hang_ban", "kho", "san_xuat", "dm_giay_vat_tu"],
+        // ke_toan: kế toán bấm mã YCMH từ PMH/Phiếu chi để truy vết ngược.
+        modules: [
+          "thu_mua",
+          "bao_gia",
+          "kho",
+          "san_xuat",
+          "dm_giay_vat_tu",
+          "ke_toan",
+        ],
       },
       { id: "mua-hang", label: "Mua hàng", icon: "bag", module: "thu_mua" },
       { id: "nha-cung-cap", label: "Nhà cung cấp", icon: "truck", module: "thu_mua" },
@@ -86,7 +96,8 @@ const NAV: NavSection[] = [
     label: "Kế toán",
     items: [
       { id: "ke-toan-yeu-cau-mua", label: "Yêu cầu mua hàng", icon: "fileCheck", module: "ke_toan" },
-      { id: "ke-toan-phieu-chi", label: "Phiếu chi / UNC", icon: "calculator", module: "ke_toan" },
+      { id: "ke-toan-phieu-chi", label: VOUCHER_PAGE_LABEL, icon: "calculator", module: "ke_toan" },
+      { id: "ke-toan-phieu-thu", label: "Phiếu thu", icon: "fileText", module: "ke_toan" },
       { id: "ke-toan-tai-khoan", label: "Tài khoản ngân hàng", icon: "building", module: "ke_toan" },
     ],
   },
@@ -96,7 +107,7 @@ const NAV: NavSection[] = [
     items: [
       { id: "loai-san-pham", label: "Loại sản phẩm", icon: "clipboard", module: "dm_loai_san_pham" },
       { id: "may-thiet-bi", label: "Thiết bị & Máy in", icon: "warehouse", module: "dm_thiet_bi" },
-      { id: "cong-doan", label: "Công đoạn gia công", icon: "activity", module: "dm_cong_doan" },
+      { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
       { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_cong_doan" },
       { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "kho" },
       { id: "kho-giay-chuan", label: "Khổ giấy chuẩn", icon: "clipboard", module: "kho" },
@@ -110,6 +121,10 @@ const NAV: NavSection[] = [
     id: "nhan-su-luong",
     label: "Nhân sự & Lương",
     items: [
+      // Phòng ban = cây tổ chức: liệt kê theo HỒ SƠ, đếm theo hồ sơ, điều chuyển ghi Quá
+      // trình công tác → việc của HCNS, không phải quản trị hệ thống. Đứng trước Hồ sơ nhân
+      // sự vì nó là cái khung chứa.
+      { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
       { id: "nhan-su", label: "Hồ sơ nhân sự", icon: "users", module: "nhan_su" },
       { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su" },
       { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nghi_phep" },
@@ -120,8 +135,9 @@ const NAV: NavSection[] = [
     id: "quan-tri",
     label: "Quản lý hệ thống",
     items: [
-      { id: "nguoi-dung", label: "Người dùng", icon: "users", module: "nguoi_dung" },
-      { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
+      // Màn "Người dùng" ĐÃ BỎ: mọi tài khoản thuộc một hồ sơ nhân viên → quản tài khoản
+      // ngay trong Hồ sơ nhân sự (tab "Tài khoản & Quyền"). Quyền `nguoi_dung` vẫn gác các
+      // thao tác đó, chỉ là không còn màn riêng. "Phòng ban" dời sang Nhân sự & Lương.
       { id: "nhat-ky", label: "Nhật ký", icon: "activity", module: "activity_log" },
     ],
   },

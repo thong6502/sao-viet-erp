@@ -28,14 +28,16 @@ from ..deps import (
     get_authorization_service,
     get_department_repository,
     get_employee_service,
+    get_role_repository,
     get_user_repository,
     require_permission,
 )
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
-from ..repositories.rbac_repo import DepartmentRepository
+from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas.employee import (
+    AccountIn,
     AssignShiftIn,
     AttachmentOut,
     AttachmentsOut,
@@ -54,10 +56,10 @@ from ..schemas.employee import (
     EmployeeRow,
     EmployeeUpdate,
     EmployeeUpdateOut,
-    LinkAccountIn,
     MyContactIn,
     MyProfileOut,
     RequestDecisionIn,
+    RoleOption,
     TransitionIn,
     UpdateRequestIn,
     UpdateRequestOut,
@@ -70,6 +72,7 @@ from ..services.employee_service import (
     EmployeeNotFound,
     EmployeeService,
     EmployeeValidationError,
+    SENSITIVE_FIELDS,
 )
 from ..services.rbac_service import AuthorizationService
 
@@ -84,6 +87,7 @@ Service = Annotated[EmployeeService, Depends(get_employee_service)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Depts = Annotated[DepartmentRepository, Depends(get_department_repository)]
+Roles = Annotated[RoleRepository, Depends(get_role_repository)]
 Audit = Annotated[AuditLogRepository, Depends(get_audit_repository)]
 
 
@@ -140,11 +144,8 @@ def _full(employee, depts: DepartmentRepository, users: UserRepository) -> Emplo
     return out
 
 
-# Dữ liệu nhạy cảm — ẩn với người KHÔNG có quyền `nhan_su:view_salary` (lương/BHXH).
-_SALARY_FIELDS = (
-    "social_insurance_no", "pit_tax_code", "bank_account", "bank_name",
-    "payroll_group", "pay_grade_key",
-)
+# Dữ liệu nhạy cảm — DÙNG CHUNG danh sách với service (che khi đọc + gác khi ghi, N5).
+_SALARY_FIELDS = SENSITIVE_FIELDS
 
 
 def _mask_salary(out: EmployeeOut) -> EmployeeOut:
@@ -217,17 +218,28 @@ def get_meta(
     svc: Service,
     users: Users,
     depts: Depts,
+    roles: Roles,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
 ) -> EmployeeMetaOut:
-    """Dropdown data: departments + login accounts not yet linked to any employee."""
-    dept_opts = [DepartmentOption(id=d.id, name=d.name) for d in depts.list_all()]
+    """Dropdown data: departments + roles + login accounts not yet linked to any employee."""
+    departments = depts.list_all()
+    dept_opts = [DepartmentOption(id=d.id, name=d.name) for d in departments]
     linked = {e.user_id for e in svc.list_scoped_all(scope="all", actor=user) if e.user_id is not None}
     unlinked = [
         UserOption(id=u.id, username=u.username, name=u.name or u.username)
         for u in users.list_all()
         if u.id not in linked
     ]
-    return EmployeeMetaOut(departments=dept_opts, unlinked_users=unlinked)
+    # Vai trò gắn tài khoản (wizard + tab Tài khoản & Quyền). Role thuộc 1 phòng ban nên gom
+    # theo từng phòng; số phòng nhỏ nên vòng lặp này rẻ.
+    role_opts = [
+        RoleOption(id=r.id, name=r.name, department_id=r.department_id)
+        for d in departments
+        for r in roles.list_by_department(d.id)
+    ]
+    return EmployeeMetaOut(
+        departments=dept_opts, unlinked_users=unlinked, roles=role_opts
+    )
 
 
 # --- create -----------------------------------------------------------------
@@ -237,6 +249,7 @@ def get_meta(
 def create_employee(
     body: EmployeeCreate,
     svc: Service,
+    authz: Authz,
     depts: Depts,
     users: Users,
     user: Annotated[User, Depends(require_permission(MODULE, "create"))],
@@ -250,6 +263,7 @@ def create_employee(
         employee, dup_nid, dup_si = svc.create_employee(
             actor=user, department_id=department_id, status=status_in,
             hire_date=hire_date, fields=data,
+            can_edit_salary=authz.can(user, MODULE, "edit_salary"),
         )
         account_username = None
         if account and account.get("username"):
@@ -354,10 +368,11 @@ def list_requests(svc: Service, users: Users,
 
 
 @router.post("/update-requests/{request_id}/approve", response_model=UpdateRequestOut)
-def approve_request(request_id: int, body: RequestDecisionIn, svc: Service,
+def approve_request(request_id: int, body: RequestDecisionIn, svc: Service, authz: Authz,
                     user: Annotated[User, Depends(require_permission(MODULE, "approve"))]) -> UpdateRequestOut:
     try:
-        req = svc.decide_update_request(request_id=request_id, actor=user, approve=True, note=body.note)
+        req = svc.decide_update_request(request_id=request_id, actor=user, approve=True, note=body.note,
+                                        can_edit_salary=authz.can(user, MODULE, "edit_salary"))
     except EmployeeError as exc:
         _raise(exc)
     return UpdateRequestOut.model_validate(req)
@@ -409,6 +424,7 @@ def update_employee(
         employee, dup_nid, dup_si = svc.update_employee(
             employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
             fields=body.model_dump(),
+            can_edit_salary=authz.can(user, MODULE, "edit_salary"),
         )
     except EmployeeError as exc:
         _raise(exc)
@@ -589,38 +605,40 @@ def delete_attachment(
 
 
 @router.post("/{employee_id}/account", response_model=EmployeeOut)
-def link_account(
+def attach_account(
     employee_id: int,
-    body: LinkAccountIn,
+    body: AccountIn,
     svc: Service,
     authz: Authz,
     depts: Depts,
     users: Users,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> EmployeeOut:
+    """Gắn tài khoản cho hồ sơ: TẠO MỚI (`username`+`password`) — đường chính vì mọi tài
+    khoản phải sinh ra từ một hồ sơ; hoặc LIÊN KẾT tài khoản có sẵn (`user_id`) để dọn
+    tài khoản mồ côi cũ."""
+    scope = _scope_for(authz, user)
     try:
-        employee = svc.link_account(
-            employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
-            user_id=body.user_id,
-        )
+        if body.user_id is not None:
+            employee = svc.link_account(
+                employee_id=employee_id, scope=scope, actor=user, user_id=body.user_id,
+            )
+        elif (body.username or "").strip():
+            employee, _ = svc.create_account(
+                employee_id=employee_id, scope=scope, actor=user,
+                username=body.username or "", password=body.password or "",
+                role_id=body.role_id,
+            )
+        else:
+            raise HTTPException(
+                status_code=400, detail="Cần `username` (tạo mới) hoặc `user_id` (liên kết)."
+            )
     except EmployeeError as exc:
         _raise(exc)
     return _full(employee, depts, users)
 
 
-@router.delete("/{employee_id}/account", response_model=EmployeeOut)
-def unlink_account(
-    employee_id: int,
-    svc: Service,
-    authz: Authz,
-    depts: Depts,
-    users: Users,
-    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
-) -> EmployeeOut:
-    try:
-        employee = svc.unlink_account(
-            employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
-        )
-    except EmployeeError as exc:
-        _raise(exc)
-    return _full(employee, depts, users)
+# GỠ `DELETE /{employee_id}/account` (gỡ liên kết): mọi tài khoản phải thuộc một hồ sơ, nên
+# gỡ liên kết = đẻ ra tài khoản mồ côi = vi phạm luật. Muốn chặn một người thì KHÓA tài khoản
+# (`PUT /api/users/{id}/active`); người nghỉ việc thì login tự chặn theo trạng thái hồ sơ.
+# `POST /{employee_id}/account` (liên kết) GIỮ LẠI — đường dọn các tài khoản mồ côi cũ.

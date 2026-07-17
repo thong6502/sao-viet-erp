@@ -136,6 +136,12 @@ const ICONS = {
     </>
   ),
   // Row actions
+  eye: (
+    <>
+      <path d="M2.8 12s3.35-6.7 9.2-6.7 9.2 6.7 9.2 6.7-3.35 6.7-9.2 6.7-9.2-6.7-9.2-6.7Z" />
+      <circle cx="12" cy="12" r="2.5" />
+    </>
+  ),
   printer: (
     <>
       <path d="M6.5 9V3.5h11V9" />
@@ -158,12 +164,6 @@ const ICONS = {
   ),
   check: <path d="m4.5 12.5 4.7 4.7L19.8 6.8" />,
   x: <path d="m6 6 12 12M18 6 6 18" />,
-  eye: (
-    <>
-      <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" />
-      <circle cx="12" cy="12" r="3" />
-    </>
-  ),
   packageCheck: (
     <>
       <path d="M12 2.8 4 7v10l8 4.2 8-4.2V7Z" />
@@ -186,6 +186,33 @@ const ICONS = {
   ),
   // Affordance
   chevron: <path d="m6 9 6 6 6-6" />,
+  plus: <path d="M12 5v14M5 12h14" />,
+  search: (
+    <>
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.6-3.6" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </>
+  ),
+  scissors: (
+    <>
+      <circle cx="6.5" cy="6.5" r="2.5" />
+      <circle cx="6.5" cy="17.5" r="2.5" />
+      <path d="M8.7 8.3 20 18M8.7 15.7 20 6" />
+    </>
+  ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.3 9.3a2.8 2.8 0 0 1 5.4 1c0 1.9-2.7 2.3-2.7 3.9" />
+      <path d="M12 17.2h.01" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

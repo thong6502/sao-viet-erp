@@ -1,7 +1,7 @@
 """Pydantic models for the Chấm công GPS API (module `nhan_su`)."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
@@ -176,8 +176,9 @@ class TimesheetDay(BaseModel):
     early: bool = False            # về sớm
     ot_minutes: int = 0            # tăng ca (phút vượt giờ ca)
     night: bool = False            # ca đêm
-    leave: str | None = None       # tên loại nghỉ (nếu ngày này nghỉ đã duyệt)
+    leave: str | None = None       # tên loại nghỉ (nếu ngày này nghỉ đã duyệt) HOẶC tên ngày lễ
     leave_paid: bool = False       # nghỉ có lương (P) hay không (KL)
+    holiday: bool = False          # ngày nghỉ lễ hưởng lương (cộng 1 công tự động, không cần chấm)
 
 
 class TimesheetRow(BaseModel):
@@ -195,11 +196,42 @@ class TimesheetRow(BaseModel):
     total_cong: float | None = None  # tổng công (theo ca + nghỉ có lương)
 
 
+class HolidayMark(BaseModel):
+    day: int           # ngày trong tháng (1..31)
+    date: date
+    name: str
+
+
 class TimesheetOut(BaseModel):
     year: int
     month: int
     days_in_month: int
+    # Công chuẩn động của tháng (số ngày làm việc theo lịch) — hiển thị; Lương Pha 1 vẫn dùng 26.
+    standard_cong: int | None = None
+    holidays: list[HolidayMark] = []   # ngày nghỉ lễ hưởng lương trong tháng (tô màu)
     rows: list[TimesheetRow]
+
+
+# --- Chốt công tháng (kỳ công) ----------------------------------------------
+
+
+class PeriodActionIn(BaseModel):
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+
+
+class AttendancePeriodOut(BaseModel):
+    year: int
+    month: int
+    status: str                       # draft | locked
+    locked_at: datetime | None = None
+    locked_by: int | None = None
+    line_count: int                   # số dòng snapshot đã đóng băng
+    employee_count: int               # số NV trong bảng công tháng
+    hanging_days: int                 # số ngày treo (thiếu chấm RA) — xử trước khi Chốt
+    pending_leaves: int               # đơn nghỉ phép chưa duyệt của tháng
+    pending_adjusts: int              # yêu cầu chỉnh công chưa duyệt
+    payroll_locked: bool              # kỳ lương tháng này đã chốt → không mở lại kỳ công
 
 
 # --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch ----------------------

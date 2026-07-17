@@ -19,6 +19,7 @@ from ..models.customer import (
     CustomerCareEvent,
     CustomerCareTask,
     CustomerContact,
+    CustomerNote,
     CustomerTag,
 )
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
@@ -227,11 +228,11 @@ class CustomerRepository:
         contact_name: str | None,
         credit_limit: int,
         sale_user_id: int | None,
-        status: str,
         **extra,
     ) -> Customer:
-        """`extra` = các cột phụ đã được service validate (điều khoản thanh toán,
-        chiết khấu) — code vẫn luôn do repo tự sinh."""
+        """`extra` = các cột phụ đã được service validate (customer_kind, điều khoản thanh
+        toán, rào chiết khấu/biên) — code vẫn luôn do repo tự sinh. `status` (dormant) rơi
+        vào `extra` nếu caller cũ còn truyền; model default 'active' nếu không có."""
         customer = Customer(
             code=self._next_code(),
             name=name,
@@ -242,7 +243,6 @@ class CustomerRepository:
             contact_name=contact_name,
             credit_limit=credit_limit,
             sale_user_id=sale_user_id,
-            status=status,
             **extra,
         )
         self.db.add(customer)
@@ -503,6 +503,41 @@ class CustomerRepository:
             stmt = stmt.where(cond)
         stmt = stmt.order_by(CustomerCareTask.due_date.asc(), CustomerCareTask.id.asc())
         return [(t, c) for t, c in self.db.execute(stmt).all()]
+
+    # --- ghi chú tự do (tab Ghi chú) ---------------------------------------------
+
+    def list_notes(self, customer_id: int) -> list[CustomerNote]:
+        """Ghim lên đầu; trong mỗi nhóm mới-nhất-trước (theo created_at, tie-break id)."""
+        return list(self.db.execute(
+            select(CustomerNote)
+            .where(CustomerNote.customer_id == customer_id)
+            .order_by(
+                CustomerNote.pinned.desc(),
+                CustomerNote.created_at.desc(),
+                CustomerNote.id.desc(),
+            )
+        ).scalars())
+
+    def get_note(self, note_id: int) -> CustomerNote | None:
+        return self.db.get(CustomerNote, note_id)
+
+    def add_note(self, customer_id: int, **fields) -> CustomerNote:
+        note = CustomerNote(customer_id=customer_id, **fields)
+        self.db.add(note)
+        self.db.commit()
+        self.db.refresh(note)
+        return note
+
+    def update_note(self, note: CustomerNote, **fields) -> CustomerNote:
+        for key, value in fields.items():
+            setattr(note, key, value)
+        self.db.commit()
+        self.db.refresh(note)
+        return note
+
+    def delete_note(self, note: CustomerNote) -> None:
+        self.db.delete(note)
+        self.db.commit()
 
     # --- tài liệu đính kèm (#21) -------------------------------------------------
 

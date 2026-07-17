@@ -21,9 +21,10 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    # System-generated business code (spec-07): "NV" + zero-padded sequence (NV001, NV002, …).
-    # Read-only, assigned by the repository on create; distinct from the DB primary key `id`,
-    # which stays an internal surrogate. Nullable so legacy rows can be backfilled at startup.
+    # System-generated ACCOUNT code: "TK" + zero-padded sequence (TK001, TK002, …). Tiền tố
+    # "TK" tách khỏi employees.code ("NV###") để không nhầm tài khoản với hồ sơ (Đ1).
+    # Read-only, assigned by the repository on create; distinct from the DB primary key `id`.
+    # Nullable so legacy rows can be backfilled at startup (migration 0042 đổi NV→TK, giữ số).
     code: Mapped[str | None] = mapped_column(String(20), unique=True, index=True, nullable=True)
     # The sole account identity + login credential (spec-0001): users sign in with this.
     # Email was removed entirely; username is required and unique.

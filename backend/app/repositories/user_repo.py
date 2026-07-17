@@ -25,16 +25,17 @@ class UserRepository:
         return self.db.execute(stmt).scalar_one_or_none()
 
     def next_code(self) -> str:
-        """Next sequential employee code: 'NV' + zero-padded number (spec-07). Based on the
-        max existing NV-number so codes stay unique even after deletions (no reuse)."""
+        """Next sequential ACCOUNT code: 'TK' + zero-padded number. Tiền tố 'TK' tách khỏi
+        employees.code ('NV###') để không nhầm tài khoản với hồ sơ (Đ1). Dựa max số TK hiện
+        có nên mã không tái dùng dù có xoá."""
         max_n = 0
         for code in self.db.execute(select(User.code)).scalars():
-            if code and code.startswith("NV"):
+            if code and code.startswith("TK"):
                 try:
                     max_n = max(max_n, int(code[2:]))
                 except ValueError:
                     continue
-        return f"NV{max_n + 1:03d}"
+        return f"TK{max_n + 1:03d}"
 
     def create(self, *, username: str, name: str, password_hash: str) -> User:
         user = User(
@@ -74,6 +75,19 @@ class UserRepository:
     def set_avatar(self, user: User, avatar_url: str | None) -> User:
         """Set or clear the user's avatar path (spec-04)."""
         user.avatar_url = avatar_url
+        self.db.commit()
+        self.db.refresh(user)
+        return user
+
+    def sync_from_employee(self, user: User, *, name: str, department_id: int | None,
+                           avatar_url: str | None = None) -> User:
+        """Đồng bộ 1 chiều HỒ SƠ→TÀI KHOẢN (Đ1: hồ sơ là nguồn) — tên hiển thị + phòng
+        (data-scope RBAC). Ảnh CHỈ ghi khi hồ sơ CÓ ảnh (tránh xoá avatar tài khoản khi hồ sơ
+        chưa có ảnh). KHÔNG đụng role."""
+        user.name = name
+        user.department_id = department_id
+        if avatar_url:
+            user.avatar_url = avatar_url
         self.db.commit()
         self.db.refresh(user)
         return user

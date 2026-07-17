@@ -117,37 +117,10 @@ def test_list_returns_kpis_and_derived_tier(client):
     assert kpis["avg_order_value"] >= 0
 
 
-def test_loyal_tier_from_high_spend(client):
-    """A customer with ≥ LOYAL_REVENUE_VND in 12m is classified 'loyal' (VIP theo chi tiêu)."""
-    _seed_staff_customers()
-    token = _admin_token(client)
-    cid = _customer_id_by_name("An Phát")
-    # One big order this month → over the 50tr loyal threshold.
-    db = SessionLocal()
-    try:
-        sale = UserRepository(db).get_by_username("sale1")
-        o = Order(
-            order_no="DHBIG",
-            customer_id=cid,
-            order_type="theo_yc",
-            order_kind="moi",
-            sale_user_id=sale.id,
-            status="ordered",
-            created_at=datetime.now(timezone.utc) - timedelta(days=2),
-        )
-        o.lines.append(
-            OrderLine(description="In lịch", qty=1, unit_price_snapshot=60_000_000, line_total=60_000_000)
-        )
-        db.add(o)
-        db.commit()
-    finally:
-        db.close()
-    body = client.get("/api/customers?tier=loyal&size=200", headers=_h(token)).json()
-    assert any(c["id"] == cid for c in body["items"])
-    assert body["kpis"]["loyal_count"] >= 1
+# Redesign spec-06 v2: tier (loyal/partner) đã BỎ → test phân hạng gỡ; giữ test sort doanh số thật.
 
 
-def test_tier_filter_and_revenue_sort(client):
+def test_revenue_sort(client):
     _seed_staff_customers()
     token = _admin_token(client)
     cid = _customer_id_by_name("An Phát")

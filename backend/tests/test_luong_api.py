@@ -67,7 +67,7 @@ def _make_emp(client, token, *, name, payroll_group=None, pay_grade_key=None,
 def test_params_defaults_and_rbac(client):
     token = _admin_token(client)
     p = client.get("/api/luong/params", headers=_h(token)).json()
-    assert p["standard_cong_default"] == 26 and p["probation_ratio"] == 0.8
+    assert p["standard_cong_default"] == 26 and p["probation_ratio"] == 0.85
 
     upd = client.put("/api/luong/params", json={"standard_cong_default": 24}, headers=_h(token))
     assert upd.status_code == 200 and upd.json()["standard_cong_default"] == 24
@@ -133,8 +133,237 @@ def test_compute_engine(client):
         v3 = svc._compute(employee=emp_tv, salary=None, params=params, actual_cong=26,
                           standard_cong=26, on=on)
         assert v3["monthly_salary"] == 10_000_000       # mức gốc (chưa nhân)
-        assert v3["luong_cong"] == 8_000_000            # 10tr × 0.8 × 1.0
-        assert v3["bhxh"] == round(8_000_000 * 0.105)   # đóng trên mức thử việc
+        assert v3["luong_cong"] == 8_500_000            # 10tr × 0.85 × 1.0 (Đ26 ≥85%)
+        assert v3["bhxh"] == 0                          # thử việc KHÔNG đóng BHXH (HĐ thử việc)
+    finally:
+        db.close()
+
+
+def test_ot_and_night_pay(client):
+    """Pha 4a: tăng ca (hệ số phẳng) + phụ cấp ca đêm cộng vào gross, KHÔNG prorate theo công."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        svc.payroll.create_rule(payroll_group="ot_grp", monthly_amount=26_000_000,
+                                effective_from=date(2020, 1, 1))
+        params = svc.get_params()   # standard_hours_per_day=8, ot_multiplier=1.5, night_pct=0.3
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
+                              payroll_group="ot_grp", pay_grade_key=None)
+        # std 26 → 1 công = 1.000.000; giờ = 125.000. OT 120' (2h)×1.5 = 375.000.
+        # ca đêm 2 ngày × 1.000.000 × 0.3 = 600.000.
+        v = svc._compute(employee=emp, salary=None, params=params, actual_cong=26,
+                         standard_cong=26, ot_minutes=120, night_days=2, on=date(2026, 6, 1))
+        assert v["ot_pay"] == 375_000
+        assert v["night_pay"] == 600_000
+        assert v["gross"] == 26_000_000 + 300_000 + 375_000 + 600_000   # + chuyên cần đủ công
+    finally:
+        db.close()
+
+
+def test_bhxh_cap(client):
+    """Pha 4a: BHXH/BHYT áp trần bh_base_cap, BHTN áp trần bhtn_base_cap RIÊNG."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        svc.payroll.create_rule(payroll_group="hi_grp", monthly_amount=60_000_000,
+                                effective_from=date(2020, 1, 1))
+        params = svc.get_params()   # bh_base_cap=50.6tr, bhtn_base_cap=106.2tr
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
+                              payroll_group="hi_grp", pay_grade_key=None)
+        v = svc._compute(employee=emp, salary=None, params=params, actual_cong=26,
+                         standard_cong=26, on=date(2026, 6, 1))
+        # base 60tr > trần BHXH/BHYT 50.6tr → phần đó trên 50.6tr; BHTN 60tr < 106.2tr → trên 60tr.
+        assert v["bhxh"] == round(50_600_000 * (0.08 + 0.015) + 60_000_000 * 0.01)
+    finally:
+        db.close()
+
+
+def test_probation_no_bhxh(client):
+    """Pha 4a: NV thử việc KHÔNG đóng BHXH (HĐ thử việc)."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        svc.payroll.create_rule(payroll_group="pb_grp", monthly_amount=12_000_000,
+                                effective_from=date(2020, 1, 1))
+        params = svc.get_params()
+        emp = SimpleNamespace(status="probation", hire_date=date(2026, 5, 1), gender="male",
+                              payroll_group="pb_grp", pay_grade_key=None)
+        v = svc._compute(employee=emp, salary=None, params=params, actual_cong=26,
+                         standard_cong=26, on=date(2026, 6, 1))
+        assert v["bhxh"] == 0 and v["insurance_base"] == 0
+        assert v["luong_cong"] == round(12_000_000 * 0.85)   # thử việc 85%
+    finally:
+        db.close()
+
+
+def test_update_line_keeps_ot_night_pay(client):
+    """Pha 4a (bẫy C2): sửa ô tay (vi phạm) KHÔNG được xóa tăng ca/ca đêm khỏi gross."""
+    token = _admin_token(client)
+    emp_id = _make_emp(client, token, name="NV OT", payroll_group="x", status="active")
+    db = SessionLocal()
+    try:
+        repo = PayrollRepository(db)
+        svc = PayrollService(repo, EmployeeRepository(db), attendance=None)
+        period = repo.create_period(year=2026, month=6, status="draft", standard_cong=26)
+        ln = repo.create_line(period_id=period.id, employee_id=emp_id,
+                              luong_cong=10_000_000, chuyen_can=300_000, allowance=0,
+                              ot_pay=375_000, night_pay=600_000, bhxh=1_050_000)
+        updated = svc.update_line(line_id=ln.id, actor=None, vi_pham=200_000)
+        assert float(updated.ot_pay) == 375_000 and float(updated.night_pay) == 600_000
+        # gross vẫn còn OT + ca đêm, chỉ trừ thêm vi phạm 200k.
+        assert float(updated.gross) == 10_000_000 + 300_000 + 375_000 + 600_000 - 200_000
+        assert float(updated.net_pay) == float(updated.gross) - 1_050_000
+    finally:
+        db.close()
+
+
+# --- TNCN tự tính (Pha 4b) --------------------------------------------------
+
+
+def test_params_deduction_2026(client):
+    """Giảm trừ gia cảnh mặc định = mức 2026 (NQ 110/2025)."""
+    token = _admin_token(client)
+    p = client.get("/api/luong/params", headers=_h(token)).json()
+    assert p["deduction_self"] == 15_500_000 and p["deduction_dependent"] == 6_200_000
+
+
+def test_pit_brackets_seeded_and_editable(client):
+    """Biểu thuế TNCN seed 5 bậc 2026 + sửa được."""
+    token = _admin_token(client)
+    items = client.get("/api/luong/pit-brackets", headers=_h(token)).json()["items"]
+    assert len(items) == 5
+    assert items[0]["rate"] == 0.05
+    assert items[-1]["up_to"] is None and items[-1]["rate"] == 0.35
+    bid = items[0]["id"]
+    upd = client.put(f"/api/luong/pit-brackets/{bid}",
+                     json={"seq": 1, "up_to": 11_000_000, "rate": 0.05}, headers=_h(token))
+    assert upd.status_code == 200 and upd.json()["up_to"] == 11_000_000
+
+
+def test_pit_progressive(client):
+    """Lũy tiến từng phần: thu nhập tính thuế 20tr → 1,5tr (10tr×5% + 10tr×10%)."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        params, brackets = svc.get_params(), svc.get_pit_brackets()
+        # gross 35,5tr, không OT/đêm/BHXH, 0 phụ thuộc → tính thuế = 35,5 − 15,5 = 20tr.
+        taxable, pit = svc._auto_pit(gross=35_500_000, bhxh=0, ot_pay=0, night_pay=0,
+                                     dependents_count=0, params=params, brackets=brackets)
+        assert taxable == 20_000_000
+        assert pit == 1_500_000
+    finally:
+        db.close()
+
+
+def test_pit_exempt_ot_night(client):
+    """OT + ca đêm được MIỄN thuế (Luật 109/2025) → giảm thu nhập chịu thuế."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        params, brackets = svc.get_params(), svc.get_pit_brackets()
+        # gross 35,5tr trong đó 5tr OT + 2tr ca đêm (miễn) → chịu thuế 28,5tr → tính thuế 13tr.
+        taxable, pit = svc._auto_pit(gross=35_500_000, bhxh=0, ot_pay=5_000_000, night_pay=2_000_000,
+                                     dependents_count=0, params=params, brackets=brackets)
+        assert taxable == 13_000_000
+        assert pit == round(10_000_000 * 0.05 + 3_000_000 * 0.10)   # 800k
+    finally:
+        db.close()
+
+
+def test_pit_dependents_reduce_tax(client):
+    """Người phụ thuộc giảm thu nhập tính thuế (6,2tr/người)."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        params, brackets = svc.get_params(), svc.get_pit_brackets()
+        # gross 35,5tr, 2 phụ thuộc (12,4tr) → tính thuế = 20tr − 12,4tr = 7,6tr.
+        taxable, pit = svc._auto_pit(gross=35_500_000, bhxh=0, ot_pay=0, night_pay=0,
+                                     dependents_count=2, params=params, brackets=brackets)
+        assert taxable == 7_600_000
+        assert pit == round(7_600_000 * 0.05)
+    finally:
+        db.close()
+
+
+def test_pit_manual_override_and_reset(client):
+    """pit tự tính; HCNS ghi đè tay (pit_manual) → giữ; reset (pit_manual=False) → về auto."""
+    token = _admin_token(client)
+    emp_id = _make_emp(client, token, name="NV Thuế", payroll_group="x", status="active")
+    db = SessionLocal()
+    try:
+        repo = PayrollRepository(db)
+        svc = PayrollService(repo, EmployeeRepository(db), attendance=None)
+        period = repo.create_period(year=2026, month=6, status="draft", standard_cong=26)
+        ln = repo.create_line(period_id=period.id, employee_id=emp_id,
+                              luong_cong=50_000_000, gross=50_000_000, bhxh=0)
+        # auto: sửa (chưa manual) → pit tính lại theo gross.
+        upd = svc.update_line(line_id=ln.id, actor=None, vi_pham=0)
+        auto_pit = float(upd.pit)
+        assert auto_pit > 0 and upd.pit_manual is False
+        # ghi đè tay.
+        upd2 = svc.update_line(line_id=ln.id, actor=None, pit=1_234_000)
+        assert float(upd2.pit) == 1_234_000 and upd2.pit_manual is True
+        # reset về tự tính.
+        upd3 = svc.update_line(line_id=ln.id, actor=None, pit_manual=False)
+        assert float(upd3.pit) == auto_pit and upd3.pit_manual is False
+    finally:
+        db.close()
+
+
+# --- Chi trả + xuất file + nhật ký (Pha 4c) ---------------------------------
+
+
+def test_pay_unpay_flow(client):
+    """State machine: nháp→chốt→đã chi→hủy chi; chặn pay-khi-chưa-chốt, reopen/generate-khi-đã-chi."""
+    token = _admin_token(client)
+    _make_emp(client, token, name="NV Chi", payroll_group="x", status="active")
+    y, m = 2026, 6
+    assert client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token)).status_code == 200
+    # pay khi CHƯA chốt → 400
+    assert client.post("/api/luong/pay", json={"year": y, "month": m}, headers=_h(token)).status_code == 400
+    assert client.post("/api/luong/lock", json={"year": y, "month": m}, headers=_h(token)).status_code == 200
+    paid = client.post("/api/luong/pay", json={"year": y, "month": m}, headers=_h(token))
+    assert paid.status_code == 200 and paid.json()["status"] == "paid" and paid.json()["paid_at"]
+    # reopen / generate khi ĐÃ CHI → chặn
+    assert client.post("/api/luong/reopen", json={"year": y, "month": m}, headers=_h(token)).status_code == 400
+    assert client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token)).status_code in (400, 409)
+    # hủy chi → về locked
+    un = client.post("/api/luong/unpay", json={"year": y, "month": m, "note": "nhầm"}, headers=_h(token))
+    assert un.status_code == 200 and un.json()["status"] == "locked" and un.json()["paid_at"] is None
+
+
+def test_export_xlsx_smoke(client):
+    """Xuất bảng lương + file chuyển khoản .xlsx trả 200 + đúng content-type Excel."""
+    token = _admin_token(client)
+    _make_emp(client, token, name="NV Xls", payroll_group="x", status="active")
+    y, m = 2026, 6
+    client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token))
+    r1 = client.get(f"/api/luong/export.xlsx?year={y}&month={m}", headers=_h(token))
+    assert r1.status_code == 200 and "spreadsheetml" in r1.headers["content-type"]
+    r2 = client.get(f"/api/luong/bank.xlsx?year={y}&month={m}", headers=_h(token))
+    assert r2.status_code == 200 and "spreadsheetml" in r2.headers["content-type"]
+
+
+def test_payroll_audit_logged(client):
+    """Thao tác lương ghi nhật ký (tạo bảng / chốt) — hiện ở Nhật ký chung."""
+    token = _admin_token(client)
+    _make_emp(client, token, name="NV Audit", payroll_group="x", status="active")
+    y, m = 2026, 6
+    client.post("/api/luong/generate", json={"year": y, "month": m}, headers=_h(token))
+    client.post("/api/luong/lock", json={"year": y, "month": m}, headers=_h(token))
+    db = SessionLocal()
+    try:
+        from sqlalchemy import select
+
+        from app.models.audit import AuditLog
+        actions = [a.action for a in db.execute(select(AuditLog)).scalars()]
+        assert "payroll_generate" in actions and "payroll_lock" in actions
     finally:
         db.close()
 
@@ -219,11 +448,12 @@ def test_generate_lock_flow(client):
     assert line["advance_total"] == 2_000_000
     lid = line["id"]
 
-    # sửa ô tay: vi phạm 500k + thưởng 1tr → gross/net tính lại
-    upd = client.put(f"/api/luong/lines/{lid}", json={"vi_pham": 500_000, "other_bonus": 1_000_000},
+    # sửa ô tay: vi phạm 500k + thưởng 5tr → gross/net tính lại. Thưởng đủ lớn để 500k nằm trong
+    # trần khấu trừ 30% (Điều 102) → khoản phạt được áp trọn.
+    upd = client.put(f"/api/luong/lines/{lid}", json={"vi_pham": 500_000, "other_bonus": 5_000_000},
                      headers=_h(token)).json()
-    assert upd["vi_pham"] == 500_000 and upd["other_bonus"] == 1_000_000
-    exp_gross = upd["luong_cong"] + upd["chuyen_can"] + upd["allowance"] + 1_000_000 - 500_000
+    assert upd["vi_pham"] == 500_000 and upd["other_bonus"] == 5_000_000
+    exp_gross = upd["luong_cong"] + upd["chuyen_can"] + upd["allowance"] + 5_000_000 - 500_000
     assert upd["gross"] == exp_gross
     assert upd["net_pay"] == exp_gross - upd["bhxh"] - upd["pit"] - upd["advance_total"]
 
@@ -236,3 +466,113 @@ def test_generate_lock_flow(client):
     # mở lại → sửa được
     assert client.post("/api/luong/reopen", json={"year": 2026, "month": 6}, headers=_h(token)).status_code == 200
     assert client.put(f"/api/luong/lines/{lid}", json={"vi_pham": 0}, headers=_h(token)).status_code == 200
+
+
+# --- Nhóm ĐỎ: vá lỗi tiền/luật engine lương ---------------------------------
+
+
+def test_dis_deduction_capped_30pct(client):
+    """#2b Điều 102: khấu trừ kỷ luật (vi_pham) ≤ 30% lương sau BHXH+TNCN; vượt thì kẹp."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        svc.payroll.create_rule(payroll_group="d102", monthly_amount=20_000_000,
+                                effective_from=date(2020, 1, 1))
+        params = svc.get_params()
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
+                              payroll_group="d102", pay_grade_key=None)
+        # phạt khủng 100tr → phải bị kẹp về đúng 30% × (lương trước phạt − BHXH − TNCN).
+        v = svc._compute(employee=emp, salary=None, params=params, actual_cong=26, standard_cong=26,
+                         vi_pham=100_000_000, on=date(2026, 6, 1))
+        gross_pre = v["gross"] + v["vi_pham"]         # gross = gross_pre − vi_pham đã kẹp
+        base = gross_pre - v["bhxh"] - v["pit"]
+        assert 0 < v["vi_pham"] < 100_000_000
+        assert abs(v["vi_pham"] - round(0.30 * base)) <= 1
+    finally:
+        db.close()
+
+
+def test_net_floored_at_zero(client):
+    """#2a: tạm ứng vượt lương thực → thực nhận = 0, KHÔNG âm."""
+    token = _admin_token(client)
+    client.post("/api/luong/rules", json={"payroll_group": "flr", "monthly_amount": 10_000_000,
+                "effective_from": "2026-01-01"}, headers=_h(token))
+    eid = _make_emp(client, token, name="NV Sàn", payroll_group="flr", status="active")
+    client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
+                "amount_mode": "rule"}, headers=_h(token))
+    aid = client.post("/api/luong/advances", json={"employee_id": eid, "period_year": 2027,
+        "period_month": 3, "advance_date": "2027-03-05", "amount": 5_000_000},
+        headers=_h(token)).json()["id"]
+    client.post(f"/api/luong/advances/{aid}/approve", json={}, headers=_h(token))
+    gen = client.post("/api/luong/generate", json={"year": 2027, "month": 3}, headers=_h(token)).json()
+    line = next(l for l in gen["lines"] if l["employee_id"] == eid)
+    assert line["net_pay"] == 0   # 0 công + tạm ứng 5tr → sàn 0, không âm
+
+
+def test_standard_cong_dynamic_from_calendar(client):
+    """#1: mẫu số công chuẩn lấy ĐỘNG từ Lịch (số ngày làm việc thực), KHÔNG cố định 26."""
+    import calendar as _cal
+    token = _admin_token(client)
+    # Tuần làm T2–T6 (bỏ T7) → công chuẩn tháng < 26.
+    assert client.put("/api/calendar/config", json={"works_sat": False},
+                      headers=_h(token)).status_code == 200
+    assert client.post("/api/luong/generate", json={"year": 2027, "month": 9},
+                       headers=_h(token)).status_code == 200
+    last = _cal.monthrange(2027, 9)[1]
+    expected = sum(1 for d in range(1, last + 1) if date(2027, 9, d).weekday() < 5)  # T2–T6
+    with SessionLocal() as db:
+        p = PayrollRepository(db).get_period_by_ym(2027, 9)
+        assert float(p.standard_cong) == expected and expected != 26
+
+
+def test_resigned_with_khoan_still_paid(client):
+    """#4: NV nghỉ việc nhưng có tiền khoán (Phiếu sản lượng) trong kỳ → VẪN có dòng lương (không quỵt)."""
+    from app.models.employee import STATUS_RESIGNED
+    token = _admin_token(client)
+    eid = _make_emp(client, token, name="NV Nghỉ", status="active")
+    client.post("/api/cong-doan", json={"ma": "KH-NGHI", "ten": "In", "nhom": "print",
+                "khoan_ghi_theo": "nguoi", "allowed_defect_pct": 0, "allowed_defect_abs": 0,
+                "che_do_tinh": "theo_san_luong", "pricing_basis": "per_other"}, headers=_h(token))
+    lsx = client.post("/api/san-xuat/orders", json={"product_name": "SP", "quantity": 100},
+                      headers=_h(token)).json()["id"]
+    client.post("/api/san-luong/outputs", json={
+        "production_order_id": lsx, "cong_doan": "KH-NGHI", "year": 2027, "month": 7,
+        "group_name": "to_x", "employee_id": eid, "unit": "m2", "unit_price": 1000, "quantity": 100,
+    }, headers=_h(token))
+    # Cho nghỉ việc TRƯỚC khi tính lương tháng đó.
+    with SessionLocal() as db:
+        repo = EmployeeRepository(db)
+        e = repo.get_by_id(eid)
+        e.status = STATUS_RESIGNED
+        db.commit()
+    gen = client.post("/api/luong/generate", json={"year": 2027, "month": 7}, headers=_h(token)).json()
+    line = next((l for l in gen["lines"] if l["employee_id"] == eid), None)
+    assert line is not None and line["khoan"] == 100_000   # cũ: nghỉ việc bị 'continue' → mất dòng
+
+
+def test_special_day_premium(client):
+    """#3 Đ98: làm nguyên công ngày lễ = +200% premium (base 100% đã nằm trong lương công);
+    OT ngày lễ ×3, OT ngày nghỉ tuần ×2."""
+    client
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        svc.payroll.create_rule(payroll_group="sd", monthly_amount=26_000_000,
+                                effective_from=date(2020, 1, 1))
+        params = svc.get_params()   # ot 1.5 · ot_rest 2 · ot_hol 3 · hol_wm 3 · rest_wm 2
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
+                              payroll_group="sd", pay_grade_key=None)
+        daily = 26_000_000 / 26   # 1.000.000 ; giờ = 125.000
+        # 1 công ngày lễ (nằm trong 26 công) → premium = 1×(3−1)×daily = 2.000.000, không OT.
+        v = svc._compute(employee=emp, salary=None, params=params, actual_cong=26, standard_cong=26,
+                         holiday_cong=1, on=date(2026, 6, 1))
+        assert v["ot_pay"] == round(daily * (3 - 1))   # 2.000.000 premium lễ
+        # OT: 60' ngày lễ ×3 + 60' ngày nghỉ tuần ×2 (tổng ot_minutes = 120, không có OT thường).
+        v2 = svc._compute(employee=emp, salary=None, params=params, actual_cong=26, standard_cong=26,
+                          ot_minutes=120, ot_holiday_minutes=60, ot_restday_minutes=60,
+                          on=date(2026, 6, 1))
+        hourly = daily / 8   # 125.000
+        assert v2["ot_pay"] == round(hourly * (1 * 3 + 1 * 2))   # 125k × 5 = 625.000
+    finally:
+        db.close()

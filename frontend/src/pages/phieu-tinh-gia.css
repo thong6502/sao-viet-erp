@@ -1,0 +1,178 @@
+/* Phiếu tính giá ấn phẩm — bản CHỐT (chủ xưởng đã duyệt).
+   Đen-trắng thuần, in A4. CSS bê nguyên từ mẫu HTML đã duyệt,
+   chỉ đổi tên class (prefix ptg-) cho gọn & tránh đụng global — KHÔNG đổi giao diện. */
+.ptg-wrap {
+  --ptg-ink: #161616;
+  --ptg-muted: #555;
+  --ptg-line: #8c8c8c;
+  --ptg-line-strong: #2a2a2a;
+  --ptg-hair: #c4c4c4;
+  --ptg-head: #e9e9e9;
+  --ptg-band: #f2f2f2;
+  --ptg-sans: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
+
+  margin: 0;
+  padding: 0;
+  background: #e6e6e6;
+  color: var(--ptg-ink);
+  font-family: var(--ptg-sans);
+  font-size: 11.5px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  overflow-x: auto;
+}
+.ptg-wrap * { box-sizing: border-box; }
+.ptg-wrap h1,
+.ptg-wrap h2,
+.ptg-wrap ol,
+.ptg-wrap p { margin: 0; padding: 0; }
+
+.ptg-toolbar {
+  display: flex;
+  justify-content: center;
+  padding: 10mm 0 0;
+}
+.ptg-print-btn {
+  font-family: var(--ptg-sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--ptg-line-strong);
+  border: 1px solid var(--ptg-line-strong);
+  border-radius: 4px;
+  padding: 8px 18px;
+  cursor: pointer;
+}
+.ptg-print-btn:hover { background: #000; }
+
+.ptg-sheet {
+  width: 210mm;
+  max-width: 100%;
+  min-height: 297mm;
+  margin: 12mm auto;
+  background: #fff;
+  padding: 13mm 12mm 12mm;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .16);
+  position: relative;
+}
+.ptg-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ptg-center { text-align: center; }
+.ptg-cap { font-size: 8.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--ptg-muted); font-weight: 600; }
+.ptg-printed { position: absolute; top: 7mm; right: 12mm; font-size: 8px; color: var(--ptg-muted); font-variant-numeric: tabular-nums; }
+
+/* header */
+.ptg-mh {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 2px solid var(--ptg-line-strong);
+  padding-bottom: 9px;
+}
+.ptg-logo { border: 1px solid var(--ptg-line-strong); padding: 8px 10px; width: 110px; text-align: center; line-height: 1.12; }
+.ptg-logo .ptg-mark { font-weight: 800; font-size: 14px; letter-spacing: .03em; }
+.ptg-logo .ptg-mark small { display: block; font-size: 9px; font-weight: 700; letter-spacing: .16em; }
+.ptg-logo .ptg-tag { font-size: 7px; text-transform: uppercase; letter-spacing: .12em; color: var(--ptg-muted); margin-top: 3px; }
+.ptg-logo img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.ptg-th { text-align: center; }
+.ptg-th h1 { font-size: 20px; font-weight: 800; letter-spacing: .02em; }
+.ptg-th .ptg-cty { font-size: 9.5px; color: var(--ptg-muted); margin-top: 2px; }
+.ptg-meta { text-align: right; font-size: 11px; line-height: 1.6; }
+.ptg-meta b { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* info */
+.ptg-info { border-bottom: 1px solid var(--ptg-hair); padding: 8px 0 9px; margin-bottom: 9px; }
+.ptg-info .ptg-r { margin: 2px 0; }
+.ptg-info .ptg-g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px 18px; margin: 2px 0; }
+.ptg-lbl { color: var(--ptg-muted); }
+.ptg-val { font-weight: 700; }
+.ptg-val-b { font-weight: 800; }
+
+/* section title */
+.ptg-sec {
+  font-weight: 800;
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  margin: 14px 0 6px;
+  padding-bottom: 3px;
+  border-bottom: 1.5px solid var(--ptg-line-strong);
+}
+.ptg-scope { padding-left: 18px; margin: 2px 0 4px; }
+.ptg-scope li { margin: 2px 0; line-height: 1.45; }
+.ptg-scope .ptg-k { font-weight: 700; }
+.ptg-scope .ptg-em { color: var(--ptg-muted); font-style: italic; }
+
+.ptg-grpt { font-weight: 800; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; margin: 11px 0 3px; }
+.ptg-grpt .ptg-idx { margin-right: 2px; }
+
+/* detailed tables */
+.ptg-tbl { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
+.ptg-tbl th,
+.ptg-tbl td { border: 1px solid var(--ptg-line); padding: 4px 6px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }
+.ptg-tbl thead th {
+  background: var(--ptg-head);
+  font-weight: 700;
+  text-align: left;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .03em;
+}
+.ptg-tbl thead th.ptg-num { text-align: right; }
+.ptg-tbl thead th.ptg-center { text-align: center; }
+.ptg-formula { color: var(--ptg-muted); font-size: 8.5px; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.ptg-tbl tr.ptg-sub td { background: var(--ptg-band); font-weight: 800; border-top: 1.5px solid var(--ptg-line-strong); }
+.ptg-tbl tr.ptg-sub .ptg-sl { text-transform: uppercase; letter-spacing: .04em; font-size: 9px; }
+.ptg-tbl tr.ptg-empty td { color: var(--ptg-muted); font-style: italic; }
+
+/* grand total */
+.ptg-grand {
+  margin-top: 14px;
+  border: 1.5px solid var(--ptg-line-strong);
+  background: var(--ptg-band);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  page-break-inside: avoid;
+}
+.ptg-grand .ptg-gt { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.ptg-grand .ptg-gs { font-size: 8.5px; color: var(--ptg-muted); margin-top: 2px; }
+.ptg-grand .ptg-ga { font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ptg-grand .ptg-ga .ptg-u { font-size: 12px; font-weight: 700; margin-left: 4px; }
+
+/* signatures */
+.ptg-signs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-top: 26px; text-align: center; page-break-inside: avoid; }
+.ptg-signs .ptg-role { font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
+.ptg-signs .ptg-hint { font-size: 8px; color: var(--ptg-muted); font-style: italic; margin-top: 2px; }
+.ptg-signs .ptg-sp { height: 22mm; }
+.ptg-signs .ptg-who { font-size: 8px; color: var(--ptg-muted); text-transform: uppercase; letter-spacing: .06em; border-top: 1px solid var(--ptg-line); padding-top: 4px; }
+.ptg-foot {
+  margin-top: 16px;
+  padding-top: 7px;
+  border-top: 1px solid var(--ptg-hair);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 8px;
+  color: var(--ptg-muted);
+}
+
+@page { size: A4; margin: 11mm; }
+@media print {
+  .ptg-wrap { background: #fff; overflow: visible; }
+  .ptg-noprint { display: none !important; }
+  .ptg-sheet { margin: 0; box-shadow: none; padding: 0; width: auto; min-height: auto; }
+  .ptg-tbl thead th,
+  .ptg-tbl tr.ptg-sub td,
+  .ptg-grand { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .ptg-tbl tr,
+  .ptg-grp,
+  .ptg-grand,
+  .ptg-signs,
+  .ptg-scope li { page-break-inside: avoid; }
+}

@@ -17,13 +17,15 @@ import {
   type CustomerContactInput,
   type CustomerDashboard,
   type CustomerInput,
+  type CustomerFinancialInput,
+  type CustomerKind,
   type CustomerKpis,
+  type CustomerNote,
   type CustomerRow,
   type DuplicateWarn,
   type FollowupRow,
   type ImportResultOut,
   type OrderHistoryRow,
-  type PinnedCustomer,
   type QuoteHistoryRow,
   type ReceivableCard,
   type SaleOption,
@@ -53,7 +55,6 @@ import {
   Phone,
   ReceiptText,
   Search,
-  ShoppingBag,
   Tags,
   Users,
   X,
@@ -76,14 +77,12 @@ import {
   Zap,
   CreditCard,
   Droplets,
+  StickyNote,
+  Pin,
 } from "lucide-react";
 import { MixDonut, MonthBars } from "../components/charts";
 import "./khach-hang.css";
 
-/** The customer slice CRM hands to a target screen when navigating (pin, no hand-typed ID). */
-function pinOf(c: CustomerRow): PinnedCustomer {
-  return { id: c.id, code: c.code, name: c.name, tax_code: c.tax_code };
-}
 
 const MST_RE = /^(\d{10}|\d{13})$/;
 const PAGE_SIZES = [25, 50, 100];
@@ -181,88 +180,23 @@ function getInitials(name: string): string {
   return clean.substring(0, 2).toUpperCase();
 }
 
-interface MockAR {
-  receivableText: string;
-  receivableVal: number;
-  isOverdue: boolean;
-  overdueDays: number;
-  creditScore: number;
-  creditText: string;
+export const TAG_TONES = ["rust", "plum", "moss", "amber"] as const;
+
+export function tagTone(label: string): (typeof TAG_TONES)[number] {
+  let h = 0;
+  for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return TAG_TONES[h % TAG_TONES.length];
 }
 
-function getMockAR(id: number): MockAR {
-  const hash = id % 3;
-  if (hash === 0) {
-    return {
-      receivableText: "62M",
-      receivableVal: 62000000,
-      isOverdue: true,
-      overdueDays: 18,
-      creditScore: 45,
-      creditText: "Kém",
-    };
-  } else if (hash === 1) {
-    return {
-      receivableText: "18M",
-      receivableVal: 18000000,
-      isOverdue: false,
-      overdueDays: 0,
-      creditScore: 88,
-      creditText: "Tốt",
-    };
-  } else {
-    return {
-      receivableText: "—",
-      receivableVal: 0,
-      isOverdue: false,
-      overdueDays: 0,
-      creditScore: 92,
-      creditText: "Tốt",
-    };
+export function getKhAvatarClass(name: string): string {
+  const clean = name.replace(/^(Cty|Công ty|Cafe|Cà phê|TNHH|CP)\s+/i, "").trim();
+  const tones = ["rust", "plum", "moss", "amber", "steel"];
+  let code = 0;
+  for (let i = 0; i < clean.length; i++) {
+    code = clean.charCodeAt(i) + ((code << 5) - code);
   }
-}
-
-/** Gauge uy tín kiểu prototype: 3 cung vùng (kém/khá/tốt) mờ 28% + cung tiến độ màu
- *  semantic + vạch tick + số lớn. Màu lấy đúng token (moss/amber/signal), KHÔNG Material. */
-function CreditGauge({ score }: { score: number }) {
-  const pct = Math.min(100, Math.max(0, score));
-  const R = 72;
-  // Điểm trên cung theo góc (180° = trái, 0° = phải), tâm (100,100).
-  const pt = (deg: number, r = R) => {
-    const rad = (Math.PI * deg) / 180;
-    return `${(100 + r * Math.cos(rad)).toFixed(2)} ${(100 - r * Math.sin(rad)).toFixed(2)}`;
-  };
-  const arc = (fromDeg: number, toDeg: number, r = R) =>
-    `M ${pt(fromDeg, r)} A ${r} ${r} 0 0 1 ${pt(toDeg, r)}`;
-  const endDeg = 180 - (pct / 100) * 180;
-  const color = pct >= 80 ? "var(--moss)" : pct >= 50 ? "var(--amber)" : "var(--signal)";
-  const label = pct >= 80 ? "TỐT" : pct >= 50 ? "KHÁ" : "KÉM";
-
-  return (
-    <div className="kh__gauge-svg-container" aria-label={`Uy tín thanh toán ${score}/100`}>
-      <svg width="176" height="102" viewBox="0 0 200 116" style={{ overflow: "visible" }}>
-        {/* 3 vùng thang điểm, mờ — kém / khá / tốt */}
-        <path d={arc(180, 120)} style={{ stroke: "var(--signal)", opacity: 0.28 }} strokeWidth={12} fill="none" />
-        <path d={arc(120, 60)} style={{ stroke: "var(--amber)", opacity: 0.28 }} strokeWidth={12} fill="none" />
-        <path d={arc(60, 0)} style={{ stroke: "var(--moss)", opacity: 0.28 }} strokeWidth={12} fill="none" />
-        {/* Cung tiến độ */}
-        <path d={arc(180, Math.min(179.5, Math.max(0.5, endDeg)))} style={{ stroke: color }} strokeWidth={12} fill="none" strokeLinecap="round" />
-        {/* Tick 25 / 50 / 75 */}
-        {[135, 90, 45].map((d) => {
-          const [x1, y1] = pt(d, R - 7).split(" ");
-          const [x2, y2] = pt(d, R + 7).split(" ");
-          return <line key={d} x1={x1} y1={y1} x2={x2} y2={y2} style={{ stroke: "rgba(245,241,232,0.35)" }} strokeWidth={1.2} />;
-        })}
-        <text x="100" y="90" textAnchor="middle" style={{ fill: "var(--on-charcoal)", letterSpacing: "-1.5px" }} fontFamily="var(--ff-sans)" fontSize="36" fontWeight="500">
-          {score}
-        </text>
-        <text x="100" y="110" textAnchor="middle" style={{ fill: color }} fontFamily="var(--ff-mono)" fontSize="9" letterSpacing="1.5">
-          {label}
-        </text>
-      </svg>
-      <span className="kh__gauge-label-bottom">UY TÍN THANH TOÁN</span>
-    </div>
-  );
+  const tone = tones[Math.abs(code) % tones.length];
+  return `kh__avatar--${tone}`;
 }
 
 /*
@@ -293,41 +227,22 @@ const QUOTE_STATUS_LABELS: Record<string, string> = {
   change_order: "Re-quote",
 };
 
+// Form Thêm/Sửa — THÔNG TIN ĐỊNH DANH (redesign spec-06 v2). Tài chính sửa riêng ở detail.
 interface FormState {
   name: string;
+  customer_kind: CustomerKind;
   tax_code: string;
-  phone: string;
   email: string;
   address: string;
-  contact_name: string;
-  credit_limit: string;
   sale_user_id: string;
-  status: string;
-  // Điều khoản thanh toán (#12).
-  payment_term_type: string;
-  payment_term_days: string;
-  prepay_pct: string;
-  payment_term_note: string;
-  // Chiết khấu riêng (#14) — chỉ hiện khi có quyền `view_discount`.
-  discount_trade_pct: string;
-  discount_buyer_pct: string;
 }
 const EMPTY_FORM: FormState = {
   name: "",
+  customer_kind: "cong_ty",
   tax_code: "",
-  phone: "",
   email: "",
   address: "",
-  contact_name: "",
-  credit_limit: "0",
   sale_user_id: "",
-  status: "active",
-  payment_term_type: "",
-  payment_term_days: "",
-  prepay_pct: "",
-  payment_term_note: "",
-  discount_trade_pct: "",
-  discount_buyer_pct: "",
 };
 
 /*
@@ -344,31 +259,6 @@ const DUP_FIELD_LABELS: Record<DuplicateWarn["field"], string> = {
   email: "email",
 };
 
-const PAYMENT_TERM_LABELS: Record<string, string> = {
-  prepay: "Trả trước X%",
-  net_delivery: "X ngày từ ngày nhận hàng",
-  net_eom: "Đối chiếu cuối tháng + X ngày",
-  custom: "Đặc thù khác (ghi chú)",
-};
-
-/** Tóm tắt điều khoản thanh toán để hiển thị (hồ sơ + bảng). */
-/*
-function termSummary(c: CustomerRow): string | null {
-  switch (c.payment_term_type) {
-    case "prepay":
-      return `Trả trước ${c.prepay_pct ?? "?"}%`;
-    case "net_delivery":
-      return `${c.payment_term_days ?? "?"} ngày từ ngày nhận hàng`;
-    case "net_eom":
-      return `Đối chiếu cuối tháng + ${c.payment_term_days ?? "?"} ngày`;
-    case "custom":
-      return c.payment_term_note || "Đặc thù khác";
-    default:
-      return null;
-  }
-}
-*/
-
 // =============================================================================
 // List-Report page
 // =============================================================================
@@ -382,9 +272,9 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState("code");
   const [q, setQ] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>(""); // "" | "active" | "inactive"
   const [saleFilter, setSaleFilter] = useState<string>("");
-  const [tierFilter, setTierFilter] = useState<string>("");
+  // Redesign spec-06 v2: bỏ lọc trạng thái/tier; chỉ còn lọc theo THẺ + tab "Cần theo dõi".
+  const [followupFilter, setFollowupFilter] = useState<boolean>(false);
   const [tagFilter, setTagFilter] = useState<string>("");
   const [tagLabels, setTagLabels] = useState<string[]>([]);
   const [pageSize, setPageSize] = useState(25);
@@ -396,7 +286,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
   const canReassign = can("khach_hang", "reassign");
   const canExport = can("khach_hang", "export");
   const canCreate = can("khach_hang", "create");
-  const colCount = canReassign ? 9 : 8; // avatar, tier stars, TB/don, AR, uy-tin columns added
+  const colCount = canReassign ? 7 : 6; // [checkbox] · KH · doanh số · số đơn · TB/đơn · NV · ›
 
   // Import / export danh bạ (#23).
   const [importOpen, setImportOpen] = useState(false);
@@ -422,7 +312,8 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
       .then((res) => {
         const now = Date.now();
         const out = res.items
-          .filter((c) => (c.tier === "loyal" || c.tier === "partner") && c.last_order_at)
+          // Redesign spec-06 v2: gợi ý theo LÂU CHƯA MUA thật (bỏ tier).
+          .filter((c) => c.last_order_at)
           .map((c) => ({
             customer_id: c.id,
             code: c.code,
@@ -529,8 +420,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
       .list(token, {
         q: q.trim() || undefined,
         sale: saleFilter ? Number(saleFilter) : null,
-        status: statusFilter || null,
-        tier: tierFilter || null,
+        followup: followupFilter || undefined,
         tag: tagFilter || null,
         sort,
         page,
@@ -546,12 +436,12 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
         else setListError("Không tải được danh bạ khách hàng.");
       })
       .finally(() => setLoading(false));
-  }, [token, q, saleFilter, statusFilter, tierFilter, tagFilter, sort, page, pageSize]);
+  }, [token, q, saleFilter, followupFilter, tagFilter, sort, page, pageSize]);
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, sort, page, pageSize, saleFilter, statusFilter, tierFilter, tagFilter]);
+  }, [token, sort, page, pageSize, saleFilter, followupFilter, tagFilter]);
 
   useEffect(() => {
     if (!token) return;
@@ -688,10 +578,10 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
           <p className="kh__sub">
             {kpis ? (
               <span className="kh__subtitle-stats">
-                <strong>{total}</strong> KH &middot; <strong style={{ color: "var(--rust)" }}>{kpis.loyal_count}</strong> thân thiết &middot; <strong>{kpis.new_this_month}</strong> mới trong tháng &middot; TB đơn <strong>{moneyCompact(kpis.avg_order_value)}</strong>
+                <strong>{total}</strong> KH &middot; <strong>{kpis.new_this_month}</strong> mới trong tháng &middot; TB đơn <strong>{moneyCompact(kpis.avg_order_value)}</strong>
               </span>
             ) : (
-              "Danh bạ 360° — tìm, phân loại theo lịch sử mua thật, xem dashboard & công nợ."
+              "Danh bạ 360° — tìm theo thẻ gán tay, xem lịch sử mua thật & dashboard."
             )}
           </p>
         </div>
@@ -827,23 +717,6 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             ]}
           />
         </div>
-        <div className="kh__filter">
-          <Select
-            ariaLabel="Lọc theo trạng thái"
-            value={statusFilter}
-            placeholder="Tất cả trạng thái"
-            onChange={(v) => {
-              setStatusFilter(v ?? "");
-              setPage(1);
-            }}
-            options={[
-              { value: "", label: "Tất cả trạng thái" },
-              { value: "lead", label: "Tiềm năng" },
-              { value: "active", label: "Đang giao dịch" },
-              { value: "inactive", label: "Ngừng giao dịch" },
-            ]}
-          />
-        </div>
         {tagLabels.length > 0 && (
           <div className="kh__filter">
             <Select
@@ -863,13 +736,14 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
         )}
       </div>
 
-      {/* Sub-tab filter pills (Figma Style) */}
+      {/* Sub-tab: Tất cả + Cần theo dõi (redesign spec-06 v2 — bỏ tab tier). Lọc phân loại
+          dùng THẺ gán tay ở dropdown "nhãn" phía trên. */}
       <div className="kh__sub-tabs">
         <button
           type="button"
-          className={`kh__sub-tab kh__sub-tab--all${tierFilter === "" ? " is-active" : ""}`}
+          className={`kh__sub-tab kh__sub-tab--all${!followupFilter ? " is-active" : ""}`}
           onClick={() => {
-            setTierFilter("");
+            setFollowupFilter(false);
             setPage(1);
           }}
         >
@@ -877,39 +751,9 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
         </button>
         <button
           type="button"
-          className={`kh__sub-tab kh__sub-tab--loyal${tierFilter === "loyal" ? " is-active" : ""}`}
+          className={`kh__sub-tab kh__sub-tab--followup${followupFilter ? " is-active" : ""}`}
           onClick={() => {
-            setTierFilter("loyal");
-            setPage(1);
-          }}
-        >
-          Thân thiết <span className="kh__sub-tab-count">{kpis?.loyal_count ?? 0}</span>
-        </button>
-        <button
-          type="button"
-          className={`kh__sub-tab kh__sub-tab--partner${tierFilter === "partner" ? " is-active" : ""}`}
-          onClick={() => {
-            setTierFilter("partner");
-            setPage(1);
-          }}
-        >
-          Đối tác lâu năm <span className="kh__sub-tab-count">{kpis?.partner_count ?? 0}</span>
-        </button>
-        <button
-          type="button"
-          className={`kh__sub-tab kh__sub-tab--new${tierFilter === "new" ? " is-active" : ""}`}
-          onClick={() => {
-            setTierFilter("new");
-            setPage(1);
-          }}
-        >
-          Mới trong tháng <span className="kh__sub-tab-count">{kpis?.new_this_month ?? 0}</span>
-        </button>
-        <button
-          type="button"
-          className={`kh__sub-tab kh__sub-tab--followup${tierFilter === "followup" ? " is-active" : ""}`}
-          onClick={() => {
-            setTierFilter("followup");
+            setFollowupFilter(true);
             setPage(1);
           }}
         >
@@ -959,7 +803,6 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
               <th>
                 <SortBtn label="Khách hàng" col="name" sort={sort} onSort={setSort} />
               </th>
-              <th>Tier</th>
               <th className="kh__num">
                 <SortBtn label="Doanh số 12T" col="revenue" sort={sort} onSort={setSort} />
               </th>
@@ -967,8 +810,6 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                 <SortBtn label="Số đơn" col="orders" sort={sort} onSort={setSort} />
               </th>
               <th className="kh__num">TB / Đơn</th>
-              <th className="kh__num">Công nợ</th>
-              <th>Uy tín</th>
               <th>NV phụ trách</th>
               <th></th>
             </tr>
@@ -998,7 +839,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             ) : rows.length === 0 ? (
               <tr>
                 <td colSpan={colCount} className="kh__empty">
-                  {q || statusFilter || saleFilter ? (
+                  {q || tagFilter || saleFilter || followupFilter ? (
                     <>
                       <p>Không có khách hàng khớp bộ lọc.</p>
                       <button
@@ -1006,8 +847,9 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                         className="btn btn--ghost"
                         onClick={() => {
                           setQ("");
-                          setStatusFilter("");
+                          setTagFilter("");
                           setSaleFilter("");
+                          setFollowupFilter(false);
                           setPage(1);
                         }}
                       >
@@ -1033,8 +875,6 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
             ) : (
               rows.map((c) => {
                 const initials = getInitials(c.name);
-                const mockAR = getMockAR(c.id);
-                const stars = c.tier === "partner" ? 5 : c.tier === "loyal" ? 4 : c.tier === "regular" ? 3 : 2;
                 const avgOrderValue = c.orders_total > 0 ? Math.round(c.revenue_12m / c.orders_total) : 0;
 
                 return (
@@ -1059,30 +899,22 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                     )}
                     <td>
                       <div className="kh__identity-cell">
-                        <div className="kh__avatar">{initials}</div>
+                        <div className={`kh__avatar ${getKhAvatarClass(c.name)}`}>{initials}</div>
                         <div className="kh__identity">
                           <span className="kh__name">{c.name}</span>
                           <span className="kh__submeta">
                             {c.tax_code && <span className="kh__mono">MST {c.tax_code}</span>}
                           </span>
                           <div className="kh__row-badges">
-                            {c.tier === "loyal" && <span className="kh__row-badge kh__row-badge--loyal">Thân thiết</span>}
-                            {c.tier === "partner" && <span className="kh__row-badge kh__row-badge--partner">Đối tác lâu năm</span>}
-                            {mockAR.creditScore >= 80 && <span className="kh__row-badge kh__row-badge--good">Trả đúng hạn</span>}
-                            {/* Nhãn thủ công (#7) — sales gán tay trong hồ sơ. */}
+                            {/* Redesign spec-06 v2: badge = THẺ gán tay (#7), bỏ tier/mock. */}
                             {(c.tags ?? []).map((t) => (
-                              <span key={t} className="kh__row-badge kh__row-badge--tag">
+                              <span key={t} className={`kh__row-badge kh__row-badge--tag-${tagTone(t)}`}>
                                 {t}
                               </span>
                             ))}
                           </div>
                         </div>
                       </div>
-                    </td>
-                    <td>
-                      <span className="kh__stars-cell" aria-label={`${stars} sao`}>
-                        {"★".repeat(stars)}
-                      </span>
                     </td>
                     <td className="kh__num kh__money">
                       {c.revenue_12m > 0 ? moneyStat(c.revenue_12m) : <span className="kh__muted">—</span>}
@@ -1092,30 +924,6 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                     </td>
                     <td className="kh__num">
                       {avgOrderValue > 0 ? moneySuperCompact(avgOrderValue) : <span className="kh__muted">—</span>}
-                    </td>
-                    <td>
-                      <div className="kh__ar-cell">
-                        {mockAR.receivableVal > 0 ? (
-                          <>
-                            <span className="kh__ar-amount">{moneySuperCompact(mockAR.receivableVal)}</span>
-                            {mockAR.isOverdue ? (
-                              <span className="kh__ar-sub kh__ar-sub--danger">⚠ Quá hạn {mockAR.overdueDays}D</span>
-                            ) : (
-                              <span className="kh__ar-sub kh__ar-sub--success">✓ Trong hạn</span>
-                            )}
-                          </>
-                        ) : (
-                          <>
-                            <span className="kh__ar-amount">—</span>
-                            <span className="kh__ar-sub kh__ar-sub--muted">Đã thu đủ</span>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                    <td>
-                      <span className={`kh__score-badge kh__score-badge--${mockAR.creditScore >= 80 ? "good" : "bad"}`}>
-                        {mockAR.creditScore}
-                      </span>
                     </td>
                     <td>{c.sale_name ?? <span className="kh__muted">Chưa gán</span>}</td>
                     <td className="kh__arrow-col">
@@ -1187,29 +995,16 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
       {mode === "edit" && editing && (
         <CustomerFormDialog
           title={`Sửa khách hàng · ${editing.code}`}
-          code={editing.code}
           customerId={editing.id}
           isEdit
           sales={sales}
           initial={{
             name: editing.name,
+            customer_kind: editing.customer_kind,
             tax_code: editing.tax_code ?? "",
-            phone: editing.phone ?? "",
             email: editing.email ?? "",
             address: editing.address ?? "",
-            contact_name: editing.contact_name ?? "",
-            credit_limit: String(editing.credit_limit),
             sale_user_id: editing.sale_user_id != null ? String(editing.sale_user_id) : "",
-            status: editing.status,
-            payment_term_type: editing.payment_term_type ?? "",
-            payment_term_days:
-              editing.payment_term_days != null ? String(editing.payment_term_days) : "",
-            prepay_pct: editing.prepay_pct != null ? String(editing.prepay_pct) : "",
-            payment_term_note: editing.payment_term_note ?? "",
-            discount_trade_pct:
-              editing.discount_trade_pct != null ? String(editing.discount_trade_pct) : "",
-            discount_buyer_pct:
-              editing.discount_buyer_pct != null ? String(editing.discount_buyer_pct) : "",
           }}
           onClose={() => setMode(null)}
           onSaved={() => {
@@ -1345,15 +1140,9 @@ function KpiStrip({
   const cells: { label: string; value: ReactNode; hint: string }[] = [
     { label: "Tổng khách hàng", value: kpis ? String(kpis.total_customers) : "—", hint: "trong phạm vi" },
     {
-      label: "Thân thiết / tổng",
-      value: kpis ? (
-        <>
-          {kpis.loyal_count} <small>/ {kpis.total_customers}</small>
-        </>
-      ) : (
-        "—"
-      ),
-      hint: "≥ 50tr / 12T",
+      label: "Mới trong tháng",
+      value: kpis ? String(kpis.new_this_month) : "—",
+      hint: "tạo tháng này",
     },
     {
       label: "TB / đơn (12T)",
@@ -1440,7 +1229,7 @@ function SortBtn({
 // Object-page slide-over
 // =============================================================================
 
-type Tab = "dashboard" | "orders" | "quotes" | "care" | "contacts" | "addresses" | "files" | "audit";
+type Tab = "dashboard" | "orders" | "quotes" | "care" | "notes" | "contacts" | "addresses" | "files" | "audit";
 
 function CustomerObjectPage({
   customerId,
@@ -1462,6 +1251,7 @@ function CustomerObjectPage({
   navigate: NavigateFn;
 }) {
   const { token } = useAuth();
+  const canCredit = useCan()("khach_hang", "set_credit_terms");
   const [customer, setCustomer] = useState<CustomerRow | null>(null);
   const [dash, setDash] = useState<CustomerDashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1548,9 +1338,6 @@ function CustomerObjectPage({
               customer={customer}
               dash={dash}
               onEdit={() => onEdit(customer)}
-              navigate={navigate}
-              onClose={onClose}
-              onSchedule={() => setTab("care")}
             />
             <nav className="kh__so-tabs" aria-label="Nội dung">
               {(
@@ -1559,6 +1346,7 @@ function CustomerObjectPage({
                   ["orders", "Lịch sử mua hàng", <ReceiptText size={14} key="i" />, dash.orders_total],
                   ["quotes", "Lịch sử báo giá", <FileText size={14} key="i" />, dash.quotes_total],
                   ["care", "Chăm sóc", <HeartHandshake size={14} key="i" />, null],
+                  ["notes", "Ghi chú", <StickyNote size={14} key="i" />, null],
                   ["contacts", "Liên hệ", <Users size={14} key="i" />, null],
                   ["addresses", "Giao hàng", <MapPin size={14} key="i" />, null],
                   ["files", "Tài liệu", <Paperclip size={14} key="i" />, null],
@@ -1579,16 +1367,17 @@ function CustomerObjectPage({
             </nav>
 
             <div className="kh__so-body">
-              {tab === "dashboard" && <DashboardTab dash={dash} receivable={receivable} />}
-              {tab === "orders" && (
-                <OrdersTab
-                  customerId={customerId}
-                  code={customer.code}
-                  onOpenOrder={(id) => {
-                    onClose();
-                    navigate("don-hang-ban", { openOrderId: id });
-                  }}
+              {tab === "dashboard" && (
+                <DashboardTab
+                  dash={dash}
+                  receivable={receivable}
+                  customer={customer}
+                  canCredit={canCredit}
+                  onCustomerUpdated={setCustomer}
                 />
+              )}
+              {tab === "orders" && (
+                <OrdersTab customerId={customerId} code={customer.code} />
               )}
               {tab === "quotes" && (
                 <QuotesTab
@@ -1600,16 +1389,16 @@ function CustomerObjectPage({
                 />
               )}
               {tab === "care" && <CareTab customerId={customerId} />}
+              {tab === "notes" && <NotesTab customerId={customerId} />}
               {tab === "contacts" && <ContactsTab customerId={customerId} />}
               {tab === "addresses" && <AddressesTab customerId={customerId} />}
               {tab === "files" && <AttachmentsTab customerId={customerId} />}
               {tab === "audit" && (
                 <AuditTab
                   customerId={customerId}
-                  onDrill={(refType, id) => {
+                  onDrill={(_refType, id) => {
                     onClose();
-                    if (refType === "order") navigate("don-hang-ban", { openOrderId: id });
-                    else navigate("bao-gia", { openQuoteId: id });
+                    navigate("bao-gia", { openQuoteId: id });
                   }}
                 />
               )}
@@ -1625,34 +1414,23 @@ function ObjectHeader({
   customer,
   dash,
   onEdit,
-  navigate,
-  onClose,
-  onSchedule,
 }: {
   customer: CustomerRow;
   dash: CustomerDashboard;
   onEdit: () => void;
-  navigate: NavigateFn;
-  onClose: () => void;
-  onSchedule: () => void;
 }) {
   // const canDebt = useCan()("khach_hang", "view_debt");
   // const rec = dash.receivable;
   // // Gauge uy tín thanh toán: chỉ khi Công nợ sẵn sàng; nếu không → seam trung thực.
   // const usage = rec.available && rec.usage_pct != null ? rec.usage_pct : null;
 
-  const tel = customer.phone ? `tel:${customer.phone}` : undefined;
-  const mail = customer.email ? `mailto:${customer.email}` : undefined;
-  const zalo = customer.phone ? `https://zalo.me/${customer.phone.replace(/\D/g, "")}` : undefined;
-
-  const mockAR = getMockAR(customer.id);
-
   return (
     <header className="kh__so-head">
       <div className="kh__so-headmain">
         <div className="kh__so-title-row">
+          {/* Redesign spec-06 v2: bỏ tier/★; nhãn = Loại KH. Phân loại chăm sóc = THẺ (dưới). */}
           <span className="kh__so-badge-tier">
-            {customer.tier === "partner" ? "ĐỐI TÁC LÂU NĂM" : customer.tier === "loyal" ? "KHÁCH THÂN THIẾT" : "KHÁCH HÀNG"} &middot; {"★".repeat(customer.tier === "partner" ? 5 : customer.tier === "loyal" ? 4 : customer.tier === "regular" ? 3 : 2)}
+            {customer.customer_kind === "ca_nhan" ? "CÁ NHÂN" : "CÔNG TY"}
           </span>
           <h2>{customer.name}</h2>
           <div className="kh__so-badges">
@@ -1669,58 +1447,6 @@ function ObjectHeader({
             <strong>Liên hệ:</strong> {customer.contact_name ?? "—"} {customer.phone ? `· ${customer.phone}` : ""} &middot; <strong>NV phụ trách:</strong> {customer.sale_name ?? "Chưa gán"}
           </p>
         </div>
-      </div>
-
-      <div className="kh__so-headgauge">
-        <CreditGauge score={mockAR.creditScore} />
-      </div>
-
-      <div className="kh__toolbar-actions" role="toolbar" aria-label="Hành động">
-        <a className={`btn btn--accent${tel ? "" : " is-disabled"}`} href={tel} aria-disabled={!tel}>
-          <Phone size={15} strokeWidth={2} /> Gọi
-        </a>
-        <a className={`btn kh__btn-dark${mail ? "" : " is-disabled"}`} href={mail} aria-disabled={!mail}>
-          <Mail size={15} strokeWidth={2} /> Email
-        </a>
-        <a
-          className={`btn kh__btn-dark${zalo ? "" : " is-disabled"}`}
-          href={zalo}
-          target="_blank"
-          rel="noreferrer"
-          aria-disabled={!zalo}
-        >
-          <MessageCircle size={15} strokeWidth={2} /> Zalo
-        </a>
-        <button
-          type="button"
-          className="btn kh__btn-dark"
-          title={`Mở màn Báo giá và ghim khách ${customer.name} (${customer.code})`}
-          onClick={() => {
-            onClose();
-            navigate("bao-gia", { customer: pinOf(customer) });
-          }}
-        >
-          <FileText size={15} strokeWidth={2} /> Tạo báo giá
-        </button>
-        <button
-          type="button"
-          className="btn kh__btn-dark"
-          title={`Mở màn Đơn hàng bán và ghim khách ${customer.name} (${customer.code})`}
-          onClick={() => {
-            onClose();
-            navigate("don-hang-ban", { customer: pinOf(customer) });
-          }}
-        >
-          <ShoppingBag size={15} strokeWidth={2} /> Tạo đơn hàng
-        </button>
-        <button
-          type="button"
-          className="btn kh__btn-dark"
-          title="Mở tab Chăm sóc để tạo lịch hẹn follow-up"
-          onClick={onSchedule}
-        >
-          <CalendarClock size={15} strokeWidth={2} /> Lịch hẹn
-        </button>
       </div>
     </header>
   );
@@ -1774,9 +1500,15 @@ function PaymentGauge({
 function DashboardTab({
   dash,
   receivable,
+  customer,
+  canCredit,
+  onCustomerUpdated,
 }: {
   dash: CustomerDashboard;
   receivable: ReceivableCard | undefined;
+  customer: CustomerRow;
+  canCredit: boolean;
+  onCustomerUpdated: (c: CustomerRow) => void;
 }) {
   if (!dash.has_data) {
     return (
@@ -1899,34 +1631,173 @@ function DashboardTab({
           </div>
         </section>
 
-        {/* Thanh toán widget */}
-        <section className="card kh__chart kh__payment-widget">
-          <div className="kh__chart-head">
-            <h3><CreditCard size={14} /> Thanh toán</h3>
-          </div>
-          <div className="kh__payment-body kh__payment-body--stack">
-            <div className="kh__payment-score">
-              <span className="kh__payment-pct">100<small>%</small></span>
-              <span className="kh__payment-label">ĐÚNG HẠN</span>
-            </div>
-            <div className="kh__payment-details">
-              <div className="kh__pay-detail-row">
-                <span>TB ngày trả</span>
-                <strong>12 ngày</strong>
-              </div>
-              <div className="kh__pay-detail-row">
-                <span>Trễ tối đa</span>
-                <strong>0 ngày</strong>
-              </div>
-              <div className="kh__pay-detail-row">
-                <span>Tín dụng</span>
-                <strong>150M đ</strong>
-              </div>
-            </div>
-          </div>
-        </section>
+        {/* Chính sách tài chính (redesign spec-06 v2) — thay widget "Thanh toán" fake. */}
+        <FinancialPolicyCard
+          customer={customer}
+          canEdit={canCredit}
+          onSaved={onCustomerUpdated}
+        />
       </div>
     </div>
+  );
+}
+
+// --- Chính sách tài chính (inline view/edit, redesign spec-06 v2) -------------
+// Điều khoản thanh toán đã BỎ theo yêu cầu — chỉ còn Hạn mức + rào Chiết khấu/Biên.
+
+function rangeText(min?: number | null, max?: number | null): string {
+  if (min == null && max == null) return "Chưa đặt";
+  if (min != null && max != null) return `${min}% – ${max}%`;
+  if (min != null) return `≥ ${min}%`;
+  return `≤ ${max}%`;
+}
+
+function FinancialPolicyCard({
+  customer,
+  canEdit,
+  onSaved,
+}: {
+  customer: CustomerRow;
+  canEdit: boolean;
+  onSaved: (c: CustomerRow) => void;
+}) {
+  const { token } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [f, setF] = useState({
+    credit_limit: "0",
+    payment_term_days: "",
+    discount_min_pct: "",
+    discount_max_pct: "",
+    margin_min_pct: "",
+    margin_max_pct: "",
+  });
+
+  function openEdit() {
+    const numStr = (n?: number | null) => (n != null ? String(n) : "");
+    setF({
+      credit_limit: String(customer.credit_limit ?? 0),
+      payment_term_days: numStr(customer.payment_term_days),
+      discount_min_pct: numStr(customer.discount_min_pct),
+      discount_max_pct: numStr(customer.discount_max_pct),
+      margin_min_pct: numStr(customer.margin_min_pct),
+      margin_max_pct: numStr(customer.margin_max_pct),
+    });
+    setErr(null);
+    setEditing(true);
+  }
+
+  async function save() {
+    if (!token || saving) return;
+    setSaving(true);
+    setErr(null);
+    const numOrNull = (s: string) => (s.trim() === "" ? null : Number(s));
+    const daysOrNull = (s: string) =>
+      s.trim() === "" ? null : Math.max(0, Math.floor(Number(s) || 0));
+    const input: CustomerFinancialInput = {
+      credit_limit: Number(f.credit_limit) || 0,
+      payment_term_days: daysOrNull(f.payment_term_days),
+      discount_min_pct: numOrNull(f.discount_min_pct),
+      discount_max_pct: numOrNull(f.discount_max_pct),
+      margin_min_pct: numOrNull(f.margin_min_pct),
+      margin_max_pct: numOrNull(f.margin_max_pct),
+    };
+    try {
+      const res = await api.customers.updateFinancial(token, customer.id, input);
+      onSaved(res.customer);
+      setEditing(false);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 422) setErr(e.message);
+      else if (e instanceof ApiError && e.isForbidden) setErr("Bạn không có quyền sửa chính sách tài chính.");
+      else setErr("Lưu không thành công. Thử lại.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const set = (k: keyof typeof f, v: string) => setF((s) => ({ ...s, [k]: v }));
+
+  return (
+    <section className="card kh__chart kh__finpolicy">
+      <div className="kh__chart-head">
+        <h3><CreditCard size={14} /> Chính sách tài chính</h3>
+        {canEdit && !editing && (
+          <button type="button" className="kh__fin-edit-btn" onClick={openEdit}>
+            <PencilLine size={13} strokeWidth={2} /> Sửa
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        <div className="kh__finpolicy-view">
+          <div className="kh__fin-row">
+            <span className="kh__fin-label">Hạn mức công nợ</span>
+            <strong className="kh__mono">{moneyStat(customer.credit_limit)}</strong>
+          </div>
+          <div className="kh__fin-row">
+            <span className="kh__fin-label">Số ngày công nợ tối đa</span>
+            <span>
+              {customer.payment_term_days != null
+                ? `${customer.payment_term_days} ngày kể từ ngày xuất HĐ`
+                : "Chưa đặt"}
+            </span>
+          </div>
+          <div className="kh__fin-row">
+            <span className="kh__fin-label">Chiết khấu cho phép</span>
+            <span>{rangeText(customer.discount_min_pct, customer.discount_max_pct)}</span>
+          </div>
+          <div className="kh__fin-row">
+            <span className="kh__fin-label">Biên lợi nhuận</span>
+            <span>{rangeText(customer.margin_min_pct, customer.margin_max_pct)}</span>
+          </div>
+          {!canEdit && (
+            <p className="kh__lock-note">Cần quyền “Thiết lập chính sách tài chính” để sửa.</p>
+          )}
+        </div>
+      ) : (
+        <div className="kh__finpolicy-edit">
+          <label className="field">
+            <span className="field__label">Hạn mức công nợ (VND)</span>
+            <input className="input" type="number" min={0} value={f.credit_limit}
+              onChange={(e) => set("credit_limit", e.target.value)} />
+          </label>
+          <label className="field">
+            <span className="field__label">Số ngày công nợ tối đa</span>
+            <input className="input" type="number" min={0} step={1} placeholder="Kể từ ngày xuất HĐ"
+              value={f.payment_term_days}
+              onChange={(e) => set("payment_term_days", e.target.value)} />
+          </label>
+          <div className="kh__fin-bounds">
+            <label className="field">
+              <span className="field__label">CK tối thiểu (%)</span>
+              <input className="input" type="number" min={0} max={100} value={f.discount_min_pct}
+                onChange={(e) => set("discount_min_pct", e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">CK tối đa (%)</span>
+              <input className="input" type="number" min={0} max={100} value={f.discount_max_pct}
+                onChange={(e) => set("discount_max_pct", e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">Biên tối thiểu (%)</span>
+              <input className="input" type="number" min={0} max={100} value={f.margin_min_pct}
+                onChange={(e) => set("margin_min_pct", e.target.value)} />
+            </label>
+            <label className="field">
+              <span className="field__label">Biên tối đa (%)</span>
+              <input className="input" type="number" min={0} max={100} value={f.margin_max_pct}
+                onChange={(e) => set("margin_max_pct", e.target.value)} />
+            </label>
+          </div>
+          {err && <p className="kh__err" role="alert">{err}</p>}
+          <div className="kh__fin-actions">
+            <Button type="button" variant="ghost" onClick={() => setEditing(false)}>Huỷ</Button>
+            <Button type="button" variant="primary" loading={saving} onClick={save}>Lưu</Button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -1987,11 +1858,9 @@ function Heatmap({ dash }: { dash: CustomerDashboard }) {
 function OrdersTab({
   customerId,
   code,
-  onOpenOrder,
 }: {
   customerId: number;
   code: string;
-  onOpenOrder: (id: number) => void;
 }) {
   const { token } = useAuth();
   const canExport = useCan()("khach_hang", "export");
@@ -2232,17 +2101,10 @@ function OrdersTab({
           </thead>
           <tbody>
             {filteredRows.map((o) => (
-              <tr
-                key={o.id}
-                className="kh__drillrow"
-                onClick={() => onOpenOrder(o.id)}
-                tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && onOpenOrder(o.id)}
-                title={`Mở chi tiết đơn ${o.order_no}`}
-              >
+              <tr key={o.id}>
                 <td>
                   <div className="kh__order-code-cell">
-                    <span className="kh__link kh__mono">{o.order_no}</span>
+                    <span className="kh__mono">{o.order_no}</span>
                     <span className="kh__order-code-sub">
                       <span className="kh__mono kh__muted">{fmtDate(o.created_at)}</span>
                       {fmtTime(o.created_at) && (
@@ -2549,7 +2411,8 @@ function AuditTab({
       <ol className="kh__tl-list">
         {rows.map((r, i) => {
           const meta = AUDIT_KIND_META[r.kind];
-          const drillable = r.ref_type != null && r.ref_id != null;
+          // Đơn hàng bán đã gỡ → chỉ báo giá còn mở được chi tiết (order-ref hiển thị nhưng không dẫn đi đâu).
+          const drillable = r.ref_type === "quotation" && r.ref_id != null;
           return (
             <li
               key={`${r.kind}-${r.ref_id ?? "p"}-${i}`}
@@ -2589,13 +2452,6 @@ const DEFAULT_TAG_PRESETS = [
   "Tiềm năng", "Ưu tiên", "Đối tác lâu năm", "Trả đúng hạn", "Hay trễ hẹn",
   "Khó tính", "Nhạy giá", "Ưa giao nhanh", "Cần chăm sóc", "Tái ký HĐ",
 ];
-const TAG_TONES = ["rust", "plum", "moss", "amber"] as const;
-/** Màu thẻ ổn định theo nội dung nhãn (hash) — cùng nhãn luôn cùng màu ở mọi nơi. */
-function tagTone(label: string): (typeof TAG_TONES)[number] {
-  let h = 0;
-  for (const ch of label) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return TAG_TONES[h % TAG_TONES.length];
-}
 
 /** Chips nhãn trên header hồ sơ + nút mở modal Gắn thẻ (mockup: toggle preset, Lưu một lần). */
 function TagChips({ customerId, customerName }: { customerId: number; customerName?: string }) {
@@ -2801,6 +2657,253 @@ function TagModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// --- Ghi chú tab (lưu ý tự do của team về khách; ghim + sửa/xóa) ---------------
+
+function NotesTab({ customerId }: { customerId: number }) {
+  const { token } = useAuth();
+  const canUpdate = useCan()("khach_hang", "update");
+  const [notes, setNotes] = useState<CustomerNote[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
+
+  const reload = useCallback(() => {
+    if (!token) return;
+    api.customers
+      .notes(token, customerId)
+      .then((r) => setNotes(r.items))
+      .catch(() => setError("Không tải được ghi chú."));
+  }, [token, customerId]);
+
+  useEffect(() => {
+    setNotes(null);
+    setError(null);
+    reload();
+  }, [reload]);
+
+  async function add() {
+    if (!token || busy || !draft.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.customers.addNote(token, customerId, draft.trim());
+      setDraft("");
+      reload();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Thêm ghi chú không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveEdit(n: CustomerNote) {
+    if (!token || !editBody.trim()) return;
+    try {
+      await api.customers.updateNote(token, customerId, n.id, { body: editBody.trim() });
+      setEditId(null);
+      setEditBody("");
+      reload();
+    } catch {
+      setError("Lưu ghi chú không thành công.");
+    }
+  }
+
+  async function togglePin(n: CustomerNote) {
+    if (!token) return;
+    try {
+      await api.customers.updateNote(token, customerId, n.id, { pinned: !n.pinned });
+      reload();
+    } catch {
+      setError("Cập nhật ghim không thành công.");
+    }
+  }
+
+  async function remove(n: CustomerNote) {
+    if (!token) return;
+    try {
+      await api.customers.deleteNote(token, customerId, n.id);
+      setConfirmDeleteId(null);
+      reload();
+    } catch {
+      setError("Xóa ghi chú không thành công.");
+    }
+  }
+
+  if (notes === null) return <p className="kh__muted">Đang tải…</p>;
+
+  return (
+    <div className="kh__notes">
+      {canUpdate && (
+        <div className="kh__note-composer">
+          <div className="kh__note-composer-card">
+            <textarea
+              className="kh__note-input"
+              rows={2}
+              placeholder="Thêm ghi chú về khách (vd: thích giao buổi sáng, chốt qua Zalo nhanh nhất, hay trả trễ…)"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") add();
+              }}
+            />
+            <div className="kh__note-composer-toolbar">
+              <span className="kh__note-hint">⌘/Ctrl + Enter để lưu nhanh</span>
+              <Button
+                type="button"
+                variant="primary"
+                loading={busy}
+                disabled={!draft.trim()}
+                onClick={add}
+              >
+                <Plus size={14} /> Thêm ghi chú
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <p className="kh__err" role="alert">
+          {error}
+        </p>
+      )}
+
+      {notes.length === 0 ? (
+        <div className="kh__note-empty-container">
+          <div className="kh__note-empty-icon">
+            <StickyNote size={40} strokeWidth={1.5} />
+          </div>
+          <h3 className="kh__note-empty-title">Chưa có ghi chú nào</h3>
+          <p className="kh__note-empty-desc">
+            {canUpdate
+              ? "Thêm ghi chú đầu tiên ở trên để lưu trữ các thông tin liên lạc, sở thích hoặc lưu ý quan trọng về khách hàng này."
+              : "Chưa có lưu ý nào được ghi nhận cho khách hàng này."}
+          </p>
+        </div>
+      ) : (
+        <ul className="kh__note-list">
+          {notes.map((n) => (
+            <li key={n.id} className={`kh__note${n.pinned ? " is-pinned" : ""}`}>
+              {editId === n.id ? (
+                <div className="kh__note-edit">
+                  <textarea
+                    className="input"
+                    rows={3}
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                  />
+                  <div className="kh__note-edit-actions">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        setEditId(null);
+                        setEditBody("");
+                      }}
+                    >
+                      Huỷ
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="primary"
+                      disabled={!editBody.trim()}
+                      onClick={() => saveEdit(n)}
+                    >
+                      Lưu
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="kh__note-header">
+                    <div className="kh__note-author-info">
+                      <div className="kh__note-avatar">
+                        {n.author_name ? getInitials(n.author_name) : "?"}
+                      </div>
+                      <span className="kh__note-author-name">{n.author_name || "—"}</span>
+                      <span className="kh__note-dot">•</span>
+                      <span className="kh__note-time" title={fmtDateTime(n.created_at)}>
+                        {fmtDateTime(n.created_at)}
+                      </span>
+                      {n.edited && n.updated_at && (
+                        <>
+                          <span className="kh__note-dot">•</span>
+                          <span className="kh__note-edited" title={`Đã sửa ${fmtDateTime(n.updated_at)}`}>
+                            đã sửa
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    {canUpdate && confirmDeleteId !== n.id && (
+                      <span className="kh__note-actions">
+                        <button
+                          type="button"
+                          className={`kh__note-act${n.pinned ? " is-on" : ""}`}
+                          title={n.pinned ? "Bỏ ghim" : "Ghim lên đầu"}
+                          onClick={() => togglePin(n)}
+                        >
+                          <Pin size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="kh__note-act"
+                          title="Sửa"
+                          onClick={() => {
+                            setEditId(n.id);
+                            setEditBody(n.body);
+                          }}
+                        >
+                          <PencilLine size={13} />
+                        </button>
+                        <button
+                          type="button"
+                          className="kh__note-act kh__note-act--danger"
+                          title="Xóa"
+                          onClick={() => setConfirmDeleteId(n.id)}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </span>
+                    )}
+                  </div>
+                  <div className="kh__note-body">
+                    {n.pinned && <Pin size={12} className="kh__note-pin-ic" />}
+                    <span>{n.body}</span>
+                  </div>
+                  {confirmDeleteId === n.id && (
+                    <div className="kh__note-delete-confirm">
+                      <span className="kh__note-delete-confirm-msg">Xác nhận xóa ghi chú này?</span>
+                      <div className="kh__note-delete-confirm-actions">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={() => setConfirmDeleteId(null)}
+                        >
+                          Hủy
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="danger"
+                          onClick={() => remove(n)}
+                        >
+                          Xác nhận
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -4305,7 +4408,6 @@ function TableSkeleton({ cols }: { cols: number }) {
 
 function CustomerFormDialog({
   title,
-  code,
   customerId,
   isEdit,
   initial,
@@ -4314,7 +4416,6 @@ function CustomerFormDialog({
   onSaved,
 }: {
   title: string;
-  code?: string;
   customerId?: number;
   isEdit: boolean;
   initial: FormState;
@@ -4327,9 +4428,10 @@ function CustomerFormDialog({
   // thiếu quyền thì khóa picker khi Sửa; khi Tạo mới vẫn chọn được (gán lần đầu).
   const can = useCan();
   const canReassign = can("khach_hang", "reassign");
-  // Chiết khấu riêng (#14): thiếu quyền `view_discount` → ẩn hẳn khối (backend cũng bỏ qua).
-  const canDiscount = can("khach_hang", "view_discount");
-  const saleLocked = isEdit && !canReassign;
+  // Redesign spec-06 v2: form chỉ ĐỊNH DANH; tài chính sửa ở detail. Người phụ trách mặc định
+  // chính mình — khóa picker (kể cả khi Tạo) nếu không có quyền điều chuyển (chỉ quản lý mới
+  // gán cấp dưới). Đổi Loại → ẩn/hiện MST.
+  const saleLocked = !canReassign;
   const [form, setForm] = useState<FormState>(initial);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Partial<Record<keyof FormState, string>>>({});
@@ -4376,29 +4478,9 @@ function CustomerFormDialog({
   function validate(): boolean {
     const next: Partial<Record<keyof FormState, string>> = {};
     if (!form.name.trim()) next.name = "Tên khách hàng là bắt buộc.";
-    if (form.tax_code.trim() && !MST_RE.test(form.tax_code.trim()))
+    // MST chỉ áp cho công ty; nếu có nhập thì phải đúng định dạng (khách lẻ không cần MST).
+    if (form.customer_kind === "cong_ty" && form.tax_code.trim() && !MST_RE.test(form.tax_code.trim()))
       next.tax_code = "MST phải gồm 10 hoặc 13 chữ số.";
-    const limit = Number(form.credit_limit);
-    if (form.credit_limit.trim() === "" || Number.isNaN(limit) || limit < 0)
-      next.credit_limit = "Hạn mức phải là số ≥ 0.";
-    // Điều khoản thanh toán (#12): validate theo kiểu mốc.
-    const term = form.payment_term_type;
-    if (term === "prepay") {
-      const p = Number(form.prepay_pct);
-      if (form.prepay_pct.trim() === "" || Number.isNaN(p) || p < 0 || p > 100)
-        next.prepay_pct = "Nhập tỷ lệ trả trước 0–100%.";
-    }
-    if (term === "net_delivery" || term === "net_eom") {
-      const d = Number(form.payment_term_days);
-      if (form.payment_term_days.trim() === "" || !Number.isInteger(d) || d < 0)
-        next.payment_term_days = "Nhập số ngày công nợ (số nguyên ≥ 0).";
-    }
-    for (const key of ["discount_trade_pct", "discount_buyer_pct"] as const) {
-      if (form[key].trim() !== "") {
-        const v = Number(form[key]);
-        if (Number.isNaN(v) || v < 0 || v > 100) next[key] = "Chiết khấu phải trong 0–100%.";
-      }
-    }
     setErrors(next);
     return Object.keys(next).length === 0;
   }
@@ -4409,31 +4491,14 @@ function CustomerFormDialog({
     if (!validate()) return;
     setSaving(true);
     setServerError(null);
-    const term = form.payment_term_type;
     const input: CustomerInput = {
       name: form.name.trim(),
-      tax_code: form.tax_code.trim() || null,
-      phone: form.phone.trim() || null,
+      customer_kind: form.customer_kind,
+      // Cá nhân → không gửi MST (ẩn).
+      tax_code: form.customer_kind === "cong_ty" ? form.tax_code.trim() || null : null,
       email: form.email.trim() || null,
       address: form.address.trim() || null,
-      contact_name: form.contact_name.trim() || null,
-      credit_limit: Number(form.credit_limit),
       sale_user_id: form.sale_user_id ? Number(form.sale_user_id) : null,
-      status: form.status,
-      payment_term_type: term || null,
-      payment_term_days:
-        term === "net_delivery" || term === "net_eom" ? Number(form.payment_term_days) : null,
-      prepay_pct: term === "prepay" ? Number(form.prepay_pct) : null,
-      payment_term_note: form.payment_term_note.trim() || null,
-      // Backend: khi Sửa, null = giữ nguyên CK (xóa CK → gửi 0); thiếu quyền thì bị bỏ qua.
-      discount_trade_pct:
-        canDiscount && form.discount_trade_pct.trim() !== ""
-          ? Number(form.discount_trade_pct)
-          : null,
-      discount_buyer_pct:
-        canDiscount && form.discount_buyer_pct.trim() !== ""
-          ? Number(form.discount_buyer_pct)
-          : null,
     };
     try {
       const res =
@@ -4491,11 +4556,7 @@ function CustomerFormDialog({
         ) : (
           <form className="kh__dialog-body" onSubmit={onSubmit}>
             <div className="kh__form-grid">
-              <label className="field">
-                <span className="field__label">Mã KH</span>
-                <input className="input" value={code ?? "(tự sinh)"} readOnly disabled />
-              </label>
-              <label className="field">
+              <label className="field kh__form-wide">
                 <span className="field__label">Tên khách hàng *</span>
                 <input
                   className="input"
@@ -4508,53 +4569,27 @@ function CustomerFormDialog({
                 {errors.name && <span className="kh__err" role="alert">{errors.name}</span>}
               </label>
               <label className="field">
-                <span className="field__label">MST</span>
-                <input
-                  className="input"
-                  value={form.tax_code}
-                  onChange={(e) => set("tax_code", e.target.value)}
-                  onBlur={liveCheck}
-                  placeholder="10 hoặc 13 chữ số"
-                  aria-invalid={!!errors.tax_code}
-                />
-                {errors.tax_code && <span className="kh__err" role="alert">{errors.tax_code}</span>}
-              </label>
-              <label className="field">
-                <span className="field__label">Điện thoại</span>
-                <input className="input" value={form.phone} onChange={(e) => set("phone", e.target.value)} />
-              </label>
-              <label className="field">
-                <span className="field__label">Email</span>
-                <input
-                  className="input"
-                  value={form.email}
-                  onChange={(e) => set("email", e.target.value)}
-                  onBlur={liveCheck}
-                />
-              </label>
-              <label className="field">
-                <span className="field__label">Người liên hệ</span>
-                <input
-                  className="input"
-                  value={form.contact_name}
-                  onChange={(e) => set("contact_name", e.target.value)}
-                />
-              </label>
-              <label className="field kh__form-wide">
-                <span className="field__label">Địa chỉ</span>
-                <input className="input" value={form.address} onChange={(e) => set("address", e.target.value)} />
-              </label>
-              <label className="field">
-                <span className="field__label">Hạn mức tín dụng (VND)</span>
-                <input
-                  className="input"
-                  type="number"
-                  min={0}
-                  value={form.credit_limit}
-                  onChange={(e) => set("credit_limit", e.target.value)}
-                  aria-invalid={!!errors.credit_limit}
-                />
-                {errors.credit_limit && <span className="kh__err" role="alert">{errors.credit_limit}</span>}
+                <span className="field__label">Loại khách hàng</span>
+                <div className="kh__seg" role="radiogroup" aria-label="Loại khách hàng">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={form.customer_kind === "cong_ty"}
+                    className={`kh__seg-btn${form.customer_kind === "cong_ty" ? " is-active" : ""}`}
+                    onClick={() => setForm((s) => ({ ...s, customer_kind: "cong_ty" }))}
+                  >
+                    Công ty
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={form.customer_kind === "ca_nhan"}
+                    className={`kh__seg-btn${form.customer_kind === "ca_nhan" ? " is-active" : ""}`}
+                    onClick={() => setForm((s) => ({ ...s, customer_kind: "ca_nhan" }))}
+                  >
+                    Cá nhân
+                  </button>
+                </div>
               </label>
               <label className="field">
                 <span className="field__label">NV phụ trách</span>
@@ -4573,126 +4608,36 @@ function CustomerFormDialog({
                 </select>
                 {saleLocked && (
                   <span className="kh__muted">
-                    Cần quyền “Điều chuyển” để đổi người phụ trách.
+                    Mặc định là bạn; cần quyền “Điều chuyển” để gán cấp dưới.
                   </span>
                 )}
               </label>
-              <label className="field">
-                <span className="field__label">Trạng thái</span>
-                <select
-                  className="input"
-                  value={form.status}
-                  onChange={(e) => set("status", e.target.value)}
-                >
-                  <option value="lead">Tiềm năng (chào hàng)</option>
-                  <option value="active">Đang giao dịch</option>
-                  {isEdit && <option value="inactive">Ngừng giao dịch</option>}
-                </select>
-              </label>
-
-              {/* Điều khoản thanh toán riêng (#12) — dữ liệu chờ Công nợ. */}
+              {form.customer_kind === "cong_ty" && (
+                <label className="field">
+                  <span className="field__label">MST</span>
+                  <input
+                    className="input"
+                    value={form.tax_code}
+                    onChange={(e) => set("tax_code", e.target.value)}
+                    onBlur={liveCheck}
+                    aria-invalid={!!errors.tax_code}
+                  />
+                  {errors.tax_code && <span className="kh__err" role="alert">{errors.tax_code}</span>}
+                </label>
+              )}
               <label className="field kh__form-wide">
-                <span className="field__label">Điều khoản thanh toán</span>
-                <select
-                  className="input"
-                  value={form.payment_term_type}
-                  onChange={(e) => set("payment_term_type", e.target.value)}
-                >
-                  <option value="">— Chưa khai —</option>
-                  {Object.entries(PAYMENT_TERM_LABELS).map(([v, label]) => (
-                    <option key={v} value={v}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
+                <span className="field__label">Địa chỉ (đăng ký / xuất hóa đơn)</span>
+                <input className="input" value={form.address} onChange={(e) => set("address", e.target.value)} />
               </label>
-              {(form.payment_term_type === "net_delivery" ||
-                form.payment_term_type === "net_eom") && (
-                <label className="field">
-                  <span className="field__label">Số ngày công nợ *</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    value={form.payment_term_days}
-                    onChange={(e) => set("payment_term_days", e.target.value)}
-                    aria-invalid={!!errors.payment_term_days}
-                  />
-                  {errors.payment_term_days && (
-                    <span className="kh__err" role="alert">{errors.payment_term_days}</span>
-                  )}
-                </label>
-              )}
-              {form.payment_term_type === "prepay" && (
-                <label className="field">
-                  <span className="field__label">Tỷ lệ trả trước (%) *</span>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={form.prepay_pct}
-                    onChange={(e) => set("prepay_pct", e.target.value)}
-                    aria-invalid={!!errors.prepay_pct}
-                  />
-                  {errors.prepay_pct && (
-                    <span className="kh__err" role="alert">{errors.prepay_pct}</span>
-                  )}
-                </label>
-              )}
-              {form.payment_term_type && (
-                <label className="field kh__form-wide">
-                  <span className="field__label">
-                    Ghi chú điều khoản{form.payment_term_type === "custom" ? " *" : ""}
-                  </span>
-                  <input
-                    className="input"
-                    value={form.payment_term_note}
-                    onChange={(e) => set("payment_term_note", e.target.value)}
-                    placeholder="VD: 30 ngày từ ngày đối chiếu, cọc 50% khi đặt…"
-                  />
-                </label>
-              )}
-
-              {/* Chiết khấu riêng theo KH (#14) — chỉ người có quyền `view_discount`. */}
-              {canDiscount && (
-                <>
-                  <label className="field">
-                    <span className="field__label">CK thương mại (%)</span>
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.1"
-                      value={form.discount_trade_pct}
-                      onChange={(e) => set("discount_trade_pct", e.target.value)}
-                      aria-invalid={!!errors.discount_trade_pct}
-                      placeholder="Mặc định điền vào báo giá"
-                    />
-                    {errors.discount_trade_pct && (
-                      <span className="kh__err" role="alert">{errors.discount_trade_pct}</span>
-                    )}
-                  </label>
-                  <label className="field">
-                    <span className="field__label">CK người mua hàng (%)</span>
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      max={100}
-                      step="0.1"
-                      value={form.discount_buyer_pct}
-                      onChange={(e) => set("discount_buyer_pct", e.target.value)}
-                      aria-invalid={!!errors.discount_buyer_pct}
-                      placeholder="Dữ liệu nhạy cảm — chỉ người có quyền thấy"
-                    />
-                    {errors.discount_buyer_pct && (
-                      <span className="kh__err" role="alert">{errors.discount_buyer_pct}</span>
-                    )}
-                  </label>
-                </>
-              )}
+              <label className="field kh__form-wide">
+                <span className="field__label">Email nhận hóa đơn điện tử</span>
+                <input
+                  className="input"
+                  value={form.email}
+                  onChange={(e) => set("email", e.target.value)}
+                  onBlur={liveCheck}
+                />
+              </label>
             </div>
 
             {liveWarns.length > 0 && (

@@ -78,6 +78,7 @@ class PurchaseRequestIn(BaseModel):
     source_request_ids: list[int] = Field(min_length=1)
     purpose: str = Field(min_length=1, max_length=500)
     needed_date: date
+    expected_receipt_date: date | None = None
     note: str | None = Field(default=None, max_length=2000)
     lines: list[PurchaseRequestLineIn] = Field(min_length=1)
 
@@ -153,6 +154,7 @@ class PurchaseRequestOut(BaseModel):
     supplier_name: str | None = None
     purpose: str | None = None
     needed_date: date | None = None
+    expected_receipt_date: date | None = None
     created_by_user_id: int | None = None
     created_by_name: str | None = None
     submitted_at: datetime | None = None
@@ -165,6 +167,7 @@ class PurchaseRequestOut(BaseModel):
     total_estimate: int
     pending_amount: int
     paid_amount: int
+    receipt_received_amount: int = 0
     outstanding_amount: int
     available_amount: int
     payment_status: str

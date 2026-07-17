@@ -7,10 +7,14 @@ Credentials come from config/env (SEED_ADMIN_*).
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy.orm import Session
 
 from .config import settings
 from .models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
+from .models.work_calendar import KIND_OFF, SpecialDay
+from .repositories.calendar_repo import CalendarRepository
 from .repositories.customer_repo import CustomerRepository
 from .repositories.rbac_repo import (
     DepartmentRepository,
@@ -27,10 +31,9 @@ from .security import hash_password
 MODULES: list[tuple[str, str]] = [
     ("dashboard", "Dashboard"),
     ("khach_hang", "Khách hàng"),
-    ("don_hang_ban", "Đơn hàng bán"),
     ("bao_gia", "Báo giá in ấn"),
+    ("don_hang_ban", "Đơn hàng bán"),
     ("tinh_gia_thanh", "Tính giá thành"),
-    ("san_pham", "Sản phẩm"),
     ("hop_dong", "Hợp đồng"),
     ("thu_mua", "Thu mua"),
     ("ke_toan", "Kế toán"),
@@ -41,17 +44,18 @@ MODULES: list[tuple[str, str]] = [
     ("nguoi_dung", "Người dùng"),
     ("activity_log", "Nhật ký hoạt động"),
     # Cấu hình danh mục (spec-06): mỗi trang là một module quyền riêng để tích quyền độc lập.
+    # Chỉ liệt kê module CÓ MÀN dùng tới — module không màn = dòng ma trong ma trận, tick vào
+    # không đổi gì. Đã gỡ (migration 0069): san_pham · dm_gia_click · dm_gia_khuon_ban ·
+    # dm_dinh_muc · dm_binh_bai. Dữ liệu norms/plate_die_rates/products GIỮ NGUYÊN — engine
+    # tính giá đọc thẳng repo, không qua ma trận quyền.
     ("dm_loai_san_pham", "Loại sản phẩm"),
     ("dm_giay_vat_tu", "Vật liệu & Giá"),
     ("dm_thiet_bi", "Thiết bị & Máy in"),
     ("dm_cong_doan", "Công đoạn gia công"),
-    ("dm_gia_click", "Bảng giá Click"),
-    ("dm_gia_khuon_ban", "Bảng giá Khuôn & Bản"),
-    ("dm_dinh_muc", "Định mức & Bù hao"),
-    ("dm_binh_bai", "Quy tắc bình bài"),
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
     ("luong", "Lương"),
+    ("san_luong", "Sản lượng công đoạn"),
     ("dm_kho", "Cấu hình kho hàng"),
 ]
 
@@ -59,10 +63,9 @@ ALL_MODULE_KEYS = [k for k, _ in MODULES]
 KD_MODULE_KEYS = [
     "dashboard",
     "khach_hang",
-    "don_hang_ban",
     "bao_gia",
+    "don_hang_ban",
     "tinh_gia_thanh",
-    "san_pham",
     "hop_dong",
 ]
 
@@ -84,7 +87,10 @@ ADMIN_DEPARTMENT = "Ban giám đốc"
 ADMIN_ROLE = "Giám đốc"
 
 
-def _full(scope: str) -> dict:
+def _full(scope: str, *, can_approve_exception: bool = False) -> dict:
+    # `can_approve_exception` (A2: GĐ duyệt "đơn đặc thù" trên don_hang_ban) MẶC ĐỊNH TẮT — vì
+    # _full dùng CHUNG cho cả GĐ lẫn Trưởng phòng KD; chỉ GĐ được bật (override riêng ở ROLES),
+    # nếu bật thẳng trong _full thì TP KD cũng nhận → tự miễn cho đơn của mình (phản biện #1).
     return dict(
         can_read=True,
         can_create=True,
@@ -111,7 +117,12 @@ def _full(scope: str) -> dict:
         can_toggle_active=True,
         can_reparent=True,
         can_view_salary=True,
+        can_edit_salary=True,
         can_adjust=True,
+        can_approve_exception=can_approve_exception,
+        # khach_hang: thiết lập điều khoản tín dụng khách — bật cho vai quản lý (_full dùng chung
+        # cho Giám đốc + GĐ KD + Trưởng phòng KD). NV Sales dùng _rcu → KHÔNG có (chỉ xem read-only).
+        can_set_credit_terms=True,
     )
 
 
@@ -146,7 +157,18 @@ def _leave_admin(scope: str = SCOPE_ALL) -> dict:
 # Roles: (department_name, role_name, {module_key: permission}). The minimal default
 # role ("Nhân viên") is Read-only on Dashboard, scope own.
 ROLES: list[tuple[str, str, dict[str, dict]]] = [
-    (ADMIN_DEPARTMENT, ADMIN_ROLE, {k: _full(SCOPE_ALL) for k in ALL_MODULE_KEYS}),
+    (
+        ADMIN_DEPARTMENT,
+        ADMIN_ROLE,
+        {
+            **{k: _full(SCOPE_ALL) for k in ALL_MODULE_KEYS},
+            # Chỉ GĐ được DUYỆT "báo giá đặc thù" (BG-2) — TP KD giữ _full nhưng KHÔNG có quyền này.
+            "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
+            # Đơn hàng bán: GĐ duyệt "đơn đặc thù" + hủy đơn đã chốt + ghi cọc (GĐ toàn quyền).
+            # SoD: `can_record_deposit` KHÔNG ở `_full` (TP KD/GĐ KD không tự ghi cọc) — chỉ GĐ + vai Kế toán.
+            "don_hang_ban": {**_full(SCOPE_ALL, can_approve_exception=True), "can_record_deposit": True},
+        },
+    ),
     (
         "Hành chính nhân sự",
         "Trưởng phòng HCNS",
@@ -157,6 +179,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "nhan_su": {
                 **_rcu(SCOPE_ALL),
                 "can_view_salary": True,
+                "can_edit_salary": True,
                 "can_manage_status": True,
                 "can_transfer": True,
                 "can_approve": True,
@@ -167,6 +190,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "nghi_phep": _leave_admin(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
+            # Sản lượng công đoạn (Pha 5b): HCNS xem/sửa phiếu + bật 'tính khoán' lệnh bù.
+            "san_luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
             # đặt lại MK, khóa/mở, thu hồi phiên, gán vai trò, chuyển phòng ban.
             "nguoi_dung": {
@@ -187,7 +212,27 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     (
         "Kinh doanh",
         "Trưởng phòng KD",
-        {**{k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS}, "nghi_phep": _leave_self()},
+        {
+            **{k: _full(SCOPE_DEPARTMENT) for k in KD_MODULE_KEYS},
+            # TP KD DUYỆT được "báo giá đặc thù" (cùng Giám đốc Kinh doanh) — chủ đầu tư chốt sau P7.
+            "bao_gia": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
+            # Đơn hàng bán: TP KD duyệt đơn đặc thù + hủy đơn đã chốt (cùng GĐ KD).
+            "don_hang_ban": _full(SCOPE_DEPARTMENT, can_approve_exception=True),
+            "nghi_phep": _leave_self(),
+        },
+    ),
+    # Giám đốc Kinh doanh: toàn quyền KD scope Tất cả + DUYỆT "báo giá / đơn ĐẶC THÙ" (BG-2 + A2)
+    # — CHỈ vai này (không phải TP KD) được `can_approve_exception`, kèm quyền xem số biên/giá vốn
+    # (gắn với approve_exception ở router). redesign-bao-gia §10 / redesign-luong-kinh-doanh §11.
+    (
+        "Kinh doanh",
+        "Giám đốc Kinh doanh",
+        {
+            **{k: _full(SCOPE_ALL) for k in KD_MODULE_KEYS},
+            "bao_gia": _full(SCOPE_ALL, can_approve_exception=True),
+            "don_hang_ban": _full(SCOPE_ALL, can_approve_exception=True),
+            "nghi_phep": _leave_self(),
+        },
     ),
     (
         "Kinh doanh",
@@ -195,8 +240,17 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_OWN),
             "khach_hang": _rcu(SCOPE_OWN),
-            "don_hang_ban": _rcu(SCOPE_OWN),
-            "bao_gia": _rcu(SCOPE_OWN),
+            # Báo giá: NV Sales có ĐỦ thao tác thường trên phiếu CỦA MÌNH (gửi khách, ghi nhận khách
+            # đồng ý/từ chối, hủy, xuất PDF, tạo bản mới) — các quyền này KHÔNG tách vụn, ai làm KD cũng có.
+            # Riêng báo giá ĐẶC THÙ (biên thấp / giá trị cao) phải TRÌNH DUYỆT: chỉ TP KD / GĐ KD cầm
+            # `can_approve_exception` mới duyệt được (redesign-bao-gia §10). NV Sales KHÔNG có cờ đó.
+            "bao_gia": _full(SCOPE_OWN),
+            # Đơn hàng bán: NV KD lập/sửa/chốt đơn CỦA MÌNH (_rcu own + quản trạng thái). Đơn đặc thù
+            # (nhập tay/bổ sung) phải TRÌNH lên TP/GĐ (can_approve_exception). Ghi cọc = Kế toán (P2).
+            "don_hang_ban": {**_rcu(SCOPE_OWN), "can_manage_status": True},
+            # Tính giá: NV Sales tự lập phiếu tính giá của mình; phạm vi "Của tôi" (chỉ thấy phiếu mình lập),
+            # TP KD/GĐ scope phòng/tất cả thấy hết (lọc theo `created_by`).
+            "tinh_gia_thanh": _rcu(SCOPE_OWN),
             "nghi_phep": _leave_self(),
         },
     ),
@@ -222,6 +276,15 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "san_xuat": _read(SCOPE_ALL),
         },
     ),
+    # Kế toán bán hàng: xem mọi đơn + GHI PHIẾU THU CỌC (can_record_deposit). Không đụng thương mại.
+    (
+        "Kế toán",
+        "Kế toán bán hàng",
+        {
+            "dashboard": _read(SCOPE_ALL),
+            "don_hang_ban": {**_read(SCOPE_ALL), "can_record_deposit": True},
+        },
+    ),
     # Kế toán kho: DUYỆT & ghi sổ + xem GIÁ VỐN/giá trị tồn; đối chiếu. Không tạo phiếu.
     (
         "Kế toán",
@@ -241,6 +304,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "kho": {**_read(SCOPE_ALL), "can_manage_status": True},
             "san_xuat": _rcu(SCOPE_ALL),
+            # Ghi phiếu sản lượng công đoạn (Pha 5b) — CHỈ ghi, KHÔNG có quyền Chốt sổ (thuộc `luong`).
+            "san_luong": _rcu(SCOPE_ALL),
         },
     ),
     # Quản lý sản xuất: như trên + duyệt lệnh SX + duyệt phiếu kho liên quan SX.
@@ -251,6 +316,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             "kho": {**_read(SCOPE_ALL), "can_approve": True, "can_manage_status": True},
             "san_xuat": _full(SCOPE_ALL),
+            "san_luong": _full(SCOPE_ALL),
         },
     ),
     # Nhân viên mua hàng: theo dõi nhập NVL từ NCC theo PO — chỉ XEM phiếu kho, không lập.
@@ -557,10 +623,14 @@ def seed_sales_history(db: Session) -> None:
     from .models.order import (
         STATUS_CANCELLED,
         STATUS_DRAFT,
-        STATUS_ON_HOLD,
         STATUS_ORDERED,
         Order,
         OrderLine,
+    )
+    from .models.accounting import (
+        PAYMENT_RECEIPT_RECEIVED,
+        RECEIPT_SOURCE_DON_HANG,
+        PaymentReceipt,
     )
     from .models.quotation import (
         STATUS_SENT,
@@ -612,31 +682,77 @@ def seed_sales_history(db: Session) -> None:
         d = min(max(day, 1), 28)
         return datetime(y, m, d, 10, 0, 0, tzinfo=timezone.utc)
 
-    def _mk_order(customer, sale_id, months_ago, lines, status=STATUS_ORDERED, day=15):
+    def _mk_order(customer, sale_id, months_ago, lines, status=STATUS_ORDERED, day=15,
+                  quote=None, qv=None, deposit_pct=30.0):
+        """Đơn demo — CHỈ status draft/ordered/cancelled (không dùng dormant on_hold/change_order).
+        quote!=None → đơn TỪ BÁO GIÁ: ghim quotation + snapshot giá vốn (cost_basis=quote) + %cọc,
+        đánh dấu quote `converted_to_order`, và nếu đã chốt thì seed 1 phiếu cọc đủ ngưỡng.
+        quote=None → đơn NHẬP TAY: không giá vốn → biên 'không xác định' (cost_basis=none)."""
         created = _month_mid(months_ago, day)
+        from_quote = quote is not None
         o = Order(
             order_no=OrderRepository(db)._next_order_no(),
             customer_id=customer.id,
+            source_type="bao_gia" if from_quote else "nhap_tay",
             order_type="theo_yc",
             order_kind="moi",
             sale_user_id=sale_id,
             status=status,
             has_customer_paper=False,
             vat_pct_estimate=8,
+            cost_basis="quote" if from_quote else "none",
+            deposit_pct=(deposit_pct if from_quote else None),
             created_at=created,
         )
+        if from_quote:
+            o.quotation_id = quote.id
+            o.quotation_version = (qv.version_number if qv else 1)
+            o.quotation_effective_from = created.date()
+            quote.status = "converted_to_order"  # → báo giá tab "Đã lên đơn"
+            if status == STATUS_ORDERED:
+                o.ordered_at = created
+                o.ordered_by = sale_id
+        subtotal = 0
         for desc, qty, unit in lines:
+            subtotal += qty * unit
             o.lines.append(
                 OrderLine(
                     description=desc,
                     qty=qty,
                     unit_price_snapshot=unit,  # P0 snapshot: đơn kế thừa giá đã chốt
+                    cost_snapshot=(int(qty * unit * 0.8) if from_quote else None),
                     line_total=qty * unit,
                     vat_pct_estimate=8,
                 )
             )
         db.add(o)
-        db.flush()  # so the next _next_order_no() sees this row (unique DH###)
+        db.flush()  # so the next _next_order_no() sees this row (unique DH###) + o.id cho phiếu thu
+        # V5: đơn báo giá đã chốt → seed 1 PHIẾU THU CỌC THẬT (PaymentReceipt nguồn đơn, received)
+        # đủ ngưỡng — thay OrderDeposit cũ. Cổng đủ cọc đọc Σ phiếu thu received.
+        if from_quote and status == STATUS_ORDERED and deposit_pct:
+            required = int(round(deposit_pct * subtotal * 1.08 / 100))
+            db.add(PaymentReceipt(
+                code=f"PT-SEED-{o.id}",
+                source_type=RECEIPT_SOURCE_DON_HANG,
+                order_id=o.id,
+                payer_name=customer.name,
+                receipt_method="bank_transfer",
+                status=PAYMENT_RECEIPT_RECEIVED,
+                receipt_date=created.date(),
+                amount=required,
+                amount_vnd=required,
+                currency="VND",
+                exchange_rate=1,
+                content=f"Thu cọc đơn {o.order_no}",
+                customer_name_snapshot=customer.name,
+                order_code_snapshot=o.order_no,
+                created_by_user_id=sale_id,
+                received_by_user_id=sale_id,
+                received_at=created,
+                created_at=created,
+            ))
+            db.flush()
+        return o
 
     from .repositories.order_repo import OrderRepository
 
@@ -745,6 +861,14 @@ def seed_sales_history(db: Session) -> None:
         db.flush()
         return q, qv
 
+    def _mk_order_bg(customer, sale_id, months_ago, desc, qty, unit,
+                     status=STATUS_ORDERED, day=15, deposit_pct=30.0):
+        """Đơn TỪ BÁO GIÁ: tạo báo giá ĐÃ DUYỆT khớp SP rồi chốt thành đơn (ghim + snapshot)."""
+        q, qv = _mk_quote(customer, sale_id, months_ago, qty * unit, status=STATUS_ACCEPTED,
+                          product_name=desc, quantity=qty, day=max(day - 2, 1))
+        return _mk_order(customer, sale_id, months_ago, [(desc, qty, unit)],
+                         status=status, day=day, quote=q, qv=qv, deposit_pct=deposit_pct)
+
     sale1 = users.get_by_username("sale1")
     sale2 = users.get_by_username("sale2")
 
@@ -752,17 +876,16 @@ def seed_sales_history(db: Session) -> None:
     # Sản phẩm in thật: catalogue / tờ rơi / name card / lịch. Spread mọi tháng để bar
     # chart 12T KHÔNG có lỗ, donut đủ 4 nhóm SP, heatmap rải nhiều thứ trong tuần.
     if an_phat is not None and sale1 is not None:
-        _mk_order(an_phat, sale1.id, 11, [("Catalogue A4 32 trang", 2000, 15_000)], day=8)
+        _mk_order_bg(an_phat, sale1.id, 11, "Catalogue A4 32 trang", 2000, 15_000, day=8)
         _mk_order(an_phat, sale1.id, 10, [("Tờ rơi A5 4 màu", 10000, 1_200)], day=22)
         _mk_order(an_phat, sale1.id, 9, [("Name card 4 màu", 5000, 900),
                                          ("Tờ rơi A5 4 màu", 8000, 1_200)], day=5)
-        _mk_order(an_phat, sale1.id, 7, [("Catalogue A4 32 trang", 1500, 15_000)], day=17)
-        _mk_order(an_phat, sale1.id, 6, [("Name card 4 màu", 3000, 900)],
-                  status=STATUS_ON_HOLD, day=12)
+        _mk_order_bg(an_phat, sale1.id, 7, "Catalogue A4 32 trang", 1500, 15_000, day=17)
+        _mk_order(an_phat, sale1.id, 6, [("Name card 4 màu", 3000, 900)], day=12)
         _mk_order(an_phat, sale1.id, 4, [("Lịch tết 2026 (bộ 7 tờ)", 500, 45_000)], day=26)
         _mk_order(an_phat, sale1.id, 3, [("Tờ rơi A5 4 màu", 12000, 1_200),
                                          ("Name card 4 màu", 2000, 900)], day=9)
-        _mk_order(an_phat, sale1.id, 1, [("Catalogue A4 32 trang", 1000, 15_000)], day=20)
+        _mk_order_bg(an_phat, sale1.id, 1, "Catalogue A4 32 trang", 1000, 15_000, day=20)
         _mk_order(an_phat, sale1.id, 0, [("Name card 4 màu", 4000, 900)], day=3)
         # Báo giá: đủ trạng thái (duyệt / gửi / từ chối) cho lịch sử báo giá + win-rate.
         _mk_quote(an_phat, sale1.id, 11, 30_000_000, status=STATUS_ACCEPTED)
@@ -773,11 +896,11 @@ def seed_sales_history(db: Session) -> None:
 
     # --- KH: Công ty CP Bao Bì Việt (sale2) — bao bì, đơn to thưa, có đơn hủy/nháp ---
     if bao_bi is not None and sale2 is not None:
-        _mk_order(bao_bi, sale2.id, 10, [("Hộp giấy cao cấp", 5000, 6_000)], day=14)
+        _mk_order_bg(bao_bi, sale2.id, 10, "Hộp giấy cao cấp", 5000, 6_000, day=14)
         _mk_order(bao_bi, sale2.id, 8, [("Túi giấy in offset", 20000, 3_500)], day=19)
         _mk_order(bao_bi, sale2.id, 6, [("Tem nhãn decal", 50000, 500)],
                   status=STATUS_CANCELLED, day=11)  # đã hủy → loại khỏi doanh số
-        _mk_order(bao_bi, sale2.id, 5, [("Hộp giấy cao cấp", 8000, 6_000)], day=24)
+        _mk_order_bg(bao_bi, sale2.id, 5, "Hộp giấy cao cấp", 8000, 6_000, day=24)
         _mk_order(bao_bi, sale2.id, 2, [("Túi giấy in offset", 15000, 3_500)], day=7)
         _mk_order(bao_bi, sale2.id, 1, [("Hộp giấy cao cấp", 3000, 6_000)],
                   status=STATUS_DRAFT, day=16)  # đang lập
@@ -789,7 +912,7 @@ def seed_sales_history(db: Session) -> None:
     if minh_khai is not None and sale1 is not None:
         _mk_order(minh_khai, sale1.id, 9, [("Tờ rơi A5 4 màu", 5000, 1_200)], day=13)
         _mk_order(minh_khai, sale1.id, 5, [("Name card 4 màu", 2000, 900)], day=21)
-        _mk_order(minh_khai, sale1.id, 2, [("Catalogue A4 32 trang", 800, 15_000)], day=6)
+        _mk_order_bg(minh_khai, sale1.id, 2, "Catalogue A4 32 trang", 800, 15_000, day=6)
         _mk_quote(minh_khai, sale1.id, 5, 6_000_000, status=STATUS_ACCEPTED)
         _mk_quote(minh_khai, sale1.id, 2, 12_000_000, status=STATUS_SENT)
 
@@ -1446,6 +1569,31 @@ def backfill_user_codes(db: Session) -> None:
         db.commit()
 
 
+def backfill_employee_profiles(db: Session) -> None:
+    """LUẬT: mọi tài khoản đăng nhập PHẢI thuộc một hồ sơ nhân viên — ngoại lệ DUY NHẤT là
+    tài khoản hệ thống `admin`. Tạo hồ sơ cho mọi tài khoản còn mồ côi (tài khoản demo cũ
+    hoặc dữ liệu cũ có trước luật này). Idempotent: tài khoản đã có hồ sơ thì bỏ qua."""
+    from datetime import date
+
+    from .models.employee import STATUS_ACTIVE
+    from .repositories.employee_repo import EmployeeRepository
+
+    repo = EmployeeRepository(db)
+    users = UserRepository(db)
+    for u in users.list_all():
+        if u.username == settings.seed_admin_username:
+            continue  # tài khoản hệ thống — được phép mồ côi
+        if repo.get_by_user_id(u.id) is not None:
+            continue
+        emp = repo.create(
+            full_name=u.name or u.username,
+            department_id=u.department_id,
+            status=STATUS_ACTIVE,
+            hire_date=date.today(),
+        )
+        repo.update(emp, user_id=u.id)
+
+
 def seed_leaves(db: Session) -> None:
     """Seed loại nghỉ demo (Nghỉ phép) + 1 đơn đã duyệt + 1 đơn chờ cho NV admin-linked.
     Idempotent."""
@@ -1564,14 +1712,9 @@ def seed_payroll(db: Session) -> None:
 
 
 def seed_piece_work(db: Session) -> None:
-    """Seed đơn giá khoán demo (Lương khoán nhịp 2) — số hóa các bảng CÔNG KHOÁN thật +
-    1 sổ khoán demo Tổ Bồi kỳ hiện tại. Idempotent: bỏ qua nếu đã có đơn giá."""
-    from datetime import date
-
-    from .models.employee import Employee
-    from .repositories.employee_repo import EmployeeRepository
+    """Seed đơn giá khoán demo (Lương khoán nhịp 2) — số hóa các bảng CÔNG KHOÁN thật.
+    Idempotent: bỏ qua nếu đã có đơn giá. (Tiền khoán = Phiếu sản lượng theo người, không seed.)"""
     from .repositories.piece_work_repo import PieceWorkRepository
-    from .services.piece_work_service import PieceWorkService
 
     repo = PieceWorkRepository(db)
     if repo.list_rates():
@@ -1594,18 +1737,6 @@ def seed_piece_work(db: Session) -> None:
     for g, code, name, unit, price in rates:
         repo.create_rate(group_name=g, code=code, name=name, unit=unit, unit_price=price,
                          note="Đơn giá khoán demo")
-
-    # Sổ khoán demo: Tổ Bồi, kỳ hiện tại, 1 dòng sản lượng + chia cho 2 NV sản xuất.
-    prod = db.query(Employee).filter(Employee.payroll_group == "san_xuat").limit(2).all()
-    if len(prod) >= 2:
-        svc = PieceWorkService(repo, EmployeeRepository(db))
-        today = date.today()
-        batch = svc.get_or_create_batch(year=today.year, month=today.month, group_name="to_boi")
-        svc.update_batch(batch.id, leader_employee_id=prod[0].id, leader_pct=0.05)
-        boi_rate = next(r for r in repo.list_rates() if r.name.startswith("Bồi carton 3"))
-        svc.add_entry(batch_id=batch.id, piece_rate_id=boi_rate.id, quantity=30_000)  # 30.000 m² × 170
-        svc.set_share(batch_id=batch.id, employee_id=prod[0].id, weight=1)
-        svc.set_share(batch_id=batch.id, employee_id=prod[1].id, weight=1)
 
 
 def seed_kho_engine(db: Session) -> None:
@@ -1677,6 +1808,122 @@ def seed_kho_engine(db: Session) -> None:
         db.commit()
 
 
+# --- Sample phiếu tính giá (costing tickets) demo data ---------------------
+
+# Mỗi phiếu: (ma, ten_san_pham, kho_thanh_pham, so_luong, ktv, [components]).
+# Mỗi component (thành phần = 1 tờ giấy): (ten, giay_ma, so_con, so_mau_sel, quy_cach, [finishing]).
+# Mỗi finishing: (ten, cong_doan_ma|None, don_gia_phang). don_gia_phang>0 → tính phẳng; else dùng
+# cấu hình công đoạn (compute_step_cost).
+PTG_SAMPLES: list[tuple] = [
+    ("PTG-2026-0211", "HANGTAG LAVELLO BLACK", "5×10 cm", 5000, "Lê Văn C (KTV)", [
+        ("Thẻ treo", "IVORY-350-79x109", 60, 4, "hai_mat",
+         [("Cán màng bóng", "CD-0003", 0.0), ("Bế nổi", None, 300.0)]),
+    ]),
+    ("PTG-2026-0204", "Hộp giấy offset", "20×30×5 cm", 10000, "Phạm Văn D (KTV)", [
+        ("Thân hộp", "IVORY-350-79x109", 2, 4, "mot_mat",
+         [("Cán màng bóng", "CD-0003", 0.0), ("Bế", None, 250.0)]),
+        ("Nắp hộp", "DUPLEX-300", 4, 2, "mot_mat", []),
+    ]),
+    ("PTG-2026-0206", "Tờ rơi A4", "21×29.7 cm", 30000, "Lê Văn C (KTV)", [
+        ("Tờ rơi", "COUCHE-150-79x109", 4, 4, "hai_mat", []),
+    ]),
+    ("PTG-2026-0203", "Catalogue", "21×28 cm", 5000, "Phạm Văn D (KTV)", [
+        ("Ruột", "COUCHE-150-79x109", 4, 4, "hai_mat", []),
+        ("Bìa", "COUCHE-300-65x86", 2, 4, "hai_mat",
+         [("Cán màng bóng", "CD-0003", 0.0)]),
+    ]),
+    ("PTG-2026-0202", "Danh thiếp cao cấp", "9×5.4 cm", 8000, "Lê Văn C (KTV)", [
+        ("Danh thiếp", "COUCHE-300-65x86", 24, 4, "hai_mat",
+         [("Ép kim", None, 500.0)]),
+    ]),
+]
+
+
+def seed_phieu_tinh_gia(db: Session) -> None:
+    """Seed ~5 phiếu tính giá mẫu THEO THÀNH PHẦN — CHỈ khi bảng rỗng (idempotent). Chạy sau
+    seed_rebuild_catalog nên có sẵn Giấy + Công đoạn để tính giá thật (khớp engine, không bịa)."""
+    from sqlalchemy import select
+    from .models.cong_doan import CongDoan
+    from .models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia
+    from .models.vat_lieu_kho import GiayNguyen
+    from .services.tinh_gia_service import compute_phieu_snapshot
+
+    if db.execute(select(PhieuTinhGia)).first() is not None:
+        return
+
+    giay_by_ma = {g.ma: g for g in db.execute(select(GiayNguyen)).scalars()}
+    cd_by_ma = {c.ma: c.id for c in db.execute(select(CongDoan)).scalars()}
+    # Giấy dự phòng khi mã mẫu không có trong danh mục rebuild.
+    fallback_giay = next(iter(giay_by_ma.values()), None)
+
+    for ma, ten, kho, sl, ktv, comps in PTG_SAMPLES:
+        p = PhieuTinhGia(ma=ma, ten_san_pham=ten, kho_thanh_pham=kho, so_luong=sl, ktv=ktv)
+        for i, (c_ten, giay_ma, so_con, so_mau, quy_cach, finishing) in enumerate(comps):
+            giay = giay_by_ma.get(giay_ma) or fallback_giay
+            tp = PhieuThanhPhan(
+                thu_tu=i, ten=c_ten, so_con=so_con, quy_cach_in=quy_cach,
+                giay_id=(giay.id if giay else None),
+                don_gia_giay=float(giay.don_gia) if (giay and giay.don_vi_gia == "to") else 2000,
+                don_gia_don_vi="to", so_mau_a=so_mau, so_mau_b=(so_mau if quy_cach == "hai_mat" else 0),
+                che_ban_don_gia=90000, don_gia_cong_in=120,
+            )
+            for j, (f_ten, f_cd_ma, f_don_gia) in enumerate(finishing):
+                tp.thanh_phams.append(PhieuThanhPham(
+                    thu_tu=j, ten=f_ten, cong_doan_id=cd_by_ma.get(f_cd_ma) if f_cd_ma else None,
+                    don_gia=f_don_gia, so_mat=1, dien_tich=50,
+                ))
+            p.thanh_phans.append(tp)
+        db.add(p)
+        db.flush()
+        compute_phieu_snapshot(db, p)
+    db.commit()
+
+
+# Ngày nghỉ lễ DƯƠNG cố định (điều 112 BLLĐ). CHỈ các ngày dương chắc chắn — Tết Nguyên đán
+# (5 ngày) + Giỗ Tổ 10/3 ÂL + ngày kề Quốc khánh là ÂM/biến động theo thông báo Chính phủ hằng
+# năm → admin tự khai qua UI (FE cảnh báo khi năm chưa đủ 11 ngày nghỉ-có-lương).
+_SEED_HOLIDAYS_2026: list[tuple[date, str]] = [
+    (date(2026, 1, 1), "Tết Dương lịch"),
+    (date(2026, 4, 30), "Ngày Giải phóng miền Nam"),
+    (date(2026, 5, 1), "Ngày Quốc tế Lao động"),
+    (date(2026, 9, 2), "Quốc khánh"),
+]
+_SEED_HOLIDAY_NOTE = "Nghỉ lễ theo luật. Bổ sung Tết Nguyên đán + Giỗ Tổ + ngày kề Quốc khánh theo thông báo Chính phủ."
+
+
+def seed_special_days(db: Session) -> None:
+    """Seed ngày nghỉ lễ dương cố định. SEED-ONCE: nếu bảng đã có hàng thì bỏ qua, nên
+    admin sửa/xóa (vd công ty xử lý 30/4 khác) KHÔNG bị mọc lại sau restart."""
+    if CalendarRepository(db).count() > 0:
+        return
+    for d, name in _SEED_HOLIDAYS_2026:
+        db.add(SpecialDay(day=d, kind=KIND_OFF, name=name, is_paid=True, note=_SEED_HOLIDAY_NOTE))
+    db.commit()
+
+
+# Biểu thuế TNCN lũy tiến từng phần 2026 — (seq, trần thu nhập tính thuế/tháng, thuế suất).
+# 5 bậc theo Luật Thuế TNCN 109/2025/QH15 (áp cho kỳ tính thuế 2026). None = bậc cao nhất.
+_PIT_BRACKETS_2026 = [
+    (1, 10_000_000, 0.05),
+    (2, 30_000_000, 0.10),
+    (3, 60_000_000, 0.20),
+    (4, 100_000_000, 0.30),
+    (5, None, 0.35),
+]
+
+
+def seed_pit_brackets(db: Session) -> None:
+    """Biểu thuế TNCN — SEED-ONCE (admin sửa/thêm bậc KHÔNG bị mọc lại sau restart)."""
+    from sqlalchemy import func, select
+
+    from .models.payroll import PitTaxBracket
+    if db.execute(select(func.count(PitTaxBracket.id))).scalar_one() > 0:
+        return
+    for seq, up_to, rate in _PIT_BRACKETS_2026:
+        db.add(PitTaxBracket(seq=seq, up_to=up_to, rate=rate))
+    db.commit()
+
+
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -1696,6 +1943,8 @@ def seed_all(db: Session) -> None:
     seed_machines(db)
     seed_operations(db)
     seed_kho_engine(db)
+    seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
+    seed_pit_brackets(db)  # biểu thuế TNCN — dữ liệu vận hành thật (Lương đọc tính thuế)
     if settings.seed_demo:
         seed_kd_staff(db)
         seed_kho_staff(db)
@@ -1714,5 +1963,9 @@ def seed_all(db: Session) -> None:
         seed_norms(db)
         from .seed_rebuild import seed_rebuild_catalog
         seed_rebuild_catalog(db)
+        seed_phieu_tinh_gia(db)
         seed_document_sequences(db)
     backfill_user_codes(db)
+    # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),
+    # và phải chạy SAU các seed tài khoản demo ở trên để dọn luôn đám vừa tạo.
+    backfill_employee_profiles(db)

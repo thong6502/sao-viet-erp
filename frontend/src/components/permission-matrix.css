@@ -113,6 +113,12 @@
   font-size: 13px;
   cursor: pointer;
 }
+/* Dấu ⓘ giải thích quyền chi tiết — rê chuột ra tooltip (thuộc tính title gốc). */
+.matrix__fine-hint {
+  color: var(--ash);
+  cursor: help;
+  font-size: 12px;
+}
 .matrix__fine-none {
   color: var(--ash-2);
 }
