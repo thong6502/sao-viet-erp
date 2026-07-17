@@ -136,6 +136,14 @@ class Order(Base):
     customer_po_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     delivery_committed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Graft đơn V4 (khớp DB_SCHEMA.md §orders): người nhận + SĐT snapshot (Sale xổ từ danh bạ
+    # khách CustomerContact, KHÔNG auto-fill is_primary) · lưu ý giao → tài xế · lưu ý SX → tổ in.
+    delivery_contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_contact_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    delivery_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    production_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Hàng gấp — cờ ưu tiên cho sản xuất (graft đơn V4).
+    is_rush: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     # Pháp nhân xuất HĐ (khi khách xin xuất tên khác; mặc định = khách).
     invoice_entity_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     invoice_entity_tax_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -193,6 +201,8 @@ class OrderLine(Base):
     # Mô tả SP thương mại (đối ngoại) — NEVER số màu/kẽm/khổ/imposition/PrintForm.
     description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # ĐVT dòng — kéo từ dòng báo giá (QuoteItem.unit) / gõ tay (graft đơn V4).
+    don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")
 
     # Pin TRUY VẾT ấn phẩm (soft, KHÔNG FK cứng) → PhieuThanhPhan.id của PTG mà dòng báo giá nguồn
     # trỏ tới (song sinh QuoteItem.phieu_thanh_phan_id) — nối lại mạch ấn phẩm↔báo giá↔đơn ở khúc

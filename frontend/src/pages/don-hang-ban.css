@@ -389,6 +389,10 @@
   background: var(--steel-soft);
   color: var(--steel);
 }
+.tone--rush {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+}
 
 
 /* --- Drawer (Slide-in) --- */

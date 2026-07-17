@@ -11,6 +11,7 @@ class OrderLineIn(BaseModel):
     """Dòng nhập tay (nguồn nhap_tay). Đơn từ báo giá snapshot dòng từ báo giá, không nhận ở đây."""
     description: str = ""
     qty: int = Field(default=1, ge=1)
+    don_vi_tinh: str = "cái"            # ĐVT dòng (gõ tay; đơn từ báo giá kéo từ QuoteItem.unit)
     unit_price: int | None = None       # đơn giá (VND, trước VAT) sale gõ
     vat_pct: int = Field(default=0, ge=0, le=100)
 
@@ -19,6 +20,7 @@ class OrderLineOut(BaseModel):
     id: int
     description: str
     qty: int
+    don_vi_tinh: str = "cái"
     unit_price_snapshot: int | None
     vat_pct_estimate: int
     line_total: int | None
@@ -107,6 +109,12 @@ class OrderCreate(BaseModel):
     delivery_address: str | None = None
     invoice_entity_name: str | None = None
     invoice_entity_tax_code: str | None = None
+    # graft đơn V4 (DB_SCHEMA.md): người nhận + SĐT (Sale xổ từ danh bạ KH) · lưu ý giao/SX · hàng gấp.
+    delivery_contact_name: str | None = None
+    delivery_contact_phone: str | None = None
+    delivery_note: str | None = None
+    production_note: str | None = None
+    is_rush: bool = False
 
 
 class OrderUpdate(BaseModel):
@@ -119,6 +127,11 @@ class OrderUpdate(BaseModel):
     delivery_address: str | None = None
     invoice_entity_name: str | None = None
     invoice_entity_tax_code: str | None = None
+    delivery_contact_name: str | None = None
+    delivery_contact_phone: str | None = None
+    delivery_note: str | None = None
+    production_note: str | None = None
+    is_rush: bool | None = None
 
 
 # --- Đọc -----------------------------------------------------------------------
@@ -136,6 +149,7 @@ class OrderRow(BaseModel):
     approval_state: str
     needs_approval: bool
     cost_basis: str
+    is_rush: bool = False
     total: int | None                   # Σ line_total (trước VAT)
     total_with_vat: int
     deposit_pct: float | None
@@ -177,6 +191,10 @@ class OrderDetailOut(OrderRow):
     delivery_address: str | None
     invoice_entity_name: str | None
     invoice_entity_tax_code: str | None
+    delivery_contact_name: str | None
+    delivery_contact_phone: str | None
+    delivery_note: str | None
+    production_note: str | None
     vat_pct_estimate: int
     lines: list[OrderLineOut]
     order_cost: int | None              # Σ cost_snapshot (None nếu cost_basis=none)

@@ -7,6 +7,7 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import {
   api,
+  type CustomerContact,
   type OrderCreateInput,
   type OrderDetail,
   type OrderEnumsOut,
@@ -68,7 +69,7 @@ const TABS: TabDef[] = [
   { id: "cancelled", label: "Hủy", status: "cancelled", countKey: "cancelled" },
 ];
 
-function Chip({ icon, label, tone }: { icon: IconName; label: string; tone: "warn" | "muted" | "info" }) {
+function Chip({ icon, label, tone }: { icon: IconName; label: string; tone: "warn" | "muted" | "info" | "rush" }) {
   return (
     <span className={`dhb__chip tone--${tone}`}>
       <Icon name={icon} size={12} /> {label}
@@ -88,6 +89,7 @@ function StatusBadge({ status }: { status: string }) {
 function RowFlags({ o }: { o: OrderRow }) {
   return (
     <span className="dhb__flags">
+      {o.is_rush && <Chip icon="bell" label="GẤP" tone="rush" />}
       {o.needs_approval && o.approval_state !== "approved" && (
         <Chip icon="clock" label="Chờ duyệt" tone="warn" />
       )}
@@ -486,6 +488,11 @@ function OrderDrawer({
                   {order.customer_po_no && <KV k="Số PO khách" v={<span className="dhb__mono">{order.customer_po_no}</span>} />}
                   {order.delivery_committed_date && <KV k="Ngày giao cam kết" v={<span className="dhb__mono">{fmtDate(order.delivery_committed_date)}</span>} />}
                   {order.delivery_address && <KV k="Địa chỉ giao" v={order.delivery_address} />}
+                  {(order.delivery_contact_name || order.delivery_contact_phone) && (
+                    <KV k="Người nhận" v={[order.delivery_contact_name, order.delivery_contact_phone].filter(Boolean).join(" · ")} />
+                  )}
+                  {order.delivery_note && <KV k="Lưu ý giao" v={order.delivery_note} />}
+                  {order.production_note && <KV k="Lưu ý SX" v={order.production_note} />}
                   {order.invoice_entity_name && (
                     <KV
                       k="Pháp nhân xuất HĐ"
@@ -695,7 +702,7 @@ function OrderDrawer({
                     {order.lines.map((l) => (
                       <tr key={l.id}>
                         <td>{l.description}</td>
-                        <td className="dhb__mono dhb__text-right">{l.qty.toLocaleString("vi-VN")}</td>
+                        <td className="dhb__mono dhb__text-right">{l.qty.toLocaleString("vi-VN")}{l.don_vi_tinh ? ` ${l.don_vi_tinh}` : ""}</td>
                         <td className="dhb__mono dhb__text-right">{vnd(l.unit_price_snapshot)}</td>
                         <td className="dhb__mono dhb__text-right">{l.vat_pct_estimate}%</td>
                         <td className="dhb__mono dhb__text-right">{vnd(l.line_total)}</td>
@@ -832,12 +839,35 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   const [po, setPo] = useState(order.customer_po_no ?? "");
   const [date, setDate] = useState(order.delivery_committed_date ?? "");
   const [addr, setAddr] = useState(order.delivery_address ?? "");
+  const [contactName, setContactName] = useState(order.delivery_contact_name ?? "");
+  const [contactPhone, setContactPhone] = useState(order.delivery_contact_phone ?? "");
+  const [pickedContactId, setPickedContactId] = useState("");
+  const [contacts, setContacts] = useState<CustomerContact[]>([]);
+  const [deliveryNote, setDeliveryNote] = useState(order.delivery_note ?? "");
+  const [productionNote, setProductionNote] = useState(order.production_note ?? "");
+  const [isRush, setIsRush] = useState(order.is_rush);
   const [entity, setEntity] = useState(order.invoice_entity_name ?? "");
   const [taxCode, setTaxCode] = useState(order.invoice_entity_tax_code ?? "");
   const [nature, setNature] = useState(order.order_nature);
   const [depositPct, setDepositPct] = useState(order.deposit_pct != null ? String(order.deposit_pct) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Xổ danh bạ khách để Sale chọn nhanh người nhận (không auto-chọn liên hệ chính).
+  useEffect(() => {
+    if (!token || order.customer_id == null) return;
+    api.customers.contacts(token, order.customer_id).then((r) => setContacts(r.items)).catch(() => {});
+  }, [token, order.customer_id]);
+
+  // Chọn 1 liên hệ trong danh bạ → điền tên + SĐT (vẫn cho sửa tay 2 ô bên dưới).
+  function pickContact(id: string) {
+    setPickedContactId(id);
+    const c = contacts.find((x) => String(x.id) === id);
+    if (c) {
+      setContactName(c.name);
+      setContactPhone(c.phone ?? "");
+    }
+  }
 
   async function save() {
     if (!token) return;
@@ -848,6 +878,11 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
         customer_po_no: po || null,
         delivery_committed_date: date || null,
         delivery_address: addr || null,
+        delivery_contact_name: contactName.trim() || null,
+        delivery_contact_phone: contactPhone.trim() || null,
+        delivery_note: deliveryNote.trim() || null,
+        production_note: productionNote.trim() || null,
+        is_rush: isRush,
         invoice_entity_name: entity || null,
         invoice_entity_tax_code: taxCode || null,
         order_nature: nature,
@@ -867,6 +902,25 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
       <Field label="% cọc"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" className="dhb__input" /></Field>
       <Field label="Ngày giao cam kết"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" /></Field>
       <Field label="Địa chỉ giao"><input value={addr} onChange={(e) => setAddr(e.target.value)} className="dhb__input" /></Field>
+      {contacts.length > 0 && (
+        <Field label="Chọn người nhận từ danh bạ khách">
+          <select value={pickedContactId} onChange={(e) => pickContact(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
+            <option value="">— Chọn liên hệ —</option>
+            {contacts.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}{c.phone ? ` · ${c.phone}` : ""}{c.is_primary ? " (liên hệ chính)" : ""}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
+      <Field label="Người nhận"><input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Tên người nhận hàng" className="dhb__input" /></Field>
+      <Field label="SĐT người nhận"><input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Số điện thoại" className="dhb__input" /></Field>
+      <Field label="Lưu ý giao hàng"><textarea value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Dặn tài xế / khâu giao (giờ giao, tầng, gọi trước…)" className="dhb__input" style={{ minHeight: 56, resize: "vertical" }} /></Field>
+      <Field label="Lưu ý sản xuất"><textarea value={productionNote} onChange={(e) => setProductionNote(e.target.value)} placeholder="Dặn tổ in / xưởng (canh màu, cấn bế, gia công…)" className="dhb__input" style={{ minHeight: 56, resize: "vertical" }} /></Field>
+      <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer", userSelect: "none" }}>
+        <input type="checkbox" checked={isRush} onChange={(e) => setIsRush(e.target.checked)} /> Hàng gấp (ưu tiên sản xuất)
+      </label>
       <Field label="Bản chất đơn">
         <select value={nature} onChange={(e) => setNature(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
           <option value="hang_hoa">Hàng hóa</option>
@@ -891,10 +945,11 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
   const [quotationId, setQuotationId] = useState("");
   const [customerId, setCustomerId] = useState("");
   const [nature, setNature] = useState("hang_hoa");
-  const [lines, setLines] = useState<OrderLineInput[]>([{ description: "", qty: 1, unit_price: 0, vat_pct: 8 }]);
+  const [lines, setLines] = useState<OrderLineInput[]>([{ description: "", qty: 1, don_vi_tinh: "cái", unit_price: 0, vat_pct: 8 }]);
   const [po, setPo] = useState("");
   const [depositPct, setDepositPct] = useState("");
   const [isSupp, setIsSupp] = useState(false);
+  const [isRush, setIsRush] = useState(false);
   const [parentId, setParentId] = useState("");
   const [quotes, setQuotes] = useState<{ id: number; code: string; customer_name: string | null }[]>([]);
   const [custs, setCusts] = useState<{ id: number; name: string; code: string }[]>([]);
@@ -918,6 +973,7 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
         source_type: source, order_nature: nature, customer_po_no: po || null,
         order_kind: isSupp ? "bo_sung" : "moi",
         parent_order_id: isSupp && parentId ? Number(parentId) : null,
+        is_rush: isRush,
       };
       if (source === "bao_gia") input.quotation_id = Number(quotationId);
       else {
@@ -991,10 +1047,11 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
                 <div key={i} style={{ display: "flex", gap: 6, marginTop: 6 }}>
                   <input placeholder="Mô tả" value={l.description} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} className="dhb__input" style={{ flex: 2 }} />
                   <input type="number" placeholder="SL" value={l.qty} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x)))} className="dhb__input" style={{ width: 70 }} />
+                  <input placeholder="ĐVT" value={l.don_vi_tinh ?? ""} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, don_vi_tinh: e.target.value } : x)))} className="dhb__input" style={{ width: 70 }} />
                   <input type="number" placeholder="Đơn giá" value={l.unit_price ?? 0} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, unit_price: Number(e.target.value) } : x)))} className="dhb__input" style={{ width: 100 }} />
                 </div>
               ))}
-              <button className="btn btn--ghost" style={{ marginTop: 8, height: 28, padding: "4px 10px", fontSize: 12 }} onClick={() => setLines((ls) => [...ls, { description: "", qty: 1, unit_price: 0, vat_pct: 8 }])}>
+              <button className="btn btn--ghost" style={{ marginTop: 8, height: 28, padding: "4px 10px", fontSize: 12 }} onClick={() => setLines((ls) => [...ls, { description: "", qty: 1, don_vi_tinh: "cái", unit_price: 0, vat_pct: 8 }])}>
                 <Icon name="plus" size={13} /> Thêm dòng
               </button>
             </div>
@@ -1007,9 +1064,14 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
             <option value="gia_cong">Gia công (khách ứng giấy)</option>
           </select>
         </Field>
-        <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, marginBottom: 12, cursor: "pointer", userSelect: "none" }}>
-          <input type="checkbox" checked={isSupp} onChange={(e) => setIsSupp(e.target.checked)} /> Đơn bổ sung (in thêm — giữ kẽm cũ)
-        </label>
+        <div style={{ display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 12 }}>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer", userSelect: "none" }}>
+            <input type="checkbox" checked={isSupp} onChange={(e) => setIsSupp(e.target.checked)} /> Đơn bổ sung (in thêm — giữ kẽm cũ)
+          </label>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer", userSelect: "none" }}>
+            <input type="checkbox" checked={isRush} onChange={(e) => setIsRush(e.target.checked)} /> Hàng gấp (ưu tiên sản xuất)
+          </label>
+        </div>
         {isSupp && (
           <Field label="Đơn gốc (giữ kẽm)">
             <select value={parentId} onChange={(e) => setParentId(e.target.value)} className="dhb__select" style={{ width: "100%" }}>

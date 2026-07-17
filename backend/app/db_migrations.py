@@ -2011,6 +2011,29 @@ def _migrate_seed_pricing_formulas(db: Session) -> None:
     db.commit()
 
 
+def _migrate_order_graft_fields(db: Session) -> None:
+    """Graft trường đơn V4 → đơn V5 (erp), khớp DB_SCHEMA.md §orders/§order_lines: Order thêm
+    delivery_contact_name/_phone (người nhận + SĐT) + delivery_note (lưu ý giao) + production_note
+    (lưu ý SX) + is_rush (hàng gấp); OrderLine thêm don_vi_tinh (ĐVT — kéo từ báo giá). No-op trên
+    DB fresh (create_all đã dựng) / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    names = insp.get_table_names()
+    if "orders" in names:
+        existing = _existing_columns(insp, "orders")
+        for name, ddl in (
+            ("delivery_contact_name", "VARCHAR(255)"),
+            ("delivery_contact_phone", "VARCHAR(30)"),
+            ("delivery_note", "VARCHAR(500)"),
+            ("production_note", "VARCHAR(500)"),
+            ("is_rush", "BOOLEAN NOT NULL DEFAULT FALSE"),
+        ):
+            if name not in existing:
+                db.execute(text(f"ALTER TABLE orders ADD COLUMN {name} {ddl}"))
+    if "order_lines" in names and "don_vi_tinh" not in _existing_columns(insp, "order_lines"):
+        db.execute(text("ALTER TABLE order_lines ADD COLUMN don_vi_tinh VARCHAR(30) NOT NULL DEFAULT 'cái'"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2089,6 +2112,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0073_quote_terms_text", _migrate_quote_terms_text),
     ("0074_ptg_don_vi_tinh", _migrate_ptg_don_vi_tinh),
     ("0075_seed_pricing_formulas", _migrate_seed_pricing_formulas),
+    ("0076_order_graft_fields", _migrate_order_graft_fields),
 ]
 
 

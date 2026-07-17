@@ -245,6 +245,7 @@ class OrderService:
             deposit_received=m["deposit_received"],
             deposit_ok=m["deposit_ok"],
             delivery_committed_date=order.delivery_committed_date,
+            is_rush=order.is_rush,
             sale_user_id=order.sale_user_id,
             sale_name=sale_name,
             created_at=order.created_at,
@@ -308,6 +309,10 @@ class OrderService:
             parent_order_id=order.parent_order_id,
             customer_po_no=order.customer_po_no,
             delivery_address=order.delivery_address,
+            delivery_contact_name=order.delivery_contact_name,
+            delivery_contact_phone=order.delivery_contact_phone,
+            delivery_note=order.delivery_note,
+            production_note=order.production_note,
             invoice_entity_name=order.invoice_entity_name,
             invoice_entity_tax_code=order.invoice_entity_tax_code,
             vat_pct_estimate=order.vat_pct_estimate,
@@ -446,6 +451,7 @@ class OrderService:
             lines.append(dict(
                 description=it.product_name or "",
                 qty=it.quantity,
+                don_vi_tinh=(getattr(it, "unit", None) or "cái"),   # ĐVT kéo từ dòng báo giá
                 unit_price_snapshot=unit,
                 line_total=net_line,
                 vat_pct_estimate=_i(it.vat_percent),
@@ -478,6 +484,11 @@ class OrderService:
             delivery_committed_date=payload.delivery_committed_date,
             invoice_entity_name=payload.invoice_entity_name,
             invoice_entity_tax_code=payload.invoice_entity_tax_code,
+            delivery_contact_name=payload.delivery_contact_name,
+            delivery_contact_phone=payload.delivery_contact_phone,
+            delivery_note=payload.delivery_note,
+            production_note=payload.production_note,
+            is_rush=payload.is_rush,
         )
         return order
 
@@ -492,6 +503,7 @@ class OrderService:
             lines.append(dict(
                 description=ln.description,
                 qty=ln.qty,
+                don_vi_tinh=(ln.don_vi_tinh or "cái"),
                 unit_price_snapshot=unit,
                 line_total=(ln.qty * unit if unit is not None else None),
                 vat_pct_estimate=ln.vat_pct,
@@ -519,6 +531,11 @@ class OrderService:
             delivery_committed_date=payload.delivery_committed_date,
             invoice_entity_name=payload.invoice_entity_name,
             invoice_entity_tax_code=payload.invoice_entity_tax_code,
+            delivery_contact_name=payload.delivery_contact_name,
+            delivery_contact_phone=payload.delivery_contact_phone,
+            delivery_note=payload.delivery_note,
+            production_note=payload.production_note,
+            is_rush=payload.is_rush,
         )
         return order
 
@@ -533,6 +550,8 @@ class OrderService:
         for f in (
             "customer_po_no", "delivery_committed_date", "delivery_address",
             "invoice_entity_name", "invoice_entity_tax_code",
+            "delivery_contact_name", "delivery_contact_phone", "delivery_note",
+            "production_note", "is_rush",
         ):
             val = getattr(payload, f)
             if val is not None:

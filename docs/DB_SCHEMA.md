@@ -682,7 +682,7 @@ data. Duyệt bản in + tiến độ SX = luồng NGOÀI hệ thống (không l
 | `parent_order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | yes | — | Đơn gốc — set **CHỈ** khi order_kind=bo_sung (bắt buộc). NULL cho đơn mới; KHÔNG dùng cho change_order. |
 | `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | NV kinh doanh phụ trách (hoa hồng) + RBAC data-scope owner (own/department/all, §41). |
 | `status` | `String(16)` → `VARCHAR(16)` | — | no | `draft` | Lifecycle ACTIVE: draft/ordered/cancelled (P1 redesign). `on_hold`/`change_order` = giá trị DORMANT (không dùng trong luồng). |
-| `is_rush` | `Boolean` → `BOOLEAN` | — | no | `false` | Đơn GẤP/ưu tiên — Sale bật để xưởng làm trước (chip đỏ + chảy xuống LSX). Migration 0073. |
+| `is_rush` | `Boolean` → `BOOLEAN` | — | no | `false` | Đơn GẤP/ưu tiên — Sale bật để xưởng làm trước (chip đỏ + chảy xuống LSX). Migration 0076. |
 | `has_customer_paper` | `Boolean` → `BOOLEAN` | — | no | `false` | **DORMANT** (P1 thay bằng `order_nature` {hang_hoa, gia_cong}). |
 | `vat_pct_estimate` | `Integer` → `INTEGER` | — | no | `0` | VAT DỰ KIẾN (%) để ước tổng — chân lý ở InvoiceLine (⑬). |
 | `cancel_reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Set only when status=cancelled (F8). |
@@ -693,10 +693,10 @@ data. Duyệt bản in + tiến độ SX = luồng NGOÀI hệ thống (không l
 | `customer_po_no` | `String(100)` → `VARCHAR(100)` | — | yes | — | Số PO khách (mức đơn). |
 | `delivery_committed_date` | `Date` → `DATE` | — | yes | — | Ngày giao cam kết ban đầu; dời lịch = module Kế hoạch giao hàng (SEAM-02). |
 | `delivery_address` | `String(500)` → `VARCHAR(500)` | — | yes | — | Địa chỉ giao (snapshot, sửa khi nháp). |
-| `delivery_contact_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người nhận hàng (snapshot, Sale xổ từ danh bạ khách — KHÔNG auto-fill is_primary). Migration 0071. |
-| `delivery_contact_phone` | `String(30)` → `VARCHAR(30)` | — | yes | — | SĐT người nhận hàng. Migration 0071. |
-| `delivery_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lưu ý GIAO HÀNG → tài xế/khâu Giao ("giao giờ HC", "gọi trước 30'"). Migration 0071. |
-| `production_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lưu ý SẢN XUẤT → tổ in/LSX ("in đúng màu mẫu lần trước"). Migration 0071. |
+| `delivery_contact_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người nhận hàng (snapshot, Sale xổ từ danh bạ khách — KHÔNG auto-fill is_primary). Migration 0076. |
+| `delivery_contact_phone` | `String(30)` → `VARCHAR(30)` | — | yes | — | SĐT người nhận hàng. Migration 0076. |
+| `delivery_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lưu ý GIAO HÀNG → tài xế/khâu Giao ("giao giờ HC", "gọi trước 30'"). Migration 0076. |
+| `production_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lưu ý SẢN XUẤT → tổ in/LSX ("in đúng màu mẫu lần trước"). Migration 0076. |
 | `invoice_entity_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Pháp nhân xuất HĐ (khi khách xin tên khác; mặc định = khách). |
 | `invoice_entity_tax_code` | `String(20)` → `VARCHAR(20)` | — | yes | — | MST pháp nhân xuất HĐ. |
 | `deposit_pct` | `Float` → `FLOAT` | — | yes | — | % cọc phải thu ĐẶT TẠI ĐƠN (Kế toán/`record_deposit`, khóa khỏi Sale) — base cổng chốt; NULL = chưa đặt. |
@@ -762,7 +762,7 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 | `order_id`            | `Integer` → `INTEGER`                 | **FK→orders.id**, **IX** | no   | —              | Owning order (ON DELETE CASCADE).                                                     |
 | `description`         | `String(500)` → `VARCHAR(500)`        | —                        | no   | `''`           | Mô tả SP thương mại (đối ngoại). NEVER số màu/kẽm/khổ/imposition/PrintForm.           |
 | `qty`                 | `Integer` → `INTEGER`                 | —                        | no   | `1`            | Số lượng dòng đơn.                                                                    |
-| `don_vi_tinh`         | `String(30)` → `VARCHAR(30)`          | —                        | no   | `'cái'`        | ĐVT dòng (migration 0075) — kéo từ báo giá (`quote_items.unit`) / gõ tay đơn nhập tay. |
+| `don_vi_tinh`         | `String(30)` → `VARCHAR(30)`          | —                        | no   | `'cái'`        | ĐVT dòng (migration 0076) — kéo từ báo giá (`quote_items.unit`) / gõ tay đơn nhập tay. |
 | `unit_price_snapshot` | `Integer` → `INTEGER`                 | —                        | yes  | —              | **P0 copy-on-write**: frozen unit price (VND) từ báo giá. NO live FK.                 |
 | `norm_snapshot`       | `JSON` → `JSON`                       | —                        | yes  | —              | **P0 copy-on-write**: frozen norm/định mức snapshot (ngang hàng unit_price_snapshot). |
 | `vat_pct_estimate`    | `Integer` → `INTEGER`                 | —                        | no   | `0`            | VAT DỰ KIẾN (%) cho dòng — chân lý ở InvoiceLine (⑬).                                 |

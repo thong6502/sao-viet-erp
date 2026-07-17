@@ -3031,6 +3031,7 @@ export interface OrderUpdateInput {
   production_note?: string | null;
   invoice_entity_name?: string | null;
   invoice_entity_tax_code?: string | null;
+  is_rush?: boolean | null;
 }
 export interface OrderNotifySummary {
   action_count: number;

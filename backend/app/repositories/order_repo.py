@@ -231,6 +231,7 @@ class OrderRepository:
                     line_total=ln.get("line_total"),
                     cost_snapshot=ln.get("cost_snapshot"),  # giá vốn dòng (soi biên)
                     phieu_thanh_phan_id=ln.get("phieu_thanh_phan_id"),  # pin ấn phẩm (soft)
+                    don_vi_tinh=ln.get("don_vi_tinh", "cái"),   # ĐVT dòng (kéo từ báo giá / gõ tay)
                 )
             )
         self.db.add(order)
