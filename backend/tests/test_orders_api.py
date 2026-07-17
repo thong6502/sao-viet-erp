@@ -163,6 +163,29 @@ def test_deposit_receipt_rejects_bad_method_and_amount(svc, admin, customer, db)
                                 payload=OrderDepositReceiptIn(receipt_method="vang", amount=100_000))
 
 
+def test_stats_money_aggregate_tracks_deposit_shortfall(svc, admin, customer, db):
+    """KPI tiền: chờ cọc + Σ cần-thu-còn-thiếu bám phiếu thu THẬT (dùng delta vì seed có sẵn đơn)."""
+    base = svc.stats(actor=admin, scope="all")
+    q = _accepted_quote(db, customer)  # 50% của total_with_vat 972.000 → cần cọc 486.000
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    s = svc.stats(actor=admin, scope="all")
+    assert s.awaiting_deposit == base.awaiting_deposit + 1
+    assert s.deposit_shortfall == base.deposit_shortfall + 486_000
+    assert s.ordered_value == base.ordered_value          # còn nháp → giá trị đã chốt không đổi
+
+    d = svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                                payload=OrderDepositReceiptIn(receipt_method="cash", amount=200_000))
+    s = svc.stats(actor=admin, scope="all")
+    assert s.awaiting_deposit == base.awaiting_deposit + 1  # thu 200k < 486k, vẫn chờ
+    assert s.deposit_shortfall == base.deposit_shortfall + 286_000
+
+    svc.add_deposit_receipt(order_id=d.id, actor=admin, scope="all",
+                            payload=OrderDepositReceiptIn(receipt_method="bank_transfer", amount=286_000))
+    s = svc.stats(actor=admin, scope="all")
+    assert s.awaiting_deposit == base.awaiting_deposit     # đủ cọc → hết chờ
+    assert s.deposit_shortfall == base.deposit_shortfall
+
+
 # --- P3: duyệt đơn đặc thù ----------------------------------------------------
 def test_submit_reject_then_approve(svc, admin, customer):
     d = svc.create(actor=admin, scope="all", payload=OrderCreate(

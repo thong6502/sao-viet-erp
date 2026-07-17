@@ -259,6 +259,31 @@ class OrderRepository:
             "pending_approval": cnt(Order.status == STATUS_DRAFT, Order.approval_state == "pending"),
         }
 
+    def value_rows(self, *, scope: str, actor, statuses: tuple[str, ...]) -> dict[int, dict]:
+        """Nguyên liệu tính KPI tiền cho từng đơn trong phạm vi (status ∈ statuses):
+        `{order_id: {status, deposit_pct, total_with_vat}}`. total_with_vat khớp ĐÚNG helper
+        `total_with_vat` (Σ line_total·(100+vat) rồi //100 theo TỪNG đơn) → KPI = tổng số per-row,
+        không lệch. 1 truy vấn GROUP BY, không N+1."""
+        base = self._scope_condition(scope=scope, actor=actor)
+        stmt = (
+            select(
+                Order.id,
+                Order.status,
+                Order.deposit_pct,
+                func.coalesce(func.sum(OrderLine.line_total * (100 + OrderLine.vat_pct_estimate)), 0),
+            )
+            .select_from(Order)
+            .join(OrderLine, OrderLine.order_id == Order.id, isouter=True)
+            .where(Order.status.in_(statuses))
+            .group_by(Order.id, Order.status, Order.deposit_pct)
+        )
+        if base is not None:
+            stmt = stmt.where(base)
+        out: dict[int, dict] = {}
+        for oid, status, pct, num in self.db.execute(stmt):
+            out[int(oid)] = {"status": status, "deposit_pct": pct, "total_with_vat": int(num) // 100}
+        return out
+
     # V5: Σ cọc đã thu chuyển sang AccountingRepository.received_deposit_sum (cọc = PaymentReceipt).
 
     def active_order_for_quotation(self, quotation_id: int) -> Order | None:

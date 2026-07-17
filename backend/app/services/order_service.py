@@ -344,7 +344,29 @@ class OrderService:
         return OrderListOut(items=items, total=total, page=page, size=size)
 
     def stats(self, *, actor, scope: str) -> OrderStatsOut:
-        return OrderStatsOut(**self.repo.stats(scope=scope, actor=actor))
+        from ..models.order import STATUS_DRAFT, STATUS_ORDERED
+
+        counts = self.repo.stats(scope=scope, actor=actor)
+        # KPI tiền: dùng CÙNG công thức _money (required = round(pct·twv/100), received từ phiếu thu)
+        # nên số KPI = tổng đúng số hiện trên từng dòng.
+        rows = self.repo.value_rows(scope=scope, actor=actor, statuses=(STATUS_DRAFT, STATUS_ORDERED))
+        received = self.accounting_repo.received_deposit_sums(list(rows.keys()))
+        awaiting = shortfall = ordered_value = 0
+        for oid, r in rows.items():
+            twv = r["total_with_vat"]
+            pct = r["deposit_pct"]
+            required = int(round(float(pct) * twv / 100)) if pct else 0
+            if r["status"] == STATUS_ORDERED:
+                ordered_value += twv
+            elif r["status"] == STATUS_DRAFT and required > 0 and received.get(oid, 0) < required:
+                awaiting += 1
+                shortfall += required - received.get(oid, 0)
+        return OrderStatsOut(
+            **counts,
+            awaiting_deposit=awaiting,
+            deposit_shortfall=shortfall,
+            ordered_value=ordered_value,
+        )
 
     def get(self, *, order_id: int, actor, scope: str) -> OrderDetailOut:
         order = self.repo.get_with_lines(order_id)

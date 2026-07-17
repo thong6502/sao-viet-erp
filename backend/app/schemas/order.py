@@ -161,6 +161,11 @@ class OrderStatsOut(BaseModel):
     ordered: int
     cancelled: int
     pending_approval: int
+    # KPI tiền (aggregate read-only, không đổi schema DB): số đơn chờ cọc, Σ cần-thu-còn-thiếu,
+    # Σ giá trị (gồm VAT) đơn đã chốt. Default 0 để an toàn khi thiếu.
+    awaiting_deposit: int = 0
+    deposit_shortfall: int = 0
+    ordered_value: int = 0
 
 
 class OrderDetailOut(OrderRow):

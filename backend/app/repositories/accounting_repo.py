@@ -353,6 +353,22 @@ class AccountingRepository:
         )
         return int(self.db.execute(stmt).scalar_one())
 
+    def received_deposit_sums(self, order_ids: list[int]) -> dict[int, int]:
+        """Batch của received_deposit_sum: `{order_id: Σ tiền đã thu}` cho nhiều đơn (KPI, tránh
+        N+1). Chỉ đơn có phiếu 'received' mới xuất hiện trong map."""
+        if not order_ids:
+            return {}
+        stmt = (
+            select(PaymentReceipt.order_id, func.coalesce(func.sum(PaymentReceipt.amount), 0))
+            .where(
+                PaymentReceipt.order_id.in_(order_ids),
+                PaymentReceipt.source_type == RECEIPT_SOURCE_DON_HANG,
+                PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+            )
+            .group_by(PaymentReceipt.order_id)
+        )
+        return {int(oid): int(s) for oid, s in self.db.execute(stmt)}
+
     def list_order_receipts(self, order_id: int) -> list[PaymentReceipt]:
         """Mọi phiếu thu cọc của một đơn (mọi trạng thái) — FE hiện danh sách + đi tới màn
         Phiếu thu Kế toán. Sắp theo thứ tự lập (id tăng dần)."""

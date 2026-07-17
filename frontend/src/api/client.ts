@@ -3747,6 +3747,9 @@ export interface OrderStatsOut {
   ordered: number;
   cancelled: number;
   pending_approval: number;
+  awaiting_deposit: number;
+  deposit_shortfall: number;
+  ordered_value: number;
 }
 export interface OrderLineInput {
   description?: string;

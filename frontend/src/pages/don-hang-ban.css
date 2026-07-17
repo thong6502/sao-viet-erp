@@ -153,6 +153,35 @@
   color: var(--rust);
 }
 
+/* Form input tokenized (focus ring a11y) — dùng cho input/textarea trong form */
+.dhb__input {
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: var(--r-3);
+  border: 1px solid var(--rule-soft);
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--canvas);
+  box-sizing: border-box;
+  transition: border-color var(--duration-fast) var(--easing-standard), box-shadow var(--duration-fast) var(--easing-standard);
+}
+
+.dhb__input::placeholder {
+  color: var(--ash-2);
+}
+
+.dhb__input:focus {
+  outline: none;
+  border-color: var(--rust);
+  background: #fff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--rust) 12%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dhb__input { transition: none; }
+}
+
 /* --- Table --- */
 .dhb__tablewrap {
   background: var(--canvas);
@@ -215,6 +244,17 @@
   text-align: right;
 }
 
+/* Cột "Giá trị" ở list — số quyết định, nổi bật nhất hàng */
+.dhb__val {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--ink);
+}
+
 .dhb__order-code {
   font-family: var(--ff-mono);
   font-size: 13px;
@@ -272,6 +312,21 @@
   height: 100%;
   border-radius: var(--r-pill);
   transition: width 0.3s ease;
+}
+
+/* Phiếu thu cọc (V5) — thẻ scannable + hover highlight (Data-Dense) */
+.dhb__receipt-row {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: 8px 12px;
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+.dhb__receipt-row:hover {
+  background: var(--rule-hair);
+}
+@media (prefers-reduced-motion: reduce) {
+  .dhb__receipt-row { transition: none; }
 }
 
 /* --- Status and flags --- */
@@ -390,6 +445,27 @@
   font-family: var(--ff-mono);
   color: var(--ink);
   letter-spacing: -.02em;
+}
+
+.dhb__drawer-headmain {
+  flex: 1;
+  min-width: 0;
+}
+
+.dhb__drawer-headtop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dhb__drawer-cust {
+  font-size: 12.5px;
+  color: var(--ash);
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .dhb__drawer-body {
@@ -592,15 +668,29 @@
   margin-bottom: var(--sp-3);
 }
 
-.dhb__timeline::before {
-  content: "";
+.dhb__timeline-track,
+.dhb__timeline-fill {
   position: absolute;
-  top: 14px;
-  left: var(--sp-8);
-  right: var(--sp-8);
+  top: 13px;
   height: 2px;
-  background: var(--rule-soft);
+  border-radius: 2px;
   z-index: 1;
+}
+
+.dhb__timeline-track {
+  left: 10%;
+  right: 10%;
+  background: var(--rule-soft);
+}
+
+.dhb__timeline-fill {
+  left: 10%;
+  background: var(--moss);
+  transition: width var(--duration-base) var(--easing-standard);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dhb__timeline-fill { transition: none; }
 }
 
 .dhb__timeline-step {
@@ -613,8 +703,8 @@
 }
 
 .dhb__timeline-dot {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border-radius: var(--r-pill);
   background: var(--paper-contrast);
   border: 2px solid var(--rule-soft);
@@ -723,6 +813,35 @@
   line-height: 1.4;
 }
 
+/* Bước Cọc — bộ 3 stat (Cần thu / Đã thu / Còn thiếu) */
+.dhb__stat-trio {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-2);
+  margin: 2px 0 8px;
+}
+
+.dhb__stat {
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-hair);
+  border-radius: var(--r-3);
+  padding: 7px 10px;
+}
+
+.dhb__stat-l {
+  font-size: 10.5px;
+  color: var(--ash);
+  font-weight: 500;
+}
+
+.dhb__stat-n {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 700;
+  margin-top: 1px;
+}
+
 /* --- Drawer Tabs --- */
 .dhb__drawer-tabs {
   display: flex;
@@ -780,6 +899,56 @@
 .dhb__timeline-step.is-selected .dhb__timeline-dot {
   box-shadow: 0 0 0 3px var(--rust-soft);
   border-color: var(--rust);
+}
+
+/* --- KPI strip đầu list (mật độ cao, rule-based từ stats) --- */
+.dhb__kpis {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin: 0 0 var(--sp-4);
+}
+
+.dhb__kpi {
+  background: var(--paper-contrast);
+  border: 1px solid var(--rule-hair);
+  border-radius: var(--r-3);
+  padding: 8px 12px;
+}
+
+.dhb__kpi-l {
+  font-size: 11px;
+  color: var(--ash);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.dhb__kpi-n {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  margin-top: 2px;
+}
+
+.dhb__kpi-u {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ash);
+}
+
+.dhb__kpi-s {
+  font-size: 11px;
+  color: var(--ash-2);
+  margin-top: 1px;
+}
+
+@media (max-width: 760px) {
+  .dhb__kpis {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 
