@@ -1968,6 +1968,49 @@ def _migrate_ptg_don_vi_tinh(db: Session) -> None:
     db.commit()
 
 
+def _migrate_seed_pricing_formulas(db: Session) -> None:
+    """Backfill công thức giá cho 3 danh mục CHUẨN (mực CMYK · màng bóng · ghi kẽm CTP) trên DB đã
+    seed TRƯỚC khi có cột `cong_thuc_gia` (mig 0058) — để mực/màng/kẽm ra tiền thật thay vì 0đ.
+
+    Chỉ đụng hàng còn MÃ CHUẨN và CHƯA có công thức (cong_thuc_gia rỗng) → KHÔNG đè cấu hình xưởng
+    tự sửa. Mực: đơn giá placeholder 8.000/kg (giá ảo) → 250.000/kg CHỈ khi còn đúng 8.000. Ghi kẽm:
+    ghi trọn cụm (theo_san_luong + per_other + run_rate 95.000) thì công thức `so_kem*don_gia` mới ra
+    tiền — nhưng siết chỉ khi CD-0001 còn ĐÚNG placeholder cũ (theo_gio, chưa có run_rate/pricing_basis)
+    để không đạp máy tính-giờ nếu xưởng đã tự set. No-op trên DB fresh (seed_rebuild đã ghi) / bảng-cột
+    chưa có / hàng đã cấu hình."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+
+    if "vat_tu_in_an" in tables and "cong_thuc_gia" in _existing_columns(insp, "vat_tu_in_an"):
+        db.execute(text(
+            "UPDATE vat_tu_in_an SET cong_thuc_gia = "
+            "'so_mau * dai_in * rong_in * don_gia_kg * to_dau_vao * 0.0003' "
+            "WHERE ma = 'MUC-CMYK' AND (cong_thuc_gia IS NULL OR cong_thuc_gia = '')"
+        ))
+        db.execute(text(
+            "UPDATE vat_tu_in_an SET don_gia = 250000 WHERE ma = 'MUC-CMYK' AND don_gia = 8000"
+        ))
+        db.execute(text(
+            "UPDATE vat_tu_in_an SET cong_thuc_gia = "
+            "'dai_in * rong_in * don_gia_m2 * to_sau_in' "
+            "WHERE ma = 'MANG-BONG' AND (cong_thuc_gia IS NULL OR cong_thuc_gia = '')"
+        ))
+
+    if "cong_doan" in tables and "cong_thuc_gia" in _existing_columns(insp, "cong_doan"):
+        db.execute(text(
+            "UPDATE cong_doan SET cong_thuc_gia = 'so_kem * don_gia', "
+            "che_do_tinh = 'theo_san_luong', pricing_basis = 'per_other', run_rate = 95000 "
+            "WHERE ma = 'CD-0001' "
+            "AND (cong_thuc_gia IS NULL OR cong_thuc_gia = '') "
+            "AND che_do_tinh = 'theo_gio' "
+            "AND run_rate IS NULL "
+            "AND (pricing_basis IS NULL OR pricing_basis = '')"
+        ))
+
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2045,6 +2088,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     # Tích hợp accounting-wip (đánh số tiếp, KHÔNG đụng id đã ship): báo giá terms_text + PTG ĐVT.
     ("0073_quote_terms_text", _migrate_quote_terms_text),
     ("0074_ptg_don_vi_tinh", _migrate_ptg_don_vi_tinh),
+    ("0075_seed_pricing_formulas", _migrate_seed_pricing_formulas),
 ]
 
 

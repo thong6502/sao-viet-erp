@@ -158,12 +158,14 @@ def seed_rebuild_catalog(db: Session) -> None:
 
     if _empty(db, VatTuInAn):
         db.add_all([
-            VatTuInAn(ma="MUC-CMYK", ten="Mực process CMYK", don_vi_gia="kg", don_gia=8000),
+            VatTuInAn(ma="MUC-CMYK", ten="Mực process CMYK", don_vi_gia="kg", don_gia=250000,
+                      cong_thuc_gia="so_mau * dai_in * rong_in * don_gia_kg * to_dau_vao * 0.0003"),
             VatTuInAn(ma="MUC-PANTONE", ten="Mực pha Pantone", don_vi_gia="kg", don_gia=15000),
             VatTuInAn(ma="KEM-74", ten="Bản kẽm khổ 74", don_vi_gia="ban", don_gia=100000),
             VatTuInAn(ma="KEM-102", ten="Bản kẽm khổ 102", don_vi_gia="ban", don_gia=180000),
             VatTuInAn(ma="KEM-52", ten="Bản kẽm khổ 52", don_vi_gia="ban", don_gia=70000),
-            VatTuInAn(ma="MANG-BONG", ten="Màng cán bóng", don_vi_gia="m2", don_gia=3000),
+            VatTuInAn(ma="MANG-BONG", ten="Màng cán bóng", don_vi_gia="m2", don_gia=3000,
+                      cong_thuc_gia="dai_in * rong_in * don_gia_m2 * to_sau_in"),
             VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45000,
                       ghi_chu="UV định hình 1 thùng = 3kg"),
         ])
@@ -202,8 +204,9 @@ def seed_rebuild_catalog(db: Session) -> None:
     # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 3 kiểu bù hao (khong/tra_bang/cố định) ---
     if _empty(db, CongDoan):
         db.add_all([
-            CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_gio",
-                     setup_time=10, kieu_bu_hao="khong"),
+            CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_san_luong",
+                     pricing_basis="per_other", run_rate=95000,
+                     cong_thuc_gia="so_kem * don_gia", setup_time=10, kieu_bu_hao="khong"),
             CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
                      pricing_basis="per_sheet", run_rate=350, kieu_bu_hao="tra_bang"),  # → BH nối bên dưới
             CongDoan(ma="CD-0003", ten="Cán màng bóng", nhom="finishing", che_do_tinh="theo_san_luong",
