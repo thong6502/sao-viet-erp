@@ -206,7 +206,16 @@ def create_voucher(payload: VoucherIn, db: Annotated[Session, Depends(get_db)], 
     header["created_by_user_id"] = user.id
     header["status"] = "draft"
     v = repo.create(code=repo.next_code(vt.code), header=header, lines=[ln.model_dump() for ln in payload.lines])
-    _audit(db, user, "create_stock_voucher", v)
+    # Phiếu sinh từ LSX (đã DUYỆT) → ghi sổ luôn, bỏ bước nộp + duyệt (đồng bộ với phiếu từ đề nghị).
+    if payload.ref_type == "lsx" and payload.ref_id:
+        try:
+            VoucherService(db).post(v, user)
+        except VoucherError as e:
+            db.rollback()
+            raise HTTPException(422, detail=str(e)) from None
+        _audit(db, user, "post_stock_voucher", v)
+    else:
+        _audit(db, user, "create_stock_voucher", v)
     return _vrow(db, v)
 
 

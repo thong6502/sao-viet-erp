@@ -22,6 +22,7 @@ from ..models.warehouse_voucher import StockVoucher
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.stock_request_repo import StockRequestRepo
 from ..repositories.warehouse_voucher_repo import VoucherRepo
+from ..services.warehouse_voucher_service import VoucherError, VoucherService
 from ..schemas.stock_request import (
     FulfillIn,
     RejectIn,
@@ -218,8 +219,8 @@ def create_voucher_from_request(
     request_id: int, payload: FulfillIn,
     db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_create)],
 ):
-    """Lập phiếu kho từ đề nghị ĐÃ DUYỆT — copy dòng hàng, gắn ref 2 chiều. Phiếu tạo ở trạng
-    thái Nháp; thủ kho gửi/ghi sổ như phiếu thường ở tab Phiếu kho."""
+    """Lập phiếu kho từ đề nghị ĐÃ DUYỆT — copy dòng hàng, gắn ref 2 chiều, rồi GHI SỔ LUÔN.
+    Đề nghị đã qua duyệt nên phiếu không cần nộp + duyệt lại (bỏ 1 vòng phê duyệt)."""
     repo = StockRequestRepo(db)
     r = repo.get(request_id)
     if r is None:
@@ -260,11 +261,18 @@ def create_voucher_from_request(
     ]
     v = vrepo.create(code=vrepo.next_code(vt.code), header=header, lines=lines)
 
+    # Đề nghị đã DUYỆT → ghi sổ phiếu ngay (bỏ bước nộp + duyệt phiếu).
+    try:
+        VoucherService(db).post(v, user)
+    except VoucherError as e:
+        db.rollback()
+        raise HTTPException(422, detail=str(e)) from None
+
     r.voucher_id = v.id
     r.status = "fulfilled"
     repo.save(r)
     AuditLogRepository(db).create(
         actor_user_id=user.id, action="fulfill_stock_request",
-        target=f"stock_request:{r.id}", detail=f"{r.code} → {v.code}",
+        target=f"stock_request:{r.id}", detail=f"{r.code} → {v.code} (ghi sổ)",
     )
     return _row(db, repo.get(request_id))
