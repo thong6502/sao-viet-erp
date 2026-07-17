@@ -107,7 +107,6 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string }[]> = {
   kho: [
     { key: "can_approve", label: "Duyệt & ghi sổ phiếu" },
     { key: "can_manage_price", label: "Xem giá vốn / giá trị tồn" },
-    { key: "can_manage_status", label: "Xác nhận nhận vật tư (bàn giao)" },
   ],
   san_xuat: [
     { key: "can_approve", label: "Duyệt lệnh sản xuất" },

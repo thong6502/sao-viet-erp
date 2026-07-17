@@ -32,7 +32,7 @@ export const MATERIAL_HEADERS = [
   "Mã", "Tên", "Loại", "Đơn vị", "Nhóm hàng", "NCC mặc định",
   "ĐVT mua", "ĐVT xuất", "Quy cách", "Đơn vị quy đổi",
   "Họ giấy", "Khổ rộng (cm)", "Khổ cao/dài (cm)", "Định lượng (gsm)", "Độ dày (mm)",
-  "Ghi chú", "Trạng thái",
+  "Ghi chú", "Tồn tối thiểu", "Tồn báo sớm", "Trạng thái",
 ];
 const QTY_HEADER = "Tồn đầu kỳ (SL)";
 
@@ -59,14 +59,14 @@ export function downloadMaterialTemplate(filename: string, opts?: { withQty?: bo
     "", "Giấy Couche 150", "Giấy", "tờ", "Giấy in", "Cty Giấy An Bình",
     "ream", "tờ", "150gsm 65x86", "ream=500",
     "Couche", 65, 86, 150, "",
-    "Ví dụ – có thể xóa dòng này", "Hoạt động",
+    "Ví dụ – có thể xóa dòng này", 500, 800, "Hoạt động",
     ...(withQty ? [1000] : []),
   ];
   const ex2 = [
     "", "Mực in đen", "Vật tư tiêu hao", "kg", "Mực in", "",
     "", "", "", "",
     "", "", "", "", "",
-    withQty ? "Vật tư chưa có sẽ được tạo mới; đã có chỉ cần Mã + SL" : "Vật tư thường – không cần Họ giấy/GSM", "Hoạt động",
+    withQty ? "Vật tư chưa có sẽ được tạo mới; đã có chỉ cần Mã + SL" : "Vật tư thường – không cần Họ giấy/GSM", "", "", "Hoạt động",
     ...(withQty ? [50] : []),
   ];
   exportXlsx(filename, headers, [ex1, ex2], "VatTu");
@@ -78,6 +78,8 @@ export interface ParsedMaterialRow {
   name: string;
   unit: string;
   qty: number | null;     // chỉ có khi withQty
+  minQty: number | null;  // Tồn tối thiểu (ngưỡng) — để trống = không đổi/không đặt
+  nearQty: number | null; // Tồn báo sớm (cận tồn)
   payload: MaterialInput; // dùng để tạo mới vật tư nếu chưa có
 }
 
@@ -120,6 +122,8 @@ export async function parseMaterialFile(
   const iGhi = idx(["ghi chú", "ghi chu", "note"]);
   const iTt = idx(["trạng thái", "trang thai", "status"]);
   const iQty = idx(["tồn đầu kỳ (sl)", "tồn đầu kỳ", "ton dau ky", "số lượng", "so luong", "sl", "qty"]);
+  const iMin = idx(["tồn tối thiểu", "ton toi thieu", "ngưỡng tồn", "nguong ton", "min", "min_qty"]);
+  const iNear = idx(["tồn báo sớm", "ton bao som", "mức báo sớm", "muc bao som", "cận tồn", "can ton", "near", "near_min_qty"]);
 
   if (iTen < 0 || iDv < 0) {
     return { rows: [], errs: ["File thiếu cột Tên hoặc Đơn vị. Hãy tải đúng file mẫu."] };
@@ -168,6 +172,8 @@ export async function parseMaterialFile(
       name,
       unit,
       qty,
+      minQty: numQty(cells, iMin),
+      nearQty: numQty(cells, iNear),
       payload: {
         code: code || null,
         name, material_type: mt, unit,

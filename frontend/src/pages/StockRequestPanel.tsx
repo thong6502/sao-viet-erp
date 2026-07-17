@@ -17,14 +17,12 @@ import {
   type WarehouseRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
-import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { toast } from "../components/Toast";
-import { Icon, type IconName } from "../components/Icons";
 import { Select, type SelectOption } from "../components/Select";
 import { downloadLineTemplate, exportXlsx, matchMaterial, parseLineFile } from "../lib/xlsxImport";
-import { VoucherForm, VoucherDetail, printVoucher, specForType, openKhoPrint } from "./StockVoucherPage";
+import { VoucherForm, VoucherDetail, specForType, openKhoPrint } from "./StockVoucherPage";
 
 /** Định dạng ngày-giờ VN; rỗng nếu null. */
 function fmtDateTime(s: string | null | undefined): string {
@@ -43,61 +41,12 @@ const R_STATUS: Record<string, { label: string; cls: string }> = {
 };
 const TYPE_LABEL: Record<string, string> = { nhap: "Đề nghị nhập", xuat: "Đề nghị xuất" };
 
-// Nút icon vuông cho cột "Thao tác" — đồng bộ trang Mua hàng (outline SVG trong nút viền).
-function IconBtn({
-  icon, title, danger = false, onClick,
-}: { icon: IconName; title: string; danger?: boolean; onClick: () => void }) {
-  return (
-    <Button
-      type="button"
-      variant="ghost"
-      className={`md-page__rowbtn md-page__rowbtn--icon${danger ? " md-page__rowbtn--danger" : ""}`}
-      aria-label={title}
-      title={title}
-      onClick={onClick}
-    >
-      <Icon name={icon} size={17} />
-    </Button>
-  );
-}
-
 const V_STATUS: Record<string, { label: string; cls: string }> = {
   draft: { label: "Nháp", cls: "md-page__status-badge--draft" },
   pending: { label: "Chờ duyệt", cls: "md-page__status-badge--pending" },
   posted: { label: "Đã ghi sổ", cls: "md-page__status-badge--posted" },
   cancelled: { label: "Đã hủy", cls: "md-page__status-badge--cancelled" },
 };
-
-/** Bộ icon thao tác cho 1 phiếu kho: In / Sửa / Gửi duyệt / Duyệt / Hủy / Xóa — theo trạng thái + quyền.
- * Dùng ở bảng "phiếu từ đề nghị" và tab "Phiếu kho". Presentational: cha xử lý API + popup. */
-export function VoucherActionIcons({
-  voucher, canCreate, canApprove, onView, onPrint, onEdit, onSubmit, onApprove, onCancel, onDelete,
-}: {
-  voucher: VoucherRow;
-  canCreate: boolean;
-  canApprove: boolean;
-  onView?: () => void;
-  onPrint: () => void;
-  onEdit: () => void;
-  onSubmit: () => void;
-  onApprove: () => void;
-  onCancel: () => void;
-  onDelete: () => void;
-}) {
-  const draft = voucher.status === "draft";
-  const pending = voucher.status === "pending";
-  return (
-    <span style={{ display: "inline-flex", gap: 4, whiteSpace: "nowrap" }} onClick={(e) => e.stopPropagation()}>
-      {onView && <IconBtn icon="eye" title="Xem chi tiết" onClick={onView} />}
-      <IconBtn icon="printer" title="In phiếu" onClick={onPrint} />
-      {draft && canCreate && <IconBtn icon="pencil" title="Sửa" onClick={onEdit} />}
-      {draft && canCreate && <IconBtn icon="send" title="Gửi duyệt / Nộp phiếu" onClick={onSubmit} />}
-      {pending && canApprove && <IconBtn icon="check" title="Duyệt & ghi sổ" onClick={onApprove} />}
-      {(draft || pending) && canCreate && <IconBtn icon="ban" title="Hủy phiếu" danger onClick={onCancel} />}
-      {draft && canCreate && <IconBtn icon="trash" title="Xóa phiếu (nháp)" danger onClick={onDelete} />}
-    </span>
-  );
-}
 
 export function StockRequestPanel({
   warehouse,
@@ -123,8 +72,6 @@ export function StockRequestPanel({
   view?: "requests" | "vouchers";
 }) {
   const { token } = useAuth();
-  const can = useCan();
-  const canPrice = can("kho", "manage_price");
   const [rows, setRows] = useState<StockRequestRow[]>([]);
   const [reqVouchers, setReqVouchers] = useState<VoucherRow[]>([]); // phiếu kho lập từ đề nghị
   const [loading, setLoading] = useState(false);
@@ -138,10 +85,6 @@ export function StockRequestPanel({
   const importFileRef = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<StockRequestRow | null>(null);
   const [detail, setDetail] = useState<StockRequestRow | null>(null);
-  // Xác nhận Xóa (nháp) / Hủy (đã gửi/duyệt) từ icon ngoài danh sách.
-  const [confirm, setConfirm] = useState<{ req: StockRequestRow; kind: "delete" | "cancel" } | null>(null);
-  const [confirmBusy, setConfirmBusy] = useState(false);
-  const [confirmError, setConfirmError] = useState<string | null>(null);
   // Sửa / Hủy(popup lý do) / Xóa phiếu kho ở bảng dưới.
   const [editVoucher, setEditVoucher] = useState<VoucherRow | null>(null);
   const [detailVoucher, setDetailVoucher] = useState<VoucherRow | null>(null); // xem chi tiết phiếu
@@ -149,7 +92,6 @@ export function StockRequestPanel({
   const [vaBusy, setVaBusy] = useState(false);
   const [vaError, setVaError] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState("");
-  const [vErr, setVErr] = useState<string | null>(null);
   // Lọc + phân trang bảng "phiếu lập từ đề nghị".
   const [vGroupF, setVGroupF] = useState(""); // nhap/xuat
   const [vStatusF, setVStatusF] = useState("");
@@ -160,18 +102,6 @@ export function StockRequestPanel({
   const [reqPage, setReqPage] = useState(1);
   const [reqPageSize, setReqPageSize] = useState(10);
 
-  async function runConfirm() {
-    if (!token || !confirm || confirmBusy) return;
-    setConfirmBusy(true); setConfirmError(null);
-    try {
-      if (confirm.kind === "delete") await api.kho.deleteRequest(token, confirm.req.id);
-      else await api.kho.cancelRequest(token, confirm.req.id);
-      setConfirm(null); setConfirmBusy(false); load();
-    } catch (err) {
-      setConfirmError(err instanceof ApiError ? err.message : "Thao tác thất bại.");
-      setConfirmBusy(false);
-    }
-  }
 
   const load = useCallback(() => {
     if (!token) return;
@@ -243,13 +173,6 @@ export function StockRequestPanel({
     }
   }
 
-  // Thao tác phiếu trực tiếp từ icon (gửi duyệt / duyệt). Reload cả 2 bảng + báo trang cha.
-  async function doVoucher(fn: () => Promise<unknown>) {
-    if (!token) return;
-    setVErr(null);
-    try { await fn(); load(); onFulfilled(); }
-    catch (err) { setVErr(err instanceof ApiError ? err.message : "Thao tác thất bại."); }
-  }
 
   async function runVoucherAction() {
     if (!token || !voucherAction || vaBusy) return;
@@ -397,41 +320,23 @@ export function StockRequestPanel({
           <thead>
             <tr>
               <th>Mã</th><th>Loại</th><th>Số dòng</th><th>Người đề nghị</th><th>Phiếu kho</th><th>Trạng thái</th>
-              <th style={{ textAlign: "right" }}>Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="md-page__status">Đang tải...</td></tr>
+              <tr><td colSpan={6} className="md-page__status">Đang tải...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="md-page__empty">Chưa có đề nghị nào cho kho này.</td></tr>
+              <tr><td colSpan={6} className="md-page__empty">Chưa có đề nghị nào cho kho này.</td></tr>
             ) : reqPageRows.map((r) => {
               const st = R_STATUS[r.status] ?? { label: r.status, cls: "is-inactive" };
-              const isDraft = r.status === "draft";
-              const canCancel = r.status === "pending" || r.status === "approved";
               return (
-                <tr key={r.id} className="md-page__row" onClick={() => setDetail(r)}>
+                <tr key={r.id} className="md-page__row" onClick={() => setDetail(r)} title="Bấm để xem / thao tác">
                   <td className="md-page__mono">{r.code}</td>
                   <td>{TYPE_LABEL[r.request_type] ?? r.request_type}</td>
                   <td>{r.lines.length}</td>
                   <td>{r.requested_by_name || <span className="md-page__muted">—</span>}</td>
                   <td className="md-page__mono">{r.voucher_code || <span className="md-page__muted">—</span>}</td>
                   <td><span className={`md-page__status-badge ${st.cls}`}>{st.label}</span></td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <span style={{ display: "inline-flex", gap: 4, justifyContent: "flex-end", width: "100%" }}>
-                      <IconBtn icon="eye" title="Xem chi tiết" onClick={() => setDetail(r)} />
-                      {isDraft && (
-                        <IconBtn icon="pencil" title="Sửa" onClick={() => { setEditing(r); setFormOpen(true); }} />
-                      )}
-                      {isDraft ? (
-                        <IconBtn icon="trash" title="Xóa (nháp)" danger
-                          onClick={() => { setConfirmError(null); setConfirm({ req: r, kind: "delete" }); }} />
-                      ) : canCancel ? (
-                        <IconBtn icon="ban" title="Hủy đề nghị" danger
-                          onClick={() => { setConfirmError(null); setConfirm({ req: r, kind: "cancel" }); }} />
-                      ) : null}
-                    </span>
-                  </td>
                 </tr>
               );
             })}
@@ -501,34 +406,21 @@ export function StockRequestPanel({
           <thead>
             <tr>
               <th>Mã phiếu</th><th>Loại</th><th>Đối tượng</th><th>Số dòng</th><th>Trạng thái</th>
-              <th style={{ textAlign: "right" }}>Thao tác</th>
             </tr>
           </thead>
           <tbody>
             {vPageRows.length === 0 ? (
-              <tr><td colSpan={6} className="md-page__empty">{reqVouchers.length === 0 ? "Chưa có phiếu nào. Duyệt 1 đề nghị ở trên rồi bấm “Lập phiếu kho”." : "Không có phiếu khớp bộ lọc."}</td></tr>
+              <tr><td colSpan={5} className="md-page__empty">{reqVouchers.length === 0 ? "Chưa có phiếu nào. Duyệt 1 đề nghị ở trên rồi bấm “Lập phiếu kho”." : "Không có phiếu khớp bộ lọc."}</td></tr>
             ) : vPageRows.map((v) => {
               const t = vTypeById.get(v.voucher_type_id);
               const st = V_STATUS[v.status] ?? { label: v.status, cls: "is-inactive" };
               return (
-                <tr key={v.id} className="md-page__row" onClick={() => setDetailVoucher(v)}>
+                <tr key={v.id} className="md-page__row" onClick={() => setDetailVoucher(v)} title="Bấm để xem / thao tác">
                   <td className="md-page__mono">{v.code}</td>
                   <td>{t ? t.name : `#${v.voucher_type_id}`}</td>
                   <td>{v.partner_ref || <span className="md-page__muted">—</span>}</td>
                   <td>{v.lines.length}</td>
                   <td><span className={`md-page__status-badge ${st.cls}`}>{st.label}</span></td>
-                  <td style={{ textAlign: "right" }}>
-                    <VoucherActionIcons
-                      voucher={v} canCreate={canCreate} canApprove={canApprove}
-                      onView={() => setDetailVoucher(v)}
-                      onPrint={() => printVoucher(v, { types: voucherTypes, warehouses, materials, statuses, canPrice })}
-                      onEdit={() => setEditVoucher(v)}
-                      onSubmit={() => doVoucher(() => api.kho.submitVoucher(token!, v.id))}
-                      onApprove={() => doVoucher(() => api.kho.approveVoucher(token!, v.id))}
-                      onCancel={() => { setVaError(null); setCancelReason(""); setVoucherAction({ v, kind: "cancel" }); }}
-                      onDelete={() => { setVaError(null); setVoucherAction({ v, kind: "delete" }); }}
-                    />
-                  </td>
                 </tr>
               );
             })}
@@ -551,7 +443,6 @@ export function StockRequestPanel({
           </div>
         )}
       </div>
-      {vErr && <div className="banner banner--error" role="alert" style={{ marginTop: 8 }}>{vErr}</div>}
       </>)}
 
       {formOpen && (
@@ -575,23 +466,6 @@ export function StockRequestPanel({
           onChanged={(fulfilled) => { setDetail(null); load(); if (fulfilled) onFulfilled(); }}
         />
       )}
-      <ConfirmDialog
-        open={!!confirm}
-        danger
-        title={confirm?.kind === "delete" ? "Xóa đề nghị?" : "Hủy đề nghị?"}
-        message={
-          confirm?.kind === "delete"
-            ? `Xóa hẳn đề nghị ${confirm?.req.code} (nháp). Không khôi phục được.`
-            : `Hủy đề nghị ${confirm?.req.code}. Đề nghị chuyển sang "Đã hủy".`
-        }
-        confirmLabel={confirm?.kind === "delete" ? "Xóa" : "Hủy đề nghị"}
-        cancelLabel="Đóng"
-        busy={confirmBusy}
-        error={confirmError}
-        onConfirm={runConfirm}
-        onCancel={() => { if (!confirmBusy) { setConfirm(null); setConfirmError(null); } }}
-      />
-
       {/* Xem chi tiết phiếu kho (bấm dòng hoặc icon 👁). */}
       {detailVoucher && (
         <VoucherDetail
@@ -604,6 +478,13 @@ export function StockRequestPanel({
           canCreate={canCreate}
           onClose={() => setDetailVoucher(null)}
           onChanged={() => { setDetailVoucher(null); load(); onFulfilled(); }}
+          onOpenRequest={async (rid) => {
+            if (!token) return;
+            try { const req = await api.kho.getRequest(token, rid); setDetailVoucher(null); setDetail(req); }
+            catch { /* không mở được đề nghị → bỏ qua */ }
+          }}
+          onEdit={() => { const v = detailVoucher; setDetailVoucher(null); setEditVoucher(v); }}
+          onDelete={() => { const v = detailVoucher; setDetailVoucher(null); setVaError(null); setVoucherAction({ v, kind: "delete" }); }}
         />
       )}
       {/* Sửa phiếu kho (nháp) từ icon ✏️ ở bảng dưới. */}
@@ -735,8 +616,8 @@ function RequestForm({
     setLine(i, { material_id: materialId, uom: m?.unit ?? "", note: m?.note?.trim() || "" });
   }
 
-  async function onSubmit(e: FormEvent) {
-    e.preventDefault();
+  // submitAfter = lưu xong gửi duyệt luôn (draft → chờ duyệt) trong 1 thao tác.
+  async function save(submitAfter: boolean) {
     if (!token || saving) return;
     setError(null);
     if (lines.length === 0) return setError("Thêm ít nhất 1 dòng vật tư.");
@@ -753,14 +634,17 @@ function RequestForm({
     };
     setSaving(true);
     try {
-      if (editing) await api.kho.updateRequest(token, editing.id, input);
-      else await api.kho.createRequest(token, input);
+      const saved = editing
+        ? await api.kho.updateRequest(token, editing.id, input)
+        : await api.kho.createRequest(token, input);
+      if (submitAfter && saved.status === "draft") await api.kho.submitRequest(token, saved.id);
       onSaved();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Lưu đề nghị thất bại.");
       setSaving(false);
     }
   }
+  const onSubmit = (e: FormEvent) => { e.preventDefault(); save(false); };
 
   return (
     <div className="md-page__overlay" role="dialog">
@@ -884,7 +768,9 @@ function RequestForm({
           {error && <div className="banner banner--error" role="alert">{error}</div>}
           <div className="md-page__dialog-actions">
             <Button type="button" variant="ghost" onClick={onClose}>Hủy</Button>
-            <Button type="submit" variant="primary" loading={saving}>{editing ? "Lưu thay đổi" : "Lưu đề nghị (nháp)"}</Button>
+            <div style={{ flex: 1 }} />
+            <Button type="button" variant="ghost" loading={saving} onClick={() => save(false)}>Lưu nháp</Button>
+            <Button type="button" variant="primary" loading={saving} onClick={() => save(true)}>Lưu &amp; gửi duyệt</Button>
           </div>
         </form>
       </div>
@@ -915,8 +801,10 @@ function RequestDetail({
   const [error, setError] = useState<string | null>(null);
   const [rejecting, setRejecting] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [confirmCancel, setConfirmCancel] = useState(false); // cảnh báo trước khi Hủy đề nghị
   // Loại phiếu khớp chiều đề nghị để lập phiếu.
   const vtypeOpts = voucherTypes.filter((t) => t.voucher_group === request.request_type && t.is_active);
+  const typeName = request.voucher_type_name ?? vtypeOpts.find((t) => t.id === request.voucher_type_id)?.name ?? null;
   // Ưu tiên đúng loại phiếu đã chọn khi tạo đề nghị.
   const [vtypeId, setVtypeId] = useState<number | null>(request.voucher_type_id ?? vtypeOpts[0]?.id ?? null);
 
@@ -969,6 +857,7 @@ function RequestDetail({
   }
 
   return (
+    <>
     <div className="md-page__overlay" role="dialog">
       <div className="md-page__dialog card" style={{ maxWidth: 720, width: "94%", maxHeight: "88vh", display: "flex", flexDirection: "column" }}>
         <div className="md-page__dialog-head">
@@ -979,6 +868,10 @@ function RequestDetail({
         </div>
         <div className="md-page__dialog-body" style={{ overflowY: "auto" }}>
           <div className="md-page__form-grid" style={{ marginBottom: 10 }}>
+            <div className="field">
+              <span className="field__label">Loại phiếu {request.voucher_code ? "(đã lập)" : "(sẽ lập)"}</span>
+              <div><strong>{typeName ?? (request.request_type === "nhap" ? "Nhập kho" : "Xuất kho")}</strong></div>
+            </div>
             <div className="field"><span className="field__label">Kho</span><div>{request.warehouse_code} · {request.warehouse_name}</div></div>
             <div className="field"><span className="field__label">{request.request_type === "nhap" ? "NCC / Nguồn" : "Bộ phận / Tổ nhận"}</span><div>{request.partner_ref || "—"}</div></div>
             <div className="field"><span className="field__label">Người đề nghị</span><div>{request.requested_by_name || "—"}</div></div>
@@ -1018,7 +911,7 @@ function RequestDetail({
 
           {request.status === "approved" && canCreate && (
             <div className="banner" style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span>Lập phiếu {request.request_type === "nhap" ? "nhập" : "xuất"} từ đề nghị này:</span>
+              <span>Lập phiếu {request.request_type === "nhap" ? "nhập" : "xuất"} từ đề nghị này <span className="md-page__muted">(ghi sổ luôn)</span>:</span>
               {request.voucher_type_id ? (
                 // Đã chốt loại phiếu lúc tạo đề nghị → KHÓA, không cho đổi.
                 <span className="md-page__wh-badge" style={{ margin: 0 }}>
@@ -1032,7 +925,7 @@ function RequestDetail({
               )}
               <Button variant="primary" loading={busy} disabled={!vtypeId}
                 onClick={() => vtypeId && act(() => api.kho.fulfillRequest(token!, request.id, vtypeId), true)}>
-                Lập phiếu kho
+                Lập &amp; ghi sổ phiếu
               </Button>
             </div>
           )}
@@ -1059,13 +952,13 @@ function RequestDetail({
           {request.status === "draft" && (
             <>
               <Button variant="ghost" onClick={onEdit}>Sửa</Button>
-              <Button variant="ghost" loading={busy} onClick={() => act(() => api.kho.cancelRequest(token!, request.id))}>Hủy</Button>
+              <Button variant="ghost" loading={busy} onClick={() => setConfirmCancel(true)}>Hủy</Button>
               <Button variant="primary" loading={busy} onClick={() => act(() => api.kho.submitRequest(token!, request.id))}>Gửi duyệt</Button>
             </>
           )}
           {request.status === "pending" && (
             <>
-              <Button variant="ghost" loading={busy} onClick={() => act(() => api.kho.cancelRequest(token!, request.id))}>Hủy</Button>
+              <Button variant="ghost" loading={busy} onClick={() => setConfirmCancel(true)}>Hủy</Button>
               {canApprove && !rejecting && (
                 <>
                   <Button variant="ghost" onClick={() => setRejecting(true)}>Từ chối</Button>
@@ -1075,10 +968,23 @@ function RequestDetail({
             </>
           )}
           {request.status === "approved" && (
-            <Button variant="ghost" loading={busy} onClick={() => act(() => api.kho.cancelRequest(token!, request.id))}>Hủy đề nghị</Button>
+            <Button variant="ghost" loading={busy} onClick={() => setConfirmCancel(true)}>Hủy đề nghị</Button>
           )}
         </div>
       </div>
     </div>
+    <ConfirmDialog
+      open={confirmCancel}
+      danger
+      title="Hủy đề nghị?"
+      message={`Hủy đề nghị ${request.code}? Đề nghị sẽ chuyển sang "Đã hủy" và không dùng để lập phiếu được nữa.`}
+      confirmLabel="Xác nhận hủy"
+      cancelLabel="Không"
+      busy={busy}
+      error={error}
+      onConfirm={() => act(() => api.kho.cancelRequest(token!, request.id))}
+      onCancel={() => { if (!busy) { setConfirmCancel(false); setError(null); } }}
+    />
+    </>
   );
 }

@@ -59,7 +59,6 @@ export function WarehouseItemsPage({
   const [stockRows, setStockRows] = useState<StockBalanceRow[]>([]);
   const [voucherRows, setVoucherRows] = useState<VoucherRow[]>([]);
   const [minLevels, setMinLevels] = useState<MinLevelRow[]>([]); // ngưỡng min/cận-min theo vật tư
-  const [fMat, setFMat] = useState<number | null>(null);
   const [tonQ, setTonQ] = useState(""); // tìm kiếm bảng Tồn kho (mã/tên vật tư)
   const [tonAlert, setTonAlert] = useState<"" | "below" | "near" | "warn" | "ok">(""); // lọc theo cảnh báo tồn
   const [tonPage, setTonPage] = useState(1);
@@ -117,7 +116,7 @@ export function WarehouseItemsPage({
     setLoading(true);
     setError(null);
     Promise.all([
-      api.kho.stock(token, { warehouse_id: selectedWid, material_id: fMat }),
+      api.kho.stock(token, { warehouse_id: selectedWid }),
       api.kho.listVouchers(token, { warehouse_id: selectedWid, size: 100 }),
       api.kho.materialOptions(token, undefined, selectedWid),
       api.kho.listMinLevels(token, selectedWid),
@@ -133,7 +132,7 @@ export function WarehouseItemsPage({
         else setError("Không tải được dữ liệu kho.");
       })
       .finally(() => setLoading(false));
-  }, [token, selectedWid, fMat]);
+  }, [token, selectedWid]);
 
   useEffect(() => {
     load();
@@ -159,6 +158,10 @@ export function WarehouseItemsPage({
             quantity: p.qty as number, input_uom: p.unit || null,
             move_type: "ton_dau_ky", reason: "Import tồn đầu kỳ (Excel)", note: p.payload.note,
           });
+          // Ngưỡng tồn / tồn báo sớm (nếu có trong file) → ghi vào min_levels.
+          if (p.minQty != null || p.nearQty != null) {
+            await api.kho.upsertMinLevel(token, { material_id: matId, warehouse_id: selectedWid, min_qty: p.minQty ?? 0, near_min_qty: p.nearQty ?? 0 });
+          }
           ok++;
         } catch (e) { createErrs.push(`Dòng ${p.rowNum} (${p.name}): ${e instanceof ApiError ? e.message : "lỗi"}`); }
       }
@@ -231,19 +234,6 @@ export function WarehouseItemsPage({
       ) : (
         <>
           <div className="md-page__toolbar">
-            <select
-              className="input"
-              value={fMat ?? ""}
-              onChange={(e) => setFMat(e.target.value ? Number(e.target.value) : null)}
-            >
-              <option value="">— Tất cả vật tư —</option>
-              {materials.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.code} · {m.name}
-                </option>
-              ))}
-            </select>
-            <div className="md-page__toolbar-spacer" />
             <span className="md-page__muted" style={{ fontSize: 13 }}>
               Lập phiếu nhập/xuất ở tab <strong>Đề nghị</strong> (từ đề nghị đã duyệt).
             </span>
@@ -301,12 +291,13 @@ export function WarehouseItemsPage({
                 <div className="md-page__toolbar-spacer" />
                 <span className="md-page__muted" style={{ marginRight: 6 }}>{shown.length} vật tư</span>
                 <Button variant="ghost" onClick={() => {
-                  const headers = ["Mã", "Tên vật tư", "Lô", "Tồn kho", "Ngưỡng tồn", ...(showCost ? ["Giá trị tồn"] : []), "Đơn vị"];
+                  const headers = ["Mã", "Tên vật tư", "Lô", "Tồn kho", "Ngưỡng tồn", "Tồn báo sớm", ...(showCost ? ["Giá trị tồn"] : []), "Đơn vị"];
                   const rows = shown.map((r) => {
                     const mm = matById.get(r.material_id);
                     const lv = levelByMat.get(r.material_id);
                     return [mm?.code ?? `#${r.material_id}`, mm?.name ?? "", r.lot_id ?? "", r.on_hand,
-                      lv && lv.min_qty > 0 ? lv.min_qty : "", ...(showCost ? [r.value] : []), r.unit ?? ""];
+                      lv && lv.min_qty > 0 ? lv.min_qty : "", lv && lv.near_min_qty > 0 ? lv.near_min_qty : "",
+                      ...(showCost ? [r.value] : []), r.unit ?? ""];
                   });
                   exportXlsx(`ton-kho-${selectedWh?.code ?? "kho"}.xlsx`, headers, rows, "TonKho");
                 }}>⭱ Xuất Excel</Button>

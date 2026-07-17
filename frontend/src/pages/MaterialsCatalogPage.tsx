@@ -95,14 +95,26 @@ export function MaterialsCatalogPage({ warehouseId = null, embedded = false, onC
         all.push(...res.items);
         if (res.items.length < PAGE || all.length >= res.total) break;
       }
-      const rows = all.map((m) => [
-        m.code, m.name, TYPE_LABEL[m.material_type] ?? m.material_type, m.unit,
-        m.group_name ?? "", m.default_supplier ?? "",
-        m.purchase_uom ?? "", m.consumption_uom ?? "", m.spec_text ?? "",
-        (m.uoms ?? []).map((u) => `${u.uom}=${u.factor}`).join("; "),
-        m.paper_family ?? "", m.width_cm ?? "", m.height_cm ?? "", m.gsm ?? "", m.thickness_mm ?? "",
-        m.note ?? "", m.is_active ? "Hoạt động" : "Đã ẩn",
-      ]);
+      // Ngưỡng tồn (min_levels) theo kho — để điền 2 cột Tồn tối thiểu / Tồn báo sớm.
+      const levelMap = new Map<number, { min: number; near: number }>();
+      if (warehouseId != null) {
+        try {
+          const lv = await api.kho.listMinLevels(token, warehouseId);
+          for (const x of lv.items) levelMap.set(x.material_id, { min: x.min_qty, near: x.near_min_qty });
+        } catch { /* thiếu quyền/không tải được → để trống ngưỡng */ }
+      }
+      const rows = all.map((m) => {
+        const lv = levelMap.get(m.id);
+        return [
+          m.code, m.name, TYPE_LABEL[m.material_type] ?? m.material_type, m.unit,
+          m.group_name ?? "", m.default_supplier ?? "",
+          m.purchase_uom ?? "", m.consumption_uom ?? "", m.spec_text ?? "",
+          (m.uoms ?? []).map((u) => `${u.uom}=${u.factor}`).join("; "),
+          m.paper_family ?? "", m.width_cm ?? "", m.height_cm ?? "", m.gsm ?? "", m.thickness_mm ?? "",
+          m.note ?? "", lv && lv.min > 0 ? lv.min : "", lv && lv.near > 0 ? lv.near : "",
+          m.is_active ? "Hoạt động" : "Đã ẩn",
+        ];
+      });
       exportXlsx("danh-muc-vat-tu.xlsx", MATERIAL_HEADERS, rows, "VatTu");
     } catch (e) {
       setError(e instanceof ApiError ? `Xuất Excel thất bại: ${e.message}` : "Xuất Excel thất bại.");
@@ -123,8 +135,14 @@ export function MaterialsCatalogPage({ warehouseId = null, embedded = false, onC
       // Mọi dòng hợp lệ → tạo tất cả.
       let ok = 0; const createErrs: string[] = [];
       for (const p of rows) {
-        try { await api.materials.create(token, p.payload); ok++; }
-        catch (e) { createErrs.push(`Dòng ${p.rowNum} (${p.name}): ${e instanceof ApiError ? e.message : "lỗi"}`); }
+        try {
+          const saved = await api.materials.create(token, p.payload); ok++;
+          // Ngưỡng tồn / tồn báo sớm (nếu có trong file) → ghi vào min_levels của kho vật tư.
+          const wh = saved.warehouse_id ?? warehouseId;
+          if ((p.minQty != null || p.nearQty != null) && wh != null) {
+            await api.kho.upsertMinLevel(token, { material_id: saved.id, warehouse_id: wh, min_qty: p.minQty ?? 0, near_min_qty: p.nearQty ?? 0 });
+          }
+        } catch (e) { createErrs.push(`Dòng ${p.rowNum} (${p.name}): ${e instanceof ApiError ? e.message : "lỗi"}`); }
       }
       setImportResult({ ok, errs: createErrs });
       if (ok > 0) { load(); onChanged?.(); }

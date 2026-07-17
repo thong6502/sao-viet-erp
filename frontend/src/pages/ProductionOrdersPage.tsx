@@ -18,6 +18,7 @@ import {
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { VoucherForm, VoucherDetail } from "./StockVoucherPage";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import "./master-data.css";
@@ -305,6 +306,7 @@ export function ProductionOrderDetail({
   const [genCode, setGenCode] = useState<string | null>(null);
   const [genMenuOpen, setGenMenuOpen] = useState(false); // menu "Sinh phiếu kho"
   const [buForm, setBuForm] = useState(false); // mở form tạo lệnh bù cho lệnh này
+  const [confirmCancel, setConfirmCancel] = useState(false); // popup xác nhận Hủy lệnh
   const [parentDetail, setParentDetail] = useState<ProductionOrderRow | null>(null); // LSX gốc đang mở
   // Truy vết Mức A — mọi phiếu kho trỏ về LSX này (ref_type='lsx', ref_id=order.id).
   const [linked, setLinked] = useState<VoucherRow[]>([]);
@@ -447,7 +449,7 @@ export function ProductionOrderDetail({
                 {canCreate && (cur.status === "open" ? (
                   <>
                     <Button variant="ghost" onClick={() => setStatus("done")} loading={busy}>Hoàn thành</Button>
-                    <Button variant="danger" onClick={() => setStatus("cancelled")} loading={busy}>Hủy</Button>
+                    <Button variant="danger" onClick={() => setConfirmCancel(true)} disabled={busy}>Hủy</Button>
                   </>
                 ) : (
                   <Button variant="ghost" onClick={() => setStatus("open")} loading={busy}>Mở lại</Button>
@@ -680,6 +682,18 @@ export function ProductionOrderDetail({
           onChanged={() => setParentDetail(null)}
         />
       )}
+      <ConfirmDialog
+        open={confirmCancel}
+        danger
+        title="Hủy lệnh sản xuất?"
+        message={`Hủy lệnh ${cur.code}? Lệnh sẽ chuyển sang "Đã hủy".`}
+        confirmLabel="Xác nhận hủy"
+        cancelLabel="Không"
+        busy={busy}
+        error={error}
+        onConfirm={() => setStatus("cancelled")}
+        onCancel={() => { if (!busy) { setConfirmCancel(false); setError(null); } }}
+      />
     </div>
   );
 }

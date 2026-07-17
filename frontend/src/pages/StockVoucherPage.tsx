@@ -18,6 +18,7 @@ import {
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ProductionOrderForm } from "./ProductionOrdersPage";
 import { MaterialForm } from "./MaterialsCatalogPage";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
@@ -1190,18 +1191,23 @@ export function openKhoPrint(opts: {
 }
 
 export function VoucherDetail({
-  voucher, types, warehouses, materials, statuses = [], canApprove, canCreate, onClose, onChanged,
+  voucher, types, warehouses, materials, statuses = [], canApprove, canCreate, onClose, onChanged, onOpenRequest, onEdit, onDelete,
 }: {
   voucher: VoucherRow; types: KhoVoucherType[]; warehouses: WarehouseRow[]; materials: KhoMaterialOption[];
   statuses?: KhoItemStatus[];
   canApprove: boolean; canCreate: boolean; onClose: () => void; onChanged: () => void;
+  /** Phiếu lập từ đề nghị (ref_type='stock_request') → bấm mã đề nghị mở chi tiết đề nghị. */
+  onOpenRequest?: (requestId: number) => void;
+  /** Sửa / Xóa phiếu nháp (do trang cha xử lý — mở form sửa / hộp xác nhận xóa). Chỉ hiện ở phiếu Nháp. */
+  onEdit?: () => void;
+  onDelete?: () => void;
 }) {
   const { token } = useAuth();
   const can = useCan();
   const canPrice = can("kho", "manage_price");
-  const canConfirm = canCreate || can("kho", "manage_status"); // xác nhận nhận vật tư
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmCancel, setConfirmCancel] = useState(false); // cảnh báo trước khi Hủy phiếu
   const t = types.find((x) => x.id === voucher.voucher_type_id);
   const spec = specForType(t);
   const matById = useMemo(() => new Map(materials.map((m) => [m.id, m])), [materials]);
@@ -1242,6 +1248,13 @@ export function VoucherDetail({
     api.production.getOrder(token, voucher.ref_id).then((o) => setLsxCode(o.code)).catch(() => setLsxCode(null));
   }, [token, voucher.ref_type, voucher.ref_id]);
 
+  // Phiếu lập từ đề nghị (ref_type='stock_request'): nạp mã đề nghị để hiển thị + cho bấm mở.
+  const [reqCode, setReqCode] = useState<string | null>(null);
+  useEffect(() => {
+    if (!token || voucher.ref_type !== "stock_request" || !voucher.ref_id) { setReqCode(null); return; }
+    api.kho.getRequest(token, voucher.ref_id).then((r) => setReqCode(r.code)).catch(() => setReqCode(null));
+  }, [token, voucher.ref_type, voucher.ref_id]);
+
   async function onUploadFiles(list: FileList | null) {
     if (!token || !list || !list.length) return;
     setAttBusy(true); setError(null);
@@ -1279,6 +1292,13 @@ export function VoucherDetail({
     ...(voucher.ref_type === "lsx" && voucher.ref_id
       ? [["Lệnh sản xuất", <span className="md-page__mono">{lsxCode ?? `#${voucher.ref_id}`}</span>] as [string, ReactNode]]
       : []),
+    ...(voucher.ref_type === "stock_request" && voucher.ref_id
+      ? [["Từ đề nghị", onOpenRequest
+          ? <button type="button" className="md-page__mono" title="Mở chi tiết đề nghị"
+              style={{ background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--rust-deep, #8a2d07)", textDecoration: "underline", font: "inherit" }}
+              onClick={() => onOpenRequest(voucher.ref_id!)}>{reqCode ?? `#${voucher.ref_id}`}</button>
+          : <span className="md-page__mono">{reqCode ?? `#${voucher.ref_id}`}</span>] as [string, ReactNode]]
+      : []),
     ...(voucher.receiver ? [["Tổ / Người nhận", voucher.receiver] as [string, ReactNode]] : []),
     ...(voucher.handover_at ? [["Đã bàn giao", `${voucher.handover_by_name ?? ""} · ${fmtDateTime(voucher.handover_at)}`] as [string, ReactNode]] : []),
     ...(voucher.note ? [["Chứng từ", voucher.note] as [string, ReactNode]] : []),
@@ -1288,6 +1308,7 @@ export function VoucherDetail({
   ];
 
   return (
+    <>
     <div className="md-page__overlay" role="dialog">
       <div className="md-page__dialog card" style={{ maxWidth: 900, width: "94%" }}>
         <div className="md-page__dialog-head">
@@ -1407,22 +1428,18 @@ export function VoucherDetail({
           {error && <div className="banner banner--error" role="alert" style={{ marginTop: 12 }}>{error}</div>}
           <div className="md-page__dialog-actions">
             <Button variant="ghost" onClick={onPrint}>🖨 In phiếu</Button>
-            {/* Xác nhận đã bàn giao/nhận vật tư (BRD §2.5) — phiếu xuất theo LSX, đã ghi sổ. */}
-            {voucher.status === "posted" && voucher.ref_type === "lsx" && (
-              voucher.handover_at
-                ? <span className="md-page__muted" style={{ alignSelf: "center", fontSize: 13, color: "#244a2e" }}>✓ Đã bàn giao{voucher.handover_by_name ? ` · ${voucher.handover_by_name}` : ""} · {fmtDateTime(voucher.handover_at)}</span>
-                : canConfirm ? <Button variant="primary" onClick={() => act(() => api.kho.confirmReceipt(token!, voucher.id))} loading={busy}>Xác nhận đã nhận vật tư</Button> : null
-            )}
             <div style={{ flex: 1 }} />
             {voucher.status === "draft" && canCreate && (
               <>
-                <Button variant="danger" onClick={() => act(() => api.kho.cancelVoucher(token!, voucher.id))} loading={busy}>Hủy phiếu</Button>
+                {onEdit && <Button variant="ghost" onClick={onEdit} disabled={busy}>Sửa</Button>}
+                {onDelete && <Button variant="ghost" onClick={onDelete} disabled={busy} style={{ color: "var(--signal)" }}>Xóa</Button>}
+                <Button variant="danger" onClick={() => setConfirmCancel(true)} disabled={busy}>Hủy phiếu</Button>
                 <Button variant="primary" onClick={() => act(() => api.kho.submitVoucher(token!, voucher.id))} loading={busy}>Nộp phiếu</Button>
               </>
             )}
             {voucher.status === "pending" && (
               <>
-                {canCreate && <Button variant="danger" onClick={() => act(() => api.kho.cancelVoucher(token!, voucher.id))} loading={busy}>Hủy</Button>}
+                {canCreate && <Button variant="danger" onClick={() => setConfirmCancel(true)} disabled={busy}>Hủy</Button>}
                 {canApprove && <Button variant="primary" onClick={() => act(() => api.kho.approveVoucher(token!, voucher.id))} loading={busy}>Duyệt & ghi sổ</Button>}
               </>
             )}
@@ -1431,5 +1448,18 @@ export function VoucherDetail({
         </div>
       </div>
     </div>
+    <ConfirmDialog
+      open={confirmCancel}
+      danger
+      title="Hủy phiếu?"
+      message={`Hủy phiếu ${voucher.code}?${voucher.status === "posted" ? " Phiếu đã ghi sổ — hủy sẽ đảo lại tồn kho." : " Phiếu sẽ chuyển sang Đã hủy."}`}
+      confirmLabel="Xác nhận hủy"
+      cancelLabel="Không"
+      busy={busy}
+      error={error}
+      onConfirm={() => act(() => api.kho.cancelVoucher(token!, voucher.id))}
+      onCancel={() => { if (!busy) { setConfirmCancel(false); setError(null); } }}
+    />
+    </>
   );
 }
