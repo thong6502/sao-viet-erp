@@ -15,11 +15,13 @@ import {
   type WarehouseRow,
   type ProductionOutput,
   type CongDoanLite,
+  type VoucherRow,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
-import { VoucherForm } from "./StockVoucherPage";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { VoucherForm, VoucherDetail } from "./StockVoucherPage";
 import "./master-data.css";
 
 // 3 loại phiếu kho sinh từ LSX (giống hệ tham khảo): (mã loại, nhãn nút).
@@ -31,6 +33,10 @@ const GEN_VOUCHERS: { code: string; label: string }[] = [
 
 const STATUS_LABEL: Record<string, string> = {
   open: "Đang mở", done: "Hoàn thành", cancelled: "Đã hủy",
+};
+// Nhãn trạng thái phiếu kho (khác vòng đời LSX) — cho bảng "Phiếu kho của lệnh này".
+const V_STATUS_LABEL: Record<string, string> = {
+  draft: "Nháp", pending: "Chờ duyệt", posted: "Đã ghi sổ", cancelled: "Đã hủy",
 };
 
 function todayISO(): string {
@@ -232,7 +238,7 @@ export function ProductionOrderDetail({
 }) {
   const { token } = useAuth();
   const [cur, setCur] = useState<ProductionOrderRow>(order);
-  const [tab, setTab] = useState<"info" | "files" | "san_luong">("info");
+  const [tab, setTab] = useState<"info" | "files" | "san_luong" | "vouchers">("info");
   const [editing, setEditing] = useState(false);
   const [atts, setAtts] = useState<ProductionAttachment[]>([]);
   const [busy, setBusy] = useState(false);
@@ -244,6 +250,15 @@ export function ProductionOrderDetail({
   const [genCode, setGenCode] = useState<string | null>(null);
   const [buForm, setBuForm] = useState(false); // mở form tạo lệnh bù cho lệnh này
   const [parentDetail, setParentDetail] = useState<ProductionOrderRow | null>(null); // LSX gốc đang mở
+  const can = useCan();
+  // Phiếu kho lập từ LSX này (tab "Phiếu kho") + popup xác nhận Hủy lệnh.
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [linked, setLinked] = useState<VoucherRow[]>([]);
+  const [openVoucher, setOpenVoucher] = useState<VoucherRow | null>(null);
+  const [vTypeF, setVTypeF] = useState("");
+  const [vStatusF, setVStatusF] = useState("");
+  const [vPage, setVPage] = useState(1);
+  const V_PAGE_SIZE = 8;
 
   function openParent() {
     if (!token || !cur.parent_order_id) return;
@@ -255,6 +270,14 @@ export function ProductionOrderDetail({
     api.production.orderAttachments(token, order.id).then((r) => setAtts(r.items)).catch(() => {});
   }, [token, order.id]);
   useEffect(() => { loadAtts(); }, [loadAtts]);
+
+  // Phiếu kho của lệnh này (ref_type='lsx') — cho tab "Phiếu kho"; thiếu quyền kho:read thì để trống.
+  const loadLinked = useCallback(() => {
+    if (!token) return;
+    api.kho.listVouchers(token, { ref_type: "lsx", ref_id: order.id, size: 200 })
+      .then((r) => setLinked(r.items)).catch(() => setLinked([]));
+  }, [token, order.id]);
+  useEffect(() => { loadLinked(); }, [loadLinked]);
 
   // Nạp dữ liệu kho (loại phiếu, vật tư, trạng thái, kho) để sinh phiếu — chỉ khi có quyền tạo.
   useEffect(() => {
@@ -300,6 +323,15 @@ export function ProductionOrderDetail({
     );
   }
 
+  // Lọc + phân trang bảng "Phiếu kho của lệnh này".
+  const vtypes = khoData?.types ?? [];
+  const vTypeOptions = vtypes.filter((t) => linked.some((v) => v.voucher_type_id === t.id));
+  const vStatusOptions = Array.from(new Set(linked.map((v) => v.status)));
+  const vFiltered = linked.filter((v) =>
+    (!vTypeF || String(v.voucher_type_id) === vTypeF) && (!vStatusF || v.status === vStatusF));
+  const vPages = Math.max(1, Math.ceil(vFiltered.length / V_PAGE_SIZE));
+  const vPageRows = vFiltered.slice((Math.min(vPage, vPages) - 1) * V_PAGE_SIZE, Math.min(vPage, vPages) * V_PAGE_SIZE);
+
   return (
     <div className="md-page__overlay" role="dialog">
       <div className="md-page__dialog card" style={{ maxWidth: 940, width: "94%" }}>
@@ -328,6 +360,10 @@ export function ProductionOrderDetail({
               style={{ padding: "6px 2px", background: "none", border: "none", cursor: "pointer", borderBottom: tab === "san_luong" ? "2px solid var(--accent, #b5531f)" : "2px solid transparent", fontWeight: tab === "san_luong" ? 600 : 400 }}>
               Sản lượng
             </button>
+            <button type="button" className="md-page__tab" onClick={() => setTab("vouchers")}
+              style={{ padding: "6px 2px", background: "none", border: "none", cursor: "pointer", borderBottom: tab === "vouchers" ? "2px solid var(--accent, #b5531f)" : "2px solid transparent", fontWeight: tab === "vouchers" ? 600 : 400 }}>
+              Phiếu kho{linked.length ? ` (${linked.length})` : ""}
+            </button>
           </div>
 
           <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
@@ -339,7 +375,7 @@ export function ProductionOrderDetail({
               {cur.status === "open" ? (
                 <>
                   <Button variant="ghost" onClick={() => setStatus("done")} loading={busy}>Hoàn thành</Button>
-                  <Button variant="danger" onClick={() => setStatus("cancelled")} loading={busy}>Hủy</Button>
+                  <Button variant="danger" onClick={() => setConfirmCancel(true)} disabled={busy}>Hủy</Button>
                 </>
               ) : (
                 <Button variant="ghost" onClick={() => setStatus("open")} loading={busy}>Mở lại</Button>
@@ -421,6 +457,67 @@ export function ProductionOrderDetail({
                   onChange={(e) => { onUploadFiles(e.target.files); e.target.value = ""; }} />
               )}
             </>
+          ) : tab === "vouchers" ? (
+            /* Truy vết Mức A — mọi phiếu kho (xuất NVL / nhập TP / xuất giao khách) của lệnh này. */
+            <>
+              {linked.length === 0 ? (
+                <p className="md-page__muted" style={{ margin: "6px 0" }}>Chưa có phiếu kho nào gắn với lệnh này.</p>
+              ) : (
+                <>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+                    <select className="input" style={{ width: "auto", minWidth: 180 }} value={vTypeF}
+                      onChange={(e) => { setVTypeF(e.target.value); setVPage(1); }}>
+                      <option value="">Tất cả loại phiếu</option>
+                      {vTypeOptions.map((o) => <option key={o.id} value={String(o.id)}>{o.name}</option>)}
+                    </select>
+                    <select className="input" style={{ width: "auto", minWidth: 150 }} value={vStatusF}
+                      onChange={(e) => { setVStatusF(e.target.value); setVPage(1); }}>
+                      <option value="">Tất cả trạng thái</option>
+                      {vStatusOptions.map((s) => <option key={s} value={s}>{V_STATUS_LABEL[s] ?? s}</option>)}
+                    </select>
+                    {(vTypeF || vStatusF) && (
+                      <button type="button" className="md-page__tab" style={{ background: "none", border: "none", cursor: "pointer", color: "var(--accent, #b5531f)" }}
+                        onClick={() => { setVTypeF(""); setVStatusF(""); setVPage(1); }}>Xóa lọc</button>
+                    )}
+                  </div>
+                  <div className="card md-page__tablewrap" style={{ maxHeight: 360, overflowY: "auto" }}>
+                    <table className="md-page__table">
+                      <thead>
+                        <tr>
+                          <th>Mã phiếu</th><th>Loại phiếu</th><th>Ngày</th>
+                          <th style={{ textAlign: "right" }}>Số dòng</th><th>Trạng thái</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {vPageRows.length === 0 ? (
+                          <tr><td colSpan={5} className="md-page__muted" style={{ padding: "10px" }}>Không có phiếu khớp bộ lọc.</td></tr>
+                        ) : vPageRows.map((v) => {
+                          const vt = vtypes.find((t) => t.id === v.voucher_type_id);
+                          return (
+                            <tr key={v.id} style={{ cursor: "pointer" }} onClick={() => setOpenVoucher(v)}>
+                              <td className="md-page__mono" style={{ color: "var(--accent, #b5531f)", fontWeight: 600 }}>{v.code}</td>
+                              <td>{vt?.name ?? `#${v.voucher_type_id}`}</td>
+                              <td>{fmtDate(v.doc_date)}</td>
+                              <td style={{ textAlign: "right" }}>{v.lines?.length ?? 0}</td>
+                              <td>{V_STATUS_LABEL[v.status] ?? v.status}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                  {vFiltered.length > V_PAGE_SIZE && (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
+                      <span className="md-page__muted" style={{ fontSize: 13 }}>
+                        {vFiltered.length} phiếu · Trang {Math.min(vPage, vPages)}/{vPages}
+                      </span>
+                      <Button variant="ghost" disabled={vPage <= 1} onClick={() => setVPage((p) => Math.max(1, p - 1))}>‹ Trước</Button>
+                      <Button variant="ghost" disabled={vPage >= vPages} onClick={() => setVPage((p) => Math.min(vPages, p + 1))}>Sau ›</Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
           ) : (
             <OutputsTab order={cur} />
           )}
@@ -446,10 +543,24 @@ export function ProductionOrderDetail({
               customerName: cur.customer_name, productName: cur.product_name, quantity: cur.quantity,
             }}
             onClose={() => setGenCode(null)}
-            onSaved={() => setGenCode(null)}
+            onSaved={() => { setGenCode(null); loadLinked(); }}
           />
         );
       })()}
+      {/* Mở chi tiết một phiếu kho từ tab "Phiếu kho". */}
+      {openVoucher && khoData && (
+        <VoucherDetail
+          voucher={openVoucher}
+          types={khoData.types}
+          warehouses={khoData.warehouses}
+          materials={khoData.materials}
+          statuses={khoData.statuses}
+          canApprove={can("kho", "approve")}
+          canCreate={can("kho", "create")}
+          onClose={() => setOpenVoucher(null)}
+          onChanged={() => { loadLinked(); }}
+        />
+      )}
       {/* Tạo lệnh bù CHO lệnh này — gắn sẵn gốc + điền sẵn khách/sản phẩm. */}
       {buForm && (
         <ProductionOrderForm
@@ -467,6 +578,18 @@ export function ProductionOrderDetail({
           onChanged={() => setParentDetail(null)}
         />
       )}
+      <ConfirmDialog
+        open={confirmCancel}
+        danger
+        title="Hủy lệnh sản xuất?"
+        message={`Hủy lệnh ${cur.code}? Lệnh sẽ chuyển sang "Đã hủy".`}
+        confirmLabel="Xác nhận hủy"
+        cancelLabel="Không"
+        busy={busy}
+        error={error}
+        onConfirm={() => setStatus("cancelled")}
+        onCancel={() => { if (!busy) { setConfirmCancel(false); setError(null); } }}
+      />
     </div>
   );
 }

@@ -3,6 +3,7 @@
 // the sidebar (handled in Sidebar) and the content (a forbidden module → 403).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, connectQuoteEvents, type PinnedCustomer, type WarehouseOption } from "../api/client";
+import { consumePurchaseToastSkip } from "../lib/realtimeFlags";
 import { useAuth } from "../auth/useAuth";
 import {
   buildCapabilities,
@@ -257,6 +258,45 @@ export function AppShell() {
       api.quotations.markDecisionsSeen(token).then(reloadBadges).catch(() => {});
     }
   }, [activeId, token, readable, reloadBadges]);
+
+  // Realtime YCMH: SSE đẩy số yêu cầu mua "chờ xử lý". Badge = số CHƯA XEM (open − seen); vào
+  // trang Yêu cầu mua thì đánh dấu đã xem → badge về 0 (localStorage giữ qua reload).
+  const ycmhLast = useRef<number | null>(null);
+  const activeIdRef = useRef(activeId);
+  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
+  const [ycmhOpen, setYcmhOpen] = useState<number | null>(null);
+  const [ycmhSeen, setYcmhSeen] = useState<number>(() => {
+    const v = Number(localStorage.getItem("ycmhSeen"));
+    return Number.isFinite(v) && v > 0 ? v : 0;
+  });
+  useEffect(() => {
+    if (!token || readable === null) return;
+    const canSee = ["thu_mua", "bao_gia", "don_hang_ban", "kho", "san_xuat", "dm_giay_vat_tu"].some((m) => readable.has(m));
+    if (!canSee) return;
+    const es = new EventSource(api.departmentPurchaseRequests.eventsUrl(token));
+    es.onmessage = (e) => {
+      let n: number;
+      try { n = JSON.parse(e.data)?.open ?? 0; } catch { return; }
+      setYcmhOpen(n);
+      const prev = ycmhLast.current;
+      // Toast khi có cái MỚI — trừ khi đang ở chính trang đó, hoặc do mình vừa tạo.
+      if (prev !== null && n > prev && activeIdRef.current !== "yeu-cau-mua-hang" && !consumePurchaseToastSkip()) {
+        pushToast(`🛒 Có ${n - prev} yêu cầu mua hàng mới`, "info");
+      }
+      ycmhLast.current = n;
+    };
+    return () => es.close();
+  }, [token, readable, pushToast]);
+  useEffect(() => {
+    const unseen = ycmhOpen == null ? 0 : Math.max(0, ycmhOpen - ycmhSeen);
+    setBadges((prev) => (prev["yeu-cau-mua-hang"] === unseen ? prev : { ...prev, "yeu-cau-mua-hang": unseen }));
+  }, [ycmhOpen, ycmhSeen]);
+  useEffect(() => {
+    if (activeId === "yeu-cau-mua-hang" && ycmhOpen != null && ycmhOpen !== ycmhSeen) {
+      setYcmhSeen(ycmhOpen);
+      localStorage.setItem("ycmhSeen", String(ycmhOpen));
+    }
+  }, [activeId, ycmhOpen, ycmhSeen]);
 
   // Bấm chuông → mở Nghỉ phép (Đơn của tôi) + đánh dấu đã xem → đóng chuông.
   const openLeaveFromBell = useCallback(() => {
