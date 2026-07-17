@@ -6,6 +6,7 @@ auto VÀO/RA toggling, self check-in gated on a linked employee, and the RBAC bo
 from __future__ import annotations
 
 from app.db import SessionLocal
+from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
@@ -62,14 +63,21 @@ def _make_location(client, token, *, lat=10.0, lng=106.0, radius=200) -> int:
 
 
 def _link_admin_employee(client, token) -> int:
-    """Create an employee and link it to the admin account so admin can self check-in."""
-    emp = client.post(
-        "/api/employees",
-        json={"full_name": "NV Admin", "department_id": _dept_id("Hành chính nhân sự"), "hire_date": "2020-01-01"},
+    """Hồ sơ của admin để tự chấm công.
+
+    LUẬT: mọi tài khoản ĐỀU có hồ sơ (`backfill_employee_profiles`) — admin không còn là ngoại lệ.
+    Nên KHÔNG tạo hồ sơ thứ 2 rồi gán (link tài khoản 1–1 sẽ chối): lấy hồ sơ SẴN CÓ của admin rồi
+    nắn phòng ban / ngày vào làm cho khớp kịch bản test.
+    """
+    me = client.get("/api/employees/me", headers=_h(token)).json()
+    eid = me["employee"]["id"]
+    client.put(
+        f"/api/employees/{eid}",
+        json={"full_name": "NV Admin", "department_id": _dept_id("Hành chính nhân sự"),
+              "hire_date": "2020-01-01"},
         headers=_h(token),
-    ).json()["employee"]
-    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))
-    return emp["id"]
+    )
+    return eid
 
 
 # --- work locations ---------------------------------------------------------
@@ -143,10 +151,27 @@ def test_me_preview_dry_run(client):
     assert client.get("/api/attendance/me/logs", headers=_h(token)).json()["items"] == []
 
 
+def _orphan_admin_account() -> None:
+    """Gỡ hồ sơ khỏi tài khoản admin ở tầng DB.
+
+    LUẬT hiện tại: mọi tài khoản đều có hồ sơ (`backfill_employee_profiles`), tài khoản chỉ sinh ra
+    TỪ hồ sơ, và không có endpoint gỡ liên kết ⇒ API KHÔNG còn đường dựng tài khoản mồ côi. Nhánh
+    400 dưới đây là phòng thủ cho dữ liệu cũ/nhập ngoài, nên tiền đề phải dựng thẳng ở DB.
+    """
+    db = SessionLocal()
+    try:
+        emp = EmployeeRepository(db).get_by_user_id(UserRepository(db).get_by_username("admin").id)
+        if emp is not None:
+            emp.user_id = None
+            db.commit()
+    finally:
+        db.close()
+
+
 def test_check_without_linked_employee_is_400(client):
     token = _admin_token(client)
     _make_location(client, token)
-    # admin has no linked employee in this test → check is rejected
+    _orphan_admin_account()   # tài khoản KHÔNG hồ sơ (dữ liệu cũ) → chấm công bị chối
     r = client.post("/api/attendance/check", json={"latitude": 10.0, "longitude": 106.0}, headers=_h(token))
     assert r.status_code == 400
     assert client.get("/api/attendance/me/status", headers=_h(token)).json()["has_employee"] is False
@@ -273,7 +298,8 @@ def test_me_timesheet_self_service(client):
     assert len(rows) == 1 and rows[0]["employee_name"] == "NV Worker"
     # nhưng KHÔNG xem được bảng công toàn xưởng
     assert client.get(f"/api/attendance/timesheet?year={year}&month={month}", headers=_h(wt)).status_code == 403
-    # tài khoản chưa nối hồ sơ NV (admin) gọi /me/timesheet → 400
+    # tài khoản KHÔNG nối hồ sơ NV (dữ liệu cũ) gọi /me/timesheet → 400
+    _orphan_admin_account()
     assert client.get(f"/api/attendance/me/timesheet?year={year}&month={month}", headers=_h(token)).status_code == 400
 
 

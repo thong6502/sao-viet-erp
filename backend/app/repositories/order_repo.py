@@ -23,7 +23,6 @@ from .org_scope import dept_subtree_ids
 _SORTABLE = {
     "order_no": Order.order_no,
     "status": Order.status,
-    "order_type": Order.order_type,
     "order_kind": Order.order_kind,
     "created_at": Order.created_at,
 }
@@ -217,6 +216,7 @@ class OrderRepository:
                 OrderLine(
                     description=ln.get("description", ""),
                     qty=ln.get("qty", 1),
+                    don_vi_tinh=(ln.get("don_vi_tinh") or "cái"),
                     unit_price_snapshot=ln.get("unit_price_snapshot"),
                     norm_snapshot=ln.get("norm_snapshot"),
                     vat_pct_estimate=ln.get("vat_pct_estimate", 0),

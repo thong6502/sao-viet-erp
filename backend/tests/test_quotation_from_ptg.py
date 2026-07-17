@@ -137,16 +137,63 @@ def test_create_quote_autofills_contact_and_delivery(client):
     assert d["delivery_address"] == "Lô A5, KCN Hiệp Thành, Tây Ninh"
 
 
-def test_delivery_address_explicit_not_overridden(client):
+def test_contact_falls_back_to_customer_record(client):
+    """Khách CHƯA có danh bạ liên hệ riêng nhưng hồ sơ có SĐT → ô Người liên hệ lấy tạm SĐT đó
+    (không để trống). Không có contact_name trên hồ sơ → chỉ hiện SĐT."""
     token = _token(client)
-    cid = _seed_customer_full()
+    db = SessionLocal()
+    try:
+        n = db.query(Customer).count() + 1
+        c = Customer(code=f"KHNC-{n:04d}", name="Cty Không Danh Bạ", phone="0901000001")
+        db.add(c)
+        db.commit()
+        cid = c.id
+    finally:
+        db.close()
     pid = _seed_ptg()
     r = client.post("/api/quotations",
-                    json={"phieu_tinh_gia_id": pid, "customer_id": cid,
-                          "delivery_address": "Giao tận xưởng B"}, headers=_h(token))
+                    json={"phieu_tinh_gia_id": pid, "customer_id": cid}, headers=_h(token))
     assert r.status_code == 201, r.text
-    # Caller cung cấp ĐC giao → KHÔNG bị auto-fill đè.
-    assert r.json()["delivery_address"] == "Giao tận xưởng B"
+    d = r.json()
+    assert d["contact_phone_snapshot"] == "0901000001"   # lấy tạm SĐT hồ sơ khách
+    assert d["contact_name_snapshot"] in (None, "")       # hồ sơ không có tên liên hệ
+
+
+def test_consecutive_updates_collapse_in_activity(client):
+    """Nhật ký Hoạt động: lưu nháp/sửa nhiều lần liên tiếp cùng người → GỘP 1 mục 'update_quote'
+    (bump thời điểm), không phình vô tận."""
+    token = _token(client)
+    pid = _seed_ptg()
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    for i in range(4):
+        r = client.put(f"/api/quotations/{q['id']}",
+                       json={"terms_text": f"Điều khoản thử lần {i}"}, headers=_h(token))
+        assert r.status_code == 200, r.text
+    acts = client.get(f"/api/quotations/{q['id']}/activity", headers=_h(token)).json()["items"]
+    updates = [a for a in acts if a["action"] == "update_quote"]
+    assert len(updates) == 1, f"kỳ vọng gộp về 1, thực tế {len(updates)}"
+
+
+def test_terms_text_prefilled_and_editable(client):
+    """Điều khoản: tạo mới → điền sẵn bộ mặc định (5 dòng) để sale sửa; sửa xong lưu lại nguyên văn."""
+    from app.models.quotation import DEFAULT_TERMS
+    token = _token(client)
+    pid = _seed_ptg()
+    r = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token))
+    assert r.status_code == 201, r.text
+    q = r.json()
+    assert q["terms_text"] == DEFAULT_TERMS
+    assert len(DEFAULT_TERMS.splitlines()) == 5
+
+    mine = "Thanh toán 100% trước khi giao.\nGiao tại kho Bình Dương."
+    r = client.put(f"/api/quotations/{q['id']}", json={"terms_text": mine}, headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["terms_text"] == mine
+
+    # Xóa trắng → về bộ mặc định (bản in luôn có điều khoản, không bao giờ trống).
+    r = client.put(f"/api/quotations/{q['id']}", json={"terms_text": "   "}, headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["terms_text"] == DEFAULT_TERMS
 
 
 def test_item_po_code_roundtrip(client):
@@ -200,8 +247,7 @@ def test_change_customer_refreshes_contact_and_delivery(client):
     assert q["contact_name_snapshot"] == "Anh Thanh"
     cid_b = _seed_customer_full(name="Cty B", primary="Chị Mai", title="Kho",
                                 phone="0911222333", addr="KCN Sóng Thần, Bình Dương")
-    r = client.put(f"/api/quotations/{q['id']}",
-                   json={"customer_id": cid_b, "delivery_address": None}, headers=_h(token))
+    r = client.put(f"/api/quotations/{q['id']}", json={"customer_id": cid_b}, headers=_h(token))
     assert r.status_code == 200, r.text
     d = r.json()
     assert d["customer_id"] == cid_b

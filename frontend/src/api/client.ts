@@ -975,6 +975,7 @@ export interface ThanhPhanOut {
   tay_gap: string | null;
   so_to_per_sp: number;
   so_luong: number; // SL đặt của sản phẩm này (0 = lấy SL mặc định phiếu)
+  don_vi_tinh: string; // ĐVT sản phẩm (text tự do, mặc định "cái") → chảy sang Báo giá
   loai_san_pham_id: number | null; // loại SP của sản phẩm này
   // Giấy in
   giay_id: number | null;
@@ -1074,6 +1075,7 @@ export interface ThanhPhanIn {
   tay_gap?: string | null;
   so_to_per_sp?: number;
   so_luong?: number; // SL đặt của sản phẩm này (0 = SL mặc định phiếu)
+  don_vi_tinh?: string | null; // ĐVT sản phẩm (text tự do)
   loai_san_pham_id?: number | null; // loại SP của sản phẩm này
   giay_id?: number | null;
   kho_nguyen?: string | null;
@@ -1431,9 +1433,9 @@ export interface QuotationDetail {
   valid_until: string | null;
   status: string;
   cancel_reason: string | null;
-  payment_terms: string | null;
-  deposit_pct: number | null;
-  delivery_terms: string | null;
+  /** Điều khoản in ra phiếu — mỗi dòng = 1 điều khoản (bản in tự đánh số). */
+  terms_text: string | null;
+  /** ĐC giao: chỉ-đọc trên báo giá (auto-fill từ hồ sơ khách, không in). */
   delivery_address: string | null;
   contact_name_snapshot: string | null;
   contact_phone_snapshot: string | null;
@@ -1466,6 +1468,9 @@ export interface QuotationDetail {
   exception_decision?: "approved" | "rejected" | null;
   exception_decided_by_name?: string | null;
   exception_decided_at?: string | null;
+  // Đơn hàng bán đã lập từ báo giá này (đơn hủy không tính) → FE ẩn "Tạo đơn", hiện "Xem đơn hàng".
+  order_id?: number | null;
+  order_no?: string | null;
 }
 
 export interface QuotationInput {
@@ -1479,9 +1484,8 @@ export interface QuotationInput {
   /** Gói biên áp chung khi tạo (per dòng chỉnh sau). */
   margin_percent?: number | null;
   valid_until: string | null;
-  payment_terms: string | null;
-  delivery_terms: string | null;
-  delivery_address: string | null;
+  /** Điều khoản in ra phiếu (mỗi dòng = 1 điều khoản); bỏ trống → backend điền bộ mặc định. */
+  terms_text?: string | null;
   // Ghi chú đối ngoại/nội bộ đã BỎ khỏi UI — optional để tương thích payload cũ.
   customer_note?: string | null;
   internal_note?: string | null;
@@ -1502,11 +1506,8 @@ export interface QuoteItemUpdateInput {
 export interface QuotationUpdateInput {
   customer_id: number | null;
   valid_until: string | null;
-  payment_terms: string | null;
-  /** % tạm ứng/cọc khi chốt đơn (0–100); null = chưa đặt. */
-  deposit_pct?: number | null;
-  delivery_terms: string | null;
-  delivery_address: string | null;
+  /** Điều khoản in ra phiếu (mỗi dòng = 1 điều khoản); bỏ trống → backend điền bộ mặc định. */
+  terms_text?: string | null;
   // Ghi chú đối ngoại/nội bộ đã BỎ khỏi UI — vẫn optional để tương thích payload cũ.
   customer_note?: string | null;
   internal_note?: string | null;
@@ -3641,6 +3642,7 @@ export interface OrderLineOut {
   id: number;
   description: string;
   qty: number;
+  don_vi_tinh: string;   // ĐVT dòng (kéo từ báo giá / gõ tay)
   unit_price_snapshot: number | null;
   vat_pct_estimate: number;
   line_total: number | null;
@@ -3689,6 +3691,33 @@ export interface OrderApprovalOut {
   order_cost: number | null;
   margin_pct_snapshot: number | null;
 }
+/** Phiếu thu 01-TT của đơn (nguồn cọc thật, dùng chung quyển sổ PT kế toán). */
+export interface OrderReceiptOut {
+  id: number;
+  code: string;
+  doc_no: string | null;
+  receipt_method: string;          // cash | bank_transfer
+  amount: number;
+  status: string;                  // waiting_receipt | received | cancelled
+  receipt_date: string | null;
+  content: string | null;
+  bank_reference: string | null;
+  payer_name: string | null;
+  debit_account: string | null;
+  credit_account: string | null;
+  created_by_name: string | null;
+  attachments: AttachmentOut[];
+}
+export interface OrderReceiptInput {
+  receipt_method: string;          // cash | bank_transfer
+  amount: number;
+  receipt_date: string;
+  content?: string | null;
+  bank_reference?: string | null;
+  company_bank_account_id?: number | null;
+  note?: string | null;
+  mark_received?: boolean;
+}
 export interface OrderRow {
   id: number;
   order_no: string;
@@ -3700,6 +3729,7 @@ export interface OrderRow {
   order_kind: string;
   order_nature: string;
   status: string;
+  is_rush: boolean;
   approval_state: string;
   needs_approval: boolean;
   cost_basis: string;
@@ -3725,8 +3755,13 @@ export interface OrderDetail extends OrderRow {
   quotation_version: number | null;
   quotation_effective_from: string | null;
   parent_order_id: number | null;
+  parent_order_no: string | null;
   customer_po_no: string | null;
   delivery_address: string | null;
+  delivery_contact_name: string | null;
+  delivery_contact_phone: string | null;
+  delivery_note: string | null;
+  production_note: string | null;
   invoice_entity_name: string | null;
   invoice_entity_tax_code: string | null;
   vat_pct_estimate: number;
@@ -3735,7 +3770,10 @@ export interface OrderDetail extends OrderRow {
   margin_pct: number | null;
   cancel_reason: string | null;
   cancel_fault: string | null;
-  deposits: OrderDepositOut[];
+  cancel_by_name: string | null;
+  cancel_at: string | null;
+  deposits: OrderDepositOut[];         // legacy — rỗng ở production
+  receipts: OrderReceiptOut[];         // phiếu thu 01-TT của đơn (nguồn cọc)
   approvals: OrderApprovalOut[];
   consent_attachments: AttachmentOut[];
   can_confirm: boolean;
@@ -3751,6 +3789,7 @@ export interface OrderStatsOut {
 export interface OrderLineInput {
   description?: string;
   qty: number;
+  don_vi_tinh?: string | null;   // ĐVT (text tự do); bỏ trống → "cái"
   unit_price?: number | null;
   vat_pct?: number;
 }
@@ -3766,14 +3805,26 @@ export interface OrderCreateInput {
   customer_po_no?: string | null;
   delivery_committed_date?: string | null;
   delivery_address?: string | null;
+  delivery_contact_name?: string | null;
+  delivery_contact_phone?: string | null;
+  delivery_note?: string | null;
+  production_note?: string | null;
   invoice_entity_name?: string | null;
   invoice_entity_tax_code?: string | null;
+  is_rush?: boolean;
 }
 export interface OrderUpdateInput {
   order_nature?: string | null;
+  is_rush?: boolean | null;
+  /** % cọc phải thu (0–100); chỉ Kế toán (record_deposit) đặt được, backend chặn Sale. */
+  deposit_pct?: number | null;
   customer_po_no?: string | null;
   delivery_committed_date?: string | null;
   delivery_address?: string | null;
+  delivery_contact_name?: string | null;
+  delivery_contact_phone?: string | null;
+  delivery_note?: string | null;
+  production_note?: string | null;
   invoice_entity_name?: string | null;
   invoice_entity_tax_code?: string | null;
 }
@@ -5217,6 +5268,21 @@ export const api = {
     },
     deleteDepositProof(token: string, id: number, depositId: number, attachmentId: number): Promise<OrderDetail> {
       return authed<OrderDetail>(`/api/orders/${id}/deposits/${depositId}/attachments/${attachmentId}`, token, { method: "DELETE" });
+    },
+    // Phiếu thu 01-TT cho cọc (production) — Kế toán ghi
+    createReceipt(token: string, id: number, input: OrderReceiptInput): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/receipts`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    cancelReceipt(token: string, id: number, receiptId: number, reason: string): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/receipts/${receiptId}/cancel`, token, { method: "POST", body: JSON.stringify({ reason }) });
+    },
+    uploadReceiptProof(token: string, id: number, receiptId: number, file: File): Promise<OrderDetail> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<OrderDetail>(`/api/orders/${id}/receipts/${receiptId}/attachments`, token, { method: "POST", body: form });
+    },
+    deleteReceiptProof(token: string, id: number, receiptId: number, attachmentId: number): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/receipts/${receiptId}/attachments/${attachmentId}`, token, { method: "DELETE" });
     },
   },
   productTypesCatalog: {

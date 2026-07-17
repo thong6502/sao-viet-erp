@@ -170,16 +170,13 @@ def test_assign_shift_and_timesheet_cong(client):
         json={"name": "Hành chính", "start_time": "08:00", "end_time": "17:00"},
         headers=_h(token),
     ).json()
-    # NV gắn tài khoản admin + gán ca mặc định
-    emp = client.post(
-        "/api/employees",
-        json={"full_name": "NV Ca", "department_id": _dept_id("Hành chính nhân sự"), "hire_date": "2020-01-01"},
-        headers=_h(token),
-    ).json()["employee"]
-    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))
+    # Hồ sơ SẴN CÓ của admin (mọi tài khoản đều có hồ sơ — `backfill_employee_profiles`; tạo hồ sơ
+    # thứ 2 rồi gán sẽ vỡ link 1–1) + gán ca mặc định
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
     upd = client.put(
         f"/api/employees/{emp['id']}",
-        json={"full_name": "NV Ca", "default_shift_id": shift["id"]},
+        json={"full_name": "NV Ca", "department_id": _dept_id("Hành chính nhân sự"),
+              "hire_date": "2020-01-01", "default_shift_id": shift["id"]},
         headers=_h(token),
     )
     assert upd.status_code == 200 and upd.json()["employee"]["default_shift_id"] == shift["id"]
@@ -232,12 +229,14 @@ def test_timesheet_credits_paid_holiday(client):
     công chuẩn tháng loại lễ. NV 'xuất hiện' trong tháng 9 qua 1 đơn nghỉ đã duyệt → được cộng
     công lễ 2/9 (lễ seed)."""
     token = _admin_token(client)
-    emp = client.post(
-        "/api/employees",
-        json={"full_name": "NV Lễ", "department_id": _dept_id("Hành chính nhân sự"), "hire_date": "2020-01-01"},
+    # Hồ sơ SẴN CÓ của admin (mọi tài khoản đều có hồ sơ), nắn tên/phòng ban cho khớp kịch bản.
+    emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
+    client.put(
+        f"/api/employees/{emp['id']}",
+        json={"full_name": "NV Lễ", "department_id": _dept_id("Hành chính nhân sự"),
+              "hire_date": "2020-01-01"},
         headers=_h(token),
-    ).json()["employee"]
-    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))
+    )
 
     # Đơn nghỉ có lương 2026-09-10 (Thứ 5) đã duyệt → NV có mặt trong bảng công tháng 9.
     tid = client.post("/api/leaves/types", json={"name": "Phép năm", "is_paid": True, "annual_quota": 12},

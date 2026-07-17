@@ -270,11 +270,14 @@ class AccountingRepository:
         q: str | None = None,
         status: str | None = None,
         payment_voucher_id: int | None = None,
+        source_type: str | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[PaymentReceipt], int]:
         conditions = []
+        if source_type is not None:
+            conditions.append(PaymentReceipt.source_type == source_type)
         if q:
             like = f"%{q.strip().lower()}%"
             conditions.append(
@@ -340,6 +343,23 @@ class AccountingRepository:
             PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
         )
         return int(self.db.execute(stmt).scalar_one())
+
+    def receipt_received_sum_for_order(self, order_id: int) -> int:
+        """Σ phiếu thu ĐÃ THU của một đơn bán (cổng chốt đơn đọc số này)."""
+        stmt = select(func.coalesce(func.sum(PaymentReceipt.amount_vnd), 0)).where(
+            PaymentReceipt.order_id == order_id,
+            PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+        )
+        return int(self.db.execute(stmt).scalar_one())
+
+    def list_receipts_for_order(self, order_id: int) -> list[PaymentReceipt]:
+        """Các phiếu thu (mọi trạng thái) của một đơn bán, mới nhất trước."""
+        stmt = (
+            self._receipt_stmt()
+            .where(PaymentReceipt.order_id == order_id)
+            .order_by(PaymentReceipt.created_at.desc())
+        )
+        return list(self.db.execute(stmt).scalars().all())
 
     def save_receipt(self, receipt: PaymentReceipt) -> PaymentReceipt:
         self.db.add(receipt)

@@ -411,16 +411,6 @@ def get_order_repository(
     return OrderRepository(db)
 
 
-def get_order_service(
-    db: Annotated[Session, Depends(get_db)],
-    repo: Annotated[OrderRepository, Depends(get_order_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-    quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
-) -> OrderService:
-    # SEAM-04: đọc báo giá (QuotationRepository) để snapshot dòng + deposit_pct khi tạo đơn.
-    return OrderService(repo, audit, quotations, db)
-
-
 def require_permission(module_key: str, action: str):
     """Build a dependency that allows the request only if the current user's role
     grants `action` on `module_key`. 401 if unauthenticated/locked is handled by
@@ -535,6 +525,18 @@ def get_accounting_service(
     sequences: Annotated[SequenceService, Depends(get_sequence_service)],
 ) -> AccountingService:
     return AccountingService(repo, requests, suppliers, users, audit, sequences)
+
+
+def get_order_service(
+    db: Annotated[Session, Depends(get_db)],
+    repo: Annotated[OrderRepository, Depends(get_order_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    quotations: Annotated[QuotationRepository, Depends(get_quotation_repository)],
+    accounting: Annotated[AccountingService, Depends(get_accounting_service)],
+) -> OrderService:
+    # SEAM-04: đọc báo giá (QuotationRepository) để snapshot dòng + giá vốn khi tạo đơn.
+    # SEAM: accounting sinh/đọc phiếu thu 01-TT cho cọc (dùng chung quyển sổ PT với kế toán mua).
+    return OrderService(repo, audit, quotations, db, accounting)
 
 
 def get_material_repository(

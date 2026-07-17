@@ -61,8 +61,8 @@ def svc(db):
     return OrderService(OrderRepository(db), AuditLogRepository(db), QuotationRepository(db), db)
 
 
-def _accepted_quote(db, customer, *, selling=1_000_000, discount=100_000, vat=8, qty=1000, cost=600_000, deposit_pct=50):
-    q = Quote(quote_number="BG-T", customer_id=customer.id, status=STATUS_ACCEPTED, deposit_pct=deposit_pct)
+def _accepted_quote(db, customer, *, selling=1_000_000, discount=100_000, vat=8, qty=1000, cost=600_000):
+    q = Quote(quote_number="BG-T", customer_id=customer.id, status=STATUS_ACCEPTED)
     db.add(q)
     db.flush()
     v = QuoteVersion(quote_id=q.id, version_number=1, vat_percent=vat)
@@ -107,8 +107,8 @@ def test_create_from_quote_line_total_is_net_after_discount(svc, admin, customer
     assert d.needs_approval is False
     assert d.total == 900_000            # NET (1.000.000 − 100.000), KHÔNG phồng theo unit_price gộp
     assert d.total_with_vat == 972_000
-    assert d.deposit_pct == 50
-    assert d.deposit_required == 486_000
+    assert d.deposit_pct is None         # % cọc KHÔNG còn ghim từ báo giá — thỏa thuận lúc chốt đơn
+    assert d.deposit_required == 0
     assert d.margin_pct == 33            # (900k−600k)/900k
 
 
@@ -123,6 +123,10 @@ def test_one_quote_one_order_guard(svc, admin, customer, db):
 def test_deposit_reconcile_only_for_ck_and_gate_flips(svc, admin, customer, db):
     q = _accepted_quote(db, customer)
     d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    # % cọc đặt TẠI ĐƠN (Kế toán), không còn ghim từ báo giá → 50% × 972.000 = 486.000.
+    d = svc.update(order_id=d.id, actor=admin, scope="all", can_set_deposit_pct=True,
+                   payload=OrderUpdate(deposit_pct=50))
+    assert d.deposit_pct == 50 and d.deposit_required == 486_000
     d = svc.add_deposit(order_id=d.id, actor=admin, scope="all",
                         payload=OrderDepositIn(deposit_kind="ck", amount_received=300_000, reconciled=True))
     assert d.deposit_received == 300_000 and d.deposit_ok is False
@@ -131,6 +135,18 @@ def test_deposit_reconcile_only_for_ck_and_gate_flips(svc, admin, customer, db):
                         payload=OrderDepositIn(deposit_kind="tien_mat", amount_received=200_000, reconciled=True))
     assert d.deposit_received == 500_000 and d.deposit_ok is True   # 500k ≥ 486k
     assert d.deposits[1].reconciled is False                        # tiền mặt: ép False
+
+
+def test_deposit_pct_locked_from_sale(svc, admin, customer, db):
+    """% cọc khóa khỏi Sale: chỉ quyền `record_deposit` (Kế toán) đặt được; ngoài khoảng 0–100 = 422."""
+    q = _accepted_quote(db, customer)
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    with pytest.raises(OrderForbidden):
+        svc.update(order_id=d.id, actor=admin, scope="all", can_set_deposit_pct=False,
+                   payload=OrderUpdate(deposit_pct=30))
+    with pytest.raises(OrderValidationError):
+        svc.update(order_id=d.id, actor=admin, scope="all", can_set_deposit_pct=True,
+                   payload=OrderUpdate(deposit_pct=150))
 
 
 # --- P3: duyệt đơn đặc thù ----------------------------------------------------
@@ -231,3 +247,27 @@ def test_cancel_draft(svc, admin, customer):
         lines=[OrderLineIn(description="x", qty=1, unit_price=100, vat_pct=8)]))
     d = svc.cancel(order_id=d.id, actor=admin, scope="all", reason="Đổi ý", fault=None, can_cancel_ordered=False)
     assert d.status == "cancelled"
+
+
+# --- Người nhận hàng + lưu ý tách đích + ai/khi hủy (migration 0071) ----------
+def test_delivery_contact_notes_and_cancel_actor(svc, admin, customer):
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(
+        source_type="nhap_tay", customer_id=customer.id,
+        lines=[OrderLineIn(description="x", qty=1, unit_price=100, vat_pct=8)]))
+    # Sale điền người nhận + 2 lưu ý tách đích khi nháp.
+    d = svc.update(order_id=d.id, actor=admin, scope="all", payload=OrderUpdate(
+        delivery_contact_name="Chị Kho", delivery_contact_phone="0900000001",
+        delivery_note="Giao giờ hành chính, gọi trước 30 phút",
+        production_note="In đúng màu mẫu lần trước",
+    ))
+    assert d.delivery_contact_name == "Chị Kho"
+    assert d.delivery_contact_phone == "0900000001"
+    assert "gọi trước" in d.delivery_note
+    assert "màu mẫu" in d.production_note
+    # Đọc lại từ detail (đi qua _detail build) — field không rớt.
+    d2 = svc.get(order_id=d.id, actor=admin, scope="all")
+    assert d2.production_note == "In đúng màu mẫu lần trước"
+    # Hủy → ai/khi hủy đọc ra được (cột cancel_by/at đã ghi, nay expose).
+    d3 = svc.cancel(order_id=d.id, actor=admin, scope="all", reason="Đổi ý", fault=None, can_cancel_ordered=False)
+    assert d3.cancel_by_name == admin.name
+    assert d3.cancel_at is not None

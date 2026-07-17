@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import unicodedata
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 
 from ..db import SessionLocal
 from ..deps import (
@@ -21,6 +23,7 @@ from ..repositories.user_repo import UserRepository
 from ..security import decode_access_token
 from ..services.auth_service import AuthError, AuthService
 from ..models.quotation import (
+    DEFAULT_TERMS,
     QUOTE_STATUSES,
     Quote,
     QuoteVersion,
@@ -233,6 +236,16 @@ def _detail(
     salesperson_name = (
         svc.user_names({q.salesperson_id}).get(q.salesperson_id) if q.salesperson_id else None
     )
+    # Đơn hàng bán đã lập từ báo giá này (đơn đã hủy nhả chỗ → không tính) — để FE liên kết/ẩn nút Tạo đơn.
+    from ..models.order import STATUS_CANCELLED as _ORDER_CANCELLED, Order as _Order
+
+    linked_order = svc.quotations.db.execute(
+        select(_Order)
+        .where(_Order.quotation_id == q.id, _Order.status != _ORDER_CANCELLED)
+        .order_by(_Order.id.desc())
+        .limit(1)
+    ).scalars().first()
+    _contact = svc.effective_contact(q)
     return QuotationDetailOut(
         id=q.id,
         code=q.quote_number,
@@ -247,13 +260,11 @@ def _detail(
         valid_until=q.valid_until,
         status=q.status,
         cancel_reason=q.cancel_reason,
-        payment_terms=q.payment_terms,
-        deposit_pct=q.deposit_pct,
-        delivery_terms=q.delivery_terms,
+        terms_text=q.terms_text or DEFAULT_TERMS,
         delivery_address=q.delivery_address,
-        contact_name_snapshot=q.contact_name_snapshot,
-        contact_phone_snapshot=q.contact_phone_snapshot,
-        contact_title_snapshot=q.contact_title_snapshot,
+        contact_name_snapshot=_contact["name"],
+        contact_phone_snapshot=_contact["phone"],
+        contact_title_snapshot=_contact["title"],
         customer_note=q.customer_note,
         internal_note=q.internal_note,
         total_cost=total_cost,
@@ -265,6 +276,8 @@ def _detail(
         items=items_out,
         allowed_transitions=_allowed_transitions(q.status),
         can_approve=can_approve,
+        order_id=linked_order.id if linked_order else None,
+        order_no=linked_order.order_no if linked_order else None,
         **_gate_fields(svc, q, can_approve_exception),
     )
 
@@ -508,9 +521,7 @@ def create_quotation(
             picks=[p.model_dump() for p in payload.picks] if payload.picks else None,
             margin_percent=payload.margin_percent,
             valid_until=payload.valid_until,
-            payment_terms=payload.payment_terms,
-            delivery_terms=payload.delivery_terms,
-            delivery_address=payload.delivery_address,
+            terms_text=payload.terms_text,
             customer_note=payload.customer_note,
             internal_note=payload.internal_note,
             actor=user,
@@ -600,10 +611,7 @@ def update_quotation(
             actor=user,
             customer_id=payload.customer_id,
             valid_until=payload.valid_until,
-            payment_terms=payload.payment_terms,
-            deposit_pct=payload.deposit_pct,
-            delivery_terms=payload.delivery_terms,
-            delivery_address=payload.delivery_address,
+            terms_text=payload.terms_text,
             customer_note=payload.customer_note,
             internal_note=payload.internal_note,
             items_payload=items_payload_list,
@@ -778,6 +786,12 @@ def _fmt_vnd(value: float | None) -> str:
     return f"{int(value):,} đ".replace(",", ".")
 
 
+def _ascii(s: str) -> str:
+    """Bo dau tieng Viet — font Helvetica cua reportlab khong ve duoc chu co dau."""
+    s = s.replace("đ", "d").replace("Đ", "D")
+    return "".join(ch for ch in unicodedata.normalize("NFD", s) if unicodedata.category(ch) != "Mn")
+
+
 def _render_pdf(q: Quote, ref) -> bytes:
     from reportlab.lib.pagesizes import A4
     from reportlab.lib.units import mm
@@ -789,7 +803,7 @@ def _render_pdf(q: Quote, ref) -> bytes:
     y = height - 30 * mm
 
     c.setFont("Helvetica-Bold", 18)
-    c.drawString(25 * mm, y, "BAO GIA / QUOTATION")
+    c.drawString(25 * mm, y, "BANG BAO GIA")
     y -= 10 * mm
     c.setFont("Helvetica", 11)
 
@@ -799,11 +813,10 @@ def _render_pdf(q: Quote, ref) -> bytes:
             active_version = v
             break
 
-    ver_num = active_version.version_number if active_version else 1
-    c.drawString(25 * mm, y, f"Ma: {q.quote_number}  -  Version: {ver_num}")
+    c.drawString(25 * mm, y, f"So bao gia: {q.quote_number}")
     y -= 7 * mm
     if ref is not None:
-        c.drawString(25 * mm, y, f"Khach hang: {ref.name}")
+        c.drawString(25 * mm, y, _ascii(f"Khach hang: {ref.name}"))
         y -= 7 * mm
         if ref.tax_code:
             c.drawString(25 * mm, y, f"MST: {ref.tax_code}")
@@ -814,7 +827,7 @@ def _render_pdf(q: Quote, ref) -> bytes:
 
     # Draw Items table
     c.setFont("Helvetica-Bold", 12)
-    c.drawString(25 * mm, y, "Danh sach san pham / Pricing breakdown")
+    c.drawString(25 * mm, y, "Chi tiet bao gia")
     y -= 10 * mm
 
     # Draw table headers
@@ -832,7 +845,7 @@ def _render_pdf(q: Quote, ref) -> bytes:
     if active_version:
         for idx, item in enumerate(active_version.items, 1):
             c.drawString(25 * mm, y, str(idx))
-            c.drawString(38 * mm, y, f"{item.product_name} ({item.product_type})")
+            c.drawString(38 * mm, y, _ascii(f"{item.product_name} ({item.product_type})"))
             c.drawRightString(110 * mm, y, f"{item.quantity:,}".replace(",", "."))
             c.drawRightString(135 * mm, y, _fmt_vnd(item.unit_price))
             c.drawRightString(160 * mm, y, f"{int(item.vat_percent)}%")
@@ -841,29 +854,24 @@ def _render_pdf(q: Quote, ref) -> bytes:
 
             if item.note:
                 c.setFont("Helvetica-Oblique", 8)
-                c.drawString(38 * mm, y + 1 * mm, f"Ghi chu: {item.note}")
+                c.drawString(38 * mm, y + 1 * mm, _ascii(f"Ghi chu: {item.note}"))
                 c.setFont("Helvetica", 10)
                 y -= 5 * mm
 
     y -= 5 * mm
     c.line(25 * mm, y + 7 * mm, width - 25 * mm, y + 7 * mm)
 
-    # Draw terms & notes if any
-    c.setFont("Helvetica-Bold", 11)
-    if q.payment_terms:
-        c.drawString(25 * mm, y, "Dieu khoan thanh toan:")
-        c.setFont("Helvetica", 10)
-        c.drawString(75 * mm, y, q.payment_terms)
-        y -= 6 * mm
-    if q.delivery_terms:
+    # Dieu khoan — moi dong cua terms_text = 1 dieu khoan, danh so 1..N nhu ban in tren man hinh.
+    lines = [ln.strip() for ln in (q.terms_text or DEFAULT_TERMS).splitlines() if ln.strip()]
+    if lines:
         c.setFont("Helvetica-Bold", 11)
-        c.drawString(25 * mm, y, "Dieu khoan giao hang:")
-        c.setFont("Helvetica", 10)
-        c.drawString(75 * mm, y, q.delivery_terms)
+        c.drawString(25 * mm, y, "Dieu khoan:")
         y -= 6 * mm
+        c.setFont("Helvetica", 10)
+        for idx, ln in enumerate(lines, 1):
+            c.drawString(30 * mm, y, f"{idx}. {_ascii(ln)}")
+            y -= 5 * mm
 
-    c.setFont("Helvetica-Oblique", 8)
-    c.drawString(25 * mm, 15 * mm, "Tai lieu doi ngoai — khong the hien chi tiet gia thanh.")
     c.showPage()
     c.save()
     return buf.getvalue()

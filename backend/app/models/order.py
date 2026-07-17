@@ -9,7 +9,8 @@ P1 redesign (2026-07-15) — quyết định đã khóa (xem docs/redesign-don-h
   - **2 nguồn:** `bao_gia` (ghim quotation_id+version+effective_from, giá+giá vốn bất biến) ·
     `nhap_tay` (không giá vốn → biên "không xác định"; luôn cần TP/GĐ duyệt). Bỏ "nhân bản".
     Đơn bổ sung (`order_kind=bo_sung`, `parent_order_id`) giữ kẽm → giá riêng.
-  - **% cọc = ghim từ BÁO GIÁ** (`deposit_pct`), khóa trên đơn. Số ngày công nợ KHÔNG giữ ở đơn.
+  - **% cọc đặt TẠI ĐƠN** (`deposit_pct`) — thỏa thuận lúc chốt đơn, khóa khỏi Sale (chỉ quyền
+    `record_deposit`/Kế toán đặt). Báo giá KHÔNG giữ % cọc. Số ngày công nợ KHÔNG giữ ở đơn.
   - **Trạng thái active:** draft → ordered → cancelled. (`on_hold`/`change_order` dormant.)
   - **order_nature** {hang_hoa, gia_cong} thay cờ `has_customer_paper` (2 gốc thuế).
   - **Duyệt tại đơn** cho nguồn không-qua-báo-giá qua `approval_state` + `order_approvals`.
@@ -45,10 +46,7 @@ NATURE_HANG_HOA = "hang_hoa"      # xưởng lo hết → HĐ toàn bộ giá tr
 NATURE_GIA_CONG = "gia_cong"      # khách ứng giấy → HĐ chỉ tiền công (xử ở Pha Hóa đơn)
 ORDER_NATURES = (NATURE_HANG_HOA, NATURE_GIA_CONG)
 
-# --- order_type (§41, dormant) -------------------------------------------------
-ORDER_TYPE_NOI_BO = "noi_bo"
-ORDER_TYPE_THEO_YC = "theo_yc"
-ORDER_TYPES = (ORDER_TYPE_NOI_BO, ORDER_TYPE_THEO_YC)
+# order_type ĐÃ BỎ (2026-07-16): in nội bộ đi thẳng Lệnh sản xuất, không đội lốt đơn bán.
 
 # --- order_kind ----------------------------------------------------------------
 ORDER_KIND_MOI = "moi"            # đơn mới
@@ -112,7 +110,6 @@ class Order(Base):
     # Nguồn + bản chất
     source_type: Mapped[str] = mapped_column(String(16), nullable=False, default=SOURCE_BAO_GIA)
     order_nature: Mapped[str] = mapped_column(String(16), nullable=False, default=NATURE_HANG_HOA)
-    order_type: Mapped[str] = mapped_column(String(16), nullable=False, default=ORDER_TYPE_THEO_YC)
     order_kind: Mapped[str] = mapped_column(String(16), nullable=False, default=ORDER_KIND_MOI)
     # Đơn bổ sung → BẮT BUỘC trỏ đơn gốc (self-FK); NULL cho đơn mới.
     parent_order_id: Mapped[int | None] = mapped_column(
@@ -126,6 +123,9 @@ class Order(Base):
 
     status: Mapped[str] = mapped_column(String(16), nullable=False, default=STATUS_DRAFT)
 
+    # Đơn GẤP / ưu tiên — Sale bật để xưởng biết làm trước (chip đỏ + chảy xuống LSX).
+    is_rush: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
     # DORMANT (thay bằng order_nature) — giữ cột để không mất dữ liệu cũ.
     has_customer_paper: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
@@ -135,6 +135,16 @@ class Order(Base):
     customer_po_no: Mapped[str | None] = mapped_column(String(100), nullable=True)
     delivery_committed_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Người nhận hàng SNAPSHOT — Sale xổ chọn từ danh bạ khách (`customer_contacts`), sửa tay được.
+    # KHÔNG auto-fill theo `is_primary`: liên hệ chính thường là kế toán/mua hàng, không phải người
+    # ra nhận hàng ở kho. Snapshot vì danh bạ đổi sau không được rewrite đơn đã lập.
+    delivery_contact_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    delivery_contact_phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    # Lưu ý tách theo ĐÍCH ĐẾN (mỗi ô có người đọc ở đầu kia), không gộp 1 ô ghi chú chung:
+    #   delivery_note   → tài xế/khâu Giao hàng ("giao giờ hành chính", "gọi trước 30 phút")
+    #   production_note → tổ in/LSX ("in đúng màu mẫu lần trước")
+    delivery_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    production_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Pháp nhân xuất HĐ (khi khách xin xuất tên khác; mặc định = khách).
     invoice_entity_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     invoice_entity_tax_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
@@ -195,6 +205,7 @@ class OrderLine(Base):
     # Mô tả SP thương mại (đối ngoại) — NEVER số màu/kẽm/khổ/imposition/PrintForm.
     description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")  # ĐVT (kéo từ báo giá / gõ tay)
 
     # --- P0 snapshot copy-on-write ----------------------------------------------
     unit_price_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)

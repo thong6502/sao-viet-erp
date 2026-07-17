@@ -334,6 +334,24 @@
   background: var(--steel-soft);
   color: var(--steel);
 }
+.tone--rush {
+  background: var(--signal-soft);
+  color: var(--signal);
+  font-weight: 700;
+}
+
+/* Trạng thái phiếu thu 01-TT */
+.dhb__receipt-status {
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.dhb__receipt-status--received { background: var(--moss-soft); color: var(--moss-deep); }
+.dhb__receipt-status--waiting_receipt { background: var(--amber-soft); color: var(--amber-deep); }
+.dhb__receipt-status--cancelled { background: var(--signal-soft); color: var(--signal); }
 
 
 /* --- Drawer (Slide-in) --- */
@@ -780,6 +798,69 @@
 .dhb__timeline-step.is-selected .dhb__timeline-dot {
   box-shadow: 0 0 0 3px var(--rust-soft);
   border-color: var(--rust);
+}
+
+/* --- Khối "Giao hàng" trong form sửa --- */
+.dhb__edit-block {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-4);
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--paper-contrast);
+  display: grid;
+  gap: 4px;
+}
+
+.dhb__edit-block-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ash);
+  margin-bottom: 2px;
+}
+
+/* --- Dải lưu ý (giao / sản xuất) ở read-mode --- */
+.dhb__note-strip {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-hair);
+}
+
+.dhb__note-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.dhb__note-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.dhb__note-tag--deliv {
+  background: var(--steel-soft);
+  color: var(--steel);
+}
+
+.dhb__note-tag--prod {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
 }
 
 

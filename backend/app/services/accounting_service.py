@@ -22,6 +22,8 @@ from ..models.accounting import (
     PAYMENT_VOUCHER_STATUSES,
     PAYMENT_VOUCHER_TYPES,
     PAYMENT_VOUCHER_WAITING,
+    RECEIPT_SOURCE_ORDER,
+    RECEIPT_SOURCE_PURCHASE,
     VOUCHER_BANK_TRANSFER,
     VOUCHER_CASH,
     CompanyBankAccount,
@@ -362,14 +364,18 @@ class AccountingService:
         q: str | None = None,
         status: str | None = None,
         payment_voucher_id: int | None = None,
+        source_type: str | None = RECEIPT_SOURCE_PURCHASE,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[dict], int]:
+        # Màn Phiếu thu kế toán = phiếu thu MUA (purchase_refund). Phiếu thu cọc đơn bán quản ở màn
+        # Đơn hàng (chung quyển sổ/dãy số PT nhưng tách VIEW). Truyền source_type=None để xem cả sổ.
         rows, total = self.repo.list_receipts(
             q=q,
             status=status,
             payment_voucher_id=payment_voucher_id,
+            source_type=source_type,
             sort=sort,
             page=page,
             size=size,
@@ -402,10 +408,111 @@ class AccountingService:
         )
         return self._receipt_out(saved)
 
+    def create_order_receipt(
+        self,
+        *,
+        order_id: int,
+        order_no: str,
+        customer_name: str | None,
+        actor,
+        receipt_method: str,
+        amount: int,
+        receipt_date,
+        content: str | None = None,
+        bank_reference: str | None = None,
+        company_bank_account_id: int | None = None,
+        note: str | None = None,
+        mark_received: bool = True,
+    ) -> dict:
+        """Sinh phiếu thu 01-TT cho CỌC đơn bán — dùng CHUNG bảng payment_receipts + CHUNG dãy
+        số PT với phiếu thu mua hàng (1 quyển sổ quỹ). Người nộp = khách, không cap theo phiếu chi.
+        `mark_received=True` (mặc định) → phiếu ở trạng thái đã thu ngay (Kế toán ghi khi tiền đã
+        về) → cổng chốt đơn đếm ngay. Định khoản 01-TT: Nợ 111/112 · Có 131 (phải thu khách)."""
+        if receipt_method not in PAYMENT_VOUCHER_TYPES:
+            raise AccountingValidationError("Hình thức thu không hợp lệ.")
+        amount = int(amount or 0)
+        if amount <= 0:
+            raise AccountingValidationError("Số tiền thu phải lớn hơn 0.")
+        company_account = None
+        reference = _text(bank_reference, label="Mã giao dịch", max_length=64)
+        # TK công ty nhận là TÙY CHỌN với cọc đơn bán (bank_reference đủ vết); nếu có thì kiểm hợp lệ.
+        if receipt_method == VOUCHER_BANK_TRANSFER and company_bank_account_id:
+            company_account = self.repo.get_company_account(int(company_bank_account_id))
+            if company_account is None or not company_account.is_active:
+                raise AccountingValidationError("Tài khoản công ty không hợp lệ.")
+            if company_account.currency != "VND":
+                raise AccountingValidationError("Cọc đơn bán chỉ nhận VND.")
+        doc_no = self.sequences.generate_flat_code(SEQ_DOC_TYPE_PAYMENT_RECEIPT)
+        receipt = PaymentReceipt(
+            code=self._new_receipt_code(),
+            doc_no=doc_no,
+            source_type=RECEIPT_SOURCE_ORDER,
+            order_id=order_id,
+            order_no_snapshot=order_no,
+            customer_name_snapshot=customer_name,
+            payer_name=(customer_name or "Khách hàng"),
+            receipt_method=receipt_method,
+            receipt_date=receipt_date,
+            amount=amount,
+            amount_vnd=amount,
+            currency="VND",
+            exchange_rate=1,
+            content=_text(content, label="Nội dung thu", max_length=500) or f"Thu cọc đơn {order_no}",
+            debit_account=("1121" if receipt_method == VOUCHER_BANK_TRANSFER else "1111"),
+            credit_account="131",
+            bank_reference=reference,
+            company_bank_account_id=(company_account.id if company_account else None),
+            company_account_holder_snapshot=(company_account.account_holder if company_account else None),
+            company_account_number_snapshot=(company_account.account_number if company_account else None),
+            company_bank_name_snapshot=(company_account.bank_name if company_account else None),
+            company_bank_branch_snapshot=(company_account.bank_branch if company_account else None),
+            note=_text(note, label="Ghi chú", max_length=2000),
+            status=PAYMENT_RECEIPT_WAITING,
+            created_by_user_id=actor.id,
+        )
+        if mark_received:
+            receipt.status = PAYMENT_RECEIPT_RECEIVED
+            receipt.received_by_user_id = actor.id
+            receipt.received_at = _now()
+        saved = self.repo.save_receipt(receipt)
+        self.audit.create(
+            actor_user_id=actor.id,
+            action="create_order_receipt",
+            target=f"payment_receipt:{saved.id}",
+            detail=f"{saved.code} <- đơn {order_no}",
+        )
+        return self._receipt_out(saved)
+
+    def received_sum_for_order(self, order_id: int) -> int:
+        """Σ số tiền các phiếu thu ĐÃ THU (received) của một đơn — cổng chốt đơn đọc số này."""
+        return self.repo.receipt_received_sum_for_order(order_id)
+
+    def cancel_order_receipt(self, receipt_id: int, *, actor, reason: str):
+        """Hủy phiếu thu CỌC đơn bán — cho hủy cả khi ĐÃ THU (ghi nhầm), khác phiếu thu mua (chỉ
+        hủy chờ-thu). Không xóa trắng: giữ vết + số PT trong quyển sổ."""
+        receipt = self._receipt(receipt_id)
+        if receipt.source_type != RECEIPT_SOURCE_ORDER:
+            raise AccountingConflict("Không phải phiếu thu cọc đơn bán.")
+        if receipt.status == PAYMENT_RECEIPT_CANCELLED:
+            raise AccountingConflict("Phiếu thu đã hủy.")
+        cleaned = _text(reason, label="Lý do hủy", required=True, max_length=2000)
+        receipt.status = PAYMENT_RECEIPT_CANCELLED
+        receipt.cancel_reason = cleaned
+        receipt.cancelled_by_user_id = actor.id
+        receipt.cancelled_at = _now()
+        saved = self.repo.save_receipt(receipt)
+        self.audit.create(
+            actor_user_id=actor.id, action="cancel_order_receipt",
+            target=f"payment_receipt:{saved.id}", detail=f"{saved.code}: {cleaned}",
+        )
+        return self._receipt_out(saved)
+
     def update_receipt(self, receipt_id: int, *, actor, **values):
         receipt = self._receipt(receipt_id)
         if receipt.status != PAYMENT_RECEIPT_WAITING:
             raise AccountingConflict("Chỉ phiếu thu đang chờ thu mới được sửa.")
+        if receipt.source_type == RECEIPT_SOURCE_ORDER:
+            raise AccountingConflict("Phiếu thu cọc đơn bán sửa ở màn Đơn hàng.")
         voucher = receipt.payment_voucher
         prepared = self._prepare_receipt(voucher, values, exclude_receipt_id=receipt.id)
         self._apply_receipt(receipt, voucher, prepared)
@@ -560,6 +667,10 @@ class AccountingService:
             "id": row.id,
             "code": row.code,
             "doc_no": row.doc_no,
+            "source_type": row.source_type,
+            "order_id": row.order_id,
+            "order_no": row.order_no_snapshot,
+            "customer_name": row.customer_name_snapshot,
             "payment_voucher_id": row.payment_voucher_id,
             "payment_voucher_code": row.voucher_code_snapshot,
             "purchase_request_id": row.purchase_request_id,

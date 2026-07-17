@@ -9,8 +9,12 @@ import re
 import secrets
 from datetime import date, datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
+
+if TYPE_CHECKING:
+    from .accounting_service import AccountingService
 
 from ..models.order import (
     ATTACH_KIND_CONSENT,
@@ -57,6 +61,7 @@ from ..schemas.order import (
     OrderEnumsOut,
     OrderLineOut,
     OrderListOut,
+    OrderReceiptOut,
     OrderRow,
     OrderStatsOut,
 )
@@ -137,11 +142,14 @@ class OrderService:
         audit: AuditLogRepository,
         quotations: QuotationRepository,
         db: Session,
+        accounting: "AccountingService | None" = None,
     ) -> None:
         self.repo = repo
         self.audit = audit
         self.quotations = quotations
         self.db = db
+        # SEAM: sinh/đọc phiếu thu 01-TT cho cọc (dùng chung quyển sổ PT với kế toán mua).
+        self.accounting = accounting
 
     # --- helpers ------------------------------------------------------------
     def _user_names(self, ids: list[int]) -> dict[int, str]:
@@ -165,7 +173,12 @@ class OrderService:
         total = self.repo.line_total_sum(order.id)
         total_with_vat = self.repo.total_with_vat(order.id)
         order_cost = self.repo.order_cost_sum(order.id)
-        received = self.repo.deposit_received_sum(order.id)
+        # Cọc = Σ phiếu thu 01-TT ĐÃ THU của đơn (quyển sổ PT chung). Fallback order_deposits cũ
+        # nếu accounting chưa inject (một số test service dựng OrderService trần).
+        if self.accounting is not None:
+            received = self.accounting.received_sum_for_order(order.id)
+        else:
+            received = self.repo.deposit_received_sum(order.id)
         pct = order.deposit_pct
         required = int(round(float(pct) * total_with_vat / 100)) if pct else 0
         # biên: chỉ khi có giá vốn (cost_basis=quote) + có total
@@ -230,6 +243,7 @@ class OrderService:
             order_kind=order.order_kind,
             order_nature=order.order_nature,
             status=order.status,
+            is_rush=order.is_rush,
             approval_state=order.approval_state,
             needs_approval=order.needs_approval,
             cost_basis=order.cost_basis,
@@ -254,7 +268,7 @@ class OrderService:
             c = self.db.get(Customer, order.customer_id)
             cust_name = c.name if c else None
         dep_recorders = [d.recorded_by for d in order.deposits if d.recorded_by]
-        names = self._user_names([order.sale_user_id, *dep_recorders])
+        names = self._user_names([order.sale_user_id, order.cancel_by, *dep_recorders])
         m = self._money(order)
         deposits = []
         for d in order.deposits:
@@ -292,13 +306,24 @@ class OrderService:
         if order.quotation_id:
             qq = self.quotations.get_by_id(order.quotation_id)
             q_code = qq.quote_number if qq else None
+        parent_no = None
+        if order.parent_order_id:
+            parent = self.repo.get_by_id(order.parent_order_id)
+            parent_no = parent.order_no if parent else None
+        # Phiếu thu 01-TT của đơn (production, accounting inject). Test service không inject → [].
+        receipts = self._order_receipts_out(order.id)
         return OrderDetailOut(
             **self._row(order, cust_name, names.get(order.sale_user_id), q_code).model_dump(),
             quotation_version=order.quotation_version,
             quotation_effective_from=order.quotation_effective_from,
             parent_order_id=order.parent_order_id,
+            parent_order_no=parent_no,
             customer_po_no=order.customer_po_no,
             delivery_address=order.delivery_address,
+            delivery_contact_name=order.delivery_contact_name,
+            delivery_contact_phone=order.delivery_contact_phone,
+            delivery_note=order.delivery_note,
+            production_note=order.production_note,
             invoice_entity_name=order.invoice_entity_name,
             invoice_entity_tax_code=order.invoice_entity_tax_code,
             vat_pct_estimate=order.vat_pct_estimate,
@@ -307,12 +332,35 @@ class OrderService:
             margin_pct=m["margin_pct"],
             cancel_reason=order.cancel_reason,
             cancel_fault=order.cancel_fault,
+            cancel_by_name=names.get(order.cancel_by),
+            cancel_at=order.cancel_at,
             deposits=deposits,
+            receipts=receipts,
             approvals=approvals,
             consent_attachments=consent_atts,
             can_confirm=can_confirm,
             confirm_blockers=blockers,
         )
+
+    def _order_receipts_out(self, order_id: int) -> list["OrderReceiptOut"]:
+        """Map phiếu thu 01-TT của đơn → OrderReceiptOut cho FE (rỗng nếu chưa inject accounting)."""
+        if self.accounting is None:
+            return []
+        out: list[OrderReceiptOut] = []
+        for r in self.accounting.repo.list_receipts_for_order(order_id):
+            out.append(OrderReceiptOut(
+                id=r.id, code=r.code, doc_no=r.doc_no, receipt_method=r.receipt_method,
+                amount=int(r.amount_vnd), status=r.status, receipt_date=r.receipt_date,
+                content=r.content, bank_reference=r.bank_reference,
+                payer_name=r.payer_name, debit_account=r.debit_account, credit_account=r.credit_account,
+                created_by_name=self._user_names([r.created_by_user_id]).get(r.created_by_user_id),
+                attachments=[
+                    AttachmentOut(id=a.id, url=a.file_url, file_name=a.file_name,
+                                  content_type=a.file_type, uploaded_at=a.uploaded_at)
+                    for a in r.attachments
+                ],
+            ))
+        return out
 
     # --- reads --------------------------------------------------------------
     def list(
@@ -412,6 +460,7 @@ class OrderService:
             lines.append(dict(
                 description=it.product_name or "",
                 qty=it.quantity,
+                don_vi_tinh=(getattr(it, "unit", None) or "cái"),   # ĐVT kéo từ dòng báo giá
                 unit_price_snapshot=unit,
                 line_total=net_line,
                 vat_pct_estimate=_i(it.vat_percent),
@@ -428,14 +477,19 @@ class OrderService:
             order_kind=payload.order_kind,
             parent_order_id=payload.parent_order_id,
             order_nature=payload.order_nature,
+            is_rush=payload.is_rush,
             sale_user_id=(quote.salesperson_id or actor.id),
             status=STATUS_DRAFT,
             vat_pct_estimate=_i(version.vat_percent),
-            deposit_pct=quote.deposit_pct,
+            deposit_pct=None,   # thỏa thuận lúc chốt đơn — Kế toán đặt trên đơn, báo giá không giữ
             cost_basis=COST_BASIS_QUOTE,
             needs_approval=False,
             approval_state=APPROVAL_STATE_NONE,
             delivery_address=(payload.delivery_address or quote.delivery_address),
+            delivery_contact_name=payload.delivery_contact_name,
+            delivery_contact_phone=payload.delivery_contact_phone,
+            delivery_note=payload.delivery_note,
+            production_note=payload.production_note,
             customer_po_no=payload.customer_po_no,
             delivery_committed_date=payload.delivery_committed_date,
             invoice_entity_name=payload.invoice_entity_name,
@@ -454,6 +508,7 @@ class OrderService:
             lines.append(dict(
                 description=ln.description,
                 qty=ln.qty,
+                don_vi_tinh=(getattr(ln, "don_vi_tinh", None) or "cái"),
                 unit_price_snapshot=unit,
                 line_total=(ln.qty * unit if unit is not None else None),
                 vat_pct_estimate=ln.vat_pct,
@@ -469,6 +524,7 @@ class OrderService:
             order_kind=payload.order_kind,
             parent_order_id=payload.parent_order_id,
             order_nature=payload.order_nature,
+            is_rush=payload.is_rush,
             sale_user_id=actor.id,
             status=STATUS_DRAFT,
             vat_pct_estimate=payload.vat_pct_estimate,
@@ -477,6 +533,10 @@ class OrderService:
             needs_approval=True,   # nhập tay LUÔN cần duyệt (trình duyệt ở P3)
             approval_state=APPROVAL_STATE_NONE,
             delivery_address=payload.delivery_address,
+            delivery_contact_name=payload.delivery_contact_name,
+            delivery_contact_phone=payload.delivery_contact_phone,
+            delivery_note=payload.delivery_note,
+            production_note=payload.production_note,
             customer_po_no=payload.customer_po_no,
             delivery_committed_date=payload.delivery_committed_date,
             invoice_entity_name=payload.invoice_entity_name,
@@ -484,30 +544,60 @@ class OrderService:
         )
         return order
 
-    def update(self, *, order_id: int, actor, scope: str, payload) -> OrderDetailOut:
+    # Nhóm HẬU CẦN — giao nhận, không đụng giá/giá vốn/kẽm → sửa được CẢ SAU KHI CHỐT (có log).
+    _LOGISTICS_FIELDS = (
+        "customer_po_no", "delivery_committed_date", "delivery_address",
+        "delivery_contact_name", "delivery_contact_phone", "delivery_note", "production_note",
+    )
+
+    def update(self, *, order_id: int, actor, scope: str, payload, can_set_deposit_pct: bool = False) -> OrderDetailOut:
         order = self.repo.get_with_lines(order_id)
         if order is None or not self.repo.can_access(order=order, scope=scope, actor=actor):
             raise OrderNotFound("Không tìm thấy đơn hàng")
-        if order.status != STATUS_DRAFT:
-            raise OrderConflict("Đơn đã chốt/hủy — không sửa được")
+        if order.status == STATUS_CANCELLED:
+            raise OrderConflict("Đơn đã hủy — không sửa được")
+        after_confirm = order.status == STATUS_ORDERED
 
         fields: dict = {}
-        for f in (
-            "customer_po_no", "delivery_committed_date", "delivery_address",
-            "invoice_entity_name", "invoice_entity_tax_code",
-        ):
+        for f in self._LOGISTICS_FIELDS:
             val = getattr(payload, f)
             if val is not None:
                 fields[f] = val
-        if payload.order_nature is not None:
-            if payload.order_nature not in ORDER_NATURES:
-                raise OrderValidationError("Bản chất đơn không hợp lệ")
-            fields["order_nature"] = payload.order_nature
+        if payload.is_rush is not None:
+            fields["is_rush"] = bool(payload.is_rush)
+        # Nhóm THƯƠNG MẠI (bản chất / pháp nhân xuất HĐ / % cọc) — CHỈ sửa khi còn NHÁP.
+        commercial = {
+            "order_nature": payload.order_nature,
+            "invoice_entity_name": payload.invoice_entity_name,
+            "invoice_entity_tax_code": payload.invoice_entity_tax_code,
+            "deposit_pct": payload.deposit_pct,
+        }
+        touching_commercial = any(v is not None for v in commercial.values())
+        if after_confirm and touching_commercial:
+            raise OrderConflict("Đơn đã chốt — chỉ sửa được thông tin giao hàng (ngày giao, địa chỉ, người nhận, lưu ý, gấp).")
+        if not after_confirm:
+            if payload.order_nature is not None:
+                if payload.order_nature not in ORDER_NATURES:
+                    raise OrderValidationError("Bản chất đơn không hợp lệ")
+                fields["order_nature"] = payload.order_nature
+            for f in ("invoice_entity_name", "invoice_entity_tax_code"):
+                val = getattr(payload, f)
+                if val is not None:
+                    fields[f] = val
+            # % cọc: khóa khỏi Sale — chỉ Kế toán (`record_deposit`) đặt được.
+            if payload.deposit_pct is not None:
+                if not can_set_deposit_pct:
+                    raise OrderForbidden("Chỉ Kế toán được đặt % cọc của đơn.")
+                pct = float(payload.deposit_pct)
+                if not 0 <= pct <= 100:
+                    raise OrderValidationError("% cọc phải trong khoảng 0–100")
+                fields["deposit_pct"] = pct
         if fields:
             self.repo.update(order, **fields)
         self.audit.create(
             actor_user_id=actor.id, action="update_order",
-            target=f"order:{order.id}", detail=f"Cập nhật đơn {order.order_no}",
+            target=f"order:{order.id}",
+            detail=f"{'Sửa sau chốt' if after_confirm else 'Cập nhật'} đơn {order.order_no}: {', '.join(sorted(fields)) or '—'}",
         )
         return self._detail(self.repo.get_with_lines(order_id))
 
@@ -571,6 +661,60 @@ class OrderService:
             detail=f"Xóa phiếu thu #{deposit_id} — đơn {order.order_no}",
         )
         return self._detail(self.repo.get_with_lines(order_id))
+
+    # --- Cọc = Phiếu thu 01-TT (production) — dùng chung quyển sổ PT kế toán ---
+    # Đường mới thay order_deposits: nút "Tạo phiếu thu" trên đơn → sinh PT thật (01-TT), đơn đọc
+    # ngược Σ phiếu thu đã thu. order_deposits ở trên GIỮ cho tương thích + test service không inject
+    # accounting; production luôn có accounting → đi đường này.
+    def _require_accounting(self):
+        if self.accounting is None:
+            raise OrderValidationError("Chức năng phiếu thu chưa sẵn sàng.")
+        return self.accounting
+
+    def create_deposit_receipt(self, *, order_id: int, actor, scope: str, payload) -> OrderDetailOut:
+        acc = self._require_accounting()
+        order = self._load_draft_for_deposit(order_id, actor, scope)
+        cust_name = None
+        if order.customer_id:
+            from ..models.customer import Customer
+
+            c = self.db.get(Customer, order.customer_id)
+            cust_name = c.name if c else None
+        acc.create_order_receipt(
+            order_id=order.id, order_no=order.order_no, customer_name=cust_name, actor=actor,
+            receipt_method=payload.receipt_method, amount=payload.amount,
+            receipt_date=payload.receipt_date, content=payload.content,
+            bank_reference=payload.bank_reference, company_bank_account_id=payload.company_bank_account_id,
+            note=payload.note, mark_received=payload.mark_received,
+        )
+        return self._detail(self.repo.get_with_lines(order_id))
+
+    def cancel_deposit_receipt(self, *, order_id: int, receipt_id: int, actor, scope: str, reason: str) -> OrderDetailOut:
+        acc = self._require_accounting()
+        order = self._load_draft_for_deposit(order_id, actor, scope)
+        self._assert_receipt_of_order(acc, order.id, receipt_id)
+        acc.cancel_order_receipt(receipt_id, actor=actor, reason=reason)
+        return self._detail(self.repo.get_with_lines(order_id))
+
+    def add_receipt_attachment(self, *, order_id, receipt_id, actor, scope, file_name, content_type, data) -> OrderDetailOut:
+        acc = self._require_accounting()
+        order = self._load_draft_for_deposit(order_id, actor, scope)
+        self._assert_receipt_of_order(acc, order.id, receipt_id)
+        acc.add_receipt_attachment(receipt_id, actor=actor, file_name=file_name, content_type=content_type, data=data)
+        return self._detail(self.repo.get_with_lines(order_id))
+
+    def delete_receipt_attachment(self, *, order_id, receipt_id, attachment_id, actor, scope) -> OrderDetailOut:
+        acc = self._require_accounting()
+        order = self._load_draft_for_deposit(order_id, actor, scope)
+        self._assert_receipt_of_order(acc, order.id, receipt_id)
+        acc.delete_receipt_attachment(receipt_id, attachment_id, actor=actor)
+        return self._detail(self.repo.get_with_lines(order_id))
+
+    @staticmethod
+    def _assert_receipt_of_order(acc, order_id: int, receipt_id: int) -> None:
+        row = acc.repo.get_receipt(receipt_id)
+        if row is None or row.order_id != order_id:
+            raise OrderNotFound("Không tìm thấy phiếu thu của đơn này")
 
     # --- Duyệt đơn đặc thù (P3) — luật trình-duyệt --------------------------
     def _load_approvable(self, order_id: int, actor, scope: str) -> Order:

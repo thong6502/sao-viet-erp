@@ -872,9 +872,9 @@ select.input {
 /* card head chung */
 .bgv .bg-card-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 14px; gap: 12px; }
 .bgv .bg-card-head .title { font-size: 14px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 8px; }
-.bgv .bg-card-head .title .mono-tag { font-family: var(--ff-mono); font-size: 9px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; background: var(--paper-2); color: var(--ash); }
+.bgv .bg-card-head .title .mono-tag { font-family: var(--ff-sans); font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 2px 6px; border-radius: 2px; background: var(--paper-2); color: var(--ash); }
 .bgv .bg-card-head .title .mono-tag.lock { background: var(--steel-soft); color: var(--steel); }
-.bgv .bg-card-head .sub { font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ash); }
+.bgv .bg-card-head .sub { font-family: var(--ff-sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ash); }
 .bgv .bg-card-head a.sub-link { font-size: 12px; color: var(--steel); text-decoration: none; border-bottom: 1px dotted var(--steel); cursor: pointer; }
 .bgv .bg-card-head a.sub-link:hover { color: var(--ink); }
 
@@ -886,7 +886,7 @@ select.input {
 /* bảng giá vốn khóa */
 .bgv .cost-locked { position: relative; }
 .bgv .calc-tbl { width: 100%; font-size: 13px; border-collapse: collapse; }
-.bgv .calc-tbl thead th { text-align: left; font-family: var(--ff-mono); font-size: 10px; font-weight: 500; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ash); padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.bgv .calc-tbl thead th { text-align: left; font-family: var(--ff-sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ash); padding: 8px 0; border-bottom: 1px solid var(--rule); }
 .bgv .calc-tbl thead th.num { text-align: right; }
 .bgv .calc-tbl tbody td { padding: 9px 0; border-bottom: 1px solid var(--rule-hair); vertical-align: top; color: var(--ash); }
 .bgv .calc-tbl tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
@@ -897,7 +897,7 @@ select.input {
 /* bảng dòng báo giá (mỗi PTG 1 dòng, markup riêng) */
 .bgv .bg-lines { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .bgv .bg-lines th, .bgv .bg-lines td { padding: 8px 9px; border-bottom: 1px solid var(--rule-soft); text-align: right; }
-.bgv .bg-lines th { font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ash); font-weight: 600; }
+.bgv .bg-lines th { font-family: var(--ff-sans); font-size: 10.5px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ash); font-weight: 600; }
 .bgv .bg-lines th:first-child, .bgv .bg-lines td:first-child { text-align: left; }
 .bgv .bg-lines td .ln-prod { font-weight: 500; color: var(--ink); }
 .bgv .bg-lines td .ln-ref { font-family: var(--ff-mono); font-size: 10.5px; color: var(--steel); }
@@ -909,7 +909,7 @@ select.input {
 /* điều khoản */
 .bgv .field-row { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
 .bgv .field-inline { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
-.bgv .field-lbl { font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ash); }
+.bgv .field-lbl { font-family: var(--ff-sans); font-size: 11px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ash); }
 .bgv .field-in { padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--r-3); font-size: 13px; background: var(--canvas); font-family: inherit; color: var(--ink); }
 .bgv textarea.field-in { resize: vertical; }
 .bgv .field-in:focus { outline: none; border-color: var(--rust); }
@@ -919,7 +919,7 @@ select.input {
 .bgv .bg-sidebar { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 16px; align-self: start; min-width: 0; }
 .bgv .summary-card { background: var(--ink); color: var(--paper); border-radius: var(--r-5); padding: 22px; position: relative; overflow: hidden; }
 .bgv .summary-card::before { content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: var(--rust); }
-.bgv .summary-card .lbl { font-family: var(--ff-mono); font-size: 10px; font-weight: 500; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(245,241,232,0.55); }
+.bgv .summary-card .lbl { font-family: var(--ff-sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(245,241,232,0.55); }
 .bgv .summary-card .grand { font-size: 36px; font-weight: 500; letter-spacing: -0.02em; line-height: 1; margin-top: 10px; color: var(--paper); font-variant-numeric: tabular-nums; }
 .bgv .summary-card .grand-unit { font-size: 13px; color: rgba(245,241,232,0.55); margin-top: 6px; }
 .bgv .summary-card .br-rows { margin-top: 16px; padding-top: 14px; border-top: 1px solid rgba(245,241,232,0.15); display: flex; flex-direction: column; gap: 8px; font-size: 12px; }
@@ -932,7 +932,7 @@ select.input {
 
 /* block margin: preset + slider + nhập tay */
 .bgv .mk-block { padding: 14px 0; border-top: 1px solid rgba(245,241,232,0.15); }
-.bgv .mk-block .mk-lbl { font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: rgba(245,241,232,0.55); margin-bottom: 8px; display: block; }
+.bgv .mk-block .mk-lbl { font-family: var(--ff-sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: rgba(245,241,232,0.55); margin-bottom: 8px; display: block; }
 .bgv .mk-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
 .bgv .mk-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 10px; border-radius: var(--r-3); background: rgba(245,241,232,0.06); border: 1px solid rgba(245,241,232,0.14); color: var(--paper); cursor: pointer; transition: background 120ms ease, border-color 120ms ease; text-align: left; }
 .bgv .mk-chip:hover { background: rgba(245,241,232,0.12); }
@@ -967,7 +967,7 @@ select.input {
 .bgv .ln-extra-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--rule-hair); }
 .bgv .ln-extra-row:last-child { border-bottom: none; padding-bottom: 0; }
 .bgv .ln-extra-name { font-weight: 600; font-size: 13px; min-width: 110px; align-self: center; color: var(--ink); }
-.bgv .ln-extra-f { display: flex; flex-direction: column; gap: 4px; font-family: var(--ff-mono); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ash); }
+.bgv .ln-extra-f { display: flex; flex-direction: column; gap: 4px; font-family: var(--ff-sans); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ash); }
 .bgv .ln-extra-f .input { font-size: 13px; padding: 6px 8px; min-width: 120px; }
 .bgv .ln-extra-note { flex: 1 1 200px; }
 .bgv .ln-extra-note .input { width: 100%; }
@@ -1007,7 +1007,7 @@ select.input {
 .bgv .exc-btns .btn--ghost:hover:not(:disabled) { background: rgba(245,241,232,0.12); }
 
 /* status chip */
-.bgv .status-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 9999px; font-family: var(--ff-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; border: 1px solid transparent; }
+.bgv .status-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 9999px; font-family: var(--ff-sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; border: 1px solid transparent; }
 .bgv .status-chip.draft { background: var(--amber-soft); color: var(--amber); border-color: rgba(156,119,20,0.3); }
 .bgv .status-chip.sent { background: var(--steel-soft); color: var(--steel); border-color: rgba(74,85,96,0.3); }
 .bgv .status-chip.pending { background: rgba(224,112,63,0.12); color: var(--rust-2); border-color: rgba(224,112,63,0.4); }
@@ -1044,8 +1044,8 @@ select.input {
 /* compare table */
 .bgv .cmp-tbl { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 4px; }
 .bgv .cmp-tbl th, .bgv .cmp-tbl td { padding: 8px 10px; border-bottom: 1px solid var(--rule-hair); text-align: right; font-variant-numeric: tabular-nums; }
-.bgv .cmp-tbl th:first-child, .bgv .cmp-tbl td:first-child { text-align: left; font-family: var(--ff-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ash); }
-.bgv .cmp-tbl thead th { font-family: var(--ff-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ash); border-bottom: 1px solid var(--rule); }
+.bgv .cmp-tbl th:first-child, .bgv .cmp-tbl td:first-child { text-align: left; font-family: var(--ff-sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ash); }
+.bgv .cmp-tbl thead th { font-family: var(--ff-sans); font-size: 10.5px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ash); border-bottom: 1px solid var(--rule); }
 .bgv .cmp-tbl .up { color: var(--moss); }
 .bgv .cmp-tbl .down { color: var(--signal); }
 
@@ -1152,7 +1152,8 @@ select.input {
 .qpdf table.q-tbl { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
 .qpdf table.q-tbl th, .qpdf table.q-tbl td { border: 1px solid var(--q-line); padding: 5px 7px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }
 .qpdf table.q-tbl thead th { background: var(--q-head); font-weight: 700; text-align: center; font-size: 9px; text-transform: uppercase; letter-spacing: .02em; line-height: 1.25; }
-.qpdf table.q-tbl thead th .q-en { display: block; font-weight: 400; font-size: 7.5px; font-style: italic; color: var(--q-muted); text-transform: none; letter-spacing: 0; margin-top: 1px; }
+.qpdf table.q-tbl thead th .q-en,
+.qpdf table.q-tbl thead th .q-sub { display: block; font-weight: 400; font-size: 7.5px; font-style: normal; color: var(--q-muted); text-transform: none; letter-spacing: 0; margin-top: 1px; }
 .qpdf table.q-tbl td.c { text-align: center; }
 .qpdf table.q-tbl td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .qpdf table.q-tbl .q-prod { font-weight: 700; }
@@ -1163,7 +1164,8 @@ select.input {
 /* panel tổng thanh toán */
 .qpdf .q-grand { margin-top: 14px; border: 1.5px solid var(--q-line-strong); background: var(--q-band); display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 16px; }
 .qpdf .q-grand .q-gt { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
-.qpdf .q-grand .q-gt .q-gt-en { font-size: 9.5px; font-weight: 600; color: var(--q-muted); text-transform: none; letter-spacing: 0; font-style: italic; }
+.qpdf .q-grand .q-gt .q-gt-en,
+.qpdf .q-grand .q-gt .q-gt-sub { font-size: 9.5px; font-weight: 600; color: var(--q-muted); text-transform: none; letter-spacing: 0; font-style: normal; }
 .qpdf .q-grand .q-gs { font-size: 8.5px; color: var(--q-muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
 .qpdf .q-grand .q-ga { font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .qpdf .q-grand .q-ga .q-u { font-size: 12px; font-weight: 700; margin-left: 4px; }

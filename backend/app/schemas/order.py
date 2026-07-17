@@ -11,6 +11,7 @@ class OrderLineIn(BaseModel):
     """Dòng nhập tay (nguồn nhap_tay). Đơn từ báo giá snapshot dòng từ báo giá, không nhận ở đây."""
     description: str = ""
     qty: int = Field(default=1, ge=1)
+    don_vi_tinh: str | None = Field(default=None, max_length=30)   # ĐVT (text tự do); None → "cái"
     unit_price: int | None = None       # đơn giá (VND, trước VAT) sale gõ
     vat_pct: int = Field(default=0, ge=0, le=100)
 
@@ -19,6 +20,7 @@ class OrderLineOut(BaseModel):
     id: int
     description: str
     qty: int
+    don_vi_tinh: str = "cái"
     unit_price_snapshot: int | None
     vat_pct_estimate: int
     line_total: int | None
@@ -43,6 +45,39 @@ class OrderDepositIn(BaseModel):
     reconciled: bool = False                 # chỉ có nghĩa với CK
     note: str | None = None
     received_at: date | None = None
+
+
+# --- Phiếu thu 01-TT cho cọc (production) — dùng chung quyển sổ PT kế toán ------
+class OrderReceiptIn(BaseModel):
+    receipt_method: str = "bank_transfer"    # cash | bank_transfer
+    amount: int = Field(default=0, ge=0)     # số thực nhận (VND)
+    receipt_date: date
+    content: str | None = None               # nội dung thu (mặc định "Thu cọc đơn DH###")
+    bank_reference: str | None = None        # mã giao dịch / số báo có (khi CK)
+    company_bank_account_id: int | None = None
+    note: str | None = None
+    mark_received: bool = True               # True = đã thu ngay (Kế toán ghi khi tiền đã về)
+
+
+class OrderReceiptCancelIn(BaseModel):
+    reason: str
+
+
+class OrderReceiptOut(BaseModel):
+    id: int
+    code: str
+    doc_no: str | None
+    receipt_method: str
+    amount: int
+    status: str                              # waiting_receipt | received | cancelled
+    receipt_date: date | None
+    content: str | None
+    bank_reference: str | None
+    payer_name: str | None = None            # người nộp = khách (in 01-TT)
+    debit_account: str | None = None         # Nợ (1111/1121) — in 01-TT
+    credit_account: str | None = None        # Có (131) — in 01-TT
+    created_by_name: str | None = None
+    attachments: list["AttachmentOut"] = []
 
 
 class ApprovalActionIn(BaseModel):
@@ -96,6 +131,7 @@ class OrderCreate(BaseModel):
     order_kind: str = "moi"
     parent_order_id: int | None = None
     order_nature: str = "hang_hoa"      # hang_hoa | gia_cong
+    is_rush: bool = False               # đơn gấp / ưu tiên
     # nhập tay:
     customer_id: int | None = None
     lines: list[OrderLineIn] = Field(default_factory=list)
@@ -104,17 +140,31 @@ class OrderCreate(BaseModel):
     customer_po_no: str | None = None
     delivery_committed_date: date | None = None
     delivery_address: str | None = None
+    delivery_contact_name: str | None = None
+    delivery_contact_phone: str | None = None
+    delivery_note: str | None = None
+    production_note: str | None = None
     invoice_entity_name: str | None = None
     invoice_entity_tax_code: str | None = None
 
 
 class OrderUpdate(BaseModel):
-    """Chỉ sửa khi đơn còn NHÁP — chỉ thông tin ĐẶT HÀNG. Dòng + giá + VAT BẤT BIẾN (đổi = tạo
-    nháp mới), KHÔNG sửa qua đây. Field None = giữ nguyên."""
+    """Sửa thông tin ĐẶT HÀNG. Dòng + giá + VAT BẤT BIẾN (đổi = tạo nháp mới), KHÔNG sửa qua đây.
+    Field None = giữ nguyên. Nhóm HẬU CẦN (ngày giao/địa chỉ/người nhận/lưu ý/gấp) sửa được CẢ SAU
+    KHI CHỐT (có log); nhóm còn lại (bản chất/%cọc) chỉ sửa khi nháp — service tự chặn."""
     order_nature: str | None = None
+    is_rush: bool | None = None
+    # % cọc phải thu (0–100): thỏa thuận lúc chốt đơn, KHÔNG còn ghim từ báo giá. Khóa khỏi Sale —
+    # chỉ người có quyền `record_deposit` (Kế toán) đặt được, router chặn.
+    deposit_pct: float | None = None
     customer_po_no: str | None = None
     delivery_committed_date: date | None = None
     delivery_address: str | None = None
+    # Người nhận hàng + 2 lưu ý tách đích (giao / sản xuất). Truyền "" để xóa nội dung.
+    delivery_contact_name: str | None = None
+    delivery_contact_phone: str | None = None
+    delivery_note: str | None = None
+    production_note: str | None = None
     invoice_entity_name: str | None = None
     invoice_entity_tax_code: str | None = None
 
@@ -131,6 +181,7 @@ class OrderRow(BaseModel):
     order_kind: str
     order_nature: str
     status: str
+    is_rush: bool = False
     approval_state: str
     needs_approval: bool
     cost_basis: str
@@ -166,8 +217,13 @@ class OrderDetailOut(OrderRow):
     quotation_version: int | None
     quotation_effective_from: date | None
     parent_order_id: int | None
+    parent_order_no: str | None = None   # mã đơn gốc (DH###) cho đơn bổ sung — hiện link ở drawer
     customer_po_no: str | None
     delivery_address: str | None
+    delivery_contact_name: str | None = None
+    delivery_contact_phone: str | None = None
+    delivery_note: str | None = None
+    production_note: str | None = None
     invoice_entity_name: str | None
     invoice_entity_tax_code: str | None
     vat_pct_estimate: int
@@ -176,7 +232,10 @@ class OrderDetailOut(OrderRow):
     margin_pct: int | None             # None ⇒ "biên không xác định" (nhập tay)
     cancel_reason: str | None
     cancel_fault: str | None
-    deposits: list[OrderDepositOut] = []
+    cancel_by_name: str | None = None    # ai hủy — cột cancel_by đã ghi ở DB, giờ mới đọc ra
+    cancel_at: datetime | None = None    # khi nào hủy
+    deposits: list[OrderDepositOut] = []      # legacy (order_deposits) — rỗng ở production
+    receipts: list[OrderReceiptOut] = []      # phiếu thu 01-TT của đơn (nguồn cọc thật)
     approvals: list[OrderApprovalOut] = []
     consent_attachments: list[AttachmentOut] = []
     # Cổng chốt (P4): checklist đọc-được cho FE.

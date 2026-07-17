@@ -25,8 +25,15 @@ from ..schemas.order import (
     OrderDetailOut,
     OrderEnumsOut,
     OrderListOut,
+    OrderReceiptCancelIn,
+    OrderReceiptIn,
     OrderStatsOut,
     OrderUpdate,
+)
+from ..services.accounting_service import (
+    AccountingConflict,
+    AccountingNotFound,
+    AccountingValidationError,
 )
 from ..services.order_service import (
     OrderConflict,
@@ -68,6 +75,13 @@ def _map(exc: Exception) -> HTTPException:
     if isinstance(exc, OrderConflict):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
     if isinstance(exc, OrderValidationError):
+        return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+    # Phiếu thu ủy thác sang AccountingService → map luôn exception của nó.
+    if isinstance(exc, AccountingNotFound):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc))
+    if isinstance(exc, AccountingConflict):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+    if isinstance(exc, AccountingValidationError):
         return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
     raise exc
 
@@ -159,7 +173,10 @@ def update_order(
     authz: Authz,
 ) -> OrderDetailOut:
     try:
-        return svc.update(order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload)
+        return svc.update(
+            order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload,
+            can_set_deposit_pct=authz.can(user, MODULE, "record_deposit"),
+        )
     except Exception as exc:
         raise _map(exc)
 
@@ -343,6 +360,70 @@ def delete_deposit_proof(
 ) -> OrderDetailOut:
     try:
         return svc.delete_deposit_attachment(order_id=order_id, deposit_id=deposit_id,
+            attachment_id=attachment_id, actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)
+
+
+# --- Phiếu thu 01-TT cho cọc (production) — quyền record_deposit (Kế toán) -----
+@router.post("/{order_id}/receipts", response_model=OrderDetailOut)
+def create_order_receipt(
+    order_id: int,
+    payload: OrderReceiptIn,
+    user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        return svc.create_deposit_receipt(order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload)
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.post("/{order_id}/receipts/{receipt_id}/cancel", response_model=OrderDetailOut)
+def cancel_order_receipt(
+    order_id: int,
+    receipt_id: int,
+    payload: OrderReceiptCancelIn,
+    user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        return svc.cancel_deposit_receipt(order_id=order_id, receipt_id=receipt_id,
+            actor=user, scope=_scope_for(authz, user), reason=payload.reason)
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.post("/{order_id}/receipts/{receipt_id}/attachments", response_model=OrderDetailOut)
+async def upload_receipt_proof(
+    order_id: int,
+    receipt_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
+    svc: Service,
+    authz: Authz,
+    file: UploadFile = File(...),
+) -> OrderDetailOut:
+    data = await file.read()
+    try:
+        return svc.add_receipt_attachment(order_id=order_id, receipt_id=receipt_id, actor=user,
+            scope=_scope_for(authz, user), file_name=file.filename, content_type=file.content_type, data=data)
+    except Exception as exc:
+        raise _map(exc)
+
+
+@router.delete("/{order_id}/receipts/{receipt_id}/attachments/{attachment_id}", response_model=OrderDetailOut)
+def delete_receipt_proof(
+    order_id: int,
+    receipt_id: int,
+    attachment_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "record_deposit"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        return svc.delete_receipt_attachment(order_id=order_id, receipt_id=receipt_id,
             attachment_id=attachment_id, actor=user, scope=_scope_for(authz, user))
     except Exception as exc:
         raise _map(exc)

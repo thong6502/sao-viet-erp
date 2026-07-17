@@ -20,7 +20,44 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
 import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
+import {
+  AlertCircle,
+  ArrowLeftRight,
+  ArrowRight,
+  ArrowUpFromLine,
+  Ban,
+  Check,
+  ChevronLeft,
+  Clock,
+  ExternalLink,
+  Eye,
+  FileText,
+  GitBranch,
+  Link2,
+  Lock,
+  Pencil,
+  Phone,
+  Plus,
+  Printer,
+  Save,
+  Send,
+  ShieldCheck,
+  User,
+  X,
+  Zap,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import "./bao-gia.css";
+
+// Điều khoản MẶC ĐỊNH điền sẵn khi tạo báo giá (khớp DEFAULT_TERMS backend). Mỗi dòng = 1 điều
+// khoản; bản in tự đánh số 1..N theo dòng. Sale sửa thoải mái trước khi gửi khách.
+const DEFAULT_TERMS = [
+  "Hiệu lực báo giá: áp dụng từ ngày báo giá cho đến khi có thông báo mới.",
+  "Giá đã bao gồm chi phí vận chuyển đến kho của Quý khách.",
+  "Đơn giá trong bảng chưa gồm thuế GTGT; thuế GTGT 10% được cộng ở phần tổng.",
+  "Thời gian giao hàng: 7–10 ngày kể từ khi nhận đơn hàng.",
+  "Thời hạn thanh toán: theo thỏa thuận.",
+].join("\n");
 
 // Thông tin công ty in trên báo giá — Sao Việt Nhật.
 // Luật dự án "không hardcode số liệu": các trường pháp lý để trống chờ khảo sát,
@@ -63,11 +100,15 @@ export function BaoGiaPage({
   openQuoteId = null,
   estimateId = null,
   navigate,
+  eventTick = 0,
 }: {
   pinnedCustomer?: PinnedCustomer | null;
   openQuoteId?: number | null;
   estimateId?: number | null;
   navigate?: (id: string, params?: any) => void;
+  /** Tăng 1 mỗi lần kênh SSE báo luồng duyệt đổi (AppShell giữ kênh DUY NHẤT, đẩy tick xuống đây).
+   *  Vào deps của `load()` → danh sách + số đếm tab tự tươi, không phải F5. */
+  eventTick?: number;
 } = {}) {
   const { token } = useAuth();
 
@@ -146,7 +187,9 @@ export function BaoGiaPage({
 
     // Số đếm cho thanh tab
     api.quotations.stats(token).then(setStats).catch(() => setStats(null));
-  }, [token, q, statusFilter, sort, page]);
+    // eventTick: SSE báo có trình duyệt / có quyết định → chạy lại cả list lẫn stats.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, q, statusFilter, sort, page, eventTick]);
 
   useEffect(() => {
     load();
@@ -241,7 +284,9 @@ export function BaoGiaPage({
             // "Chờ duyệt" = báo giá đặc thù đã Trình duyệt (list đã lọc theo phạm vi → người duyệt
             // thấy đúng "chờ TÔI duyệt"). Tone alert để nổi bật việc cần quyết định.
             { key: "pending_approval", label: "Chờ duyệt", count: stats?.pending_approval, tone: "alert" },
-            { key: "approved", label: "Đã duyệt", count: stats?.approved },
+            // "Đã duyệt" cũng tô đỏ: GĐ duyệt xong thì bóng sang chân sale — còn nằm đây là còn
+            // việc (phải gửi khách), không phải trạng thái nghỉ.
+            { key: "approved", label: "Đã duyệt", count: stats?.approved, tone: "alert" },
             { key: "sent", label: "Đã gửi khách", count: stats?.sent },
             { key: "accepted", label: "Khách chốt", count: stats?.accepted },
             { key: "converted_to_order", label: "Đã lên đơn", count: stats?.converted_to_order },
@@ -506,9 +551,8 @@ function QuotationFormDialog({
   // Đa phiếu: giỏ các phiếu tính giá đã pick (mỗi phiếu kéo các mức SL vào bảng định giá)
   const [picked, setPicked] = useState<{ id: number; estimate_number: string; product_name: string }[]>([]);
   const [validUntil, setValidUntil] = useState<string>(existing?.valid_until ?? "");
-  const [paymentTerms, setPaymentTerms] = useState<string>(existing?.payment_terms ?? "Tạm ứng 50% khi chốt đơn, 50% còn lại thanh toán khi giao hàng.");
-  const [deliveryTerms, setDeliveryTerms] = useState<string>(existing?.delivery_terms ?? "Giao hàng tận nơi tại TP. Hồ Chí Minh.");
-  const [deliveryAddress, setDeliveryAddress] = useState<string>(existing?.delivery_address ?? "");
+  // Điều khoản: 1 khối text, mỗi dòng = 1 điều khoản; điền sẵn bộ mặc định để sale sửa.
+  const [termsText, setTermsText] = useState<string>(existing?.terms_text ?? DEFAULT_TERMS);
 
   const [estimates, setEstimates] = useState<{ id: number; estimate_number: string; product_name: string }[]>([]);
   const [customers, setCustomers] = useState<{ id: number; name: string; code: string }[]>([]);
@@ -782,9 +826,7 @@ function QuotationFormDialog({
         await api.quotations.update(token, existing.id, {
           customer_id: Number(customerId),
           valid_until: validUntil || null,
-          payment_terms: paymentTerms,
-          delivery_terms: deliveryTerms,
-          delivery_address: deliveryAddress,
+          terms_text: termsText,
           items: activeItems.map((item) => ({
             id: item.id,
             margin_percent: item.margin_percent,
@@ -812,9 +854,7 @@ function QuotationFormDialog({
           customer_id: Number(customerId),
           picks,
           valid_until: validUntil || null,
-          payment_terms: paymentTerms,
-          delivery_terms: deliveryTerms,
-          delivery_address: deliveryAddress,
+          terms_text: termsText,
         });
 
         // Backend created draft item rows. We map local items to the newly created DB item IDs and save them.
@@ -828,9 +868,7 @@ function QuotationFormDialog({
         await api.quotations.update(token, createdQuote.id, {
           customer_id: Number(customerId),
           valid_until: validUntil || null,
-          payment_terms: paymentTerms,
-          delivery_terms: deliveryTerms,
-          delivery_address: deliveryAddress,
+          terms_text: termsText,
           items: itemIdsMapping.map((item) => ({
             id: item.id,
             margin_percent: item.margin_percent,
@@ -858,7 +896,7 @@ function QuotationFormDialog({
       <div className="card bg__dialog bg__dialog-fullscreen" onClick={(e) => e.stopPropagation()}>
         <div className="bg__dialog-head">
           <h2>{isEdit ? `Chỉnh sửa báo giá · ${existing?.code}` : "Tạo báo giá thương mại"}</h2>
-          <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng">✕</button>
+          <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
         </div>
 
         <form className="bg__dialog-body" onSubmit={submit} noValidate>
@@ -912,22 +950,20 @@ function QuotationFormDialog({
                 </div>
               )}
 
-              <div className="bg__form-grid" style={{ marginTop: "16px" }}>
-                <label className="field">
-                  <span className="field__label">Địa chỉ giao hàng</span>
-                  <input className="input" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Nhập địa chỉ giao hàng..." />
-                </label>
-              </div>
-
-              <p className="bg__section-title" style={{ marginTop: "24px" }}>2. Điều khoản thương mại</p>
+              <p className="bg__section-title" style={{ marginTop: "24px" }}>2. Điều khoản báo giá</p>
               <div className="bg__form-grid">
                 <label className="field">
-                  <span className="field__label">Điều khoản thanh toán</span>
-                  <textarea className="input bg__textarea" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} />
-                </label>
-                <label className="field">
-                  <span className="field__label">Điều khoản giao nhận</span>
-                  <textarea className="input bg__textarea" value={deliveryTerms} onChange={(e) => setDeliveryTerms(e.target.value)} />
+                  <span className="field__label">Điều khoản (mỗi dòng = 1 điều khoản)</span>
+                  <textarea
+                    className="input bg__textarea"
+                    rows={6}
+                    value={termsText}
+                    onChange={(e) => setTermsText(e.target.value)}
+                    placeholder="Mỗi dòng là một điều khoản — bản in tự đánh số 1, 2, 3…"
+                  />
+                  <span className="bg__hint" style={{ marginTop: "4px" }}>
+                    Điền sẵn bộ điều khoản chuẩn — sửa lại nếu cần. Bản in tự đánh số theo dòng.
+                  </span>
                 </label>
               </div>
 
@@ -952,7 +988,7 @@ function QuotationFormDialog({
                 <>
                   {localItems.length > 0 && (
                     <div className="bg__spreadsheet-bulk-actions">
-                      <span className="bg__bulk-label">⚡ Áp dụng nhanh:</span>
+                      <span className="bg__bulk-label" style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}><Zap size={13} /> Áp dụng nhanh:</span>
                       
                       <div className="bg__bulk-group">
                         <input
@@ -1025,6 +1061,7 @@ function QuotationFormDialog({
                         <th style={{ width: "40px" }}>Chọn</th>
                         <th>Sản phẩm</th>
                         <th>Số lượng</th>
+                        <th style={{ width: "70px" }}>ĐVT</th>
                         <th>Giá vốn</th>
                         <th style={{ width: "90px" }}>Margin (%)</th>
                         <th style={{ width: "120px" }}>Giá bán tổng</th>
@@ -1055,6 +1092,7 @@ function QuotationFormDialog({
                               )}
                             </td>
                             <td className="bg__mono font-bold">{item.quantity.toLocaleString("vi-VN")}</td>
+                            <td>{item.unit || "cái"}</td>
                             <td className="bg__mono text-gray-500">{fmtVnd(item.total_cost_snapshot)}</td>
                             <td>
                               <input
@@ -1076,7 +1114,7 @@ function QuotationFormDialog({
                                 disabled={!item.included}
                               />
                               {isUnderCost && (
-                                <span className="bg__item-warning">⚠️ Dưới vốn</span>
+                                <span className="bg__item-warning" style={{ display: "inline-flex", alignItems: "center", gap: "3px" }}><AlertCircle size={11} /> Dưới vốn</span>
                               )}
                             </td>
                             <td>
@@ -1218,20 +1256,22 @@ const STATUS_LABEL_SHORT: Record<string, string> = {
   cancelled: "hủy",
 };
 
-// Feed Hoạt động: action (audit backend) → [glyph, lớp màu chấm, nhãn tiếng Việt].
-const ACT_META: Record<string, [string, string, string]> = {
-  create_quote: ["+", "rust", "Tạo báo giá"],
-  update_quote: ["✎", "steel", "Cập nhật báo giá"],
-  change_order: ["⎇", "rust", "Tạo phiên bản mới"],
-  transition_pending_approval: ["⇪", "amber", "Trình duyệt"],
-  quote_exception_approved: ["✓", "moss", "Giám đốc KD duyệt"],
-  quote_exception_rejected: ["✕", "signal", "Giám đốc KD từ chối"],
-  transition_sent: ["✈", "steel", "Gửi khách"],
-  transition_accepted: ["✓", "moss", "Khách hàng đồng ý"],
-  transition_rejected: ["✕", "signal", "Khách hàng từ chối"],
-  transition_expired: ["!", "ash", "Hết hiệu lực"],
-  transition_cancelled: ["✕", "ash", "Hủy báo giá"],
-  transition_converted_to_order: ["→", "moss", "Lên đơn hàng"],
+// Feed Hoạt động: action (audit backend) → [icon, lớp màu chấm, nhãn tiếng Việt].
+// Nhãn chỉ tả VIỆC, KHÔNG ghim vai ("Giám đốc KD duyệt") — vai thật đi kèm tên người thao tác,
+// backend ghi theo hồ sơ ("Ban giám đốc · Giám đốc · Nguyễn Văn Giám", xem actor_display.py).
+const ACT_META: Record<string, [LucideIcon, string, string]> = {
+  create_quote: [Plus, "rust", "Tạo báo giá"],
+  update_quote: [Pencil, "steel", "Cập nhật báo giá"],
+  change_order: [GitBranch, "rust", "Tạo phiên bản mới"],
+  transition_pending_approval: [ArrowUpFromLine, "amber", "Trình duyệt"],
+  quote_exception_approved: [Check, "moss", "Duyệt báo giá đặc thù"],
+  quote_exception_rejected: [X, "signal", "Từ chối duyệt"],
+  transition_sent: [Send, "steel", "Gửi khách"],
+  transition_accepted: [Check, "moss", "Khách hàng đồng ý"],
+  transition_rejected: [X, "signal", "Khách hàng từ chối"],
+  transition_expired: [AlertCircle, "ash", "Hết hiệu lực"],
+  transition_cancelled: [Ban, "ash", "Hủy báo giá"],
+  transition_converted_to_order: [ArrowRight, "moss", "Lên đơn hàng"],
 };
 
 // Ngày + giờ cho feed Hoạt động ("ai làm gì · khi nào").
@@ -1267,10 +1307,11 @@ function QuotationDetailView({
   const canManageStatus = useCan()("bao_gia", "manage_status");
   // BG-2: duyệt "báo giá đặc thù" — CHỈ Giám đốc. Người có quyền này cũng thấy số biên.
   const canApproveException = useCan()("bao_gia", "approve_exception");
+  // Lên đơn từ báo giá đã chốt → cần quyền TẠO ở module Đơn hàng bán (nút chỉ hiện khi có).
+  const canCreateOrder = useCan()("don_hang_ban", "create");
   const [d, setD] = useState<QuotationDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [apprNote, setApprNote] = useState("");
   const [apprSaving, setApprSaving] = useState(false);
 
@@ -1288,16 +1329,11 @@ function QuotationDetailView({
   const [compareOn, setCompareOn] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
 
-  // Điều khoản chỉnh tại chỗ (nháp)
-  const [terms, setTerms] = useState("");
+  // Điều khoản chỉnh tại chỗ (nháp) — 1 khối text, mỗi dòng = 1 điều khoản.
+  const [termsText, setTermsText] = useState(DEFAULT_TERMS);
   const [validity, setValidity] = useState<number>(30);
   const [validUntilEdit, setValidUntilEdit] = useState<string>("");   // ngày hết hạn (editable)
   const [verNote, setVerNote] = useState("");
-  // Gộp modal "Chỉnh sửa" vào detail (bỏ modal): điều khoản giao nhận + địa chỉ giao editable ngay đây.
-  const [deliveryAddressEdit, setDeliveryAddressEdit] = useState("");
-  const [deliveryTermsEdit, setDeliveryTermsEdit] = useState("");
-  // % tạm ứng/cọc khi chốt đơn (giữ dạng chuỗi để cho phép ô rỗng = chưa đặt).
-  const [depositPctEdit, setDepositPctEdit] = useState<string>("");
 
   // Feed Hoạt động — nhật ký tương tác THẬT (ai làm gì) đọc từ backend.
   const [acts, setActs] = useState<QuotationActivity[]>([]);
@@ -1316,12 +1352,9 @@ function QuotationDetailView({
         setDraftMargin(null);
         setLineDraft({});
         setDiscDraft({});
-        setTerms(det.payment_terms ?? "");
+        setTermsText(det.terms_text ?? DEFAULT_TERMS);
         setVerNote((det as any).change_reason ?? "");
         setValidUntilEdit(det.valid_until ?? "");
-        setDeliveryAddressEdit(det.delivery_address ?? "");
-        setDeliveryTermsEdit(det.delivery_terms ?? "");
-        setDepositPctEdit(det.deposit_pct != null ? String(det.deposit_pct) : "");
         // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
         const vr = det.versions.find((v) => v.version === det.version);
         const created = vr?.created_at ?? null;
@@ -1407,10 +1440,7 @@ function QuotationDetailView({
       await api.quotations.update(token, d.id, {
         customer_id: d.customer_id,
         valid_until: validUntilEdit || null,
-        payment_terms: terms,
-        deposit_pct: depositPctEdit === "" ? null : Number(depositPctEdit),
-        delivery_terms: deliveryTermsEdit,
-        delivery_address: deliveryAddressEdit,
+        terms_text: termsText,
         items: d.items.map((it) => {
           const patch = items.find((x) => x.id === it.id);
           return {
@@ -1458,8 +1488,8 @@ function QuotationDetailView({
   // Áp % chiết khấu cho DÒNG → quy ra tiền theo giá bán hiện tại của dòng rồi persist như trên.
 
 
-  // P3: đổi khách ngay ở detail (khi nháp). Gửi delivery_address rỗng → BE tự điền ĐC giao mặc định
-  // + làm mới người liên hệ chính của khách mới (redesign-bao-gia §4).
+  // P3: đổi khách ngay ở detail (khi nháp). BE tự điền lại ĐC giao mặc định + người liên hệ chính
+  // của khách mới (redesign-bao-gia §4).
   async function changeCustomer(newId: number | null) {
     if (!token || !d) return;
     setBusy(true);
@@ -1468,15 +1498,11 @@ function QuotationDetailView({
       await api.quotations.update(token, d.id, {
         customer_id: newId,
         valid_until: d.valid_until,
-        payment_terms: terms,
-        deposit_pct: depositPctEdit === "" ? null : Number(depositPctEdit),
-        delivery_terms: d.delivery_terms,
-        delivery_address: null,
+        terms_text: termsText,
         items: null,
       });
       await reload(d.id);
       onChanged();
-      setNotice("Đã đổi khách — cập nhật liên hệ & địa chỉ giao.");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Đổi khách thất bại.");
     } finally {
@@ -1492,15 +1518,11 @@ function QuotationDetailView({
       await api.quotations.update(token, d.id, {
         customer_id: d.customer_id,
         valid_until: validUntilEdit || null,
-        payment_terms: terms,
-        deposit_pct: depositPctEdit === "" ? null : Number(depositPctEdit),
-        delivery_terms: deliveryTermsEdit,
-        delivery_address: deliveryAddressEdit,
+        terms_text: termsText,
         items: null,
       });
       await reload(d.id);
       onChanged();
-      setNotice("Đã lưu nháp.");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Lưu nháp thất bại.");
     } finally {
@@ -1518,6 +1540,23 @@ function QuotationDetailView({
       onChanged();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Thao tác không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Khách đã chốt (accepted) → lên đơn hàng bán từ CHÍNH báo giá này (BE kéo dòng/giá/cọc; guard
+  // 1 báo giá → 1 đơn). Xong điều hướng sang màn Đơn hàng bán, mở luôn đơn vừa tạo.
+  async function createOrderFromQuote() {
+    if (!token || !d) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const order = await api.orders.create(token, { source_type: "bao_gia", quotation_id: d.id });
+      navigate?.("don-hang-ban", { openOrderId: order.id });
+    } catch (e) {
+      // BE trả 409 khi báo giá đã có đơn (message rõ) → hiện nguyên văn.
+      setErr(e instanceof ApiError ? e.message : "Không tạo được đơn hàng từ báo giá này.");
     } finally {
       setBusy(false);
     }
@@ -1574,12 +1613,7 @@ function QuotationDetailView({
     const today = new Date().toLocaleDateString("vi-VN");
     setLastContact(today);
     lsSet(`bgv_contact_${d.code}`, today);
-    setNotice("Đã ghi nhận liên hệ khách hôm nay.");
   }
-  function duplicate() {
-    setNotice("Đã nhân bản báo giá (mô phỏng) — bản sao sẽ xuất hiện ở danh sách khi nối backend.");
-  }
-
   // ---- Follow-up (chỉ khi 'sent') ------------------------------------------
   const curVerRow = d.versions.find((v) => v.version === d.version);
   const sentDate = curVerRow?.created_at ?? null;
@@ -1594,7 +1628,7 @@ function QuotationDetailView({
       <div className="page-header">
         <div>
           <h1>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={onClose}>‹ Danh sách</button>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={onClose}><ChevronLeft size={15} /> Danh sách</button>
             <span style={{ fontFamily: "var(--ff-mono)", fontWeight: 500 }}>{d.code}</span>
             <span className="ver-badge">v{d.version}</span>
             <span className={`status-chip ${statusCls}`}>{labelOf(statuses, d.status)}</span>
@@ -1605,17 +1639,16 @@ function QuotationDetailView({
           </p>
         </div>
         <div className="actions">
-          <Button variant="secondary" onClick={() => setShowPrint(true)}>🖨️ Xem in</Button>
-          <Button variant="secondary" onClick={duplicate}>⧉ Nhân bản</Button>
+          <Button variant="secondary" onClick={() => setShowPrint(true)}><Printer size={15} /> Xem in</Button>
           {/* Gating quyền chi tiết: từ chối/gửi cần `manage_status`, chốt cần `approve`
               (server tính d.can_approve), tạo bản mới cần `requote` — thiếu quyền thì ẨN nút. */}
           {viewingLatest && d.status === "sent" && (
             <>
               {canManageStatus && (
-                <Button variant="secondary" disabled={busy} onClick={() => doTransition("rejected")}>✕ Khách từ chối</Button>
+                <Button variant="secondary" disabled={busy} onClick={() => doTransition("rejected")}><X size={15} /> Khách từ chối</Button>
               )}
               {d.can_approve && (
-                <Button variant="primary" disabled={busy || !d.allowed_transitions.includes("accepted")} onClick={() => doTransition("accepted")}>✓ Khách chốt</Button>
+                <Button variant="primary" disabled={busy || !d.allowed_transitions.includes("accepted")} onClick={() => doTransition("accepted")}><Check size={15} /> Khách chốt</Button>
               )}
             </>
           )}
@@ -1628,7 +1661,7 @@ function QuotationDetailView({
               disabled={busy || !d.customer_id}
               title={!d.customer_id ? "Vui lòng chọn khách hàng trước" : "Báo giá đặc thù — trình duyệt trước khi gửi khách"}
               onClick={() => doTransition("pending_approval")}
-            >⇪ Trình duyệt</Button>
+            ><ArrowUpFromLine size={15} /> Trình duyệt</Button>
           )}
           {/* Gửi khách (SALE tự gửi): báo giá THƯỜNG từ Nháp, HOẶC đặc thù ĐÃ ĐƯỢC GĐ DUYỆT (approved). */}
           {canManageStatus && viewingLatest && d.allowed_transitions.includes("sent") &&
@@ -1638,20 +1671,24 @@ function QuotationDetailView({
               disabled={busy || !d.customer_id}
               title={!d.customer_id ? "Vui lòng chọn khách hàng trước" : (d.status === "approved" ? "Giám đốc đã duyệt — gửi báo giá cho khách" : undefined)}
               onClick={() => doTransition("sent")}
-            >➤ Gửi khách</Button>
+            ><Send size={15} /> Gửi khách</Button>
           )}
           {canRequote && viewingLatest && d.status === "rejected" && d.allowed_transitions.includes("change_order") && (
-            <Button variant="primary" disabled={busy} onClick={openRequote}>⎇ Tạo phiên bản mới</Button>
+            <Button variant="primary" disabled={busy} onClick={openRequote}><GitBranch size={15} /> Tạo phiên bản mới</Button>
+          )}
+          {/* Báo giá ĐÃ có đơn (1 báo giá → 1 đơn) → liên kết sang đơn, KHÔNG cho tạo nữa. */}
+          {d.order_id != null && (
+            <Button variant="secondary" onClick={() => navigate?.("don-hang-ban", { openOrderId: d.order_id })}>
+              <ArrowRight size={15} /> Xem đơn hàng{d.order_no ? ` ${d.order_no}` : ""}
+            </Button>
+          )}
+          {/* Khách đã chốt & CHƯA có đơn → lên đơn hàng bán từ báo giá này. */}
+          {canCreateOrder && d.status === "accepted" && d.order_id == null && (
+            <Button variant="primary" disabled={busy} onClick={createOrderFromQuote}><ArrowRight size={15} /> Tạo đơn hàng</Button>
           )}
         </div>
       </div>
 
-      {notice && (
-        <div className="banner banner--success" role="status" style={{ marginBottom: "14px" }}>
-          <span>{notice}</span>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setNotice(null)}>Đóng</button>
-        </div>
-      )}
       {err && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "14px" }}>{err}</div>
       )}
@@ -1659,9 +1696,9 @@ function QuotationDetailView({
       {d.status === "rejected" && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "14px" }}>
           {d.exception_decision === "rejected" ? (
-            <span>🔙 Giám đốc/Trưởng phòng KD đã <b>từ chối</b> báo giá đặc thù{d.exception_note ? `: ${d.exception_note}` : ""}. Bấm <b>Tạo phiên bản mới</b> để sửa rồi trình duyệt lại.</span>
+            <span>Giám đốc/Trưởng phòng KD đã <b>từ chối</b> báo giá đặc thù{d.exception_note ? `: ${d.exception_note}` : ""}. Bấm <b>Tạo phiên bản mới</b> để sửa rồi trình duyệt lại.</span>
           ) : (
-            <span>✕ <b>Khách hàng từ chối</b>{d.cancel_reason ? `: ${d.cancel_reason}` : ""}. Bấm <b>Tạo phiên bản mới</b> để báo lại giá mới.</span>
+            <span><b>Khách hàng từ chối</b>{d.cancel_reason ? `: ${d.cancel_reason}` : ""}. Bấm <b>Tạo phiên bản mới</b> để báo lại giá mới.</span>
           )}
         </div>
       )}
@@ -1673,12 +1710,12 @@ function QuotationDetailView({
           <div className="card cost-locked">
             <div className="bg-card-head">
               <div className="title">
-                🔒 <span>{multi ? "Báo giá nhiều dòng" : "Giá vốn"}</span>
+                <Lock size={15} /> <span>{multi ? "Báo giá nhiều dòng" : "Giá vốn"}</span>
                 <span className="mono-tag lock">{multi ? `${d.items.length} phiếu tính giá` : "Khóa từ PTG"}</span>
               </div>
             </div>
             <div className="locked-banner">
-              🛡️ Giá vốn khóa theo phiếu tính giá đã duyệt · markup riêng từng dòng · giá đã gồm VAT.
+              <ShieldCheck size={14} /> Giá vốn khóa theo phiếu tính giá đã duyệt · markup riêng từng dòng · giá đã gồm VAT.
             </div>
             <table className="bg-lines">
               <thead>
@@ -1816,36 +1853,20 @@ function QuotationDetailView({
 
           {/* Điều khoản & hiệu lực */}
           <div className="card">
-            <div className="bg-card-head"><div className="title">📝 Điều khoản &amp; hiệu lực</div></div>
+            <div className="bg-card-head"><div className="title"><FileText size={15} /> Điều khoản &amp; hiệu lực</div></div>
             <div className="field-row">
-              <span className="field-lbl">Điều khoản thanh toán</span>
-              <textarea className="field-in" rows={2} value={terms} disabled={!editable} onChange={(e) => setTerms(e.target.value)} />
-            </div>
-            <div className="field-inline">
-              <span className="field-lbl">% Tạm ứng / cọc</span>
-              <input
+              <span className="field-lbl">Điều khoản báo giá</span>
+              <textarea
                 className="field-in"
-                type="number" min={0} max={100} step={5}
-                style={{ width: "110px" }}
-                value={depositPctEdit}
+                rows={6}
+                value={termsText}
                 disabled={!editable}
-                onChange={(e) => setDepositPctEdit(e.target.value)}
-                placeholder="—"
+                onChange={(e) => setTermsText(e.target.value)}
+                placeholder="Mỗi dòng là một điều khoản — bản in tự đánh số 1, 2, 3…"
               />
-              <span>%</span>
-              {depositPctEdit !== "" && Number(depositPctEdit) > 0 && (
-                <span style={{ color: "var(--ash)", fontSize: "12px" }}>
-                  Tiền cọc ≈ {vnd(Math.round((grandT * Number(depositPctEdit)) / 100))} (trên tổng đã VAT)
-                </span>
-              )}
-            </div>
-            <div className="field-row">
-              <span className="field-lbl">Điều khoản giao nhận</span>
-              <textarea className="field-in" rows={2} value={deliveryTermsEdit} disabled={!editable} onChange={(e) => setDeliveryTermsEdit(e.target.value)} />
-            </div>
-            <div className="field-row">
-              <span className="field-lbl">Địa chỉ giao hàng</span>
-              <input className="field-in" value={deliveryAddressEdit} disabled={!editable} onChange={(e) => setDeliveryAddressEdit(e.target.value)} placeholder="Nhập địa chỉ giao hàng…" />
+              <span style={{ color: "var(--ash)", fontSize: "12px", marginTop: "4px" }}>
+                Mỗi dòng = 1 điều khoản. Bản in tự đánh số theo thứ tự dòng.
+              </span>
             </div>
             <div className="field-inline">
               <span className="field-lbl">Hạn hiệu lực</span>
@@ -1869,13 +1890,13 @@ function QuotationDetailView({
             )}
             {!editable && (
               <div className="ro-note" style={{ marginTop: "12px" }}>
-                👁 Phiên bản này {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"} — khóa chỉnh sửa. Bấm "Tạo phiên bản mới" để sửa.
+                <Eye size={14} /> Phiên bản này {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"} — khóa chỉnh sửa. Bấm "Tạo phiên bản mới" để sửa.
               </div>
             )}
             <div style={{ marginTop: "14px", display: "flex", gap: "8px" }}>
-              {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}>💾 Lưu nháp</Button>}
+              {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}><Save size={15} /> Lưu nháp</Button>}
               {canRequote && viewingLatest && d.allowed_transitions.includes("change_order") && (
-                <Button variant="primary" disabled={busy} onClick={openRequote} title="Giữ bản hiện tại + tạo phiên bản mới (bắt buộc ghi chú)">⎇ Tạo phiên bản mới</Button>
+                <Button variant="primary" disabled={busy} onClick={openRequote} title="Giữ bản hiện tại + tạo phiên bản mới (bắt buộc ghi chú)"><GitBranch size={15} /> Tạo phiên bản mới</Button>
               )}
             </div>
           </div>
@@ -1884,7 +1905,7 @@ function QuotationDetailView({
           {d.status === "sent" && (
             <div className="card">
               <div className="bg-card-head">
-                <div className="title">🔗 Theo dõi gửi khách</div>
+                <div className="title"><Link2 size={15} /> Theo dõi gửi khách</div>
                 {stale && <span className="sub" style={{ color: "var(--amber)" }}>CẦN FOLLOW-UP</span>}
               </div>
               <div className="stage-rows">
@@ -1897,14 +1918,14 @@ function QuotationDetailView({
               {stale && <div className="stage-note">Quá 3 ngày chưa chốt — nên liên hệ nhắc khách.</div>}
               {viewingLatest && (
                 <div className="stage-card-actions">
-                  <Button variant="secondary" onClick={recordContact}>📞 Ghi nhận đã liên hệ</Button>
+                  <Button variant="secondary" onClick={recordContact}><Phone size={15} /> Ghi nhận đã liên hệ</Button>
                 </div>
               )}
             </div>
           )}
           {d.status === "rejected" && d.cancel_reason && (
             <div className="card">
-              <div className="bg-card-head"><div className="title">🚫 Lý do từ chối</div></div>
+              <div className="bg-card-head"><div className="title"><Ban size={15} /> Lý do từ chối</div></div>
               <div className="stage-note warn">{d.cancel_reason}</div>
             </div>
           )}
@@ -1912,8 +1933,8 @@ function QuotationDetailView({
           {/* Lịch sử phiên bản */}
           <div className="card">
             <div className="bg-card-head">
-              <div className="title">🕒 Lịch sử phiên bản</div>
-              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCompareOn((v) => !v)}>⇄ So sánh</button>
+              <div className="title"><Clock size={15} /> Lịch sử phiên bản</div>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCompareOn((v) => !v)}><ArrowLeftRight size={14} /> So sánh</button>
             </div>
             <div>
               {d.versions.slice().sort((a, b) => b.version - a.version).map((v) => {
@@ -2044,7 +2065,9 @@ function QuotationDetailView({
                 {/* AI đã quyết định gần nhất — để NV biết ai duyệt/từ chối + khi nào + lý do (P8b). */}
                 {d.exception_decided_by_name && (
                   <div className="exc-decided">
-                    {d.exception_decision === "rejected" ? "✕ Từ chối" : "✓ Duyệt"} bởi{" "}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      {d.exception_decision === "rejected" ? <><X size={13} /> Từ chối</> : <><Check size={13} /> Duyệt</>}
+                    </span>{" "}bởi{" "}
                     <b>{d.exception_decided_by_name}</b>
                     {d.exception_decided_at ? ` · ${fmtDate(d.exception_decided_at)}` : ""}
                     {d.exception_note ? ` · “${d.exception_note}”` : ""}
@@ -2110,7 +2133,7 @@ function QuotationDetailView({
 
           {/* Khách hàng */}
           <div className="card">
-            <div className="bg-card-head"><div className="title">👤 Khách hàng</div></div>
+            <div className="bg-card-head"><div className="title"><User size={15} /> Khách hàng</div></div>
             <div className="cust-rows">
               <div>
                 <span>Công ty</span>
@@ -2128,9 +2151,7 @@ function QuotationDetailView({
               </div>
               <div>
                 <span>Người liên hệ</span>
-                <b>{d.contact_name_snapshot
-                  ? `${d.contact_name_snapshot}${d.contact_phone_snapshot ? ` · ${d.contact_phone_snapshot}` : ""}`
-                  : "—"}</b>
+                <b>{[d.contact_name_snapshot, d.contact_phone_snapshot].filter(Boolean).join(" · ") || "—"}</b>
               </div>
               {/* Người duyệt biết báo giá này của NV nào (P8b). */}
               <div><span>Nhân viên soạn</span><b>{d.salesperson_name ?? "—"}</b></div>
@@ -2145,7 +2166,7 @@ function QuotationDetailView({
                     onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.phieu_tinh_gia_id ?? undefined })}
                     title="Mở phiếu tính giá nguồn"
                   >
-                    ↳ {d.phieu_tinh_gia_ma ?? `#${d.phieu_tinh_gia_id}`} ↗
+                    {d.phieu_tinh_gia_ma ?? `#${d.phieu_tinh_gia_id}`} <ExternalLink size={13} />
                   </button>
                 ) : (
                   <b>{ptgRefs.length ? ptgRefs.join(", ") : "—"}</b>
@@ -2156,15 +2177,16 @@ function QuotationDetailView({
 
           {/* Hoạt động — nhật ký tương tác THẬT: ai làm gì · khi nào (mọi vai trò đụng cùng phiếu) */}
           <div className="card">
-            <div className="bg-card-head"><div className="title">⚡ Hoạt động</div><span className="sub">{acts.length} sự kiện</span></div>
+            <div className="bg-card-head"><div className="title"><Zap size={15} /> Hoạt động</div><span className="sub">{acts.length} sự kiện</span></div>
             <div className="act-timeline">
               {acts.length === 0 ? (
                 <div className="discuss-empty">Chưa có hoạt động.</div>
               ) : acts.map((a, i) => {
-                const m = ACT_META[a.action] ?? ["•", "ash", a.action];
+                const m = ACT_META[a.action] ?? [Zap, "ash", a.action];
+                const ActIcon = m[0];
                 return (
                   <div className="act-item" key={i}>
-                    <span className={`a-dot ${m[1]}`}>{m[0]}</span>
+                    <span className={`a-dot ${m[1]}`}><ActIcon size={14} /></span>
                     <div>
                       <div className="a-text">
                         {m[2]}
@@ -2185,7 +2207,7 @@ function QuotationDetailView({
           <div className="card bg__dialog" style={{ maxWidth: "480px" }} onClick={(e) => e.stopPropagation()}>
             <div className="bg__dialog-head">
               <h2>Tạo phiên bản mới</h2>
-              <button type="button" className="bg__close" onClick={() => setRequoteOpen(false)} aria-label="Đóng">✕</button>
+              <button type="button" className="bg__close" onClick={() => setRequoteOpen(false)} aria-label="Đóng"><X size={18} /></button>
             </div>
             <div style={{ padding: "16px" }}>
               <p style={{ margin: "0 0 10px", color: "var(--ash)", fontSize: "13px" }}>
@@ -2202,26 +2224,25 @@ function QuotationDetailView({
               {err && <div className="ro-note" style={{ marginTop: "8px", color: "var(--signal)" }}>{err}</div>}
               <div style={{ marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
                 <Button variant="ghost" disabled={busy} onClick={() => setRequoteOpen(false)}>Hủy</Button>
-                <Button variant="primary" disabled={busy || !requoteNote.trim()} onClick={doRequote}>⎇ Tạo phiên bản</Button>
+                <Button variant="primary" disabled={busy || !requoteNote.trim()} onClick={doRequote}><GitBranch size={15} /> Tạo phiên bản</Button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {showPrint && <QuotationPrintModal d={d} statuses={statuses} canDownload={canExport} onClose={() => setShowPrint(false)} />}
+      {showPrint && <QuotationPrintModal d={d} canDownload={canExport} onClose={() => setShowPrint(false)} />}
     </main>
   );
 }
 
-// ---- Bản in báo giá song ngữ (MY AN PHU) -----------------------------------
+// ---- Bản in báo giá (một ngôn ngữ — tiếng Việt) ----------------------------
 function QuotationPrintModal({
   d,
   canDownload,
   onClose,
 }: {
   d: QuotationDetail;
-  statuses: EnumOption[];
   /** Quyền chi tiết `export`: thiếu thì chỉ xem trước, ẩn nút In. */
   canDownload: boolean;
   onClose: () => void;
@@ -2249,29 +2270,29 @@ function QuotationPrintModal({
         ? Math.round((vatAmount / netSubtotal) * 100)
         : 0;
 
-  const note = (vi: string, en: string) => (
-    <li>{vi} <span className="q-en">({en})</span></li>
-  );
+  // Điều khoản in ra phiếu: mỗi dòng của terms_text = 1 mục (bản in tự đánh số). Bỏ trống → mặc định.
+  const termLines = (d.terms_text || DEFAULT_TERMS)
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   return (
     <div className="bg__overlay" onClick={onClose}>
       <div className="card bg__dialog" style={{ maxWidth: "900px", padding: 0 }} onClick={(e) => e.stopPropagation()}>
         <div className="bg__dialog-head">
           <h2>Xem trước báo giá in</h2>
-          <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng">✕</button>
+          <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
         </div>
         <div className="qpdf">
-          {/* HEADER: logo hộp | tiêu đề giữa | số & ngày phải (bám Phiếu tính giá) */}
+          {/* HEADER: logo hộp | tiêu đề giữa | số & ngày phải */}
           <header className="q-mh">
             <div className="q-logo"><img src={svnLogoUrl} alt="Sao Việt Nhật" /></div>
             <div className="q-th">
               <h1>BẢNG BÁO GIÁ</h1>
-              <div className="q-th-en">Quotation</div>
               <div className="q-cty">{SVN_COMPANY.name}</div>
             </div>
             <div className="q-meta-r">
               <div>Số báo giá: <b>{qno}</b></div>
-              <div>Phiên bản: <b>v{d.version}</b></div>
               <div>Ngày: <b>{qdate}</b></div>
             </div>
           </header>
@@ -2280,22 +2301,19 @@ function QuotationPrintModal({
           <div className="q-info">
             <div className="q-info-grid">
               <div className="q-info-col">
-                <div><span className="q-lbl">Kính gửi <span className="q-en">/ To:</span></span> <b>{d.customer?.name ?? "—"}</b></div>
-                <div><span className="q-lbl">Địa chỉ <span className="q-en">/ Address:</span></span> {d.delivery_address ?? "—"}</div>
-                <div><span className="q-lbl">MST <span className="q-en">/ Tax code:</span></span> {d.customer?.tax_code ?? "—"}</div>
+                <div><span className="q-lbl">Kính gửi:</span> <b>{d.customer?.name ?? "—"}</b></div>
+                <div><span className="q-lbl">MST:</span> {d.customer?.tax_code ?? "—"}</div>
               </div>
               <div className="q-info-col">
-                <div><span className="q-lbl">Người gửi <span className="q-en">/ Sender:</span></span> {SVN_COMPANY.sender}</div>
-                <div><span className="q-lbl">Điện thoại <span className="q-en">/ Phone:</span></span> {SVN_COMPANY.phone}</div>
-                <div><span className="q-lbl">Hiệu lực đến <span className="q-en">/ Valid until:</span></span> {d.valid_until ?? "Đến khi có thông báo mới"}</div>
+                <div><span className="q-lbl">Hiệu lực đến:</span> {d.valid_until ?? "Đến khi có thông báo mới"}</div>
               </div>
             </div>
           </div>
 
-          <div className="q-intro">Cảm ơn Quý khách đã quan tâm sản phẩm của {SVN_COMPANY.nameEn}. Chúng tôi xin gửi bảng báo giá chi tiết như sau:</div>
+          <div className="q-intro">Cảm ơn Quý khách đã quan tâm sản phẩm của {SVN_COMPANY.name}. Chúng tôi xin gửi bảng báo giá chi tiết như sau:</div>
 
           {/* CHI TIẾT: header xám, viền mảnh, cột tiền căn phải + tfoot Cộng/VAT */}
-          <div className="q-sec">Chi tiết báo giá <span className="q-sec-en">/ Quotation details</span></div>
+          <div className="q-sec">Chi tiết báo giá</div>
           <table className="q-tbl">
             <colgroup>
               <col style={{ width: "5%" }} /><col style={{ width: "12%" }} /><col style={{ width: "26%" }} />
@@ -2304,14 +2322,14 @@ function QuotationPrintModal({
             </colgroup>
             <thead>
               <tr>
-                <th>STT<span className="q-en">No</span></th>
-                <th>Mã hàng<span className="q-en">Code</span></th>
-                <th>Mô tả sản phẩm<span className="q-en">Description</span></th>
-                <th>Kích thước<span className="q-en">Size</span></th>
-                <th>ĐVT<span className="q-en">Unit</span></th>
-                <th>Số lượng<span className="q-en">Qty</span></th>
-                <th>Đơn giá<span className="q-en">Unit price · chưa VAT</span></th>
-                <th>Thành tiền<span className="q-en">Amount · chưa VAT</span></th>
+                <th>STT</th>
+                <th>Mã hàng</th>
+                <th>Mô tả sản phẩm</th>
+                <th>Kích thước</th>
+                <th>ĐVT</th>
+                <th>Số lượng</th>
+                <th>Đơn giá<span className="q-sub">chưa VAT</span></th>
+                <th>Thành tiền<span className="q-sub">chưa VAT</span></th>
               </tr>
             </thead>
             <tbody>
@@ -2330,11 +2348,11 @@ function QuotationPrintModal({
             </tbody>
             <tfoot>
               <tr>
-                <td className="q-sub-lbl" colSpan={7}>Cộng tiền hàng (chưa VAT) <span className="q-en">/ Subtotal</span></td>
+                <td className="q-sub-lbl" colSpan={7}>Cộng tiền hàng (chưa VAT)</td>
                 <td className="r">{money(netSubtotal)}</td>
               </tr>
               <tr>
-                <td className="q-sub-lbl" colSpan={7}>Thuế GTGT {vatPct}% <span className="q-en">/ VAT</span></td>
+                <td className="q-sub-lbl" colSpan={7}>Thuế GTGT {vatPct}%</td>
                 <td className="r">{money(vatAmount)}</td>
               </tr>
             </tfoot>
@@ -2343,39 +2361,30 @@ function QuotationPrintModal({
           {/* PANEL TỔNG THANH TOÁN (đóng khung, nhãn trái + số lớn phải) */}
           <div className="q-grand">
             <div>
-              <div className="q-gt">Tổng thanh toán <span className="q-gt-en">/ Total · incl. VAT</span></div>
+              <div className="q-gt">Tổng thanh toán <span className="q-gt-sub">đã gồm VAT</span></div>
               <div className="q-gs">Tiền hàng {money(netSubtotal)}đ + Thuế GTGT {money(vatAmount)}đ</div>
             </div>
             <div className="q-ga">{money(grand)}<span className="q-u">đ</span></div>
           </div>
 
-          {/* ĐIỀU KHOẢN */}
-          <div className="q-sec">Điều khoản <span className="q-sec-en">/ Terms</span></div>
+          {/* ĐIỀU KHOẢN — bám dữ liệu thật (terms_text), tự đánh số theo dòng */}
+          <div className="q-sec">Điều khoản</div>
           <ol className="q-notes">
-            {note("Hiệu lực báo giá: áp dụng từ ngày báo giá cho đến khi có thông báo mới.", "Validity: from the quote date until further notice.")}
-            {note("Giá đã bao gồm chi phí vận chuyển đến kho của Quý khách.", "Prices include delivery to your warehouse.")}
-            {note(`Đơn giá trong bảng chưa gồm thuế GTGT; thuế GTGT ${vatPct}% được cộng ở phần tổng.`, `Table prices exclude VAT; ${vatPct}% VAT is added in the total.`)}
-            {note("Thời gian giao hàng: 7–10 ngày kể từ khi nhận đơn hàng.", "Delivery: 7–10 days from order placement.")}
-            {note(`Thời hạn thanh toán: ${d.payment_terms || "theo thỏa thuận."}`, "Payment terms as agreed.")}
+            {termLines.map((t, i) => <li key={i}>{t}</li>)}
           </ol>
 
-          {/* CHỮ KÝ 2 cột (bám cụm ký Phiếu tính giá) */}
+          {/* CHỮ KÝ 2 cột */}
           <div className="q-signs">
             <div>
-              <div className="q-role">Khách hàng xác nhận <span>(Buyer's confirmation)</span></div>
+              <div className="q-role">Khách hàng xác nhận</div>
               <div className="q-hint">(Ký, ghi rõ họ tên)</div>
               <div className="q-sp" />
             </div>
             <div>
-              <div className="q-role">Đại diện bên bán <span>(Supplier)</span></div>
+              <div className="q-role">Đại diện bên bán</div>
               <div className="q-hint">(Ký, ghi rõ họ tên)</div>
               <div className="q-sp" />
             </div>
-          </div>
-
-          <div className="q-foot">
-            <span>Công ty Sao Việt Nhật · Báo giá có giá trị đối ngoại.</span>
-            <span>{qno} · v{d.version}</span>
           </div>
         </div>
         <div className="bg__dialog-actions" style={{ padding: "16px 20px" }}>

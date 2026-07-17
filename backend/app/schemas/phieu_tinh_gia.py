@@ -82,6 +82,7 @@ class ThanhPhanIn(BaseModel):
     tay_gap: str | None = None
     so_to_per_sp: int | None = Field(default=None, ge=1)
     so_luong: int | None = Field(default=None, ge=0)   # SL của sản phẩm này
+    don_vi_tinh: str | None = Field(default=None, max_length=30)   # ĐVT sản phẩm (text tự do)
     loai_san_pham_id: int | None = None
     # Giấy
     giay_id: int | None = None
@@ -132,6 +133,7 @@ class ThanhPhanOut(BaseModel):
     tay_gap: str | None = None
     so_to_per_sp: int
     so_luong: int
+    don_vi_tinh: str = "cái"
     loai_san_pham_id: int | None = None
     # Giấy
     giay_id: int | None = None

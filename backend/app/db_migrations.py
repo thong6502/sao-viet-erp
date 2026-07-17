@@ -1630,6 +1630,32 @@ def _migrate_ptg_kho_nguyen_override(db: Session) -> None:
     db.commit()
 
 
+def _migrate_ptg_don_vi_tinh(db: Session) -> None:
+    """Tính giá: thêm cột `phieu_thanh_phan.don_vi_tinh` (ĐVT sản phẩm — text tự do, mặc định 'cái').
+    Chảy sang Báo giá (thay 'cái' hardcode). No-op trên DB fresh / bảng chưa có / đã có cột."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    if "don_vi_tinh" not in _existing_columns(insp, "phieu_thanh_phan"):
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_phan ADD COLUMN don_vi_tinh VARCHAR(30) NOT NULL DEFAULT 'cái'"
+        ))
+    db.commit()
+
+
+def _migrate_order_line_don_vi_tinh(db: Session) -> None:
+    """Đơn hàng: thêm cột `order_lines.don_vi_tinh` (ĐVT dòng — kéo từ báo giá `quote_items.unit`
+    hoặc gõ tay ở đơn nhập tay; mặc định 'cái'). No-op DB fresh / bảng chưa có / đã có cột."""
+    insp = inspect(db.get_bind())
+    if "order_lines" not in insp.get_table_names():
+        return
+    if "don_vi_tinh" not in _existing_columns(insp, "order_lines"):
+        db.execute(text(
+            "ALTER TABLE order_lines ADD COLUMN don_vi_tinh VARCHAR(30) NOT NULL DEFAULT 'cái'"
+        ))
+    db.commit()
+
+
 def _migrate_payroll_special_day_multipliers(db: Session) -> None:
     """Pha 4d (Đ98): hệ số làm thêm/làm ngày đặc biệt trong `payroll_params`.
     OT ngày nghỉ tuần ×2, OT ngày lễ ×3; làm nguyên công nghỉ tuần ×2, lễ ×3. No-op nếu đã có."""
@@ -1824,6 +1850,184 @@ def _migrate_drop_ghost_modules(db: Session) -> None:
             db.rollback()
 
 
+def _migrate_quote_terms_text(db: Session) -> None:
+    """Báo giá gộp 3 ô điều khoản thành 1 khối text tự do `terms_text` (mỗi dòng = 1 điều khoản,
+    bản in đánh số theo dòng) + chuyển % cọc sang Đơn hàng bán:
+      - THÊM quotes.terms_text, back-fill từ payment_terms/delivery_terms của phiếu cũ,
+      - GỠ quotes.payment_terms / delivery_terms / deposit_pct (không màn nào nhập nữa).
+    GIỮ quotes.delivery_address: không hiện/không in ở báo giá nhưng đơn hàng lấy làm ĐC giao mặc
+    định. Best-effort mỗi câu (SQLite cũ có thể từ chối DROP COLUMN → cột mồ côi vô hại).
+    No-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "quotes" not in tables:
+        return
+    cols = _existing_columns(insp, "quotes")
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    if "terms_text" not in cols:
+        run("ALTER TABLE quotes ADD COLUMN terms_text TEXT")
+        # Back-fill 2 ô cũ thành 2 dòng (nối ở Python — `||`/char(10) khác nhau giữa SQLite ↔ Postgres).
+        # Phiếu không có gì → để NULL, API tự trả bộ điều khoản mặc định.
+        if "payment_terms" in cols and "delivery_terms" in cols:
+            try:
+                rows = db.execute(
+                    text("SELECT id, payment_terms, delivery_terms FROM quotes")
+                ).all()
+                for qid, pay, deliv in rows:
+                    merged = "\n".join(x.strip() for x in (pay, deliv) if x and x.strip())
+                    if merged:
+                        db.execute(
+                            text("UPDATE quotes SET terms_text = :t WHERE id = :i"),
+                            {"t": merged, "i": qid},
+                        )
+                db.commit()
+            except Exception:
+                db.rollback()
+    for col in ("payment_terms", "delivery_terms", "deposit_pct"):
+        if col in cols:
+            run(f"ALTER TABLE quotes DROP COLUMN {col}")
+
+
+def _migrate_order_delivery_contact_notes(db: Session) -> None:
+    """Đơn hàng bán: thêm người nhận hàng + 2 ô lưu ý tách đích (giao/sản xuất) vào `orders`.
+      - delivery_contact_name / delivery_contact_phone: Sale xổ chọn từ danh bạ khách, snapshot.
+      - delivery_note   → tài xế/khâu Giao hàng · production_note → tổ in/LSX.
+    Chỉ ADD COLUMN (nullable, không default) → đơn cũ giữ NULL, an toàn. No-op nếu bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "orders" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "orders")
+    new_cols = [
+        ("delivery_contact_name", "VARCHAR(255)"),
+        ("delivery_contact_phone", "VARCHAR(30)"),
+        ("delivery_note", "VARCHAR(500)"),
+        ("production_note", "VARCHAR(500)"),
+    ]
+    for name, ddl in new_cols:
+        if name not in cols:
+            db.execute(text(f"ALTER TABLE orders ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
+def _migrate_order_receipt_unification(db: Session) -> None:
+    """Cọc đơn bán = Phiếu thu 01-TT dùng CHUNG quyển sổ PT với kế toán mua.
+      1) Tổng quát hóa `payment_receipts`: thêm source_type/order_id/order_no_snapshot/
+         customer_name_snapshot + nới NOT NULL cho các cột đường phiếu-chi (voucher/purchase/
+         snapshot) → đường đơn bán để trống được.
+      2) Migrate `order_deposits` (đã nhận) → phiếu thu source=order_deposit, status=received
+         (doc_no=NULL: lịch sử, chưa từng cấp số 01-TT chính thức) → gate cọc (nay đọc receipts)
+         vẫn thấy đủ cọc cũ.
+    Best-effort từng câu (SQLite không DROP NOT NULL/không ALTER COLUMN → cột cũ giữ NOT NULL,
+    dev.db sẽ reseed). No-op nếu bảng chưa có."""
+    insp = inspect(db.get_bind())
+    tables = set(insp.get_table_names())
+    if "payment_receipts" not in tables:
+        return
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    cols = _existing_columns(insp, "payment_receipts")
+    for name, ddl in (
+        ("source_type", "VARCHAR(20) NOT NULL DEFAULT 'purchase_refund'"),
+        ("order_id", "INTEGER"),
+        ("order_no_snapshot", "VARCHAR(32)"),
+        ("customer_name_snapshot", "VARCHAR(255)"),
+    ):
+        if name not in cols:
+            run(f"ALTER TABLE payment_receipts ADD COLUMN {name} {ddl}")
+    # Nới NOT NULL (Postgres) — SQLite bỏ qua (rollback vô hại).
+    for col in (
+        "payment_voucher_id", "purchase_request_id",
+        "voucher_code_snapshot", "purchase_code_snapshot", "supplier_name_snapshot",
+    ):
+        run(f"ALTER TABLE payment_receipts ALTER COLUMN {col} DROP NOT NULL")
+
+    # Migrate cọc cũ → phiếu thu (idempotent: bỏ qua nếu đã có phiếu nguồn đơn bán).
+    if "order_deposits" not in tables:
+        return
+    try:
+        already = db.execute(
+            text("SELECT COUNT(*) FROM payment_receipts WHERE source_type = 'order_deposit'")
+        ).scalar_one()
+    except Exception:
+        db.rollback()
+        return
+    if already:
+        return
+    try:
+        rows = db.execute(text(
+            "SELECT d.id, d.order_id, d.deposit_kind, d.amount_received, d.received_at, "
+            "       o.order_no, c.name AS customer_name "
+            "FROM order_deposits d "
+            "JOIN orders o ON o.id = d.order_id "
+            "LEFT JOIN customers c ON c.id = o.customer_id "
+            "WHERE d.amount_received > 0"
+        )).mappings().all()
+        for r in rows:
+            method = "bank_transfer" if r["deposit_kind"] == "ck" else "cash"
+            db.execute(text(
+                "INSERT INTO payment_receipts "
+                "(code, doc_no, source_type, order_id, order_no_snapshot, customer_name_snapshot, "
+                " payer_name, receipt_method, status, receipt_date, amount, amount_vnd, currency, "
+                " exchange_rate, content, debit_account, credit_account, created_at, updated_at) "
+                "VALUES "
+                "(:code, NULL, 'order_deposit', :order_id, :order_no, :cust, :payer, :method, "
+                " 'received', :rdate, :amt, :amt, 'VND', 1, :content, :debit, '131', "
+                " CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ), {
+                "code": f"PT-MIG-{r['id']}",
+                "order_id": r["order_id"],
+                "order_no": r["order_no"],
+                "cust": r["customer_name"],
+                "payer": r["customer_name"] or "Khách hàng",
+                "method": method,
+                "rdate": r["received_at"] or _date_today_iso(),
+                "amt": int(r["amount_received"]),
+                "content": f"Thu cọc đơn {r['order_no']} (chuyển từ phiếu cọc cũ)",
+                "debit": "1121" if method == "bank_transfer" else "1111",
+            })
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
+def _date_today_iso() -> str:
+    from datetime import date as _d
+
+    return _d.today().isoformat()
+
+
+def _migrate_order_rush_drop_ordertype(db: Session) -> None:
+    """Đơn hàng bán: thêm cờ GẤP `is_rush` + BỎ `order_type` dormant (in nội bộ đi Lệnh sản xuất
+    thẳng, không đội lốt đơn bán). ADD is_rush (default false) + DROP order_type best-effort
+    (SQLite không DROP COLUMN cũ → orphan vô hại, dev reseed). No-op nếu bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "orders" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "orders")
+    if "is_rush" not in cols:
+        db.execute(text("ALTER TABLE orders ADD COLUMN is_rush BOOLEAN NOT NULL DEFAULT FALSE"))
+        db.commit()
+    if "order_type" in cols:
+        try:
+            db.execute(text("ALTER TABLE orders DROP COLUMN order_type"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1895,6 +2099,12 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0067_role_permission_record_deposit", _migrate_role_permission_record_deposit),
     ("0068_drop_piece_batches_khoan_theo_nguoi", _migrate_drop_piece_batches_khoan_theo_nguoi),
     ("0069_drop_ghost_modules", _migrate_drop_ghost_modules),
+    ("0070_quote_terms_text", _migrate_quote_terms_text),
+    ("0071_order_delivery_contact_notes", _migrate_order_delivery_contact_notes),
+    ("0072_order_receipt_unification", _migrate_order_receipt_unification),
+    ("0073_order_rush_drop_ordertype", _migrate_order_rush_drop_ordertype),
+    ("0074_ptg_don_vi_tinh", _migrate_ptg_don_vi_tinh),
+    ("0075_order_line_don_vi_tinh", _migrate_order_line_don_vi_tinh),
 ]
 
 
