@@ -3650,6 +3650,7 @@ export interface OrderLineOut {
   vat_pct_estimate: number;
   line_total: number | null;
   cost_snapshot: number | null;
+  phieu_thanh_phan_id: number | null;
 }
 export interface AttachmentOut {
   id: number;

@@ -186,6 +186,22 @@ def test_stats_money_aggregate_tracks_deposit_shortfall(svc, admin, customer, db
     assert s.deposit_shortfall == base.deposit_shortfall
 
 
+def test_order_from_quote_pins_phieu_thanh_phan_id(svc, admin, customer, db):
+    """Đơn TỪ BÁO GIÁ copy phieu_thanh_phan_id (pin truy vết ấn phẩm) từ dòng báo giá nguồn;
+    đơn NHẬP TAY để None (không có ấn phẩm định giá)."""
+    q = _accepted_quote(db, customer)
+    item = db.query(QuoteItem).join(QuoteVersion).filter(QuoteVersion.quote_id == q.id).first()
+    item.phieu_thanh_phan_id = 777   # dòng báo giá trỏ 1 "sản phẩm" của PTG
+    db.commit()
+    d = svc.create(actor=admin, scope="all", payload=OrderCreate(source_type="bao_gia", quotation_id=q.id))
+    assert d.lines[0].phieu_thanh_phan_id == 777
+
+    m = svc.create(actor=admin, scope="all", payload=OrderCreate(
+        source_type="nhap_tay", customer_id=customer.id,
+        lines=[OrderLineIn(description="Tờ rơi", qty=100, unit_price=1000, vat_pct=8)]))
+    assert m.lines[0].phieu_thanh_phan_id is None
+
+
 # --- P3: duyệt đơn đặc thù ----------------------------------------------------
 def test_submit_reject_then_approve(svc, admin, customer):
     d = svc.create(actor=admin, scope="all", payload=OrderCreate(

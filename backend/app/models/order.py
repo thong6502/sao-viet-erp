@@ -194,6 +194,12 @@ class OrderLine(Base):
     description: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     qty: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
+    # Pin TRUY VẾT ấn phẩm (soft, KHÔNG FK cứng) → PhieuThanhPhan.id của PTG mà dòng báo giá nguồn
+    # trỏ tới (song sinh QuoteItem.phieu_thanh_phan_id) — nối lại mạch ấn phẩm↔báo giá↔đơn ở khúc
+    # chốt bán. KHÔNG đọc-sống để định giá (cost_snapshot mới là chân lý tiền) → không phá
+    # copy-on-write. NULL cho đơn nhập tay (không có ấn phẩm định giá).
+    phieu_thanh_phan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     # --- P0 snapshot copy-on-write ----------------------------------------------
     unit_price_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     norm_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)

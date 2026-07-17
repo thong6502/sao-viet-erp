@@ -230,6 +230,7 @@ class OrderRepository:
                     vat_pct_estimate=ln.get("vat_pct_estimate", 0),
                     line_total=ln.get("line_total"),
                     cost_snapshot=ln.get("cost_snapshot"),  # giá vốn dòng (soi biên)
+                    phieu_thanh_phan_id=ln.get("phieu_thanh_phan_id"),  # pin ấn phẩm (soft)
                 )
             )
         self.db.add(order)

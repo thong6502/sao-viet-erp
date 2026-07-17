@@ -762,6 +762,7 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 | `vat_pct_estimate`    | `Integer` → `INTEGER`                 | —                        | no   | `0`            | VAT DỰ KIẾN (%) cho dòng — chân lý ở InvoiceLine (⑬).                                 |
 | `line_total`          | `Integer` → `INTEGER`                 | —                        | yes  | —              | Thành tiền = qty × unit_price_snapshot (derived + stored; null khi chưa có giá).      |
 | `cost_snapshot`       | `BigInteger` → `BIGINT`               | —                        | yes  | —              | **Copy-on-write**: giá vốn đông cứng từ `QuoteItem.total_cost_snapshot` lúc tạo — CÙNG GRAIN với `line_total` (tổng cả SL), dùng soi biên lợi nhuận. NULL cho đơn cũ (trước A2). |
+| `phieu_thanh_phan_id` | `Integer` → `INTEGER`                 | (soft)                   | yes  | —              | Pin truy vết ấn phẩm: `PhieuThanhPhan` của PTG mà dòng báo giá nguồn trỏ tới (song sinh `QuoteItem.phieu_thanh_phan_id`). Soft ref, KHÔNG FK cứng, copy lúc snapshot. NULL cho đơn nhập tay. Migration 0071. |
 
 **Keys & indexes**
 

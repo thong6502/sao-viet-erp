@@ -23,6 +23,7 @@ class OrderLineOut(BaseModel):
     vat_pct_estimate: int
     line_total: int | None
     cost_snapshot: int | None
+    phieu_thanh_phan_id: int | None = None   # pin truy vết ấn phẩm (từ dòng báo giá nguồn)
     model_config = ConfigDict(from_attributes=True)
 
 

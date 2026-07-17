@@ -1882,6 +1882,19 @@ def _migrate_receipt_source_and_drop_order_deposits(db: Session) -> None:
     run("DROP TABLE IF EXISTS order_deposits")
 
 
+def _migrate_order_line_phieu_thanh_phan(db: Session) -> None:
+    """Đơn hàng: thêm `order_lines.phieu_thanh_phan_id` (soft ref → PhieuThanhPhan của PTG mà dòng
+    báo giá nguồn trỏ tới) — pin truy vết ấn phẩm ở khúc chốt bán (song sinh
+    QuoteItem.phieu_thanh_phan_id). Nullable Integer, KHÔNG FK cứng. No-op trên DB fresh
+    (create_all đã dựng) hoặc khi bảng chưa tồn tại."""
+    insp = inspect(db.get_bind())
+    if "order_lines" not in insp.get_table_names():
+        return
+    if "phieu_thanh_phan_id" not in _existing_columns(insp, "order_lines"):
+        db.execute(text("ALTER TABLE order_lines ADD COLUMN phieu_thanh_phan_id INTEGER"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1954,6 +1967,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0068_drop_piece_batches_khoan_theo_nguoi", _migrate_drop_piece_batches_khoan_theo_nguoi),
     ("0069_drop_ghost_modules", _migrate_drop_ghost_modules),
     ("0070_receipt_source_and_drop_order_deposits", _migrate_receipt_source_and_drop_order_deposits),
+    ("0071_order_line_phieu_thanh_phan", _migrate_order_line_phieu_thanh_phan),
 ]
 
 
