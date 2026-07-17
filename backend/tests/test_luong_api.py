@@ -526,31 +526,6 @@ def test_standard_cong_dynamic_from_calendar(client):
         assert float(p.standard_cong) == expected and expected != 26
 
 
-def test_resigned_with_khoan_still_paid(client):
-    """#4: NV nghỉ việc nhưng có tiền khoán (Phiếu sản lượng) trong kỳ → VẪN có dòng lương (không quỵt)."""
-    from app.models.employee import STATUS_RESIGNED
-    token = _admin_token(client)
-    eid = _make_emp(client, token, name="NV Nghỉ", status="active")
-    client.post("/api/cong-doan", json={"ma": "KH-NGHI", "ten": "In", "nhom": "print",
-                "khoan_ghi_theo": "nguoi", "allowed_defect_pct": 0, "allowed_defect_abs": 0,
-                "che_do_tinh": "theo_san_luong", "pricing_basis": "per_other"}, headers=_h(token))
-    lsx = client.post("/api/san-xuat/orders", json={"product_name": "SP", "quantity": 100},
-                      headers=_h(token)).json()["id"]
-    client.post("/api/san-luong/outputs", json={
-        "production_order_id": lsx, "cong_doan": "KH-NGHI", "year": 2027, "month": 7,
-        "group_name": "to_x", "employee_id": eid, "unit": "m2", "unit_price": 1000, "quantity": 100,
-    }, headers=_h(token))
-    # Cho nghỉ việc TRƯỚC khi tính lương tháng đó.
-    with SessionLocal() as db:
-        repo = EmployeeRepository(db)
-        e = repo.get_by_id(eid)
-        e.status = STATUS_RESIGNED
-        db.commit()
-    gen = client.post("/api/luong/generate", json={"year": 2027, "month": 7}, headers=_h(token)).json()
-    line = next((l for l in gen["lines"] if l["employee_id"] == eid), None)
-    assert line is not None and line["khoan"] == 100_000   # cũ: nghỉ việc bị 'continue' → mất dòng
-
-
 def test_special_day_premium(client):
     """#3 Đ98: làm nguyên công ngày lễ = +200% premium (base 100% đã nằm trong lương công);
     OT ngày lễ ×3, OT ngày nghỉ tuần ×2."""

@@ -126,6 +126,8 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   fields: [
     { key: "ten_hien_thi", label: "Tên hiển thị cho sản xuất", type: "text", group: "Thông tin" },
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
+    { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin",
+      hint: "Tổ/bộ phận sẽ nhận việc công đoạn này khi phát lệnh sản xuất" },
 
     // Cách tính giá (_method) → map sang pricing_basis + che_do_tinh ở transformSubmit. "other" =
     // per_other: máy KHÔNG nhân lượng, đơn giá vào thẳng công thức tự do (kẽm, khoán…).

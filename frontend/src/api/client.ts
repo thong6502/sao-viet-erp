@@ -4945,51 +4945,6 @@ export const api = {
   },
 
   // --- Sản xuất: Lệnh sản xuất (LSX) ---------------------------------------
-  production: {
-    listOrders(
-      token: string,
-      params: { q?: string; status?: string; order_kind?: string; page?: number; size?: number } = {},
-    ): Promise<ProductionOrderListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.status) qs.set("status", params.status);
-      if (params.order_kind) qs.set("order_kind", params.order_kind);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const s = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<ProductionOrderListOut>(`/api/san-xuat/orders${s}`, token);
-    },
-    orderOptions(token: string, q?: string, includeAll = false): Promise<ProductionOrderOption[]> {
-      const qs = new URLSearchParams();
-      if (q) qs.set("q", q);
-      if (includeAll) qs.set("include_all", "true");
-      const s = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<ProductionOrderOption[]>(`/api/san-xuat/orders/options${s}`, token);
-    },
-    getOrder(token: string, id: number): Promise<ProductionOrderRow> {
-      return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}`, token);
-    },
-    createOrder(token: string, input: ProductionOrderInput): Promise<ProductionOrderRow> {
-      return authed<ProductionOrderRow>("/api/san-xuat/orders", token, { method: "POST", body: JSON.stringify(input) });
-    },
-    updateOrder(token: string, id: number, input: ProductionOrderInput): Promise<ProductionOrderRow> {
-      return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
-    },
-    closeOrder(token: string, id: number, toStatus: "done" | "cancelled" | "open"): Promise<ProductionOrderRow> {
-      return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}/close?to_status=${toStatus}`, token, { method: "POST" });
-    },
-    orderAttachments(token: string, id: number): Promise<{ items: ProductionAttachment[] }> {
-      return authed<{ items: ProductionAttachment[] }>(`/api/san-xuat/orders/${id}/attachments`, token);
-    },
-    uploadOrderAttachment(token: string, id: number, file: File): Promise<ProductionAttachment> {
-      const form = new FormData();
-      form.append("file", file);
-      return authed<ProductionAttachment>(`/api/san-xuat/orders/${id}/attachments`, token, { method: "POST", body: form });
-    },
-    deleteOrderAttachment(token: string, id: number, attachmentId: number): Promise<void> {
-      return authed<void>(`/api/san-xuat/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
-    },
-  },
 
   // --- Công đoạn (danh mục, lite cho dropdown) -----------------------------
   congDoan: {
@@ -4998,24 +4953,6 @@ export const api = {
     },
   },
 
-  // --- Phiếu sản lượng công đoạn (Pha 5b) ----------------------------------
-  sanLuong: {
-    listByOrder(token: string, orderId: number): Promise<{ items: ProductionOutput[] }> {
-      return authed<{ items: ProductionOutput[] }>(`/api/san-luong/outputs?order_id=${orderId}`, token);
-    },
-    create(token: string, input: ProductionOutputInput): Promise<ProductionOutput> {
-      return authed<ProductionOutput>("/api/san-luong/outputs", token, { method: "POST", body: JSON.stringify(input) });
-    },
-    update(token: string, id: number, input: Partial<ProductionOutputInput>): Promise<ProductionOutput> {
-      return authed<ProductionOutput>(`/api/san-luong/outputs/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/san-luong/outputs/${id}`, token, { method: "DELETE" });
-    },
-    defectReport(token: string, year: number, month: number): Promise<{ items: DefectReportRow[] }> {
-      return authed<{ items: DefectReportRow[] }>(`/api/san-luong/defect-report?year=${year}&month=${month}`, token);
-    },
-  },
 
   // --- Kho hàng vận hành ----------------------------------------------------
   warehouseItems: {

@@ -36,7 +36,6 @@ import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
 import { KhoConfigPage } from "../pages/KhoConfigPage";
 import { KhoBaoCaoPage } from "../pages/KhoBaoCaoPage";
 import { KhoKiemKePage } from "../pages/KhoKiemKePage";
-import { ProductionOrdersPage } from "../pages/ProductionOrdersPage";
 import { MODULES_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -368,8 +367,6 @@ export function AppShell() {
         return (
           <WarehouseItemsPage key={activeId} initialWarehouseId={warehouseIdOf(activeId)} />
         );
-      case "lenh-san-xuat":
-        return <ProductionOrdersPage />;
       case "nhat-ky":
         return <ActivityLogPage />;
       default:

@@ -1895,6 +1895,18 @@ def _migrate_order_line_phieu_thanh_phan(db: Session) -> None:
     db.commit()
 
 
+def _migrate_cong_doan_department_id(db: Session) -> None:
+    """Công đoạn: thêm `cong_doan.department_id` (soft int → departments.id) — phòng ban/tổ phụ
+    trách công đoạn, để phát Lệnh SX đẩy việc theo đúng tổ. Nullable → không ảnh hưởng công đoạn
+    cũ. No-op trên DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+    if "department_id" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN department_id INTEGER"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -1968,6 +1980,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0069_drop_ghost_modules", _migrate_drop_ghost_modules),
     ("0070_receipt_source_and_drop_order_deposits", _migrate_receipt_source_and_drop_order_deposits),
     ("0071_order_line_phieu_thanh_phan", _migrate_order_line_phieu_thanh_phan),
+    ("0072_cong_doan_department_id", _migrate_cong_doan_department_id),
 ]
 
 
