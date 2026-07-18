@@ -64,15 +64,6 @@ const NAV: NavSection[] = [
     ],
   },
   {
-    id: "kho",
-    label: "Kho",
-    items: [
-      { id: "kho-hang", label: "Kho", icon: "warehouse", module: "kho" },
-      { id: "kho-kiem-ke", label: "Kiểm kê", icon: "clipboard", module: "kho" },
-      { id: "kho-bao-cao", label: "Báo cáo kho", icon: "grid", module: "kho" },
-    ],
-  },
-  {
     id: "thu-mua",
     label: "Thu mua",
     items: [
@@ -117,8 +108,6 @@ const NAV: NavSection[] = [
       { id: "kho-giay-chuan", label: "Khổ giấy chuẩn", icon: "clipboard", module: "kho" },
       { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
       { id: "vat-tu-in-an", label: "Vật tư in ấn", icon: "bag", module: "kho" },
-      { id: "cau-hinh-kho", label: "Cấu hình kho hàng", icon: "warehouse", module: "dm_kho" },
-      { id: "kho-cauhinh-phieu", label: "Cấu hình phiếu kho", icon: "fileText", module: "dm_kho" },
     ],
   },
   {

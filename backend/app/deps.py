@@ -28,8 +28,6 @@ from .repositories.employee_repo import EmployeeRepository
 from .repositories.machine_repo import MachineRepository
 from .repositories.material_repo import MaterialRepository
 from .repositories.operation_repo import OperationRepository
-from .repositories.warehouse_repo import WarehouseRepository
-from .repositories.warehouse_item_repo import WarehouseItemRepository
 from .repositories.product_repo import ProductRepository
 from .repositories.product_type_catalog_repo import ProductTypeCatalogRepository
 from .repositories.purchase_repo import (
@@ -70,8 +68,6 @@ from .services.employee_service import EmployeeService
 from .services.machine_service import MachineService
 from .services.material_service import MaterialService
 from .services.operation_service import OperationService
-from .services.warehouse_service import WarehouseService
-from .services.warehouse_item_service import WarehouseItemService
 from .services.product_type_catalog_service import ProductTypeCatalogService
 from .services.purchase_service import PurchaseService
 from .services.quotation_service import QuotationService
@@ -567,34 +563,6 @@ def get_operation_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
 ) -> OperationService:
     return OperationService(repo, audit)
-
-
-def get_warehouse_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> WarehouseRepository:
-    return WarehouseRepository(db)
-
-
-def get_warehouse_service(
-    repo: Annotated[WarehouseRepository, Depends(get_warehouse_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-) -> WarehouseService:
-    return WarehouseService(repo, audit)
-
-
-def get_warehouse_item_repository(
-    db: Annotated[Session, Depends(get_db)],
-) -> WarehouseItemRepository:
-    return WarehouseItemRepository(db)
-
-
-def get_warehouse_item_service(
-    repo: Annotated[WarehouseItemRepository, Depends(get_warehouse_item_repository)],
-    warehouses: Annotated[WarehouseRepository, Depends(get_warehouse_repository)],
-    users: Annotated[UserRepository, Depends(get_user_repository)],
-    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
-) -> WarehouseItemService:
-    return WarehouseItemService(repo, warehouses, users, audit)
 
 
 # Gỡ 2026-07-16: get_{product,plate_die_rate,norm}_{repository,service} — chỉ nuôi 3 router
