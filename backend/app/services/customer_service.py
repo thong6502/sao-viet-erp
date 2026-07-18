@@ -17,9 +17,10 @@ balance (a fake 0 would hide an over-limit customer).
 """
 from __future__ import annotations
 
+import calendar
 import re
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 from ..models.customer import (
     CARE_KHAC,
@@ -29,6 +30,7 @@ from ..models.customer import (
     CUSTOMER_KINDS,
     DOC_KHAC,
     KIND_CONG_TY,
+    REPEAT_FREQS,
     TASK_CANCELLED,
     TASK_DONE,
     TASK_OPEN,
@@ -727,18 +729,25 @@ class CustomerService:
     def add_care_task(
         self, *, customer_id: int, scope: str, actor, note: str, due_date: datetime,
         assignee_user_id: int | None = None,
+        repeat_freq: str = "none", repeat_interval: int = 1, repeat_until: datetime | None = None,
     ) -> CustomerCareTask:
         customer = self._guarded(customer_id=customer_id, scope=scope, actor=actor)
         note = (note or "").strip()
         if not note:
             raise CustomerValidationError("Nội dung việc chăm sóc là bắt buộc.")
+        if repeat_freq not in REPEAT_FREQS:
+            repeat_freq = "none"
+        if repeat_freq != "none" and repeat_until is not None and \
+                self._as_date(repeat_until) < self._as_date(due_date):
+            raise CustomerValidationError("Ngày kết thúc lặp phải sau ngày hẹn đầu.")
         # Mặc định người phụ trách việc = Sale phụ trách khách, không có thì người tạo.
         if assignee_user_id is None:
             assignee_user_id = customer.sale_user_id or actor.id
         return self.customers.add_care_task(
             customer_id,
             note=note, due_date=due_date, assignee_user_id=assignee_user_id,
-            created_by=actor.id,
+            created_by=actor.id, repeat_freq=repeat_freq,
+            repeat_interval=max(int(repeat_interval or 1), 1), repeat_until=repeat_until,
         )
 
     def set_care_task_status(
@@ -793,6 +802,171 @@ class CustomerService:
             elif t.status == TASK_OPEN and self.remind_level(t.due_date)[0] >= 1:
                 overdue_open += 1
         return on_time, late, overdue_open
+
+    # --- lịch hẹn kiểu calendar: lặp + bung occurrence (redesign-lich-hen-cham-soc) ---
+
+    _CARE_HORIZON_DAYS = 366   # cap chân trời bung (chống repeat_until=None → vô hạn)
+
+    @staticmethod
+    def _add_freq(d: date, freq: str, n: int) -> date:
+        """d + n đơn vị theo freq. month: cộng tháng rồi kẹp ngày cuối tháng (31/1 +1th → 28/2)."""
+        if freq == "day":
+            return d + timedelta(days=n)
+        if freq == "week":
+            return d + timedelta(weeks=n)
+        if freq == "month":
+            total = d.month - 1 + n
+            y, m = d.year + total // 12, total % 12 + 1
+            return date(y, m, min(d.day, calendar.monthrange(y, m)[1]))
+        return d
+
+    @staticmethod
+    def _day_dt(d: date) -> datetime:
+        return datetime.combine(d, datetime.min.time(), tzinfo=timezone.utc)
+
+    def _rule_dates(self, head, from_d: date, to_d: date):
+        """Ngày lặp của hẹn-đầu-chuỗi TỪ due_date tiến tới, giao [from,to] ∩ until, cap chân trời."""
+        freq = head.repeat_freq or "none"
+        if freq == "none":
+            return
+        interval = max(int(head.repeat_interval or 1), 1)
+        start = self._as_date(head.due_date)
+        until = self._as_date(head.repeat_until) if head.repeat_until else None
+        horizon = min(to_d, start + timedelta(days=self._CARE_HORIZON_DAYS))
+        for k in range(1000):
+            d = self._add_freq(start, freq, interval * k)
+            if d > horizon or (until and d > until):
+                return
+            if d >= from_d:
+                yield d
+
+    def _next_occurrence(self, head, after: date) -> date | None:
+        """Lần lặp kế TIẾP sau `after` (thường = due_date hiện tại), tôn trọng repeat_until."""
+        freq = head.repeat_freq or "none"
+        if freq == "none":
+            return None
+        interval = max(int(head.repeat_interval or 1), 1)
+        start = self._as_date(head.due_date)
+        until = self._as_date(head.repeat_until) if head.repeat_until else None
+        for k in range(1, 1000):
+            d = self._add_freq(start, freq, interval * k)
+            if d > after:
+                return d if (until is None or d <= until) else None
+        return None
+
+    def _occ(self, due, *, note, status, task_id, series_id, is_virtual, repeat_freq,
+             assignee_user_id, is_event=False, kind=None) -> dict:
+        level, overdue = self.remind_level(due) if status == TASK_OPEN else (0, 0)
+        return {
+            "task_id": task_id, "series_id": series_id, "note": note, "due_date": due,
+            "status": status, "is_virtual": is_virtual, "repeat_freq": repeat_freq or "none",
+            "assignee_user_id": assignee_user_id, "remind_level": level, "overdue_days": overdue,
+            "is_event": is_event, "kind": kind,
+        }
+
+    def expand_occurrences(self, *, customer_id: int, from_dt: datetime, to_dt: datetime,
+                           scope: str, actor) -> list[dict]:
+        """Bung các lần hẹn trong [from,to] cho 1 khách: dòng cụ thể (đơn lẻ + ngoại lệ đã
+        materialize) có due trong khoảng + các lần ẢO tương lai từ hẹn-đầu-chuỗi (trừ ngày đã có
+        ngoại lệ). Kèm mức nhắc — nguồn LỊCH trong hồ sơ khách."""
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        from_d, to_d = self._as_date(from_dt), self._as_date(to_dt)
+        tasks = self.customers.list_care_tasks(customer_id)
+        exc_dates: dict[int, set] = {}
+        for t in tasks:
+            if t.series_id and t.occurrence_date is not None:
+                exc_dates.setdefault(t.series_id, set()).add(self._as_date(t.occurrence_date))
+        occs: list[dict] = []
+        for t in tasks:
+            d = self._as_date(t.due_date)
+            if from_d <= d <= to_d:
+                recurring_head = (t.repeat_freq or "none") != "none" and t.series_id is None
+                occs.append(self._occ(
+                    t.due_date, note=t.note, status=t.status, task_id=t.id,
+                    series_id=t.series_id or (t.id if recurring_head else None),
+                    is_virtual=False, repeat_freq=t.repeat_freq, assignee_user_id=t.assignee_user_id))
+        for head in tasks:
+            if (head.repeat_freq or "none") == "none" or head.series_id is not None:
+                continue
+            head_d = self._as_date(head.due_date)
+            seen = exc_dates.get(head.id, set())
+            for d in self._rule_dates(head, from_d, to_d):
+                if d == head_d or d in seen:
+                    continue
+                occs.append(self._occ(
+                    self._day_dt(d), note=head.note, status=TASK_OPEN, task_id=None,
+                    series_id=head.id, is_virtual=True, repeat_freq=head.repeat_freq,
+                    assignee_user_id=head.assignee_user_id))
+        occs.sort(key=lambda o: self._as_date(o["due_date"]))
+        return occs
+
+    def act_on_occurrence(self, *, customer_id: int, head_id: int, action: str, scope: str, actor,
+                          occurrence_date: datetime | None = None, new_due: datetime | None = None,
+                          log_kind: str | None = None, log_note: str | None = None) -> None:
+        """Thao tác 1 LẦN hẹn: complete | cancel | reschedule. Hẹn lặp → materialize ngoại lệ +
+        tiến due_date đầu-chuỗi sang lần kế nếu đụng lần hiện tại; hẹn đơn lẻ → đổi thẳng dòng."""
+        self._guarded(customer_id=customer_id, scope=scope, actor=actor)
+        head = self.customers.get_care_task(head_id)
+        if head is None or head.customer_id != customer_id:
+            raise CustomerNotFound("Không tìm thấy việc chăm sóc.")
+        if action not in ("complete", "cancel", "reschedule"):
+            raise CustomerValidationError("Hành động không hợp lệ.")
+        recurring = (head.repeat_freq or "none") != "none" and head.series_id is None
+        if not recurring:
+            if action == "complete":
+                self.set_care_task_status(customer_id=customer_id, task_id=head.id, scope=scope,
+                                          actor=actor, status=TASK_DONE, log_kind=log_kind, log_note=log_note)
+            elif action == "cancel":
+                self.set_care_task_status(customer_id=customer_id, task_id=head.id, scope=scope,
+                                          actor=actor, status=TASK_CANCELLED)
+            else:
+                if new_due is None:
+                    raise CustomerValidationError("Thiếu ngày dời hẹn.")
+                self.customers.update_care_task(head, due_date=new_due)
+            return
+        if occurrence_date is None:
+            raise CustomerValidationError("Thiếu ngày của lần hẹn.")
+        occ_d = self._as_date(occurrence_date)
+        is_current = occ_d == self._as_date(head.due_date)
+        if action == "reschedule":
+            if new_due is None:
+                raise CustomerValidationError("Thiếu ngày dời hẹn.")
+            if is_current:
+                self.customers.update_care_task(head, due_date=new_due)
+            else:
+                self._materialize_exception(head, occ_d, status=TASK_OPEN, due=new_due, actor=actor)
+            return
+        status = TASK_DONE if action == "complete" else TASK_CANCELLED
+        done_at = datetime.now(timezone.utc) if action == "complete" else None
+        self._materialize_exception(head, occ_d, status=status, due=self._day_dt(occ_d),
+                                    actor=actor, done_at=done_at)
+        if action == "complete" and (log_note or "").strip():
+            self.add_care_event(customer_id=customer_id, scope=scope, actor=actor,
+                                kind=log_kind or CARE_KHAC, note=log_note or "")
+        if is_current:
+            nxt = self._next_occurrence(head, occ_d)
+            if nxt is not None:
+                self.customers.update_care_task(head, due_date=self._day_dt(nxt))
+            else:
+                self.customers.update_care_task(head, status=TASK_CANCELLED)
+
+    def _materialize_exception(self, head, occ_d: date, *, status: str, due: datetime, actor,
+                               done_at=None) -> None:
+        """Tạo/ghi-đè 1 dòng ngoại lệ cho lần `occ_d` của chuỗi `head` (series_id + occurrence_date)."""
+        existing = next(
+            (t for t in self.customers.list_care_tasks(head.customer_id)
+             if t.series_id == head.id and t.occurrence_date is not None
+             and self._as_date(t.occurrence_date) == occ_d),
+            None,
+        )
+        fields = dict(status=status, due_date=due, done_at=done_at,
+                      note=head.note, assignee_user_id=head.assignee_user_id)
+        if existing is not None:
+            self.customers.update_care_task(existing, **fields)
+        else:
+            self.customers.add_care_task(
+                head.customer_id, series_id=head.id, occurrence_date=self._day_dt(occ_d),
+                repeat_freq="none", created_by=actor.id, **fields)
 
     # --- import CSV (#23) -----------------------------------------------------
 

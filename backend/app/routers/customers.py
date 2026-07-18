@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import io
 import secrets
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -49,6 +50,9 @@ from ..schemas.customer import (
     CareTaskOut,
     CareTaskStatusIn,
     CareTasksOut,
+    CareCalendarOut,
+    CareOccurrenceOut,
+    OccurrenceActionIn,
     ContactIn,
     ContactOut,
     ContactsOut,
@@ -1236,6 +1240,8 @@ def add_care_task(
             customer_id=customer_id, scope=_scope_for(authz, user), actor=user,
             note=payload.note, due_date=payload.due_date,
             assignee_user_id=payload.assignee_user_id,
+            repeat_freq=payload.repeat_freq, repeat_interval=payload.repeat_interval,
+            repeat_until=payload.repeat_until,
         )
     except CustomerValidationError as e:
         raise HTTPException(status_code=422, detail=str(e)) from None
@@ -1271,6 +1277,68 @@ def set_care_task_status(
         users, {task.assignee_user_id} if task.assignee_user_id else set()
     )
     return _care_task_out(svc, task, names)
+
+
+def _occ_out(users, occs: list[dict]) -> CareCalendarOut:
+    names = _sale_names(users, {o["assignee_user_id"] for o in occs if o["assignee_user_id"]})
+    items = []
+    for o in occs:
+        item = CareOccurrenceOut(**o)
+        item.assignee_name = names.get(o["assignee_user_id"])
+        items.append(item)
+    return CareCalendarOut(items=items)
+
+
+@router.get("/{customer_id}/care-calendar", response_model=CareCalendarOut)
+def care_calendar(
+    customer_id: int,
+    from_: Annotated[datetime, Query(alias="from")],
+    to: datetime,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> CareCalendarOut:
+    """Lịch hẹn chăm sóc trong [from,to] cho 1 khách — bung cả lần lặp tương lai."""
+    try:
+        occs = svc.expand_occurrences(
+            customer_id=customer_id, from_dt=from_, to_dt=to,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return _occ_out(users, occs)
+
+
+@router.post("/{customer_id}/care-tasks/{head_id}/occurrence", response_model=CareCalendarOut)
+def act_on_occurrence(
+    customer_id: int,
+    head_id: int,
+    payload: OccurrenceActionIn,
+    from_: Annotated[datetime, Query(alias="from")],
+    to: datetime,
+    svc: Service,
+    authz: Authz,
+    users: Users,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> CareCalendarOut:
+    """Thao tác 1 lần hẹn (complete/cancel/reschedule) rồi TRẢ LẠI lịch [from,to] đã cập nhật."""
+    try:
+        svc.act_on_occurrence(
+            customer_id=customer_id, head_id=head_id, action=payload.action,
+            occurrence_date=payload.occurrence_date, new_due=payload.new_due,
+            log_kind=payload.log_kind, log_note=payload.log_note,
+            scope=_scope_for(authz, user), actor=user,
+        )
+        occs = svc.expand_occurrences(
+            customer_id=customer_id, from_dt=from_, to_dt=to,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except CustomerValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e)) from None
+    except (CustomerNotFound, CustomerForbidden):
+        raise _not_found() from None
+    return _occ_out(users, occs)
 
 
 # --- tài liệu đính kèm (#21) ------------------------------------------------------

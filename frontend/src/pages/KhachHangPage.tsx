@@ -11,7 +11,6 @@ import {
   type CustomerAddressInput,
   type CustomerAttachment,
   type CustomerAuditRow,
-  type CareEvent,
   type CareTask,
   type CustomerContact,
   type CustomerContactInput,
@@ -33,12 +32,12 @@ import {
 import type { NavigateFn } from "../components/AppShell";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
+import { CareCalendar } from "./CareCalendar";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { Select } from "../components/Select";
 import {
   AlarmClock,
-  CalendarClock,
   ChevronDown,
   ChevronUp,
   Download,
@@ -2910,14 +2909,6 @@ function NotesTab({ customerId }: { customerId: number }) {
 
 // --- Chăm sóc tab (#20/#27/#28: nhật ký + lịch hẹn follow-up, nhắc 1-2-3) ------
 
-const CARE_KIND_LABELS: Record<string, string> = {
-  goi_dien: "Gọi điện",
-  nhan_tin: "Nhắn tin",
-  email: "Email",
-  gap_truc_tiep: "Gặp trực tiếp",
-  khac: "Khác",
-};
-
 function RemindBadge({ level, days }: { level: number; days: number }) {
   // Mức nhắc TÍNH từ số ngày quá hạn (BE trả sẵn) — badge semantic theo token:
   // lần 1 = amber, lần 2 = rust, lần 3 = signal (nặng nhất), chưa đến hạn = moss.
@@ -2945,100 +2936,25 @@ function dateInDays(n: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
-/** Chip chọn hạn nhanh: Ngày mai / 3 ngày / Tuần sau + date picker cho ngày khác. */
-function DueQuickPick({
-  due,
-  time,
-  onDue,
-  onTime,
-}: {
-  due: string;
-  time: string;
-  onDue: (v: string) => void;
-  onTime: (v: string) => void;
-}) {
-  const chips: Array<[string, number]> = [["Ngày mai", 1], ["3 ngày", 3], ["Tuần sau", 7]];
-  return (
-    <div className="due-quickpick">
-      {chips.map(([label, n]) => {
-        const val = dateInDays(n);
-        return (
-          <button
-            key={label}
-            type="button"
-            className={`due-chip${due === val ? " due-chip--active" : ""}`}
-            onClick={() => onDue(val)}
-          >
-            {label}
-          </button>
-        );
-      })}
-      <input
-        className="input due-date-input"
-        type="date"
-        value={due}
-        onChange={(e) => onDue(e.target.value)}
-        aria-label="Chọn ngày hẹn"
-      />
-      <input
-        className="input due-time-input"
-        type="time"
-        value={time}
-        onChange={(e) => onTime(e.target.value)}
-        aria-label="Giờ hẹn"
-        title="Giờ hẹn"
-      />
-    </div>
-  );
-}
 
 function CareTab({ customerId }: { customerId: number }) {
   const { token } = useAuth();
   const canUpdate = useCan()("khach_hang", "update");
-  const [events, setEvents] = useState<CareEvent[] | null>(null);
   const [tasks, setTasks] = useState<CareTask[] | null>(null);
   // Đánh giá chăm sóc (#28): xong đúng hạn / xong trễ / đang quá hạn — BE trả sẵn.
   const [taskStats, setTaskStats] = useState<{ done_on_time: number; done_late: number; overdue_open: number } | null>(null);
 
   const [error, setError] = useState<string | null>(null);
 
-  // Ghi hoạt động chăm sóc.
-  const [logKind, setLogKind] = useState("goi_dien");
-  const [logNote, setLogNote] = useState("");
-  const [logBusy, setLogBusy] = useState(false);
-
-  // Tạo lịch hẹn.
-  const [taskNote, setTaskNote] = useState("");
-  const [taskDue, setTaskDue] = useState("");
-  const [taskTime, setTaskTime] = useState("09:00");
-  const [taskBusy, setTaskBusy] = useState(false);
-  const [composerTab, setComposerTab] = useState<"log" | "task">("log");
-
-  // "Hẹn tiếp" ngay trong Ghi tương tác: 1 submit = log + task (luồng phổ biến nhất).
-  const [nextOpen, setNextOpen] = useState(false);
-  const [nextNote, setNextNote] = useState("");
-  const [nextDue, setNextDue] = useState("");
-  const [nextTime, setNextTime] = useState("09:00");
-
   // Timeline: mặc định ẨN việc đã huỷ (giảm nhiễu — xem lại được bằng toggle).
   const [showCancelled, setShowCancelled] = useState(false);
   // Chống "cuộn vô hạn": mặc định 6 mục mới nhất, bấm mới xem thêm.
   const [showAllHistory, setShowAllHistory] = useState(false);
 
-  // Hoàn thành việc: có thể ghi kèm 1 dòng nhật ký trong cùng thao tác (khảo sát #28).
-  const [doneForId, setDoneForId] = useState<number | null>(null);
-  const [doneKind, setDoneKind] = useState("goi_dien");
-  const [doneNote, setDoneNote] = useState("");
-  const [doneBusy, setDoneBusy] = useState(false);
-
   const reload = useCallback(() => {
     if (!token) return;
-    Promise.all([
-      api.customers.careEvents(token, customerId),
-      api.customers.careTasks(token, customerId),
-    ])
-      .then(([ev, t]) => {
-        setEvents(ev.items);
+    api.customers.careTasks(token, customerId)
+      .then((t) => {
         setTasks(t.items);
         setTaskStats({ done_on_time: t.done_on_time, done_late: t.done_late, overdue_open: t.overdue_open });
       })
@@ -3046,62 +2962,10 @@ function CareTab({ customerId }: { customerId: number }) {
   }, [token, customerId]);
 
   useEffect(() => {
-    setEvents(null);
     setTasks(null);
     setError(null);
     reload();
   }, [reload]);
-
-  async function logCare() {
-    if (!token || logBusy || !logNote.trim()) return;
-    setLogBusy(true);
-    try {
-      await api.customers.addCareEvent(token, customerId, { kind: logKind, note: logNote.trim() });
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Ghi chăm sóc không thành công.");
-      setLogBusy(false);
-      return;
-    }
-    // Hẹn tiếp (tuỳ chọn) — 2 call tuần tự; log đã ghi xong nên lỗi ở đây chỉ báo phần hẹn.
-    if (nextOpen && nextNote.trim() && nextDue) {
-      try {
-        await api.customers.addCareTask(token, customerId, {
-          note: nextNote.trim(),
-          due_date: new Date(`${nextDue}T${nextTime || "09:00"}:00`).toISOString(),
-        });
-        setNextNote("");
-        setNextDue("");
-        setNextOpen(false);
-      } catch {
-        setError("Đã ghi nhật ký, nhưng tạo hẹn tiếp LỖI — kiểm tra lại phần Hẹn tiếp.");
-        setLogNote("");
-        setLogBusy(false);
-        reload();
-        return;
-      }
-    }
-    setLogNote("");
-    setLogBusy(false);
-    reload();
-  }
-
-  async function addTask() {
-    if (!token || taskBusy || !taskNote.trim() || !taskDue) return;
-    setTaskBusy(true);
-    try {
-      await api.customers.addCareTask(token, customerId, {
-        note: taskNote.trim(),
-        due_date: new Date(`${taskDue}T${taskTime || "09:00"}:00`).toISOString(),
-      });
-      setTaskNote("");
-      setTaskDue("");
-      reload();
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Tạo lịch hẹn không thành công.");
-    } finally {
-      setTaskBusy(false);
-    }
-  }
 
   async function setTaskStatus(t: CareTask, status: string) {
     if (!token) return;
@@ -3110,27 +2974,6 @@ function CareTab({ customerId }: { customerId: number }) {
       reload();
     } catch {
       setError("Cập nhật việc không thành công.");
-    }
-  }
-
-  /** Hoàn thành việc, tuỳ chọn ghi kèm 1 dòng nhật ký chăm sóc trong cùng thao tác. */
-  async function confirmDone(t: CareTask) {
-    if (!token || doneBusy) return;
-    setDoneBusy(true);
-    try {
-      const note = doneNote.trim();
-      await api.customers.setCareTaskStatus(token, customerId, t.id, {
-        status: "done",
-        log_kind: note ? doneKind : null,
-        log_note: note || null,
-      });
-      setDoneForId(null);
-      setDoneNote("");
-      reload();
-    } catch {
-      setError("Cập nhật việc không thành công.");
-    } finally {
-      setDoneBusy(false);
     }
   }
 
@@ -3146,21 +2989,6 @@ function CareTab({ customerId }: { customerId: number }) {
       type: "event" | "task";
       rawTask?: CareTask;
     }> = [];
-
-    if (events) {
-      events.forEach((e) => {
-        list.push({
-          id: `event-${e.id}`,
-          date: new Date(e.happened_at),
-          kind: e.kind,
-          title: CARE_KIND_LABELS[e.kind] ?? e.kind,
-          detail: e.note,
-          actor: e.actor_name,
-          badgeText: CARE_KIND_LABELS[e.kind] ?? e.kind,
-          type: "event",
-        });
-      });
-    }
 
     if (tasks) {
       const closed = tasks.filter((t) => t.status !== "open");
@@ -3184,7 +3012,7 @@ function CareTab({ customerId }: { customerId: number }) {
     }
 
     return list.sort((a, b) => b.date.getTime() - a.date.getTime());
-  }, [events, tasks]);
+  }, [tasks]);
 
   const cancelledCount = historyItems.filter((i) => i.kind === "cancelled_task").length;
   const visibleHistory = showCancelled
@@ -3192,245 +3020,34 @@ function CareTab({ customerId }: { customerId: number }) {
     : historyItems.filter((i) => i.kind !== "cancelled_task");
   const shownHistory = showAllHistory ? visibleHistory : visibleHistory.slice(0, 6);
 
-  if (error && events == null) return <div className="banner banner--error" role="alert">{error}</div>;
-  if (events == null || tasks == null) return <TableSkeleton cols={3} />;
-
-  const openTasks = tasks.filter((t) => t.status === "open");
+  if (error && tasks == null) return <div className="banner banner--error" role="alert">{error}</div>;
+  if (tasks == null) return <TableSkeleton cols={3} />;
 
   return (
     <div className="kh__care">
       {error && <div className="banner banner--error" role="alert">{error}</div>}
 
-      <div className="kh__care-columns">
-        {/* CỘT TRÁI — chỗ LÀM: ghi tương tác + lịch hẹn sắp tới. */}
-        <div className="kh__care-col">
-        {/* 1. Activity Composer Card */}
-        {canUpdate && (
-          <div className="care-composer">
-            <div className="composer-tabs">
-              <button
-                type="button"
-                className={`composer-tab ${composerTab === "log" ? "composer-tab--active" : ""}`}
-                onClick={() => setComposerTab("log")}
-              >
-                <PencilLine size={14} /> Ghi tương tác
-              </button>
-              <button
-                type="button"
-                className={`composer-tab ${composerTab === "task" ? "composer-tab--active" : ""}`}
-                onClick={() => setComposerTab("task")}
-              >
-                <CalendarClock size={14} /> Tạo lịch hẹn
-              </button>
-            </div>
-            
-            <div className="composer-body">
-              {composerTab === "log" ? (
-                <>
-                  <input
-                    className="input"
-                    placeholder="Hôm nay bạn đã trao đổi gì với khách, kết quả ra sao..."
-                    value={logNote}
-                    onChange={(e) => setLogNote(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && logNote.trim() && logCare()}
-                  />
-                  <div className="composer-actions-row">
-                    <div className="care-kind-pills" style={{ margin: 0, width: "auto" }}>
-                      {Object.entries(CARE_KIND_LABELS).map(([value, label]) => {
-                        const active = logKind === value;
-                        const iconsMap: Record<string, React.ReactNode> = {
-                          goi_dien: <Phone size={14} />,
-                          nhan_tin: <MessageCircle size={14} />,
-                          email: <Mail size={14} />,
-                          gap_truc_tiep: <HeartHandshake size={14} />,
-                          khac: <FileText size={14} />,
-                        };
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            className={`care-kind-pill care-kind-pill--${value} ${active ? "care-kind-pill--active" : ""}`}
-                            onClick={() => setLogKind(value)}
-                          >
-                            {iconsMap[value]}
-                            {label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    
-                    <button
-                      type="button"
-                      className={`due-chip due-chip--toggle${nextOpen ? " due-chip--active" : ""}`}
-                      style={{ marginLeft: "auto" }}
-                      onClick={() => {
-                        setNextOpen((v) => !v);
-                        if (!nextOpen && !nextDue) setNextDue(dateInDays(3));
-                      }}
-                    >
-                      <CalendarClock size={12} /> Hẹn tiếp{nextOpen ? "" : "…"}
-                    </button>
-                    <Button variant="accent" onClick={logCare} loading={logBusy} disabled={!logNote.trim()} style={{ padding: "6px 16px", flexShrink: 0, marginLeft: "auto" }}>
-                      {nextOpen && nextNote.trim() && nextDue ? "Ghi + hẹn tiếp" : "Ghi nhật ký"}
-                    </Button>
-                  </div>
-                  {/* Hẹn tiếp (tuỳ chọn) — chỉ bung hàng khi bật: 1 submit = log + task. */}
-                  {nextOpen && (
-                    <div className="care-next-row">
-                      <input
-                        className="input care-next-note"
-                        placeholder="Việc lần sau — VD: gọi lại chốt đơn"
-                        value={nextNote}
-                        onChange={(e) => setNextNote(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && logNote.trim() && logCare()}
-                        autoFocus
-                      />
-                      <DueQuickPick due={nextDue} time={nextTime} onDue={setNextDue} onTime={setNextTime} />
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <input
-                    className="input"
-                    placeholder="Công việc cần làm tiếp theo — VD: gọi lại gửi báo giá, đối chiếu công nợ..."
-                    value={taskNote}
-                    onChange={(e) => setTaskNote(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && taskNote.trim() && taskDue && addTask()}
-                  />
-                  <div className="composer-actions-row">
-                    <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: "1 1 auto", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: "12px", color: "var(--ash)", whiteSpace: "nowrap" }}>Hạn:</span>
-                      <DueQuickPick due={taskDue} time={taskTime} onDue={setTaskDue} onTime={setTaskTime} />
-                    </div>
-                    
-                    <Button variant="accent" onClick={addTask} loading={taskBusy} disabled={!taskNote.trim() || !taskDue} style={{ padding: "8px 20px", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                      <Plus size={14} /> Lên lịch hẹn
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        )}
+      {/* Lịch hẹn chăm sóc kiểu calendar (redesign-lich-hen-cham-soc) — lặp + bung tương lai. */}
+      <CareCalendar customerId={customerId} onChange={reload} />
 
-        {/* Đánh giá chăm sóc (#28) — MỘT dòng gọn, ẩn khi chưa có gì đáng nói.
-            (Grain đúng của #28 là báo cáo theo sale — chờ BE; tạm giữ dạng dòng chữ.) */}
-        {taskStats && taskStats.done_on_time + taskStats.done_late + taskStats.overdue_open > 0 && (
-          <div className="care-eval-line">
-            <span className="stat__label">Đánh giá</span>
-            <span className="care-eval-item care-eval-item--good">
-              <CheckCircle2 size={12} /> {taskStats.done_on_time} đúng hạn
-            </span>
-            <span className="care-eval-item care-eval-item--mid">
-              <Clock size={12} /> {taskStats.done_late} trễ
-            </span>
-            <span className="care-eval-item care-eval-item--bad">
-              <AlertTriangle size={12} /> {taskStats.overdue_open} đang quá hạn
-            </span>
-          </div>
-        )}
-
-        {/* 3. Upcoming Tasks Section */}
-        {openTasks.length > 0 && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            <div className="timeline-section-title">
-              <AlarmClock size={12} /> Lịch hẹn sắp tới ({openTasks.length})
-            </div>
-            <ul className="kh__care-tasks">
-              {openTasks.map((t) => (
-                <li key={t.id} className={`kh__care-task-card kh__care-task-card--level-${t.remind_level}`}>
-                  {canUpdate && (
-                    <div className="task-checkbox-wrapper">
-                      <button
-                        type="button"
-                        className={`task-checkbox${doneForId === t.id ? " task-checkbox--arming" : ""}`}
-                        onClick={() => {
-                          if (doneForId === t.id) {
-                            setDoneForId(null);
-                          } else {
-                            setDoneForId(t.id);
-                            setDoneKind(t.remind_level > 0 ? "goi_dien" : doneKind);
-                            setDoneNote("");
-                          }
-                        }}
-                        title="Đánh dấu hoàn thành"
-                      >
-                        <Check />
-                      </button>
-                    </div>
-                  )}
-                  <div className="kh__care-task-card-body">
-                    <p className="kh__care-task-card-title">{t.note}</p>
-                    <div className="kh__care-task-card-meta">
-                      <span className={t.overdue_days > 0 ? (t.remind_level >= 3 ? "task-date-alert" : "task-date-warn") : ""}>
-                        <Calendar size={12} /> Hạn: {fmtDate(t.due_date)} {t.overdue_days > 0 ? `(Quá ${t.overdue_days} ngày)` : ""}
-                      </span>
-                      {t.assignee_name && (
-                        <span>
-                          <User size={12} /> {t.assignee_name}
-                        </span>
-                      )}
-                      {t.remind_level >= 1 ? (
-                        <RemindBadge level={t.remind_level} days={t.overdue_days} />
-                      ) : (
-                        <span className="kh__muted" style={{ fontSize: 11 }}>
-                          còn {Math.max(1, Math.ceil((new Date(t.due_date).getTime() - Date.now()) / 86_400_000))} ngày
-                        </span>
-                      )}
-                    </div>
-                    {doneForId === t.id && (
-                      <div className="task-done-confirm">
-                        <select
-                          className="input task-done-kind"
-                          value={doneKind}
-                          onChange={(e) => setDoneKind(e.target.value)}
-                          aria-label="Hình thức tương tác ghi kèm"
-                        >
-                          {Object.entries(CARE_KIND_LABELS).map(([value, label]) => (
-                            <option key={value} value={value}>{label}</option>
-                          ))}
-                        </select>
-                        <input
-                          className="input task-done-note"
-                          placeholder="Ghi kèm 1 dòng nhật ký (tuỳ chọn) — VD: đã gọi, khách chốt đơn…"
-                          autoFocus
-                          value={doneNote}
-                          onChange={(e) => setDoneNote(e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && confirmDone(t)}
-                        />
-                        <Button variant="accent" onClick={() => confirmDone(t)} loading={doneBusy} style={{ padding: "6px 14px" }}>
-                          <Check size={13} /> Hoàn thành
-                        </Button>
-                        <Button variant="ghost" onClick={() => setDoneForId(null)} disabled={doneBusy} style={{ padding: "6px 10px" }}>
-                          Thôi
-                        </Button>
-                      </div>
-                    )}
-                  </div>
-                  {canUpdate && (
-                    <div className="task-actions">
-                      <button
-                        type="button"
-                        className="task-btn-action task-btn-action--cancel"
-                        onClick={() => setTaskStatus(t, "cancelled")}
-                        title="Huỷ lịch hẹn"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  )}
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
-
+      {/* Đánh giá chăm sóc (#28) — một dòng gọn, ẩn khi chưa có gì đáng nói. */}
+      {taskStats && taskStats.done_on_time + taskStats.done_late + taskStats.overdue_open > 0 && (
+        <div className="care-eval-line">
+          <span className="stat__label">Đánh giá</span>
+          <span className="care-eval-item care-eval-item--good">
+            <CheckCircle2 size={12} /> {taskStats.done_on_time} đúng hạn
+          </span>
+          <span className="care-eval-item care-eval-item--mid">
+            <Clock size={12} /> {taskStats.done_late} trễ
+          </span>
+          <span className="care-eval-item care-eval-item--bad">
+            <AlertTriangle size={12} /> {taskStats.overdue_open} đang quá hạn
+          </span>
         </div>
+      )}
 
-        {/* CỘT PHẢI — chuyện ĐÃ QUA: nhật ký giới hạn 6 mục, xem thêm khi cần. */}
-        <div className="kh__care-col">
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+      {/* Nhật ký hoạt động — các hẹn ĐÃ XONG / đã huỷ (máy tự ghi nhận khi tick trên lịch). */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           <div className="timeline-section-title">
             <History size={12} /> Nhật ký hoạt động ({visibleHistory.length})
             {cancelledCount > 0 && (
@@ -3447,7 +3064,7 @@ function CareTab({ customerId }: { customerId: number }) {
 
           {visibleHistory.length === 0 ? (
             <p className="kh__muted kh__chart-empty" style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-5)", padding: "var(--sp-6)", textAlign: "center" }}>
-              Chưa có hoạt động chăm sóc nào — ghi lại mỗi lần gọi/nhắn/gặp để cả team nắm được.
+              Chưa có hoạt động nào — đặt hẹn ở lịch trên, tick tròn khi làm xong để lưu lịch sử.
             </p>
           ) : (
             <div className="care-timeline">
@@ -3517,8 +3134,6 @@ function CareTab({ customerId }: { customerId: number }) {
             </button>
           )}
         </div>
-        </div>
-      </div>
     </div>
   );
 }

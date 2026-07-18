@@ -234,6 +234,9 @@ TASK_DONE = "done"
 TASK_CANCELLED = "cancelled"
 CARE_TASK_STATUSES = (TASK_OPEN, TASK_DONE, TASK_CANCELLED)
 
+# Chu kỳ lặp lịch hẹn (redesign-lich-hen-cham-soc). 'none' = hẹn đơn lẻ (tương thích ngược).
+REPEAT_FREQS = ("none", "day", "week", "month")
+
 
 class CustomerCareTask(Base):
     """Một việc chăm sóc CẦN LÀM (khảo sát #27–#28: "hẹn ngày 15 gọi lại"; hệ thống nhắc
@@ -256,6 +259,15 @@ class CustomerCareTask(Base):
         Integer, ForeignKey("users.id"), index=True, nullable=True
     )
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # --- Lịch hẹn calendar (redesign-lich-hen-cham-soc): luật lặp + chuỗi ngoại lệ ---
+    # Hẹn-đầu-chuỗi mang luật (repeat_freq≠'none'); due_date = mốc lần đầu. Lần tương lai KHÔNG
+    # lưu — bung ảo khi đọc lịch. Chỉ lần bị đụng (xong/dời/hủy) mới thành 1 dòng ngoại lệ
+    # (series_id = id hẹn-đầu-chuỗi, occurrence_date = lần được thay). 'none' = hẹn đơn lẻ như cũ.
+    repeat_freq: Mapped[str] = mapped_column(String(8), nullable=False, server_default="none", default="none")
+    repeat_interval: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
+    repeat_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    series_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    occurrence_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_by: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
     )

@@ -622,6 +622,10 @@ export interface CareTask {
   assignee_user_id: number | null;
   assignee_name: string | null;
   done_at: string | null;
+  repeat_freq: string;        // none | day | week | month (lịch lặp)
+  repeat_interval: number;    // mỗi N đơn vị
+  repeat_until: string | null;
+  series_id: number | null;
   /** Mức nhắc tính từ số ngày quá hạn: 0 chưa đến hạn, 1/2/3 = nhắc lần 1/2/3. */
   remind_level: number;
   overdue_days: number;
@@ -632,6 +636,27 @@ export interface CareTasksOut {
   done_on_time: number;
   done_late: number;
   overdue_open: number;
+}
+
+/** 1 lần hẹn trên LỊCH (redesign-lich-hen-cham-soc); task_id=null ⇒ lần ẢO (tương lai chưa materialize). */
+export interface CareOccurrence {
+  task_id: number | null;
+  series_id: number | null;   // id hẹn-đầu-chuỗi để thao tác
+  note: string;
+  due_date: string;
+  status: "open" | "done" | "cancelled";
+  is_virtual: boolean;
+  repeat_freq: string;
+  remind_level: number;
+  overdue_days: number;
+  assignee_user_id: number | null;
+  assignee_name: string | null;
+  is_event: boolean;    // true = tương tác ĐÃ GHI (CareEvent) hiện trên lịch
+  kind: string | null;  // hình thức khi is_event (goi_dien/nhan_tin/…)
+}
+
+export interface CareCalendarOut {
+  items: CareOccurrence[];
 }
 
 /** Một việc đến hạn/quá hạn trong panel "Cần chăm sóc" trên danh bạ. */
@@ -3532,10 +3557,43 @@ export const api = {
     careTasks(token: string, id: number): Promise<CareTasksOut> {
       return authed<CareTasksOut>(`/api/customers/${id}/care-tasks`, token);
     },
+    careCalendar(token: string, id: number, from: string, to: string): Promise<CareCalendarOut> {
+      return authed<CareCalendarOut>(
+        `/api/customers/${id}/care-calendar?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        token,
+      );
+    },
+    actOnOccurrence(
+      token: string,
+      id: number,
+      headId: number,
+      from: string,
+      to: string,
+      input: {
+        action: "complete" | "cancel" | "reschedule";
+        occurrence_date?: string | null;
+        new_due?: string | null;
+        log_kind?: string | null;
+        log_note?: string | null;
+      },
+    ): Promise<CareCalendarOut> {
+      return authed<CareCalendarOut>(
+        `/api/customers/${id}/care-tasks/${headId}/occurrence?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+        token,
+        { method: "POST", body: JSON.stringify(input) },
+      );
+    },
     addCareTask(
       token: string,
       id: number,
-      input: { note: string; due_date: string; assignee_user_id?: number | null },
+      input: {
+        note: string;
+        due_date: string;
+        assignee_user_id?: number | null;
+        repeat_freq?: string;
+        repeat_interval?: number;
+        repeat_until?: string | null;
+      },
     ): Promise<CareTask> {
       return authed<CareTask>(`/api/customers/${id}/care-tasks`, token, {
         method: "POST",

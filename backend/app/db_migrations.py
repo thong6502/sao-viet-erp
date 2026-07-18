@@ -2034,6 +2034,31 @@ def _migrate_order_graft_fields(db: Session) -> None:
     db.commit()
 
 
+def _migrate_care_task_recurrence(db: Session) -> None:
+    """Lịch hẹn chăm sóc kiểu calendar (redesign-lich-hen-cham-soc): thêm luật lặp + chuỗi ngoại
+    lệ vào customer_care_tasks (repeat_freq/interval/until + series_id + occurrence_date). No-op
+    trên DB fresh (create_all đã dựng) / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "customer_care_tasks" not in insp.get_table_names():
+        return
+    existing = _existing_columns(insp, "customer_care_tasks")
+    for name, ddl in (
+        ("repeat_freq", "VARCHAR(8) NOT NULL DEFAULT 'none'"),
+        ("repeat_interval", "INTEGER NOT NULL DEFAULT 1"),
+        ("repeat_until", "TIMESTAMP"),
+        ("series_id", "INTEGER"),
+        ("occurrence_date", "TIMESTAMP"),
+    ):
+        if name not in existing:
+            db.execute(text(f"ALTER TABLE customer_care_tasks ADD COLUMN {name} {ddl}"))
+    db.commit()
+    db.execute(text(
+        "CREATE INDEX IF NOT EXISTS ix_customer_care_tasks_series_id "
+        "ON customer_care_tasks (series_id)"
+    ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2113,6 +2138,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0074_ptg_don_vi_tinh", _migrate_ptg_don_vi_tinh),
     ("0075_seed_pricing_formulas", _migrate_seed_pricing_formulas),
     ("0076_order_graft_fields", _migrate_order_graft_fields),
+    ("0077_care_task_recurrence", _migrate_care_task_recurrence),
 ]
 
 

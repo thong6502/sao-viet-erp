@@ -389,6 +389,57 @@ def test_care_task_lifecycle_and_remind_levels(client):
     assert any("khách chốt" in e["note"] for e in care)
 
 
+def test_care_recurrence_calendar(client):
+    from datetime import datetime, timedelta, timezone
+
+    token = _admin_token(client)
+    cid = _create(client, token, name="Cty Lich Hen")["customer"]["id"]
+    today = datetime.now(timezone.utc).date()
+    start = datetime.combine(today, datetime.min.time(), tzinfo=timezone.utc)
+
+    def dt(offset):    # ISO datetime — dùng trong JSON body
+        return (start + timedelta(days=offset)).isoformat()
+
+    def day(offset):   # 'YYYY-MM-DD' — dùng trong query from/to (tránh '+' của timezone)
+        return (today + timedelta(days=offset)).isoformat()
+
+    # Hẹn lặp MỖI TUẦN, đến +30 ngày.
+    r = client.post(f"/api/customers/{cid}/care-tasks", json={
+        "note": "Gọi hỏi tiến độ đơn", "due_date": dt(0),
+        "repeat_freq": "week", "repeat_interval": 1, "repeat_until": dt(30),
+    }, headers=_h(token))
+    assert r.status_code == 201, r.text
+    head = r.json()
+    assert head["repeat_freq"] == "week" and head["repeat_interval"] == 1
+
+    def cal(a=-1, b=30):
+        return client.get(
+            f"/api/customers/{cid}/care-calendar?from={day(a)}&to={day(b)}", headers=_h(token)
+        ).json()["items"]
+
+    # Lịch [today-1, +30]: bung head (today) + 4 lần tuần tương lai (7/14/21/28) là ẢO.
+    occ = cal()
+    assert sorted(o["due_date"][:10] for o in occ) == [day(0), day(7), day(14), day(21), day(28)]
+    assert sum(not o["is_virtual"] for o in occ) == 1    # chỉ head là dòng cụ thể
+    assert sum(o["is_virtual"] for o in occ) == 4
+
+    # Hoàn thành LẦN hôm nay → materialize 'done' + head tiến sang tuần kế (+7).
+    r = client.post(
+        f"/api/customers/{cid}/care-tasks/{head['id']}/occurrence?from={day(-1)}&to={day(30)}",
+        json={"action": "complete", "occurrence_date": dt(0), "log_note": "Đã gọi xong."},
+        headers=_h(token),
+    )
+    assert r.status_code == 200, r.text
+    m = {o["due_date"][:10]: o for o in r.json()["items"]}
+    assert m[day(0)]["status"] == "done" and not m[day(0)]["is_virtual"]   # lần cũ đã xong
+    assert m[day(7)]["status"] == "open" and not m[day(7)]["is_virtual"]   # head tiến sang +7
+    assert m[day(14)]["is_virtual"]                                        # tương lai vẫn ảo
+
+    # Log đi kèm vào nhật ký chăm sóc.
+    care = client.get(f"/api/customers/{cid}/care", headers=_h(token)).json()["items"]
+    assert any("Đã gọi xong" in e["note"] for e in care)
+
+
 def test_care_followups_scoped_to_caller(client):
     from datetime import datetime, timedelta, timezone
 

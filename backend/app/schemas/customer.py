@@ -286,6 +286,10 @@ class CareTaskIn(BaseModel):
     note: str = Field(min_length=1, max_length=500)
     due_date: datetime
     assignee_user_id: int | None = None
+    # Lịch lặp (redesign-lich-hen-cham-soc): none/day/week/month · mỗi N · đến ngày.
+    repeat_freq: str = Field(default="none", max_length=8)
+    repeat_interval: int = Field(default=1, ge=1)
+    repeat_until: datetime | None = None
 
 
 class CareTaskOut(BaseModel):
@@ -298,6 +302,10 @@ class CareTaskOut(BaseModel):
     assignee_user_id: int | None = None
     assignee_name: str | None = None
     done_at: datetime | None = None
+    repeat_freq: str = "none"
+    repeat_interval: int = 1
+    repeat_until: datetime | None = None
+    series_id: int | None = None
     # Mức nhắc TÍNH TỪ số ngày quá hạn (#28): 0 = chưa đến hạn, 1 = đến hạn/quá <2 ngày,
     # 2 = quá ≥2 ngày, 3 = quá ≥5 ngày. Chỉ có nghĩa với việc đang mở.
     remind_level: int = 0
@@ -318,6 +326,39 @@ class CareTaskStatusIn(BaseModel):
 
     status: str
     # Khi hoàn thành có thể ghi luôn một dòng nhật ký chăm sóc (kind + note).
+    log_kind: str | None = Field(default=None, max_length=24)
+    log_note: str | None = Field(default=None, max_length=1000)
+
+
+class CareOccurrenceOut(BaseModel):
+    """1 lần hẹn trên LỊCH (redesign-lich-hen-cham-soc). `task_id=None` ⇒ lần ẢO (tương lai chưa
+    materialize). `series_id` = id hẹn-đầu-chuỗi để thao tác 1 lần."""
+
+    task_id: int | None = None
+    series_id: int | None = None
+    note: str
+    due_date: datetime
+    status: str
+    is_virtual: bool = False
+    repeat_freq: str = "none"
+    remind_level: int = 0
+    overdue_days: int = 0
+    assignee_user_id: int | None = None
+    assignee_name: str | None = None
+    is_event: bool = False        # True = tương tác ĐÃ GHI (CareEvent) hiện trên lịch
+    kind: str | None = None       # hình thức khi is_event (goi_dien/nhan_tin/…)
+
+
+class CareCalendarOut(BaseModel):
+    items: list[CareOccurrenceOut]
+
+
+class OccurrenceActionIn(BaseModel):
+    """Thao tác 1 lần hẹn của chuỗi: complete | cancel | reschedule."""
+
+    action: str
+    occurrence_date: datetime | None = None   # lần nào của chuỗi (bắt buộc với hẹn lặp)
+    new_due: datetime | None = None           # với reschedule
     log_kind: str | None = Field(default=None, max_length=24)
     log_note: str | None = Field(default=None, max_length=1000)
 

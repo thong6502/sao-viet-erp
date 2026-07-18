@@ -394,12 +394,17 @@ Panel "Cần chăm sóc" trên danh bạ đọc các việc `open` đã đến h
 | `status`           | `String(16)` → `VARCHAR(16)`                           | **IX**                                | no   | `open`         | `open` / `done` / `cancelled`.                                   |
 | `assignee_user_id` | `Integer` → `INTEGER`                                  | **FK→users.id**, **IX**               | yes  | —              | Người phụ trách việc — mặc định Sale phụ trách khách.            |
 | `done_at`          | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                                     | yes  | —              | Lúc hoàn thành (so với `due_date` → đúng hạn/trễ, đánh giá #28). |
+| `repeat_freq`      | `String(8)` → `VARCHAR(8)`                             | —                                     | no   | `none`         | Lịch lặp `none`/`day`/`week`/`month`; `none` = hẹn đơn lẻ. Migration 0077. |
+| `repeat_interval`  | `Integer` → `INTEGER`                                  | —                                     | no   | `1`            | Lặp mỗi N đơn vị theo `repeat_freq`. Migration 0077.            |
+| `repeat_until`     | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                                     | yes  | —              | Lặp đến hết ngày này (null = không giới hạn; bung có cap chân trời). Migration 0077. |
+| `series_id`        | `Integer` → `INTEGER`                                  | **IX**                                | yes  | —              | Dòng ngoại-lệ trỏ về id hẹn-đầu-chuỗi (soft, cùng bảng). Migration 0077. |
+| `occurrence_date`  | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                                     | yes  | —              | (Ngoại lệ) thay cho lần nào của chuỗi. Migration 0077.          |
 | `created_by`       | `Integer` → `INTEGER`                                  | **FK→users.id**                       | yes  | —              | Người tạo việc.                                                  |
 | `created_at`       | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                                     | no   | now (UTC)      | Thời điểm tạo.                                                   |
 
 **Keys & indexes**
 
-- Primary key: `id`. Indexes: `ix_customer_care_tasks_customer_id`, `ix_customer_care_tasks_status`, `ix_customer_care_tasks_assignee_user_id`.
+- Primary key: `id`. Indexes: `ix_customer_care_tasks_customer_id`, `ix_customer_care_tasks_status`, `ix_customer_care_tasks_assignee_user_id`, `ix_customer_care_tasks_series_id`.
 - Foreign keys: `customer_id FK→customers.id` (ON DELETE CASCADE), `assignee_user_id FK→users.id`, `created_by FK→users.id`.
 
 ---
