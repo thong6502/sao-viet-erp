@@ -3,7 +3,7 @@
 // UI: LIST (bám RebuildCatalogPage: badge + row + Sửa/Xóa) + DRAWER (.rc-drawer*) sửa 1 thành phần,
 // trong drawer có SƠ ĐỒ BÌNH BÀI live. Auto + override giữ nguyên. "Tính giá" = update(id) (BE
 // replace-all + tính lại + snapshot) → refresh từ Out. LƯU = TÍNH.
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
   ApiError,
@@ -20,7 +20,6 @@ import {
 import { congDoan, giay, loaiSanPham, mayThietBi, vatTu, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
-import { DarkSummaryPanel } from "../components/DarkSummaryPanel";
 import { ImpositionDiagram } from "./ImpositionDiagram";
 import { PhieuTinhGiaPrint, type PhieuTinhGia, type PhieuTinhGiaColumn } from "./PhieuTinhGiaPrint";
 import "./rebuild-catalog.css";
@@ -93,6 +92,24 @@ function headClass(c: PhieuTinhGiaColOut): string {
 function cellValue(v: string | number | null): string {
   if (v == null || v === "") return "";
   return typeof v === "number" ? v.toLocaleString("vi-VN") : String(v);
+}
+
+// Engine trả công thức thế số dạng "don_gia(2.000) × to_nguyen(334)" (tên biến + giá trị).
+// Đổi sang diễn giải người-đọc-được "2.000 đ × 334 tờ": bỏ tên biến, gắn đơn vị.
+// Token lạ → chỉ giữ giá trị. Không match gì → trả nguyên chuỗi (an toàn).
+const FORMULA_UNIT: Record<string, string> = {
+  to_nguyen: "tờ", to_dau_vao: "tờ", so_to: "tờ",
+  don_gia: "đ", don_gia_kg: "đ/kg", don_gia_luot: "đ/lượt", don_gia_kem: "đ/kẽm",
+  dinh_luong: "gsm", dai_nguyen: "cm", rong_nguyen: "cm",
+  so_mat: "mặt", so_kem: "kẽm", so_luong: "cái",
+};
+function humanizeFormula(s: string): string {
+  if (!s) return s;
+  return s.replace(/([a-zA-Z_][a-zA-Z0-9_]*)\(([^)]*)\)/g, (_m, name: string, val: string) => {
+    const unit = FORMULA_UNIT[name];
+    const v = val.trim();
+    return unit ? `${v} ${unit}` : v;
+  });
 }
 
 // ------------------------------- Editable model -------------------------------
@@ -507,6 +524,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const [warnList, setWarnList] = useState<string[]>([]);
   // Nhật ký hoạt động THẬT (ai làm gì · khi nào) — nhiều người cùng sửa 1 phiếu.
   const [acts, setActs] = useState<PtgActivity[]>([]);
+  const [showAllActs, setShowAllActs] = useState(false); // UI-only: "Xem tất cả"
   const [loading, setLoading] = useState(true);
   const [calcing, setCalcing] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -904,37 +922,28 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const summaryRows = useMemo(() => {
     if (!result) return [];
     return [
-      ...result.groups.map((g) => ({ label: g.name, value: `${fmt(g.subtotal)} đ` })),
+      ...result.groups.map((g) => ({ label: g.name, value: `${fmt(g.subtotal)} đ`, total: false })),
       { label: "Tổng giá vốn", value: `${fmt(result.grand_total)} đ`, total: true },
     ];
   }, [result]);
-
-  const summaryNote: ReactNode = (
-    <>
-      <LockIcon />
-      <span>
-        Giá vốn nội bộ, chưa cộng lợi nhuận. Markup &amp; giá bán ở module <b>Báo giá</b>.
-      </span>
-    </>
-  );
 
   const editing = comps.find((c) => c.uid === editingUid) ?? null;
   const editingIdx = editing ? comps.findIndex((c) => c.uid === editingUid) : -1;
 
   return (
-    <main className="tg-page">
+    <main className="rdx-cost tg-page">
       {/* ---------- HEAD ---------- */}
       <header className="tg-head">
         <div className="tg-head__lead">
           <button type="button" className="tg-back" onClick={onBack}>
             <BackIcon /> Danh sách
           </button>
+          <div className="eyebrow tg-head__eyebrow">
+            <LockIcon /> Giá vốn nội bộ
+          </div>
           <div className="tg-head__titlerow">
             <h1 className="tg-head__title">{ma || "Phiếu tính giá"}</h1>
           </div>
-          <p className="tg-head__sub">
-            <span className="tg-mono">{ma || "—"}</span>
-          </p>
         </div>
         <div className="tg-head__actions">
           <Button variant="accent" onClick={calc} loading={calcing} disabled={!token || loading}>
@@ -978,165 +987,158 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           <div className="tg-main">
 
 
-            {/* --- Card: DANH SÁCH SẢN PHẨM (list + drawer) --- */}
-            <section className="canvas tg-card">
-              <div className="tg-card__head">
-                <h2 className="tg-card__title">Sản phẩm trong phiếu</h2>
-                <span className="tg-pill">{comps.length} sản phẩm</span>
+            {/* --- Panel: DANH SÁCH SẢN PHẨM (list + modal) --- */}
+            <section className="panel">
+              <div className="panel__hd">
+                <h3><GridIcon /> Sản phẩm trong phiếu</h3>
+                <span className="tag">{comps.length} sản phẩm</span>
               </div>
-              <div className="tg-complist">
-                {comps.length === 0 ? (
-                  <div className="tg-empty tg-empty--sm">
-                    <p className="tg-empty__title">Chưa có sản phẩm</p>
-                    <p className="tg-empty__sub">
-                      Bấm “Thêm sản phẩm”, rồi chọn loại sản phẩm trong drawer để tự bung cấu hình.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="tg-complist__wrap">
-                    <table className="rc__table tg-complist__tbl">
-                      <thead>
-                        <tr>
-                          <th style={{ width: "48px" }}>#</th>
-                          <th>Tên</th>
-                          <th>Loại</th>
-                          <th className="tg-num">SL</th>
-                          <th className="tg-num">Khổ D×R</th>
-                          <th className="tg-num">Giá vốn</th>
-                          <th className="tg-num">Đơn giá</th>
-                          <th className="rc__actcol" style={{ width: "148px" }}>
-                            Hành động
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {comps.map((c, i) => {
-                          const meta = metaByIdx.get(i);
-                          // SL hiệu lực từ STATE LOCAL (phản ánh ngay khi sửa; 0 = lấy SL phiếu).
-                          const sl = c.so_luong > 0 ? c.so_luong : phieuSL;
-                          const thieu =
-                            !c.giay_id || c.dai_thanh_pham <= 0 || c.rong_thanh_pham <= 0;
-                          return (
-                            <tr key={c.uid} className="rc__row" onClick={() => setEditingUid(c.uid)}>
-                              <td className="rc__nowrap">
-                                <span className="rc__code-badge">{i + 1}</span>
-                              </td>
-                              <td className="rc__name">
-                                <span className="tg-complist__ten">{c.ten || "(chưa đặt tên)"}</span>
-                                {thieu && (
-                                  <span
-                                    className="tg-warn-chip"
-                                    title="Chưa đủ khổ thành phẩm hoặc chưa chọn giấy — số con/giá vốn chưa chính xác."
-                                  >
-                                    <WarnIcon /> thiếu khổ/giấy
-                                  </span>
-                                )}
-
-                              </td>
-                              <td>
-                                <span className="tg-complist__loai">{loaiLabelOf(c)}</span>
-                              </td>
-                              <td className="tg-num tg-mono">{sl > 0 ? fmt(sl) : "—"}</td>
-                              <td className="tg-num rc__nowrap">
-                                {c.dai_thanh_pham > 0 && c.rong_thanh_pham > 0
-                                  ? `${fmt(c.dai_thanh_pham)}×${fmt(c.rong_thanh_pham)}`
-                                  : "—"}
-                              </td>
-                              <td className="tg-num">
-                                {c.gia_von_tp > 0 ? `${fmt(c.gia_von_tp)} đ` : "—"}
-                              </td>
-                              <td className="tg-num">
-                                {meta && meta.gia_von_don > 0 ? `${fmt(meta.gia_von_don)} đ` : "—"}
-                              </td>
-                              <td className="rc__actcol" onClick={(e) => e.stopPropagation()}>
-
-                                <button
-                                  type="button"
-                                  className="rc__link-btn rc__link-btn--danger"
-                                  onClick={() => removeComp(c.uid)}
-                                  title="Xóa sản phẩm"
+              {comps.length === 0 ? (
+                <div className="tg-empty tg-empty--sm">
+                  <p className="tg-empty__title">Chưa có sản phẩm</p>
+                  <p className="tg-empty__sub">
+                    Bấm “Thêm sản phẩm”, rồi chọn loại sản phẩm trong drawer để tự bung cấu hình.
+                  </p>
+                </div>
+              ) : (
+                <div className="tg-complist__wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th style={{ width: "44px" }}>#</th>
+                        <th>Tên</th>
+                        <th>Loại</th>
+                        <th className="num">SL</th>
+                        <th className="num">Giá vốn</th>
+                        <th className="num">Đơn giá</th>
+                        <th className="num" style={{ width: "56px" }} aria-label="Hành động" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comps.map((c, i) => {
+                        const meta = metaByIdx.get(i);
+                        // SL hiệu lực từ STATE LOCAL (phản ánh ngay khi sửa; 0 = lấy SL phiếu).
+                        const sl = c.so_luong > 0 ? c.so_luong : phieuSL;
+                        const thieu =
+                          !c.giay_id || c.dai_thanh_pham <= 0 || c.rong_thanh_pham <= 0;
+                        return (
+                          <tr key={c.uid} className="prow" onClick={() => setEditingUid(c.uid)}>
+                            <td className="mono">{i + 1}</td>
+                            <td>
+                              <span className="pname">{c.ten || "(chưa đặt tên)"}</span>
+                              {thieu && (
+                                <span
+                                  className="tg-warn-chip"
+                                  title="Chưa đủ khổ thành phẩm hoặc chưa chọn giấy — số con/giá vốn chưa chính xác."
                                 >
-                                  <TrashIcon />
-                                  <span>Xóa</span>
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                <button type="button" className="tg-add tg-complist__add" onClick={addComp}>
+                                  <WarnIcon /> thiếu khổ/giấy
+                                </span>
+                              )}
+                            </td>
+                            <td>
+                              <span className="badge neutral"><span className="d" />{loaiLabelOf(c)}</span>
+                            </td>
+                            <td className="num mono">{sl > 0 ? fmt(sl) : "—"}</td>
+                            <td className="num strong">
+                              {c.gia_von_tp > 0 ? `${fmt(c.gia_von_tp)} đ` : "—"}
+                            </td>
+                            <td className="num rust-num">
+                              {meta && meta.gia_von_don > 0 ? `${fmt(meta.gia_von_don)} đ` : "—"}
+                            </td>
+                            <td className="prow__act" onClick={(e) => e.stopPropagation()}>
+                              <button
+                                type="button"
+                                className="tg-icon-btn tg-icon-btn--danger"
+                                onClick={() => removeComp(c.uid)}
+                                title="Xóa sản phẩm"
+                                aria-label="Xóa sản phẩm"
+                              >
+                                <TrashIcon />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <div className="addbtn">
+                <button type="button" onClick={addComp}>
                   <PlusIcon /> Thêm sản phẩm
                 </button>
               </div>
             </section>
 
-            {/* --- Chi tiết dòng giá vốn (gọn — panel phải đã hiện 2 nhóm) --- */}
+            {/* --- Chi tiết dòng giá vốn (Diễn giải người-đọc-được) --- */}
             {result ? (
-              <details className="canvas tg-card tg-costdetails">
-                <summary className="tg-costdetails__sum">
-                  <span className="tg-card__title">Chi tiết dòng giá vốn (Nguyên vật liệu · Công đoạn)</span>
-                  <ChevronIcon open={false} />
-                </summary>
-                <div className="tg-cost">
-                  {result.groups.map((g, gi) => (
-                    <div className="tg-cost__grp" key={g.idx}>
-                      <div className="tg-cost__grphead">
-                        <span className="tg-cost__idx">{gi + 1}</span>
-                        {g.name}
-                      </div>
-                      <div className="tg-cost__scroll">
-                        <table className="tg-cost__tbl">
-                          <thead>
+              <section className="panel">
+                <div className="panel__hd">
+                  <h3><RowsIcon /> Chi tiết dòng giá vốn</h3>
+                  <span className="tag">Nguyên vật liệu · Công đoạn</span>
+                </div>
+                {result.groups.map((g, gi) => (
+                  <div key={g.idx}>
+                    <div className="secttl">
+                      <span className="secttl__n">{gi + 1}</span>
+                      {g.name}
+                    </div>
+                    <div className="tg-cost__scroll">
+                      <table>
+                        <thead>
+                          <tr>
+                            {g.columns.map((col) => (
+                              <th key={col.key} className={headClass(col) || undefined}>
+                                {col.kind === "formula" ? "Diễn giải" : col.label}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {g.rows.length === 0 ? (
                             <tr>
-                              {g.columns.map((col) => (
-                                <th key={col.key} className={headClass(col) || undefined}>
-                                  {col.label}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {g.rows.length === 0 ? (
-                              <tr>
-                                <td colSpan={g.columns.length} className="tg-cost__none">
-                                  (không có dòng)
-                                </td>
-                              </tr>
-                            ) : (
-                              g.rows.map((r, ri) => (
-                                <tr key={ri}>
-                                  {g.columns.map((col) => (
-                                    <td key={col.key} className={cellClass(col) || undefined}>
-                                      {cellValue(r[col.key])}
-                                    </td>
-                                  ))}
-                                </tr>
-                              ))
-                            )}
-                            <tr className="tg-cost__sub">
-                              <td colSpan={g.columns.length}>
-                                <div className="tg-cost__subrow">
-                                  <span>Cộng {g.name}</span>
-                                  <span className="tg-num">{fmt(g.subtotal)} đ</span>
-                                </div>
+                              <td colSpan={g.columns.length} className="tg-cost__none">
+                                (không có dòng)
                               </td>
                             </tr>
-                          </tbody>
-                        </table>
-                      </div>
+                          ) : (
+                            g.rows.map((r, ri) => (
+                              <tr key={ri}>
+                                {g.columns.map((col) => {
+                                  const val = cellValue(r[col.key]);
+                                  return (
+                                    <td key={col.key} className={cellClass(col) || undefined}>
+                                      {col.kind === "formula" && val ? (
+                                        <span className="derive">{humanizeFormula(val)}</span>
+                                      ) : (
+                                        val
+                                      )}
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))
+                          )}
+                          <tr className="sub">
+                            <td colSpan={g.columns.length}>
+                              <div className="subrow">
+                                <span className="lbl">Cộng {g.name}</span>
+                                <span className="val">{fmt(g.subtotal)} đ</span>
+                              </div>
+                            </td>
+                          </tr>
+                        </tbody>
+                      </table>
                     </div>
-                  ))}
-                  <div className="tg-cost__grand">
-                    <span>Tổng giá vốn</span>
-                    <span className="tg-cost__grandval">{fmt(result.grand_total)} đ</span>
                   </div>
+                ))}
+                <div className="tg-cost__grand">
+                  <span>Tổng giá vốn</span>
+                  <span className="tg-cost__grandval">{fmt(result.grand_total)} đ</span>
                 </div>
-              </details>
+              </section>
             ) : (
-              <section className="canvas tg-card">
+              <section className="panel">
                 <div className="tg-empty">
                   <CalcIcon />
                   <p className="tg-empty__title">Chưa có kết quả</p>
@@ -1151,81 +1153,99 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
 
           {/* ============ RIGHT (sticky) ============ */}
           <aside className="tg-side">
-            <DarkSummaryPanel
-              label="Tổng giá vốn (nội bộ)"
-              amount={grand == null ? null : fmt(grand)}
-              unit="đ"
-              sub={
-                perPiece == null || comps.length > 1
-                  ? undefined // nhiều sản phẩm → bình quân/món vô nghĩa; mỗi SP đã có đơn giá riêng
-                  : `≈ ${fmt(perPiece)} đ · đơn giá bình quân`
-              }
-              note={summaryNote}
-              rows={summaryRows}
-            />
+            {/* Dark card: TỔNG GIÁ VỐN · nội bộ */}
+            <div className="dk">
+              <div className="dk__hd">
+                <div className="dk__eyebrow"><LockIcon /> Tổng giá vốn · nội bộ</div>
+              </div>
+              <div className="dk__big">
+                {grand == null ? "—" : fmt(grand)}
+                <span className="u">đ</span>
+              </div>
+              {perPiece != null && comps.length <= 1 ? (
+                <div className="dk__meta">≈ {fmt(perPiece)} đ · đơn giá bình quân</div>
+              ) : tongSoLuong > 0 ? (
+                <div className="dk__meta">{fmt(comps.length)} sản phẩm · tổng {fmt(tongSoLuong)} SP</div>
+              ) : (
+                <div className="dk__meta">Giá vốn sản xuất · chưa gồm lợi nhuận</div>
+              )}
+              {summaryRows.length > 0 ? (
+                <div className="dk__rows">
+                  {summaryRows.map((row, i) => (
+                    <div key={i} className={`drow${row.total ? " total" : ""}`}>
+                      <span className="k">{row.label}</span>
+                      <span className="v">{row.value}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
 
-            <section className="canvas tg-info">
-              <div className="tg-info__title">Phiếu này</div>
-              <dl className="tg-info__list">
-                <div className="tg-info__row">
-                  <dt>Mã phiếu</dt>
-                  <dd className="tg-mono">{ma || "—"}</dd>
+            <div className="hint">
+              <InfoIcon />
+              <span>
+                Giá vốn nội bộ, <b>chưa cộng lợi nhuận</b>. Markup &amp; giá bán ở module Báo giá.
+              </span>
+            </div>
+
+            {/* Phiếu này */}
+            <section className="panel">
+              <div className="panel__hd"><h3><FileIcon /> Phiếu này</h3></div>
+              <div className="info">
+                <div className="irow"><span className="k">Mã phiếu</span><span className="v mono">{ma || "—"}</span></div>
+                <div className="irow"><span className="k">KTV</span><span className="v">{ktv ?? "—"}</span></div>
+                <div className="irow"><span className="k">Ngày lập</span><span className="v">{ngay ? new Date(ngay).toLocaleDateString("vi-VN") : "—"}</span></div>
+                <div className="irow">
+                  <span className="k">Trạng thái</span>
+                  <span className="v">
+                    {result && result.grand_total > 0 ? (
+                      <span className="badge soft"><span className="d" />Đã tính giá</span>
+                    ) : (
+                      <span className="badge neutral"><span className="d" />Nháp</span>
+                    )}
+                  </span>
                 </div>
-                <div className="tg-info__row">
-                  <dt>KTV</dt>
-                  <dd>{ktv ?? "—"}</dd>
-                </div>
-                <div className="tg-info__row">
-                  <dt>Ngày lập</dt>
-                  <dd>{ngay ? new Date(ngay).toLocaleDateString("vi-VN") : "—"}</dd>
-                </div>
-                <div className="tg-info__row">
-                  <dt>Giá vốn tổng</dt>
-                  <dd className="tg-num">{tongGiaVon == null ? "—" : `${fmt(tongGiaVon)} đ`}</dd>
-                </div>
-                <div className="tg-info__row">
-                  <dt>Số sản phẩm</dt>
-                  <dd className="tg-num">{fmt(comps.length)}</dd>
-                </div>
+                <div className="irow"><span className="k">Giá vốn tổng</span><span className="v mono">{tongGiaVon == null ? "—" : `${fmt(tongGiaVon)} đ`}</span></div>
+                <div className="irow"><span className="k">Số sản phẩm</span><span className="v mono">{fmt(comps.length)}</span></div>
                 {tongSoLuong > 0 ? (
-                  <div className="tg-info__row">
-                    <dt>Tổng SL</dt>
-                    <dd className="tg-num">{fmt(tongSoLuong)}</dd>
-                  </div>
+                  <div className="irow"><span className="k">Tổng SL</span><span className="v mono">{fmt(tongSoLuong)}</span></div>
                 ) : null}
-              </dl>
+              </div>
             </section>
 
-            {/* Nhật ký hoạt động — ai làm gì · khi nào (nhiều người cùng sửa 1 phiếu) */}
-            <section className="canvas tg-info">
-              <div className="tg-info__title">⚡ Hoạt động</div>
+            {/* Hoạt động — ai làm gì · khi nào (dữ liệu THẬT; empty-state khi chưa có) */}
+            <section className="panel">
+              <div className="panel__hd">
+                <h3><BoltIcon /> Hoạt động</h3>
+                {acts.length > 5 ? (
+                  <button type="button" className="viewall" onClick={() => setShowAllActs((s) => !s)}>
+                    {showAllActs ? "Thu gọn" : `Xem tất cả (${acts.length})`}
+                    <ChevronIcon open={showAllActs} />
+                  </button>
+                ) : null}
+              </div>
               {acts.length === 0 ? (
-                <p className="tg-empty__sub" style={{ margin: 0 }}>Chưa có hoạt động.</p>
+                <div className="tl">
+                  <p className="tg-empty__sub" style={{ margin: "4px 0" }}>Chưa có hoạt động.</p>
+                </div>
               ) : (
-                <dl className="tg-info__list">
-                  {acts.map((a, i) => {
-                    const m = PTG_ACT_META[a.action] ?? ["•", a.action];
+                <div className="tl scrollbox">
+                  {(showAllActs ? acts : acts.slice(0, 5)).map((a, i) => {
+                    const label = PTG_ACT_META[a.action]?.[1] ?? a.action;
                     return (
-                      <div className="tg-info__row" key={i}>
-                        <dt>
-                          <span aria-hidden="true" style={{ marginRight: "6px", color: "var(--ash)" }}>
-                            {m[0]}
-                          </span>
-                          {m[1]}
-                          {a.actor_name ? (
-                            <>
-                              {" · "}
-                              <b style={{ color: "var(--ink)" }}>{a.actor_name}</b>
-                            </>
-                          ) : null}
-                        </dt>
-                        <dd className="tg-mono" style={{ fontSize: "11px", color: "var(--ash)" }}>
-                          {fmtActDateTime(a.at)}
-                        </dd>
+                      <div className={`tlrow${i > 0 ? " mut" : ""}`} key={i}>
+                        <span className="tlic"><ActIcon action={a.action} /></span>
+                        <div className="tlb">
+                          <div className="a">
+                            <b>{label}</b>
+                            {a.actor_name ? <> — {a.actor_name}</> : null}
+                          </div>
+                          <div className="m">{fmtActDateTime(a.at)}</div>
+                        </div>
                       </div>
                     );
                   })}
-                </dl>
+                </div>
               )}
             </section>
 
@@ -1950,3 +1970,46 @@ const WarnIcon = () => (
     <path d="M12 9v4M12 17h.01" />
   </svg>
 );
+
+// Panel-header line icons (Lucide-style, stroke currentColor → tô rust qua .panel__hd h3 svg).
+const GridIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 10h18M9 4v16" />
+  </svg>
+);
+const RowsIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+  </svg>
+);
+const FileIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+    <path d="M14 2v6h6M9 13h6M9 17h4" />
+  </svg>
+);
+const BoltIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
+  </svg>
+);
+const InfoIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 16v-4M12 8h.01" />
+  </svg>
+);
+const RefreshIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-3-6.7" />
+    <path d="M21 4v5h-5" />
+  </svg>
+);
+
+// Icon dòng Hoạt động theo action audit (KHÔNG glyph/emoji — SVG nét).
+function ActIcon({ action }: { action: string }) {
+  if (action === "create_ptg") return <PlusIcon />;
+  if (action === "delete_ptg") return <CloseIcon />;
+  return <RefreshIcon />;
+}
