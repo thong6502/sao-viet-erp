@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, false as sa_false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -41,6 +41,12 @@ class Department(Base):
     # Logical reference to users.id (the trưởng phòng). Kept as a plain column to avoid a
     # users<->departments FK cycle under create_all; the DB-level FK can land with Alembic.
     head_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Đánh dấu phòng ban thuộc khối SẢN XUẤT (spec-ke-hoach-san-xuat §13.1). Tick ở 1 nút cha ⇒ cả
+    # cây con (theo parent_id) coi như sản xuất; phân hệ Sản xuất liệt kê đúng subtree này. "Effective
+    # sản xuất" = cột này true HOẶC có tổ tiên true (tính ở service, KHÔNG cascade lưu).
+    la_san_xuat: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

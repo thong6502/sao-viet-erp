@@ -39,17 +39,9 @@ export function SanXuatPage() {
   );
 }
 
-// Placeholder cho các màn Sản xuất thuộc chunk kế (theo dõi / nhập liệu xưởng / QC-KCS) — route tạm
-// để nav không dẫn về Dashboard. Màn thợ (textless) sẽ thay ở chunk sau.
+// Placeholder cho màn Sản xuất chưa dựng (QC/KCS). Theo-dõi-SX + Nhập-liệu-xưởng ĐÃ có màn thật
+// (TheoDoiSanXuatView · NhapLieuXuongView) — route ở AppShell, không qua đây nữa.
 const SOON: Record<string, { title: string; sub: string }> = {
-  "theo-doi-sx": {
-    title: "Theo dõi sản xuất",
-    sub: "Bảng điều độ tờ in theo máy & tiến độ lệnh theo thời gian thực — đang phát triển ở chunk kế.",
-  },
-  "nhap-lieu-xuong": {
-    title: "Nhập liệu xưởng",
-    sub: "Màn cho tổ trưởng ghi sản lượng / bàn giao ngay tại xưởng (tối giản, ít chạm) — chunk kế.",
-  },
   "qc-kcs": {
     title: "QC / KCS",
     sub: "Màn KCS nêu lỗi kèm ảnh & tổ trưởng xác nhận — chunk kế.",

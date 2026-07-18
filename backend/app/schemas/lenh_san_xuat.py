@@ -77,6 +77,17 @@ class NhapKhoIn(BaseModel):
     so_luong_nhap: int = Field(ge=0)
 
 
+class RoutingStepIn(BaseModel):
+    """Thêm/sửa 1 bước routing (kế hoạch §13.2). Tổ mặc định = `cong_doan.department_id` (đổi được)."""
+    cong_doan_id: int | None = None
+    to_id: int | None = None
+
+
+class RoutingReorderIn(BaseModel):
+    """Đổi thứ tự routing — danh sách id bước theo thứ tự mới (chỉ khi lệnh còn nháp)."""
+    step_ids: list[int] = Field(default_factory=list)
+
+
 # ============================================================ RESPONSES (đọc ORM)
 class LenhOut(BaseModel):
     id: int
@@ -173,8 +184,23 @@ class QcDefectOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class RoutingStepOut(BaseModel):
+    """1 bước routing của lệnh (§13.2) — copy từ job spec, kế hoạch sửa được khi còn `cho`."""
+    id: int
+    lenh_sx_id: int
+    thu_tu: int
+    cong_doan_id: int | None
+    to_id: int | None
+    ten: str
+    trang_thai: str
+    bat_dau_at: datetime | None
+    hoan_thanh_at: datetime | None
+    model_config = ConfigDict(from_attributes=True)
+
+
 class LenhDetailOut(LenhOut):
-    """Lệnh + tờ in chứa nó + log sản lượng/bàn giao/QC + đích SL & Σ đạt (nuôi màn tracking lệnh)."""
+    """Lệnh + routing + tờ in chứa nó + log sản lượng/bàn giao/QC + đích SL & Σ đạt (nuôi màn tracking)."""
+    routing: list[RoutingStepOut] = []
     forms: list[PrintFormOut] = []
     san_luong: list[SanLuongOut] = []
     ban_giao: list[BanGiaoOut] = []
@@ -190,3 +216,33 @@ class NhapKhoOut(BaseModel):
     so_luong_nhap: int
     lenh_xong: bool
     order_production_done: bool
+
+
+# ============================================================ TỔ VIEW (§13.3–13.4)
+class ToNodeOut(BaseModel):
+    """1 tổ/phòng thuộc khối SẢN XUẤT + đếm việc (bảng tổ §13.3). FE dựng cây từ `parent_id`."""
+    id: int
+    name: str
+    code: str
+    parent_id: int | None
+    head_user_id: int | None
+    la_san_xuat: bool
+    so_lenh: int = 0        # số lệnh đang chạy tổ có việc
+    so_den_luot: int = 0    # số lệnh ĐẾN LƯỢT tổ (bước hiện hành thuộc tổ)
+
+
+class ToLenhOut(BaseModel):
+    """Lệnh 'của tổ' (§13.4) — tóm tắt để tổ chọn vào màn thực thi. FE resolve tên đơn/ấn phẩm."""
+    id: int
+    order_id: int
+    phieu_thanh_phan_id: int | None
+    trang_thai: str
+    den_luot: bool               # bước hiện hành thuộc tổ đang xem
+    cur_thu_tu: int | None       # bước đến lượt (ai đang giữ)
+    cur_ten: str | None
+    cur_to_id: int | None
+    so_buoc: int
+    so_buoc_xong: int
+    muc_tieu_sl: int
+    tong_dat: int
+    updated_at: datetime

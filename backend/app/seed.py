@@ -2121,6 +2121,74 @@ def seed_pit_brackets(db: Session) -> None:
     db.commit()
 
 
+def seed_san_xuat_org(db: Session) -> None:
+    """Nền phòng ban SẢN XUẤT (spec-ke-hoach-san-xuat §13.1): đánh dấu "Sản xuất" là khối sản
+    xuất + dựng cây TỔ con (Chế bản/In/Cán/Bế/Đóng gói/KCS, cấp "Tổ"), gắn công đoạn → tổ, chuyển
+    thợ demo từ HCNS về đúng tổ. Idempotent (bấm lại an toàn). Chạy trong SEED_DEMO (cần công đoạn
+    + nhân sự demo). Thực tế: con người tự cấu hình tổ trong màn Phòng ban — đây chỉ là dữ liệu mẫu."""
+    from sqlalchemy import select
+    from .models.cong_doan import CongDoan
+    from .models.department import Department
+    from .models.employee import Employee
+    from .models.unit_level import UnitLevel
+
+    depts = DepartmentRepository(db)
+    sx = depts.get_by_name("Sản xuất")
+    if sx is None:
+        return
+    # 1) Đánh dấu khối "Sản xuất" → cả cây con lên phân hệ Sản xuất (effective theo tổ tiên).
+    if not sx.la_san_xuat:
+        depts.set_la_san_xuat(sx, True)
+
+    # 2) Cấp "Tổ" (để chức danh đầu = Tổ trưởng).
+    to_level = db.execute(select(UnitLevel).where(UnitLevel.name == "Tổ")).scalar_one_or_none()
+
+    # 3) Dựng các TỔ con dưới "Sản xuất" (idempotent theo tên).
+    to_names = ["Tổ Chế bản", "Tổ In offset", "Tổ Cán màng", "Tổ Bế & Xén", "Tổ Đóng gói", "Tổ KCS"]
+    to_by_name: dict[str, Department] = {}
+    for name in to_names:
+        d = depts.get_by_name(name)
+        if d is None:
+            d = depts.create(name=name, parent_id=sx.id)
+        if to_level is not None and d.level_id != to_level.id:
+            depts.set_level(d, to_level.id)
+        to_by_name[name] = d
+
+    def _to_for_cd(cd: CongDoan) -> Department:
+        nhom = (cd.nhom or "").lower()
+        ten = f"{cd.ten or ''} {cd.ten_hien_thi or ''} {cd.ma or ''}".lower()
+        if nhom == "prepress":
+            return to_by_name["Tổ Chế bản"]
+        if nhom == "print":
+            return to_by_name["Tổ In offset"]
+        if any(k in ten for k in ("cán", "màng", "uv", "nhũ", "phủ", "ép")):
+            return to_by_name["Tổ Cán màng"]
+        if any(k in ten for k in ("bế", "xén", "cắt", "cấn")):
+            return to_by_name["Tổ Bế & Xén"]
+        if any(k in ten for k in ("kcs", "kiểm", "nhập kho")):
+            return to_by_name["Tổ KCS"]
+        return to_by_name["Tổ Đóng gói"]  # gấp/dán/đóng cuốn/thành phẩm + mặc định finishing
+
+    # 4) Gắn công đoạn → tổ (chỉ set khi chưa gắn hoặc đang trỏ chung phòng "Sản xuất").
+    for cd in db.execute(select(CongDoan)).scalars():
+        if cd.department_id in (None, sx.id):
+            cd.department_id = _to_for_cd(cd).id
+
+    # 5) Chuyển thợ demo từ HCNS về đúng tổ (theo chức danh). Chỉ đụng "thợ".
+    pos_map = [("in offset", "Tổ In offset"), ("chế bản", "Tổ Chế bản"),
+               ("xén", "Tổ Bế & Xén"), ("bế", "Tổ Bế & Xén"), ("cán", "Tổ Cán màng")]
+    for emp in db.execute(select(Employee)).scalars():
+        pos = (emp.position or "").lower()
+        if "thợ" not in pos:
+            continue
+        for key, tname in pos_map:
+            if key in pos:
+                emp.department_id = to_by_name[tname].id
+                break
+
+    db.commit()
+
+
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -2161,6 +2229,7 @@ def seed_all(db: Session) -> None:
         seed_rebuild_catalog(db)
         seed_phieu_tinh_gia(db)
         seed_document_sequences(db)
+        seed_san_xuat_org(db)  # nền tổ SX (§13.1): tag "Sản xuất" + cây tổ + gắn công đoạn/thợ
         seed_lenh_san_xuat_demo(db)  # dữ liệu sản xuất mẫu (bung→ghép→phát→sản lượng→nhập kho)
     backfill_user_codes(db)
     # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),

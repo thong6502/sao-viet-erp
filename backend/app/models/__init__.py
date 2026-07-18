@@ -86,6 +86,7 @@ from .lenh_san_xuat import (
     LenhSanXuat,
     PrintForm,
     QcDefect,
+    RoutingStep,
     SanLuong,
 )
 
@@ -181,4 +182,5 @@ __all__ = [
     "SanLuong",
     "BanGiao",
     "QcDefect",
+    "RoutingStep",
 ]

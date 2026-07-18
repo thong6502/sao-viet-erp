@@ -145,6 +145,7 @@ export function DepartmentsPage() {
   const [editDescription, setEditDescription] = useState("");
   const [editHead, setEditHead] = useState<number | null>(null);
   const [editParentId, setEditParentId] = useState<number | null>(null);
+  const [editLaSanXuat, setEditLaSanXuat] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -338,6 +339,7 @@ export function DepartmentsPage() {
     setEditDescription(dept?.description ?? "");
     setEditHead(dept?.head_user_id ?? null);
     setEditParentId(dept?.parent_id ?? null);
+    setEditLaSanXuat(dept?.la_san_xuat ?? false);
     if (!token || selectedId == null) {
       setMembers([]);
       setRoles([]);
@@ -386,6 +388,7 @@ export function DepartmentsPage() {
     setEditDescription(currentDept?.description ?? "");
     setEditHead(currentDept?.head_user_id ?? null);
     setEditParentId(currentDept?.parent_id ?? null);
+    setEditLaSanXuat(currentDept?.la_san_xuat ?? false);
     setSaveError(null);
     setDirty(false);
     setInfoOpen(true);
@@ -524,6 +527,7 @@ export function DepartmentsPage() {
         editDescription.trim() || null,
         currentDept?.level_id ?? null, // cấp đơn vị đã gỡ khỏi UI; giữ nguyên giá trị cũ
         editParentId,
+        editLaSanXuat,
       );
       await refresh(selectedId);
       setDirty(false);
@@ -936,6 +940,23 @@ export function DepartmentsPage() {
                   {!canReparent && (
                     <span className="depts__hint">Cần quyền "Đổi cấp trên" để chuyển cây tổ chức.</span>
                   )}
+                </div>
+
+                <div className="field depts__field--full">
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                    <input
+                      type="checkbox"
+                      checked={editLaSanXuat}
+                      onChange={(e) => {
+                        setEditLaSanXuat(e.target.checked);
+                        setDirty(true);
+                      }}
+                    />
+                    <span className="field__label depts__label" style={{ margin: 0 }}>
+                      Là bộ phận sản xuất
+                      <InfoHint label="Đánh dấu phòng/khối thuộc SẢN XUẤT: cả cây con (đơn vị trực thuộc) tự coi là sản xuất và lên phân hệ Sản xuất." />
+                    </span>
+                  </label>
                 </div>
 
                 <div className="field depts__field--full">

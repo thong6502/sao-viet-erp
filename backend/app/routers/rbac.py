@@ -146,6 +146,7 @@ def create_department(
             description=payload.description,
             parent_id=payload.parent_id,
             level_id=payload.level_id,
+            la_san_xuat=payload.la_san_xuat,
             actor_id=user.id,
         )
     except DepartmentNameTaken as e:
@@ -178,6 +179,7 @@ def update_department(
             description=payload.description,
             head_user_id=payload.head_user_id,
             level_id=payload.level_id,
+            la_san_xuat=payload.la_san_xuat,
             actor_id=user.id,
             allow_set_head=authz.can(user, "phong_ban", "set_head"),
             allow_reparent=authz.can(user, "phong_ban", "reparent"),

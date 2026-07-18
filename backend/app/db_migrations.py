@@ -1968,6 +1968,20 @@ def _migrate_ptg_don_vi_tinh(db: Session) -> None:
     db.commit()
 
 
+def _migrate_department_la_san_xuat(db: Session) -> None:
+    """Phân hệ Sản xuất (spec-ke-hoach-san-xuat §13.1): thêm `departments.la_san_xuat` (Boolean,
+    default false) — đánh dấu phòng/khối là bộ phận sản xuất; cả cây con (theo parent_id) kế thừa.
+    No-op trên DB fresh (create_all đã dựng cột) / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "departments" not in insp.get_table_names():
+        return
+    if "la_san_xuat" not in _existing_columns(insp, "departments"):
+        db.execute(text(
+            "ALTER TABLE departments ADD COLUMN la_san_xuat BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2045,6 +2059,7 @@ MIGRATIONS: list[tuple[str, callable]] = [
     # Tích hợp accounting-wip (đánh số tiếp, KHÔNG đụng id đã ship): báo giá terms_text + PTG ĐVT.
     ("0073_quote_terms_text", _migrate_quote_terms_text),
     ("0074_ptg_don_vi_tinh", _migrate_ptg_don_vi_tinh),
+    ("0075_department_la_san_xuat", _migrate_department_la_san_xuat),
 ]
 
 

@@ -368,6 +368,160 @@
 .lsx-empty__icon {
   color: var(--ash-2);
 }
+
+/* ==================== Routing công đoạn — traveler CHỈ ĐỌC (§13.2) ==================== */
+.lsx-trav {
+  list-style: none;
+  margin: 0;
+  padding: 2px 0;
+}
+.lsx-trav__step {
+  display: flex;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-4);
+}
+.lsx-trav__step:last-child {
+  padding-bottom: 0;
+}
+.lsx-trav__rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+}
+.lsx-trav__node {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-pill);
+  display: grid;
+  place-items: center;
+  border: 1.5px solid var(--rule);
+  background: var(--paper);
+  color: var(--ash-2);
+}
+.lsx-trav__no {
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+.lsx-trav__line {
+  flex: 1;
+  width: 2px;
+  min-height: 16px;
+  margin: 3px 0;
+  background: var(--rule-hair);
+  border-radius: 2px;
+}
+/* Xong = xanh (moss) */
+.lsx-trav__step--done .lsx-trav__node {
+  background: var(--moss-soft);
+  border-color: var(--moss);
+  color: var(--moss);
+}
+.lsx-trav__step--done .lsx-trav__line {
+  background: var(--moss);
+  opacity: 0.4;
+}
+/* Đang chạy = cam nhấn (rust) + vòng nhấn */
+.lsx-trav__step--run .lsx-trav__node {
+  background: var(--rust);
+  border-color: var(--rust);
+  color: var(--paper);
+  box-shadow: 0 0 0 4px var(--rust-soft);
+}
+.lsx-trav__body {
+  flex: 1;
+  min-width: 0;
+  padding-top: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lsx-trav__top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.lsx-trav__ten {
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  font-size: 13.5px;
+}
+.lsx-trav__step.is-current .lsx-trav__ten {
+  font-weight: var(--fw-bold);
+}
+.lsx-trav__to {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.lsx-trav__unset {
+  font-style: italic;
+  color: var(--ash-2);
+  opacity: 0.85;
+}
+/* Dark card — trạng thái CẤU HÌNH (lệnh nháp, chưa phát hành) */
+.lsx-dk__cfg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.lsx-dk__cfgttl {
+  font-size: 20px;
+  font-weight: var(--fw-bold);
+  color: var(--on-dark);
+  letter-spacing: -0.01em;
+}
+.lsx-dk__cfgsub {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--on-dark-muted);
+}
+.lsx-dk__cfgsub b {
+  color: var(--on-dark);
+  font-weight: var(--fw-medium);
+}
+/* Cấu hình routing khi nháp: đổi thứ tự / xóa / chọn tổ / thêm công đoạn */
+.lsx-trav__ops {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.lsx-trav__tosel {
+  margin-top: 2px;
+  max-width: 260px;
+}
+.lsx-iconbtn {
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--ash);
+  transition: background-color var(--duration-fast) var(--easing-standard);
+}
+.lsx-iconbtn:hover:not(:disabled) {
+  background: var(--rust-soft);
+}
+.lsx-iconbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.lsx-iconbtn--danger {
+  color: var(--signal);
+}
+.lsx-routing__add {
+  margin-top: var(--sp-3);
+  max-width: 300px;
+}
 .lsx-empty__title {
   font-size: 14px;
   font-weight: var(--fw-bold);
@@ -1451,5 +1605,541 @@
   }
   .lsx-toast {
     animation: none;
+  }
+}
+
+/* ==================================================================================
+   THEO DÕI SẢN XUẤT (Chunk C · §13.3–13.4) — cây tổ → lệnh của tổ → màn thực thi.
+   Scope .lsx; tokens-only; bám ngôn ngữ badge/traveler đã có.
+   ================================================================================== */
+
+/* ---- Thanh tiến độ dùng chung (list card + exec header) ---- */
+.lsx-prog {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lsx-prog__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.lsx-prog__big {
+  font-family: var(--ff-mono);
+  font-size: 22px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.lsx-prog__big .u {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ash-2);
+}
+.lsx-prog__side {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+}
+.lsx-prog__pct {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  color: var(--rust);
+}
+.lsx-prog__steps {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.lsx-prog__bar {
+  height: 7px;
+  border-radius: var(--r-pill);
+  background: var(--rule-soft);
+  overflow: hidden;
+}
+.lsx-prog__bar--sm {
+  height: 5px;
+}
+.lsx-prog__fill {
+  height: 100%;
+  background: var(--rust);
+  border-radius: inherit;
+  transition: width 0.3s var(--easing-standard);
+}
+
+/* ---- Count pills (bảng tổ) ---- */
+.lsx-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 1.2;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  white-space: nowrap;
+}
+.lsx-count svg {
+  flex: none;
+}
+.lsx-count--hot {
+  background: var(--rust-soft);
+  color: var(--rust-deep);
+}
+.lsx-count--run {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+.lsx-count--idle {
+  background: var(--rule-soft);
+  color: var(--ash-2);
+}
+.lsx-count--lg {
+  font-size: 12.5px;
+  padding: 5px 13px;
+}
+
+/* ---- TẦNG 1: cây tổ ---- */
+.lsx-tree {
+  list-style: none;
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lsx-tree__btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 11px 14px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+.lsx-tree__btn:hover {
+  border-color: var(--ash-2);
+  background: var(--canvas);
+}
+.lsx-tree__btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.lsx-tree__dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex: none;
+}
+.lsx-tree__dot--hot {
+  background: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+  animation: lsx-pulse 1.9s ease-in-out infinite;
+}
+.lsx-tree__dot--run {
+  background: var(--moss);
+  box-shadow: 0 0 0 3px var(--moss-soft);
+}
+.lsx-tree__dot--idle {
+  background: var(--paper);
+  border: 1.5px solid var(--rule);
+}
+.lsx-tree__main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+}
+.lsx-tree__name {
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  font-size: 14px;
+}
+.lsx-tree__btn.is-branch .lsx-tree__name {
+  font-weight: var(--fw-bold);
+}
+.lsx-tree__code {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.lsx-tree__counts {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.lsx-chev {
+  color: var(--ash-2);
+  flex: none;
+}
+
+@keyframes lsx-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px var(--rust-soft);
+  }
+  50% {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+/* ---- TẦNG 2: lệnh của tổ ---- */
+.lsx-tolenh {
+  list-style: none;
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.lsx-tolenh__card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+  border-radius: 14px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.lsx-tolenh__card:hover {
+  border-color: var(--ash-2);
+}
+.lsx-tolenh__card:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.lsx-tolenh__card.is-turn {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+.lsx-tolenh__lead {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: none;
+  width: 232px;
+  min-width: 0;
+}
+.lsx-tolenh__idline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lsx-tolenh__ap {
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  font-size: 13.5px;
+}
+.lsx-tolenh__cust {
+  font-size: 11.5px;
+  color: var(--ash-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lsx-tolenh__mid {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.lsx-tolenh__steprow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lsx-tolenh__steplbl {
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  color: var(--rust);
+  white-space: nowrap;
+}
+.lsx-tolenh__stepten {
+  font-size: 12.5px;
+  color: var(--ash);
+}
+.lsx-tolenh__at {
+  color: var(--ash-2);
+}
+.lsx-tolenh__num {
+  font-size: 11.5px;
+  color: var(--ash-2);
+}
+
+/* Cờ ĐẾN LƯỢT (nhấn cam đặc) */
+.lsx-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  padding: 3px 11px;
+  border-radius: var(--r-pill);
+  background: var(--rust);
+  color: var(--paper);
+  white-space: nowrap;
+}
+.lsx-flag svg {
+  flex: none;
+}
+
+/* ---- TẦNG 3: màn thực thi ---- */
+.lsx-exec__hd {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: stretch;
+  padding: var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  border-radius: 16px;
+  background: var(--canvas);
+  margin-top: var(--sp-1);
+}
+.lsx-exec__qr {
+  flex: none;
+  width: 118px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--dark);
+  border-radius: 12px;
+  padding: var(--sp-3);
+}
+.lsx-exec__qr svg {
+  color: var(--on-dark);
+}
+.lsx-exec__qrcode {
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.03em;
+  color: var(--on-dark);
+}
+.lsx-exec__hdmain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lsx-exec__hdtop {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.lsx-exec__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.lsx-exec__cust {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+
+.lsx-panel__hint {
+  font-size: 12px;
+  color: var(--ash-2);
+}
+
+/* Routing dạng thẻ */
+.lsx-rcards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: var(--sp-3);
+}
+.lsx-rcard {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: var(--sp-3) var(--sp-3) var(--sp-4);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.lsx-rcard.is-mine {
+  border-color: var(--ash-2);
+}
+.lsx-rcard.is-turn {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+.lsx-rcard__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.lsx-rcard__no {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--r-pill);
+  display: grid;
+  place-items: center;
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  background: var(--rule-soft);
+  color: var(--ash);
+}
+.lsx-rcard--done .lsx-rcard__no {
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+}
+.lsx-rcard--run .lsx-rcard__no {
+  background: var(--rust);
+  color: var(--paper);
+}
+.lsx-rcard__ten {
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  font-size: 13.5px;
+}
+.lsx-rcard__to {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.lsx-rcard__to svg {
+  flex: none;
+}
+.lsx-rcard__mine {
+  margin-left: 2px;
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+}
+.lsx-rcard__ts {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.lsx-rcard__wait {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--amber-deep);
+}
+.lsx-scanbtn {
+  margin-top: 4px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  border: none;
+  border-radius: 10px;
+  font-family: var(--ff-sans);
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
+  color: var(--paper);
+  cursor: pointer;
+  transition: filter var(--duration-fast) var(--easing-standard);
+}
+.lsx-scanbtn svg {
+  flex: none;
+}
+.lsx-scanbtn:hover:not(:disabled) {
+  filter: brightness(1.06);
+}
+.lsx-scanbtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.lsx-scanbtn--start {
+  background: var(--rust);
+}
+.lsx-scanbtn--done {
+  background: var(--moss);
+}
+
+/* Nhật ký sản lượng (chỉ xem) */
+.lsx-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.lsx-log__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 8px 2px;
+  border-bottom: 1px solid var(--rule-hair);
+  font-size: 12.5px;
+}
+.lsx-log__row:last-child {
+  border-bottom: none;
+}
+.lsx-log__to {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+  min-width: 130px;
+}
+.lsx-log__num {
+  color: var(--moss-deep);
+  flex: 1;
+}
+.lsx-log__at {
+  color: var(--ash-2);
+}
+
+@media (max-width: 720px) {
+  .lsx-tolenh__card {
+    flex-wrap: wrap;
+  }
+  .lsx-tolenh__lead {
+    width: 100%;
+  }
+  .lsx-exec__hd {
+    flex-direction: column;
+  }
+  .lsx-exec__qr {
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-start;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .lsx-tree__dot--hot {
+    animation: none;
+  }
+  .lsx-prog__fill,
+  .lsx-tree__btn,
+  .lsx-tolenh__card,
+  .lsx-scanbtn {
+    transition: none;
   }
 }

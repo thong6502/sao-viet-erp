@@ -178,6 +178,7 @@ class DepartmentService:
                     "head_name": self._head_name(dept),
                     "level_id": dept.level_id,
                     "head_title": self._head_title(dept),
+                    "la_san_xuat": dept.la_san_xuat,
                     "role_count": own_roles[dept.id],
                     "user_count": own_users[dept.id],
                     "employee_count": own_emps[dept.id],
@@ -205,6 +206,7 @@ class DepartmentService:
             "head_name": self._head_name(dept),
             "level_id": dept.level_id,
             "head_title": self._head_title(dept),
+            "la_san_xuat": dept.la_san_xuat,
             "role_count": self.roles.count_by_department(dept.id),
             "user_count": self.users.count_by_department(dept.id),
             "employee_count": self.employees.count_by_department(dept.id),
@@ -262,6 +264,7 @@ class DepartmentService:
         description: str | None = None,
         parent_id: int | None = None,
         level_id: int | None = None,
+        la_san_xuat: bool = False,
         actor_id: int | None,
     ) -> Department:
         name = name.strip()
@@ -277,6 +280,8 @@ class DepartmentService:
         dept = self.departments.create(name=name, description=desc, parent_id=parent_id)
         if level_id is not None:
             self.departments.set_level(dept, level_id)
+        if la_san_xuat:
+            self.departments.set_la_san_xuat(dept, True)
         self.audit.create(
             actor_user_id=actor_id,
             action="create_department",
@@ -297,6 +302,7 @@ class DepartmentService:
         actor_id: int | None,
         allow_set_head: bool = True,
         allow_reparent: bool = True,
+        la_san_xuat: bool = False,
     ) -> Department:
         dept = self.departments.get_by_id(dept_id)
         if dept is None:
@@ -328,6 +334,7 @@ class DepartmentService:
         self.departments.set_head(dept, head_user_id)
         self.departments.set_level(dept, level_id)
         self.departments.set_parent(dept, parent_id)
+        self.departments.set_la_san_xuat(dept, la_san_xuat)
         self.audit.create(
             actor_user_id=actor_id,
             action="update_department",

@@ -25,7 +25,9 @@ export interface Profile extends User {
  *  browser can load from the API origin. Returns null for an empty/missing path. */
 export function assetUrl(path?: string | null): string | null {
   if (!path) return null;
-  return /^https?:\/\//i.test(path) ? path : `${BASE_URL}${path}`;
+  // Inline ảnh (data:/blob:) — vd ảnh QC chụp tại xưởng nhúng base64 — trả nguyên, KHÔNG ghép BASE_URL.
+  if (/^(https?:|data:|blob:)/i.test(path)) return path;
+  return `${BASE_URL}${path}`;
 }
 
 export interface LoginResponse {
@@ -179,7 +181,14 @@ export type QuoteEvent =
   // người soạn; 'pending_changed' là tín hiệu danh sách chờ đổi → refetch notify-summary theo vai.
   | { type: "order_decision"; code: string; decision: "approved" | "rejected" }
   | { type: "order_deposit_ok"; code: string }
-  | { type: "order_pending_changed"; code?: string };
+  | { type: "order_pending_changed"; code?: string }
+  // Sản xuất (§13) dùng CHUNG kênh hub — tín hiệu nhẹ để màn Theo dõi SX / màn thợ refetch + "ting"
+  // đúng tổ (FE lọc theo `to_id`). Số chính xác lấy qua to-board / detail.
+  | { type: "lenh_sx_routing"; lenh_id: number | null; to_id: number | null; pha: "bat_dau" | "hoan_thanh" }
+  | { type: "lenh_sx_phat"; form_id: number; lenh_ids: number[] }
+  | { type: "lenh_sx_duyet_mau"; lenh_id: number }
+  | { type: "lenh_sx_ban_giao"; lenh_id: number; ban_giao_id: number; to_nhan_id: number | null }
+  | { type: "lenh_sx_qc_loi"; lenh_id: number; qc_id: number; to_bi_quy_id: number | null };
 
 export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
   let closed = false;
@@ -263,6 +272,8 @@ export interface Department {
   /** Org tier tag + its head-title label (spec-06 / PBI-4009). Null = untagged. */
   level_id?: number | null;
   head_title?: string | null;
+  /** Đánh dấu khối SẢN XUẤT (spec §13.1). Effective tính theo cây ở FE (self hoặc tổ tiên tick). */
+  la_san_xuat?: boolean;
 }
 
 /** A tier in the org-level catalog (spec-06 / PBI-4009). */
@@ -3143,7 +3154,19 @@ export interface QcDefectRow {
   created_at: string;
   xac_nhan_at: string | null;
 }
+export interface RoutingStepRow {
+  id: number;
+  lenh_sx_id: number;
+  thu_tu: number;
+  cong_doan_id: number | null;
+  to_id: number | null;
+  ten: string;
+  trang_thai: string; // cho | dang | xong
+  bat_dau_at: string | null;
+  hoan_thanh_at: string | null;
+}
 export interface LenhSXDetailOut extends LenhSXRow {
+  routing: RoutingStepRow[];
   forms: PrintFormRow[];
   san_luong: SanLuongRow[];
   ban_giao: BanGiaoRow[];
@@ -3154,6 +3177,32 @@ export interface LenhSXDetailOut extends LenhSXRow {
 export interface PrintFormDetailOut extends PrintFormRow {
   placements: PlacementRow[];
   lenhs: LenhSXRow[];
+}
+// Tổ view (§13.3–13.4) — cây tổ SX + đếm việc; lệnh của tổ.
+export interface ToNode {
+  id: number;
+  name: string;
+  code: string;
+  parent_id: number | null;
+  head_user_id: number | null;
+  la_san_xuat: boolean;
+  so_lenh: number; // số lệnh đang chạy tổ có việc
+  so_den_luot: number; // số lệnh ĐẾN LƯỢT tổ (bước hiện hành thuộc tổ)
+}
+export interface ToLenh {
+  id: number;
+  order_id: number;
+  phieu_thanh_phan_id: number | null;
+  trang_thai: string;
+  den_luot: boolean; // bước hiện hành thuộc tổ đang xem
+  cur_thu_tu: number | null; // bước đến lượt (ai đang giữ)
+  cur_ten: string | null;
+  cur_to_id: number | null;
+  so_buoc: number;
+  so_buoc_xong: number;
+  muc_tieu_sl: number;
+  tong_dat: number;
+  updated_at: string;
 }
 export interface PrintFormListOut {
   items: PrintFormRow[];
@@ -3183,6 +3232,28 @@ export interface GhepInput {
   so_to_chay?: number;
   so_kem?: number;
   placements: GhepPlacementInput[];
+}
+/** Tổ chạy (màn thợ) — ghi sản lượng 1 công đoạn. Người ghi lấy từ token (không gửi). */
+export interface SanLuongInput {
+  cong_doan_id?: number | null;
+  to_id?: number | null;
+  so_dat?: number;
+  so_hong?: number;
+}
+/** Bàn giao số đạt sang tổ kế (giao → nhận). */
+export interface BanGiaoInput {
+  cong_doan_tu_id?: number | null;
+  cong_doan_toi_id?: number | null;
+  so_giao?: number;
+  to_giao_id?: number | null;
+  to_nhan_id?: number | null;
+}
+/** QC nêu lỗi kèm ảnh (data URL) + tổ bị quy → chờ tổ trưởng xác nhận. */
+export interface QcLoiInput {
+  cong_doan_id?: number | null;
+  to_bi_quy_id?: number | null;
+  anh_url?: string | null;
+  mo_ta?: string | null;
 }
 
 export const api = {
@@ -3292,6 +3363,7 @@ export const api = {
       description: string | null,
       levelId: number | null = null,
       parentId: number | null = null,
+      laSanXuat: boolean = false,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
@@ -3301,6 +3373,7 @@ export const api = {
           description,
           level_id: levelId,
           parent_id: parentId,
+          la_san_xuat: laSanXuat,
         }),
       });
     },
@@ -4521,6 +4594,79 @@ export const api = {
     },
     phat(token: string, formId: number): Promise<PrintFormRow> {
       return authed<PrintFormRow>(`/api/lenh-sx/forms/${formId}/phat`, token, { method: "POST" });
+    },
+    // --- Routing (Chunk B · §13.2): copy từ tính giá khi bung, kế hoạch sửa (khóa bước đã chạy). ---
+    routing(token: string, lenhId: number): Promise<RoutingStepRow[]> {
+      return authed<RoutingStepRow[]>(`/api/lenh-sx/lenh/${lenhId}/routing`, token);
+    },
+    themBuoc(
+      token: string, lenhId: number, body: { cong_doan_id: number | null; to_id?: number | null },
+    ): Promise<RoutingStepRow[]> {
+      return authed<RoutingStepRow[]>(`/api/lenh-sx/lenh/${lenhId}/routing`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    suaBuoc(
+      token: string, stepId: number, body: { cong_doan_id: number | null; to_id: number | null },
+    ): Promise<RoutingStepRow[]> {
+      return authed<RoutingStepRow[]>(`/api/lenh-sx/routing/${stepId}`, token, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    },
+    xoaBuoc(token: string, stepId: number): Promise<RoutingStepRow[]> {
+      return authed<RoutingStepRow[]>(`/api/lenh-sx/routing/${stepId}`, token, { method: "DELETE" });
+    },
+    reorderRouting(token: string, lenhId: number, stepIds: number[]): Promise<RoutingStepRow[]> {
+      return authed<RoutingStepRow[]>(`/api/lenh-sx/lenh/${lenhId}/routing/reorder`, token, {
+        method: "POST",
+        body: JSON.stringify({ step_ids: stepIds }),
+      });
+    },
+    // --- Tổ view (Chunk C · §13.3–13.4): cây tổ → lệnh của tổ → màn thực thi (bắt đầu/hoàn thành). ---
+    toBoard(token: string): Promise<ToNode[]> {
+      return authed<ToNode[]>(`/api/lenh-sx/to-board`, token);
+    },
+    lenhOfTo(token: string, toId: number): Promise<ToLenh[]> {
+      return authed<ToLenh[]>(`/api/lenh-sx/to/${toId}/lenh`, token);
+    },
+    batDauBuoc(token: string, stepId: number): Promise<RoutingStepRow[]> {
+      return authed<RoutingStepRow[]>(`/api/lenh-sx/routing/${stepId}/bat-dau`, token, { method: "POST" });
+    },
+    hoanThanhBuoc(token: string, stepId: number): Promise<RoutingStepRow[]> {
+      return authed<RoutingStepRow[]>(`/api/lenh-sx/routing/${stepId}/hoan-thanh`, token, { method: "POST" });
+    },
+    // --- Tổ chạy (Chunk 8 · màn thợ textless): sản lượng · bàn giao (giao→nhận) · QC lỗi. ---
+    // Actor (người ghi) lấy từ token ở backend — KHÔNG gửi qua body. Cổng cứng: chỉ ghi khi lệnh đã
+    // phát (backend 409 nếu chưa) → FE hiện icon/màu đỏ, ít chữ.
+    ghiSanLuong(token: string, lenhId: number, body: SanLuongInput): Promise<SanLuongRow> {
+      return authed<SanLuongRow>(`/api/lenh-sx/lenh/${lenhId}/san-luong`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    banGiao(token: string, lenhId: number, body: BanGiaoInput): Promise<BanGiaoRow> {
+      return authed<BanGiaoRow>(`/api/lenh-sx/lenh/${lenhId}/ban-giao`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    xacNhanNhan(token: string, banGiaoId: number): Promise<BanGiaoRow> {
+      return authed<BanGiaoRow>(`/api/lenh-sx/ban-giao/${banGiaoId}/xac-nhan-nhan`, token, {
+        method: "POST",
+      });
+    },
+    ghiLoiQc(token: string, lenhId: number, body: QcLoiInput): Promise<QcDefectRow> {
+      return authed<QcDefectRow>(`/api/lenh-sx/lenh/${lenhId}/qc`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    toTruongXacNhanQc(token: string, qcId: number): Promise<QcDefectRow> {
+      return authed<QcDefectRow>(`/api/lenh-sx/qc/${qcId}/to-truong-xac-nhan`, token, {
+        method: "POST",
+      });
     },
   },
 

@@ -1,12 +1,14 @@
 """Kế hoạch & Lệnh sản xuất (P0 data layer) — spec `docs/spec-ke-hoach-san-xuat.md`.
 
-6 bảng RECORD-ONLY (máy CHỈ GHI NHẬN — không state-machine, không validate, không MRP):
+7 bảng (máy CHỈ GHI NHẬN — không MRP/validate; `routing_step` sửa tay ở kế hoạch, trạng thái qua QR):
   - `LenhSanXuat` (`lenh_sx`)   — Lệnh SX = 1 ấn phẩm/cấu phần = 1 routing (traveler qua các tổ).
   - `PrintForm`   (`print_form`) — Tờ in = 1 lượt chạy máy vật lý (1 bộ kẽm · 1 lần canh) = NƠI ghép.
   - `GangPlacement`(`gang_placement`) — danh sách xếp bài: tờ in ↔ lệnh + SỐ CON (nguồn sự thật ghép).
   - `SanLuong`    (`san_luong`)  — log sản lượng theo công đoạn (số đạt / số hỏng).
   - `BanGiao`     (`ban_giao`)   — log bàn giao giữa công đoạn/tổ (giao → xác nhận nhận).
   - `QcDefect`    (`qc_defect`)  — phiếu lỗi QC (QC nêu → tổ trưởng xác nhận). Disposition = P1.
+  - `RoutingStep` (`routing_step`) — routing RIÊNG mỗi lệnh (§13.2): copy công đoạn từ job spec PTG
+    khi bung; kế hoạch sửa được khi bước còn chờ; trạng thái (chờ/đang/xong) set qua QR (Chunk C).
 
 Quy ước theo repo (order.py / phieu_tinh_gia.py / cong_doan.py):
   - `Mapped` / `mapped_column`, helper `_utcnow`, timestamp `DateTime(timezone=True)`.
@@ -51,6 +53,12 @@ PF_TRANG_THAI = (PF_CHO_GHEP, PF_DU_DIEU_KIEN, PF_DA_PHAT, PF_IN_XONG)
 QC_CHO = "cho"                          # QC nêu, CHỜ tổ trưởng xác nhận (chưa thành lỗi chính thức)
 QC_XAC_NHAN = "to_truong_xac_nhan"      # tổ trưởng đã xác nhận → lỗi ghi nhận chính thức
 QC_TRANG_THAI = (QC_CHO, QC_XAC_NHAN)
+
+# --- Routing step: trạng thái bước (chờ → đang → xong) — set qua QR ở màn thực thi (Chunk C) ------
+RS_CHO = "cho"      # chờ tới lượt (còn sửa được ở kế hoạch)
+RS_DANG = "dang"    # đang chạy (đã khóa sửa)
+RS_XONG = "xong"    # xong (đã khóa sửa)
+RS_TRANG_THAI = (RS_CHO, RS_DANG, RS_XONG)
 
 
 class LenhSanXuat(Base):
@@ -215,3 +223,33 @@ class QcDefect(Base):
         DateTime(timezone=True), default=_utcnow, nullable=False
     )   # QC nêu
     xac_nhan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # tổ trưởng xác nhận
+
+
+class RoutingStep(Base):
+    """1 bước routing của lệnh SX (spec §13.2) — copy công đoạn từ job spec PTG (`PhieuThanhPham`)
+    khi bung lệnh; kế hoạch SỬA được (thêm/bớt/đổi thứ tự/đổi tổ) khi bước còn CHỜ. Tổ phụ trách
+    (`to_id`) = ảnh chụp `cong_doan.department_id` lúc copy (đổi được). Trạng thái set qua quét QR
+    ở màn tổ (Chunk C). Routing RIÊNG trên lệnh → sửa KHÔNG đụng phiếu tính giá.
+    """
+
+    __tablename__ = "routing_step"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lenh_sx_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lenh_sx.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    thu_tu: Mapped[int] = mapped_column(Integer, nullable=False, default=0)    # thứ tự bước trong routing
+    cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → cong_doan.id (soft)
+    to_id: Mapped[int | None] = mapped_column(Integer, nullable=True)          # tổ phụ trách → departments.id (soft; snapshot cong_doan.department_id)
+    ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")  # tên công đoạn (ảnh chụp để hiển thị)
+
+    trang_thai: Mapped[str] = mapped_column(String(16), nullable=False, default=RS_CHO)
+    bat_dau_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)     # bắt đầu (quét QR)
+    hoan_thanh_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # hoàn thành (quét QR)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )

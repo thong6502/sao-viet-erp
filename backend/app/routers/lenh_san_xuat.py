@@ -40,7 +40,12 @@ from ..schemas.lenh_san_xuat import (
     PrintFormListOut,
     PrintFormOut,
     QcDefectOut,
+    RoutingReorderIn,
+    RoutingStepIn,
+    RoutingStepOut,
     SanLuongOut,
+    ToLenhOut,
+    ToNodeOut,
 )
 from ..services.lenh_san_xuat_service import (
     LenhSanXuatService,
@@ -92,6 +97,7 @@ def get_lenh(
         raise _map(exc) from None
     return LenhDetailOut(
         **LenhOut.model_validate(d["lenh"]).model_dump(),
+        routing=d["routing"],
         forms=d["forms"], san_luong=d["san_luong"], ban_giao=d["ban_giao"], qc=d["qc"],
         muc_tieu_sl=d["muc_tieu_sl"], tong_dat=d["tong_dat"],
     )
@@ -135,6 +141,130 @@ def duyet_mau(
         raise _map(exc) from None
     hub.broadcast({"type": "lenh_sx_duyet_mau", "lenh_id": lenh_id})
     return lenh
+
+
+# ================================================================ ROUTING (kế hoạch §13.2)
+@router.get("/lenh/{lenh_id}/routing", response_model=list[RoutingStepOut])
+def get_routing(
+    lenh_id: int,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[RoutingStepOut]:
+    try:
+        return svc.get_routing(lenh_id)
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
+
+
+@router.post("/lenh/{lenh_id}/routing", response_model=list[RoutingStepOut], status_code=status.HTTP_201_CREATED)
+def them_buoc_routing(
+    lenh_id: int,
+    payload: RoutingStepIn,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> list[RoutingStepOut]:
+    """Kế hoạch thêm 1 bước vào cuối routing (tổ mặc định = tổ của công đoạn, đổi được)."""
+    try:
+        svc.them_buoc_routing(lenh_id=lenh_id, cong_doan_id=payload.cong_doan_id, to_id=payload.to_id)
+        return svc.get_routing(lenh_id)
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
+
+
+@router.put("/routing/{step_id}", response_model=list[RoutingStepOut])
+def sua_buoc_routing(
+    step_id: int,
+    payload: RoutingStepIn,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> list[RoutingStepOut]:
+    """Đổi công đoạn / tổ 1 bước — CHỈ khi bước còn chờ (chưa chạy)."""
+    try:
+        step = svc.sua_buoc_routing(step_id=step_id, cong_doan_id=payload.cong_doan_id, to_id=payload.to_id)
+        return svc.get_routing(step.lenh_sx_id)
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
+
+
+@router.delete("/routing/{step_id}", response_model=list[RoutingStepOut])
+def xoa_buoc_routing(
+    step_id: int,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> list[RoutingStepOut]:
+    """Xóa 1 bước routing — CHỈ khi bước còn chờ (chưa chạy)."""
+    try:
+        lenh_id = svc.xoa_buoc_routing(step_id=step_id)
+        return svc.get_routing(lenh_id)
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
+
+
+@router.post("/lenh/{lenh_id}/routing/reorder", response_model=list[RoutingStepOut])
+def reorder_routing(
+    lenh_id: int,
+    payload: RoutingReorderIn,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> list[RoutingStepOut]:
+    """Đổi thứ tự routing — CHỈ khi lệnh còn nháp (trước khi phát)."""
+    try:
+        return svc.doi_thu_tu_routing(lenh_id=lenh_id, step_ids=payload.step_ids)
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
+
+
+@router.post("/routing/{step_id}/bat-dau", response_model=list[RoutingStepOut])
+def bat_dau_buoc(
+    step_id: int,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> list[RoutingStepOut]:
+    """Tổ BẮT ĐẦU bước routing của mình (quét QR) — chỉ khi đã phát + đúng bước đến lượt."""
+    try:
+        routing, to_id = svc.bat_dau_buoc(step_id=step_id)
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
+    lenh_id = routing[0].lenh_sx_id if routing else None
+    hub.broadcast({"type": "lenh_sx_routing", "lenh_id": lenh_id, "to_id": to_id, "pha": "bat_dau"})
+    return routing
+
+
+@router.post("/routing/{step_id}/hoan-thanh", response_model=list[RoutingStepOut])
+def hoan_thanh_buoc(
+    step_id: int,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> list[RoutingStepOut]:
+    """Tổ HOÀN THÀNH bước đang chạy (quét QR) → xong; đẩy real-time 'đến lượt' tới tổ của bước KẾ."""
+    try:
+        routing, next_to_id = svc.hoan_thanh_buoc(step_id=step_id)
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
+    lenh_id = routing[0].lenh_sx_id if routing else None
+    # `to_id` = tổ ĐẾN LƯỢT mới (bước kế) → FE lọc để "ting" đích danh tổ B (§13.5, refinement Chunk D).
+    hub.broadcast({"type": "lenh_sx_routing", "lenh_id": lenh_id, "to_id": next_to_id, "pha": "hoan_thanh"})
+    return routing
+
+
+# ================================================================ TỔ VIEW (§13.3–13.4 — theo dõi SX)
+@router.get("/to-board", response_model=list[ToNodeOut])
+def to_board(
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[ToNodeOut]:
+    """Cây tổ SẢN XUẤT + đếm việc (đang chạy / đến lượt) — chủ xưởng NHÌN xưởng đang làm gì."""
+    return svc.to_board()
+
+
+@router.get("/to/{to_id}/lenh", response_model=list[ToLenhOut])
+def lenh_of_to(
+    to_id: int,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[ToLenhOut]:
+    """Lệnh 'của tổ' (đã phát, có bước thuộc tổ) — đến lượt lên đầu. Bấm 1 lệnh → màn thực thi."""
+    return svc.lenh_of_to(to_id)
 
 
 # ================================================================ TỜ IN (ghép · gán máy · phát)

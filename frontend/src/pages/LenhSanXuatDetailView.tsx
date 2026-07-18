@@ -12,6 +12,7 @@ import {
   type PrintFormDetailOut,
   type PrintFormRow,
   type Department,
+  type RoutingStepRow,
 } from "../api/client";
 import { congDoan, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
@@ -67,6 +68,11 @@ const PF_META: Record<string, { label: string; variant: string }> = {
 const QC_META: Record<string, { label: string; variant: string }> = {
   cho: { label: "Chờ xác nhận", variant: "wait" },
   to_truong_xac_nhan: { label: "Lỗi xác nhận", variant: "danger" },
+};
+const RS_META: Record<string, { label: string; variant: string }> = {
+  cho: { label: "Chờ", variant: "neutral" },
+  dang: { label: "Đang chạy", variant: "run" },
+  xong: { label: "Xong", variant: "done" },
 };
 const metaOf = (m: Record<string, { label: string; variant: string }>, k: string) =>
   m[k] ?? { label: k || "—", variant: "neutral" };
@@ -166,6 +172,33 @@ export function LenhSanXuatDetailView({
     ],
     [mays],
   );
+  // Dropdown tổ phụ trách = chỉ TỔ SẢN XUẤT (tự `la_san_xuat` hoặc có tổ tiên) — mirror backend; rỗng → tất cả.
+  const toOptions: SelectOption<number | null>[] = useMemo(() => {
+    const isProd = (d: Department): boolean => {
+      let cur: Department | undefined = d;
+      const seen = new Set<number>();
+      while (cur && !seen.has(cur.id)) {
+        seen.add(cur.id);
+        if (cur.la_san_xuat) return true;
+        cur = cur.parent_id != null ? depts.get(cur.parent_id) : undefined;
+      }
+      return false;
+    };
+    const all = [...depts.values()];
+    const prod = all.filter(isProd);
+    return [
+      { value: null, label: "— Chọn tổ phụ trách —" },
+      ...(prod.length > 0 ? prod : all).map((d) => ({ value: d.id, label: d.name })),
+    ];
+  }, [depts]);
+  const cdOptions: SelectOption<number | null>[] = useMemo(
+    () =>
+      [...congDoans.values()].map((c) => ({
+        value: c.id,
+        label: String(c.ten_hien_thi ?? c.ten ?? `#${c.id}`),
+      })),
+    [congDoans],
+  );
 
   // --- Thao tác (Chunk 7): duyệt mẫu (lệnh) · gán máy / phát (tờ in). Sau mỗi cái → refetch + toast. ---
   async function doDuyetMau() {
@@ -208,6 +241,82 @@ export function LenhSanXuatDetailView({
       setBusy(null);
     }
   }
+  // PHÁT HÀNH LỆNH (cấp lệnh): phát mọi tờ in đủ điều kiện của lệnh → lệnh sang đang chạy, các tổ
+  // trong routing nhận việc (backend phát theo tờ + broadcast real-time; đích danh tổ = chunk D).
+  async function doPhatHanh() {
+    if (!token || !detail || busy) return;
+    const targets = detail.forms.filter((f) => {
+      const rd = formReadiness(f, formDetails.get(f.id));
+      return rd.ready && !rd.isPhat;
+    });
+    if (targets.length === 0) return;
+    setBusy("phat-hanh");
+    try {
+      for (const f of targets) await api.lenhSanXuat.phat(token, f.id);
+      toasts.ok(`Đã phát hành ${maLenh(detail.id)} — các tổ trong routing nhận việc`);
+      load();
+    } catch (e) {
+      toasts.err(e instanceof ApiError ? e.message : "Không phát hành được lệnh.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  // --- CẤU HÌNH routing trên lệnh (§13.2): kế thừa từ tính giá là MẶC ĐỊNH, ở đây SỬA được khi nháp
+  // (thêm/bớt/đổi thứ tự/đổi tổ). Backend khóa bước đã/đang chạy (409). Sau mỗi thao tác → refetch. ---
+  async function doThemBuoc(congDoanId: number) {
+    if (!token || !detail || busy) return;
+    const cd = congDoans.get(congDoanId);
+    const dep = cd?.department_id != null ? Number(cd.department_id) : null;
+    setBusy("routing");
+    try {
+      await api.lenhSanXuat.themBuoc(token, detail.id, { cong_doan_id: congDoanId, to_id: dep });
+      load();
+    } catch (e) {
+      toasts.err(e instanceof ApiError ? e.message : "Không thêm được công đoạn.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function doSuaTo(step: RoutingStepRow, toId: number | null) {
+    if (!token || busy) return;
+    setBusy(`rs-${step.id}`);
+    try {
+      await api.lenhSanXuat.suaBuoc(token, step.id, { cong_doan_id: step.cong_doan_id, to_id: toId });
+      load();
+    } catch (e) {
+      toasts.err(e instanceof ApiError ? e.message : "Không đổi được tổ.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function doXoaBuoc(step: RoutingStepRow) {
+    if (!token || busy) return;
+    setBusy(`rs-${step.id}`);
+    try {
+      await api.lenhSanXuat.xoaBuoc(token, step.id);
+      load();
+    } catch (e) {
+      toasts.err(e instanceof ApiError ? e.message : "Không xóa được công đoạn.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function doReorder(index: number, dir: -1 | 1) {
+    if (!token || !detail || busy) return;
+    const steps = [...detail.routing];
+    const j = index + dir;
+    if (j < 0 || j >= steps.length) return;
+    [steps[index], steps[j]] = [steps[j], steps[index]];
+    setBusy("routing");
+    try {
+      await api.lenhSanXuat.reorderRouting(token, detail.id, steps.map((s) => s.id));
+      load();
+    } catch (e) {
+      toasts.err(e instanceof ApiError ? e.message : "Không đổi được thứ tự.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const tongHong = useMemo(
     () => (detail?.san_luong ?? []).reduce((s, r) => s + (r.so_hong || 0), 0),
@@ -222,6 +331,27 @@ export function LenhSanXuatDetailView({
 
   // Quy cách in gợi nhìn: đọc từ tờ in đầu tiên (job spec — record ở tờ in).
   const firstForm = detail?.forms?.[0] ?? null;
+
+  // Chế độ CẤU HÌNH (nháp) ↔ THỰC THI (đang chạy/xong): nháp ẩn khối runtime, hiện nút Phát hành.
+  const isConfig = detail?.trang_thai === "nhap";
+  const phatTargets = detail
+    ? detail.forms.filter((f) => {
+        const rd = formReadiness(f, formDetails.get(f.id));
+        return rd.ready && !rd.isPhat;
+      })
+    : [];
+  const phatBlockers = detail
+    ? Array.from(
+        new Set([
+          ...(detail.forms.length === 0 ? ["Chưa ghép tờ in nào"] : []),
+          ...detail.forms.flatMap((f) => {
+            const rd = formReadiness(f, formDetails.get(f.id));
+            return rd.isPhat ? [] : rd.blockers;
+          }),
+        ]),
+      )
+    : [];
+  const canPhatHanh = phatTargets.length > 0 && phatBlockers.length === 0;
 
   return (
     <main className="lsx">
@@ -255,9 +385,22 @@ export function LenhSanXuatDetailView({
                 <SealIcon /> {busy === "duyet" ? "Đang duyệt…" : "Duyệt mẫu"}
               </button>
             ) : null}
-            {detail.trang_thai === "nhap" ? (
-              <button type="button" className="btn btn--primary" onClick={() => onGhep(detail.id)}>
+            {isConfig ? (
+              <button type="button" className="btn btn--secondary" onClick={() => onGhep(detail.id)}>
                 <LayersIcon /> Ghép bài
+              </button>
+            ) : null}
+            {isConfig ? (
+              <button
+                type="button"
+                className="btn btn--primary"
+                disabled={busy != null || !canPhatHanh}
+                onClick={doPhatHanh}
+                title={canPhatHanh
+                  ? "Phát hành lệnh — các tổ trong routing nhận việc"
+                  : `Chưa đủ điều kiện: ${phatBlockers.join(" · ")}`}
+              >
+                <SendIcon /> {busy === "phat-hanh" ? "Đang phát hành…" : "Phát hành lệnh"}
               </button>
             ) : null}
           </div>
@@ -282,6 +425,99 @@ export function LenhSanXuatDetailView({
         <div className="lsx-split">
           {/* ============ LEFT ============ */}
           <div className="lsx-main">
+            {/* --- Routing công đoạn (§13.2): kế thừa từ tính giá; CẤU HÌNH được khi nháp (thêm/bớt/đổi thứ tự/đổi tổ) --- */}
+            <section className="lsx-panel">
+              <div className="lsx-panel__hd">
+                <h3><FlowIcon /> Routing công đoạn</h3>
+                <span className="lsx-tag">{detail.routing.length} bước</span>
+              </div>
+              <div className="lsx-panel__body">
+                {detail.routing.length === 0 ? (
+                  <div className="lsx-empty lsx-empty--sm">
+                    <p className="lsx-empty__title">Chưa có routing</p>
+                    <p className="lsx-empty__sub">
+                      Routing kế thừa từ phiếu tính giá khi bung lệnh; ở đây cấu hình được khi lệnh còn nháp.
+                    </p>
+                  </div>
+                ) : (
+                  <ol className="lsx-trav">
+                    {detail.routing.map((s, i) => {
+                      const rm = metaOf(RS_META, s.trang_thai);
+                      const last = i === detail.routing.length - 1;
+                      const editable = isConfig && s.trang_thai === "cho";
+                      return (
+                        <li
+                          key={s.id}
+                          className={`lsx-trav__step lsx-trav__step--${rm.variant}${s.trang_thai === "dang" ? " is-current" : ""}`}
+                        >
+                          <div className="lsx-trav__rail">
+                            <span className="lsx-trav__node" aria-hidden="true">
+                              {s.trang_thai === "xong" ? <CheckDot /> : <span className="lsx-trav__no">{i + 1}</span>}
+                            </span>
+                            {last ? null : <span className="lsx-trav__line" />}
+                          </div>
+                          <div className="lsx-trav__body">
+                            <div className="lsx-trav__top">
+                              <span className="lsx-trav__ten">{s.ten || cdName(s.cong_doan_id)}</span>
+                              {editable ? (
+                                <div className="lsx-trav__ops">
+                                  <button type="button" className="lsx-iconbtn" disabled={i === 0 || busy != null} onClick={() => doReorder(i, -1)} aria-label="Đưa lên">↑</button>
+                                  <button type="button" className="lsx-iconbtn" disabled={last || busy != null} onClick={() => doReorder(i, 1)} aria-label="Đưa xuống">↓</button>
+                                  <button type="button" className="lsx-iconbtn lsx-iconbtn--danger" disabled={busy != null} onClick={() => doXoaBuoc(s)} aria-label="Xóa công đoạn">✕</button>
+                                </div>
+                              ) : (
+                                <span className={`lsx-badge lsx-badge--${rm.variant}`}>
+                                  <span className="lsx-badge__d" />
+                                  {rm.label}
+                                </span>
+                              )}
+                            </div>
+                            {editable ? (
+                              <div className="lsx-trav__tosel">
+                                <Select<number | null>
+                                  options={toOptions}
+                                  value={s.to_id}
+                                  onChange={(v) => doSuaTo(s, v)}
+                                  placeholder="— Chọn tổ phụ trách —"
+                                  ariaLabel={`Tổ cho bước ${i + 1}`}
+                                  disabled={busy != null}
+                                  portal
+                                />
+                              </div>
+                            ) : (
+                              <span className="lsx-trav__to">
+                                {s.to_id != null ? (
+                                  <><UsersIcon /> {toName(s.to_id)}</>
+                                ) : (
+                                  <span className="lsx-trav__unset">chưa gán tổ</span>
+                                )}
+                              </span>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ol>
+                )}
+                {isConfig ? (
+                  <div className="lsx-routing__add">
+                    <Select<number | null>
+                      options={cdOptions}
+                      value={null}
+                      onChange={(v) => { if (v != null) doThemBuoc(v); }}
+                      placeholder="+ Thêm công đoạn vào routing…"
+                      ariaLabel="Thêm công đoạn vào routing"
+                      disabled={busy != null}
+                      portal
+                    />
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
+            {/* --- Runtime: chỉ hiện khi ĐÃ phát hành (đang chạy/xong) --- */}
+            {!isConfig ? (
+              <>
             {/* --- Công đoạn & sản lượng --- */}
             <section className="lsx-panel">
               <div className="lsx-panel__hd">
@@ -365,6 +601,8 @@ export function LenhSanXuatDetailView({
                 )}
               </div>
             </section>
+              </>
+            ) : null}
 
             {/* --- Tờ in & xếp bài --- */}
             <section className="lsx-panel">
@@ -475,7 +713,8 @@ export function LenhSanXuatDetailView({
               </div>
             </section>
 
-            {/* --- QC / Lỗi --- */}
+            {/* --- QC / Lỗi (runtime — chỉ khi đã phát hành) --- */}
+            {!isConfig ? (
             <section className="lsx-panel">
               <div className="lsx-panel__hd">
                 <h3><ShieldIcon /> QC / Lỗi</h3>
@@ -530,33 +769,49 @@ export function LenhSanXuatDetailView({
                 </div>
               )}
             </section>
+            ) : null}
           </div>
 
           {/* ============ RIGHT (sticky) ============ */}
           <aside className="lsx-side">
-            {/* Dark card: tiến độ */}
+            {/* Dark card: nháp = trạng thái cấu hình · đã phát = tiến độ runtime */}
             <div className="lsx-dk">
               <div className="lsx-dk__hd">
-                <div className="lsx-dk__eyebrow"><GaugeIcon /> Tiến độ sản xuất</div>
+                <div className="lsx-dk__eyebrow"><GaugeIcon /> {isConfig ? "Trạng thái lệnh" : "Tiến độ sản xuất"}</div>
               </div>
-              <div className="lsx-dk__big">
-                {fmt(dat)}
-                <span className="u">/ {muc > 0 ? fmt(muc) : "—"}</span>
-                {pct != null ? <span className="pct"> · {pct}%</span> : null}
-              </div>
-              {pct != null ? (
-                <div className="lsx-dk__bar">
-                  <div className="lsx-dk__bar-fill" style={{ width: `${pct}%` }} />
+              {isConfig ? (
+                <div className="lsx-dk__cfg">
+                  <div className="lsx-dk__cfgttl">Chưa phát hành</div>
+                  <p className="lsx-dk__cfgsub">
+                    Cấu hình xong (ghép tờ · gán máy · duyệt mẫu) rồi bấm <b>Phát hành lệnh</b> — các tổ trong routing sẽ nhận việc.
+                  </p>
+                  <div className="lsx-dk__rows">
+                    <div className="lsx-drow"><span className="k">Đích sản lượng</span><span className="v">{muc > 0 ? fmt(muc) : "chưa xác định"}</span></div>
+                    <div className="lsx-drow"><span className="k">Tờ in đã ghép</span><span className="v">{detail.forms.length}</span></div>
+                  </div>
                 </div>
-              ) : null}
-              <div className="lsx-dk__rows">
-                <div className="lsx-drow"><span className="k">Đích sản lượng</span><span className="v">{muc > 0 ? fmt(muc) : "chưa xác định"}</span></div>
-                <div className="lsx-drow"><span className="k">Σ đạt (nhập kho)</span><span className="v">{fmt(dat)}</span></div>
-                <div className="lsx-drow"><span className="k">Σ hỏng</span><span className="v hong">{fmt(tongHong)}</span></div>
-                {conLai != null ? (
-                  <div className="lsx-drow"><span className="k">Còn lại</span><span className="v">{fmt(conLai)}</span></div>
-                ) : null}
-              </div>
+              ) : (
+                <>
+                  <div className="lsx-dk__big">
+                    {fmt(dat)}
+                    <span className="u">/ {muc > 0 ? fmt(muc) : "—"}</span>
+                    {pct != null ? <span className="pct"> · {pct}%</span> : null}
+                  </div>
+                  {pct != null ? (
+                    <div className="lsx-dk__bar">
+                      <div className="lsx-dk__bar-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                  ) : null}
+                  <div className="lsx-dk__rows">
+                    <div className="lsx-drow"><span className="k">Đích sản lượng</span><span className="v">{muc > 0 ? fmt(muc) : "chưa xác định"}</span></div>
+                    <div className="lsx-drow"><span className="k">Σ đạt (nhập kho)</span><span className="v">{fmt(dat)}</span></div>
+                    <div className="lsx-drow"><span className="k">Σ hỏng</span><span className="v hong">{fmt(tongHong)}</span></div>
+                    {conLai != null ? (
+                      <div className="lsx-drow"><span className="k">Còn lại</span><span className="v">{fmt(conLai)}</span></div>
+                    ) : null}
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Lệnh này */}
@@ -606,13 +861,6 @@ export function LenhSanXuatDetailView({
               </section>
             )}
 
-            <div className="lsx-hint">
-              <InfoIcon />
-              <span>
-                Số liệu <b>ghi nhận từ xưởng</b> — máy chỉ ghi, không tự suy đoán. Trạng thái lệnh suy
-                theo routing &amp; nhập kho.
-              </span>
-            </div>
           </aside>
         </div>
       ) : null}
@@ -697,12 +945,6 @@ const ArrowIcon = () => (
     <path d="M5 12h14M13 6l6 6-6 6" />
   </svg>
 );
-const InfoIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="9" />
-    <path d="M12 11v5M12 8h.01" />
-  </svg>
-);
 const WarnDot = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M10.3 3.9 2.4 18a1.9 1.9 0 0 0 1.7 2.9h15.8a1.9 1.9 0 0 0 1.7-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z" />
@@ -712,5 +954,18 @@ const WarnDot = () => (
 const CheckDot = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
+const UsersIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="3.2" />
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+  </svg>
+);
+const SendIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M22 2 11 13" />
+    <path d="M22 2 15 22l-4-9-9-4 20-7Z" />
   </svg>
 );

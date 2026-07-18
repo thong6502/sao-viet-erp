@@ -14,6 +14,8 @@ import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { SanXuatPage, SanXuatComingSoon } from "../pages/SanXuatPage";
+import { TheoDoiSanXuatView } from "../pages/TheoDoiSanXuatView";
+import { NhapLieuXuongView } from "../pages/NhapLieuXuongView";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
@@ -336,8 +338,10 @@ export function AppShell() {
         return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
       case "ke-hoach-sx":
         return <SanXuatPage />;
-      case "theo-doi-sx":
       case "nhap-lieu-xuong":
+        return <NhapLieuXuongView />;
+      case "theo-doi-sx":
+        return <TheoDoiSanXuatView />;
       case "qc-kcs":
         return <SanXuatComingSoon featureId={baseId} />;
       case "yeu-cau-mua-hang":

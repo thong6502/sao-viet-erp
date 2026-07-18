@@ -13,15 +13,18 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from ..models.cong_doan import CongDoan
 from ..models.lenh_san_xuat import (
     LENH_NHAP,
     PF_CHO_GHEP,
     QC_CHO,
+    RS_CHO,
     BanGiao,
     GangPlacement,
     LenhSanXuat,
     PrintForm,
     QcDefect,
+    RoutingStep,
     SanLuong,
 )
 from ..models.order import OrderLine
@@ -298,6 +301,75 @@ class LenhSanXuatRepository:
         self.db.commit()
         self.db.refresh(qc)
         return qc
+
+    # ================= Routing step (routing riêng mỗi lệnh — §13.2) =================
+    def cong_doan_by_id(self, cong_doan_id: int | None) -> CongDoan | None:
+        """Công đoạn danh mục — để snapshot tổ (`department_id`) + tên khi copy/sửa routing."""
+        if cong_doan_id is None:
+            return None
+        return self.db.get(CongDoan, cong_doan_id)
+
+    def create_routing_step(
+        self, *, lenh_sx_id: int, thu_tu: int, cong_doan_id: int | None,
+        to_id: int | None, ten: str = "",
+    ) -> RoutingStep:
+        step = RoutingStep(
+            lenh_sx_id=lenh_sx_id, thu_tu=thu_tu, cong_doan_id=cong_doan_id,
+            to_id=to_id, ten=ten, trang_thai=RS_CHO,
+        )
+        self.db.add(step)
+        self.db.commit()
+        self.db.refresh(step)
+        return step
+
+    def routing_by_lenh(self, lenh_id: int) -> list[RoutingStep]:
+        return list(
+            self.db.execute(
+                select(RoutingStep)
+                .where(RoutingStep.lenh_sx_id == lenh_id)
+                .order_by(RoutingStep.thu_tu.asc(), RoutingStep.id.asc())
+            ).scalars()
+        )
+
+    def get_routing_step(self, step_id: int) -> RoutingStep | None:
+        return self.db.get(RoutingStep, step_id)
+
+    def update_routing_step(self, step: RoutingStep, **fields) -> RoutingStep:
+        for k, v in fields.items():
+            setattr(step, k, v)
+        self.db.commit()
+        self.db.refresh(step)
+        return step
+
+    def delete_routing_step(self, step: RoutingStep) -> None:
+        self.db.delete(step)
+        self.db.commit()
+
+    def max_thu_tu(self, lenh_id: int) -> int:
+        """Thứ tự lớn nhất trong routing của lệnh — để thêm bước vào cuối."""
+        return int(self.db.execute(
+            select(func.coalesce(func.max(RoutingStep.thu_tu), 0))
+            .where(RoutingStep.lenh_sx_id == lenh_id)
+        ).scalar_one())
+
+    def lenh_ids_for_to(self, to_id: int) -> list[int]:
+        """Id các lệnh có ≥1 bước routing thuộc tổ (nuôi 'lệnh của tổ' §13.4). Distinct, id desc."""
+        return list(self.db.execute(
+            select(RoutingStep.lenh_sx_id)
+            .where(RoutingStep.to_id == to_id)
+            .distinct()
+            .order_by(RoutingStep.lenh_sx_id.desc())
+        ).scalars())
+
+    def routing_steps_by_lenh_ids(self, lenh_ids: list[int]) -> list[RoutingStep]:
+        """Mọi bước routing của 1 tập lệnh (1 truy vấn) — để đếm việc per-tổ cho bảng tổ (§13.3)."""
+        if not lenh_ids:
+            return []
+        return list(self.db.execute(
+            select(RoutingStep)
+            .where(RoutingStep.lenh_sx_id.in_(lenh_ids))
+            .order_by(RoutingStep.thu_tu.asc(), RoutingStep.id.asc())
+        ).scalars())
 
     # ================= Đọc NỀN từ PTG / Đơn (không chép) =================
     def get_phieu_thanh_phan(self, ptp_id: int | None) -> PhieuThanhPhan | None:

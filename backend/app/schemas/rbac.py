@@ -40,6 +40,8 @@ class DepartmentSummaryOut(BaseModel):
     # UI can show e.g. "Trưởng khối" instead of a generic "Người đứng đầu". Null = untagged.
     level_id: int | None = None
     head_title: str | None = None
+    # Đánh dấu khối SẢN XUẤT (spec §13.1). FE tính "effective" theo cây (self hoặc tổ tiên tick).
+    la_san_xuat: bool = False
     role_count: int = 0
     user_count: int = 0
     employee_count: int = 0
@@ -74,6 +76,8 @@ class DepartmentCreate(BaseModel):
     parent_id: int | None = None
     # Optional org tier (spec-06 / PBI-4009).
     level_id: int | None = None
+    # Khối SẢN XUẤT (spec §13.1) — mặc định không phải sản xuất.
+    la_san_xuat: bool = False
 
 
 class DepartmentUpdate(BaseModel):
@@ -83,6 +87,8 @@ class DepartmentUpdate(BaseModel):
     level_id: int | None = None
     # Re-parent in the org tree (spec-06 / PBI-4007); null = make it a root unit.
     parent_id: int | None = None
+    # Khối SẢN XUẤT (spec §13.1). FE gửi cả object nên luôn kèm cờ này.
+    la_san_xuat: bool = False
 
 
 class UnitLevelOut(BaseModel):

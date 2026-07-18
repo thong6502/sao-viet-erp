@@ -14,6 +14,59 @@
 > - Dẫn xuất (kẽm / lượt / share) do **ENGINE** tính. **TÁI DÙNG** (`routing_engine`, `department_id`,
 >   `piece_work`, Kho, Mua hàng), đừng đẻ bảng song song.
 
+## 0. CORE — kim chỉ nam đọc-trước (chống bias khi build tiếp)
+> Chốt qua nhiều vòng với chủ xưởng (2026-07-18). Đây là "cái VÌ SAO" — đọc trước §1..§13. Nếu build
+> mà thấy mình sắp làm ngược điểm nào ở đây thì DỪNG, hỏi lại. Các bias tôi hay mắc ghi ở cuối mục.
+
+**A. Nguyên tắc gốc**
+1. **Xây TỪ TRÊN xuống** — chủ xưởng phải NHÌN được xưởng đang làm gì + phải ĐỦ ĐIỀU KIỆN mới sản
+   xuất. Bắt đầu từ màn giám sát/tổ, KHÔNG từ màn nhập liệu của thợ.
+2. **MÁY CHỈ GHI NHẬN, người quyết** — không tự phán, không MRP, không tự quy lỗi/trừ khoán. Chỉ có
+   **cổng cứng vì toàn vẹn** (chưa phát→chặn ghi; chưa tới lượt→chặn), KHÔNG phải máy phán nghiệp vụ.
+3. **UI/UX ưu tiên cao nhất** — không "chữ + form" thô; soi–thiết kế → build → styleseed → xem tận mắt.
+4. **Gộp vào luồng đang có, KHÔNG đẻ màn/loại/luồng riêng.** Không rõ gộp đâu → HỎI.
+5. **Ảnh chủ gửi = tham khảo look/feel, KHÔNG phải flow.** Flow theo spec.
+
+**B. Kiến trúc & luồng**
+- 3 tầng khóa cardinality: **Đơn chốt → Lệnh SX (1 ấn phẩm = 1 routing, trỏ `phieu_thanh_phan_id`)
+  → Tờ in (ghép n–n)**. Ghép ~40%+ nên tờ in là thật.
+- Luồng người: kế hoạch **setup chi tiết lệnh** (routing + ghép tờ + gán máy + duyệt mẫu) → **PHÁT
+  HÀNH** → **chỉ tổ CÓ CÔNG ĐOẠN TRONG ROUTING nhận lệnh (realtime)**, không bắn tổ ngoài routing.
+- Phòng ban là nền: tick **"là sản xuất"** 1 phòng → phòng đó **+ cả cây con** vào phân hệ Sản xuất,
+  **hiện DẠNG CÂY**. "Effective" = tự tick HOẶC tổ tiên tick (đi ngược `parent_id`) — **1 nguồn sự
+  thật, không cascade lưu**.
+
+**C. Các điểm CHỐT CỨNG (đúng chỗ hay bias)**
+6. **"Kế thừa từ tính giá" = GIÁ TRỊ MẶC ĐỊNH, KHÔNG read-only.** Màn Lệnh (CẤU HÌNH) routing + quy
+   cách in **PHẢI cho SỬA/override** trước khi phát. Copy sang `routing_step` (bản riêng mỗi lệnh) →
+   sửa không đụng bảng giá. *(Bias tôi mắc nặng nhất — "chốt xong lại quên".)*
+7. **Màn Lệnh = 2 chế độ:** NHÁP = **CẤU HÌNH** (sửa routing/tờ in/máy/duyệt + nút PHÁT HÀNH, ẩn
+   runtime rỗng) ↔ ĐANG CHẠY/XONG = **THỰC THI**.
+8. **Tổ view:** cây tổ → lệnh của tổ → màn thực thi. Tổ thấy NGUYÊN lệnh + routing, nhưng **chỉ thẻ
+   công đoạn CỦA TỔ MÌNH + đúng bước ĐẾN LƯỢT** mới thao tác; bước khác chỉ xem. "Đến lượt" = bước
+   hiện hành thuộc tổ. Routing dạng **THẺ** (chờ/đang/xong + Bắt đầu/Hoàn thành qua quét QR).
+   → **Read-only routing Ở MÀN TỔ là ĐÚNG** (cấu hình nằm ở màn Lệnh/nháp) — KHÔNG phải tái bias.
+9. **Giao nhận 2 CHIỀU:** tổ giao ghi `so_giao`, tổ nhận xác nhận `so_nhan` — **LỆCH ĐƯỢC**; máy hiện
+   chênh lệch, KHÔNG phán ai sai, lý do ghi tay. **Phiếu bàn giao IN ĐƯỢC** (2 ô ký + QR).
+10. **Realtime ĐÍCH DANH:** tổ A xong công đoạn → đẩy THẲNG tới tổ B (tổ bước kế) "đến lượt" → tổ B
+    "ting" → sang tổ A lấy hàng. Badge nhảy + toast tức thì, không bắt refresh.
+11. **Thợ in ít học → màn TEXTLESS:** biến thể cùng luồng, quét QR → 1 việc đến lượt + nút to, icon/
+    màu/số to, không đọc chữ. Phân vai theo `employees.position` + tổ.
+
+**D. Thứ tự dựng + trạng thái thật (đừng tô hồng)**
+- **A** nền phòng ban ✅ · **B** routing_step sửa được ✅ · **C** tổ view ✅ *(build + browser-verified
+  2026-07-18)* · **D** giao nhận 2 chiều + phiếu in + realtime đích danh ← **TIẾP**.
+- **Chunk C đã làm THẬT:** BE step transitions bắt đầu/hoàn thành (cổng đến-lượt tuyến tính) + bảng tổ
+  (đếm đến-lượt/đang chạy) + lệnh-của-tổ; FE `TheoDoiSanXuatView` 3 tầng (cây tổ → lệnh → thẻ routing
+  thực thi). 629 test pass, tsc 0, click-through verify (bắt đầu→hoàn thành→board cập nhật).
+- **Chunk C CÒN HOÃN / GAP (phải nhớ, đừng tưởng đã xong):**
+  - Realtime hiện là **broadcast + FE lọc `to_id`, CHƯA publish "đích danh" theo tổ→user** (→ D).
+  - "Quét QR" ở màn thực thi hiện là **nút bấm màn tổ trưởng + khối QR trang trí** (chưa sinh QR thật).
+    Màn thợ textless (`NhapLieuXuongView`) **chỉ ghi sản lượng, CHƯA điều khiển routing** → 2 cơ chế
+    song song, chưa nối.
+  - Giao nhận 2 chiều (`so_nhan` + phiếu in + ký) **chưa làm** (→ D). "Xong bước → đến lượt tổ kế" hiện
+    chỉ đổi trạng thái, chưa có phiếu bàn giao.
+
 ## 1. Phạm vi & mục tiêu
 Đóng khâu **đơn chốt → chuẩn bị sản xuất → phát xuống xưởng**, chủ sở hữu = bộ phận **Kế hoạch sản xuất**:
 ```
@@ -194,3 +247,78 @@ Lệnh + tờ in → máy tổng hợp NHU CẦU (đọc PTG):  Giấy (theo t�
 | **P0 — làm ngay** | 3 tầng đơn / lệnh / tờ in · placement + **số con** · bung · ghép (record-only) · gán máy · duyệt mẫu AND · phát theo tờ · xuất giấy theo tờ · **kế hoạch vật tư (màn nhìn + nút xin mua)** · **sản lượng/công đoạn (tổ trưởng) + bàn giao (giao→nhận)** · **QC ghi lỗi (QC → tổ trưởng xác nhận, real-time)** · **yêu cầu nhập kho TP theo đơn → đóng lệnh** |
 | **P1** | phân bổ chi phí theo share · hủy-giữa-tờ · **xử lý lỗi / disposition (trừ khoán · in bù · đòi NCC, fault_party)** · quyết toán lời / lỗ per lệnh |
 | **P2** | khoán chia tổ (nối `piece_work`) · điều độ lịch máy |
+
+## 13. Mở rộng thiết kế — Tổ sản xuất · Routing sửa được · Giao nhận 2 chiều
+> Chốt **2026-07-18** qua thảo luận đa vai (chủ xưởng · kế hoạch · tổ trưởng · thợ). Bổ sung cho
+> §2/§4/§5/§8. **CHƯA code** (trừ nền phòng ban đang dựng). KIM CHỈ NAM giữ nguyên: máy chỉ ghi nhận,
+> người quyết. Lý do gốc: chủ xưởng phải NHÌN được xưởng đang làm gì + phải đủ điều kiện mới sản xuất —
+> nên module xây TỪ TRÊN (giám sát/tổ) xuống, không phải từ màn nhập liệu của thợ.
+
+### 13.1 Phòng ban SẢN XUẤT = đánh dấu, lấy cả cây con
+- Thêm cột **`departments.la_san_xuat`** (Boolean, default false). Tick ở **form sửa Phòng ban** (màn
+  RBAC/phòng ban đang có — KHÔNG đẻ màn mới).
+- **"Là sản xuất" (effective) = tự nó tick HOẶC có tổ tiên tick** — kế thừa xuống cả subtree qua
+  `parent_id`. Tick 1 lần ở nhánh gốc ("Sản xuất") → cả cây tổ con thành sản xuất. KHÔNG cascade lưu —
+  tính bằng đi ngược cây (một nguồn sự thật).
+- Phân hệ Sản xuất **liệt kê đúng subtree được tick, HIỂN THỊ DẠNG CÂY** (phòng cha → tổ con). Bấm 1 tổ
+  → lệnh của tổ.
+- Nền dữ liệu đi kèm (seed + cấu hình thật): dưới "Sản xuất" tạo các **tổ** cấp `unit_levels`="Tổ"
+  (Chế bản · In offset · Cán màng · Bế/Xén · Đóng gói · KCS), mỗi tổ có **tổ trưởng = `head_user_id`**;
+  **gắn `cong_doan.department_id` → đúng tổ**; **xếp thợ về đúng tổ** (`employees.department_id`, chuyển
+  khỏi HCNS ở demo hiện tại).
+
+### 13.2 Routing của lệnh = BẢN SAO từ job spec, kế hoạch SỬA được
+- Khi **bung lệnh**: routing = **copy các công đoạn từ job spec tính giá** (`PhieuThanhPham`, thứ tự
+  `thu_tu`) thành **routing RIÊNG trên lệnh** (`routing_step` — instance per job, đúng "TẦNG 2" mà
+  `cong_doan.py` ghi "chưa dựng"). KHÔNG trỏ sống vào PTG → sửa routing lệnh **không đụng bảng giá**.
+- Mỗi bước: `cong_doan_id` · thứ tự · **tổ phụ trách** (mặc định = `cong_doan.department_id`, sửa được)
+  · trạng thái (chờ/đang/xong).
+- Bên **kế hoạch sửa routing** (thêm/bớt/đổi thứ tự/đổi tổ) **khi lệnh còn bước kế hoạch (trước Phát)**.
+  Đã phát → **khóa các bước đã/đang chạy**, chỉ cho sửa bước **chưa tới lượt** (cổng toàn vẹn trạng thái,
+  không phải máy phán).
+
+### 13.3 Phát = bắn lệnh về đúng các tổ trong routing
+- Kế hoạch setup xong (ghép · gán máy · duyệt mẫu · routing chốt) → **Phát** → lệnh hiện trong
+  **"danh sách tổ → lệnh của tổ"** của **mỗi tổ có công đoạn trong routing** (không bắn tổ ngoài routing).
+- Tổ đến lượt theo thứ tự routing.
+
+### 13.4 Màn tổ THỰC THI (đẩy xuống tổ)
+- Vào từ **Theo dõi SX → cây tổ → tổ → lệnh của tổ**. Màn thực thi (tham khảo ảnh chủ gửi): **routing
+  dạng thẻ** (mỗi công đoạn 1 thẻ: chờ/đang/xong + nút Bắt đầu/Hoàn thành **qua quét QR**), công nhân đang
+  vận hành, nhật ký live, phiếu dán, BOM.
+- Tổ thấy **nguyên lệnh + routing**; chỉ **thẻ công đoạn của tổ mình** thao tác được, bước khác chỉ xem.
+  "Đến lượt" = bước hiện hành thuộc tổ.
+- Màn **thợ textless** (tablet ở máy) = biến thể cùng luồng: quét QR → 1 việc đến lượt + nút to, không
+  đọc chữ. Phân vai thợ/tổ trưởng theo `employees.position` + tổ.
+
+### 13.5 Giao nhận 2 CHIỀU + phiếu in + real-time "đến lượt"
+- Cụ thể hoá §8: bàn giao ghi **2 số** — tổ giao ghi **`so_giao`**, tổ nhận xác nhận **`so_nhan`** —
+  **lệch được**. Máy hiện **chênh lệch = so_giao − so_nhan**, KHÔNG phán ai sai; lý do chênh **ghi tay
+  trên phiếu**. (Thêm cột **`ban_giao.so_nhan`**.)
+- **Phiếu bàn giao IN ĐƯỢC**: lệnh · sản phẩm · tổ giao → tổ nhận · công đoạn · số giao / số nhận / chênh
+  · 2 ô ký (giao/nhận) · QR.
+- **Real-time**: tổ A **hoàn thành công đoạn** → **đẩy ĐÍCH DANH tới tổ B** (tổ của bước kế trong routing)
+  "đến lượt" — nâng cấp broadcast §8.2 thành publish theo `to → user_id`. Tổ B "ting" → sang tổ A lấy hàng.
+
+### 13.6 Thứ tự dựng
+- **A. Nền phòng ban** (13.1) — ✅ XONG + browser-verified (cờ `la_san_xuat` self/ancestor; seed 6 tổ
+  dưới "Sản xuất"; gắn công đoạn→tổ + chuyển thợ khỏi HCNS; checkbox form Phòng ban; migration `0075`).
+- **B. Routing_step** (13.2) — ✅ XONG + browser-verified. Bảng `routing_step` create_all; **copy từ
+  `PhieuThanhPham`** khi bung, tổ = snapshot `cong_doan.department_id`; API get/thêm/sửa/xóa/reorder
+  (khóa bước ≠`cho` + reorder chỉ nháp) — 11 test. **KIM CHỈ NAM (chốt cứng): kế thừa từ tính giá =
+  giá trị MẶC ĐỊNH; ở màn LỆNH (CẤU HÌNH) PHẢI cho SỬA — không read-only.** Công đoạn→tổ có DEFAULT ở
+  module Công đoạn (ô "Phòng ban/Tổ phụ trách"; `/api/cong-doan/phong-ban` **lọc về tổ SX** `la_san_
+  xuat`); routing DEFAULT do Loại SP/Tính giá gán. Panel routing = **traveler timeline** (`.lsx-trav`,
+  ui-ux-pro-max + styleseed) — **nháp: sửa được** (đổi tổ/thứ tự/thêm-bớt, dropdown tổ lọc tổ SX);
+  đang chạy/xong: read-only (trạng thái qua QR).
+  **Màn LỆNH = 2 chế độ**: NHÁP = **CẤU HÌNH** (routing sửa được · tờ in/ghép · gán máy · duyệt mẫu +
+  nút **PHÁT HÀNH LỆNH**, ẩn khối runtime) ↔ ĐANG CHẠY/XONG = **THỰC THI** (sản lượng/giao nhận/QC/
+  tiến độ). Phát hành = phát tờ in đủ đk → lệnh đang chạy → tổ trong routing nhận (realtime, chunk C/D).
+- **C. Tổ view** (13.3–13.4) — ✅ XONG + browser-verified (2026-07-18). Cây tổ (`/api/lenh-sx/to-board`,
+  đếm đến-lượt/đang chạy, dồn con→cha) → lệnh của tổ (`/api/lenh-sx/to/{id}/lenh`, đến-lượt lên đầu) →
+  màn thực thi `TheoDoiSanXuatView` (thẻ routing chờ/đang/xong; chỉ bước ĐẾN LƯỢT của TỔ MÌNH mới
+  Bắt đầu/Hoàn thành). BE `bat_dau_buoc`/`hoan_thanh_buoc` (cổng đến-lượt tuyến tính + lệnh dang_chay).
+  Realtime = broadcast `lenh_sx_routing` (FE lọc `to_id` → "ting"). **GAP → D:** publish ĐÍCH DANH
+  (tổ→user) chưa có; QR ở màn thực thi mới là nút + khối trang trí (chưa QR thật, chưa nối màn thợ
+  textless vốn chỉ ghi sản lượng). Xem **§0 "Chunk C còn hoãn/gap"**.
+- **D. Giao nhận 2 chiều + phiếu + realtime đích danh** (13.5). ⬅ TIẾP.

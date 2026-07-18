@@ -86,6 +86,7 @@ belongs to exactly one, and roles are defined per department.
 | `parent_id`    | `Integer` → `INTEGER`                                  | **FK→departments.id**, **IX** | yes  | —              | Parent department for the org tree (spec-05); null = root unit. A department and its whole subtree are cascade-deleted together (enforced in the service, not the DB).                                                                                                         |
 | `level_id`     | `Integer` → `INTEGER`                                  | **FK→unit_levels.id**, **IX** | yes  | —              | Organizational tier this unit sits at (spec-06 / PBI-4009); null = untagged. Drives the head's title label (Trưởng khối / Trưởng phòng / Tổ trưởng) and blocks deleting a level still in use.                                                                                  |
 | `head_user_id` | `Integer` → `INTEGER`                                  | —                             | yes  | —              | Logical reference to `users.id` of the trưởng phòng (no DB-level FK to avoid a create cycle; assigned via Alembic later).                                                                                                                                                      |
+| `la_san_xuat`  | `Boolean` → `BOOLEAN`                                  | —                             | no   | `false`        | Đánh dấu phòng ban thuộc khối SẢN XUẤT (spec-ke-hoach-san-xuat §13.1). Tick ở 1 nút cha ⇒ cả cây con (theo `parent_id`) coi như sản xuất; phân hệ Sản xuất liệt kê đúng subtree. "Effective sản xuất" = cột này true HOẶC có tổ tiên true (tính ở service, không cascade lưu). |
 | `created_at`   | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                             | no   | now (UTC)      | When the department row was created.                                                                                                                                                                                                                                           |
 
 **Keys & indexes**
@@ -3086,6 +3087,12 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 **Purpose:** Phiếu lỗi QC (§8) — QC nêu (ảnh + tổ bị quy + công đoạn + mô tả) → tổ trưởng XÁC NHẬN (real-time) mới thành lỗi chính thức. `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `cong_doan_id` soft → `cong_doan.id`; `to_bi_quy_id` = tổ bị quy (soft → `departments.id`). `anh_url` = ảnh minh chứng (url/path); `mo_ta` = mô tả lỗi. `trang_thai` xác nhận ∈ `cho` (QC nêu, chờ xác nhận) / `to_truong_xac_nhan` (đã xác nhận). Ghi 2 bước: `created_at` = QC nêu, `xac_nhan_at` nullable = tổ trưởng xác nhận. Record-only; disposition (trừ khoán / in bù / fault_party) để P1.
 
 **Tất cả cột:** `id`, `lenh_sx_id`, `cong_doan_id`, `to_bi_quy_id`, `anh_url`, `mo_ta`, `trang_thai`, `created_at`, `xac_nhan_at`.
+
+### `routing_step`
+
+**Purpose:** Routing RIÊNG mỗi lệnh SX (spec-ke-hoach-san-xuat §13.2) — copy công đoạn từ job spec PTG (`PhieuThanhPham`, thứ tự `thu_tu`) khi bung lệnh; kế hoạch sửa được (thêm/bớt/đổi thứ tự/đổi tổ) khi bước còn `cho`. `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `cong_doan_id` soft → `cong_doan.id`; `to_id` = tổ phụ trách (soft → `departments.id`, snapshot `cong_doan.department_id` lúc copy). `ten` = tên công đoạn (ảnh chụp hiển thị). `trang_thai` ∈ `cho`/`dang`/`xong` (set qua quét QR ở màn tổ, Chunk C); `bat_dau_at`/`hoan_thanh_at` nullable = mốc quét. Bảng MỚI → `create_all` tự tạo (không cần migration). Routing riêng trên lệnh → sửa KHÔNG đụng phiếu tính giá.
+
+**Tất cả cột:** `id`, `lenh_sx_id`, `thu_tu`, `cong_doan_id`, `to_id`, `ten`, `trang_thai`, `bat_dau_at`, `hoan_thanh_at`, `created_at`, `updated_at`.
 
 ---
 

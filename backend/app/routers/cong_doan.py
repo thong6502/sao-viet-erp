@@ -60,8 +60,9 @@ def list_phong_ban_options(
     # Đọc được nếu có quyền cấu hình Công đoạn HOẶC Tính giá (đổ dropdown 'Phòng ban phụ trách').
     _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
 ) -> RefOptionListOut:
-    """Phòng ban / tổ cho dropdown 'Phòng ban phụ trách' ở form Công đoạn (khớp field ref: {id, ma, ten})."""
-    depts = DepartmentRepository(db).list_all()
+    """Phòng ban / tổ cho dropdown 'Phòng ban phụ trách' ở form Công đoạn (khớp field ref: {id, ma, ten}).
+    Lọc về khối SẢN XUẤT (§13.1) — chỉ tổ có `la_san_xuat` (tự/tổ tiên); chưa đánh dấu gì → tất cả."""
+    depts = DepartmentRepository(db).production_departments()
     return RefOptionListOut(items=[RefOption(id=d.id, ma=d.code, ten=d.name) for d in depts])
 
 
