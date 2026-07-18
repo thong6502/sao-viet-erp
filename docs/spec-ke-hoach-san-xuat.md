@@ -108,6 +108,32 @@ Lệnh + tờ in → máy tổng hợp NHU CẦU (đọc PTG):  Giấy (theo t�
 - **[REAL-TIME]** tổ trưởng tổ bị quy nhận thông báo NGAY → **XÁC NHẬN** → lỗi mới **ghi nhận chính thức**. Chưa xác nhận = chưa thành lỗi chính thức.
 - Máy chỉ ghi 2 bước + đẩy thông báo; **KHÔNG** tự quy lỗi / trừ khoán / quyết in bù — hậu quả để **người** xử lý (P1). Ghi từ ngày 1 để sau có dữ liệu.
 
+### 8.1 Mở rộng khi build — Chunk 2 (services record-only, 2026-07-18)
+> Phần spec chưa nói rõ, agent tự quyết theo domain in offset khi dựng
+> `services/lenh_san_xuat_service.py`. (Chi tiết + lý do: `BUILD-ke-hoach-san-xuat.md` §GIẢ ĐỊNH.)
+- **Bung IDEMPOTENT theo (đơn · ấn phẩm)** (rõ hoá §2/§5.1): mỗi lần bung chỉ tạo lệnh cho ấn phẩm
+  (`phieu_thanh_phan_id`) CHƯA có lệnh. Chốt lại không nhân đôi. Đơn `cancelled` → không bung.
+  `may_id` lệnh = gợi ý `PhieuThanhPhan.may_id` (máy chạy THỰC gán ở tờ in).
+- **Sửa xếp bài sau khi phát = CHẶN** (bổ sung §3): thêm/sửa/xoá placement chỉ khi tờ *chờ ghép* /
+  *đủ điều kiện*. Tờ *đã phát* / *in xong* (đã xuống xưởng) → in bù / hủy (P1). Cổng toàn vẹn
+  trạng thái, KHÔNG phải "máy phán ghép cái gì".
+- **Trạng thái tờ in suy ra tự động** (rõ hoá §8): *chờ ghép ⇄ đủ điều kiện* tính lại sau
+  ghép/gán máy/duyệt mẫu/sửa placement; không hạ cấp khi *đã phát*. `phat` (cổng AND §7) → tờ *đã
+  phát* + mọi lệnh nháp trên tờ → *đang chạy*. `in xong` chưa tự suy ở P0 (thiếu tín hiệu) — cổng
+  cứng dùng *đã phát*.
+- **Cổng cứng sản lượng / bàn giao** (cụ thể hoá §8) = lệnh phải *đang chạy* (đã phát) hoặc *xong*.
+- **Idempotent mốc thời gian**: duyệt mẫu đã duyệt → giữ con dấu + snapshot đầu (đóng băng); xác
+  nhận nhận / tổ trưởng xác nhận QC đã xác nhận → giữ mốc đầu.
+- **Nhập kho thành phẩm → suy XONG** (rõ hoá §8): đích "đủ SL" = `OrderLine.qty` của ấn phẩm (lùi
+  `PhieuThanhPhan.so_luong`). `nhap_kho_thanh_pham(lenh, so_luong_nhap)` nhận TỔNG SL đã nhập kho
+  (caller cộng dồn từ phiếu Kho THẬT — chưa nối API Kho); `≥ đích` ⇒ lệnh *xong*. KHÔNG thêm cột
+  cộng-dồn ở `lenh_sx`.
+- **Đơn "xong sản xuất" = SUY RA** (`order_production_done` = có ≥1 lệnh & mọi lệnh không-hủy đều
+  *xong*). KHÔNG ghi `orders.status` (Order module sở hữu; chưa có trạng thái "xong SX" — không
+  thêm để khỏi đụng `order.py`/migration).
+- **Hủy lệnh** (`huy_lenh`): đánh dấu *hủy*, GIỮ log sản lượng/bàn giao/QC; chặn hủy khi đã *xong*.
+  Hủy-giữa-chừng chi tiết (rollback/quyết toán) = P1.
+
 ## 9. Phân định trách nhiệm
 - **Đơn bán (Sale):** chốt · khóa · đẩy; chỉ hiển thị + link. KHÔNG thấy / đụng ghép bài.
 - **Kế hoạch SX:** bung tờ in · **ghép bài** · gán máy · duyệt mẫu · **kế hoạch vật tư** · phát.
