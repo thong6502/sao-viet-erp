@@ -56,7 +56,6 @@ MODULES: list[tuple[str, str]] = [
     ("nghi_phep", "Nghỉ phép"),
     ("luong", "Lương"),
     ("san_luong", "Sản lượng công đoạn"),
-    ("dm_kho", "Cấu hình kho hàng"),
 ]
 
 ALL_MODULE_KEYS = [k for k, _ in MODULES]
@@ -272,7 +271,6 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_ALL),
             "kho": _full(SCOPE_ALL),
-            "dm_kho": _full(SCOPE_ALL),      # cấu hình kho + loại phiếu + trạng thái hàng
             "san_xuat": _read(SCOPE_ALL),
         },
     ),
@@ -292,7 +290,6 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         {
             "dashboard": _read(SCOPE_ALL),
             "kho": {**_read(SCOPE_ALL), "can_approve": True, "can_manage_price": True},
-            "dm_kho": _read(SCOPE_ALL),
         },
     ),
     # Nhân viên sản xuất: xuất NVL / nhập TP theo LSX; tạo lệnh SX.
@@ -1717,70 +1714,6 @@ def seed_piece_work(db: Session) -> None:
                          note="Đơn giá khoán demo")
 
 
-def seed_kho_engine(db: Session) -> None:
-    """Kho Document Engine (spec-13): seed 5 trạng thái hàng chuẩn + 3 loại phiếu (đợt 1).
-    Idempotent theo bảng rỗng."""
-    from sqlalchemy import select
-    from .models.warehouse_catalog import WhItemStatus, WhVoucherType
-
-    if db.execute(select(WhItemStatus)).first() is None:
-        # (code, name, on_hand, available, allow_issue, order)
-        statuses = [
-            ("AVAILABLE", "Khả dụng", True, True, True, 10),
-            ("RESERVED", "Giữ chỗ", True, False, False, 20),
-            ("QC_WAIT", "Chờ KCS", True, False, False, 30),
-            ("DEFECT", "Lỗi", True, False, False, 40),
-            ("CANCELLED", "Hủy", False, False, False, 50),
-        ]
-        for code, name, oh, av, iss, order in statuses:
-            db.add(WhItemStatus(code=code, name=name, count_on_hand=oh, count_available=av,
-                                allow_issue=iss, display_order=order, is_system=True, is_active=True))
-        db.commit()
-
-    # Loại phiếu — idempotent theo TỪNG mã (thêm mã mới vào DB cũ mà không đụng mã đã có).
-    # require_approval=True → sau khi Nộp, phiếu ở "Chờ duyệt" đến khi người có quyền
-    # kho:approve (kế toán/kinh doanh) Duyệt & ghi sổ.
-    # (code, name, group, effect, req_src, req_dst, req_approval)
-    vtypes = [
-        ("NK-NVL", "Nhập từ nhà cung cấp", "nhap", "tang", False, True, True),
-        ("NK-GK", "Nhập giấy khách hàng", "nhap", "tang", False, True, True),
-        ("NK-XUONG", "Nhập từ xưởng", "nhap", "tang", False, True, True),
-        ("XK-KH", "Xuất cho khách hàng", "xuat", "giam", True, False, True),
-        ("XK-NCC", "Xuất cho nhà cung cấp", "xuat", "giam", True, False, True),
-        # Gộp XK-GIAY vào XK-SX: một loại "Xuất NVL cho sản xuất" chung (giấy + vật tư khác).
-        ("XK-SX", "Xuất NVL cho sản xuất", "xuat", "giam", True, False, True),
-        ("DC-KHO", "Chuyển kho nội bộ", "dieu_chuyen", "chuyen_vi_tri", True, True, True),
-        # BRD §2.7/2.8/2.9/2.14 — mở rộng cỗ máy phiếu (đối tượng: LSX / bộ phận / máy / lý do).
-        ("NK-TRA", "Nhập trả vật tư thừa", "nhap", "tang", False, True, True),      # 2.7
-        ("XK-CCDC", "Cấp phát vật tư/CCDC nội bộ", "xuat", "giam", True, False, True),  # 2.8
-        ("XK-BT", "Xuất phụ tùng/bảo trì máy", "xuat", "giam", True, False, True),   # 2.9
-        ("XK-HUY", "Xuất hủy/thanh lý", "xuat", "giam", True, False, True),          # 2.14
-    ]
-    by_code = {t.code: t for t in db.execute(select(WhVoucherType)).scalars()}
-    dirty = False
-    for code, name, grp, effect, rsrc, rdst, rappr in vtypes:
-        cur = by_code.get(code)
-        if cur is None:
-            db.add(WhVoucherType(code=code, name=name, voucher_group=grp, stock_effect=effect,
-                                 require_src_wh=rsrc, require_dst_wh=rdst, require_approval=rappr,
-                                 sync_misa=False, is_active=True))
-            dirty = True
-        else:  # đồng bộ tên + bật duyệt theo chuẩn (không đụng cấu hình khác)
-            if cur.name != name:
-                cur.name = name
-                dirty = True
-            if cur.require_approval != rappr:
-                cur.require_approval = rappr
-                dirty = True
-    # Gộp XK-GIAY → XK-SX: vô hiệu hóa loại "Xuất giấy sản xuất" cũ nếu còn (giữ FK cho phiếu cũ).
-    giay = by_code.get("XK-GIAY")
-    if giay is not None and giay.is_active:
-        giay.is_active = False
-        dirty = True
-    if dirty:
-        db.commit()
-
-
 # --- Sample phiếu tính giá (costing tickets) demo data ---------------------
 
 # Mỗi phiếu: (ma, ten_san_pham, kho_thanh_pham, so_luong, ktv, [components]).
@@ -2207,7 +2140,6 @@ def seed_all(db: Session) -> None:
     seed_materials(db)
     seed_machines(db)
     seed_operations(db)
-    seed_kho_engine(db)
     seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
     seed_pit_brackets(db)  # biểu thuế TNCN — dữ liệu vận hành thật (Lương đọc tính thuế)
     if settings.seed_demo:

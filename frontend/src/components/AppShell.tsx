@@ -2,7 +2,7 @@
 // On entry it loads the current user's readable modules (feat-010) to gate both
 // the sidebar (handled in Sidebar) and the content (a forbidden module → 403).
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, connectQuoteEvents, type PinnedCustomer, type WarehouseOption } from "../api/client";
+import { api, connectQuoteEvents, type PinnedCustomer } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import {
   buildCapabilities,
@@ -34,11 +34,6 @@ import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPag
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
 import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
-import { WarehousesCatalogPage } from "../pages/WarehousesCatalogPage";
-import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
-import { KhoConfigPage } from "../pages/KhoConfigPage";
-import { KhoBaoCaoPage } from "../pages/KhoBaoCaoPage";
-import { KhoKiemKePage } from "../pages/KhoKiemKePage";
 import { MODULES_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -69,21 +64,12 @@ export interface NavParams {
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
 
-/** Nav id kho con: "kho-hang:<warehouseId>" → id kho; parent "kho-hang" → null. */
-function warehouseIdOf(navId: string): number | null {
-  const [base, wid] = navId.split(":");
-  if (base !== "kho-hang" || !wid || !/^\d+$/.test(wid)) return null;
-  return Number(wid);
-}
-
 export function AppShell() {
   const { token } = useAuth();
   const [activeId, setActiveId] = useState("dashboard");
   const [navParams, setNavParams] = useState<NavParams | null>(null);
   const [readable, setReadable] = useState<Set<string> | null>(null);
   const [caps, setCaps] = useState<Capabilities>(new Map());
-  // Các kho admin đã cấu hình → menu con động dưới "Tồn kho" trong sidebar.
-  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   // Badge số theo nav id (vd "nghi-phep": số đơn chờ duyệt) — chỉ người có quyền duyệt.
   const [badges, setBadges] = useState<Record<string, number>>({});
   // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
@@ -130,19 +116,6 @@ export function AppShell() {
       cancelled = true;
     };
   }, [token]);
-
-  // Nạp/refresh danh sách kho (cho menu con sidebar) khi có quyền `kho`.
-  useEffect(() => {
-    if (!token || readable === null || !readable.has("kho")) return;
-    let cancelled = false;
-    api.warehouseItems
-      .options(token)
-      .then((ws) => !cancelled && setWarehouses(ws))
-      .catch(() => !cancelled && setWarehouses([]));
-    return () => {
-      cancelled = true;
-    };
-  }, [token, readable, activeId]);
 
   // Badge Nghỉ phép: số đơn chờ duyệt (endpoint tự trả null nếu người gọi không có quyền
   // duyệt → không hiện badge). NghiPhepPage gọi lại sau mỗi thao tác để badge cập nhật ngay.
@@ -321,10 +294,7 @@ export function AppShell() {
   const baseId = activeId.split(":")[0];
   const moduleKeys = MODULES_BY_NAV_ID[baseId];
   const allowed = moduleKeys != null && moduleKeys.some((moduleKey) => readable.has(moduleKey));
-  // Menu con động: các kho đã cấu hình gắn dưới mục "Kho hàng".
-  const itemChildren = {
-    "kho-hang": warehouses.map((w) => ({ id: `kho-hang:${w.id}`, label: w.name })),
-  };
+  const itemChildren: Record<string, { id: string; label: string }[]> = {};
 
   function renderContent() {
     if (!allowed) {
@@ -411,18 +381,6 @@ export function AppShell() {
         );
       case "ke-toan-tai-khoan":
         return <AccountingBankAccountsPage />;
-      case "cau-hinh-kho":
-        return <WarehousesCatalogPage />;
-      case "kho-cauhinh-phieu":
-        return <KhoConfigPage />;
-      case "kho-bao-cao":
-        return <KhoBaoCaoPage />;
-      case "kho-kiem-ke":
-        return <KhoKiemKePage />;
-      case "kho-hang":
-        return (
-          <WarehouseItemsPage key={activeId} initialWarehouseId={warehouseIdOf(activeId)} />
-        );
       case "nhat-ky":
         return <ActivityLogPage />;
       default:

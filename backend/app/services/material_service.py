@@ -337,17 +337,6 @@ class MaterialService:
         if has_costing:
             raise MaterialValidationError("Không thể xóa vật tư đang được sử dụng trong Phương án Tính giá.")
 
-        # 3. Check StockLot reference via SEAM-22
-        try:
-            from ..ports.paper_stock_usage_port import is_paper_referenced_in_stock
-            if is_paper_referenced_in_stock(material.id):
-                raise MaterialValidationError("Không thể xóa vật tư đang được sử dụng trong Kho.")
-        except NotImplementedError:
-            # Let the user know they cannot hard delete without verifying Kho
-            raise MaterialValidationError(
-                "Chưa kiểm tra được tham chiếu Kho (SEAM-22). Vui lòng dùng chức năng Ẩn thay vì Xóa."
-            )
-
         code, name = material.code, material.name
         self.repo.delete(material)
         self.audit.create(
