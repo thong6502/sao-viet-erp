@@ -262,7 +262,7 @@ const DUP_FIELD_LABELS: Record<DuplicateWarn["field"], string> = {
 // List-Report page
 // =============================================================================
 
-export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
+export function KhachHangPage({ navigate, onBadgeStale }: { navigate: NavigateFn; onBadgeStale?: () => void }) {
   const { token } = useAuth();
 
   const [rows, setRows] = useState<CustomerRow[]>([]);
@@ -875,6 +875,7 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
               rows.map((c) => {
                 const initials = getInitials(c.name);
                 const avgOrderValue = c.orders_total > 0 ? Math.round(c.revenue_12m / c.orders_total) : 0;
+                const careDue = followups.filter((f) => f.customer_id === c.id).length;
 
                 return (
                   <tr
@@ -905,6 +906,14 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
                             {c.tax_code && <span className="kh__mono">MST {c.tax_code}</span>}
                           </span>
                           <div className="kh__row-badges">
+                            {careDue > 0 && (
+                              <span
+                                className="kh__row-badge kh__row-badge--care"
+                                title={`${careDue} việc chăm sóc đến hạn`}
+                              >
+                                <AlarmClock size={10} /> {careDue}
+                              </span>
+                            )}
                             {/* Redesign spec-06 v2: badge = THẺ gán tay (#7), bỏ tier/mock. */}
                             {(c.tags ?? []).map((t) => (
                               <span key={t} className={`kh__row-badge kh__row-badge--tag-${tagTone(t)}`}>
@@ -1027,6 +1036,8 @@ export function KhachHangPage({ navigate }: { navigate: NavigateFn }) {
       {openId != null && mode == null && (
         <CustomerObjectPage
           customerId={openId}
+          careDueCount={followups.filter((f) => f.customer_id === openId).length}
+          onCareChanged={() => { loadFollowups(); onBadgeStale?.(); }}
           canPrev={openIndex > 0}
           canNext={openIndex >= 0 && openIndex < rows.length - 1}
           onPrev={() => pageSibling(-1)}
@@ -1232,6 +1243,8 @@ type Tab = "dashboard" | "orders" | "quotes" | "care" | "notes" | "contacts" | "
 
 function CustomerObjectPage({
   customerId,
+  careDueCount,
+  onCareChanged,
   canPrev,
   canNext,
   onPrev,
@@ -1241,6 +1254,8 @@ function CustomerObjectPage({
   navigate,
 }: {
   customerId: number;
+  careDueCount: number;
+  onCareChanged?: () => void;
   canPrev: boolean;
   canNext: boolean;
   onPrev: () => void;
@@ -1344,7 +1359,7 @@ function CustomerObjectPage({
                   ["dashboard", "Dashboard", <Gauge size={14} key="i" />, null],
                   ["orders", "Lịch sử mua hàng", <ReceiptText size={14} key="i" />, dash.orders_total],
                   ["quotes", "Lịch sử báo giá", <FileText size={14} key="i" />, dash.quotes_total],
-                  ["care", "Chăm sóc", <HeartHandshake size={14} key="i" />, null],
+                  ["care", "Chăm sóc", <HeartHandshake size={14} key="i" />, careDueCount],
                   ["notes", "Ghi chú", <StickyNote size={14} key="i" />, null],
                   ["contacts", "Liên hệ", <Users size={14} key="i" />, null],
                   ["addresses", "Giao hàng", <MapPin size={14} key="i" />, null],
@@ -1360,7 +1375,9 @@ function CustomerObjectPage({
                   onClick={() => setTab(key)}
                 >
                   {icon} {label}
-                  {count != null && count > 0 && <span className="chip-count">{count}</span>}
+                  {count != null && count > 0 && (
+                    <span className={`chip-count${key === "care" ? " chip-count--alert" : ""}`}>{count}</span>
+                  )}
                 </button>
               ))}
             </nav>
@@ -1387,7 +1404,7 @@ function CustomerObjectPage({
                   }}
                 />
               )}
-              {tab === "care" && <CareTab customerId={customerId} />}
+              {tab === "care" && <CareTab customerId={customerId} onCareChanged={onCareChanged} />}
               {tab === "notes" && <NotesTab customerId={customerId} />}
               {tab === "contacts" && <ContactsTab customerId={customerId} />}
               {tab === "addresses" && <AddressesTab customerId={customerId} />}
@@ -2937,7 +2954,7 @@ function dateInDays(n: number): string {
 }
 
 
-function CareTab({ customerId }: { customerId: number }) {
+function CareTab({ customerId, onCareChanged }: { customerId: number; onCareChanged?: () => void }) {
   const { token } = useAuth();
   const canUpdate = useCan()("khach_hang", "update");
   const [tasks, setTasks] = useState<CareTask[] | null>(null);
@@ -3028,7 +3045,7 @@ function CareTab({ customerId }: { customerId: number }) {
       {error && <div className="banner banner--error" role="alert">{error}</div>}
 
       {/* Lịch hẹn chăm sóc kiểu calendar (redesign-lich-hen-cham-soc) — lặp + bung tương lai. */}
-      <CareCalendar customerId={customerId} onChange={reload} />
+      <CareCalendar customerId={customerId} onChange={() => { reload(); onCareChanged?.(); }} />
 
       {/* Đánh giá chăm sóc (#28) — một dòng gọn, ẩn khi chưa có gì đáng nói. */}
       {taskStats && taskStats.done_on_time + taskStats.done_late + taskStats.overdue_open > 0 && (

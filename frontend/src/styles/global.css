@@ -331,6 +331,11 @@ body {
   background: var(--rust);
   color: var(--on-charcoal);
 }
+/* Đếm "việc cần làm" (vd tab Chăm sóc): luôn rust để báo cần chú ý, không như đếm lịch sử trung tính. */
+.chip-count--alert {
+  background: var(--rust);
+  color: var(--on-charcoal);
+}
 
 /* Avatar chữ cái vuông (danh bạ, người dùng). */
 .avatar-sq {

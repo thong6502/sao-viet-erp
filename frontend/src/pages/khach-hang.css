@@ -2231,6 +2231,15 @@
   color: var(--rust);
   border: 1px solid color-mix(in srgb, var(--rust) 28%, transparent);
 }
+/* Badge số việc chăm sóc đến hạn của khách (đọc ngay trên dòng danh bạ). */
+.kh__row-badge--care {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: color-mix(in srgb, var(--rust) 12%, transparent);
+  color: var(--rust);
+  border: 1px solid color-mix(in srgb, var(--rust) 30%, transparent);
+}
 .kh__row-badge--partner {
   background: color-mix(in srgb, var(--moss) 10%, transparent);
   color: var(--moss);

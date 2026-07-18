@@ -327,7 +327,7 @@ export function AppShell() {
       case "luong":
         return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} />;
       case "khach-hang":
-        return <KhachHangPage navigate={navigate} />;
+        return <KhachHangPage navigate={navigate} onBadgeStale={reloadBadges} />;
       case "tinh-gia":
         return <TinhGiaPage navigate={navigate} openPhieuId={navParams?.focusPhieuId} />;
       case "bao-gia":
