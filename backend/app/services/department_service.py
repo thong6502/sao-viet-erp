@@ -184,6 +184,9 @@ class DepartmentService:
                     "total_role_count": tr,
                     "total_user_count": tu,
                     "total_employee_count": te,
+                    "salary_mechanism": dept.salary_mechanism,
+                    "probation_ratio": float(dept.probation_ratio),
+                    "has_piece_work": dept.has_piece_work,
                 }
             )
         return rows
@@ -211,7 +214,56 @@ class DepartmentService:
             "total_role_count": total_roles,
             "total_user_count": total_users,
             "total_employee_count": total_emps,
+            "salary_mechanism": dept.salary_mechanism,
+            "probation_ratio": float(dept.probation_ratio),
+            "has_piece_work": dept.has_piece_work,
         }
+
+    # --- Bảng lương của phòng (Pha 1, lát 2) ---------------------------------
+    def list_salary_rows(self, department_id: int) -> list:
+        """Các dòng mức lương phòng tự khai (trả ORM; router serialize)."""
+        return self.departments.list_salary_rows(department_id)
+
+    def add_salary_row(self, *, department_id: int, data: dict, actor_id: int | None):
+        if self.departments.get_by_id(department_id) is None:
+            raise DepartmentNotFound("Không tìm thấy phòng ban")
+        order = self.departments.next_salary_row_order(department_id)
+        row = self.departments.create_salary_row(
+            department_id=department_id, sort_order=order, **data
+        )
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="create_department_salary_row",
+            target=f"dept:{department_id}",
+            detail=f"{data.get('label', '')}",
+        )
+        return row
+
+    def update_salary_row(self, *, row_id: int, data: dict, actor_id: int | None):
+        row = self.departments.get_salary_row(row_id)
+        if row is None:
+            raise DepartmentNotFound("Không tìm thấy dòng lương")
+        row = self.departments.update_salary_row(row, **data)
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="update_department_salary_row",
+            target=f"dept:{row.department_id}",
+            detail=f"row:{row_id} {data.get('label', '')}",
+        )
+        return row
+
+    def delete_salary_row(self, *, row_id: int, actor_id: int | None) -> None:
+        row = self.departments.get_salary_row(row_id)
+        if row is None:
+            raise DepartmentNotFound("Không tìm thấy dòng lương")
+        dept_id = row.department_id
+        self.departments.delete_salary_row(row)
+        self.audit.create(
+            actor_user_id=actor_id,
+            action="delete_department_salary_row",
+            target=f"dept:{dept_id}",
+            detail=f"row:{row_id}",
+        )
 
     def members_of_department(self, department_id: int) -> list[dict]:
         """NHÂN SỰ của một phòng — liệt kê theo HỒ SƠ, không phải theo tài khoản (Đ2:
@@ -262,6 +314,9 @@ class DepartmentService:
         description: str | None = None,
         parent_id: int | None = None,
         level_id: int | None = None,
+        salary_mechanism: str = "cung",
+        probation_ratio: float = 0.80,
+        has_piece_work: bool = False,
         actor_id: int | None,
     ) -> Department:
         name = name.strip()
@@ -274,7 +329,14 @@ class DepartmentService:
         # New unit has no descendants yet — only the parent/level ordering rule applies.
         self._validate_hierarchy(dept_id=None, parent_id=parent_id, level_id=level_id)
         desc = (description or "").strip() or None
-        dept = self.departments.create(name=name, description=desc, parent_id=parent_id)
+        dept = self.departments.create(
+            name=name,
+            description=desc,
+            parent_id=parent_id,
+            salary_mechanism=salary_mechanism,
+            probation_ratio=probation_ratio,
+            has_piece_work=has_piece_work,
+        )
         if level_id is not None:
             self.departments.set_level(dept, level_id)
         self.audit.create(
@@ -294,6 +356,9 @@ class DepartmentService:
         head_user_id: int | None,
         level_id: int | None = None,
         parent_id: int | None | object = _KEEP,
+        salary_mechanism: str | None = None,
+        probation_ratio: float | None = None,
+        has_piece_work: bool | None = None,
         actor_id: int | None,
         allow_set_head: bool = True,
         allow_reparent: bool = True,
@@ -328,6 +393,19 @@ class DepartmentService:
         self.departments.set_head(dept, head_user_id)
         self.departments.set_level(dept, level_id)
         self.departments.set_parent(dept, parent_id)
+        # Bộ nguyên tắc lương (Pha 1): chỉ đụng khi client gửi (giữ nguyên nếu bỏ trống).
+        self.departments.set_salary_policy(
+            dept,
+            salary_mechanism=salary_mechanism
+            if salary_mechanism is not None
+            else dept.salary_mechanism,
+            probation_ratio=probation_ratio
+            if probation_ratio is not None
+            else float(dept.probation_ratio),
+            has_piece_work=has_piece_work
+            if has_piece_work is not None
+            else dept.has_piece_work,
+        )
         self.audit.create(
             actor_user_id=actor_id,
             action="update_department",

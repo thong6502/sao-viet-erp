@@ -15,6 +15,7 @@ class ParamsIn(BaseModel):
     bhxh_rate: float | None = Field(default=None, ge=0, le=1)
     bhyt_rate: float | None = Field(default=None, ge=0, le=1)
     bhtn_rate: float | None = Field(default=None, ge=0, le=1)
+    cong_doan_rate: float | None = Field(default=None, ge=0, le=1)
     deduction_self: float | None = Field(default=None, ge=0)
     deduction_dependent: float | None = Field(default=None, ge=0)
     chuyen_can_default: float | None = Field(default=None, ge=0)
@@ -37,6 +38,7 @@ class ParamsOut(BaseModel):
     bhxh_rate: float
     bhyt_rate: float
     bhtn_rate: float
+    cong_doan_rate: float = 0
     deduction_self: float
     deduction_dependent: float
     chuyen_can_default: float
@@ -112,10 +114,14 @@ class RulesOut(BaseModel):
 
 class SalaryIn(BaseModel):
     effective_from: date
-    amount_mode: str = Field(default="rule", pattern="^(rule|manual)$")
+    amount_mode: str = Field(default="rule", pattern="^(rule|manual|dept_row)$")
     base_amount: float | None = Field(default=None, ge=0)
+    # Trỏ 1 dòng bảng lương của tổ (department_salary_rows) → engine đọc sống. Khi set thì
+    # amount_mode tự thành 'dept_row' (service tự đặt).
+    source_salary_row_id: int | None = Field(default=None, ge=1)
     insurance_base: float | None = Field(default=None, ge=0)
-    allowance: float = Field(default=0, ge=0)
+    allowance: float = Field(default=0, ge=0)          # phụ cấp riêng NV
+    chuyen_can: float = Field(default=0, ge=0)         # chuyên cần riêng NV
     note: str | None = Field(default=None, max_length=255)
 
 
@@ -127,8 +133,10 @@ class SalaryOut(BaseModel):
     effective_from: date
     amount_mode: str
     base_amount: float | None = None
+    source_salary_row_id: int | None = None
     insurance_base: float | None = None
     allowance: float
+    chuyen_can: float = 0
     note: str | None = None
     created_at: datetime
 
@@ -160,6 +168,15 @@ class AdvanceIn(BaseModel):
     reason: str | None = Field(default=None, max_length=255)
 
 
+class MyAdvanceIn(BaseModel):
+    """Nhân viên tự lập đề nghị tạm ứng cho CHÍNH MÌNH (không có employee_id — suy từ user)."""
+    period_year: int = Field(ge=2000, le=2100)
+    period_month: int = Field(ge=1, le=12)
+    advance_date: date
+    amount: float = Field(gt=0)
+    reason: str | None = Field(default=None, max_length=255)
+
+
 class AdvanceDecisionIn(BaseModel):
     note: str | None = Field(default=None, max_length=255)
 
@@ -168,8 +185,12 @@ class AdvanceOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    code: str | None = None                # mã tạm ứng TU26-xxxx (sinh khi tạo)
     employee_id: int
     employee_name: str | None = None       # router fills
+    department_name: str | None = None     # router fills — cho phiếu in
+    bank_account: str | None = None        # router fills (bank của NV)
+    bank_name: str | None = None           # router fills
     period_year: int
     period_month: int
     advance_date: date
@@ -245,9 +266,20 @@ class LineOut(BaseModel):
     night_pay: float = 0
     vi_pham: float
     other_bonus: float
+    thuong_5s: float = 0
+    thuong_doanh_so: float = 0
+    thuong_thanh_tich: float = 0
+    phep_nam: float = 0
+    tra_dong_phuc: float = 0
+    dieu_chinh_luong: float = 0
+    di_tre: float = 0
+    dt_vuot_troi: float = 0
+    phat_bien_ban: float = 0
+    phat_5s_dong_phuc: float = 0
     gross: float
     insurance_base: float
     bhxh: float
+    cong_doan: float = 0
     pit: float
     pit_manual: bool = False
     pit_taxable: float = 0
@@ -268,6 +300,17 @@ class LineUpdateIn(BaseModel):
     pit_manual: bool | None = None   # False = reset về tự tính; None = giữ nguyên
     monthly_override: float | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=255)
+    # Khoản chi tiết (phiếu lương) — HCNS nhập tay. Thưởng ge=0; dieu_chinh_luong cho phép ÂM.
+    thuong_5s: float | None = Field(default=None, ge=0)
+    thuong_doanh_so: float | None = Field(default=None, ge=0)
+    thuong_thanh_tich: float | None = Field(default=None, ge=0)
+    phep_nam: float | None = Field(default=None, ge=0)
+    tra_dong_phuc: float | None = Field(default=None, ge=0)
+    dieu_chinh_luong: float | None = Field(default=None)
+    di_tre: float | None = Field(default=None, ge=0)
+    dt_vuot_troi: float | None = Field(default=None, ge=0)
+    phat_bien_ban: float | None = Field(default=None, ge=0)
+    phat_5s_dong_phuc: float | None = Field(default=None, ge=0)
 
 
 # --- self-service phiếu lương -----------------------------------------------

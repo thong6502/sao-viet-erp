@@ -175,6 +175,18 @@ class PayrollRepository:
             stmt = stmt.where(SalaryAdvance.status == status)
         return list(self.db.execute(stmt.order_by(SalaryAdvance.advance_date.desc(), SalaryAdvance.id.desc())).scalars())
 
+    def count_advances_by_status(self, status: str) -> int:
+        """Đếm tạm ứng theo trạng thái (mọi kỳ) — nuôi badge real-time 'chờ duyệt'."""
+        return self.db.execute(
+            select(func.count()).select_from(SalaryAdvance).where(SalaryAdvance.status == status)
+        ).scalar_one()
+
+    def advance_code_exists(self, code: str) -> bool:
+        """Kiểm mã tạm ứng đã tồn tại chưa — để sinh mã ngẫu nhiên không trùng."""
+        return self.db.execute(
+            select(func.count()).select_from(SalaryAdvance).where(SalaryAdvance.code == code)
+        ).scalar_one() > 0
+
     def list_advances_by_employee(self, employee_id: int, *, limit: int = 100) -> list[SalaryAdvance]:
         return list(
             self.db.execute(

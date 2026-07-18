@@ -23,6 +23,8 @@ from ..schemas.rbac import (
     AuditRow,
     DepartmentCreate,
     DepartmentMemberOut,
+    DepartmentSalaryRowInput,
+    DepartmentSalaryRowOut,
     DepartmentSubtreeRow,
     DepartmentSummaryOut,
     DepartmentTransferIn,
@@ -146,6 +148,9 @@ def create_department(
             description=payload.description,
             parent_id=payload.parent_id,
             level_id=payload.level_id,
+            salary_mechanism=payload.salary_mechanism,
+            probation_ratio=payload.probation_ratio,
+            has_piece_work=payload.has_piece_work,
             actor_id=user.id,
         )
     except DepartmentNameTaken as e:
@@ -172,6 +177,13 @@ def update_department(
             if "parent_id" in payload.model_fields_set
             else {}
         )
+        # Bộ nguyên tắc lương: chỉ đụng field client THỰC SỰ gửi — tránh sửa tên phòng
+        # lại vô tình reset cơ chế lương về mặc định.
+        salary_kw = {
+            k: getattr(payload, k)
+            for k in ("salary_mechanism", "probation_ratio", "has_piece_work")
+            if k in payload.model_fields_set
+        }
         dept = depts.update(
             dept_id=dept_id,
             name=payload.name,
@@ -182,6 +194,7 @@ def update_department(
             allow_set_head=authz.can(user, "phong_ban", "set_head"),
             allow_reparent=authz.can(user, "phong_ban", "reparent"),
             **parent_kw,
+            **salary_kw,
         )
     except (SetHeadForbidden, ReparentForbidden) as e:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(e)) from None
@@ -204,6 +217,73 @@ def delete_department(
         depts.delete(dept_id=dept_id, actor_id=user.id)
     except DepartmentBranchHasUsers as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e)) from None
+    except DeptNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+# --- Bảng lương của phòng (Pha 1, lát 2) -----------------------------------
+@router.get(
+    "/departments/{dept_id}/salary-rows",
+    response_model=list[DepartmentSalaryRowOut],
+)
+def list_salary_rows(
+    dept_id: int,
+    depts: Depts,
+    _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
+) -> list:
+    return depts.list_salary_rows(dept_id)
+
+
+@router.post(
+    "/departments/{dept_id}/salary-rows",
+    response_model=DepartmentSalaryRowOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_salary_row(
+    dept_id: int,
+    payload: DepartmentSalaryRowInput,
+    depts: Depts,
+    user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
+):
+    try:
+        return depts.add_salary_row(
+            department_id=dept_id, data=payload.model_dump(), actor_id=user.id
+        )
+    except DeptNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+
+@router.put(
+    "/departments/salary-rows/{row_id}",
+    response_model=DepartmentSalaryRowOut,
+)
+def update_salary_row(
+    row_id: int,
+    payload: DepartmentSalaryRowInput,
+    depts: Depts,
+    user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
+):
+    try:
+        return depts.update_salary_row(
+            row_id=row_id, data=payload.model_dump(), actor_id=user.id
+        )
+    except DeptNotFound as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+
+@router.delete(
+    "/departments/salary-rows/{row_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+)
+def delete_salary_row(
+    row_id: int,
+    depts: Depts,
+    user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
+) -> Response:
+    try:
+        depts.delete_salary_row(row_id=row_id, actor_id=user.id)
     except DeptNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     return Response(status_code=status.HTTP_204_NO_CONTENT)

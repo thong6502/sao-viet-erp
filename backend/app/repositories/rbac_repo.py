@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..models.department import Department
 from ..models.module import Module
+from ..models.payroll import DepartmentSalaryRow
 from ..models.role import Role, RolePermission
 from ..models.unit_level import UnitLevel
 
@@ -68,6 +69,9 @@ class DepartmentRepository:
         head_user_id: int | None = None,
         description: str | None = None,
         parent_id: int | None = None,
+        salary_mechanism: str = "cung",
+        probation_ratio: float = 0.80,
+        has_piece_work: bool = False,
     ) -> Department:
         dept = Department(
             name=name,
@@ -75,8 +79,27 @@ class DepartmentRepository:
             description=description,
             parent_id=parent_id,
             head_user_id=head_user_id,
+            salary_mechanism=salary_mechanism,
+            probation_ratio=probation_ratio,
+            has_piece_work=has_piece_work,
         )
         self.db.add(dept)
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def set_salary_policy(
+        self,
+        dept: Department,
+        *,
+        salary_mechanism: str,
+        probation_ratio: float,
+        has_piece_work: bool,
+    ) -> Department:
+        """Bộ nguyên tắc lương của phòng (Pha 1): cơ chế + % thử việc + cờ có khoán."""
+        dept.salary_mechanism = salary_mechanism
+        dept.probation_ratio = probation_ratio
+        dept.has_piece_work = has_piece_work
         self.db.commit()
         self.db.refresh(dept)
         return dept
@@ -149,6 +172,48 @@ class DepartmentRepository:
     def delete(self, dept: Department) -> None:
         self.db.delete(dept)
         self.db.commit()
+
+    # --- Bảng lương của phòng (Pha 1, lát 2) ---------------------------------
+    def list_salary_rows(self, department_id: int) -> list[DepartmentSalaryRow]:
+        return list(
+            self.db.execute(
+                select(DepartmentSalaryRow)
+                .where(DepartmentSalaryRow.department_id == department_id)
+                .order_by(DepartmentSalaryRow.sort_order, DepartmentSalaryRow.id)
+            ).scalars()
+        )
+
+    def get_salary_row(self, row_id: int) -> DepartmentSalaryRow | None:
+        return self.db.get(DepartmentSalaryRow, row_id)
+
+    def create_salary_row(self, **fields) -> DepartmentSalaryRow:
+        row = DepartmentSalaryRow(**fields)
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def update_salary_row(
+        self, row: DepartmentSalaryRow, **fields
+    ) -> DepartmentSalaryRow:
+        for key, value in fields.items():
+            setattr(row, key, value)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def delete_salary_row(self, row: DepartmentSalaryRow) -> None:
+        self.db.delete(row)
+        self.db.commit()
+
+    def next_salary_row_order(self, department_id: int) -> int:
+        """Sort_order kế tiếp = max hiện có + 1 (dòng mới xuống cuối bảng)."""
+        current = self.db.execute(
+            select(func.max(DepartmentSalaryRow.sort_order)).where(
+                DepartmentSalaryRow.department_id == department_id
+            )
+        ).scalar_one()
+        return int(current or 0) + 1
 
     def list_all(self) -> list[Department]:
         return list(self.db.execute(select(Department).order_by(Department.id)).scalars())

@@ -1022,6 +1022,16 @@ button.ns__kpi:hover {
   cursor: pointer;
 }
 
+/* Bước "Lương" (wizard thêm NV): ô/ghi chú trải rộng cả hàng trong .ns-grid */
+.ns-wizard__full { grid-column: 1 / -1; }
+.ns-wizard__hint {
+  grid-column: 1 / -1;
+  font-size: 12.5px;
+  color: var(--ash);
+  margin: -2px 0 2px;
+}
+.ns-wizard__hint--tv { color: var(--rust); font-weight: var(--fw-medium); }
+
 .ns-review {
   margin-top: var(--sp-4);
   padding: var(--sp-4);

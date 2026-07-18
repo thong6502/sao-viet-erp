@@ -93,6 +93,7 @@ export function AppShell() {
   const toastSeq = useRef(0);
   const lastPending = useRef(0);
   const lastOrderAction = useRef(0);
+  const lastAdvancePending = useRef(0);
   const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { id, text, tone }]);
@@ -191,6 +192,16 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Lương = số đề nghị tạm ứng đang chờ TÔI duyệt (0 với người không có quyền duyệt).
+    if (readable.has("luong")) {
+      api.luong
+        .advanceNotifySummary(token)
+        .then((s) => {
+          lastAdvancePending.current = s.pending_approval_count;
+          setBadges((prev) => ({ ...prev, luong: s.pending_approval_count }));
+        })
+        .catch(() => {});
+    }
   }, [token, readable]);
   useEffect(() => {
     reloadBadges();
@@ -201,7 +212,7 @@ export function AppShell() {
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban"))) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("luong"))) return;
     const close = connectQuoteEvents(token, (e) => {
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
       setQuoteTick((n) => n + 1);
@@ -247,6 +258,27 @@ export function AppShell() {
               pushToast("🔔 Có đơn hàng chờ bạn xử lý", "info");
             }
             lastOrderAction.current = s.action_count;
+          })
+          .catch(() => {});
+      } else if (e.type === "advance_decision") {
+        // Nhân viên đề nghị nhận quyết định của kế toán — đẩy riêng tới đúng người.
+        pushToast(
+          e.decision === "approved"
+            ? "✓ Đề nghị tạm ứng của bạn đã được duyệt"
+            : "✕ Đề nghị tạm ứng của bạn bị từ chối",
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("luong") && e.type === "advance_pending_changed") {
+        // Có đề nghị tạm ứng mới/đổi → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
+        api.luong
+          .advanceNotifySummary(token)
+          .then((s) => {
+            setBadges((prev) => ({ ...prev, luong: s.pending_approval_count }));
+            if (s.pending_approval_count > lastAdvancePending.current) {
+              pushToast("🔔 Có đề nghị tạm ứng chờ bạn duyệt", "info");
+            }
+            lastAdvancePending.current = s.pending_approval_count;
           })
           .catch(() => {});
       }
@@ -318,7 +350,7 @@ export function AppShell() {
       case "nghi-phep":
         return <NghiPhepPage onChanged={reloadBadges} focusEmployeeId={navParams?.focusEmployeeId} />;
       case "luong":
-        return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} />;
+        return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} eventTick={quoteTick} />;
       case "khach-hang":
         return <KhachHangPage navigate={navigate} />;
       case "tinh-gia":

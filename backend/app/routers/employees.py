@@ -36,6 +36,7 @@ from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
 from ..repositories.user_repo import UserRepository
+from ..schemas.rbac import DepartmentSalaryRowOut
 from ..schemas.employee import (
     AccountIn,
     AssignShiftIn,
@@ -124,12 +125,33 @@ def _user_names(users: UserRepository, ids: set[int]) -> dict[int, str]:
     return out
 
 
-def _row(employee, dept_names: dict[int, str], user_names: dict[int, str]) -> EmployeeRow:
+def _role_names(
+    users: UserRepository, roles: RoleRepository, ids: set[int]
+) -> dict[int, str]:
+    """user_id → tên Vai trò (RBAC) của tài khoản, để hiện làm "Chức danh" ở list nhân sự."""
+    out: dict[int, str] = {}
+    for uid in ids:
+        u = users.get_by_id(uid)
+        if u is not None and u.role_id is not None:
+            r = roles.get_by_id(u.role_id)
+            if r is not None:
+                out[uid] = r.name
+    return out
+
+
+def _row(
+    employee,
+    dept_names: dict[int, str],
+    user_names: dict[int, str],
+    role_names: dict[int, str] | None = None,
+) -> EmployeeRow:
     row = EmployeeRow.model_validate(employee)
     if employee.department_id is not None:
         row.department_name = dept_names.get(employee.department_id)
     if employee.user_id is not None:
         row.account_username = user_names.get(employee.user_id)
+        if role_names is not None:
+            row.role_name = role_names.get(employee.user_id)
     return row
 
 
@@ -169,6 +191,7 @@ def list_employees(
     authz: Authz,
     users: Users,
     depts: Depts,
+    roles: Roles,
     user: Annotated[User, Depends(require_permission(MODULE, "read"))],
     q: str | None = Query(default=None),
     department_id: int | None = Query(default=None),
@@ -187,9 +210,10 @@ def list_employees(
     user_ids = {e.user_id for e in rows if e.user_id is not None}
     names = _dept_names(depts, dept_ids)
     unames = _user_names(users, user_ids)
+    rnames = _role_names(users, roles, user_ids)
 
     return EmployeeListOut(
-        items=[_row(e, names, unames) for e in rows],
+        items=[_row(e, names, unames, rnames) for e in rows],
         total=total, page=page, size=size,
         kpis=_kpis(svc.list_scoped_all(scope=scope, actor=user)),
     )
@@ -240,6 +264,17 @@ def get_meta(
     return EmployeeMetaOut(
         departments=dept_opts, unlinked_users=unlinked, roles=role_opts
     )
+
+
+@router.get("/meta/salary-rows/{dept_id}", response_model=list[DepartmentSalaryRowOut])
+def get_dept_salary_rows(
+    dept_id: int,
+    depts: Depts,
+    _: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> list:
+    """Dòng bảng lương của tổ — cho form thêm NV chọn mức. Gác quyền NHÂN SỰ (không cần
+    quyền `phong_ban` như endpoint gốc ở router rbac)."""
+    return depts.list_salary_rows(dept_id)
 
 
 # --- create -----------------------------------------------------------------

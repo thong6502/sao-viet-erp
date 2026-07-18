@@ -32,7 +32,16 @@ SENIORITY_BANDS = (BAND_LT1, BAND_Y1_5, BAND_Y5_10, BAND_GT10)
 # --- Cách lấy mức lương của 1 NV --------------------------------------------
 AMOUNT_RULE = "rule"      # tra bảng chính sách theo nhóm/bậc/thâm niên
 AMOUNT_MANUAL = "manual"  # nhập tay (quản lý cấp cao / đặc biệt)
-AMOUNT_MODES = (AMOUNT_RULE, AMOUNT_MANUAL)
+AMOUNT_DEPT_ROW = "dept_row"  # trỏ 1 dòng bảng lương của tổ (source_salary_row_id) — đọc sống
+AMOUNT_MODES = (AMOUNT_RULE, AMOUNT_MANUAL, AMOUNT_DEPT_ROW)
+
+# --- Kiểu áp một dòng lương của phòng (Pha 1, lát 2) ------------------------
+# Cách map một NV vào dòng mức lương khi gán vào phòng:
+APPLY_CUNG = "cung"                       # gán tay (lương cứng thỏa thuận)
+APPLY_BAC_THO = "bac_tho"                 # theo bậc thợ (pay_grade_key)
+APPLY_THAM_NIEN = "tham_nien"             # theo nhóm thâm niên (seniority_band)
+APPLY_THAM_NIEN_GT = "tham_nien_gioi_tinh"  # theo thâm niên × giới tính
+SALARY_APPLY_BYS = (APPLY_CUNG, APPLY_BAC_THO, APPLY_THAM_NIEN, APPLY_THAM_NIEN_GT)
 
 # --- Trạng thái tạm ứng (mirror leave workflow) -----------------------------
 ADV_PENDING = "pending"
@@ -64,14 +73,16 @@ class PayrollParams(Base):
     standard_cong_default: Mapped[float] = mapped_column(
         Numeric(6, 2), nullable=False, default=26, server_default="26"
     )
-    # Thử việc hưởng % của lương chính thức (Đ26 BLLĐ: ít nhất 85%).
+    # Thử việc hưởng % của lương chính thức — công ty dùng 0.80 (Đ26 BLLĐ tối thiểu 85%).
     probation_ratio: Mapped[float] = mapped_column(
-        Numeric(5, 4), nullable=False, default=0.85, server_default="0.85"
+        Numeric(5, 4), nullable=False, default=0.80, server_default="0.80"
     )
     # Tỷ lệ NV đóng: BHXH 8% + BHYT 1.5% + BHTN 1% = 10.5%.
     bhxh_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.08, server_default="0.08")
     bhyt_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.015, server_default="0.015")
     bhtn_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.01, server_default="0.01")
+    # Đoàn phí công đoàn NV đóng (mẫu 0.5% = 0.005). Mặc định 0 — chủ tự khai; trừ vào thực nhận, KHÔNG giảm TNCN.
+    cong_doan_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0, server_default="0")
     # Giảm trừ gia cảnh TNCN — mức 2026 (NQ 110/2025/UBTVQH15, từ kỳ tính thuế 2026).
     deduction_self: Mapped[float] = mapped_column(_MONEY, nullable=False, default=15_500_000, server_default="15500000")
     deduction_dependent: Mapped[float] = mapped_column(_MONEY, nullable=False, default=6_200_000, server_default="6200000")
@@ -121,6 +132,39 @@ class SalaryRateRule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
+class DepartmentSalaryRow(Base):
+    """Một DÒNG trong 'bảng lương của phòng' (Pha 1, lát 2). Mỗi phòng tự thêm nhiều dòng
+    mức lương, mỗi dòng: nhãn tự do + kiểu áp (cứng/bậc thợ/thâm niên/±giới tính) + 4 thành
+    phần (vị trí/trách nhiệm/phụ cấp/chuyên cần). Một phòng có thể trộn nhiều kiểu (chủ chốt
+    'cho chọn nhiều'). Khi gán người vào phòng, hệ thống gợi ý dòng khớp theo
+    pay_grade_key/seniority_band/gender của người (lát sau)."""
+
+    __tablename__ = "department_salary_rows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    department_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("departments.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Nhãn tự do phòng đặt, vd "Tổ trưởng", "Thợ bậc 1", "Dưới 1 năm - Nam".
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    # Kiểu áp (xem SALARY_APPLY_BYS) — cách map người vào dòng này.
+    apply_by: Mapped[str] = mapped_column(
+        String(24), nullable=False, default=APPLY_CUNG, server_default=APPLY_CUNG
+    )
+    # Điều kiện khớp (null nếu kiểu áp không dùng chiều đó).
+    pay_grade_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    seniority_band: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    # 4 thành phần lương (VND). Tăng ca sẽ tính trên vị trí + trách nhiệm (lát engine).
+    luong_vi_tri: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    luong_trach_nhiem: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    phu_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    chuyen_can: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+
+
 class EmployeeSalary(Base):
     """Lương ấn định của 1 NV tại một mốc hiệu lực. Điều chỉnh lương = thêm bản ghi mới
     (giữ lịch sử); "hiện hành" cho 1 kỳ = bản có effective_from lớn nhất ≤ kỳ."""
@@ -132,13 +176,20 @@ class EmployeeSalary(Base):
         Integer, ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
     )
     effective_from: Mapped[date] = mapped_column(Date, index=True, nullable=False)
-    # rule = tự tra bảng chính sách; manual = dùng base_amount.
+    # rule = tự tra bảng chính sách; manual = dùng base_amount; dept_row = tra sống 1 dòng
+    # bảng lương của tổ (source_salary_row_id) → mức đổi theo khi sửa bảng lương của tổ.
     amount_mode: Mapped[str] = mapped_column(String(8), nullable=False, default=AMOUNT_RULE, server_default=AMOUNT_RULE)
     base_amount: Mapped[float | None] = mapped_column(_MONEY, nullable=True)      # khi manual
+    # Trỏ tới 1 dòng `department_salary_rows` (khi amount_mode=dept_row). Soft-ref (không FK cứng,
+    # theo tiền lệ default_shift_id) → engine đọc SỐNG 4 thành phần của dòng lúc tính lương.
+    source_salary_row_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Mức đóng BH (nullable → mặc định = mức lương). KHÔNG prorate theo công.
     insurance_base: Mapped[float | None] = mapped_column(_MONEY, nullable=True)
-    # Phụ cấp cố định hàng tháng (điện thoại, kiêm nhiệm…).
+    # Phụ cấp hàng tháng của RIÊNG người này (cơm/xăng/điện thoại/kiêm nhiệm…). Cộng phẳng,
+    # KHÔNG prorate, KHÔNG vào tăng ca. (Mỗi người mỗi khác → khai per-NV, không ở bảng lương tổ.)
     allowance: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Chuyên cần của RIÊNG người này (mỗi người mỗi khác). All-or-nothing: chỉ cộng khi đủ công.
+    chuyen_can: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -150,6 +201,8 @@ class SalaryAdvance(Base):
     __tablename__ = "salary_advances"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Mã tạm ứng (TU26-0001) — sinh khi tạo; nullable để migration backfill hàng cũ an toàn.
+    code: Mapped[str | None] = mapped_column(String(32), unique=True, index=True, nullable=True)
     employee_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
     )
@@ -211,11 +264,23 @@ class PayrollLine(Base):
     ot_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # tiền tăng ca (Pha 4a)
     night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày ca đêm (Pha 4a)
     night_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")       # phụ cấp ca đêm (Pha 4a)
-    vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay
-    other_bonus: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # tay (thưởng/hoa hồng)
+    vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay — giảm trừ khác (RAW; gộp trần 30% Đ102)
+    other_bonus: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # tay (thưởng khác/hoa hồng)
+    # --- Khoản chi tiết phiếu lương (Pha 4d) — HCNS nhập tay/tháng. Thưởng = thu nhập chịu thuế. ---
+    thuong_5s: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    thuong_doanh_so: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    thuong_thanh_tich: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    phep_nam: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    tra_dong_phuc: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    dieu_chinh_luong: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")  # ± cộng đại số
+    di_tre: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")           # đi trễ/về sớm/nghỉ KP (phạt)
+    dt_vuot_troi: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")     # điện thoại vượt trội (phạt)
+    phat_bien_ban: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    phat_5s_dong_phuc: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     gross: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     insurance_base: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     bhxh: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    cong_doan: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # đoàn phí = insurance_base×cong_doan_rate (tự tính, thử việc=0)
     pit: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")            # thuế TNCN (tự tính, có thể ghi đè tay)
     pit_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")  # HCNS ghi đè TNCN tay (Pha 4b)
     pit_taxable: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # thu nhập tính thuế đã dùng (Pha 4b)

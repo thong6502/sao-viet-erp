@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from ..deps import (
     CurrentUser,
+    get_authorization_service,
     get_department_repository,
     get_employee_repository,
     get_payroll_service,
@@ -18,8 +19,11 @@ from ..deps import (
     require_permission,
 )
 from ..models.user import User
+from ..realtime import hub
+from ..services.rbac_service import AuthorizationService
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
+from ..schemas.rbac import DepartmentSalaryRowOut
 from ..schemas.payroll import (
     AdvanceDecisionIn,
     AdvanceIn,
@@ -28,6 +32,7 @@ from ..schemas.payroll import (
     GenerateIn,
     LineOut,
     LineUpdateIn,
+    MyAdvanceIn,
     MyAdvancesOut,
     ParamsIn,
     ParamsOut,
@@ -70,6 +75,7 @@ Service = Annotated[PayrollService, Depends(get_payroll_service)]
 PieceService = Annotated[PieceWorkService, Depends(get_piece_work_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Departments = Annotated[DepartmentRepository, Depends(get_department_repository)]
+Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 
 
 def _raise(exc: Exception) -> None:
@@ -104,18 +110,41 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
     return out
 
 
-def _adv_out(advs, employees: EmployeeRepository) -> list[AdvanceOut]:
-    names = {}
+def _adv_out(advs, employees: EmployeeRepository,
+             departments: DepartmentRepository | None = None) -> list[AdvanceOut]:
+    dept_names = {d.id: d.name for d in departments.list_all()} if (departments is not None and advs) else {}
+    emp_map = {}
     for eid in {a.employee_id for a in advs}:
         emp = employees.get_by_id(eid)
         if emp is not None:
-            names[eid] = emp.full_name
+            emp_map[eid] = emp
     res = []
     for a in advs:
         o = AdvanceOut.model_validate(a)
-        o.employee_name = names.get(a.employee_id)
+        emp = emp_map.get(a.employee_id)
+        if emp is not None:
+            o.employee_name = emp.full_name
+            o.bank_account = emp.bank_account
+            o.bank_name = emp.bank_name
+            o.department_name = dept_names.get(emp.department_id)
         res.append(o)
     return res
+
+
+# --- real-time: đề nghị/duyệt tạm ứng đẩy tức thì (bám hub SSE) -------------
+
+
+def _notify_advance_pending(name: str | None) -> None:
+    """Có đề nghị tạm ứng mới/đổi → tín hiệu mọi client refetch badge (người duyệt nhận)."""
+    hub.broadcast({"type": "advance_pending_changed", "code": name})
+
+
+def _notify_advance_decision(a, employees: EmployeeRepository, decision: str) -> None:
+    """Kế toán duyệt/từ chối → đẩy tới ĐÚNG nhân viên đề nghị (nếu tài khoản đã gắn hồ sơ)."""
+    emp = employees.get_by_id(a.employee_id)
+    if emp is not None and emp.user_id is not None:
+        hub.publish(emp.user_id, {"type": "advance_decision", "decision": decision,
+                                  "code": emp.full_name})
 
 
 # --- cấu hình: params + quy tắc ---------------------------------------------
@@ -230,10 +259,19 @@ def set_salary(employee_id: int, body: SalaryIn, svc: Service,
     try:
         s = svc.set_salary(employee_id=employee_id, actor=user, effective_from=body.effective_from,
                            amount_mode=body.amount_mode, base_amount=body.base_amount,
-                           insurance_base=body.insurance_base, allowance=body.allowance, note=body.note)
+                           insurance_base=body.insurance_base, allowance=body.allowance, note=body.note,
+                           source_salary_row_id=body.source_salary_row_id, chuyen_can=body.chuyen_can)
     except PayrollError as exc:
         _raise(exc)
     return SalaryOut.model_validate(s)
+
+
+@router.get("/salary-rows/{dept_id}", response_model=list[DepartmentSalaryRowOut])
+def list_dept_salary_rows(dept_id: int, depts: Departments,
+                          _: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> list:
+    """Dòng bảng lương của tổ — cho tab 'Lương nhân viên' (SalaryModal) chọn/sửa mức theo
+    dòng tổ. Gác quyền LƯƠNG (không cần quyền `phong_ban`)."""
+    return depts.list_salary_rows(dept_id)
 
 
 @router.delete("/salaries/item/{salary_id}", status_code=204)
@@ -249,16 +287,16 @@ def delete_salary(salary_id: int, svc: Service,
 
 
 @router.get("/advances", response_model=AdvancesOut)
-def list_advances(svc: Service, employees: Employees,
+def list_advances(svc: Service, employees: Employees, departments: Departments,
                   user: Annotated[User, Depends(require_permission(MODULE, "read"))],
                   year: int = Query(...), month: int = Query(...),
                   status_filter: str | None = Query(default=None, alias="status")) -> AdvancesOut:
     advs = svc.list_advances(year=year, month=month, status=status_filter)
-    return AdvancesOut(items=_adv_out(advs, employees))
+    return AdvancesOut(items=_adv_out(advs, employees, departments))
 
 
 @router.post("/advances", response_model=AdvanceOut, status_code=status.HTTP_201_CREATED)
-def create_advance(body: AdvanceIn, svc: Service, employees: Employees,
+def create_advance(body: AdvanceIn, svc: Service, employees: Employees, departments: Departments,
                    user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> AdvanceOut:
     try:
         a = svc.create_advance(employee_id=body.employee_id, actor=user, period_year=body.period_year,
@@ -266,43 +304,78 @@ def create_advance(body: AdvanceIn, svc: Service, employees: Employees,
                                amount=body.amount, reason=body.reason)
     except PayrollError as exc:
         _raise(exc)
-    return _adv_out([a], employees)[0]
+    out = _adv_out([a], employees, departments)[0]
+    _notify_advance_pending(out.employee_name)
+    return out
 
 
 @router.post("/advances/{advance_id}/approve", response_model=AdvanceOut)
 def approve_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, employees: Employees,
+                    departments: Departments,
                     user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
     try:
         a = svc.decide_advance(advance_id=advance_id, actor=user, approve=True, note=body.note)
     except PayrollError as exc:
         _raise(exc)
-    return _adv_out([a], employees)[0]
+    _notify_advance_decision(a, employees, "approved")
+    return _adv_out([a], employees, departments)[0]
 
 
 @router.post("/advances/{advance_id}/reject", response_model=AdvanceOut)
 def reject_advance(advance_id: int, body: AdvanceDecisionIn, svc: Service, employees: Employees,
+                   departments: Departments,
                    user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
     try:
         a = svc.decide_advance(advance_id=advance_id, actor=user, approve=False, note=body.note)
     except PayrollError as exc:
         _raise(exc)
-    return _adv_out([a], employees)[0]
+    _notify_advance_decision(a, employees, "rejected")
+    return _adv_out([a], employees, departments)[0]
 
 
 @router.post("/advances/{advance_id}/cancel", response_model=AdvanceOut)
-def cancel_advance(advance_id: int, svc: Service, employees: Employees,
+def cancel_advance(advance_id: int, svc: Service, employees: Employees, departments: Departments,
                    user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> AdvanceOut:
     try:
         a = svc.cancel_advance(advance_id=advance_id, actor=user)
     except PayrollError as exc:
         _raise(exc)
-    return _adv_out([a], employees)[0]
+    return _adv_out([a], employees, departments)[0]
 
 
 @router.get("/advances/me", response_model=MyAdvancesOut)
-def my_advances(svc: Service, employees: Employees, user: CurrentUser) -> MyAdvancesOut:
+def my_advances(svc: Service, employees: Employees, departments: Departments,
+                user: CurrentUser) -> MyAdvancesOut:
     res = svc.my_advances(user=user)
-    return MyAdvancesOut(has_employee=res["has_employee"], items=_adv_out(res["items"], employees))
+    return MyAdvancesOut(has_employee=res["has_employee"],
+                         items=_adv_out(res["items"], employees, departments))
+
+
+@router.post("/advances/me", response_model=AdvanceOut, status_code=status.HTTP_201_CREATED)
+def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
+                      departments: Departments, user: CurrentUser) -> AdvanceOut:
+    """Nhân viên TỰ lập đề nghị tạm ứng cho chính mình → pending → kế toán duyệt.
+    Chỉ cần đăng nhập + có hồ sơ (không cần quyền luong:create)."""
+    emp = employees.get_by_user_id(user.id)
+    if emp is None:
+        raise HTTPException(status_code=400, detail="Tài khoản chưa gắn hồ sơ nhân sự.")
+    try:
+        a = svc.create_advance(employee_id=emp.id, actor=user, period_year=body.period_year,
+                               period_month=body.period_month, advance_date=body.advance_date,
+                               amount=body.amount, reason=body.reason)
+    except PayrollError as exc:
+        _raise(exc)
+    out = _adv_out([a], employees, departments)[0]
+    _notify_advance_pending(out.employee_name)
+    return out
+
+
+@router.get("/advances/notify-summary")
+def advance_notify_summary(svc: Service, authz: Authz, user: CurrentUser) -> dict:
+    """Badge real-time cho Tạm ứng: `pending_approval_count` = số đề nghị đang chờ duyệt.
+    Chỉ >0 với người có quyền duyệt (luong:update); nhân viên thường → 0 (chỉ nhận toast quyết định)."""
+    can_approve = authz.can(user, MODULE, "update")
+    return {"pending_approval_count": svc.count_pending_advances() if can_approve else 0}
 
 
 # --- bảng lương tháng -------------------------------------------------------
@@ -342,7 +415,12 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
     try:
         ln = svc.update_line(line_id=line_id, actor=user, vi_pham=body.vi_pham,
                              other_bonus=body.other_bonus, pit=body.pit, pit_manual=body.pit_manual,
-                             monthly_override=body.monthly_override, note=body.note)
+                             monthly_override=body.monthly_override, note=body.note,
+                             thuong_5s=body.thuong_5s, thuong_doanh_so=body.thuong_doanh_so,
+                             thuong_thanh_tich=body.thuong_thanh_tich, phep_nam=body.phep_nam,
+                             tra_dong_phuc=body.tra_dong_phuc, dieu_chinh_luong=body.dieu_chinh_luong,
+                             di_tre=body.di_tre, dt_vuot_troi=body.dt_vuot_troi,
+                             phat_bien_ban=body.phat_bien_ban, phat_5s_dong_phuc=body.phat_5s_dong_phuc)
     except PayrollError as exc:
         _raise(exc)
     return _lines_out([ln], employees, departments)[0]
@@ -405,11 +483,11 @@ def _build_table_xlsx(year: int, month: int, lines) -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = f"Luong {month:02d}-{year}"
-    ws.append(["Mã", "Họ tên", "Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
+    ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
                "Khoán", "Tăng ca", "Ca đêm", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
                "Tạm ứng", "Thực lĩnh"])
     for l in lines:
-        ws.append([l.employee_code or "", l.employee_name or "", l.payroll_group or "",
+        ws.append([l.employee_code or "", l.employee_name or "", l.department_name or "",
                    "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
                    int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
                    int(l.ot_pay), int(l.night_pay), int(l.vi_pham), int(l.other_bonus),

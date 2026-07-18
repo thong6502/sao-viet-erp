@@ -8,6 +8,7 @@ import {
   ApiError,
   assetUrl,
   type AuditRow,
+  type DepartmentSalaryRow,
   type EmployeeAttachment,
   type EmployeeDetail,
   type EmployeeEvent,
@@ -23,6 +24,7 @@ import {
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
+import { money } from "../utils/format";
 import type { NavigateFn } from "../components/AppShell";
 import { Timeline, type TimelineEntry } from "../components/Timeline";
 import {
@@ -119,6 +121,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
   const can = useCan();
   const canCreate = can("nhan_su", "create");
   const canApprove = can("nhan_su", "approve");
+  const canSalary = can("luong", "update");   // có quyền khai lương → hiện bước "Lương" khi thêm NV
 
   const [data, setData] = useState<{ items: EmployeeRow[]; total: number; kpis: EmployeeKpis } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -177,7 +180,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
       });
       const rows: string[][] = [["Mã", "Họ tên", "Phòng/Tổ", "Chức danh", "Bậc", "Trạng thái", "Ngày vào", "Tài khoản"]];
       for (const e of res.items) rows.push([
-        e.code, e.full_name, e.department_name ?? "", e.position ?? "", e.job_grade ?? "",
+        e.code, e.full_name, e.department_name ?? "", e.role_name ?? e.position ?? "", e.job_grade ?? "",
         STATUS_LABEL[e.status] ?? e.status, e.hire_date ?? "", e.account_username ?? "",
       ]);
       const csv = "﻿" + rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\r\n");
@@ -335,7 +338,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                         </div>
                       </td>
                       <td>{e.department_name ?? "—"}</td>
-                      <td>{e.position ?? "—"}</td>
+                      <td>{e.role_name ?? e.position ?? "—"}</td>
                       <td>{e.job_grade ?? "—"}</td>
                       <td>{fmtDate(e.hire_date)}</td>
                       <td>
@@ -385,6 +388,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
         <EmployeeWizard
           token={token!}
           meta={meta}
+          canSalary={canSalary}
           onClose={() => setWizardOpen(false)}
           onCreated={(id) => { setWizardOpen(false); load(); setSelectedId(id); }}
         />
@@ -506,23 +510,27 @@ function KpiStrip({ kpis, onPickProbation, onPickEndingSoon }: {
 
 // --- Wizard thêm nhân viên (5 bước) ----------------------------------------
 
-const STEPS = ["Định danh & việc làm", "Cá nhân", "BHXH / TNCN", "Đính kèm", "Tài khoản"];
-
-function EmployeeWizard({
+export function EmployeeWizard({
   token,
   meta,
+  canSalary,
   onClose,
   onCreated,
+  initialDepartmentId,
 }: {
   token: string;
   meta: EmployeeMeta;
+  canSalary: boolean;
   onClose: () => void;
   onCreated: (id: number) => void;
+  // Chọn sẵn tổ khi mở từ màn Phòng ban (khỏi chọn lại). Bỏ trống → tổ đầu danh sách như cũ.
+  initialDepartmentId?: number | null;
 }) {
+  const STEPS = ["Định danh & việc làm", "Cá nhân", "BHXH / TNCN", "Đính kèm", "Tài khoản"];
   const [step, setStep] = useState(0);
   const [form, setForm] = useState<EmployeeInput>({
     full_name: "",
-    department_id: meta.departments[0]?.id ?? null,
+    department_id: initialDepartmentId ?? meta.departments[0]?.id ?? null,
     status: "probation",
     hire_date: new Date().toISOString().slice(0, 10),
     dependents_count: 0,
@@ -532,9 +540,40 @@ function EmployeeWizard({
   const [acc, setAcc] = useState({ username: "", password: "", role_id: "" as number | "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bước "BHXH / TNCN": lương của NV = 1 dòng trong "Bảng lương của tổ" đã chọn ở bước 1 (engine
+  // đọc SỐNG khi tính lương; sửa ở màn Tổ là mức đổi theo). Chỉ với người có quyền lương.
+  const [salaryRows, setSalaryRows] = useState<DepartmentSalaryRow[]>([]);
+  const [salaryRowId, setSalaryRowId] = useState<number | "">("");
+  // Phụ cấp + Chuyên cần của RIÊNG người này (mỗi người mỗi khác) — không lấy từ bảng lương tổ.
+  const [allowance, setAllowance] = useState(0);
+  const [chuyenCan, setChuyenCan] = useState(0);
+  // Chống tạo NV trùng: nếu create xong mà setSalary/upload lỗi → bấm Lưu lại chỉ chạy phần còn thiếu.
+  const [createdId, setCreatedId] = useState<number | null>(null);
+  const [salarySaved, setSalarySaved] = useState(false);
 
   function set<K extends keyof EmployeeInput>(k: K, v: EmployeeInput[K]) {
     setForm((f) => ({ ...f, [k]: v }));
+  }
+
+  // Nạp các dòng "Bảng lương của tổ" đang chọn (endpoint gác quyền nhân sự). 1 dòng → tự chọn.
+  useEffect(() => {
+    setSalaryRowId("");
+    if (!canSalary || !form.department_id) { setSalaryRows([]); return; }
+    let alive = true;
+    api.employees.salaryRows(token, form.department_id)
+      .then((rows) => {
+        if (!alive) return;
+        const active = rows.filter((r) => r.is_active);
+        setSalaryRows(active);
+        if (active.length === 1) setSalaryRowId(active[0].id);
+      })
+      .catch(() => { if (alive) setSalaryRows([]); });
+    return () => { alive = false; };
+  }, [token, canSalary, form.department_id]);
+
+  // Mức nền của dòng = vị trí + trách nhiệm (phụ cấp/chuyên cần khai riêng theo NV bên dưới).
+  function salaryRowTotal(r: DepartmentSalaryRow): number {
+    return Number(r.luong_vi_tri) + Number(r.luong_trach_nhiem);
   }
 
   async function submit() {
@@ -544,18 +583,41 @@ function EmployeeWizard({
       setError("Họ tên là bắt buộc.");
       return;
     }
+    // Người có quyền lương: nếu tổ CÓ bảng lương thì bắt buộc chọn 1 dòng (tổ chưa lập → cho qua).
+    if (canSalary && salaryRows.length > 0 && salaryRowId === "") {
+      setStep(2);
+      setError("Chọn mức lương từ bảng lương của tổ.");
+      return;
+    }
     setBusy(true);
     try {
-      const input: EmployeeInput = { ...form };
-      if (makeAccount && acc.username.trim()) {
-        input.account = {
-          username: acc.username.trim(),
-          password: acc.password,
-          role_id: acc.role_id === "" ? null : acc.role_id,
-        };
+      // Giữ id đã tạo để nếu lỗi giữa chừng, bấm Lưu lại KHÔNG tạo nhân viên trùng.
+      let id = createdId;
+      if (id == null) {
+        const input: EmployeeInput = { ...form };
+        if (makeAccount && acc.username.trim()) {
+          input.account = {
+            username: acc.username.trim(),
+            password: acc.password,
+            role_id: acc.role_id === "" ? null : acc.role_id,
+          };
+        }
+        const res = await api.employees.create(token, input);
+        id = res.employee.id;
+        setCreatedId(id);
       }
-      const res = await api.employees.create(token, input);
-      const id = res.employee.id;
+      // Gán lương = trỏ 1 dòng bảng lương của tổ (engine đọc SỐNG; ×80% tự áp khi thử việc).
+      // Phụ cấp + Chuyên cần là của riêng NV (mỗi người mỗi khác).
+      if (canSalary && salaryRowId !== "" && !salarySaved) {
+        await api.luong.setSalary(token, id, {
+          effective_from: form.hire_date || new Date().toISOString().slice(0, 10),
+          amount_mode: "dept_row",
+          source_salary_row_id: salaryRowId,
+          allowance,
+          chuyen_can: chuyenCan,
+        });
+        setSalarySaved(true);
+      }
       // Upload các file đã chọn (cần id sau khi tạo).
       for (const f of files) {
         await api.employees.upload(token, id, f.file, f.doc_kind);
@@ -586,7 +648,7 @@ function EmployeeWizard({
         <div className="ns-modal__body">
           {error && <div className="banner banner--error">{error}</div>}
 
-          {step === 0 && (
+          {STEPS[step] === "Định danh & việc làm" && (
             <div className="ns-grid">
               <Field label="Họ tên *">
                 <input value={form.full_name} onChange={(e) => set("full_name", e.target.value)} />
@@ -616,7 +678,7 @@ function EmployeeWizard({
             </div>
           )}
 
-          {step === 1 && (
+          {STEPS[step] === "Cá nhân" && (
             <div className="ns-grid">
               <Field label="Ngày sinh"><input type="date" value={form.date_of_birth ?? ""} onChange={(e) => set("date_of_birth", e.target.value)} /></Field>
               <Field label="Giới tính">
@@ -639,20 +701,35 @@ function EmployeeWizard({
             </div>
           )}
 
-          {step === 2 && (
+          {STEPS[step] === "BHXH / TNCN" && (
             <div className="ns-grid">
-              <Field label="Nhóm lương">
-                <select value={form.payroll_group ?? ""} onChange={(e) => set("payroll_group", e.target.value || null)}>
-                  <option value="">— chưa gán —</option>
-                  {Object.entries(PG_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-              </Field>
-              <Field label="Bậc lương (tổ In)">
-                <select value={form.pay_grade_key ?? ""} onChange={(e) => set("pay_grade_key", e.target.value || null)}>
-                  <option value="">— không theo bậc —</option>
-                  {Object.entries(PGK_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-              </Field>
+              {canSalary && (
+                <label className="ns-field ns-wizard__full">
+                  <span className="ns-field__label">Mức lương — bảng lương của tổ {meta.departments.find((d) => d.id === form.department_id)?.name ?? ""}</span>
+                  <select value={salaryRowId} onChange={(e) => setSalaryRowId(e.target.value === "" ? "" : Number(e.target.value))}>
+                    <option value="">— chọn mức từ bảng lương của tổ —</option>
+                    {salaryRows.map((r) => (
+                      <option key={r.id} value={r.id}>{r.label} · {money(salaryRowTotal(r))}đ</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {canSalary && salaryRows.length === 0 && (
+                <div className="ns-wizard__hint">Tổ này chưa lập bảng lương — vào màn Tổ (Phòng ban) để lập, hoặc gán lương sau ở màn Lương.</div>
+              )}
+              {canSalary && salaryRowId !== "" && (
+                <Field label="Phụ cấp (riêng người này)">
+                  <input type="number" min={0} value={allowance} onChange={(e) => setAllowance(Number(e.target.value))} />
+                </Field>
+              )}
+              {canSalary && salaryRowId !== "" && (
+                <Field label="Chuyên cần (riêng người này)">
+                  <input type="number" min={0} value={chuyenCan} onChange={(e) => setChuyenCan(Number(e.target.value))} />
+                </Field>
+              )}
+              {canSalary && form.status === "probation" && salaryRowId !== "" && (
+                <div className="ns-wizard__hint ns-wizard__hint--tv">Thử việc: khi tính lương hệ thống tự ×80% mức nền của tổ (không cần khai riêng).</div>
+              )}
               <Field label="Bậc thợ"><input value={form.job_grade ?? ""} onChange={(e) => set("job_grade", e.target.value)} placeholder="vd 3/7" /></Field>
               <Field label="Số sổ BHXH"><input value={form.social_insurance_no ?? ""} onChange={(e) => set("social_insurance_no", e.target.value)} /></Field>
               <Field label="MST cá nhân"><input value={form.pit_tax_code ?? ""} onChange={(e) => set("pit_tax_code", e.target.value)} /></Field>
@@ -662,7 +739,7 @@ function EmployeeWizard({
             </div>
           )}
 
-          {step === 3 && (
+          {STEPS[step] === "Đính kèm" && (
             <div>
               <FilePicker onAdd={(file, kind) => setFiles((fs) => [...fs, { file, doc_kind: kind }])} />
               <ul className="ns-filelist">
@@ -677,7 +754,7 @@ function EmployeeWizard({
             </div>
           )}
 
-          {step === 4 && (
+          {STEPS[step] === "Tài khoản" && (
             <div>
               <label className="ns-check">
                 <input type="checkbox" checked={makeAccount} onChange={(e) => setMakeAccount(e.target.checked)} />
@@ -1426,7 +1503,11 @@ function EventsTab({ token, employeeId, meta }: { token: string; employeeId: num
       if (f && t) change = `${f} → ${t}`;
       else if (t) change = t;
     }
-    const detailBits = [fmtDate(ev.effective_date), ev.note || null, ev.actor_name || null].filter(Boolean);
+    const detailBits = [
+      fmtDate(ev.effective_date),
+      ev.note || null,
+      ev.actor_name ? `Người thực hiện: ${ev.actor_name}` : null,
+    ].filter(Boolean);
     const tone: TimelineEntry["tone"] | undefined =
       ev.event_type === "hired" ? "rust"
       : ["confirmed", "promoted", "leave_end", "reinstated"].includes(ev.event_type) ? "moss"

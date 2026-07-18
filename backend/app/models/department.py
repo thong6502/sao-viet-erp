@@ -8,10 +8,18 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
+
+# Cơ chế lương của phòng (Pha 1 — bộ nguyên tắc lương). Cách một phòng ra mức lương cho
+# mọi người trong phòng:
+#   cung                 = lương cứng, ấn định tay từng người (khối quản lý/hành chính).
+#   bac_tho              = theo bậc thợ (thợ 1/2/3, phụ 1/2) — vd tổ In.
+#   tham_nien            = theo thâm niên (<1 / 1–5 / 5–10 / >10 năm) — vd Cắt, Bồi, Cán.
+#   tham_nien_gioi_tinh  = theo thâm niên × nam/nữ — vd Dán, Thành phẩm.
+SALARY_MECHANISMS = ("cung", "bac_tho", "tham_nien", "tham_nien_gioi_tinh")
 
 
 def _utcnow() -> datetime:
@@ -41,6 +49,19 @@ class Department(Base):
     # Logical reference to users.id (the trưởng phòng). Kept as a plain column to avoid a
     # users<->departments FK cycle under create_all; the DB-level FK can land with Alembic.
     head_user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # --- Bộ nguyên tắc lương của phòng (Pha 1) ---------------------------------------
+    # Cơ chế ra mức lương (xem SALARY_MECHANISMS). Mặc định 'cung' = ấn định tay.
+    salary_mechanism: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="cung", server_default="cung"
+    )
+    # % lương thử việc của phòng (công ty dùng 0.80; Đ26 BLLĐ tối thiểu 0.85).
+    probation_ratio: Mapped[float] = mapped_column(
+        Numeric(5, 4), nullable=False, default=0.80, server_default="0.80"
+    )
+    # Phòng sản xuất có lương khoán theo sản lượng (nối engine khoán ở pha sau).
+    has_piece_work: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

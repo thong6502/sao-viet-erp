@@ -86,6 +86,9 @@ belongs to exactly one, and roles are defined per department.
 | `parent_id`    | `Integer` → `INTEGER`                                  | **FK→departments.id**, **IX** | yes  | —              | Parent department for the org tree (spec-05); null = root unit. A department and its whole subtree are cascade-deleted together (enforced in the service, not the DB).                                                                                                         |
 | `level_id`     | `Integer` → `INTEGER`                                  | **FK→unit_levels.id**, **IX** | yes  | —              | Organizational tier this unit sits at (spec-06 / PBI-4009); null = untagged. Drives the head's title label (Trưởng khối / Trưởng phòng / Tổ trưởng) and blocks deleting a level still in use.                                                                                  |
 | `head_user_id` | `Integer` → `INTEGER`                                  | —                             | yes  | —              | Logical reference to `users.id` of the trưởng phòng (no DB-level FK to avoid a create cycle; assigned via Alembic later).                                                                                                                                                      |
+| `salary_mechanism` | `String(24)` → `VARCHAR(24)` | — | no | `'cung'` | Bộ nguyên tắc lương (Pha 1): cơ chế ra mức lương cho cả phòng — `cung` (ấn định tay), `bac_tho` (theo bậc thợ), `tham_nien` (theo thâm niên), `tham_nien_gioi_tinh` (theo thâm niên × giới tính). |
+| `probation_ratio` | `Numeric(5,4)` → `NUMERIC(5,4)` | — | no | `0.80` | % lương thử việc của phòng (công ty dùng 0.80). |
+| `has_piece_work` | `Boolean` → `BOOLEAN` | — | no | `false` | Phòng sản xuất có lương khoán theo sản lượng (nối engine khoán ở pha sau). |
 | `created_at`   | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                             | no   | now (UTC)      | When the department row was created.                                                                                                                                                                                                                                           |
 
 **Keys & indexes**
@@ -2607,10 +2610,11 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 |---|---|---|---|---|
 | `id` | `Integer` | no | auto | PK. |
 | `standard_cong_default` | `Numeric(6,2)` | no | `26` | Công chuẩn/tháng để prorate lương thời gian. |
-| `probation_ratio` | `Numeric(5,4)` | no | `0.85` | Thử việc hưởng % của lương chính thức (Đ26 BLLĐ ≥85%). |
+| `probation_ratio` | `Numeric(5,4)` | no | `0.80` | Thử việc hưởng % của lương chính thức — công ty dùng 0.80 (Đ26 BLLĐ tối thiểu 85%). |
 | `bhxh_rate` | `Numeric(6,4)` | no | `0.08` | Tỷ lệ NV đóng BHXH. |
 | `bhyt_rate` | `Numeric(6,4)` | no | `0.015` | Tỷ lệ NV đóng BHYT. |
 | `bhtn_rate` | `Numeric(6,4)` | no | `0.01` | Tỷ lệ NV đóng BHTN. |
+| `cong_doan_rate` | `Numeric(6,4)` | no | `0` | Tỷ lệ đoàn phí công đoàn (chủ tự khai; mẫu 0.5%=0.005). Thêm qua migration 0074. |
 | `deduction_self` | `Numeric(14,2)` | no | `15500000` | Giảm trừ gia cảnh bản thân (TNCN, mức 2026 NQ 110/2025). |
 | `deduction_dependent` | `Numeric(14,2)` | no | `6200000` | Giảm trừ mỗi người phụ thuộc (mức 2026). |
 | `chuyen_can_default` | `Numeric(14,2)` | no | `300000` | Mức chuyên cần mặc định (đủ công). |
@@ -2624,6 +2628,35 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `bh_base_cap` | `Numeric(14,2)` | no | `50600000` | Trần đóng BHXH+BHYT = 20× mức tham chiếu; 0 = không trần (Pha 4a). |
 | `bhtn_base_cap` | `Numeric(14,2)` | no | `106200000` | Trần đóng BHTN = 20× lương tối thiểu vùng; 0 = không trần (Pha 4a). |
 | `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
+
+---
+
+### `department_salary_rows`
+
+**Purpose:** "bảng lương của phòng" (Pha 1, lát 2). Mỗi phòng tự thêm nhiều dòng mức lương —
+mỗi dòng: nhãn tự do + kiểu áp + 4 thành phần. Một phòng có thể trộn nhiều kiểu ("cho chọn nhiều").
+Bảng MỚI, `create_all` tự tạo (không cần migration).
+
+| Column              | Type            | Key                          | Null | Default  | Meaning                                            |
+| ------------------- | --------------- | ---------------------------- | ---- | -------- | -------------------------------------------------- |
+| `id`                | `Integer`       | **PK**                       | no   | auto     | PK.                                                |
+| `department_id`     | `Integer`       | **FK→departments.id**, **IX**| no   | —        | Phòng sở hữu dòng; xóa phòng thì xóa dòng (CASCADE).|
+| `label`             | `String(120)`   | —                            | no   | —        | Nhãn tự do (Tổ trưởng, Thợ bậc 1, Dưới 1 năm - Nam).|
+| `apply_by`          | `String(24)`    | —                            | no   | `'cung'` | Kiểu áp: `cung`/`bac_tho`/`tham_nien`/`tham_nien_gioi_tinh`. |
+| `pay_grade_key`     | `String(20)`    | —                            | yes  | —        | Bậc thợ (khi `bac_tho`).                           |
+| `seniority_band`    | `String(8)`     | —                            | yes  | —        | Nhóm thâm niên (khi `tham_nien`).                  |
+| `gender`            | `String(8)`     | —                            | yes  | —        | Giới tính (khi `tham_nien_gioi_tinh`).             |
+| `luong_vi_tri`      | `Numeric(14,2)` | —                            | no   | `0`      | Lương vị trí.                                      |
+| `luong_trach_nhiem` | `Numeric(14,2)` | —                            | no   | `0`      | Lương trách nhiệm.                                 |
+| `phu_cap`           | `Numeric(14,2)` | —                            | no   | `0`      | Phụ cấp (cơm/xăng).                                |
+| `chuyen_can`        | `Numeric(14,2)` | —                            | no   | `0`      | Chuyên cần.                                        |
+| `sort_order`        | `Integer`       | —                            | no   | `0`      | Thứ tự hiển thị trong bảng của phòng.              |
+| `is_active`         | `Boolean`       | —                            | no   | `true`   | Đang dùng.                                         |
+| `created_at`        | `DateTime(tz)`  | —                            | no   | now      | Khi tạo.                                           |
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign key: `department_id FK→departments.id` (CASCADE). Index: `ix_department_salary_rows_department_id`.
 
 ---
 
@@ -2658,10 +2691,12 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `id`             | `Integer`       | **PK**                      | no   | auto    | PK.                                  |
 | `employee_id`    | `Integer`       | **FK→employees.id**, **IX** | no   | —       | NV; `ON DELETE CASCADE`.             |
 | `effective_from` | `Date`          | **IX**                      | no   | —       | Hiệu lực từ.                         |
-| `amount_mode`    | `String(8)`     | —                           | no   | `rule`  | rule (tra bảng) / manual (nhập tay). |
+| `amount_mode`    | `String(8)`     | —                           | no   | `rule`  | rule (tra bảng) / manual (nhập tay) / dept_row (dòng bảng lương tổ). |
 | `base_amount`    | `Numeric(14,2)` | —                           | yes  | —       | Mức tháng khi manual.                |
+| `source_salary_row_id` | `Integer` | —                           | yes  | —       | Soft-ref `department_salary_rows` khi amount_mode=dept_row (đọc sống). |
 | `insurance_base` | `Numeric(14,2)` | —                           | yes  | —       | Mức đóng BH (NULL = mức lương).      |
-| `allowance`      | `Numeric(14,2)` | —                           | no   | `0`     | Phụ cấp cố định tháng.               |
+| `allowance`      | `Numeric(14,2)` | —                           | no   | `0`     | Phụ cấp tháng của riêng NV (cộng phẳng, không tăng ca). |
+| `chuyen_can`     | `Numeric(14,2)` | —                           | no   | `0`     | Chuyên cần của riêng NV (all-or-nothing, chỉ khi đủ công). |
 | `note`           | `String(255)`   | —                           | yes  | —       | Ghi chú.                             |
 | `created_by`     | `Integer`       | **FK→users.id**             | yes  | —       | Người khai/điều chỉnh.               |
 | `created_at`     | `DateTime(tz)`  | —                           | no   | now     | Khi tạo.                             |
@@ -2675,6 +2710,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | Column          | Type            | Key                         | Null | Default   | Meaning                              |
 | --------------- | --------------- | --------------------------- | ---- | --------- | ------------------------------------ |
 | `id`            | `Integer`       | **PK**                      | no   | auto      | PK.                                  |
+| `code`          | `String(32)`    | **UQ**, **IX**              | yes  | —         | Mã tạm ứng TU26-xxxx (sinh khi tạo); hàng cũ backfill `TU-<id>`. |
 | `employee_id`   | `Integer`       | **FK→employees.id**, **IX** | no   | —         | NV ứng; `ON DELETE CASCADE`.         |
 | `period_year`   | `Integer`       | **IX**                      | no   | —         | Năm kỳ lương áp dụng.                |
 | `period_month`  | `Integer`       | **IX**                      | no   | —         | Tháng kỳ lương áp dụng.              |
@@ -2731,11 +2767,22 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `ot_pay` | `Numeric(14,2)` | — | no | `0` | Tiền tăng ca (hệ số phẳng). Thêm qua migration 0043. |
 | `night_days` | `Integer` | — | no | `0` | Số ngày làm ca đêm. Thêm qua migration 0043. |
 | `night_pay` | `Numeric(14,2)` | — | no | `0` | Phụ cấp ca đêm. Thêm qua migration 0043. |
-| `vi_pham` | `Numeric(14,2)` | — | no | `0` | Trừ vi phạm (nhập tay). |
-| `other_bonus` | `Numeric(14,2)` | — | no | `0` | Thưởng/hoa hồng (nhập tay). |
+| `vi_pham` | `Numeric(14,2)` | — | no | `0` | Giảm trừ khác (nhập tay, RAW; gộp trần 30% Đ102). |
+| `other_bonus` | `Numeric(14,2)` | — | no | `0` | Thưởng khác/hoa hồng (nhập tay). |
+| `thuong_5s` | `Numeric(14,2)` | — | no | `0` | Thưởng 5S (nhập tay). Thêm qua migration 0074. |
+| `thuong_doanh_so` | `Numeric(14,2)` | — | no | `0` | Thưởng doanh số (nhập tay). Thêm qua migration 0074. |
+| `thuong_thanh_tich` | `Numeric(14,2)` | — | no | `0` | Thưởng thành tích (nhập tay). Thêm qua migration 0074. |
+| `phep_nam` | `Numeric(14,2)` | — | no | `0` | Tiền phép năm (nhập tay). Thêm qua migration 0074. |
+| `tra_dong_phuc` | `Numeric(14,2)` | — | no | `0` | Trả tiền đồng phục (cn thôi việc). Thêm qua migration 0074. |
+| `dieu_chinh_luong` | `Numeric(14,2)` | — | no | `0` | Điều chỉnh lương (±, cộng đại số). Thêm qua migration 0074. |
+| `di_tre` | `Numeric(14,2)` | — | no | `0` | Phạt đi trễ/về sớm/nghỉ KP (RAW). Thêm qua migration 0074. |
+| `dt_vuot_troi` | `Numeric(14,2)` | — | no | `0` | Trừ điện thoại vượt trội (RAW). Thêm qua migration 0074. |
+| `phat_bien_ban` | `Numeric(14,2)` | — | no | `0` | Phạt biên bản vi phạm (RAW). Thêm qua migration 0074. |
+| `phat_5s_dong_phuc` | `Numeric(14,2)` | — | no | `0` | Tiền đồng phục/phạt 5S (RAW). Thêm qua migration 0074. |
 | `gross` | `Numeric(14,2)` | — | no | `0` | Tổng thu nhập trước khấu trừ. |
 | `insurance_base` | `Numeric(14,2)` | — | no | `0` | Mức đóng BH. |
 | `bhxh` | `Numeric(14,2)` | — | no | `0` | Khấu trừ BHXH/BHYT/BHTN. |
+| `cong_doan` | `Numeric(14,2)` | — | no | `0` | Đoàn phí công đoàn = insurance_base×cong_doan_rate (tự tính, thử việc=0). Thêm qua migration 0074. |
 | `pit` | `Numeric(14,2)` | — | no | `0` | Thuế TNCN (tự tính, có thể ghi đè tay). |
 | `pit_manual` | `Boolean` | — | no | `false` | TNCN do HCNS ghi đè tay (không auto ghi đè). Thêm qua migration 0044. |
 | `pit_taxable` | `Numeric(14,2)` | — | no | `0` | Thu nhập tính thuế đã dùng để tính TNCN. Thêm qua migration 0044. |

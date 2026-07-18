@@ -351,9 +351,11 @@ def get_payroll_service(
     attendance: Annotated[AttendanceService, Depends(get_attendance_service)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     piece: Annotated[PieceWorkService, Depends(get_piece_work_service)],
+    departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
 ) -> PayrollService:
-    # attendance → số CÔNG; piece → tiền KHOÁN (nhịp 2).
-    return PayrollService(payroll, employees, attendance, audit=audit, piece=piece)
+    # attendance → số CÔNG; piece → tiền KHOÁN (nhịp 2); departments → cờ has_piece_work.
+    return PayrollService(payroll, employees, attendance, audit=audit, piece=piece,
+                          departments=departments)
 
 
 def get_costing_repository(
