@@ -15,12 +15,6 @@ import "./tinh-gia.css";
 const fmt = (v: number | null | undefined): string =>
   typeof v === "number" ? Math.round(v).toLocaleString("vi-VN") : "—";
 
-function specLine(it: PhieuTinhGiaListItem): string {
-  return [`${it.so_thanh_phan} thành phần`, it.kho_thanh_pham]
-    .filter((x) => x != null && x !== "")
-    .join(" · ");
-}
-
 function SortBtn({
   label,
   col,
@@ -140,11 +134,19 @@ export function PhieuTinhGiaListView({
   const draftCount = items.filter(it => it.so_thanh_phan === 0).length;
 
   return (
-    <main className="tg-page">
+    <main className="rdx-cost tg-page">
       <header className="tg-head">
         <div className="tg-head__lead">
-          <p className="eyebrow">Kinh doanh</p>
+          <div className="eyebrow"><span className="sq" /> Kinh doanh · Giá vốn nội bộ</div>
           <h1 className="tg-head__title">Tính giá thành</h1>
+          <p className="tg-head__sub">
+            Bóc tách giá vốn theo nguyên vật liệu &amp; công đoạn — cơ sở lập báo giá.
+          </p>
+        </div>
+        <div className="tg-head__actions">
+          <Button variant="accent" onClick={create} loading={creating}>
+            <PlusIcon /> Lập phiếu tính giá
+          </Button>
         </div>
       </header>
 
@@ -162,12 +164,6 @@ export function PhieuTinhGiaListView({
         <button type="button" className="btn btn--secondary ptg-filter" disabled title="Sắp có">
           Lọc theo tiêu chí
         </button>
-
-        <div className="ptg-toolbar-spacer" />
-
-        <Button variant="accent" onClick={create} loading={creating}>
-          + Lập phiếu tính giá
-        </Button>
       </div>
 
       <div style={{ margin: "4px 0 8px" }}>
@@ -266,7 +262,6 @@ export function PhieuTinhGiaListView({
                   </td>
                   <td className="ptg-prod">
                     <span className="ptg-prod__name">{it.ten_san_pham || "—"}</span>
-                    <span className="ptg-prod__spec">{specLine(it)}</span>
                   </td>
                   <td className="tg-num">{fmt(it.so_luong)}</td>
                   <td className="tg-num">{fmt(it.gia_von_don)} đ</td>
@@ -275,11 +270,11 @@ export function PhieuTinhGiaListView({
                   </td>
                   <td>
                     {it.so_thanh_phan === 0 ? (
-                      <span className="ptg-badge ptg-badge--neutral">Nháp</span>
+                      <span className="badge neutral"><span className="d" />Nháp</span>
                     ) : it.tong_gia_von > 0 ? (
-                      <span className="ptg-badge ptg-badge--moss">Đã tính giá</span>
+                      <span className="badge soft"><span className="d" />Đã tính giá</span>
                     ) : (
-                      <span className="ptg-badge ptg-badge--amber">Đang tính</span>
+                      <span className="badge pending"><span className="d" />Đang tính</span>
                     )}
                   </td>
                   <td className="ptg-when">
@@ -305,6 +300,12 @@ export function PhieuTinhGiaListView({
 }
 
 // ---------- Inline icons ----------
+const PlusIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
 const SearchIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="ptg-search__icon" aria-hidden="true">
     <circle cx="11" cy="11" r="8" />

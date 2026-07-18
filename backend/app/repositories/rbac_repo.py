@@ -136,6 +136,25 @@ class DepartmentRepository:
                     queue.append(child.id)
         return result
 
+    def production_departments(self) -> list[Department]:
+        """Phòng/tổ thuộc khối SẢN XUẤT (§13.1): tự `la_san_xuat` HOẶC có tổ tiên `la_san_xuat`
+        (đi ngược cây `parent_id`). CHƯA đánh dấu phòng nào → trả tất cả (fallback an toàn để form
+        Công đoạn không rỗng). Nuôi dropdown 'Phòng ban / Tổ phụ trách'."""
+        depts = self.list_all()
+        by_id = {d.id: d for d in depts}
+
+        def is_prod(d: Department) -> bool:
+            cur, seen = d, set()
+            while cur is not None and cur.id not in seen:
+                seen.add(cur.id)
+                if cur.la_san_xuat:
+                    return True
+                cur = by_id.get(cur.parent_id) if cur.parent_id is not None else None
+            return False
+
+        prod = [d for d in depts if is_prod(d)]
+        return prod or depts
+
     def set_head(self, dept: Department, head_user_id: int | None) -> Department:
         dept.head_user_id = head_user_id
         self.db.commit()
@@ -153,6 +172,13 @@ class DepartmentRepository:
     def set_level(self, dept: Department, level_id: int | None) -> Department:
         """Tag (or clear) a department's organizational tier (spec-06 / PBI-4009)."""
         dept.level_id = level_id
+        self.db.commit()
+        self.db.refresh(dept)
+        return dept
+
+    def set_la_san_xuat(self, dept: Department, value: bool) -> Department:
+        """Đánh dấu / bỏ dấu phòng ban thuộc khối SẢN XUẤT (spec-ke-hoach-san-xuat §13.1)."""
+        dept.la_san_xuat = bool(value)
         self.db.commit()
         self.db.refresh(dept)
         return dept

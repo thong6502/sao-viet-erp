@@ -52,6 +52,18 @@ const NAV: NavSection[] = [
     ],
   },
   {
+    id: "san-xuat",
+    label: "Sản xuất",
+    items: [
+      // "Kế hoạch SX" = list/detail lệnh (đang chạy). 3 item sau thuộc chunk kế — route tạm
+      // (placeholder) để nav không dẫn về Dashboard; sẽ thay bằng màn thật (gồm màn thợ textless).
+      { id: "ke-hoach-sx", label: "Kế hoạch SX", icon: "calendar", module: "san_xuat" },
+      { id: "theo-doi-sx", label: "Theo dõi SX", icon: "activity", module: "san_xuat" },
+      { id: "nhap-lieu-xuong", label: "Nhập liệu xưởng", icon: "clipboard", module: "san_xuat" },
+      { id: "qc-kcs", label: "QC / KCS", icon: "shield", module: "san_xuat" },
+    ],
+  },
+  {
     id: "kho",
     label: "Kho",
     items: [

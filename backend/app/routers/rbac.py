@@ -151,6 +151,7 @@ def create_department(
             salary_mechanism=payload.salary_mechanism,
             probation_ratio=payload.probation_ratio,
             has_piece_work=payload.has_piece_work,
+            la_san_xuat=payload.la_san_xuat,
             actor_id=user.id,
         )
     except DepartmentNameTaken as e:
@@ -190,6 +191,7 @@ def update_department(
             description=payload.description,
             head_user_id=payload.head_user_id,
             level_id=payload.level_id,
+            la_san_xuat=payload.la_san_xuat,
             actor_id=user.id,
             allow_set_head=authz.can(user, "phong_ban", "set_head"),
             allow_reparent=authz.can(user, "phong_ban", "reparent"),

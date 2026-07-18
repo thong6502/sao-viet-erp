@@ -80,6 +80,15 @@ from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
+from .lenh_san_xuat import (
+    BanGiao,
+    GangPlacement,
+    LenhSanXuat,
+    PrintForm,
+    QcDefect,
+    RoutingStep,
+    SanLuong,
+)
 
 __all__ = [
     "User",
@@ -167,4 +176,11 @@ __all__ = [
     "PhieuTinhGia",
     "PhieuThanhPhan",
     "PhieuThanhPham",
+    "LenhSanXuat",
+    "PrintForm",
+    "GangPlacement",
+    "SanLuong",
+    "BanGiao",
+    "QcDefect",
+    "RoutingStep",
 ]

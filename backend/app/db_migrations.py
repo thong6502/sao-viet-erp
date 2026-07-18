@@ -2147,6 +2147,20 @@ def _migrate_care_task_recurrence(db: Session) -> None:
     db.commit()
 
 
+def _migrate_department_la_san_xuat(db: Session) -> None:
+    """Phân hệ Sản xuất (spec-ke-hoach-san-xuat §13.1): thêm `departments.la_san_xuat` (Boolean,
+    default false) — đánh dấu phòng/khối là bộ phận sản xuất; cả cây con (theo parent_id) kế thừa.
+    No-op trên DB fresh (create_all đã dựng cột) / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "departments" not in insp.get_table_names():
+        return
+    if "la_san_xuat" not in _existing_columns(insp, "departments"):
+        db.execute(text(
+            "ALTER TABLE departments ADD COLUMN la_san_xuat BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2236,6 +2250,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0073_employee_salary_chuyen_can", _migrate_employee_salary_chuyen_can),
     ("0074_payslip_detail_items", _migrate_payslip_detail_items),
     ("0075_salary_advance_code", _migrate_salary_advance_code),
+    # Nhánh Kế hoạch/LSX (accounting-wip): cờ phòng sản xuất. Khác CHUỖI id nên không đụng 0075 ở trên.
+    ("0075_department_la_san_xuat", _migrate_department_la_san_xuat),
 ]
 
 

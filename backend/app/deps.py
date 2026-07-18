@@ -61,6 +61,7 @@ from .services.customer_analytics import CustomerAnalyticsService
 from .services.attendance_service import AttendanceService
 from .services.calendar_service import CalendarService
 from .services.leave_service import LeaveService
+from .services.lenh_san_xuat_service import LenhSanXuatService
 from .services.payroll_service import PayrollService
 from .services.piece_work_service import PieceWorkService
 from .services.customer_service import CustomerService
@@ -614,3 +615,10 @@ def get_estimate_service(
     sequence: Annotated[SequenceService, Depends(get_sequence_service)],
 ) -> EstimateService:
     return EstimateService(db, repo, audit, sequence)
+
+
+def get_lenh_san_xuat_service(
+    db: Annotated[Session, Depends(get_db)],
+) -> LenhSanXuatService:
+    # Service tự dựng repo từ db (LenhSanXuatRepository) — module Kế hoạch & Lệnh sản xuất (Chunk 3).
+    return LenhSanXuatService(db)

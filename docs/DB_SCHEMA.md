@@ -89,6 +89,7 @@ belongs to exactly one, and roles are defined per department.
 | `salary_mechanism` | `String(24)` → `VARCHAR(24)` | — | no | `'cung'` | Bộ nguyên tắc lương (Pha 1): cơ chế ra mức lương cho cả phòng — `cung` (ấn định tay), `bac_tho` (theo bậc thợ), `tham_nien` (theo thâm niên), `tham_nien_gioi_tinh` (theo thâm niên × giới tính). |
 | `probation_ratio` | `Numeric(5,4)` → `NUMERIC(5,4)` | — | no | `0.80` | % lương thử việc của phòng (công ty dùng 0.80). |
 | `has_piece_work` | `Boolean` → `BOOLEAN` | — | no | `false` | Phòng sản xuất có lương khoán theo sản lượng (nối engine khoán ở pha sau). |
+| `la_san_xuat`  | `Boolean` → `BOOLEAN`                                  | —                             | no   | `false`        | Đánh dấu phòng ban thuộc khối SẢN XUẤT (spec-ke-hoach-san-xuat §13.1). Tick ở 1 nút cha ⇒ cả cây con (theo `parent_id`) coi như sản xuất; phân hệ Sản xuất liệt kê đúng subtree. "Effective sản xuất" = cột này true HOẶC có tổ tiên true (tính ở service, không cascade lưu). |
 | `created_at`   | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                             | no   | now (UTC)      | When the department row was created.                                                                                                                                                                                                                                           |
 
 **Keys & indexes**
@@ -3080,6 +3081,70 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 **Purpose:** Kho — file đính kèm phiếu kho (chứng từ scan). One row = 1 file.
 
 **Tất cả cột:** `id`, `voucher_id`, `file_name`, `file_url`, `file_type`, `uploaded_by`, `uploaded_at`.
+
+---
+
+## Kế hoạch & Lệnh sản xuất (P0) — bảng mới
+
+> 6 bảng RECORD-ONLY (máy CHỈ GHI NHẬN) của module Kế hoạch & Lệnh SX — spec
+> `docs/spec-ke-hoach-san-xuat.md` §11. 3 tầng: Đơn (`orders`) 1–n Lệnh (`lenh_sx`) n–n
+> Tờ in (`print_form`) qua `gang_placement` (+ số con). Lệnh ĐỌC quy cách/routing/vật tư từ PTG
+> (`phieu_thanh_phan`/`phieu_thanh_pham`) — không chép lại. FK MỀM (soft int) tới danh mục
+> (`may_thiet_bi` · `giay_nguyen` · `cong_doan` · `departments` = tổ · `users`); FK THẬT chỉ trong
+> module + `orders`. Bảng mới `create_all` tự tạo (không migration). Không cột Boolean (trạng thái =
+> chuỗi enum; "đã nhận"/"đã duyệt" suy từ cột `*_at` nullable).
+
+### `lenh_sx`
+
+**Purpose:** Lệnh SX = 1 ấn phẩm/cấu phần in = 1 routing (ruột · bìa · name card · tem) — traveler qua các tổ. Thuộc 1 đơn (`order_id` FK thật → `orders`, cascade); đọc quy cách + routing từ PTG qua `phieu_thanh_phan_id` (soft → `phieu_thanh_phan.id`). Móc n–n với tờ in qua `gang_placement`. `may_id` soft → `may_thiet_bi.id` (máy gán cho lệnh; máy chạy thực gán ở tờ in). `trang_thai` ∈ `nhap`/`dang_chay`/`xong`/`huy` (suy ra theo routing, không bấm tay). Cụm duyệt mẫu (§5): `mau_approved_at` + `mau_approved_by` (soft → `users.id`) + `mau_approved_snapshot` (JSON đóng băng `{to, chuc_vu, ten}` người duyệt tại thời điểm duyệt).
+
+**Tất cả cột:** `id`, `order_id`, `phieu_thanh_phan_id`, `may_id`, `trang_thai`, `mau_approved_at`, `mau_approved_by`, `mau_approved_snapshot`, `created_at`, `updated_at`.
+
+---
+
+### `print_form`
+
+**Purpose:** Tờ in = 1 lượt chạy máy vật lý (1 bộ kẽm · 1 lần canh) — NƠI ghép bài; móc n–n với lệnh qua `gang_placement`. `giay_id` soft → `giay_nguyen.id` + `giay_label` nhãn hiển thị. `kho_in_dai`/`kho_in_rong` = khổ tờ in (mm). `so_mau` = số màu (bộ kẽm cả tờ). `may_id` soft → `may_thiet_bi.id`. `so_to_chay` = số tờ chạy; `so_kem` = số kẽm. `trang_thai` phát ∈ `cho_ghep`/`du_dieu_kien`/`da_phat`/`in_xong` (cổng phát = đã gán máy + MỌI lệnh trên tờ duyệt mẫu, §8). Giấy/khổ/màu là ẢNH CHỤP để người kế hoạch dễ nhìn — máy KHÔNG lọc/chặn/cảnh báo.
+
+**Tất cả cột:** `id`, `giay_id`, `giay_label`, `kho_in_dai`, `kho_in_rong`, `so_mau`, `may_id`, `so_to_chay`, `so_kem`, `trang_thai`, `created_at`, `updated_at`.
+
+---
+
+### `gang_placement`
+
+**Purpose:** Danh sách xếp bài (placement) = "cái bóng kế toán" của ghép — 1 dòng: tờ · lệnh · số con (§3). `print_form_id` FK thật → `print_form.id` (cascade), `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `so_con` = con/tờ của lệnh này, NHẬP TAY (dàn bài là việc chế bản ngoài ERP). Nguồn sự thật của ghép; KHÔNG phải layout dàn trang.
+
+**Tất cả cột:** `id`, `print_form_id`, `lenh_sx_id`, `so_con`, `created_at`.
+
+---
+
+### `san_luong`
+
+**Purpose:** Log sản lượng (tổ chạy, §8) — tổ trưởng ghi số đạt + số hỏng cho 1 công đoạn của 1 lệnh. `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `cong_doan_id` soft → `cong_doan.id`; `to_id` = tổ thực hiện (soft → `departments.id`); `nguoi_ghi` = tổ trưởng ghi (soft → `users.id`). `so_dat`/`so_hong` = số đạt / số hỏng. `created_at` = thời điểm ghi. Log thuần — KHÔNG state-machine; khoán = P2 đọc lại số từ đây.
+
+**Tất cả cột:** `id`, `lenh_sx_id`, `cong_doan_id`, `to_id`, `so_dat`, `so_hong`, `nguoi_ghi`, `created_at`.
+
+---
+
+### `ban_giao`
+
+**Purpose:** Log bàn giao (§8) — tổ trưởng GIAO số đạt sang công đoạn/tổ kế → tổ kế XÁC NHẬN NHẬN (real-time). `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `cong_doan_tu_id`/`cong_doan_toi_id` = công đoạn từ → tới (soft → `cong_doan.id`); `to_giao_id`/`to_nhan_id` = tổ giao → tổ nhận (soft → `departments.id`). `so_giao` = số giao. `giao_at` = thời điểm giao (= lúc tạo bản ghi); `nhan_at` nullable = xác nhận nhận (NULL = chưa nhận; lệch số để sau truy). Record-only.
+
+**Tất cả cột:** `id`, `lenh_sx_id`, `cong_doan_tu_id`, `cong_doan_toi_id`, `so_giao`, `to_giao_id`, `to_nhan_id`, `giao_at`, `nhan_at`.
+
+---
+
+### `qc_defect`
+
+**Purpose:** Phiếu lỗi QC (§8) — QC nêu (ảnh + tổ bị quy + công đoạn + mô tả) → tổ trưởng XÁC NHẬN (real-time) mới thành lỗi chính thức. `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `cong_doan_id` soft → `cong_doan.id`; `to_bi_quy_id` = tổ bị quy (soft → `departments.id`). `anh_url` = ảnh minh chứng (url/path); `mo_ta` = mô tả lỗi. `trang_thai` xác nhận ∈ `cho` (QC nêu, chờ xác nhận) / `to_truong_xac_nhan` (đã xác nhận). Ghi 2 bước: `created_at` = QC nêu, `xac_nhan_at` nullable = tổ trưởng xác nhận. Record-only; disposition (trừ khoán / in bù / fault_party) để P1.
+
+**Tất cả cột:** `id`, `lenh_sx_id`, `cong_doan_id`, `to_bi_quy_id`, `anh_url`, `mo_ta`, `trang_thai`, `created_at`, `xac_nhan_at`.
+
+### `routing_step`
+
+**Purpose:** Routing RIÊNG mỗi lệnh SX (spec-ke-hoach-san-xuat §13.2) — copy công đoạn từ job spec PTG (`PhieuThanhPham`, thứ tự `thu_tu`) khi bung lệnh; kế hoạch sửa được (thêm/bớt/đổi thứ tự/đổi tổ) khi bước còn `cho`. `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `cong_doan_id` soft → `cong_doan.id`; `to_id` = tổ phụ trách (soft → `departments.id`, snapshot `cong_doan.department_id` lúc copy). `ten` = tên công đoạn (ảnh chụp hiển thị). `trang_thai` ∈ `cho`/`dang`/`xong` (set qua quét QR ở màn tổ, Chunk C); `bat_dau_at`/`hoan_thanh_at` nullable = mốc quét. Bảng MỚI → `create_all` tự tạo (không cần migration). Routing riêng trên lệnh → sửa KHÔNG đụng phiếu tính giá.
+
+**Tất cả cột:** `id`, `lenh_sx_id`, `thu_tu`, `cong_doan_id`, `to_id`, `ten`, `trang_thai`, `bat_dau_at`, `hoan_thanh_at`, `created_at`, `updated_at`.
 
 ---
 

@@ -178,6 +178,7 @@ class DepartmentService:
                     "head_name": self._head_name(dept),
                     "level_id": dept.level_id,
                     "head_title": self._head_title(dept),
+                    "la_san_xuat": dept.la_san_xuat,
                     "role_count": own_roles[dept.id],
                     "user_count": own_users[dept.id],
                     "employee_count": own_emps[dept.id],
@@ -208,6 +209,7 @@ class DepartmentService:
             "head_name": self._head_name(dept),
             "level_id": dept.level_id,
             "head_title": self._head_title(dept),
+            "la_san_xuat": dept.la_san_xuat,
             "role_count": self.roles.count_by_department(dept.id),
             "user_count": self.users.count_by_department(dept.id),
             "employee_count": self.employees.count_by_department(dept.id),
@@ -317,6 +319,7 @@ class DepartmentService:
         salary_mechanism: str = "cung",
         probation_ratio: float = 0.80,
         has_piece_work: bool = False,
+        la_san_xuat: bool = False,
         actor_id: int | None,
     ) -> Department:
         name = name.strip()
@@ -339,6 +342,8 @@ class DepartmentService:
         )
         if level_id is not None:
             self.departments.set_level(dept, level_id)
+        if la_san_xuat:
+            self.departments.set_la_san_xuat(dept, True)
         self.audit.create(
             actor_user_id=actor_id,
             action="create_department",
@@ -362,6 +367,7 @@ class DepartmentService:
         actor_id: int | None,
         allow_set_head: bool = True,
         allow_reparent: bool = True,
+        la_san_xuat: bool = False,
     ) -> Department:
         dept = self.departments.get_by_id(dept_id)
         if dept is None:
@@ -406,6 +412,7 @@ class DepartmentService:
             if has_piece_work is not None
             else dept.has_piece_work,
         )
+        self.departments.set_la_san_xuat(dept, la_san_xuat)
         self.audit.create(
             actor_user_id=actor_id,
             action="update_department",

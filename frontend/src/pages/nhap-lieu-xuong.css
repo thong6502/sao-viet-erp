@@ -1,0 +1,821 @@
+/* MÀN THỢ — Nhập liệu xưởng (Chunk 8, TEXTLESS).
+   Đối tượng: thợ/tổ trưởng ít chữ · thao tác bằng TRÍ NHỚ · tay dính mực/đeo găng.
+   Nguyên tắc: quét QR / nhập MÃ là chính · icon + MÀU + SỐ TO thay chữ · nút TO · luồng CỐ ĐỊNH ·
+   xác nhận = 1 chạm · lỗi = chụp ảnh. Vẫn dùng bảng màu app (đen/kem/cam + moss/amber/signal) cho
+   nhất quán, nhưng bố cục TO-ĐƠN-GIẢN. Scope riêng `.nlx` (KHÔNG đụng .lsx).
+
+   Mã màu ngữ nghĩa (thợ nhớ theo màu, không đọc chữ):
+     · moss  (xanh)  = chạy / đạt / xong / nhận  → nút xác nhận positive
+     · rust  (cam)   = hành động tiến (mở lệnh · giao) = accent app
+     · amber (vàng)  = chờ / chưa phát / dừng
+     · signal(đỏ)    = hỏng / lỗi / hủy */
+
+.nlx {
+  --dark: #14130f;
+  --on-dark: #e6e0d2;
+  --hit: 60px; /* chiều cao chạm tối thiểu (tay găng) */
+  max-width: 760px;
+  margin: 0 auto;
+  padding: var(--sp-4) var(--sp-4) var(--sp-16);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.nlx * {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ============================ NÚT TO dùng chung ============================ */
+.nlx-bigbtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--hit);
+  padding: 14px 18px;
+  border: 2px solid transparent;
+  border-radius: var(--r-6);
+  font-family: var(--ff-sans);
+  font-size: 19px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  user-select: none;
+  transition: transform var(--duration-fast) var(--easing-standard),
+    filter var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+.nlx-bigbtn svg {
+  flex: none;
+}
+.nlx-bigbtn:active {
+  transform: translateY(1px) scale(0.995);
+}
+.nlx-bigbtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.nlx-bigbtn:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+.nlx-bigbtn--go {
+  background: var(--rust);
+  color: #fff;
+}
+.nlx-bigbtn--go:not(:disabled):hover {
+  filter: brightness(1.05);
+}
+.nlx-bigbtn--ok {
+  background: var(--moss);
+  color: #fff;
+}
+.nlx-bigbtn--ok:not(:disabled):hover {
+  filter: brightness(1.08);
+}
+.nlx-bigbtn--danger {
+  background: var(--signal);
+  color: #fff;
+}
+.nlx-bigbtn--ghost {
+  background: var(--canvas);
+  color: var(--ink);
+  border-color: var(--rule);
+  font-weight: var(--fw-medium);
+  font-size: 17px;
+}
+.nlx-bigbtn--ghost:not(:disabled):hover {
+  border-color: var(--ash-2);
+}
+
+/* ============================ Card chung ============================ */
+.nlx-card {
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.nlx-sec {
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-1);
+  padding: var(--sp-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.nlx-sec__hd {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--ff-sans);
+  font-size: 15px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.nlx-sec__hd svg {
+  flex: none;
+  color: var(--rust);
+}
+.nlx-sec__hd .n {
+  margin-left: auto;
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
+}
+
+/* ============================ ENTRY — quét/nhập mã ============================ */
+.nlx-scan {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-6) var(--sp-4) var(--sp-5);
+}
+.nlx-scan__frame {
+  position: relative;
+  width: 168px;
+  height: 168px;
+  display: grid;
+  place-items: center;
+  color: var(--rust);
+}
+.nlx-scan__frame::before,
+.nlx-scan__frame::after,
+.nlx-scan__frame > .c1,
+.nlx-scan__frame > .c2 {
+  content: "";
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border: 5px solid var(--rust);
+  border-radius: 4px;
+}
+.nlx-scan__frame::before {
+  top: 0;
+  left: 0;
+  border-right: none;
+  border-bottom: none;
+}
+.nlx-scan__frame::after {
+  top: 0;
+  right: 0;
+  border-left: none;
+  border-bottom: none;
+}
+.nlx-scan__frame .c1 {
+  bottom: 0;
+  left: 0;
+  border-right: none;
+  border-top: none;
+}
+.nlx-scan__frame .c2 {
+  bottom: 0;
+  right: 0;
+  border-left: none;
+  border-top: none;
+}
+.nlx-scan__qr {
+  opacity: 0.9;
+}
+.nlx-scan__hint {
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  text-align: center;
+}
+/* Ô hiển thị mã đang gõ (SỐ TO) */
+.nlx-code {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 74px;
+  padding: 10px 16px;
+  background: var(--paper);
+  border: 2px solid var(--rule);
+  border-radius: var(--r-6);
+}
+.nlx-code__pre {
+  font-family: var(--ff-mono);
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--ash-2);
+}
+.nlx-code__val {
+  font-family: var(--ff-mono);
+  font-size: 46px;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+.nlx-code__val.is-empty {
+  color: var(--ash-2);
+}
+
+/* ============================ NUMBER PAD ============================ */
+.nlx-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  width: 100%;
+}
+.nlx-key {
+  min-height: 64px;
+  border: 1.5px solid var(--rule);
+  border-radius: var(--r-6);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-mono);
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: background-color var(--duration-fast) var(--easing-standard),
+    transform var(--duration-fast) var(--easing-standard);
+}
+.nlx-key:hover {
+  background: var(--paper);
+}
+.nlx-key:active {
+  transform: translateY(1px);
+  background: var(--rust-soft);
+}
+.nlx-key:focus-visible {
+  outline: 3px solid var(--rust);
+  outline-offset: 2px;
+}
+.nlx-key--util {
+  background: var(--paper);
+  color: var(--ash);
+}
+.nlx-key--util svg {
+  color: var(--ash);
+}
+
+/* ============================ LỆNH — header ============================ */
+.nlx-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.nlx-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 14px 8px 10px;
+  border: 1.5px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--ff-sans);
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.nlx-back:hover {
+  border-color: var(--ash-2);
+}
+.nlx-back:focus-visible {
+  outline: 3px solid var(--rust);
+  outline-offset: 2px;
+}
+.nlx-topbar__code {
+  margin-left: auto;
+  font-family: var(--ff-mono);
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+.nlx-hd {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+}
+.nlx-hd__disc {
+  flex: none;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+.nlx-hd__disc svg {
+  width: 34px;
+  height: 34px;
+}
+.nlx-hd__disc--run {
+  background: var(--moss);
+}
+.nlx-hd__disc--wait {
+  background: var(--amber);
+}
+.nlx-hd__disc--done {
+  background: var(--steel);
+}
+.nlx-hd__disc--danger {
+  background: var(--signal);
+}
+.nlx-hd__body {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nlx-hd__name {
+  font-family: var(--ff-sans);
+  font-size: 19px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.nlx-hd__cust {
+  font-size: 14px;
+  color: var(--ash);
+}
+.nlx-hd__state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  align-self: flex-start;
+  margin-top: 2px;
+  font-family: var(--ff-sans);
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+}
+.nlx-hd__state--run {
+  color: var(--moss-deep);
+  background: var(--moss-soft);
+}
+.nlx-hd__state--wait {
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+}
+.nlx-hd__state--done {
+  color: var(--steel);
+  background: var(--steel-soft);
+}
+.nlx-hd__state--danger {
+  color: var(--signal);
+  background: var(--signal-soft);
+}
+
+/* Tiến độ SỐ TO (đạt / đích) */
+.nlx-prog {
+  background: var(--dark);
+  color: var(--on-dark);
+  padding: 14px 18px 16px;
+}
+.nlx-prog__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nlx-prog__big {
+  font-family: var(--ff-mono);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  font-size: 40px;
+  line-height: 1;
+  color: #fff;
+}
+.nlx-prog__big .u {
+  font-size: 20px;
+  color: var(--on-dark);
+  opacity: 0.65;
+  margin-left: 4px;
+}
+.nlx-prog__pct {
+  font-family: var(--ff-mono);
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--rust);
+}
+.nlx-prog__bar {
+  margin-top: 12px;
+  height: 12px;
+  border-radius: var(--r-pill);
+  background: rgba(230, 224, 210, 0.14);
+  overflow: hidden;
+}
+.nlx-prog__fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--rust);
+  transition: width var(--duration-base) var(--easing-standard);
+}
+.nlx-prog__hong {
+  margin-top: 10px;
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  color: #e0a58c;
+}
+
+/* Cổng chặn (chưa phát / đã hủy) — icon + màu, ít chữ */
+.nlx-gate {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: var(--sp-4);
+  border-radius: var(--r-6);
+  border: 2px solid var(--amber);
+  background: var(--amber-soft);
+}
+.nlx-gate--danger {
+  border-color: var(--signal);
+  background: var(--signal-soft);
+}
+.nlx-gate__ic {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--amber);
+  color: #fff;
+}
+.nlx-gate--danger .nlx-gate__ic {
+  background: var(--signal);
+}
+.nlx-gate__t {
+  font-family: var(--ff-sans);
+  font-size: 18px;
+  font-weight: var(--fw-bold);
+  color: var(--amber-deep);
+}
+.nlx-gate--danger .nlx-gate__t {
+  color: var(--signal);
+}
+.nlx-gate__s {
+  font-size: 13px;
+  color: var(--ash);
+  margin-top: 1px;
+}
+
+/* ============================ Công đoạn tiles ============================ */
+.nlx-cdrow {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.nlx-cd {
+  flex: none;
+  width: 104px;
+  min-height: 96px;
+  border: 2px solid var(--rule);
+  border-radius: var(--r-6);
+  background: var(--canvas);
+  padding: 10px 8px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+.nlx-cd:focus-visible {
+  outline: 3px solid var(--rust);
+  outline-offset: 2px;
+}
+.nlx-cd__ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  flex: none;
+}
+.nlx-cd__ic--prepress {
+  background: var(--steel);
+}
+.nlx-cd__ic--print {
+  background: var(--rust);
+}
+.nlx-cd__ic--finishing {
+  background: var(--amber);
+}
+.nlx-cd__t {
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.2;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nlx-cd--on {
+  border-color: var(--rust);
+  background: var(--rust-soft);
+  box-shadow: inset 0 0 0 1px var(--rust);
+}
+.nlx-cd__dot {
+  position: absolute;
+}
+
+/* ============================ ĐẠT / HỎNG ============================ */
+.nlx-counts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.nlx-count {
+  border: 2px solid var(--rule);
+  border-radius: var(--r-6);
+  background: var(--canvas);
+  padding: 10px 12px 12px;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.nlx-count:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+.nlx-count__k {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.02em;
+}
+.nlx-count__k .sw {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  flex: none;
+}
+.nlx-count__v {
+  font-family: var(--ff-mono);
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  margin-top: 4px;
+}
+.nlx-count--dat .nlx-count__k {
+  color: var(--moss-deep);
+}
+.nlx-count--dat .nlx-count__k .sw {
+  background: var(--moss);
+}
+.nlx-count--hong .nlx-count__k {
+  color: var(--signal);
+}
+.nlx-count--hong .nlx-count__k .sw {
+  background: var(--signal);
+}
+.nlx-count--on {
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+.nlx-count--dat.nlx-count--on {
+  border-color: var(--moss);
+  box-shadow: 0 0 0 3px var(--moss-soft);
+}
+.nlx-count--hong.nlx-count--on {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-soft);
+}
+
+/* ============================ Giao / Nhận ============================ */
+.nlx-giao__panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-3);
+  border-top: 1px dashed var(--rule);
+}
+.nlx-fieldrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.nlx-fieldrow__k {
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+}
+.nlx-fieldrow__v {
+  font-family: var(--ff-mono);
+  font-size: 34px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* danh sách chờ nhận */
+.nlx-inbox {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nlx-inbox__row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border: 1.5px solid var(--rule);
+  border-radius: var(--r-6);
+  background: var(--paper);
+}
+.nlx-inbox__flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+  font-family: var(--ff-sans);
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.nlx-inbox__flow svg {
+  color: var(--ash-2);
+  flex: none;
+}
+.nlx-inbox__num {
+  font-family: var(--ff-mono);
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--moss-deep);
+  flex: none;
+}
+.nlx-inbox__btn {
+  flex: none;
+  width: auto;
+  min-width: 116px;
+  padding: 12px 18px;
+  font-size: 17px;
+}
+
+/* ============================ QC ============================ */
+.nlx-qc__cam {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+.nlx-qc__shot {
+  flex: 1 1 auto;
+  min-height: 96px;
+  border: 2px dashed var(--rule);
+  border-radius: var(--r-6);
+  background: var(--paper);
+  color: var(--ash);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  cursor: pointer;
+  font-family: var(--ff-sans);
+  font-size: 14px;
+  font-weight: var(--fw-medium);
+}
+.nlx-qc__shot:hover {
+  border-color: var(--rust);
+  color: var(--rust);
+}
+.nlx-qc__shot svg {
+  color: var(--rust);
+}
+.nlx-qc__thumb {
+  position: relative;
+  flex: none;
+  width: 96px;
+  height: 96px;
+  border-radius: var(--r-6);
+  overflow: hidden;
+  border: 2px solid var(--rule);
+  background: var(--paper);
+}
+.nlx-qc__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.nlx-qc__thumbx {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(20, 19, 15, 0.72);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.nlx-qc__pending {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ============================ Loading / error / hint ============================ */
+.nlx-loading {
+  padding: var(--sp-12);
+  text-align: center;
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: 15px;
+  font-weight: var(--fw-medium);
+}
+.nlx-hint {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--ash);
+  line-height: 1.4;
+}
+.nlx-hint svg {
+  flex: none;
+  color: var(--ash-2);
+  margin-top: 1px;
+}
+
+/* Flash xanh khi ghi số thành công (phản hồi tức thì, không cần đọc) */
+.nlx-flash {
+  animation: nlx-flash 700ms var(--easing-standard);
+}
+@keyframes nlx-flash {
+  0% {
+    box-shadow: 0 0 0 0 var(--moss);
+  }
+  30% {
+    box-shadow: 0 0 0 4px var(--moss-soft);
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nlx-bigbtn,
+  .nlx-key,
+  .nlx-cd,
+  .nlx-count,
+  .nlx-prog__fill {
+    transition: none;
+  }
+  .nlx-flash {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .nlx-code__val {
+    font-size: 38px;
+  }
+  .nlx-count__v {
+    font-size: 40px;
+  }
+  .nlx-prog__big {
+    font-size: 34px;
+  }
+}

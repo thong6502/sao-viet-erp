@@ -40,6 +40,8 @@ class DepartmentSummaryOut(BaseModel):
     # UI can show e.g. "Trưởng khối" instead of a generic "Người đứng đầu". Null = untagged.
     level_id: int | None = None
     head_title: str | None = None
+    # Đánh dấu khối SẢN XUẤT (spec §13.1). FE tính "effective" theo cây (self hoặc tổ tiên tick).
+    la_san_xuat: bool = False
     role_count: int = 0
     user_count: int = 0
     employee_count: int = 0
@@ -85,6 +87,8 @@ class DepartmentCreate(BaseModel):
     salary_mechanism: _SalaryMechanism = "cung"
     probation_ratio: float = Field(default=0.80, ge=0, le=1)
     has_piece_work: bool = False
+    # Khối SẢN XUẤT (spec §13.1) — mặc định không phải sản xuất.
+    la_san_xuat: bool = False
 
 
 class DepartmentUpdate(BaseModel):
@@ -98,6 +102,8 @@ class DepartmentUpdate(BaseModel):
     salary_mechanism: _SalaryMechanism = "cung"
     probation_ratio: float = Field(default=0.80, ge=0, le=1)
     has_piece_work: bool = False
+    # Khối SẢN XUẤT (spec §13.1). FE gửi cả object nên luôn kèm cờ này.
+    la_san_xuat: bool = False
 
 
 # --- Bảng lương của phòng (Pha 1, lát 2) -----------------------------------

@@ -19,28 +19,32 @@ import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
 import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import {
+  Activity,
   AlertCircle,
   ArrowLeftRight,
   ArrowRight,
   ArrowUpFromLine,
   Ban,
+  Building2,
+  Calendar,
   Check,
   ChevronLeft,
-  Clock,
-  ExternalLink,
+  CornerDownLeft,
+  DollarSign,
   Eye,
   FileText,
   GitBranch,
+  History,
   Link2,
-  Lock,
   Pencil,
   Phone,
   Plus,
   Printer,
   Save,
+  Search,
   Send,
   ShieldCheck,
-  User,
+  Table,
   X,
   Zap,
 } from "lucide-react";
@@ -192,7 +196,7 @@ export function BaoGiaPage({
 
   if (forbidden) {
     return (
-      <main className="bg">
+      <main className="rdx-quote">
         <div className="banner banner--error" role="alert">
           Bạn không có quyền truy cập Báo giá (403).
         </div>
@@ -214,37 +218,37 @@ export function BaoGiaPage({
   }
 
   return (
-    <main className="bg">
-      <header className="bg__head">
-        <p className="eyebrow">Kinh doanh</p>
-        <h1 className="bg__title">Báo giá thương mại</h1>
-      </header>
+    <main className="rdx-quote">
+      <div className="q-pagehead">
+        <div>
+          <p className="q-eyebrow"><span className="sq" />Kinh doanh · Chứng từ khách hàng</p>
+          <h1>Báo giá thương mại</h1>
+          <p className="sub">Giá bán gửi khách — dựng từ phiếu tính giá, cộng markup từng dòng.</p>
+        </div>
+        {/* BG-3/4: báo giá LUÔN khởi từ 1 Phiếu tính giá (1 PTG → 1 BG). Bỏ modal đa-pick cũ — nút
+            này điều hướng sang màn Phiếu tính giá, ở đó bấm "Báo giá →" để tạo/mở báo giá. */}
+        <Button variant="accent" onClick={() => navigate?.("tinh-gia")}>
+          <Plus size={15} /> Báo giá mới
+        </Button>
+      </div>
 
-      <div className="bg__toolbar">
-        <form className="bg__search" onSubmit={onSearch} role="search">
+      <form className="q-toolbar" onSubmit={onSearch} role="search">
+        <div className="q-search">
+          <Search size={15} />
           <input
-            className="input"
-            placeholder="Tìm theo mã / khách…"
+            placeholder="Tìm mã báo giá, khách hàng…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             aria-label="Tìm báo giá"
           />
-          <Button type="submit" variant="ghost">
-            Tìm
-          </Button>
-        </form>
-
-        <div className="bg__toolbar-spacer" />
-
-        {/* BG-3/4: báo giá LUÔN khởi từ 1 Phiếu tính giá (1 PTG → 1 BG). Bỏ modal đa-pick cũ — nút
-            này điều hướng sang màn Phiếu tính giá, ở đó bấm "Báo giá →" để tạo/mở báo giá. */}
-        <Button variant="accent" onClick={() => navigate?.("tinh-gia")}>
-          + Báo giá mới (từ Phiếu tính giá)
+        </div>
+        <Button type="submit" variant="ghost">
+          Tìm
         </Button>
-      </div>
+      </form>
 
       {/* Tab trạng thái đếm số — "Cần xử lý" = nháp + đã gửi chờ khách */}
-      <div style={{ margin: "12px 0 16px" }}>
+      <div style={{ marginBottom: 14 }}>
         <StatusTabs
           tabs={[
             { key: "", label: "Tất cả", count: stats?.total },
@@ -269,17 +273,17 @@ export function BaoGiaPage({
         />
       </div>
 
-      <div className="card bg__tablewrap">
-        <table className="bg__table">
+      <div className="q-card">
+        <table>
           <thead>
             <tr>
               <th>
                 <SortBtn label="Mã báo giá" col="code" sort={sort} onSort={setSort} />
               </th>
               <th>Khách hàng</th>
-              <th>Sản phẩm · Tham chiếu</th>
-              <th className="bg__num">
-                <SortBtn label="Giá bán (đã VAT)" col="total" sort={sort} onSort={setSort} />
+              <th>Sản phẩm · nguồn PTG</th>
+              <th className="num">
+                <SortBtn label="Giá bán · VAT" col="total" sort={sort} onSort={setSort} />
               </th>
               <th>
                 <SortBtn label="Trạng thái" col="status" sort={sort} onSort={setSort} />
@@ -290,14 +294,14 @@ export function BaoGiaPage({
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="bg__status" role="status">
+                <td colSpan={6} className="tl-empty" role="status">
                   Đang tải danh sách báo giá…
                 </td>
               </tr>
             ) : listError ? (
               <tr>
-                <td colSpan={6} className="bg__status">
-                  <div className="banner banner--error" role="alert">
+                <td colSpan={6}>
+                  <div className="banner banner--error" role="alert" style={{ margin: 14 }}>
                     <span>{listError}</span>
                     <button type="button" className="btn btn--ghost" onClick={() => load()}>
                       Thử lại
@@ -307,8 +311,8 @@ export function BaoGiaPage({
               </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={6} className="bg__empty">
-                  <p>Chưa có báo giá thương mại nào được tạo.</p>
+                <td colSpan={6} className="tl-empty">
+                  Chưa có báo giá thương mại nào được tạo.
                 </td>
               </tr>
             ) : (
@@ -319,47 +323,61 @@ export function BaoGiaPage({
                     ? Math.floor((Date.now() - new Date(r.sent_at).getTime()) / 86_400_000)
                     : null;
                 return (
-                  <tr key={r.id} className="bg__row" onClick={() => openDetail(r)}>
-                    <td className="bg__mono" style={{ fontWeight: "bold" }}>
-                      {r.code}
-                      <span className="bg__ver">v{r.version}</span>
-                      {(r.version_count ?? 1) > 1 && (
-                        <span className="tgroup__subdesc">{r.version_count} phiên bản</span>
-                      )}
+                  <tr key={r.id} className="click" onClick={() => openDetail(r)}>
+                    <td>
+                      <span className="code">
+                        {r.code}
+                        <span className="v">v{r.version}</span>
+                        {(r.version_count ?? 1) > 1 && (
+                          <span className="vc">{r.version_count} phiên bản</span>
+                        )}
+                      </span>
                     </td>
                     <td>
                       {r.customer_name ?? (
-                        <span className="bg__muted">
+                        <span className="muted">
                           {r.customer_id != null ? `KH #${r.customer_id}` : "Chưa chọn khách"}
                         </span>
                       )}
                     </td>
                     <td>
-                      {r.product_summary ?? <span className="bg__muted">—</span>}
-                      {r.estimate_refs && r.estimate_refs.length > 0 && (
-                        <span className="tgroup__subdesc bg__mono">↳ {r.estimate_refs.join(", ")}</span>
-                      )}
+                      <div className="prod">
+                        <span className="nm">{r.product_summary ?? "—"}</span>
+                        {r.estimate_refs && r.estimate_refs.length > 0 && (
+                          <span className="ptg">
+                            <CornerDownLeft size={12} /> {r.estimate_refs.join(", ")}
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="bg__num" style={{ color: "var(--rust-deep)", fontWeight: "bold" }}>
-                      {r.total != null ? fmtVnd(r.total) : <span className="bg__muted">—</span>}
+                    <td className="num">
+                      {r.total != null ? (
+                        <span className="rust-num">{fmtVnd(r.total)}</span>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
                       {r.margin_percent != null && (
-                        <span className="tgroup__subdesc">biên {Math.round(r.margin_percent)}%</span>
+                        <span className="vc">biên {Math.round(r.margin_percent)}%</span>
                       )}
                     </td>
                     <td>
-                      <StatusBadge status={r.status} statuses={statuses} />
+                      <StatusPill status={r.status} statuses={statuses} />
                       {sentDays !== null && sentDays >= 0 && (
                         <span
-                          className="tgroup__subdesc"
-                          style={sentDays >= 7 ? { color: "var(--amber-deep)", fontWeight: 600 } : undefined}
+                          className="vc"
+                          style={sentDays >= 7 ? { color: "var(--rust-deep)", fontWeight: 600 } : undefined}
                         >
                           Đã gửi {sentDays} ngày{sentDays >= 7 ? " · cần follow-up" : ""}
                         </span>
                       )}
                     </td>
                     <td>
-                      <span style={{ whiteSpace: "nowrap" }}>{fmtDate(r.updated_at ?? null)}</span>
-                      {r.salesperson_name && <span className="tgroup__subdesc">{r.salesperson_name}</span>}
+                      <div className="prod">
+                        <span className="nm" style={{ fontWeight: 500, whiteSpace: "nowrap" }}>
+                          {fmtDate(r.updated_at ?? null)}
+                        </span>
+                        {r.salesperson_name && <span className="spec">{r.salesperson_name}</span>}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -370,31 +388,28 @@ export function BaoGiaPage({
       </div>
 
       {!loading && !listError && rows.length > 0 && (
-        <div className="bg__pager">
-          <span className="bg__muted">
+        <div className="foot">
+          <span>
             Tìm thấy {total} phiếu báo giá · Trang {page}/{totalPages}
           </span>
-          <div className="bg__pager-btns">
-            <button
-              type="button"
-              className="btn btn--ghost"
+          <div className="foot-btns">
+            <Button
+              variant="ghost"
               disabled={page <= 1}
               onClick={() => setPage((p) => Math.max(1, p - 1))}
             >
               ‹ Trước
-            </button>
-            <button
-              type="button"
-              className="btn btn--ghost"
+            </Button>
+            <Button
+              variant="ghost"
               disabled={page >= totalPages}
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
             >
               Sau ›
-            </button>
+            </Button>
           </div>
         </div>
       )}
-
     </main>
   );
 }
@@ -426,28 +441,27 @@ function SortBtn({
   );
 }
 
-function StatusBadge({ status, statuses }: { status: string; statuses: EnumOption[] }) {
-  const tone =
-    status === "accepted"
-      ? " bg__badge--ok"
-      : status === "rejected" || status === "expired" || status === "cancelled"
-        ? " bg__badge--off"
-        : status === "sent"
-          ? " bg__badge--sent"
-          : "";
-  return <span className={`bg__badge${tone}`}>{labelOf(statuses, status)}</span>;
+// Thang badge trạng thái — CHỈ 3 màu chính (kem/mực/cam) + đỏ mờ signal cho Từ chối/Huỷ.
+// Cùng 1 kiểu pill + chấm; khác nhau ở nền/chữ theo mức tiến triển của phiếu.
+function statusBadgeVariant(status: string): string {
+  if (status === "accepted") return "solid"; // Khách chốt — cam đặc, chữ trắng
+  if (status === "converted_to_order") return "dark"; // Đã lên đơn — nền đen chữ kem
+  if (status === "sent") return "soft"; // Đã gửi khách — cam nhạt
+  if (status === "approved") return "pending"; // Đã duyệt · chờ gửi — xám + chấm cam
+  if (status === "pending_approval") return "pending"; // Chờ duyệt — xám + chấm cam
+  if (status === "rejected" || status === "expired" || status === "cancelled") return "signal";
+  return "neutral"; // Nháp — xám
+}
+function StatusPill({ status, statuses }: { status: string; statuses: EnumOption[] }) {
+  return (
+    <span className={`badge ${statusBadgeVariant(status)}`}>
+      <span className="d" />
+      {labelOf(statuses, status)}
+    </span>
+  );
 }
 
 // --- Detail 2-cột in-page (port "ý hệt" prototype inan5 02-bao-gia.html) ------------------------------------------------
-
-// Gói biên lợi nhuận — shortcut UI (ô % từng dòng vẫn nhận giá trị bất kỳ;
-// đợt sau chuyển thành catalog cấu hình được theo luật "không hardcode số liệu").
-const MARGIN_PRESETS: Array<[string, number]> = [
-  ["Tiêu chuẩn", 25],
-  ["Khách quen", 18],
-  ["Đơn gấp/khó", 35],
-  ["Cạnh tranh", 12],
-];
 
 const STATUS_LABEL_SHORT: Record<string, string> = {
   pending_approval: "đang chờ Giám đốc duyệt",
@@ -525,8 +539,6 @@ function QuotationDetailView({
   const [lineDraft, setLineDraft] = useState<Record<number, number>>({});
   // Chiết khấu (đồng) từng dòng khi đang gõ — override tạm để preview trước khi persist.
   const [discDraft, setDiscDraft] = useState<Record<number, number>>({});
-  // P3 (redesign-bao-gia §6): popover MarginPicker (gói biên + slider) mở cho DÒNG nào (đa dòng).
-  const [mkOpenLine, setMkOpenLine] = useState<number | null>(null);
   // P3: danh sách khách để CHỌN/ĐỔI khách ngay ở detail (khi còn nháp) — auto-fill lại liên hệ + ĐC giao.
   const [customers, setCustomers] = useState<{ id: number; name: string; code: string }[]>([]);
 
@@ -590,8 +602,8 @@ function QuotationDetailView({
 
   if (!d) {
     return (
-      <main className="bg bgv">
-        <div className="card" role="status" style={{ padding: "40px", textAlign: "center", color: "var(--ash)" }}>
+      <main className="rdx-quote bgv">
+        <div className="panel" role="status" style={{ padding: "40px", textAlign: "center", color: "var(--ash)" }}>
           Đang tải dữ liệu báo giá…
         </div>
       </main>
@@ -824,26 +836,25 @@ function QuotationDetailView({
   const sentDays = sentDate ? Math.max(0, Math.floor((Date.now() - new Date(sentDate).getTime()) / 86_400_000)) : 0;
   const stale = d.status === "sent" && sentDays > 3;
 
-  const statusCls = statusChipClass(d.status);
+  const marginPctDisp = multi ? aggMarginPct : Math.round(singleMargin);
+  const meterW = Math.max(0, Math.min(100, marginPctDisp));
 
   return (
-    <main className="bg bgv">
+    <main className="rdx-quote bgv">
       {/* ---------- Header ---------- */}
-      <div className="page-header">
+      <div className="dhead">
         <div>
-          <h1>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={onClose}><ChevronLeft size={15} /> Danh sách</button>
-            <span style={{ fontFamily: "var(--ff-mono)", fontWeight: 500 }}>{d.code}</span>
-            <span className="ver-badge">v{d.version}</span>
-            <span className={`status-chip ${statusCls}`}>{labelOf(statuses, d.status)}</span>
-          </h1>
-          <p>
-            {d.customer?.name ?? "—"} · {productSummary}
-            {ptgRefs.length > 0 && <> · <span style={{ fontFamily: "var(--ff-mono)" }}>↳ {ptgRefs.join(", ")}</span></>}
-          </p>
+          <button type="button" className="back" onClick={onClose}><ChevronLeft size={15} /> Danh sách</button>
+          <div className="titleline">
+            <h1>{d.code}</h1>
+            <span className="ver">v{d.version}</span>
+            <StatusPill status={d.status} statuses={statuses} />
+          </div>
+          {/* Bỏ dấu "—" thừa khi chưa chọn khách: chỉ nối phần có giá trị. */}
+          <div className="subline">{[d.customer?.name, productSummary].filter(Boolean).join(" · ") || "—"}</div>
         </div>
-        <div className="actions">
-          <Button variant="secondary" onClick={() => setShowPrint(true)}><Printer size={15} /> Xem in</Button>
+        <div className="acts">
+          <Button variant="secondary" onClick={() => setShowPrint(true)}><Printer size={15} /> Xem bản in</Button>
           {/* Gating quyền chi tiết: từ chối/gửi cần `manage_status`, chốt cần `approve`
               (server tính d.can_approve), tạo bản mới cần `requote` — thiếu quyền thì ẨN nút. */}
           {viewingLatest && d.status === "sent" && (
@@ -907,261 +918,366 @@ function QuotationDetailView({
         </div>
       )}
 
-      <div className="bg-split">
-        {/* ================= LEFT ================= */}
-        <div className="bg-left">
-          {/* Giá vốn khóa */}
-          <div className="card cost-locked">
-            <div className="bg-card-head">
-              <div className="title">
-                <Lock size={15} /> <span>{multi ? "Báo giá nhiều dòng" : "Giá vốn"}</span>
-                <span className="mono-tag lock">{multi ? `${d.items.length} phiếu tính giá` : "Khóa từ PTG"}</span>
-              </div>
+      <div className="g2">
+        {/* ================= LEFT: bảng + điều khoản ================= */}
+        <div className="stack">
+          {/* Báo giá nhiều dòng — giá vốn khóa, markup + chiết khấu chỉnh tại chỗ */}
+          <div className="panel">
+            <div className="panel__hd">
+              <h3><Table size={16} /> {multi ? "Báo giá nhiều dòng" : "Giá vốn"}</h3>
+              <span className="tag">{multi ? `${d.items.length} phiếu tính giá` : "Khóa từ PTG"}</span>
             </div>
-            <div className="locked-banner">
-              <ShieldCheck size={14} /> Giá vốn khóa theo phiếu tính giá đã duyệt · markup riêng từng dòng · giá đã gồm VAT.
+            <div className="hint">
+              <ShieldCheck size={15} /><span>Markup riêng từng dòng · giá đã gồm VAT.</span>
             </div>
-            <table className="bg-lines">
+            <table>
               <thead>
                 <tr>
-                  <th>Sản phẩm</th><th>SL</th><th>Giá vốn</th><th>Markup %</th><th>Chiết khấu (%)</th><th>Thành tiền (VAT)</th>
+                  <th>Sản phẩm</th><th className="num">SL</th><th className="num">Giá vốn</th><th className="num">Markup</th><th className="num">Chiết khấu</th><th className="num">Thành tiền · VAT</th>
                 </tr>
               </thead>
               <tbody>
                 {d.items.map((it) => {
                   const c = calcItem(it);
+                  const markupVal = multi ? (lineDraft[it.id] ?? it.margin_percent) : (draftMargin ?? it.margin_percent);
+                  const discPct = c.selling > 0 ? Math.round(((discDraft[it.id] ?? it.discount_amount) / c.selling) * 100) : 0;
                   return (
                     <tr key={it.id}>
-                      <td>
-                        <div className="ln-prod">{it.product_name}</div>
-                        {(it.estimate_number || it.product_spec_text) && (
-                          <div className="ln-ref">
-                            {it.estimate_number && <span>↳ {it.estimate_number}</span>}
-                            {it.product_spec_text ? ` · ${it.product_spec_text}` : ""}
-                          </div>
-                        )}
-                      </td>
-                      <td className="bg__mono">{it.quantity.toLocaleString("vi-VN")}</td>
-                      <td className="bg__mono">{vnd(c.cost)}</td>
-                      <td style={{ position: "relative" }}>
-                        {multi ? (
-                          <>
-                            <button
-                              type="button"
-                              className="ln-mk bg__mono"
-                              disabled={!editable}
-                              style={{ cursor: editable ? "pointer" : "default", minWidth: 54 }}
-                              onClick={() => editable && setMkOpenLine(mkOpenLine === it.id ? null : it.id)}
-                              title="Chọn gói biên / kéo slider cho dòng này"
-                            >
-                              {Math.round(lineDraft[it.id] ?? it.margin_percent)}%
-                            </button>
-                            {mkOpenLine === it.id && editable && (
-                              <div
-                                className="mk-block"
-                                style={{
-                                  position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 30,
-                                  minWidth: 232, padding: 12, borderRadius: 10,
-                                  background: "var(--charcoal, #221c17)",
-                                  boxShadow: "0 10px 28px rgba(0,0,0,.35)",
-                                }}
-                              >
-                                <span className="mk-lbl">Gói biên · dòng này</span>
-                                <div className="mk-presets">
-                                  {MARGIN_PRESETS.map(([name, pct]) => (
-                                    <button
-                                      key={name} type="button"
-                                      className={`mk-chip${Math.round(lineDraft[it.id] ?? it.margin_percent) === pct ? " on" : ""}`}
-                                      disabled={busy}
-                                      onClick={() => { setLineDraft((p) => ({ ...p, [it.id]: pct })); commitLineMargin(it.id, pct); }}
-                                    >
-                                      <span className="mc-name">{name}</span>
-                                      <span className="mc-pct">{pct}%</span>
-                                    </button>
-                                  ))}
-                                </div>
-                                <div className="mk-controls">
-                                  <input
-                                    type="range" min={5} max={50} step={1} className="markup-slider"
-                                    value={Math.max(5, Math.min(50, lineDraft[it.id] ?? it.margin_percent))}
-                                    disabled={busy}
-                                    onChange={(e) => setLineDraft((p) => ({ ...p, [it.id]: Number(e.target.value) }))}
-                                    onMouseUp={(e) => commitLineMargin(it.id, Number((e.target as HTMLInputElement).value))}
-                                    onTouchEnd={(e) => commitLineMargin(it.id, Number((e.target as HTMLInputElement).value))}
-                                  />
-                                  <div className="mk-manual">
-                                    <input
-                                      type="number" min={0} max={100} step={0.5}
-                                      value={lineDraft[it.id] ?? it.margin_percent}
-                                      disabled={busy}
-                                      onChange={(e) => setLineDraft((p) => ({ ...p, [it.id]: Number(e.target.value) }))}
-                                      onBlur={(e) => commitLineMargin(it.id, Number(e.target.value))}
-                                    />
-                                    <span>%</span>
-                                  </div>
-                                </div>
-                                <button
-                                  type="button" className="btn btn--ghost btn--sm"
-                                  style={{ marginTop: 8 }} onClick={() => setMkOpenLine(null)}
-                                >
-                                  Đóng
-                                </button>
-                              </div>
-                            )}
-                          </>
-                        ) : (
+                      <td><span className="pname">{it.product_name}</span></td>
+                      <td className="num">{it.quantity.toLocaleString("vi-VN")}</td>
+                      <td className="num muted">{numf(c.cost)}</td>
+                      <td className="num">
+                        <div className="pctcell">
                           <input
-                            className="ln-mk bg__mono"
+                            className="inp"
                             type="number" min={0} max={100} step={0.5}
-                            value={draftMargin ?? it.margin_percent}
+                            value={markupVal}
                             disabled={!editable}
-                            onChange={(e) => setDraftMargin(Number(e.target.value))}
-                            onBlur={(e) => commitSingleMargin(Number(e.target.value))}
-                          />
-                        )}
+                            onChange={(e) => multi
+                              ? setLineDraft((p) => ({ ...p, [it.id]: Number(e.target.value) }))
+                              : setDraftMargin(Number(e.target.value))}
+                            onBlur={(e) => multi
+                              ? commitLineMargin(it.id, Number(e.target.value))
+                              : commitSingleMargin(Number(e.target.value))}
+                            title="Markup (%) cho dòng này"
+                          />%
+                        </div>
                       </td>
-                      <td>
-                        <input
-                          className="ln-mk bg__mono"
-                          type="number" min={0} max={100} step={0.5}
-                          value={c.selling > 0 ? Math.round(((discDraft[it.id] ?? it.discount_amount) / c.selling) * 100) : 0}
-                          disabled={!editable}
-                          onChange={(e) => {
-                            const pct = Number(e.target.value);
-                            const amt = Math.round((c.selling * pct) / 100);
-                            setDiscDraft((p) => ({ ...p, [it.id]: amt }));
-                          }}
-                          onBlur={(e) => {
-                            const pct = Number(e.target.value);
-                            const amt = Math.round((c.selling * pct) / 100);
-                            commitLineDiscount(it.id, amt);
-                          }}
-                          title="Chiết khấu phần trăm (%) cho dòng này — trừ TRƯỚC VAT"
-                        />
+                      <td className="num">
+                        <div className="pctcell">
+                          <input
+                            className="inp"
+                            type="number" min={0} max={100} step={0.5}
+                            value={discPct}
+                            disabled={!editable}
+                            onChange={(e) => {
+                              const pct = Number(e.target.value);
+                              const amt = Math.round((c.selling * pct) / 100);
+                              setDiscDraft((p) => ({ ...p, [it.id]: amt }));
+                            }}
+                            onBlur={(e) => {
+                              const pct = Number(e.target.value);
+                              const amt = Math.round((c.selling * pct) / 100);
+                              commitLineDiscount(it.id, amt);
+                            }}
+                            title="Chiết khấu phần trăm (%) cho dòng này — trừ TRƯỚC VAT"
+                          />%
+                        </div>
                       </td>
-                      <td className="bg__mono" style={{ fontWeight: 600, color: "var(--ink)" }}>{vnd(c.final)}</td>
+                      <td className="num strong">{vnd(c.final)}</td>
                     </tr>
                   );
                 })}
-                <tr className="lines-sum">
-                  <td>Tổng {d.items.length} dòng</td>
-                  <td></td>
-                  <td>{vnd(costT)}</td>
-                  <td></td>
-                  <td>{discountT > 0 ? `−${vnd(discountT)}` : "—"}</td>
-                  <td>{vnd(grandT)}</td>
-                </tr>
+                {/* Hàng tổng chỉ có nghĩa khi ≥2 dòng; 1 dòng thì lặp lại chính dòng đó. */}
+                {d.items.length > 1 && (
+                  <tr className="tot">
+                    <td className="lbl">Tổng {d.items.length} dòng</td>
+                    <td></td>
+                    <td className="num muted">{numf(costT)}</td>
+                    <td></td>
+                    <td className="num">{discountT > 0 ? `−${numf(discountT)}` : "—"}</td>
+                    <td className="num rust-num">{vnd(grandT)}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
 
           {/* Điều khoản & hiệu lực */}
-          <div className="card">
-            <div className="bg-card-head"><div className="title"><FileText size={15} /> Điều khoản &amp; hiệu lực</div></div>
-            <div className="field-row">
-              <span className="field-lbl">Điều khoản báo giá</span>
+          <div className="panel">
+            <div className="panel__hd"><h3><FileText size={16} /> Điều khoản &amp; hiệu lực</h3></div>
+            <div className="terms">
               <textarea
-                className="field-in"
                 rows={6}
                 value={termsText}
                 disabled={!editable}
                 onChange={(e) => setTermsText(e.target.value)}
                 placeholder="Mỗi dòng là một điều khoản — bản in tự đánh số 1, 2, 3…"
               />
-              <span style={{ color: "var(--ash)", fontSize: "12px", marginTop: "4px" }}>
-                Mỗi dòng = 1 điều khoản. Bản in tự đánh số theo thứ tự dòng.
-              </span>
-            </div>
-            <div className="field-inline">
-              <span className="field-lbl">Hạn hiệu lực</span>
-              <input
-                className="field-in"
-                type="date"
-                style={{ width: "170px" }}
-                value={validUntilEdit}
-                disabled={!editable}
-                onChange={(e) => setValidUntilEdit(e.target.value)}
-              />
-              <span style={{ color: "var(--ash)", fontSize: "12px" }}>
-                {validUntilEdit ? `(${validity} ngày kể từ ngày gửi)` : "để trống = đến khi có thông báo mới"}
-              </span>
-            </div>
-            {verNote && (
-              <div className="field-row">
-                <span className="field-lbl">Lý do phiên bản này</span>
-                <input className="field-in" value={verNote} disabled readOnly />
+              <div className="row">
+                <span className="lbl">Hạn hiệu lực</span>
+                {editable ? (
+                  <input
+                    className="datepill"
+                    type="date"
+                    value={validUntilEdit}
+                    onChange={(e) => setValidUntilEdit(e.target.value)}
+                  />
+                ) : (
+                  <span className="datepill"><Calendar size={13} /> {validUntilEdit ? fmtDate(validUntilEdit) : "—"}</span>
+                )}
+                <span>{validUntilEdit ? `· ${validity} ngày kể từ ngày gửi` : "để trống = đến khi có thông báo mới"}</span>
               </div>
-            )}
-            {!editable && (
-              <div className="ro-note" style={{ marginTop: "12px" }}>
-                <Eye size={14} /> Phiên bản này {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"} — khóa chỉnh sửa. Bấm "Tạo phiên bản mới" để sửa.
-              </div>
-            )}
-            <div style={{ marginTop: "14px", display: "flex", gap: "8px" }}>
-              {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}><Save size={15} /> Lưu nháp</Button>}
-              {canRequote && viewingLatest && d.allowed_transitions.includes("change_order") && (
-                <Button variant="primary" disabled={busy} onClick={openRequote} title="Giữ bản hiện tại + tạo phiên bản mới (bắt buộc ghi chú)"><GitBranch size={15} /> Tạo phiên bản mới</Button>
+              {verNote && <div className="verline">Lý do phiên bản này: <b>{verNote}</b></div>}
+              {!editable && (
+                <div className="ro-note2">
+                  <Eye size={14} /> Phiên bản này {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"} — khóa chỉnh sửa. Bấm "Tạo phiên bản mới" để sửa.
+                </div>
               )}
+              <div className="tactions">
+                {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}><Save size={15} /> Lưu nháp</Button>}
+                {canRequote && viewingLatest && d.allowed_transitions.includes("change_order") && (
+                  <Button variant="primary" disabled={busy} onClick={openRequote} title="Giữ bản hiện tại + tạo phiên bản mới (bắt buộc ghi chú)"><GitBranch size={15} /> Tạo phiên bản mới</Button>
+                )}
+              </div>
             </div>
           </div>
 
           {/* Theo dõi gửi khách (follow-up) */}
           {d.status === "sent" && (
-            <div className="card">
-              <div className="bg-card-head">
-                <div className="title"><Link2 size={15} /> Theo dõi gửi khách</div>
-                {stale && <span className="sub" style={{ color: "var(--amber)" }}>CẦN FOLLOW-UP</span>}
+            <div className="panel">
+              <div className="panel__hd">
+                <h3><Link2 size={16} /> Theo dõi gửi khách</h3>
+                {stale && <span className="tag" style={{ color: "var(--rust-deep)", borderColor: "var(--rust)" }}>Cần follow-up</span>}
               </div>
-              <div className="stage-rows">
-                <div className="sr"><span className="k">Kênh gửi</span><span className="v">Email</span></div>
-                <div className="sr"><span className="k">Ngày gửi</span><span className="v">{fmtDate(sentDate)}</span></div>
-                <div className="sr"><span className="k">Hạn phản hồi</span><span className="v">{fmtDate(d.valid_until)} ({validity} ngày)</span></div>
-                {lastContact && <div className="sr"><span className="k">Liên hệ gần nhất</span><span className="v">{lastContact}</span></div>}
-                <div className="sr"><span className="k">Đã gửi</span><span className={`v ${stale ? "warn" : ""}`}>{sentDays} ngày</span></div>
+              <div className="info">
+                <div className="irow"><span className="k">Kênh gửi</span><span className="v">Email</span></div>
+                <div className="irow"><span className="k">Ngày gửi</span><span className="v">{fmtDate(sentDate)}</span></div>
+                <div className="irow"><span className="k">Hạn phản hồi</span><span className="v">{fmtDate(d.valid_until)} ({validity} ngày)</span></div>
+                {lastContact && <div className="irow"><span className="k">Liên hệ gần nhất</span><span className="v">{lastContact}</span></div>}
+                <div className="irow"><span className="k">Đã gửi</span><span className="v" style={stale ? { color: "var(--rust-deep)" } : undefined}>{sentDays} ngày</span></div>
               </div>
-              {stale && <div className="stage-note">Quá 3 ngày chưa chốt — nên liên hệ nhắc khách.</div>}
+              {stale && (
+                <div className="hint" style={{ marginBottom: "14px" }}>
+                  <AlertCircle size={15} /><span>Quá 3 ngày chưa chốt — nên liên hệ nhắc khách.</span>
+                </div>
+              )}
               {viewingLatest && (
-                <div className="stage-card-actions">
+                <div style={{ padding: "0 16px 16px" }}>
                   <Button variant="secondary" onClick={recordContact}><Phone size={15} /> Ghi nhận đã liên hệ</Button>
                 </div>
               )}
             </div>
           )}
           {d.status === "rejected" && d.cancel_reason && (
-            <div className="card">
-              <div className="bg-card-head"><div className="title"><Ban size={15} /> Lý do từ chối</div></div>
-              <div className="stage-note warn">{d.cancel_reason}</div>
+            <div className="panel">
+              <div className="panel__hd"><h3><Ban size={16} /> Lý do từ chối</h3></div>
+              <div className="hint" style={{ margin: "14px 16px", color: "var(--signal)" }}><span>{d.cancel_reason}</span></div>
             </div>
           )}
+        </div>
 
-          {/* Lịch sử phiên bản */}
-          <div className="card">
-            <div className="bg-card-head">
-              <div className="title"><Clock size={15} /> Lịch sử phiên bản</div>
-              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCompareOn((v) => !v)}><ArrowLeftRight size={14} /> So sánh</button>
+        {/* ================= RIGHT: giá bán + khách hàng ================= */}
+        <div className="stack">
+          {/* Giá bán đề xuất (dark card) */}
+          <div className="dk">
+            <div className="dk__hd"><div className="dk__eyebrow"><DollarSign size={13} /> Giá bán đề xuất · v{d.version}</div></div>
+            <div className="dk__big">{numf(grandT)}<span className="u">đ</span></div>
+            <div className="dk__meta">≈ {numf(perUnit)} đ/{unitLabel} · đã gồm VAT</div>
+            <div className="dk__meter">
+              <div className="lbl"><span>Biên lợi nhuận</span><b>{marginPctDisp}%</b></div>
+              <div className="mbar"><span className="p" style={{ width: `${meterW}%` }} /></div>
             </div>
-            <div>
-              {d.versions.slice().sort((a, b) => b.version - a.version).map((v) => {
-                const isCur = v.version === latestVer;
-                const active = v.version === d.version;
-                return (
-                  <div
-                    key={v.id}
-                    className={`ver-item${active ? " active" : ""}${isCur ? " current" : ""}`}
-                    onClick={() => v.id !== d.id && reload(v.id)}
-                  >
-                    <span className="v-tag">v{v.version}</span>
-                    <div>
-                      <div className="v-note">{v.change_reason || "—"}</div>
-                      <div className="v-meta">{fmtDate(v.created_at)}{isCur ? " · " : ""}{isCur && <b style={{ color: "var(--moss)" }}>hiện tại</b>}</div>
-                    </div>
-                    <div className="v-price">{vnd(v.total ?? 0)}<div className="v-st"><span className={`status-chip ${statusChipClass(v.status)}`}>{labelOf(statuses, v.status)}</span></div></div>
+            <div className="dk__rows">
+              <div className="drow"><span className="k">Giá vốn (khóa)</span><span className="v">{numf(costT)} đ</span></div>
+              <div className="drow profit"><span className="k">Lợi nhuận</span><span className="v">{profitT >= 0 ? "+" : ""}{numf(profitT)} đ</span></div>
+              <div className="drow"><span className="k">Giá bán (chưa VAT)</span><span className="v">{numf(netT + discountT)} đ</span></div>
+              {discountT > 0 && (
+                <div className="drow"><span className="k">Chiết khấu</span><span className="v" style={{ color: "var(--rust)" }}>−{numf(discountT)} đ</span></div>
+              )}
+              <div className="drow">
+                <span className="k">
+                  VAT
+                  {!multi && editable ? (
+                    <span className="vat-seg" role="group" aria-label="Chọn % VAT">
+                      {[0, 8, 10].map((p) => (
+                        <button
+                          key={p}
+                          type="button"
+                          className={`vat-opt${Math.round(singleVat) === p ? " on" : ""}`}
+                          disabled={busy}
+                          onClick={() => commitVat(p)}
+                          title={`Áp VAT ${p}% cho báo giá`}
+                        >
+                          {p}%
+                        </button>
+                      ))}
+                    </span>
+                  ) : (
+                    ` ${multi ? "" : Math.round(singleVat) + "%"}`
+                  )}
+                </span>
+                <span className="v">{numf(vatT)} đ</span>
+              </div>
+              {/* Bỏ "Tổng cộng" — trùng số lớn "Giá bán đề xuất" ở đầu card. */}
+            </div>
+
+            {/* Báo giá đặc thù (giá trị cao / lời mỏng / bán dưới vốn): Nháp → TRÌNH DUYỆT → Chờ duyệt →
+                Giám đốc Kinh doanh duyệt (→ Đã duyệt/gửi) hoặc từ chối (→ về Nháp). Trạng thái bám máy
+                trạng thái báo giá (d.status), KHÔNG bám riêng exception_status (redesign-bao-gia §3). */}
+            {d.exception_required && (
+              <div className="dk__extra">
+                <div className="appr-block appr-block--exc">
+                  <div className="exc-title">Báo giá đặc thù — cần duyệt</div>
+                  <div className="exc-chips">
+                    {d.exceptions.map((e) => (
+                      <span key={e.key} className="exc-chip">{e.label}</span>
+                    ))}
+                    {d.margin_pct != null && (
+                      <span className="exc-chip exc-chip--num">Biên {d.margin_pct}%</span>
+                    )}
                   </div>
-                );
-              })}
+                  <div className={`exc-status exc-status--${d.status === "pending_approval" ? "pending" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : d.exception_status}`}>
+                    {d.status === "pending_approval"
+                      ? canApproveException
+                        ? "Chờ quyết định của bạn."
+                        : "Đã trình — đang chờ duyệt."
+                      : d.status === "approved"
+                        ? "Đã DUYỆT — bấm ‘Gửi khách’ để gửi báo giá cho khách."
+                      : d.status === "sent" || d.status === "accepted" || d.status === "converted_to_order"
+                        ? ""
+                        : d.status === "rejected"
+                          ? `Bị từ chối — bấm ‘Tạo phiên bản mới’ để sửa rồi trình duyệt lại.${d.exception_note ? " Lý do: " + d.exception_note : ""}`
+                          : d.exception_status === "stale"
+                            ? "Báo giá đã đổi so với lần duyệt trước — cần Trình duyệt lại."
+                            : canManageStatus
+                              ? "Bấm ‘Trình duyệt’ để gửi duyệt."
+                              : "Chưa trình duyệt."}
+                  </div>
+                  {/* AI đã quyết định gần nhất — để NV biết ai duyệt/từ chối + khi nào + lý do (P8b). */}
+                  {d.exception_decided_by_name && (
+                    <div className="exc-decided">
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        {d.exception_decision === "rejected" ? <><X size={13} /> Từ chối</> : <><Check size={13} /> Duyệt</>}
+                      </span>{" "}bởi{" "}
+                      <b>{d.exception_decided_by_name}</b>
+                      {d.exception_decided_at ? ` · ${fmtDate(d.exception_decided_at)}` : ""}
+                      {d.exception_note ? ` · “${d.exception_note}”` : ""}
+                    </div>
+                  )}
+                  {/* GĐ Kinh doanh duyệt/từ chối — CHỈ khi báo giá đang Chờ duyệt (pending_approval). */}
+                  {d.status === "pending_approval" && canApproveException && (
+                    <div className="exc-actions">
+                      <textarea
+                        className="exc-note"
+                        value={apprNote}
+                        onChange={(e) => setApprNote(e.target.value)}
+                        placeholder="Lý do / ý kiến (bắt buộc — cả khi duyệt lẫn từ chối)"
+                        rows={2}
+                      />
+                      <div className="exc-btns">
+                        <Button variant="primary" disabled={apprSaving} onClick={() => submitQuoteApproval("approved")}>
+                          {apprSaving ? "Đang ghi…" : "Duyệt"}
+                        </Button>
+                        <Button variant="ghost" disabled={apprSaving} onClick={() => submitQuoteApproval("rejected")}>
+                          Từ chối (trả lại)
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Khách hàng (kèm link Phiếu tính giá) */}
+          <div className="panel">
+            <div className="panel__hd"><h3><Building2 size={16} /> Khách hàng</h3></div>
+            <div className="info">
+              <div className="irow">
+                <span className="k">Công ty</span>
+                {editable ? (
+                  <span className="v">
+                    <CustomerCombobox
+                      customers={customers}
+                      value={d.customer_id ?? null}
+                      onChange={changeCustomer}
+                      disabled={busy}
+                      maxWidth={200}
+                    />
+                  </span>
+                ) : (
+                  <span className="v">{d.customer?.name ?? "—"}</span>
+                )}
+              </div>
+              <div className="irow"><span className="k">Người liên hệ</span><span className="v mono">{[d.contact_name_snapshot, d.contact_phone_snapshot].filter(Boolean).join(" · ") || "—"}</span></div>
+              {/* Người duyệt biết báo giá này của NV nào (P8b). */}
+              <div className="irow"><span className="k">NV soạn</span><span className="v">{d.salesperson_name ?? "—"}</span></div>
+              <div className="irow"><span className="k">MST</span><span className="v mono">{d.customer?.tax_code ?? "—"}</span></div>
+              <div className="irow"><span className="k">Tín dụng</span><span className="v">{d.customer?.credit_status_display ?? "—"}</span></div>
+              <div className="irow">
+                {/* Hệ mới (PhieuTinhGia) → link mở được. Hệ cũ (Estimate, UI đã ngừng) → chỉ là
+                    tham chiếu, KHÔNG mở được: đổi nhãn + làm mờ + bỏ vẻ-như-link để không hiểu nhầm. */}
+                <span className="k">
+                  {!d.phieu_tinh_gia_id && ptgRefs.length ? "Ước tính (hệ cũ)" : "Phiếu tính giá"}
+                </span>
+                <span className="v ptgs">
+                  {d.phieu_tinh_gia_id ? (
+                    <button
+                      type="button" className="ptg"
+                      onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.phieu_tinh_gia_id ?? undefined })}
+                      title="Mở phiếu tính giá nguồn"
+                    >
+                      <CornerDownLeft size={13} /> {d.phieu_tinh_gia_ma ?? `#${d.phieu_tinh_gia_id}`}
+                    </button>
+                  ) : ptgRefs.length ? (
+                    ptgRefs.map((r, i) => (
+                      <span key={i} className="ptg-legacy" title="Ước tính hệ cũ — không mở được">{r}</span>
+                    ))
+                  ) : (
+                    "—"
+                  )}
+                </span>
+              </div>
             </div>
-            {compareOn && (
-              <div style={{ marginTop: "12px", borderTop: "1px solid var(--rule-soft)", paddingTop: "12px", overflowX: "auto" }}>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== Khu dưới: Lịch sử phiên bản | Hoạt động — mỗi khối cuộn trong khối (chống dài) ===== */}
+      <div className="gg">
+        {/* Lịch sử phiên bản */}
+        <div className="panel">
+          <div className="panel__hd">
+            <h3><History size={16} /> Lịch sử phiên bản</h3>
+            <button type="button" className="viewall" onClick={() => setCompareOn((v) => !v)}><ArrowLeftRight size={14} /> So sánh</button>
+          </div>
+          <div className="vh scrollbox">
+            {d.versions.slice().sort((a, b) => b.version - a.version).map((v) => {
+              const isCur = v.version === latestVer;
+              const active = v.version === d.version;
+              return (
+                <div
+                  key={v.id}
+                  className={`vrow${active ? " cur" : ""}${!isCur ? " old" : ""}`}
+                  onClick={() => v.id !== d.id && reload(v.id)}
+                >
+                  <span className="vtag">v{v.version}</span>
+                  <div className="vmid">
+                    <div className="a">{v.change_reason || "—"}</div>
+                    <div className="m">{fmtDate(v.created_at)}{isCur ? " · hiện tại" : ""}</div>
+                  </div>
+                  <div className="vright">
+                    <div className="p rust-num">{vnd(v.total ?? 0)}</div>
+                    <StatusPill status={v.status} statuses={statuses} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {compareOn && (
+            <div style={{ padding: "0 14px 14px" }}>
+              <div style={{ borderTop: "1px solid var(--rule-soft)", paddingTop: "12px", overflowX: "auto" }}>
                 <table className="cmp-tbl">
                   <thead>
                     <tr><th>Chỉ tiêu</th>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <th key={v.id}>v{v.version}</th>)}</tr>
@@ -1182,226 +1298,32 @@ function QuotationDetailView({
                   </tbody>
                 </table>
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* ================= RIGHT ================= */}
-        <div className="bg-sidebar">
-          {/* Panel giá bán đề xuất */}
-          <div className="summary-card">
-            <div className="lbl">Giá bán đề xuất <span style={{ color: "var(--rust-2)" }}>· v{d.version}</span></div>
-            <div className="grand"><span className={busy ? "" : "flash"}>{numf(grandT)}</span><span style={{ fontSize: "16px", color: "rgba(245,241,232,0.55)", marginLeft: "4px" }}>₫</span></div>
-            <div className="grand-unit">≈ {numf(perUnit)}₫/{unitLabel} · đã VAT</div>
-
-            {!multi && (
-              <div className="mk-block">
-                <span className="mk-lbl">Lợi nhuận · gói biên</span>
-                <div className="mk-presets">
-                  {MARGIN_PRESETS.map(([name, pct]) => (
-                    <button
-                      key={name}
-                      type="button"
-                      className={`mk-chip${Math.round(singleMargin) === pct ? " on" : ""}`}
-                      disabled={!editable || busy}
-                      onClick={() => { setDraftMargin(pct); commitSingleMargin(pct); }}
-                    >
-                      <span className="mc-name">{name}</span>
-                      <span className="mc-pct">{pct}%</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="mk-controls">
-                  <input
-                    type="range" min={5} max={50} step={1}
-                    className="markup-slider"
-                    value={Math.max(5, Math.min(50, singleMargin))}
-                    disabled={!editable}
-                    onChange={(e) => setDraftMargin(Number(e.target.value))}
-                    onMouseUp={(e) => commitSingleMargin(Number((e.target as HTMLInputElement).value))}
-                    onTouchEnd={(e) => commitSingleMargin(Number((e.target as HTMLInputElement).value))}
-                  />
-                  <div className="mk-manual">
-                    <input
-                      type="number" min={0} max={100} step={0.5}
-                      value={singleMargin}
-                      disabled={!editable}
-                      onChange={(e) => setDraftMargin(Number(e.target.value))}
-                      onBlur={(e) => commitSingleMargin(Number(e.target.value))}
-                    />
-                    <span>%</span>
+        {/* Hoạt động — nhật ký tương tác THẬT: ai làm gì · khi nào (mọi vai trò đụng cùng phiếu) */}
+        <div className="panel">
+          <div className="panel__hd"><h3><Activity size={16} /> Hoạt động</h3><span className="tag">{acts.length} sự kiện</span></div>
+          <div className="tl scrollbox">
+            {acts.length === 0 ? (
+              <div className="tl-empty">Chưa có hoạt động.</div>
+            ) : acts.map((a, i) => {
+              const m = ACT_META[a.action] ?? [Zap, "ash", a.action];
+              const ActIcon = m[0];
+              const tone = a.action === "quote_exception_rejected" || a.action === "transition_rejected" || a.action === "transition_cancelled" || a.action === "transition_expired"
+                ? "sig"
+                : i > 0 ? "mut" : "";
+              return (
+                <div className={`tlrow ${tone}`} key={i}>
+                  <span className="tlic"><ActIcon size={14} /></span>
+                  <div className="tlb">
+                    <div className="a">{m[2]}{a.actor_name && <> — <b>{a.actor_name}</b></>}</div>
+                    <div className="m">{fmtDateTime(a.at)}</div>
                   </div>
                 </div>
-              </div>
-            )}
-
-            {/* Báo giá đặc thù (giá trị cao / lời mỏng / bán dưới vốn): Nháp → TRÌNH DUYỆT → Chờ duyệt →
-                Giám đốc Kinh doanh duyệt (→ Đã duyệt/gửi) hoặc từ chối (→ về Nháp). Trạng thái bám máy
-                trạng thái báo giá (d.status), KHÔNG bám riêng exception_status (redesign-bao-gia §3). */}
-            {d.exception_required && (
-              <div className="appr-block appr-block--exc">
-                <div className="exc-title">Báo giá đặc thù — cần duyệt</div>
-                <div className="exc-chips">
-                  {d.exceptions.map((e) => (
-                    <span key={e.key} className="exc-chip">{e.label}</span>
-                  ))}
-                  {d.margin_pct != null && (
-                    <span className="exc-chip exc-chip--num">Biên {d.margin_pct}%</span>
-                  )}
-                </div>
-                <div className={`exc-status exc-status--${d.status === "pending_approval" ? "pending" : d.status === "approved" ? "approved" : d.status === "rejected" ? "rejected" : d.exception_status}`}>
-                  {d.status === "pending_approval"
-                    ? canApproveException
-                      ? "Chờ quyết định của bạn."
-                      : "Đã trình — đang chờ duyệt."
-                    : d.status === "approved"
-                      ? "Đã DUYỆT — bấm ‘Gửi khách’ để gửi báo giá cho khách."
-                    : d.status === "sent" || d.status === "accepted" || d.status === "converted_to_order"
-                      ? ""
-                      : d.status === "rejected"
-                        ? `Bị từ chối — bấm ‘Tạo phiên bản mới’ để sửa rồi trình duyệt lại.${d.exception_note ? " Lý do: " + d.exception_note : ""}`
-                        : d.exception_status === "stale"
-                          ? "Báo giá đã đổi so với lần duyệt trước — cần Trình duyệt lại."
-                          : canManageStatus
-                            ? "Bấm ‘Trình duyệt’ để gửi duyệt."
-                            : "Chưa trình duyệt."}
-                </div>
-                {/* AI đã quyết định gần nhất — để NV biết ai duyệt/từ chối + khi nào + lý do (P8b). */}
-                {d.exception_decided_by_name && (
-                  <div className="exc-decided">
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                      {d.exception_decision === "rejected" ? <><X size={13} /> Từ chối</> : <><Check size={13} /> Duyệt</>}
-                    </span>{" "}bởi{" "}
-                    <b>{d.exception_decided_by_name}</b>
-                    {d.exception_decided_at ? ` · ${fmtDate(d.exception_decided_at)}` : ""}
-                    {d.exception_note ? ` · “${d.exception_note}”` : ""}
-                  </div>
-                )}
-                {/* GĐ Kinh doanh duyệt/từ chối — CHỈ khi báo giá đang Chờ duyệt (pending_approval). */}
-                {d.status === "pending_approval" && canApproveException && (
-                  <div className="exc-actions">
-                    <textarea
-                      className="exc-note"
-                      value={apprNote}
-                      onChange={(e) => setApprNote(e.target.value)}
-                      placeholder="Lý do / ý kiến (bắt buộc — cả khi duyệt lẫn từ chối)"
-                      rows={2}
-                    />
-                    <div className="exc-btns">
-                      <Button variant="primary" disabled={apprSaving} onClick={() => submitQuoteApproval("approved")}>
-                        {apprSaving ? "Đang ghi…" : "Duyệt"}
-                      </Button>
-                      <Button variant="ghost" disabled={apprSaving} onClick={() => submitQuoteApproval("rejected")}>
-                        Từ chối (trả lại)
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="br-rows">
-              <div className="row-cost"><span className="row-key">Giá vốn (khóa)</span><span className="row-val">{numf(costT)}₫</span></div>
-              <div><span className="row-key">Lợi nhuận ({multi ? "~" + aggMarginPct : Math.round(singleMargin)}%)</span><span className="row-val">{numf(profitT)}₫</span></div>
-              <div><span className="row-key">Giá bán (chưa VAT)</span><span className="row-val">{numf(netT + discountT)}₫</span></div>
-              {discountT > 0 && (
-                <div><span className="row-key">Chiết khấu</span><span className="row-val" style={{ color: "var(--amber)" }}>−{numf(discountT)}₫</span></div>
-              )}
-              <div>
-                <span className="row-key">
-                  VAT
-                  {!multi && editable ? (
-                    <span className="vat-seg" role="group" aria-label="Chọn % VAT">
-                      {[0, 8, 10].map((p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          className={`vat-opt${Math.round(singleVat) === p ? " on" : ""}`}
-                          disabled={busy}
-                          onClick={() => commitVat(p)}
-                          title={`Áp VAT ${p}% cho báo giá`}
-                        >
-                          {p}%
-                        </button>
-                      ))}
-                    </span>
-                  ) : (
-                    ` (${multi ? "~" : Math.round(singleVat)}%)`
-                  )}
-                </span>
-                <span className="row-val">{numf(vatT)}₫</span>
-              </div>
-              <div className="row-total"><span className="row-key">Tổng cộng</span><span className="row-val">{numf(grandT)}₫</span></div>
-            </div>
-          </div>
-
-          {/* Khách hàng */}
-          <div className="card">
-            <div className="bg-card-head"><div className="title"><User size={15} /> Khách hàng</div></div>
-            <div className="cust-rows">
-              <div>
-                <span>Công ty</span>
-                {editable ? (
-                  <CustomerCombobox
-                    customers={customers}
-                    value={d.customer_id ?? null}
-                    onChange={changeCustomer}
-                    disabled={busy}
-                    maxWidth={220}
-                  />
-                ) : (
-                  <b>{d.customer?.name ?? "—"}</b>
-                )}
-              </div>
-              <div>
-                <span>Người liên hệ</span>
-                <b>{[d.contact_name_snapshot, d.contact_phone_snapshot].filter(Boolean).join(" · ") || "—"}</b>
-              </div>
-              {/* Người duyệt biết báo giá này của NV nào (P8b). */}
-              <div><span>Nhân viên soạn</span><b>{d.salesperson_name ?? "—"}</b></div>
-              <div><span>MST</span><b>{d.customer?.tax_code ?? "—"}</b></div>
-              <div><span>Tín dụng</span><b>{d.customer?.credit_status_display ?? "—"}</b></div>
-              <div>
-                <span>Phiếu tính giá</span>
-                {d.phieu_tinh_gia_id ? (
-                  <button
-                    type="button" className="btn btn--ghost btn--sm"
-                    style={{ fontFamily: "var(--ff-mono)", padding: "2px 8px" }}
-                    onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.phieu_tinh_gia_id ?? undefined })}
-                    title="Mở phiếu tính giá nguồn"
-                  >
-                    {d.phieu_tinh_gia_ma ?? `#${d.phieu_tinh_gia_id}`} <ExternalLink size={13} />
-                  </button>
-                ) : (
-                  <b>{ptgRefs.length ? ptgRefs.join(", ") : "—"}</b>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Hoạt động — nhật ký tương tác THẬT: ai làm gì · khi nào (mọi vai trò đụng cùng phiếu) */}
-          <div className="card">
-            <div className="bg-card-head"><div className="title"><Zap size={15} /> Hoạt động</div><span className="sub">{acts.length} sự kiện</span></div>
-            <div className="act-timeline">
-              {acts.length === 0 ? (
-                <div className="discuss-empty">Chưa có hoạt động.</div>
-              ) : acts.map((a, i) => {
-                const m = ACT_META[a.action] ?? [Zap, "ash", a.action];
-                const ActIcon = m[0];
-                return (
-                  <div className="act-item" key={i}>
-                    <span className={`a-dot ${m[1]}`}><ActIcon size={14} /></span>
-                    <div>
-                      <div className="a-text">
-                        {m[2]}
-                        {a.actor_name && <> · <b>{a.actor_name}</b></>}
-                      </div>
-                      <div className="a-meta">{fmtDateTime(a.at)}</div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+              );
+            })}
           </div>
         </div>
       </div>
@@ -1697,13 +1619,6 @@ function CustomerCombobox({
 }
 
 // ---- helpers cho detail view -----------------------------------------------
-function statusChipClass(status: string): string {
-  if (status === "accepted" || status === "converted_to_order") return "ok";
-  if (status === "sent") return "sent";
-  if (status === "pending_approval") return "pending";
-  if (status === "rejected" || status === "expired" || status === "cancelled") return "reject";
-  return "draft";
-}
 function vnd(v: number): string {
   return Math.round(v).toLocaleString("vi-VN") + "₫";
 }
