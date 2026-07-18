@@ -309,9 +309,13 @@ export function StockRequestPanel({
           }),
           "DeNghi",
         )}>⭱ Xuất Excel</Button>
-        <Button variant="ghost" onClick={() => downloadLineTemplate("mau-de-nghi.xlsx", { withGroups: true, types: docTypeOpts })}>⭳ Tải mẫu Excel</Button>
-        <Button variant="ghost" loading={importBusy} onClick={() => importFileRef.current?.click()}>⭱ Import Excel</Button>
-        <Button variant="primary" onClick={() => { setEditing(null); setFormOpen(true); }}>+ Tạo đề nghị</Button>
+        {canCreate && (
+          <>
+            <Button variant="ghost" onClick={() => downloadLineTemplate("mau-de-nghi.xlsx", { withGroups: true, types: docTypeOpts })}>⭳ Tải mẫu Excel</Button>
+            <Button variant="ghost" loading={importBusy} onClick={() => importFileRef.current?.click()}>⭱ Import Excel</Button>
+            <Button variant="primary" onClick={() => { setEditing(null); setFormOpen(true); }}>+ Tạo đề nghị</Button>
+          </>
+        )}
       </div>
 
       <div className="card md-page__tablewrap md-page__tablewrap--scroll">
@@ -925,7 +929,7 @@ function RequestDetail({
         <div className="md-page__dialog-actions" style={{ flexWrap: "wrap" }}>
           <Button variant="ghost" onClick={printRequest}>In phiếu</Button>
           <div className="md-page__toolbar-spacer" />
-          {request.status === "draft" && (
+          {request.status === "draft" && canCreate && (
             <>
               <Button variant="ghost" onClick={onEdit}>Sửa</Button>
               <Button variant="ghost" loading={busy} onClick={() => setConfirmCancel(true)}>Hủy</Button>
@@ -934,7 +938,7 @@ function RequestDetail({
           )}
           {request.status === "pending" && (
             <>
-              <Button variant="ghost" loading={busy} onClick={() => setConfirmCancel(true)}>Hủy</Button>
+              {canCreate && <Button variant="ghost" loading={busy} onClick={() => setConfirmCancel(true)}>Hủy</Button>}
               {canApprove && !rejecting && (
                 <>
                   <Button variant="ghost" onClick={() => setRejecting(true)}>Từ chối</Button>
@@ -943,9 +947,7 @@ function RequestDetail({
               )}
             </>
           )}
-          {request.status === "approved" && (
-            <Button variant="ghost" loading={busy} onClick={() => setConfirmCancel(true)}>Hủy đề nghị</Button>
-          )}
+          {/* Đã duyệt: bước tiếp theo là LẬP PHIẾU (khối phía trên) — không còn nút Hủy đề nghị ở đây. */}
         </div>
       </div>
     </div>

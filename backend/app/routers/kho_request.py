@@ -1,7 +1,8 @@
 """Router — phiếu ĐỀ NGHỊ nhập/xuất kho (bước trước phiếu kho, BRD sơ đồ luồng).
 
 Phân quyền (tái dùng quyền `kho` hiện có, không thêm cột mới):
-  - Lập / sửa / gửi / hủy đề nghị: `kho:read`  (ai vận hành/xem kho đều đề nghị được)
+  - XEM đề nghị (list/chi tiết):   `kho:read`
+  - Lập / sửa / gửi / hủy đề nghị: `kho:create` (siết: chỉ người được cấp quyền tạo mới đề xuất)
   - Duyệt / từ chối đề nghị:       `kho:approve`
   - Lập phiếu kho từ đề nghị:      `kho:create` (thủ kho / quản lý kho)
 """
@@ -99,7 +100,7 @@ def get_request(request_id: int, db: Annotated[Session, Depends(get_db)], _: Ann
 
 
 @router.post("/requests", response_model=RequestRow, status_code=201)
-def create_request(payload: RequestIn, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_read)]):
+def create_request(payload: RequestIn, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_create)]):
     if not payload.lines:
         raise HTTPException(422, detail="Đề nghị phải có ít nhất 1 dòng vật tư.")
     if db.get(Warehouse, payload.warehouse_id) is None:
@@ -123,7 +124,7 @@ def create_request(payload: RequestIn, db: Annotated[Session, Depends(get_db)], 
 
 
 @router.put("/requests/{request_id}", response_model=RequestRow)
-def update_request(request_id: int, payload: RequestIn, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_read)]):
+def update_request(request_id: int, payload: RequestIn, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_create)]):
     repo = StockRequestRepo(db)
     r = repo.get(request_id)
     if r is None:
@@ -138,7 +139,7 @@ def update_request(request_id: int, payload: RequestIn, db: Annotated[Session, D
 
 
 @router.delete("/requests/{request_id}", status_code=204, response_class=Response)
-def delete_request(request_id: int, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_read)]):
+def delete_request(request_id: int, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_create)]):
     """Xóa hẳn đề nghị — CHỈ khi còn Nháp (chưa gửi duyệt). Đã gửi/duyệt/lập phiếu thì Hủy, không xóa."""
     repo = StockRequestRepo(db)
     r = repo.get(request_id)
@@ -153,7 +154,7 @@ def delete_request(request_id: int, db: Annotated[Session, Depends(get_db)], use
 
 
 @router.post("/requests/{request_id}/submit", response_model=RequestRow)
-def submit_request(request_id: int, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_read)]):
+def submit_request(request_id: int, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_create)]):
     repo = StockRequestRepo(db)
     r = repo.get(request_id)
     if r is None:
@@ -201,7 +202,7 @@ def reject_request(request_id: int, payload: RejectIn, db: Annotated[Session, De
 
 
 @router.post("/requests/{request_id}/cancel", response_model=RequestRow)
-def cancel_request(request_id: int, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_read)]):
+def cancel_request(request_id: int, db: Annotated[Session, Depends(get_db)], user: Annotated[User, Depends(_kho_create)]):
     repo = StockRequestRepo(db)
     r = repo.get(request_id)
     if r is None:
