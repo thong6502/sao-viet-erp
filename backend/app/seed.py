@@ -629,7 +629,7 @@ def seed_sales_history(db: Session) -> None:
     )
     from .models.accounting import (
         PAYMENT_RECEIPT_RECEIVED,
-        RECEIPT_SOURCE_DON_HANG,
+        RECEIPT_SOURCE_ORDER,
         PaymentReceipt,
     )
     from .models.quotation import (
@@ -685,8 +685,8 @@ def seed_sales_history(db: Session) -> None:
     def _mk_order(customer, sale_id, months_ago, lines, status=STATUS_ORDERED, day=15,
                   quote=None, qv=None, deposit_pct=30.0):
         """Đơn demo — CHỈ status draft/ordered/cancelled (không dùng dormant on_hold/change_order).
-        quote!=None → đơn TỪ BÁO GIÁ: ghim quotation + snapshot giá vốn (cost_basis=quote) + %cọc,
-        đánh dấu quote `converted_to_order`, và nếu đã chốt thì seed 1 phiếu cọc đủ ngưỡng.
+        quote!=None → đơn TỪ BÁO GIÁ: ghim quotation + snapshot giá vốn (cost_basis=quote), đánh dấu
+        quote `converted_to_order`, và nếu đã chốt thì seed %cọc (đặt tại đơn) + 1 phiếu cọc đủ ngưỡng.
         quote=None → đơn NHẬP TAY: không giá vốn → biên 'không xác định' (cost_basis=none)."""
         created = _month_mid(months_ago, day)
         from_quote = quote is not None
@@ -694,7 +694,6 @@ def seed_sales_history(db: Session) -> None:
             order_no=OrderRepository(db)._next_order_no(),
             customer_id=customer.id,
             source_type="bao_gia" if from_quote else "nhap_tay",
-            order_type="theo_yc",
             order_kind="moi",
             sale_user_id=sale_id,
             status=status,
@@ -733,7 +732,7 @@ def seed_sales_history(db: Session) -> None:
             required = int(round(deposit_pct * subtotal * 1.08 / 100))
             db.add(PaymentReceipt(
                 code=f"PT-SEED-{o.id}",
-                source_type=RECEIPT_SOURCE_DON_HANG,
+                source_type=RECEIPT_SOURCE_ORDER,
                 order_id=o.id,
                 payer_name=customer.name,
                 receipt_method="bank_transfer",
@@ -745,7 +744,7 @@ def seed_sales_history(db: Session) -> None:
                 exchange_rate=1,
                 content=f"Thu cọc đơn {o.order_no}",
                 customer_name_snapshot=customer.name,
-                order_code_snapshot=o.order_no,
+                order_no_snapshot=o.order_no,
                 created_by_user_id=sale_id,
                 received_by_user_id=sale_id,
                 received_at=created,
@@ -1570,9 +1569,15 @@ def backfill_user_codes(db: Session) -> None:
 
 
 def backfill_employee_profiles(db: Session) -> None:
-    """LUẬT: mọi tài khoản đăng nhập PHẢI thuộc một hồ sơ nhân viên — ngoại lệ DUY NHẤT là
-    tài khoản hệ thống `admin`. Tạo hồ sơ cho mọi tài khoản còn mồ côi (tài khoản demo cũ
-    hoặc dữ liệu cũ có trước luật này). Idempotent: tài khoản đã có hồ sơ thì bỏ qua."""
+    """LUẬT: mọi tài khoản đăng nhập PHẢI thuộc một hồ sơ nhân viên — KHÔNG trừ ai, kể cả tài
+    khoản hệ thống `admin` (chủ đầu tư chốt: admin có hồ sơ TRỐNG, HCNS sửa sau). Tạo hồ sơ cho
+    mọi tài khoản còn mồ côi (tài khoản demo cũ hoặc dữ liệu cũ có trước luật này). Idempotent:
+    tài khoản đã có hồ sơ thì bỏ qua — nên chạy SAU `seed_employees` (admin đã nối NV009 ở dev
+    thì backfill không đụng vào).
+
+    Hồ sơ admin có mặt ⇒ luật "nghỉ việc ⇒ chặn login" (auth_service) vươn tới cả admin; chốt
+    chặn ở nguồn: `EmployeeService._apply_status` cấm cho-nghỉ-việc hồ sơ gắn tài khoản hệ thống,
+    nên không ai khóa cứng được đường vào hệ thống."""
     from datetime import date
 
     from .models.employee import STATUS_ACTIVE
@@ -1581,8 +1586,6 @@ def backfill_employee_profiles(db: Session) -> None:
     repo = EmployeeRepository(db)
     users = UserRepository(db)
     for u in users.list_all():
-        if u.username == settings.seed_admin_username:
-            continue  # tài khoản hệ thống — được phép mồ côi
         if repo.get_by_user_id(u.id) is not None:
             continue
         emp = repo.create(

@@ -126,10 +126,26 @@ export const CFG_CONG_DOAN: CatalogConfig = {
   fields: [
     { key: "ten_hien_thi", label: "Tên hiển thị cho sản xuất", type: "text", group: "Thông tin" },
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
+    { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin",
+      hint: "Tổ/bộ phận sẽ nhận việc công đoạn này khi phát lệnh sản xuất" },
+
+    // Cách tính giá (_method) → map sang pricing_basis + che_do_tinh ở transformSubmit. "other" =
+    // per_other: máy KHÔNG nhân lượng, đơn giá vào thẳng công thức tự do (kẽm, khoán…).
+    { key: "_method", label: "Cách tính giá", type: "select", required: true, group: "Giá",
+      options: [
+        { value: "sheet", label: "Theo số tờ in" },
+        { value: "piece_flat", label: "Theo thành phẩm (cái)" },
+        { value: "piece_size", label: "Theo bậc kích thước thành phẩm" },
+        { value: "area_sides", label: "Theo diện tích × số mặt" },
+        { value: "position", label: "Theo số vị trí" },
+        { value: "job", label: "Trọn gói cả đơn (÷ SL)" },
+        { value: "other", label: "Theo công thức tự do" },
+      ],
+      hint: "Máy dùng cách này để ra lượng rồi nhân đơn giá. Chọn 'Theo công thức tự do' khi bạn tự viết công thức bên dưới (vd Ghi kẽm: số bản × đơn giá)." },
 
     // run_rate — 2 biến thể cùng key: đa số là 'đơn giá / đơn vị', riêng trọn gói là 'tổng tiền'.
     { key: "run_rate", label: "Đơn giá / đơn vị (đ)", type: "number", group: "Giá",
-      showIf: (f) => ["sheet", "piece_flat", "area_sides", "position"].includes(String(f._method)),
+      showIf: (f) => ["sheet", "piece_flat", "area_sides", "position", "other"].includes(String(f._method)),
       hint: "Đơn giá cho 1 đơn vị theo cách tính đã chọn ở trên." },
     { key: "run_rate", label: "Tổng tiền cả đơn (đ)", type: "number", group: "Giá",
       showIf: (f) => f._method === "job",
@@ -160,6 +176,7 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     if (pb === "per_job") return { _method: "job" };
     if (pb === "per_area_sides") return { _method: "area_sides" };
     if (pb === "per_position") return { _method: "position" };
+    if (pb === "per_other") return { _method: "other" };
     return { _method: "" };  // basis khác/rỗng → để trống, người dùng chọn lại
   },
   // Map "Cách tính giá" → pricing_basis + dọn ô không dùng. m="" (bản cũ chưa chọn) → không đụng gì.
@@ -173,6 +190,7 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     else if (m === "job") { sl("per_job"); body.size_tiers = []; }
     else if (m === "area_sides") { sl("per_area_sides"); body.size_tiers = []; }
     else if (m === "position") { sl("per_position"); body.size_tiers = []; }
+    else if (m === "other") { sl("per_other"); body.size_tiers = []; }
     // m === "" : giữ nguyên dữ liệu cũ (không map, không xóa) → bản theo_gio cũ an toàn.
     return body;
   },

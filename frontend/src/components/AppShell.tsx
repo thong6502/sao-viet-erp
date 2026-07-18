@@ -37,7 +37,6 @@ import { WarehouseItemsPage } from "../pages/WarehouseItemsPage";
 import { KhoConfigPage } from "../pages/KhoConfigPage";
 import { KhoBaoCaoPage } from "../pages/KhoBaoCaoPage";
 import { KhoKiemKePage } from "../pages/KhoKiemKePage";
-import { ProductionOrdersPage } from "../pages/ProductionOrdersPage";
 import { MODULES_BY_NAV_ID, Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
@@ -88,6 +87,9 @@ export function AppShell() {
   // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
   const [leaveUnseen, setLeaveUnseen] = useState(0);
   // Real-time luồng gửi duyệt (SSE): toast nổi + mốc 'chờ tôi duyệt' gần nhất để chỉ toast khi TĂNG.
+  // `quoteTick` tăng mỗi event → truyền xuống BaoGiaPage cho nó refetch list/stats. Kênh SSE vẫn
+  // DUY NHẤT ở đây (trang con mở kênh riêng = tốn kết nối + lệch trạng thái).
+  const [quoteTick, setQuoteTick] = useState(0);
   const [toasts, setToasts] = useState<{ id: number; text: string; tone: "ok" | "warn" | "info" }[]>([]);
   const toastSeq = useRef(0);
   const lastPending = useRef(0);
@@ -202,7 +204,9 @@ export function AppShell() {
   useEffect(() => {
     if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban"))) return;
     const close = connectQuoteEvents(token, (e) => {
-      if (readable.has("bao_gia") && e.type === "quote_decision") {
+      // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
+      setQuoteTick((n) => n + 1);
+      if (e.type === "quote_decision") {
         pushToast(
           e.decision === "approved"
             ? `✓ Báo giá ${e.code} đã được duyệt`
@@ -362,14 +366,13 @@ export function AppShell() {
       case "bao-gia":
         return (
           <BaoGiaPage
-            pinnedCustomer={navParams?.customer ?? null}
             openQuoteId={navParams?.openQuoteId ?? null}
-            estimateId={navParams?.estimateId ?? null}
             navigate={navigate}
+            eventTick={quoteTick}
           />
         );
       case "don-hang-ban":
-        return <DonHangBanPage navigate={navigate} />;
+        return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage
@@ -410,8 +413,6 @@ export function AppShell() {
         return (
           <WarehouseItemsPage key={activeId} initialWarehouseId={warehouseIdOf(activeId)} />
         );
-      case "lenh-san-xuat":
-        return <ProductionOrdersPage />;
       case "nhat-ky":
         return <ActivityLogPage />;
       default:

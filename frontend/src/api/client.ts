@@ -731,115 +731,9 @@ export interface CustomerListParams {
   size?: number;
 }
 
-// --- Sản phẩm in (Product catalog), spec-07 --------------------------------
-
-export interface ProductRow {
-  id: number;
-  code: string;
-  name: string;
-  product_type: string;
-  binding_type: string | null;
-  component_count: number;
-}
-
-export interface ProductListOut {
-  items: ProductRow[];
-  total: number;
-  page: number;
-  size: number;
-}
-
-export interface ComponentOut {
-  id: number;
-  sequence: number;
-  component_type: string;
-  paper_master_id: number | null;
-  paper_display: string | null;
-  colors_front: number;
-  colors_back: number;
-  page_count: number;
-  finished_w: number;
-  finished_h: number;
-  bleed: number;
-  grain_direction: string | null;
-}
-
-export interface ProductDetailOut {
-  id: number;
-  code: string;
-  name: string;
-  product_type: string;
-  binding_type: string | null;
-  note: string | null;
-  components: ComponentOut[];
-}
-
-export interface ComponentInput {
-  component_type: string;
-  paper_master_id: number | null;
-  colors_front: number;
-  colors_back: number;
-  page_count: number;
-  finished_w: number;
-  finished_h: number;
-  bleed: number;
-  grain_direction: string | null;
-  sequence: number;
-}
-
-export interface ProductInput {
-  name: string;
-  product_type: string;
-  binding_type: string | null;
-  note: string | null;
-  components: ComponentInput[];
-}
-
 export interface EnumOption {
   value: string;
   label: string;
-}
-
-export interface ProductEnumsOut {
-  product_types: EnumOption[];
-  binding_types: EnumOption[];
-  component_types: EnumOption[];
-  grain_directions: EnumOption[];
-}
-
-/** Paper picker state (SEAM-03): available=false + message when Danh mục Giấy is not built. */
-export interface PaperPickerOut {
-  available: boolean;
-  message: string | null;
-  items: Array<Record<string, unknown>>;
-}
-
-export interface ProductListParams {
-  q?: string;
-  product_type?: string | null;
-  sort?: string;
-  page?: number;
-  size?: number;
-}
-
-// --- Tính giá (Costing), spec-08 -------------------------------------------
-
-export interface CostingRow {
-  id: number;
-  code: string;
-  product_id: number | null;
-  qty_final: number;
-  paper_option_count: number;
-  status: string;
-  /** Giá vốn tổng — null tại P0 (cần SEAM-07..12); UI hiện "—" chứ không số giả. */
-  total_cost: number | null;
-}
-
-export interface CostingListOut {
-  items: CostingRow[];
-  total: number;
-  page: number;
-  size: number;
 }
 
 // Phiếu tính giá 4 nhóm (BE: estimate_to_phieu) — snake_case y hệt JSON trả về.
@@ -981,6 +875,7 @@ export interface ThanhPhanOut {
   tay_gap: string | null;
   so_to_per_sp: number;
   so_luong: number; // SL đặt của sản phẩm này (0 = lấy SL mặc định phiếu)
+  don_vi_tinh: string; // ĐVT sản phẩm (text tự do, mặc định "cái") → chảy sang Báo giá
   loai_san_pham_id: number | null; // loại SP của sản phẩm này
   // Giấy in
   giay_id: number | null;
@@ -1080,6 +975,7 @@ export interface ThanhPhanIn {
   tay_gap?: string | null;
   so_to_per_sp?: number;
   so_luong?: number; // SL đặt của sản phẩm này (0 = SL mặc định phiếu)
+  don_vi_tinh?: string | null; // ĐVT sản phẩm (text tự do)
   loai_san_pham_id?: number | null; // loại SP của sản phẩm này
   giay_id?: number | null;
   kho_nguyen?: string | null;
@@ -1130,206 +1026,6 @@ export interface PhieuTinhGiaCreate {
 }
 /** PUT: REPLACE-ALL con — BE tự tính lại + snapshot. */
 export type PhieuTinhGiaUpdate = PhieuTinhGiaCreate;
-
-export interface PaperOptionOut {
-  id: number;
-  sheet_paper_master_id: number | null;
-  paper_display: string | null;
-  sheet_w: number;
-  sheet_h: number;
-  pieces_per_sheet: number;
-  grain_locked: boolean;
-  selected: boolean;
-}
-
-export interface OperationOut {
-  id: number;
-  sequence: number;
-  name: string;
-  execution_mode: string;
-}
-
-export interface CostingDetailOut {
-  id: number;
-  code: string;
-  product_id: number | null;
-  qty_final: number;
-  status: string;
-  note: string | null;
-  paper_options: PaperOptionOut[];
-  operations: OperationOut[];
-}
-
-export interface PaperOptionInput {
-  sheet_paper_master_id: number | null;
-  sheet_w: number;
-  sheet_h: number;
-  pieces_per_sheet: number;
-  grain_locked: boolean;
-  selected: boolean;
-}
-
-export interface OperationInput {
-  name: string;
-  execution_mode: string;
-  sequence: number;
-}
-
-export interface CostingInput {
-  product_id: number | null;
-  qty_final: number;
-  note: string | null;
-  status: string | null;
-  paper_options: PaperOptionInput[];
-  operations: OperationInput[];
-}
-
-export interface CostingEnumsOut {
-  statuses: EnumOption[];
-  execution_modes: EnumOption[];
-}
-
-export interface EstimateWarning {
-  severity: "warning" | "blocking_error" | "info";
-  code: string;
-  message: string;
-  source_type?: string | null;
-  source_id?: number | null;
-}
-
-export interface EstimateCostLineRow {
-  id: number;
-  category: string;
-  description: string;
-  source_type?: string | null;
-  source_id?: number | null;
-  source_snapshot_json?: Record<string, any> | null;
-  calculation_snapshot_json?: Record<string, any> | null;
-  quantity: number;
-  unit: string;
-  unit_cost: number;
-  setup_cost: number;
-  min_charge_applied: boolean;
-  total_cost: number;
-  note?: string | null;
-}
-
-export interface EstimateOptionRow {
-  id: number;
-  quantity: number;
-  total_cost: number;
-  warnings_json?: EstimateWarning[];
-  can_create_quote?: boolean;
-  blocking_error_count?: number;
-  warning_count?: number;
-  cost_lines?: EstimateCostLineRow[];
-}
-
-export interface EstimateDetail {
-  id: number;
-  estimate_number: string;
-  customer_id: number | null;
-  product_type: string;
-  product_name: string;
-  status: string;
-  input_spec_json: Record<string, any>;
-  quantity_list_json: number[];
-  created_by: number | null;
-  locked_at?: string | null;
-  version?: number;
-  parent_id?: number | null;
-  superseded_by_id?: number | null;
-  created_at: string;
-  updated_at: string;
-  options: EstimateOptionRow[];
-}
-
-export interface EstimateRow {
-  id: number;
-  estimate_number: string;
-  product_type: string;
-  product_name: string;
-  status: string;
-  quantity_list_json: number[];
-  total_cost_min: number | null;
-  total_cost_max: number | null;
-  warnings_count: number;
-  blocking_error_count: number;
-  created_at: string;
-  updated_at?: string | null;
-  // Field hiển thị 2 tầng (backend cũ chưa trả — đều optional)
-  customer_id?: number | null;
-  customer_name?: string | null;
-  spec_summary?: string | null;
-  machine_type?: string | null;
-  unit_cost_min?: number | null;
-  created_by_name?: string | null;
-}
-
-export interface EstimateStats {
-  total: number;
-  draft: number;
-  calculated: number;
-  blocking: number;
-}
-
-export interface EstimateListOut {
-  items: EstimateRow[];
-  total: number;
-  page: number;
-  size: number;
-}
-
-/** Live preview (không lưu) — sidebar Tính giá hiện giá vốn tức thời khi gõ form. */
-export interface EstimatePreviewLine {
-  category: string;
-  description: string;
-  total_cost: number;
-}
-
-export interface EstimatePreviewOut {
-  total_cost: number;
-  cost_lines: EstimatePreviewLine[];
-  warnings: { severity: string; code: string; message: string }[];
-}
-
-export interface EstimateInput {
-  product_type: string;
-  product_name: string;
-  quantity_list: number[];
-  input_spec: Record<string, any>;
-  customer_id?: number | null;
-  status?: string;
-}
-
-
-/** Paper-cost picker state (SEAM-07): available=false + message when Danh mục Giấy is not built. */
-export interface PaperCostPickerOut {
-  available: boolean;
-  message: string | null;
-  items: Array<Record<string, unknown>>;
-}
-
-/** Product read state (SEAM-11): available=false + message when Sản phẩm chưa expose ProductRead. */
-export interface ProductPickerOut {
-  available: boolean;
-  message: string | null;
-  product: Record<string, unknown> | null;
-}
-
-export interface SuggestPiecesOut {
-  pieces: number;
-  message: string | null;
-}
-
-export interface CostingListParams {
-  q?: string;
-  product_id?: number | null;
-  status?: string | null;
-  sort?: string;
-  page?: number;
-  size?: number;
-}
 
 // --- Báo giá (Quotation), spec-09 --------------------------------------------
 
@@ -1437,9 +1133,9 @@ export interface QuotationDetail {
   valid_until: string | null;
   status: string;
   cancel_reason: string | null;
-  payment_terms: string | null;
-  deposit_pct: number | null;
-  delivery_terms: string | null;
+  /** Điều khoản in ra phiếu — mỗi dòng = 1 điều khoản (bản in tự đánh số). */
+  terms_text: string | null;
+  /** ĐC giao: chỉ-đọc trên báo giá (auto-fill từ hồ sơ khách, không in). */
   delivery_address: string | null;
   contact_name_snapshot: string | null;
   contact_phone_snapshot: string | null;
@@ -1472,6 +1168,9 @@ export interface QuotationDetail {
   exception_decision?: "approved" | "rejected" | null;
   exception_decided_by_name?: string | null;
   exception_decided_at?: string | null;
+  // Đơn hàng bán đã lập từ báo giá này (đơn hủy không tính) → FE ẩn "Tạo đơn", hiện "Xem đơn hàng".
+  order_id?: number | null;
+  order_no?: string | null;
 }
 
 export interface QuotationInput {
@@ -1485,9 +1184,8 @@ export interface QuotationInput {
   /** Gói biên áp chung khi tạo (per dòng chỉnh sau). */
   margin_percent?: number | null;
   valid_until: string | null;
-  payment_terms: string | null;
-  delivery_terms: string | null;
-  delivery_address: string | null;
+  /** Điều khoản in ra phiếu (mỗi dòng = 1 điều khoản); bỏ trống → backend điền bộ mặc định. */
+  terms_text?: string | null;
   // Ghi chú đối ngoại/nội bộ đã BỎ khỏi UI — optional để tương thích payload cũ.
   customer_note?: string | null;
   internal_note?: string | null;
@@ -1508,11 +1206,8 @@ export interface QuoteItemUpdateInput {
 export interface QuotationUpdateInput {
   customer_id: number | null;
   valid_until: string | null;
-  payment_terms: string | null;
-  /** % tạm ứng/cọc khi chốt đơn (0–100); null = chưa đặt. */
-  deposit_pct?: number | null;
-  delivery_terms: string | null;
-  delivery_address: string | null;
+  /** Điều khoản in ra phiếu (mỗi dòng = 1 điều khoản); bỏ trống → backend điền bộ mặc định. */
+  terms_text?: string | null;
   // Ghi chú đối ngoại/nội bộ đã BỎ khỏi UI — vẫn optional để tương thích payload cũ.
   customer_note?: string | null;
   internal_note?: string | null;
@@ -1523,532 +1218,9 @@ export interface QuotationEnumsOut {
   statuses: EnumOption[];
 }
 
-/** Một mức số lượng (bậc SL) của Tính giá được tham chiếu. */
-export interface CostingQtyOption {
-  id: number;
-  quantity: number;
-  total_cost: number;
-  margin_percent: number;
-  selling_price: number;
-  discount_amount: number;
-  vat_percent: number;
-  final_price: number;
-  unit_price: number;
-  actual_margin: number;
-}
-
-/** Tính giá picker state */
-export interface CostingPickerOut {
-  available: boolean;
-  message: string | null;
-  options?: CostingQtyOption[] | null;
-}
-
 export interface QuotationListParams {
   q?: string;
   status?: string | null;
-  sort?: string;
-  page?: number;
-  size?: number;
-}
-
-// --- Master Data (Cấu hình danh mục) shapes --------------------------------
-export interface ProductTypeCatalogRow {
-  id: number;
-  product_type: string;
-  name: string;
-  calculation_strategy: string;
-  product_group: string;
-  technology: string;
-  display_order: number;
-  version: number;
-  description?: string | null;
-  required_fields: string[] | null;
-  shown_fields: string[] | null;
-  default_operations: string[] | null;
-  required_operations: string[] | null;
-  allowed_materials: string[] | null;
-  compatible_technologies: string[] | null;
-  dimension_rule_type: string;
-  default_bleed_mm: number;
-  default_gutter_mm: number;
-  default_trim_mm: number;
-  allow_rotation?: boolean;
-  allow_custom_size?: boolean;
-  has_page_count: boolean;
-  page_multiple?: number;
-  pages_per_signature?: number;
-  has_cover_body_split: boolean;
-  has_tooling: boolean;
-  default_tooling_type?: string | null;
-  has_packaging: boolean;
-  default_pack_qty?: number;
-  default_paper_material_id?: number | null;
-  default_cover_material_id?: number | null;
-  default_body_material_id?: number | null;
-  default_ink_material_id?: number | null;
-  allow_extra_operations?: boolean;
-  allow_manual_override?: boolean;
-  waste_pct?: number;
-  sheet_count_mode: string;
-  ink_cost_mode: string;
-  is_active: boolean;
-  created_at: string;
-  updated_at?: string;
-}
-
-export interface ProductTypeCatalogInput {
-  product_type: string;
-  name: string;
-  calculation_strategy: string;
-  product_group?: string;
-  technology?: string;
-  description?: string | null;
-  display_order?: number;
-  required_fields?: string[] | null;
-  shown_fields?: string[] | null;
-  dimension_rule_type?: string;
-  default_bleed_mm?: number;
-  default_gutter_mm?: number;
-  default_trim_mm?: number;
-  allow_rotation?: boolean;
-  allow_custom_size?: boolean;
-  has_page_count?: boolean;
-  page_multiple?: number;
-  pages_per_signature?: number;
-  has_cover_body_split?: boolean;
-  allowed_materials?: string[] | null;
-  default_paper_material_id?: number | null;
-  default_cover_material_id?: number | null;
-  default_body_material_id?: number | null;
-  default_ink_material_id?: number | null;
-  has_packaging?: boolean;
-  default_pack_qty?: number;
-  default_operations?: string[] | null;
-  required_operations?: string[] | null;
-  allow_extra_operations?: boolean;
-  compatible_technologies?: string[] | null;
-  sheet_count_mode?: string;
-  ink_cost_mode?: string;
-  has_tooling?: boolean;
-  default_tooling_type?: string | null;
-  allow_manual_override?: boolean;
-  waste_pct?: number;
-  is_active?: boolean;
-}
-
-export interface ProductTypePreviewResult {
-  product_type: string;
-  name: string;
-  shown_fields: string[];
-  required_fields: string[];
-  routing: string[];
-  required_operations: string[];
-  dimension_rule_type: string;
-  default_bleed_mm: number;
-  default_gutter_mm: number;
-  default_trim_mm: number;
-  sheet_count_mode: string;
-  ink_cost_mode: string;
-  has_tooling: boolean;
-  has_packaging: boolean;
-  has_cover_body_split: boolean;
-  rules: string[];
-  warnings: string[];
-}
-
-export interface ProductTypeCatalogListOut {
-  items: ProductTypeCatalogRow[];
-  total: number;
-  page: number;
-  size: number;
-}
-
-export type MaterialGroup = "paper" | "ink" | "film" | "glue" | "packaging" | "auxiliary";
-
-export interface MaterialCostRow {
-  id: number;
-  material_id?: number;
-  price_unit: string;
-  unit_price: number;
-  supplier: string | null;
-  price_type: string;
-  vat_included: boolean;
-  transport_fee: number;
-  moq: number;
-  lead_time_days: number;
-  quantity_from: number | null;
-  quantity_to: number | null;
-  version: number;
-  effective_from: string;
-  effective_to: string | null;
-  created_at: string;
-}
-
-export interface MaterialCostInput {
-  price_unit: string;
-  unit_price: number;
-  effective_from: string;
-  supplier?: string | null;
-  price_type?: string;
-  vat_included?: boolean;
-  transport_fee?: number;
-  moq?: number;
-  lead_time_days?: number;
-  quantity_from?: number | null;
-  quantity_to?: number | null;
-}
-
-export interface MaterialUomIO {
-  uom: string;
-  factor: number;
-}
-
-export interface ItemOverviewRow {
-  id: number;
-  code: string;
-  name: string;
-  unit: string;
-  material_type: string;
-  material_group: string | null;
-  is_active: boolean;
-  warehouses: { id: number; code: string }[];
-}
-
-interface MaterialFields {
-  /** Kho quản lý vật tư (mỗi vật tư thuộc 1 kho). */
-  warehouse_id?: number | null;
-  material_group?: MaterialGroup | null;
-  default_supplier?: string | null;
-  base_uom?: string | null;
-  purchase_uom?: string | null;
-  consumption_uom?: string | null;
-  conversion_method?: string | null;
-  conversion_factor?: number | null;
-  ink_type?: string | null;
-  ink_color_system?: string | null;
-  ink_color_code?: string | null;
-  film_type?: string | null;
-  image_url?: string | null;
-  uoms?: MaterialUomIO[];
-  // BRD §3.4
-  group_name?: string | null;
-  spec_text?: string | null;
-  track_lot?: boolean;
-  track_expiry?: boolean;
-  track_qr?: boolean;
-  track_value?: boolean;
-  lot_code?: string | null;
-  expiry_date?: string | null;
-  min_stock?: number | null;
-  max_stock?: number | null;
-  note?: string | null;
-}
-
-export interface MaterialRow extends MaterialFields {
-  id: number;
-  code: string;
-  name: string;
-  material_type: string;
-  unit: string;
-  min_fee: number;
-  width_cm: number | null;
-  height_cm: number | null;
-  gsm: number | null;
-  thickness_mm: number | null;
-  default_waste_pct: number;
-  min_purchase_qty: number;
-  paper_family: string | null;
-  surface: string | null;
-  version: number;
-  is_active: boolean;
-  costs: MaterialCostRow[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface MaterialInput extends MaterialFields {
-  code?: string | null;
-  name: string;
-  material_type: string;
-  unit: string;
-  min_fee?: number;
-  width_cm?: number | null;
-  height_cm?: number | null;
-  gsm?: number | null;
-  thickness_mm?: number | null;
-  default_waste_pct?: number;
-  min_purchase_qty?: number;
-  paper_family?: string | null;
-  surface?: string | null;
-  is_active?: boolean;
-}
-
-export interface MaterialConvertOut {
-  area_m2: number;
-  kg_per_sheet: number;
-  detail: string;
-}
-
-export interface MaterialPriceTestInput {
-  price_unit: string;
-  unit_price: number;
-  sheets?: number;
-  gsm?: number | null;
-  width_cm?: number | null;
-  height_cm?: number | null;
-  impressions?: number;
-  quantity?: number;
-  transport_fee?: number;
-}
-
-export interface MaterialPriceTestOut {
-  total: number;
-  steps: string[];
-}
-
-export interface MaterialListStats {
-  total_materials: number;
-  total_papers: number;
-  total_consumables: number;
-  no_price_count: number;
-  price_updates_this_month: number;
-}
-
-export interface MaterialListOut {
-  items: MaterialRow[];
-  total: number;
-  page: number;
-  size: number;
-  stats: MaterialListStats;
-}
-
-export type MachineGroup = "may_in" | "may_can" | "may_be" | "may_xen" | "khac";
-export type MachineStatusKind = "active" | "inactive" | "maintenance";
-export type MachineRoundingPolicy = "none" | "0.01" | "0.25" | "0.5";
-
-export interface MachineRateRow {
-  id: number;
-  hourly_rate: number;
-  min_charge: number;
-  min_run_time_mins: number;
-  rate_depreciation: number;
-  rate_energy: number;
-  rate_maintenance: number;
-  rate_labor: number;
-  rate_overhead: number;
-  effective_from: string;
-  effective_to: string | null;
-  created_at: string;
-}
-
-export interface MachineRateInput {
-  hourly_rate: number;
-  min_charge: number;
-  min_run_time_mins: number;
-  rate_depreciation?: number;
-  rate_energy?: number;
-  rate_maintenance?: number;
-  rate_labor?: number;
-  rate_overhead?: number;
-  effective_from: string;
-}
-
-// Shared machine spec fields (row + input).
-interface MachineFields {
-  name: string;
-  machine_type: string;
-  process_type: string;
-  machine_group: MachineGroup;
-  status: MachineStatusKind;
-  note: string | null;
-  speed: number;
-  speed_unit: string;
-  min_speed: number | null;
-  max_speed: number | null;
-  max_width_cm: number | null;
-  max_height_cm: number | null;
-  min_width_cm: number | null;
-  min_height_cm: number | null;
-  max_print_width_cm: number | null;
-  max_print_height_cm: number | null;
-  gripper_cm: number;
-  side_margin_cm: number;
-  top_bottom_margin_cm: number;
-  setup_time_mins: number;
-  changeover_time_mins: number;
-  setup_waste_sheets: number;
-  setup_time_base_hour: number;
-  setup_time_per_color_hour: number;
-  setup_time_per_side_hour: number;
-  cleaning_time_hour: number;
-  color_change_time_hour: number;
-  plate_change_time_per_plate_hour: number;
-  color_check_time_hour: number;
-  min_setup_time_hour: number;
-  max_setup_time_hour: number | null;
-  rounding_hour_policy: MachineRoundingPolicy;
-  overhead_included: boolean;
-  operator_included: boolean;
-  num_ink_units: number | null;
-  supports_perfecting: boolean;
-  supported_materials: string[] | null;
-  is_active: boolean;
-}
-
-export interface MachineRow extends MachineFields {
-  id: number;
-  code: string;
-  used_count: number;
-  created_by: number | null;
-  updated_by: number | null;
-  rates: MachineRateRow[];
-}
-
-export type MachineInput = MachineFields & { code?: string };
-
-export interface MachineListOut {
-  items: MachineRow[];
-  total: number;
-  page: number;
-  size: number;
-}
-
-export interface OperationCatalogRateRow {
-  id: number;
-  operation_id: number;
-  setup_fee: number;
-  run_rate: number;
-  labor_rate: number;
-  min_charge: number;
-  speed: number;
-  setup_time_mins: number;
-  hourly_rate: number;
-  labor_shift_rate: number;
-  labor_fixed: number;
-  labor_min: number;
-  tooling_unit_price: number;
-  outsource_supplier: string | null;
-  outsource_unit_price: number;
-  outsource_setup_fee: number;
-  outsource_min_charge: number;
-  outsource_transport_fee: number;
-  outsource_moq: number;
-  outsource_lead_time_days: number;
-  effective_from: string;
-  effective_to: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface OperationCatalogRateInput {
-  setup_fee: number;
-  run_rate: number;
-  labor_rate: number;
-  min_charge: number;
-  speed: number;
-  setup_time_mins: number;
-  hourly_rate?: number;
-  labor_shift_rate?: number;
-  labor_fixed?: number;
-  labor_min?: number;
-  tooling_unit_price?: number;
-  outsource_supplier?: string | null;
-  outsource_unit_price?: number;
-  outsource_setup_fee?: number;
-  outsource_min_charge?: number;
-  outsource_transport_fee?: number;
-  outsource_moq?: number;
-  outsource_lead_time_days?: number;
-  effective_from: string;
-}
-
-export interface OperationCatalogRow {
-  id: number;
-  code: string;
-  name: string;
-  operation_type: string;
-  unit: string;
-  basis_quantity: string;
-  pricing_method: string;
-  process_group: string;
-  process_type: string;
-  default_sequence: number;
-  quantity_formula_type: string;
-  allow_manual_quantity: boolean;
-  internal_pricing_method: string;
-  labor_people_count: number;
-  has_tooling: boolean;
-  tooling_type: string | null;
-  tooling_rate_id: number | null;
-  has_yield_loss: boolean;
-  default_yield_rate: number | null;
-  default_yield_rule: string | null;
-  allow_outsource: boolean;
-  is_active: boolean;
-  rates: OperationCatalogRateRow[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface OperationCatalogInput {
-  name: string;
-  operation_type: string;
-  unit: string;
-  basis_quantity: string;
-  pricing_method: string;
-  process_group?: string;
-  process_type?: string;
-  default_sequence?: number;
-  quantity_formula_type?: string;
-  allow_manual_quantity?: boolean;
-  internal_pricing_method?: string;
-  labor_people_count?: number;
-  has_tooling?: boolean;
-  tooling_type?: string | null;
-  tooling_rate_id?: number | null;
-  has_yield_loss?: boolean;
-  default_yield_rate?: number | null;
-  default_yield_rule?: string | null;
-  allow_outsource?: boolean;
-  is_active?: boolean;
-}
-
-export interface OperationPreviewInput {
-  sheet_qty?: number;
-  finished_qty?: number;
-  area_m2?: number;
-  book_qty?: number;
-  manual_qty?: number;
-  execution_mode?: string;
-}
-
-export interface OperationPreviewComponent {
-  label: string;
-  formula: string;
-  amount: number;
-}
-
-export interface OperationPreviewResult {
-  operation_name: string;
-  execution_mode: string;
-  quantity: number;
-  unit: string;
-  components: OperationPreviewComponent[];
-  total: number;
-  warnings: string[];
-}
-
-export interface OperationCatalogListOut {
-  items: OperationCatalogRow[];
-  total: number;
-  page: number;
-  size: number;
-}
-
-export interface CatalogListParams {
-  q?: string;
-  type?: string | null;
   sort?: string;
   page?: number;
   size?: number;
@@ -3157,6 +2329,173 @@ export interface StockListOut<T> {
   items: T[];
   total: number;
 }
+export type MaterialGroup = "paper" | "ink" | "film" | "glue" | "packaging" | "auxiliary";
+
+export interface MaterialCostRow {
+  id: number;
+  material_id?: number;
+  price_unit: string;
+  unit_price: number;
+  supplier: string | null;
+  price_type: string;
+  vat_included: boolean;
+  transport_fee: number;
+  moq: number;
+  lead_time_days: number;
+  quantity_from: number | null;
+  quantity_to: number | null;
+  version: number;
+  effective_from: string;
+  effective_to: string | null;
+  created_at: string;
+}
+
+export interface MaterialCostInput {
+  price_unit: string;
+  unit_price: number;
+  effective_from: string;
+  supplier?: string | null;
+  price_type?: string;
+  vat_included?: boolean;
+  transport_fee?: number;
+  moq?: number;
+  lead_time_days?: number;
+  quantity_from?: number | null;
+  quantity_to?: number | null;
+}
+
+export interface CatalogListParams {
+  q?: string;
+  type?: string | null;
+  sort?: string;
+  page?: number;
+  size?: number;
+}
+
+export interface MaterialUomIO {
+  uom: string;
+  factor: number;
+}
+
+export interface ItemOverviewRow {
+  id: number;
+  code: string;
+  name: string;
+  unit: string;
+  material_type: string;
+  material_group: string | null;
+  is_active: boolean;
+  warehouses: { id: number; code: string }[];
+}
+
+interface MaterialFields {
+  /** Kho quản lý vật tư (mỗi vật tư thuộc 1 kho). */
+  warehouse_id?: number | null;
+  material_group?: MaterialGroup | null;
+  default_supplier?: string | null;
+  base_uom?: string | null;
+  purchase_uom?: string | null;
+  consumption_uom?: string | null;
+  conversion_method?: string | null;
+  conversion_factor?: number | null;
+  ink_type?: string | null;
+  ink_color_system?: string | null;
+  ink_color_code?: string | null;
+  film_type?: string | null;
+  image_url?: string | null;
+  uoms?: MaterialUomIO[];
+  // BRD §3.4
+  group_name?: string | null;
+  spec_text?: string | null;
+  track_lot?: boolean;
+  track_expiry?: boolean;
+  track_qr?: boolean;
+  track_value?: boolean;
+  lot_code?: string | null;
+  expiry_date?: string | null;
+  min_stock?: number | null;
+  max_stock?: number | null;
+  note?: string | null;
+}
+
+export interface MaterialRow extends MaterialFields {
+  id: number;
+  code: string;
+  name: string;
+  material_type: string;
+  unit: string;
+  min_fee: number;
+  width_cm: number | null;
+  height_cm: number | null;
+  gsm: number | null;
+  thickness_mm: number | null;
+  default_waste_pct: number;
+  min_purchase_qty: number;
+  paper_family: string | null;
+  surface: string | null;
+  version: number;
+  is_active: boolean;
+  costs: MaterialCostRow[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MaterialInput extends MaterialFields {
+  code?: string | null;
+  name: string;
+  material_type: string;
+  unit: string;
+  min_fee?: number;
+  width_cm?: number | null;
+  height_cm?: number | null;
+  gsm?: number | null;
+  thickness_mm?: number | null;
+  default_waste_pct?: number;
+  min_purchase_qty?: number;
+  paper_family?: string | null;
+  surface?: string | null;
+  is_active?: boolean;
+}
+
+export interface MaterialConvertOut {
+  area_m2: number;
+  kg_per_sheet: number;
+  detail: string;
+}
+
+export interface MaterialPriceTestInput {
+  price_unit: string;
+  unit_price: number;
+  sheets?: number;
+  gsm?: number | null;
+  width_cm?: number | null;
+  height_cm?: number | null;
+  impressions?: number;
+  quantity?: number;
+  transport_fee?: number;
+}
+
+export interface MaterialPriceTestOut {
+  total: number;
+  steps: string[];
+}
+
+export interface MaterialListStats {
+  total_materials: number;
+  total_papers: number;
+  total_consumables: number;
+  no_price_count: number;
+  price_updates_this_month: number;
+}
+
+export interface MaterialListOut {
+  items: MaterialRow[];
+  total: number;
+  page: number;
+  size: number;
+  stats: MaterialListStats;
+}
+
 export interface KhoMaterialOption {
   id: number;
   code: string;
@@ -3745,10 +3084,12 @@ export interface OrderLineOut {
   id: number;
   description: string;
   qty: number;
+  don_vi_tinh: string;   // ĐVT dòng (kéo từ báo giá / gõ tay)
   unit_price_snapshot: number | null;
   vat_pct_estimate: number;
   line_total: number | null;
   cost_snapshot: number | null;
+  phieu_thanh_phan_id: number | null;
 }
 export interface AttachmentOut {
   id: number;
@@ -3787,6 +3128,33 @@ export interface OrderApprovalOut {
   order_cost: number | null;
   margin_pct_snapshot: number | null;
 }
+/** Phiếu thu 01-TT của đơn (nguồn cọc thật, dùng chung quyển sổ PT kế toán). */
+export interface OrderReceiptOut {
+  id: number;
+  code: string;
+  doc_no: string | null;
+  receipt_method: string;          // cash | bank_transfer
+  amount: number;
+  status: string;                  // waiting_receipt | received | cancelled
+  receipt_date: string | null;
+  content: string | null;
+  bank_reference: string | null;
+  payer_name: string | null;
+  debit_account: string | null;
+  credit_account: string | null;
+  created_by_name: string | null;
+  attachments: AttachmentOut[];
+}
+export interface OrderReceiptInput {
+  receipt_method: string;          // cash | bank_transfer
+  amount: number;
+  receipt_date: string;
+  content?: string | null;
+  bank_reference?: string | null;
+  company_bank_account_id?: number | null;
+  note?: string | null;
+  mark_received?: boolean;
+}
 export interface OrderRow {
   id: number;
   order_no: string;
@@ -3798,6 +3166,7 @@ export interface OrderRow {
   order_kind: string;
   order_nature: string;
   status: string;
+  is_rush: boolean;
   approval_state: string;
   needs_approval: boolean;
   cost_basis: string;
@@ -3823,8 +3192,13 @@ export interface OrderDetail extends OrderRow {
   quotation_version: number | null;
   quotation_effective_from: string | null;
   parent_order_id: number | null;
+  parent_order_no: string | null;
   customer_po_no: string | null;
   delivery_address: string | null;
+  delivery_contact_name: string | null;
+  delivery_contact_phone: string | null;
+  delivery_note: string | null;
+  production_note: string | null;
   invoice_entity_name: string | null;
   invoice_entity_tax_code: string | null;
   vat_pct_estimate: number;
@@ -3846,10 +3220,14 @@ export interface OrderStatsOut {
   ordered: number;
   cancelled: number;
   pending_approval: number;
+  awaiting_deposit: number;
+  deposit_shortfall: number;
+  ordered_value: number;
 }
 export interface OrderLineInput {
   description?: string;
   qty: number;
+  don_vi_tinh?: string | null;   // ĐVT (text tự do); bỏ trống → "cái"
   unit_price?: number | null;
   vat_pct?: number;
 }
@@ -3866,8 +3244,13 @@ export interface OrderCreateInput {
   customer_po_no?: string | null;
   delivery_committed_date?: string | null;
   delivery_address?: string | null;
+  delivery_contact_name?: string | null;
+  delivery_contact_phone?: string | null;
+  delivery_note?: string | null;
+  production_note?: string | null;
   invoice_entity_name?: string | null;
   invoice_entity_tax_code?: string | null;
+  is_rush?: boolean;
 }
 export interface OrderUpdateInput {
   order_nature?: string | null;
@@ -3875,6 +3258,10 @@ export interface OrderUpdateInput {
   customer_po_no?: string | null;
   delivery_committed_date?: string | null;
   delivery_address?: string | null;
+  delivery_contact_name?: string | null;
+  delivery_contact_phone?: string | null;
+  delivery_note?: string | null;
+  production_note?: string | null;
   invoice_entity_name?: string | null;
   invoice_entity_tax_code?: string | null;
 }
@@ -4962,61 +4349,6 @@ export const api = {
     },
   },
 
-  // --- Tính giá (Costing), spec-08 ------------------------------------------
-  costings: {
-    list(token: string, params: CostingListParams = {}): Promise<CostingListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.product_id != null) qs.set("product_id", String(params.product_id));
-      if (params.status) qs.set("status", params.status);
-      if (params.sort) qs.set("sort", params.sort);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<CostingListOut>(`/api/costings${suffix}`, token);
-    },
-    enums(token: string): Promise<CostingEnumsOut> {
-      return authed<CostingEnumsOut>("/api/costings/enums", token);
-    },
-    papers(token: string): Promise<PaperCostPickerOut> {
-      return authed<PaperCostPickerOut>("/api/costings/papers", token);
-    },
-    product(token: string, productId: number): Promise<ProductPickerOut> {
-      return authed<ProductPickerOut>(`/api/costings/products/${productId}`, token);
-    },
-    suggestPieces(
-      token: string,
-      body: { sheet_w: number; sheet_h: number; piece_w: number; piece_h: number; grain_locked: boolean; gripper_cm?: number; edge_trim_cm?: number; bleed_cm?: number; gutter_cm?: number },
-    ): Promise<SuggestPiecesOut> {
-      return authed<SuggestPiecesOut>("/api/costings/suggest-pieces", token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    get(token: string, id: number): Promise<CostingDetailOut> {
-      return authed<CostingDetailOut>(`/api/costings/${id}`, token);
-    },
-    getPhieu(token: string, id: number, qty?: number): Promise<PhieuTinhGiaPrintOut> {
-      const s = qty ? `?qty=${qty}` : "";
-      return authed<PhieuTinhGiaPrintOut>(`/api/costings/${id}/phieu${s}`, token);
-    },
-    create(token: string, input: CostingInput): Promise<CostingDetailOut> {
-      return authed<CostingDetailOut>("/api/costings", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    update(token: string, id: number, input: CostingInput): Promise<CostingDetailOut> {
-      return authed<CostingDetailOut>(`/api/costings/${id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/costings/${id}`, token, { method: "DELETE" });
-    },
-  },
-
   // --- Tính giá thành — chỉ còn bình bài live; tính giá vốn đi qua phiếu (phieuTinhGia) ---
   tinhGia: {
     binhBai(token: string, body: BinhBaiIn): Promise<BinhBaiOut> {
@@ -5069,58 +4401,6 @@ export const api = {
     },
   },
 
-  estimates: {
-    list(token: string, params: { q?: string; product_type?: string | null; status?: string | null; has_blocking?: boolean; sort?: string; page?: number; size?: number } = {}): Promise<EstimateListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.product_type) qs.set("product_type", params.product_type);
-      if (params.status) qs.set("status", params.status);
-      if (params.has_blocking) qs.set("has_blocking", "true");
-      if (params.sort) qs.set("sort", params.sort);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<EstimateListOut>(`/api/estimates${suffix}`, token);
-    },
-    /** Số đếm cho thanh tab list (backend mới có sau khi restart — caller phải catch). */
-    stats(token: string): Promise<EstimateStats> {
-      return authed<EstimateStats>("/api/estimates/stats", token);
-    },
-    get(token: string, id: number): Promise<EstimateDetail> {
-      return authed<EstimateDetail>(`/api/estimates/${id}`, token);
-    },
-    create(token: string, input: EstimateInput): Promise<EstimateDetail> {
-      return authed<EstimateDetail>("/api/estimates", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    update(token: string, id: number, input: EstimateInput): Promise<EstimateDetail> {
-      return authed<EstimateDetail>(`/api/estimates/${id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/estimates/${id}`, token, { method: "DELETE" });
-    },
-    /** §9 — Khóa snapshot phiếu (chốt kết quả, không cho sửa nữa). */
-    lock(token: string, id: number): Promise<EstimateDetail> {
-      return authed<EstimateDetail>(`/api/estimates/${id}/lock`, token, { method: "POST" });
-    },
-    /** §7/§9 — Sao chép phiếu (làm mẫu / version mới nếu phiếu nguồn đã khóa). */
-    duplicate(token: string, id: number): Promise<EstimateDetail> {
-      return authed<EstimateDetail>(`/api/estimates/${id}/duplicate`, token, { method: "POST" });
-    },
-    /** Live preview (KHÔNG lưu): chạy engine với spec đang gõ để form hiện giá vốn tức thời. */
-    preview(token: string, input: { input_spec: Record<string, unknown>; quantity: number }): Promise<EstimatePreviewOut> {
-      return authed<EstimatePreviewOut>("/api/estimates/preview", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-  },
-
   // --- Báo giá (Quotation), spec-09 -----------------------------------------
   quotations: {
     list(token: string, params: QuotationListParams = {}): Promise<QuotationListOut> {
@@ -5139,9 +4419,6 @@ export const api = {
     /** Số đếm cho thanh tab list. */
     stats(token: string): Promise<QuotationStats> {
       return authed<QuotationStats>("/api/quotations/stats", token);
-    },
-    costing(token: string, costingId: number, _quantity?: number): Promise<CostingPickerOut> {
-      return authed<CostingPickerOut>(`/api/quotations/costings/${costingId}`, token);
     },
     get(token: string, id: number): Promise<QuotationDetail> {
       return authed<QuotationDetail>(`/api/quotations/${id}`, token);
@@ -5235,7 +4512,6 @@ export const api = {
     },
   },
 
-  // --- Product Types Catalog ------------------------------------------------
   orders: {
     list(token: string, params: OrderListParams = {}): Promise<OrderListOut> {
       const qs = new URLSearchParams();
@@ -5321,204 +4597,6 @@ export const api = {
       return authed<OrderDetail>(`/api/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
     },
   },
-  productTypesCatalog: {
-    list(token: string, params: CatalogListParams = {}): Promise<ProductTypeCatalogListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.sort) qs.set("sort", params.sort);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<ProductTypeCatalogListOut>(`/api/product-types-catalog${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<ProductTypeCatalogRow> {
-      return authed<ProductTypeCatalogRow>(`/api/product-types-catalog/${id}`, token);
-    },
-    create(token: string, input: ProductTypeCatalogInput): Promise<ProductTypeCatalogRow> {
-      return authed<ProductTypeCatalogRow>("/api/product-types-catalog", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    update(token: string, id: number, input: ProductTypeCatalogInput): Promise<ProductTypeCatalogRow> {
-      return authed<ProductTypeCatalogRow>(`/api/product-types-catalog/${id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/product-types-catalog/${id}`, token, { method: "DELETE" });
-    },
-    preview(token: string, id: number): Promise<ProductTypePreviewResult> {
-      return authed<ProductTypePreviewResult>(`/api/product-types-catalog/${id}/preview`, token, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-    },
-    clone(token: string, id: number, body: { new_product_type: string; new_name: string }): Promise<ProductTypeCatalogRow> {
-      return authed<ProductTypeCatalogRow>(`/api/product-types-catalog/${id}/clone`, token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-  },
-
-  // --- Materials Catalog ----------------------------------------------------
-  materials: {
-    list(token: string, params: CatalogListParams & { material_type?: string | null; is_active?: boolean; warehouse_id?: number } = {}): Promise<MaterialListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.material_type) qs.set("material_type", params.material_type);
-      if (params.is_active != null) qs.set("is_active", String(params.is_active));
-      if (params.warehouse_id != null) qs.set("warehouse_id", String(params.warehouse_id));
-      if (params.sort) qs.set("sort", params.sort);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<MaterialListOut>(`/api/materials${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<MaterialRow> {
-      return authed<MaterialRow>(`/api/materials/${id}`, token);
-    },
-    create(token: string, input: MaterialInput): Promise<MaterialRow> {
-      return authed<MaterialRow>("/api/materials", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    update(token: string, id: number, input: MaterialInput): Promise<MaterialRow> {
-      return authed<MaterialRow>(`/api/materials/${id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    toggleActive(token: string, id: number): Promise<MaterialRow> {
-      return authed<MaterialRow>(`/api/materials/${id}/toggle-active`, token, {
-        method: "PATCH",
-      });
-    },
-    clone(token: string, id: number, body: { gsm: number; width_cm: number; height_cm: number }): Promise<MaterialRow> {
-      return authed<MaterialRow>(`/api/materials/${id}/clone`, token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    addCost(token: string, id: number, input: MaterialCostInput): Promise<MaterialCostRow> {
-      return authed<MaterialCostRow>(`/api/materials/${id}/costs`, token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    costHistory(token: string, id: number): Promise<MaterialCostRow[]> {
-      return authed<MaterialCostRow[]>(`/api/materials/${id}/costs/history`, token);
-    },
-    convert(token: string, body: { gsm: number; width_cm: number; height_cm: number }): Promise<MaterialConvertOut> {
-      return authed<MaterialConvertOut>("/api/materials/convert", token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    priceTest(token: string, input: MaterialPriceTestInput): Promise<MaterialPriceTestOut> {
-      return authed<MaterialPriceTestOut>("/api/materials/price-test", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/materials/${id}`, token, { method: "DELETE" });
-    },
-    uploadImage(token: string, file: File): Promise<{ image_url: string }> {
-      const form = new FormData();
-      form.append("file", file);
-      return authed<{ image_url: string }>("/api/materials/upload-image", token, {
-        method: "POST",
-        body: form,
-      });
-    },
-  },
-
-  // --- Machines Catalog -----------------------------------------------------
-  machines: {
-    list(token: string, params: CatalogListParams & { machine_type?: string | null } = {}): Promise<MachineListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.machine_type) qs.set("machine_type", params.machine_type);
-      if (params.sort) qs.set("sort", params.sort);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<MachineListOut>(`/api/machines${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<MachineRow> {
-      return authed<MachineRow>(`/api/machines/${id}`, token);
-    },
-    create(token: string, input: MachineInput): Promise<MachineRow> {
-      return authed<MachineRow>("/api/machines", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    update(token: string, id: number, input: MachineInput): Promise<MachineRow> {
-      return authed<MachineRow>(`/api/machines/${id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    addRate(token: string, id: number, input: MachineRateInput): Promise<MachineRateRow> {
-      return authed<MachineRateRow>(`/api/machines/${id}/rates`, token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/machines/${id}`, token, { method: "DELETE" });
-    },
-  },
-
-  // --- Operations Catalog ---------------------------------------------------
-  operations: {
-    list(token: string, params: CatalogListParams & { operation_type?: string | null } = {}): Promise<OperationCatalogListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.operation_type) qs.set("operation_type", params.operation_type);
-      if (params.sort) qs.set("sort", params.sort);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<OperationCatalogListOut>(`/api/operations${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<OperationCatalogRow> {
-      return authed<OperationCatalogRow>(`/api/operations/${id}`, token);
-    },
-    create(token: string, input: OperationCatalogInput): Promise<OperationCatalogRow> {
-      return authed<OperationCatalogRow>("/api/operations", token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    update(token: string, id: number, input: OperationCatalogInput): Promise<OperationCatalogRow> {
-      return authed<OperationCatalogRow>(`/api/operations/${id}`, token, {
-        method: "PUT",
-        body: JSON.stringify(input),
-      });
-    },
-    addRate(token: string, id: number, input: OperationCatalogRateInput): Promise<OperationCatalogRateRow> {
-      return authed<OperationCatalogRateRow>(`/api/operations/${id}/rates`, token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/operations/${id}`, token, { method: "DELETE" });
-    },
-    preview(token: string, id: number, input: OperationPreviewInput): Promise<OperationPreviewResult> {
-      return authed<OperationPreviewResult>(`/api/operations/${id}/preview`, token, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-  },
-
   // --- Cấu hình kho hàng ----------------------------------------------------
   warehouses: {
     list(
@@ -5949,6 +5027,80 @@ export const api = {
   },
 
   // --- Kho P0: tồn dựa trên Material -----------------------------------------
+  materials: {
+    list(token: string, params: CatalogListParams & { material_type?: string | null; is_active?: boolean; warehouse_id?: number } = {}): Promise<MaterialListOut> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.material_type) qs.set("material_type", params.material_type);
+      if (params.is_active != null) qs.set("is_active", String(params.is_active));
+      if (params.warehouse_id != null) qs.set("warehouse_id", String(params.warehouse_id));
+      if (params.sort) qs.set("sort", params.sort);
+      if (params.page) qs.set("page", String(params.page));
+      if (params.size) qs.set("size", String(params.size));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<MaterialListOut>(`/api/materials${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<MaterialRow> {
+      return authed<MaterialRow>(`/api/materials/${id}`, token);
+    },
+    create(token: string, input: MaterialInput): Promise<MaterialRow> {
+      return authed<MaterialRow>("/api/materials", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    update(token: string, id: number, input: MaterialInput): Promise<MaterialRow> {
+      return authed<MaterialRow>(`/api/materials/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(input),
+      });
+    },
+    toggleActive(token: string, id: number): Promise<MaterialRow> {
+      return authed<MaterialRow>(`/api/materials/${id}/toggle-active`, token, {
+        method: "PATCH",
+      });
+    },
+    clone(token: string, id: number, body: { gsm: number; width_cm: number; height_cm: number }): Promise<MaterialRow> {
+      return authed<MaterialRow>(`/api/materials/${id}/clone`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    addCost(token: string, id: number, input: MaterialCostInput): Promise<MaterialCostRow> {
+      return authed<MaterialCostRow>(`/api/materials/${id}/costs`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    costHistory(token: string, id: number): Promise<MaterialCostRow[]> {
+      return authed<MaterialCostRow[]>(`/api/materials/${id}/costs/history`, token);
+    },
+    convert(token: string, body: { gsm: number; width_cm: number; height_cm: number }): Promise<MaterialConvertOut> {
+      return authed<MaterialConvertOut>("/api/materials/convert", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    priceTest(token: string, input: MaterialPriceTestInput): Promise<MaterialPriceTestOut> {
+      return authed<MaterialPriceTestOut>("/api/materials/price-test", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/materials/${id}`, token, { method: "DELETE" });
+    },
+    uploadImage(token: string, file: File): Promise<{ image_url: string }> {
+      const form = new FormData();
+      form.append("file", file);
+      return authed<{ image_url: string }>("/api/materials/upload-image", token, {
+        method: "POST",
+        body: form,
+      });
+    },
+  },
+
+  // --- Machines Catalog -----------------------------------------------------
   kho: {
     materialOptions(token: string, q?: string, warehouseId?: number | null): Promise<KhoMaterialOption[]> {
       const qs = new URLSearchParams();
@@ -6197,7 +5349,8 @@ export const api = {
       return authed<void>(`/api/kho/vouchers/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
     },
 
-    // --- Phiếu ĐỀ NGHỊ nhập/xuất kho (bước trước phiếu kho) ---
+
+// --- Phiếu ĐỀ NGHỊ nhập/xuất kho (bước trước phiếu kho) ---
     listRequests(
       token: string,
       params: { request_type?: string | null; status?: string | null; warehouse_id?: number | null; page?: number; size?: number } = {},
@@ -6244,54 +5397,6 @@ export const api = {
   },
 
   // --- Sản xuất: Lệnh sản xuất (LSX) ---------------------------------------
-  production: {
-    listOrders(
-      token: string,
-      params: { q?: string; status?: string; order_kind?: string; page?: number; size?: number } = {},
-    ): Promise<ProductionOrderListOut> {
-      const qs = new URLSearchParams();
-      if (params.q) qs.set("q", params.q);
-      if (params.status) qs.set("status", params.status);
-      if (params.order_kind) qs.set("order_kind", params.order_kind);
-      if (params.page) qs.set("page", String(params.page));
-      if (params.size) qs.set("size", String(params.size));
-      const s = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<ProductionOrderListOut>(`/api/san-xuat/orders${s}`, token);
-    },
-    orderOptions(token: string, q?: string, includeAll = false): Promise<ProductionOrderOption[]> {
-      const qs = new URLSearchParams();
-      if (q) qs.set("q", q);
-      if (includeAll) qs.set("include_all", "true");
-      const s = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<ProductionOrderOption[]>(`/api/san-xuat/orders/options${s}`, token);
-    },
-    getOrder(token: string, id: number): Promise<ProductionOrderRow> {
-      return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}`, token);
-    },
-    createOrder(token: string, input: ProductionOrderInput): Promise<ProductionOrderRow> {
-      return authed<ProductionOrderRow>("/api/san-xuat/orders", token, { method: "POST", body: JSON.stringify(input) });
-    },
-    updateOrder(token: string, id: number, input: ProductionOrderInput): Promise<ProductionOrderRow> {
-      return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
-    },
-    approveOrder(token: string, id: number, approve = true): Promise<ProductionOrderRow> {
-      return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}/approve?approve=${approve}`, token, { method: "POST" });
-    },
-    closeOrder(token: string, id: number, toStatus: "done" | "cancelled" | "open"): Promise<ProductionOrderRow> {
-      return authed<ProductionOrderRow>(`/api/san-xuat/orders/${id}/close?to_status=${toStatus}`, token, { method: "POST" });
-    },
-    orderAttachments(token: string, id: number): Promise<{ items: ProductionAttachment[] }> {
-      return authed<{ items: ProductionAttachment[] }>(`/api/san-xuat/orders/${id}/attachments`, token);
-    },
-    uploadOrderAttachment(token: string, id: number, file: File): Promise<ProductionAttachment> {
-      const form = new FormData();
-      form.append("file", file);
-      return authed<ProductionAttachment>(`/api/san-xuat/orders/${id}/attachments`, token, { method: "POST", body: form });
-    },
-    deleteOrderAttachment(token: string, id: number, attachmentId: number): Promise<void> {
-      return authed<void>(`/api/san-xuat/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
-    },
-  },
 
   // --- Công đoạn (danh mục, lite cho dropdown) -----------------------------
   congDoan: {
@@ -6300,24 +5405,6 @@ export const api = {
     },
   },
 
-  // --- Phiếu sản lượng công đoạn (Pha 5b) ----------------------------------
-  sanLuong: {
-    listByOrder(token: string, orderId: number): Promise<{ items: ProductionOutput[] }> {
-      return authed<{ items: ProductionOutput[] }>(`/api/san-luong/outputs?order_id=${orderId}`, token);
-    },
-    create(token: string, input: ProductionOutputInput): Promise<ProductionOutput> {
-      return authed<ProductionOutput>("/api/san-luong/outputs", token, { method: "POST", body: JSON.stringify(input) });
-    },
-    update(token: string, id: number, input: Partial<ProductionOutputInput>): Promise<ProductionOutput> {
-      return authed<ProductionOutput>(`/api/san-luong/outputs/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
-    },
-    remove(token: string, id: number): Promise<void> {
-      return authed<void>(`/api/san-luong/outputs/${id}`, token, { method: "DELETE" });
-    },
-    defectReport(token: string, year: number, month: number): Promise<{ items: DefectReportRow[] }> {
-      return authed<{ items: DefectReportRow[] }>(`/api/san-luong/defect-report?year=${year}&month=${month}`, token);
-    },
-  },
 
   // --- Kho hàng vận hành ----------------------------------------------------
   warehouseItems: {

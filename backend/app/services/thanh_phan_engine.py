@@ -254,10 +254,13 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     # --- Khổ (mm) ---
     kho_ng_d = _f(tp.get("kho_dai"))     # giấy nguyên ①
     kho_ng_r = _f(tp.get("kho_rong"))
-    kho_in_d = _f(tp.get("kho_in_dai"))  # tờ in ②
+    kho_in_d = _f(tp.get("kho_in_dai"))  # tờ in ② (= VÙNG IN khi chọn máy) → bình bài con + m²
     kho_in_r = _f(tp.get("kho_in_rong"))
     if kho_in_d <= 0 or kho_in_r <= 0:   # thiếu khổ in → in thẳng khổ giấy nguyên (không xả)
         kho_in_d, kho_in_r = kho_ng_d, kho_ng_r
+    # Khổ giấy CHẠY máy (cho XẢ GIẤY): khác khổ tờ in ② (vùng in) khi chọn máy. Thiếu → = khổ tờ in.
+    kho_may_d = _f(tp.get("kho_may_dai")) or kho_in_d
+    kho_may_r = _f(tp.get("kho_may_rong")) or kho_in_r
     dai_tp = _f(tp.get("dai_thanh_pham"))    # thành phẩm ③
     rong_tp = _f(tp.get("rong_thanh_pham"))
     chua_mm = (_f(tp.get("chua_xen")) + _f(tp.get("chua_tay_ke")) + _f(tp.get("chua_nhip"))
@@ -275,8 +278,8 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     if con < 1:
         con = max(_i(tp.get("so_con"), 1), 1)   # fallback: nhập tay
 
-    # --- Số mảnh xả (② lên ①) ---
-    xa = _fit(kho_ng_d, kho_ng_r, kho_in_d, kho_in_r) if (kho_ng_d > 0 and kho_ng_r > 0) else 1
+    # --- Số mảnh xả (② lên ①): cắt tờ giấy CHẠY MÁY (kho_may) từ giấy nguyên, KHÔNG dùng vùng in ---
+    xa = _fit(kho_ng_d, kho_ng_r, kho_may_d, kho_may_r) if (kho_ng_d > 0 and kho_ng_r > 0) else 1
     xa = max(xa, 1)
 
     # --- Số tờ CẦN in (net) — tính TRƯỚC để tra bù hao THEO SỐ TỜ (không phải số lượng) ---

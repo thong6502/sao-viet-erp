@@ -61,13 +61,33 @@ def _make_type(client, token, *, name="Phép năm", is_paid=True) -> int:
 
 
 def _link_admin_employee(client, token) -> int:
-    emp = client.post(
-        "/api/employees",
-        json={"full_name": "NV Nghỉ", "department_id": _dept_id("Hành chính nhân sự"), "hire_date": "2020-01-01"},
+    """Hồ sơ của admin (mọi tài khoản đều có hồ sơ — xem `backfill_employee_profiles`): nắn lại
+    tên/phòng ban, KHÔNG tạo hồ sơ thứ 2 (link tài khoản 1–1).
+
+    `hire_date` = 2020-01-01 phải set thẳng ở DB: nó KHÔNG nằm trong `EDITABLE_FIELDS` (ngày vào
+    làm là dữ liệu cứng), mà quota phép năm pro-rate theo tháng-vào → hồ sơ backfill có
+    hire_date=hôm-nay sẽ méo hạn mức. Đặt về đầu 2020 cho quota đầy đủ như kịch bản test."""
+    me = client.get("/api/employees/me", headers=_h(token)).json()
+    eid = me["employee"]["id"]
+    client.put(
+        f"/api/employees/{eid}",
+        json={"full_name": "NV Nghỉ", "department_id": _dept_id("Hành chính nhân sự")},
         headers=_h(token),
-    ).json()["employee"]
-    client.post(f"/api/employees/{emp['id']}/account", json={"user_id": _uid("admin")}, headers=_h(token))
-    return emp["id"]
+    )
+    _set_hire_date(eid, date(2020, 1, 1))
+    return eid
+
+
+def _set_hire_date(employee_id: int, hire_date: date) -> None:
+    from app.models.employee import Employee
+    db = SessionLocal()
+    try:
+        emp = db.get(Employee, employee_id)
+        if emp is not None:
+            emp.hire_date = hire_date
+            db.commit()
+    finally:
+        db.close()
 
 
 # --- leave types ------------------------------------------------------------

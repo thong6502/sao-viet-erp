@@ -12,6 +12,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    Text,
     JSON,
     Date,
 )
@@ -20,6 +21,17 @@ from ..db import Base
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# Điều khoản MẶC ĐỊNH điền sẵn khi tạo báo giá — sale sửa thoải mái trước khi gửi khách.
+# Mỗi dòng = 1 điều khoản; bản in tự đánh số 1..N theo thứ tự dòng (không tự gõ số vào đây).
+DEFAULT_TERMS = "\n".join([
+    "Hiệu lực báo giá: áp dụng từ ngày báo giá cho đến khi có thông báo mới.",
+    "Giá đã bao gồm chi phí vận chuyển đến kho của Quý khách.",
+    "Đơn giá trong bảng chưa gồm thuế GTGT; thuế GTGT 10% được cộng ở phần tổng.",
+    "Thời gian giao hàng: 7–10 ngày kể từ khi nhận đơn hàng.",
+    "Thời hạn thanh toán: theo thỏa thuận.",
+])
 
 # Status constants for Quote (7 trạng thái nghiệp vụ, xem docs/redesign-bao-gia.md §3).
 STATUS_DRAFT = "draft"                       # Nháp
@@ -84,10 +96,11 @@ class Quote(Base):
     current_version_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     
     valid_until: Mapped[date | None] = mapped_column(Date, nullable=True)
-    payment_terms: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    # % tạm ứng/cọc khi chốt đơn (0–100). Nhập ở màn Báo giá; None = chưa đặt.
-    deposit_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
-    delivery_terms: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Điều khoản báo giá — 1 khối text tự do, MỖI DÒNG = 1 điều khoản (bản in đánh số theo dòng).
+    # Tạo mới thì điền sẵn DEFAULT_TERMS để sale sửa; đây là thứ DUY NHẤT in ở mục "Điều khoản".
+    terms_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ĐC giao: auto-fill từ hồ sơ khách, KHÔNG sửa ở màn báo giá (sửa ở Đơn hàng bán) và không in.
+    # Giữ lại vì đơn hàng lấy đây làm địa chỉ giao mặc định khi chốt đơn.
     delivery_address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     # Người liên hệ SNAPSHOT trên báo giá (redesign-bao-gia §4/§5) — auto-fill từ CRM
     # `CustomerContact.is_primary` khi chọn khách, sửa được; đóng băng để bản in không đổi.

@@ -6,13 +6,11 @@ import {
   ApiError,
   api,
   type EnumOption,
-  type PinnedCustomer,
   type QuotationActivity,
   type QuotationDetail,
   type QuotationEnumsOut,
   type QuotationRow,
   type QuotationStats,
-  type QuotePick,
   type QuoteItemDetail,
 } from "../api/client";
 import { useAuth } from "../auth/useAuth";
@@ -20,7 +18,44 @@ import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { StatusTabs } from "../components/StatusTabs";
 import svnLogoUrl from "../assets/sao-viet-nhat-logo-mark.png";
+import {
+  AlertCircle,
+  ArrowLeftRight,
+  ArrowRight,
+  ArrowUpFromLine,
+  Ban,
+  Check,
+  ChevronLeft,
+  Clock,
+  ExternalLink,
+  Eye,
+  FileText,
+  GitBranch,
+  Link2,
+  Lock,
+  Pencil,
+  Phone,
+  Plus,
+  Printer,
+  Save,
+  Send,
+  ShieldCheck,
+  User,
+  X,
+  Zap,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import "./bao-gia.css";
+
+// Điều khoản MẶC ĐỊNH điền sẵn khi tạo báo giá (khớp DEFAULT_TERMS backend). Mỗi dòng = 1 điều
+// khoản; bản in tự đánh số 1..N theo dòng. Sale sửa thoải mái trước khi gửi khách.
+const DEFAULT_TERMS = [
+  "Hiệu lực báo giá: áp dụng từ ngày báo giá cho đến khi có thông báo mới.",
+  "Giá đã bao gồm chi phí vận chuyển đến kho của Quý khách.",
+  "Đơn giá trong bảng chưa gồm thuế GTGT; thuế GTGT 10% được cộng ở phần tổng.",
+  "Thời gian giao hàng: 7–10 ngày kể từ khi nhận đơn hàng.",
+  "Thời hạn thanh toán: theo thỏa thuận.",
+].join("\n");
 
 // Thông tin công ty in trên báo giá — Sao Việt Nhật.
 // Luật dự án "không hardcode số liệu": các trường pháp lý để trống chờ khảo sát,
@@ -59,15 +94,15 @@ function fmtDate(v: string | null): string {
 }
 
 export function BaoGiaPage({
-  pinnedCustomer = null,
   openQuoteId = null,
-  estimateId = null,
   navigate,
+  eventTick = 0,
 }: {
-  pinnedCustomer?: PinnedCustomer | null;
   openQuoteId?: number | null;
-  estimateId?: number | null;
   navigate?: (id: string, params?: any) => void;
+  /** Tăng 1 mỗi lần kênh SSE báo luồng duyệt đổi (AppShell giữ kênh DUY NHẤT, đẩy tick xuống đây).
+   *  Vào deps của `load()` → danh sách + số đếm tab tự tươi, không phải F5. */
+  eventTick?: number;
 } = {}) {
   const { token } = useAuth();
 
@@ -83,35 +118,10 @@ export function BaoGiaPage({
   const [listError, setListError] = useState<string | null>(null);
   const [forbidden, setForbidden] = useState(false);
 
-  const [mode, setMode] = useState<null | "create" | "edit">(null);
-  const [editing, setEditing] = useState<QuotationDetail | null>(null);
   const [detail, setDetail] = useState<QuotationDetail | null>(null);
   
-  // Pre-pinned entities
-  const [pinned, setPinned] = useState<PinnedCustomer | null>(null);
-  const [preSelectedEstimateId, setPreSelectedEstimateId] = useState<number | null>(null);
 
   const [stats, setStats] = useState<QuotationStats | null>(null);
-
-  // Arriving from CRM with a customer to pre-pin
-  useEffect(() => {
-    if (pinnedCustomer) {
-      setPinned(pinnedCustomer);
-      setEditing(null);
-      setPreSelectedEstimateId(null);
-      setMode("create");
-    }
-  }, [pinnedCustomer]);
-
-  // Arriving from TinhGia with an estimate to pre-select
-  useEffect(() => {
-    if (estimateId) {
-      setPreSelectedEstimateId(estimateId);
-      setEditing(null);
-      setPinned(null);
-      setMode("create");
-    }
-  }, [estimateId]);
 
   // Arriving from CRM history/audit drill-through
   useEffect(() => {
@@ -146,7 +156,9 @@ export function BaoGiaPage({
 
     // Số đếm cho thanh tab
     api.quotations.stats(token).then(setStats).catch(() => setStats(null));
-  }, [token, q, statusFilter, sort, page]);
+    // eventTick: SSE báo có trình duyệt / có quyết định → chạy lại cả list lẫn stats.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, q, statusFilter, sort, page, eventTick]);
 
   useEffect(() => {
     load();
@@ -241,7 +253,9 @@ export function BaoGiaPage({
             // "Chờ duyệt" = báo giá đặc thù đã Trình duyệt (list đã lọc theo phạm vi → người duyệt
             // thấy đúng "chờ TÔI duyệt"). Tone alert để nổi bật việc cần quyết định.
             { key: "pending_approval", label: "Chờ duyệt", count: stats?.pending_approval, tone: "alert" },
-            { key: "approved", label: "Đã duyệt", count: stats?.approved },
+            // "Đã duyệt" cũng tô đỏ: GĐ duyệt xong thì bóng sang chân sale — còn nằm đây là còn
+            // việc (phải gửi khách), không phải trạng thái nghỉ.
+            { key: "approved", label: "Đã duyệt", count: stats?.approved, tone: "alert" },
             { key: "sent", label: "Đã gửi khách", count: stats?.sent },
             { key: "accepted", label: "Khách chốt", count: stats?.accepted },
             { key: "converted_to_order", label: "Đã lên đơn", count: stats?.converted_to_order },
@@ -381,27 +395,6 @@ export function BaoGiaPage({
         </div>
       )}
 
-      {mode && (
-        <QuotationFormDialog
-          existing={mode === "edit" ? editing : null}
-          pinnedCustomer={mode === "create" ? pinned : null}
-          initialEstimateId={mode === "create" ? preSelectedEstimateId : null}
-          onClose={() => {
-            setMode(null);
-            setEditing(null);
-            setPinned(null);
-            setPreSelectedEstimateId(null);
-          }}
-          onSaved={() => {
-            setMode(null);
-            setEditing(null);
-            setPinned(null);
-            setPreSelectedEstimateId(null);
-            if (mode === "create") setPage(1);
-            load();
-          }}
-        />
-      )}
     </main>
   );
 }
@@ -445,757 +438,6 @@ function StatusBadge({ status, statuses }: { status: string; statuses: EnumOptio
   return <span className={`bg__badge${tone}`}>{labelOf(statuses, status)}</span>;
 }
 
-// --- Create / Edit dialog (F2 & Phase 2B spreadsheet pricing) ------------------------------------------------
-
-interface LocalItem {
-  id: number;
-  /** Phiếu tính giá gốc của dòng (đa phiếu / 1 báo giá) */
-  estimate_id: number | null;
-  estimate_ref: string;
-  estimate_option_id: number | null;
-  line_no: number;
-  product_type: string;
-  product_name: string;
-  quantity: number;
-  unit: string;
-  total_cost_snapshot: number;
-  
-  // Interactive inputs
-  included: boolean;
-  margin_percent: number;
-  manual_selling_price: number | null;
-  manual_unit_price: number | null;
-  discount_amount: number;
-  discount_percent: number;
-  vat_percent: number;
-  rounding: string;
-  note: string;
-  
-  // Real-time calculated properties
-  selling_price: number;
-  unit_price: number;
-  actual_margin: number;
-  vat_amount: number;
-  final_amount: number;
-}
-
-function QuotationFormDialog({
-  existing,
-  pinnedCustomer,
-  initialEstimateId,
-  onClose,
-  onSaved,
-}: {
-  existing: QuotationDetail | null;
-  pinnedCustomer: PinnedCustomer | null;
-  initialEstimateId: number | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const { token } = useAuth();
-  const [busy, setBusy] = useState(false);
-  const isEdit = existing != null;
-
-  const [customerId, setCustomerId] = useState<string>(
-    existing?.customer_id != null
-      ? String(existing.customer_id)
-      : pinnedCustomer
-        ? String(pinnedCustomer.id)
-        : "",
-  );
-  // Đa phiếu: giỏ các phiếu tính giá đã pick (mỗi phiếu kéo các mức SL vào bảng định giá)
-  const [picked, setPicked] = useState<{ id: number; estimate_number: string; product_name: string }[]>([]);
-  const [validUntil, setValidUntil] = useState<string>(existing?.valid_until ?? "");
-  const [paymentTerms, setPaymentTerms] = useState<string>(existing?.payment_terms ?? "Tạm ứng 50% khi chốt đơn, 50% còn lại thanh toán khi giao hàng.");
-  const [deliveryTerms, setDeliveryTerms] = useState<string>(existing?.delivery_terms ?? "Giao hàng tận nơi tại TP. Hồ Chí Minh.");
-  const [deliveryAddress, setDeliveryAddress] = useState<string>(existing?.delivery_address ?? "");
-
-  const [estimates, setEstimates] = useState<{ id: number; estimate_number: string; product_name: string }[]>([]);
-  const [customers, setCustomers] = useState<{ id: number; name: string; code: string }[]>([]);
-  
-  // Spreadsheet Local state
-  const [localItems, setLocalItems] = useState<LocalItem[]>([]);
-  const [saveErr, setSaveErr] = useState<string | null>(null);
-
-  // Bulk action states & functions
-  const [bulkMargin, setBulkMargin] = useState("");
-  const [bulkDiscountPct, setBulkDiscountPct] = useState("");
-  const [bulkVat, setBulkVat] = useState("10");
-
-  const applyBulkMargin = () => {
-    const val = Number(bulkMargin);
-    if (Number.isNaN(val) || val < 0) return;
-    setLocalItems((prev) =>
-      prev.map((item) =>
-        item.included
-          ? calculateItemCalculatedFields({
-              ...item,
-              margin_percent: val,
-              manual_selling_price: null,
-              manual_unit_price: null,
-            })
-          : item
-      )
-    );
-  };
-
-  const applyBulkDiscountPct = () => {
-    const val = Number(bulkDiscountPct);
-    if (Number.isNaN(val) || val < 0 || val > 100) return;
-    setLocalItems((prev) =>
-      prev.map((item) =>
-        item.included
-          ? calculateItemCalculatedFields({
-              ...item,
-              discount_percent: val,
-              discount_amount: 0,
-            })
-          : item
-      )
-    );
-  };
-
-  const applyBulkVat = () => {
-    const val = Number(bulkVat);
-    setLocalItems((prev) =>
-      prev.map((item) =>
-        item.included
-          ? calculateItemCalculatedFields({
-              ...item,
-              vat_percent: val,
-            })
-          : item
-      )
-    );
-  };
-
-  // Load catalogs
-  useEffect(() => {
-    if (!token) return;
-    api.customers.list(token, { page: 1, size: 200 }).then((r) => setCustomers(r.items)).catch(() => {});
-    api.estimates.list(token, { status: "calculated", page: 1, size: 200 }).then((r) => setEstimates(r.items)).catch(() => {});
-  }, [token]);
-
-  // Load items from database if editing
-  useEffect(() => {
-    if (isEdit && existing) {
-      const items = existing.items.map((item) => {
-        return calculateItemCalculatedFields({
-          id: item.id,
-          estimate_id: item.estimate_id ?? null,
-          estimate_ref: item.estimate_number ?? "",
-          estimate_option_id: item.estimate_option_id,
-          line_no: item.line_no,
-          product_type: item.product_type,
-          product_name: item.product_name,
-          quantity: item.quantity,
-          unit: item.unit,
-          total_cost_snapshot: item.total_cost_snapshot,
-          included: true,
-          margin_percent: item.margin_percent,
-          manual_selling_price: item.selling_price !== (item.total_cost_snapshot / (1 - item.margin_percent / 100)) ? item.selling_price : null,
-          manual_unit_price: null,
-          discount_amount: item.discount_amount,
-          discount_percent: 0,
-          vat_percent: item.vat_percent,
-          rounding: "no_rounding",
-          note: item.note ?? "",
-        });
-      });
-      setLocalItems(items);
-    }
-  }, [isEdit, existing]);
-
-  // Pre-pick từ trang Tính giá (nút "Tạo báo giá") — chờ catalog phiếu load xong để lấy mã/tên
-  useEffect(() => {
-    if (isEdit || !initialEstimateId || estimates.length === 0) return;
-    if (picked.some((p) => p.id === initialEstimateId)) return;
-    const est = estimates.find((e) => e.id === initialEstimateId);
-    if (est) addPick(est);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, initialEstimateId, estimates]);
-
-  /** Pick 1 phiếu: thêm vào giỏ + kéo các mức SL của nó vào bảng định giá (append). */
-  async function addPick(est: { id: number; estimate_number: string; product_name: string }) {
-    if (!token || picked.some((p) => p.id === est.id)) return;
-    setSaveErr(null);
-    try {
-      const state = await api.quotations.costing(token, est.id);
-      if (!state.available || !state.options || state.options.length === 0) {
-        setSaveErr(state.message ?? `Phiếu ${est.estimate_number} không có mức số lượng khả dụng.`);
-        return;
-      }
-      setPicked((prev) => [...prev, est]);
-      setLocalItems((prev) => {
-        const base = prev.length;
-        const items = state.options!.map((opt, idx) =>
-          calculateItemCalculatedFields({
-            id: -(base + idx + 1), // temp negative ID for unsaved items
-            estimate_id: est.id,
-            estimate_ref: est.estimate_number,
-            estimate_option_id: opt.id,
-            line_no: base + idx + 1,
-            product_type: "",
-            product_name: est.product_name,
-            quantity: opt.quantity,
-            unit: "cái",
-            total_cost_snapshot: opt.total_cost,
-            included: true,
-            margin_percent: opt.margin_percent,
-            manual_selling_price: null,
-            manual_unit_price: null,
-            discount_amount: opt.discount_amount,
-            discount_percent: 0,
-            vat_percent: opt.vat_percent,
-            rounding: "no_rounding",
-            note: "",
-          }),
-        );
-        return [...prev, ...items];
-      });
-    } catch {
-      setSaveErr(`Không tải được mức số lượng của phiếu ${est.estimate_number}.`);
-    }
-  }
-
-
-  // Pure mathematical pricing calculator matching backend formulas (Phase 2B)
-  function calculateItemCalculatedFields(item: Omit<LocalItem, "selling_price" | "unit_price" | "actual_margin" | "vat_amount" | "final_amount">): LocalItem {
-    const qty = Math.max(1, item.quantity);
-    const cost = Number(item.total_cost_snapshot);
-    let sellingPrice = 0;
-
-    if (item.manual_selling_price !== null && item.manual_selling_price > 0) {
-      sellingPrice = Number(item.manual_selling_price);
-    } else if (item.manual_unit_price !== null && item.manual_unit_price > 0) {
-      sellingPrice = Number(item.manual_unit_price) * qty;
-    } else {
-      const marginPct = Math.min(99.99, Math.max(0.0, Number(item.margin_percent)));
-      sellingPrice = cost / (1.0 - marginPct / 100.0);
-    }
-
-    // Apply Rounding
-    if (item.rounding === "round_up_1000") {
-      sellingPrice = Math.ceil(sellingPrice / 1000) * 1000;
-    } else if (item.rounding === "round_up_5000") {
-      sellingPrice = Math.ceil(sellingPrice / 5000) * 5000;
-    } else if (item.rounding === "round_up_10000") {
-      sellingPrice = Math.ceil(sellingPrice / 10000) * 10000;
-    }
-
-    // Actual Margin
-    const actualMargin = sellingPrice > 0 ? ((sellingPrice - cost) / sellingPrice) * 100 : 0;
-
-    // Discount
-    let discAmount = Number(item.discount_amount);
-    if (item.discount_percent > 0) {
-      discAmount = sellingPrice * (Number(item.discount_percent) / 100);
-    }
-    discAmount = Math.min(sellingPrice, Math.max(0.0, discAmount));
-
-    const subtotal = Math.max(0.0, sellingPrice - discAmount);
-    const vatAmount = subtotal * (Number(item.vat_percent) / 100);
-    const finalAmount = subtotal + vatAmount;
-    const unitPrice = sellingPrice / qty;
-
-    return {
-      ...item,
-      selling_price: sellingPrice,
-      unit_price: unitPrice,
-      actual_margin: actualMargin,
-      discount_amount: discAmount,
-      vat_amount: vatAmount,
-      final_amount: finalAmount,
-    };
-  }
-
-  // Update specific field in table reactively
-  const handleItemChange = (index: number, patch: Partial<LocalItem>) => {
-    setLocalItems((prev) => {
-      const updated = prev.map((item, idx) => {
-        if (idx === index) {
-          const merged = { ...item, ...patch } as LocalItem;
-          // Clear opposite manual values to avoid conflicts
-          if (patch.margin_percent !== undefined) {
-            merged.manual_selling_price = null;
-            merged.manual_unit_price = null;
-          } else if (patch.manual_selling_price !== undefined) {
-            merged.manual_unit_price = null;
-          } else if (patch.manual_unit_price !== undefined) {
-            merged.manual_selling_price = null;
-          }
-          return calculateItemCalculatedFields(merged);
-        }
-        return item;
-      });
-      return updated;
-    });
-  };
-
-  const selectedCount = localItems.filter((i) => i.included).length;
-  
-  // Calculate Quote Totals in UI
-  const totalCost = localItems.filter((i) => i.included).reduce((acc, i) => acc + i.total_cost_snapshot, 0);
-  const totalSubtotal = localItems.filter((i) => i.included).reduce((acc, i) => acc + i.selling_price, 0);
-  const totalDiscount = localItems.filter((i) => i.included).reduce((acc, i) => acc + i.discount_amount, 0);
-  const totalVat = localItems.filter((i) => i.included).reduce((acc, i) => acc + i.vat_amount, 0);
-  const totalFinal = localItems.filter((i) => i.included).reduce((acc, i) => acc + i.final_amount, 0);
-
-  function validate(): boolean {
-    setSaveErr(null);
-    if (!customerId) {
-      setSaveErr("Vui lòng chọn khách hàng.");
-      return false;
-    }
-    if (!isEdit && picked.length === 0) {
-      setSaveErr("Vui lòng pick ít nhất một phiếu tính giá.");
-      return false;
-    }
-    if (selectedCount === 0) {
-      setSaveErr("Cần chọn ít nhất một mức số lượng đưa vào báo giá.");
-      return false;
-    }
-    if (validUntil) {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      if (new Date(validUntil) < today) {
-        setSaveErr("Hạn hiệu lực không được ở quá khứ.");
-        return false;
-      }
-    }
-    return true;
-  }
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    if (!token || busy) return;
-    if (!validate()) return;
-    
-    setBusy(true);
-    setSaveErr(null);
-
-    const activeItems = localItems.filter((i) => i.included);
-
-    try {
-      if (isEdit && existing) {
-        // Update existing draft version
-        await api.quotations.update(token, existing.id, {
-          customer_id: Number(customerId),
-          valid_until: validUntil || null,
-          payment_terms: paymentTerms,
-          delivery_terms: deliveryTerms,
-          delivery_address: deliveryAddress,
-          items: activeItems.map((item) => ({
-            id: item.id,
-            margin_percent: item.margin_percent,
-            manual_selling_price: item.manual_selling_price,
-            manual_unit_price: item.manual_unit_price,
-            discount_amount: item.discount_amount,
-            discount_percent: item.discount_percent,
-            vat_percent: item.vat_percent,
-            rounding: item.rounding,
-            note: item.note,
-          })),
-        });
-      } else {
-        // Create new quotation (đa phiếu: picks[]) + save custom item prices sequentially
-        const picks: QuotePick[] = picked
-          .map((p) => ({
-            estimate_id: p.id,
-            option_ids: activeItems
-              .filter((i) => i.estimate_id === p.id && i.estimate_option_id !== null)
-              .map((i) => i.estimate_option_id!),
-          }))
-          .filter((p) => p.option_ids.length > 0);
-
-        const createdQuote = await api.quotations.create(token, {
-          customer_id: Number(customerId),
-          picks,
-          valid_until: validUntil || null,
-          payment_terms: paymentTerms,
-          delivery_terms: deliveryTerms,
-          delivery_address: deliveryAddress,
-        });
-
-        // Backend created draft item rows. We map local items to the newly created DB item IDs and save them.
-        const createdDetail = await api.quotations.get(token, createdQuote.id);
-        const itemIdsMapping = createdDetail.items.map((dbItem) => {
-          // match by quantity option
-          const localMatch = activeItems.find((li) => li.estimate_option_id === dbItem.estimate_option_id);
-          return localMatch ? { ...localMatch, id: dbItem.id } : null;
-        }).filter((x) => x !== null) as LocalItem[];
-
-        await api.quotations.update(token, createdQuote.id, {
-          customer_id: Number(customerId),
-          valid_until: validUntil || null,
-          payment_terms: paymentTerms,
-          delivery_terms: deliveryTerms,
-          delivery_address: deliveryAddress,
-          items: itemIdsMapping.map((item) => ({
-            id: item.id,
-            margin_percent: item.margin_percent,
-            manual_selling_price: item.manual_selling_price,
-            manual_unit_price: item.manual_unit_price,
-            discount_amount: item.discount_amount,
-            discount_percent: item.discount_percent,
-            vat_percent: item.vat_percent,
-            rounding: item.rounding,
-            note: item.note,
-          })),
-        });
-      }
-      onSaved();
-    } catch (err) {
-      if (err instanceof ApiError) setSaveErr(err.message);
-      else setSaveErr("Lưu thất bại. Vui lòng kiểm tra lại dữ liệu.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="bg__overlay" onClick={onClose}>
-      <div className="card bg__dialog bg__dialog-fullscreen" onClick={(e) => e.stopPropagation()}>
-        <div className="bg__dialog-head">
-          <h2>{isEdit ? `Chỉnh sửa báo giá · ${existing?.code}` : "Tạo báo giá thương mại"}</h2>
-          <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng">✕</button>
-        </div>
-
-        <form className="bg__dialog-body" onSubmit={submit} noValidate>
-          <div className="bg__form-main-columns">
-            {/* Left Inputs Card */}
-            <div className="bg__form-left-panel">
-              <p className="bg__section-title">1. Thông tin chung</p>
-              
-              <div className="bg__form-grid">
-                {pinnedCustomer ? (
-                  <div className="field">
-                    <span className="field__label">Khách hàng (Ghim từ CRM)</span>
-                    <div className="bg__pinned">
-                      <strong>{pinnedCustomer.name}</strong>
-                      <span className="bg__muted">Mã: {pinnedCustomer.code}</span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="field">
-                    <span className="field__label">Khách hàng *</span>
-                    <CustomerCombobox
-                      customers={customers}
-                      value={customerId ? Number(customerId) : null}
-                      onChange={(id) => setCustomerId(id ? String(id) : "")}
-                      disabled={isEdit}
-                      placeholder="— Chọn Khách hàng (CRM) —"
-                    />
-                  </div>
-                )}
-
-                <label className="field">
-                  <span className="field__label">Hạn hiệu lực</span>
-                  <input className="input" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
-                </label>
-              </div>
-
-              {!isEdit && picked.length > 0 && (
-                <div style={{ marginTop: "16px" }}>
-                  <span className="field__label">Phiếu tính giá liên kết</span>
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
-                    {picked.map((p) => (
-                      <span
-                        key={p.id}
-                        className="bg__mono"
-                        style={{ display: "inline-flex", alignItems: "center", gap: "6px", background: "var(--rule-hair)", border: "1px solid var(--rule)", color: "var(--ink)", borderRadius: "999px", padding: "3px 10px", fontSize: "12px" }}
-                      >
-                        ↳ {p.estimate_number} · {p.product_name}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="bg__form-grid" style={{ marginTop: "16px" }}>
-                <label className="field">
-                  <span className="field__label">Địa chỉ giao hàng</span>
-                  <input className="input" value={deliveryAddress} onChange={(e) => setDeliveryAddress(e.target.value)} placeholder="Nhập địa chỉ giao hàng..." />
-                </label>
-              </div>
-
-              <p className="bg__section-title" style={{ marginTop: "24px" }}>2. Điều khoản thương mại</p>
-              <div className="bg__form-grid">
-                <label className="field">
-                  <span className="field__label">Điều khoản thanh toán</span>
-                  <textarea className="input bg__textarea" value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} />
-                </label>
-                <label className="field">
-                  <span className="field__label">Điều khoản giao nhận</span>
-                  <textarea className="input bg__textarea" value={deliveryTerms} onChange={(e) => setDeliveryTerms(e.target.value)} />
-                </label>
-              </div>
-
-            </div>
-
-            {/* Pricing spreadsheet panel */}
-            <div className="bg__form-right-panel">
-              <p className="bg__section-title">3. Bảng định giá đa số lượng (Interactive Grid)</p>
-              
-              {localItems.length === 0 ? (
-                <div className="bg__empty-state-placeholder">
-                  <svg className="bg__empty-state-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                  <span style={{ fontSize: "14px", fontWeight: "bold", color: "var(--ink)" }}>Chưa pick phiếu tính giá nào</span>
-                  <p className="bg__hint" style={{ textAlign: "center", maxWidth: "340px", margin: "4px auto 0", lineHeight: 1.4 }}>
-                    Dùng ô <strong>"Pick phiếu tính giá vào báo giá"</strong> bên cột trái — mỗi phiếu kéo các mức
-                    số lượng (kèm giá vốn khóa) vào bảng này. Pick nhiều phiếu nếu khách hỏi nhiều sản phẩm.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {localItems.length > 0 && (
-                    <div className="bg__spreadsheet-bulk-actions">
-                      <span className="bg__bulk-label">⚡ Áp dụng nhanh:</span>
-                      
-                      <div className="bg__bulk-group">
-                        <input
-                          type="number"
-                          className="input input--sm bg__mono"
-                          style={{ width: "80px" }}
-                          placeholder="Margin %"
-                          value={bulkMargin}
-                          onChange={(e) => setBulkMargin(e.target.value)}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={applyBulkMargin}
-                          title="Áp dụng Margin % cho các dòng được chọn"
-                          style={{ padding: "4px 8px", fontSize: "12px" }}
-                        >
-                          Set Margin
-                        </Button>
-                      </div>
-
-                      <div className="bg__bulk-group">
-                        <input
-                          type="number"
-                          className="input input--sm bg__mono"
-                          style={{ width: "80px" }}
-                          placeholder="C.khấu %"
-                          value={bulkDiscountPct}
-                          onChange={(e) => setBulkDiscountPct(e.target.value)}
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={applyBulkDiscountPct}
-                          title="Áp dụng chiết khấu % cho các dòng được chọn"
-                          style={{ padding: "4px 8px", fontSize: "12px" }}
-                        >
-                          Set C.khấu %
-                        </Button>
-                      </div>
-
-                      <div className="bg__bulk-group">
-                        <select
-                          className="input input--sm"
-                          style={{ width: "90px" }}
-                          value={bulkVat}
-                          onChange={(e) => setBulkVat(e.target.value)}
-                        >
-                          <option value="0">0%</option>
-                          <option value="8">8%</option>
-                          <option value="10">10%</option>
-                        </select>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={applyBulkVat}
-                          title="Áp dụng thuế VAT cho các dòng được chọn"
-                          style={{ padding: "4px 8px", fontSize: "12px" }}
-                        >
-                          Set VAT
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="bg__spreadsheet-container">
-                    <table className="bg__spreadsheet">
-                    <thead>
-                      <tr>
-                        <th style={{ width: "40px" }}>Chọn</th>
-                        <th>Sản phẩm</th>
-                        <th>Số lượng</th>
-                        <th>Giá vốn</th>
-                        <th style={{ width: "90px" }}>Margin (%)</th>
-                        <th style={{ width: "120px" }}>Giá bán tổng</th>
-                        <th style={{ width: "100px" }}>Đơn giá</th>
-                        <th style={{ width: "110px" }}>C.khấu (đ)</th>
-                        <th style={{ width: "90px" }}>Làm tròn</th>
-                        <th style={{ width: "80px" }}>VAT</th>
-                        <th>Tổng thanh toán</th>
-                        <th>Ghi chú</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {localItems.map((item, idx) => {
-                        const isUnderCost = item.selling_price < item.total_cost_snapshot;
-                        return (
-                          <tr key={item.id} className={item.included ? "is-selected" : "is-excluded"}>
-                            <td style={{ textAlign: "center" }}>
-                              <input
-                                type="checkbox"
-                                checked={item.included}
-                                onChange={(e) => handleItemChange(idx, { included: e.target.checked })}
-                              />
-                            </td>
-                            <td>
-                              {item.product_name || <span className="bg__muted">—</span>}
-                              {item.estimate_ref && (
-                                <span className="tgroup__subdesc bg__mono">↳ {item.estimate_ref}</span>
-                              )}
-                            </td>
-                            <td className="bg__mono font-bold">{item.quantity.toLocaleString("vi-VN")}</td>
-                            <td className="bg__mono text-gray-500">{fmtVnd(item.total_cost_snapshot)}</td>
-                            <td>
-                              <input
-                                className="input input--sm bg__mono"
-                                type="number"
-                                step="0.5"
-                                value={item.margin_percent}
-                                onChange={(e) => handleItemChange(idx, { margin_percent: Number(e.target.value) })}
-                                disabled={!item.included}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                className={`input input--sm bg__mono ${isUnderCost ? "input--error" : ""}`}
-                                type="number"
-                                placeholder={Math.round(item.selling_price).toString()}
-                                value={item.manual_selling_price || ""}
-                                onChange={(e) => handleItemChange(idx, { manual_selling_price: e.target.value ? Number(e.target.value) : null })}
-                                disabled={!item.included}
-                              />
-                              {isUnderCost && (
-                                <span className="bg__item-warning">⚠️ Dưới vốn</span>
-                              )}
-                            </td>
-                            <td>
-                              <input
-                                className="input input--sm bg__mono"
-                                type="number"
-                                placeholder={Math.round(item.unit_price).toString()}
-                                value={item.manual_unit_price || ""}
-                                onChange={(e) => handleItemChange(idx, { manual_unit_price: e.target.value ? Number(e.target.value) : null })}
-                                disabled={!item.included}
-                              />
-                            </td>
-                            <td>
-                              <input
-                                className="input input--sm bg__mono"
-                                type="number"
-                                value={item.discount_amount}
-                                onChange={(e) => handleItemChange(idx, { discount_amount: Number(e.target.value) })}
-                                disabled={!item.included}
-                              />
-                            </td>
-                            <td>
-                              <select
-                                className="input input--sm"
-                                value={item.rounding}
-                                onChange={(e) => handleItemChange(idx, { rounding: e.target.value })}
-                                disabled={!item.included}
-                              >
-                                <option value="no_rounding">K.tròn</option>
-                                <option value="round_up_1000">Lên 1k</option>
-                                <option value="round_up_5000">Lên 5k</option>
-                                <option value="round_up_10000">Lên 10k</option>
-                              </select>
-                            </td>
-                            <td>
-                              <select
-                                className="input input--sm"
-                                value={item.vat_percent}
-                                onChange={(e) => handleItemChange(idx, { vat_percent: Number(e.target.value) })}
-                                disabled={!item.included}
-                              >
-                                <option value={0}>0%</option>
-                                <option value={8}>8%</option>
-                                <option value={10}>10%</option>
-                              </select>
-                            </td>
-                            <td className="bg__mono font-bold text-rust" style={{ textAlign: "right" }}>
-                              <span key={item.final_amount} className="bg__cell-flash">
-                                {fmtVnd(item.final_amount)}
-                              </span>
-                            </td>
-                            <td>
-                              <input
-                                className="input input--sm"
-                                value={item.note}
-                                onChange={(e) => handleItemChange(idx, { note: e.target.value })}
-                                placeholder="Ghi chú SP..."
-                                disabled={!item.included}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-
-              {/* Totals panel */}
-              {selectedCount > 0 && (
-                <div className="bg__form-totals-panel">
-                  <div className="bg__total-row">
-                    <span>Tổng giá vốn (Nội bộ):</span>
-                    <span className="bg__mono">{fmtVnd(totalCost)}</span>
-                  </div>
-                  <div className="bg__total-row">
-                    <span>Tổng giá bán thương mại:</span>
-                    <span className="bg__mono">{fmtVnd(totalSubtotal)}</span>
-                  </div>
-                  <div className="bg__total-row">
-                    <span>Tổng chiết khấu:</span>
-                    <span className="bg__mono text-danger">- {fmtVnd(totalDiscount)}</span>
-                  </div>
-                  <div className="bg__total-row">
-                    <span>Thuế VAT:</span>
-                    <span className="bg__mono">{fmtVnd(totalVat)}</span>
-                  </div>
-                  <div className="bg__total-row bg__total-row--final">
-                    <span>TỔNG THANH TOÁN:</span>
-                    <span key={totalFinal} className="text-xl text-rust-deep bg__cell-flash">
-                      {fmtVnd(totalFinal)}
-                    </span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {saveErr && (
-            <div className="banner banner--error" role="alert" style={{ marginTop: "16px" }}>
-              {saveErr}
-            </div>
-          )}
-
-          <div className="bg__dialog-actions" style={{ marginTop: "24px" }}>
-            <Button type="button" variant="ghost" onClick={onClose}>
-              Hủy
-            </Button>
-            <Button type="submit" variant="primary" loading={busy} disabled={busy || selectedCount === 0}>
-              {busy ? "Đang lưu…" : isEdit ? "Lưu thay đổi" : "Tạo Bản nháp (Save)"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 // --- Detail 2-cột in-page (port "ý hệt" prototype inan5 02-bao-gia.html) ------------------------------------------------
 
 // Gói biên lợi nhuận — shortcut UI (ô % từng dòng vẫn nhận giá trị bất kỳ;
@@ -1218,20 +460,22 @@ const STATUS_LABEL_SHORT: Record<string, string> = {
   cancelled: "hủy",
 };
 
-// Feed Hoạt động: action (audit backend) → [glyph, lớp màu chấm, nhãn tiếng Việt].
-const ACT_META: Record<string, [string, string, string]> = {
-  create_quote: ["+", "rust", "Tạo báo giá"],
-  update_quote: ["✎", "steel", "Cập nhật báo giá"],
-  change_order: ["⎇", "rust", "Tạo phiên bản mới"],
-  transition_pending_approval: ["⇪", "amber", "Trình duyệt"],
-  quote_exception_approved: ["✓", "moss", "Giám đốc KD duyệt"],
-  quote_exception_rejected: ["✕", "signal", "Giám đốc KD từ chối"],
-  transition_sent: ["✈", "steel", "Gửi khách"],
-  transition_accepted: ["✓", "moss", "Khách hàng đồng ý"],
-  transition_rejected: ["✕", "signal", "Khách hàng từ chối"],
-  transition_expired: ["!", "ash", "Hết hiệu lực"],
-  transition_cancelled: ["✕", "ash", "Hủy báo giá"],
-  transition_converted_to_order: ["→", "moss", "Lên đơn hàng"],
+// Feed Hoạt động: action (audit backend) → [icon, lớp màu chấm, nhãn tiếng Việt].
+// Nhãn chỉ tả VIỆC, KHÔNG ghim vai ("Giám đốc KD duyệt") — vai thật đi kèm tên người thao tác,
+// backend ghi theo hồ sơ ("Ban giám đốc · Giám đốc · Nguyễn Văn Giám", xem actor_display.py).
+const ACT_META: Record<string, [LucideIcon, string, string]> = {
+  create_quote: [Plus, "rust", "Tạo báo giá"],
+  update_quote: [Pencil, "steel", "Cập nhật báo giá"],
+  change_order: [GitBranch, "rust", "Tạo phiên bản mới"],
+  transition_pending_approval: [ArrowUpFromLine, "amber", "Trình duyệt"],
+  quote_exception_approved: [Check, "moss", "Duyệt báo giá đặc thù"],
+  quote_exception_rejected: [X, "signal", "Từ chối duyệt"],
+  transition_sent: [Send, "steel", "Gửi khách"],
+  transition_accepted: [Check, "moss", "Khách hàng đồng ý"],
+  transition_rejected: [X, "signal", "Khách hàng từ chối"],
+  transition_expired: [AlertCircle, "ash", "Hết hiệu lực"],
+  transition_cancelled: [Ban, "ash", "Hủy báo giá"],
+  transition_converted_to_order: [ArrowRight, "moss", "Lên đơn hàng"],
 };
 
 // Ngày + giờ cho feed Hoạt động ("ai làm gì · khi nào").
@@ -1267,10 +511,11 @@ function QuotationDetailView({
   const canManageStatus = useCan()("bao_gia", "manage_status");
   // BG-2: duyệt "báo giá đặc thù" — CHỈ Giám đốc. Người có quyền này cũng thấy số biên.
   const canApproveException = useCan()("bao_gia", "approve_exception");
+  // Lên đơn từ báo giá đã chốt → cần quyền TẠO ở module Đơn hàng bán (nút chỉ hiện khi có).
+  const canCreateOrder = useCan()("don_hang_ban", "create");
   const [d, setD] = useState<QuotationDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [apprNote, setApprNote] = useState("");
   const [apprSaving, setApprSaving] = useState(false);
 
@@ -1288,16 +533,11 @@ function QuotationDetailView({
   const [compareOn, setCompareOn] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
 
-  // Điều khoản chỉnh tại chỗ (nháp)
-  const [terms, setTerms] = useState("");
+  // Điều khoản chỉnh tại chỗ (nháp) — 1 khối text, mỗi dòng = 1 điều khoản.
+  const [termsText, setTermsText] = useState(DEFAULT_TERMS);
   const [validity, setValidity] = useState<number>(30);
   const [validUntilEdit, setValidUntilEdit] = useState<string>("");   // ngày hết hạn (editable)
   const [verNote, setVerNote] = useState("");
-  // Gộp modal "Chỉnh sửa" vào detail (bỏ modal): điều khoản giao nhận + địa chỉ giao editable ngay đây.
-  const [deliveryAddressEdit, setDeliveryAddressEdit] = useState("");
-  const [deliveryTermsEdit, setDeliveryTermsEdit] = useState("");
-  // % tạm ứng/cọc khi chốt đơn (giữ dạng chuỗi để cho phép ô rỗng = chưa đặt).
-  const [depositPctEdit, setDepositPctEdit] = useState<string>("");
 
   // Feed Hoạt động — nhật ký tương tác THẬT (ai làm gì) đọc từ backend.
   const [acts, setActs] = useState<QuotationActivity[]>([]);
@@ -1316,12 +556,9 @@ function QuotationDetailView({
         setDraftMargin(null);
         setLineDraft({});
         setDiscDraft({});
-        setTerms(det.payment_terms ?? "");
+        setTermsText(det.terms_text ?? DEFAULT_TERMS);
         setVerNote((det as any).change_reason ?? "");
         setValidUntilEdit(det.valid_until ?? "");
-        setDeliveryAddressEdit(det.delivery_address ?? "");
-        setDeliveryTermsEdit(det.delivery_terms ?? "");
-        setDepositPctEdit(det.deposit_pct != null ? String(det.deposit_pct) : "");
         // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
         const vr = det.versions.find((v) => v.version === det.version);
         const created = vr?.created_at ?? null;
@@ -1407,10 +644,7 @@ function QuotationDetailView({
       await api.quotations.update(token, d.id, {
         customer_id: d.customer_id,
         valid_until: validUntilEdit || null,
-        payment_terms: terms,
-        deposit_pct: depositPctEdit === "" ? null : Number(depositPctEdit),
-        delivery_terms: deliveryTermsEdit,
-        delivery_address: deliveryAddressEdit,
+        terms_text: termsText,
         items: d.items.map((it) => {
           const patch = items.find((x) => x.id === it.id);
           return {
@@ -1458,8 +692,8 @@ function QuotationDetailView({
   // Áp % chiết khấu cho DÒNG → quy ra tiền theo giá bán hiện tại của dòng rồi persist như trên.
 
 
-  // P3: đổi khách ngay ở detail (khi nháp). Gửi delivery_address rỗng → BE tự điền ĐC giao mặc định
-  // + làm mới người liên hệ chính của khách mới (redesign-bao-gia §4).
+  // P3: đổi khách ngay ở detail (khi nháp). BE tự điền lại ĐC giao mặc định + người liên hệ chính
+  // của khách mới (redesign-bao-gia §4).
   async function changeCustomer(newId: number | null) {
     if (!token || !d) return;
     setBusy(true);
@@ -1468,15 +702,11 @@ function QuotationDetailView({
       await api.quotations.update(token, d.id, {
         customer_id: newId,
         valid_until: d.valid_until,
-        payment_terms: terms,
-        deposit_pct: depositPctEdit === "" ? null : Number(depositPctEdit),
-        delivery_terms: d.delivery_terms,
-        delivery_address: null,
+        terms_text: termsText,
         items: null,
       });
       await reload(d.id);
       onChanged();
-      setNotice("Đã đổi khách — cập nhật liên hệ & địa chỉ giao.");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Đổi khách thất bại.");
     } finally {
@@ -1492,15 +722,11 @@ function QuotationDetailView({
       await api.quotations.update(token, d.id, {
         customer_id: d.customer_id,
         valid_until: validUntilEdit || null,
-        payment_terms: terms,
-        deposit_pct: depositPctEdit === "" ? null : Number(depositPctEdit),
-        delivery_terms: deliveryTermsEdit,
-        delivery_address: deliveryAddressEdit,
+        terms_text: termsText,
         items: null,
       });
       await reload(d.id);
       onChanged();
-      setNotice("Đã lưu nháp.");
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Lưu nháp thất bại.");
     } finally {
@@ -1518,6 +744,23 @@ function QuotationDetailView({
       onChanged();
     } catch (e) {
       setErr(e instanceof ApiError ? e.message : "Thao tác không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Khách đã chốt (accepted) → lên đơn hàng bán từ CHÍNH báo giá này (BE kéo dòng/giá/cọc; guard
+  // 1 báo giá → 1 đơn). Xong điều hướng sang màn Đơn hàng bán, mở luôn đơn vừa tạo.
+  async function createOrderFromQuote() {
+    if (!token || !d) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const order = await api.orders.create(token, { source_type: "bao_gia", quotation_id: d.id });
+      navigate?.("don-hang-ban", { openOrderId: order.id });
+    } catch (e) {
+      // BE trả 409 khi báo giá đã có đơn (message rõ) → hiện nguyên văn.
+      setErr(e instanceof ApiError ? e.message : "Không tạo được đơn hàng từ báo giá này.");
     } finally {
       setBusy(false);
     }
@@ -1574,12 +817,7 @@ function QuotationDetailView({
     const today = new Date().toLocaleDateString("vi-VN");
     setLastContact(today);
     lsSet(`bgv_contact_${d.code}`, today);
-    setNotice("Đã ghi nhận liên hệ khách hôm nay.");
   }
-  function duplicate() {
-    setNotice("Đã nhân bản báo giá (mô phỏng) — bản sao sẽ xuất hiện ở danh sách khi nối backend.");
-  }
-
   // ---- Follow-up (chỉ khi 'sent') ------------------------------------------
   const curVerRow = d.versions.find((v) => v.version === d.version);
   const sentDate = curVerRow?.created_at ?? null;
@@ -1594,7 +832,7 @@ function QuotationDetailView({
       <div className="page-header">
         <div>
           <h1>
-            <button type="button" className="btn btn--ghost btn--sm" onClick={onClose}>‹ Danh sách</button>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={onClose}><ChevronLeft size={15} /> Danh sách</button>
             <span style={{ fontFamily: "var(--ff-mono)", fontWeight: 500 }}>{d.code}</span>
             <span className="ver-badge">v{d.version}</span>
             <span className={`status-chip ${statusCls}`}>{labelOf(statuses, d.status)}</span>
@@ -1605,17 +843,16 @@ function QuotationDetailView({
           </p>
         </div>
         <div className="actions">
-          <Button variant="secondary" onClick={() => setShowPrint(true)}>🖨️ Xem in</Button>
-          <Button variant="secondary" onClick={duplicate}>⧉ Nhân bản</Button>
+          <Button variant="secondary" onClick={() => setShowPrint(true)}><Printer size={15} /> Xem in</Button>
           {/* Gating quyền chi tiết: từ chối/gửi cần `manage_status`, chốt cần `approve`
               (server tính d.can_approve), tạo bản mới cần `requote` — thiếu quyền thì ẨN nút. */}
           {viewingLatest && d.status === "sent" && (
             <>
               {canManageStatus && (
-                <Button variant="secondary" disabled={busy} onClick={() => doTransition("rejected")}>✕ Khách từ chối</Button>
+                <Button variant="secondary" disabled={busy} onClick={() => doTransition("rejected")}><X size={15} /> Khách từ chối</Button>
               )}
               {d.can_approve && (
-                <Button variant="primary" disabled={busy || !d.allowed_transitions.includes("accepted")} onClick={() => doTransition("accepted")}>✓ Khách chốt</Button>
+                <Button variant="primary" disabled={busy || !d.allowed_transitions.includes("accepted")} onClick={() => doTransition("accepted")}><Check size={15} /> Khách chốt</Button>
               )}
             </>
           )}
@@ -1628,7 +865,7 @@ function QuotationDetailView({
               disabled={busy || !d.customer_id}
               title={!d.customer_id ? "Vui lòng chọn khách hàng trước" : "Báo giá đặc thù — trình duyệt trước khi gửi khách"}
               onClick={() => doTransition("pending_approval")}
-            >⇪ Trình duyệt</Button>
+            ><ArrowUpFromLine size={15} /> Trình duyệt</Button>
           )}
           {/* Gửi khách (SALE tự gửi): báo giá THƯỜNG từ Nháp, HOẶC đặc thù ĐÃ ĐƯỢC GĐ DUYỆT (approved). */}
           {canManageStatus && viewingLatest && d.allowed_transitions.includes("sent") &&
@@ -1638,20 +875,24 @@ function QuotationDetailView({
               disabled={busy || !d.customer_id}
               title={!d.customer_id ? "Vui lòng chọn khách hàng trước" : (d.status === "approved" ? "Giám đốc đã duyệt — gửi báo giá cho khách" : undefined)}
               onClick={() => doTransition("sent")}
-            >➤ Gửi khách</Button>
+            ><Send size={15} /> Gửi khách</Button>
           )}
           {canRequote && viewingLatest && d.status === "rejected" && d.allowed_transitions.includes("change_order") && (
-            <Button variant="primary" disabled={busy} onClick={openRequote}>⎇ Tạo phiên bản mới</Button>
+            <Button variant="primary" disabled={busy} onClick={openRequote}><GitBranch size={15} /> Tạo phiên bản mới</Button>
+          )}
+          {/* Báo giá ĐÃ có đơn (1 báo giá → 1 đơn) → liên kết sang đơn, KHÔNG cho tạo nữa. */}
+          {d.order_id != null && (
+            <Button variant="secondary" onClick={() => navigate?.("don-hang-ban", { openOrderId: d.order_id })}>
+              <ArrowRight size={15} /> Xem đơn hàng{d.order_no ? ` ${d.order_no}` : ""}
+            </Button>
+          )}
+          {/* Khách đã chốt & CHƯA có đơn → lên đơn hàng bán từ báo giá này. */}
+          {canCreateOrder && d.status === "accepted" && d.order_id == null && (
+            <Button variant="primary" disabled={busy} onClick={createOrderFromQuote}><ArrowRight size={15} /> Tạo đơn hàng</Button>
           )}
         </div>
       </div>
 
-      {notice && (
-        <div className="banner banner--success" role="status" style={{ marginBottom: "14px" }}>
-          <span>{notice}</span>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setNotice(null)}>Đóng</button>
-        </div>
-      )}
       {err && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "14px" }}>{err}</div>
       )}
@@ -1659,9 +900,9 @@ function QuotationDetailView({
       {d.status === "rejected" && (
         <div className="banner banner--error" role="alert" style={{ marginBottom: "14px" }}>
           {d.exception_decision === "rejected" ? (
-            <span>🔙 Giám đốc/Trưởng phòng KD đã <b>từ chối</b> báo giá đặc thù{d.exception_note ? `: ${d.exception_note}` : ""}. Bấm <b>Tạo phiên bản mới</b> để sửa rồi trình duyệt lại.</span>
+            <span>Giám đốc/Trưởng phòng KD đã <b>từ chối</b> báo giá đặc thù{d.exception_note ? `: ${d.exception_note}` : ""}. Bấm <b>Tạo phiên bản mới</b> để sửa rồi trình duyệt lại.</span>
           ) : (
-            <span>✕ <b>Khách hàng từ chối</b>{d.cancel_reason ? `: ${d.cancel_reason}` : ""}. Bấm <b>Tạo phiên bản mới</b> để báo lại giá mới.</span>
+            <span><b>Khách hàng từ chối</b>{d.cancel_reason ? `: ${d.cancel_reason}` : ""}. Bấm <b>Tạo phiên bản mới</b> để báo lại giá mới.</span>
           )}
         </div>
       )}
@@ -1673,12 +914,12 @@ function QuotationDetailView({
           <div className="card cost-locked">
             <div className="bg-card-head">
               <div className="title">
-                🔒 <span>{multi ? "Báo giá nhiều dòng" : "Giá vốn"}</span>
+                <Lock size={15} /> <span>{multi ? "Báo giá nhiều dòng" : "Giá vốn"}</span>
                 <span className="mono-tag lock">{multi ? `${d.items.length} phiếu tính giá` : "Khóa từ PTG"}</span>
               </div>
             </div>
             <div className="locked-banner">
-              🛡️ Giá vốn khóa theo phiếu tính giá đã duyệt · markup riêng từng dòng · giá đã gồm VAT.
+              <ShieldCheck size={14} /> Giá vốn khóa theo phiếu tính giá đã duyệt · markup riêng từng dòng · giá đã gồm VAT.
             </div>
             <table className="bg-lines">
               <thead>
@@ -1816,36 +1057,20 @@ function QuotationDetailView({
 
           {/* Điều khoản & hiệu lực */}
           <div className="card">
-            <div className="bg-card-head"><div className="title">📝 Điều khoản &amp; hiệu lực</div></div>
+            <div className="bg-card-head"><div className="title"><FileText size={15} /> Điều khoản &amp; hiệu lực</div></div>
             <div className="field-row">
-              <span className="field-lbl">Điều khoản thanh toán</span>
-              <textarea className="field-in" rows={2} value={terms} disabled={!editable} onChange={(e) => setTerms(e.target.value)} />
-            </div>
-            <div className="field-inline">
-              <span className="field-lbl">% Tạm ứng / cọc</span>
-              <input
+              <span className="field-lbl">Điều khoản báo giá</span>
+              <textarea
                 className="field-in"
-                type="number" min={0} max={100} step={5}
-                style={{ width: "110px" }}
-                value={depositPctEdit}
+                rows={6}
+                value={termsText}
                 disabled={!editable}
-                onChange={(e) => setDepositPctEdit(e.target.value)}
-                placeholder="—"
+                onChange={(e) => setTermsText(e.target.value)}
+                placeholder="Mỗi dòng là một điều khoản — bản in tự đánh số 1, 2, 3…"
               />
-              <span>%</span>
-              {depositPctEdit !== "" && Number(depositPctEdit) > 0 && (
-                <span style={{ color: "var(--ash)", fontSize: "12px" }}>
-                  Tiền cọc ≈ {vnd(Math.round((grandT * Number(depositPctEdit)) / 100))} (trên tổng đã VAT)
-                </span>
-              )}
-            </div>
-            <div className="field-row">
-              <span className="field-lbl">Điều khoản giao nhận</span>
-              <textarea className="field-in" rows={2} value={deliveryTermsEdit} disabled={!editable} onChange={(e) => setDeliveryTermsEdit(e.target.value)} />
-            </div>
-            <div className="field-row">
-              <span className="field-lbl">Địa chỉ giao hàng</span>
-              <input className="field-in" value={deliveryAddressEdit} disabled={!editable} onChange={(e) => setDeliveryAddressEdit(e.target.value)} placeholder="Nhập địa chỉ giao hàng…" />
+              <span style={{ color: "var(--ash)", fontSize: "12px", marginTop: "4px" }}>
+                Mỗi dòng = 1 điều khoản. Bản in tự đánh số theo thứ tự dòng.
+              </span>
             </div>
             <div className="field-inline">
               <span className="field-lbl">Hạn hiệu lực</span>
@@ -1869,13 +1094,13 @@ function QuotationDetailView({
             )}
             {!editable && (
               <div className="ro-note" style={{ marginTop: "12px" }}>
-                👁 Phiên bản này {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"} — khóa chỉnh sửa. Bấm "Tạo phiên bản mới" để sửa.
+                <Eye size={14} /> Phiên bản này {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"} — khóa chỉnh sửa. Bấm "Tạo phiên bản mới" để sửa.
               </div>
             )}
             <div style={{ marginTop: "14px", display: "flex", gap: "8px" }}>
-              {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}>💾 Lưu nháp</Button>}
+              {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}><Save size={15} /> Lưu nháp</Button>}
               {canRequote && viewingLatest && d.allowed_transitions.includes("change_order") && (
-                <Button variant="primary" disabled={busy} onClick={openRequote} title="Giữ bản hiện tại + tạo phiên bản mới (bắt buộc ghi chú)">⎇ Tạo phiên bản mới</Button>
+                <Button variant="primary" disabled={busy} onClick={openRequote} title="Giữ bản hiện tại + tạo phiên bản mới (bắt buộc ghi chú)"><GitBranch size={15} /> Tạo phiên bản mới</Button>
               )}
             </div>
           </div>
@@ -1884,7 +1109,7 @@ function QuotationDetailView({
           {d.status === "sent" && (
             <div className="card">
               <div className="bg-card-head">
-                <div className="title">🔗 Theo dõi gửi khách</div>
+                <div className="title"><Link2 size={15} /> Theo dõi gửi khách</div>
                 {stale && <span className="sub" style={{ color: "var(--amber)" }}>CẦN FOLLOW-UP</span>}
               </div>
               <div className="stage-rows">
@@ -1897,14 +1122,14 @@ function QuotationDetailView({
               {stale && <div className="stage-note">Quá 3 ngày chưa chốt — nên liên hệ nhắc khách.</div>}
               {viewingLatest && (
                 <div className="stage-card-actions">
-                  <Button variant="secondary" onClick={recordContact}>📞 Ghi nhận đã liên hệ</Button>
+                  <Button variant="secondary" onClick={recordContact}><Phone size={15} /> Ghi nhận đã liên hệ</Button>
                 </div>
               )}
             </div>
           )}
           {d.status === "rejected" && d.cancel_reason && (
             <div className="card">
-              <div className="bg-card-head"><div className="title">🚫 Lý do từ chối</div></div>
+              <div className="bg-card-head"><div className="title"><Ban size={15} /> Lý do từ chối</div></div>
               <div className="stage-note warn">{d.cancel_reason}</div>
             </div>
           )}
@@ -1912,8 +1137,8 @@ function QuotationDetailView({
           {/* Lịch sử phiên bản */}
           <div className="card">
             <div className="bg-card-head">
-              <div className="title">🕒 Lịch sử phiên bản</div>
-              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCompareOn((v) => !v)}>⇄ So sánh</button>
+              <div className="title"><Clock size={15} /> Lịch sử phiên bản</div>
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => setCompareOn((v) => !v)}><ArrowLeftRight size={14} /> So sánh</button>
             </div>
             <div>
               {d.versions.slice().sort((a, b) => b.version - a.version).map((v) => {
@@ -2044,7 +1269,9 @@ function QuotationDetailView({
                 {/* AI đã quyết định gần nhất — để NV biết ai duyệt/từ chối + khi nào + lý do (P8b). */}
                 {d.exception_decided_by_name && (
                   <div className="exc-decided">
-                    {d.exception_decision === "rejected" ? "✕ Từ chối" : "✓ Duyệt"} bởi{" "}
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                      {d.exception_decision === "rejected" ? <><X size={13} /> Từ chối</> : <><Check size={13} /> Duyệt</>}
+                    </span>{" "}bởi{" "}
                     <b>{d.exception_decided_by_name}</b>
                     {d.exception_decided_at ? ` · ${fmtDate(d.exception_decided_at)}` : ""}
                     {d.exception_note ? ` · “${d.exception_note}”` : ""}
@@ -2110,7 +1337,7 @@ function QuotationDetailView({
 
           {/* Khách hàng */}
           <div className="card">
-            <div className="bg-card-head"><div className="title">👤 Khách hàng</div></div>
+            <div className="bg-card-head"><div className="title"><User size={15} /> Khách hàng</div></div>
             <div className="cust-rows">
               <div>
                 <span>Công ty</span>
@@ -2128,9 +1355,7 @@ function QuotationDetailView({
               </div>
               <div>
                 <span>Người liên hệ</span>
-                <b>{d.contact_name_snapshot
-                  ? `${d.contact_name_snapshot}${d.contact_phone_snapshot ? ` · ${d.contact_phone_snapshot}` : ""}`
-                  : "—"}</b>
+                <b>{[d.contact_name_snapshot, d.contact_phone_snapshot].filter(Boolean).join(" · ") || "—"}</b>
               </div>
               {/* Người duyệt biết báo giá này của NV nào (P8b). */}
               <div><span>Nhân viên soạn</span><b>{d.salesperson_name ?? "—"}</b></div>
@@ -2145,7 +1370,7 @@ function QuotationDetailView({
                     onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.phieu_tinh_gia_id ?? undefined })}
                     title="Mở phiếu tính giá nguồn"
                   >
-                    ↳ {d.phieu_tinh_gia_ma ?? `#${d.phieu_tinh_gia_id}`} ↗
+                    {d.phieu_tinh_gia_ma ?? `#${d.phieu_tinh_gia_id}`} <ExternalLink size={13} />
                   </button>
                 ) : (
                   <b>{ptgRefs.length ? ptgRefs.join(", ") : "—"}</b>
@@ -2156,15 +1381,16 @@ function QuotationDetailView({
 
           {/* Hoạt động — nhật ký tương tác THẬT: ai làm gì · khi nào (mọi vai trò đụng cùng phiếu) */}
           <div className="card">
-            <div className="bg-card-head"><div className="title">⚡ Hoạt động</div><span className="sub">{acts.length} sự kiện</span></div>
+            <div className="bg-card-head"><div className="title"><Zap size={15} /> Hoạt động</div><span className="sub">{acts.length} sự kiện</span></div>
             <div className="act-timeline">
               {acts.length === 0 ? (
                 <div className="discuss-empty">Chưa có hoạt động.</div>
               ) : acts.map((a, i) => {
-                const m = ACT_META[a.action] ?? ["•", "ash", a.action];
+                const m = ACT_META[a.action] ?? [Zap, "ash", a.action];
+                const ActIcon = m[0];
                 return (
                   <div className="act-item" key={i}>
-                    <span className={`a-dot ${m[1]}`}>{m[0]}</span>
+                    <span className={`a-dot ${m[1]}`}><ActIcon size={14} /></span>
                     <div>
                       <div className="a-text">
                         {m[2]}
@@ -2185,7 +1411,7 @@ function QuotationDetailView({
           <div className="card bg__dialog" style={{ maxWidth: "480px" }} onClick={(e) => e.stopPropagation()}>
             <div className="bg__dialog-head">
               <h2>Tạo phiên bản mới</h2>
-              <button type="button" className="bg__close" onClick={() => setRequoteOpen(false)} aria-label="Đóng">✕</button>
+              <button type="button" className="bg__close" onClick={() => setRequoteOpen(false)} aria-label="Đóng"><X size={18} /></button>
             </div>
             <div style={{ padding: "16px" }}>
               <p style={{ margin: "0 0 10px", color: "var(--ash)", fontSize: "13px" }}>
@@ -2202,26 +1428,25 @@ function QuotationDetailView({
               {err && <div className="ro-note" style={{ marginTop: "8px", color: "var(--signal)" }}>{err}</div>}
               <div style={{ marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
                 <Button variant="ghost" disabled={busy} onClick={() => setRequoteOpen(false)}>Hủy</Button>
-                <Button variant="primary" disabled={busy || !requoteNote.trim()} onClick={doRequote}>⎇ Tạo phiên bản</Button>
+                <Button variant="primary" disabled={busy || !requoteNote.trim()} onClick={doRequote}><GitBranch size={15} /> Tạo phiên bản</Button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {showPrint && <QuotationPrintModal d={d} statuses={statuses} canDownload={canExport} onClose={() => setShowPrint(false)} />}
+      {showPrint && <QuotationPrintModal d={d} canDownload={canExport} onClose={() => setShowPrint(false)} />}
     </main>
   );
 }
 
-// ---- Bản in báo giá song ngữ (MY AN PHU) -----------------------------------
+// ---- Bản in báo giá (một ngôn ngữ — tiếng Việt) ----------------------------
 function QuotationPrintModal({
   d,
   canDownload,
   onClose,
 }: {
   d: QuotationDetail;
-  statuses: EnumOption[];
   /** Quyền chi tiết `export`: thiếu thì chỉ xem trước, ẩn nút In. */
   canDownload: boolean;
   onClose: () => void;
@@ -2249,29 +1474,29 @@ function QuotationPrintModal({
         ? Math.round((vatAmount / netSubtotal) * 100)
         : 0;
 
-  const note = (vi: string, en: string) => (
-    <li>{vi} <span className="q-en">({en})</span></li>
-  );
+  // Điều khoản in ra phiếu: mỗi dòng của terms_text = 1 mục (bản in tự đánh số). Bỏ trống → mặc định.
+  const termLines = (d.terms_text || DEFAULT_TERMS)
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   return (
     <div className="bg__overlay" onClick={onClose}>
       <div className="card bg__dialog" style={{ maxWidth: "900px", padding: 0 }} onClick={(e) => e.stopPropagation()}>
         <div className="bg__dialog-head">
           <h2>Xem trước báo giá in</h2>
-          <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng">✕</button>
+          <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
         </div>
         <div className="qpdf">
-          {/* HEADER: logo hộp | tiêu đề giữa | số & ngày phải (bám Phiếu tính giá) */}
+          {/* HEADER: logo hộp | tiêu đề giữa | số & ngày phải */}
           <header className="q-mh">
             <div className="q-logo"><img src={svnLogoUrl} alt="Sao Việt Nhật" /></div>
             <div className="q-th">
               <h1>BẢNG BÁO GIÁ</h1>
-              <div className="q-th-en">Quotation</div>
               <div className="q-cty">{SVN_COMPANY.name}</div>
             </div>
             <div className="q-meta-r">
               <div>Số báo giá: <b>{qno}</b></div>
-              <div>Phiên bản: <b>v{d.version}</b></div>
               <div>Ngày: <b>{qdate}</b></div>
             </div>
           </header>
@@ -2280,22 +1505,19 @@ function QuotationPrintModal({
           <div className="q-info">
             <div className="q-info-grid">
               <div className="q-info-col">
-                <div><span className="q-lbl">Kính gửi <span className="q-en">/ To:</span></span> <b>{d.customer?.name ?? "—"}</b></div>
-                <div><span className="q-lbl">Địa chỉ <span className="q-en">/ Address:</span></span> {d.delivery_address ?? "—"}</div>
-                <div><span className="q-lbl">MST <span className="q-en">/ Tax code:</span></span> {d.customer?.tax_code ?? "—"}</div>
+                <div><span className="q-lbl">Kính gửi:</span> <b>{d.customer?.name ?? "—"}</b></div>
+                <div><span className="q-lbl">MST:</span> {d.customer?.tax_code ?? "—"}</div>
               </div>
               <div className="q-info-col">
-                <div><span className="q-lbl">Người gửi <span className="q-en">/ Sender:</span></span> {SVN_COMPANY.sender}</div>
-                <div><span className="q-lbl">Điện thoại <span className="q-en">/ Phone:</span></span> {SVN_COMPANY.phone}</div>
-                <div><span className="q-lbl">Hiệu lực đến <span className="q-en">/ Valid until:</span></span> {d.valid_until ?? "Đến khi có thông báo mới"}</div>
+                <div><span className="q-lbl">Hiệu lực đến:</span> {d.valid_until ?? "Đến khi có thông báo mới"}</div>
               </div>
             </div>
           </div>
 
-          <div className="q-intro">Cảm ơn Quý khách đã quan tâm sản phẩm của {SVN_COMPANY.nameEn}. Chúng tôi xin gửi bảng báo giá chi tiết như sau:</div>
+          <div className="q-intro">Cảm ơn Quý khách đã quan tâm sản phẩm của {SVN_COMPANY.name}. Chúng tôi xin gửi bảng báo giá chi tiết như sau:</div>
 
           {/* CHI TIẾT: header xám, viền mảnh, cột tiền căn phải + tfoot Cộng/VAT */}
-          <div className="q-sec">Chi tiết báo giá <span className="q-sec-en">/ Quotation details</span></div>
+          <div className="q-sec">Chi tiết báo giá</div>
           <table className="q-tbl">
             <colgroup>
               <col style={{ width: "5%" }} /><col style={{ width: "12%" }} /><col style={{ width: "26%" }} />
@@ -2304,14 +1526,14 @@ function QuotationPrintModal({
             </colgroup>
             <thead>
               <tr>
-                <th>STT<span className="q-en">No</span></th>
-                <th>Mã hàng<span className="q-en">Code</span></th>
-                <th>Mô tả sản phẩm<span className="q-en">Description</span></th>
-                <th>Kích thước<span className="q-en">Size</span></th>
-                <th>ĐVT<span className="q-en">Unit</span></th>
-                <th>Số lượng<span className="q-en">Qty</span></th>
-                <th>Đơn giá<span className="q-en">Unit price · chưa VAT</span></th>
-                <th>Thành tiền<span className="q-en">Amount · chưa VAT</span></th>
+                <th>STT</th>
+                <th>Mã hàng</th>
+                <th>Mô tả sản phẩm</th>
+                <th>Kích thước</th>
+                <th>ĐVT</th>
+                <th>Số lượng</th>
+                <th>Đơn giá<span className="q-sub">chưa VAT</span></th>
+                <th>Thành tiền<span className="q-sub">chưa VAT</span></th>
               </tr>
             </thead>
             <tbody>
@@ -2330,11 +1552,11 @@ function QuotationPrintModal({
             </tbody>
             <tfoot>
               <tr>
-                <td className="q-sub-lbl" colSpan={7}>Cộng tiền hàng (chưa VAT) <span className="q-en">/ Subtotal</span></td>
+                <td className="q-sub-lbl" colSpan={7}>Cộng tiền hàng (chưa VAT)</td>
                 <td className="r">{money(netSubtotal)}</td>
               </tr>
               <tr>
-                <td className="q-sub-lbl" colSpan={7}>Thuế GTGT {vatPct}% <span className="q-en">/ VAT</span></td>
+                <td className="q-sub-lbl" colSpan={7}>Thuế GTGT {vatPct}%</td>
                 <td className="r">{money(vatAmount)}</td>
               </tr>
             </tfoot>
@@ -2343,39 +1565,30 @@ function QuotationPrintModal({
           {/* PANEL TỔNG THANH TOÁN (đóng khung, nhãn trái + số lớn phải) */}
           <div className="q-grand">
             <div>
-              <div className="q-gt">Tổng thanh toán <span className="q-gt-en">/ Total · incl. VAT</span></div>
+              <div className="q-gt">Tổng thanh toán <span className="q-gt-sub">đã gồm VAT</span></div>
               <div className="q-gs">Tiền hàng {money(netSubtotal)}đ + Thuế GTGT {money(vatAmount)}đ</div>
             </div>
             <div className="q-ga">{money(grand)}<span className="q-u">đ</span></div>
           </div>
 
-          {/* ĐIỀU KHOẢN */}
-          <div className="q-sec">Điều khoản <span className="q-sec-en">/ Terms</span></div>
+          {/* ĐIỀU KHOẢN — bám dữ liệu thật (terms_text), tự đánh số theo dòng */}
+          <div className="q-sec">Điều khoản</div>
           <ol className="q-notes">
-            {note("Hiệu lực báo giá: áp dụng từ ngày báo giá cho đến khi có thông báo mới.", "Validity: from the quote date until further notice.")}
-            {note("Giá đã bao gồm chi phí vận chuyển đến kho của Quý khách.", "Prices include delivery to your warehouse.")}
-            {note(`Đơn giá trong bảng chưa gồm thuế GTGT; thuế GTGT ${vatPct}% được cộng ở phần tổng.`, `Table prices exclude VAT; ${vatPct}% VAT is added in the total.`)}
-            {note("Thời gian giao hàng: 7–10 ngày kể từ khi nhận đơn hàng.", "Delivery: 7–10 days from order placement.")}
-            {note(`Thời hạn thanh toán: ${d.payment_terms || "theo thỏa thuận."}`, "Payment terms as agreed.")}
+            {termLines.map((t, i) => <li key={i}>{t}</li>)}
           </ol>
 
-          {/* CHỮ KÝ 2 cột (bám cụm ký Phiếu tính giá) */}
+          {/* CHỮ KÝ 2 cột */}
           <div className="q-signs">
             <div>
-              <div className="q-role">Khách hàng xác nhận <span>(Buyer's confirmation)</span></div>
+              <div className="q-role">Khách hàng xác nhận</div>
               <div className="q-hint">(Ký, ghi rõ họ tên)</div>
               <div className="q-sp" />
             </div>
             <div>
-              <div className="q-role">Đại diện bên bán <span>(Supplier)</span></div>
+              <div className="q-role">Đại diện bên bán</div>
               <div className="q-hint">(Ký, ghi rõ họ tên)</div>
               <div className="q-sp" />
             </div>
-          </div>
-
-          <div className="q-foot">
-            <span>Công ty Sao Việt Nhật · Báo giá có giá trị đối ngoại.</span>
-            <span>{qno} · v{d.version}</span>
           </div>
         </div>
         <div className="bg__dialog-actions" style={{ padding: "16px 20px" }}>

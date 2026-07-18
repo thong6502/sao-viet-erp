@@ -11,7 +11,6 @@ import {
   type StockRequestInput,
   type StockRequestLineInput,
   type StockRequestRow,
-  type ProductionOrderOption,
   type VoucherInput,
   type VoucherRow,
   type WarehouseRow,
@@ -558,18 +557,7 @@ function RequestForm({
   const selType = shownTypes.find((t) => t.id === voucherTypeId);
   const requestType: "nhap" | "xuat" = selType?.voucher_group === "xuat" ? "xuat" : "nhap";
   const spec = specForType(selType);
-  const isLsx = spec.partnerKind === "lsx"; // loại phiếu gắn Lệnh sản xuất
   const [partnerRef, setPartnerRef] = useState(editing?.partner_ref ?? "");
-  // Loại gắn LSX → chọn từ lệnh SX thật (module Sản xuất), không gõ tay.
-  const [lsxOptions, setLsxOptions] = useState<ProductionOrderOption[]>([]);
-  useEffect(() => {
-    if (!token || !isLsx) return;
-    api.production.orderOptions(token, undefined, true).then(setLsxOptions).catch(() => {});
-  }, [token, isLsx]);
-  const lsxSelectOptions = useMemo<SelectOption<string>[]>(
-    () => lsxOptions.map((o) => ({ value: o.code, label: o.label || o.code })),
-    [lsxOptions],
-  );
   // Chỉ NCC map danh mục (module Nhà cung cấp). Khách hàng nhập tay — chưa có module lưu KH.
   const partnerCatalog: "ncc" | null = spec.partnerKind === "ncc" ? "ncc" : null;
   const [partnerOpts, setPartnerOpts] = useState<{ id: number; name: string }[]>([]);
@@ -673,19 +661,7 @@ function RequestForm({
             </label>
             <label className="field">
               <span className="field__label">{spec.partnerKind ? spec.partnerLabel : "Đối tượng"}</span>
-              {isLsx ? (
-                <Select
-                  portal
-                  searchable
-                  clearable
-                  placeholder="— Chọn lệnh sản xuất —"
-                  searchPlaceholder="Tìm mã LSX / sản phẩm…"
-                  ariaLabel="Chọn lệnh sản xuất"
-                  value={partnerRef || null}
-                  options={lsxSelectOptions}
-                  onChange={(v) => setPartnerRef(v ? String(v) : "")}
-                />
-              ) : partnerCatalog ? (
+              {partnerCatalog ? (
                 <Select
                   portal
                   searchable

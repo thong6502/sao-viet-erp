@@ -13,7 +13,6 @@ import {
   type OrderLineInput,
   type OrderRow,
   type OrderStatsOut,
-  type ProductionOrderRow,
 } from "../api/client";
 import "./don-hang-ban.css";
 
@@ -27,6 +26,13 @@ function fmtDate(s: string | null): string {
   if (!s) return "—";
   const d = new Date(s);
   return d.toLocaleDateString("vi-VN");
+}
+// VND rút gọn cho KPI (tránh số dài): ≥1 tỷ → "₫x,xx tỷ", ≥1 triệu → "₫x,x tr", còn lại đầy đủ.
+function vndShort(v: number | null | undefined): string {
+  if (v == null) return "—";
+  if (v >= 1_000_000_000) return "₫" + (v / 1_000_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " tỷ";
+  if (v >= 1_000_000) return "₫" + (v / 1_000_000).toLocaleString("vi-VN", { maximumFractionDigits: 1 }) + " tr";
+  return vnd(v);
 }
 
 // V5: hình thức thu của Phiếu thu Kế toán (PAYMENT_VOUCHER_TYPES).
@@ -93,9 +99,10 @@ function RowFlags({ o }: { o: OrderRow }) {
 
 interface Props {
   navigate?: (id: string, params?: Record<string, unknown>) => void;
+  openOrderId?: number | null;   // deep-link từ Báo giá ("Xem đơn") → mở drawer đơn vừa tạo
 }
 
-export function DonHangBanPage({ navigate }: Props) {
+export function DonHangBanPage({ navigate, openOrderId }: Props) {
   const { token } = useAuth();
   const can = useCan();
   const canCreate = can("don_hang_ban", "create");
@@ -149,6 +156,12 @@ export function DonHangBanPage({ navigate }: Props) {
     api.orders.get(token, id).then(setSelected).catch((e) => setErr(String(e?.message ?? e)));
   }
 
+  // Deep-link từ Báo giá (nút "Xem đơn" sau khi tạo đơn) → mở drawer đơn ngay khi vào màn.
+  useEffect(() => {
+    if (token && openOrderId) openDetail(openOrderId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, openOrderId]);
+
   return (
     <main className="dhb-container">
       <header className="dhb__header">
@@ -162,6 +175,8 @@ export function DonHangBanPage({ navigate }: Props) {
           </button>
         )}
       </header>
+
+      {stats && <KpiStrip stats={stats} />}
 
       {/* Tabs + tìm */}
       <div className="dhb__toolbar">
@@ -257,9 +272,7 @@ export function DonHangBanPage({ navigate }: Props) {
                       <span className="dhb__order-source-manual">Nhập tay</span>
                     )}
                   </td>
-                  <td className="dhb__mono dhb__text-right">
-                    {vnd(o.total_with_vat)}
-                  </td>
+                  <td className="dhb__val">{vnd(o.total_with_vat)}</td>
                   <td>
                     <DepositBar o={o} />
                   </td>
@@ -302,6 +315,36 @@ export function DonHangBanPage({ navigate }: Props) {
         />
       )}
     </main>
+  );
+}
+
+// KPI đầu list — tóm tắt tiền/đếm rule-based từ `stats` (aggregate backend, chính xác toàn hệ).
+function KpiStrip({ stats }: { stats: OrderStatsOut }) {
+  return (
+    <div className="dhb__kpis">
+      <div className="dhb__kpi">
+        <div className="dhb__kpi-l"><Icon name="fileText" size={13} /> Tổng đơn</div>
+        <div className="dhb__kpi-n">{stats.all}</div>
+        <div className="dhb__kpi-s">{stats.ordered} đã chốt</div>
+      </div>
+      <div className="dhb__kpi">
+        <div className="dhb__kpi-l"><Icon name="clock" size={13} /> Chờ cọc</div>
+        <div className="dhb__kpi-n">{stats.awaiting_deposit}<span className="dhb__kpi-u"> đơn</span></div>
+        <div className="dhb__kpi-s" style={{ color: stats.deposit_shortfall > 0 ? "var(--amber-deep)" : undefined }}>
+          cần thu {vndShort(stats.deposit_shortfall)}
+        </div>
+      </div>
+      <div className="dhb__kpi">
+        <div className="dhb__kpi-l"><Icon name="check" size={13} /> Giá trị đã chốt</div>
+        <div className="dhb__kpi-n" style={{ fontFamily: "var(--ff-mono)", fontSize: 15, fontVariantNumeric: "tabular-nums" }}>{vndShort(stats.ordered_value)}</div>
+        <div className="dhb__kpi-s">{stats.ordered} đơn</div>
+      </div>
+      <div className="dhb__kpi">
+        <div className="dhb__kpi-l"><Icon name="shield" size={13} /> Chờ duyệt</div>
+        <div className="dhb__kpi-n" style={{ color: stats.pending_approval > 0 ? "var(--amber-deep)" : undefined }}>{stats.pending_approval}</div>
+        <div className="dhb__kpi-s">đơn đặc thù</div>
+      </div>
+    </div>
   );
 }
 
@@ -355,39 +398,27 @@ function OrderDrawer({
   async function upConsent(f: File) { if (token) onSaved(await api.orders.uploadConsent(token, order.id, f)); }
   async function delConsent(aid: number) { if (token) onSaved(await api.orders.deleteConsent(token, order.id, aid)); }
   const [acts, setActs] = useState<{ at: string; actor_name: string | null; action: string; detail: string }[]>([]);
-  const [prodOrders, setProdOrders] = useState<ProductionOrderRow[]>([]);
   const isDraft = order.status === "draft";
   const [drawerTab, setDrawerTab] = useState<"overview" | "commercial" | "history">("overview");
 
   const isChotDone = order.status === "ordered" || order.ordered_at != null;
   const isCocDone = order.deposit_ok;
-  const isSxDone = prodOrders.length > 0 && prodOrders.every((x) => x.status === "done");
-  const isSxActive = prodOrders.length > 0 && !isSxDone && prodOrders.some((x) => x.status === "open");
+  const doneSeg = isChotDone ? (isCocDone ? 2 : 1) : 0;
+  const remaining = Math.max(0, order.deposit_required - order.deposit_received);
 
   const chotDate = order.ordered_at ? fmtDate(order.ordered_at) : (order.created_at ? fmtDate(order.created_at) : "—");
   const cocText = isCocDone ? "đủ" : "chờ cọc";
-  const sxText = isSxDone ? "hoàn thành" : (isSxActive ? "đang làm" : "—");
 
-  const [activeStep, setActiveStep] = useState<"chot" | "coc" | "sx" | "giao" | "hoadon">("coc");
+  const [activeStep, setActiveStep] = useState<"chot" | "coc" | "giao" | "hoadon">("coc");
 
   useEffect(() => {
     if (token) api.orders.activity(token, order.id).then((r) => setActs(r.items)).catch(() => {});
   }, [token, order.id]);
 
   useEffect(() => {
-    const defaultStep = !isChotDone ? "chot" : (!isCocDone ? "coc" : (isSxDone ? "giao" : "sx"));
+    const defaultStep = !isChotDone ? "chot" : (!isCocDone ? "coc" : "giao");
     setActiveStep(defaultStep);
-  }, [order.id, isChotDone, isCocDone, isSxDone]);
-
-  useEffect(() => {
-    if (token && order.id) {
-      api.production.listOrders(token, { size: 100 })
-        .then((res) => {
-          setProdOrders(res.items.filter((x) => x.order_id === order.id));
-        })
-        .catch((e) => console.error(e));
-    }
-  }, [token, order.id]);
+  }, [order.id, isChotDone, isCocDone]);
 
   return (
     <div
@@ -399,13 +430,17 @@ function OrderDrawer({
         className="dhb__drawer-content"
       >
         <header className="dhb__drawer-header">
-          <h2 className="dhb__drawer-title">{order.order_no}</h2>
-          <StatusBadge status={order.status} />
-          {order.source_type === "bao_gia" && order.quotation_code && (
-            <Chip icon="fileText" label={order.quotation_code} tone="muted" />
-          )}
-          <RowFlags o={order} />
-          <div style={{ flex: 1 }} />
+          <div className="dhb__drawer-headmain">
+            <div className="dhb__drawer-headtop">
+              <h2 className="dhb__drawer-title">{order.order_no}</h2>
+              <StatusBadge status={order.status} />
+              {order.source_type === "bao_gia" && order.quotation_code && (
+                <Chip icon="fileText" label={order.quotation_code} tone="muted" />
+              )}
+              <RowFlags o={order} />
+            </div>
+            <div className="dhb__drawer-cust"><Icon name="users" size={13} /> {order.customer_name ?? "—"}</div>
+          </div>
           {isDraft && canUpdate && !editing && (
             <button className="btn btn--secondary" style={{ height: 32 }} onClick={() => setEditing(true)}><Icon name="pencil" size={14} /> Sửa</button>
           )}
@@ -474,6 +509,8 @@ function OrderDrawer({
                 
                 {/* 1. Timeline */}
                 <div className="dhb__timeline">
+                  <div className="dhb__timeline-track" />
+                  <div className="dhb__timeline-fill" style={{ width: `${(doneSeg / 4) * 80}%` }} />
                   <div
                     className={`dhb__timeline-step ${isChotDone ? "is-done" : ""} ${activeStep === "chot" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("chot")}
@@ -495,20 +532,10 @@ function OrderDrawer({
                     <span className="dhb__timeline-sub">{cocText}</span>
                   </div>
                   <div
-                    className={`dhb__timeline-step ${isSxDone ? "is-done" : (isSxActive ? "is-active" : "")} ${activeStep === "sx" ? "is-selected" : ""}`}
-                    onClick={() => setActiveStep("sx")}
-                  >
-                    <div className="dhb__timeline-dot">
-                      {isSxDone ? <Icon name="check" size={12} /> : (isSxActive ? <Icon name="clock" size={12} /> : "3")}
-                    </div>
-                    <span className="dhb__timeline-label">Sản xuất</span>
-                    <span className="dhb__timeline-sub">{sxText}</span>
-                  </div>
-                  <div
                     className={`dhb__timeline-step ${activeStep === "giao" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("giao")}
                   >
-                    <div className="dhb__timeline-dot">4</div>
+                    <div className="dhb__timeline-dot">3</div>
                     <span className="dhb__timeline-label">Giao hàng</span>
                     <span className="dhb__timeline-sub">—</span>
                   </div>
@@ -516,7 +543,7 @@ function OrderDrawer({
                     className={`dhb__timeline-step ${activeStep === "hoadon" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("hoadon")}
                   >
-                    <div className="dhb__timeline-dot">5</div>
+                    <div className="dhb__timeline-dot">4</div>
                     <span className="dhb__timeline-label">Hóa đơn</span>
                     <span className="dhb__timeline-sub">—</span>
                   </div>
@@ -560,74 +587,43 @@ function OrderDrawer({
                         {isCocDone ? "ĐỦ CỌC" : "CHỜ CỌC"}
                       </span>
                     </div>
-                    <div style={{ display: "grid", gap: 4, marginTop: 4 }}>
-                      <KV k="Ngưỡng cần thu (30% ghim từ báo giá)" v={<span className="dhb__mono">{vnd(order.deposit_required)}</span>} right />
-                      <KV k="Đã thu" v={<strong className="dhb__mono" style={{ color: "var(--ink)" }}>{vnd(order.deposit_received)}</strong>} right />
+                    <div className="dhb__stat-trio">
+                      <div className="dhb__stat"><div className="dhb__stat-l">Cần thu{order.deposit_pct != null ? ` (${order.deposit_pct}%)` : ""}</div><div className="dhb__stat-n">{vnd(order.deposit_required)}</div></div>
+                      <div className="dhb__stat"><div className="dhb__stat-l">Đã thu</div><div className="dhb__stat-n" style={{ color: isCocDone ? "var(--moss-deep)" : undefined }}>{vnd(order.deposit_received)}</div></div>
+                      <div className="dhb__stat"><div className="dhb__stat-l">Còn thiếu</div><div className="dhb__stat-n" style={{ color: remaining > 0 ? "var(--amber-deep)" : undefined }}>{vnd(remaining)}</div></div>
                     </div>
                     <div style={{ margin: "4px 0" }}><DepositBar o={order} /></div>
                     {order.deposits.length > 0 && (
                       <div style={{ display: "grid", gap: 6, marginTop: 4 }}>
                         {order.deposits.map((d) => (
-                          <div key={d.id} style={{ background: "var(--canvas)", border: "1px solid var(--rule-soft)", borderRadius: "var(--r-3)", padding: "8px 12px" }}>
-                            <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
-                              <strong className="dhb__mono">{vnd(d.amount)}</strong>
-                              <span style={{ color: "var(--ash)" }}>{RECEIPT_METHOD_LABELS[d.receipt_method] ?? d.receipt_method}</span>
+                          <div key={d.id} className="dhb__receipt-row">
+                            <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 12 }}>
+                              <strong className="dhb__mono" style={{ fontSize: 14, color: "var(--ink)" }}>{vnd(d.amount)}</strong>
+                              <span style={{ color: "var(--ash-2)" }}>{RECEIPT_METHOD_LABELS[d.receipt_method] ?? d.receipt_method}</span>
                               {d.status === "received" && (
                                 <span style={{ color: "var(--moss)", display: "inline-flex", gap: 2, alignItems: "center" }}><Icon name="check" size={12} /> đã thu</span>
                               )}
                               {d.receipt_date && <span style={{ color: "var(--ash-2)" }} className="dhb__mono">{fmtDate(d.receipt_date)}</span>}
                               <div style={{ flex: 1 }} />
-                              <button type="button" className="dhb__mono"
-                                style={{ color: "var(--rust)", fontSize: 12, background: "none", border: "none", padding: 0, cursor: "pointer", textDecoration: "underline" }}
+                              <button type="button" className="link dhb__mono"
+                                style={{ color: "var(--rust)", background: "none", border: 0, padding: 0, cursor: "pointer", fontWeight: 600 }}
                                 title="Mở phiếu thu này bên Kế toán"
                                 onClick={() => navigate?.("ke-toan-phieu-thu", { focusReceiptQuery: d.code })}>
-                                {d.doc_no ?? d.code}
+                                {d.doc_no ?? d.code} ↗
                               </button>
                             </div>
                           </div>
                         ))}
                       </div>
                     )}
+                    {order.deposits.length === 0 && isDraft && (
+                      <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ash-2)" }}>Chưa có phiếu thu cọc nào.</p>
+                    )}
                     {canRecordDeposit && isDraft && <DepositForm order={order} onSaved={onSaved} />}
                     {!isDraft && <p style={{ color: "var(--ash)", fontSize: 12, marginTop: 4, margin: 0 }}>Đơn đã chốt — phiếu thu khóa.</p>}
                   </div>
                 )}
  
-                {activeStep === "sx" && (
-                  <div className="dhb__lifecycle-box">
-                    <div className="dhb__lifecycle-box-header">
-                      <h4 className="dhb__lifecycle-box-title">Sản xuất</h4>
-                      {prodOrders.length > 0 ? (
-                        <>
-                          <span className={`dhb__lifecycle-badge ${isSxDone ? "dhb__lifecycle-badge--done" : "dhb__lifecycle-badge--active"}`}>
-                            {isSxDone ? "HOÀN THÀNH" : "ĐANG SẢN XUẤT"}
-                          </span>
-                          <button
-                            className="link dhb__mono"
-                            style={{ color: "var(--rust)", background: "none", border: 0, cursor: "pointer", padding: 0, fontWeight: 700 }}
-                            onClick={() => navigate?.("lenh-san-xuat")}
-                          >
-                            {prodOrders[0].code} ↗
-                          </button>
-                        </>
-                      ) : (
-                        <span className="dhb__lifecycle-badge dhb__lifecycle-badge--upcoming">CHƯA BẮT ĐẦU</span>
-                      )}
-                    </div>
-                    {prodOrders.length > 0 ? (
-                      <>
-                        <p className="dhb__lifecycle-desc" style={{ marginTop: 4 }}>
-                          Trạng thái lệnh sản xuất: <strong>{prodOrders[0].status === "done" ? "Hoàn thành" : (prodOrders[0].status === "cancelled" ? "Đã hủy" : "open (đang làm)")}</strong>
-                        </p>
-                        <p className="dhb__lifecycle-desc" style={{ opacity: 0.7, fontSize: 11, fontStyle: "italic" }}>
-                          Kéo từ Lệnh sản xuất qua liên kết đơn. Chỉ mức thô open / done / cancelled mà Sản xuất đang có — tiến độ theo công đoạn là P2, khi có sẽ tự hiện thêm.
-                        </p>
-                      </>
-                    ) : (
-                      <p className="dhb__lifecycle-desc">Đơn chưa lập Lệnh sản xuất (LSX).</p>
-                    )}
-                  </div>
-                )}
  
                 {activeStep === "giao" && (
                   <div className="dhb__lifecycle-box dhb__lifecycle-box--dotted">
@@ -800,7 +796,7 @@ function CancelDialog({ order, onClose, onSaved }: { order: OrderDetail; onClose
           </Field>
         )}
         <Field label="Lý do hủy">
-          <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Nêu lý do; nếu đã chốt, kể luôn tình trạng lúc hủy (vd: đã ra kẽm, khách đổi ý)." style={{ ...inp, minHeight: 60, resize: "vertical" }} />
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Nêu lý do; nếu đã chốt, kể luôn tình trạng lúc hủy (vd: đã ra kẽm, khách đổi ý)." className="dhb__input" style={{ minHeight: 60, resize: "vertical" }} />
         </Field>
         {err && <div className="banner banner--error">{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12 }}>
@@ -867,18 +863,18 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
 
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <Field label="Số PO khách"><input value={po} onChange={(e) => setPo(e.target.value)} style={inp} /></Field>
-      <Field label="% cọc"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" style={inp} /></Field>
-      <Field label="Ngày giao cam kết"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inp} /></Field>
-      <Field label="Địa chỉ giao"><input value={addr} onChange={(e) => setAddr(e.target.value)} style={inp} /></Field>
+      <Field label="Số PO khách"><input value={po} onChange={(e) => setPo(e.target.value)} className="dhb__input" /></Field>
+      <Field label="% cọc"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" className="dhb__input" /></Field>
+      <Field label="Ngày giao cam kết"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" /></Field>
+      <Field label="Địa chỉ giao"><input value={addr} onChange={(e) => setAddr(e.target.value)} className="dhb__input" /></Field>
       <Field label="Bản chất đơn">
-        <select value={nature} onChange={(e) => setNature(e.target.value)} style={inp}>
+        <select value={nature} onChange={(e) => setNature(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
           <option value="hang_hoa">Hàng hóa</option>
           <option value="gia_cong">Gia công</option>
         </select>
       </Field>
-      <Field label="Pháp nhân xuất HĐ"><input value={entity} onChange={(e) => setEntity(e.target.value)} placeholder="Mặc định = khách" style={inp} /></Field>
-      <Field label="MST xuất HĐ"><input value={taxCode} onChange={(e) => setTaxCode(e.target.value)} style={inp} /></Field>
+      <Field label="Pháp nhân xuất HĐ"><input value={entity} onChange={(e) => setEntity(e.target.value)} placeholder="Mặc định = khách" className="dhb__input" /></Field>
+      <Field label="MST xuất HĐ"><input value={taxCode} onChange={(e) => setTaxCode(e.target.value)} className="dhb__input" /></Field>
       {err && <div className="banner banner--error">{err}</div>}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button className="btn btn--ghost" onClick={onCancel} disabled={saving}>Hủy</button>
@@ -993,9 +989,9 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
               <span style={{ fontSize: 12, color: "var(--ash)", display: "block", marginBottom: 6 }}>Dòng hàng (nhập tay — không giá vốn, sẽ cần duyệt)</span>
               {lines.map((l, i) => (
                 <div key={i} style={{ display: "flex", gap: 6, marginTop: 6 }}>
-                  <input placeholder="Mô tả" value={l.description} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} style={{ ...inp, flex: 2 }} />
-                  <input type="number" placeholder="SL" value={l.qty} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x)))} style={{ ...inp, width: 70 }} />
-                  <input type="number" placeholder="Đơn giá" value={l.unit_price ?? 0} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, unit_price: Number(e.target.value) } : x)))} style={{ ...inp, width: 100 }} />
+                  <input placeholder="Mô tả" value={l.description} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)))} className="dhb__input" style={{ flex: 2 }} />
+                  <input type="number" placeholder="SL" value={l.qty} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) } : x)))} className="dhb__input" style={{ width: 70 }} />
+                  <input type="number" placeholder="Đơn giá" value={l.unit_price ?? 0} onChange={(e) => setLines((ls) => ls.map((x, j) => (j === i ? { ...x, unit_price: Number(e.target.value) } : x)))} className="dhb__input" style={{ width: 100 }} />
                 </div>
               ))}
               <button className="btn btn--ghost" style={{ marginTop: 8, height: 28, padding: "4px 10px", fontSize: 12 }} onClick={() => setLines((ls) => [...ls, { description: "", qty: 1, unit_price: 0, vat_pct: 8 }])}>
@@ -1024,8 +1020,8 @@ function CreateModal({ enums, onClose, onCreated }: { enums: OrderEnumsOut; onCl
             </select>
           </Field>
         )}
-        <Field label="% cọc (tùy chọn — báo giá: trống = ghim theo báo giá)"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" style={inp} /></Field>
-        <Field label="Số PO khách (tùy chọn)"><input value={po} onChange={(e) => setPo(e.target.value)} style={inp} /></Field>
+        <Field label="% cọc (tùy chọn — báo giá: trống = ghim theo báo giá)"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" className="dhb__input" /></Field>
+        <Field label="Số PO khách (tùy chọn)"><input value={po} onChange={(e) => setPo(e.target.value)} className="dhb__input" /></Field>
 
         {err && <div className="banner banner--error">{err}</div>}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
@@ -1141,7 +1137,7 @@ function ApprovalPanel({ order, canApprove, onSaved }: { order: OrderDetail; can
       {st !== "approved" &&
         (canApprove ? (
           <>
-            <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ghi chú / lý do (bắt buộc khi từ chối)" style={{ ...inp, minHeight: 52, resize: "vertical" }} />
+            <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Ghi chú / lý do (bắt buộc khi từ chối)" className="dhb__input" style={{ minHeight: 52, resize: "vertical" }} />
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn--primary" disabled={busy || !note.trim()} onClick={() => run(() => api.orders.approve(token!, order.id, note))}>
                 <Icon name="check" size={14} /> Duyệt
@@ -1163,8 +1159,9 @@ function ApprovalPanel({ order, canApprove, onSaved }: { order: OrderDetail; can
 function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: OrderDetail) => void }) {
   const { token } = useAuth();
   const [open, setOpen] = useState(false);
+  const remaining = Math.max(0, order.deposit_required - order.deposit_received);
   const [method, setMethod] = useState("cash");
-  const [amount, setAmount] = useState(String(Math.max(0, order.deposit_required - order.deposit_received)));
+  const [amount, setAmount] = useState(String(remaining));
   const [date, setDate] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
@@ -1199,18 +1196,24 @@ function DepositForm({ order, onSaved }: { order: OrderDetail; onSaved: (d: Orde
       </button>
     );
   return (
-    <div style={{ marginTop: 8, border: "1px solid #e6ebf1", borderRadius: 10, padding: 12, display: "grid", gap: 8 }}>
-      <p style={{ margin: 0, fontSize: 12, color: "var(--ash)" }}>Lập Phiếu thu THẬT bên Kế toán, gắn đơn này (bấm = đã thu).</p>
+    <div style={{ marginTop: 8, border: "1px solid var(--rule-soft)", borderRadius: "var(--r-3)", padding: 12, display: "grid", gap: 8 }}>
+      <p style={{ margin: 0, fontSize: 12, color: "var(--ash)" }}>
+        Lập Phiếu thu THẬT bên Kế toán, gắn đơn này (bấm = đã thu).
+        {remaining > 0 && <> Còn thiếu <strong className="dhb__mono" style={{ color: "var(--ink)" }}>{vnd(remaining)}</strong>.</>}
+      </p>
       <Field label="Hình thức thu">
-        <select value={method} onChange={(e) => setMethod(e.target.value)} style={inp}>
+        <select value={method} onChange={(e) => setMethod(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
           {Object.entries(RECEIPT_METHOD_LABELS).map(([v, l]) => (
             <option key={v} value={v}>{l}</option>
           ))}
         </select>
       </Field>
-      <Field label="Số tiền thực thu"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={inp} /></Field>
-      <Field label="Ngày thu"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inp} /></Field>
-      <Field label="Ghi chú"><input value={note} onChange={(e) => setNote(e.target.value)} style={inp} /></Field>
+      <Field label="Số tiền thực thu">
+        <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="dhb__input" />
+        {Number(amount) > 0 && <div className="dhb__mono" style={{ fontSize: 12, color: "var(--ash-2)", marginTop: 2 }}>= {vnd(Number(amount))}</div>}
+      </Field>
+      <Field label="Ngày thu"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" /></Field>
+      <Field label="Ghi chú"><input value={note} onChange={(e) => setNote(e.target.value)} className="dhb__input" /></Field>
       {err && <div className="banner banner--error">{err}</div>}
       <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
         <button className="btn btn--ghost" onClick={() => setOpen(false)} disabled={saving}>Hủy</button>
@@ -1261,10 +1264,8 @@ function AttachmentList({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label style={{ display: "block", marginBottom: 8 }}>
-      <span style={{ display: "block", fontSize: 12, color: "#7a8698", marginBottom: 3 }}>{label}</span>
+      <span style={{ display: "block", fontSize: 12, color: "var(--ash)", marginBottom: 3 }}>{label}</span>
       {children}
     </label>
   );
 }
-
-const inp: React.CSSProperties = { width: "100%", padding: "8px 11px", borderRadius: 8, border: "1px solid #d7dee7", fontSize: 13, boxSizing: "border-box" };

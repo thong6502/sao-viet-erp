@@ -23,6 +23,7 @@ class OrderLineOut(BaseModel):
     vat_pct_estimate: int
     line_total: int | None
     cost_snapshot: int | None
+    phieu_thanh_phan_id: int | None = None   # pin truy vết ấn phẩm (từ dòng báo giá nguồn)
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -161,6 +162,11 @@ class OrderStatsOut(BaseModel):
     ordered: int
     cancelled: int
     pending_approval: int
+    # KPI tiền (aggregate read-only, không đổi schema DB): số đơn chờ cọc, Σ cần-thu-còn-thiếu,
+    # Σ giá trị (gồm VAT) đơn đã chốt. Default 0 để an toàn khi thiếu.
+    awaiting_deposit: int = 0
+    deposit_shortfall: int = 0
+    ordered_value: int = 0
 
 
 class OrderDetailOut(OrderRow):

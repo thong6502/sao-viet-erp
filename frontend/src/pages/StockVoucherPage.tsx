@@ -9,7 +9,6 @@ import {
   type VoucherLineInput,
   type VoucherInput,
   type VoucherAttachment,
-  type ProductionOrderOption,
   type KhoVoucherType,
   type KhoItemStatus,
   type KhoMaterialOption,
@@ -19,7 +18,6 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
 import { ConfirmDialog } from "../components/ConfirmDialog";
-import { ProductionOrderForm } from "./ProductionOrdersPage";
 import { MaterialForm } from "./MaterialsCatalogPage";
 import logoUrl from "../assets/sao-viet-nhat-logo-mark.png";
 import "./master-data.css";
@@ -337,12 +335,6 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** Điền sẵn form từ 1 Lệnh sản xuất (LSX) — dùng khi "sinh phiếu kho từ phiếu sản xuất". */
-export interface VoucherPrefillLsx {
-  id: number; code: string;
-  customerName?: string | null; productName?: string | null; quantity?: number | null;
-}
-
 /** Điền sẵn form từ 1 Đơn mua hàng (PO) — dùng khi "tạo phiếu nhập kho từ PO đã nhận hàng". */
 export interface VoucherPrefillPo {
   id: number; code: string; supplierName?: string | null;
@@ -352,7 +344,7 @@ export interface VoucherPrefillPo {
 export function VoucherForm({
   types, warehouses, materials, statuses,
   lockedWarehouse = null, restrictEffect = null, lockedTypeId = null,
-  prefillLsx = null, prefillPo = null, editing = null, onClose, onSaved,
+  prefillPo = null, editing = null, onClose, onSaved,
 }: {
   types: KhoVoucherType[]; warehouses: WarehouseRow[]; materials: KhoMaterialOption[];
   statuses: KhoItemStatus[];
@@ -364,8 +356,6 @@ export function VoucherForm({
   restrictEffect?: "tang" | "giam" | "chuyen_vi_tri" | null;
   /** Nếu set: khóa cứng vào 1 loại phiếu (menu phiếu theo loại). */
   lockedTypeId?: number | null;
-  /** Nếu set: sinh phiếu từ 1 LSX — điền sẵn đối tượng + gắn ref_id + hiện panel LSX read-only. */
-  prefillLsx?: VoucherPrefillLsx | null;
   /** Nếu set: tạo phiếu nhập từ 1 PO — điền sẵn NCC + gắn ref_id + hiện danh sách hàng của PO. */
   prefillPo?: VoucherPrefillPo | null;
   onClose: () => void; onSaved: () => void;
@@ -402,8 +392,6 @@ export function VoucherForm({
       : [],
   ); // rỗng lúc đầu — thêm qua popup (hoặc điền sẵn khi sửa)
   const [onHand, setOnHand] = useState<Record<number, number>>({}); // SL tồn theo vật tư (kho nguồn)
-  const [lsxOptions, setLsxOptions] = useState<ProductionOrderOption[]>([]);
-  const [lsxId, setLsxId] = useState<number | null>(null); // LSX đã chọn (ref_id)
   const [partnerOpts, setPartnerOpts] = useState<{ id: number; name: string }[]>([]); // gợi ý NCC/khách
   // Phiếu kho chỉ CHỌN mặt hàng — việc tạo/sửa vật tư làm ở trang "Danh mục vật tư".
   const [newItemFor, setNewItemFor] = useState<number | "new" | null>(null);
@@ -428,19 +416,12 @@ export function VoucherForm({
     return out;
   }, [materials]);
   const matByIdForm = useMemo(() => new Map(allMaterials.map((m) => [m.id, m])), [allMaterials]);
-  const [quickLsx, setQuickLsx] = useState(false); // mở modal tạo LSX nhanh
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const vt = shownTypes.find((t) => t.id === typeId);
   const spec = specForType(vt);
   const isLsx = spec.partnerKind === "lsx";
-
-  // Nạp danh sách LSX đang mở khi loại phiếu tham chiếu LSX (nhập thành phẩm / xuất NVL).
-  useEffect(() => {
-    if (!token || !isLsx) return;
-    api.production.orderOptions(token).then(setLsxOptions).catch(() => {});
-  }, [token, isLsx]);
 
   // A. Nạp gợi ý đối tượng từ danh mục khi loại phiếu dùng NCC / Khách hàng.
   const partnerCatalog: "ncc" | "khach" | null =
@@ -478,53 +459,6 @@ export function VoucherForm({
     // Chạy 1 lần theo PO; không phụ thuộc thay đổi materials sau đó.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillPo, materials.length]);
-
-  function pickLsx(id: number | null) {
-    setLsxId(id);
-    const opt = lsxOptions.find((o) => o.id === id);
-    setPartner(opt ? opt.code : "");
-  }
-
-  // Sinh phiếu từ LSX: điền sẵn đối tượng (LSX hoặc khách) + đưa LSX vào danh sách chọn.
-  useEffect(() => {
-    if (!prefillLsx) return;
-    if (isLsx) {
-      setLsxId(prefillLsx.id);
-      setPartner(prefillLsx.code);
-      setLsxOptions((os) => os.some((o) => o.id === prefillLsx.id) ? os
-        : [{ id: prefillLsx.id, code: prefillLsx.code, label: `${prefillLsx.code}${prefillLsx.productName ? ` · ${prefillLsx.productName}` : ""}` }, ...os]);
-    } else if (spec.partnerKind === "khach") {
-      setPartner(prefillLsx.customerName ?? "");
-    }
-  }, [prefillLsx, isLsx, spec.partnerKind]);
-
-  // Mức B — nạp NVL đã XUẤT cho lệnh đó (gộp theo vật tư) để đối chiếu lúc nhập thành phẩm.
-  // Lệnh lấy theo LSX gắn sẵn (prefillLsx) HOẶC LSX vừa chọn trong dropdown (lsxId).
-  // Chỉ tính phiếu xuất (stock_effect='giam') chưa hủy.
-  const refLsxId = prefillLsx?.id ?? lsxId;
-  const [issuedNvl, setIssuedNvl] = useState<{ name: string; unit: string; qty: number }[]>([]);
-  const [showIssuedNvl, setShowIssuedNvl] = useState(false); // thu gọn mặc định, bấm mới mở
-  useEffect(() => {
-    if (!token || !refLsxId) { setIssuedNvl([]); return; }
-    const outTypeIds = new Set(types.filter((t) => t.stock_effect === "giam").map((t) => t.id));
-    api.kho.listVouchers(token, { ref_type: "lsx", ref_id: refLsxId, size: 200 })
-      .then((r) => {
-        const agg = new Map<string, { name: string; unit: string; qty: number }>();
-        for (const v of r.items) {
-          if (v.status === "cancelled" || !outTypeIds.has(v.voucher_type_id)) continue;
-          for (const l of v.lines) {
-            const name = l.material_name ?? `#${l.material_id}`;
-            const unit = l.uom ?? "";
-            const key = `${name}|${unit}`;
-            const cur = agg.get(key) ?? { name, unit, qty: 0 };
-            cur.qty += Number(l.quantity) || 0;
-            agg.set(key, cur);
-          }
-        }
-        setIssuedNvl(Array.from(agg.values()));
-      })
-      .catch(() => setIssuedNvl([]));
-  }, [token, refLsxId, types]);
 
   // Tạo phiếu nhập từ PO: điền sẵn NCC (đối tượng) + số PO (chứng từ gốc).
   useEffect(() => {
@@ -582,8 +516,7 @@ export function VoucherForm({
     if (!typeId) return setError("Chọn loại phiếu.");
     if (needSrc && !effSrc) return setError("Loại phiếu này cần Kho nguồn.");
     if (needDst && !effDst) return setError("Loại phiếu này cần Kho đích.");
-    if (isLsx && !lsxId) return setError("Chọn Lệnh sản xuất (LSX). Chưa có thì bấm “+ Tạo nhanh”.");
-    if (spec.partnerKind && !isLsx && !partner.trim()) return setError(`Cần nhập ${spec.partnerLabel}.`);
+    if (spec.partnerKind && !partner.trim()) return setError(`Cần nhập ${spec.partnerLabel}.`);
     const valid = lines.filter((l) => l.material_id && Number(l.quantity) > 0);
     if (!valid.length) return setError("Cần ít nhất 1 dòng (vật tư + số lượng > 0).");
 
@@ -594,9 +527,9 @@ export function VoucherForm({
       dst_warehouse_id: needDst ? effDst : null,
       partner_kind: spec.partnerKind && partner.trim() ? spec.partnerKind : null,
       partner_ref: partner.trim() || null,
-      // LSX → FK cứng (ref_id). Sinh phiếu từ LSX luôn gắn ref bất kể loại phiếu.
-      ref_type: prefillPo ? "po" : (prefillLsx ? "lsx" : (isLsx ? "lsx" : (docRef.trim() ? spec.refType : null))),
-      ref_id: prefillPo ? prefillPo.id : (prefillLsx ? prefillLsx.id : (isLsx ? lsxId : null)),
+      // Ref (chứng từ gốc) là text tự do → gắn theo docRef; không còn FK cứng LSX.
+      ref_type: prefillPo ? "po" : (docRef.trim() ? spec.refType : null),
+      ref_id: prefillPo ? prefillPo.id : null,
       receiver: showReceiver ? (receiver.trim() || null) : null,
       note: docRef.trim() || null, // chứng từ gốc (PO/đơn hàng) — text tự do
       reason: reason.trim() || null,
@@ -623,40 +556,10 @@ export function VoucherForm({
     <div className="md-page__overlay" role="dialog">
       <div className="md-page__dialog card" style={{ maxWidth: 940, width: "94%" }}>
         <div className="md-page__dialog-head">
-          <h2>{editing ? `Sửa phiếu · ${editing.code}` : prefillPo ? `Tạo phiếu nhập kho từ PO` : prefillLsx ? `Tạo phiếu ${vt ? vt.name : "kho"} từ LSX` : `Tạo phiếu kho${vt ? ` · ${vt.name}` : ""}`}</h2>
+          <h2>{editing ? `Sửa phiếu · ${editing.code}` : prefillPo ? `Tạo phiếu nhập kho từ PO` : `Tạo phiếu kho${vt ? ` · ${vt.name}` : ""}`}</h2>
           <button type="button" className="md-page__close" onClick={onClose}>✕</button>
         </div>
         <form className="md-page__dialog-body" onSubmit={onSubmit}>
-          {prefillLsx && (
-            <div className="md-page__wh-badge" style={{ display: "block", margin: "0 0 14px", padding: "10px 12px" }}>
-              <div className="md-page__muted" style={{ marginBottom: 4 }}>Theo phiếu sản xuất</div>
-              <div><strong className="md-page__mono">{prefillLsx.code}</strong>
-                {prefillLsx.customerName ? ` · ${prefillLsx.customerName}` : ""}</div>
-              {prefillLsx.productName && <div style={{ fontSize: 13 }}>Ấn phẩm: {prefillLsx.productName}
-                {prefillLsx.quantity != null ? ` · SL: ${prefillLsx.quantity}` : ""}</div>}
-            </div>
-          )}
-          {/* Mức B — đối chiếu NVL đã xuất cho lệnh này. Thu gọn mặc định để đỡ rối; bấm để mở. */}
-          {refLsxId && vt?.stock_effect === "tang" && issuedNvl.length > 0 && (
-            <div style={{ margin: "0 0 14px" }}>
-              <button type="button" onClick={() => setShowIssuedNvl((s) => !s)}
-                style={{ background: "none", border: "none", cursor: "pointer", padding: 0, fontSize: 13, color: "var(--rust, #b5531f)" }}>
-                {showIssuedNvl ? "▾" : "▸"} NVL đã xuất cho lệnh này ({issuedNvl.length}) — để đối chiếu
-              </button>
-              {showIssuedNvl && (
-                <div className="md-page__wh-badge" style={{ display: "block", margin: "8px 0 0", padding: "10px 12px" }}>
-                  <table className="md-page__table" style={{ fontSize: 13 }}>
-                    <thead><tr><th>Vật tư</th><th style={{ textAlign: "right" }}>SL đã xuất</th><th>Đơn vị</th></tr></thead>
-                    <tbody>
-                      {issuedNvl.map((r, i) => (
-                        <tr key={i}><td>{r.name}</td><td style={{ textAlign: "right" }}>{fmtNum(r.qty)}</td><td>{r.unit}</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-          )}
           {prefillPo && (
             <div className="md-page__wh-badge" style={{ display: "block", margin: "0 0 14px", padding: "10px 12px" }}>
               <div className="md-page__muted" style={{ marginBottom: 4 }}>Theo đơn mua hàng</div>
@@ -723,18 +626,7 @@ export function VoucherForm({
                 )}
               </label>
             )}
-            {isLsx ? (
-              <label className="field">
-                <span className="field__label">{spec.partnerLabel} *</span>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <select className="input" style={{ flex: 1 }} value={lsxId ?? ""} onChange={(e) => pickLsx(e.target.value ? Number(e.target.value) : null)}>
-                    <option value="">— Chọn LSX —</option>
-                    {lsxOptions.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-                  </select>
-                  <Button type="button" variant="ghost" onClick={() => setQuickLsx(true)}>+ Tạo nhanh</Button>
-                </div>
-              </label>
-            ) : spec.partnerKind ? (
+            {spec.partnerKind ? (
               <label className="field">
                 <span className="field__label">{spec.partnerLabel} *</span>
                 {partnerCatalog ? (
@@ -847,18 +739,6 @@ export function VoucherForm({
           </div>
         </form>
       </div>
-      {quickLsx && (
-        <ProductionOrderForm
-          onClose={() => setQuickLsx(false)}
-          onSaved={(created) => {
-            setQuickLsx(false);
-            const opt: ProductionOrderOption = { id: created.id, code: created.code, label: `${created.code}${created.product_name ? ` · ${created.product_name}` : ""}` };
-            setLsxOptions((os) => [opt, ...os]);
-            setLsxId(created.id);
-            setPartner(created.code);
-          }}
-        />
-      )}
       {/* CHỌN mặt hàng (chỉ chọn — tạo/sửa vật tư ở trang "Danh mục vật tư"). */}
       {newItemFor !== null && (
         <MaterialForm
@@ -1241,13 +1121,6 @@ export function VoucherDetail({
   }, [token, voucher.id]);
   useEffect(() => { loadAtts(); }, [loadAtts]);
 
-  // Truy vết ngược Mức A — phiếu gắn LSX nào (ref_type='lsx'): nạp mã LSX để hiển thị.
-  const [lsxCode, setLsxCode] = useState<string | null>(null);
-  useEffect(() => {
-    if (!token || voucher.ref_type !== "lsx" || !voucher.ref_id) { setLsxCode(null); return; }
-    api.production.getOrder(token, voucher.ref_id).then((o) => setLsxCode(o.code)).catch(() => setLsxCode(null));
-  }, [token, voucher.ref_type, voucher.ref_id]);
-
   // Phiếu lập từ đề nghị (ref_type='stock_request'): nạp mã đề nghị để hiển thị + cho bấm mở.
   const [reqCode, setReqCode] = useState<string | null>(null);
   useEffect(() => {
@@ -1289,9 +1162,6 @@ export function VoucherDetail({
     ["Loại phiếu", t?.name ?? `#${voucher.voucher_type_id}`],
     ["Ngày phiếu", fmtDate(voucher.doc_date)],
     ["Kho", khoText],
-    ...(voucher.ref_type === "lsx" && voucher.ref_id
-      ? [["Lệnh sản xuất", <span className="md-page__mono">{lsxCode ?? `#${voucher.ref_id}`}</span>] as [string, ReactNode]]
-      : []),
     ...(voucher.ref_type === "stock_request" && voucher.ref_id
       ? [["Từ đề nghị", onOpenRequest
           ? <button type="button" className="md-page__mono" title="Mở chi tiết đề nghị"

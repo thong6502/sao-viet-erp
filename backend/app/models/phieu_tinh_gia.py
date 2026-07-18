@@ -86,6 +86,7 @@ class PhieuThanhPhan(Base):
     tay_gap: Mapped[str | None] = mapped_column(String(50), nullable=True)
     so_to_per_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # SL đặt của SẢN PHẨM này (0 = lấy SL mặc định phiếu)
+    don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")  # ĐVT sản phẩm (text tự do) → chảy sang Báo giá
     loai_san_pham_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # → loai_san_pham.id (soft) — loại của sản phẩm này
 
     # --- Giấy ---

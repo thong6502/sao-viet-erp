@@ -50,8 +50,6 @@ from .routers import (
     loai_san_pham,
     tinh_gia,
     phieu_tinh_gia,
-    production,
-    san_luong,
 )
 from .seed import seed_all
 
@@ -129,8 +127,6 @@ app.include_router(bu_hao.router)
 app.include_router(loai_san_pham.router)
 app.include_router(tinh_gia.router)
 app.include_router(phieu_tinh_gia.router)
-app.include_router(production.router)
-app.include_router(san_luong.router)
 
 
 

@@ -544,9 +544,8 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `status` | `String(20)` | — | no | `draft` | draft/**pending_approval**/sent/accepted/rejected/expired/converted_to_order/cancelled (redesign-bao-gia §3). |
 | `current_version_id` | `Integer` | **IX** | yes | — | Phiên bản đang hiệu lực (con trỏ, không FK để tránh vòng). |
 | `valid_until` | `Date` | — | yes | — | Hạn hiệu lực; quá hạn → expired (chặn duyệt). |
-| `payment_terms` | `String(255)` | — | yes | — | Điều khoản thanh toán. |
-| `delivery_terms` | `String(255)` | — | yes | — | Điều khoản giao hàng. |
-| `delivery_address` | `String(500)` | — | yes | — | Địa chỉ giao (auto-fill từ `CustomerAddress.is_default`, sửa được). |
+| `terms_text` | `Text` | — | yes | — | Điều khoản báo giá — 1 khối text, mỗi dòng = 1 điều khoản (bản in tự đánh số). Tạo mới điền sẵn `DEFAULT_TERMS`; gộp từ `payment_terms`+`delivery_terms` cũ (migration 0070). Là thứ DUY NHẤT in ở mục Điều khoản. |
+| `delivery_address` | `String(500)` | — | yes | — | Địa chỉ giao (auto-fill từ `CustomerAddress.is_default`). Chỉ-đọc trên báo giá, không in; đơn hàng lấy làm ĐC giao mặc định khi chốt đơn. |
 | `contact_name_snapshot` | `String(255)` | — | yes | — | **redesign-bao-gia §5**: người liên hệ snapshot (auto-fill CRM `CustomerContact.is_primary`). Migration 0052. |
 | `contact_phone_snapshot` | `String(30)` | — | yes | — | SĐT người liên hệ snapshot. Migration 0052. |
 | `contact_title_snapshot` | `String(120)` | — | yes | — | Chức vụ người liên hệ snapshot. Migration 0052. |
@@ -557,7 +556,8 @@ phẳng cũ (bảng cũ còn trong dev.db như orphan, model đã gỡ). Header 
 | `created_at` | `DateTime(tz)` | — | no | now (UTC) | Tạo lúc. |
 | `updated_at` | `DateTime(tz)` | — | no | now (UTC) | Sửa lần cuối (onupdate). |
 | `decision_seen_at` | `DateTime(tz)` | — | yes | — | Mốc người soạn đã xem quyết định GĐ gần nhất (real-time gửi duyệt); NULL = có quyết định mới chưa xem. |
-| `deposit_pct` | `Float` | — | yes | — | % tạm ứng/cọc khi chốt đơn (0–100), nhập ở màn Báo giá; NULL = chưa đặt. |
+
+> **Bỏ (migration 0070):** `payment_terms`, `delivery_terms` (gộp vào `terms_text`), `deposit_pct` (% cọc chuyển sang **Đơn hàng bán** — thỏa thuận lúc chốt đơn, Kế toán đặt).
 
 ### `quote_versions`
 
@@ -662,7 +662,8 @@ liệu cho khung timeline trên UI detail.
 `quotation_effective_from` qua SEAM-04, snapshot giá+giá vốn bất biến) · `nhap_tay` (không giá vốn →
 `cost_basis='none'`, biên "không xác định", LUÔN cần duyệt). Vòng đời ACTIVE `draft → ordered → cancelled`
 (`on_hold`/`change_order` = hằng số DORMANT, không dùng). Cổng chốt: báo giá còn duyệt & còn hạn AND Σ cọc thực
-nhận ≥ `deposit_pct`×tổng (deposit_pct **ghim từ báo giá**) AND đủ PO+ngày giao AND chứng cứ đồng ý AND
+nhận ≥ `deposit_pct`×tổng (deposit_pct **đặt tại đơn** — Kế toán/`record_deposit`, khóa khỏi Sale; báo giá
+không còn giữ % cọc) AND đủ PO+ngày giao AND chứng cứ đồng ý AND
 (nhập tay: đã duyệt) AND không đặc thù treo — cọc = Σ `payment_receipts`(`order_id`, `received`) (V5). `parent_order_id` (self-FK) CHỈ cho
 **đơn bổ sung** (`order_kind=bo_sung`, giữ kẽm → giá riêng). `order_nature` {hang_hoa, gia_cong} thay
 `has_customer_paper` (2 gốc thuế). Layer vật lý (khổ/màu/kẽm/imposition) NEVER lưu ở đây — ẩn khỏi Sale. VAT chân
@@ -677,11 +678,11 @@ data. Duyệt bản in + tiến độ SX = luồng NGOÀI hệ thống (không l
 | `quotation_id` | `Integer` → `INTEGER` | **IX** | yes | — | Referenced approved quotation (SEAM-04 quotation_ref). Plain Integer (NO FK) — báo giá versioned, pin the exact version below. |
 | `quotation_version` | `Integer` → `INTEGER` | — | yes | — | The exact quotation version pinned (C1); không tự nhảy sang version mới hơn. |
 | `quotation_effective_from` | `Date` → `DATE` | — | yes | — | Effective-from of the snapshotted quotation price window (copy-on-write source pointer, not a FK). |
-| `order_type` | `String(16)` → `VARCHAR(16)` | — | no | `theo_yc` | **DORMANT** (P1 redesign cố định `theo_yc`; nguồn/bản chất dùng `source_type`/`order_nature`). |
-| `order_kind` | `String(16)` → `VARCHAR(16)` | — | no | `moi` | Loại ∈ {moi, bo_sung}. Đơn bổ sung mang giá bán riêng, giữ kẽm cũ → rẻ (§32). |
+| `order_kind` | `String(16)` → `VARCHAR(16)` | — | no | `moi` | Loại ∈ {moi, bo_sung}. Đơn bổ sung mang giá bán riêng, giữ kẽm cũ → rẻ (§32). *(order_type ĐÃ BỎ 2026-07-16 — mig 0073 drop; in nội bộ đi thẳng Lệnh sản xuất.)* |
 | `parent_order_id` | `Integer` → `INTEGER` | **FK→orders.id**, **IX** | yes | — | Đơn gốc — set **CHỈ** khi order_kind=bo_sung (bắt buộc). NULL cho đơn mới; KHÔNG dùng cho change_order. |
 | `sale_user_id` | `Integer` → `INTEGER` | **FK→users.id**, **IX** | yes | — | NV kinh doanh phụ trách (hoa hồng) + RBAC data-scope owner (own/department/all, §41). |
 | `status` | `String(16)` → `VARCHAR(16)` | — | no | `draft` | Lifecycle ACTIVE: draft/ordered/cancelled (P1 redesign). `on_hold`/`change_order` = giá trị DORMANT (không dùng trong luồng). |
+| `is_rush` | `Boolean` → `BOOLEAN` | — | no | `false` | Đơn GẤP/ưu tiên — Sale bật để xưởng làm trước (chip đỏ + chảy xuống LSX). Migration 0073. |
 | `has_customer_paper` | `Boolean` → `BOOLEAN` | — | no | `false` | **DORMANT** (P1 thay bằng `order_nature` {hang_hoa, gia_cong}). |
 | `vat_pct_estimate` | `Integer` → `INTEGER` | — | no | `0` | VAT DỰ KIẾN (%) để ước tổng — chân lý ở InvoiceLine (⑬). |
 | `cancel_reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Set only when status=cancelled (F8). |
@@ -692,9 +693,13 @@ data. Duyệt bản in + tiến độ SX = luồng NGOÀI hệ thống (không l
 | `customer_po_no` | `String(100)` → `VARCHAR(100)` | — | yes | — | Số PO khách (mức đơn). |
 | `delivery_committed_date` | `Date` → `DATE` | — | yes | — | Ngày giao cam kết ban đầu; dời lịch = module Kế hoạch giao hàng (SEAM-02). |
 | `delivery_address` | `String(500)` → `VARCHAR(500)` | — | yes | — | Địa chỉ giao (snapshot, sửa khi nháp). |
+| `delivery_contact_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Người nhận hàng (snapshot, Sale xổ từ danh bạ khách — KHÔNG auto-fill is_primary). Migration 0071. |
+| `delivery_contact_phone` | `String(30)` → `VARCHAR(30)` | — | yes | — | SĐT người nhận hàng. Migration 0071. |
+| `delivery_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lưu ý GIAO HÀNG → tài xế/khâu Giao ("giao giờ HC", "gọi trước 30'"). Migration 0071. |
+| `production_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lưu ý SẢN XUẤT → tổ in/LSX ("in đúng màu mẫu lần trước"). Migration 0071. |
 | `invoice_entity_name` | `String(255)` → `VARCHAR(255)` | — | yes | — | Pháp nhân xuất HĐ (khi khách xin tên khác; mặc định = khách). |
 | `invoice_entity_tax_code` | `String(20)` → `VARCHAR(20)` | — | yes | — | MST pháp nhân xuất HĐ. |
-| `deposit_pct` | `Float` → `FLOAT` | — | yes | — | % cọc GHIM TỪ BÁO GIÁ (khóa trên đơn) — base cổng chốt. |
+| `deposit_pct` | `Float` → `FLOAT` | — | yes | — | % cọc phải thu ĐẶT TẠI ĐƠN (Kế toán/`record_deposit`, khóa khỏi Sale) — base cổng chốt; NULL = chưa đặt. |
 | `cost_basis` | `String(16)` → `VARCHAR(16)` | — | no | `quote` | Nguồn giá vốn ∈ {quote, none}; none = nhập tay → biên "không xác định". |
 | `needs_approval` | `Boolean` → `BOOLEAN` | — | no | `false` | Đơn cần duyệt tại đơn (nhập tay / bổ sung tự đặt giá). |
 | `approval_state` | `String(16)` → `VARCHAR(16)` | — | no | `none` | Trình-duyệt ∈ {none, pending, approved, rejected}. |
@@ -757,11 +762,13 @@ ordered`) the lines are read-only (sửa → chặn; đổi phải change_order)
 | `order_id`            | `Integer` → `INTEGER`                 | **FK→orders.id**, **IX** | no   | —              | Owning order (ON DELETE CASCADE).                                                     |
 | `description`         | `String(500)` → `VARCHAR(500)`        | —                        | no   | `''`           | Mô tả SP thương mại (đối ngoại). NEVER số màu/kẽm/khổ/imposition/PrintForm.           |
 | `qty`                 | `Integer` → `INTEGER`                 | —                        | no   | `1`            | Số lượng dòng đơn.                                                                    |
+| `don_vi_tinh`         | `String(30)` → `VARCHAR(30)`          | —                        | no   | `'cái'`        | ĐVT dòng (migration 0075) — kéo từ báo giá (`quote_items.unit`) / gõ tay đơn nhập tay. |
 | `unit_price_snapshot` | `Integer` → `INTEGER`                 | —                        | yes  | —              | **P0 copy-on-write**: frozen unit price (VND) từ báo giá. NO live FK.                 |
 | `norm_snapshot`       | `JSON` → `JSON`                       | —                        | yes  | —              | **P0 copy-on-write**: frozen norm/định mức snapshot (ngang hàng unit_price_snapshot). |
 | `vat_pct_estimate`    | `Integer` → `INTEGER`                 | —                        | no   | `0`            | VAT DỰ KIẾN (%) cho dòng — chân lý ở InvoiceLine (⑬).                                 |
 | `line_total`          | `Integer` → `INTEGER`                 | —                        | yes  | —              | Thành tiền = qty × unit_price_snapshot (derived + stored; null khi chưa có giá).      |
 | `cost_snapshot`       | `BigInteger` → `BIGINT`               | —                        | yes  | —              | **Copy-on-write**: giá vốn đông cứng từ `QuoteItem.total_cost_snapshot` lúc tạo — CÙNG GRAIN với `line_total` (tổng cả SL), dùng soi biên lợi nhuận. NULL cho đơn cũ (trước A2). |
+| `phieu_thanh_phan_id` | `Integer` → `INTEGER`                 | (soft)                   | yes  | —              | Pin truy vết ấn phẩm: `PhieuThanhPhan` của PTG mà dòng báo giá nguồn trỏ tới (song sinh `QuoteItem.phieu_thanh_phan_id`). Soft ref, KHÔNG FK cứng, copy lúc snapshot. NULL cho đơn nhập tay. Migration 0071. |
 
 **Keys & indexes**
 
@@ -2394,10 +2401,12 @@ mới trừ vào số đã-chi-thực của PMH (mở lại hạn mức lập ch
 | `id`                              | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                                  | no   | auto-increment      | Surrogate primary key.                                             |
 | `code`                            | `String(32)` → `VARCHAR(32)`                           | **U**, **IX**                           | no   | generated           | Mã `PT-YYMMDD-XXXX`.                                               |
 | `doc_no`                          | `String(16)` → `VARCHAR(16)`                           | **U**, **IX**                           | yes  | generated           | Số IN trên mẫu 01-TT (`PT00027`) — thứ tự lập, chạy liên tục không reset theo năm. Migration 0040. |
-| `source_type`                     | `String(20)` → `VARCHAR(20)`                           | **IX**                                  | no   | `"phieu_chi"`       | Nguồn (V5): `phieu_chi` (hoàn ứng NCC/NV) \| `don_hang_ban` (thu cọc khách). Migration 0070. |
-| `payment_voucher_id`              | `Integer` → `INTEGER`                                  | **FK→payment_vouchers.id**, **IX**      | yes  | —                   | Phiếu chi gốc (RESTRICT). NULL với nhánh đơn hàng bán (V5). Migration 0070 nới nullable. |
-| `purchase_request_id`             | `Integer` → `INTEGER`                                  | **FK→purchase_requests.id**, **IX**     | yes  | —                   | PMH nguồn (denormalize từ phiếu chi để SUM không join). NULL nhánh đơn (V5). |
-| `order_id`                        | `Integer` → `INTEGER`                                  | **FK→orders.id**, **IX**                | yes  | —                   | Đơn hàng bán gắn phiếu thu cọc (RESTRICT). Chỉ nhánh `don_hang_ban` (V5). Migration 0070. |
+| `source_type`                     | `String(20)` → `VARCHAR(20)`                           | **IX**                                  | no   | `"purchase_refund"` | Nguồn ∈ {purchase_refund (đường phiếu chi), order_deposit (cọc đơn bán)}. Migration 0070. |
+| `payment_voucher_id`              | `Integer` → `INTEGER`                                  | **FK→payment_vouchers.id**, **IX**      | yes  | —                   | Phiếu chi gốc (RESTRICT). NULL cho phiếu thu cọc đơn bán. Nới NOT NULL mig 0070. |
+| `purchase_request_id`             | `Integer` → `INTEGER`                                  | **FK→purchase_requests.id**, **IX**     | yes  | —                   | PMH nguồn (denormalize). NULL cho đơn bán. Nới NOT NULL mig 0070.  |
+| `order_id`                        | `Integer` → `INTEGER`                                  | **FK→orders.id**, **IX**                | yes  | —                   | Đơn bán (RESTRICT) — cọc khách nộp. NULL cho đường phiếu chi. Migration 0070. |
+| `order_no_snapshot`               | `String(32)` → `VARCHAR(32)`                           | —                                       | yes  | —                   | Mã đơn snapshot (đường đơn bán). Migration 0070.                   |
+| `customer_name_snapshot`          | `String(255)` → `VARCHAR(255)`                         | —                                       | yes  | —                   | Tên khách snapshot (đường đơn bán). Migration 0070.                |
 | `payer_name`                      | `String(255)` → `VARCHAR(255)`                         | —                                       | no   | —                   | Người nộp tiền (NCC/nhân viên) — default suy từ phiếu chi.         |
 | `payer_address`                   | `String(500)` → `VARCHAR(500)`                         | —                                       | yes  | —                   | Địa chỉ người nộp — ô "Địa chỉ" bắt buộc của mẫu 01-TT. Migration 0040. |
 | `receipt_method`                  | `String(24)` → `VARCHAR(24)`                           | —                                       | no   | —                   | `cash` (nhập quỹ) hoặc `bank_transfer` (về TK công ty).            |
@@ -2770,38 +2779,6 @@ luật đổi. Bảng do `create_all` tạo (không migration); seed-once 5 bậ
 
 ---
 
-### `production_outputs`
-
-**Purpose:** Phiếu sản lượng công đoạn — ghi sản lượng thực mỗi công đoạn của một LSX theo NGƯỜI; mỗi phiếu (SL × đơn giá − trừ lỗi) cộng thẳng vào cột `khoan` của bảng lương khi tính lương (nguồn khoán duy nhất — không còn sổ khoán).
-
-| Column | Type | Key | Null | Default | Meaning |
-|---|---|---|---|---|---|
-| `id` | `Integer` | **PK** | no | auto | PK. |
-| `production_order_id` | `Integer` | **IX** | no | — | LSX (soft-ref `production_orders.id`). |
-| `cong_doan` | `String(30)` | **IX** | no | — | Mã công đoạn (`cong_doan.ma`). |
-| `ghi_theo` | `String(8)` | — | no | `nguoi` | Khoán ghi theo người (`nguoi`). |
-| `year` | `Integer` | **IX** | no | — | Năm kỳ khoán. |
-| `month` | `Integer` | **IX** | no | — | Tháng kỳ khoán. |
-| `group_name` | `String(40)` | **IX** | yes | — | Tổ / bộ phận — để tra đơn giá theo tổ. |
-| `employee_id` | `Integer` | **IX** | yes | — | NV nhận tiền khoán. |
-| `may_id` | `Integer` | — | yes | — | Máy (soft-ref, thống kê). |
-| `piece_rate_id` | `Integer` | — | yes | — | Đơn giá nguồn. |
-| `work_name` | `String(255)` | — | no | — | Tên công việc (snapshot). |
-| `unit` | `String(12)` | — | no | `khac` | Đơn vị (snapshot). |
-| `unit_price` | `Numeric(14,2)` | — | no | — | Đơn giá (snapshot). |
-| `quantity` | `Numeric(14,2)` | — | no | `0` | Sản lượng đạt. |
-| `defect_qty` | `Numeric(14,2)` | — | no | `0` | Sản lượng HỎNG (5b-2). |
-| `defect_cause` | `String(20)` | — | yes | — | Nguyên nhân hỏng: loi_tho/vat_tu/thiet_bi/file_thiet_ke/cong_doan_truoc (chỉ loi_tho mới trừ). |
-| `defect_deduction` | `Numeric(14,2)` | — | no | `0` | Tiền trừ lỗi (tính lúc ghi, vượt ngưỡng × đơn giá). |
-| `tinh_khoan` | `Boolean` | — | no | `true` | Có tính khoán (LSX bù mặc định false). |
-| `work_date` | `Date` | — | yes | — | Ngày làm. |
-| `recorded_by` | `Integer` | — | yes | — | User ghi phiếu. |
-| `note` | `String(255)` | — | yes | — | Ghi chú. |
-| `created_at` | `DateTime(tz)` | — | no | now | Khi tạo. |
-| `updated_at` | `DateTime(tz)` | — | no | now | Cập nhật. |
-
----
-
 ### `profile_update_requests`
 
 **Purpose:** yêu cầu cập nhật hồ sơ (nhan_su) — NV đề nghị sửa field định danh/pháp lý/ngân
@@ -2878,9 +2855,9 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 ### `cong_doan`
 
-**Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job (`routing_step`) = Phase D. `may_id` soft int → `may_thiet_bi`.
+**Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job (`routing_step`) = Phase D. `may_id` soft int → `may_thiet_bi`. `department_id` soft int → `departments` (tổ/bộ phận phụ trách — phát Lệnh SX đẩy việc theo đây).
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `may_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `may_id`, `department_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 `size_tiers` (JSON): bậc đơn giá theo KÍCH THƯỚC thành phẩm (cạnh dài, cm) — `[{den_cm, don_gia}]`, "≤ den_cm → đơn giá"; engine chọn giá theo cỡ thay `run_rate` (vd công dán ≤20cm=100 · 40cm=200 · 100cm=800). `pricing_basis="per_job"` = trọn gói một lần (khuôn bế) — engine ÷ SL.
 
@@ -2914,7 +2891,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Purpose:** Thành phần (1 tờ giấy) của 1 phiếu tính giá — con của `phieu_tinh_gia` (`phieu_id` FK thật, cascade xoá). Gom cấu hình GIẤY (khổ nguyên, khổ thành phẩm ③ dạng số `dai/rong_thanh_pham`, đơn giá theo tờ|tấn, nguồn công ty|khách, bù hao số tờ, các loại tờ chừa) + KỸ THUẬT IN (chế bản/kẽm, quy cách 1 mặt|2 mặt|tự trở, khổ tờ in ② `kho_in_dai/rong`, số con ④ `so_con` + cờ `con_auto` tự bình bài, máy, đơn giá công in gộp mực) + MÀU (đã gộp: chỉ `so_mau_a`/`so_mau_b` — KHÔNG hệ số, KHÔNG tách SEL/Pantone/Nền). `giay_id`/`may_id` soft FK. `gia_von_tp` = ảnh chụp giá vốn thành phần (Σ 4 nhóm A/B/C/D). Mỗi thành phần có nhiều dòng gia công sau in (`phieu_thanh_pham`). Tính giá vốn KHÔNG dùng hệ số (mọi hệ số = 1 → đã gỡ khỏi model).
 
-**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `so_luong`, `loai_san_pham_id`, `giay_id`, `kho_nguyen`, `kho_nguyen_dai`, `kho_nguyen_rong`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `hao_so_to`, `tinh_bu_hao_cd`, `chua_xen`, `chua_tay_ke`, `chua_nhip`, `chua_duoi`, `chua_ca_gay`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `gia_von_tp`, `created_at`, `updated_at`. `kho_nguyen_dai`/`kho_nguyen_rong` (mm, migration 0063) = khổ giấy nguyên ① nhập trên phiếu, ĐÈ khổ danh mục Giấy khi > 0 (đặt hàng xả khổ khác); 0 = lấy theo danh mục. `kho_nguyen` giữ làm nhãn hiển thị / `giay_ten` fallback.
+**Tất cả cột:** `id`, `phieu_id`, `thu_tu`, `loai_thanh_phan`, `ten`, `kho_thanh_pham`, `dai_thanh_pham`, `rong_thanh_pham`, `kho_mo_rong`, `tay_gap`, `so_to_per_sp`, `so_luong`, `don_vi_tinh`, `loai_san_pham_id`, `giay_id`, `kho_nguyen`, `kho_nguyen_dai`, `kho_nguyen_rong`, `don_gia_giay`, `don_gia_don_vi`, `nguon_giay`, `bu_hao_so_to`, `hao_so_to`, `tinh_bu_hao_cd`, `chua_xen`, `chua_tay_ke`, `chua_nhip`, `chua_duoi`, `chua_ca_gay`, `co_in`, `che_ban_loai`, `che_ban_don_gia`, `quy_cach_in`, `kho_in_dai`, `kho_in_rong`, `so_con`, `con_auto`, `may_id`, `don_gia_cong_in`, `so_mau_a`, `so_mau_b`, `gia_von_tp`, `created_at`, `updated_at`. `don_vi_tinh` (VARCHAR, migration 0074, default `'cái'`) = ĐVT sản phẩm (text tự do) → chảy sang Báo giá (`quote_items.unit`, thay `'cái'` hardcode). `kho_nguyen_dai`/`kho_nguyen_rong` (mm, migration 0063) = khổ giấy nguyên ① nhập trên phiếu, ĐÈ khổ danh mục Giấy khi > 0 (đặt hàng xả khổ khác); 0 = lấy theo danh mục. `kho_nguyen` giữ làm nhãn hiển thị / `giay_ten` fallback.
 
 ---
 
@@ -3051,22 +3028,6 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 **Purpose:** Kho — file đính kèm phiếu kho (chứng từ scan). One row = 1 file.
 
 **Tất cả cột:** `id`, `voucher_id`, `file_name`, `file_url`, `file_type`, `uploaded_by`, `uploaded_at`.
-
----
-
-### `production_orders`
-
-**Purpose:** Sản xuất (PR#9) — lệnh sản xuất (LSX). One row = 1 LSX; `order_kind` thuong/bu, `parent_order_id` trỏ LSX gốc khi bù.
-
-**Tất cả cột:** `id`, `code`, `order_id`, `contract_no`, `customer_id`, `customer_name`, `product_id`, `product_name`, `quantity`, `order_date`, `delivery_request_date`, `doc_date`, `due_date`, `status`, `order_kind`, `parent_order_id`, `bu_reason`, `tech_note_print`, `tech_note_finishing`, `note`, `created_by_user_id`, `updated_by_user_id`, `created_at`, `updated_at`.
-
----
-
-### `production_order_attachments`
-
-**Purpose:** Sản xuất — file đính kèm LSX. One row = 1 file.
-
-**Tất cả cột:** `id`, `order_id`, `file_name`, `file_url`, `file_type`, `uploaded_by`, `uploaded_at`.
 
 ---
 

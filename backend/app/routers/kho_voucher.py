@@ -193,29 +193,14 @@ def create_voucher(payload: VoucherIn, db: Annotated[Session, Depends(get_db)], 
     vt = db.get(WhVoucherType, payload.voucher_type_id)
     if vt is None:
         raise HTTPException(422, detail="Loại phiếu không tồn tại.")
-    # BRD §2.5 — phiếu kho gắn LSX chỉ lập được khi LSX đã DUYỆT.
-    if payload.ref_type == "lsx" and payload.ref_id:
-        from ..models.production import ProductionOrder
-        lsx = db.get(ProductionOrder, payload.ref_id)
-        if lsx is None:
-            raise HTTPException(422, detail="Lệnh sản xuất tham chiếu không tồn tại.")
-        if lsx.approved_at is None:
-            raise HTTPException(409, detail=f"Lệnh sản xuất {lsx.code} chưa được duyệt — cần duyệt lệnh trước khi lập phiếu kho.")
+    # LSX đã gỡ khỏi hệ thống (mentor build lại "yêu cầu nhập TP" bên SX sau) — phiếu kho
+    # KHÔNG còn tham chiếu Lệnh sản xuất. Ref (nếu có) chỉ là ghi chú tự do trên phiếu.
     repo = VoucherRepo(db)
     header = payload.model_dump(exclude={"lines"})
     header["created_by_user_id"] = user.id
     header["status"] = "draft"
     v = repo.create(code=repo.next_code(vt.code), header=header, lines=[ln.model_dump() for ln in payload.lines])
-    # Phiếu sinh từ LSX (đã DUYỆT) → ghi sổ luôn, bỏ bước nộp + duyệt (đồng bộ với phiếu từ đề nghị).
-    if payload.ref_type == "lsx" and payload.ref_id:
-        try:
-            VoucherService(db).post(v, user)
-        except VoucherError as e:
-            db.rollback()
-            raise HTTPException(422, detail=str(e)) from None
-        _audit(db, user, "post_stock_voucher", v)
-    else:
-        _audit(db, user, "create_stock_voucher", v)
+    _audit(db, user, "create_stock_voucher", v)
     return _vrow(db, v)
 
 

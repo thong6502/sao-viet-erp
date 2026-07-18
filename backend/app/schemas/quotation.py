@@ -38,9 +38,8 @@ class QuotationCreate(BaseModel):
     picks: list[QuotePick] | None = None
     margin_percent: float | None = None  # gói biên áp chung khi tạo (per dòng chỉnh sau)
     valid_until: date | None = None
-    payment_terms: str | None = None
-    delivery_terms: str | None = None
-    delivery_address: str | None = None
+    # Bỏ trống → backend điền DEFAULT_TERMS (models.quotation).
+    terms_text: str | None = None
     customer_note: str | None = None
     internal_note: str | None = None
 
@@ -48,10 +47,7 @@ class QuotationCreate(BaseModel):
 class QuotationUpdate(BaseModel):
     customer_id: int | None = None
     valid_until: date | None = None
-    payment_terms: str | None = None
-    deposit_pct: float | None = None      # % tạm ứng/cọc khi chốt đơn (0–100)
-    delivery_terms: str | None = None
-    delivery_address: str | None = None
+    terms_text: str | None = None         # điều khoản in ra phiếu (mỗi dòng = 1 điều khoản)
     customer_note: str | None = None
     internal_note: str | None = None
     items: list[QuoteItemUpdate] | None = None
@@ -163,10 +159,10 @@ class QuotationDetailOut(BaseModel):
     valid_until: date | None
     status: str
     cancel_reason: str | None
-    payment_terms: str | None
-    deposit_pct: float | None = None      # % tạm ứng/cọc (nhập ở màn Báo giá)
-    delivery_terms: str | None
-    delivery_address: str | None
+    terms_text: str | None = None         # điều khoản in ra phiếu (mỗi dòng = 1 điều khoản)
+    # ĐC giao: chỉ-đọc — auto-fill từ hồ sơ khách, không sửa/không in ở báo giá; đơn hàng lấy làm
+    # ĐC giao mặc định khi chốt đơn.
+    delivery_address: str | None = None
     contact_name_snapshot: str | None = None
     contact_phone_snapshot: str | None = None
     contact_title_snapshot: str | None = None
@@ -198,6 +194,10 @@ class QuotationDetailOut(BaseModel):
     exception_decision: str | None = None            # approved | rejected của lần quyết định gần nhất
     exception_decided_by_name: str | None = None     # tên người đã duyệt/từ chối
     exception_decided_at: datetime | None = None
+    # Đơn hàng bán ĐÃ LẬP từ báo giá này (1 báo giá → 1 đơn; đơn đã hủy KHÔNG tính, nhả chỗ lập lại).
+    # Có đơn → FE ẩn nút "Tạo đơn hàng", hiện "Xem đơn hàng" (liên kết sang màn Đơn hàng bán).
+    order_id: int | None = None
+    order_no: str | None = None
 
 
 class QuoteApprovalIn(BaseModel):

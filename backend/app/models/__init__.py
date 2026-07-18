@@ -81,8 +81,6 @@ from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
-from .production import ProductionOrder, ProductionOrderAttachment
-from .production_output import ProductionOutput
 
 __all__ = [
     "User",
@@ -167,9 +165,6 @@ __all__ = [
     "Estimate",
     "EstimateOption",
     "EstimateCostLine",
-    "ProductionOrder",
-    "ProductionOrderAttachment",
-    "ProductionOutput",
     "PhieuTinhGia",
     "PhieuThanhPhan",
     "PhieuThanhPham",

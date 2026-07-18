@@ -129,6 +129,7 @@ interface EditableComponent {
   tay_gap: string;
   so_to_per_sp: number;
   so_luong: number; // SL đặt của SP này (0 = lấy SL mặc định phiếu)
+  don_vi_tinh: string; // ĐVT sản phẩm (text tự do, mặc định "cái") → chảy sang Báo giá
   loai_san_pham_id: number | null; // loại SP của sản phẩm này
   // Giấy ①
   giay_id: number | null;
@@ -191,6 +192,7 @@ function blankComponent(ten = ""): EditableComponent {
     tay_gap: "",
     so_to_per_sp: 1,
     so_luong: 0,
+    don_vi_tinh: "cái",
     loai_san_pham_id: null,
     giay_id: null,
     kho_nguyen: "",
@@ -258,6 +260,7 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     tay_gap: c.tay_gap ?? "",
     so_to_per_sp: c.so_to_per_sp ?? 1,
     so_luong: c.so_luong ?? 0,
+    don_vi_tinh: c.don_vi_tinh ?? "cái",
     loai_san_pham_id: c.loai_san_pham_id ?? null,
     giay_id: c.giay_id ?? null,
     kho_nguyen: c.kho_nguyen ?? "",
@@ -299,6 +302,7 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     tay_gap: c.tay_gap.trim() || null,
     so_to_per_sp: c.so_to_per_sp,
     so_luong: c.so_luong,
+    don_vi_tinh: c.don_vi_tinh.trim() || "cái",
     loai_san_pham_id: c.loai_san_pham_id,
     giay_id: c.giay_id,
     kho_nguyen: c.kho_nguyen.trim() || null,
@@ -640,7 +644,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     [giays],
   );
 
-  // Chọn máy → khổ tờ in ② (kho_max) + gợi ý chừa nhíp (gripper). Giữ con_auto để bình bài lại.
+  // Chọn máy → khổ tờ in ② = VÙNG IN của máy (đã trừ nhíp/lề, `vung_in_*`) → bình bài con ra số
+  // THỰC TẾ, không phải khổ giấy đầy đủ. Máy chưa khai vùng in → fallback khổ giấy max. Giữ con_auto.
   const onPickMay = useCallback(
     (uid: string, mid: number | null) => {
       setComps((cs) =>
@@ -650,11 +655,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           const m = mays.find((x) => x.id === mid);
           if (!m) return { ...c, may_id: mid };
           const patch: Partial<EditableComponent> = { may_id: mid, con_auto: true };
-          const kd = numOf(m.kho_max_dai);
-          const kr = numOf(m.kho_max_rong);
+          const kd = numOf(m.vung_in_dai) || numOf(m.kho_max_dai);
+          const kr = numOf(m.vung_in_rong) || numOf(m.kho_max_rong);
           if (kd) patch.kho_in_dai = kd;
           if (kr) patch.kho_in_rong = kr;
-          // Spec §6: bình bài KHÔNG trừ chừa (5 chừa đã bỏ) — không tự set chua_nhip theo gripper nữa.
           return { ...c, ...patch };
         }),
       );
@@ -847,7 +851,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     try {
       const q = await api.quotations.create(token, {
         phieu_tinh_gia_id: id, customer_id: null, valid_until: null,
-        payment_terms: null, delivery_terms: null, delivery_address: null,
         customer_note: null, internal_note: null,
       });
       navigate("bao-gia", { openQuoteId: q.id });
@@ -1358,7 +1361,7 @@ function ComponentModal({
                 <span className="tg-step-badge">1</span> Sản phẩm &amp; khổ thành phẩm
               </div>
               <div className="tg-grid">
-                <label className="tg-field tg-span-8">
+                <label className="tg-field tg-span-6">
                   <span className="tg-microlabel">Tên sản phẩm</span>
                   <input
                     className="tg-input"
@@ -1368,7 +1371,7 @@ function ComponentModal({
                     onChange={(e) => patchComp(c.uid, { ten: e.target.value })}
                   />
                 </label>
-                <div className="tg-span-4">
+                <div className="tg-span-3">
                   <NumField
                     label="Số lượng"
                     value={c.so_luong > 0 ? c.so_luong : phieuSL}
@@ -1376,6 +1379,16 @@ function ComponentModal({
                     onChange={(n) => patchComp(c.uid, { so_luong: Math.max(0, n) })}
                   />
                 </div>
+                <label className="tg-field tg-span-3">
+                  <span className="tg-microlabel">ĐVT</span>
+                  <input
+                    className="tg-input"
+                    type="text"
+                    value={c.don_vi_tinh}
+                    placeholder="cái / tờ / cuốn / hộp…"
+                    onChange={(e) => patchComp(c.uid, { don_vi_tinh: e.target.value })}
+                  />
+                </label>
                 <label className="tg-field tg-span-12">
                   <span className="tg-microlabel">
                     Loại sản phẩm <span className="tg-microlabel__opt">tự bung công đoạn mặc định</span>

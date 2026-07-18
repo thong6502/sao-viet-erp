@@ -9,7 +9,7 @@ from ..models.accounting import (
     PAYMENT_RECEIPT_WAITING,
     PAYMENT_VOUCHER_PAID,
     PAYMENT_VOUCHER_WAITING,
-    RECEIPT_SOURCE_DON_HANG,
+    RECEIPT_SOURCE_ORDER,
     CompanyBankAccount,
     PaymentReceipt,
     PaymentReceiptAttachment,
@@ -271,11 +271,14 @@ class AccountingRepository:
         q: str | None = None,
         status: str | None = None,
         payment_voucher_id: int | None = None,
+        source_type: str | None = None,
         sort: str = "-created_at",
         page: int = 1,
         size: int = 20,
     ) -> tuple[list[PaymentReceipt], int]:
         conditions = []
+        if source_type is not None:
+            conditions.append(PaymentReceipt.source_type == source_type)
         if q:
             like = f"%{q.strip().lower()}%"
             conditions.append(
@@ -342,16 +345,51 @@ class AccountingRepository:
         )
         return int(self.db.execute(stmt).scalar_one())
 
-    # --- V5: phiếu thu cọc nguồn Đơn hàng bán -------------------------------
-    def received_deposit_sum(self, order_id: int) -> int:
-        """Σ tiền THỰC thu của phiếu thu cọc (source='don_hang_ban', đã 'received') gắn đơn —
-        base cổng đủ cọc. 0 nếu chưa có phiếu received."""
-        stmt = select(func.coalesce(func.sum(PaymentReceipt.amount), 0)).where(
+    def receipt_received_sum_for_order(self, order_id: int) -> int:
+        """Σ phiếu thu ĐÃ THU của một đơn bán (cổng chốt đơn đọc số này)."""
+        stmt = select(func.coalesce(func.sum(PaymentReceipt.amount_vnd), 0)).where(
             PaymentReceipt.order_id == order_id,
-            PaymentReceipt.source_type == RECEIPT_SOURCE_DON_HANG,
             PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
         )
         return int(self.db.execute(stmt).scalar_one())
+
+    def list_receipts_for_order(self, order_id: int) -> list[PaymentReceipt]:
+        """Các phiếu thu (mọi trạng thái) của một đơn bán, mới nhất trước."""
+        stmt = (
+            self._receipt_stmt()
+            .where(PaymentReceipt.order_id == order_id)
+            .order_by(PaymentReceipt.created_at.desc())
+        )
+        return list(self.db.execute(stmt).scalars().all())
+
+    # --- Cầu nối cho module Đơn hàng (erp V5) — cọc = phiếu thu source=order --
+    # order_service (bản erp) đọc cọc qua 3 hàm này; giữ ĐÚNG ngữ nghĩa erp (lọc theo
+    # source_type=order, dùng `amount`, list theo id tăng dần) để không phải sửa order_service.
+    def received_deposit_sum(self, order_id: int) -> int:
+        """Σ tiền THỰC thu của phiếu thu cọc (source=order, đã 'received') gắn đơn —
+        base cổng đủ cọc. 0 nếu chưa có phiếu received."""
+        stmt = select(func.coalesce(func.sum(PaymentReceipt.amount), 0)).where(
+            PaymentReceipt.order_id == order_id,
+            PaymentReceipt.source_type == RECEIPT_SOURCE_ORDER,
+            PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+        )
+        return int(self.db.execute(stmt).scalar_one())
+
+    def received_deposit_sums(self, order_ids: list[int]) -> dict[int, int]:
+        """Batch của received_deposit_sum: `{order_id: Σ tiền đã thu}` cho nhiều đơn (KPI, tránh
+        N+1). Chỉ đơn có phiếu 'received' mới xuất hiện trong map."""
+        if not order_ids:
+            return {}
+        stmt = (
+            select(PaymentReceipt.order_id, func.coalesce(func.sum(PaymentReceipt.amount), 0))
+            .where(
+                PaymentReceipt.order_id.in_(order_ids),
+                PaymentReceipt.source_type == RECEIPT_SOURCE_ORDER,
+                PaymentReceipt.status == PAYMENT_RECEIPT_RECEIVED,
+            )
+            .group_by(PaymentReceipt.order_id)
+        )
+        return {int(oid): int(s) for oid, s in self.db.execute(stmt)}
 
     def list_order_receipts(self, order_id: int) -> list[PaymentReceipt]:
         """Mọi phiếu thu cọc của một đơn (mọi trạng thái) — FE hiện danh sách + đi tới màn
@@ -361,7 +399,7 @@ class AccountingRepository:
                 select(PaymentReceipt)
                 .where(
                     PaymentReceipt.order_id == order_id,
-                    PaymentReceipt.source_type == RECEIPT_SOURCE_DON_HANG,
+                    PaymentReceipt.source_type == RECEIPT_SOURCE_ORDER,
                 )
                 .order_by(PaymentReceipt.id.asc())
             ).scalars()
