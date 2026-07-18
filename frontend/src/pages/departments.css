@@ -438,6 +438,58 @@
 .depts__field--full {
   grid-column: 1 / -1;
 }
+/* Dòng checkbox "có lương khoán" trong form phòng — checkbox cạnh nhãn. */
+.depts__checkline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  min-height: 38px;
+}
+/* Dòng chỉ-đọc (vd Lương thử việc — quy định chung, không sửa ở phòng). */
+.depts__readonly {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 38px;
+  font-size: 14px;
+}
+
+/* Bảng lương của phòng (Pha 1, lát 2). */
+.depts__salary-wrap {
+  overflow-x: auto;
+}
+.depts__salary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.depts__salary-table th,
+.depts__salary-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--rule-hair);
+  text-align: left;
+  vertical-align: middle;
+}
+.depts__salary-table th {
+  color: var(--ash);
+  font-weight: var(--fw-medium);
+  font-size: 12px;
+}
+.depts__salary-table th.num,
+.depts__salary-table td.num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.depts__salary-apply {
+  color: var(--ash);
+  font-size: 12px;
+}
+.depts__salary-actions {
+  white-space: nowrap;
+}
 .depts__cols {
   display: grid;
   /* Nhân sự cần rộng hơn (danh sách + chuyển); Vai trò chỉ là chip nên hẹp hơn. */
@@ -608,6 +660,12 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: var(--sp-3);
+}
+/* Bên phải khối "Nhân sự trong phòng": số đếm + nút "+ Thêm nhân viên" cùng hàng. */
+.depts__section-head-actions {
+  display: flex;
+  align-items: center;
   gap: var(--sp-3);
 }
 /* Eyebrow label + its info tooltip, kept together on the left. */

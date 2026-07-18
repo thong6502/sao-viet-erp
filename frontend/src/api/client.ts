@@ -172,6 +172,10 @@ export interface QuoteNotifySummary {
   my_decided_unseen: number;
 }
 
+export interface AdvanceNotifySummary {
+  pending_approval_count: number;
+}
+
 export type QuoteEvent =
   | { type: "quote_decision"; quote_id: number; code: string; decision: "approved" | "rejected" }
   | { type: "quote_pending_changed"; code?: string }
@@ -183,7 +187,11 @@ export type QuoteEvent =
   // Lịch hẹn chăm sóc (redesign-lich-hen-cham-soc): ticker đẩy "care_due" khi tới giờ hẹn,
   // "care_assigned" khi giao hẹn cho người khác — gửi riêng người phụ trách.
   | { type: "care_due"; customer: string; customer_id: number; note: string }
-  | { type: "care_assigned"; customer: string; customer_id: number; note: string };
+  | { type: "care_assigned"; customer: string; customer_id: number; note: string }
+  // Tạm ứng lương: NV gửi đề nghị → 'pending_changed' (người duyệt refetch badge); kế toán
+  // duyệt/từ chối → 'decision' gửi riêng nhân viên đề nghị.
+  | { type: "advance_pending_changed"; code?: string }
+  | { type: "advance_decision"; code?: string; decision: "approved" | "rejected" };
 
 export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
   let closed = false;
@@ -267,6 +275,52 @@ export interface Department {
   /** Org tier tag + its head-title label (spec-06 / PBI-4009). Null = untagged. */
   level_id?: number | null;
   head_title?: string | null;
+  /** Bộ nguyên tắc lương của phòng (Pha 1). */
+  salary_mechanism?: SalaryMechanism;
+  probation_ratio?: number;
+  has_piece_work?: boolean;
+}
+
+/** Cơ chế ra mức lương của một phòng ban (Pha 1). */
+export type SalaryMechanism =
+  | "cung"
+  | "bac_tho"
+  | "tham_nien"
+  | "tham_nien_gioi_tinh";
+
+export interface DepartmentSalaryPolicy {
+  salary_mechanism: SalaryMechanism;
+  probation_ratio: number;
+  has_piece_work: boolean;
+}
+
+/** Một dòng mức lương trong "bảng lương của phòng" (Pha 1, lát 2). */
+export interface DepartmentSalaryRow {
+  id: number;
+  department_id: number;
+  label: string;
+  apply_by: SalaryMechanism;
+  pay_grade_key?: string | null;
+  seniority_band?: string | null;
+  gender?: string | null;
+  luong_vi_tri: number;
+  luong_trach_nhiem: number;
+  phu_cap: number;
+  chuyen_can: number;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface DepartmentSalaryRowInput {
+  label: string;
+  apply_by: SalaryMechanism;
+  pay_grade_key?: string | null;
+  seniority_band?: string | null;
+  gender?: string | null;
+  luong_vi_tri: number;
+  luong_trach_nhiem: number;
+  phu_cap: number;
+  chuyen_can: number;
 }
 
 /** A tier in the org-level catalog (spec-06 / PBI-4009). */
@@ -1271,6 +1325,7 @@ export interface EmployeeRow {
   probation_end_date: string | null;
   user_id: number | null;
   account_username: string | null;
+  role_name: string | null;
   photo_url: string | null;
   default_shift_id: number | null;
   created_at: string | null;
@@ -1684,11 +1739,16 @@ export interface PayrollParams {
   bhxh_rate: number;
   bhyt_rate: number;
   bhtn_rate: number;
+  cong_doan_rate: number;
   deduction_self: number;
   deduction_dependent: number;
   chuyen_can_default: number;
   standard_hours_per_day: number;
   ot_multiplier: number;
+  ot_multiplier_restday: number;
+  ot_multiplier_holiday: number;
+  restday_work_multiplier: number;
+  holiday_work_multiplier: number;
   night_pct: number;
   bh_base_cap: number;
   bhtn_base_cap: number;
@@ -1722,8 +1782,10 @@ export interface EmployeeSalary {
   effective_from: string;
   amount_mode: string;
   base_amount: number | null;
+  source_salary_row_id: number | null;
   insurance_base: number | null;
   allowance: number;
+  chuyen_can: number;
   note: string | null;
   created_at: string;
 }
@@ -1731,8 +1793,13 @@ export interface EmployeeSalaryInput {
   effective_from: string;
   amount_mode: string;
   base_amount?: number | null;
+  /** Trỏ 1 dòng bảng lương của tổ → engine đọc sống (amount_mode tự thành 'dept_row'). */
+  source_salary_row_id?: number | null;
   insurance_base?: number | null;
+  /** Phụ cấp của riêng NV (mỗi người mỗi khác). */
   allowance?: number;
+  /** Chuyên cần của riêng NV (mỗi người mỗi khác). */
+  chuyen_can?: number;
   note?: string | null;
 }
 export interface EmployeeSalaries {
@@ -1750,8 +1817,12 @@ export interface SalaryPreview {
 }
 export interface SalaryAdvance {
   id: number;
+  code: string | null;
   employee_id: number;
   employee_name: string | null;
+  department_name: string | null;
+  bank_account: string | null;
+  bank_name: string | null;
   period_year: number;
   period_month: number;
   advance_date: string;
@@ -1760,6 +1831,14 @@ export interface SalaryAdvance {
   status: string;
   decision_note: string | null;
   created_at: string;
+}
+
+export interface MyAdvanceInput {
+  period_year: number;
+  period_month: number;
+  advance_date: string;
+  amount: number;
+  reason?: string | null;
 }
 export interface SalaryAdvanceInput {
   employee_id: number;
@@ -1806,9 +1885,20 @@ export interface PayrollLine {
   night_pay: number;
   vi_pham: number;
   other_bonus: number;
+  thuong_5s: number;
+  thuong_doanh_so: number;
+  thuong_thanh_tich: number;
+  phep_nam: number;
+  tra_dong_phuc: number;
+  dieu_chinh_luong: number;
+  di_tre: number;
+  dt_vuot_troi: number;
+  phat_bien_ban: number;
+  phat_5s_dong_phuc: number;
   gross: number;
   insurance_base: number;
   bhxh: number;
+  cong_doan: number;
   pit: number;
   pit_manual: boolean;
   pit_taxable: number;
@@ -1823,6 +1913,16 @@ export interface PayrollLineInput {
   pit_manual?: boolean | null;
   monthly_override?: number | null;
   note?: string | null;
+  thuong_5s?: number | null;
+  thuong_doanh_so?: number | null;
+  thuong_thanh_tich?: number | null;
+  phep_nam?: number | null;
+  tra_dong_phuc?: number | null;
+  dieu_chinh_luong?: number | null;   // cho phép ±
+  di_tre?: number | null;
+  dt_vuot_troi?: number | null;
+  phat_bien_ban?: number | null;
+  phat_5s_dong_phuc?: number | null;
 }
 export interface PitBracket {
   id: number;
@@ -3188,10 +3288,17 @@ export const api = {
       description: string | null,
       parentId: number | null,
       levelId: number | null = null,
+      salary: DepartmentSalaryPolicy | null = null,
     ): Promise<Department> {
       return authed<Department>("/api/departments", token, {
         method: "POST",
-        body: JSON.stringify({ name, description, parent_id: parentId, level_id: levelId }),
+        body: JSON.stringify({
+          name,
+          description,
+          parent_id: parentId,
+          level_id: levelId,
+          ...(salary ?? {}),
+        }),
       });
     },
     updateDepartment(
@@ -3202,6 +3309,7 @@ export const api = {
       description: string | null,
       levelId: number | null = null,
       parentId: number | null = null,
+      salary: DepartmentSalaryPolicy | null = null,
     ): Promise<Department> {
       return authed<Department>(`/api/departments/${id}`, token, {
         method: "PUT",
@@ -3211,12 +3319,47 @@ export const api = {
           description,
           level_id: levelId,
           parent_id: parentId,
+          ...(salary ?? {}),
         }),
       });
     },
     /** Departments that would be deleted with this one's branch (spec-05 confirm). */
     departmentSubtree(token: string, id: number): Promise<DepartmentSubtreeRow[]> {
       return authed<DepartmentSubtreeRow[]>(`/api/departments/${id}/subtree`, token);
+    },
+    /** Bảng lương của phòng (Pha 1, lát 2). */
+    listSalaryRows(token: string, deptId: number): Promise<DepartmentSalaryRow[]> {
+      return authed<DepartmentSalaryRow[]>(
+        `/api/departments/${deptId}/salary-rows`,
+        token,
+      );
+    },
+    createSalaryRow(
+      token: string,
+      deptId: number,
+      input: DepartmentSalaryRowInput,
+    ): Promise<DepartmentSalaryRow> {
+      return authed<DepartmentSalaryRow>(
+        `/api/departments/${deptId}/salary-rows`,
+        token,
+        { method: "POST", body: JSON.stringify(input) },
+      );
+    },
+    updateSalaryRow(
+      token: string,
+      rowId: number,
+      input: DepartmentSalaryRowInput,
+    ): Promise<DepartmentSalaryRow> {
+      return authed<DepartmentSalaryRow>(
+        `/api/departments/salary-rows/${rowId}`,
+        token,
+        { method: "PUT", body: JSON.stringify(input) },
+      );
+    },
+    deleteSalaryRow(token: string, rowId: number): Promise<void> {
+      return authed<void>(`/api/departments/salary-rows/${rowId}`, token, {
+        method: "DELETE",
+      });
     },
     /** People eligible to head a unit: everyone in the unit + its sub-units (PBI-4004). */
     headCandidates(token: string, id: number): Promise<UserBrief[]> {
@@ -3730,6 +3873,10 @@ export const api = {
     meta(token: string): Promise<EmployeeMeta> {
       return authed<EmployeeMeta>("/api/employees/meta", token);
     },
+    /** Dòng bảng lương của tổ — cho form thêm NV chọn mức (gác quyền nhân sự). */
+    salaryRows(token: string, deptId: number): Promise<DepartmentSalaryRow[]> {
+      return authed<DepartmentSalaryRow[]>(`/api/employees/meta/salary-rows/${deptId}`, token);
+    },
     get(token: string, id: number): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}`, token);
     },
@@ -4082,6 +4229,10 @@ export const api = {
     setSalary(token: string, employeeId: number, input: EmployeeSalaryInput): Promise<EmployeeSalary> {
       return authed<EmployeeSalary>(`/api/luong/salaries/${employeeId}`, token, { method: "POST", body: JSON.stringify(input) });
     },
+    /** Dòng bảng lương của tổ — cho SalaryModal chọn/sửa mức theo dòng tổ (gác quyền lương). */
+    salaryRows(token: string, deptId: number): Promise<DepartmentSalaryRow[]> {
+      return authed<DepartmentSalaryRow[]>(`/api/luong/salary-rows/${deptId}`, token);
+    },
     deleteSalary(token: string, salaryId: number): Promise<void> {
       return authed<void>(`/api/luong/salaries/item/${salaryId}`, token, { method: "DELETE" });
     },
@@ -4103,6 +4254,12 @@ export const api = {
     },
     myAdvances(token: string): Promise<MyAdvances> {
       return authed<MyAdvances>("/api/luong/advances/me", token);
+    },
+    createMyAdvance(token: string, input: MyAdvanceInput): Promise<SalaryAdvance> {
+      return authed<SalaryAdvance>("/api/luong/advances/me", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    advanceNotifySummary(token: string): Promise<AdvanceNotifySummary> {
+      return authed<AdvanceNotifySummary>("/api/luong/advances/notify-summary", token);
     },
     periods(token: string): Promise<{ items: PayrollPeriod[] }> {
       return authed<{ items: PayrollPeriod[] }>("/api/luong/periods", token);

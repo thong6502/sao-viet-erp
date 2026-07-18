@@ -46,6 +46,10 @@ class DepartmentSummaryOut(BaseModel):
     total_role_count: int = 0
     total_user_count: int = 0
     total_employee_count: int = 0
+    # Bộ nguyên tắc lương của phòng (Pha 1).
+    salary_mechanism: str = "cung"
+    probation_ratio: float = 0.80
+    has_piece_work: bool = False
 
 
 class DepartmentMemberOut(BaseModel):
@@ -67,6 +71,9 @@ class DepartmentMemberOut(BaseModel):
     is_head: bool = False
 
 
+_SalaryMechanism = Literal["cung", "bac_tho", "tham_nien", "tham_nien_gioi_tinh"]
+
+
 class DepartmentCreate(BaseModel):
     # Code is system-generated (spec-05) — never accepted from the client.
     name: str = Field(min_length=1, max_length=255)
@@ -74,6 +81,10 @@ class DepartmentCreate(BaseModel):
     parent_id: int | None = None
     # Optional org tier (spec-06 / PBI-4009).
     level_id: int | None = None
+    # Bộ nguyên tắc lương của phòng (Pha 1).
+    salary_mechanism: _SalaryMechanism = "cung"
+    probation_ratio: float = Field(default=0.80, ge=0, le=1)
+    has_piece_work: bool = False
 
 
 class DepartmentUpdate(BaseModel):
@@ -83,6 +94,41 @@ class DepartmentUpdate(BaseModel):
     level_id: int | None = None
     # Re-parent in the org tree (spec-06 / PBI-4007); null = make it a root unit.
     parent_id: int | None = None
+    # Bộ nguyên tắc lương của phòng (Pha 1).
+    salary_mechanism: _SalaryMechanism = "cung"
+    probation_ratio: float = Field(default=0.80, ge=0, le=1)
+    has_piece_work: bool = False
+
+
+# --- Bảng lương của phòng (Pha 1, lát 2) -----------------------------------
+class DepartmentSalaryRowOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    department_id: int
+    label: str
+    apply_by: _SalaryMechanism
+    pay_grade_key: str | None = None
+    seniority_band: str | None = None
+    gender: str | None = None
+    luong_vi_tri: float
+    luong_trach_nhiem: float
+    phu_cap: float
+    chuyen_can: float
+    sort_order: int
+    is_active: bool
+
+
+class DepartmentSalaryRowInput(BaseModel):
+    label: str = Field(min_length=1, max_length=120)
+    apply_by: _SalaryMechanism = "cung"
+    pay_grade_key: str | None = Field(default=None, max_length=20)
+    seniority_band: str | None = Field(default=None, max_length=8)
+    gender: str | None = Field(default=None, max_length=8)
+    luong_vi_tri: float = Field(default=0, ge=0)
+    luong_trach_nhiem: float = Field(default=0, ge=0)
+    phu_cap: float = Field(default=0, ge=0)
+    chuyen_can: float = Field(default=0, ge=0)
 
 
 class UnitLevelOut(BaseModel):

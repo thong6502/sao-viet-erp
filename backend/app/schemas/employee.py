@@ -121,6 +121,7 @@ class EmployeeRow(BaseModel):
     probation_end_date: date | None = None
     user_id: int | None = None
     account_username: str | None = None
+    role_name: str | None = None          # Vai trò (RBAC) của tài khoản NV — dùng làm Chức danh ở list
     photo_url: str | None = None
     default_shift_id: int | None = None   # ca mặc định (cho panel gán ca ở Chấm công)
     created_at: datetime | None = None

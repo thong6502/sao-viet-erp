@@ -105,6 +105,8 @@
   background: var(--moss-soft); color: var(--moss-deep); border: 1px solid var(--moss);
   padding: 8px 12px; border-radius: var(--r-3); margin-bottom: var(--sp-4);
 }
+/* Khối liệt kê BHXH/BHYT/BHTN nhân viên đóng (SalaryModal) — nhiều dòng, giãn cho dễ đọc. */
+.lg-bh { line-height: 1.7; font-size: 13px; }
 
 /* Tham số */
 .lg-params-grid { grid-template-columns: repeat(4, 1fr); }
@@ -125,6 +127,77 @@
 .lg-payslip__net td {
   padding-top: var(--sp-4); font-size: 18px; font-weight: var(--fw-bold); color: var(--moss-deep);
   border-bottom: none;
+}
+
+/* Phiếu lương 2 cột (Thu | Trừ) — như mẫu giấy */
+.lg-payslip2 {
+  background: var(--canvas); color: var(--ink); border: 1px solid var(--rule);
+  border-radius: var(--r-5); padding: 20px 24px; max-width: 880px; margin: 0 auto;
+}
+.lg-payslip2__head {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  border-bottom: 2px solid var(--ink); padding-bottom: 12px; margin-bottom: 12px;
+}
+.lg-payslip2__title { font-size: 20px; font-weight: var(--fw-bold); letter-spacing: 1px; }
+.lg-payslip2__who { font-size: 15px; font-weight: var(--fw-bold); margin-top: 2px; }
+.lg-payslip2__meta { text-align: right; font-size: 12.5px; line-height: 1.7; }
+.lg-payslip2__cols { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+@media (max-width: 640px) { .lg-payslip2__cols { grid-template-columns: 1fr; } }
+.lg-payslip2__tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.lg-payslip2__tbl th {
+  text-align: left; border-bottom: 1px solid var(--ink); padding: 4px 0;
+  font-size: 12px; text-transform: uppercase; color: var(--ash);
+}
+.lg-payslip2__tbl th.lg-num, .lg-payslip2__tbl td.lg-num { text-align: right; }
+.lg-payslip2__tbl td { padding: 5px 0; border-bottom: 1px dashed var(--rule-soft); }
+.lg-payslip2__sub td {
+  font-weight: var(--fw-bold); border-top: 1px solid var(--rule); border-bottom: 2px solid var(--ink);
+}
+.lg-payslip2__net {
+  display: flex; justify-content: space-between; align-items: center; margin-top: 14px;
+  padding: 10px 14px; background: var(--moss-soft); border-radius: var(--r-3);
+  font-size: 17px; font-weight: var(--fw-bold); color: var(--moss-deep);
+}
+.lg-payslip2__sign {
+  display: flex; justify-content: space-around; margin-top: 28px; text-align: center;
+  font-size: 12.5px; font-weight: var(--fw-medium);
+}
+.lg-rowact { white-space: nowrap; }
+.lg-rowact .btn { margin-left: 4px; }
+
+/* In phiếu lương: chỉ in card, ẩn phần còn lại */
+@media print {
+  body * { visibility: hidden !important; }
+  .lg-payslip-print, .lg-payslip-print * { visibility: visible !important; }
+  /* Gỡ ràng buộc của modal (fixed/flex căn giữa/overflow:hidden/max-height/animation)
+     — nếu không, khi in header/footer bị ẩn + phiếu position:absolute → box co ~0 cao
+     → overflow:hidden CẮT CỤT phiếu. Neutralize để phiếu in tràn trang. */
+  .ns-modal,
+  .ns-modal__box,
+  .ns-modal__body {
+    position: static !important;
+    display: block !important;
+    overflow: visible !important;
+    max-height: none !important;
+    width: auto !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: none !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    animation: none !important;
+    transform: none !important;
+  }
+  .lg-payslip-print {
+    position: absolute !important;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border: none;
+  }
+  .lg-payslip-noprint { display: none !important; }
 }
 
 /* === Cải tiến UI/UX mới: KPI Cards === */

@@ -1707,6 +1707,94 @@ def _migrate_role_permission_record_deposit(db: Session) -> None:
     db.commit()
 
 
+def _migrate_department_salary_policy(db: Session) -> None:
+    """departments: bộ nguyên tắc lương của phòng (Pha 1) — cơ chế ra mức lương
+    (`salary_mechanism`), % thử việc (`probation_ratio`), cờ có lương khoán
+    (`has_piece_work`). Chỉ ADD COLUMN DEFAULT — idempotent, no-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "departments" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "departments")
+    for name, ddl in (
+        ("salary_mechanism", "VARCHAR(24) NOT NULL DEFAULT 'cung'"),
+        ("probation_ratio", "NUMERIC(5,4) NOT NULL DEFAULT 0.80"),
+        ("has_piece_work", "BOOLEAN NOT NULL DEFAULT FALSE"),
+    ):
+        if name not in cols:
+            db.execute(text(f"ALTER TABLE departments ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
+def _migrate_probation_ratio_80(db: Session) -> None:
+    """Công ty dùng thử việc 80% (không phải 85% mặc định BLLĐ). Hạ dòng `payroll_params`
+    còn để đúng mặc định cũ 0.85 xuống 0.80. Guard `= 0.85` để KHÔNG đè giá trị chủ đã
+    tự chỉnh; idempotent, no-op trên DB fresh (create_all đã dựng default 0.80)."""
+    insp = inspect(db.get_bind())
+    if "payroll_params" not in insp.get_table_names():
+        return
+    db.execute(text("UPDATE payroll_params SET probation_ratio = 0.80 WHERE probation_ratio = 0.85"))
+    db.commit()
+
+
+def _migrate_employee_salary_source_row(db: Session) -> None:
+    """employee_salaries: trỏ tới 1 dòng bảng lương của tổ (`source_salary_row_id`) — khi
+    gán NV, chọn 1 dòng `department_salary_rows`; engine đọc SỐNG dòng đó. Chỉ ADD COLUMN
+    nullable — idempotent, no-op trên DB fresh (create_all đã dựng cột)."""
+    insp = inspect(db.get_bind())
+    if "employee_salaries" not in insp.get_table_names():
+        return
+    if "source_salary_row_id" not in _existing_columns(insp, "employee_salaries"):
+        db.execute(text("ALTER TABLE employee_salaries ADD COLUMN source_salary_row_id INTEGER"))
+    db.commit()
+
+
+def _migrate_employee_salary_chuyen_can(db: Session) -> None:
+    """employee_salaries: chuyên cần theo TỪNG NGƯỜI (mỗi người mỗi khác) — tách khỏi bảng
+    lương của tổ. Phụ cấp dùng lại cột `allowance` sẵn có. Chỉ ADD COLUMN NOT NULL DEFAULT 0
+    — idempotent, no-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "employee_salaries" not in insp.get_table_names():
+        return
+    if "chuyen_can" not in _existing_columns(insp, "employee_salaries"):
+        db.execute(text("ALTER TABLE employee_salaries ADD COLUMN chuyen_can NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_payslip_detail_items(db: Session) -> None:
+    """Phiếu lương chi tiết (Pha 4d): tách riêng từng khoản thưởng/phạt trên dòng lương +
+    đoàn phí công đoàn (`payroll_lines`) + tỷ lệ công đoàn (`payroll_params`). Chỉ ADD COLUMN
+    NUMERIC NOT NULL DEFAULT 0 — idempotent, no-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "payroll_lines" in tables:
+        cols = _existing_columns(insp, "payroll_lines")
+        for name in ("thuong_5s", "thuong_doanh_so", "thuong_thanh_tich", "phep_nam",
+                     "tra_dong_phuc", "dieu_chinh_luong", "di_tre", "dt_vuot_troi",
+                     "phat_bien_ban", "phat_5s_dong_phuc", "cong_doan"):
+            if name not in cols:
+                db.execute(text(f"ALTER TABLE payroll_lines ADD COLUMN {name} NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    if "payroll_params" in tables:
+        if "cong_doan_rate" not in _existing_columns(insp, "payroll_params"):
+            db.execute(text("ALTER TABLE payroll_params ADD COLUMN cong_doan_rate NUMERIC(6,4) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_salary_advance_code(db: Session) -> None:
+    """salary_advances: thêm MÃ tạm ứng (TU26-xxxx, sinh khi tạo). ADD COLUMN nullable + backfill
+    hàng cũ `TU-<id>` (định dạng LEGACY, khác format sinh mã → không đụng mã mới) + unique index
+    khớp create_all. Idempotent, no-op trên DB fresh."""
+    insp = inspect(db.get_bind())
+    if "salary_advances" not in insp.get_table_names():
+        return
+    if "code" not in _existing_columns(insp, "salary_advances"):
+        db.execute(text("ALTER TABLE salary_advances ADD COLUMN code VARCHAR(32)"))
+        db.execute(text("UPDATE salary_advances SET code = 'TU-' || id WHERE code IS NULL"))
+        db.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_salary_advances_code ON salary_advances (code)"
+        ))
+    db.commit()
+
+
 def _migrate_payment_doc_no_and_accounts(db: Session) -> None:
     """Kế toán — in theo mẫu Bộ Tài chính (TT 200/2014/TT-BTC):
 
@@ -2136,9 +2224,18 @@ MIGRATIONS: list[tuple[str, callable]] = [
     # Tích hợp accounting-wip (đánh số tiếp, KHÔNG đụng id đã ship): báo giá terms_text + PTG ĐVT.
     ("0073_quote_terms_text", _migrate_quote_terms_text),
     ("0074_ptg_don_vi_tinh", _migrate_ptg_don_vi_tinh),
+    # Nhánh giá/đơn/care (session 2026-07-18).
     ("0075_seed_pricing_formulas", _migrate_seed_pricing_formulas),
     ("0076_order_graft_fields", _migrate_order_graft_fields),
     ("0077_care_task_recurrence", _migrate_care_task_recurrence),
+    # Nhánh HCNS (lương/chấm công/nhân sự) — trùng SỐ 0070-0075 nhưng khác CHUỖI id nên
+    # schema_migrations coi là migration riêng, vẫn chạy đúng 1 lần. Giữ nguyên id (không đổi id đã ship).
+    ("0070_department_salary_policy", _migrate_department_salary_policy),
+    ("0071_probation_ratio_80", _migrate_probation_ratio_80),
+    ("0072_employee_salary_source_row", _migrate_employee_salary_source_row),
+    ("0073_employee_salary_chuyen_can", _migrate_employee_salary_chuyen_can),
+    ("0074_payslip_detail_items", _migrate_payslip_detail_items),
+    ("0075_salary_advance_code", _migrate_salary_advance_code),
 ]
 
 
