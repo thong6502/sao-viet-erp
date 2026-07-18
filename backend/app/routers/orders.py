@@ -26,6 +26,7 @@ from ..schemas.order import (
     OrderEnumsOut,
     OrderListOut,
     OrderStatsOut,
+    OrderProductionHintIn,
     OrderUpdate,
 )
 from ..services.order_service import (
@@ -189,6 +190,45 @@ def update_order(
         raise _map(exc)
 
 
+# --- Sale đổi hint sản xuất (gấp / lưu ý SX) SAU khi đã chốt → realtime bàn Kế hoạch ---
+@router.post("/{order_id}/production-hint", response_model=OrderDetailOut)
+def update_production_hint(
+    order_id: int,
+    payload: OrderProductionHintIn,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        d = svc.update_production_hint(
+            order_id=order_id, actor=user, scope=_scope_for(authz, user), payload=payload,
+        )
+    except Exception as exc:
+        raise _map(exc)
+    # Bàn Kế hoạch SX 'ting': đơn chuyển gấp / cập nhật lưu ý (badge nhảy; nội dung note FE refetch).
+    hub.broadcast(
+        {"type": "order_sx_hint_changed", "code": d.order_no, "order_id": order_id, "is_rush": d.is_rush}
+    )
+    return d
+
+
+# --- Chuyển đơn (đã chốt) xuống Sản xuất → vào hàng chờ Kế hoạch (handoff) -----
+@router.post("/{order_id}/release-production", response_model=OrderDetailOut)
+def release_production(
+    order_id: int,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+    svc: Service,
+    authz: Authz,
+) -> OrderDetailOut:
+    try:
+        d = svc.release_production(order_id=order_id, actor=user, scope=_scope_for(authz, user))
+    except Exception as exc:
+        raise _map(exc)
+    # Đơn 'bắn xuống' hàng chờ Kế hoạch (badge nhảy, không refresh).
+    hub.broadcast({"type": "order_ordered", "code": d.order_no, "order_id": order_id})
+    return d
+
+
 # --- Hủy đơn (P5) — nháp: `update`; đã chốt: cần `approve_exception` -----------
 @router.post("/{order_id}/cancel", response_model=OrderDetailOut)
 def cancel_order(
@@ -223,6 +263,11 @@ def confirm_order(
     except Exception as exc:
         raise _map(exc)
     _order_changed(d.order_no)   # chốt → rời tập nháp, badge 'sẵn sàng chốt' của Sale tụt
+    # Chốt = chốt THÔNG TIN → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). KHÔNG dùng
+    # order_ordered ở đây (đó là tín hiệu 'đã Chuyển SX' cho bàn Kế hoạch — chốt CHƯA vào hàng chờ).
+    hub.broadcast(
+        {"type": "order_deposit_needed", "code": d.order_no, "order_id": order_id, "amount": d.deposit_required}
+    )
     return d
 
 

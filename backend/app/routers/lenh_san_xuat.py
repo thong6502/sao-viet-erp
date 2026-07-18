@@ -29,6 +29,7 @@ from ..schemas.lenh_san_xuat import (
     GhepIn,
     GhiLoiQcIn,
     GhiSanLuongIn,
+    HangChoOut,
     LenhDetailOut,
     LenhListOut,
     LenhOut,
@@ -83,6 +84,15 @@ def list_lenh(
 ) -> LenhListOut:
     rows, total = svc.list_lenh(order_id=order_id, trang_thai=trang_thai, page=page, size=size)
     return LenhListOut(items=rows, total=total, page=page, size=size)
+
+
+@router.get("/hang-cho", response_model=list[HangChoOut])
+def hang_cho(
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> list[HangChoOut]:
+    """Đơn đã chốt CHỜ lên kế hoạch (handoff §5.1) — kế hoạch bấm 'Lên kế hoạch' (bung) từ đây."""
+    return [HangChoOut(**r) for r in svc.hang_cho()]
 
 
 @router.get("/lenh/{lenh_id}", response_model=LenhDetailOut)

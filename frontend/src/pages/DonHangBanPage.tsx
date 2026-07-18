@@ -7,7 +7,10 @@ import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import {
   api,
+  ApiError,
+  type CustomerAddress,
   type CustomerContact,
+  type LenhSXRow,
   type OrderCreateInput,
   type OrderDetail,
   type OrderEnumsOut,
@@ -123,7 +126,6 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
 
   const [selected, setSelected] = useState<OrderDetail | null>(null);
   const [creating, setCreating] = useState(false);
-  const [viewScope, setViewScope] = useState("");
   const [stats, setStats] = useState<OrderStatsOut | null>(null);
 
   const load = useCallback(() => {
@@ -134,7 +136,7 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
     api.orders
       .list(token, {
         q: q || undefined, status: t.status, approval_state: t.approval_state,
-        view_scope: viewScope || undefined, sort: "-created_at", page: 1, size: 50,
+        sort: "-created_at", page: 1, size: 50,
       })
       .then((r) => {
         const rows = t.clientFilter ? r.items.filter(t.clientFilter) : r.items;
@@ -143,8 +145,8 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
       })
       .catch((e) => setErr(String(e?.message ?? e)))
       .finally(() => setLoading(false));
-    api.orders.stats(token, viewScope || undefined).then(setStats).catch(() => {});
-  }, [token, q, tab, viewScope]);
+    api.orders.stats(token).then(setStats).catch(() => {});
+  }, [token, q, tab]);
 
   useEffect(() => {
     load();
@@ -197,17 +199,6 @@ export function DonHangBanPage({ navigate, openOrderId }: Props) {
           ))}
         </div>
         <div className="dhb__spacer" />
-        <select
-          value={viewScope}
-          onChange={(e) => setViewScope(e.target.value)}
-          title="Phạm vi dữ liệu"
-          className="dhb__select"
-        >
-          <option value="">Phạm vi</option>
-          <option value="own">Của tôi</option>
-          <option value="department">Cả phòng</option>
-          <option value="all">Tất cả</option>
-        </select>
         <div className="dhb__search-wrapper">
           <input
             value={q}
@@ -404,23 +395,40 @@ function OrderDrawer({
   const [drawerTab, setDrawerTab] = useState<"overview" | "commercial" | "history">("overview");
 
   const isChotDone = order.status === "ordered" || order.ordered_at != null;
-  const isCocDone = order.deposit_ok;
-  const doneSeg = isChotDone ? (isCocDone ? 2 : 1) : 0;
+  // Vòng đời: CHỐT (thông tin) → CỌC (kế toán thu, SAU chốt) → SẢN XUẤT. Cọc 'xong' = đã chốt VÀ
+  // (không cần cọc HOẶC thu đủ). Trước chốt → cọc chưa tới lượt.
+  const noDeposit = order.deposit_required <= 0;
+  const isCocDone = isChotDone && order.deposit_ok;
   const remaining = Math.max(0, order.deposit_required - order.deposit_received);
 
-  const chotDate = order.ordered_at ? fmtDate(order.ordered_at) : (order.created_at ? fmtDate(order.created_at) : "—");
-  const cocText = isCocDone ? "đủ" : "chờ cọc";
+  // Bước Sản xuất — suy từ lệnh + mốc "Chuyển SX": chưa chuyển → chờ KH → đang chạy → XONG (nhập kho TP).
+  const [lenhs, setLenhs] = useState<LenhSXRow[]>([]);
+  useEffect(() => {
+    if (!token || order.status !== "ordered" || !order.san_xuat_released_at) { setLenhs([]); return; }
+    api.lenhSanXuat.list(token, { order_id: order.id }).then((r) => setLenhs(r.items)).catch(() => setLenhs([]));
+  }, [token, order.id, order.status, order.san_xuat_released_at]);
+  const sxReleased = !!order.san_xuat_released_at;
+  const activeLenhs = lenhs.filter((l) => l.trang_thai !== "huy");
+  const sxDone = sxReleased && activeLenhs.length > 0 && activeLenhs.every((l) => l.trang_thai === "xong");
+  const sxState: "chua" | "cho_kh" | "chay" | "xong" =
+    !sxReleased ? "chua" : activeLenhs.length === 0 ? "cho_kh" : sxDone ? "xong" : "chay";
+  const sxText = { chua: "chưa chuyển", cho_kh: "chờ kế hoạch", chay: "đang chạy", xong: "xong" }[sxState];
 
-  const [activeStep, setActiveStep] = useState<"chot" | "coc" | "giao" | "hoadon">("coc");
+  const doneSeg = (isChotDone ? 1 : 0) + (isCocDone ? 1 : 0) + (sxDone ? 1 : 0);
+
+  const chotDate = order.ordered_at ? fmtDate(order.ordered_at) : (order.created_at ? fmtDate(order.created_at) : "—");
+  const cocText = !isChotDone ? "chưa tới" : noDeposit ? "không cần cọc" : order.deposit_ok ? "đủ" : "chờ cọc";
+
+  const [activeStep, setActiveStep] = useState<"coc" | "chot" | "sanxuat" | "giao" | "hoadon">("coc");
 
   useEffect(() => {
     if (token) api.orders.activity(token, order.id).then((r) => setActs(r.items)).catch(() => {});
   }, [token, order.id]);
 
   useEffect(() => {
-    const defaultStep = !isChotDone ? "chot" : (!isCocDone ? "coc" : "giao");
+    const defaultStep = !isChotDone ? "chot" : !isCocDone ? "coc" : !sxDone ? "sanxuat" : "giao";
     setActiveStep(defaultStep);
-  }, [order.id, isChotDone, isCocDone]);
+  }, [order.id, isChotDone, isCocDone, sxDone]);
 
   return (
     <div
@@ -485,21 +493,25 @@ function OrderDrawer({
                   <KV k="NV phụ trách" v={order.sale_name ?? "—"} />
                   <KV k="Ngày tạo" v={<span className="dhb__mono">{fmtDate(order.created_at)}</span>} />
                   {order.ordered_at && <KV k="Ngày chốt" v={<span className="dhb__mono">{fmtDate(order.ordered_at)}</span>} />}
-                  {order.customer_po_no && <KV k="Số PO khách" v={<span className="dhb__mono">{order.customer_po_no}</span>} />}
-                  {order.delivery_committed_date && <KV k="Ngày giao cam kết" v={<span className="dhb__mono">{fmtDate(order.delivery_committed_date)}</span>} />}
-                  {order.delivery_address && <KV k="Địa chỉ giao" v={order.delivery_address} />}
-                  {(order.delivery_contact_name || order.delivery_contact_phone) && (
-                    <KV k="Người nhận" v={[order.delivery_contact_name, order.delivery_contact_phone].filter(Boolean).join(" · ")} />
+                  {/* Luôn hiện thông tin đặt hàng/giao (trống = "—") để đơn đã chốt vẫn xem được đủ. */}
+                  <KV k="Số PO khách" v={order.customer_po_no ? <span className="dhb__mono">{order.customer_po_no}</span> : "—"} />
+                  <KV k="Ngày giao cam kết" v={<span className="dhb__mono">{fmtDate(order.delivery_committed_date)}</span>} />
+                  <KV k="Địa chỉ giao" v={order.delivery_address || "—"} />
+                  <KV
+                    k="Người nhận"
+                    v={[order.delivery_contact_name, order.delivery_contact_phone].filter(Boolean).join(" · ") || "—"}
+                  />
+                  <KV k="Lưu ý giao" v={order.delivery_note || "—"} />
+                  {!(order.status === "ordered" && canUpdate) && (
+                    <KV k="Lưu ý SX" v={order.production_note || "—"} />
                   )}
-                  {order.delivery_note && <KV k="Lưu ý giao" v={order.delivery_note} />}
-                  {order.production_note && <KV k="Lưu ý SX" v={order.production_note} />}
+                  <KV k="% cọc" v={<span className="dhb__mono">{order.deposit_pct != null ? `${order.deposit_pct}%` : "—"}</span>} />
                   {order.invoice_entity_name && (
                     <KV
                       k="Pháp nhân xuất HĐ"
                       v={`${order.invoice_entity_name}${order.invoice_entity_tax_code ? " · MST " + order.invoice_entity_tax_code : ""}`}
                     />
                   )}
-                  {order.deposit_pct != null && <KV k="% cọc" v={<span className="dhb__mono">{order.deposit_pct}%</span>} />}
                 </div>
                 {editing && (
                   <div style={{ marginTop: 12 }}>
@@ -507,42 +519,51 @@ function OrderDrawer({
                   </div>
                 )}
               </Section>
- 
+
+              {/* Lưu ý sản xuất — sửa được cả khi đã chốt (đường hẹp D3 → realtime bàn Kế hoạch) */}
+              {order.status === "ordered" && canUpdate && (
+                <ProductionHintEditor order={order} onSaved={onSaved} />
+              )}
+
               {/* Vòng đời đơn */}
               <Section title="Vòng đời đơn">
                 <div className="dhb__lifecycle-header">
                   <span className="dhb__lifecycle-subtitle">read-only · bấm chọn từng bước để xem chi tiết</span>
                 </div>
                 
-                {/* 1. Timeline */}
+                {/* 1. Timeline — Chốt (thông tin) → Cọc (kế toán thu) → Sản xuất → Giao → Hóa đơn */}
                 <div className="dhb__timeline">
                   <div className="dhb__timeline-track" />
-                  <div className="dhb__timeline-fill" style={{ width: `${(doneSeg / 4) * 80}%` }} />
+                  <div className="dhb__timeline-fill" style={{ width: `${(doneSeg / 4) * 100}%` }} />
                   <div
                     className={`dhb__timeline-step ${isChotDone ? "is-done" : ""} ${activeStep === "chot" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("chot")}
                   >
-                    <div className="dhb__timeline-dot">
-                      {isChotDone ? <Icon name="check" size={12} /> : "1"}
-                    </div>
+                    <div className="dhb__timeline-dot">{isChotDone ? <Icon name="check" size={12} /> : "1"}</div>
                     <span className="dhb__timeline-label">Chốt</span>
-                    <span className="dhb__timeline-sub">{chotDate}</span>
+                    <span className="dhb__timeline-sub">{isChotDone ? chotDate : "chưa chốt"}</span>
                   </div>
                   <div
                     className={`dhb__timeline-step ${isCocDone ? "is-done" : ""} ${activeStep === "coc" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("coc")}
                   >
-                    <div className="dhb__timeline-dot">
-                      {isCocDone ? <Icon name="check" size={12} /> : "2"}
-                    </div>
+                    <div className="dhb__timeline-dot">{isCocDone ? <Icon name="check" size={12} /> : "2"}</div>
                     <span className="dhb__timeline-label">Cọc</span>
                     <span className="dhb__timeline-sub">{cocText}</span>
+                  </div>
+                  <div
+                    className={`dhb__timeline-step ${sxDone ? "is-done" : ""} ${activeStep === "sanxuat" ? "is-selected" : ""}`}
+                    onClick={() => setActiveStep("sanxuat")}
+                  >
+                    <div className="dhb__timeline-dot">{sxDone ? <Icon name="check" size={12} /> : "3"}</div>
+                    <span className="dhb__timeline-label">Sản xuất</span>
+                    <span className="dhb__timeline-sub">{isChotDone ? sxText : "—"}</span>
                   </div>
                   <div
                     className={`dhb__timeline-step ${activeStep === "giao" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("giao")}
                   >
-                    <div className="dhb__timeline-dot">3</div>
+                    <div className="dhb__timeline-dot">4</div>
                     <span className="dhb__timeline-label">Giao hàng</span>
                     <span className="dhb__timeline-sub">—</span>
                   </div>
@@ -550,7 +571,7 @@ function OrderDrawer({
                     className={`dhb__timeline-step ${activeStep === "hoadon" ? "is-selected" : ""}`}
                     onClick={() => setActiveStep("hoadon")}
                   >
-                    <div className="dhb__timeline-dot">4</div>
+                    <div className="dhb__timeline-dot">5</div>
                     <span className="dhb__timeline-label">Hóa đơn</span>
                     <span className="dhb__timeline-sub">—</span>
                   </div>
@@ -571,7 +592,7 @@ function OrderDrawer({
                       ) : order.status === "ordered" ? (
                         <>
                           <KV k="Đã chốt lúc" v={<span className="dhb__mono">{fmtDate(order.ordered_at)}</span>} />
-                          <p style={{ color: "var(--ash)", fontSize: 12, margin: "6px 0 0" }}>Duyệt bản in + tiến độ sản xuất là luồng ngoài hệ thống.</p>
+                          <p style={{ color: "var(--ash)", fontSize: 12, margin: "6px 0 0" }}>Bước tiếp: bấm “Sản xuất” để chuyển đơn xuống kế hoạch.</p>
                         </>
                       ) : order.status === "cancelled" ? (
                         <div style={{ display: "grid", gap: 4 }}>
@@ -589,9 +610,9 @@ function OrderDrawer({
                 {activeStep === "coc" && (
                   <div className="dhb__lifecycle-box">
                     <div className="dhb__lifecycle-box-header">
-                      <h4 className="dhb__lifecycle-box-title">Cọc & thu tiền</h4>
-                      <span className={`dhb__lifecycle-badge ${isCocDone ? "dhb__lifecycle-badge--done" : "dhb__lifecycle-badge--active"}`}>
-                        {isCocDone ? "ĐỦ CỌC" : "CHỜ CỌC"}
+                      <h4 className="dhb__lifecycle-box-title">Cọc &amp; thu tiền</h4>
+                      <span className={`dhb__lifecycle-badge ${isCocDone ? "dhb__lifecycle-badge--done" : !isChotDone ? "dhb__lifecycle-badge--upcoming" : "dhb__lifecycle-badge--active"}`}>
+                        {!isChotDone ? "CHƯA TỚI" : isCocDone ? "ĐỦ CỌC" : "CHỜ CỌC"}
                       </span>
                     </div>
                     <div className="dhb__stat-trio">
@@ -623,15 +644,73 @@ function OrderDrawer({
                         ))}
                       </div>
                     )}
-                    {order.deposits.length === 0 && isDraft && (
+                    {order.deposits.length === 0 && (
                       <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--ash-2)" }}>Chưa có phiếu thu cọc nào.</p>
                     )}
-                    {canRecordDeposit && isDraft && <DepositForm order={order} onSaved={onSaved} />}
-                    {!isDraft && <p style={{ color: "var(--ash)", fontSize: 12, marginTop: 4, margin: 0 }}>Đơn đã chốt — phiếu thu khóa.</p>}
+                    {!isChotDone ? (
+                      <p style={{ color: "var(--ash)", fontSize: 12, margin: "4px 0 0" }}>
+                        Đơn phải CHỐT (đủ thông tin) trước — sau chốt kế toán thu cọc ở bước này.
+                      </p>
+                    ) : isCocDone ? (
+                      <p style={{ color: "var(--moss-deep)", fontSize: 12, margin: "4px 0 0" }}>
+                        Đã đủ cọc — Sale chuyển đơn xuống sản xuất ở bước “Sản xuất”.
+                      </p>
+                    ) : canRecordDeposit ? (
+                      <DepositForm order={order} onSaved={onSaved} />
+                    ) : (
+                      <p style={{ color: "var(--ash)", fontSize: 12, margin: "4px 0 0" }}>Chờ kế toán thu cọc.</p>
+                    )}
                   </div>
                 )}
  
  
+                {activeStep === "sanxuat" && (
+                  <div className="dhb__lifecycle-box">
+                    <div className="dhb__lifecycle-box-header">
+                      <h4 className="dhb__lifecycle-box-title">Sản xuất</h4>
+                      <span className={`dhb__lifecycle-badge ${sxDone ? "dhb__lifecycle-badge--done" : sxReleased ? "dhb__lifecycle-badge--active" : "dhb__lifecycle-badge--upcoming"}`}>
+                        {sxText.toUpperCase()}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 4 }}>
+                      {order.status !== "ordered" ? (
+                        <p style={{ color: "var(--ash)", fontSize: 12, margin: 0 }}>Đơn phải chốt trước mới chuyển xuống sản xuất được.</p>
+                      ) : !sxReleased ? (
+                        order.deposit_ok ? (
+                          <ReleaseSXButton order={order} canUpdate={canUpdate} onSaved={onSaved} />
+                        ) : (
+                          <p style={{ color: "var(--amber-deep)", fontSize: 12, margin: 0 }}>
+                            Chờ kế toán thu đủ cọc (bước “Cọc”) — đủ cọc rồi mới bật nút “Chuyển xuống sản xuất”.
+                          </p>
+                        )
+                      ) : (
+                        <div style={{ display: "grid", gap: 4 }}>
+                          <KV k="Trạng thái" v={sxText} />
+                          <KV k="Chuyển lúc" v={<span className="dhb__mono">{fmtDate(order.san_xuat_released_at)}</span>} />
+                          {activeLenhs.length > 0 && (
+                            <KV k="Lệnh SX" v={`${activeLenhs.filter((l) => l.trang_thai === "xong").length}/${activeLenhs.length} lệnh xong`} />
+                          )}
+                          <p style={{ color: "var(--ash)", fontSize: 12, margin: "2px 0 0" }}>
+                            {sxState === "cho_kh"
+                              ? "Đang chờ Kế hoạch lên lệnh & phát hành."
+                              : sxState === "chay"
+                              ? "Xưởng đang chạy — bước này XONG khi nhập kho thành phẩm."
+                              : "Đã nhập kho thành phẩm — sản xuất hoàn tất."}
+                          </p>
+                          <button
+                            type="button"
+                            className="link dhb__mono"
+                            style={{ color: "var(--rust)", background: "none", border: 0, padding: 0, cursor: "pointer", fontWeight: 600, justifySelf: "start" }}
+                            onClick={() => navigate?.("ke-hoach-sx")}
+                          >
+                            Mở bàn Kế hoạch sản xuất ↗
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {activeStep === "giao" && (
                   <div className="dhb__lifecycle-box dhb__lifecycle-box--dotted">
                     <div className="dhb__lifecycle-box-header">
@@ -824,6 +903,115 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+// D3: Sale đổi GẤP / lưu ý SX SAU khi đơn đã CHỐT (đơn khóa sửa) → đường hẹp production-hint →
+// backend broadcast → bàn Kế hoạch "ting" (badge nhảy). Chỉ 2 field, không đụng phần còn lại của đơn.
+function ProductionHintEditor({ order, onSaved }: { order: OrderDetail; onSaved: (d: OrderDetail) => void }) {
+  const { token } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [isRush, setIsRush] = useState(order.is_rush);
+  const [note, setNote] = useState(order.production_note ?? "");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const dirty = isRush !== order.is_rush || note.trim() !== (order.production_note ?? "");
+
+  async function save() {
+    if (!token) return;
+    setSaving(true);
+    setErr(null);
+    try {
+      const d = await api.orders.updateProductionHint(token, order.id, {
+        is_rush: isRush,
+        production_note: note.trim(),
+      });
+      onSaved(d);
+      setSaved(true);
+      setOpen(false);
+    } catch (e: unknown) {
+      setErr(String((e as Error)?.message ?? e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Section title="Lưu ý sản xuất (gửi xưởng)">
+      {!open ? (
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            {order.is_rush ? <Chip icon="bell" label="GẤP" tone="rush" /> : null}
+            <span style={{ fontSize: 13, color: order.production_note ? "var(--ink)" : "var(--ash)" }}>
+              {order.production_note || "Chưa có lưu ý gửi xưởng"}
+            </span>
+          </div>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            style={{ padding: "4px 12px", fontSize: 12, flex: "none" }}
+            onClick={() => { setIsRush(order.is_rush); setNote(order.production_note ?? ""); setSaved(false); setOpen(true); }}
+          >
+            Sửa
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 8 }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+            <input type="checkbox" checked={isRush} onChange={(e) => setIsRush(e.target.checked)} />
+            <span>Đánh dấu <strong>GẤP</strong> — ưu tiên ở xưởng</span>
+          </label>
+          <textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Lưu ý cho xưởng in (vd: in test màu trước, giấy khách ứng…)"
+            className="dhb__input"
+            style={{ minHeight: 60, resize: "vertical" }}
+          />
+          {err && <div className="banner banner--error">{err}</div>}
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button className="btn btn--ghost" onClick={() => setOpen(false)} disabled={saving}>Đóng</button>
+            <button className="btn btn--primary" onClick={save} disabled={saving || !dirty}>
+              {saving ? "Đang lưu…" : "Lưu & báo xưởng"}
+            </button>
+          </div>
+        </div>
+      )}
+      {saved && !open ? (
+        <p style={{ margin: "2px 0 0", fontSize: 12, color: "var(--moss, #2f5d3a)" }}>
+          Đã cập nhật — bàn kế hoạch nhận ngay.
+        </p>
+      ) : null}
+    </Section>
+  );
+}
+
+// Handoff: Sale "Chuyển xuống sản xuất" — đơn đã chốt (đủ cọc) → vào hàng chờ Kế hoạch (người quyết).
+function ReleaseSXButton({ order, canUpdate, onSaved }: { order: OrderDetail; canUpdate: boolean; onSaved: (d: OrderDetail) => void }) {
+  const { token } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  async function go() {
+    if (!token) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      onSaved(await api.orders.releaseProduction(token, order.id));
+    } catch (e: unknown) {
+      setErr(e instanceof ApiError ? e.message : String((e as Error)?.message ?? e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <p style={{ color: "var(--ash)", fontSize: 12, margin: 0 }}>Đơn đã chốt &amp; đủ cọc — đẩy vào hàng chờ Kế hoạch sản xuất.</p>
+      {err && <div className="banner banner--error">{err}</div>}
+      <button className="btn btn--primary" onClick={go} disabled={busy || !canUpdate} style={{ justifySelf: "start" }}>
+        {busy ? "Đang chuyển…" : "Chuyển xuống sản xuất →"}
+      </button>
+    </div>
+  );
+}
+
 function KV({ k, v, right }: { k: string; v: React.ReactNode; right?: boolean }) {
   return (
     <div className="dhb__kv" style={{ justifyContent: right ? "space-between" : undefined }}>
@@ -843,6 +1031,8 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   const [contactPhone, setContactPhone] = useState(order.delivery_contact_phone ?? "");
   const [pickedContactId, setPickedContactId] = useState("");
   const [contacts, setContacts] = useState<CustomerContact[]>([]);
+  const [pickedAddrId, setPickedAddrId] = useState("");
+  const [addresses, setAddresses] = useState<CustomerAddress[]>([]);
   const [deliveryNote, setDeliveryNote] = useState(order.delivery_note ?? "");
   const [productionNote, setProductionNote] = useState(order.production_note ?? "");
   const [isRush, setIsRush] = useState(order.is_rush);
@@ -853,11 +1043,28 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Xổ danh bạ khách để Sale chọn nhanh người nhận (không auto-chọn liên hệ chính).
+  // Xổ danh bạ + điểm giao của khách → AUTO-FILL người liên hệ CHÍNH + địa chỉ MẶC ĐỊNH khi ô đang
+  // trống (đơn chưa có sẵn). Vẫn cho Sale đổi/sửa tay. Không đè giá trị đã lưu trên đơn.
   useEffect(() => {
     if (!token || order.customer_id == null) return;
-    api.customers.contacts(token, order.customer_id).then((r) => setContacts(r.items)).catch(() => {});
-  }, [token, order.customer_id]);
+    api.customers.contacts(token, order.customer_id).then((r) => {
+      setContacts(r.items);
+      const primary = r.items.find((c) => c.is_primary) ?? r.items[0];
+      if (primary && !order.delivery_contact_name && !order.delivery_contact_phone) {
+        setContactName((v) => v || primary.name);
+        setContactPhone((v) => v || (primary.phone ?? ""));
+        setPickedContactId(String(primary.id));
+      }
+    }).catch(() => {});
+    api.customers.addresses(token, order.customer_id).then((r) => {
+      setAddresses(r.items);
+      const def = r.items.find((a) => a.is_default) ?? r.items[0];
+      if (def && !order.delivery_address) {
+        setAddr((v) => v || def.address);
+        setPickedAddrId(String(def.id));
+      }
+    }).catch(() => {});
+  }, [token, order.customer_id, order.delivery_contact_name, order.delivery_contact_phone, order.delivery_address]);
 
   // Chọn 1 liên hệ trong danh bạ → điền tên + SĐT (vẫn cho sửa tay 2 ô bên dưới).
   function pickContact(id: string) {
@@ -867,6 +1074,13 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
       setContactName(c.name);
       setContactPhone(c.phone ?? "");
     }
+  }
+
+  // Chọn 1 điểm giao đã lưu → điền địa chỉ (vẫn sửa tay được).
+  function pickAddress(id: string) {
+    setPickedAddrId(id);
+    const a = addresses.find((x) => String(x.id) === id);
+    if (a) setAddr(a.address);
   }
 
   async function save() {
@@ -901,6 +1115,18 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
       <Field label="Số PO khách"><input value={po} onChange={(e) => setPo(e.target.value)} className="dhb__input" /></Field>
       <Field label="% cọc"><input type="number" min={0} max={100} value={depositPct} onChange={(e) => setDepositPct(e.target.value)} placeholder="vd 30" className="dhb__input" /></Field>
       <Field label="Ngày giao cam kết"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="dhb__input" /></Field>
+      {addresses.length > 0 && (
+        <Field label="Chọn điểm giao của khách">
+          <select value={pickedAddrId} onChange={(e) => pickAddress(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
+            <option value="">— Chọn điểm giao —</option>
+            {addresses.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.label}{a.address ? ` · ${a.address}` : ""}{a.is_default ? " (mặc định)" : ""}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
       <Field label="Địa chỉ giao"><input value={addr} onChange={(e) => setAddr(e.target.value)} className="dhb__input" /></Field>
       {contacts.length > 0 && (
         <Field label="Chọn người nhận từ danh bạ khách">

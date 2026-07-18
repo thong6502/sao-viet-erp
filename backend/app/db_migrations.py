@@ -2161,6 +2161,18 @@ def _migrate_department_la_san_xuat(db: Session) -> None:
     db.commit()
 
 
+def _migrate_order_san_xuat_released(db: Session) -> None:
+    """Handoff Đơn→Kế hoạch: thêm `orders.san_xuat_released_at` (TIMESTAMP nullable). Sale bấm
+    'Chuyển xuống sản xuất' (SAU chốt, đủ cọc) mới set → đơn mới vào hàng chờ kế hoạch (người quyết).
+    Nullable nên không cần default. No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "orders" not in insp.get_table_names():
+        return
+    if "san_xuat_released_at" not in _existing_columns(insp, "orders"):
+        db.execute(text("ALTER TABLE orders ADD COLUMN san_xuat_released_at TIMESTAMP"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2252,6 +2264,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0075_salary_advance_code", _migrate_salary_advance_code),
     # Nhánh Kế hoạch/LSX (accounting-wip): cờ phòng sản xuất. Khác CHUỖI id nên không đụng 0075 ở trên.
     ("0075_department_la_san_xuat", _migrate_department_la_san_xuat),
+    # Handoff Đơn→Kế hoạch: Sale 'Chuyển xuống sản xuất' (sau chốt) → đơn vào hàng chờ.
+    ("0078_order_san_xuat_released", _migrate_order_san_xuat_released),
 ]
 
 

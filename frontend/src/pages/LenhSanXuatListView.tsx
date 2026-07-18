@@ -1,11 +1,19 @@
 // MASTER của "Kế hoạch sản xuất" — danh sách LỆNH SẢN XUẤT. Bấm dòng → detail lệnh.
 // API record-only (máy chỉ ghi): list trả ID mềm (đơn/ấn phẩm/máy) → resolve tên qua danh mục
 // (orders · máy) như PTG resolve giấy/máy. Lọc trạng thái + search client-side (bám PhieuTinhGiaListView).
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, ApiError, type LenhSXRow, type OrderRow } from "../api/client";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  api,
+  ApiError,
+  connectQuoteEvents,
+  type HangChoDon,
+  type LenhSXRow,
+  type OrderRow,
+} from "../api/client";
 import { mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { StatusTabs } from "../components/StatusTabs";
+import { ToastStack, useToasts } from "./LsxToast";
 import "./lenh-san-xuat.css";
 
 // Trạng thái lệnh (suy ra ở BE, record-only) → nhãn + biến thể badge (màu app).
@@ -27,6 +35,26 @@ function fmtDate(v: string | null | undefined): string {
   return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("vi-VN");
 }
 
+// Đếm ngược hạn giao → nhãn + mức khẩn (đổi màu). Máy CHỈ trình bày theo data, không phán.
+function hanGiao(v: string | null | undefined): { label: string; level: "over" | "soon" | "ok" } | null {
+  if (!v) return null;
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return null;
+  const today = new Date();
+  const day = 86400000;
+  const diff = Math.round(
+    (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) -
+      Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) / day,
+  );
+  if (diff < 0) return { label: `Quá hạn ${-diff} ngày`, level: "over" };
+  if (diff === 0) return { label: "Hạn hôm nay", level: "over" };
+  if (diff <= 3) return { label: `Còn ${diff} ngày`, level: "soon" };
+  return { label: `Còn ${diff} ngày`, level: "ok" };
+}
+
+const anPhamLabel = (id: number | null): string =>
+  id ? `Ấn phẩm #${id}` : "— chưa gắn ấn phẩm";
+
 export function LenhSanXuatListView({
   onOpen,
   onGhep,
@@ -35,14 +63,17 @@ export function LenhSanXuatListView({
   onGhep: () => void;
 }) {
   const { token } = useAuth();
+  const { toasts, ok: toastOk, err: toastErr, dismiss: toastDismiss } = useToasts();
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   const [items, setItems] = useState<LenhSXRow[]>([]);
   const [orders, setOrders] = useState<Map<number, OrderRow>>(new Map());
   const [mays, setMays] = useState<Map<number, Row>>(new Map());
+  const [hangCho, setHangCho] = useState<HangChoDon[]>([]);
+  const [bungBusy, setBungBusy] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState("all");
+  const [statusFilter, setStatusFilter] = useState("cho_kh");
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim().toLowerCase()), 200);
@@ -57,11 +88,13 @@ export function LenhSanXuatListView({
       api.lenhSanXuat.list(token, {}),
       api.orders.list(token, { size: 200 }).catch(() => ({ items: [] as OrderRow[] })),
       mayThietBi.list(token).catch(() => ({ items: [] as Row[] })),
+      api.lenhSanXuat.hangCho(token).catch(() => [] as HangChoDon[]),
     ])
-      .then(([lenh, ord, may]) => {
+      .then(([lenh, ord, may, hc]) => {
         setItems(lenh.items);
         setOrders(new Map(ord.items.map((o) => [o.id, o])));
         setMays(new Map(may.items.map((m) => [m.id, m])));
+        setHangCho(hc);
       })
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Không tải được danh sách lệnh sản xuất."),
@@ -71,6 +104,42 @@ export function LenhSanXuatListView({
   useEffect(() => {
     load();
   }, [load]);
+
+  // Real-time handoff: đơn chốt 'bắn xuống' hàng chờ; Sale đổi gấp/lưu ý sau chốt → badge nhảy + toast.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  useEffect(() => {
+    if (!token) return;
+    return connectQuoteEvents(token, (e) => {
+      if (e.type === "order_ordered") {
+        loadRef.current();
+        toastOk("🔔 Đơn mới chờ lên kế hoạch");
+      } else if (e.type === "order_sx_hint_changed") {
+        loadRef.current();
+        toastOk(e.is_rush ? "⚡ Một đơn vừa chuyển GẤP" : "Cập nhật lưu ý sản xuất");
+      }
+    });
+  }, [token, toastOk]);
+
+  // Kế hoạch NHẬN đơn: bung (idempotent) → lệnh nháp; rời hàng chờ, nhảy sang tab Nháp.
+  const doBung = useCallback(
+    async (orderId: number, orderNo: string) => {
+      if (!token || bungBusy != null) return;
+      setBungBusy(orderId);
+      try {
+        const lenhs = await api.lenhSanXuat.bung(token, orderId);
+        setHangCho((hc) => hc.filter((x) => x.order_id !== orderId));
+        toastOk(`Đã lên kế hoạch ${orderNo} — ${lenhs.length} lệnh nháp`);
+        setStatusFilter("nhap");
+        load();
+      } catch (e) {
+        toastErr(e instanceof ApiError ? e.message : "Không lên kế hoạch được đơn này.");
+      } finally {
+        setBungBusy(null);
+      }
+    },
+    [token, bungBusy, load, toastOk, toastErr],
+  );
 
   const mayName = useCallback(
     (id: number | null): string | null => {
@@ -110,6 +179,16 @@ export function LenhSanXuatListView({
 
   const count = (tt: string) => items.filter((r) => r.trang_thai === tt).length;
 
+  const hcFiltered = useMemo(() => {
+    if (!debouncedQ) return hangCho;
+    return hangCho.filter((h) =>
+      [h.order_no, h.khach ?? "", h.an_pham.map((a) => a.description).join(" ")]
+        .join(" ")
+        .toLowerCase()
+        .includes(debouncedQ),
+    );
+  }, [hangCho, debouncedQ]);
+
   return (
     <main className="lsx">
       <header className="lsx-head">
@@ -146,6 +225,7 @@ export function LenhSanXuatListView({
       <div className="lsx-tabrow">
         <StatusTabs
           tabs={[
+            { key: "cho_kh", label: "Chờ lên kế hoạch", count: hangCho.length },
             { key: "all", label: "Tất cả", count: items.length },
             { key: "dang_chay", label: "Đang chạy", count: count("dang_chay") },
             { key: "nhap", label: "Nháp", count: count("nhap") },
@@ -171,6 +251,85 @@ export function LenhSanXuatListView({
         </div>
       ) : null}
 
+      {statusFilter === "cho_kh" ? (
+        loading ? (
+          <div className="lsx-msg" style={{ padding: "var(--sp-6)" }}>Đang tải dữ liệu…</div>
+        ) : hcFiltered.length === 0 ? (
+          <div className="lsx-empty">
+            <InboxIcon />
+            <p className="lsx-empty__title">
+              {debouncedQ ? "Không có đơn chờ phù hợp." : "Chưa có đơn nào chờ lên kế hoạch."}
+            </p>
+            <p className="lsx-empty__sub">
+              Đơn bán vừa được chốt sẽ hiện ở đây (real-time) để kế hoạch bấm “Lên kế hoạch”.
+            </p>
+          </div>
+        ) : (
+          <ul className="lsx-hc">
+            {hcFiltered.map((hc) => {
+              const due = hanGiao(hc.delivery_committed_date);
+              return (
+                <li key={hc.order_id} className={`lsx-hc__card${hc.is_rush ? " is-rush" : ""}`}>
+                  <div className="lsx-hc__top">
+                    <div className="lsx-hc__idline">
+                      <span className="lsx-code">{hc.order_no}</span>
+                      {hc.is_rush ? (
+                        <span className="lsx-badge lsx-badge--danger">
+                          <span className="lsx-badge__d" /> GẤP
+                        </span>
+                      ) : null}
+                    </div>
+                    {due ? (
+                      <span className={`lsx-due lsx-due--${due.level}`}>
+                        <ClockIcon /> {due.label}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="lsx-hc__cust">{hc.khach ?? "— khách chưa gán"}</div>
+                  {hc.production_note ? (
+                    <div className="lsx-hc__note">
+                      <NoteIcon />
+                      <span>{hc.production_note}</span>
+                    </div>
+                  ) : null}
+                  <ul className="lsx-hc__aps">
+                    {hc.an_pham.map((a, i) => (
+                      <li key={i} className="lsx-hc__ap">
+                        <span className="lsx-hc__apname">
+                          {a.description || anPhamLabel(a.phieu_thanh_phan_id)}
+                        </span>
+                        <span className="lsx-hc__apqty mono">
+                          {a.qty.toLocaleString("vi-VN")} {a.don_vi_tinh}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="lsx-hc__foot">
+                    <span className="lsx-hc__apcount">
+                      {hc.an_pham.length} ấn phẩm → {hc.an_pham.length} lệnh
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn--primary lsx-hc__btn"
+                      disabled={bungBusy != null}
+                      onClick={() => doBung(hc.order_id, hc.order_no)}
+                    >
+                      {bungBusy === hc.order_id ? (
+                        "Đang lên kế hoạch…"
+                      ) : (
+                        <>
+                          <ArrowDownIcon /> Lên kế hoạch
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )
+      ) : (
+      <>
       <div className="lsx-tablewrap">
         <table className="lsx-table">
           <thead>
@@ -202,8 +361,8 @@ export function LenhSanXuatListView({
                         : "Chưa có lệnh sản xuất nào."}
                     </p>
                     <p className="lsx-empty__sub">
-                      Lệnh sản xuất được đề tự động khi một đơn hàng bán được chốt (mỗi ấn phẩm = 1
-                      lệnh).
+                      Đơn đã chốt hiện ở tab “Chờ lên kế hoạch” — bấm “Lên kế hoạch” để đề lệnh (mỗi
+                      ấn phẩm = 1 lệnh).
                     </p>
                   </div>
                 </td>
@@ -293,6 +452,10 @@ export function LenhSanXuatListView({
           {filtered.length} lệnh trong bộ lọc hiện tại · tổng {items.length} lệnh.
         </p>
       ) : null}
+      </>
+      )}
+
+      <ToastStack toasts={toasts} onDismiss={toastDismiss} />
     </main>
   );
 }
@@ -333,5 +496,23 @@ const PlusLayersIcon = () => (
     <path d="m12 3 9 5-9 5-9-5 9-5Z" />
     <path d="m3 13 9 5 5-2.8" />
     <path d="M18 14v6M15 17h6" />
+  </svg>
+);
+const NoteIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M15.5 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L15.5 3Z" />
+    <path d="M15 3v5h5M8.5 12.5h7M8.5 16h5" />
+  </svg>
+);
+const ArrowDownIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 4.5v13M6.5 12 12 17.5 17.5 12" />
+  </svg>
+);
+const InboxIcon = () => (
+  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="lsx-empty__icon" aria-hidden="true">
+    <path d="M4 13.5 6.5 6h11L20 13.5" />
+    <path d="M4 13.5V19a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5.5" />
+    <path d="M4 13.5h4l1.5 2.2h5L16 13.5h4" />
   </svg>
 );

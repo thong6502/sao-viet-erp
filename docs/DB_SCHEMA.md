@@ -714,6 +714,7 @@ data. Duyệt bản in + tiến độ SX = luồng NGOÀI hệ thống (không l
 | `approval_state` | `String(16)` → `VARCHAR(16)` | — | no | `none` | Trình-duyệt ∈ {none, pending, approved, rejected}. |
 | `ordered_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Đóng dấu lúc chốt đơn (P4). |
 | `ordered_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người chốt đơn. |
+| `san_xuat_released_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Sale bấm "Chuyển xuống sản xuất" (sau chốt, đủ cọc) → đơn vào hàng chờ kế hoạch. NULL = chưa chuyển (migration `0078`). |
 | `cancel_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người hủy đơn. |
 | `cancel_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm hủy. |
 | `cancel_fault` | `String(16)` → `VARCHAR(16)` | — | yes | — | Lỗi tại ai khi hủy ∈ {khach, xuong}. |

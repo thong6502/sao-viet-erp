@@ -249,7 +249,7 @@ export function AppShell() {
         );
         reloadBadges();
       } else if (readable.has("don_hang_ban") && e.type === "order_deposit_ok") {
-        pushToast(`🔔 Đơn ${e.code} đã đủ cọc — chốt được rồi`, "info");
+        pushToast(`🔔 Đơn ${e.code} đã đủ cọc — chuyển xuống sản xuất được rồi`, "info");
         reloadBadges();
       } else if (readable.has("don_hang_ban") && e.type === "order_pending_changed") {
         // Danh sách 'chờ (duyệt/ghi cọc/chốt)' đổi → refetch số theo vai; toast khi số 'chờ TÔI' TĂNG.

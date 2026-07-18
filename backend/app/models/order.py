@@ -162,6 +162,13 @@ class Order(Base):
         Integer, ForeignKey("users.id"), nullable=True
     )
 
+    # --- Chuyển xuống sản xuất (handoff Đơn→Kế hoạch) ---------------------------
+    # Sale bấm "Chuyển xuống sản xuất" (sau chốt, đủ cọc) → set mốc → đơn vào HÀNG CHỜ kế hoạch.
+    # Người QUYẾT (không auto khi chốt); NULL = chưa chuyển.
+    san_xuat_released_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # --- Hủy (P5) ---------------------------------------------------------------
     cancel_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     cancelled_at_state: Mapped[str | None] = mapped_column(String(16), nullable=True)  # dormant

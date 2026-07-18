@@ -679,3 +679,127 @@
     border-radius: 0;
   }
 }
+
+/* ===== B3: Cọc đơn hàng chờ ghi (hàng chờ + popup + lập cọc trong module Phiếu thu) ===== */
+.odq {
+  margin: 0 0 16px;
+  border: 1px solid var(--rust-soft, #f4ddcf);
+  background: var(--rust-wash, #fdf6f1);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+.odq__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.odq__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--ink, #2a2723);
+  font-size: 14px;
+}
+.odq__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--rust, #c5400a);
+}
+.odq__count {
+  min-width: 20px;
+  text-align: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--rust, #c5400a);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.odq__hint {
+  font-size: 12px;
+  color: var(--ash, #8a8578);
+}
+.odq__empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--ash-2, #a8a291);
+}
+.odq__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.odq__row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 10px 12px;
+  background: var(--paper, #fff);
+  border: 1px solid var(--rule-soft, #ece7de);
+  border-radius: 10px;
+}
+.odq__lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 220px;
+  flex: 1;
+}
+.odq__code {
+  font-family: var(--ff-mono, ui-monospace, monospace);
+  font-weight: 700;
+  color: var(--rust-deep, #8a2d07);
+}
+.odq__rush {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--signal, #8a1f1f);
+  background: var(--signal-soft, #f6e4e4);
+  padding: 1px 7px;
+  border-radius: 999px;
+}
+.odq__cust {
+  color: var(--ink, #2a2723);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.odq__money {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--ash, #8a8578);
+}
+.odq__money b {
+  color: var(--ink, #2a2723);
+}
+.odq__got {
+  color: var(--moss-deep, #2f5d3a);
+}
+.odq__lack {
+  color: var(--amber-deep, #9c7714);
+}
+.odq__btn {
+  flex: none;
+  padding: 7px 14px;
+  font-size: 13px;
+}
+@media (max-width: 640px) {
+  .odq__row {
+    align-items: flex-start;
+  }
+  .odq__btn {
+    width: 100%;
+  }
+}

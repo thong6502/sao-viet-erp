@@ -39,7 +39,7 @@ from ..models.lenh_san_xuat import (
     PrintForm,
     RoutingStep,
 )
-from ..models.order import STATUS_CANCELLED, Order
+from ..models.order import STATUS_CANCELLED, STATUS_ORDERED, Order
 from ..models.user import User
 from ..repositories.lenh_san_xuat_repo import LenhSanXuatRepository
 from ..repositories.rbac_repo import DepartmentRepository
@@ -146,6 +146,8 @@ class LenhSanXuatService:
             raise LenhSXNotFound("Không tìm thấy đơn hàng")
         if order.status == STATUS_CANCELLED:
             raise LenhSXConflict("Đơn đã hủy — không đề lệnh sản xuất")
+        if order.status != STATUS_ORDERED:
+            raise LenhSXConflict("Đơn chưa chốt — chưa thể lên kế hoạch sản xuất")
 
         da_co = self.repo.ptp_ids_with_lenh(order_id)
         created: list[LenhSanXuat] = []
@@ -163,6 +165,41 @@ class LenhSanXuatService:
             created.append(lenh)
             da_co.add(ptp_id)
         return created
+
+    def hang_cho(self) -> list[dict]:
+        """Đơn ĐÃ CHỐT chờ lên kế hoạch (handoff §5.1) — MÁY CHỈ liệt kê; người kế hoạch bấm 'Lên kế
+        hoạch' (= bung) để đề lệnh. Kèm ngữ cảnh đơn (gấp/hạn/khách/lưu ý SX) + các ấn phẩm sẽ đề lệnh.
+        Đọc sống từ Đơn (không chép). Batch 3 truy vấn: đơn · tên khách · dòng đơn."""
+        orders = self.repo.orders_waiting_for_planning()
+        if not orders:
+            return []
+        cust_ids = [o.customer_id for o in orders if o.customer_id is not None]
+        names = self.repo.customer_names_by_ids(cust_ids)
+        lines_by_order: dict[int, list] = {}
+        for ln in self.repo.order_lines_by_order_ids([o.id for o in orders]):
+            if ln.phieu_thanh_phan_id is None:
+                continue  # dòng nhập tay không ra ấn phẩm → không đề lệnh
+            lines_by_order.setdefault(ln.order_id, []).append(ln)
+        return [
+            {
+                "order_id": o.id,
+                "order_no": o.order_no,
+                "khach": names.get(o.customer_id) if o.customer_id else None,
+                "is_rush": o.is_rush,
+                "delivery_committed_date": o.delivery_committed_date,
+                "production_note": o.production_note,
+                "an_pham": [
+                    {
+                        "phieu_thanh_phan_id": ln.phieu_thanh_phan_id,
+                        "description": ln.description,
+                        "qty": ln.qty,
+                        "don_vi_tinh": ln.don_vi_tinh,
+                    }
+                    for ln in lines_by_order.get(o.id, [])
+                ],
+            }
+            for o in orders
+        ]
 
     # ============ Routing riêng mỗi lệnh (§13.2): copy từ job spec + kế hoạch sửa ============
     def _copy_routing_from_ptp(self, lenh_id: int, ptp_id: int | None) -> None:

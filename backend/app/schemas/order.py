@@ -134,6 +134,13 @@ class OrderUpdate(BaseModel):
     is_rush: bool | None = None
 
 
+class OrderProductionHintIn(BaseModel):
+    """Sale đổi 'hint sản xuất' (gấp / lưu ý SX) SAU khi đơn đã CHỐT — đường hẹp DUY NHẤT được sửa khi
+    status=ordered (`OrderUpdate` khóa nháp). Field None = giữ nguyên; production_note="" = xoá lưu ý."""
+    is_rush: bool | None = None
+    production_note: str | None = None
+
+
 # --- Đọc -----------------------------------------------------------------------
 class OrderRow(BaseModel):
     id: int
@@ -210,6 +217,8 @@ class OrderDetailOut(OrderRow):
     can_confirm: bool = False
     confirm_blockers: list[str] = []
     quote_expired: bool = False   # Việc 4: báo giá nguồn accepted đã hết hạn → FE bật nút "Gia hạn"
+    # Handoff Đơn→Kế hoạch: mốc Sale "Chuyển xuống sản xuất" (NULL = chưa chuyển).
+    san_xuat_released_at: datetime | None = None
 
 
 class OrderActivityItem(BaseModel):

@@ -18,6 +18,7 @@ import { Icon } from "../components/Icons";
 import { VOUCHER_PAGE_LABEL } from "../constants/features";
 import { fmtDate, fmtDateTime, money, originalMoney } from "../utils/format";
 import { printTT200 } from "../utils/printTT200";
+import { OrderDepositQueue } from "./OrderDepositQueue";
 import { PaymentReceiptDialog } from "./PaymentReceiptDialog";
 import "./accounting.css";
 import "./purchase.css";
@@ -86,6 +87,8 @@ export function PaymentReceiptsPage({
   const canMarkReceived = can("ke_toan", "manage_status");
   const canCancel = can("ke_toan", "cancel");
   const canExport = can("ke_toan", "export");
+  // B3: quyền "Ghi phiếu thu cọc" (module Đơn hàng bán) — chỉ người này thấy hàng chờ + nghe popup cọc.
+  const canRecordDeposit = can("don_hang_ban", "record_deposit");
   const [rows, setRows] = useState<PaymentReceiptRow[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -371,6 +374,7 @@ export function PaymentReceiptsPage({
           {error}
         </div>
       )}
+      {canRecordDeposit && <OrderDepositQueue />}
       <section className="acct-toolbar">
         <form
           className="md-page__search"

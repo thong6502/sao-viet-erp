@@ -192,7 +192,6 @@ class OrderService:
         blockers: list[str] = []
         if order.status != STATUS_DRAFT:
             return False, ["Đơn không ở trạng thái nháp"]
-        m = self._money(order)
         # (a) báo giá còn duyệt & còn hạn (chỉ nguồn báo giá)
         if order.source_type == SOURCE_BAO_GIA:
             quote = self.quotations.get_by_id(order.quotation_id) if order.quotation_id else None
@@ -200,9 +199,8 @@ class OrderService:
                 blockers.append("Báo giá chưa được khách đồng ý")
             elif quote.valid_until and quote.valid_until < date.today():
                 blockers.append("Báo giá đã hết hạn — cần báo giá lại")
-        # (b) cọc đủ
-        if not m["deposit_ok"]:
-            blockers.append(f"Cọc chưa đủ (đã thu {m['deposit_received']:,}/{m['deposit_required']:,})")
+        # (b) CỌC KHÔNG còn là cổng chốt — Chốt = chốt THÔNG TIN; thu tiền cọc là bước SAU chốt
+        # (kế toán thu → Sales "Chuyển xuống SX"). Chỉ cần đủ THÔNG TIN dưới đây để chốt.
         # (c) đủ PO + ngày giao
         if not order.customer_po_no:
             blockers.append("Thiếu số PO khách")
@@ -327,6 +325,7 @@ class OrderService:
             can_confirm=can_confirm,
             confirm_blockers=blockers,
             quote_expired=quote_expired,
+            san_xuat_released_at=order.san_xuat_released_at,
         )
 
     # --- reads --------------------------------------------------------------
@@ -572,6 +571,48 @@ class OrderService:
         )
         return self._detail(self.repo.get_with_lines(order_id))
 
+    def update_production_hint(self, *, order_id: int, actor, scope: str, payload) -> OrderDetailOut:
+        """Sale đổi 'hint sản xuất' (gấp / lưu ý SX) SAU khi đơn đã CHỐT — đường HẸP duy nhất được sửa
+        khi `status=ORDERED` (`update()` khóa DRAFT). Chỉ 2 field; realtime tới bàn kế hoạch do router
+        phát. KHÔNG nới `update()` cũ (giữ cổng nháp cho phần còn lại của đơn)."""
+        order = self.repo.get_with_lines(order_id)
+        if order is None or not self.repo.can_access(order=order, scope=scope, actor=actor):
+            raise OrderNotFound("Không tìm thấy đơn hàng")
+        if order.status != STATUS_ORDERED:
+            raise OrderConflict("Chỉ sửa lưu ý sản xuất khi đơn đã chốt")
+        fields: dict = {}
+        if payload.is_rush is not None:
+            fields["is_rush"] = payload.is_rush
+        if payload.production_note is not None:
+            fields["production_note"] = payload.production_note
+        if fields:
+            self.repo.update(order, **fields)
+        self.audit.create(
+            actor_user_id=actor.id, action="update_production_hint",
+            target=f"order:{order.id}", detail=f"Cập nhật lưu ý SX đơn {order.order_no}",
+        )
+        return self._detail(self.repo.get_with_lines(order_id))
+
+    def release_production(self, *, order_id: int, actor, scope: str) -> OrderDetailOut:
+        """Sale "Chuyển xuống sản xuất" — đơn đã CHỐT (cọc đủ theo cổng chốt) → set mốc release →
+        đơn vào HÀNG CHỜ kế hoạch. NGƯỜI QUYẾT (không auto khi chốt). Idempotent: đã release → giữ
+        mốc đầu, bấm lại an toàn."""
+        order = self.repo.get_by_id(order_id)
+        if order is None or not self.repo.can_access(order=order, scope=scope, actor=actor):
+            raise OrderNotFound("Không tìm thấy đơn hàng")
+        if order.status != STATUS_ORDERED:
+            raise OrderConflict("Chỉ chuyển sản xuất đơn đã chốt")
+        if not self._money(order)["deposit_ok"]:
+            raise OrderConflict("Chưa đủ cọc — kế toán thu đủ cọc rồi mới chuyển sản xuất")
+        if order.san_xuat_released_at is None:
+            order.san_xuat_released_at = datetime.now(timezone.utc)
+            self.db.commit()
+            self.audit.create(
+                actor_user_id=actor.id, action="release_production",
+                target=f"order:{order.id}", detail=f"Chuyển đơn {order.order_no} xuống sản xuất",
+            )
+        return self._detail(self.repo.get_with_lines(order_id))
+
     def extend_source_quote(self, *, order_id: int, actor, scope: str) -> OrderDetailOut:
         """Việc 4 — Gia hạn báo giá NGUỒN ngay từ đơn (gỡ blocker 'báo giá hết hạn' ở cổng chốt).
         Gộp vào luồng đơn, KHÔNG nhảy màn: đặt lại valid_until = hôm nay + 30 ngày (đúng quy ước
@@ -624,15 +665,16 @@ class OrderService:
             "ready_to_confirm": ready_to_confirm,
         }
 
-    # --- Cọc (V5) — Kế toán LẬP PHIẾU THU THẬT từ đơn, chỉ khi đơn còn NHÁP -
+    # --- Cọc (V5) — Kế toán LẬP PHIẾU THU THẬT từ đơn (bước 2, SAU chốt) ------
     def add_deposit_receipt(self, *, order_id: int, actor, scope: str, payload) -> OrderDetailOut:
-        """Kế toán bấm trên drawer đơn → tạo PaymentReceipt(source='don_hang_ban', received) gắn đơn.
-        Chỉ ghi khi đơn còn NHÁP (cọc là cổng TRƯỚC chốt). Quyền gate ở router = record_deposit."""
+        """Kế toán tạo PaymentReceipt(source='don_hang_ban', received) gắn đơn. THU CỌC = BƯỚC 2 SAU
+        chốt (chốt = chốt thông tin; kế toán nhận SSE khi đơn chốt → thu cọc). Cho ghi khi đơn đã CHỐT;
+        chặn hủy. Quyền gate ở router = record_deposit."""
         order = self.repo.get_by_id(order_id)
         if order is None or not self.repo.can_access(order=order, scope=scope, actor=actor):
             raise OrderNotFound("Không tìm thấy đơn hàng")
-        if order.status != STATUS_DRAFT:
-            raise OrderConflict("Đơn đã chốt/hủy — không ghi cọc")
+        if order.status == STATUS_CANCELLED:
+            raise OrderConflict("Đơn đã hủy — không ghi cọc")
         customer_name = None
         if order.customer_id:
             from ..models.customer import Customer

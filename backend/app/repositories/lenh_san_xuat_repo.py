@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models.cong_doan import CongDoan
+from ..models.customer import Customer
 from ..models.lenh_san_xuat import (
     LENH_NHAP,
     PF_CHO_GHEP,
@@ -27,7 +28,7 @@ from ..models.lenh_san_xuat import (
     RoutingStep,
     SanLuong,
 )
-from ..models.order import OrderLine
+from ..models.order import STATUS_ORDERED, Order, OrderLine
 from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan
 
 
@@ -399,3 +400,47 @@ class LenhSanXuatRepository:
             .where(OrderLine.order_id == order_id, OrderLine.phieu_thanh_phan_id == ptp_id)
             .limit(1)
         ).scalar_one_or_none()
+
+    # ================= Handoff: đơn chốt CHỜ lên kế hoạch (§5.1) =================
+    def orders_waiting_for_planning(self) -> list[Order]:
+        """Đơn ĐÃ CHỐT có ≥1 dòng ấn phẩm (`phieu_thanh_phan_id`) mà CHƯA có lệnh nào — hàng chờ để
+        kế hoạch bấm 'Lên kế hoạch' (bung). Đơn đã bung → có lệnh → loại; đơn chỉ toàn dòng nhập tay
+        (ptp NULL) → không hiện (gap đơn-nhập-tay để sau, tránh 'kẹt hàng chờ mãi'). Gấp lên đầu."""
+        have_lenh = select(LenhSanXuat.order_id).distinct().scalar_subquery()
+        have_ptp_line = (
+            select(OrderLine.order_id)
+            .where(OrderLine.phieu_thanh_phan_id.isnot(None))
+            .distinct()
+            .scalar_subquery()
+        )
+        return list(self.db.execute(
+            select(Order)
+            .where(
+                Order.status == STATUS_ORDERED,
+                Order.san_xuat_released_at.isnot(None),  # chỉ đơn Sale ĐÃ "Chuyển xuống SX"
+                Order.id.in_(have_ptp_line),
+                Order.id.notin_(have_lenh),
+            )
+            .order_by(Order.is_rush.desc(), Order.id.desc())
+        ).scalars())
+
+    def order_lines_by_order_ids(self, order_ids: list[int]) -> list[OrderLine]:
+        """Dòng của 1 tập đơn (1 truy vấn) — nuôi ngữ cảnh ấn phẩm cho hàng chờ (tránh N+1)."""
+        if not order_ids:
+            return []
+        return list(self.db.execute(
+            select(OrderLine)
+            .where(OrderLine.order_id.in_(order_ids))
+            .order_by(OrderLine.id.asc())
+        ).scalars())
+
+    def customer_names_by_ids(self, ids: list[int]) -> dict[int, str]:
+        """Tên khách theo id (1 truy vấn) — bám khuôn batch của `order_repo.list()`."""
+        if not ids:
+            return {}
+        return {
+            cid: name
+            for cid, name in self.db.execute(
+                select(Customer.id, Customer.name).where(Customer.id.in_(ids))
+            )
+        }

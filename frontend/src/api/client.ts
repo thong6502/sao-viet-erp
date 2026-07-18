@@ -200,7 +200,13 @@ export type QuoteEvent =
   | { type: "lenh_sx_phat"; form_id: number; lenh_ids: number[] }
   | { type: "lenh_sx_duyet_mau"; lenh_id: number }
   | { type: "lenh_sx_ban_giao"; lenh_id: number; ban_giao_id: number; to_nhan_id: number | null }
-  | { type: "lenh_sx_qc_loi"; lenh_id: number; qc_id: number; to_bi_quy_id: number | null };
+  | { type: "lenh_sx_qc_loi"; lenh_id: number; qc_id: number; to_bi_quy_id: number | null }
+  // Handoff Đơn → bàn Kế hoạch SX: đơn chốt 'bắn xuống' hàng chờ; Sale đổi gấp/lưu ý SAU chốt →
+  // bàn kế hoạch "ting" (badge nhảy). Nội dung chính xác FE refetch hàng chờ / detail.
+  | { type: "order_ordered"; code?: string; order_id: number }
+  | { type: "order_sx_hint_changed"; code?: string; order_id: number; is_rush: boolean }
+  // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
+  | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number };
 
 export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
   let closed = false;
@@ -3120,6 +3126,7 @@ export interface OrderDetail extends OrderRow {
   can_confirm: boolean;
   confirm_blockers: string[];
   quote_expired: boolean;   // Việc 4: báo giá nguồn hết hạn → bật nút "Gia hạn báo giá"
+  san_xuat_released_at: string | null;  // Sale "Chuyển xuống SX" → vào hàng chờ Kế hoạch (NULL=chưa)
 }
 export interface OrderStatsOut {
   all: number;
@@ -3333,6 +3340,22 @@ export interface ToLenh {
   muc_tieu_sl: number;
   tong_dat: number;
   updated_at: string;
+}
+// Handoff (§5.1): đơn đã chốt CHỜ lên kế hoạch — kèm ngữ cảnh để kế hoạch cấu hình.
+export interface HangChoAnPham {
+  phieu_thanh_phan_id: number | null;
+  description: string;
+  qty: number;
+  don_vi_tinh: string;
+}
+export interface HangChoDon {
+  order_id: number;
+  order_no: string;
+  khach: string | null;
+  is_rush: boolean;
+  delivery_committed_date: string | null;
+  production_note: string | null;
+  an_pham: HangChoAnPham[];
 }
 export interface PrintFormListOut {
   items: PrintFormRow[];
@@ -4721,6 +4744,20 @@ export const api = {
         body: JSON.stringify(input),
       });
     },
+    /** Sale đổi hint sản xuất (gấp / lưu ý SX) SAU khi đã chốt — đường hẹp (update() khóa nháp).
+     *  Realtime → bàn Kế hoạch SX "ting". Field bỏ trống = giữ nguyên. */
+    updateProductionHint(
+      token: string, id: number, input: { is_rush?: boolean; production_note?: string },
+    ): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/production-hint`, token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
+    /** Sale "Chuyển xuống sản xuất" — đơn đã chốt (đủ cọc) → vào hàng chờ Kế hoạch. Idempotent. */
+    releaseProduction(token: string, id: number): Promise<OrderDetail> {
+      return authed<OrderDetail>(`/api/orders/${id}/release-production`, token, { method: "POST" });
+    },
     activity(token: string, id: number): Promise<{ items: OrderActivity[] }> {
       return authed(`/api/orders/${id}/activity`, token);
     },
@@ -4886,6 +4923,16 @@ export const api = {
     toTruongXacNhanQc(token: string, qcId: number): Promise<QcDefectRow> {
       return authed<QcDefectRow>(`/api/lenh-sx/qc/${qcId}/to-truong-xac-nhan`, token, {
         method: "POST",
+      });
+    },
+    // --- Handoff (§5.1): đơn chốt chờ kế hoạch → bấm 'Lên kế hoạch' (bung, idempotent). ---
+    hangCho(token: string): Promise<HangChoDon[]> {
+      return authed<HangChoDon[]>(`/api/lenh-sx/hang-cho`, token);
+    },
+    bung(token: string, orderId: number): Promise<LenhSXRow[]> {
+      return authed<LenhSXRow[]>(`/api/lenh-sx/lenh/bung`, token, {
+        method: "POST",
+        body: JSON.stringify({ order_id: orderId }),
       });
     },
   },

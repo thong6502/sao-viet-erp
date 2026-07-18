@@ -6,7 +6,7 @@ truyền vào ghép). Actor (người ghi / người duyệt) LẤY TỪ TOKEN �
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -108,6 +108,26 @@ class LenhListOut(BaseModel):
     total: int
     page: int
     size: int
+
+
+# ---------- Handoff: đơn chốt CHỜ lên kế hoạch (§5.1) ----------
+class HangChoAnPhamOut(BaseModel):
+    """1 ấn phẩm sẽ được đề lệnh khi bấm 'Lên kế hoạch' (dòng đơn có `phieu_thanh_phan_id`)."""
+    phieu_thanh_phan_id: int | None
+    description: str
+    qty: int
+    don_vi_tinh: str
+
+
+class HangChoOut(BaseModel):
+    """1 đơn đã chốt chờ kế hoạch nhận — kèm ngữ cảnh để kế hoạch cấu hình (đọc sống từ Đơn)."""
+    order_id: int
+    order_no: str
+    khach: str | None = None
+    is_rush: bool = False
+    delivery_committed_date: date | None = None
+    production_note: str | None = None
+    an_pham: list[HangChoAnPhamOut] = []
 
 
 class PlacementOut(BaseModel):

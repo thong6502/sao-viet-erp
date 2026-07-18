@@ -332,6 +332,10 @@ export function LenhSanXuatDetailView({
   // Quy cách in gợi nhìn: đọc từ tờ in đầu tiên (job spec — record ở tờ in).
   const firstForm = detail?.forms?.[0] ?? null;
 
+  // Ngữ cảnh đơn (đọc sống từ Đơn) để kế hoạch cấu hình đúng: tên ấn phẩm + SL + gấp + lưu ý SX.
+  const anPhamLine =
+    order?.lines?.find((l) => l.phieu_thanh_phan_id === detail?.phieu_thanh_phan_id) ?? null;
+
   // Chế độ CẤU HÌNH (nháp) ↔ THỰC THI (đang chạy/xong): nháp ẩn khối runtime, hiện nút Phát hành.
   const isConfig = detail?.trang_thai === "nhap";
   const phatTargets = detail
@@ -821,14 +825,49 @@ export function LenhSanXuatDetailView({
                 <div className="lsx-irow"><span className="k">Mã lệnh</span><span className="v mono">{maLenh(id)}</span></div>
                 <div className="lsx-irow"><span className="k">Đơn hàng</span><span className="v mono">{order?.order_no ?? `#${detail.order_id}`}</span></div>
                 <div className="lsx-irow"><span className="k">Khách hàng</span><span className="v">{order?.customer_name ?? "—"}</span></div>
-                <div className="lsx-irow"><span className="k">Hạn giao</span><span className="v mono">{fmtDate(order?.delivery_committed_date)}</span></div>
-                <div className="lsx-irow"><span className="k">Ấn phẩm</span><span className="v mono">{detail.phieu_thanh_phan_id ? `#${detail.phieu_thanh_phan_id}` : "—"}</span></div>
+                <div className="lsx-irow">
+                  <span className="k">Hạn giao</span>
+                  <span className="v mono">
+                    {fmtDate(order?.delivery_committed_date)}
+                    {order?.is_rush ? (
+                      <span className="lsx-badge lsx-badge--danger" style={{ marginLeft: 8 }}>
+                        <span className="lsx-badge__d" /> GẤP
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+                <div className="lsx-irow">
+                  <span className="k">Ấn phẩm</span>
+                  <span className="v">
+                    {anPhamLine?.description || (detail.phieu_thanh_phan_id ? `Ấn phẩm #${detail.phieu_thanh_phan_id}` : "—")}
+                    {anPhamLine ? (
+                      <span className="mono" style={{ color: "var(--ash)", marginLeft: 6 }}>
+                        · {fmt(anPhamLine.qty)} {anPhamLine.don_vi_tinh}
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
                 <div className="lsx-irow"><span className="k">Máy gán</span><span className="v">{mayName(detail.may_id) ?? "chưa gán"}</span></div>
                 {firstForm ? (
                   <div className="lsx-irow"><span className="k">Quy cách in</span><span className="v mono">{firstForm.so_mau > 0 ? `${firstForm.so_mau} màu` : "—"}{firstForm.kho_in_dai ? ` · ${fmt(firstForm.kho_in_dai)}×${fmt(firstForm.kho_in_rong)}` : ""}</span></div>
                 ) : null}
                 <div className="lsx-irow"><span className="k">Tạo lúc</span><span className="v mono">{fmtDateTime(detail.created_at)}</span></div>
               </div>
+              {order?.production_note ? (
+                <div
+                  style={{
+                    margin: "var(--sp-2) var(--sp-4) 0", display: "flex", gap: 7, alignItems: "flex-start",
+                    padding: "8px 10px", borderRadius: 9, background: "var(--amber-soft)",
+                    color: "var(--amber-deep)", fontSize: 12.5, lineHeight: 1.45,
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none", marginTop: 1 }} aria-hidden="true">
+                    <path d="M15.5 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L15.5 3Z" />
+                    <path d="M15 3v5h5M8.5 12.5h7M8.5 16h5" />
+                  </svg>
+                  <span><strong>Lưu ý SX:</strong> {order.production_note}</span>
+                </div>
+              ) : null}
             </section>
 
             {/* Con dấu duyệt mẫu */}
