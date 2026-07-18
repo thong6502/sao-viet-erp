@@ -1852,6 +1852,230 @@ def seed_phieu_tinh_gia(db: Session) -> None:
     db.commit()
 
 
+def seed_lenh_san_xuat_demo(db: Session) -> None:
+    """Seed dữ liệu SẢN XUẤT demo (Kế hoạch & Lệnh SX) — CHỈ khi SEED_DEMO + bảng `lenh_sx` rỗng.
+
+    Dữ liệu ĐI QUA logic thật (`LenhSanXuatService`) để mỗi bước qua đúng cổng:
+    bung → ghép (tờ in) → gán máy → duyệt mẫu → phát (cổng AND) → sản lượng/bàn giao/QC → nhập kho.
+    TÁI DÙNG ấn phẩm từ PTG demo (`seed_phieu_tinh_gia`) làm nguồn; tạo vài ĐƠN CHỐT mỏng làm
+    'cầu' (`OrderLine.phieu_thanh_phan_id`) vì đơn demo `seed_sales_history` không gắn ấn phẩm.
+    Máy/công đoạn = soft-ref THẬT (`may_thiet_bi`/`cong_doan` của `seed_rebuild_catalog`) để UI
+    tracking resolve được tên. Idempotent (có ≥1 lệnh → bỏ).
+
+    Kết quả (đa trạng thái để UI có màu):
+      · 5 đơn · 7 lệnh — nháp / đang chạy / xong.
+      · 5 tờ in — chờ ghép / đủ điều kiện / đã phát; có 1 tờ GHÉP ĐA-KHÁCH + 1 tờ ghép 2 cấu phần.
+      · sản lượng rải công đoạn (in/cán/bế) · 1 bàn giao chờ nhận · 1 lỗi QC chờ xác nhận ·
+        1 lệnh nhập kho đủ SL → XONG.
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from .models.cong_doan import CongDoan
+    from .models.lenh_san_xuat import LenhSanXuat
+    from .models.may_thiet_bi import MayThietBi
+    from .models.order import COST_BASIS_NONE, SOURCE_NHAP_TAY, STATUS_ORDERED, Order, OrderLine
+    from .models.phieu_tinh_gia import PhieuTinhGia
+    from .repositories.order_repo import OrderRepository
+    from .services.lenh_san_xuat_service import LenhSanXuatService
+
+    # Idempotent: đã có lệnh SX → bỏ (re-run không nhân đôi).
+    if db.execute(select(LenhSanXuat)).first() is not None:
+        return
+    # Nền ấn phẩm = PTG demo. Chưa seed PTG → không có gì để bung → bỏ.
+    ptg_by_ma = {p.ma: p for p in db.execute(select(PhieuTinhGia)).scalars()}
+    if not ptg_by_ma:
+        return
+
+    def _ptp(ma: str, idx: int):
+        ptg = ptg_by_ma.get(ma)
+        if ptg is None or idx >= len(ptg.thanh_phans):
+            return None
+        return ptg.thanh_phans[idx]
+
+    # Ấn phẩm nguồn từ PTG demo (đa cấu phần: Catalogue ruột+bìa, Hộp thân+nắp).
+    ruot = _ptp("PTG-2026-0203", 0)      # Catalogue — Ruột
+    bia = _ptp("PTG-2026-0203", 1)       # Catalogue — Bìa
+    than = _ptp("PTG-2026-0204", 0)      # Hộp — Thân
+    nap = _ptp("PTG-2026-0204", 1)       # Hộp — Nắp
+    toroi = _ptp("PTG-2026-0206", 0)     # Tờ rơi A4
+    danhthiep = _ptp("PTG-2026-0202", 0)  # Danh thiếp
+    thetreo = _ptp("PTG-2026-0211", 0)   # Hangtag — Thẻ treo
+    if ruot is None or bia is None:
+        return  # PTG demo thiếu ấn phẩm chủ lực → bỏ (không dựng nửa vời)
+
+    # Khách + Sale demo (để đơn có chủ; None -> bỏ trống, soft).
+    customers = CustomerRepository(db)
+    users = UserRepository(db)
+    an_phat = bao_bi = minh_khai = None
+    for c in customers.list_scoped_all(scope="all", actor=_SeedActor()):
+        if "An Phát" in c.name:
+            an_phat = c
+        elif "Bao Bì Việt" in c.name:
+            bao_bi = c
+        elif "Minh Khai" in c.name:
+            minh_khai = c
+    sale1 = users.get_by_username("sale1")
+    sale2 = users.get_by_username("sale2")
+
+    # Máy in THẬT (may_thiet_bi) + công đoạn THẬT (cong_doan) cho soft-ref.
+    may_by_ma = {m.ma: m for m in db.execute(select(MayThietBi)).scalars()}
+    print_mays = [may_by_ma.get(f"IN-0{i}") for i in range(1, 7)]
+    print_mays = [m for m in print_mays if m is not None] or list(may_by_ma.values())
+
+    def _may(i: int):
+        return print_mays[i % len(print_mays)] if print_mays else None
+
+    cd_by_ma = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
+    cd_in = cd_by_ma.get("CD-0002")    # In offset
+    cd_can = cd_by_ma.get("CD-0003")   # Cán màng bóng
+    cd_be = cd_by_ma.get("CD-0006")    # Bế nổi
+    to_sx = DepartmentRepository(db).get_by_name("Sản xuất")
+    to_sx_id = to_sx.id if to_sx else None
+
+    order_repo = OrderRepository(db)
+    now = datetime.now(timezone.utc)
+
+    def _mk_order(desc: str, customer, sale, lines: list[tuple]):
+        """Đơn CHỐT mỏng (nhập tay, không giá vốn) làm 'cầu' đơn↔ấn phẩm. lines=[(mô tả, SL, ptp)]."""
+        sale_id = sale.id if sale else None
+        o = Order(
+            order_no=order_repo._next_order_no(),
+            customer_id=(customer.id if customer else None),
+            source_type=SOURCE_NHAP_TAY,
+            order_kind="moi",
+            sale_user_id=sale_id,
+            status=STATUS_ORDERED,
+            vat_pct_estimate=8,
+            cost_basis=COST_BASIS_NONE,
+            ordered_at=now,
+            ordered_by=sale_id,
+            created_at=now,
+        )
+        for ln_desc, qty, ptp in lines:
+            o.lines.append(OrderLine(
+                description=ln_desc,
+                qty=qty,
+                phieu_thanh_phan_id=(ptp.id if ptp else None),
+                unit_price_snapshot=1000,
+                line_total=qty * 1000,
+                vat_pct_estimate=8,
+            ))
+        db.add(o)
+        db.flush()  # để _next_order_no kế thấy row này (unique DH###)
+        return o
+
+    # --- 5 đơn chốt (tái dùng ấn phẩm PTG) ---
+    order_cat = _mk_order("Catalogue 21×28 (ruột + bìa)", an_phat, sale1,
+                          [("Ruột catalogue", 5000, ruot), ("Bìa catalogue", 5000, bia)])
+    order_hop = _mk_order("Hộp giấy offset (thân + nắp)", bao_bi, sale2,
+                          [("Thân hộp", 10000, than), ("Nắp hộp", 10000, nap)])
+    order_toroi = _mk_order("Tờ rơi A4 4 màu 2 mặt", minh_khai, sale1,
+                            [("Tờ rơi A4", 30000, toroi)])
+    order_dt = _mk_order("Danh thiếp cao cấp ép kim", an_phat, sale1,
+                         [("Danh thiếp", 8000, danhthiep)])
+    order_tag = _mk_order("Hangtag Lavello Black", bao_bi, sale2,
+                          [("Thẻ treo", 5000, thetreo)])
+    db.commit()
+
+    svc = LenhSanXuatService(db)
+
+    def _lenh_of(order, ptp):
+        """Lệnh của (đơn, ấn phẩm) sau khi bung."""
+        if ptp is None:
+            return None
+        for l0 in svc.list_lenh(order_id=order.id, size=50)[0]:
+            if l0.phieu_thanh_phan_id == ptp.id:
+                return l0
+        return None
+
+    # --- bung: đơn chốt → lệnh nháp (mỗi dòng-đơn có ấn phẩm = 1 lệnh) ---
+    for o in (order_cat, order_hop, order_toroi, order_dt, order_tag):
+        svc.bung_lenh(order_id=o.id)
+
+    L_ruot = _lenh_of(order_cat, ruot)
+    L_bia = _lenh_of(order_cat, bia)
+    L_than = _lenh_of(order_hop, than)
+    L_nap = _lenh_of(order_hop, nap)
+    L_toroi = _lenh_of(order_toroi, toroi)
+    L_dt = _lenh_of(order_dt, danhthiep)
+    L_tag = _lenh_of(order_tag, thetreo)
+
+    def _ghep(label, may, so_mau, kho_dai, kho_rong, placements):
+        """Tạo tờ in + xếp bài. placements=[(lenh, so_con)]."""
+        rows = [{"lenh_sx_id": l.id, "so_con": sc} for l, sc in placements if l is not None]
+        so_to = max((sc for _, sc in placements), default=0)
+        return svc.ghep(
+            giay_label=label, kho_in_dai=kho_dai, kho_in_rong=kho_rong, so_mau=so_mau,
+            so_to_chay=(1500 if so_to == 0 else max(1, 8000 // max(so_to, 1))), so_kem=so_mau,
+            placements=rows,
+        )
+
+    # === Tờ 1: GHÉP ĐA-KHÁCH (danh thiếp An Phát + thẻ treo Bao Bì trên 1 tờ) → PHÁT ===
+    form_gang = _ghep("Couché 300 79×109 (ghép đa-khách)", _may(0), 4, 1090, 790,
+                      [(L_dt, 24), (L_tag, 60)])
+    if form_gang.may_id is None:
+        svc.gan_may(form_id=form_gang.id, may_id=(_may(0).id if _may(0) else None))
+    if L_dt:
+        svc.duyet_mau(lenh_id=L_dt.id, actor_id=(sale1.id if sale1 else None))
+    if L_tag:
+        svc.duyet_mau(lenh_id=L_tag.id, actor_id=(sale2.id if sale2 else None))
+    svc.phat(form_id=form_gang.id)   # → da_phat; L_dt, L_tag → dang_chay
+
+    # === Tờ 2: Ruột catalogue (riêng) → PHÁT → sản lượng → nhập kho ĐỦ → XONG ===
+    form_ruot = _ghep("Couché 150 79×109 (ruột)", _may(1), 4, 1090, 790, [(L_ruot, 4)])
+    svc.gan_may(form_id=form_ruot.id, may_id=(_may(1).id if _may(1) else None))
+    if L_ruot:
+        svc.duyet_mau(lenh_id=L_ruot.id, actor_id=(sale1.id if sale1 else None))
+    svc.phat(form_id=form_ruot.id)   # → da_phat; L_ruot → dang_chay
+
+    # === Tờ 3: Bìa catalogue → gán máy + duyệt mẫu (ĐỦ ĐIỀU KIỆN) nhưng CHƯA phát ===
+    form_bia = _ghep("Couché 300 65×86 (bìa)", _may(2), 4, 860, 650, [(L_bia, 2)])
+    svc.gan_may(form_id=form_bia.id, may_id=(_may(2).id if _may(2) else None))
+    if L_bia:
+        svc.duyet_mau(lenh_id=L_bia.id, actor_id=(sale1.id if sale1 else None))   # form → du_dieu_kien
+
+    # === Tờ 4: Hộp thân+nắp (ghép 2 cấu phần cùng đơn) → duyệt MỖI thân → tờ CHỜ GHÉP (cổng AND) ===
+    form_hop = _ghep("Ivory 350 79×109 (thân + nắp)", _may(3), 4, 1090, 790,
+                     [(L_than, 2), (L_nap, 4)])
+    svc.gan_may(form_id=form_hop.id, may_id=(_may(3).id if _may(3) else None))
+    if L_than:
+        svc.duyet_mau(lenh_id=L_than.id, actor_id=(sale2.id if sale2 else None))  # còn nắp chưa duyệt → cho_ghep
+
+    # === Tờ 5: Tờ rơi — chỉ ghép, CHƯA gán máy (CHỜ GHÉP, sớm nhất) ===
+    _ghep("Couché 150 79×109 (tờ rơi)", None, 4, 1090, 790, [(L_toroi, 4)])
+
+    # --- Sản lượng rải công đoạn (chỉ lệnh đã phát: dang_chay) ---
+    cd_in_id = cd_in.id if cd_in else None
+    cd_can_id = cd_can.id if cd_can else None
+    cd_be_id = cd_be.id if cd_be else None
+    if L_dt:
+        svc.ghi_san_luong(lenh_id=L_dt.id, cong_doan_id=cd_in_id, to_id=to_sx_id,
+                          so_dat=8100, so_hong=60, nguoi_ghi=(sale1.id if sale1 else None))
+    if L_tag:
+        svc.ghi_san_luong(lenh_id=L_tag.id, cong_doan_id=cd_in_id, to_id=to_sx_id,
+                          so_dat=5100, so_hong=40, nguoi_ghi=(sale2.id if sale2 else None))
+        svc.ghi_san_luong(lenh_id=L_tag.id, cong_doan_id=cd_be_id, to_id=to_sx_id,
+                          so_dat=5000, so_hong=55, nguoi_ghi=(sale2.id if sale2 else None))
+        # Bàn giao in → bế (chờ tổ kế xác nhận nhận: nhan_at NULL)
+        svc.ban_giao(lenh_id=L_tag.id, cong_doan_tu_id=cd_in_id, cong_doan_toi_id=cd_be_id,
+                     so_giao=5100, to_giao_id=to_sx_id, to_nhan_id=to_sx_id)
+        # Lỗi QC (chờ tổ trưởng xác nhận)
+        svc.ghi_loi_qc(lenh_id=L_tag.id, cong_doan_id=cd_be_id, to_bi_quy_id=to_sx_id,
+                       mo_ta="Bế lệch ~2mm ở góc phải, cần chỉnh khuôn")
+    if L_ruot:
+        svc.ghi_san_luong(lenh_id=L_ruot.id, cong_doan_id=cd_in_id, to_id=to_sx_id,
+                          so_dat=5050, so_hong=25, nguoi_ghi=(sale1.id if sale1 else None))
+        if cd_can_id:
+            svc.ghi_san_luong(lenh_id=L_ruot.id, cong_doan_id=cd_can_id, to_id=to_sx_id,
+                              so_dat=5010, so_hong=15, nguoi_ghi=(sale1.id if sale1 else None))
+        # Nhập kho ĐỦ SL (đích = OrderLine.qty = 5000) → lệnh XONG
+        svc.nhap_kho_thanh_pham(lenh_id=L_ruot.id, so_luong_nhap=5000)
+
+    db.commit()
+
+
 # Ngày nghỉ lễ DƯƠNG cố định (điều 112 BLLĐ). CHỈ các ngày dương chắc chắn — Tết Nguyên đán
 # (5 ngày) + Giỗ Tổ 10/3 ÂL + ngày kề Quốc khánh là ÂM/biến động theo thông báo Chính phủ hằng
 # năm → admin tự khai qua UI (FE cảnh báo khi năm chưa đủ 11 ngày nghỉ-có-lương).
@@ -1937,6 +2161,7 @@ def seed_all(db: Session) -> None:
         seed_rebuild_catalog(db)
         seed_phieu_tinh_gia(db)
         seed_document_sequences(db)
+        seed_lenh_san_xuat_demo(db)  # dữ liệu sản xuất mẫu (bung→ghép→phát→sản lượng→nhập kho)
     backfill_user_codes(db)
     # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),
     # và phải chạy SAU các seed tài khoản demo ở trên để dọn luôn đám vừa tạo.

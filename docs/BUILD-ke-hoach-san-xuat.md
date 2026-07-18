@@ -64,6 +64,16 @@ Thợ (ít học/không biết chữ/**trí nhớ** — gắt nhất) · Tổ tr
   cổng: phát chặn thiếu máy/chưa duyệt · sản lượng chặn trước phát · bung idempotent + hủy + đơn hủy).
   Verify NHANH (không init.ps1): `compileall backend/app` EXIT 0 · `import app.main` OK · `pytest
   tests/test_lenh_sx_api.py -q` = 7 passed 25s. Mở rộng ghi ngược `spec-ke-hoach-san-xuat.md` §8.2.
+- **2026-07-18** — **Chunk 4 (SEED DEMO + RBAC): XONG.** Thêm `seed_lenh_san_xuat_demo(db)` vào
+  `backend/app/seed.py` (additive, idempotent, gated `SEED_DEMO`, wire cuối khối demo — SAU
+  `seed_phieu_tinh_gia`). Dữ liệu ĐI QUA `LenhSanXuatService` (bung→ghép→gán máy→duyệt mẫu→phát→
+  sản lượng/bàn giao/QC→nhập kho). Verify NHANH (KHÔNG init.ps1): `compileall` + `import app.seed`
+  OK; chạy seed_all trên DB tạm sạch (SEED_DEMO=true) → **lenh_sx 7 · print_form 5 · gang_placement
+  7 · san_luong 5 · ban_giao 1 · qc_defect 1**; trạng thái lệnh {nháp 4 · đang chạy 2 · xong 1},
+  tờ {chờ ghép 2 · đủ đk 1 · đã phát 2}, QC {chờ 1}, bàn giao chờ nhận 1, sản lượng rải 3 công đoạn
+  (in/cán/bế); chạy lại KHÔNG nhân đôi (7→7). **RBAC**: `san_xuat` đã có sẵn + admin (Giám đốc `_full`)
+  read/create/update/approve/cancel/manage_status = True → KHÔNG cần thêm gì (chỉ verify). Vai công
+  nhân chi tiết = DEFER (giữ giả định #12).
 
 ## 🧩 GIẢ ĐỊNH TỰ QUYẾT (agent tự chốt khi spec chưa nói — user duyệt cuối)
 **Chunk 2 (services record-only) — mở rộng đã ghi ngược vào `spec-ke-hoach-san-xuat.md`:**
@@ -116,3 +126,20 @@ Thợ (ít học/không biết chữ/**trí nhớ** — gắt nhất) · Tổ tr
 15. **Helper đọc thêm ở service** (`list_lenh`/`lenh_detail`/`list_forms`/`form_detail`/`san_luong_of`/
     `lenh_on_form`) = APPEND-ONLY cho DTO, giữ layering router→service→repo, KHÔNG đổi logic mutate
     Chunk 2 (guardrail "wire vào, KHÔNG sửa" = không phá hành vi cũ; thêm read thuần được).
+
+**Chunk 4 (seed demo + RBAC):**
+16. **Đơn/PTG dùng làm demo**: TÁI DÙNG 5 ấn phẩm từ PTG demo (`seed_phieu_tinh_gia`) làm nguồn —
+    Catalogue (PTG-2026-0203 · Ruột+Bìa), Hộp (PTG-2026-0204 · Thân+Nắp), Tờ rơi (0206), Danh thiếp
+    (0202), Hangtag (0211). Đơn demo `seed_sales_history` KHÔNG gắn `OrderLine.phieu_thanh_phan_id`
+    (cầu đơn↔ấn phẩm rỗng) và mô tả không map sạch sang PTG → **tạo 5 ĐƠN CHỐT mỏng MỚI** (nhập tay,
+    `status=ordered`, không giá vốn) làm cầu, thay vì graft lên đơn cũ (an toàn hơn: KHÔNG đụng
+    `seed_sales_history`/`order.py`, additive thuần). Máy/công đoạn = soft-ref THẬT từ
+    `seed_rebuild_catalog` (`may_thiet_bi` IN-0x · `cong_doan` CD-0002 in/CD-0003 cán/CD-0006 bế) để
+    UI tracking resolve tên. Gated `SEED_DEMO`, idempotent (có ≥1 lệnh → bỏ) → tests (SEED_DEMO=false)
+    KHÔNG chạy, không đổi dataset test.
+17. **RBAC `san_xuat` = KHÔNG thêm gì** (khớp giả định #12): module `san_xuat` + admin (Giám đốc
+    `_full` mọi module) + vai "Quản lý sản xuất" (`san_xuat: _full`) / "Nhân viên sản xuất"
+    (`san_xuat: _rcu`) ĐÃ có sẵn trong `seed.py`. Router guard action bit (read/create/update/approve/
+    cancel/manage_status) ⊆ `_full` → admin + qlsx chạy được mọi endpoint ngay. Tài khoản demo truy
+    cập: `admin` (mọi quyền) · `qlsx`/`nvsx` (seed_kho_staff, gated demo). Vai công nhân mịn (thợ/tổ
+    trưởng/QC/kho ghi sản lượng riêng) = DEFER tới Chunk 8 (màn thợ textless).
