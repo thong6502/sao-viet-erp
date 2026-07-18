@@ -10,11 +10,29 @@ import {
   type LenhSXDetailOut,
   type OrderDetail,
   type PrintFormDetailOut,
+  type PrintFormRow,
   type Department,
 } from "../api/client";
 import { congDoan, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
+import { Select, type SelectOption } from "../components/Select";
+import { ToastStack, useToasts } from "./LsxToast";
 import "./lenh-san-xuat.css";
+
+// Cổng PHÁT (mirror _form_readiness ở service): đã ghép ≥1 lệnh + đã gán máy + mọi lệnh duyệt mẫu.
+// Tính CLIENT-SIDE chỉ để HIỆN blocker sớm; backend vẫn là nguồn chân lý (422 khi bấm phát non).
+function formReadiness(
+  f: PrintFormRow,
+  fd: PrintFormDetailOut | undefined,
+): { ready: boolean; blockers: string[]; isPhat: boolean } {
+  const isPhat = f.trang_thai === "da_phat" || f.trang_thai === "in_xong";
+  const blockers: string[] = [];
+  if ((fd?.placements.length ?? 0) === 0) blockers.push("Chưa ghép lệnh nào");
+  if (f.may_id == null) blockers.push("Chưa gán máy");
+  const chuaDuyet = (fd?.lenhs ?? []).filter((l) => !l.mau_approved_at).length;
+  if (chuaDuyet > 0) blockers.push(`Còn ${chuaDuyet} lệnh chưa duyệt mẫu`);
+  return { ready: blockers.length === 0, blockers, isPhat };
+}
 
 const fmt = (v: number | null | undefined): string =>
   typeof v === "number" ? Math.round(v).toLocaleString("vi-VN") : "—";
@@ -53,8 +71,17 @@ const QC_META: Record<string, { label: string; variant: string }> = {
 const metaOf = (m: Record<string, { label: string; variant: string }>, k: string) =>
   m[k] ?? { label: k || "—", variant: "neutral" };
 
-export function LenhSanXuatDetailView({ id, onBack }: { id: number; onBack: () => void }) {
+export function LenhSanXuatDetailView({
+  id,
+  onBack,
+  onGhep,
+}: {
+  id: number;
+  onBack: () => void;
+  onGhep: (lenhId: number) => void;
+}) {
   const { token } = useAuth();
+  const toasts = useToasts();
   const [detail, setDetail] = useState<LenhSXDetailOut | null>(null);
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [mays, setMays] = useState<Map<number, Row>>(new Map());
@@ -63,6 +90,7 @@ export function LenhSanXuatDetailView({ id, onBack }: { id: number; onBack: () =
   const [formDetails, setFormDetails] = useState<Map<number, PrintFormDetailOut>>(new Map());
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null); // khoá nút đang chạy: "duyet" | `may-<id>` | `phat-<id>`
 
   const load = useCallback(() => {
     if (!token) return;
@@ -127,6 +155,60 @@ export function LenhSanXuatDetailView({ id, onBack }: { id: number; onBack: () =
     [depts],
   );
 
+  const mayOptions: SelectOption<number | null>[] = useMemo(
+    () => [
+      { value: null, label: "— Chưa gán máy —" },
+      ...[...mays.values()].map((m) => ({
+        value: m.id,
+        label: String(m.ten ?? m.ma ?? `#${m.id}`),
+        hint: m.ma ? String(m.ma) : undefined,
+      })),
+    ],
+    [mays],
+  );
+
+  // --- Thao tác (Chunk 7): duyệt mẫu (lệnh) · gán máy / phát (tờ in). Sau mỗi cái → refetch + toast. ---
+  async function doDuyetMau() {
+    if (!token || !detail || busy) return;
+    setBusy("duyet");
+    try {
+      await api.lenhSanXuat.duyetMau(token, detail.id);
+      toasts.ok(`Đã duyệt mẫu ${maLenh(detail.id)}`);
+      load();
+    } catch (e) {
+      toasts.err(e instanceof ApiError ? e.message : "Không duyệt được mẫu.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function doGanMay(formId: number, may: number | null) {
+    if (!token || busy) return;
+    setBusy(`may-${formId}`);
+    try {
+      await api.lenhSanXuat.ganMay(token, formId, may);
+      toasts.ok(may == null ? `Đã gỡ máy khỏi tờ in #${formId}` : `Đã gán máy cho tờ in #${formId}`);
+      load();
+    } catch (e) {
+      toasts.err(e instanceof ApiError ? e.message : "Không gán được máy.");
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function doPhat(formId: number) {
+    if (!token || busy) return;
+    setBusy(`phat-${formId}`);
+    try {
+      await api.lenhSanXuat.phat(token, formId);
+      toasts.ok(`Đã phát tờ in #${formId} xuống xưởng`);
+      load();
+    } catch (e) {
+      // 422 = cổng AND chưa đủ (chưa gán máy / còn lệnh chưa duyệt) → hiện rõ blocker của backend.
+      toasts.err(e instanceof ApiError ? e.message : "Không phát được tờ in.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const tongHong = useMemo(
     () => (detail?.san_luong ?? []).reduce((s, r) => s + (r.so_hong || 0), 0),
     [detail],
@@ -166,18 +248,22 @@ export function LenhSanXuatDetailView({ id, onBack }: { id: number; onBack: () =
             ) : null}
           </div>
         </div>
-        <div className="lsx-head__actions">
-          <button type="button" className="btn btn--secondary" disabled title="Thao tác thuộc chunk kế">
-            Duyệt mẫu
-          </button>
-          <button type="button" className="btn btn--secondary" disabled title="Thao tác thuộc chunk kế">
-            Ghép &amp; gán máy
-          </button>
-          <button type="button" className="btn btn--primary" disabled title="Thao tác thuộc chunk kế">
-            Phát xuống xưởng
-          </button>
-        </div>
+        {detail ? (
+          <div className="lsx-head__actions">
+            {detail.trang_thai !== "huy" && !detail.mau_approved_at ? (
+              <button type="button" className="btn btn--secondary" disabled={busy === "duyet"} onClick={doDuyetMau}>
+                <SealIcon /> {busy === "duyet" ? "Đang duyệt…" : "Duyệt mẫu"}
+              </button>
+            ) : null}
+            {detail.trang_thai === "nhap" ? (
+              <button type="button" className="btn btn--primary" onClick={() => onGhep(detail.id)}>
+                <LayersIcon /> Ghép bài
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </header>
+      <ToastStack toasts={toasts.toasts} onDismiss={toasts.dismiss} />
 
       {err ? (
         <div className="banner banner--error" role="alert" style={{ marginTop: "var(--sp-3)" }}>
@@ -337,6 +423,50 @@ export function LenhSanXuatDetailView({ id, onBack }: { id: number; onBack: () =
                               </div>
                             </div>
                           ) : null}
+                          {(() => {
+                            const rd = formReadiness(f, fd);
+                            return (
+                              <div className="lsx-formactions">
+                                <div className="lsx-formactions__may">
+                                  <span className="lsx-formactions__k">Máy chạy</span>
+                                  <Select<number | null>
+                                    options={mayOptions}
+                                    value={f.may_id}
+                                    onChange={(v) => doGanMay(f.id, v)}
+                                    placeholder="— Chưa gán máy —"
+                                    ariaLabel={`Gán máy cho tờ in #${f.id}`}
+                                    disabled={rd.isPhat || busy != null}
+                                    portal
+                                  />
+                                </div>
+                                <div className="lsx-formactions__go">
+                                  {!rd.isPhat && rd.blockers.length > 0 ? (
+                                    <ul className="lsx-blockers">
+                                      {rd.blockers.map((b, i) => (
+                                        <li key={i}>
+                                          <WarnDot /> {b}
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  ) : null}
+                                  {rd.isPhat ? (
+                                    <span className="lsx-phatdone">
+                                      <CheckDot /> Đã phát xuống xưởng
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      className="btn btn--primary lsx-phatbtn"
+                                      disabled={busy === `phat-${f.id}`}
+                                      onClick={() => doPhat(f.id)}
+                                    >
+                                      {busy === `phat-${f.id}` ? "Đang phát…" : "Phát xuống xưởng"}
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       );
                     })}
@@ -571,5 +701,16 @@ const InfoIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <circle cx="12" cy="12" r="9" />
     <path d="M12 11v5M12 8h.01" />
+  </svg>
+);
+const WarnDot = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10.3 3.9 2.4 18a1.9 1.9 0 0 0 1.7 2.9h15.8a1.9 1.9 0 0 0 1.7-2.9L13.7 3.9a1.9 1.9 0 0 0-3.4 0Z" />
+    <path d="M12 9v4M12 16.5h.01" />
+  </svg>
+);
+const CheckDot = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M20 6 9 17l-5-5" />
   </svg>
 );

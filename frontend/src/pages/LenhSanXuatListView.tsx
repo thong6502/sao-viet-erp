@@ -27,7 +27,13 @@ function fmtDate(v: string | null | undefined): string {
   return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("vi-VN");
 }
 
-export function LenhSanXuatListView({ onOpen }: { onOpen: (id: number) => void }) {
+export function LenhSanXuatListView({
+  onOpen,
+  onGhep,
+}: {
+  onOpen: (id: number) => void;
+  onGhep: () => void;
+}) {
   const { token } = useAuth();
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
@@ -116,6 +122,11 @@ export function LenhSanXuatListView({ onOpen }: { onOpen: (id: number) => void }
             Lệnh sản xuất suy từ đơn đã chốt — theo dõi duyệt mẫu, ghép tờ in, sản lượng &amp; giao
             nhận giữa các tổ.
           </p>
+        </div>
+        <div className="lsx-head__actions">
+          <button type="button" className="btn btn--primary" onClick={onGhep}>
+            <PlusLayersIcon /> Ghép bài
+          </button>
         </div>
       </header>
 
@@ -315,5 +326,12 @@ const EmptyIcon = () => (
     <rect x="5" y="4.5" width="14" height="16.5" rx="2" />
     <rect x="8.75" y="2.5" width="6.5" height="3.8" rx="1.2" />
     <path d="M9 11h6M9 14.6h6M9 18.2h3.5" />
+  </svg>
+);
+const PlusLayersIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+    <path d="m3 13 9 5 5-2.8" />
+    <path d="M18 14v6M15 17h6" />
   </svg>
 );

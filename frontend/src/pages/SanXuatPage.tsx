@@ -4,17 +4,39 @@
 import { useState } from "react";
 import { LenhSanXuatListView } from "./LenhSanXuatListView";
 import { LenhSanXuatDetailView } from "./LenhSanXuatDetailView";
+import { GhepBaiView } from "./GhepBaiView";
 import "./lenh-san-xuat.css";
 
-type View = { mode: "list" } | { mode: "detail"; id: number };
+// Controller nội bộ (không react-router): list ↔ detail 1 lệnh ↔ ghép bài (dựng tờ in).
+type View = { mode: "list" } | { mode: "detail"; id: number } | { mode: "ghep"; preselect?: number };
 
 export function SanXuatPage() {
   const [view, setView] = useState<View>({ mode: "list" });
 
-  if (view.mode === "detail") {
-    return <LenhSanXuatDetailView id={view.id} onBack={() => setView({ mode: "list" })} />;
+  if (view.mode === "ghep") {
+    return (
+      <GhepBaiView
+        preselectLenhId={view.preselect}
+        onBack={() => setView({ mode: "list" })}
+        onOpenLenh={(id) => setView({ mode: "detail", id })}
+      />
+    );
   }
-  return <LenhSanXuatListView onOpen={(id) => setView({ mode: "detail", id })} />;
+  if (view.mode === "detail") {
+    return (
+      <LenhSanXuatDetailView
+        id={view.id}
+        onBack={() => setView({ mode: "list" })}
+        onGhep={(lenhId) => setView({ mode: "ghep", preselect: lenhId })}
+      />
+    );
+  }
+  return (
+    <LenhSanXuatListView
+      onOpen={(id) => setView({ mode: "detail", id })}
+      onGhep={() => setView({ mode: "ghep" })}
+    />
+  );
 }
 
 // Placeholder cho các màn Sản xuất thuộc chunk kế (theo dõi / nhập liệu xưởng / QC-KCS) — route tạm

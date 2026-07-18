@@ -907,10 +907,549 @@
   line-height: 1.55;
 }
 
+/* ============================================================================
+   CHUNK 7 — GHÉP BÀI (composer) · thao tác tờ in (gán máy/phát) · toast.
+   Máy CHỈ GHI NHẬN: UI KHÔNG lọc/chặn/cảnh báo — chỉ hiện số để người tự quyết.
+   ============================================================================ */
+
+/* ---- Layout 2 cột: pool lệnh | khay dựng tờ (sticky) ---- */
+.lsx-ghep {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 400px;
+  gap: var(--sp-5);
+  align-items: start;
+  margin-top: var(--sp-3);
+}
+@media (max-width: 1040px) {
+  .lsx-ghep {
+    grid-template-columns: 1fr;
+  }
+}
+.lsx-ghep__pool {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.lsx-ghep__tray {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  position: sticky;
+  top: var(--sp-4);
+}
+@media (max-width: 1040px) {
+  .lsx-ghep__tray {
+    position: static;
+  }
+}
+
+/* ---- Search trong pool ---- */
+.lsx-ghep__search {
+  position: relative;
+  padding: 12px 16px 4px;
+}
+.lsx-ghep__searchic {
+  position: absolute;
+  left: 28px;
+  top: calc(50% + 4px);
+  transform: translateY(-50%);
+  color: var(--ash-2);
+  pointer-events: none;
+}
+.lsx-ghep__searchin {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 40px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper-contrast);
+  color: var(--ink);
+  padding: 8px 12px 8px 34px;
+  font-family: var(--ff-sans);
+  font-size: 13.5px;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.lsx-ghep__searchin:hover {
+  border-color: var(--ash-2);
+}
+.lsx-ghep__searchin:focus {
+  outline: none;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+
+/* ---- Danh sách lệnh chọn được ---- */
+.lsx-ghep__poollist {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px 16px;
+  max-height: 74vh;
+  overflow-y: auto;
+}
+.lsx-pick {
+  display: flex;
+  gap: 11px;
+  text-align: left;
+  width: 100%;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-4);
+  background: var(--paper);
+  padding: 11px 13px;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.lsx-pick:hover {
+  border-color: var(--ash-2);
+  background: var(--canvas);
+}
+.lsx-pick:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.lsx-pick--on {
+  border-color: var(--rust);
+  background: var(--rust-soft);
+  box-shadow: inset 0 0 0 1px var(--rust);
+}
+.lsx-pick__check {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--ash-2);
+  background: var(--canvas);
+  display: grid;
+  place-items: center;
+  margin-top: 2px;
+  color: var(--paper);
+}
+.lsx-pick__check.is-on {
+  background: var(--rust);
+  border-color: var(--rust);
+}
+.lsx-pick__body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.lsx-pick__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lsx-pick__code {
+  font-family: var(--ff-mono);
+  font-size: 12.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.lsx-pick__name {
+  font-family: var(--ff-sans);
+  font-size: 13.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  line-height: 1.35;
+}
+.lsx-pick__meta {
+  font-size: 11.5px;
+  color: var(--ash);
+}
+.lsx-pick__placed {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--steel);
+}
+.lsx-pick__placed svg {
+  flex: none;
+}
+
+/* ---- Chip quy cách (giấy/khổ/màu) — chỉ ĐỌC để người nhìn ---- */
+.lsx-specchips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.lsx-specchip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  padding: 2px 8px;
+}
+.lsx-pick--on .lsx-specchip {
+  background: var(--paper);
+}
+.lsx-specchip__k {
+  font-family: var(--ff-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+}
+.lsx-specchip__v {
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+/* ---- Khay dựng tờ: lệnh đã chọn + ô số con ---- */
+.lsx-tray__list {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 16px 4px;
+}
+.lsx-trayrow {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.lsx-trayrow:last-child {
+  border-bottom: 0;
+}
+.lsx-trayrow__info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.lsx-trayrow__code {
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  color: var(--rust-deep);
+}
+.lsx-trayrow__name {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  line-height: 1.3;
+}
+.lsx-trayrow__spec {
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  color: var(--ash-2);
+}
+.lsx-numfield {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: none;
+}
+.lsx-numfield__k {
+  font-family: var(--ff-mono);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+  text-align: center;
+}
+.lsx-numin {
+  width: 74px;
+  box-sizing: border-box;
+  min-height: 36px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--paper-contrast);
+  color: var(--ink);
+  padding: 6px 8px;
+  font-family: var(--ff-mono);
+  font-size: 14px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.lsx-numin:hover {
+  border-color: var(--ash-2);
+}
+.lsx-numin:focus {
+  outline: none;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+.lsx-iconbtn {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-2);
+  border: 1px solid transparent;
+  background: none;
+  color: var(--ash-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--easing-standard),
+    background-color var(--duration-fast) var(--easing-standard);
+}
+.lsx-iconbtn:hover {
+  color: var(--signal);
+  background: var(--signal-soft);
+}
+.lsx-iconbtn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
+/* ---- Thông số tờ in (ảnh chụp — người gõ) ---- */
+.lsx-ghep__sheet {
+  border-top: 1px solid var(--rule-soft);
+  background: var(--paper);
+  padding: 13px 16px 4px;
+}
+.lsx-ghep__sheethd {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ash);
+  margin-bottom: 10px;
+}
+.lsx-fieldgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.lsx-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.lsx-field--wide {
+  grid-column: 1 / -1;
+}
+.lsx-field__k {
+  font-family: var(--ff-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+}
+.lsx-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 38px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper-contrast);
+  color: var(--ink);
+  padding: 8px 11px;
+  font-family: var(--ff-mono);
+  font-size: 13.5px;
+  font-variant-numeric: tabular-nums;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.lsx-input:hover {
+  border-color: var(--ash-2);
+}
+.lsx-input:focus {
+  outline: none;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+
+/* ---- Chân khay: ghi chú luật + nút tạo tờ ---- */
+.lsx-ghep__foot {
+  padding: 14px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+}
+.lsx-ghep__note {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ash);
+}
+.lsx-ghep__note svg {
+  flex: none;
+  color: var(--rust);
+  margin-top: 1px;
+}
+.lsx-ghep__go {
+  width: 100%;
+  justify-content: center;
+  min-height: 44px;
+  font-size: 14px;
+}
+
+/* ---- Thao tác trên tờ in (detail): gán máy · phát · blocker ---- */
+.lsx-formactions {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border-top: 1px solid var(--rule-hair);
+  background: var(--canvas);
+}
+.lsx-formactions__may {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 210px;
+  flex: 1 1 210px;
+}
+.lsx-formactions__k {
+  font-family: var(--ff-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+}
+.lsx-formactions__go {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+}
+.lsx-blockers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  text-align: right;
+}
+.lsx-blockers li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--amber-deep);
+}
+.lsx-blockers svg {
+  flex: none;
+  color: var(--amber);
+}
+.lsx-phatbtn {
+  min-height: 38px;
+}
+.lsx-phatdone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: var(--fw-bold);
+  color: var(--moss-deep);
+}
+.lsx-phatdone svg {
+  flex: none;
+}
+
+/* ---- Toast cục bộ (góc dưới phải) ---- */
+.lsx-toastwrap {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 1200;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: min(380px, calc(100vw - 40px));
+}
+.lsx-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+  border-radius: var(--r-4);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow-4);
+  animation: lsx-toast-in var(--duration-base) var(--easing-standard);
+}
+.lsx-toast--ok {
+  border-left: 3px solid var(--moss);
+}
+.lsx-toast--err {
+  border-left: 3px solid var(--signal);
+}
+.lsx-toast__ic {
+  flex: none;
+  margin-top: 1px;
+}
+.lsx-toast--ok .lsx-toast__ic {
+  color: var(--moss);
+}
+.lsx-toast--err .lsx-toast__ic {
+  color: var(--signal);
+}
+.lsx-toast__msg {
+  flex: 1 1 auto;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.lsx-toast__x {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  color: var(--ash-2);
+  border-radius: var(--r-2);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.lsx-toast__x:hover {
+  color: var(--ink);
+  background: var(--rule-hair);
+}
+@keyframes lsx-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .lsx-search__input,
   .lsx-row,
-  .lsx-dk__bar-fill {
+  .lsx-dk__bar-fill,
+  .lsx-pick,
+  .lsx-numin,
+  .lsx-input,
+  .lsx-iconbtn,
+  .lsx-ghep__searchin {
     transition: none;
+  }
+  .lsx-toast {
+    animation: none;
   }
 }

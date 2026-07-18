@@ -3167,6 +3167,23 @@ export interface LenhSXListParams {
   page?: number;
   size?: number;
 }
+/** 1 dòng xếp bài khi tạo tờ (ghép) — số con NHẬP TAY (máy chỉ ghi). */
+export interface GhepPlacementInput {
+  lenh_sx_id: number;
+  so_con: number;
+}
+/** Tạo 1 TỜ IN + xếp bài. Giấy/khổ/màu là ẢNH CHỤP (người kế hoạch tự nhìn PTG rồi nhập). */
+export interface GhepInput {
+  giay_id?: number | null;
+  giay_label?: string | null;
+  kho_in_dai?: number;
+  kho_in_rong?: number;
+  so_mau?: number;
+  may_id?: number | null;
+  so_to_chay?: number;
+  so_kem?: number;
+  placements: GhepPlacementInput[];
+}
 
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
@@ -4485,6 +4502,25 @@ export const api = {
     },
     form(token: string, id: number): Promise<PrintFormDetailOut> {
       return authed<PrintFormDetailOut>(`/api/lenh-sx/forms/${id}`, token);
+    },
+    // --- Ghi (Chunk 7): ghép tờ · gán máy · duyệt mẫu · phát (cổng AND). Máy CHỈ GHI NHẬN. ---
+    duyetMau(token: string, lenhId: number): Promise<LenhSXRow> {
+      return authed<LenhSXRow>(`/api/lenh-sx/lenh/${lenhId}/duyet-mau`, token, { method: "POST" });
+    },
+    ghep(token: string, body: GhepInput): Promise<PrintFormDetailOut> {
+      return authed<PrintFormDetailOut>(`/api/lenh-sx/forms/ghep`, token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    ganMay(token: string, formId: number, mayId: number | null): Promise<PrintFormRow> {
+      return authed<PrintFormRow>(`/api/lenh-sx/forms/${formId}/gan-may`, token, {
+        method: "POST",
+        body: JSON.stringify({ may_id: mayId }),
+      });
+    },
+    phat(token: string, formId: number): Promise<PrintFormRow> {
+      return authed<PrintFormRow>(`/api/lenh-sx/forms/${formId}/phat`, token, { method: "POST" });
     },
   },
 
