@@ -22,6 +22,7 @@ import re
 
 from datetime import date, datetime, timedelta, timezone
 
+from ..realtime import hub
 from ..models.customer import (
     CARE_KHAC,
     CARE_KINDS,
@@ -743,12 +744,21 @@ class CustomerService:
         # Mặc định người phụ trách việc = Sale phụ trách khách, không có thì người tạo.
         if assignee_user_id is None:
             assignee_user_id = customer.sale_user_id or actor.id
-        return self.customers.add_care_task(
+        task = self.customers.add_care_task(
             customer_id,
             note=note, due_date=due_date, assignee_user_id=assignee_user_id,
             created_by=actor.id, repeat_freq=repeat_freq,
             repeat_interval=max(int(repeat_interval or 1), 1), repeat_until=repeat_until,
         )
+        # Giao cho NGƯỜI KHÁC → "ting" real-time cho người phụ trách (không ting chính mình).
+        if task.assignee_user_id and task.assignee_user_id != actor.id:
+            hub.publish(task.assignee_user_id, {
+                "type": "care_assigned",
+                "customer": customer.name,
+                "customer_id": customer.id,
+                "note": task.note,
+            })
+        return task
 
     def set_care_task_status(
         self, *, customer_id: int, task_id: int, scope: str, actor, status: str,

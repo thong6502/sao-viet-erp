@@ -17,6 +17,8 @@ os.environ["SEED_ADMIN_NAME"] = "Admin"
 # Keep the test dataset minimal + deterministic regardless of any local .env
 # (spec-06 demo staff/customers would otherwise break RBAC delete-guard assumptions).
 os.environ["SEED_DEMO"] = "false"
+# Tắt ticker nhắc lịch hẹn (SSE) trong test — tránh đụng DB in-memory + treo loop.
+os.environ["CARE_REMINDER_SECONDS"] = "0"
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

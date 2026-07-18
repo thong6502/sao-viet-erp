@@ -76,7 +76,17 @@ async def lifespan(app: FastAPI):
         seed_all(db)
     finally:
         db.close()
-    yield
+    # Ticker nhắc lịch hẹn chăm sóc real-time (SSE): quét hẹn tới giờ → "ting" người phụ trách.
+    # 0 = tắt (test). Chạy nền, huỷ khi shutdown.
+    reminder_task: asyncio.Task | None = None
+    if settings.care_reminder_seconds > 0:
+        from .care_reminders import run_care_reminder_loop
+        reminder_task = asyncio.create_task(run_care_reminder_loop(settings.care_reminder_seconds))
+    try:
+        yield
+    finally:
+        if reminder_task is not None:
+            reminder_task.cancel()
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)

@@ -511,3 +511,75 @@ def test_tags_manual_assign_dedup_filter(client):
     audit = client.get(f"/api/customers/{cid}/audit", headers=_h(token)).json()["items"]
     details = " | ".join(a["detail"] for a in audit if a["kind"] == "profile")
     assert "Gán nhãn: Đại lý" in details and "Gỡ nhãn: Đại lý" in details
+
+
+# --- Pha B: nhắc lịch hẹn real-time (SSE "ting") --------------------------------
+
+
+def test_care_assigned_pings_other_assignee(client, monkeypatch):
+    """Giao hẹn cho NGƯỜI KHÁC (mặc định = Sale phụ trách ≠ người tạo) → publish 'care_assigned'."""
+    from app.realtime import hub
+
+    _seed_demo()
+    events: list = []
+    monkeypatch.setattr(hub, "publish", lambda uid, e: events.append((uid, e)))
+    admin = _admin_token(client)
+    db = SessionLocal()
+    try:
+        sale1 = UserRepository(db).get_by_username("sale1")
+    finally:
+        db.close()
+
+    cid = _create(client, admin, name="Cty Cua Sale1", sale_user_id=sale1.id)["customer"]["id"]
+    r = client.post(f"/api/customers/{cid}/care-tasks", json={
+        "note": "Gọi chốt hợp đồng", "due_date": "2030-01-01T09:00:00+00:00",
+    }, headers=_h(admin))
+    assert r.status_code == 201, r.text
+    assigned = [(uid, e) for uid, e in events if e["type"] == "care_assigned"]
+    assert len(assigned) == 1 and assigned[0][0] == sale1.id
+    assert assigned[0][1]["customer"] == "Cty Cua Sale1"
+    assert assigned[0][1]["note"] == "Gọi chốt hợp đồng"
+
+
+def test_care_no_ping_when_self_assigned(client, monkeypatch):
+    """Tự nhận việc (assignee = người tạo) → KHÔNG ting (không tự báo mình)."""
+    from app.realtime import hub
+
+    events: list = []
+    monkeypatch.setattr(hub, "publish", lambda uid, e: events.append((uid, e)))
+    token = _admin_token(client)
+    cid = _create(client, token, name="Cty Tu Lam")["customer"]["id"]  # sale mặc định = admin
+    r = client.post(f"/api/customers/{cid}/care-tasks", json={
+        "note": "Tự làm", "due_date": "2030-01-01T09:00:00+00:00",
+    }, headers=_h(token))
+    assert r.status_code == 201, r.text
+    assert not [e for _, e in events if e["type"] == "care_assigned"]
+
+
+def test_care_reminder_window_pings_due_once(client, monkeypatch):
+    """Ticker quét cửa sổ (after, until]: hẹn tới giờ ting ĐÚNG 1 LẦN; quét lại (hở-trái) không lặp."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.care_reminders import _scan_once
+    from app.realtime import hub
+
+    events: list = []
+    monkeypatch.setattr(hub, "publish", lambda uid, e: events.append((uid, e)))
+    token = _admin_token(client)
+    cid = _create(client, token, name="Cty Ting")["customer"]["id"]
+    now = datetime.now(timezone.utc)
+    r = client.post(f"/api/customers/{cid}/care-tasks", json={
+        "note": "Gọi khách", "due_date": now.isoformat(),
+    }, headers=_h(token))
+    assert r.status_code == 201, r.text
+
+    # Cửa sổ chứa giờ hẹn → ting đúng 1 lần.
+    n = _scan_once(now - timedelta(minutes=1), now + timedelta(minutes=1))
+    due = [e for _, e in events if e["type"] == "care_due"]
+    assert n == 1 and len(due) == 1
+    assert due[0]["customer"] == "Cty Ting" and due[0]["note"] == "Gọi khách"
+
+    # Cửa sổ SAU đó (after = now): due_date = now KHÔNG > now → không nhắc lại.
+    events.clear()
+    assert _scan_once(now, now + timedelta(minutes=2)) == 0
+    assert not [e for _, e in events if e["type"] == "care_due"]

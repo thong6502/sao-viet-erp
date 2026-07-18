@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     # MUST be changed by the user in a real deployment (docs/SECURITY.md).
     default_user_password: str = "password123"
 
+    # Nhắc lịch hẹn chăm sóc real-time: chu kỳ (giây) của ticker in-process quét hẹn vừa tới giờ
+    # để đẩy "ting" (SSE) cho người phụ trách. 0 = TẮT (test đặt 0 để không đụng DB in-memory).
+    # Chỉ đúng khi 1 uvicorn worker — giống ràng buộc SSE hub (app/realtime.py).
+    care_reminder_seconds: int = 60
+
     # Seed illustrative Kinh doanh staff + customers (spec-06 CRM demo data) on startup.
     # OFF by default so automated tests keep a minimal, predictable dataset; the dev /
     # browser-validate runtime turns it ON (SEED_DEMO=true in .env) to exercise the

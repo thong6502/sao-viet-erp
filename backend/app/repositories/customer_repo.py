@@ -504,6 +504,19 @@ class CustomerRepository:
         stmt = stmt.order_by(CustomerCareTask.due_date.asc(), CustomerCareTask.id.asc())
         return [(t, c) for t, c in self.db.execute(stmt).all()]
 
+    def list_due_in_window(self, *, after, until) -> list[tuple[CustomerCareTask, Customer]]:
+        """Hẹn ĐANG MỞ có giờ hẹn vừa rơi vào (after, until] và CÓ người phụ trách — nguồn ticker
+        đẩy "ting" real-time. Cửa sổ hở-trái/đóng-phải để mỗi hẹn chỉ lọt ĐÚNG 1 LẦN (không nhắc lặp)."""
+        stmt = (
+            select(CustomerCareTask, Customer)
+            .join(Customer, CustomerCareTask.customer_id == Customer.id)
+            .where(CustomerCareTask.status == TASK_OPEN)
+            .where(CustomerCareTask.assignee_user_id.is_not(None))
+            .where(CustomerCareTask.due_date > after)
+            .where(CustomerCareTask.due_date <= until)
+        )
+        return [(t, c) for t, c in self.db.execute(stmt).all()]
+
     # --- ghi chú tự do (tab Ghi chú) ---------------------------------------------
 
     def list_notes(self, customer_id: int) -> list[CustomerNote]:

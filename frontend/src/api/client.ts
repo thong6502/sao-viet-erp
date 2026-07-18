@@ -179,7 +179,11 @@ export type QuoteEvent =
   // người soạn; 'pending_changed' là tín hiệu danh sách chờ đổi → refetch notify-summary theo vai.
   | { type: "order_decision"; code: string; decision: "approved" | "rejected" }
   | { type: "order_deposit_ok"; code: string }
-  | { type: "order_pending_changed"; code?: string };
+  | { type: "order_pending_changed"; code?: string }
+  // Lịch hẹn chăm sóc (redesign-lich-hen-cham-soc): ticker đẩy "care_due" khi tới giờ hẹn,
+  // "care_assigned" khi giao hẹn cho người khác — gửi riêng người phụ trách.
+  | { type: "care_due"; customer: string; customer_id: number; note: string }
+  | { type: "care_assigned"; customer: string; customer_id: number; note: string };
 
 export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
   let closed = false;
