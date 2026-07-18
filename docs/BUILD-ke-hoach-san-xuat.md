@@ -10,7 +10,7 @@
 - **Chỉ thêm BẢNG MỚI** (create_all tự tạo) → KHÔNG sửa `db_migrations.py`/`order.py` (tránh đụng graft).
 - KHÔNG đụng **engine tính giá**, **màn Đơn hàng bán**.
 - KHÔNG xóa/ghi đè file lạ. Blocker cứng → dừng, ghi note vào PROGRESS, không đốt giờ.
-- Verify BE = `./init.ps1` (pytest + compileall) phải **XANH** mới qua chunk. Boolean server_default = bool `false`/`true`. Cập nhật `docs/DB_SCHEMA.md` mọi bảng/cột (guard test).
+- **Verify MỖI CHUNK = NHANH, KHÔNG chạy `init.ps1` đầy đủ** (626 test ~14ph, phí + hay treo): dùng `compileall` + **import-check** (`cd backend; python -c "import app..."`) + **targeted pytest** chỉ file test của chunk (`pytest backend/tests/test_<chunk>.py`). `init.ps1` ĐẦY ĐỦ **chỉ ở MỐC LỚN** (xong toàn bộ backend · trước UI · e2e cuối). Boolean server_default = bool `false`/`true`; cập nhật `DB_SCHEMA.md` khi ĐỔI model (guard test).
 - **CHỈ 1 pytest/init.ps1 chạy TẠI MỘT THỜI ĐIỂM** (2 tiến trình pytest tranh chấp DB → treo; bài học 2026-07-18). Đợi cái đang chạy xong mới chạy cái kế.
 - **File mới CHƯA wire vào router → `init.ps1` KHÔNG import nó** (pytest không đụng, compileall chỉ kiểm cú pháp). Phải **import-check riêng**: `cd backend; python -c "import app...."`.
 
@@ -54,6 +54,16 @@ Thợ (ít học/không biết chữ/**trí nhớ** — gắt nhất) · Tổ tr
   QC[nêu→tổ trưởng xác nhận] · nhập kho→suy XONG). Self-check `python -m compileall backend/app` =
   PASS (EXIT 0). CHƯA chạy init.ps1/pytest (orchestrator verify). Chưa build routers/schemas/SSE (Chunk 3).
 - **Orchestrator (2026-07-18)** — **Chunk 1 XONG + commit `b613097`** (init.ps1: 615 passed/11 skipped). **Chunk 2 verify + commit:** review tay SẠCH (nghi bug `sua_placement` = KHÔNG, repo `update_placement` tự commit) · compileall PASS · **import-check runtime PASS**. Service logic CHƯA unit test riêng → **defer test qua Chunk 3 (API integration) + Chunk 9 (e2e)**. **Chunk 3 chờ init.ps1 no-regression xong mới chạy (single-pytest).**
+- **2026-07-18** — **Chunk 3 (API: schemas + routers + mount + SSE + integration test): XONG.** Tạo
+  `backend/app/schemas/lenh_san_xuat.py` (request/response DTO) + `backend/app/routers/lenh_san_xuat.py`
+  (prefix `/api/lenh-sx`: bung/huy/duyệt mẫu · ghép/gán máy/phát/placement CRUD · sản lượng/bàn
+  giao/xác nhận · QC nêu→xác nhận · nhập kho→đóng lệnh; map lỗi service→404/422/409; RBAC module
+  `san_xuat`; SSE broadcast qua hub chung). Thêm helper ĐỌC append-only vào `lenh_san_xuat_service.py`
+  (list/detail lệnh + tờ, KHÔNG đổi logic mutate Chunk 2) + DI `get_lenh_san_xuat_service` (deps.py)
+  + mount (main.py). Test `backend/tests/test_lenh_sx_api.py` = **7 passed** (luồng bung→…→XONG + 3
+  cổng: phát chặn thiếu máy/chưa duyệt · sản lượng chặn trước phát · bung idempotent + hủy + đơn hủy).
+  Verify NHANH (không init.ps1): `compileall backend/app` EXIT 0 · `import app.main` OK · `pytest
+  tests/test_lenh_sx_api.py -q` = 7 passed 25s. Mở rộng ghi ngược `spec-ke-hoach-san-xuat.md` §8.2.
 
 ## 🧩 GIẢ ĐỊNH TỰ QUYẾT (agent tự chốt khi spec chưa nói — user duyệt cuối)
 **Chunk 2 (services record-only) — mở rộng đã ghi ngược vào `spec-ke-hoach-san-xuat.md`:**
@@ -84,3 +94,25 @@ Thợ (ít học/không biết chữ/**trí nhớ** — gắt nhất) · Tổ tr
 10. **Snapshot duyệt mẫu** `{user_id, to, chuc_vu, ten}` đọc HỒ SƠ nhân sự (`Employee` theo
     `user_id` → tổ = `Department.name`, chức vụ = `position`), lùi `User.name` khi chưa có hồ sơ —
     mirror `services/actor_display.py` (không suy vai từ hành động).
+
+**Chunk 3 (API: schemas + routers + SSE) — mở rộng đã ghi ngược `spec-ke-hoach-san-xuat.md` §8.2:**
+11. **Bung GỌI TAY** (spec chưa nói tự-động-khi-chốt hay gọi tay): chọn `POST /api/lenh-sx/lenh/bung
+    {order_id}` gọi tay từ màn kế hoạch — KHÔNG hook vào chốt đơn (guardrail: không đụng `order.py`).
+    Idempotent nên bấm lại vô hại. Tự-động-khi-chốt = có thể thêm sau bằng 1 lời gọi service ở
+    OrderService (khi user muốn), không cần đổi API này.
+12. **RBAC = module `san_xuat` có sẵn** (KHÔNG thêm module mới — tránh phình catalog + seed). Map
+    action-bit chung: read/create/update/`approve`(duyệt mẫu + phát)/`cancel`(hủy)/`manage_status`
+    (nhập kho). Admin (Giám đốc) có `_full` mọi module ⇒ chạy được ngay. **Tách vai công nhân
+    (thợ/tổ trưởng/QC/kho) DEFER**: hệ RBAC là 1-vai/người × module × action-bit, seed CHƯA có vai
+    công nhân riêng → không thể tách mịn mà không đẻ vai; khi cần, cấp tập-con action-bit cho từng
+    vai, hoặc tách module `ke_hoach_sx`. Ghi rõ để user duyệt hướng.
+13. **SSE = broadcast tín hiệu nhẹ qua hub CHUNG** (`app/realtime.py`, 1 worker) — client 1 kết nối
+    `/api/quotations/events` nhận mọi `type`, tự lọc. KHÔNG dựng endpoint `/events` riêng cho module
+    (hub + queue theo user là chung; thêm stream riêng = thừa). Payload kèm `to_nhan_id`/`to_bi_quy_id`
+    để FE lọc đúng tổ. **Đẩy đích-danh theo tổ** (resolve `department_id`→`user_id` rồi `hub.publish`)
+    = refinement Chunk 8 khi có tài khoản công nhân — hiện broadcast là đủ real-time, bám đúng cách
+    `orders.py` broadcast `order_pending_changed`.
+14. **Actor từ token** (người ghi sản lượng, người duyệt mẫu) — không nhận qua body (chống mạo danh).
+15. **Helper đọc thêm ở service** (`list_lenh`/`lenh_detail`/`list_forms`/`form_detail`/`san_luong_of`/
+    `lenh_on_form`) = APPEND-ONLY cho DTO, giữ layering router→service→repo, KHÔNG đổi logic mutate
+    Chunk 2 (guardrail "wire vào, KHÔNG sửa" = không phá hành vi cũ; thêm read thuần được).

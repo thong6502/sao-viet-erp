@@ -134,6 +134,32 @@ Lệnh + tờ in → máy tổng hợp NHU CẦU (đọc PTG):  Giấy (theo t�
 - **Hủy lệnh** (`huy_lenh`): đánh dấu *hủy*, GIỮ log sản lượng/bàn giao/QC; chặn hủy khi đã *xong*.
   Hủy-giữa-chừng chi tiết (rollback/quyết toán) = P1.
 
+### 8.2 Mở rộng khi build — Chunk 3 (API: schemas + routers + SSE, 2026-07-18)
+> Tầng API mở đúng các thao tác §5–§8 qua `routers/lenh_san_xuat.py` (prefix `/api/lenh-sx`), gọi
+> `LenhSanXuatService`. Map lỗi service → HTTP: `NotFound`→404 · `ValidationError`→422 (cổng phát
+> chưa đủ điều kiện) · `Conflict`→409 (cổng cứng: chưa phát mà ghi sản lượng, đơn hủy, lệnh xong…).
+> (Chi tiết + lý do: `BUILD-ke-hoach-san-xuat.md` §GIẢ ĐỊNH.)
+- **Bung = GỌI TAY** `POST /api/lenh-sx/lenh/bung {order_id}` (KHÔNG tự chạy khi chốt đơn — tránh
+  đụng `order.py`/luồng Đơn hàng bán). Idempotent nên bấm lại an toàn; FE gọi khi vào màn kế hoạch.
+- **RBAC = module `san_xuat`** ("Sản xuất", đã có trong catalog quyền — KHÔNG thêm module mới).
+  Action-level dùng bit chung: `read` (đọc) · `create` (bung/ghép/thêm placement/ghi sản lượng/bàn
+  giao/QC nêu lỗi) · `update` (gán máy/sửa-xoá placement/xác nhận nhận/tổ trưởng xác nhận QC) ·
+  `approve` (duyệt mẫu + **phát**) · `cancel` (hủy lệnh) · `manage_status` (nhập kho đóng lệnh).
+  **Tách vai công nhân chi tiết (thợ/tổ trưởng/QC/kho) = DEFER** — seed RBAC chưa có các vai công
+  nhân riêng; khi có sẽ cấp tập con các action-bit trên (hoặc tách module `ke_hoach_sx` riêng).
+- **Actor lấy TỪ TOKEN** (người ghi sản lượng = `user.id`; người duyệt mẫu = `user.id` → snapshot
+  con dấu). KHÔNG nhận `actor_id`/`nguoi_ghi` qua body (chống mạo danh).
+- **Real-time (SSE) = broadcast tín hiệu NHẸ qua hub in-process CHUNG** (`app/realtime.py`) — client
+  giữ 1 kết nối `/api/quotations/events` nhận MỌI loại sự kiện, lọc theo `type`. Mốc đẩy: `lenh_sx_
+  duyet_mau` · `lenh_sx_phat` (kèm `lenh_ids`) · `lenh_sx_ban_giao` (kèm `to_nhan_id`) · `lenh_sx_qc_
+  loi` (kèm `to_bi_quy_id`). Payload chỉ là tín hiệu; số/liệu chính xác FE refetch. **Đẩy ĐÍCH DANH
+  theo tổ (resolve tổ→user_id rồi `hub.publish`) = refinement Chunk 8 (màn thợ)** — hiện broadcast +
+  FE lọc theo tổ là đủ real-time (bám đúng cách `orders.py` broadcast `order_pending_changed`).
+- **DTO đọc**: `GET /lenh` (list) + `GET /lenh/{id}` (detail: tờ in + log sản lượng/bàn giao/QC +
+  đích SL & Σ đạt) nuôi màn tracking; `GET /forms` + `GET /forms/{id}` (placements + lệnh trên tờ)
+  nuôi màn ghép/theo máy; `GET /lenh/{id}/san-luong` đọc log. Helper đọc thêm ở service (append-only,
+  không đổi logic mutate Chunk 2).
+
 ## 9. Phân định trách nhiệm
 - **Đơn bán (Sale):** chốt · khóa · đẩy; chỉ hiển thị + link. KHÔNG thấy / đụng ghép bài.
 - **Kế hoạch SX:** bung tờ in · **ghép bài** · gán máy · duyệt mẫu · **kế hoạch vật tư** · phát.

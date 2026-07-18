@@ -400,3 +400,47 @@ class LenhSanXuatService:
         if lenh.trang_thai == LENH_HUY:
             return lenh
         return self.repo.update_lenh(lenh, trang_thai=LENH_HUY)
+
+    # ================================================================= ĐỌC (DTO)
+    # Chunk 3 — helper ĐỌC thuần cho router/DTO (append-only, KHÔNG đổi logic mutate ở trên).
+    def list_lenh(
+        self, *, order_id: int | None = None, trang_thai: str | None = None,
+        page: int = 1, size: int = 50,
+    ) -> tuple[list[LenhSanXuat], int]:
+        return self.repo.list_lenh(order_id=order_id, trang_thai=trang_thai, page=page, size=size)
+
+    def lenh_detail(self, lenh_id: int) -> dict:
+        """Lệnh + tờ in chứa nó + log sản lượng/bàn giao/QC + đích SL & Σ đạt — nuôi màn tracking."""
+        lenh = self._get_lenh(lenh_id)
+        return {
+            "lenh": lenh,
+            "forms": self.repo.forms_of_lenh(lenh_id),
+            "san_luong": self.repo.san_luong_by_lenh(lenh_id),
+            "ban_giao": self.repo.ban_giao_by_lenh(lenh_id),
+            "qc": self.repo.qc_by_lenh(lenh_id),
+            "muc_tieu_sl": self._muc_tieu_sl(lenh),
+            "tong_dat": self.repo.sum_dat(lenh_id),
+        }
+
+    def san_luong_of(self, lenh_id: int) -> list:
+        self._get_lenh(lenh_id)
+        return self.repo.san_luong_by_lenh(lenh_id)
+
+    def list_forms(
+        self, *, trang_thai: str | None = None, may_id: int | None = None,
+        page: int = 1, size: int = 50,
+    ) -> tuple[list[PrintForm], int]:
+        return self.repo.list_forms(trang_thai=trang_thai, may_id=may_id, page=page, size=size)
+
+    def form_detail(self, form_id: int) -> dict:
+        """Tờ in + danh sách xếp bài + các lệnh trên tờ — nuôi màn ghép bài / theo máy."""
+        form = self._get_form(form_id)
+        return {
+            "form": form,
+            "placements": self.repo.placements_by_form(form_id),
+            "lenhs": self.repo.lenh_on_form(form_id),
+        }
+
+    def lenh_on_form(self, form_id: int) -> list[LenhSanXuat]:
+        """Các lệnh trên 1 tờ in (dùng để lấy lenh_ids đẩy sự kiện real-time khi phát)."""
+        return self.repo.lenh_on_form(form_id)
