@@ -15,7 +15,7 @@ interface NavChild {
   label: string;
 }
 
-interface NavItem {
+export interface NavItem {
   id: string;
   label: string;
   icon: IconName;
@@ -55,12 +55,9 @@ const NAV: NavSection[] = [
     id: "san-xuat",
     label: "Sản xuất",
     items: [
-      // "Kế hoạch SX" = list/detail lệnh (đang chạy). 3 item sau thuộc chunk kế — route tạm
-      // (placeholder) để nav không dẫn về Dashboard; sẽ thay bằng màn thật (gồm màn thợ textless).
+      // "Kế hoạch SX" = list/detail lệnh (bung → ghép → duyệt mẫu → phát). Module theo dõi thực thi
+      // xưởng (theo dõi SX · nhập liệu xưởng · QC/KCS) đã gỡ.
       { id: "ke-hoach-sx", label: "Kế hoạch SX", icon: "calendar", module: "san_xuat" },
-      { id: "theo-doi-sx", label: "Theo dõi SX", icon: "activity", module: "san_xuat" },
-      { id: "nhap-lieu-xuong", label: "Nhập liệu xưởng", icon: "clipboard", module: "san_xuat" },
-      { id: "qc-kcs", label: "QC / KCS", icon: "shield", module: "san_xuat" },
     ],
   },
   {
@@ -97,6 +94,13 @@ const NAV: NavSection[] = [
     ],
   },
   {
+    // SECTION "Kho hàng" — header như "Cấu hình danh mục"; item bên dưới là các kho ĐÃ KHAI BÁO
+    // (inject ĐỘNG từ AppShell qua dynamicItems). Rỗng (chưa khai báo kho nào) → section tự ẩn.
+    id: "kho-hang",
+    label: "Kho hàng",
+    items: [],
+  },
+  {
     id: "cau-hinh-dm",
     label: "Cấu hình danh mục",
     items: [
@@ -108,6 +112,8 @@ const NAV: NavSection[] = [
       { id: "kho-giay-chuan", label: "Khổ giấy chuẩn", icon: "clipboard", module: "kho" },
       { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
       { id: "vat-tu-in-an", label: "Vật tư in ấn", icon: "bag", module: "kho" },
+      // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
+      { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "kho" },
     ],
   },
   {
@@ -151,11 +157,13 @@ interface SidebarProps {
   readable: ReadonlySet<string>;
   /** Menu con ĐỘNG theo item id (vd các kho đã cấu hình dưới "Kho hàng"). */
   itemChildren?: Record<string, NavChild[]>;
+  /** Item ĐỘNG chèn vào 1 SECTION (theo section id) — vd các kho đã khai báo dưới section "Kho hàng". */
+  dynamicItems?: Record<string, NavItem[]>;
   /** Badge số (đỏ) theo item id — vd "nghi-phep": số đơn chờ duyệt. Ẩn khi ≤0/absent. */
   badges?: Record<string, number>;
 }
 
-export function Sidebar({ activeId, onSelect, readable, itemChildren, badges }: SidebarProps) {
+export function Sidebar({ activeId, onSelect, readable, itemChildren, dynamicItems, badges }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
@@ -167,15 +175,19 @@ export function Sidebar({ activeId, onSelect, readable, itemChildren, badges }: 
 
   // Only show items whose module the role can Read; drop now-empty sections. Inject any
   // dynamic children (e.g. configured warehouses) onto their host item.
-  const sections = NAV.map((s) => ({
-    ...s,
-    items: s.items
-      .filter((i) => (i.modules ?? [i.module]).some((module) => readable.has(module)))
-      .map((i) => {
-        const dyn = itemChildren?.[i.id];
-        return dyn && dyn.length ? { ...i, children: dyn } : i;
-      }),
-  })).filter((s) => s.items.length > 0);
+  const sections = NAV.map((s) => {
+    // Gộp item tĩnh + item ĐỘNG của section (vd kho đã khai báo dưới "Kho hàng"), rồi lọc theo quyền.
+    const merged = [...s.items, ...(dynamicItems?.[s.id] ?? [])];
+    return {
+      ...s,
+      items: merged
+        .filter((i) => (i.modules ?? [i.module]).some((module) => readable.has(module)))
+        .map((i) => {
+          const dyn = itemChildren?.[i.id];
+          return dyn && dyn.length ? { ...i, children: dyn } : i;
+        }),
+    };
+  }).filter((s) => s.items.length > 0);
 
   // Auto-mở item cha khi một menu con của nó đang active (mở lại trang / deep-link).
   useEffect(() => {

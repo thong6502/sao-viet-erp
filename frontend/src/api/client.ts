@@ -1006,6 +1006,7 @@ export interface ThanhPhanOut {
   // Màu in (gộp — chỉ số màu mỗi mặt)
   so_mau_a: number;
   so_mau_b: number;
+  ghi_chu_ky_thuat: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
   gia_von_tp: number;
   thanh_phams: ThanhPhamOut[];
   vat_tus: VatTuLineOut[];
@@ -1103,6 +1104,7 @@ export interface ThanhPhanIn {
   don_gia_cong_in?: number;
   so_mau_a?: number;
   so_mau_b?: number;
+  ghi_chu_ky_thuat?: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
   thanh_phams?: ThanhPhamIn[];
   vat_tus?: VatTuLineIn[];
 }
@@ -2938,38 +2940,6 @@ export interface PlacementRow {
   lenh_sx_id: number;
   so_con: number;
 }
-export interface SanLuongRow {
-  id: number;
-  lenh_sx_id: number;
-  cong_doan_id: number | null;
-  to_id: number | null;
-  so_dat: number;
-  so_hong: number;
-  nguoi_ghi: number | null;
-  created_at: string;
-}
-export interface BanGiaoRow {
-  id: number;
-  lenh_sx_id: number;
-  cong_doan_tu_id: number | null;
-  cong_doan_toi_id: number | null;
-  so_giao: number;
-  to_giao_id: number | null;
-  to_nhan_id: number | null;
-  giao_at: string;
-  nhan_at: string | null;
-}
-export interface QcDefectRow {
-  id: number;
-  lenh_sx_id: number;
-  cong_doan_id: number | null;
-  to_bi_quy_id: number | null;
-  anh_url: string | null;
-  mo_ta: string | null;
-  trang_thai: string; // cho | to_truong_xac_nhan
-  created_at: string;
-  xac_nhan_at: string | null;
-}
 export interface RoutingStepRow {
   id: number;
   lenh_sx_id: number;
@@ -2977,48 +2947,112 @@ export interface RoutingStepRow {
   cong_doan_id: number | null;
   to_id: number | null;
   ten: string;
-  trang_thai: string; // cho | dang | xong
-  bat_dau_at: string | null;
-  hoan_thanh_at: string | null;
+}
+// 1 BÀI CON của lệnh (ấn phẩm được pick vào lệnh) — giữ chi tiết để không mất khi gom.
+export interface LenhItemRow {
+  id: number | null; // id bài con (để mở drawer cấu hình override); null = lệnh cũ chưa có bài con
+  phieu_thanh_phan_id: number | null;
+  ten: string;
+  qty: number;
+  don_vi_tinh: string;
+}
+// Override quy cách in tại lệnh (chỉ field quy cách; null = gỡ override, kế thừa lại báo giá).
+export interface QuyCachOverride {
+  giay_id?: number | null;
+  dai_thanh_pham?: number | null;
+  rong_thanh_pham?: number | null;
+  kho_thanh_pham?: string | null;
+  kho_mo_rong?: string | null;
+  tay_gap?: string | null;
+  so_to_per_sp?: number | null;
+  kho_nguyen_dai?: number | null;
+  kho_nguyen_rong?: number | null;
+  nguon_giay?: string | null;
+  quy_cach_in?: string | null;
+  kho_in_dai?: number | null;
+  kho_in_rong?: number | null;
+  so_con?: number | null;
+  con_auto?: boolean | null;
+  che_ban_loai?: string | null;
+  so_mau_a?: number | null;
+  so_mau_b?: number | null;
 }
 export interface LenhSXDetailOut extends LenhSXRow {
+  items: LenhItemRow[];
   routing: RoutingStepRow[];
   forms: PrintFormRow[];
-  san_luong: SanLuongRow[];
-  ban_giao: BanGiaoRow[];
-  qc: QcDefectRow[];
   muc_tieu_sl: number;
-  tong_dat: number;
+}
+// 1 công đoạn routing GỐC của ấn phẩm (đọc từ Tính giá) — KHÔNG có đơn giá (cô lập thương mại).
+export interface RoutingGocRow {
+  thu_tu: number;
+  cong_doan_id: number | null;
+  ten: string;
+  nha_cung_cap: string | null;
+  ghi_chu: string | null;
+}
+// 1 vật tư thêm của ấn phẩm (vecni bóng/mờ · cán màng…) — tên + ghi chú, không giá.
+export interface VatTuGocRow {
+  ten: string;
+  ghi_chu: string | null;
+}
+// Chi tiết ĐẦY ĐỦ ấn phẩm cho DRAWER (mirror phiếu công đoạn) — CHỈ KỸ THUẬT (đã lọc sạch giá).
+// Giá trị HIỆU LỰC = báo giá + override tại lệnh. editable = mở từ lệnh NHÁP (được sửa quy cách).
+export interface AnPhamChiTiet {
+  phieu_thanh_phan_id: number;
+  lenh_item_id: number | null;
+  editable: boolean;
+  overridden: string[]; // các field đã override so với báo giá
+  // nhận dạng / thành phẩm
+  ten: string;
+  loai_thanh_phan: string;
+  kho_thanh_pham: string | null;
+  dai_thanh_pham: number;
+  rong_thanh_pham: number;
+  kho_mo_rong: string | null;
+  tay_gap: string | null;
+  so_to_per_sp: number;
+  so_luong: number;
+  don_vi_tinh: string;
+  // giấy (đã resolve tên + chủng loại)
+  giay_id: number | null;
+  giay_ten: string | null;
+  chung_loai_ten: string | null;
+  gsm: number | null;
+  kho_nguyen: string | null;
+  kho_nguyen_dai: number;
+  kho_nguyen_rong: number;
+  nguon_giay: string;
+  // in & màu
+  co_in: boolean;
+  che_ban_loai: string | null;
+  quy_cach_in: string;
+  kho_in_dai: number;
+  kho_in_rong: number;
+  so_con: number;
+  con_auto: boolean;
+  may_id: number | null;
+  so_mau_a: number;
+  so_mau_b: number;
+  so_kem: number;
+  // số lượng (engine snapshot — null nếu phiếu chưa tính)
+  so_luong_can: number | null;
+  so_to_thuc_te: number | null;
+  so_to_sau_in: number | null;
+  so_to_nguyen: number | null;
+  con_tren_to: number | null;
+  bu_hao_auto: number | null;
+  bu_hao_so_to: number;
+  hao_so_to: number;
+  tinh_bu_hao_cd: boolean;
+  // note kỹ thuật theo sản phẩm + vật tư + routing
+  ghi_chu_ky_thuat: string | null;
+  vat_tu: VatTuGocRow[];
+  routing: RoutingGocRow[];
 }
 export interface PrintFormDetailOut extends PrintFormRow {
   placements: PlacementRow[];
   lenhs: LenhSXRow[];
-}
-// Tổ view (§13.3–13.4) — cây tổ SX + đếm việc; lệnh của tổ.
-export interface ToNode {
-  id: number;
-  name: string;
-  code: string;
-  parent_id: number | null;
-  head_user_id: number | null;
-  la_san_xuat: boolean;
-  so_lenh: number; // số lệnh đang chạy tổ có việc
-  so_den_luot: number; // số lệnh ĐẾN LƯỢT tổ (bước hiện hành thuộc tổ)
-}
-export interface ToLenh {
-  id: number;
-  order_id: number;
-  phieu_thanh_phan_id: number | null;
-  trang_thai: string;
-  den_luot: boolean; // bước hiện hành thuộc tổ đang xem
-  cur_thu_tu: number | null; // bước đến lượt (ai đang giữ)
-  cur_ten: string | null;
-  cur_to_id: number | null;
-  so_buoc: number;
-  so_buoc_xong: number;
-  muc_tieu_sl: number;
-  tong_dat: number;
-  updated_at: string;
 }
 // Handoff (§5.1): đơn đã chốt CHỜ lên kế hoạch — kèm ngữ cảnh để kế hoạch cấu hình.
 export interface HangChoAnPham {
@@ -3026,6 +3060,7 @@ export interface HangChoAnPham {
   description: string;
   qty: number;
   don_vi_tinh: string;
+  spec_tom_tat: string; // quy cách rút gọn (khổ TP · số màu · giấy) — kỹ thuật, không giá
 }
 export interface HangChoDon {
   order_id: number;
@@ -3064,28 +3099,6 @@ export interface GhepInput {
   so_to_chay?: number;
   so_kem?: number;
   placements: GhepPlacementInput[];
-}
-/** Tổ chạy (màn thợ) — ghi sản lượng 1 công đoạn. Người ghi lấy từ token (không gửi). */
-export interface SanLuongInput {
-  cong_doan_id?: number | null;
-  to_id?: number | null;
-  so_dat?: number;
-  so_hong?: number;
-}
-/** Bàn giao số đạt sang tổ kế (giao → nhận). */
-export interface BanGiaoInput {
-  cong_doan_tu_id?: number | null;
-  cong_doan_toi_id?: number | null;
-  so_giao?: number;
-  to_giao_id?: number | null;
-  to_nhan_id?: number | null;
-}
-/** QC nêu lỗi kèm ảnh (data URL) + tổ bị quy → chờ tổ trưởng xác nhận. */
-export interface QcLoiInput {
-  cong_doan_id?: number | null;
-  to_bi_quy_id?: number | null;
-  anh_url?: string | null;
-  mo_ta?: string | null;
 }
 
 export const api = {
@@ -4531,7 +4544,7 @@ export const api = {
     phat(token: string, formId: number): Promise<PrintFormRow> {
       return authed<PrintFormRow>(`/api/lenh-sx/forms/${formId}/phat`, token, { method: "POST" });
     },
-    // --- Routing (Chunk B · §13.2): copy từ tính giá khi bung, kế hoạch sửa (khóa bước đã chạy). ---
+    // --- Routing (Chunk B · §13.2): copy từ tính giá khi bung, kế hoạch sửa (thêm/bớt/đổi thứ tự/tổ). ---
     routing(token: string, lenhId: number): Promise<RoutingStepRow[]> {
       return authed<RoutingStepRow[]>(`/api/lenh-sx/lenh/${lenhId}/routing`, token);
     },
@@ -4560,50 +4573,6 @@ export const api = {
         body: JSON.stringify({ step_ids: stepIds }),
       });
     },
-    // --- Tổ view (Chunk C · §13.3–13.4): cây tổ → lệnh của tổ → màn thực thi (bắt đầu/hoàn thành). ---
-    toBoard(token: string): Promise<ToNode[]> {
-      return authed<ToNode[]>(`/api/lenh-sx/to-board`, token);
-    },
-    lenhOfTo(token: string, toId: number): Promise<ToLenh[]> {
-      return authed<ToLenh[]>(`/api/lenh-sx/to/${toId}/lenh`, token);
-    },
-    batDauBuoc(token: string, stepId: number): Promise<RoutingStepRow[]> {
-      return authed<RoutingStepRow[]>(`/api/lenh-sx/routing/${stepId}/bat-dau`, token, { method: "POST" });
-    },
-    hoanThanhBuoc(token: string, stepId: number): Promise<RoutingStepRow[]> {
-      return authed<RoutingStepRow[]>(`/api/lenh-sx/routing/${stepId}/hoan-thanh`, token, { method: "POST" });
-    },
-    // --- Tổ chạy (Chunk 8 · màn thợ textless): sản lượng · bàn giao (giao→nhận) · QC lỗi. ---
-    // Actor (người ghi) lấy từ token ở backend — KHÔNG gửi qua body. Cổng cứng: chỉ ghi khi lệnh đã
-    // phát (backend 409 nếu chưa) → FE hiện icon/màu đỏ, ít chữ.
-    ghiSanLuong(token: string, lenhId: number, body: SanLuongInput): Promise<SanLuongRow> {
-      return authed<SanLuongRow>(`/api/lenh-sx/lenh/${lenhId}/san-luong`, token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    banGiao(token: string, lenhId: number, body: BanGiaoInput): Promise<BanGiaoRow> {
-      return authed<BanGiaoRow>(`/api/lenh-sx/lenh/${lenhId}/ban-giao`, token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    xacNhanNhan(token: string, banGiaoId: number): Promise<BanGiaoRow> {
-      return authed<BanGiaoRow>(`/api/lenh-sx/ban-giao/${banGiaoId}/xac-nhan-nhan`, token, {
-        method: "POST",
-      });
-    },
-    ghiLoiQc(token: string, lenhId: number, body: QcLoiInput): Promise<QcDefectRow> {
-      return authed<QcDefectRow>(`/api/lenh-sx/lenh/${lenhId}/qc`, token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    toTruongXacNhanQc(token: string, qcId: number): Promise<QcDefectRow> {
-      return authed<QcDefectRow>(`/api/lenh-sx/qc/${qcId}/to-truong-xac-nhan`, token, {
-        method: "POST",
-      });
-    },
     // --- Handoff (§5.1): đơn chốt chờ kế hoạch → bấm 'Lên kế hoạch' (bung, idempotent). ---
     hangCho(token: string): Promise<HangChoDon[]> {
       return authed<HangChoDon[]>(`/api/lenh-sx/hang-cho`, token);
@@ -4612,6 +4581,26 @@ export const api = {
       return authed<LenhSXRow[]>(`/api/lenh-sx/lenh/bung`, token, {
         method: "POST",
         body: JSON.stringify({ order_id: orderId }),
+      });
+    },
+    // PICK gom: người kế hoạch chọn nhóm ấn phẩm (cùng 1 đơn) → 1 LỆNH nháp + bài con. Máy CHỈ GHI.
+    taoLenh(token: string, orderId: number, phieuThanhPhanIds: number[]): Promise<LenhSXRow> {
+      return authed<LenhSXRow>(`/api/lenh-sx/lenh`, token, {
+        method: "POST",
+        body: JSON.stringify({ order_id: orderId, phieu_thanh_phan_ids: phieuThanhPhanIds }),
+      });
+    },
+    // Chi tiết ấn phẩm (quy cách + routing gốc) cho DRAWER — đã lọc thương mại ở backend.
+    // Kèm lenhItemId (mở từ lệnh) → giá trị hiệu lực + cờ editable (lệnh nháp).
+    anPhamChiTiet(token: string, ptpId: number, lenhItemId?: number | null): Promise<AnPhamChiTiet> {
+      const qs = lenhItemId != null ? `?lenh_item_id=${lenhItemId}` : "";
+      return authed<AnPhamChiTiet>(`/api/lenh-sx/an-pham/${ptpId}${qs}`, token);
+    },
+    // Kế hoạch SỬA quy cách in của 1 bài con (override báo giá) — chỉ khi lệnh nháp. Trả hiệu lực mới.
+    suaQuyCach(token: string, itemId: number, override: QuyCachOverride): Promise<AnPhamChiTiet> {
+      return authed<AnPhamChiTiet>(`/api/lenh-sx/bai-con/${itemId}/quy-cach`, token, {
+        method: "PUT",
+        body: JSON.stringify(override),
       });
     },
   },

@@ -1,12 +1,11 @@
 """Data access — Kế hoạch & Lệnh sản xuất (P0), spec `docs/spec-ke-hoach-san-xuat.md`.
 
-Tầng DUY NHẤT chạm DB cho 6 bảng của module (`lenh_sx · print_form · gang_placement ·
-san_luong · ban_giao · qc_defect`). KHÔNG nghiệp vụ ở đây (cổng phát AND, suy trạng thái…
-nằm ở `LenhSanXuatService`). SQL qua bound-param SQLAlchemy (không nối chuỗi).
+Tầng DUY NHẤT chạm DB cho các bảng KẾ HOẠCH của module (`lenh_sx · lenh_item · print_form ·
+gang_placement · routing_step`). KHÔNG nghiệp vụ ở đây (cổng phát AND, suy trạng thái… nằm ở
+`LenhSanXuatService`). SQL qua bound-param SQLAlchemy (không nối chuỗi).
 
 Đọc NỀN từ PTG + Đơn (KHÔNG chép): `PhieuThanhPhan` (quy cách/số con/máy), `PhieuThanhPham`
 (routing theo `thu_tu` → `cong_doan_id`), `OrderLine.phieu_thanh_phan_id` (cầu đơn ↔ ấn phẩm).
-Một repository / module (theo pattern `accounting_repo`), gom 6 bảng + helper đọc chéo.
 """
 from __future__ import annotations
 
@@ -18,15 +17,11 @@ from ..models.customer import Customer
 from ..models.lenh_san_xuat import (
     LENH_NHAP,
     PF_CHO_GHEP,
-    QC_CHO,
-    RS_CHO,
-    BanGiao,
     GangPlacement,
+    LenhItem,
     LenhSanXuat,
     PrintForm,
-    QcDefect,
     RoutingStep,
-    SanLuong,
 )
 from ..models.order import STATUS_ORDERED, Order, OrderLine
 from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan
@@ -100,6 +95,52 @@ class LenhSanXuatRepository:
         page, size = max(1, page), max(1, min(size, 200))
         base = base.order_by(LenhSanXuat.id.desc()).offset((page - 1) * size).limit(size)
         return list(self.db.execute(base).scalars()), total
+
+    # ================= Bài con (lenh_item) — 1 lệnh ôm nhiều ấn phẩm =================
+    def create_lenh_item(
+        self, *, lenh_sx_id: int, phieu_thanh_phan_id: int | None,
+        order_line_id: int | None = None, thu_tu: int = 0,
+    ) -> LenhItem:
+        row = LenhItem(
+            lenh_sx_id=lenh_sx_id, phieu_thanh_phan_id=phieu_thanh_phan_id,
+            order_line_id=order_line_id, thu_tu=thu_tu,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def items_of_lenh(self, lenh_id: int) -> list[LenhItem]:
+        return list(
+            self.db.execute(
+                select(LenhItem)
+                .where(LenhItem.lenh_sx_id == lenh_id)
+                .order_by(LenhItem.thu_tu.asc(), LenhItem.id.asc())
+            ).scalars()
+        )
+
+    def get_lenh_item(self, item_id: int) -> LenhItem | None:
+        return self.db.get(LenhItem, item_id)
+
+    def update_lenh_item(self, item: LenhItem, **fields) -> LenhItem:
+        for k, v in fields.items():
+            setattr(item, k, v)
+        self.db.commit()
+        self.db.refresh(item)
+        return item
+
+    def ptp_ids_in_order(self, order_id: int) -> set[int]:
+        """Ptp đã thuộc lệnh nào của đơn (UNION bài con `lenh_item` + cột đại diện `lenh_sx`) — nền
+        idempotent / chặn PICK trùng ấn phẩm. Bao cả lệnh cũ (chưa có bài con) qua cột đại diện."""
+        rep = self.db.execute(
+            select(LenhSanXuat.phieu_thanh_phan_id).where(LenhSanXuat.order_id == order_id)
+        ).scalars()
+        items = self.db.execute(
+            select(LenhItem.phieu_thanh_phan_id)
+            .join(LenhSanXuat, LenhSanXuat.id == LenhItem.lenh_sx_id)
+            .where(LenhSanXuat.order_id == order_id)
+        ).scalars()
+        return {r for r in rep if r is not None} | {r for r in items if r is not None}
 
     # ================= Tờ in (print_form) =================
     def get_form(self, form_id: int) -> PrintForm | None:
@@ -204,105 +245,6 @@ class LenhSanXuatRepository:
             ).scalars()
         )
 
-    # ================= Sản lượng (log) =================
-    def add_san_luong(
-        self, *, lenh_sx_id: int, cong_doan_id: int | None, to_id: int | None,
-        so_dat: int, so_hong: int, nguoi_ghi: int | None,
-    ) -> SanLuong:
-        row = SanLuong(
-            lenh_sx_id=lenh_sx_id, cong_doan_id=cong_doan_id, to_id=to_id,
-            so_dat=so_dat, so_hong=so_hong, nguoi_ghi=nguoi_ghi,
-        )
-        self.db.add(row)
-        self.db.commit()
-        self.db.refresh(row)
-        return row
-
-    def san_luong_by_lenh(self, lenh_id: int) -> list[SanLuong]:
-        return list(
-            self.db.execute(
-                select(SanLuong)
-                .where(SanLuong.lenh_sx_id == lenh_id)
-                .order_by(SanLuong.id.asc())
-            ).scalars()
-        )
-
-    def sum_dat(self, lenh_id: int, *, cong_doan_id: int | None = None) -> int:
-        """Σ số đạt của 1 lệnh (tuỳ chọn theo 1 công đoạn) — nuôi suy tiến độ / đủ SL."""
-        stmt = select(func.coalesce(func.sum(SanLuong.so_dat), 0)).where(
-            SanLuong.lenh_sx_id == lenh_id
-        )
-        if cong_doan_id is not None:
-            stmt = stmt.where(SanLuong.cong_doan_id == cong_doan_id)
-        return int(self.db.execute(stmt).scalar_one())
-
-    # ================= Bàn giao (giao → xác nhận nhận) =================
-    def add_ban_giao(
-        self, *, lenh_sx_id: int, cong_doan_tu_id: int | None, cong_doan_toi_id: int | None,
-        so_giao: int, to_giao_id: int | None, to_nhan_id: int | None,
-    ) -> BanGiao:
-        row = BanGiao(
-            lenh_sx_id=lenh_sx_id, cong_doan_tu_id=cong_doan_tu_id,
-            cong_doan_toi_id=cong_doan_toi_id, so_giao=so_giao,
-            to_giao_id=to_giao_id, to_nhan_id=to_nhan_id,
-        )
-        self.db.add(row)
-        self.db.commit()
-        self.db.refresh(row)
-        return row
-
-    def get_ban_giao(self, ban_giao_id: int) -> BanGiao | None:
-        return self.db.get(BanGiao, ban_giao_id)
-
-    def ban_giao_by_lenh(self, lenh_id: int) -> list[BanGiao]:
-        return list(
-            self.db.execute(
-                select(BanGiao)
-                .where(BanGiao.lenh_sx_id == lenh_id)
-                .order_by(BanGiao.id.asc())
-            ).scalars()
-        )
-
-    def update_ban_giao(self, ban_giao: BanGiao, **fields) -> BanGiao:
-        for k, v in fields.items():
-            setattr(ban_giao, k, v)
-        self.db.commit()
-        self.db.refresh(ban_giao)
-        return ban_giao
-
-    # ================= QC ghi lỗi (QC nêu → tổ trưởng xác nhận) =================
-    def add_qc_defect(
-        self, *, lenh_sx_id: int, cong_doan_id: int | None, to_bi_quy_id: int | None,
-        anh_url: str | None, mo_ta: str | None, trang_thai: str = QC_CHO,
-    ) -> QcDefect:
-        row = QcDefect(
-            lenh_sx_id=lenh_sx_id, cong_doan_id=cong_doan_id, to_bi_quy_id=to_bi_quy_id,
-            anh_url=anh_url, mo_ta=mo_ta, trang_thai=trang_thai,
-        )
-        self.db.add(row)
-        self.db.commit()
-        self.db.refresh(row)
-        return row
-
-    def get_qc_defect(self, qc_id: int) -> QcDefect | None:
-        return self.db.get(QcDefect, qc_id)
-
-    def qc_by_lenh(self, lenh_id: int) -> list[QcDefect]:
-        return list(
-            self.db.execute(
-                select(QcDefect)
-                .where(QcDefect.lenh_sx_id == lenh_id)
-                .order_by(QcDefect.id.asc())
-            ).scalars()
-        )
-
-    def update_qc_defect(self, qc: QcDefect, **fields) -> QcDefect:
-        for k, v in fields.items():
-            setattr(qc, k, v)
-        self.db.commit()
-        self.db.refresh(qc)
-        return qc
-
     # ================= Routing step (routing riêng mỗi lệnh — §13.2) =================
     def cong_doan_by_id(self, cong_doan_id: int | None) -> CongDoan | None:
         """Công đoạn danh mục — để snapshot tổ (`department_id`) + tên khi copy/sửa routing."""
@@ -316,7 +258,7 @@ class LenhSanXuatRepository:
     ) -> RoutingStep:
         step = RoutingStep(
             lenh_sx_id=lenh_sx_id, thu_tu=thu_tu, cong_doan_id=cong_doan_id,
-            to_id=to_id, ten=ten, trang_thai=RS_CHO,
+            to_id=to_id, ten=ten,
         )
         self.db.add(step)
         self.db.commit()
@@ -353,31 +295,21 @@ class LenhSanXuatRepository:
             .where(RoutingStep.lenh_sx_id == lenh_id)
         ).scalar_one())
 
-    def lenh_ids_for_to(self, to_id: int) -> list[int]:
-        """Id các lệnh có ≥1 bước routing thuộc tổ (nuôi 'lệnh của tổ' §13.4). Distinct, id desc."""
-        return list(self.db.execute(
-            select(RoutingStep.lenh_sx_id)
-            .where(RoutingStep.to_id == to_id)
-            .distinct()
-            .order_by(RoutingStep.lenh_sx_id.desc())
-        ).scalars())
-
-    def routing_steps_by_lenh_ids(self, lenh_ids: list[int]) -> list[RoutingStep]:
-        """Mọi bước routing của 1 tập lệnh (1 truy vấn) — để đếm việc per-tổ cho bảng tổ (§13.3)."""
-        if not lenh_ids:
-            return []
-        return list(self.db.execute(
-            select(RoutingStep)
-            .where(RoutingStep.lenh_sx_id.in_(lenh_ids))
-            .order_by(RoutingStep.thu_tu.asc(), RoutingStep.id.asc())
-        ).scalars())
-
     # ================= Đọc NỀN từ PTG / Đơn (không chép) =================
     def get_phieu_thanh_phan(self, ptp_id: int | None) -> PhieuThanhPhan | None:
         """Ấn phẩm nguồn (quy cách/giấy/khổ/màu/số con/máy) — nền của Lệnh + gợi ý ghép."""
         if ptp_id is None:
             return None
         return self.db.get(PhieuThanhPhan, ptp_id)
+
+    def phieu_thanh_phan_by_ids(self, ids: list[int]) -> dict[int, PhieuThanhPhan]:
+        """Ấn phẩm theo tập id (1 truy vấn) — nuôi quy cách rút gọn cho sổ hàng chờ (tránh N+1)."""
+        if not ids:
+            return {}
+        rows = self.db.execute(
+            select(PhieuThanhPhan).where(PhieuThanhPhan.id.in_(ids))
+        ).scalars()
+        return {r.id: r for r in rows}
 
     def routing_of_ptp(self, ptp_id: int | None) -> list[PhieuThanhPham]:
         """Routing (finishing) theo `thu_tu` → mỗi bước có `cong_doan_id` (→ tổ qua department_id)."""
@@ -401,15 +333,41 @@ class LenhSanXuatRepository:
             .limit(1)
         ).scalar_one_or_none()
 
+    def order_line_by_id(self, order_line_id: int | None) -> OrderLine | None:
+        """Dòng đơn theo id (bài con giữ `order_line_id` → đọc SL đích SỐNG, không chép)."""
+        if order_line_id is None:
+            return None
+        return self.db.get(OrderLine, order_line_id)
+
     # ================= Handoff: đơn chốt CHỜ lên kế hoạch (§5.1) =================
+    def covered_ptp_ids(self) -> set[int]:
+        """Tập ptp ĐÃ thuộc lệnh nào (union đại diện `lenh_sx` + bài con `lenh_item`) — GLOBAL. Mỗi
+        ptp duy nhất theo dòng đơn nên set global đủ để lọc 'ấn phẩm chưa lên lệnh' ở sổ hàng chờ."""
+        rep = self.db.execute(
+            select(LenhSanXuat.phieu_thanh_phan_id).where(LenhSanXuat.phieu_thanh_phan_id.isnot(None))
+        ).scalars()
+        items = self.db.execute(
+            select(LenhItem.phieu_thanh_phan_id).where(LenhItem.phieu_thanh_phan_id.isnot(None))
+        ).scalars()
+        return {r for r in rep if r is not None} | {r for r in items if r is not None}
+
     def orders_waiting_for_planning(self) -> list[Order]:
-        """Đơn ĐÃ CHỐT có ≥1 dòng ấn phẩm (`phieu_thanh_phan_id`) mà CHƯA có lệnh nào — hàng chờ để
-        kế hoạch bấm 'Lên kế hoạch' (bung). Đơn đã bung → có lệnh → loại; đơn chỉ toàn dòng nhập tay
-        (ptp NULL) → không hiện (gap đơn-nhập-tay để sau, tránh 'kẹt hàng chờ mãi'). Gấp lên đầu."""
-        have_lenh = select(LenhSanXuat.order_id).distinct().scalar_subquery()
-        have_ptp_line = (
+        """Đơn ĐÃ CHỐT (+ Sale đã 'Chuyển xuống SX') còn ≥1 ấn phẩm CHƯA lên lệnh — sổ hàng chờ để kế
+        hoạch PICK. 'Chưa lên lệnh' = ptp KHÔNG nằm trong `lenh_sx`/`lenh_item` → pick DẦN: đơn ở lại
+        tới khi MỌI ấn phẩm đã lên lệnh. Dòng nhập tay (ptp NULL) không tính. Gấp lên đầu."""
+        rep_covered = select(LenhSanXuat.phieu_thanh_phan_id).where(
+            LenhSanXuat.phieu_thanh_phan_id.isnot(None)
+        )
+        item_covered = select(LenhItem.phieu_thanh_phan_id).where(
+            LenhItem.phieu_thanh_phan_id.isnot(None)
+        )
+        have_uncovered = (
             select(OrderLine.order_id)
-            .where(OrderLine.phieu_thanh_phan_id.isnot(None))
+            .where(
+                OrderLine.phieu_thanh_phan_id.isnot(None),
+                OrderLine.phieu_thanh_phan_id.notin_(rep_covered),
+                OrderLine.phieu_thanh_phan_id.notin_(item_covered),
+            )
             .distinct()
             .scalar_subquery()
         )
@@ -418,8 +376,7 @@ class LenhSanXuatRepository:
             .where(
                 Order.status == STATUS_ORDERED,
                 Order.san_xuat_released_at.isnot(None),  # chỉ đơn Sale ĐÃ "Chuyển xuống SX"
-                Order.id.in_(have_ptp_line),
-                Order.id.notin_(have_lenh),
+                Order.id.in_(have_uncovered),
             )
             .order_by(Order.is_rush.desc(), Order.id.desc())
         ).scalars())

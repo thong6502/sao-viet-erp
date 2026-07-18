@@ -1,13 +1,13 @@
 """Kế hoạch & Lệnh sản xuất — API integration tests (VERIFY THẬT của Chunk 2 + 3).
 
-Đi trọn luồng qua HTTP (router → service → repo → DB in-memory):
-  tạo Đơn + ấn phẩm (PTP) → bung → ghép → gán máy → duyệt mẫu → phát → ghi sản lượng → nhập kho
-  → lệnh XONG + đơn "xong sản xuất".
+Đi luồng KẾ HOẠCH qua HTTP (router → service → repo → DB in-memory):
+  tạo Đơn + ấn phẩm (PTP) → bung → ghép → gán máy → duyệt mẫu → phát → lệnh `dang_chay`.
 Cổng (record-only vẫn giữ toàn vẹn trạng thái):
   - phát bị CHẶN khi thiếu máy / chưa duyệt mẫu (422),
-  - ghi sản lượng bị CHẶN trước khi phát (409),
   - bung IDEMPOTENT (gọi 2 lần không nhân đôi).
 Dùng fixture `client` (conftest) + SessionLocal (chung StaticPool) để dựng dữ liệu nền.
+
+(Module theo dõi thực thi xưởng — ghi sản lượng/bàn giao/QC/nhập kho — đã GỠ.)
 """
 from __future__ import annotations
 
@@ -68,18 +68,8 @@ def _ghep(client, h, lenh_id: int, *, so_con: int = 2) -> int:
     return r.json()["id"]
 
 
-def _drive_to_dang_chay(client, h) -> tuple[int, int, int]:
-    """bung → ghép → gán máy → duyệt mẫu → phát. Trả (order_id, lenh_id, form_id)."""
-    order_id, lenh_id = _bung_one(client, h)
-    form_id = _ghep(client, h, lenh_id)
-    assert client.post(f"/api/lenh-sx/forms/{form_id}/gan-may", json={"may_id": 7}, headers=h).status_code == 200
-    assert client.post(f"/api/lenh-sx/lenh/{lenh_id}/duyet-mau", headers=h).status_code == 200
-    assert client.post(f"/api/lenh-sx/forms/{form_id}/phat", headers=h).status_code == 200
-    return order_id, lenh_id, form_id
-
-
-# ============================================================ Luồng đầy-đủ (happy path)
-def test_full_flow_bung_to_xong(client):
+# ============================================================ Luồng kế hoạch (happy path)
+def test_full_flow_bung_to_dang_chay(client):
     h = _headers(client)
     order_id, ptp_id = _seed_don_ptp(qty=1000, so_luong=1000)
 
@@ -101,10 +91,6 @@ def test_full_flow_bung_to_xong(client):
 
     # cổng: phát khi thiếu máy + chưa duyệt ⇒ 422
     assert client.post(f"/api/lenh-sx/forms/{form_id}/phat", headers=h).status_code == 422
-    # cổng: ghi sản lượng trước khi phát ⇒ 409
-    assert client.post(
-        f"/api/lenh-sx/lenh/{lenh_id}/san-luong", json={"so_dat": 100, "so_hong": 0}, headers=h
-    ).status_code == 409
 
     # 3) gán máy — nhưng chưa duyệt mẫu ⇒ phát vẫn 422
     assert client.post(f"/api/lenh-sx/forms/{form_id}/gan-may", json={"may_id": 7}, headers=h).status_code == 200
@@ -120,29 +106,11 @@ def test_full_flow_bung_to_xong(client):
     rp = client.post(f"/api/lenh-sx/forms/{form_id}/phat", headers=h)
     assert rp.status_code == 200, rp.text
     assert rp.json()["trang_thai"] == "da_phat"
-    assert client.get(f"/api/lenh-sx/lenh/{lenh_id}", headers=h).json()["trang_thai"] == "dang_chay"
 
-    # 6) ghi sản lượng (giờ mới cho) + đọc lại theo lệnh
-    rs = client.post(
-        f"/api/lenh-sx/lenh/{lenh_id}/san-luong",
-        json={"cong_doan_id": 3, "to_id": 5, "so_dat": 1000, "so_hong": 5}, headers=h,
-    )
-    assert rs.status_code == 201, rs.text
-    assert len(client.get(f"/api/lenh-sx/lenh/{lenh_id}/san-luong", headers=h).json()) == 1
-
-    # 7) nhập kho đủ SL ⇒ lệnh XONG + đơn xong sản xuất
-    rn = client.post(f"/api/lenh-sx/lenh/{lenh_id}/nhap-kho", json={"so_luong_nhap": 1000}, headers=h)
-    assert rn.status_code == 200, rn.text
-    body = rn.json()
-    assert body["muc_tieu_sl"] == 1000
-    assert body["lenh_xong"] is True
-    assert body["lenh"]["trang_thai"] == "xong"
-    assert body["order_production_done"] is True
-
-    # detail lệnh phản ánh log (nuôi tracking)
+    # detail lệnh: dang_chay + đích SL + tờ in gắn vào
     detail = client.get(f"/api/lenh-sx/lenh/{lenh_id}", headers=h).json()
-    assert detail["tong_dat"] == 1000
-    assert len(detail["san_luong"]) == 1
+    assert detail["trang_thai"] == "dang_chay"
+    assert detail["muc_tieu_sl"] == 1000
     assert len(detail["forms"]) == 1
 
 
@@ -169,24 +137,6 @@ def test_phat_blocked_without_may_or_duyet(client):
     # gán máy nhưng CHƯA duyệt mẫu ⇒ vẫn chặn (cổng AND)
     client.post(f"/api/lenh-sx/forms/{form_id}/gan-may", json={"may_id": 7}, headers=h)
     assert client.post(f"/api/lenh-sx/forms/{form_id}/phat", headers=h).status_code == 422
-
-
-def test_san_luong_blocked_before_phat(client):
-    h = _headers(client)
-    _, lenh_id = _bung_one(client, h)
-    r = client.post(f"/api/lenh-sx/lenh/{lenh_id}/san-luong", json={"so_dat": 10, "so_hong": 0}, headers=h)
-    assert r.status_code == 409
-
-
-def test_nhap_kho_thieu_chua_xong(client):
-    h = _headers(client)
-    _, lenh_id, _ = _drive_to_dang_chay(client, h)
-    r = client.post(f"/api/lenh-sx/lenh/{lenh_id}/nhap-kho", json={"so_luong_nhap": 500}, headers=h)
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["lenh_xong"] is False
-    assert body["order_production_done"] is False
-    assert client.get(f"/api/lenh-sx/lenh/{lenh_id}", headers=h).json()["trang_thai"] == "dang_chay"
 
 
 def test_huy_lenh(client):

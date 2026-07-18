@@ -4,10 +4,9 @@ KIM CHỈ NAM: **MÁY CHỈ GHI NHẬN**. Người kế hoạch/tổ trưởng q
 routing. KHÔNG tự lọc "ghép cùng loại", KHÔNG MRP, KHÔNG tính khoán/chi phí (P1/P2). Trạng thái
 SUY RA, không bấm tay — trừ cổng cứng §8.
 
-Các vai (1 service, nhóm theo mục spec):
-  - Kế hoạch: `bung_lenh` · `ghep`/placement · `gan_may` · `duyet_mau` · `phat` (cổng AND).
-  - Tổ chạy:  `ghi_san_luong` · `ban_giao`/`xac_nhan_nhan` · `ghi_loi_qc`/`to_truong_xac_nhan_qc`.
-  - Kết thúc: `nhap_kho_thanh_pham` → suy lệnh XONG (đủ SL) → suy đơn xong (mọi lệnh XONG).
+Chỉ còn KẾ HOẠCH (module theo dõi thực thi xưởng — sản lượng/bàn giao/QC/nhập kho — đã GỠ):
+  - Kế hoạch: `bung_lenh`/`tao_lenh` · routing (§13.2) · `ghep`/placement · `gan_may` · `duyet_mau`
+    · `phat` (cổng AND) · `huy_lenh`.
 
 Trả về ORM (record-only) — schema/router/DTO là Chunk 3. Đọc quy cách/routing/SL đặt từ PTG + Đơn
 qua repo (không chép). Không audit ở đây (real-time notify + audit = Chunk 3).
@@ -30,19 +29,14 @@ from ..models.lenh_san_xuat import (
     PF_DA_PHAT,
     PF_DU_DIEU_KIEN,
     PF_IN_XONG,
-    QC_CHO,
-    QC_XAC_NHAN,
-    RS_CHO,
-    RS_DANG,
-    RS_XONG,
     LenhSanXuat,
     PrintForm,
     RoutingStep,
 )
 from ..models.order import STATUS_CANCELLED, STATUS_ORDERED, Order
 from ..models.user import User
+from ..models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 from ..repositories.lenh_san_xuat_repo import LenhSanXuatRepository
-from ..repositories.rbac_repo import DepartmentRepository
 
 
 def _utcnow() -> datetime:
@@ -134,13 +128,8 @@ class LenhSanXuatService:
         form.trang_thai = PF_DU_DIEU_KIEN if ready else PF_CHO_GHEP
 
     # =============================================================== KẾ HOẠCH
-    def bung_lenh(self, *, order_id: int) -> list[LenhSanXuat]:
-        """Đơn chốt → tự đề LỆNH NHÁP: mỗi `OrderLine` có `phieu_thanh_phan_id` = 1 lệnh (§2, §5.1).
-
-        IDEMPOTENT theo (đơn, ấn phẩm): chốt lại / gọi lại KHÔNG nhân đôi — chỉ tạo lệnh cho ấn phẩm
-        CHƯA có lệnh (bung mở rộng, §GIẢ ĐỊNH). Đơn đã hủy → không bung. may_id gợi ý = PTP.may_id
-        (máy chạy THỰC gán ở tờ in). Đọc `order.lines` (cầu ptp) qua ORM Order.
-        """
+    def _load_order_for_planning(self, order_id: int) -> Order:
+        """Đơn phải tồn tại + ĐÃ CHỐT (chưa hủy) mới cho lên kế hoạch (cổng cấu trúc, không phán)."""
         order = self.db.get(Order, order_id)
         if order is None:
             raise LenhSXNotFound("Không tìm thấy đơn hàng")
@@ -148,22 +137,65 @@ class LenhSanXuatService:
             raise LenhSXConflict("Đơn đã hủy — không đề lệnh sản xuất")
         if order.status != STATUS_ORDERED:
             raise LenhSXConflict("Đơn chưa chốt — chưa thể lên kế hoạch sản xuất")
+        return order
 
-        da_co = self.repo.ptp_ids_with_lenh(order_id)
+    def tao_lenh(self, *, order_id: int, phieu_thanh_phan_ids: list[int]) -> LenhSanXuat:
+        """Người kế hoạch PICK gom các ấn phẩm (cùng 1 đơn) → 1 LỆNH nháp + n BÀI CON (§ pick).
+
+        MÁY CHỈ GHI NHẬN — KHÔNG phán "đủ giống để gộp". Cổng CẤU TRÚC (toàn vẹn, không phải nghiệp
+        vụ): đơn đã chốt; mỗi ptp phải THUỘC đơn + CHƯA nằm trong lệnh khác (chống trùng). Routing
+        CHUNG copy từ ptp ĐẦU; `lenh_sx.phieu_thanh_phan_id` = ptp đầu (đại diện, để tương thích);
+        may_id gợi ý = PTP đầu. Ghép xuyên đơn KHÔNG ở đây (làm ở tầng tờ in)."""
+        order = self._load_order_for_planning(order_id)
+        raw = [int(p) for p in (phieu_thanh_phan_ids or [])]
+        if not raw:
+            raise LenhSXValidationError("Chưa chọn ấn phẩm nào để tạo lệnh")
+        # ptp → dòng đơn (chỉ dòng thuộc đơn này, có ấn phẩm); giữ dòng đầu nếu ptp lặp ở nhiều dòng.
+        lines_by_ptp: dict[int, object] = {}
+        for ln in order.lines:
+            if ln.phieu_thanh_phan_id is not None and ln.phieu_thanh_phan_id not in lines_by_ptp:
+                lines_by_ptp[ln.phieu_thanh_phan_id] = ln
+        da_co = self.repo.ptp_ids_in_order(order_id)
+        picked: list[int] = []
+        seen: set[int] = set()
+        for pid in raw:
+            if pid in seen:
+                continue  # khử trùng trong 1 lần pick
+            seen.add(pid)
+            if pid not in lines_by_ptp:
+                raise LenhSXValidationError(f"Ấn phẩm #{pid} không thuộc đơn này")
+            if pid in da_co:
+                raise LenhSXConflict(f"Ấn phẩm #{pid} đã nằm trong một lệnh khác")
+            picked.append(pid)
+        dai_dien = picked[0]
+        ptp0 = self.repo.get_phieu_thanh_phan(dai_dien)
+        lenh = self.repo.create_lenh(
+            order_id=order_id,
+            phieu_thanh_phan_id=dai_dien,
+            may_id=(ptp0.may_id if ptp0 is not None else None),
+        )
+        for i, pid in enumerate(picked, start=1):
+            ln = lines_by_ptp.get(pid)
+            self.repo.create_lenh_item(
+                lenh_sx_id=lenh.id, phieu_thanh_phan_id=pid,
+                order_line_id=(ln.id if ln is not None else None), thu_tu=i,
+            )
+        self._copy_routing_from_ptp(lenh.id, dai_dien)
+        return lenh
+
+    def bung_lenh(self, *, order_id: int) -> list[LenhSanXuat]:
+        """Tiện ích "mỗi ấn phẩm 1 lệnh" (§2, §5.1) — nay dựng trên `tao_lenh` (mỗi ptp = 1 lệnh + 1
+        bài con). IDEMPOTENT theo (đơn, ấn phẩm): chỉ tạo cho ấn phẩm CHƯA có lệnh. Đơn hủy/chưa
+        chốt → chặn. Người kế hoạch chủ động gom nhiều ấn phẩm/1 lệnh thì dùng `tao_lenh` trực tiếp."""
+        order = self._load_order_for_planning(order_id)
+        seen = set(self.repo.ptp_ids_in_order(order_id))
         created: list[LenhSanXuat] = []
         for line in order.lines:
             ptp_id = line.phieu_thanh_phan_id
-            if ptp_id is None or ptp_id in da_co:
+            if ptp_id is None or ptp_id in seen:
                 continue  # dòng không gắn ấn phẩm / đã có lệnh → bỏ (idempotent)
-            ptp = self.repo.get_phieu_thanh_phan(ptp_id)
-            lenh = self.repo.create_lenh(
-                order_id=order_id,
-                phieu_thanh_phan_id=ptp_id,
-                may_id=(ptp.may_id if ptp is not None else None),
-            )
-            self._copy_routing_from_ptp(lenh.id, ptp_id)
-            created.append(lenh)
-            da_co.add(ptp_id)
+            seen.add(ptp_id)
+            created.append(self.tao_lenh(order_id=order_id, phieu_thanh_phan_ids=[ptp_id]))
         return created
 
     def hang_cho(self) -> list[dict]:
@@ -175,11 +207,16 @@ class LenhSanXuatService:
             return []
         cust_ids = [o.customer_id for o in orders if o.customer_id is not None]
         names = self.repo.customer_names_by_ids(cust_ids)
+        covered = self.repo.covered_ptp_ids()  # ptp đã lên lệnh → ẩn khỏi sổ (pick dần)
         lines_by_order: dict[int, list] = {}
         for ln in self.repo.order_lines_by_order_ids([o.id for o in orders]):
-            if ln.phieu_thanh_phan_id is None:
-                continue  # dòng nhập tay không ra ấn phẩm → không đề lệnh
+            if ln.phieu_thanh_phan_id is None or ln.phieu_thanh_phan_id in covered:
+                continue  # dòng nhập tay / ấn phẩm ĐÃ lên lệnh → không hiện ở sổ chờ
             lines_by_order.setdefault(ln.order_id, []).append(ln)
+        # Quy cách rút gọn cho sổ (khổ TP · số màu · giấy) — batch đọc ấn phẩm, KỸ THUẬT (không giá).
+        ptp_map = self.repo.phieu_thanh_phan_by_ids(
+            [ln.phieu_thanh_phan_id for lns in lines_by_order.values() for ln in lns]
+        )
         return [
             {
                 "order_id": o.id,
@@ -194,12 +231,27 @@ class LenhSanXuatService:
                         "description": ln.description,
                         "qty": ln.qty,
                         "don_vi_tinh": ln.don_vi_tinh,
+                        "spec_tom_tat": self._spec_tom_tat(ptp_map.get(ln.phieu_thanh_phan_id)),
                     }
                     for ln in lines_by_order.get(o.id, [])
                 ],
             }
             for o in orders
         ]
+
+    @staticmethod
+    def _spec_tom_tat(ptp) -> str:
+        """Quy cách rút gọn 1 dòng cho sổ hàng chờ (KỸ THUẬT — không giá): khổ TP · số màu · nhãn giấy."""
+        if ptp is None:
+            return ""
+        parts: list[str] = []
+        if (ptp.dai_thanh_pham or 0) > 0 and (ptp.rong_thanh_pham or 0) > 0:
+            parts.append(f"{ptp.dai_thanh_pham}×{ptp.rong_thanh_pham}mm")
+        if (ptp.so_mau_a or 0) > 0 or (ptp.so_mau_b or 0) > 0:
+            parts.append(f"{ptp.so_mau_a}/{ptp.so_mau_b} màu")
+        if ptp.kho_nguyen:
+            parts.append(str(ptp.kho_nguyen))
+        return " · ".join(parts)
 
     # ============ Routing riêng mỗi lệnh (§13.2): copy từ job spec + kế hoạch sửa ============
     def _copy_routing_from_ptp(self, lenh_id: int, ptp_id: int | None) -> None:
@@ -243,13 +295,11 @@ class LenhSanXuatService:
     def sua_buoc_routing(
         self, *, step_id: int, cong_doan_id: int | None, to_id: int | None
     ) -> RoutingStep:
-        """Đổi công đoạn / tổ của 1 bước — CHỈ khi bước còn CHỜ (chưa/không chạy). Kế hoạch tự quyết
-        tổ (`to_id` gửi lên); đổi công đoạn thì cập nhật tên hiển thị."""
+        """Đổi công đoạn / tổ của 1 bước. Kế hoạch tự quyết tổ (`to_id` gửi lên); đổi công đoạn thì
+        cập nhật tên hiển thị."""
         step = self.repo.get_routing_step(step_id)
         if step is None:
             raise LenhSXNotFound("Không tìm thấy bước routing")
-        if step.trang_thai != RS_CHO:
-            raise LenhSXConflict("Bước đã/đang chạy — không sửa được")
         cd = self.repo.cong_doan_by_id(cong_doan_id)
         ten = str(cd.ten_hien_thi or cd.ten) if cd is not None else step.ten
         return self.repo.update_routing_step(
@@ -260,8 +310,6 @@ class LenhSanXuatService:
         step = self.repo.get_routing_step(step_id)
         if step is None:
             raise LenhSXNotFound("Không tìm thấy bước routing")
-        if step.trang_thai != RS_CHO:
-            raise LenhSXConflict("Bước đã/đang chạy — không xóa được")
         lenh_id = step.lenh_sx_id
         self.repo.delete_routing_step(step)
         return lenh_id
@@ -279,68 +327,6 @@ class LenhSanXuatService:
             if s is not None:
                 self.repo.update_routing_step(s, thu_tu=i)
         return self.repo.routing_by_lenh(lenh_id)
-
-    # ---------- Thực thi routing ở màn TỔ (§13.4 — bắt đầu/hoàn thành qua quét QR) ----------
-    @staticmethod
-    def _current_step_id(routing: list[RoutingStep]) -> int | None:
-        """'Đến lượt' = bước đầu tiên (theo thứ tự) CHƯA xong. Routing tuyến tính: 1 bước chạy 1 lúc.
-
-        None = mọi bước đã xong (routing hết) → không còn bước đến lượt.
-        """
-        for s in routing:  # repo trả theo thu_tu asc
-            if s.trang_thai != RS_XONG:
-                return s.id
-        return None
-
-    def _get_step_on_lenh(self, step_id: int) -> tuple[RoutingStep, LenhSanXuat]:
-        step = self.repo.get_routing_step(step_id)
-        if step is None:
-            raise LenhSXNotFound("Không tìm thấy bước routing")
-        lenh = self._get_lenh(step.lenh_sx_id)
-        return step, lenh
-
-    def bat_dau_buoc(self, *, step_id: int) -> tuple[list[RoutingStep], int | None]:
-        """Tổ BẮT ĐẦU bước routing của mình (quét QR). Chỉ mở khi lệnh đã phát + đúng bước đến lượt.
-
-        Cổng toàn vẹn (không phải máy phán nghiệp vụ): lệnh đang chạy · bước còn CHỜ · bước là bước
-        ĐẾN LƯỢT (mọi bước trước đã xong). Trả routing mới + tổ của bước đến lượt (để đẩy real-time).
-        """
-        step, lenh = self._get_step_on_lenh(step_id)
-        if lenh.trang_thai != LENH_DANG_CHAY:
-            raise LenhSXConflict("Lệnh chưa được phát (hoặc đã xong/hủy) — chưa bắt đầu được")
-        if step.trang_thai == RS_DANG:
-            return self.repo.routing_by_lenh(lenh.id), step.to_id  # idempotent
-        if step.trang_thai != RS_CHO:
-            raise LenhSXConflict("Bước đã xong — không bắt đầu lại")
-        routing = self.repo.routing_by_lenh(lenh.id)
-        if self._current_step_id(routing) != step.id:
-            raise LenhSXConflict("Chưa tới lượt bước này — bước trước chưa xong")
-        self.repo.update_routing_step(step, trang_thai=RS_DANG, bat_dau_at=_utcnow())
-        return self.repo.routing_by_lenh(lenh.id), step.to_id
-
-    def hoan_thanh_buoc(self, *, step_id: int) -> tuple[list[RoutingStep], int | None]:
-        """Tổ HOÀN THÀNH bước đang chạy (quét QR) → xong. Trả routing mới + tổ của bước KẾ (đến lượt
-        mới) để đẩy real-time đích danh 'đến lượt' (tổ B ting sang tổ A lấy hàng). None = routing hết.
-        """
-        step, lenh = self._get_step_on_lenh(step_id)
-        if lenh.trang_thai != LENH_DANG_CHAY:
-            raise LenhSXConflict("Lệnh chưa được phát (hoặc đã xong/hủy) — chưa hoàn thành được")
-        if step.trang_thai == RS_XONG:
-            routing = self.repo.routing_by_lenh(lenh.id)
-            return routing, self._next_to_id(routing, step.id)  # idempotent
-        if step.trang_thai != RS_DANG:
-            raise LenhSXConflict("Bước chưa bắt đầu — không hoàn thành được")
-        self.repo.update_routing_step(step, trang_thai=RS_XONG, hoan_thanh_at=_utcnow())
-        routing = self.repo.routing_by_lenh(lenh.id)
-        return routing, self._next_to_id(routing, step.id)
-
-    @staticmethod
-    def _next_to_id(routing: list[RoutingStep], done_step_id: int) -> int | None:
-        """Tổ của bước ĐẾN LƯỢT sau khi 1 bước xong = bước đầu tiên chưa xong (nếu không phải chính nó)."""
-        for s in routing:
-            if s.trang_thai != RS_XONG and s.id != done_step_id:
-                return s.to_id
-        return None
 
     def ghep(
         self,
@@ -463,123 +449,70 @@ class LenhSanXuatService:
         self.db.refresh(form)
         return form
 
-    # ================================================================ TỔ CHẠY
-    def ghi_san_luong(
-        self, *, lenh_id: int, cong_doan_id: int | None, to_id: int | None,
-        so_dat: int, so_hong: int, nguoi_ghi: int | None,
-    ):
-        """Tổ trưởng ghi sản lượng 1 công đoạn (số đạt + số hỏng). Log thuần — không state-machine.
-
-        CỔNG CỨNG (§8): chỉ ghi khi lệnh ĐÃ PHÁT (đang chạy) — chưa phát thì chặn.
-        """
-        lenh = self._get_lenh(lenh_id)
-        if lenh.trang_thai not in (LENH_DANG_CHAY, LENH_XONG):
-            raise LenhSXConflict("Lệnh chưa được phát (chưa qua cổng phát tờ in) — không ghi sản lượng")
-        if so_dat < 0 or so_hong < 0:
-            raise LenhSXValidationError("Số đạt / số hỏng không được âm")
-        return self.repo.add_san_luong(
-            lenh_sx_id=lenh_id, cong_doan_id=cong_doan_id, to_id=to_id,
-            so_dat=so_dat, so_hong=so_hong, nguoi_ghi=nguoi_ghi,
-        )
-
-    def ban_giao(
-        self, *, lenh_id: int, cong_doan_tu_id: int | None, cong_doan_toi_id: int | None,
-        so_giao: int, to_giao_id: int | None, to_nhan_id: int | None,
-    ):
-        """Tổ trưởng GIAO số đạt sang công đoạn/tổ kế. `nhan_at` NULL tới khi tổ kế xác nhận (§8)."""
-        lenh = self._get_lenh(lenh_id)
-        if lenh.trang_thai not in (LENH_DANG_CHAY, LENH_XONG):
-            raise LenhSXConflict("Lệnh chưa được phát — không bàn giao")
-        if so_giao < 0:
-            raise LenhSXValidationError("Số giao không được âm")
-        return self.repo.add_ban_giao(
-            lenh_sx_id=lenh_id, cong_doan_tu_id=cong_doan_tu_id, cong_doan_toi_id=cong_doan_toi_id,
-            so_giao=so_giao, to_giao_id=to_giao_id, to_nhan_id=to_nhan_id,
-        )
-
-    def xac_nhan_nhan(self, *, ban_giao_id: int):
-        """Tổ kế XÁC NHẬN NHẬN (real-time ở Chunk 3) → set `nhan_at`. Idempotent: giữ mốc nhận đầu."""
-        bg = self.repo.get_ban_giao(ban_giao_id)
-        if bg is None:
-            raise LenhSXNotFound("Không tìm thấy phiếu bàn giao")
-        if bg.nhan_at is not None:
-            return bg  # đã xác nhận — giữ nguyên
-        return self.repo.update_ban_giao(bg, nhan_at=_utcnow())
-
-    def ghi_loi_qc(
-        self, *, lenh_id: int, cong_doan_id: int | None, to_bi_quy_id: int | None,
-        anh_url: str | None = None, mo_ta: str | None = None,
-    ):
-        """QC/KCS nêu lỗi = ảnh + tổ bị quy + công đoạn + mô tả → trạng thái CHỜ tổ trưởng xác nhận (§8).
-
-        Chưa xác nhận = CHƯA thành lỗi chính thức. KHÔNG tự quy lỗi / trừ khoán — disposition P1.
-        """
-        self._get_lenh(lenh_id)  # đảm bảo lệnh tồn tại
-        return self.repo.add_qc_defect(
-            lenh_sx_id=lenh_id, cong_doan_id=cong_doan_id, to_bi_quy_id=to_bi_quy_id,
-            anh_url=anh_url, mo_ta=mo_ta, trang_thai=QC_CHO,
-        )
-
-    def to_truong_xac_nhan_qc(self, *, qc_id: int):
-        """Tổ trưởng tổ bị quy XÁC NHẬN → lỗi ghi nhận chính thức (`xac_nhan_at` + trạng thái). Idempotent."""
-        qc = self.repo.get_qc_defect(qc_id)
-        if qc is None:
-            raise LenhSXNotFound("Không tìm thấy phiếu lỗi QC")
-        if qc.trang_thai == QC_XAC_NHAN and qc.xac_nhan_at is not None:
-            return qc
-        return self.repo.update_qc_defect(qc, trang_thai=QC_XAC_NHAN, xac_nhan_at=_utcnow())
-
-    # ================================================================ KẾT THÚC
-    def _muc_tieu_sl(self, lenh: LenhSanXuat) -> int:
-        """Đích 'đủ SL' của lệnh = SL đặt trên dòng đơn (qty) của ấn phẩm; lùi PTP.so_luong. 0 = chưa biết."""
-        line = self.repo.order_line_for_ptp(lenh.order_id, lenh.phieu_thanh_phan_id)
+    # ================================================================ ĐÍCH SL (đọc sống từ Đơn/PTP)
+    def _muc_tieu_ptp(self, order_id: int, ptp_id: int | None, order_line_id: int | None) -> int:
+        """Đích SL 1 ấn phẩm = SL đặt (OrderLine.qty) — ưu tiên dòng theo `order_line_id` (bài con giữ),
+        lùi dòng trỏ ptp, rồi PTP.so_luong. 0 = chưa biết. Đọc SỐNG (không chép)."""
+        line = self.repo.order_line_by_id(order_line_id)
+        if line is None:
+            line = self.repo.order_line_for_ptp(order_id, ptp_id)
         if line is not None and (line.qty or 0) > 0:
             return int(line.qty)
-        ptp = self.repo.get_phieu_thanh_phan(lenh.phieu_thanh_phan_id)
+        ptp = self.repo.get_phieu_thanh_phan(ptp_id)
         if ptp is not None and (ptp.so_luong or 0) > 0:
             return int(ptp.so_luong)
         return 0
 
-    def nhap_kho_thanh_pham(self, *, lenh_id: int, so_luong_nhap: int) -> dict:
-        """Ghi nhận NHẬP KHO thành phẩm của lệnh → suy lệnh XONG khi ĐỦ SL (§8); rồi suy đơn xong.
+    def _muc_tieu_sl(self, lenh: LenhSanXuat) -> int:
+        """Đích 'đủ SL' của lệnh = Σ đích các BÀI CON; lệnh cũ (chưa có bài con) → ấn phẩm đại diện."""
+        items = self.repo.items_of_lenh(lenh.id)
+        if items:
+            return sum(
+                self._muc_tieu_ptp(lenh.order_id, it.phieu_thanh_phan_id, it.order_line_id)
+                for it in items
+            )
+        return self._muc_tieu_ptp(lenh.order_id, lenh.phieu_thanh_phan_id, None)
 
-        GIẢ ĐỊNH (chưa nối API Kho): nhập kho THẬT ở module Kho; ở đây nhận `so_luong_nhap` = tổng SL
-        thành phẩm đã nhập kho cho lệnh (caller/Chunk 3 cộng dồn từ phiếu nhập kho) + đánh dấu trạng
-        thái. `so_luong_nhap ≥ đích` ⇒ lệnh XONG. Đơn "xong sản xuất" = SUY RA (mọi lệnh XONG) — KHÔNG
-        ghi vào `orders.status` (Order module sở hữu vòng đời đơn; chưa có trạng thái 'xong SX').
-        """
-        lenh = self._get_lenh(lenh_id)
-        if lenh.trang_thai == LENH_HUY:
-            raise LenhSXConflict("Lệnh đã hủy — không nhập kho thành phẩm")
-        if so_luong_nhap < 0:
-            raise LenhSXValidationError("Số lượng nhập không được âm")
-        muc_tieu = self._muc_tieu_sl(lenh)
-        du_sl = muc_tieu > 0 and so_luong_nhap >= muc_tieu
-        if du_sl and lenh.trang_thai != LENH_XONG:
-            self.repo.update_lenh(lenh, trang_thai=LENH_XONG)
-        order_done = self.order_production_done(lenh.order_id)
+    def _item_dto(
+        self, order_id: int, ptp_id: int | None, order_line_id: int | None,
+        item_id: int | None = None,
+    ) -> dict:
+        """1 BÀI CON cho DTO lệnh (giữ chi tiết): id (bài con) + tên + SL + ĐVT (đọc sống từ Đơn/PTP)."""
+        line = self.repo.order_line_by_id(order_line_id)
+        if line is None:
+            line = self.repo.order_line_for_ptp(order_id, ptp_id)
+        ptp = self.repo.get_phieu_thanh_phan(ptp_id)
+        ten = (
+            (line.description if line is not None and line.description else None)
+            or (ptp.ten if ptp is not None and ptp.ten else None)
+            or (f"Ấn phẩm #{ptp_id}" if ptp_id else "—")
+        )
+        qty = self._muc_tieu_ptp(order_id, ptp_id, order_line_id)
+        dvt = (
+            (line.don_vi_tinh if line is not None and line.don_vi_tinh else None)
+            or (ptp.don_vi_tinh if ptp is not None else None)
+            or ""
+        )
         return {
-            "lenh": lenh,
-            "muc_tieu_sl": muc_tieu,
-            "so_luong_nhap": so_luong_nhap,
-            "lenh_xong": lenh.trang_thai == LENH_XONG,
-            "order_production_done": order_done,
+            "id": item_id, "phieu_thanh_phan_id": ptp_id,
+            "ten": ten, "qty": qty, "don_vi_tinh": dvt,
         }
 
-    def order_production_done(self, order_id: int) -> bool:
-        """Đơn XONG sản xuất (suy ra): có ≥1 lệnh và MỌI lệnh (không hủy) đều XONG."""
-        lenhs = [l for l in self.repo.lenh_by_order(order_id) if l.trang_thai != LENH_HUY]
-        return bool(lenhs) and all(l.trang_thai == LENH_XONG for l in lenhs)
+    def _lenh_items_dto(self, lenh: LenhSanXuat) -> list[dict]:
+        """Bài con của lệnh (giữ ĐỦ chi tiết). Lệnh cũ chưa có bài con → 1 bài con từ ấn phẩm đại diện."""
+        items = self.repo.items_of_lenh(lenh.id)
+        if not items:
+            return [self._item_dto(lenh.order_id, lenh.phieu_thanh_phan_id, None)]
+        return [
+            self._item_dto(lenh.order_id, it.phieu_thanh_phan_id, it.order_line_id, item_id=it.id)
+            for it in items
+        ]
 
     def huy_lenh(self, *, lenh_id: int) -> LenhSanXuat:
-        """Hủy 1 lệnh (§GIẢ ĐỊNH — hủy giữa chừng chi tiết P1): đánh dấu HUY, giữ mọi bản ghi log.
-
-        Record-only: KHÔNG rollback sản lượng/bàn giao/QC (dữ liệu lịch sử giữ để truy). Không cho hủy
-        khi đã XONG (đã nhập kho thành phẩm).
-        """
+        """Hủy 1 lệnh (§GIẢ ĐỊNH — hủy giữa chừng chi tiết P1): đánh dấu HUY. Không cho hủy khi đã XONG."""
         lenh = self._get_lenh(lenh_id)
         if lenh.trang_thai == LENH_XONG:
-            raise LenhSXConflict("Lệnh đã xong (đã nhập kho) — không hủy")
+            raise LenhSXConflict("Lệnh đã xong — không hủy")
         if lenh.trang_thai == LENH_HUY:
             return lenh
         return self.repo.update_lenh(lenh, trang_thai=LENH_HUY)
@@ -593,22 +526,191 @@ class LenhSanXuatService:
         return self.repo.list_lenh(order_id=order_id, trang_thai=trang_thai, page=page, size=size)
 
     def lenh_detail(self, lenh_id: int) -> dict:
-        """Lệnh + tờ in chứa nó + log sản lượng/bàn giao/QC + đích SL & Σ đạt — nuôi màn tracking."""
+        """Lệnh + bài con + routing + tờ in chứa nó + đích SL — nuôi màn chi tiết lệnh (kế hoạch)."""
         lenh = self._get_lenh(lenh_id)
         return {
             "lenh": lenh,
+            "items": self._lenh_items_dto(lenh),
             "routing": self.repo.routing_by_lenh(lenh_id),
             "forms": self.repo.forms_of_lenh(lenh_id),
-            "san_luong": self.repo.san_luong_by_lenh(lenh_id),
-            "ban_giao": self.repo.ban_giao_by_lenh(lenh_id),
-            "qc": self.repo.qc_by_lenh(lenh_id),
             "muc_tieu_sl": self._muc_tieu_sl(lenh),
-            "tong_dat": self.repo.sum_dat(lenh_id),
         }
 
-    def san_luong_of(self, lenh_id: int) -> list:
-        self._get_lenh(lenh_id)
-        return self.repo.san_luong_by_lenh(lenh_id)
+    # Quy cách in được phép OVERRIDE tại LỆNH (kế thừa báo giá làm mặc định; sửa khi nháp).
+    _QUY_CACH_OVERRIDE_FIELDS = (
+        "giay_id", "dai_thanh_pham", "rong_thanh_pham", "kho_thanh_pham", "kho_mo_rong",
+        "tay_gap", "so_to_per_sp", "kho_nguyen_dai", "kho_nguyen_rong", "nguon_giay",
+        "quy_cach_in", "kho_in_dai", "kho_in_rong", "so_con", "con_auto",
+        "che_ban_loai", "so_mau_a", "so_mau_b",
+    )
+
+    @staticmethod
+    def _so_kem_eff(so_mau_a, so_mau_b, quy_cach_in, so_to_per_sp) -> int:
+        """Số kẽm theo giá trị HIỆU LỰC: 1 mặt / tự trở = màu A × số tờ/SP; 2 mặt = (A+B) × số tờ."""
+        a, b = int(so_mau_a or 0), int(so_mau_b or 0)
+        per = int(so_to_per_sp or 1)
+        kem_mau = a if quy_cach_in in ("mot_mat", "tu_tro") else (a + b)
+        return kem_mau * per
+
+    def _engine_comp(self, ptp) -> dict | None:
+        """Component tương ứng ấn phẩm trong SNAPSHOT engine (`PhieuTinhGia.result_json`) — match theo
+        vị trí thành phần (sort thu_tu,id → idx). Trả None nếu phiếu chưa tính (chưa có result_json)."""
+        phieu = getattr(ptp, "phieu", None)
+        result = getattr(phieu, "result_json", None) if phieu is not None else None
+        if not result:
+            return None
+        comps = (result.get("meta") or {}).get("components") or []
+        tps = sorted(phieu.thanh_phans, key=lambda t: (t.thu_tu or 0, t.id or 0))
+        try:
+            idx = [t.id for t in tps].index(ptp.id)
+        except ValueError:
+            return None
+        for c in comps:
+            if c.get("idx") == idx:
+                return c
+        return comps[idx] if 0 <= idx < len(comps) else None
+
+    def an_pham_chi_tiet(self, ptp_id: int, lenh_item_id: int | None = None) -> dict:
+        """Chi tiết ĐẦY ĐỦ 1 ấn phẩm cho DRAWER (mirror phiếu công đoạn), giá trị HIỆU LỰC = báo giá +
+        OVERRIDE tại lệnh. Mở kèm `lenh_item_id` (từ lệnh) → trộn override + cờ `editable` (lệnh nháp);
+        không có → thuần báo giá (sổ chờ, read-only). Số kẽm tính theo giá trị hiệu lực.
+
+        CÔ LẬP THƯƠNG MẠI: CHỈ trường KỸ THUẬT; LỌC SẠCH mọi cột/giá trị giá — không xuống kỹ thuật.
+        """
+        ptp = self.repo.get_phieu_thanh_phan(ptp_id)
+        if ptp is None:
+            raise LenhSXNotFound("Không tìm thấy ấn phẩm")
+
+        # Override + editable từ BÀI CON (khi mở từ lệnh). Chỉ nhận override đúng bài con của ptp này.
+        override: dict = {}
+        editable = False
+        item = None
+        if lenh_item_id is not None:
+            item = self.repo.get_lenh_item(lenh_item_id)
+            if item is not None and item.phieu_thanh_phan_id == ptp_id:
+                override = item.quy_cach_override or {}
+                lenh = self.repo.get_lenh(item.lenh_sx_id)
+                editable = lenh is not None and lenh.trang_thai == LENH_NHAP
+            else:
+                item = None
+
+        def eff(key: str):
+            v = override.get(key) if override else None
+            return v if v is not None else getattr(ptp, key, None)
+
+        # Giấy: resolve tên + chủng loại theo giay_id HIỆU LỰC (server-side db.get — không cần RBAC list).
+        giay_id_eff = eff("giay_id")
+        giay_ten = gsm = chung_loai_ten = None
+        if giay_id_eff is not None:
+            giay = self.db.get(GiayNguyen, giay_id_eff)
+            if giay is not None:
+                giay_ten, gsm = giay.ten, giay.gsm
+                if giay.chung_loai_giay_id is not None:
+                    cl = self.db.get(ChungLoaiGiay, giay.chung_loai_giay_id)
+                    chung_loai_ten = cl.ten if cl is not None else None
+
+        # SL cần/thực tế/nguyên từ SNAPSHOT engine (THEO BÁO GIÁ — không đổi theo override; FE ghi chú).
+        comp = self._engine_comp(ptp)
+
+        def _ci(key: str) -> int | None:
+            v = comp.get(key) if comp else None
+            return int(v) if isinstance(v, (int, float)) else None
+
+        so_kem = self._so_kem_eff(
+            eff("so_mau_a"), eff("so_mau_b"), eff("quy_cach_in"), eff("so_to_per_sp")
+        )
+
+        # Vật tư thêm (vecni bóng/mờ · cán màng…) — tên + ghi chú, KHÔNG giá.
+        vat_tu = []
+        for vt in (getattr(ptp, "vat_tus", None) or []):
+            ten = vt.ten
+            if not ten and vt.vat_tu_id is not None:
+                v = self.db.get(VatTuInAn, vt.vat_tu_id)
+                ten = v.ten if v is not None else None
+            vat_tu.append({"ten": ten or "—", "ghi_chu": vt.ghi_chu})
+
+        routing = [
+            {
+                "thu_tu": r.thu_tu, "cong_doan_id": r.cong_doan_id, "ten": r.ten,
+                "nha_cung_cap": r.nha_cung_cap, "ghi_chu": r.ghi_chu,
+            }
+            for r in self.repo.routing_of_ptp(ptp_id)
+        ]
+
+        overridden = [k for k in self._QUY_CACH_OVERRIDE_FIELDS if override.get(k) is not None]
+
+        return {
+            "phieu_thanh_phan_id": ptp.id,
+            "lenh_item_id": (item.id if item is not None else None),
+            "editable": editable,
+            "overridden": overridden,
+            # nhận dạng / thành phẩm (giá trị hiệu lực)
+            "ten": ptp.ten,
+            "loai_thanh_phan": ptp.loai_thanh_phan,
+            "kho_thanh_pham": eff("kho_thanh_pham"),
+            "dai_thanh_pham": eff("dai_thanh_pham"),
+            "rong_thanh_pham": eff("rong_thanh_pham"),
+            "kho_mo_rong": eff("kho_mo_rong"),
+            "tay_gap": eff("tay_gap"),
+            "so_to_per_sp": eff("so_to_per_sp"),
+            "so_luong": ptp.so_luong,
+            "don_vi_tinh": ptp.don_vi_tinh,
+            # giấy
+            "giay_id": giay_id_eff,
+            "giay_ten": giay_ten,
+            "chung_loai_ten": chung_loai_ten,
+            "gsm": gsm,
+            "kho_nguyen": ptp.kho_nguyen,
+            "kho_nguyen_dai": eff("kho_nguyen_dai"),
+            "kho_nguyen_rong": eff("kho_nguyen_rong"),
+            "nguon_giay": eff("nguon_giay"),
+            # in & màu
+            "co_in": ptp.co_in,
+            "che_ban_loai": eff("che_ban_loai"),
+            "quy_cach_in": eff("quy_cach_in"),
+            "kho_in_dai": eff("kho_in_dai"),
+            "kho_in_rong": eff("kho_in_rong"),
+            "so_con": eff("so_con"),
+            "con_auto": eff("con_auto"),
+            "may_id": ptp.may_id,
+            "so_mau_a": eff("so_mau_a"),
+            "so_mau_b": eff("so_mau_b"),
+            "so_kem": so_kem,
+            # số lượng (engine snapshot theo báo giá — None nếu phiếu chưa tính)
+            "so_luong_can": _ci("to_net"),
+            "so_to_thuc_te": _ci("to_dau_vao"),
+            "so_to_sau_in": _ci("to_sau_in"),
+            "so_to_nguyen": _ci("to_nguyen"),
+            "con_tren_to": _ci("con"),
+            "bu_hao_auto": _ci("bu_hao_auto"),
+            "bu_hao_so_to": ptp.bu_hao_so_to,
+            "hao_so_to": ptp.hao_so_to,
+            "tinh_bu_hao_cd": ptp.tinh_bu_hao_cd,
+            # note kỹ thuật theo sản phẩm
+            "ghi_chu_ky_thuat": ptp.ghi_chu_ky_thuat,
+            # vật tư + routing
+            "vat_tu": vat_tu,
+            "routing": routing,
+        }
+
+    def sua_quy_cach_bai_con(self, *, item_id: int, override: dict) -> dict:
+        """Kế hoạch SỬA quy cách in của 1 bài con (override báo giá) — CHỈ khi lệnh còn NHÁP (cổng toàn
+        vẹn trạng thái, không phải máy phán). Chỉ nhận field trong danh sách cho phép; giá trị None =
+        gỡ override (kế thừa lại). KHÔNG đụng bảng tính giá. Trả chi tiết HIỆU LỰC mới."""
+        item = self.repo.get_lenh_item(item_id)
+        if item is None:
+            raise LenhSXNotFound("Không tìm thấy bài con")
+        lenh = self.repo.get_lenh(item.lenh_sx_id)
+        if lenh is None:
+            raise LenhSXNotFound("Không tìm thấy lệnh sản xuất")
+        if lenh.trang_thai != LENH_NHAP:
+            raise LenhSXConflict("Lệnh đã phát/xong — chỉ sửa quy cách khi lệnh còn nháp")
+        clean = {
+            k: v for k, v in (override or {}).items()
+            if k in self._QUY_CACH_OVERRIDE_FIELDS and v is not None
+        }
+        self.repo.update_lenh_item(item, quy_cach_override=(clean or None))
+        return self.an_pham_chi_tiet(item.phieu_thanh_phan_id, lenh_item_id=item.id)
 
     def list_forms(
         self, *, trang_thai: str | None = None, may_id: int | None = None,
@@ -628,65 +730,3 @@ class LenhSanXuatService:
     def lenh_on_form(self, form_id: int) -> list[LenhSanXuat]:
         """Các lệnh trên 1 tờ in (dùng để lấy lenh_ids đẩy sự kiện real-time khi phát)."""
         return self.repo.lenh_on_form(form_id)
-
-    # ================================================================= TỔ VIEW (§13.3–13.4)
-    def to_board(self) -> list[dict]:
-        """Cây tổ SẢN XUẤT + đếm việc: mỗi tổ kèm số lệnh ĐANG CHẠY 'của tổ' (`so_lenh`) và số lệnh
-        ĐẾN LƯỢT tổ (`so_den_luot` = bước hiện hành thuộc tổ) — để chủ xưởng NHÌN xưởng đang làm gì.
-        Máy CHỈ đếm, không phán. Cây do FE dựng từ `parent_id` (một nguồn sự thật §13.1)."""
-        depts = DepartmentRepository(self.db).production_departments()
-        live, _ = self.repo.list_lenh(trang_thai=LENH_DANG_CHAY, size=200)
-        steps = self.repo.routing_steps_by_lenh_ids([l.id for l in live])
-        by_lenh: dict[int, list[RoutingStep]] = {}
-        for s in steps:
-            by_lenh.setdefault(s.lenh_sx_id, []).append(s)
-        so_lenh: dict[int, int] = {}       # tổ có ≥1 bước trên 1 lệnh đang chạy
-        so_den_luot: dict[int, int] = {}   # bước đến lượt (hiện hành) thuộc tổ
-        for rs in by_lenh.values():
-            cur_id = self._current_step_id(rs)  # rs đã theo thu_tu asc từ repo
-            for t in {s.to_id for s in rs if s.to_id is not None}:
-                so_lenh[t] = so_lenh.get(t, 0) + 1
-            cur = next((s for s in rs if s.id == cur_id), None) if cur_id else None
-            if cur is not None and cur.to_id is not None:
-                so_den_luot[cur.to_id] = so_den_luot.get(cur.to_id, 0) + 1
-        return [
-            {
-                "id": d.id, "name": d.name, "code": d.code, "parent_id": d.parent_id,
-                "head_user_id": d.head_user_id, "la_san_xuat": d.la_san_xuat,
-                "so_lenh": so_lenh.get(d.id, 0), "so_den_luot": so_den_luot.get(d.id, 0),
-            }
-            for d in depts
-        ]
-
-    def lenh_of_to(self, to_id: int) -> list[dict]:
-        """Lệnh 'của tổ' (§13.4): lệnh đã phát (đang chạy/xong) có ≥1 bước routing thuộc tổ. Kèm bước
-        ĐẾN LƯỢT (ai đang giữ) + cờ `den_luot` (đến lượt tổ này) + tiến độ. Đến-lượt lên đầu."""
-        out: list[dict] = []
-        for lid in self.repo.lenh_ids_for_to(to_id):
-            lenh = self.repo.get_lenh(lid)
-            if lenh is None or lenh.trang_thai in (LENH_NHAP, LENH_HUY):
-                continue  # chưa phát / đã hủy → không xuống tổ
-            rs = self.repo.routing_by_lenh(lid)
-            cur_id = self._current_step_id(rs)
-            cur = next((s for s in rs if s.id == cur_id), None) if cur_id else None
-            out.append({
-                "id": lenh.id, "order_id": lenh.order_id,
-                "phieu_thanh_phan_id": lenh.phieu_thanh_phan_id, "trang_thai": lenh.trang_thai,
-                "den_luot": bool(cur is not None and cur.to_id == to_id),
-                "cur_thu_tu": cur.thu_tu if cur else None,
-                "cur_ten": cur.ten if cur else None,
-                "cur_to_id": cur.to_id if cur else None,
-                "so_buoc": len(rs),
-                "so_buoc_xong": sum(1 for s in rs if s.trang_thai == RS_XONG),
-                "muc_tieu_sl": self._muc_tieu_sl(lenh),
-                "tong_dat": self.repo.sum_dat(lid),
-                "updated_at": lenh.updated_at,
-            })
-        # đến lượt trước → đang chạy → xong; trong nhóm: mới cập nhật lên đầu
-        rank = {LENH_DANG_CHAY: 0, LENH_XONG: 1}
-        out.sort(key=lambda r: (
-            0 if r["den_luot"] else 1,
-            rank.get(r["trang_thai"], 9),
-            -(r["updated_at"].timestamp() if r["updated_at"] else 0),
-        ))
-        return out

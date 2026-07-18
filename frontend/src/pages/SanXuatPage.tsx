@@ -38,31 +38,3 @@ export function SanXuatPage() {
     />
   );
 }
-
-// Placeholder cho màn Sản xuất chưa dựng (QC/KCS). Theo-dõi-SX + Nhập-liệu-xưởng ĐÃ có màn thật
-// (TheoDoiSanXuatView · NhapLieuXuongView) — route ở AppShell, không qua đây nữa.
-const SOON: Record<string, { title: string; sub: string }> = {
-  "qc-kcs": {
-    title: "QC / KCS",
-    sub: "Màn KCS nêu lỗi kèm ảnh & tổ trưởng xác nhận — chunk kế.",
-  },
-};
-
-export function SanXuatComingSoon({ featureId }: { featureId: string }) {
-  const f = SOON[featureId] ?? { title: "Sản xuất", sub: "Màn này đang được phát triển." };
-  return (
-    <main className="lsx">
-      <div className="lsx-soon">
-        <span className="lsx-soon__ic">
-          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M3 8.6 12 4l9 4.6" />
-            <path d="M5 10.4V20h14v-9.6" />
-            <rect x="9" y="13.5" width="6" height="6.5" />
-          </svg>
-        </span>
-        <h1 className="lsx-soon__title">{f.title}</h1>
-        <p className="lsx-soon__sub">{f.sub}</p>
-      </div>
-    </main>
-  );
-}

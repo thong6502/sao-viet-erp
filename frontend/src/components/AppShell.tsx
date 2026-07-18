@@ -3,6 +3,7 @@
 // the sidebar (handled in Sidebar) and the content (a forbidden module → 403).
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, connectQuoteEvents, type PinnedCustomer } from "../api/client";
+import { crud } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import {
   buildCapabilities,
@@ -13,9 +14,7 @@ import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
-import { SanXuatPage, SanXuatComingSoon } from "../pages/SanXuatPage";
-import { TheoDoiSanXuatView } from "../pages/TheoDoiSanXuatView";
-import { NhapLieuXuongView } from "../pages/NhapLieuXuongView";
+import { SanXuatPage } from "../pages/SanXuatPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
@@ -25,6 +24,7 @@ import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
+import { KhoHangView } from "../pages/KhoHangView";
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
 import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
@@ -34,7 +34,7 @@ import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPag
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
 import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
-import { MODULES_BY_NAV_ID, Sidebar } from "./Sidebar";
+import { MODULES_BY_NAV_ID, Sidebar, type NavItem } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
 /** A cross-module navigation intent: which screen to open + optional payload so the
@@ -72,6 +72,9 @@ export function AppShell() {
   const [caps, setCaps] = useState<Capabilities>(new Map());
   // Badge số theo nav id (vd "nghi-phep": số đơn chờ duyệt) — chỉ người có quyền duyệt.
   const [badges, setBadges] = useState<Record<string, number>>({});
+  // Kho đã khai báo → đổ menu con ĐỘNG dưới "Kho hàng" (Cấu hình danh mục). Refetch khi
+  // khai báo/sửa/xoá kho (onMutate màn khai báo) → navbar cập nhật NGAY, không cần refresh.
+  const [khoList, setKhoList] = useState<{ id: number; ma: string; ten: string }[]>([]);
   // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
   const [leaveUnseen, setLeaveUnseen] = useState(0);
   // Real-time luồng gửi duyệt (SSE): toast nổi + mốc 'chờ tôi duyệt' gần nhất để chỉ toast khi TĂNG.
@@ -184,6 +187,16 @@ export function AppShell() {
     // Refetch khi đổi màn — cả 2 endpoint đều rất nhẹ, giữ badge tươi sau khi thao tác.
   }, [reloadBadges, activeId]);
 
+  // Danh sách kho cho menu con động (chỉ người có quyền `kho`). Gọi lại sau mỗi lần khai báo kho.
+  const reloadKho = useCallback(() => {
+    if (!token || readable === null || !readable.has("kho")) return;
+    crud("/api/kho")
+      .list(token, { active: true })
+      .then((r) => setKhoList(r.items.map((w) => ({ id: Number(w.id), ma: String(w.ma), ten: String(w.ten) }))))
+      .catch(() => {});
+  }, [token, readable]);
+  useEffect(() => { reloadKho(); }, [reloadKho]);
+
   // Real-time luồng gửi duyệt (CLAUDE.md "gửi nội bộ = real-time"): mở 1 kênh SSE sau đăng nhập →
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
@@ -292,9 +305,17 @@ export function AppShell() {
   }
 
   const baseId = activeId.split(":")[0];
-  const moduleKeys = MODULES_BY_NAV_ID[baseId];
+  // "kho-item:<id>" = màn 1 kho (menu con động) — gác cùng quyền `kho` với mục cha "Kho hàng".
+  const moduleKeys = MODULES_BY_NAV_ID[baseId] ?? (baseId === "kho-item" ? ["kho"] : undefined);
   const allowed = moduleKeys != null && moduleKeys.some((moduleKey) => readable.has(moduleKey));
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
+  // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
+  const dynamicItems: Record<string, NavItem[]> = {};
+  if (khoList.length) {
+    dynamicItems["kho-hang"] = khoList.map((w): NavItem => ({
+      id: `kho-item:${w.id}`, label: w.ten, icon: "warehouse", module: "kho",
+    }));
+  }
 
   function renderContent() {
     if (!allowed) {
@@ -313,6 +334,16 @@ export function AppShell() {
           </div>
         </main>
       );
+    }
+    // Khai báo kho: màn CRUD generic + onMutate → refetch item động ngay sau khi tạo/sửa/xoá.
+    if (baseId === "khai-bao-kho") {
+      return <RebuildCatalogPage key="khai-bao-kho" config={REBUILD_CONFIGS["khai-bao-kho"]} onMutate={reloadKho} />;
+    }
+    // Màn TẠM cho 1 kho đã khai báo (bấm item "kho-item:<id>" dưới section "Kho hàng").
+    if (baseId === "kho-item") {
+      const id = Number(activeId.split(":")[1]);
+      const w = khoList.find((x) => x.id === id);
+      return <KhoHangView ten={w?.ten ?? "Kho"} ma={w?.ma} />;
     }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
@@ -347,12 +378,6 @@ export function AppShell() {
         return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
       case "ke-hoach-sx":
         return <SanXuatPage />;
-      case "nhap-lieu-xuong":
-        return <NhapLieuXuongView />;
-      case "theo-doi-sx":
-        return <TheoDoiSanXuatView />;
-      case "qc-kcs":
-        return <SanXuatComingSoon featureId={baseId} />;
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage
@@ -396,6 +421,7 @@ export function AppShell() {
           onSelect={(id) => navigate(id)}
           readable={readable}
           itemChildren={itemChildren}
+          dynamicItems={dynamicItems}
           badges={badges}
         />
         <div className="shell__main">

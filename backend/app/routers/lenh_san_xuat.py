@@ -4,13 +4,12 @@ Router CHỈ ĐIỀU PHỐI: gọi `LenhSanXuatService` (nghiệp vụ + suy tr�
 → đẩy sự kiện real-time (hub in-process, bám pattern báo giá/đơn). MÁY CHỈ GHI NHẬN.
 
 RBAC: guard theo module `san_xuat` (đã có sẵn trong catalog quyền — "Sản xuất"). Action-level dùng
-bit CRUD/đặc thù chung: read · create · update · approve (cổng duyệt mẫu + phát) · cancel (hủy) ·
-manage_status (nhập kho đóng lệnh). Phân tách vai chi tiết (thợ/tổ trưởng/QC/kho) DEFER — xem
-GIẢ ĐỊNH trong docs (chưa có vai công nhân riêng trong seed RBAC).
+bit CRUD/đặc thù chung: read · create · update · approve (cổng duyệt mẫu + phát) · cancel (hủy).
 
 Real-time (SSE): đẩy tín hiệu NHẸ qua hub chung (client giữ 1 kết nối `/api/quotations/events`, lọc
-theo `type`) cho các mốc: duyệt mẫu · phát · bàn giao · QC nêu lỗi. Payload kèm tổ nhận / tổ bị quy
-để FE lọc đúng người. Đẩy per-tổ (resolve tổ→user) là refinement Chunk 8 (màn thợ).
+theo `type`) cho các mốc kế hoạch: duyệt mẫu · phát.
+
+(Module theo dõi thực thi xưởng — sản lượng/bàn giao/QC/nhập kho + màn tổ — đã GỠ.)
 """
 from __future__ import annotations
 
@@ -22,31 +21,24 @@ from ..deps import get_lenh_san_xuat_service, require_permission
 from ..models.user import User
 from ..realtime import hub
 from ..schemas.lenh_san_xuat import (
-    BanGiaoIn,
-    BanGiaoOut,
+    AnPhamChiTietOut,
     BungIn,
     GanMayIn,
     GhepIn,
-    GhiLoiQcIn,
-    GhiSanLuongIn,
     HangChoOut,
     LenhDetailOut,
     LenhListOut,
     LenhOut,
-    NhapKhoIn,
-    NhapKhoOut,
     PlacementAddIn,
     PlacementUpdateIn,
     PrintFormDetailOut,
     PrintFormListOut,
     PrintFormOut,
-    QcDefectOut,
+    QuyCachOverrideIn,
     RoutingReorderIn,
     RoutingStepIn,
     RoutingStepOut,
-    SanLuongOut,
-    ToLenhOut,
-    ToNodeOut,
+    TaoLenhIn,
 )
 from ..services.lenh_san_xuat_service import (
     LenhSanXuatService,
@@ -107,10 +99,40 @@ def get_lenh(
         raise _map(exc) from None
     return LenhDetailOut(
         **LenhOut.model_validate(d["lenh"]).model_dump(),
-        routing=d["routing"],
-        forms=d["forms"], san_luong=d["san_luong"], ban_giao=d["ban_giao"], qc=d["qc"],
-        muc_tieu_sl=d["muc_tieu_sl"], tong_dat=d["tong_dat"],
+        items=d["items"], routing=d["routing"],
+        forms=d["forms"], muc_tieu_sl=d["muc_tieu_sl"],
     )
+
+
+@router.get("/an-pham/{ptp_id}", response_model=AnPhamChiTietOut)
+def an_pham_chi_tiet(
+    ptp_id: int,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    lenh_item_id: int | None = Query(default=None),
+) -> AnPhamChiTietOut:
+    """Chi tiết ấn phẩm cho DRAWER — CÔ LẬP THƯƠNG MẠI (lọc giá). Kèm `lenh_item_id` (mở từ lệnh) →
+    giá trị HIỆU LỰC = báo giá + override + cờ `editable` (lệnh nháp); không kèm → thuần báo giá."""
+    try:
+        return AnPhamChiTietOut(**svc.an_pham_chi_tiet(ptp_id, lenh_item_id=lenh_item_id))
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
+
+
+@router.put("/bai-con/{item_id}/quy-cach", response_model=AnPhamChiTietOut)
+def sua_quy_cach_bai_con(
+    item_id: int,
+    payload: QuyCachOverrideIn,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> AnPhamChiTietOut:
+    """Kế hoạch SỬA quy cách in của 1 bài con (override báo giá) — CHỈ khi lệnh còn NHÁP. Máy CHỈ GHI."""
+    try:
+        return AnPhamChiTietOut(
+            **svc.sua_quy_cach_bai_con(item_id=item_id, override=payload.model_dump(exclude_unset=True))
+        )
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
 
 
 @router.post("/lenh/bung", response_model=list[LenhOut], status_code=status.HTTP_201_CREATED)
@@ -122,6 +144,21 @@ def bung_lenh(
     """Đơn chốt → tự đề lệnh nháp (idempotent theo đơn·ấn phẩm). Trả các lệnh MỚI tạo (gọi lại = [])."""
     try:
         return svc.bung_lenh(order_id=payload.order_id)
+    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
+        raise _map(exc) from None
+
+
+@router.post("/lenh", response_model=LenhOut, status_code=status.HTTP_201_CREATED)
+def tao_lenh(
+    payload: TaoLenhIn,
+    svc: Service,
+    _: Annotated[User, Depends(require_permission(MODULE, "create"))],
+) -> LenhOut:
+    """Người kế hoạch PICK gom nhóm ấn phẩm (cùng 1 đơn) → 1 LỆNH nháp + bài con. Máy CHỈ GHI."""
+    try:
+        return svc.tao_lenh(
+            order_id=payload.order_id, phieu_thanh_phan_ids=payload.phieu_thanh_phan_ids,
+        )
     except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
         raise _map(exc) from None
 
@@ -222,59 +259,6 @@ def reorder_routing(
         return svc.doi_thu_tu_routing(lenh_id=lenh_id, step_ids=payload.step_ids)
     except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
         raise _map(exc) from None
-
-
-@router.post("/routing/{step_id}/bat-dau", response_model=list[RoutingStepOut])
-def bat_dau_buoc(
-    step_id: int,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
-) -> list[RoutingStepOut]:
-    """Tổ BẮT ĐẦU bước routing của mình (quét QR) — chỉ khi đã phát + đúng bước đến lượt."""
-    try:
-        routing, to_id = svc.bat_dau_buoc(step_id=step_id)
-    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
-        raise _map(exc) from None
-    lenh_id = routing[0].lenh_sx_id if routing else None
-    hub.broadcast({"type": "lenh_sx_routing", "lenh_id": lenh_id, "to_id": to_id, "pha": "bat_dau"})
-    return routing
-
-
-@router.post("/routing/{step_id}/hoan-thanh", response_model=list[RoutingStepOut])
-def hoan_thanh_buoc(
-    step_id: int,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
-) -> list[RoutingStepOut]:
-    """Tổ HOÀN THÀNH bước đang chạy (quét QR) → xong; đẩy real-time 'đến lượt' tới tổ của bước KẾ."""
-    try:
-        routing, next_to_id = svc.hoan_thanh_buoc(step_id=step_id)
-    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
-        raise _map(exc) from None
-    lenh_id = routing[0].lenh_sx_id if routing else None
-    # `to_id` = tổ ĐẾN LƯỢT mới (bước kế) → FE lọc để "ting" đích danh tổ B (§13.5, refinement Chunk D).
-    hub.broadcast({"type": "lenh_sx_routing", "lenh_id": lenh_id, "to_id": next_to_id, "pha": "hoan_thanh"})
-    return routing
-
-
-# ================================================================ TỔ VIEW (§13.3–13.4 — theo dõi SX)
-@router.get("/to-board", response_model=list[ToNodeOut])
-def to_board(
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> list[ToNodeOut]:
-    """Cây tổ SẢN XUẤT + đếm việc (đang chạy / đến lượt) — chủ xưởng NHÌN xưởng đang làm gì."""
-    return svc.to_board()
-
-
-@router.get("/to/{to_id}/lenh", response_model=list[ToLenhOut])
-def lenh_of_to(
-    to_id: int,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> list[ToLenhOut]:
-    """Lệnh 'của tổ' (đã phát, có bước thuộc tổ) — đến lượt lên đầu. Bấm 1 lệnh → màn thực thi."""
-    return svc.lenh_of_to(to_id)
 
 
 # ================================================================ TỜ IN (ghép · gán máy · phát)
@@ -411,123 +395,4 @@ def xoa_placement(
     return PrintFormDetailOut(
         **PrintFormOut.model_validate(d["form"]).model_dump(),
         placements=d["placements"], lenhs=d["lenhs"],
-    )
-
-
-# ================================================================ TỔ CHẠY (sản lượng · bàn giao · QC)
-@router.post("/lenh/{lenh_id}/san-luong", response_model=SanLuongOut, status_code=status.HTTP_201_CREATED)
-def ghi_san_luong(
-    lenh_id: int,
-    payload: GhiSanLuongIn,
-    svc: Service,
-    user: Annotated[User, Depends(require_permission(MODULE, "create"))],
-) -> SanLuongOut:
-    """Tổ trưởng ghi sản lượng (số đạt + hỏng). Cổng cứng: chỉ ghi khi lệnh đã PHÁT (đang chạy)."""
-    try:
-        return svc.ghi_san_luong(
-            lenh_id=lenh_id, cong_doan_id=payload.cong_doan_id, to_id=payload.to_id,
-            so_dat=payload.so_dat, so_hong=payload.so_hong, nguoi_ghi=user.id,
-        )
-    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
-        raise _map(exc) from None
-
-
-@router.get("/lenh/{lenh_id}/san-luong", response_model=list[SanLuongOut])
-def list_san_luong(
-    lenh_id: int,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> list[SanLuongOut]:
-    try:
-        return svc.san_luong_of(lenh_id)
-    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
-        raise _map(exc) from None
-
-
-@router.post("/lenh/{lenh_id}/ban-giao", response_model=BanGiaoOut, status_code=status.HTTP_201_CREATED)
-def ban_giao(
-    lenh_id: int,
-    payload: BanGiaoIn,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "create"))],
-) -> BanGiaoOut:
-    """Tổ trưởng GIAO số đạt sang tổ kế. Đẩy real-time: tổ nhận cần XÁC NHẬN."""
-    try:
-        bg = svc.ban_giao(
-            lenh_id=lenh_id, cong_doan_tu_id=payload.cong_doan_tu_id,
-            cong_doan_toi_id=payload.cong_doan_toi_id, so_giao=payload.so_giao,
-            to_giao_id=payload.to_giao_id, to_nhan_id=payload.to_nhan_id,
-        )
-    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
-        raise _map(exc) from None
-    hub.broadcast({
-        "type": "lenh_sx_ban_giao", "lenh_id": lenh_id,
-        "ban_giao_id": bg.id, "to_nhan_id": payload.to_nhan_id,
-    })
-    return bg
-
-
-@router.post("/ban-giao/{ban_giao_id}/xac-nhan-nhan", response_model=BanGiaoOut)
-def xac_nhan_nhan(
-    ban_giao_id: int,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
-) -> BanGiaoOut:
-    try:
-        return svc.xac_nhan_nhan(ban_giao_id=ban_giao_id)
-    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
-        raise _map(exc) from None
-
-
-@router.post("/lenh/{lenh_id}/qc", response_model=QcDefectOut, status_code=status.HTTP_201_CREATED)
-def ghi_loi_qc(
-    lenh_id: int,
-    payload: GhiLoiQcIn,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "create"))],
-) -> QcDefectOut:
-    """QC/KCS nêu lỗi → CHỜ tổ trưởng xác nhận. Đẩy real-time: tổ bị quy cần xác nhận NGAY."""
-    try:
-        qc = svc.ghi_loi_qc(
-            lenh_id=lenh_id, cong_doan_id=payload.cong_doan_id,
-            to_bi_quy_id=payload.to_bi_quy_id, anh_url=payload.anh_url, mo_ta=payload.mo_ta,
-        )
-    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
-        raise _map(exc) from None
-    hub.broadcast({
-        "type": "lenh_sx_qc_loi", "lenh_id": lenh_id,
-        "qc_id": qc.id, "to_bi_quy_id": payload.to_bi_quy_id,
-    })
-    return qc
-
-
-@router.post("/qc/{qc_id}/to-truong-xac-nhan", response_model=QcDefectOut)
-def to_truong_xac_nhan_qc(
-    qc_id: int,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "update"))],
-) -> QcDefectOut:
-    try:
-        return svc.to_truong_xac_nhan_qc(qc_id=qc_id)
-    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
-        raise _map(exc) from None
-
-
-# ================================================================ KẾT THÚC (nhập kho → đóng lệnh)
-@router.post("/lenh/{lenh_id}/nhap-kho", response_model=NhapKhoOut)
-def nhap_kho(
-    lenh_id: int,
-    payload: NhapKhoIn,
-    svc: Service,
-    _: Annotated[User, Depends(require_permission(MODULE, "manage_status"))],
-) -> NhapKhoOut:
-    """Ghi nhận nhập kho thành phẩm → suy lệnh XONG (đủ SL) → suy đơn xong sản xuất."""
-    try:
-        res = svc.nhap_kho_thanh_pham(lenh_id=lenh_id, so_luong_nhap=payload.so_luong_nhap)
-    except (LenhSXNotFound, LenhSXValidationError, LenhSXConflict) as exc:
-        raise _map(exc) from None
-    return NhapKhoOut(
-        lenh=LenhOut.model_validate(res["lenh"]),
-        muc_tieu_sl=res["muc_tieu_sl"], so_luong_nhap=res["so_luong_nhap"],
-        lenh_xong=res["lenh_xong"], order_production_done=res["order_production_done"],
     )

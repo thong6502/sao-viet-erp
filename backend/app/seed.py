@@ -1979,33 +1979,6 @@ def seed_lenh_san_xuat_demo(db: Session) -> None:
     # === Tờ 5: Tờ rơi — chỉ ghép, CHƯA gán máy (CHỜ GHÉP, sớm nhất) ===
     _ghep("Couché 150 79×109 (tờ rơi)", None, 4, 1090, 790, [(L_toroi, 4)])
 
-    # --- Sản lượng rải công đoạn (chỉ lệnh đã phát: dang_chay) ---
-    cd_in_id = cd_in.id if cd_in else None
-    cd_can_id = cd_can.id if cd_can else None
-    cd_be_id = cd_be.id if cd_be else None
-    if L_dt:
-        svc.ghi_san_luong(lenh_id=L_dt.id, cong_doan_id=cd_in_id, to_id=to_sx_id,
-                          so_dat=8100, so_hong=60, nguoi_ghi=(sale1.id if sale1 else None))
-    if L_tag:
-        svc.ghi_san_luong(lenh_id=L_tag.id, cong_doan_id=cd_in_id, to_id=to_sx_id,
-                          so_dat=5100, so_hong=40, nguoi_ghi=(sale2.id if sale2 else None))
-        svc.ghi_san_luong(lenh_id=L_tag.id, cong_doan_id=cd_be_id, to_id=to_sx_id,
-                          so_dat=5000, so_hong=55, nguoi_ghi=(sale2.id if sale2 else None))
-        # Bàn giao in → bế (chờ tổ kế xác nhận nhận: nhan_at NULL)
-        svc.ban_giao(lenh_id=L_tag.id, cong_doan_tu_id=cd_in_id, cong_doan_toi_id=cd_be_id,
-                     so_giao=5100, to_giao_id=to_sx_id, to_nhan_id=to_sx_id)
-        # Lỗi QC (chờ tổ trưởng xác nhận)
-        svc.ghi_loi_qc(lenh_id=L_tag.id, cong_doan_id=cd_be_id, to_bi_quy_id=to_sx_id,
-                       mo_ta="Bế lệch ~2mm ở góc phải, cần chỉnh khuôn")
-    if L_ruot:
-        svc.ghi_san_luong(lenh_id=L_ruot.id, cong_doan_id=cd_in_id, to_id=to_sx_id,
-                          so_dat=5050, so_hong=25, nguoi_ghi=(sale1.id if sale1 else None))
-        if cd_can_id:
-            svc.ghi_san_luong(lenh_id=L_ruot.id, cong_doan_id=cd_can_id, to_id=to_sx_id,
-                              so_dat=5010, so_hong=15, nguoi_ghi=(sale1.id if sale1 else None))
-        # Nhập kho ĐỦ SL (đích = OrderLine.qty = 5000) → lệnh XONG
-        svc.nhap_kho_thanh_pham(lenh_id=L_ruot.id, so_luong_nhap=5000)
-
     db.commit()
 
 
