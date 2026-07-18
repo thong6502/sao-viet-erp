@@ -3065,6 +3065,109 @@ export interface OrderListParams {
   size?: number;
 }
 
+// --- Kế hoạch & Lệnh sản xuất (spec-ke-hoach-san-xuat) --------------------
+// DTO đọc thuần map thẳng ORM (record-only) — chỉ ID mềm cho ấn phẩm/máy/công đoạn/tổ;
+// FE resolve tên qua các danh mục (orders · máy · công đoạn · phòng ban) như PTG resolve giấy/máy.
+export interface MauApprovedSnapshot {
+  user_id?: number | null;
+  to?: string | null;
+  chuc_vu?: string | null;
+  ten?: string | null;
+}
+export interface LenhSXRow {
+  id: number;
+  order_id: number;
+  phieu_thanh_phan_id: number | null;
+  may_id: number | null;
+  trang_thai: string; // nhap | dang_chay | xong | huy
+  mau_approved_at: string | null;
+  mau_approved_by: number | null;
+  mau_approved_snapshot: MauApprovedSnapshot | null;
+  created_at: string;
+  updated_at: string;
+}
+export interface LenhSXListOut {
+  items: LenhSXRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+export interface PrintFormRow {
+  id: number;
+  giay_id: number | null;
+  giay_label: string | null;
+  kho_in_dai: number;
+  kho_in_rong: number;
+  so_mau: number;
+  may_id: number | null;
+  so_to_chay: number;
+  so_kem: number;
+  trang_thai: string; // cho_ghep | du_dieu_kien | da_phat | in_xong
+  created_at: string;
+}
+export interface PlacementRow {
+  id: number;
+  print_form_id: number;
+  lenh_sx_id: number;
+  so_con: number;
+}
+export interface SanLuongRow {
+  id: number;
+  lenh_sx_id: number;
+  cong_doan_id: number | null;
+  to_id: number | null;
+  so_dat: number;
+  so_hong: number;
+  nguoi_ghi: number | null;
+  created_at: string;
+}
+export interface BanGiaoRow {
+  id: number;
+  lenh_sx_id: number;
+  cong_doan_tu_id: number | null;
+  cong_doan_toi_id: number | null;
+  so_giao: number;
+  to_giao_id: number | null;
+  to_nhan_id: number | null;
+  giao_at: string;
+  nhan_at: string | null;
+}
+export interface QcDefectRow {
+  id: number;
+  lenh_sx_id: number;
+  cong_doan_id: number | null;
+  to_bi_quy_id: number | null;
+  anh_url: string | null;
+  mo_ta: string | null;
+  trang_thai: string; // cho | to_truong_xac_nhan
+  created_at: string;
+  xac_nhan_at: string | null;
+}
+export interface LenhSXDetailOut extends LenhSXRow {
+  forms: PrintFormRow[];
+  san_luong: SanLuongRow[];
+  ban_giao: BanGiaoRow[];
+  qc: QcDefectRow[];
+  muc_tieu_sl: number;
+  tong_dat: number;
+}
+export interface PrintFormDetailOut extends PrintFormRow {
+  placements: PlacementRow[];
+  lenhs: LenhSXRow[];
+}
+export interface PrintFormListOut {
+  items: PrintFormRow[];
+  total: number;
+  page: number;
+  size: number;
+}
+export interface LenhSXListParams {
+  order_id?: number;
+  trang_thai?: string;
+  page?: number;
+  size?: number;
+}
+
 export const api = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>("/api/auth/login", {
@@ -4358,6 +4461,33 @@ export const api = {
       return authed<OrderDetail>(`/api/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
     },
   },
+  // --- Kế hoạch & Lệnh sản xuất (spec-ke-hoach-san-xuat) --------------------
+  // Máy CHỈ GHI NHẬN: đọc thuần (list/detail lệnh · tờ in). Actions ghép/duyệt/phát = chunk sau.
+  lenhSanXuat: {
+    list(token: string, params: LenhSXListParams = {}): Promise<LenhSXListOut> {
+      const qs = new URLSearchParams();
+      if (params.order_id != null) qs.set("order_id", String(params.order_id));
+      if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
+      if (params.page) qs.set("page", String(params.page));
+      qs.set("size", String(params.size ?? 200));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<LenhSXListOut>(`/api/lenh-sx/lenh${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<LenhSXDetailOut> {
+      return authed<LenhSXDetailOut>(`/api/lenh-sx/lenh/${id}`, token);
+    },
+    forms(token: string, params: { trang_thai?: string; may_id?: number } = {}): Promise<PrintFormListOut> {
+      const qs = new URLSearchParams();
+      if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
+      if (params.may_id != null) qs.set("may_id", String(params.may_id));
+      qs.set("size", "200");
+      return authed<PrintFormListOut>(`/api/lenh-sx/forms?${qs.toString()}`, token);
+    },
+    form(token: string, id: number): Promise<PrintFormDetailOut> {
+      return authed<PrintFormDetailOut>(`/api/lenh-sx/forms/${id}`, token);
+    },
+  },
+
   // --- Cấu hình kho hàng ----------------------------------------------------
   warehouses: {
     list(

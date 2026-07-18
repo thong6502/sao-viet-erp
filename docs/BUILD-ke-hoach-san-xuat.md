@@ -75,6 +75,8 @@ Thợ (ít học/không biết chữ/**trí nhớ** — gắt nhất) · Tổ tr
   read/create/update/approve/cancel/manage_status = True → KHÔNG cần thêm gì (chỉ verify). Vai công
   nhân chi tiết = DEFER (giữ giả định #12).
 
+- **Orchestrator (2026-07-18) — UI Chunk 5+6 (Kế hoạch SX: list + detail + nav "Sản xuất"): XONG + BROWSER-VERIFY PASS.** File mới `LenhSanXuatListView/DetailView.tsx` · `SanXuatPage.tsx` · `lenh-san-xuat.css` (scope `.lsx`, bám look `.rdx-cost` đen/kem/cam) + additive `client.ts`/`Sidebar.tsx`/`AppShell.tsx` (+149, toàn của mình). `tsc --noEmit` PASS. **Chạy FE:5173 (server session chung) → login admin → Kế hoạch SX**: nav "Sản xuất" đúng chỗ (giữa Kinh doanh↔Kho); list StatusTabs đếm ĐÚNG seed (7: nháp4/chạy2/xong1); detail GIÀU (công đoạn+sản lượng thật · giao nhận traveler · **tờ ghép đa-khách + chip xếp bài tô sáng** · tiến độ dark card). Design khớp app. **Cosmetic dọn sau:** ấn phẩm hiện `#ptp_id` (tên chưa đọc từ chuỗi PTG). Actions duyệt/ghép/phát để disabled → **UI Chunk 7**.
+
 ## 🧩 GIẢ ĐỊNH TỰ QUYẾT (agent tự chốt khi spec chưa nói — user duyệt cuối)
 **Chunk 2 (services record-only) — mở rộng đã ghi ngược vào `spec-ke-hoach-san-xuat.md`:**
 1. **Bung IDEMPOTENT theo (đơn · ấn phẩm)** — `bung_lenh` chỉ tạo lệnh cho `phieu_thanh_phan_id`

@@ -13,6 +13,7 @@ import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
+import { SanXuatPage, SanXuatComingSoon } from "../pages/SanXuatPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
@@ -333,6 +334,12 @@ export function AppShell() {
         );
       case "don-hang-ban":
         return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
+      case "ke-hoach-sx":
+        return <SanXuatPage />;
+      case "theo-doi-sx":
+      case "nhap-lieu-xuong":
+      case "qc-kcs":
+        return <SanXuatComingSoon featureId={baseId} />;
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage
