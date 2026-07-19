@@ -176,3 +176,231 @@
 .matrix-scroll {
   overflow-x: auto;
 }
+
+/* ============================================================================
+   Ma trận quyền (redesign) — gom module theo PHÂN HỆ (accordion), mỗi module là
+   một hàng công tắc Xem / Chỉnh sửa / Phạm vi + chip "N chi tiết" bung inline.
+   ========================================================================== */
+.rdx-perm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* ---- Nhóm phân hệ (accordion) ---- */
+.rdx-perm__group {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  overflow: hidden;
+}
+.rdx-perm__group.is-open {
+  border-color: var(--rule);
+}
+.rdx-perm__ghead {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+}
+.rdx-perm__ghead:hover {
+  background: var(--rule-hair);
+}
+.rdx-perm__ghead:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: -2px;
+}
+.rdx-perm__gcaret {
+  flex: 0 0 auto;
+  color: var(--ash);
+  transform: rotate(-90deg);
+  transition: transform var(--duration-base) var(--easing-standard);
+}
+.rdx-perm__group.is-open .rdx-perm__gcaret {
+  transform: rotate(0deg);
+}
+.rdx-perm__gname {
+  flex: 1 1 auto;
+  font-weight: var(--fw-bold);
+  font-size: 14px;
+  letter-spacing: -0.01em;
+}
+.rdx-perm__gcount {
+  flex: 0 0 auto;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 1px 9px;
+}
+.rdx-perm__gcount.is-on {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  border-color: transparent;
+}
+
+/* ---- Bảng hàng module trong nhóm ---- */
+.rdx-perm__rows {
+  border-top: 1px solid var(--rule-hair);
+}
+.rdx-perm__colhead,
+.rdx-perm__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 92px 92px 148px;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+}
+.rdx-perm__colhead {
+  padding-top: var(--sp-3);
+  padding-bottom: var(--sp-3);
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.rdx-perm__colhead span {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ash);
+}
+.rdx-perm__c-act,
+.rdx-perm__c-scope {
+  text-align: center;
+}
+.rdx-perm__row {
+  border-bottom: 1px solid var(--rule-hair);
+  grid-auto-rows: min-content;
+}
+.rdx-perm__row:last-child {
+  border-bottom: 0;
+}
+.rdx-perm__row:hover {
+  background: var(--rule-hair);
+}
+.rdx-perm__cell--act,
+.rdx-perm__cell--scope {
+  display: flex;
+  justify-content: center;
+}
+.rdx-perm__cell--mod {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.rdx-perm__mod {
+  font-weight: var(--fw-medium);
+  font-size: 14px;
+}
+
+/* Pill phạm vi (dùng lại select gốc, on-brand). */
+.rdx-perm__scope {
+  appearance: none;
+  -webkit-appearance: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--canvas)
+    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b665b' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>")
+    no-repeat right 10px center;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 5px 28px 5px 12px;
+  width: 100%;
+  cursor: pointer;
+}
+.rdx-perm__scope:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+  border-color: var(--rust);
+}
+.rdx-perm__scope:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Chip "N/M chi tiết" → bung panel inline. */
+.rdx-perm__finechip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 1px 6px 1px 9px;
+  cursor: pointer;
+}
+.rdx-perm__finechip:hover {
+  border-color: var(--rust);
+  color: var(--rust-deep);
+}
+.rdx-perm__finechip.is-on {
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  border-color: transparent;
+}
+.rdx-perm__finechip:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.rdx-perm__finecaret {
+  transition: transform var(--duration-base) var(--easing-standard);
+}
+.rdx-perm__finechip.is-open .rdx-perm__finecaret {
+  transform: rotate(180deg);
+}
+
+/* Panel quyền chi tiết — bung INLINE dưới hàng module (cột đầy hàng). */
+.rdx-perm__fine {
+  grid-column: 1 / -1;
+  margin-top: var(--sp-1);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--sp-2) var(--sp-4);
+  padding: var(--sp-3);
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+.rdx-perm__fine-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 13px;
+  cursor: pointer;
+}
+.rdx-perm__fine-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.rdx-perm__fine-hint {
+  color: var(--ash);
+  cursor: help;
+  font-size: 12px;
+}
+
+@media (max-width: 620px) {
+  .rdx-perm__colhead,
+  .rdx-perm__row {
+    grid-template-columns: minmax(0, 1fr) 56px 56px 116px;
+    gap: var(--sp-2);
+    padding-left: var(--sp-3);
+    padding-right: var(--sp-3);
+  }
+}

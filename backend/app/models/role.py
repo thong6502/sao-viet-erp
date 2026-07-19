@@ -171,3 +171,16 @@ class RolePermission(Base):
     can_record_deposit: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # san_xuat: GÁN VIỆC — tổ trưởng gán thợ vào công đoạn (routing_step) của lệnh đã phát. Tách
+    # khỏi read: người được gán mới HỨNG việc + chỉ vai có bit này (full-tổ) mới thấy nút gán.
+    can_assign_work: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # san_xuat: GHI SẢN LƯỢNG — tổ trưởng ghi đạt/hỏng cho bước của tổ (Lát 2, record-only).
+    can_record_output: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # san_xuat: BÀN GIAO — tổ trưởng giao số sang tổ kế + xác nhận nhận (Lát 2, 2 con dấu).
+    can_handover: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

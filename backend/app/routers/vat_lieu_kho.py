@@ -47,9 +47,10 @@ def _make_crud(kind: str, InModel, RowModel, path: str):
     # rồi đăng ký route THỦ CÔNG sau khi gán (decorator chạy lúc def nên không kịp).
     def _list(
         svc: Service,
-        # Danh mục THAM CHIẾU (giấy/mực/bản): đọc được nếu có quyền Kho HOẶC quyền Tính giá
-        # (màn Tính giá cần đổ dropdown Giấy mà không phải mở module Kho hàng).
-        _: Annotated[User, Depends(require_any_permission((MODULE, "read"), ("tinh_gia_thanh", "read")))],
+        # Danh mục THAM CHIẾU (giấy/mực/bản): đọc được nếu có quyền Kho HOẶC Tính giá HOẶC Sản xuất
+        # (Tính giá đổ dropdown Giấy; Kế hoạch SX cần đổi giấy cùng chủng loại ở lệnh — không mở Kho).
+        _: Annotated[User, Depends(require_any_permission(
+            (MODULE, "read"), ("tinh_gia_thanh", "read"), ("san_xuat", "read")))],
         q: str | None = Query(default=None),
         active: bool | None = Query(default=None),
         page: int = Query(default=1, ge=1),

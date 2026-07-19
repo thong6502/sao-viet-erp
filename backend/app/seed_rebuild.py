@@ -5,11 +5,14 @@ Direct model instantiation — đơn giản, đủ để UI có dữ liệu + en
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models.bu_hao import BuHao
 from .models.cong_doan import CongDoan
+from .models.khuon_be import KhuonBe
 from .models.loai_san_pham import LoaiSanPham
 from .models.may_thiet_bi import MayThietBi
 from .models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, KhoGiayChuan, VatTuInAn
@@ -204,22 +207,29 @@ def seed_rebuild_catalog(db: Session) -> None:
     # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 3 kiểu bù hao (khong/tra_bang/cố định) ---
     if _empty(db, CongDoan):
         db.add_all([
+            # Giá CHỈ theo CÔNG THỨC (đơn giá nhét sẵn trong công thức, nhân biến số lượng tương ứng).
+            # pricing_basis=per_other để hợp validate; run_rate giữ làm tham chiếu (engine ưu tiên công thức).
             CongDoan(ma="CD-0001", ten="Ghi kẽm CTP", nhom="prepress", che_do_tinh="theo_san_luong",
                      pricing_basis="per_other", run_rate=95000,
-                     cong_thuc_gia="so_kem * don_gia", setup_time=10, kieu_bu_hao="khong"),
+                     cong_thuc_gia="so_kem * 95000", setup_time=10, kieu_bu_hao="khong"),
             CongDoan(ma="CD-0002", ten="In offset", nhom="print", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_sheet", run_rate=350, kieu_bu_hao="tra_bang"),  # → BH nối bên dưới
+                     pricing_basis="per_other", run_rate=350, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
+                     cong_thuc_gia="to_dau_vao * so_mat * 350"),
             CongDoan(ma="CD-0003", ten="Cán màng bóng", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_area_sides", run_rate=2.2, min_charge=110000,
-                     kieu_bu_hao="co_dinh", so_to_bu_hao=50),
+                     pricing_basis="per_other", run_rate=2.2, min_charge=110000,
+                     kieu_bu_hao="co_dinh", so_to_bu_hao=50,
+                     cong_thuc_gia="max(dai_in * rong_in * 10000 * so_mat * to_dau_vao * 2.2, 110000)"),
             CongDoan(ma="CD-0004", ten="Bồi sóng", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_sheet", run_rate=200, kieu_bu_hao="tra_bang"),  # → BH nối bên dưới
+                     pricing_basis="per_other", run_rate=200, kieu_bu_hao="tra_bang",  # → BH nối bên dưới
+                     cong_thuc_gia="to_dau_vao * 200"),
             CongDoan(ma="CD-0005", ten="Ép kim", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_position", run_rate=400, requires_tooling=True,
-                     tooling_type="khuon_ep", kieu_bu_hao="co_dinh", so_to_bu_hao=50),
+                     pricing_basis="per_other", run_rate=400, requires_tooling=True,
+                     tooling_type="khuon_ep", kieu_bu_hao="co_dinh", so_to_bu_hao=50,
+                     cong_thuc_gia="so_vi_tri * so_luong * 400"),
             CongDoan(ma="CD-0006", ten="Bế nổi", nhom="finishing", che_do_tinh="theo_san_luong",
-                     pricing_basis="per_finished_qty", run_rate=20, requires_tooling=True,
-                     tooling_type="khuon_be", kieu_bu_hao="co_dinh", so_to_bu_hao=30),
+                     pricing_basis="per_other", run_rate=20, requires_tooling=True,
+                     tooling_type="khuon_be", kieu_bu_hao="co_dinh", so_to_bu_hao=30,
+                     cong_thuc_gia="so_luong * 20"),
         ])
         db.commit()
 
@@ -271,5 +281,23 @@ def seed_rebuild_catalog(db: Session) -> None:
             LoaiSanPham(ma="LSP-0006", ten="Thùng carton sóng", structural_type="box",
                         box_sub_type="corrugated"),
             LoaiSanPham(ma="LSP-0007", ten="Tem decal cuộn", structural_type="label"),
+        ])
+        db.commit()
+
+    # --- Khuôn bế (khai báo lưu trữ) — khai TAY: tên ấn phẩm · khách · số kệ · ngày làm · tình trạng ---
+    if _empty(db, KhuonBe):
+        db.add_all([
+            KhuonBe(ma="KB-0001", ten="Khuôn bế hộp bánh Trung thu", khach_hang="Cty Kinh Đô",
+                    so_ke="Kệ A1 — xưởng sau in", ngay_lam_khuon=date(2025, 8, 12), tinh_trang="dang_dung"),
+            KhuonBe(ma="KB-0002", ten="Khuôn bế hộp Ivory 12×8×5", khach_hang="Cty Minh Long",
+                    so_ke="Kệ A2 — xưởng sau in", ngay_lam_khuon=date(2026, 1, 15), tinh_trang="dang_dung"),
+            KhuonBe(ma="KB-0003", ten="Khuôn bế tem decal tròn Ø40", khach_hang="Dược Hậu Giang",
+                    so_ke="Kệ B1 — kho khuôn", ngay_lam_khuon=date(2025, 11, 3), tinh_trang="dang_dung"),
+            KhuonBe(ma="KB-0004", ten="Khuôn bế thùng carton sóng B 40×30×25", khach_hang="Cty Vinamilk",
+                    so_ke="Kệ C3 — kho khuôn", ngay_lam_khuon=date(2024, 6, 20), tinh_trang="hong",
+                    ghi_chu="Dao mòn góc, cần mài lại trước khi tái dùng"),
+            KhuonBe(ma="KB-0005", ten="Khuôn bế túi giấy quai xách", khach_hang="Shop An Nhiên",
+                    so_ke="Kệ B4 — kho khuôn", ngay_lam_khuon=date(2025, 3, 10), tinh_trang="thanh_ly",
+                    ghi_chu="Mẫu cũ, khách đã đổi thiết kế"),
         ])
         db.commit()

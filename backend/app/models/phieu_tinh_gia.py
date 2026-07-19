@@ -124,6 +124,10 @@ class PhieuThanhPhan(Base):
     so_mau_a: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # số màu mặt A
     so_mau_b: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # số màu mặt B
 
+    # Ghi chú KỸ THUẬT/SX theo SẢN PHẨM (canh màu như mẫu · kẽm cũ · bù hao…) — kỹ thuật, KHÔNG giá;
+    # xuống lệnh sản xuất (drawer chi tiết ấn phẩm). Khác `production_note` cấp đơn.
+    ghi_chu_ky_thuat: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     gia_von_tp: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

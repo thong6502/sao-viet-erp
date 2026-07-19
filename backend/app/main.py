@@ -41,6 +41,8 @@ from .routers import (
     vat_lieu_kho,
     cong_doan,
     bu_hao,
+    kho,
+    khuon_be,
     loai_san_pham,
     tinh_gia,
     phieu_tinh_gia,
@@ -123,6 +125,8 @@ app.include_router(may_thiet_bi.router)
 app.include_router(vat_lieu_kho.router)
 app.include_router(cong_doan.router)
 app.include_router(bu_hao.router)
+app.include_router(kho.router)
+app.include_router(khuon_be.router)
 app.include_router(loai_san_pham.router)
 app.include_router(tinh_gia.router)
 app.include_router(phieu_tinh_gia.router)

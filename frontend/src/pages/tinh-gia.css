@@ -1397,6 +1397,15 @@ select.tg-input--sm {
   body:has(.tg-page) .shell__content {
     padding: 0 !important;
   }
+  /* App shell dùng khung cuộn cố định (shell__main overflow:hidden height:100vh · shell__content
+     overflow:auto) → sheet A4 bị cắt cụt → bản in TRẮNG. Reset KHÔNG dùng :has (vài trình duyệt
+     bỏ qua :has trong media print) + phủ cả html/body cho chắc. */
+  html, body,
+  .shell, .shell__main, .shell__content {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+  }
   /* Trong trang, chỉ chừa vùng phiếu in. */
   .tg-page > *:not(.tg-print-only) {
     display: none !important;

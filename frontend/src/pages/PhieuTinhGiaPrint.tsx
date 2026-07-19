@@ -13,7 +13,6 @@ export interface PhieuTinhGiaHeader {
   tenAnPham: string;
   soLuong: number;
   khoThanhPham: string;
-  dvt: string;
 }
 
 export interface PhieuTinhGiaNoiDung {
@@ -44,9 +43,16 @@ export interface PhieuTinhGiaChuKy {
   who?: string;
 }
 
+export interface PhieuTinhGiaSanPham {
+  ten: string;
+  soLuong: number;
+  dvt: string;
+}
+
 export interface PhieuTinhGia {
   header: PhieuTinhGiaHeader;
   noiDung: PhieuTinhGiaNoiDung[];
+  sanPhams: PhieuTinhGiaSanPham[];
   groups: PhieuTinhGiaGroup[];
   grandTotal: string;
   grandNote?: string;
@@ -140,7 +146,7 @@ export function PhieuTinhGiaPrint({
   data: PhieuTinhGia;
   onPrint?: () => void;
 }) {
-  const { header, noiDung, groups, grandTotal, grandNote, chuKy } = data;
+  const { header, noiDung, sanPhams, groups, grandTotal, grandNote, chuKy } = data;
   const doPrint = onPrint ?? (() => window.print());
 
   return (
@@ -186,12 +192,37 @@ export function PhieuTinhGiaPrint({
               <span className="ptg-lbl">Khổ thành phẩm:</span>{" "}
               <span className="ptg-val">{header.khoThanhPham}</span>
             </div>
-            <div>
-              <span className="ptg-lbl">Đơn vị tính:</span>{" "}
-              <span className="ptg-val">{header.dvt}</span>
-            </div>
           </div>
         </div>
+
+        {sanPhams.length > 0 && (
+          <>
+            <div className="ptg-sec">Danh sách sản phẩm</div>
+            <table className="ptg-tbl">
+              <colgroup>
+                <col style={{ width: "62%" }} />
+                <col style={{ width: "23%" }} />
+                <col style={{ width: "15%" }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>Tên</th>
+                  <th className="ptg-num">Số lượng</th>
+                  <th>ĐVT</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sanPhams.map((sp, i) => (
+                  <tr key={i}>
+                    <td>{sp.ten}</td>
+                    <td className="ptg-num">{sp.soLuong.toLocaleString("vi-VN")}</td>
+                    <td>{sp.dvt}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
 
         <div className="ptg-sec">Nội dung thực hiện</div>
         <ol className="ptg-scope">
@@ -258,8 +289,8 @@ export const SAMPLE_PHIEU: PhieuTinhGia = {
     tenAnPham: AN_PHAM,
     soLuong: 510,
     khoThanhPham: "— cm",
-    dvt: "TỜ",
   },
+  sanPhams: [{ ten: AN_PHAM, soLuong: 510, dvt: "Tờ" }],
   noiDung: [
     {
       label: "Quy cách in",

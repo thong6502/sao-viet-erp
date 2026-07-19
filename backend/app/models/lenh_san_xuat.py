@@ -1,12 +1,14 @@
 """Kế hoạch & Lệnh sản xuất (P0 data layer) — spec `docs/spec-ke-hoach-san-xuat.md`.
 
-5 bảng (máy CHỈ GHI NHẬN — không MRP/validate; `routing_step` sửa tay ở kế hoạch):
+6 bảng (máy CHỈ GHI NHẬN — không MRP/validate; `routing_step` sửa tay ở kế hoạch):
   - `LenhSanXuat` (`lenh_sx`)   — Lệnh SX = 1..n ấn phẩm (pick gom) = 1 routing chung (traveler qua tổ).
   - `LenhItem`    (`lenh_item`) — bài con trong lệnh: lệnh ↔ ấn phẩm ↔ dòng đơn (nguồn sự thật ấn phẩm).
   - `PrintForm`   (`print_form`) — Tờ in = 1 lượt chạy máy vật lý (1 bộ kẽm · 1 lần canh) = NƠI ghép.
   - `GangPlacement`(`gang_placement`) — danh sách xếp bài: tờ in ↔ lệnh + SỐ CON (nguồn sự thật ghép).
   - `RoutingStep` (`routing_step`) — routing RIÊNG mỗi lệnh (§13.2): copy công đoạn từ job spec PTG
     khi bung; kế hoạch sửa được (thêm/bớt/đổi thứ tự/đổi tổ).
+  - `RoutingStepAssignment` (`routing_step_assignment`) — gán thợ vào 1 bước routing (Lát 1): tổ
+    trưởng gán; thợ được gán mới hứng việc + xem lệnh của mình. n–n bước↔thợ.
 
 Module theo dõi thực thi xưởng (sản lượng · bàn giao · QC · nhập kho) đã GỠ — chỉ còn phần kế hoạch.
 
@@ -23,9 +25,9 @@ Không có cột Boolean ở đây (trạng thái = chuỗi enum; "đã nhận"/
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, JSON, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -66,10 +68,26 @@ class LenhSanXuat(Base):
     )
     # Ấn phẩm nguồn (soft → phieu_thanh_phan.id): đọc giấy/khổ/màu/số con + routing (PhieuThanhPham).
     phieu_thanh_phan_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
-    # Máy gán cho lệnh (soft → may_thiet_bi.id); máy chạy THỰC gán ở tờ in.
+    # Máy gán cho lệnh (soft → may_thiet_bi.id). ①② dùng làm gợi ý copy từ PTP; ④ (lịch chạy) điều độ
+    # kéo lệnh vào HÀNG máy in trong bảng Máy×Ngày = set field này (máy chỉ ghi nhận, không auto).
     may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Khuôn bế (③): soft → khuon_be.id — điều độ gán khuôn cho lệnh có công đoạn bế (cảnh báo mềm, không chặn phát).
+    khuon_be_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     trang_thai: Mapped[str] = mapped_column(String(16), nullable=False, default=LENH_NHAP)
+
+    # --- Hạn giao (①): thuộc tính LỆNH. `han_giao_khach` snapshot `Order.delivery_committed_date`
+    # lúc bung (kế thừa đơn); `han_giao_noi_bo` = buffer nội bộ (planner nhập, sớm hơn). Sửa khi
+    # NHÁP; đóng băng lúc phát (service chặn theo trạng thái — chưa có ô quyền đổi-hạn sau phát). ---
+    han_giao_khach: Mapped[date | None] = mapped_column(Date, nullable=True)
+    han_giao_noi_bo: Mapped[date | None] = mapped_column(Date, nullable=True)
+
+    # --- Lịch chạy (④ — bảng Máy×Ngày, người xếp tay): `ngay_chay` = ngày dự kiến (cột lưới);
+    # `thu_tu_chay` = thứ tự trong ô (máy×ngày). `thoi_luong_phut` = thời lượng dự kiến — NỀN cho
+    # Gantt-đầy-đủ-theo-giờ pha sau (để trống giờ), lưu sẵn để khỏi đổi schema. Máy = `may_id` ở trên. ---
+    ngay_chay: Mapped[date | None] = mapped_column(Date, nullable=True)
+    thu_tu_chay: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    thoi_luong_phut: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # --- Cụm duyệt mẫu (§5): con dấu người + giờ + snapshot đóng băng {tổ·chức vụ·tên} ---
     mau_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -158,6 +176,13 @@ class RoutingStep(Base):
     cong_doan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → cong_doan.id (soft)
     to_id: Mapped[int | None] = mapped_column(Integer, nullable=True)          # tổ phụ trách → departments.id (soft; snapshot cong_doan.department_id)
     ten: Mapped[str] = mapped_column(String(255), nullable=False, default="")  # tên công đoạn (ảnh chụp để hiển thị)
+    # Ghi chú kỹ thuật + quy cách BƯỚC — ảnh chụp từ `PhieuThanhPham` lúc copy (②: tổ hết trơ).
+    ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)    # chép PhieuThanhPham.ghi_chu
+    quy_cach: Mapped[str | None] = mapped_column(String(255), nullable=True)   # tóm tắt "N mặt · M vị trí · thuê ngoài"
+    # Máy finishing + ca do TỔ tự xếp cho bước NÀY (Lát 1 · 1.12): điều độ đã gán máy-in/khuôn ở cấp
+    # lệnh; máy bế/cán + ca là nội bộ tổ. Record-only (máy CHỈ GHI NHẬN — KHÔNG validate loại máy/chặn).
+    may_id: Mapped[int | None] = mapped_column(Integer, nullable=True)          # → may_thiet_bi.id (soft)
+    ca: Mapped[str | None] = mapped_column(String(16), nullable=True)           # "Ca 1" / "Ca 2" / "Ca 3"
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
@@ -195,3 +220,82 @@ class LenhItem(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )
+
+
+class RoutingStepAssignment(Base):
+    """Gán thợ vào 1 bước routing (Lát 1 — hộp việc 2 tầng). Tổ trưởng (quyền `can_assign_work`)
+    gán; thợ được gán mới HỨNG thông báo + xem lệnh của mình (thợ chỉ-xem). n–n: 1 bước nhiều thợ,
+    1 thợ nhiều bước. FK thật tới `routing_step` (cascade xoá theo bước); `user_id`/`assigned_by`
+    soft-ref tới `users.id` (khớp convention danh mục — users là module khác). Máy CHỈ GHI NHẬN.
+    """
+
+    __tablename__ = "routing_step_assignment"
+    __table_args__ = (
+        UniqueConstraint("routing_step_id", "user_id", name="uq_rsa_step_user"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    routing_step_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("routing_step.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(Integer, index=True, nullable=False)   # → users.id (soft; thợ được gán)
+    assigned_by: Mapped[int | None] = mapped_column(Integer, nullable=True)     # → users.id (soft; tổ trưởng gán)
+    assigned_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
+class SanLuong(Base):
+    """Sản lượng THỰC THI của 1 bước routing (Lát 2) — ghi đạt/hỏng theo BƯỚC (không theo thợ; offset
+    đếm máy/kíp). Event-log: cộng dồn nhiều đợt (lệnh chạy nhiều ca) → tổng = Σ. Máy CHỈ GHI NHẬN;
+    trạng thái/tiến độ bước SUY từ các bản ghi này (KHÔNG cột lifecycle riêng trên routing_step).
+    `don_vi` = "to"/"con" (Tổ In/Cán đếm tờ; Tổ Bế trở đi đếm con) — ghi nhãn, KHÔNG engine quy đổi.
+    """
+
+    __tablename__ = "san_luong"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lenh_sx_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lenh_sx.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    routing_step_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("routing_step.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    to_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # tổ ghi (soft → departments.id, snapshot)
+    so_dat: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    so_hong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    don_vi: Mapped[str] = mapped_column(String(16), nullable=False, default="to")   # "to" | "con"
+    ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    nguoi_ghi: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → users.id (soft)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
+class BanGiao(Base):
+    """Bàn giao 2 CON DẤU giữa 2 bước routing (Lát 2). Tổ giao khai `so_giao` (giao_at); tổ nhận XÁC
+    NHẬN `so_nhan` (nhan_at) — LỆCH được (thất thoát/đếm lại), KHÔNG chặn. Trạng thái nhận SUY từ
+    `nhan_at` (null = chưa nhận). Giao cho bước KẾ trong routing (`toi_step_id`; null = bước cuối →
+    chờ nhập kho L4). Máy CHỈ GHI NHẬN — "nhận" KHÔNG gate chặn tổ nhận chạy. Lệch = `so_giao − so_nhan`.
+    """
+
+    __tablename__ = "ban_giao"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    lenh_sx_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("lenh_sx.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    tu_step_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # bước giao (soft → routing_step.id)
+    toi_step_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True) # bước nhận (soft; null = bước cuối)
+    to_giao: Mapped[int | None] = mapped_column(Integer, nullable=True)      # tổ giao (soft → departments.id)
+    to_nhan: Mapped[int | None] = mapped_column(Integer, nullable=True)      # tổ nhận (soft)
+    so_giao: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    don_vi: Mapped[str] = mapped_column(String(16), nullable=False, default="to")
+    nguoi_giao: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → users.id (soft)
+    giao_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+    so_nhan: Mapped[int | None] = mapped_column(Integer, nullable=True)      # null = chưa xác nhận nhận
+    ly_do_lech: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    nguoi_nhan: Mapped[int | None] = mapped_column(Integer, nullable=True)   # → users.id (soft)
+    nhan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

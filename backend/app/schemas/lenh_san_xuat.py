@@ -23,6 +23,12 @@ class TaoLenhIn(BaseModel):
     phieu_thanh_phan_ids: list[int] = Field(default_factory=list)
 
 
+class AssignWorkersIn(BaseModel):
+    """Gán 1..n thợ vào 1 bước routing (Lát 1) — `user_ids` của thợ được gán. Actor (người gán,
+    tổ trưởng) LẤY TỪ TOKEN ở router, không nhận qua body."""
+    user_ids: list[int] = Field(default_factory=list)
+
+
 class PlacementIn(BaseModel):
     """1 dòng xếp bài khi tạo tờ (ghép) — số con NHẬP TAY."""
     lenh_sx_id: int
@@ -82,12 +88,21 @@ class LenhOut(BaseModel):
     phieu_thanh_phan_id: int | None
     may_id: int | None
     trang_thai: str
+    khuon_be_id: int | None = None        # ③ khuôn bế đã gán (soft → khuon_be.id)
+    han_giao_khach: date | None = None    # ① hạn KHÁCH (snapshot đơn lúc bung)
+    han_giao_noi_bo: date | None = None    # ① hạn NỘI BỘ (buffer planner nhập)
     mau_approved_at: datetime | None
     mau_approved_by: int | None
     mau_approved_snapshot: dict | None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class HanGiaoIn(BaseModel):
+    """① Sửa hạn giao (CHỈ khi lệnh NHÁP). Cả 2 optional — gửi field nào set field đó."""
+    han_giao_khach: date | None = None
+    han_giao_noi_bo: date | None = None
 
 
 class LenhListOut(BaseModel):
@@ -162,6 +177,8 @@ class RoutingStepOut(BaseModel):
     cong_doan_id: int | None
     to_id: int | None
     ten: str
+    ghi_chu: str | None = None    # ② ghi chú kỹ thuật bước (chép từ báo giá)
+    quy_cach: str | None = None   # ② quy cách bước "N mặt · M vị trí"
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -171,6 +188,73 @@ class LenhDetailOut(LenhOut):
     routing: list[RoutingStepOut] = []
     forms: list[PrintFormOut] = []
     muc_tieu_sl: int = 0
+    ghi_chu_ky_thuat: str | None = None   # ghi chú kỹ thuật CẢ LỆNH (đọc sống từ ấn phẩm đại diện)
+    can_khuon: bool = False               # ③ lệnh có công đoạn bế → cần gán khuôn
+    khuon_be_label: str | None = None     # ③ khuôn đã gán "mã · tên" (đọc sống danh mục)
+
+
+class KhuonGanIn(BaseModel):
+    """③ Gán khuôn bế cho lệnh (null = gỡ)."""
+    khuon_be_id: int | None = None
+
+
+class MayCaIn(BaseModel):
+    """1.12 — tổ xếp máy finishing + ca cho 1 bước routing (record-only). `may_id=None` gỡ máy;
+    `ca` rỗng/None gỡ ca."""
+    may_id: int | None = None
+    ca: str | None = None
+
+
+class SanLuongIn(BaseModel):
+    """Lát 2 — ghi 1 đợt sản lượng cho bước (cộng dồn). `don_vi` = "to"/"con"."""
+    so_dat: int = 0
+    so_hong: int = 0
+    don_vi: str = "to"
+    ghi_chu: str | None = None
+
+
+class BanGiaoIn(BaseModel):
+    """Lát 2 — tổ giao số sang bước kế (record-only). `don_vi` = "to"/"con"."""
+    so_giao: int = 0
+    don_vi: str = "to"
+
+
+class NhanIn(BaseModel):
+    """Lát 2 — tổ nhận xác nhận số nhận (con dấu 2). Lệch được; `ly_do_lech` optional."""
+    so_nhan: int = 0
+    ly_do_lech: str | None = None
+
+
+class XepLichIn(BaseModel):
+    """④ Đặt lệnh vào lưới Máy×Ngày (field nào gửi thì set; cho set null để gỡ khỏi lưới)."""
+    may_id: int | None = None
+    ngay_chay: date | None = None
+    thu_tu_chay: int | None = None
+    thoi_luong_phut: int | None = None
+
+
+class LichChayReorderIn(BaseModel):
+    """④ Đổi thứ tự chạy trong 1 ô (máy×ngày) — mảng id theo thứ tự mới."""
+    lenh_ids: list[int] = []
+
+
+class LichChayRow(BaseModel):
+    """④ 1 lệnh trong bảng lịch chạy (Máy×Ngày) — dữ kiện để FE dựng lưới + thẻ màu theo hạn."""
+    lenh_id: int
+    ma: str
+    trang_thai: str = "nhap"   # gate resize hạn nội bộ trên Gantt (sau phát khóa hạn)
+    order_no: str | None = None
+    khach: str | None = None
+    giay_label: str | None = None
+    spec_tom_tat: str = ""
+    may_id: int | None = None
+    ngay_chay: date | None = None
+    thu_tu_chay: int | None = None
+    thoi_luong_phut: int | None = None
+    han_giao_khach: date | None = None
+    han_giao_noi_bo: date | None = None
+    can_khuon: bool = False
+    khuon_be_id: int | None = None
 
 
 # ---------- Chi tiết ấn phẩm cho DRAWER kế hoạch (CÔ LẬP THƯƠNG MẠI — đã lọc mọi trường giá) ----------

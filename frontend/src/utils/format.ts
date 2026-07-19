@@ -24,6 +24,27 @@ export function fmtDate(value?: string | null): string {
   return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString("vi-VN");
 }
 
+/** Đếm ngược hạn giao → nhãn + mức khẩn (đổi màu). So 2 dữ kiện có sẵn (hạn vs hôm nay) — máy CHỈ
+ *  trình bày theo data, KHÔNG mô hình dự đoán. `over` = quá/đúng hạn, `soon` = ≤3 ngày, `ok` = còn xa.
+ *  Rỗng/không parse được → null (không hiện pill). Dùng chung: card tổ · list · detail. */
+export function hanGiao(
+  value?: string | null,
+): { label: string; level: "over" | "soon" | "ok" } | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const today = new Date();
+  const day = 86400000;
+  const diff = Math.round(
+    (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) -
+      Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) / day,
+  );
+  if (diff < 0) return { label: `Quá hạn ${-diff} ngày`, level: "over" };
+  if (diff === 0) return { label: "Hạn hôm nay", level: "over" };
+  if (diff <= 3) return { label: `Còn ${diff} ngày`, level: "soon" };
+  return { label: `Còn ${diff} ngày`, level: "ok" };
+}
+
 /** "20/07/2026" — giữ số 0 đệm, tách thẳng từ chuỗi ISO yyyy-mm-dd (không qua Date). */
 export function fmtDateISO(value?: string | null): string {
   if (!value) return "—";

@@ -1,7 +1,7 @@
 // Trang danh mục GENERIC (rebuild) — list + drawer form theo SECTION + search + filter tab.
 // 1 component cho 6 module (Máy · Vật liệu · Công đoạn · Loại SP) qua `config`. On-brand với
 // design system app (tokens rust/ink/paper). Form lean nhưng có nhóm; đủ theo spec là follow-up.
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { useAuth } from "../auth/useAuth";
 import { Button } from "../components/Button";
 import { ApiError } from "../api/client";
@@ -11,7 +11,7 @@ import "./rebuild-catalog.css";
 export interface FieldDef {
   key: string;
   label: string;
-  type?: "text" | "number" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "bands" | "size_tiers" | "suggest" | "formula";
+  type?: "text" | "number" | "date" | "select" | "checkbox" | "json" | "ref" | "ref-multi" | "ref-search" | "bands" | "size_tiers" | "suggest" | "formula";
   options?: { value: string; label: string }[];
   refPrefix?: string;           // ref / ref-multi / ref-search: endpoint danh mục nguồn (đổ theo TÊN/MÃ)
   required?: boolean;
@@ -40,11 +40,12 @@ export interface CatalogConfig {
   renderExtra?: (form: Record<string, unknown>) => ReactNode;  // block phụ cuối drawer (vd preview BHR)
   hasVersions?: boolean;        // bật lịch sử giá (Giấy): thêm cột "Phiên bản" bấm mở lịch sử
   softDelete?: boolean;         // "Xóa" = ẩn mềm (active=false), giữ dữ liệu; list chỉ hiện active
+  autoCode?: boolean;           // mã sinh NGẦM ở backend → ẩn ô "Mã" lúc tạo, không gửi ma
   deriveInitial?: (existing: Row | null) => Record<string, unknown>;  // giá trị UI suy ra khi mở form (vd _method)
   transformSubmit?: (body: Record<string, unknown>, form: Record<string, unknown>) => Record<string, unknown>;  // map field UI → body API trước khi gửi
 }
 
-export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
+export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig; onMutate?: () => void }) {
   const { token } = useAuth();
   const api = useMemo(() => crud(config.prefix), [config.prefix]);
   const [rows, setRows] = useState<Row[]>([]);
@@ -78,11 +79,11 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
     if (!token) return;
     if (config.softDelete) {
       if (!window.confirm(`Ẩn "${r.ten}" (${r.ma})? Dữ liệu vẫn giữ (xóa mềm), có thể khôi phục sau.`)) return;
-      try { await api.update(token, r.id, { ...r, active: false }); load(); }
+      try { await api.update(token, r.id, { ...r, active: false }); load(); onMutate?.(); }
       catch (e) { setError(e instanceof ApiError ? e.message : "Không ẩn được."); }
     } else {
       if (!window.confirm(`Xóa "${r.ten}" (${r.ma})?`)) return;
-      try { await api.remove(token, r.id); load(); }
+      try { await api.remove(token, r.id); load(); onMutate?.(); }
       catch (e) { setError(e instanceof ApiError ? e.message : "Không xóa được."); }
     }
   }
@@ -93,10 +94,10 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
   return (
     <main className="rc">
       <header className="rc__head">
-        <p className="rc__eyebrow">Cấu hình danh mục · pipeline mới</p>
         <div className="rc__headrow">
           <h1 className="rc__title">{config.title}</h1>
-          <span className="rc__count">{rows.length}</span>
+          {/* Số lượng: mono muted cạnh title (bỏ count-pill tròn đen) */}
+          <span className="rc__count">{rows.length} mục</span>
         </div>
         <p className="rc__sub">{config.subtitle}</p>
       </header>
@@ -148,7 +149,17 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={config.columns.length + 3} className="rc__msg">Đang tải dữ liệu…</td></tr>
+              // Skeleton: 5 hàng ô shimmer thay cho dòng chữ "Đang tải…"
+              Array.from({ length: 5 }).map((_, i) => (
+                <tr key={`sk-${i}`} className="rc-skel__row">
+                  <td><span className="rc-skel" style={{ width: "60%" }} /></td>
+                  <td><span className="rc-skel" style={{ width: "80%" }} /></td>
+                  {config.columns.map((c) => (
+                    <td key={c.key}><span className="rc-skel" style={{ width: "50%" }} /></td>
+                  ))}
+                  <td className="rc__actcol"><span className="rc-skel" style={{ width: "70px" }} /></td>
+                </tr>
+              ))
             ) : shown.length === 0 ? (
               <tr>
                 <td colSpan={config.columns.length + 3} className="rc__empty-state-td">
@@ -211,7 +222,7 @@ export function RebuildCatalogPage({ config }: { config: CatalogConfig }) {
 
       {editing && (
         <CatalogDrawer config={config} existing={editing === "new" ? null : editing} allRows={rows}
-          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); onMutate?.(); }} />
       )}
 
       {pricingRow && (
@@ -409,6 +420,7 @@ function suggestNextCode(prefix: string, rows: Row[]): string {
   if (prefix.includes("loai-san-pham")) codePrefix = "LSP-";
   else if (prefix.includes("may-thiet-bi")) codePrefix = "TB-";
   else if (prefix.includes("cong-doan")) codePrefix = "CD-";
+  else if (prefix.endsWith("/kho")) codePrefix = "KHO-";
   else if (prefix.includes("giay")) codePrefix = "GL-";
   else if (prefix.includes("muc")) codePrefix = "MUC-";
   else if (prefix.includes("ban-kem")) codePrefix = "KEM-";
@@ -768,7 +780,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
   const isEdit = existing != null;
   const [form, setForm] = useState<Record<string, unknown>>(() => {
     const init: Record<string, unknown> = {
-      ma: existing?.ma ?? suggestNextCode(config.prefix, allRows),
+      ma: existing?.ma ?? (config.autoCode ? "" : suggestNextCode(config.prefix, allRows)),
       ten: existing?.ten ?? ""
     };
     for (const f of config.fields) {
@@ -908,6 +920,11 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             <span className="rc-switch__slider" />
             <span className="rc-switch__label">{form[f.key] ? "Có" : "Không"}</span>
           </label>
+        ) : f.type === "date" ? (
+          <div className="rc-input-wrapper">
+            <input className="rc-input" type="date"
+              value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} />
+          </div>
         ) : f.type === "json" ? (
           <div className="rc-input-wrapper">
             <input className="rc-input rc-mono" placeholder='[1,2] hoặc {"k":1}'
@@ -932,7 +949,9 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     e.preventDefault();
     if (!token || isMaDuplicate) return;
     setSaving(true); setErr(null);
-    const body: Record<string, unknown> = { ma: form.ma, ten: form.ten };
+    // autoCode + tạo mới: KHÔNG gửi ma → backend tự sinh KHO-####. Sửa thì mã bất biến (gửi kèm).
+    const body: Record<string, unknown> = { ten: form.ten };
+    if (!config.autoCode || isEdit) body.ma = form.ma;
     for (const f of visibleFields) {
       let v = form[f.key];
       if (f.type === "ref-multi" || f.type === "bands" || f.type === "size_tiers") { body[f.key] = Array.isArray(v) ? v : []; continue; }
@@ -964,7 +983,8 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
 
   return (
     <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
-      <aside className="rc-drawer" onClick={(e) => e.stopPropagation()}>
+      {/* Form có công thức → drawer rộng (2 cột form|công thức); còn lại → bề rộng mặc định */}
+      <aside className={`rc-drawer${hasFormulaField ? " rc-drawer--formula" : ""}`} onClick={(e) => e.stopPropagation()}>
         <header className="rc-drawer__head">
           <div>
             <div className="rc-drawer__kicker">{isEdit ? "Chỉnh sửa" : "Thêm mới"}</div>
@@ -989,18 +1009,20 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                     <span>Nhận diện</span>
                   </div>
                   <div className="rc-grid">
-                    <label className="rc-field">
-                      <span className="rc-field__label">Mã <em>*</em></span>
-                      <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
-                        <input className="rc-input rc-mono" value={String(form.ma ?? "")}
-                          disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
-                      </div>
-                      {!isEdit && typedMa && (
-                        <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
-                          {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
-                        </span>
-                      )}
-                    </label>
+                    {!(config.autoCode && !isEdit) && (
+                      <label className="rc-field">
+                        <span className="rc-field__label">Mã <em>*</em></span>
+                        <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
+                          <input className="rc-input rc-mono" value={String(form.ma ?? "")}
+                            disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
+                        </div>
+                        {!isEdit && typedMa && (
+                          <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
+                            {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
+                          </span>
+                        )}
+                      </label>
+                    )}
                     <label className="rc-field">
                       <span className="rc-field__label">Tên <em>*</em></span>
                       <div className="rc-input-wrapper">
@@ -1070,18 +1092,20 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                   <span>Nhận diện</span>
                 </div>
                 <div className="rc-grid">
-                  <label className="rc-field">
-                    <span className="rc-field__label">Mã <em>*</em></span>
-                    <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
-                      <input className="rc-input rc-mono" value={String(form.ma ?? "")}
-                        disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
-                    </div>
-                    {!isEdit && typedMa && (
-                      <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
-                        {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
-                      </span>
-                    )}
-                  </label>
+                  {!(config.autoCode && !isEdit) && (
+                    <label className="rc-field">
+                      <span className="rc-field__label">Mã <em>*</em></span>
+                      <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
+                        <input className="rc-input rc-mono" value={String(form.ma ?? "")}
+                          disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
+                      </div>
+                      {!isEdit && typedMa && (
+                        <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
+                          {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
+                        </span>
+                      )}
+                    </label>
+                  )}
                   <label className="rc-field">
                     <span className="rc-field__label">Tên <em>*</em></span>
                     <div className="rc-input-wrapper">
@@ -1131,7 +1155,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
 
         <footer className="rc-drawer__foot">
           <Button type="button" variant="ghost" onClick={onClose}>Hủy</Button>
-          <Button type="button" variant="primary" loading={saving} disabled={isMaDuplicate || (!isEdit && !typedMa)} onClick={() => submit(new Event("submit") as unknown as FormEvent)}>
+          <Button type="button" variant="primary" loading={saving} disabled={isMaDuplicate || (!isEdit && !config.autoCode && !typedMa)} onClick={() => submit(new Event("submit") as unknown as FormEvent)}>
             {isEdit ? "Lưu thay đổi" : "Tạo mới"}
           </Button>
         </footer>
@@ -1387,6 +1411,23 @@ function FormulaField({
   const validVars = useMemo(() => [...whitelist, ...EXTRA_VALID_VARS], [whitelist]); // validator (rộng hơn)
   const [hoveredVar, setHoveredVar] = useState<string | null>(null);
 
+  // Popover "Cú pháp" — bảng tra cứu phép tính · hàm · biến (chỉ đọc). Đóng khi bấm ngoài / Esc.
+  const [showSyntax, setShowSyntax] = useState(false);
+  const syntaxBtnRef = useRef<HTMLButtonElement>(null);
+  const syntaxPopRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showSyntax) return;
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node;
+      if (syntaxPopRef.current?.contains(t) || syntaxBtnRef.current?.contains(t)) return;
+      setShowSyntax(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setShowSyntax(false); };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onDown); document.removeEventListener("keydown", onKey); };
+  }, [showSyntax]);
+
   const insertVar = (varName: string) => {
     const el = document.getElementById("formula-textarea") as HTMLTextAreaElement | null;
     if (!el) {
@@ -1536,13 +1577,55 @@ function FormulaField({
       </div>
 
       <div className="rc-formula__editor-container">
+        {/* Header gọn: nhãn "Công thức" + nút "Cú pháp" mở bảng tra cứu */}
         <div className="rc-formula__editor-header">
-          <div className="rc-formula__editor-dots">
-            <span className="rc-formula__editor-dot rc-formula__editor-dot--red"></span>
-            <span className="rc-formula__editor-dot rc-formula__editor-dot--yellow"></span>
-            <span className="rc-formula__editor-dot rc-formula__editor-dot--green"></span>
-          </div>
-          <div className="rc-formula__editor-title">formula_expr.js</div>
+          <span className="rc-formula__editor-label">Công thức</span>
+          <button
+            ref={syntaxBtnRef}
+            type="button"
+            className={`rc-formula__syntax-btn${showSyntax ? " is-open" : ""}`}
+            onClick={() => setShowSyntax((s) => !s)}
+            aria-expanded={showSyntax}
+            title="Phép tính · hàm · biến được hỗ trợ"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="M6 8h.01M10 8h.01M14 8h.01M6 12h.01M10 12h.01M14 12h.01M8 16h8" />
+            </svg>
+            Cú pháp
+          </button>
+          {showSyntax && (
+            <div ref={syntaxPopRef} className="rc-syntax" role="dialog" aria-label="Cú pháp công thức">
+              <div className="rc-syntax__head">
+                <span>Cú pháp công thức</span>
+                <button type="button" className="rc-syntax__x" onClick={() => setShowSyntax(false)} aria-label="Đóng">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                </button>
+              </div>
+              <div className="rc-syntax__body">
+                <div className="rc-syntax__sec-title">Phép tính</div>
+                <table className="rc-syntax__tbl"><tbody>
+                  <tr><td><code>+ - * /</code></td><td>cộng · trừ · nhân · chia</td></tr>
+                  <tr><td><code>**</code></td><td>lũy thừa</td></tr>
+                  <tr><td><code>( )</code></td><td>ngoặc nhóm</td></tr>
+                  <tr><td><code>-x</code></td><td>dấu âm đơn</td></tr>
+                  <tr><td><code>,</code></td><td>ngăn tham số hàm</td></tr>
+                </tbody></table>
+                <div className="rc-syntax__sec-title">Hàm — đúng 5</div>
+                <table className="rc-syntax__tbl"><tbody>
+                  <tr><td><code>max(a,b)</code></td><td>lớn nhất — giá sàn</td></tr>
+                  <tr><td><code>min(a,b)</code></td><td>nhỏ nhất — giá trần</td></tr>
+                  <tr><td><code>round(x)</code></td><td>làm tròn</td></tr>
+                  <tr><td><code>ceil(x)</code></td><td>làm tròn lên</td></tr>
+                  <tr><td><code>floor(x)</code></td><td>làm tròn xuống</td></tr>
+                </tbody></table>
+                <div className="rc-syntax__sec-title">Biến</div>
+                <p className="rc-syntax__note">Bấm chip biến ở trên để chèn (22 biến: kích thước · số lượng · đơn giá). Kích thước tính bằng <b>mét</b>.</p>
+                <div className="rc-syntax__sec-title">Không hỗ trợ</div>
+                <p className="rc-syntax__note rc-syntax__note--no">So sánh (&gt; &lt; ==) · if/điều kiện · % (chia dư) · hàm khác (sqrt, abs, log…)</p>
+              </div>
+            </div>
+          )}
         </div>
         <textarea
           id="formula-textarea"

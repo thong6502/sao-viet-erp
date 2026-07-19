@@ -39,6 +39,7 @@ MODULES: list[tuple[str, str]] = [
     ("ke_toan", "Kế toán"),
     ("san_xuat", "Sản xuất"),
     ("kho", "Kho hàng"),
+    ("khuon_be", "Khuôn bế"),
     ("phong_ban", "Phòng ban"),
     ("vai_tro", "Vai trò"),
     ("nguoi_dung", "Người dùng"),
@@ -208,6 +209,40 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     ),
     # Vai "Nhân viên" tối thiểu: Dashboard + tự phục vụ Nghỉ phép (cửa vào self-service).
     ("Hành chính nhân sự", "Nhân viên", {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self()}),
+    # --- Khối SẢN XUẤT (Lát 1 — hộp việc 2 tầng, gate theo Ô QUYỀN, không theo chức danh) ---
+    # Kế hoạch SX: cấu hình lệnh + PHÁT (can_approve), thấy mọi tổ (scope all). KHÔNG gán thợ.
+    (
+        "Sản xuất",
+        "Kế hoạch SX",
+        {
+            "dashboard": _read(SCOPE_OWN),
+            "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True},
+            "khuon_be": _read(SCOPE_ALL),  # ③ điều độ đọc danh mục khuôn để gán vào lệnh có bế
+            "nghi_phep": _leave_self(),
+        },
+    ),
+    # Tổ trưởng SX: xem tổ mình (scope own) + GÁN thợ (can_assign_work) → hộp việc FULL + nút gán.
+    (
+        "Sản xuất",
+        "Tổ trưởng SX",
+        {
+            "dashboard": _read(SCOPE_OWN),
+            "san_xuat": {**_read(SCOPE_OWN), "can_assign_work": True, "can_record_output": True, "can_handover": True},
+            "nghi_phep": _leave_self(),
+        },
+    ),
+    # Thợ SX: CHỈ xem việc được gán (read scope own, không gán) → hộp việc lọc theo bước được gán.
+    (
+        "Sản xuất",
+        "Thợ SX",
+        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN), "nghi_phep": _leave_self()},
+    ),
+    # QC: xem mọi tổ (scope all) để soi công đoạn bất kỳ (ghi lỗi = Lát 3, thêm can_report_defect sau).
+    (
+        "Sản xuất",
+        "QC",
+        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL), "nghi_phep": _leave_self()},
+    ),
     (
         "Kinh doanh",
         "Trưởng phòng KD",
@@ -1806,7 +1841,7 @@ def seed_lenh_san_xuat_demo(db: Session) -> None:
     from sqlalchemy import select
 
     from .models.cong_doan import CongDoan
-    from .models.lenh_san_xuat import LenhSanXuat
+    from .models.lenh_san_xuat import LenhSanXuat, RoutingStep
     from .models.may_thiet_bi import MayThietBi
     from .models.order import COST_BASIS_NONE, SOURCE_NHAP_TAY, STATUS_ORDERED, Order, OrderLine
     from .models.phieu_tinh_gia import PhieuTinhGia
@@ -1979,6 +2014,15 @@ def seed_lenh_san_xuat_demo(db: Session) -> None:
     # === Tờ 5: Tờ rơi — chỉ ghép, CHƯA gán máy (CHỜ GHÉP, sớm nhất) ===
     _ghep("Couché 150 79×109 (tờ rơi)", None, 4, 1090, 790, [(L_toroi, 4)])
 
+    # ③ Demo realism: bước "Bế" copy từ PTG demo thiếu `cong_doan_id` → link vào công đoạn bế có
+    # tooling (`tooling_type='khuon_be'`) để màn lệnh demo hiện được luồng gán khuôn (`can_khuon`).
+    be_cd = db.execute(select(CongDoan).where(CongDoan.tooling_type == "khuon_be")).scalars().first()
+    if be_cd is not None:
+        for st in db.execute(
+            select(RoutingStep).where(RoutingStep.ten.like("Bế%"), RoutingStep.cong_doan_id.is_(None))
+        ).scalars():
+            st.cong_doan_id = be_cd.id
+
     db.commit()
 
 
@@ -2095,6 +2139,57 @@ def seed_san_xuat_org(db: Session) -> None:
     db.commit()
 
 
+def seed_san_xuat_accounts(db: Session) -> None:
+    """Tài khoản demo khối SẢN XUẤT (Lát 1) — để đăng nhập XEM LUỒNG phát→hộp tổ→gán→thợ.
+    Mỗi tổ: 1 tổ trưởng (đặt `head_user_id` + vai Tổ trưởng SX = read+assign_work) + 2 thợ (vai
+    Thợ SX = chỉ xem); thêm 1 Kế hoạch SX (phát, scope all) + 1 QC (xem mọi tổ). Mật khẩu chung
+    `123456` (quy ước 1 hồ sơ = 1 tài khoản — Employee tự sinh qua `backfill_employee_profiles`,
+    kế thừa `department_id` từ user → thợ HIỆN trong drawer gán). Idempotent theo username. SEED_DEMO."""
+    from .repositories.rbac_repo import RoleRepository
+    from .security import hash_password as _hash
+
+    depts = DepartmentRepository(db)
+    users = UserRepository(db)
+    roles = RoleRepository(db)
+    sx = depts.get_by_name("Sản xuất")
+    if sx is None:
+        return
+
+    def _role_id(name: str) -> int | None:
+        r = roles.get_by_name_and_department(name, sx.id)
+        return r.id if r is not None else None
+
+    r_ke_hoach = _role_id("Kế hoạch SX")
+    r_to_truong = _role_id("Tổ trưởng SX")
+    r_tho = _role_id("Thợ SX")
+    r_qc = _role_id("QC")
+
+    def _mk(username: str, name: str, dept_id: int | None, role_id: int | None, *, head_of=None):
+        u = users.get_by_username(username)
+        if u is None:
+            u = users.create(username=username, name=name, password_hash=_hash("123456"))
+        users.set_assignment(u, department_id=dept_id, role_id=role_id, is_active=True)
+        if head_of is not None:
+            depts.set_head(head_of, u.id)
+        return u
+
+    _mk("kehoach", "Kế hoạch sản xuất", sx.id, r_ke_hoach)
+    _mk("qc1", "QC / KCS", sx.id, r_qc)
+
+    slugs = {
+        "Tổ Chế bản": "cheban", "Tổ In offset": "in", "Tổ Cán màng": "can",
+        "Tổ Bế & Xén": "be", "Tổ Đóng gói": "donggoi", "Tổ KCS": "kcs",
+    }
+    for tname, slug in slugs.items():
+        to = depts.get_by_name(tname)
+        if to is None:
+            continue
+        _mk(f"tt_{slug}", f"Tổ trưởng {tname}", to.id, r_to_truong, head_of=to)
+        for i in (1, 2):
+            _mk(f"tho_{slug}{i}", f"Thợ {tname} {i}", to.id, r_tho)
+    db.commit()
+
+
 def seed_all(db: Session) -> None:
     """Full idempotent seed: RBAC catalog/roles, the admin user and its assignment.
 
@@ -2135,6 +2230,7 @@ def seed_all(db: Session) -> None:
         seed_phieu_tinh_gia(db)
         seed_document_sequences(db)
         seed_san_xuat_org(db)  # nền tổ SX (§13.1): tag "Sản xuất" + cây tổ + gắn công đoạn/thợ
+        seed_san_xuat_accounts(db)  # Lát 1: tài khoản tổ trưởng/thợ/kế hoạch/QC + head_user_id
         seed_lenh_san_xuat_demo(db)  # dữ liệu sản xuất mẫu (bung→ghép→phát→sản lượng→nhập kho)
     backfill_user_codes(db)
     # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),

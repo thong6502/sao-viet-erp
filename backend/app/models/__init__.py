@@ -71,16 +71,19 @@ from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, KhoGiayChua
 from .cong_doan import CongDoan
 from .bu_hao import BuHao
 from .kho_hang import KhoHang
+from .khuon_be import KhuonBe
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
 from .lenh_san_xuat import (
+    BanGiao,
     GangPlacement,
     LenhItem,
     LenhSanXuat,
     PrintForm,
     RoutingStep,
+    SanLuong,
 )
 
 __all__ = [
@@ -159,8 +162,11 @@ __all__ = [
     "PhieuThanhPham",
     "LenhSanXuat",
     "LenhItem",
+    "SanLuong",
+    "BanGiao",
     "PrintForm",
     "GangPlacement",
     "RoutingStep",
     "KhoHang",
+    "KhuonBe",
 ]

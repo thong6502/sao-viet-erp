@@ -155,6 +155,9 @@ class RoleService:
                     "can_approve_exception": bool(p.can_approve_exception) if p else False,
                     "can_set_credit_terms": bool(p.can_set_credit_terms) if p else False,
                     "can_record_deposit": bool(p.can_record_deposit) if p else False,
+                    "can_assign_work": bool(p.can_assign_work) if p else False,
+                    "can_record_output": bool(p.can_record_output) if p else False,
+                    "can_handover": bool(p.can_handover) if p else False,
                 }
             )
         return rows
@@ -204,6 +207,9 @@ class RoleService:
                 can_approve_exception=row.get("can_approve_exception", False),
                 can_set_credit_terms=row.get("can_set_credit_terms", False),
                 can_record_deposit=row.get("can_record_deposit", False),
+                can_assign_work=row.get("can_assign_work", False),
+                can_record_output=row.get("can_record_output", False),
+                can_handover=row.get("can_handover", False),
             )
         self.audit.create(
             actor_user_id=actor_id,

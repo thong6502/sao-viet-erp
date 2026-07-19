@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   api,
   ApiError,
+  type KhuonBeRow,
   type LenhSXDetailOut,
   type OrderDetail,
   type PrintFormDetailOut,
@@ -17,7 +18,9 @@ import { congDoan, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Select, type SelectOption } from "../components/Select";
 import { AnPhamDrawer } from "./AnPhamDrawer";
+import { LenhSanXuatPrint } from "./LenhSanXuatPrint";
 import { ToastStack, useToasts } from "./LsxToast";
+import { hanGiao } from "../utils/format";
 import "./lenh-san-xuat.css";
 
 // Cổng PHÁT (mirror _form_readiness ở service): đã ghép ≥1 lệnh + đã gán máy + mọi lệnh duyệt mẫu.
@@ -90,6 +93,11 @@ export function LenhSanXuatDetailView({
   const [busy, setBusy] = useState<string | null>(null); // khoá nút đang chạy: "duyet" | `may-<id>` | `phat-<id>`
   // Drawer chi tiết ấn phẩm: giữ cả itemId (bài con) → drawer SỬA được khi lệnh nháp.
   const [drawer, setDrawer] = useState<{ ptp: number; itemId: number | null } | null>(null);
+  // Bản in lệnh sản xuất: khổ thành phẩm fetch theo từng bài con khi mở in.
+  const [showPrint, setShowPrint] = useState(false);
+  const [khoTP, setKhoTP] = useState<Map<number, string>>(new Map());
+  // ③ Danh mục khuôn bế (chỉ nạp khi lệnh CÓ công đoạn bế → cần gán khuôn).
+  const [khuonList, setKhuonList] = useState<KhuonBeRow[]>([]);
 
   const load = useCallback(() => {
     if (!token) return;
@@ -102,17 +110,20 @@ export function LenhSanXuatDetailView({
         if (!alive) return;
         setDetail(d);
         // Enrichment — mỗi cái tự chịu lỗi (thiếu quyền/đơn) để phần lõi lệnh vẫn hiện.
-        const [ord, may, cd, dept] = await Promise.all([
+        const [ord, may, cd, dept, khuon] = await Promise.all([
           api.orders.get(token, d.order_id).catch(() => null),
           mayThietBi.list(token).then((r) => r.items).catch(() => [] as Row[]),
           congDoan.list(token).then((r) => r.items).catch(() => [] as Row[]),
           api.rbac.departments(token).catch(() => [] as Department[]),
+          // Khuôn chỉ nạp khi lệnh có bế (cần gán khuôn); vai không có quyền khuon_be → [].
+          d.can_khuon ? api.khuonBe.list(token).then((r) => r.items).catch(() => [] as KhuonBeRow[]) : Promise.resolve([] as KhuonBeRow[]),
         ]);
         if (!alive) return;
         setOrder(ord);
         setMays(new Map(may.map((m) => [m.id, m])));
         setCongDoans(new Map(cd.map((c) => [c.id, c])));
         setDepts(new Map(dept.map((x) => [x.id, x])));
+        setKhuonList(khuon);
         const forms = await Promise.all(
           d.forms.map((f) => api.lenhSanXuat.form(token, f.id).catch(() => null)),
         );
@@ -165,25 +176,6 @@ export function LenhSanXuatDetailView({
     ],
     [mays],
   );
-  // Dropdown tổ phụ trách = chỉ TỔ SẢN XUẤT (tự `la_san_xuat` hoặc có tổ tiên) — mirror backend; rỗng → tất cả.
-  const toOptions: SelectOption<number | null>[] = useMemo(() => {
-    const isProd = (d: Department): boolean => {
-      let cur: Department | undefined = d;
-      const seen = new Set<number>();
-      while (cur && !seen.has(cur.id)) {
-        seen.add(cur.id);
-        if (cur.la_san_xuat) return true;
-        cur = cur.parent_id != null ? depts.get(cur.parent_id) : undefined;
-      }
-      return false;
-    };
-    const all = [...depts.values()];
-    const prod = all.filter(isProd);
-    return [
-      { value: null, label: "— Chọn tổ phụ trách —" },
-      ...(prod.length > 0 ? prod : all).map((d) => ({ value: d.id, label: d.name })),
-    ];
-  }, [depts]);
   const cdOptions: SelectOption<number | null>[] = useMemo(
     () =>
       [...congDoans.values()].map((c) => ({
@@ -270,18 +262,6 @@ export function LenhSanXuatDetailView({
       setBusy(null);
     }
   }
-  async function doSuaTo(step: RoutingStepRow, toId: number | null) {
-    if (!token || busy) return;
-    setBusy(`rs-${step.id}`);
-    try {
-      await api.lenhSanXuat.suaBuoc(token, step.id, { cong_doan_id: step.cong_doan_id, to_id: toId });
-      load();
-    } catch (e) {
-      toasts.err(e instanceof ApiError ? e.message : "Không đổi được tổ.");
-    } finally {
-      setBusy(null);
-    }
-  }
   async function doXoaBuoc(step: RoutingStepRow) {
     if (!token || busy) return;
     setBusy(`rs-${step.id}`);
@@ -310,6 +290,63 @@ export function LenhSanXuatDetailView({
       setBusy(null);
     }
   }
+  // ① Kế hoạch SỬA hạn giao (khách/nội bộ) — CHỈ khi lệnh nháp (save on-blur). Sau phát: BE trả 409.
+  async function saveHan(body: { han_giao_khach?: string | null; han_giao_noi_bo?: string | null }) {
+    if (!token || !detail || busy) return;
+    setBusy("han-giao");
+    try {
+      await api.lenhSanXuat.suaHanGiao(token, detail.id, body);
+      toasts.ok("Đã cập nhật hạn giao");
+      load();
+    } catch (e) {
+      toasts.err(
+        e instanceof ApiError && e.isConflict
+          ? "Lệnh đã phát, không đổi hạn"
+          : e instanceof ApiError
+            ? e.message
+            : "Không cập nhật được hạn giao.",
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // ③ Điều độ gán/gỡ khuôn bế (record-only — cảnh báo mềm, không chặn phát).
+  async function saveKhuon(khuonBeId: number | null) {
+    if (!token || !detail || busy) return;
+    setBusy("khuon");
+    try {
+      await api.lenhSanXuat.ganKhuon(token, detail.id, khuonBeId);
+      toasts.ok(khuonBeId ? "Đã gán khuôn bế" : "Đã gỡ khuôn bế");
+      load();
+    } catch (e) {
+      toasts.err(e instanceof ApiError ? e.message : "Không cập nhật được khuôn bế.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  // Mở bản in: fetch khổ thành phẩm cho từng bài con (chỉ kỹ thuật, backend đã lọc giá).
+  async function openPrint() {
+    if (!token) return;
+    const entries = await Promise.all(
+      (detail?.items ?? []).map(async (it) => {
+        if (it.id == null || it.phieu_thanh_phan_id == null) return null;
+        try {
+          const d = await api.lenhSanXuat.anPhamChiTiet(token, it.phieu_thanh_phan_id, it.id);
+          // Nhãn khổ tự do thường trống → fallback sang khổ số dài×rộng (mm).
+          const kho =
+            d.kho_thanh_pham?.trim() ||
+            (d.dai_thanh_pham && d.rong_thanh_pham ? `${d.dai_thanh_pham}×${d.rong_thanh_pham} mm` : "—");
+          return [it.id, kho] as const;
+        } catch {
+          return [it.id, "—"] as const;
+        }
+      }),
+    );
+    setKhoTP(new Map(entries.filter((e): e is readonly [number, string] => e != null)));
+    setShowPrint(true);
+  }
 
   const lenhBadge = detail ? metaOf(LENH_META, detail.trang_thai) : null;
   const muc = detail?.muc_tieu_sl ?? 0;
@@ -323,6 +360,17 @@ export function LenhSanXuatDetailView({
 
   // Chế độ CẤU HÌNH (nháp) ↔ THỰC THI (đang chạy/xong): nháp ẩn khối runtime, hiện nút Phát hành.
   const isConfig = detail?.trang_thai === "nhap";
+  // Gợi ý hạn nội bộ = khách − 1 ngày (chỉ text, KHÔNG auto-điền). Rỗng nếu chưa có hạn khách.
+  const suggestNoiBo = useMemo(() => {
+    const s = detail?.han_giao_khach;
+    if (!s) return "";
+    const d = new Date(s);
+    if (isNaN(d.getTime())) return "";
+    d.setDate(d.getDate() - 1);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    return `${dd}/${mm}/${d.getFullYear()}`;
+  }, [detail?.han_giao_khach]);
   const phatTargets = detail
     ? detail.forms.filter((f) => {
         const rd = formReadiness(f, formDetails.get(f.id));
@@ -369,6 +417,9 @@ export function LenhSanXuatDetailView({
         </div>
         {detail ? (
           <div className="lsx-head__actions">
+            <button type="button" className="btn btn--secondary" onClick={openPrint}>
+              <PrinterIcon /> Xem bản in
+            </button>
             {detail.trang_thai !== "huy" && !detail.mau_approved_at ? (
               <button type="button" className="btn btn--secondary" disabled={busy === "duyet"} onClick={doDuyetMau}>
                 <SealIcon /> {busy === "duyet" ? "Đang duyệt…" : "Duyệt mẫu"}
@@ -468,7 +519,7 @@ export function LenhSanXuatDetailView({
               </div>
             </section>
 
-            {/* --- Routing công đoạn (§13.2): kế thừa từ tính giá; CẤU HÌNH được khi nháp (thêm/bớt/đổi thứ tự/đổi tổ) --- */}
+            {/* --- Routing công đoạn (§13.2): kế thừa từ tính giá; CẤU HÌNH khi nháp (thêm/bớt/đổi thứ tự). Tổ ăn theo công đoạn. --- */}
             <section className="lsx-panel">
               <div className="lsx-panel__hd">
                 <h3><FlowIcon /> Routing công đoạn</h3>
@@ -506,27 +557,16 @@ export function LenhSanXuatDetailView({
                                 </div>
                               ) : null}
                             </div>
-                            {editable ? (
-                              <div className="lsx-trav__tosel">
-                                <Select<number | null>
-                                  options={toOptions}
-                                  value={s.to_id}
-                                  onChange={(v) => doSuaTo(s, v)}
-                                  placeholder="— Chọn tổ phụ trách —"
-                                  ariaLabel={`Tổ cho bước ${i + 1}`}
-                                  disabled={busy != null}
-                                  portal
-                                />
-                              </div>
-                            ) : (
-                              <span className="lsx-trav__to">
-                                {s.to_id != null ? (
-                                  <><UsersIcon /> {toName(s.to_id)}</>
-                                ) : (
-                                  <span className="lsx-trav__unset">chưa gán tổ</span>
-                                )}
-                              </span>
-                            )}
+                            {/* Tổ ăn theo công đoạn (khai ở module Công đoạn) — chỉ HIỂN THỊ, không chọn ở đây. */}
+                            <span className="lsx-trav__to">
+                              {s.to_id != null ? (
+                                <><UsersIcon /> {toName(s.to_id)}</>
+                              ) : (
+                                <span className="lsx-trav__unset">tổ theo công đoạn</span>
+                              )}
+                            </span>
+                            {s.quy_cach ? <div className="lsx-qc"><SpecIcon /> {s.quy_cach}</div> : null}
+                            {s.ghi_chu ? <div className="lsx-stepnote"><NoteIcon /> {s.ghi_chu}</div> : null}
                           </div>
                         </li>
                       );
@@ -689,17 +729,56 @@ export function LenhSanXuatDetailView({
                 <div className="lsx-irow"><span className="k">Mã lệnh</span><span className="v mono">{maLenh(id)}</span></div>
                 <div className="lsx-irow"><span className="k">Đơn hàng</span><span className="v mono">{order?.order_no ?? `#${detail.order_id}`}</span></div>
                 <div className="lsx-irow"><span className="k">Khách hàng</span><span className="v">{order?.customer_name ?? "—"}</span></div>
-                <div className="lsx-irow">
-                  <span className="k">Hạn giao</span>
-                  <span className="v mono">
-                    {fmtDate(order?.delivery_committed_date)}
-                    {order?.is_rush ? (
-                      <span className="lsx-badge lsx-badge--danger" style={{ marginLeft: 8 }}>
-                        <span className="lsx-badge__d" /> GẤP
-                      </span>
-                    ) : null}
-                  </span>
-                </div>
+                {isConfig ? (
+                  <div className="lsx-irow" style={{ flexDirection: "column", alignItems: "stretch", gap: 8 }}>
+                    <span className="k">Hạn giao</span>
+                    <div className="lsx-dw__form">
+                      <div className="lsx-dw__field">
+                        <span className="lsx-dw__flabel"><FlagIcon /> Giao khách</span>
+                        <input
+                          type="date"
+                          className="lsx-dw__in"
+                          defaultValue={(detail.han_giao_khach ?? "").slice(0, 10)}
+                          onBlur={(e) => saveHan({ han_giao_khach: e.target.value || null })}
+                        />
+                      </div>
+                      <div className="lsx-dw__field">
+                        <span className="lsx-dw__flabel"><ClockIcon /> Nội bộ (mục tiêu)</span>
+                        <input
+                          type="date"
+                          className="lsx-dw__in"
+                          defaultValue={(detail.han_giao_noi_bo ?? "").slice(0, 10)}
+                          onBlur={(e) => saveHan({ han_giao_noi_bo: e.target.value || null })}
+                        />
+                        {suggestNoiBo ? (
+                          <span className="lsx-dw__sub">Gợi ý: {suggestNoiBo} (khách − 1 ngày)</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="lsx-irow">
+                    <span className="k">Hạn giao</span>
+                    <div className="lsx-duestack lsx-duestack--end">
+                      {(() => {
+                        const nb = hanGiao(detail.han_giao_noi_bo ?? detail.han_giao_khach);
+                        return nb ? (
+                          <span className={`lsx-due lsx-due--${nb.level}`}><ClockIcon /> {nb.label}</span>
+                        ) : (
+                          <span className="muted">—</span>
+                        );
+                      })()}
+                      {detail.han_giao_noi_bo && detail.han_giao_khach ? (
+                        <span className="lsx-hardline"><FlagIcon /> Khách <b>{fmtDate(detail.han_giao_khach)}</b></span>
+                      ) : null}
+                      {order?.is_rush ? (
+                        <span className="lsx-badge lsx-badge--danger">
+                          <span className="lsx-badge__d" /> GẤP
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
                 <div className="lsx-irow">
                   <span className="k">Ấn phẩm</span>
                   <span className="v">
@@ -712,24 +791,48 @@ export function LenhSanXuatDetailView({
                   </span>
                 </div>
                 <div className="lsx-irow"><span className="k">Máy gán</span><span className="v">{mayName(detail.may_id) ?? "chưa gán"}</span></div>
+                {detail.can_khuon ? (
+                  <div className="lsx-irow" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
+                    <span className="k">Khuôn bế</span>
+                    {!detail.khuon_be_id ? (
+                      <div className="lsx-hc__note" style={{ margin: 0 }}>
+                        <NoteIcon /><span>Chưa gán khuôn bế — chọn khuôn để chuẩn bị phát.</span>
+                      </div>
+                    ) : null}
+                    <Select<number | null>
+                      options={[
+                        { value: null, label: "— chưa gán —" },
+                        ...khuonList.map((k) => ({
+                          value: k.id as number | null,
+                          label: `${k.ma} · ${k.ten}${k.so_ke ? ` · kệ ${k.so_ke}` : ""}`,
+                        })),
+                      ]}
+                      value={detail.khuon_be_id ?? null}
+                      onChange={(v) => saveKhuon(v)}
+                      placeholder="Chọn khuôn bế…"
+                      ariaLabel="Gán khuôn bế cho lệnh"
+                      disabled={busy != null}
+                      portal
+                    />
+                  </div>
+                ) : null}
                 {firstForm ? (
                   <div className="lsx-irow"><span className="k">Quy cách in</span><span className="v mono">{firstForm.so_mau > 0 ? `${firstForm.so_mau} màu` : "—"}{firstForm.kho_in_dai ? ` · ${fmt(firstForm.kho_in_dai)}×${fmt(firstForm.kho_in_rong)}` : ""}</span></div>
                 ) : null}
                 <div className="lsx-irow"><span className="k">Tạo lúc</span><span className="v mono">{fmtDateTime(detail.created_at)}</span></div>
               </div>
-              {order?.production_note ? (
-                <div
-                  style={{
-                    margin: "var(--sp-2) var(--sp-4) 0", display: "flex", gap: 7, alignItems: "flex-start",
-                    padding: "8px 10px", borderRadius: 9, background: "var(--amber-soft)",
-                    color: "var(--amber-deep)", fontSize: 12.5, lineHeight: 1.45,
-                  }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" style={{ flex: "none", marginTop: 1 }} aria-hidden="true">
-                    <path d="M15.5 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L15.5 3Z" />
-                    <path d="M15 3v5h5M8.5 12.5h7M8.5 16h5" />
-                  </svg>
-                  <span><strong>Lưu ý SX:</strong> {order.production_note}</span>
+              {order?.production_note || detail.ghi_chu_ky_thuat ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, margin: "var(--sp-2) var(--sp-4) 0" }}>
+                  {order?.production_note ? (
+                    <div className="lsx-hc__note">
+                      <NoteIcon /><span><strong>Lưu ý SX:</strong> {order.production_note}</span>
+                    </div>
+                  ) : null}
+                  {detail.ghi_chu_ky_thuat ? (
+                    <div className="lsx-hc__note">
+                      <NoteIcon /><span><strong>Kỹ thuật:</strong> {detail.ghi_chu_ky_thuat}</span>
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </section>
@@ -778,6 +881,19 @@ export function LenhSanXuatDetailView({
           mayName={mayName}
           onClose={() => setDrawer(null)}
           onSaved={load}
+        />
+      ) : null}
+
+      {showPrint && detail ? (
+        <LenhSanXuatPrint
+          detail={detail}
+          order={order}
+          mayName={mayName}
+          cdName={cdName}
+          toName={toName}
+          formDetails={formDetails}
+          khoTP={khoTP}
+          onClose={() => setShowPrint(false)}
         />
       ) : null}
     </main>
@@ -878,5 +994,23 @@ const SendIcon = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M22 2 11 13" />
     <path d="M22 2 15 22l-4-9-9-4 20-7Z" />
+  </svg>
+);
+const FlagIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+    <path d="M4 22v-7" />
+  </svg>
+);
+const NoteIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M15.5 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L15.5 3Z" />
+    <path d="M15 3v5h5M8.5 12.5h7M8.5 16h5" />
+  </svg>
+);
+const SpecIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="8" width="18" height="8" rx="1.5" />
+    <path d="M7 8v3M11 8v4M15 8v3M19 8v4" />
   </svg>
 );

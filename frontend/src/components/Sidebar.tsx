@@ -112,6 +112,8 @@ const NAV: NavSection[] = [
       { id: "kho-giay-chuan", label: "Khổ giấy chuẩn", icon: "clipboard", module: "kho" },
       { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
       { id: "vat-tu-in-an", label: "Vật tư in ấn", icon: "bag", module: "kho" },
+      // Khuôn bế: khai báo nơi lưu trữ khuôn (số kệ · ngày làm · tình trạng). Quyền RIÊNG `khuon_be`.
+      { id: "khuon-be", label: "Khuôn bế", icon: "clipboard", module: "khuon_be" },
       // Khai báo kho: màn CRUD tạo/sửa kho. Kho tạo ở đây tự hiện thành mục dưới SECTION "Kho hàng".
       { id: "khai-bao-kho", label: "Khai báo kho", icon: "warehouse", module: "kho" },
     ],

@@ -25,6 +25,7 @@ import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoHangView } from "../pages/KhoHangView";
+import { ToSanXuatView } from "../pages/ToSanXuatView";
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
 import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
@@ -75,6 +76,9 @@ export function AppShell() {
   // Kho đã khai báo → đổ menu con ĐỘNG dưới "Kho hàng" (Cấu hình danh mục). Refetch khi
   // khai báo/sửa/xoá kho (onMutate màn khai báo) → navbar cập nhật NGAY, không cần refresh.
   const [khoList, setKhoList] = useState<{ id: number; ma: string; ten: string }[]>([]);
+  // Tổ khối SẢN XUẤT (phòng tick `la_san_xuat` + cây con thừa hưởng) → menu con ĐỘNG dưới "Sản
+  // xuất", mỗi tổ 1 hộp việc. Refetch khi tick/bỏ cờ ở form sửa phòng → navbar nhảy NGAY.
+  const [toSxList, setToSxList] = useState<{ id: number; ma: string; ten: string }[]>([]);
   // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
   const [leaveUnseen, setLeaveUnseen] = useState(0);
   // Real-time luồng gửi duyệt (SSE): toast nổi + mốc 'chờ tôi duyệt' gần nhất để chỉ toast khi TĂNG.
@@ -86,6 +90,10 @@ export function AppShell() {
   const lastPending = useRef(0);
   const lastOrderAction = useRef(0);
   const lastAdvancePending = useRef(0);
+  // Sản xuất (Lát 1): tick tăng mỗi sự kiện SX → hộp việc tổ đang mở tự refetch. Ref danh sách tổ
+  // CỦA TÔI để toast ĐÚNG tổ khi có lệnh mới phát (tránh stale closure trong kênh SSE mở-1-lần).
+  const [sxTick, setSxTick] = useState(0);
+  const toSxRef = useRef<{ id: number }[]>([]);
   const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { id, text, tone }]);
@@ -181,6 +189,20 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Sản xuất (Lát 1) = số việc đang chờ ở MỖI tổ user thấy (đã lọc scope server-side) →
+    // map sang nav id `to-sx:<id>`. Tổ trưởng đếm mọi lệnh ghé tổ; thợ đếm lệnh mình được gán.
+    if (readable.has("san_xuat")) {
+      api.lenhSanXuat
+        .toBadges(token)
+        .then((r) => {
+          setBadges((prev) => {
+            const next = { ...prev };
+            for (const b of r.items) next[`to-sx:${b.to_id}`] = b.count;
+            return next;
+          });
+        })
+        .catch(() => {});
+    }
   }, [token, readable]);
   useEffect(() => {
     reloadBadges();
@@ -197,11 +219,23 @@ export function AppShell() {
   }, [token, readable]);
   useEffect(() => { reloadKho(); }, [reloadKho]);
 
+  // Tổ khối SX cho menu con động (chỉ người có quyền `san_xuat`). Gọi lại sau khi tick/bỏ cờ
+  // `la_san_xuat` ở form sửa phòng (onDeptChanged) → navbar cập nhật ngay, không cần refresh.
+  const reloadToSx = useCallback(() => {
+    if (!token || readable === null || !readable.has("san_xuat")) return;
+    crud("/api/lenh-sx/to")
+      .list(token)
+      .then((r) => setToSxList(r.items.map((t) => ({ id: Number(t.id), ma: String(t.ma), ten: String(t.ten) }))))
+      .catch(() => {});
+  }, [token, readable]);
+  useEffect(() => { reloadToSx(); }, [reloadToSx]);
+  useEffect(() => { toSxRef.current = toSxList; }, [toSxList]);
+
   // Real-time luồng gửi duyệt (CLAUDE.md "gửi nội bộ = real-time"): mở 1 kênh SSE sau đăng nhập →
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong"))) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat"))) return;
     const close = connectQuoteEvents(token, (e) => {
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
       setQuoteTick((n) => n + 1);
@@ -277,6 +311,29 @@ export function AppShell() {
             lastAdvancePending.current = s.pending_approval_count;
           })
           .catch(() => {});
+      } else if (readable.has("san_xuat") && e.type === "lenh_sx_routing") {
+        // Có lệnh mới PHÁT vào tổ trong routing → reload badge tổ (scope-filtered) + refetch hộp việc
+        // đang mở; toast CHỈ khi tổ của tôi (broadcast tới mọi vai SX, nên lọc lại theo tổ mình).
+        reloadBadges();
+        setSxTick((n) => n + 1);
+        const mine = new Set(toSxRef.current.map((t) => t.id));
+        if ((e.to_ids ?? []).some((id) => mine.has(id))) {
+          pushToast("🔔 Có lệnh sản xuất mới ở tổ của bạn", "info");
+        }
+      } else if (readable.has("san_xuat") && e.type === "lenh_sx_assigned") {
+        // Đích danh tới thợ được gán → toast + reload badge + refetch hộp việc.
+        reloadBadges();
+        setSxTick((n) => n + 1);
+        pushToast("📋 Bạn được giao việc sản xuất mới", "info");
+      } else if (readable.has("san_xuat") && e.type === "lenh_sx_ban_giao") {
+        // Có hàng BÀN GIAO tới 1 tổ → reload badge (scope-filtered) + refetch hộp việc; toast CHỈ khi
+        // tổ nhận là tổ của tôi (đích danh to_nhan_id; broadcast tới mọi vai SX nên lọc lại theo tổ mình).
+        reloadBadges();
+        setSxTick((n) => n + 1);
+        const mine = new Set(toSxRef.current.map((t) => t.id));
+        if (e.to_nhan_id != null && mine.has(e.to_nhan_id)) {
+          pushToast("📦 Có hàng bàn giao tới tổ của bạn", "info");
+        }
       }
     });
     return close;
@@ -306,7 +363,9 @@ export function AppShell() {
 
   const baseId = activeId.split(":")[0];
   // "kho-item:<id>" = màn 1 kho (menu con động) — gác cùng quyền `kho` với mục cha "Kho hàng".
-  const moduleKeys = MODULES_BY_NAV_ID[baseId] ?? (baseId === "kho-item" ? ["kho"] : undefined);
+  const moduleKeys =
+    MODULES_BY_NAV_ID[baseId] ??
+    (baseId === "kho-item" ? ["kho"] : baseId === "to-sx" ? ["san_xuat"] : undefined);
   const allowed = moduleKeys != null && moduleKeys.some((moduleKey) => readable.has(moduleKey));
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
@@ -314,6 +373,12 @@ export function AppShell() {
   if (khoList.length) {
     dynamicItems["kho-hang"] = khoList.map((w): NavItem => ({
       id: `kho-item:${w.id}`, label: w.ten, icon: "warehouse", module: "kho",
+    }));
+  }
+  // Tổ khối SX → item ĐỘNG (phẳng) dưới SECTION "Sản xuất", ngang hàng "Kế hoạch SX". Bấm 1 tổ → hộp việc riêng.
+  if (toSxList.length) {
+    dynamicItems["san-xuat"] = toSxList.map((t): NavItem => ({
+      id: `to-sx:${t.id}`, label: t.ten, icon: "users", module: "san_xuat",
     }));
   }
 
@@ -345,13 +410,28 @@ export function AppShell() {
       const w = khoList.find((x) => x.id === id);
       return <KhoHangView ten={w?.ten ?? "Kho"} ma={w?.ma} />;
     }
+    // Màn TẠM cho 1 tổ khối SX (bấm item "to-sx:<id>" dưới section "Sản xuất").
+    if (baseId === "to-sx") {
+      const id = Number(activeId.split(":")[1]);
+      const t = toSxList.find((x) => x.id === id);
+      return (
+        <ToSanXuatView
+          key={`to-sx-${id}`}
+          toId={id}
+          ten={t?.ten ?? "Tổ sản xuất"}
+          ma={t?.ma}
+          token={token ?? ""}
+          refetchSignal={sxTick}
+        />
+      );
+    }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
       return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
     }
     switch (baseId) {
       case "phong-ban":
-        return <DepartmentsPage />;
+        return <DepartmentsPage onDeptChanged={reloadToSx} />;
       case "nhan-su":
         return <NhanSuPage navigate={navigate} />;
       case "ho-so-cua-toi":

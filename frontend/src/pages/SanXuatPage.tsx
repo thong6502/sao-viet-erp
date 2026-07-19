@@ -4,15 +4,28 @@
 import { useState } from "react";
 import { LenhSanXuatListView } from "./LenhSanXuatListView";
 import { LenhSanXuatDetailView } from "./LenhSanXuatDetailView";
+import { LenhSanXuatLichChayView } from "./LenhSanXuatLichChayView";
 import { GhepBaiView } from "./GhepBaiView";
 import "./lenh-san-xuat.css";
 
-// Controller nội bộ (không react-router): list ↔ detail 1 lệnh ↔ ghép bài (dựng tờ in).
-type View = { mode: "list" } | { mode: "detail"; id: number } | { mode: "ghep"; preselect?: number };
+// Controller nội bộ (không react-router): list ↔ detail 1 lệnh ↔ ghép bài (dựng tờ in) ↔ lịch chạy.
+type View =
+  | { mode: "list" }
+  | { mode: "detail"; id: number }
+  | { mode: "ghep"; preselect?: number }
+  | { mode: "lich-chay" };
 
 export function SanXuatPage() {
   const [view, setView] = useState<View>({ mode: "list" });
 
+  if (view.mode === "lich-chay") {
+    return (
+      <LenhSanXuatLichChayView
+        onBack={() => setView({ mode: "list" })}
+        onOpen={(id) => setView({ mode: "detail", id })}
+      />
+    );
+  }
   if (view.mode === "ghep") {
     return (
       <GhepBaiView
@@ -35,6 +48,7 @@ export function SanXuatPage() {
     <LenhSanXuatListView
       onOpen={(id) => setView({ mode: "detail", id })}
       onGhep={() => setView({ mode: "ghep" })}
+      onLich={() => setView({ mode: "lich-chay" })}
     />
   );
 }

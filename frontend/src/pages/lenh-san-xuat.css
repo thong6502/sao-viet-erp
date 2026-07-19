@@ -2050,6 +2050,111 @@
   font-weight: var(--fw-medium);
   color: var(--amber-deep);
 }
+
+/* ---- Lát 1: hộp việc tổ — skeleton · gán thợ (tái dùng token, không palette mới) ---- */
+.lsx-skel {
+  height: 74px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 14px;
+  background: linear-gradient(100deg, var(--paper) 30%, var(--canvas) 50%, var(--paper) 70%);
+  background-size: 200% 100%;
+  animation: lsx-shim 1.3s ease-in-out infinite;
+}
+@keyframes lsx-shim {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.lsx-who {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 3px;
+}
+.lsx-chipx {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--ash-2);
+  padding: 0 0 0 5px;
+  line-height: 1;
+  font-size: 14px;
+}
+.lsx-chipx:hover {
+  color: var(--rust-deep);
+}
+.lsx-addbtn {
+  margin-top: 7px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px dashed var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  color: var(--rust-deep);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.lsx-addbtn:hover {
+  border-color: var(--rust);
+  background: var(--rust-soft);
+}
+.lsx-picker {
+  margin-top: 7px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.lsx-picker__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 11px;
+  cursor: pointer;
+  font-size: 13px;
+  border-top: 1px solid var(--rule-soft);
+}
+.lsx-picker__row:first-child {
+  border-top: none;
+}
+.lsx-picker__row:hover {
+  background: var(--canvas);
+}
+.lsx-picker__name {
+  flex: 1;
+  min-width: 0;
+}
+.lsx-picker__cv {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.lsx-picker__foot {
+  display: flex;
+  gap: 8px;
+  padding: 9px 11px;
+  border-top: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+.lsx-rolechip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  padding: 4px 11px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--rule);
+  color: var(--ash);
+  background: var(--paper);
+}
+.lsx-rolechip svg {
+  flex: none;
+  color: var(--rust);
+}
 .lsx-scanbtn {
   margin-top: 4px;
   width: 100%;
@@ -2259,13 +2364,1956 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .lsx-tree__dot--hot {
+  .lsx-tree__dot--hot,
+  .lsx-skel {
     animation: none;
   }
   .lsx-prog__fill,
   .lsx-tree__btn,
   .lsx-tolenh__card,
-  .lsx-scanbtn {
+  .lsx-scanbtn,
+  .lsx-addbtn {
+    transition: none;
+  }
+}
+
+/* ==================================================================================
+   SỔ "CHỜ LÊN KẾ HOẠCH" — ledger nhóm-theo-đơn + chọn + action bar + drawer ấn phẩm.
+   Chất chứng từ: ledger đơn (nền paper) khác nhịp dòng bản ghi (nền canvas) + hairline
+   + mã mono + số tabular. Mọi trạng thái = icon + chữ + hình khối, không chỉ màu.
+   ================================================================================== */
+
+/* ---- Ledger ---- */
+.lsx-book {
+  list-style: none;
+  margin: var(--sp-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.lsx-book--pad {
+  padding-bottom: 72px; /* chừa chỗ cho action bar sticky, dòng cuối không bị che */
+}
+.lsx-book__group {
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.lsx-book__group.is-rush {
+  box-shadow: var(--shadow-1), inset 3px 0 0 var(--signal);
+}
+.lsx-book__ghd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 12px 16px;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.lsx-book__ghdl {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.lsx-book__idblk {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.lsx-book__khach {
+  font-size: 13.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lsx-book__ma {
+  font-family: var(--ff-mono);
+  font-size: 12.5px;
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
+}
+.lsx-book__ghdr {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex: none;
+}
+.lsx-book__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 16px;
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-size: 12px;
+  line-height: 1.45;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.lsx-book__note svg {
+  flex: none;
+  margin-top: 1px;
+}
+.lsx-book__rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Dòng bản ghi (ấn phẩm) ---- */
+.lsx-rec {
+  display: grid;
+  grid-template-columns: 24px minmax(180px, 1.4fr) 116px minmax(150px, 1.6fr) 18px;
+  grid-template-areas: "check name qty chips chev";
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 11px 16px;
+  cursor: pointer;
+  background: var(--canvas);
+  transition: background-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.lsx-book__rows .lsx-rec + .lsx-rec {
+  border-top: 1px solid var(--rule-hair);
+}
+.lsx-rec:hover {
+  background: var(--rust-soft);
+}
+.lsx-rec.is-sel {
+  background: var(--rust-soft);
+  box-shadow: inset 3px 0 0 var(--rust);
+}
+.lsx-rec:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: -2px;
+}
+.lsx-rec__checkcell {
+  grid-area: check;
+  display: flex;
+  align-items: center;
+}
+.lsx-rec__nameblk {
+  grid-area: name;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.lsx-rec__name {
+  font-size: 13.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lsx-rec__loai {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.lsx-rec__qty {
+  grid-area: qty;
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+.lsx-rec__qtyn {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-size: 13px;
+}
+.lsx-rec__qtyu {
+  font-size: 12px;
+  color: var(--ash);
+}
+.lsx-rec__chips {
+  grid-area: chips;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+.lsx-rec__chev {
+  grid-area: chev;
+  justify-self: end;
+  display: flex;
+  color: var(--ash-2);
+  transition: color var(--duration-fast) var(--easing-standard);
+}
+.lsx-rec:hover .lsx-rec__chev {
+  color: var(--rust);
+}
+/* chip quy cách trên dòng: giữ nền sáng khi dòng đổi màu (hover/selected) */
+.lsx-rec:hover .lsx-specchip,
+.lsx-rec.is-sel .lsx-specchip {
+  background: var(--paper);
+}
+/* Biến thể KHÔNG chọn (panel "Ấn phẩm trong lệnh" ở detail) */
+.lsx-rec--plain {
+  grid-template-columns: minmax(0, 1fr) auto 18px;
+  grid-template-areas: "name qty chev";
+}
+
+/* ---- Checkbox (hỗ trợ indeterminate) ---- */
+.lsx-check {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  border: 1.5px solid var(--ash-2);
+  background: var(--canvas);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  cursor: pointer;
+  color: var(--paper);
+  transition: background-color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+.lsx-check:hover {
+  border-color: var(--rust);
+}
+.lsx-check.is-on,
+.lsx-check.is-mixed {
+  background: var(--rust);
+  border-color: var(--rust);
+}
+.lsx-check:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.lsx-check svg {
+  display: block;
+}
+
+/* ---- Action bar (sticky bottom) ---- */
+.lsx-actionbar {
+  position: sticky;
+  bottom: var(--sp-3);
+  z-index: 20;
+  margin-top: var(--sp-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-4);
+  animation: lsx-bar-in var(--duration-base) var(--easing-standard);
+}
+.lsx-actionbar__l {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.lsx-actionbar__ic {
+  flex: none;
+  color: var(--rust);
+}
+.lsx-actionbar__txt {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.lsx-actionbar__n {
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.lsx-actionbar__sub {
+  font-size: 11.5px;
+}
+.lsx-actionbar__sub--same {
+  color: var(--moss-deep);
+}
+.lsx-actionbar__sub--multi {
+  color: var(--ash);
+}
+.lsx-actionbar__clear {
+  border: none;
+  background: none;
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.lsx-actionbar__clear:hover {
+  color: var(--rust);
+}
+.lsx-actionbar__r {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.lsx-actionbar__reason {
+  flex-basis: 100%;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--ash-2);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+.lsx-actionbar__reason b {
+  color: var(--rust-deep);
+  font-weight: var(--fw-bold);
+}
+@keyframes lsx-bar-in {
+  from {
+    transform: translateY(14px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* ---- Drawer chi tiết ấn phẩm (right slide-in, dùng chung List + Detail) ---- */
+.lsx-dw__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(13, 12, 10, 0.45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  animation: lsx-dw-fade var(--duration-base) var(--easing-standard);
+}
+.lsx-dw {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 61;
+  height: 100dvh;
+  width: min(560px, 94vw);
+  background: var(--canvas);
+  border-left: 1px solid var(--rule-soft);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  animation: lsx-dw-in 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.lsx-dw__hd {
+  border-top: 4px solid var(--rust);
+  background: var(--paper);
+  padding: var(--sp-4) var(--sp-5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+}
+.lsx-dw__hdmain {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.lsx-dw__kicker {
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--rust);
+}
+.lsx-dw__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+.lsx-dw__ctx {
+  font-family: var(--ff-mono);
+  font-size: 12px;
+  color: var(--ash);
+}
+.lsx-dw__x {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--ash);
+  border-radius: 50%;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s cubic-bezier(0.2, 0.8, 0.2, 1),
+    color 0.2s ease, transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.lsx-dw__x:hover {
+  background: var(--rule-soft);
+  color: var(--ink);
+  transform: rotate(90deg);
+}
+.lsx-dw__x:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.lsx-dw__body {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--sp-4) var(--sp-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule) transparent;
+}
+.lsx-dw__sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.lsx-dw__sectitle {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ash);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.lsx-dw__sectitle svg {
+  flex: none;
+  color: var(--ash-2);
+}
+.lsx-dw__sub {
+  font-size: 12px;
+  color: var(--ash-2);
+  line-height: 1.45;
+}
+.lsx-dw__foot {
+  border-top: 1px solid var(--rule-soft);
+  padding: var(--sp-3) var(--sp-5);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  background: var(--paper);
+}
+/* Nhóm nút phải (Đóng · Lưu) — luôn dạt phải, chừa "Hoàn tác" bên trái. */
+.lsx-dw__footright {
+  margin-left: auto;
+  display: flex;
+  gap: var(--sp-2);
+}
+.lsx-dw__msg {
+  padding: var(--sp-8) var(--sp-5);
+  text-align: center;
+  color: var(--ash-2);
+  font-size: 13px;
+}
+/* Lưu ý SX — khối nổi bật amber trên cùng body (bám ô "Lưu ý SX" ở Detail lệnh). */
+.lsx-dw__note {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.lsx-dw__note svg {
+  flex: none;
+  margin-top: 1px;
+}
+.lsx-dw__note strong {
+  font-weight: 700;
+}
+/* Số lượng — danh sách dòng (không spec-grid), số mono tabular; dòng chính in đậm. */
+.lsx-dw__qty {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-4);
+  background: var(--paper);
+  padding: 2px 12px;
+}
+.lsx-dw__qtyrow {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--rule-hair);
+  font-size: 13px;
+}
+.lsx-dw__qtyrow:last-child {
+  border-bottom: 0;
+}
+.lsx-dw__qtyrow .k {
+  color: var(--ash);
+}
+.lsx-dw__qtyrow .v {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+}
+.lsx-dw__qtyrow--strong .k {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+}
+.lsx-dw__qtyrow--strong .v {
+  font-weight: var(--fw-bold);
+}
+/* Vật tư thêm — tên đậm + ghi chú sub. */
+.lsx-dw__mat {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.lsx-dw__matrow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.lsx-dw__matname {
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+
+/* ==================== Chế độ SỬA quy cách (lệnh nháp) — input override ==================== */
+/* Kế thừa báo giá làm mặc định; field đã override gắn chip "đã sửa" cam. Bám tokens: viền
+   --rule, focus --rust, radius nhỏ. Không chế màu lạ. */
+.lsx-dw__form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+.lsx-dw__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.lsx-dw__field--wide {
+  grid-column: 1 / -1;
+}
+.lsx-dw__flabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--ff-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+}
+.lsx-dw__flabelrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+/* Chip "đã sửa" — cam, phân biệt override với kế thừa báo giá. */
+.lsx-dw__ovchip {
+  font-family: var(--ff-sans);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--rust-deep);
+  background: var(--rust-soft);
+  border-radius: var(--r-pill);
+  padding: 1px 7px;
+}
+.lsx-dw__in {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 38px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper-contrast);
+  color: var(--ink);
+  padding: 8px 11px;
+  font-family: var(--ff-sans);
+  font-size: 13.5px;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.lsx-dw__in--num {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.lsx-dw__in:hover {
+  border-color: var(--ash-2);
+}
+.lsx-dw__in:focus {
+  outline: none;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+.lsx-dw__dim {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lsx-dw__dim .lsx-dw__in {
+  flex: 1 1 0;
+  min-width: 0;
+}
+.lsx-dw__x2 {
+  flex: none;
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  color: var(--ash-2);
+}
+.lsx-dw__unit {
+  flex: none;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash-2);
+}
+/* Toggle nhỏ (chỉ cùng chủng loại · tự bình bài) */
+.lsx-dw__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--ff-sans);
+  font-size: 11.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  cursor: pointer;
+  user-select: none;
+}
+.lsx-dw__toggle input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--rust);
+  cursor: pointer;
+}
+/* Ô chỉ-đọc (số kẽm — engine tự tính lại theo giá trị hiệu lực) */
+.lsx-dw__ro {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  padding: 8px 11px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+  background: var(--rule-hair);
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-size: 13.5px;
+}
+.lsx-dw__auto {
+  font-family: var(--ff-sans);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--steel);
+  background: var(--steel-soft);
+  border-radius: var(--r-pill);
+  padding: 1px 7px;
+  margin-left: 6px;
+}
+
+@keyframes lsx-dw-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes lsx-dw-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+/* ---- Gập 2 hàng ở màn hẹp (dòng bản ghi có chọn) ---- */
+@media (max-width: 720px) {
+  .lsx-rec:not(.lsx-rec--plain) {
+    grid-template-columns: 24px minmax(0, 1fr) auto 18px;
+    grid-template-areas:
+      "check name  qty   chev"
+      "check chips chips chev";
+    row-gap: 6px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lsx-rec,
+  .lsx-rec__chev,
+  .lsx-check,
+  .lsx-dw__x,
+  .lsx-dw__in {
+    transition: none;
+  }
+  .lsx-actionbar,
+  .lsx-dw,
+  .lsx-dw__scrim {
+    animation: none;
+  }
+}
+
+/* ==================== HẠN KÉP + ghi chú kỹ thuật/quy cách bước (dùng chung 3 mặt) ====================
+   1 pill đếm ngược CÓ MÀU (.lsx-due) bám mốc SỚM + 1 chip ngày-KHÁCH phẳng (.lsx-hardline, cờ đỏ,
+   KHÔNG đếm ngược). .lsx-qc = quy cách bước · .lsx-stepnote = ghi chú kỹ thuật bước (amber). Tokens-only. */
+.lsx-duestack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.lsx-duestack--end {
+  align-items: flex-end;
+}
+.lsx-hardline {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--rule-hair);
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11.5px;
+  color: var(--ash);
+  white-space: nowrap;
+}
+.lsx-hardline svg {
+  flex: none;
+  color: var(--signal);
+}
+.lsx-hardline b {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+}
+.lsx-qc {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--ash-2);
+  line-height: 1.35;
+}
+.lsx-qc svg {
+  flex: none;
+  color: var(--ash-2);
+}
+.lsx-stepnote {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.lsx-stepnote svg {
+  flex: none;
+  margin-top: 1px;
+}
+.lsx-tolenh__due {
+  flex: none;
+}
+
+/* ==================== LỊCH CHẠY — bảng Máy × Ngày kéo-thả (tokens-only) ====================
+   Khay "Chưa xếp" TRÁI (vùng gỡ) + lưới PHẢI (132px + 7 ngày). Ô trùng máy CHỈ tô cảnh báo —
+   máy ghi nhận, người quyết. Sticky: header ngày (top) · cột máy (left) · góc (z4). */
+.lsx-lich {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: var(--sp-4);
+  align-items: start;
+  margin-top: var(--sp-2);
+}
+@media (max-width: 1040px) {
+  .lsx-lich {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---- Nav cửa sổ tuần ---- */
+.lsx-lich__nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  padding: 3px;
+}
+.lsx-lich__navbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: none;
+  border-radius: var(--r-pill);
+  padding: 5px 12px;
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+.lsx-lich__navbtn:hover {
+  background: var(--paper);
+  color: var(--rust);
+}
+.lsx-lich__navbtn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* ---- Khay "Chưa xếp" (sticky, là vùng DROP để gỡ lịch) ---- */
+.lsx-lich__tray {
+  position: sticky;
+  top: var(--sp-4);
+  align-self: start;
+}
+@media (max-width: 1040px) {
+  .lsx-lich__tray {
+    position: static;
+  }
+}
+.lsx-lich__traylist {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  max-height: 74vh;
+  overflow-y: auto;
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+.lsx-lich__traylist.is-drop {
+  background: var(--rust-soft);
+  outline: 2px dashed var(--rust);
+  outline-offset: -4px;
+}
+
+/* ---- Lưới Máy × Ngày ---- */
+.lsx-lich__gridwrap {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  box-shadow: var(--shadow-1);
+}
+.lsx-lich__grid {
+  display: grid;
+  width: 100%;
+}
+.lsx-lich__corner {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule);
+  border-right: 1.5px solid var(--rule);
+}
+.lsx-lich__day {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 6px;
+  background: var(--paper);
+  border-bottom: 1.5px solid var(--rule);
+  border-left: 1px solid var(--rule-hair);
+}
+.lsx-lich__day--we {
+  background: var(--rule-hair);
+}
+.lsx-lich__day--today {
+  background: var(--rust-soft);
+  box-shadow: inset 0 -2px 0 var(--rust);
+}
+.lsx-lich__dayw {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.lsx-lich__day--today .lsx-lich__dayw {
+  color: var(--rust-deep);
+}
+.lsx-lich__dayd {
+  font-family: var(--ff-mono);
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.lsx-lich__mach {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  background: var(--canvas);
+  border-right: 1.5px solid var(--rule);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.lsx-lich__machname {
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  line-height: 1.25;
+}
+.lsx-lich__machma {
+  font-size: 10.5px;
+  color: var(--ash-2);
+}
+
+/* ---- GANTT: track theo hàng máy (grid-column 2/-1) = 2 lớp chồng ---- */
+/* Lớp DƯỚI = 7 ô drop (.lsx-gcells) · lớp TRÊN = thanh (.lsx-gbars, pointer none trừ thanh) →
+   khoảng trống giữa thanh cho kéo/click xuyên xuống ô. */
+.lsx-gtrack {
+  position: relative;
+  z-index: 0;
+  grid-column: 2 / -1;
+  min-width: 0;
+}
+.lsx-gcells {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+}
+.lsx-gcell {
+  border-left: 1px solid var(--rule-hair);
+  border-bottom: 1px solid var(--rule-hair);
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+.lsx-gcell--we {
+  background: var(--rule-hair);
+}
+.lsx-gcell--today {
+  background: var(--rust-soft);
+}
+.lsx-gcell--drop {
+  background: var(--rust-soft);
+  outline: 2px dashed var(--rust);
+  outline-offset: -3px;
+}
+/* Kẹt máy: tô signal-soft + gạch chéo nhẹ (máy chỉ ghi nhận — không chặn). */
+.lsx-gcell--clash {
+  background: var(--signal-soft);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent 0,
+    transparent 5px,
+    rgba(138, 31, 31, 0.12) 5px,
+    rgba(138, 31, 31, 0.12) 10px
+  );
+}
+.lsx-gbars {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  grid-auto-rows: 34px;
+  row-gap: 6px;
+  padding: 6px 0;
+  min-height: 46px;
+  pointer-events: none;
+}
+
+/* ---- 1 THANH lệnh (bắc từ ngày chạy → hạn giao) ---- */
+.lsx-gbar {
+  pointer-events: auto;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  margin: 0 2px;
+  padding: 0 7px 0 9px;
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ash-2);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  color: var(--ink);
+  cursor: grab;
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+  transition:
+    box-shadow var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+.lsx-gbar:hover {
+  box-shadow: var(--shadow-4);
+}
+.lsx-gbar:active {
+  cursor: grabbing;
+}
+.lsx-gbar:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.lsx-gbar--over {
+  background: var(--signal-soft);
+  border-color: var(--signal);
+  border-left-color: var(--signal);
+}
+.lsx-gbar--soon {
+  background: var(--rust-soft);
+  border-color: var(--rust);
+  border-left-color: var(--rust);
+}
+.lsx-gbar--ok {
+  background: var(--canvas);
+  border-left-color: var(--ash-2);
+}
+.lsx-gbar--nodue {
+  background: var(--canvas);
+  border-left-color: var(--ash-2);
+  border-right: 1.5px dashed var(--rule);
+}
+.lsx-gbar.is-dragging {
+  opacity: 0.45;
+}
+.lsx-gbar.is-resizing {
+  border-style: dashed;
+  box-shadow: var(--shadow-4);
+}
+.lsx-gbar__ovl {
+  flex: none;
+  font-weight: 700;
+  color: var(--ash-2);
+  line-height: 1;
+}
+.lsx-gbar__code {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+  white-space: nowrap;
+}
+.lsx-gbar__spec {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--ash);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lsx-gbar__mold {
+  flex: none;
+  gap: 3px;
+  padding: 1px 6px;
+  font-size: 9.5px;
+}
+.lsx-gbar__due {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  font-size: 10.5px;
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.lsx-gbar__due svg {
+  flex: none;
+}
+.lsx-gbar__due--over {
+  background: var(--signal);
+  color: var(--paper);
+}
+.lsx-gbar__due--soon {
+  background: var(--rust);
+  color: var(--paper);
+}
+.lsx-gbar__due--ok {
+  background: var(--rule-hair);
+  color: var(--ash);
+}
+.lsx-gbar__due--nodue {
+  background: transparent;
+  color: var(--ash-2);
+  border: 1px dashed var(--rule);
+  font-weight: var(--fw-medium);
+}
+.lsx-gbar__menu {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: none;
+  border-radius: var(--r-2);
+  color: var(--ash-2);
+  cursor: pointer;
+}
+.lsx-gbar__menu:hover {
+  background: var(--paper);
+  color: var(--rust);
+}
+.lsx-gbar__menu:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+/* Đuôi thanh: kéo ngang đổi hạn nội bộ (pointer, chỉ lệnh nháp). */
+.lsx-gbar__grip {
+  flex: none;
+  align-self: stretch;
+  width: 12px;
+  margin: 0 -7px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.lsx-gbar__grip::before {
+  content: "";
+  width: 3px;
+  height: 15px;
+  border-radius: var(--r-pill);
+  background: currentColor;
+  opacity: 0.3;
+  transition: opacity var(--duration-fast) var(--easing-standard);
+}
+.lsx-gbar:hover .lsx-gbar__grip::before {
+  opacity: 0.6;
+}
+
+/* Chip "kẹt máy" ở góc nhãn hàng máy. */
+.lsx-grow__clash {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  line-height: 1.2;
+  color: var(--signal);
+}
+.lsx-grow__clash svg {
+  flex: none;
+}
+
+/* ---- Thẻ lệnh (kéo được) ---- */
+.lsx-lchip {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 9px 8px 11px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-left: 3px solid var(--ash-2);
+  border-radius: var(--r-3);
+  box-shadow: var(--shadow-1);
+  cursor: grab;
+  transition:
+    box-shadow var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+.lsx-lchip:hover {
+  box-shadow: var(--shadow-4);
+}
+.lsx-lchip:active {
+  cursor: grabbing;
+}
+.lsx-lchip:focus-within {
+  border-color: var(--rust);
+}
+.lsx-lchip--over {
+  border-left-color: var(--signal);
+}
+.lsx-lchip--soon {
+  border-left-color: var(--rust);
+}
+.lsx-lchip--ok {
+  border-left-color: var(--ash-2);
+}
+.lsx-lchip.is-dragging {
+  opacity: 0.45;
+}
+.lsx-lchip__top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.lsx-lchip__code {
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.lsx-lchip__flag {
+  padding: 2px 7px;
+  font-size: 10px;
+}
+.lsx-lchip__more {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: none;
+  border-radius: var(--r-2);
+  color: var(--ash-2);
+  cursor: pointer;
+  flex: none;
+}
+.lsx-lchip__more:hover {
+  background: var(--paper);
+  color: var(--rust);
+}
+.lsx-lchip__more:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.lsx-lchip__name {
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.lsx-lchip .lsx-specchips {
+  margin-top: 0;
+}
+.lsx-lchip .lsx-due {
+  align-self: flex-start;
+}
+
+/* ---- Popover "…" (neo viewport-fixed; bản-sao-bàn-phím cho kéo/resize) ---- */
+.lsx-gpop {
+  position: fixed;
+  z-index: 60;
+  width: 264px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  padding: 12px 14px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--paper);
+  box-shadow: var(--shadow-lg);
+}
+.lsx-gpop__hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.lsx-gpop__code {
+  font-size: 12.5px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.lsx-gpop__tt {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+.lsx-gpop__f {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lsx-gpop__lb {
+  font-family: var(--ff-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+}
+.lsx-gpop__in {
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  padding: 6px 8px;
+}
+.lsx-gpop__in:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.lsx-gpop__locked {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-2);
+  font-size: 11.5px;
+  color: var(--ash-2);
+}
+.lsx-gpop__locked svg {
+  flex: none;
+}
+.lsx-gpop__rm {
+  margin-top: 2px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: var(--fw-medium);
+  color: var(--signal);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard);
+}
+.lsx-gpop__rm:hover {
+  background: var(--signal-soft);
+}
+.lsx-gpop__rm:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lsx-lchip,
+  .lsx-gbar,
+  .lsx-gcell,
+  .lsx-gbar__grip::before,
+  .lsx-lich__traylist,
+  .lsx-lich__navbtn,
+  .lsx-gpop__rm {
+    transition: none;
+  }
+}
+
+/* ==================================================================================
+   HỘP VIỆC TỔ — card 2 tầng (footer kế hoạch) · toggle Danh sách↔Lịch · cụm lịch ·
+   chip kế hoạch drawer · xếp MÁY finishing + CA cho bước (1.12). Tokens-only, bám palette.
+   ================================================================================== */
+
+/* ---- Card 2 tầng: hàng chính (row) + dải footer kế hoạch (ngăn bằng gạch đứt) ---- */
+.lsx-tolenh__card {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+.lsx-tolenh__main {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  width: 100%;
+  flex-wrap: wrap;
+}
+.lsx-tolenh__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px dashed var(--rule-soft);
+  font-size: 11.5px;
+  color: var(--ash-2);
+}
+.lsx-metaitem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.lsx-metaitem svg {
+  flex: none;
+  color: var(--ash-2);
+}
+.lsx-metadot {
+  color: var(--ash-2);
+  opacity: 0.5;
+}
+
+/* ---- Toggle Danh sách ↔ Lịch (segment ở header) ---- */
+.lsx-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-pill);
+  background: var(--paper);
+}
+.lsx-seg__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: none;
+  background: none;
+  border-radius: var(--r-pill);
+  padding: 5px 12px;
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  color: var(--ash);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard);
+}
+.lsx-seg__btn svg {
+  flex: none;
+}
+.lsx-seg__btn:hover {
+  color: var(--rust);
+}
+.lsx-seg__btn.is-on {
+  background: var(--ink);
+  color: var(--paper);
+}
+.lsx-seg__btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+
+/* ---- Chế độ LỊCH: cụm độ khẩn + dòng lệnh rút gọn ---- */
+.lsx-lichwrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  margin-top: var(--sp-2);
+}
+.lsx-lichgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.lsx-lichgroup__hd {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--ff-sans);
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.02em;
+  color: var(--ash);
+  padding: 2px 2px 5px;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.lsx-lichgroup__hd svg {
+  flex: none;
+}
+.lsx-lichgroup__hd--over {
+  color: var(--signal);
+}
+.lsx-lichgroup__hd--today {
+  color: var(--rust-deep);
+}
+.lsx-lichgroup__hd--week {
+  color: var(--ash);
+}
+.lsx-lichgroup__hd--later {
+  color: var(--ash-2);
+}
+.lsx-lichgroup__n {
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--ash-2);
+  background: var(--rule-soft);
+  border-radius: var(--r-pill);
+  padding: 0 7px;
+}
+.lsx-lichgroup__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lsx-lrow {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 9px var(--sp-4);
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color var(--duration-fast) var(--easing-standard);
+}
+.lsx-lrow:hover {
+  border-color: var(--ash-2);
+}
+.lsx-lrow:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.lsx-lrow__ap {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lsx-lrow__may {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  max-width: 180px;
+  font-size: 11.5px;
+  color: var(--ash-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lsx-lrow__may svg {
+  flex: none;
+}
+
+/* ---- Drawer: chip kế hoạch read-only (chạy in · máy in · khuôn) ---- */
+.lsx-planrow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.lsx-planchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--rule-hair);
+  color: var(--ash);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.lsx-planchip svg {
+  flex: none;
+  color: var(--ash-2);
+}
+.lsx-planchip b {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+}
+
+/* ---- Drawer: xếp MÁY finishing + CA cho bước tổ mình (1.12, record-only) ---- */
+.lsx-mayca {
+  margin-top: 8px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--rule-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lsx-mayca__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lsx-mayca__lbl {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+}
+.lsx-mayca__selwrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.lsx-mayca__selwrap svg {
+  position: absolute;
+  left: 9px;
+  color: var(--ash-2);
+  pointer-events: none;
+}
+.lsx-mayca__sel {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 36px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  background: var(--paper-contrast);
+  color: var(--ink);
+  padding: 7px 10px 7px 30px;
+  font-family: var(--ff-sans);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--easing-standard),
+    box-shadow var(--duration-fast) var(--easing-standard);
+}
+.lsx-mayca__sel:hover:not(:disabled) {
+  border-color: var(--ash-2);
+}
+.lsx-mayca__sel:focus {
+  outline: none;
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px var(--rust-soft);
+}
+.lsx-mayca__sel:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.lsx-caseg {
+  display: inline-flex;
+  gap: 4px;
+}
+.lsx-caseg__btn {
+  flex: 1;
+  min-height: 32px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-2);
+  background: var(--paper);
+  color: var(--ash);
+  font-family: var(--ff-sans);
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--easing-standard),
+    color var(--duration-fast) var(--easing-standard),
+    border-color var(--duration-fast) var(--easing-standard);
+}
+.lsx-caseg__btn:hover:not(:disabled) {
+  border-color: var(--rust);
+  color: var(--rust-deep);
+}
+.lsx-caseg__btn.is-on {
+  background: var(--rust);
+  border-color: var(--rust);
+  color: var(--paper);
+}
+.lsx-caseg__btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.lsx-caseg__btn:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.lsx-mayca__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--moss-deep);
+}
+.lsx-mayca__hint svg {
+  flex: none;
+}
+/* Máy/ca read-only (bước tổ khác · thợ) */
+.lsx-rcard__mayca {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.lsx-rcard__mayca svg {
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lsx-seg__btn,
+  .lsx-lrow,
+  .lsx-mayca__sel,
+  .lsx-caseg__btn {
+    transition: none;
+  }
+}
+
+/* ============================================================================
+   LÁT 2 — Sản lượng ghi nhận (cộng dồn) + Bàn giao 2 chiều (giao ↔ xác nhận nhận)
+   Trong .lsx-rcard của bước tổ mình, DƯỚI khối máy/ca. Tokens-only, tái dùng .lsx-input/.lsx-caseg/.btn.
+   1 nguồn màu khẩn: lệch = --signal (đỏ) · đủ đích = --moss (xanh) · còn lại trung tính. */
+
+/* Nút nhỏ dùng chung cho Ghi / Giao / Xác nhận (thu gọn .btn). */
+.lsx-mini {
+  padding: 6px 11px;
+  font-size: 12.5px;
+  min-height: 32px;
+}
+
+/* ---- A. SẢN LƯỢNG ---- */
+.lsx-sl {
+  margin-top: 8px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--rule-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lsx-sl__done {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  font-size: 11.5px;
+  color: var(--ash);
+}
+.lsx-sl__done b {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+.lsx-sl__ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--moss-deep);
+}
+.lsx-sl__ok svg {
+  flex: none;
+}
+.lsx-sl__bad {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ash);
+}
+.lsx-sl__unit {
+  color: var(--ash-2);
+}
+.lsx-sl__miss {
+  color: var(--rust-deep);
+}
+.lsx-sl__full {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 9px;
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  font-weight: var(--fw-medium);
+}
+.lsx-sl__full svg {
+  flex: none;
+}
+.lsx-sl__entry {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.lsx-sl__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lsx-sl__lbl {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ash-2);
+}
+.lsx-sl__num {
+  width: 88px;
+  min-height: 36px;
+}
+.lsx-sl__save {
+  flex: none;
+}
+.lsx-sl__hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 11px;
+  color: var(--ash);
+}
+.lsx-sl__hint svg {
+  flex: none;
+}
+
+/* ---- B. BÀN GIAO ---- */
+.lsx-bg {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.lsx-bg__num {
+  width: 84px;
+  min-height: 34px;
+}
+.lsx-bg__btn {
+  flex: none;
+}
+.lsx-bg__done {
+  font-size: 11.5px;
+  color: var(--ash);
+}
+.lsx-bg__done b {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+}
+.lsx-bg__last {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ash-2);
+}
+.lsx-bg__last svg {
+  flex: none;
+}
+
+/* ---- C. XÁC NHẬN NHẬN (con dấu tổ nhận) — callout amber, lệch tô đỏ ---- */
+.lsx-nhan {
+  margin-top: 8px;
+  padding: 9px 11px;
+  border-radius: var(--r-3);
+  background: var(--amber-soft);
+  border: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--amber-deep);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lsx-nhan__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--ink);
+}
+.lsx-nhan__head svg {
+  flex: none;
+  color: var(--amber-deep);
+}
+.lsx-nhan__head b {
+  font-weight: var(--fw-bold);
+}
+.lsx-nhan__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.lsx-nhan__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lsx-nhan__num {
+  width: 92px;
+}
+.lsx-nhan__num.is-lech {
+  border-color: var(--signal);
+  box-shadow: 0 0 0 3px var(--signal-soft);
+}
+.lsx-nhan__reason {
+  flex: 1;
+  min-width: 130px;
+}
+.lsx-nhan__ok {
+  flex: none;
+}
+.lsx-nhan__lech {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--signal);
+}
+.lsx-nhan__lech svg {
+  flex: none;
+}
+
+/* ---- D. Read-only (bước tổ khác · thợ) — 1 dòng tóm tắt ---- */
+.lsx-ro2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--ash-2);
+}
+.lsx-ro2 span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.lsx-ro2 svg {
+  flex: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lsx-sl__num,
+  .lsx-bg__num,
+  .lsx-nhan__num {
     transition: none;
   }
 }

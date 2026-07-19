@@ -1,0 +1,101 @@
+/* ===== Khuôn phiếu in dùng chung (.psheet) — bám phong cách bản in Báo giá đã duyệt (.qpdf).
+   Đen-trắng thuần, header xám, bảng viền, panel tổng đóng khung. Dùng cho: Xác nhận đơn hàng,
+   Lệnh sản xuất, và có thể mở rộng. File DUY NHẤT chứa @media print cho khuôn này. ===== */
+.psheet {
+  --ps-ink: #161616; --ps-muted: #555; --ps-line: #8c8c8c; --ps-line-strong: #2a2a2a;
+  --ps-hair: #c4c4c4; --ps-head: #e9e9e9; --ps-band: #f2f2f2;
+  background: #fff; color: var(--ps-ink);
+  font-family: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
+  font-size: 11.5px; line-height: 1.45;
+  padding: 13mm 12mm 12mm; max-height: 74vh; overflow-y: auto;
+  -webkit-font-smoothing: antialiased;
+}
+.psheet * { box-sizing: border-box; }
+.psheet h1 { margin: 0; }
+
+/* header: logo hộp | tiêu đề giữa | số/ngày phải */
+.psheet .ps-mh { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border-bottom: 2px solid var(--ps-line-strong); padding-bottom: 9px; }
+.psheet .ps-logo { border: 1px solid var(--ps-line-strong); padding: 8px 10px; width: 108px; text-align: center; }
+.psheet .ps-logo img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+.psheet .ps-th { text-align: center; }
+.psheet .ps-th h1 { font-size: 20px; font-weight: 800; letter-spacing: .02em; }
+.psheet .ps-cty { font-size: 9.5px; color: var(--ps-muted); margin-top: 3px; }
+.psheet .ps-meta { text-align: right; font-size: 11px; line-height: 1.55; }
+.psheet .ps-meta b { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* tiêu đề mục */
+.psheet .ps-sec { font-weight: 800; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; margin: 14px 0 6px; padding-bottom: 3px; border-bottom: 1.5px solid var(--ps-line-strong); }
+
+/* dải thông tin (khách / giao hàng) */
+.psheet .ps-info { border-bottom: 1px solid var(--ps-hair); padding: 8px 0 9px; }
+.psheet .ps-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 28px; }
+.psheet .ps-info-grid > div { padding: 1.5px 0; }
+.psheet .ps-lbl { color: var(--ps-muted); }
+.psheet .ps-info b { font-weight: 700; color: var(--ps-ink); }
+
+/* bảng chi tiết */
+.psheet table.ps-tbl { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
+.psheet table.ps-tbl th, .psheet table.ps-tbl td { border: 1px solid var(--ps-line); padding: 5px 7px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }
+.psheet table.ps-tbl thead th { background: var(--ps-head); font-weight: 700; text-align: center; font-size: 9px; text-transform: uppercase; letter-spacing: .02em; line-height: 1.25; }
+.psheet table.ps-tbl td.c { text-align: center; }
+.psheet table.ps-tbl td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.psheet table.ps-tbl tfoot td { background: var(--ps-band); font-weight: 800; border-top: 1.5px solid var(--ps-line-strong); }
+.psheet table.ps-tbl tfoot .ps-sub-lbl { text-align: right; text-transform: uppercase; letter-spacing: .03em; font-size: 9px; }
+
+/* panel tổng */
+.psheet .ps-grand { margin-top: 14px; border: 1.5px solid var(--ps-line-strong); background: var(--ps-band); display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 16px; }
+.psheet .ps-grand .ps-gt { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.psheet .ps-grand .ps-gt .ps-gs { font-size: 9.5px; font-weight: 600; color: var(--ps-muted); text-transform: none; letter-spacing: 0; margin-top: 2px; }
+.psheet .ps-grand .ps-ga { font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.psheet .ps-grand .ps-ga .ps-u { font-size: 12px; font-weight: 700; margin-left: 4px; }
+
+/* dải cọc (3 ô) */
+.psheet .ps-deposit { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 10px; }
+.psheet .ps-deposit > div { border: 1px solid var(--ps-hair); padding: 8px 10px; }
+.psheet .ps-deposit .ps-lbl { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .02em; }
+.psheet .ps-deposit b { font-size: 13px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* grid quy cách (LSX) */
+.psheet .ps-specs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px 18px; margin-top: 6px; font-size: 10.5px; }
+.psheet .ps-specs > div .ps-lbl { display: block; font-size: 9px; text-transform: uppercase; letter-spacing: .02em; }
+.psheet .ps-specs > div b { font-weight: 700; }
+
+/* khối tờ in (LSX) */
+.psheet .ps-form { border: 1px solid var(--ps-hair); padding: 8px 10px; margin-top: 8px; }
+.psheet .ps-form__hd { font-weight: 700; font-size: 11px; margin-bottom: 3px; }
+.psheet .ps-form__meta { font-size: 10px; color: var(--ps-muted); }
+.psheet .ps-form__gang { font-size: 10px; margin-top: 4px; }
+.psheet .ps-form__gang .ps-lbl { text-transform: uppercase; font-size: 9px; letter-spacing: .02em; }
+
+/* chữ ký */
+.psheet .ps-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; margin-top: 22px; text-align: center; }
+.psheet .ps-signs .ps-role { font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
+.psheet .ps-signs .ps-hint { font-size: 8px; color: var(--ps-muted); font-style: italic; margin-top: 2px; }
+.psheet .ps-signs .ps-sp { height: 20mm; }
+
+/* chân trang */
+.psheet .ps-foot { margin-top: 16px; padding-top: 7px; border-top: 1px solid var(--ps-hair); display: flex; justify-content: space-between; gap: 12px; font-size: 8px; color: var(--ps-muted); }
+
+/* overlay preview (trên màn) */
+.ps-ov { position: fixed; inset: 0; background: rgba(20, 19, 15, .45); backdrop-filter: blur(4px); display: flex; align-items: flex-start; justify-content: center; padding: 24px; overflow: auto; z-index: 100; }
+.ps-dialog { background: #fff; border-radius: 10px; max-width: 900px; width: 100%; box-shadow: 0 20px 60px rgba(0, 0, 0, .3); display: flex; flex-direction: column; }
+.ps-dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border-bottom: 1px solid #e5e2d8; }
+.ps-dialog-head h2 { margin: 0; font-size: 15px; font-weight: 700; color: #14130f; }
+.ps-dialog-head button { border: none; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: #6b675d; padding: 4px 8px; }
+.ps-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid #e5e2d8; }
+
+/* ---- IN: chỉ chừa tờ .psheet, chảy qua nhiều trang A4 (bám cơ chế print của Báo giá) ---- */
+@media print {
+  @page { size: A4; margin: 11mm; }
+  body:has(.psheet) .shell > *:not(.shell__main),
+  body:has(.psheet) .shell__main > *:not(.shell__content) { display: none !important; }
+  body:has(.psheet) .shell__content { padding: 0 !important; overflow: visible !important; }
+  body:has(.psheet) .ps-ov { position: static !important; background: none !important; backdrop-filter: none !important; padding: 0 !important; display: block !important; overflow: visible !important; z-index: auto !important; }
+  body:has(.psheet) .ps-dialog { max-width: none !important; width: 100% !important; box-shadow: none !important; border-radius: 0 !important; }
+  body:has(.psheet) .ps-dialog-head, body:has(.psheet) .ps-dialog-actions { display: none !important; }
+  body:has(.psheet) .psheet { max-height: none !important; overflow: visible !important; padding: 0 !important; }
+  body:has(.psheet) .psheet .ps-mh, body:has(.psheet) .psheet .ps-tbl thead th, body:has(.psheet) .psheet .ps-tbl tfoot td, body:has(.psheet) .psheet .ps-grand { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body:has(.psheet) .psheet .ps-tbl tr, body:has(.psheet) .psheet .ps-grand, body:has(.psheet) .psheet .ps-signs { page-break-inside: avoid; }
+  /* Overlay Đơn hàng / LSX đang mở phía dưới không được chiếm layout khi in */
+  body:has(.psheet) .dhb__drawer-overlay { position: static !important; background: none !important; }
+}

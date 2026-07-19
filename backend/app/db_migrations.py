@@ -1707,6 +1707,38 @@ def _migrate_role_permission_record_deposit(db: Session) -> None:
     db.commit()
 
 
+def _migrate_role_permission_assign_work(db: Session) -> None:
+    """san_xuat: thêm cột `role_permissions.can_assign_work` (tổ trưởng gán thợ vào công đoạn).
+    Chỉ ADD COLUMN DEFAULT FALSE — quyền do seed_roles upsert lại mỗi khởi động. No-op DB fresh."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_assign_work" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_assign_work BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
+def _migrate_role_permission_output_handover(db: Session) -> None:
+    """san_xuat (Lát 2): thêm `role_permissions.can_record_output` (ghi sản lượng đạt/hỏng) +
+    `can_handover` (bàn giao + xác nhận nhận). Chỉ ADD COLUMN DEFAULT FALSE — quyền do seed upsert
+    lại mỗi khởi động. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "role_permissions")
+    if "can_record_output" not in cols:
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_record_output BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    if "can_handover" not in cols:
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_handover BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
 def _migrate_department_salary_policy(db: Session) -> None:
     """departments: bộ nguyên tắc lương của phòng (Pha 1) — cơ chế ra mức lương
     (`salary_mechanism`), % thử việc (`probation_ratio`), cờ có lương khoán
@@ -2173,6 +2205,103 @@ def _migrate_order_san_xuat_released(db: Session) -> None:
     db.commit()
 
 
+def _migrate_lenh_item_quy_cach_override(db: Session) -> None:
+    """OVERRIDE quy cách in tại lệnh: thêm `lenh_item.quy_cach_override` (JSON nullable) — kế hoạch
+    sửa quy cách ở lệnh nháp, không đụng báo giá. Nullable nên không cần default. No-op trên DB fresh
+    (create_all đã có cột) / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "lenh_item" not in insp.get_table_names():
+        return
+    if "quy_cach_override" not in _existing_columns(insp, "lenh_item"):
+        db.execute(text("ALTER TABLE lenh_item ADD COLUMN quy_cach_override JSON"))
+    db.commit()
+
+
+def _migrate_ptp_ghi_chu_ky_thuat(db: Session) -> None:
+    """Note KỸ THUẬT/SX theo SẢN PHẨM: thêm `phieu_thanh_phan.ghi_chu_ky_thuat` (TEXT nullable) —
+    canh màu/kẽm cũ/bù hao gõ ở Tính giá, xuống drawer lệnh. Nullable nên không cần default.
+    No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    if "ghi_chu_ky_thuat" not in _existing_columns(insp, "phieu_thanh_phan"):
+        db.execute(text("ALTER TABLE phieu_thanh_phan ADD COLUMN ghi_chu_ky_thuat TEXT"))
+    db.commit()
+
+
+def _migrate_routing_step_ghi_chu(db: Session) -> None:
+    """② Fix routing copy: thêm `routing_step.ghi_chu` (VARCHAR nullable) + `quy_cach` (VARCHAR
+    nullable) — ảnh chụp ghi chú kỹ thuật + quy cách BƯỚC copy từ `PhieuThanhPham` khi bung (tổ hết
+    trơ). Nullable nên không cần default (không dính bẫy Boolean). No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "routing_step" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "routing_step")
+    if "ghi_chu" not in cols:
+        db.execute(text("ALTER TABLE routing_step ADD COLUMN ghi_chu VARCHAR(500)"))
+    if "quy_cach" not in cols:
+        db.execute(text("ALTER TABLE routing_step ADD COLUMN quy_cach VARCHAR(255)"))
+    db.commit()
+
+
+def _migrate_lenh_sx_han_giao(db: Session) -> None:
+    """① Hạn giao thuộc tính LỆNH: thêm `lenh_sx.han_giao_khach` + `han_giao_noi_bo` (DATE nullable) —
+    hạn khách (snapshot đơn lúc bung) + hạn nội bộ (buffer planner nhập). Nullable nên không cần
+    default. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "lenh_sx" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "lenh_sx")
+    if "han_giao_khach" not in cols:
+        db.execute(text("ALTER TABLE lenh_sx ADD COLUMN han_giao_khach DATE"))
+    if "han_giao_noi_bo" not in cols:
+        db.execute(text("ALTER TABLE lenh_sx ADD COLUMN han_giao_noi_bo DATE"))
+    db.commit()
+
+
+def _migrate_lenh_sx_khuon_be_id(db: Session) -> None:
+    """③ Gán khuôn bế: thêm `lenh_sx.khuon_be_id` (Integer nullable, soft → khuon_be.id) — điều độ
+    link khuôn cho lệnh có bế. Nullable nên không cần default. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "lenh_sx" not in insp.get_table_names():
+        return
+    if "khuon_be_id" not in _existing_columns(insp, "lenh_sx"):
+        db.execute(text("ALTER TABLE lenh_sx ADD COLUMN khuon_be_id INTEGER"))
+    db.commit()
+
+
+def _migrate_lenh_sx_lich_chay(db: Session) -> None:
+    """④ Lịch chạy (bảng Máy×Ngày): thêm `lenh_sx.ngay_chay` (DATE) + `thu_tu_chay` (INTEGER) +
+    `thoi_luong_phut` (INTEGER — nền Gantt-đầy-đủ pha sau). Nullable nên không cần default.
+    No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "lenh_sx" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "lenh_sx")
+    if "ngay_chay" not in cols:
+        db.execute(text("ALTER TABLE lenh_sx ADD COLUMN ngay_chay DATE"))
+    if "thu_tu_chay" not in cols:
+        db.execute(text("ALTER TABLE lenh_sx ADD COLUMN thu_tu_chay INTEGER"))
+    if "thoi_luong_phut" not in cols:
+        db.execute(text("ALTER TABLE lenh_sx ADD COLUMN thoi_luong_phut INTEGER"))
+    db.commit()
+
+
+def _migrate_routing_step_may_ca(db: Session) -> None:
+    """Lát 1 · 1.12 — tổ tự xếp máy finishing + ca cho bước: thêm `routing_step.may_id` (INTEGER
+    nullable, soft → may_thiet_bi.id) + `ca` (VARCHAR(16) nullable, "Ca 1/2/3"). Record-only. Nullable
+    nên không cần default. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "routing_step" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "routing_step")
+    if "may_id" not in cols:
+        db.execute(text("ALTER TABLE routing_step ADD COLUMN may_id INTEGER"))
+    if "ca" not in cols:
+        db.execute(text("ALTER TABLE routing_step ADD COLUMN ca VARCHAR(16)"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2266,6 +2395,22 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0075_department_la_san_xuat", _migrate_department_la_san_xuat),
     # Handoff Đơn→Kế hoạch: Sale 'Chuyển xuống sản xuất' (sau chốt) → đơn vào hàng chờ.
     ("0078_order_san_xuat_released", _migrate_order_san_xuat_released),
+    # Note kỹ thuật theo sản phẩm (canh màu/kẽm cũ/bù hao) — Tính giá gõ → drawer lệnh.
+    ("0079_ptp_ghi_chu_ky_thuat", _migrate_ptp_ghi_chu_ky_thuat),
+    # Override quy cách in tại lệnh (kế thừa báo giá nhưng sửa được ở nháp).
+    ("0080_lenh_item_quy_cach_override", _migrate_lenh_item_quy_cach_override),
+    # san_xuat: ô quyền gán việc (tổ trưởng gán thợ vào công đoạn lệnh đã phát) — Lát 1.
+    ("0081_role_permission_assign_work", _migrate_role_permission_assign_work),
+    # Lát 1b ②: routing_step chở ghi chú + quy cách BƯỚC (copy từ PhieuThanhPham) — tổ hết trơ.
+    ("0082_routing_step_ghi_chu", _migrate_routing_step_ghi_chu),
+    # Lát 1b ①: hạn giao thành thuộc tính LỆNH (hạn khách snapshot đơn + hạn nội bộ buffer).
+    ("0083_lenh_sx_han_giao", _migrate_lenh_sx_han_giao),
+    # ③: gán khuôn bế vào lệnh (soft → khuon_be.id).
+    ("0084_lenh_sx_khuon_be_id", _migrate_lenh_sx_khuon_be_id),
+    # ④: lịch chạy (bảng Máy×Ngày) — ngày chạy + thứ tự trong ô + thời lượng (nền Gantt sau).
+    ("0085_lenh_sx_lich_chay", _migrate_lenh_sx_lich_chay),
+    ("0086_routing_step_may_ca", _migrate_routing_step_may_ca),
+    ("0087_role_permission_output_handover", _migrate_role_permission_output_handover),
 ]
 
 

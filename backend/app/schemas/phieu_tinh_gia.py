@@ -114,6 +114,7 @@ class ThanhPhanIn(BaseModel):
     # Màu (gộp — chỉ số màu mỗi mặt)
     so_mau_a: int | None = None
     so_mau_b: int | None = None
+    ghi_chu_ky_thuat: str | None = None   # note KỸ THUẬT/SX theo sản phẩm (canh màu/kẽm cũ/bù hao) → drawer lệnh
     thanh_phams: list[ThanhPhamIn] | None = None
     vat_tus: list[VatTuLineIn] | None = None
 
@@ -165,6 +166,7 @@ class ThanhPhanOut(BaseModel):
     # Màu (gộp)
     so_mau_a: int
     so_mau_b: int
+    ghi_chu_ky_thuat: str | None = None   # note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
     gia_von_tp: float
     thanh_phams: list[ThanhPhamOut] = Field(default_factory=list)
     vat_tus: list[VatTuLineOut] = Field(default_factory=list)

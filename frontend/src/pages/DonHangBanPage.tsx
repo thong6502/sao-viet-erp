@@ -18,6 +18,7 @@ import {
   type OrderRow,
   type OrderStatsOut,
 } from "../api/client";
+import { OrderConfirmPrint } from "./OrderConfirmPrint";
 import "./don-hang-ban.css";
 
 const API_BASE = (import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
@@ -386,6 +387,7 @@ function OrderDrawer({
   const { token } = useAuth();
   const [editing, setEditing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [showPrint, setShowPrint] = useState(false);
   const canCancel = (order.status === "draft" && canUpdate) || (order.status === "ordered" && canApproveException);
 
   async function upConsent(f: File) { if (token) onSaved(await api.orders.uploadConsent(token, order.id, f)); }
@@ -451,6 +453,7 @@ function OrderDrawer({
             </div>
             <div className="dhb__drawer-cust"><Icon name="users" size={13} /> {order.customer_name ?? "—"}</div>
           </div>
+          <button className="btn btn--secondary" style={{ height: 32 }} onClick={() => setShowPrint(true)}><Icon name="printer" size={14} /> Xem bản in</button>
           {isDraft && canUpdate && !editing && (
             <button className="btn btn--secondary" style={{ height: 32 }} onClick={() => setEditing(true)}><Icon name="pencil" size={14} /> Sửa</button>
           )}
@@ -838,6 +841,7 @@ function OrderDrawer({
             onSaved={(d) => { setCancelling(false); onSaved(d); }}
           />
         )}
+        {showPrint && <OrderConfirmPrint d={order} onClose={() => setShowPrint(false)} />}
       </aside>
     </div>
   );
@@ -1127,7 +1131,6 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
           </select>
         </Field>
       )}
-      <Field label="Địa chỉ giao"><input value={addr} onChange={(e) => setAddr(e.target.value)} className="dhb__input" /></Field>
       {contacts.length > 0 && (
         <Field label="Chọn người nhận từ danh bạ khách">
           <select value={pickedContactId} onChange={(e) => pickContact(e.target.value)} className="dhb__select" style={{ width: "100%" }}>
@@ -1140,8 +1143,6 @@ function EditForm({ order, onCancel, onSaved }: { order: OrderDetail; onCancel: 
           </select>
         </Field>
       )}
-      <Field label="Người nhận"><input value={contactName} onChange={(e) => setContactName(e.target.value)} placeholder="Tên người nhận hàng" className="dhb__input" /></Field>
-      <Field label="SĐT người nhận"><input value={contactPhone} onChange={(e) => setContactPhone(e.target.value)} placeholder="Số điện thoại" className="dhb__input" /></Field>
       <Field label="Lưu ý giao hàng"><textarea value={deliveryNote} onChange={(e) => setDeliveryNote(e.target.value)} placeholder="Dặn tài xế / khâu giao (giờ giao, tầng, gọi trước…)" className="dhb__input" style={{ minHeight: 56, resize: "vertical" }} /></Field>
       <Field label="Lưu ý sản xuất"><textarea value={productionNote} onChange={(e) => setProductionNote(e.target.value)} placeholder="Dặn tổ in / xưởng (canh màu, cấn bế, gia công…)" className="dhb__input" style={{ minHeight: 56, resize: "vertical" }} /></Field>
       <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 13, cursor: "pointer", userSelect: "none" }}>

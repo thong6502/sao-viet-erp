@@ -194,9 +194,11 @@ export type QuoteEvent =
   // duyệt/từ chối → 'decision' gửi riêng nhân viên đề nghị.
   | { type: "advance_pending_changed"; code?: string }
   | { type: "advance_decision"; code?: string; decision: "approved" | "rejected" }
-  // Sản xuất (§13) dùng CHUNG kênh hub — tín hiệu nhẹ để màn Theo dõi SX / màn thợ refetch + "ting"
-  // đúng tổ (FE lọc theo `to_id`). Số chính xác lấy qua to-board / detail.
-  | { type: "lenh_sx_routing"; lenh_id: number | null; to_id: number | null; pha: "bat_dau" | "hoan_thanh" }
+  // Sản xuất (Lát 1) dùng CHUNG kênh hub — tín hiệu NHẸ để hộp việc tổ refetch + "ting". Số chính
+  // xác lấy qua to-badges/inbox (đã lọc scope server-side). `lenh_sx_routing` = có lệnh mới PHÁT
+  // vào các tổ `to_ids`; `lenh_sx_assigned` = 1 thợ được gán (đích danh tới user).
+  | { type: "lenh_sx_routing"; form_id?: number; lenh_ids?: number[]; to_ids: number[] }
+  | { type: "lenh_sx_assigned"; lenh_id: number; to_id: number | null }
   | { type: "lenh_sx_phat"; form_id: number; lenh_ids: number[] }
   | { type: "lenh_sx_duyet_mau"; lenh_id: number }
   | { type: "lenh_sx_ban_giao"; lenh_id: number; ban_giao_id: number; to_nhan_id: number | null }
@@ -207,6 +209,35 @@ export type QuoteEvent =
   | { type: "order_sx_hint_changed"; code?: string; order_id: number; is_rush: boolean }
   // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
   | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number };
+
+// --- Hộp việc TỔ sản xuất (Lát 1) --------------------------------------------
+export interface ToInboxAssignee { user_id: number; ten: string }
+export interface StepSanLuong { so_dat: number; so_hong: number; don_vi: string }
+export interface StepChoNhan { ban_giao_id: number; so_giao: number; don_vi: string; tu_to_ten: string | null }
+export interface ToInboxStep {
+  step_id: number; thu_tu: number; ten: string;
+  to_id: number | null; to_ten: string | null; is_mine: boolean; assignees: ToInboxAssignee[];
+  ghi_chu: string | null; quy_cach: string | null;   // ② ghi chú + quy cách BƯỚC (tổ hết trơ)
+  may_id: number | null; may_label: string | null; ca: string | null;  // 1.12 máy finishing + ca (tổ tự xếp)
+  san_luong: StepSanLuong | null;   // Lát 2: Σ đạt/hỏng đã ghi cho bước
+  da_giao: number;                  // Lát 2: Σ đã giao đi từ bước
+  cho_nhan: StepChoNhan | null;     // Lát 2: bàn giao đến chờ bước này xác nhận
+}
+export interface ToInboxItem {
+  lenh_id: number; order_id: number; order_no: string | null;
+  khach: string | null; muc_tieu_sl: number; steps: ToInboxStep[];
+  han_giao_khach: string | null; han_giao_noi_bo: string | null;  // ① hạn khách + nội bộ
+  ghi_chu_ky_thuat: string | null;                                // ghi chú kỹ thuật cả lệnh
+  can_khuon: boolean; khuon_be_label: string | null;              // ③ khuôn bế (read-only, điều độ gán)
+  may_in_label: string | null; ngay_chay: string | null;          // ④ lịch chạy máy in (read-only)
+}
+export interface ToInboxOut {
+  to_id: number; to_ten: string; to_ma: string;
+  view: "full" | "assigned"; can_assign: boolean; items: ToInboxItem[];
+}
+export interface ToMember { user_id: number; ten: string; chuc_vu: string | null }
+export interface FinishingMay { id: number; ma: string; ten: string }  // 1.12 máy finishing (đã lọc non-press server-side)
+export interface ToBadge { to_id: number; count: number }
 
 export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
   let closed = false;
@@ -436,6 +467,9 @@ export interface ModuleCapability {
   /** khach_hang — thiết lập điều khoản tín dụng khách (hạn mức + điều khoản thanh toán). */
   can_set_credit_terms: boolean;
   can_record_deposit: boolean;
+  can_assign_work: boolean;
+  can_record_output: boolean;
+  can_handover: boolean;
 }
 
 /** A live login session (active refresh token) for the admin user-detail view (spec-08). */
@@ -484,6 +518,9 @@ export interface PermissionRow {
   can_approve_exception: boolean;
   can_set_credit_terms: boolean;
   can_record_deposit: boolean;
+  can_assign_work: boolean;
+  can_record_output: boolean;
+  can_handover: boolean;
 }
 
 // --- Khách hàng (CRM), spec-06 v2 -------------------------------------------
@@ -2909,6 +2946,9 @@ export interface LenhSXRow {
   phieu_thanh_phan_id: number | null;
   may_id: number | null;
   trang_thai: string; // nhap | dang_chay | xong | huy
+  khuon_be_id: number | null;      // ③ khuôn bế đã gán
+  han_giao_khach: string | null;   // ① hạn KHÁCH (snapshot đơn lúc bung)
+  han_giao_noi_bo: string | null;   // ① hạn NỘI BỘ (buffer planner nhập)
   mau_approved_at: string | null;
   mau_approved_by: number | null;
   mau_approved_snapshot: MauApprovedSnapshot | null;
@@ -2947,6 +2987,8 @@ export interface RoutingStepRow {
   cong_doan_id: number | null;
   to_id: number | null;
   ten: string;
+  ghi_chu: string | null;    // ② ghi chú kỹ thuật bước (chép từ báo giá)
+  quy_cach: string | null;   // ② quy cách bước "N mặt · M vị trí"
 }
 // 1 BÀI CON của lệnh (ấn phẩm được pick vào lệnh) — giữ chi tiết để không mất khi gom.
 export interface LenhItemRow {
@@ -2982,6 +3024,39 @@ export interface LenhSXDetailOut extends LenhSXRow {
   routing: RoutingStepRow[];
   forms: PrintFormRow[];
   muc_tieu_sl: number;
+  ghi_chu_ky_thuat: string | null;   // ghi chú kỹ thuật CẢ LỆNH (đọc sống từ ấn phẩm đại diện)
+  can_khuon: boolean;                // ③ lệnh có công đoạn bế → cần gán khuôn
+  khuon_be_label: string | null;     // ③ khuôn đã gán "mã · tên"
+}
+
+// ③ Danh mục khuôn bế (đọc để gán vào lệnh có bế)
+export interface KhuonBeRow {
+  id: number;
+  ma: string;
+  ten: string;
+  khach_hang: string | null;
+  so_ke: string | null;
+  tinh_trang: string;
+  active: boolean;
+}
+
+// ④ 1 lệnh trong bảng lịch chạy (Máy × Ngày)
+export interface LichChayRow {
+  lenh_id: number;
+  ma: string;
+  trang_thai: string;   // gate resize hạn nội bộ trên Gantt (sau phát khóa hạn)
+  order_no: string | null;
+  khach: string | null;
+  giay_label: string | null;
+  spec_tom_tat: string;
+  may_id: number | null;
+  ngay_chay: string | null;
+  thu_tu_chay: number | null;
+  thoi_luong_phut: number | null;
+  han_giao_khach: string | null;
+  han_giao_noi_bo: string | null;
+  can_khuon: boolean;
+  khuon_be_id: number | null;
 }
 // 1 công đoạn routing GỐC của ấn phẩm (đọc từ Tính giá) — KHÔNG có đơn giá (cô lập thương mại).
 export interface RoutingGocRow {
@@ -4544,6 +4619,63 @@ export const api = {
     phat(token: string, formId: number): Promise<PrintFormRow> {
       return authed<PrintFormRow>(`/api/lenh-sx/forms/${formId}/phat`, token, { method: "POST" });
     },
+    // --- Hộp việc TỔ (Lát 1): badge navbar · inbox 2 tầng · gán/bỏ gán thợ ---
+    toBadges(token: string): Promise<{ items: ToBadge[] }> {
+      return authed<{ items: ToBadge[] }>(`/api/lenh-sx/to-badges`, token);
+    },
+    toInbox(token: string, toId: number): Promise<ToInboxOut> {
+      return authed<ToInboxOut>(`/api/lenh-sx/to/${toId}/inbox`, token);
+    },
+    toMembers(token: string, toId: number): Promise<{ items: ToMember[] }> {
+      return authed<{ items: ToMember[] }>(`/api/lenh-sx/to/${toId}/members`, token);
+    },
+    // 1.12 — máy finishing (bế/cán/bồi) cho tổ xếp máy bước; đã lọc non-press + gác san_xuat:read.
+    finishingMays(token: string): Promise<{ items: FinishingMay[] }> {
+      return authed<{ items: FinishingMay[] }>(`/api/lenh-sx/finishing-mays`, token);
+    },
+    assign(token: string, stepId: number, userIds: number[]): Promise<{ ok: boolean; count: number }> {
+      return authed<{ ok: boolean; count: number }>(`/api/lenh-sx/routing/${stepId}/assign`, token, {
+        method: "POST", body: JSON.stringify({ user_ids: userIds }),
+      });
+    },
+    unassign(token: string, stepId: number, userId: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/lenh-sx/routing/${stepId}/assign/${userId}`, token, {
+        method: "DELETE",
+      });
+    },
+    // 1.12 — tổ xếp máy finishing + ca cho 1 bước (record-only; máy CHỈ GHI NHẬN). may_id=null gỡ máy; ca=""/null gỡ ca.
+    setStepMayCa(
+      token: string, stepId: number, body: { may_id: number | null; ca: string | null },
+    ): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/lenh-sx/routing/${stepId}/may-ca`, token, {
+        method: "PUT", body: JSON.stringify(body),
+      });
+    },
+    // Lát 2 — ghi 1 đợt sản lượng đạt/hỏng cho bước (record-only, cộng dồn).
+    ghiSanLuong(
+      token: string, stepId: number,
+      body: { so_dat: number; so_hong: number; don_vi: string; ghi_chu?: string | null },
+    ): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/lenh-sx/routing/${stepId}/san-luong`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
+    // Lát 2 — tổ giao số sang bước kế (ting đích danh tổ nhận).
+    banGiao(
+      token: string, stepId: number, body: { so_giao: number; don_vi: string },
+    ): Promise<{ ok: boolean; ban_giao_id: number }> {
+      return authed<{ ok: boolean; ban_giao_id: number }>(`/api/lenh-sx/routing/${stepId}/ban-giao`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
+    // Lát 2 — tổ nhận xác nhận số nhận (con dấu 2, lệch được).
+    xacNhanNhan(
+      token: string, banGiaoId: number, body: { so_nhan: number; ly_do_lech?: string | null },
+    ): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/lenh-sx/ban-giao/${banGiaoId}/nhan`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
     // --- Routing (Chunk B · §13.2): copy từ tính giá khi bung, kế hoạch sửa (thêm/bớt/đổi thứ tự/tổ). ---
     routing(token: string, lenhId: number): Promise<RoutingStepRow[]> {
       return authed<RoutingStepRow[]>(`/api/lenh-sx/lenh/${lenhId}/routing`, token);
@@ -4583,6 +4715,48 @@ export const api = {
         body: JSON.stringify({ order_id: orderId }),
       });
     },
+    // ① Kế hoạch SỬA hạn giao (khách/nội bộ) — CHỈ khi lệnh nháp; sau phát 409. Field nào gửi thì set.
+    suaHanGiao(
+      token: string, lenhId: number,
+      body: { han_giao_khach?: string | null; han_giao_noi_bo?: string | null },
+    ): Promise<LenhSXRow> {
+      return authed<LenhSXRow>(`/api/lenh-sx/lenh/${lenhId}/han-giao`, token, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    },
+    // ③ Điều độ gán khuôn bế cho lệnh (null = gỡ). Record-only, không chặn phát.
+    ganKhuon(token: string, lenhId: number, khuonBeId: number | null): Promise<LenhSXRow> {
+      return authed<LenhSXRow>(`/api/lenh-sx/lenh/${lenhId}/khuon`, token, {
+        method: "PUT",
+        body: JSON.stringify({ khuon_be_id: khuonBeId }),
+      });
+    },
+    // ④ Bảng Máy × Ngày: các lệnh nháp + đang chạy (FE tự dồn vào ô/khay).
+    lichChay(token: string, params: { from?: string; to?: string } = {}): Promise<LichChayRow[]> {
+      const qs = new URLSearchParams();
+      if (params.from) qs.set("from", params.from);
+      if (params.to) qs.set("to", params.to);
+      const s = qs.toString();
+      return authed<LichChayRow[]>(`/api/lenh-sx/lich-chay${s ? `?${s}` : ""}`, token);
+    },
+    // ④ Kéo lệnh vào ô (máy, ngày) / gỡ khỏi lưới — field nào gửi thì set (cho null).
+    xepLich(
+      token: string, lenhId: number,
+      body: { may_id?: number | null; ngay_chay?: string | null; thu_tu_chay?: number | null; thoi_luong_phut?: number | null },
+    ): Promise<LenhSXRow> {
+      return authed<LenhSXRow>(`/api/lenh-sx/lenh/${lenhId}/lich-chay`, token, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    },
+    // ④ Đổi thứ tự chạy trong 1 ô (máy×ngày) — mảng id theo thứ tự mới.
+    xepLichReorder(token: string, lenhIds: number[]): Promise<LenhSXRow[]> {
+      return authed<LenhSXRow[]>(`/api/lenh-sx/lich-chay/reorder`, token, {
+        method: "POST",
+        body: JSON.stringify({ lenh_ids: lenhIds }),
+      });
+    },
     // PICK gom: người kế hoạch chọn nhóm ấn phẩm (cùng 1 đơn) → 1 LỆNH nháp + bài con. Máy CHỈ GHI.
     taoLenh(token: string, orderId: number, phieuThanhPhanIds: number[]): Promise<LenhSXRow> {
       return authed<LenhSXRow>(`/api/lenh-sx/lenh`, token, {
@@ -4602,6 +4776,17 @@ export const api = {
         method: "PUT",
         body: JSON.stringify(override),
       });
+    },
+  },
+
+  // --- Khuôn bế (danh mục — đọc để gán vào lệnh có bế) ----------------------
+  khuonBe: {
+    list(token: string, params: { q?: string; active?: boolean } = {}): Promise<{ items: KhuonBeRow[] }> {
+      const qs = new URLSearchParams();
+      if (params.q) qs.set("q", params.q);
+      if (params.active != null) qs.set("active", String(params.active));
+      const s = qs.toString();
+      return authed<{ items: KhuonBeRow[] }>(`/api/khuon-be${s ? `?${s}` : ""}`, token);
     },
   },
 

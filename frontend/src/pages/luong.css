@@ -167,8 +167,11 @@
 
 /* In phiếu lương: chỉ in card, ẩn phần còn lại */
 @media print {
-  body * { visibility: hidden !important; }
-  .lg-payslip-print, .lg-payslip-print * { visibility: visible !important; }
+  /* CHỈ ẩn-hết-trừ-phiếu-lương KHI đang in phiếu lương. Trước đây `body *` global →
+     ẩn sạch bản in của MỌI màn khác (vd Phiếu tính giá bị trắng). Scope theo phiếu lương. */
+  body:has(.lg-payslip-print) * { visibility: hidden !important; }
+  body:has(.lg-payslip-print) .lg-payslip-print,
+  body:has(.lg-payslip-print) .lg-payslip-print * { visibility: visible !important; }
   /* Gỡ ràng buộc của modal (fixed/flex căn giữa/overflow:hidden/max-height/animation)
      — nếu không, khi in header/footer bị ẩn + phiếu position:absolute → box co ~0 cao
      → overflow:hidden CẮT CỤT phiếu. Neutralize để phiếu in tràn trang. */

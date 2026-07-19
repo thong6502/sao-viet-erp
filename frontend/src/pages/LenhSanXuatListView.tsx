@@ -6,6 +6,7 @@ import {
   api,
   ApiError,
   connectQuoteEvents,
+  type CongDoanLite,
   type HangChoDon,
   type LenhSXRow,
   type OrderRow,
@@ -13,7 +14,9 @@ import {
 import { mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { StatusTabs } from "../components/StatusTabs";
+import { AnPhamDrawer } from "./AnPhamDrawer";
 import { ToastStack, useToasts } from "./LsxToast";
+import { hanGiao } from "../utils/format";
 import "./lenh-san-xuat.css";
 
 // Trạng thái lệnh (suy ra ở BE, record-only) → nhãn + biến thể badge (màu app).
@@ -35,32 +38,17 @@ function fmtDate(v: string | null | undefined): string {
   return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("vi-VN");
 }
 
-// Đếm ngược hạn giao → nhãn + mức khẩn (đổi màu). Máy CHỈ trình bày theo data, không phán.
-function hanGiao(v: string | null | undefined): { label: string; level: "over" | "soon" | "ok" } | null {
-  if (!v) return null;
-  const d = new Date(v);
-  if (isNaN(d.getTime())) return null;
-  const today = new Date();
-  const day = 86400000;
-  const diff = Math.round(
-    (Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) -
-      Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) / day,
-  );
-  if (diff < 0) return { label: `Quá hạn ${-diff} ngày`, level: "over" };
-  if (diff === 0) return { label: "Hạn hôm nay", level: "over" };
-  if (diff <= 3) return { label: `Còn ${diff} ngày`, level: "soon" };
-  return { label: `Còn ${diff} ngày`, level: "ok" };
-}
-
 const anPhamLabel = (id: number | null): string =>
   id ? `Ấn phẩm #${id}` : "— chưa gắn ấn phẩm";
 
 export function LenhSanXuatListView({
   onOpen,
   onGhep,
+  onLich,
 }: {
   onOpen: (id: number) => void;
   onGhep: () => void;
+  onLich: () => void;
 }) {
   const { token } = useAuth();
   const { toasts, ok: toastOk, err: toastErr, dismiss: toastDismiss } = useToasts();
@@ -69,11 +57,15 @@ export function LenhSanXuatListView({
   const [items, setItems] = useState<LenhSXRow[]>([]);
   const [orders, setOrders] = useState<Map<number, OrderRow>>(new Map());
   const [mays, setMays] = useState<Map<number, Row>>(new Map());
+  const [congDoans, setCongDoans] = useState<Map<number, CongDoanLite>>(new Map());
   const [hangCho, setHangCho] = useState<HangChoDon[]>([]);
-  const [bungBusy, setBungBusy] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState("cho_kh");
+  // Chọn ấn phẩm (ptpId) để Gộp / Tách thành lệnh nháp; + drawer chi tiết ấn phẩm.
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [taoBusy, setTaoBusy] = useState(false);
+  const [drawer, setDrawer] = useState<{ ptpId: number; orderNo: string; khach: string | null } | null>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(q.trim().toLowerCase()), 200);
@@ -89,12 +81,24 @@ export function LenhSanXuatListView({
       api.orders.list(token, { size: 200 }).catch(() => ({ items: [] as OrderRow[] })),
       mayThietBi.list(token).catch(() => ({ items: [] as Row[] })),
       api.lenhSanXuat.hangCho(token).catch(() => [] as HangChoDon[]),
+      api.congDoan.list(token).catch(() => ({ items: [] as CongDoanLite[] })),
     ])
-      .then(([lenh, ord, may, hc]) => {
+      .then(([lenh, ord, may, hc, cd]) => {
         setItems(lenh.items);
         setOrders(new Map(ord.items.map((o) => [o.id, o])));
         setMays(new Map(may.items.map((m) => [m.id, m])));
+        setCongDoans(new Map(cd.items.map((c) => [c.id, c])));
         setHangCho(hc);
+        // SSE/refetch: giữ selection cho ptp CÒN TỒN TẠI, bỏ ptp đã lên lệnh.
+        const valid = new Set<number>();
+        hc.forEach((d) =>
+          d.an_pham.forEach((a) => a.phieu_thanh_phan_id != null && valid.add(a.phieu_thanh_phan_id)),
+        );
+        setSelected((prev) => {
+          const next = new Set<number>();
+          prev.forEach((p) => valid.has(p) && next.add(p));
+          return next.size === prev.size ? prev : next;
+        });
       })
       .catch((e) =>
         setError(e instanceof ApiError ? e.message : "Không tải được danh sách lệnh sản xuất."),
@@ -121,26 +125,6 @@ export function LenhSanXuatListView({
     });
   }, [token, toastOk]);
 
-  // Kế hoạch NHẬN đơn: bung (idempotent) → lệnh nháp; rời hàng chờ, nhảy sang tab Nháp.
-  const doBung = useCallback(
-    async (orderId: number, orderNo: string) => {
-      if (!token || bungBusy != null) return;
-      setBungBusy(orderId);
-      try {
-        const lenhs = await api.lenhSanXuat.bung(token, orderId);
-        setHangCho((hc) => hc.filter((x) => x.order_id !== orderId));
-        toastOk(`Đã lên kế hoạch ${orderNo} — ${lenhs.length} lệnh nháp`);
-        setStatusFilter("nhap");
-        load();
-      } catch (e) {
-        toastErr(e instanceof ApiError ? e.message : "Không lên kế hoạch được đơn này.");
-      } finally {
-        setBungBusy(null);
-      }
-    },
-    [token, bungBusy, load, toastOk, toastErr],
-  );
-
   const mayName = useCallback(
     (id: number | null): string | null => {
       if (id == null) return null;
@@ -148,6 +132,117 @@ export function LenhSanXuatListView({
       return m ? String(m.ten ?? m.ma ?? `#${id}`) : `Máy #${id}`;
     },
     [mays],
+  );
+  const cdName = useCallback(
+    (id: number | null): string => {
+      if (id == null) return "—";
+      const c = congDoans.get(id);
+      return c ? c.ten : `Công đoạn #${id}`;
+    },
+    [congDoans],
+  );
+
+  // ptp → đơn (để biết chọn có cùng 1 đơn không → cho phép Gộp).
+  const ptpOrder = useMemo(() => {
+    const m = new Map<number, { orderId: number; orderNo: string }>();
+    hangCho.forEach((d) =>
+      d.an_pham.forEach((a) => {
+        if (a.phieu_thanh_phan_id != null)
+          m.set(a.phieu_thanh_phan_id, { orderId: d.order_id, orderNo: d.order_no });
+      }),
+    );
+    return m;
+  }, [hangCho]);
+
+  const selOrderIds = useMemo(() => {
+    const s = new Set<number>();
+    selected.forEach((p) => {
+      const o = ptpOrder.get(p);
+      if (o) s.add(o.orderId);
+    });
+    return s;
+  }, [selected, ptpOrder]);
+  const sameOrder = selOrderIds.size === 1;
+  const soleOrderNo = useMemo(() => {
+    if (!sameOrder) return null;
+    const first = [...selected][0];
+    return first != null ? ptpOrder.get(first)?.orderNo ?? null : null;
+  }, [sameOrder, selected, ptpOrder]);
+
+  const toggleAp = useCallback((ptpId: number) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(ptpId)) next.delete(ptpId);
+      else next.add(ptpId);
+      return next;
+    });
+  }, []);
+  // Chọn/bỏ cả đơn: tick mọi ấn phẩm (có ptp) của đơn; indeterminate khi chọn 1 phần.
+  const toggleOrder = useCallback((hc: HangChoDon) => {
+    const ids = hc.an_pham
+      .map((a) => a.phieu_thanh_phan_id)
+      .filter((x): x is number => x != null);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      const allOn = ids.length > 0 && ids.every((id) => next.has(id));
+      if (allOn) ids.forEach((id) => next.delete(id));
+      else ids.forEach((id) => next.add(id));
+      return next;
+    });
+  }, []);
+
+  // Gộp = 1 lệnh (mọi ptp cùng 1 đơn) · Tách = mỗi ptp 1 lệnh (gom theo đơn). Sau thành công:
+  // bỏ ap đã lên lệnh khỏi hàng chờ, clear chọn, toast, reload để badge tab Nháp nhảy — Ở LẠI cho_kh.
+  const createLenh = useCallback(
+    async (mode: "gop" | "tach") => {
+      if (!token || taoBusy || selected.size === 0) return;
+      const ptps = [...selected];
+      const byOrder = new Map<number, number[]>();
+      for (const p of ptps) {
+        const o = ptpOrder.get(p);
+        if (o == null) continue;
+        const arr = byOrder.get(o.orderId);
+        if (arr) arr.push(p);
+        else byOrder.set(o.orderId, [p]);
+      }
+      if (byOrder.size === 0) return;
+      if (mode === "gop" && byOrder.size !== 1) return; // an toàn: Gộp chỉ trong 1 đơn
+      setTaoBusy(true);
+      try {
+        let n = 0;
+        if (mode === "gop") {
+          const [orderId, ps] = [...byOrder.entries()][0];
+          await api.lenhSanXuat.taoLenh(token, orderId, ps);
+          n = 1;
+        } else {
+          for (const [orderId, ps] of byOrder) {
+            for (const p of ps) {
+              await api.lenhSanXuat.taoLenh(token, orderId, [p]);
+              n += 1;
+            }
+          }
+        }
+        const done = new Set(ptps);
+        setHangCho((hc) =>
+          hc
+            .map((d) => ({
+              ...d,
+              an_pham: d.an_pham.filter(
+                (a) => a.phieu_thanh_phan_id == null || !done.has(a.phieu_thanh_phan_id),
+              ),
+            }))
+            .filter((d) => d.an_pham.length > 0),
+        );
+        setSelected(new Set());
+        toastOk(`Đã tạo ${n} lệnh nháp — xem tab Nháp`);
+        load();
+      } catch (e) {
+        toastErr(e instanceof ApiError ? e.message : "Không tạo được lệnh.");
+      } finally {
+        setTaoBusy(false);
+      }
+    },
+    [token, taoBusy, selected, ptpOrder, load, toastOk, toastErr],
   );
 
   const filtered = useMemo(() => {
@@ -203,6 +298,9 @@ export function LenhSanXuatListView({
           </p>
         </div>
         <div className="lsx-head__actions">
+          <button type="button" className="btn btn--secondary" onClick={onLich}>
+            <CalendarIcon /> Lịch chạy
+          </button>
           <button type="button" className="btn btn--primary" onClick={onGhep}>
             <PlusLayersIcon /> Ghép bài
           </button>
@@ -261,72 +359,186 @@ export function LenhSanXuatListView({
               {debouncedQ ? "Không có đơn chờ phù hợp." : "Chưa có đơn nào chờ lên kế hoạch."}
             </p>
             <p className="lsx-empty__sub">
-              Đơn bán vừa được chốt sẽ hiện ở đây (real-time) để kế hoạch bấm “Lên kế hoạch”.
+              Đơn bán vừa chốt hiện ở đây (real-time). Tick ấn phẩm rồi <b>Gộp</b> thành 1 lệnh hoặc{" "}
+              <b>Tách</b> mỗi ấn phẩm 1 lệnh.
             </p>
           </div>
         ) : (
-          <ul className="lsx-hc">
-            {hcFiltered.map((hc) => {
-              const due = hanGiao(hc.delivery_committed_date);
-              return (
-                <li key={hc.order_id} className={`lsx-hc__card${hc.is_rush ? " is-rush" : ""}`}>
-                  <div className="lsx-hc__top">
-                    <div className="lsx-hc__idline">
-                      <span className="lsx-code">{hc.order_no}</span>
-                      {hc.is_rush ? (
-                        <span className="lsx-badge lsx-badge--danger">
-                          <span className="lsx-badge__d" /> GẤP
-                        </span>
-                      ) : null}
+          <>
+            <ul className={`lsx-book${selected.size > 0 ? " lsx-book--pad" : ""}`}>
+              {hcFiltered.map((hc) => {
+                const due = hanGiao(hc.delivery_committed_date);
+                const ids = hc.an_pham
+                  .map((a) => a.phieu_thanh_phan_id)
+                  .filter((x): x is number => x != null);
+                const selCount = ids.filter((id) => selected.has(id)).length;
+                const allOn = ids.length > 0 && selCount === ids.length;
+                const someOn = selCount > 0 && !allOn;
+                return (
+                  <li key={hc.order_id} className={`lsx-book__group${hc.is_rush ? " is-rush" : ""}`}>
+                    <div className="lsx-book__ghd">
+                      <div className="lsx-book__ghdl">
+                        <button
+                          type="button"
+                          className={`lsx-check${allOn ? " is-on" : someOn ? " is-mixed" : ""}`}
+                          role="checkbox"
+                          aria-checked={allOn ? "true" : someOn ? "mixed" : "false"}
+                          aria-label={`Chọn cả đơn ${hc.order_no}`}
+                          disabled={ids.length === 0}
+                          onClick={() => toggleOrder(hc)}
+                        >
+                          {allOn ? <CheckIcon /> : someOn ? <DashIcon /> : null}
+                        </button>
+                        <div className="lsx-book__idblk">
+                          <span className="lsx-book__khach">{hc.khach ?? "— khách chưa gán"}</span>
+                          <span className="lsx-book__ma">{hc.order_no}</span>
+                        </div>
+                      </div>
+                      <div className="lsx-book__ghdr">
+                        {due ? (
+                          <span className={`lsx-due lsx-due--${due.level}`}>
+                            <ClockIcon /> {due.label}
+                          </span>
+                        ) : null}
+                        {hc.is_rush ? (
+                          <span className="lsx-badge lsx-badge--danger">
+                            <ZapIcon /> GẤP
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
-                    {due ? (
-                      <span className={`lsx-due lsx-due--${due.level}`}>
-                        <ClockIcon /> {due.label}
-                      </span>
+                    {hc.production_note ? (
+                      <div className="lsx-book__note">
+                        <NoteIcon />
+                        <span>
+                          <strong>Lưu ý SX:</strong> {hc.production_note}
+                        </span>
+                      </div>
                     ) : null}
-                  </div>
-                  <div className="lsx-hc__cust">{hc.khach ?? "— khách chưa gán"}</div>
-                  {hc.production_note ? (
-                    <div className="lsx-hc__note">
-                      <NoteIcon />
-                      <span>{hc.production_note}</span>
+                    <div className="lsx-book__rows">
+                      {hc.an_pham.map((a, i) => {
+                        const ptp = a.phieu_thanh_phan_id;
+                        const on = ptp != null && selected.has(ptp);
+                        const chips = (a.spec_tom_tat || "")
+                          .split(" · ")
+                          .map((s) => s.trim())
+                          .filter(Boolean);
+                        const open = () => {
+                          if (ptp != null)
+                            setDrawer({ ptpId: ptp, orderNo: hc.order_no, khach: hc.khach });
+                        };
+                        return (
+                          <div
+                            key={ptp ?? `x${i}`}
+                            className={`lsx-rec${on ? " is-sel" : ""}`}
+                            role="button"
+                            tabIndex={ptp != null ? 0 : -1}
+                            onClick={open}
+                            onKeyDown={(e) => {
+                              if (ptp != null && (e.key === "Enter" || e.key === " ")) {
+                                e.preventDefault();
+                                open();
+                              }
+                            }}
+                          >
+                            <div className="lsx-rec__checkcell">
+                              <button
+                                type="button"
+                                className={`lsx-check${on ? " is-on" : ""}`}
+                                role="checkbox"
+                                aria-checked={on}
+                                aria-label={`Chọn ${a.description || "ấn phẩm"}`}
+                                disabled={ptp == null}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (ptp != null) toggleAp(ptp);
+                                }}
+                              >
+                                {on ? <CheckIcon /> : null}
+                              </button>
+                            </div>
+                            <div className="lsx-rec__nameblk">
+                              <span className="lsx-rec__name">
+                                {a.description || anPhamLabel(ptp)}
+                              </span>
+                            </div>
+                            <div className="lsx-rec__qty">
+                              <span className="lsx-rec__qtyn">{a.qty.toLocaleString("vi-VN")}</span>
+                              <span className="lsx-rec__qtyu">{a.don_vi_tinh}</span>
+                            </div>
+                            <div className="lsx-rec__chips">
+                              {chips.map((c, ci) => (
+                                <span className="lsx-specchip" key={ci}>
+                                  <span className="lsx-specchip__v">{c}</span>
+                                </span>
+                              ))}
+                            </div>
+                            <span className="lsx-rec__chev" aria-hidden="true">
+                              <ChevIcon />
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
-                  ) : null}
-                  <ul className="lsx-hc__aps">
-                    {hc.an_pham.map((a, i) => (
-                      <li key={i} className="lsx-hc__ap">
-                        <span className="lsx-hc__apname">
-                          {a.description || anPhamLabel(a.phieu_thanh_phan_id)}
-                        </span>
-                        <span className="lsx-hc__apqty mono">
-                          {a.qty.toLocaleString("vi-VN")} {a.don_vi_tinh}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="lsx-hc__foot">
-                    <span className="lsx-hc__apcount">
-                      {hc.an_pham.length} ấn phẩm → {hc.an_pham.length} lệnh
-                    </span>
-                    <button
-                      type="button"
-                      className="btn btn--primary lsx-hc__btn"
-                      disabled={bungBusy != null}
-                      onClick={() => doBung(hc.order_id, hc.order_no)}
+                  </li>
+                );
+              })}
+            </ul>
+
+            {selected.size > 0 ? (
+              <div className="lsx-actionbar">
+                <div className="lsx-actionbar__l">
+                  <span className="lsx-actionbar__ic">
+                    <CheckDot />
+                  </span>
+                  <div className="lsx-actionbar__txt">
+                    <span className="lsx-actionbar__n">Đã chọn {selected.size} ấn phẩm</span>
+                    <span
+                      className={`lsx-actionbar__sub lsx-actionbar__sub--${sameOrder ? "same" : "multi"}`}
                     >
-                      {bungBusy === hc.order_id ? (
-                        "Đang lên kế hoạch…"
-                      ) : (
-                        <>
-                          <ArrowDownIcon /> Lên kế hoạch
-                        </>
-                      )}
-                    </button>
+                      {sameOrder ? `cùng đơn ${soleOrderNo ?? ""}` : `thuộc ${selOrderIds.size} đơn`}
+                    </span>
                   </div>
-                </li>
-              );
-            })}
-          </ul>
+                  <button
+                    type="button"
+                    className="lsx-actionbar__clear"
+                    onClick={() => setSelected(new Set())}
+                  >
+                    Bỏ chọn
+                  </button>
+                </div>
+                <div className="lsx-actionbar__r">
+                  <button
+                    type="button"
+                    className="btn btn--secondary"
+                    disabled={taoBusy}
+                    onClick={() => createLenh("tach")}
+                  >
+                    <PlusLayersIcon /> Mỗi ấn phẩm 1 lệnh
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--primary"
+                    disabled={taoBusy || !sameOrder}
+                    onClick={() => createLenh("gop")}
+                    title={
+                      sameOrder
+                        ? "Gộp các ấn phẩm đã chọn thành 1 lệnh"
+                        : "Chỉ gộp được khi các ấn phẩm cùng 1 đơn"
+                    }
+                  >
+                    <LayersIcon /> {taoBusy ? "Đang tạo…" : "Gộp thành 1 lệnh"}
+                  </button>
+                  {!sameOrder ? (
+                    <p className="lsx-actionbar__reason">
+                      Chỉ gộp trong cùng 1 đơn — dùng <b>Mỗi ấn phẩm 1 lệnh</b>, hoặc ghép xuyên đơn ở
+                      Ghép bài.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </>
         )
       ) : (
       <>
@@ -425,14 +637,25 @@ export function LenhSanXuatListView({
                       </span>
                     </td>
                     <td>
-                      <span className="mono" style={{ fontSize: 12.5 }}>
-                        {fmtDate(o?.delivery_committed_date)}
-                      </span>
-                      {o?.is_rush ? (
-                        <span className="lsx-rush">
-                          <ZapIcon /> Gấp
-                        </span>
-                      ) : null}
+                      {(() => {
+                        const nb = hanGiao(r.han_giao_noi_bo ?? r.han_giao_khach);
+                        const showKH = !!r.han_giao_noi_bo && !!r.han_giao_khach;
+                        return (
+                          <div className="lsx-duestack">
+                            {nb ? (
+                              <span className={`lsx-due lsx-due--${nb.level}`}><ClockIcon /> {nb.label}</span>
+                            ) : (
+                              <span className="muted">—</span>
+                            )}
+                            {showKH && (
+                              <span className="lsx-hardline"><FlagIcon /> Khách <b>{fmtDate(r.han_giao_khach)}</b></span>
+                            )}
+                            {o?.is_rush && (
+                              <span className="lsx-rush"><ZapIcon /> Gấp</span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td>
                       <span className="mono" style={{ fontSize: 12, color: "var(--ash)" }}>
@@ -454,6 +677,17 @@ export function LenhSanXuatListView({
       ) : null}
       </>
       )}
+
+      {drawer && token ? (
+        <AnPhamDrawer
+          token={token}
+          ptpId={drawer.ptpId}
+          ctx={{ orderNo: drawer.orderNo, khach: drawer.khach ?? undefined }}
+          cdName={cdName}
+          mayName={mayName}
+          onClose={() => setDrawer(null)}
+        />
+      ) : null}
 
       <ToastStack toasts={toasts} onDismiss={toastDismiss} />
     </main>
@@ -484,6 +718,12 @@ const ZapIcon = () => (
     <path d="M13 2 4.5 13.2h6.2L10 22l8.5-11.2h-6.2Z" />
   </svg>
 );
+const FlagIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+    <path d="M4 22v-7" />
+  </svg>
+);
 const EmptyIcon = () => (
   <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" className="lsx-empty__icon" aria-hidden="true">
     <rect x="5" y="4.5" width="14" height="16.5" rx="2" />
@@ -498,15 +738,43 @@ const PlusLayersIcon = () => (
     <path d="M18 14v6M15 17h6" />
   </svg>
 );
+const CalendarIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3.5" y="5" width="17" height="16" rx="2" />
+    <path d="M3.5 9.5h17M8 3v4M16 3v4" />
+  </svg>
+);
 const NoteIcon = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M15.5 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L15.5 3Z" />
     <path d="M15 3v5h5M8.5 12.5h7M8.5 16h5" />
   </svg>
 );
-const ArrowDownIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 4.5v13M6.5 12 12 17.5 17.5 12" />
+const CheckIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M20 6 9 17l-5-5" />
+  </svg>
+);
+const DashIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 12h12" />
+  </svg>
+);
+const ChevIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m9 6 6 6-6 6" />
+  </svg>
+);
+const CheckDot = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="9" />
+    <path d="m8.5 12 2.5 2.5 4.5-5" />
+  </svg>
+);
+const LayersIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+    <path d="m3 13 9 5 9-5" />
   </svg>
 );
 const InboxIcon = () => (

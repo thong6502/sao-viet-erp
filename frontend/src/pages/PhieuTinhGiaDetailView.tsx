@@ -3,7 +3,7 @@
 // UI: LIST (bám RebuildCatalogPage: badge + row + Sửa/Xóa) + DRAWER (.rc-drawer*) sửa 1 thành phần,
 // trong drawer có SƠ ĐỒ BÌNH BÀI live. Auto + override giữ nguyên. "Tính giá" = update(id) (BE
 // replace-all + tính lại + snapshot) → refresh từ Out. LƯU = TÍNH.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -103,9 +103,14 @@ const FORMULA_UNIT: Record<string, string> = {
   dinh_luong: "gsm", dai_nguyen: "cm", rong_nguyen: "cm",
   so_mat: "mặt", so_kem: "kẽm", so_luong: "cái",
 };
+// Tên hàm toán (max/min/ceil/floor/round) — GIỮ NGUYÊN trong diễn giải, không humanize như biến.
+const MATH_FN = new Set(["max", "min", "ceil", "floor", "round"]);
 function humanizeFormula(s: string): string {
   if (!s) return s;
-  return s.replace(/([a-zA-Z_][a-zA-Z0-9_]*)\(([^)]*)\)/g, (_m, name: string, val: string) => {
+  // Chỉ match token biến-thế-số dạng name(SỐ) — inner chỉ gồm chữ số/dấu . , khoảng trắng.
+  // Nhờ vậy KHÔNG "nuốt" lời gọi hàm max(so_kem(4) × …) (inner của hàm có chữ + toán tử).
+  return s.replace(/([a-zA-Z_][a-zA-Z0-9_]*)\(([\d.,\s]*)\)/g, (m, name: string, val: string) => {
+    if (MATH_FN.has(name)) return m;   // giữ nguyên vd max(380.000, 999.000)
     const unit = FORMULA_UNIT[name];
     const v = val.trim();
     return unit ? `${v} ${unit}` : v;
@@ -174,6 +179,7 @@ interface EditableComponent {
   // Màu (gộp)
   so_mau_a: number;
   so_mau_b: number;
+  ghi_chu_ky_thuat: string; // Lưu ý SX / ghi chú kỹ thuật theo sản phẩm → drawer lệnh SX
   gia_von_tp: number; // read-only từ lần tính gần nhất
   thanh_phams: EditableFinishing[];
   vat_tus: EditableVatTu[];
@@ -234,6 +240,7 @@ function blankComponent(ten = ""): EditableComponent {
     may_id: null,
     so_mau_a: 0,
     so_mau_b: 0,
+    ghi_chu_ky_thuat: "",
     gia_von_tp: 0,
     thanh_phams: [],
     vat_tus: [],
@@ -302,6 +309,7 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     may_id: c.may_id ?? null,
     so_mau_a: c.so_mau_a ?? 0,
     so_mau_b: c.so_mau_b ?? 0,
+    ghi_chu_ky_thuat: c.ghi_chu_ky_thuat ?? "",
     gia_von_tp: c.gia_von_tp ?? 0,
     thanh_phams: (c.thanh_phams ?? []).map(fromFinishing),
     vat_tus: (c.vat_tus ?? []).map(fromVatTu),
@@ -344,6 +352,7 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     may_id: c.may_id,
     so_mau_a: c.so_mau_a,
     so_mau_b: c.so_mau_b,
+    ghi_chu_ky_thuat: c.ghi_chu_ky_thuat.trim() || null,
     thanh_phams: c.thanh_phams.map((f) => ({
       cong_doan_id: f.cong_doan_id,
       ten: f.ten,
@@ -374,6 +383,7 @@ function toPhieu(
   tenAnPham: string,
   soLuong: number,
   khoThanhPham: string,
+  sanPhams: { ten: string; soLuong: number; dvt: string }[],
 ): PhieuTinhGia {
   const now = new Date();
   return {
@@ -384,8 +394,8 @@ function toPhieu(
       tenAnPham: tenAnPham || "—",
       soLuong,
       khoThanhPham: khoThanhPham || "—",
-      dvt: "Tờ",
     },
+    sanPhams,
     noiDung: [],
     groups: res.groups.map((g) => {
       const columns: PhieuTinhGiaColumn[] = g.columns.map((c) => ({
@@ -402,7 +412,11 @@ function toPhieu(
           const out: Record<string, string | number> = {};
           for (const c of g.columns) {
             const val = r[c.key];
-            out[c.key] = isNumCol(c) ? vnd(val as number) : (val ?? "").toString();
+            out[c.key] = isNumCol(c)
+              ? vnd(val as number)
+              : c.kind === "formula"
+                ? humanizeFormula((val ?? "").toString())  // bản in cũng dễ đọc: "2.000 đ × 283 tờ"
+                : (val ?? "").toString();
           }
           return out;
         }),
@@ -860,6 +874,30 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       .finally(() => setCalcing(false));
   }, [token, id, khoThanhPham, loaiSPId, comps, applyOut, loadActs]);
 
+  // #1 — Sửa sản phẩm XONG (đóng modal: Xong / X / bấm ra ngoài) mà CÓ thay đổi → tự tính lại
+  // giá ngay, khỏi bấm "Tính giá" riêng. Chụp snapshot lúc mở để so khi đóng (chỉ tính khi dirty).
+  const editSnapRef = useRef<string | null>(null);
+  useEffect(() => {
+    const c = editingUid ? comps.find((x) => x.uid === editingUid) : null;
+    editSnapRef.current = c ? JSON.stringify(toThanhPhanIn(c)) : null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingUid]);
+  const closeEditor = useCallback(() => {
+    const c = comps.find((x) => x.uid === editingUid);
+    const now = c ? JSON.stringify(toThanhPhanIn(c)) : null;
+    const changed = editSnapRef.current !== null && now !== editSnapRef.current;
+    setEditingUid(null);
+    if (changed) calc();
+  }, [comps, editingUid, calc]);
+  // Tính lại HOÃN 1 nhịp sau khi comps đã cập nhật (dùng cho xóa sản phẩm — tránh dùng comps cũ).
+  const [pendingCalc, setPendingCalc] = useState(false);
+  useEffect(() => {
+    if (!pendingCalc) return;
+    setPendingCalc(false);
+    calc();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingCalc]);
+
   // BG-3: từ phiếu tính giá → LUÔN tạo 1 phiếu báo giá MỚI (1 PTG → nhiều BG). Không ghi tiếp
   // phiếu cũ; muốn điều chỉnh 1 báo giá đã có thì dùng "Tạo phiên bản mới" TRONG phiếu đó.
   async function openOrCreateQuote() {
@@ -889,10 +927,23 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
         ? Math.round(result.grand_total / tongSoLuong)
         : null;
 
-  const phieu = useMemo(
-    () => (result ? toPhieu(result, ma || "(chưa lưu)", "", 0, khoThanhPham) : null),
-    [result, ma, khoThanhPham],
-  );
+  const phieu = useMemo(() => {
+    if (!result) return null;
+    // Phiếu nhiều sản phẩm → "Tên ấn phẩm" tóm tắt tên các sản phẩm; SL = tổng SL (bỏ hardcode ""/0).
+    const names = comps.map((c) => (c.ten || "").trim()).filter(Boolean);
+    const tenAnPham =
+      names.length === 0
+        ? "—"
+        : names.length <= 3
+          ? names.join(", ")
+          : `${names.slice(0, 3).join(", ")} +${names.length - 3} SP`;
+    const sanPhams = comps.map((c) => ({
+      ten: c.ten,
+      soLuong: c.so_luong > 0 ? c.so_luong : phieuSL, // SL riêng của SP, =0 thì lấy SL mặc định phiếu
+      dvt: c.don_vi_tinh,
+    }));
+    return toPhieu(result, ma || "(chưa lưu)", tenAnPham, tongSoLuong, khoThanhPham, sanPhams);
+  }, [result, ma, khoThanhPham, comps, tongSoLuong, phieuSL]);
 
   // Số [Hiện] chốt từ engine, index theo vị trí thành phần.
   const metaByIdx = useMemo(() => {
@@ -1275,10 +1326,11 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           vatTus={vatTus}
           liveMeta={editMeta}
           phieuSL={phieuSL}
-          onClose={() => setEditingUid(null)}
+          onClose={closeEditor}
           onRemove={() => {
             removeComp(editing.uid);
             setEditingUid(null);
+            setPendingCalc(true);  // xóa xong → tính lại sau khi comps cập nhật (tránh closure cũ)
           }}
           patchComp={patchComp}
           onPickLoaiSP={onPickLoaiSPForComp}
@@ -1800,6 +1852,27 @@ function ComponentModal({
                   <option value="__blank">+ Tự nhập…</option>
                 </select>
               </div>
+            </section>
+
+            {/* ---- LƯU Ý SẢN XUẤT (note kỹ thuật theo sản phẩm → drawer lệnh SX) ---- */}
+            <section className="rc-sec">
+              <div className="rc-sec__title">
+                <span className="tg-step-badge">6</span> Lưu ý sản xuất
+              </div>
+              <label className="tg-field">
+                <span className="tg-microlabel">
+                  Lưu ý SX / Ghi chú kỹ thuật{" "}
+                  <span className="tg-microlabel__opt">tổ sản xuất đọc khi chạy lệnh</span>
+                </span>
+                <textarea
+                  className="tg-input"
+                  rows={2}
+                  style={{ minHeight: "64px", resize: "vertical", lineHeight: 1.5 }}
+                  value={c.ghi_chu_ky_thuat}
+                  placeholder="VD: canh màu như mẫu · kẽm cũ L203 · bù hao 1%"
+                  onChange={(e) => patchComp(c.uid, { ghi_chu_ky_thuat: e.target.value })}
+                />
+              </label>
             </section>
           </div>
 

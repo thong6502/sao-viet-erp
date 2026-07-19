@@ -136,10 +136,11 @@ class DepartmentRepository:
                     queue.append(child.id)
         return result
 
-    def production_departments(self) -> list[Department]:
+    def production_departments(self, *, fallback_all: bool = True) -> list[Department]:
         """Phòng/tổ thuộc khối SẢN XUẤT (§13.1): tự `la_san_xuat` HOẶC có tổ tiên `la_san_xuat`
-        (đi ngược cây `parent_id`). CHƯA đánh dấu phòng nào → trả tất cả (fallback an toàn để form
-        Công đoạn không rỗng). Nuôi dropdown 'Phòng ban / Tổ phụ trách'."""
+        (đi ngược cây `parent_id`). `fallback_all=True` (mặc định): chưa đánh dấu phòng nào → trả
+        tất cả (an toàn cho dropdown Công đoạn không rỗng). `fallback_all=False`: trả ĐÚNG tập tổ
+        khối SX (rỗng nếu chưa tick cờ) — navbar Sản xuất dùng cái này để không phun ra mọi phòng ban."""
         depts = self.list_all()
         by_id = {d.id: d for d in depts}
 
@@ -153,7 +154,9 @@ class DepartmentRepository:
             return False
 
         prod = [d for d in depts if is_prod(d)]
-        return prod or depts
+        if not prod and fallback_all:
+            return depts
+        return prod
 
     def set_head(self, dept: Department, head_user_id: int | None) -> Department:
         dept.head_user_id = head_user_id
@@ -341,6 +344,9 @@ class RoleRepository:
         can_approve_exception: bool = False,
         can_set_credit_terms: bool = False,
         can_record_deposit: bool = False,
+        can_assign_work: bool = False,
+        can_record_output: bool = False,
+        can_handover: bool = False,
     ) -> RolePermission:
         """Upsert the (role, module) permission row."""
         perm = self.get_permission(role_id, module_key)
@@ -377,6 +383,9 @@ class RoleRepository:
         perm.can_approve_exception = can_approve_exception
         perm.can_set_credit_terms = can_set_credit_terms
         perm.can_record_deposit = can_record_deposit
+        perm.can_assign_work = can_assign_work
+        perm.can_record_output = can_record_output
+        perm.can_handover = can_handover
         self.db.commit()
         self.db.refresh(perm)
         return perm

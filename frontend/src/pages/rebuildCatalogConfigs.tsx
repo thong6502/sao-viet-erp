@@ -31,8 +31,6 @@ const DV_GIA_VAT_TU: Lbls = {
   nghin_luot: "1.000 lượt", met: "MÉT", m2: "M²", cuon: "CUỘN",
 };
 
-const vnd = (v: unknown) => (v == null || v === "" ? "—" : Number(v).toLocaleString("vi-VN"));
-
 
 export const CFG_LOAI_SAN_PHAM: CatalogConfig = {
   title: "Loại sản phẩm",
@@ -129,31 +127,8 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin",
       hint: "Tổ/bộ phận sẽ nhận việc công đoạn này khi phát lệnh sản xuất" },
 
-    // Cách tính giá (_method) → map sang pricing_basis + che_do_tinh ở transformSubmit. "other" =
-    // per_other: máy KHÔNG nhân lượng, đơn giá vào thẳng công thức tự do (kẽm, khoán…).
-    { key: "_method", label: "Cách tính giá", type: "select", required: true, group: "Giá",
-      options: [
-        { value: "sheet", label: "Theo số tờ in" },
-        { value: "piece_flat", label: "Theo thành phẩm (cái)" },
-        { value: "piece_size", label: "Theo bậc kích thước thành phẩm" },
-        { value: "area_sides", label: "Theo diện tích × số mặt" },
-        { value: "position", label: "Theo số vị trí" },
-        { value: "job", label: "Trọn gói cả đơn (÷ SL)" },
-        { value: "other", label: "Theo công thức tự do" },
-      ],
-      hint: "Máy dùng cách này để ra lượng rồi nhân đơn giá. Chọn 'Theo công thức tự do' khi bạn tự viết công thức bên dưới (vd Ghi kẽm: số bản × đơn giá)." },
-
-    // run_rate — 2 biến thể cùng key: đa số là 'đơn giá / đơn vị', riêng trọn gói là 'tổng tiền'.
-    { key: "run_rate", label: "Đơn giá / đơn vị (đ)", type: "number", group: "Giá",
-      showIf: (f) => ["sheet", "piece_flat", "area_sides", "position", "other"].includes(String(f._method)),
-      hint: "Đơn giá cho 1 đơn vị theo cách tính đã chọn ở trên." },
-    { key: "run_rate", label: "Tổng tiền cả đơn (đ)", type: "number", group: "Giá",
-      showIf: (f) => f._method === "job",
-      hint: "Cả đơn tính 1 lần, máy tự chia ÷ SL. VD khuôn bế 800.000 ÷ 4.000 = 200đ/sp." },
-    { key: "size_tiers", label: "Bậc đơn giá theo kích thước", type: "size_tiers", group: "Giá",
-      showIf: (f) => f._method === "piece_size",
-      hint: "Đơn giá theo cạnh dài thành phẩm (cm). VD dán hộp: ≤20cm=100 · ≤40cm=200 · ≤100cm=800." },
-
+    // CHỈ TÍNH THEO CÔNG THỨC: đã bỏ ô 'Cách tính giá' / 'Đơn giá' / 'Bậc kích thước'.
+    // Đơn giá nhập per-phiếu (mỗi dòng phiếu tính giá tự mang don_gia); công đoạn chỉ khai CÔNG THỨC.
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     { key: "kieu_bu_hao", label: "Bù hao", type: "select", group: "Bù hao", options: mapOpt(KIEU_BU_HAO), default: "khong" },
     { key: "bu_hao_id", label: "Mã bù hao (gõ để tìm)", type: "ref-search", refPrefix: "/api/bu-hao", group: "Bù hao",
@@ -164,34 +139,13 @@ export const CFG_CONG_DOAN: CatalogConfig = {
       hint: "Mặc định 50; bế nổi / dán móc đáy = 30" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Bù hao" },
   ],
-  // Suy "Cách tính giá" (_method) từ dữ liệu đã lưu khi mở form sửa. Chỉ 6 cách; kiểu khác → "—".
-  deriveInitial: (existing) => {
-    if (!existing) return { _method: "sheet" };
-    if (existing.che_do_tinh === "theo_gio") return { _method: "" };  // theo giờ đã bỏ khỏi lựa chọn
-    const pb = existing.pricing_basis;
-    const st = existing.size_tiers;
-    const hasSt = Array.isArray(st) && st.length > 0;
-    if (pb === "per_sheet") return { _method: "sheet" };
-    if (pb === "per_finished_qty") return { _method: hasSt ? "piece_size" : "piece_flat" };
-    if (pb === "per_job") return { _method: "job" };
-    if (pb === "per_area_sides") return { _method: "area_sides" };
-    if (pb === "per_position") return { _method: "position" };
-    if (pb === "per_other") return { _method: "other" };
-    return { _method: "" };  // basis khác/rỗng → để trống, người dùng chọn lại
-  },
-  // Map "Cách tính giá" → pricing_basis + dọn ô không dùng. m="" (bản cũ chưa chọn) → không đụng gì.
-  transformSubmit: (body, form) => {
-    const m = form._method;
-    delete body._method;
-    const sl = (pb: string) => { body.che_do_tinh = "theo_san_luong"; body.pricing_basis = pb; };
-    if (m === "sheet") { sl("per_sheet"); body.size_tiers = []; }
-    else if (m === "piece_flat") { sl("per_finished_qty"); body.size_tiers = []; }
-    else if (m === "piece_size") { sl("per_finished_qty"); body.run_rate = null; }
-    else if (m === "job") { sl("per_job"); body.size_tiers = []; }
-    else if (m === "area_sides") { sl("per_area_sides"); body.size_tiers = []; }
-    else if (m === "position") { sl("per_position"); body.size_tiers = []; }
-    else if (m === "other") { sl("per_other"); body.size_tiers = []; }
-    // m === "" : giữ nguyên dữ liệu cũ (không map, không xóa) → bản theo_gio cũ an toàn.
+  // CHỈ TÍNH THEO CÔNG THỨC: công đoạn luôn ở chế độ sản lượng + basis 'per_other' (giá phẳng/công
+  // thức) để backend không chặn E-CD-BASIS. Dọn run_rate/size_tiers (đơn giá nay nhập per-phiếu).
+  transformSubmit: (body) => {
+    body.che_do_tinh = "theo_san_luong";
+    body.pricing_basis = "per_other";
+    body.run_rate = null;
+    body.size_tiers = [];
     return body;
   },
 };
@@ -228,7 +182,7 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
 
 export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
-  subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy. Đơn giá nhập thẳng; công thức mặc định tính theo cân.",
+  subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy. Chỉ khai công thức (mặc định tính theo cân); đơn giá nhập ở phiếu tính giá.",
   prefix: "/api/vat-lieu-kho/giay",
   softDelete: true,
   hasVersions: false,
@@ -237,7 +191,6 @@ export const CFG_GIAY: CatalogConfig = {
     { key: "gsm", label: "Định lượng" },
     { key: "kho", label: "Khổ (mm)", render: (r) => (Number(r.kho_rong) || Number(r.kho_dai) ? `${r.kho_rong}×${r.kho_dai}` : "Cuộn / khổ mở") },
     { key: "don_vi_gia", label: "ĐVT", render: (r) => lbl(DV_GIA_GIAY)(r.don_vi_gia) },
-    { key: "don_gia", label: "Giá", render: (r) => vnd(r.don_gia) },
   ],
   fields: [
     { key: "chung_loai_giay_id", label: "Chủng loại giấy", type: "ref", required: true,
@@ -246,8 +199,7 @@ export const CFG_GIAY: CatalogConfig = {
     { key: "don_vi_gia", label: "ĐVT", type: "select", group: "Thông số", options: mapOpt(DV_GIA_GIAY) },
     { key: "kho_rong", label: "Khổ rộng (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
     { key: "kho_dai", label: "Khổ dài (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
-    { key: "don_gia", label: "Đơn giá (đ)", type: "number", group: "Giá",
-      hint: "Theo ĐVT đã chọn (đ/kg, đ/tờ…) — công thức lấy qua biến đơn giá." },
+    // Bỏ ô "Đơn giá" — chỉ tính theo CÔNG THỨC; đơn giá nhập per-phiếu (engine lấy don_gia từ phiếu).
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
@@ -255,16 +207,15 @@ export const CFG_GIAY: CatalogConfig = {
 
 export const CFG_VAT_TU: CatalogConfig = {
   title: "Vật tư in ấn",
-  subtitle: "Mực, bản kẽm, hoá chất, màng, keo… — mã · tên · ĐVT · giá · ghi chú.",
+  subtitle: "Mực, bản kẽm, hoá chất, màng, keo… — mã · tên · ĐVT · công thức · ghi chú.",
   prefix: "/api/vat-lieu-kho/vat-tu-in-an",
   columns: [
     { key: "don_vi_gia", label: "ĐVT", render: (r) => lbl(DV_GIA_VAT_TU)(r.don_vi_gia) },
-    { key: "don_gia", label: "Giá", render: (r) => vnd(r.don_gia) },
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", type: "select", group: "Giá", options: mapOpt(DV_GIA_VAT_TU) },
-    { key: "don_gia", label: "Giá (đ)", type: "number", group: "Giá" },
+    // Bỏ ô "Giá" — chỉ tính theo CÔNG THỨC; đơn giá nhập per-phiếu (engine lấy don_gia từ phiếu).
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Giá" },
   ],
@@ -287,8 +238,66 @@ export const CFG_KHO_GIAY_CHUAN: CatalogConfig = {
   ],
 };
 
+// Khai báo kho — master data NHẸ (chỉ tên / vị trí / ghi chú). Kho tạo ở đây tự đổ
+// ra navbar (mục "Kho hàng"). Mã KHO-xxxx tự gợi ý (suggestNextCode). Xóa mềm để giữ dấu vết.
+export const CFG_KHO_HANG: CatalogConfig = {
+  title: "Kho hàng",
+  subtitle: "Khai báo kho (tên · vị trí · ghi chú). Kho tạo ở đây tự hiện dưới mục “Kho hàng” trên thanh điều hướng.",
+  prefix: "/api/kho",
+  softDelete: true,
+  autoCode: true,          // mã KHO-#### sinh ngầm ở backend, ẩn ô nhập mã
+  columns: [
+    { key: "vi_tri", label: "Vị trí", render: (r) => (r.vi_tri ? String(r.vi_tri) : "—") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
+  ],
+  fields: [
+    { key: "vi_tri", label: "Vị trí kho", type: "text", group: "Thông tin",
+      hint: "Nơi đặt kho, vd: Tầng 1 — xưởng A" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
+  ],
+};
+
+// Tình trạng khuôn bế — record-only (con người phán, máy chỉ ghi nhận).
+export const TINH_TRANG_KHUON: Lbls = { dang_dung: "Đang dùng", hong: "Hỏng", thanh_ly: "Thanh lý" };
+
+// Ngày ISO (yyyy-mm-dd) → dd/mm/yyyy để đọc; rỗng → "—".
+const fmtDate = (v: unknown): string => {
+  const s = String(v ?? "").slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
+};
+
+// Khai báo KHUÔN BẾ — master data NHẸ, khai TAY. Mỗi khuôn làm riêng cho hình bế của 1
+// ấn phẩm; đơn lặp lại thì lôi khuôn cũ ra dùng. Chỉ đủ để TÌM LẠI: số kệ (vị trí lưu) +
+// tình trạng. Ref ấn phẩm/khách hàng đấu sau. Mã KB-#### tự sinh; xóa mềm giữ dấu vết.
+export const CFG_KHUON_BE: CatalogConfig = {
+  title: "Khuôn bế",
+  subtitle: "Khai báo nơi lưu trữ khuôn bế (số kệ · ngày làm · tình trạng). Mỗi khuôn làm riêng cho 1 ấn phẩm — đơn lặp lại lôi khuôn cũ ra dùng.",
+  prefix: "/api/khuon-be",
+  softDelete: true,
+  autoCode: true,          // mã KB-#### sinh ngầm ở backend, ẩn ô nhập mã
+  facet: { key: "tinh_trang", values: mapOpt(TINH_TRANG_KHUON) },
+  columns: [
+    { key: "khach_hang", label: "Khách hàng", render: (r) => (r.khach_hang ? String(r.khach_hang) : "—") },
+    { key: "so_ke", label: "Số kệ", render: (r) => (r.so_ke ? String(r.so_ke) : "—") },
+    { key: "ngay_lam_khuon", label: "Ngày làm", render: (r) => fmtDate(r.ngay_lam_khuon) },
+    { key: "tinh_trang", label: "Tình trạng", render: (r) => lbl(TINH_TRANG_KHUON)(r.tinh_trang) },
+  ],
+  fields: [
+    { key: "khach_hang", label: "Khách hàng", type: "text", group: "Thông tin",
+      hint: "Khai tay tên khách; nối danh mục khách hàng ở bản sau" },
+    { key: "so_ke", label: "Số kệ / vị trí lưu", type: "text", group: "Lưu trữ",
+      hint: "Nơi cất khuôn, vd: Kệ B3 — xưởng sau in" },
+    { key: "ngay_lam_khuon", label: "Ngày làm khuôn", type: "date", group: "Lưu trữ" },
+    { key: "tinh_trang", label: "Tình trạng", type: "select", group: "Lưu trữ",
+      options: mapOpt(TINH_TRANG_KHUON), default: "dang_dung" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Lưu trữ" },
+  ],
+};
+
 export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "loai-san-pham": CFG_LOAI_SAN_PHAM,
+  "khai-bao-kho": CFG_KHO_HANG,
   "may-thiet-bi": CFG_MAY,
   "cong-doan": CFG_CONG_DOAN,
   "bu-hao": CFG_BU_HAO,
@@ -296,4 +305,5 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "giay": CFG_GIAY,
   "kho-giay-chuan": CFG_KHO_GIAY_CHUAN,
   "vat-tu-in-an": CFG_VAT_TU,
+  "khuon-be": CFG_KHUON_BE,
 };

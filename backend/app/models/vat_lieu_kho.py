@@ -2,10 +2,14 @@
 
 - `ChungLoaiGiay`  — phân loại giấy (Couche/Ford/Bristol/Ivory/Duplex/Kraft…).
 - `GiayNguyen`     — tờ giấy nguyên (khổ mua); ăn theo 1 Chủng loại giấy (`chung_loai_giay_id`).
-- `VatTuInAn`      — vật tư in ấn GỘP (mực/kẽm/hoá chất/màng/keo…), phân bằng `loai_vat_tu`;
-                     cột theo loại (mực: loai_muc/pantone/coverage; kẽm: khoa_class) để trống với loại khác.
+- `GiayGiaVersion` — lịch sử giá của 1 Giấy. DI TÍCH: UI đã tắt (`hasVersions: false`) từ khi
+                     đơn giá chuyển sang nhập per-phiếu; endpoint còn nhưng màn không gọi.
+- `KhoGiayChuan`   — danh mục khổ giấy chuẩn (cm) theo từng Chủng loại giấy.
+- `VatTuInAn`      — vật tư in ấn danh mục PHẲNG (mực/kẽm/hoá chất/màng/keo… chung 1 bảng, phân
+                     biệt bằng TÊN): Mã · Tên · ĐVT · công thức · ghi chú. Không phân loại con, không tồn.
 
-Danh mục CRUD thuần (module bình bài/tính giá Hệ B đã gỡ) — không còn engine đọc để tính tiền.
+Danh mục CRUD thuần — chỉ khai CÔNG THỨC; đơn giá nhập ở phiếu tính giá (per-phiếu), engine
+KHÔNG đọc `don_gia` tại danh mục.
 """
 from __future__ import annotations
 
@@ -22,9 +26,6 @@ from ..db import Base
 THO = ("canh_dai", "canh_ngan")
 DON_VI_GIA_GIAY = ("kg", "cai", "ram", "to", "tan")
 BE_MAT_GIAY = ("bong", "mo", "nham")
-LOAI_MUC = ("process", "pantone", "special")
-KHOA_CLASS = ("52", "74", "79", "102", "custom")
-LOAI_VAT_TU = ("muc", "kem", "hoa_chat", "mang", "keo", "khac")
 DON_VI_GIA_VAT_TU = ("kg", "lit", "nghin_luot", "ban", "cai", "bo", "thung", "met", "m2", "cuon")
 
 

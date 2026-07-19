@@ -1,9 +1,13 @@
-// Permission matrix — modules × (Xem/Thêm/Sửa/Xóa) + Phạm vi. Presentational + controlled:
-// the parent owns the rows and gets toggle/scope callbacks. Shared by the Roles screen and
-// the per-department "add role" popup so both edit permissions identically.
-import { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
+// Permission matrix — modules × (Xem / Chỉnh sửa / Phạm vi) + quyền chi tiết. Presentational +
+// controlled: the parent owns the rows and gets toggle/scope callbacks. Shared by the Roles
+// screen and the per-department "Vai trò & Quyền" panel so both edit permissions identically.
+//
+// Trình bày (redesign): gom module theo PHÂN HỆ (accordion thu gọn được); mỗi module là một
+// hàng với công tắc Xem / Chỉnh sửa / pill Phạm vi; module có quyền chi tiết hiện chip "N/M chi
+// tiết" → bấm BUNG INLINE ngay dưới hàng (không popover portal). Data contract KHÔNG đổi.
+import { useState } from "react";
 import type { ModuleDef, PermissionRow, Scope } from "../api/client";
+import { Icon } from "./Icons";
 import "./permission-matrix.css";
 
 export const ACTIONS = [
@@ -42,7 +46,10 @@ export type ActionKey =
   | "can_adjust"
   | "can_approve_exception"
   | "can_set_credit_terms"
-  | "can_record_deposit";
+  | "can_record_deposit"
+  | "can_assign_work"
+  | "can_record_output"
+  | "can_handover";
 
 // UI gộp Thêm/Sửa/Xóa thành một công tắc "quyền chỉnh sửa": tick là bật cả ba.
 // Dữ liệu vẫn lưu tách (can_create/can_update/can_delete) nên backend không đổi.
@@ -96,6 +103,23 @@ const FINE_ACTIONS: Record<string, { key: ActionKey; label: string; hint?: strin
       hint: 'Ghi / sửa / xóa phiếu thu tiền cọc của khách trên đơn (tiền mặt hoặc chuyển khoản, có đối chiếu). Tách riêng cho Kế toán bán hàng — Sale lập đơn nhưng KHÔNG tự ghi tiền cọc (chống "tự thu tự chốt").',
     },
   ],
+  san_xuat: [
+    {
+      key: "can_assign_work",
+      label: "Gán việc (tổ trưởng)",
+      hint: "Tổ trưởng gán thợ vào công đoạn của lệnh đã phát. Vai có cờ này (hoặc phạm vi Cả phòng/Tất cả) thấy TOÀN BỘ lệnh của tổ + nút gán; thợ được gán mới hứng thông báo + xem lệnh của mình.",
+    },
+    {
+      key: "can_record_output",
+      label: "Ghi sản lượng",
+      hint: "Tổ trưởng ghi sản lượng ĐẠT/HỎNG cho công đoạn của tổ (cộng dồn nhiều đợt, ghi nhận — không chặn). Thợ chỉ xem.",
+    },
+    {
+      key: "can_handover",
+      label: "Bàn giao / nhận",
+      hint: "Tổ trưởng GIAO số sang tổ kế + XÁC NHẬN NHẬN (2 con dấu, lệch được để truy thất thoát). Không gate cứng chặn tổ nhận chạy.",
+    },
+  ],
   vai_tro: [{ key: "can_manage_permissions", label: "Sửa ma trận phân quyền" }],
   nguoi_dung: [
     { key: "can_reset_password", label: "Đặt lại mật khẩu" },
@@ -142,6 +166,30 @@ export const SCOPES: { value: Scope; label: string }[] = [
   { value: "all", label: "Tất cả" },
 ];
 
+// Gom module theo PHÂN HỆ để ma trận quyền đọc được (thu gọn từng nhóm). Module không nằm trong
+// nhóm nào rơi vào "Khác" (fallback an toàn khi backend thêm module mới chưa map).
+const MODULE_GROUPS: { key: string; label: string; modules: string[] }[] = [
+  {
+    key: "kinh_doanh",
+    label: "Kinh doanh",
+    modules: ["khach_hang", "bao_gia", "don_hang_ban", "tinh_gia_thanh", "hop_dong"],
+  },
+  { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat", "san_luong"] },
+  { key: "kho", label: "Kho", modules: ["kho", "thu_mua"] },
+  { key: "ke_toan", label: "Kế toán", modules: ["ke_toan"] },
+  { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "luong"] },
+  {
+    key: "danh_muc",
+    label: "Danh mục",
+    modules: ["dm_loai_san_pham", "dm_giay_vat_tu", "dm_thiet_bi", "dm_cong_doan", "khuon_be"],
+  },
+  {
+    key: "he_thong",
+    label: "Hệ thống",
+    modules: ["dashboard", "phong_ban", "vai_tro", "nguoi_dung", "activity_log"],
+  },
+];
+
 /** A fresh all-off matrix (scope "own") for every module — used when creating a new role. */
 export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
   return modules.map((m) => ({
@@ -175,7 +223,17 @@ export function defaultMatrix(modules: ModuleDef[]): PermissionRow[] {
     can_approve_exception: false,
     can_set_credit_terms: false,
     can_record_deposit: false,
+    can_assign_work: false,
+    can_record_output: false,
+    can_handover: false,
   }));
+}
+
+/** Một module có "quyền" nào không (để đếm N/M ở đầu nhóm + quyết định nhóm nào mở sẵn). */
+function rowHasAny(row: PermissionRow): boolean {
+  if (row.can_read || WRITE_ACTIONS.some((k) => row[k])) return true;
+  const fine = FINE_ACTIONS[row.module_key];
+  return fine ? fine.some((a) => row[a.key]) : false;
 }
 
 interface PermissionMatrixProps {
@@ -195,181 +253,178 @@ export function PermissionMatrix({
   readOnly = false,
 }: PermissionMatrixProps) {
   const moduleLabel = new Map(modules.map((m) => [m.key, m.label]));
-  // Cột "Quyền chi tiết" mở dạng POPOVER nổi (portal) — không đẩy hàng xuống. Chỉ 1 cái mở
-  // một lúc; lưu module + vị trí nút để đặt popover.
-  const [fineMenu, setFineMenu] = useState<{ module: string; rect: DOMRect } | null>(null);
-  const openFineFor = (moduleKey: string, el: HTMLElement) =>
-    setFineMenu((cur) =>
-      cur?.module === moduleKey ? null : { module: moduleKey, rect: el.getBoundingClientRect() },
-    );
-  const fineRow = fineMenu ? matrix.find((r) => r.module_key === fineMenu.module) : undefined;
+  const byKey = new Map(matrix.map((r) => [r.module_key, r]));
+  // Nhóm mở/đóng: mặc định mở khi nhóm CÓ quyền; override khi người dùng bấm.
+  const [groupOverride, setGroupOverride] = useState<Map<string, boolean>>(new Map());
+  // Panel quyền chi tiết bung inline theo module.
+  const [openFine, setOpenFine] = useState<Set<string>>(new Set());
+
+  // Dựng danh sách nhóm hiển thị: nhóm đã map + nhóm "Khác" cho module chưa map.
+  const mapped = new Set(MODULE_GROUPS.flatMap((g) => g.modules));
+  const orphans = matrix.map((r) => r.module_key).filter((k) => !mapped.has(k));
+  const groups = [
+    ...MODULE_GROUPS.map((g) => ({
+      key: g.key,
+      label: g.label,
+      rows: g.modules.map((k) => byKey.get(k)).filter((r): r is PermissionRow => !!r),
+    })),
+    ...(orphans.length
+      ? [
+          {
+            key: "khac",
+            label: "Khác",
+            rows: orphans.map((k) => byKey.get(k)!).filter(Boolean),
+          },
+        ]
+      : []),
+  ].filter((g) => g.rows.length > 0);
+
+  const toggleFine = (moduleKey: string) =>
+    setOpenFine((cur) => {
+      const next = new Set(cur);
+      if (next.has(moduleKey)) next.delete(moduleKey);
+      else next.add(moduleKey);
+      return next;
+    });
+
   return (
-    <>
-    <table className="matrix">
-      <thead>
-        <tr>
-          <th className="matrix__mod">Module</th>
-          <th className="matrix__act">Xem</th>
-          <th className="matrix__act">Thêm / Sửa / Xóa</th>
-          <th className="matrix__scope">Phạm vi</th>
-          <th className="matrix__fine">Quyền chi tiết</th>
-        </tr>
-      </thead>
-      <tbody>
-        {matrix.map((row) => {
-          const label = moduleLabel.get(row.module_key) ?? row.module_key;
-          // Công tắc gộp: bật khi cả ba quyền cùng bật; tick/bỏ tick áp cho cả ba.
-          const canWrite = WRITE_ACTIONS.every((k) => row[k]);
-          const fineActs = FINE_ACTIONS[row.module_key];
-          const fineGranted = fineActs ? fineActs.filter((a) => row[a.key]).length : 0;
-          const fineOpen = fineMenu?.module === row.module_key;
-          return (
-            <tr key={row.module_key}>
-              <td className="matrix__mod">{label}</td>
-              <td className="matrix__act">
-                <input
-                  type="checkbox"
-                  className="switch"
-                  checked={row.can_read}
-                  disabled={readOnly}
-                  aria-label={`Xem — ${label}`}
-                  onChange={(e) => onToggle(row.module_key, "can_read", e.target.checked)}
-                />
-              </td>
-              <td className="matrix__act">
-                <input
-                  type="checkbox"
-                  className="switch"
-                  checked={canWrite}
-                  disabled={readOnly}
-                  aria-label={`Thêm, sửa, xóa — ${label}`}
-                  onChange={(e) =>
-                    WRITE_ACTIONS.forEach((k) => onToggle(row.module_key, k, e.target.checked))
-                  }
-                />
-              </td>
-              <td className="matrix__scope">
-                <select
-                  className="input input--sm"
-                  value={row.scope}
-                  disabled={readOnly}
-                  aria-label={`Phạm vi — ${label}`}
-                  onChange={(e) => onScope(row.module_key, e.target.value as Scope)}
-                >
-                  {SCOPES.map((s) => (
-                    <option key={s.value} value={s.value}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td className="matrix__fine">
-                {fineActs ? (
-                  <button
-                    type="button"
-                    className={`matrix__fine-toggle${fineOpen ? " is-open" : ""}`}
-                    aria-expanded={fineOpen}
-                    onClick={(e) => openFineFor(row.module_key, e.currentTarget)}
-                  >
-                    <span>Quyền chi tiết</span>
-                    <span className={`matrix__fine-badge${fineGranted > 0 ? " is-on" : ""}`}>
-                      {fineGranted}/{fineActs.length}
-                    </span>
-                    <span className="matrix__fine-caret">▾</span>
-                  </button>
-                ) : (
-                  <span className="matrix__fine-none">—</span>
-                )}
-              </td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
-    {fineMenu && fineRow && (
-      <FinePopover
-        rect={fineMenu.rect}
-        row={fineRow}
-        acts={FINE_ACTIONS[fineMenu.module]}
-        label={moduleLabel.get(fineMenu.module) ?? fineMenu.module}
-        readOnly={readOnly}
-        onToggle={onToggle}
-        onClose={() => setFineMenu(null)}
-      />
-    )}
-    </>
-  );
-}
+    <div className="rdx-perm">
+      {groups.map((g) => {
+        const granted = g.rows.filter(rowHasAny).length;
+        const open = groupOverride.has(g.key) ? groupOverride.get(g.key)! : granted > 0;
+        return (
+          <section key={g.key} className={`rdx-perm__group${open ? " is-open" : ""}`}>
+            <button
+              type="button"
+              className="rdx-perm__ghead"
+              aria-expanded={open}
+              onClick={() =>
+                setGroupOverride((m) => new Map(m).set(g.key, !open))
+              }
+            >
+              <Icon name="chevron" size={15} className="rdx-perm__gcaret" />
+              <span className="rdx-perm__gname">{g.label}</span>
+              <span
+                className={`rdx-perm__gcount${granted > 0 ? " is-on" : ""}`}
+              >
+                {granted}/{g.rows.length} có quyền
+              </span>
+            </button>
 
-/** Popover nổi (portal) chứa các công tắc quyền chi tiết — không đẩy layout bảng. */
-function FinePopover({
-  rect,
-  row,
-  acts,
-  label,
-  readOnly,
-  onToggle,
-  onClose,
-}: {
-  rect: DOMRect;
-  row: PermissionRow;
-  acts: { key: ActionKey; label: string; hint?: string }[];
-  label: string;
-  readOnly: boolean;
-  onToggle: (moduleKey: string, action: ActionKey, value: boolean) => void;
-  onClose: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
+            {open && (
+              <div className="rdx-perm__rows" role="group" aria-label={g.label}>
+                <div className="rdx-perm__colhead" aria-hidden="true">
+                  <span className="rdx-perm__c-mod">Module</span>
+                  <span className="rdx-perm__c-act">Xem</span>
+                  <span className="rdx-perm__c-act">Chỉnh sửa</span>
+                  <span className="rdx-perm__c-scope">Phạm vi</span>
+                </div>
+                {g.rows.map((row) => {
+                  const label = moduleLabel.get(row.module_key) ?? row.module_key;
+                  const canWrite = WRITE_ACTIONS.every((k) => row[k]);
+                  const fineActs = FINE_ACTIONS[row.module_key];
+                  const fineGranted = fineActs
+                    ? fineActs.filter((a) => row[a.key]).length
+                    : 0;
+                  const fineIsOpen = openFine.has(row.module_key);
+                  return (
+                    <div key={row.module_key} className="rdx-perm__row">
+                      <div className="rdx-perm__cell rdx-perm__cell--mod">
+                        <span className="rdx-perm__mod">{label}</span>
+                        {fineActs && (
+                          <button
+                            type="button"
+                            className={`rdx-perm__finechip${fineGranted > 0 ? " is-on" : ""}${fineIsOpen ? " is-open" : ""}`}
+                            aria-expanded={fineIsOpen}
+                            onClick={() => toggleFine(row.module_key)}
+                          >
+                            {fineGranted}/{fineActs.length} chi tiết
+                            <Icon name="chevron" size={12} className="rdx-perm__finecaret" />
+                          </button>
+                        )}
+                      </div>
+                      <div className="rdx-perm__cell rdx-perm__cell--act">
+                        <input
+                          type="checkbox"
+                          className="switch"
+                          checked={row.can_read}
+                          disabled={readOnly}
+                          aria-label={`Xem — ${label}`}
+                          onChange={(e) =>
+                            onToggle(row.module_key, "can_read", e.target.checked)
+                          }
+                        />
+                      </div>
+                      <div className="rdx-perm__cell rdx-perm__cell--act">
+                        <input
+                          type="checkbox"
+                          className="switch"
+                          checked={canWrite}
+                          disabled={readOnly}
+                          aria-label={`Chỉnh sửa (thêm, sửa, xóa) — ${label}`}
+                          onChange={(e) =>
+                            WRITE_ACTIONS.forEach((k) =>
+                              onToggle(row.module_key, k, e.target.checked),
+                            )
+                          }
+                        />
+                      </div>
+                      <div className="rdx-perm__cell rdx-perm__cell--scope">
+                        <select
+                          className="rdx-perm__scope"
+                          value={row.scope}
+                          disabled={readOnly}
+                          aria-label={`Phạm vi — ${label}`}
+                          onChange={(e) =>
+                            onScope(row.module_key, e.target.value as Scope)
+                          }
+                        >
+                          {SCOPES.map((s) => (
+                            <option key={s.value} value={s.value}>
+                              {s.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
 
-  useEffect(() => {
-    function onDown(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    // Vị trí neo theo nút lúc mở → cuộn/resize thì đóng cho khỏi lệch.
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", onClose, true);
-    window.addEventListener("resize", onClose);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", onClose, true);
-      window.removeEventListener("resize", onClose);
-    };
-  }, [onClose]);
-
-  const WIDTH = 190;
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - WIDTH - 8));
-  const top = rect.bottom + 6;
-
-  return createPortal(
-    <div
-      ref={ref}
-      className="matrix__fine-popover"
-      role="dialog"
-      aria-label={`Quyền chi tiết — ${label}`}
-      style={{ top, left, width: WIDTH }}
-    >
-      {acts.map((a) => (
-        <label key={a.key} className="matrix__fine-item">
-          <input
-            type="checkbox"
-            className="switch"
-            checked={!!row[a.key]}
-            disabled={readOnly}
-            aria-label={`${a.label} — ${label}`}
-            onChange={(e) => onToggle(row.module_key, a.key, e.target.checked)}
-          />
-          <span className="matrix__fine-text" title={a.hint || undefined}>
-            {a.label}
-            {a.hint && <span className="matrix__fine-hint" aria-hidden="true">ⓘ</span>}
-          </span>
-        </label>
-      ))}
-    </div>,
-    document.body,
+                      {fineActs && fineIsOpen && (
+                        <div className="rdx-perm__fine" role="group" aria-label={`Quyền chi tiết — ${label}`}>
+                          {fineActs.map((a) => (
+                            <label key={a.key} className="rdx-perm__fine-item">
+                              <input
+                                type="checkbox"
+                                className="switch"
+                                checked={!!row[a.key]}
+                                disabled={readOnly}
+                                aria-label={`${a.label} — ${label}`}
+                                onChange={(e) =>
+                                  onToggle(row.module_key, a.key, e.target.checked)
+                                }
+                              />
+                              <span className="rdx-perm__fine-text">
+                                {a.label}
+                                {a.hint && (
+                                  <span
+                                    className="rdx-perm__fine-hint"
+                                    title={a.hint}
+                                    aria-hidden="true"
+                                  >
+                                    ⓘ
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        );
+      })}
+    </div>
   );
 }

@@ -1,30 +1,36 @@
 """Data access — Kế hoạch & Lệnh sản xuất (P0), spec `docs/spec-ke-hoach-san-xuat.md`.
 
 Tầng DUY NHẤT chạm DB cho các bảng KẾ HOẠCH của module (`lenh_sx · lenh_item · print_form ·
-gang_placement · routing_step`). KHÔNG nghiệp vụ ở đây (cổng phát AND, suy trạng thái… nằm ở
-`LenhSanXuatService`). SQL qua bound-param SQLAlchemy (không nối chuỗi).
+gang_placement · routing_step · routing_step_assignment`). KHÔNG nghiệp vụ ở đây (cổng phát AND,
+suy trạng thái, chọn scope… nằm ở `LenhSanXuatService`). SQL qua bound-param SQLAlchemy.
 
 Đọc NỀN từ PTG + Đơn (KHÔNG chép): `PhieuThanhPhan` (quy cách/số con/máy), `PhieuThanhPham`
 (routing theo `thu_tu` → `cong_doan_id`), `OrderLine.phieu_thanh_phan_id` (cầu đơn ↔ ấn phẩm).
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import distinct, func, select
 from sqlalchemy.orm import Session
 
 from ..models.cong_doan import CongDoan
 from ..models.customer import Customer
+from ..models.employee import Employee
 from ..models.lenh_san_xuat import (
+    LENH_DANG_CHAY,
     LENH_NHAP,
     PF_CHO_GHEP,
+    BanGiao,
     GangPlacement,
     LenhItem,
     LenhSanXuat,
     PrintForm,
     RoutingStep,
+    RoutingStepAssignment,
+    SanLuong,
 )
 from ..models.order import STATUS_ORDERED, Order, OrderLine
 from ..models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan
+from ..models.user import User
 
 
 class LenhSanXuatRepository:
@@ -58,12 +64,14 @@ class LenhSanXuatRepository:
         phieu_thanh_phan_id: int | None = None,
         may_id: int | None = None,
         trang_thai: str = LENH_NHAP,
+        han_giao_khach=None,
     ) -> LenhSanXuat:
         lenh = LenhSanXuat(
             order_id=order_id,
             phieu_thanh_phan_id=phieu_thanh_phan_id,
             may_id=may_id,
             trang_thai=trang_thai,
+            han_giao_khach=han_giao_khach,
         )
         self.db.add(lenh)
         self.db.commit()
@@ -95,6 +103,18 @@ class LenhSanXuatRepository:
         page, size = max(1, page), max(1, min(size, 200))
         base = base.order_by(LenhSanXuat.id.desc()).offset((page - 1) * size).limit(size)
         return list(self.db.execute(base).scalars()), total
+
+    def lenh_by_trang_thai(self, statuses: list[str]) -> list[LenhSanXuat]:
+        """Lệnh theo tập trạng thái (④ lịch chạy: nhap + dang_chay). FE tự xếp `thu_tu_chay` trong từng ô."""
+        if not statuses:
+            return []
+        return list(
+            self.db.execute(
+                select(LenhSanXuat)
+                .where(LenhSanXuat.trang_thai.in_(statuses))
+                .order_by(LenhSanXuat.id.asc())
+            ).scalars()
+        )
 
     # ================= Bài con (lenh_item) — 1 lệnh ôm nhiều ấn phẩm =================
     def create_lenh_item(
@@ -254,11 +274,12 @@ class LenhSanXuatRepository:
 
     def create_routing_step(
         self, *, lenh_sx_id: int, thu_tu: int, cong_doan_id: int | None,
-        to_id: int | None, ten: str = "",
+        to_id: int | None, ten: str = "", ghi_chu: str | None = None,
+        quy_cach: str | None = None,
     ) -> RoutingStep:
         step = RoutingStep(
             lenh_sx_id=lenh_sx_id, thu_tu=thu_tu, cong_doan_id=cong_doan_id,
-            to_id=to_id, ten=ten,
+            to_id=to_id, ten=ten, ghi_chu=ghi_chu, quy_cach=quy_cach,
         )
         self.db.add(step)
         self.db.commit()
@@ -294,6 +315,215 @@ class LenhSanXuatRepository:
             select(func.coalesce(func.max(RoutingStep.thu_tu), 0))
             .where(RoutingStep.lenh_sx_id == lenh_id)
         ).scalar_one())
+
+    # ================= Gán thợ + hộp việc tổ (Lát 1) =================
+    def assign_worker(self, *, step_id: int, user_id: int, by: int | None) -> RoutingStepAssignment:
+        """Gán 1 thợ vào 1 bước routing. IDEMPOTENT: đã gán → trả bản ghi cũ (không nhân đôi)."""
+        existing = self.db.execute(
+            select(RoutingStepAssignment).where(
+                RoutingStepAssignment.routing_step_id == step_id,
+                RoutingStepAssignment.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return existing
+        row = RoutingStepAssignment(routing_step_id=step_id, user_id=user_id, assigned_by=by)
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def unassign_worker(self, *, step_id: int, user_id: int) -> None:
+        row = self.db.execute(
+            select(RoutingStepAssignment).where(
+                RoutingStepAssignment.routing_step_id == step_id,
+                RoutingStepAssignment.user_id == user_id,
+            )
+        ).scalar_one_or_none()
+        if row is not None:
+            self.db.delete(row)
+            self.db.commit()
+
+    def assignees_of_steps(self, step_ids: list[int]) -> dict[int, list[int]]:
+        """{routing_step_id: [user_id...]} cho tập bước (1 truy vấn) — nuôi thẻ routing ở hộp tổ."""
+        if not step_ids:
+            return {}
+        out: dict[int, list[int]] = {}
+        for sid, uid in self.db.execute(
+            select(RoutingStepAssignment.routing_step_id, RoutingStepAssignment.user_id)
+            .where(RoutingStepAssignment.routing_step_id.in_(step_ids))
+            .order_by(RoutingStepAssignment.id.asc())
+        ):
+            out.setdefault(sid, []).append(uid)
+        return out
+
+    def lenh_of_to(self, to_ids: list[int]) -> list[LenhSanXuat]:
+        """Lệnh ĐANG CHẠY có ≥1 bước routing thuộc tổ trong `to_ids` (hộp tổ trưởng — FULL). distinct
+        vì 1 lệnh có thể có nhiều bước cùng tổ."""
+        if not to_ids:
+            return []
+        return list(self.db.execute(
+            select(LenhSanXuat)
+            .join(RoutingStep, RoutingStep.lenh_sx_id == LenhSanXuat.id)
+            .where(LenhSanXuat.trang_thai == LENH_DANG_CHAY, RoutingStep.to_id.in_(to_ids))
+            .order_by(LenhSanXuat.id.desc())
+            .distinct()
+        ).scalars())
+
+    def lenh_assigned_to(self, *, user_id: int, to_ids: list[int]) -> list[LenhSanXuat]:
+        """Lệnh ĐANG CHẠY có bước (thuộc tổ trong `to_ids`) mà `user_id` ĐƯỢC GÁN (hộp việc thợ)."""
+        if not to_ids:
+            return []
+        return list(self.db.execute(
+            select(LenhSanXuat)
+            .join(RoutingStep, RoutingStep.lenh_sx_id == LenhSanXuat.id)
+            .join(RoutingStepAssignment, RoutingStepAssignment.routing_step_id == RoutingStep.id)
+            .where(
+                LenhSanXuat.trang_thai == LENH_DANG_CHAY,
+                RoutingStep.to_id.in_(to_ids),
+                RoutingStepAssignment.user_id == user_id,
+            )
+            .order_by(LenhSanXuat.id.desc())
+            .distinct()
+        ).scalars())
+
+    def count_lenh_by_to(self, to_ids: list[int]) -> dict[int, int]:
+        """{to_id: số lệnh đang chạy có bước thuộc tổ} — badge navbar (view FULL tổ trưởng/giám sát)."""
+        if not to_ids:
+            return {}
+        rows = self.db.execute(
+            select(RoutingStep.to_id, func.count(distinct(RoutingStep.lenh_sx_id)))
+            .join(LenhSanXuat, LenhSanXuat.id == RoutingStep.lenh_sx_id)
+            .where(LenhSanXuat.trang_thai == LENH_DANG_CHAY, RoutingStep.to_id.in_(to_ids))
+            .group_by(RoutingStep.to_id)
+        )
+        return {tid: int(c) for tid, c in rows if tid is not None}
+
+    def count_assigned_by_to(self, *, user_id: int, to_ids: list[int]) -> dict[int, int]:
+        """{to_id: số lệnh thợ được gán ở tổ} — badge navbar (view thợ)."""
+        if not to_ids:
+            return {}
+        rows = self.db.execute(
+            select(RoutingStep.to_id, func.count(distinct(RoutingStep.lenh_sx_id)))
+            .join(LenhSanXuat, LenhSanXuat.id == RoutingStep.lenh_sx_id)
+            .join(RoutingStepAssignment, RoutingStepAssignment.routing_step_id == RoutingStep.id)
+            .where(
+                LenhSanXuat.trang_thai == LENH_DANG_CHAY,
+                RoutingStep.to_id.in_(to_ids),
+                RoutingStepAssignment.user_id == user_id,
+            )
+            .group_by(RoutingStep.to_id)
+        )
+        return {tid: int(c) for tid, c in rows if tid is not None}
+
+    # ================= Sản lượng + bàn giao (Lát 2 — thực thi) =================
+    def create_san_luong(
+        self, *, lenh_id: int, step_id: int, to_id: int | None,
+        so_dat: int, so_hong: int, don_vi: str, ghi_chu: str | None, nguoi_ghi: int | None,
+    ) -> SanLuong:
+        row = SanLuong(
+            lenh_sx_id=lenh_id, routing_step_id=step_id, to_id=to_id,
+            so_dat=so_dat, so_hong=so_hong, don_vi=don_vi, ghi_chu=ghi_chu, nguoi_ghi=nguoi_ghi,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def san_luong_totals(self, step_ids: list[int]) -> dict[int, dict]:
+        """{routing_step_id: {so_dat, so_hong, don_vi}} — tổng CỘNG DỒN per bước (đơn vị = bản ghi mới nhất)."""
+        if not step_ids:
+            return {}
+        out: dict[int, dict] = {}
+        for sid, dat, hong in self.db.execute(
+            select(
+                SanLuong.routing_step_id,
+                func.coalesce(func.sum(SanLuong.so_dat), 0),
+                func.coalesce(func.sum(SanLuong.so_hong), 0),
+            ).where(SanLuong.routing_step_id.in_(step_ids)).group_by(SanLuong.routing_step_id)
+        ):
+            out[sid] = {"so_dat": int(dat), "so_hong": int(hong), "don_vi": "to"}
+        for sid, dv in self.db.execute(
+            select(SanLuong.routing_step_id, SanLuong.don_vi)
+            .where(SanLuong.routing_step_id.in_(step_ids)).order_by(SanLuong.id.asc())
+        ):
+            if sid in out:
+                out[sid]["don_vi"] = dv   # asc → giữ đơn vị của bản ghi MỚI NHẤT
+        return out
+
+    def create_ban_giao(
+        self, *, lenh_id: int, tu_step_id: int | None, toi_step_id: int | None,
+        to_giao: int | None, to_nhan: int | None, so_giao: int, don_vi: str, nguoi_giao: int | None,
+    ) -> BanGiao:
+        row = BanGiao(
+            lenh_sx_id=lenh_id, tu_step_id=tu_step_id, toi_step_id=toi_step_id,
+            to_giao=to_giao, to_nhan=to_nhan, so_giao=so_giao, don_vi=don_vi, nguoi_giao=nguoi_giao,
+        )
+        self.db.add(row)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
+    def get_ban_giao(self, bg_id: int) -> BanGiao | None:
+        return self.db.get(BanGiao, bg_id)
+
+    def update_ban_giao(self, bg: BanGiao, **fields) -> BanGiao:
+        for k, v in fields.items():
+            setattr(bg, k, v)
+        self.db.commit()
+        self.db.refresh(bg)
+        return bg
+
+    def ban_giao_out_totals(self, step_ids: list[int]) -> dict[int, int]:
+        """{tu_step_id: Σ số đã GIAO đi từ bước} — hiện 'đã giao X'."""
+        if not step_ids:
+            return {}
+        rows = self.db.execute(
+            select(BanGiao.tu_step_id, func.coalesce(func.sum(BanGiao.so_giao), 0))
+            .where(BanGiao.tu_step_id.in_(step_ids)).group_by(BanGiao.tu_step_id)
+        )
+        return {sid: int(s) for sid, s in rows if sid is not None}
+
+    def ban_giao_in_pending(self, step_ids: list[int]) -> dict[int, BanGiao]:
+        """{toi_step_id: bàn giao ĐẾN chưa xác nhận (cũ nhất)} — nuôi nút 'Xác nhận nhận'."""
+        if not step_ids:
+            return {}
+        out: dict[int, BanGiao] = {}
+        for bg in self.db.execute(
+            select(BanGiao)
+            .where(BanGiao.toi_step_id.in_(step_ids), BanGiao.nhan_at.is_(None))
+            .order_by(BanGiao.id.desc())
+        ).scalars():
+            out[bg.toi_step_id] = bg   # desc → last-write = id nhỏ nhất = phiếu cũ nhất
+        return out
+
+    def workers_in_to(self, to_id: int) -> list[tuple[int, str, str | None]]:
+        """Thợ (Employee có `user_id`) thuộc 1 tổ — để tổ trưởng gán: (user_id, tên, chức vụ)."""
+        rows = self.db.execute(
+            select(Employee.user_id, Employee.full_name, Employee.position)
+            .where(Employee.department_id == to_id, Employee.user_id.isnot(None))
+            .order_by(Employee.full_name.asc())
+        )
+        return [(uid, name, pos) for uid, name, pos in rows]
+
+    def user_display_names(self, user_ids: list[int]) -> dict[int, str]:
+        """Tên hiển thị theo user_id (assignees) — ưu tiên hồ sơ NV (`full_name`), lùi `User.name`."""
+        if not user_ids:
+            return {}
+        names: dict[int, str] = {}
+        for uid, full in self.db.execute(
+            select(Employee.user_id, Employee.full_name)
+            .where(Employee.user_id.in_(user_ids), Employee.full_name.isnot(None))
+        ):
+            if uid is not None and full:
+                names[uid] = full
+        missing = [u for u in user_ids if u not in names]
+        if missing:
+            for uid, name in self.db.execute(
+                select(User.id, User.name).where(User.id.in_(missing))
+            ):
+                names[uid] = name
+        return names
 
     # ================= Đọc NỀN từ PTG / Đơn (không chép) =================
     def get_phieu_thanh_phan(self, ptp_id: int | None) -> PhieuThanhPhan | None:
