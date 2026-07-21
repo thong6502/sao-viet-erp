@@ -3330,6 +3330,7 @@
   grid-template-columns: repeat(7, 1fr);
 }
 .lsx-gcell {
+  position: relative;   /* mốc cho .lsx-gcell__load (số tải góc dưới-phải) */
   border-left: 1px solid var(--rule-hair);
   border-bottom: 1px solid var(--rule-hair);
   transition: background var(--duration-fast) var(--easing-standard);
@@ -3547,6 +3548,62 @@
 }
 .lsx-grow__clash svg {
   flex: none;
+}
+
+/* ---- CÔNG SUẤT MÁY (MOCK — chưa nối `may_thiet_bi.toc_do` × giờ chạy/ngày) ----
+   Tải ngày = tổng TỜ IN của lệnh bắt đầu chạy ngày đó. Vượt công suất = cảnh báo MỀM (amber,
+   tách khỏi đỏ "kẹt máy" để không loãng màu khẩn) — KHÔNG chặn kéo-thả: máy chỉ trưng, người xếp. */
+.lsx-lich__machcap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--ash-2);
+}
+.lsx-lich__machcap svg {
+  flex: none;
+}
+.lsx-lich__machcap em {
+  font-family: var(--ff-sans);
+  font-style: normal;
+  font-size: 9.5px;
+  color: var(--ash-2);
+  opacity: 0.75;
+}
+.lsx-grow__over {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 3px;
+  font-family: var(--ff-sans);
+  font-size: 10px;
+  font-weight: var(--fw-bold);
+  line-height: 1.2;
+  color: var(--amber-deep);
+}
+.lsx-grow__over svg {
+  flex: none;
+}
+.lsx-gcell--over {
+  background: var(--amber-soft);
+}
+.lsx-gcell__load {
+  position: absolute;
+  right: 4px;
+  bottom: 2px;
+  font-family: var(--ff-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--ash-2);
+  pointer-events: none;
+}
+.lsx-gcell__load.is-over {
+  font-weight: var(--fw-bold);
+  color: var(--amber-deep);
 }
 
 /* ---- Thẻ lệnh (kéo được) ---- */

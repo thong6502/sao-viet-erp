@@ -1944,6 +1944,40 @@ def _migrate_drop_ghost_modules(db: Session) -> None:
             db.rollback()
 
 
+def _migrate_drop_hop_dong_module(db: Session) -> None:
+    """Gỡ module ma `hop_dong` khỏi ma trận phân quyền (giống 0069). Không router/màn nào enforce
+    quyền này — "Hợp đồng" trong sản phẩm chỉ là LOẠI TÀI LIỆU đính kèm (doc_kind='hop_dong') nằm
+    dưới Khách hàng/Nhân sự, gác bằng quyền khach_hang/nhan_su → tick ô này không đổi gì. `seed_modules`
+    chỉ thêm/đổi-nhãn nên DB đã seed vẫn giữ dòng cũ → xóa tay ở đây. role_permissions TRƯỚC vì
+    module_key là FK → modules.key. KHÔNG đụng doc_kind='hop_dong' (đường khác). Best-effort; no-op fresh."""
+    for sql in (
+        "DELETE FROM role_permissions WHERE module_key = :k",
+        "DELETE FROM modules WHERE key = :k",
+    ):
+        try:
+            db.execute(text(sql), {"k": "hop_dong"})
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+def _migrate_drop_san_luong_module(db: Session) -> None:
+    """Gỡ module ma `san_luong` ("Sản lượng công đoạn") khỏi ma trận (giống 0088). Là quyền còn sót
+    của module "Theo dõi sản xuất / nhập liệu xưởng" đã gỡ (commit e628c4b). Việc ghi sản lượng THẬT
+    (Lát 2) đã chuyển sang gate `san_xuat:record_output` → không router/màn nào enforce `san_luong`.
+    Xóa role_permissions TRƯỚC (FK → modules.key). KHÔNG đụng bảng `san_luong` (dữ liệu Lát 2) hay
+    enum che_do_tinh='theo_san_luong' — đường khác. Best-effort; no-op trên DB fresh."""
+    for sql in (
+        "DELETE FROM role_permissions WHERE module_key = :k",
+        "DELETE FROM modules WHERE key = :k",
+    ):
+        try:
+            db.execute(text(sql), {"k": "san_luong"})
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
 def _migrate_receipt_source_and_drop_order_deposits(db: Session) -> None:
     """V5 — Thu cọc đơn hàng bán = Phiếu thu THẬT (Kế toán) lập từ đơn.
 
@@ -2411,6 +2445,10 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0085_lenh_sx_lich_chay", _migrate_lenh_sx_lich_chay),
     ("0086_routing_step_may_ca", _migrate_routing_step_may_ca),
     ("0087_role_permission_output_handover", _migrate_role_permission_output_handover),
+    # Gỡ module ma `hop_dong` (như 0069) — không router/màn dùng; "Hợp đồng" chỉ là doc_kind đính kèm.
+    ("0088_drop_hop_dong_module", _migrate_drop_hop_dong_module),
+    # Gỡ module ma `san_luong` — sót của "Theo dõi SX" đã gỡ; ghi sản lượng Lát 2 dùng san_xuat:record_output.
+    ("0089_drop_san_luong_module", _migrate_drop_san_luong_module),
 ]
 
 

@@ -18,7 +18,7 @@ import {
   type OrderDetail,
   type ThanhPhanOut,
 } from "../api/client";
-import { mayThietBi, type Row } from "../api/rebuildCatalog";
+import { giay, mayThietBi, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
 import { Select, type SelectOption } from "../components/Select";
 import { ToastStack, useToasts } from "./LsxToast";
@@ -33,7 +33,8 @@ const toInt = (s: string): number => {
 };
 
 interface LenhSpec {
-  giayLabel: string;
+  giayLabel: string;   // TÊN GIẤY thật (danh mục), KHÔNG phải khổ
+  khoNguyen: string;   // khổ mua (tách bạch khỏi nhãn giấy)
   khoDai: number;
   khoRong: number;
   soMauA: number;
@@ -50,9 +51,14 @@ interface PoolItem {
   placedForms: number[];
 }
 
-function specOf(tp: ThanhPhanOut): LenhSpec {
+function specOf(tp: ThanhPhanOut, giayById: Map<number, Row>): LenhSpec {
+  // GIẤY = TÊN THẬT tra từ danh mục theo `giay_id`; chỉ lùi về khổ mua khi ấn phẩm chưa gán giấy.
+  // (Trước đây lấy thẳng `kho_nguyen` làm nhãn giấy → màn ghép hiện KHỔ, hoặc "Giấy #<id>" trần.)
+  const tenGiay =
+    tp.giay_id != null ? String(giayById.get(tp.giay_id)?.ten ?? "").trim() : "";
   return {
-    giayLabel: (tp.kho_nguyen ?? "").trim() || (tp.giay_id ? `Giấy #${tp.giay_id}` : ""),
+    giayLabel: tenGiay || (tp.kho_nguyen ?? "").trim(),
+    khoNguyen: (tp.kho_nguyen ?? "").trim(),
     khoDai: tp.kho_in_dai || 0,
     khoRong: tp.kho_in_rong || 0,
     soMauA: tp.so_mau_a || 0,
@@ -113,7 +119,7 @@ export function GhepBaiView({
 
       // 2) Nền đọc (song song, mỗi cái tự chịu lỗi): đơn (ấn phẩm/SL) · PTG (giấy/khổ/màu) ·
       //    tờ in đã ghép (nhãn "đã ghép", KHÔNG chặn) · máy.
-      const [orderEntries, ptpSpec, placedMap, mayList] = await Promise.all([
+      const [orderEntries, ptpSpec, placedMap, mayList, giayList] = await Promise.all([
         Promise.all(
           orderIds.map((oid) =>
             api.orders
@@ -125,11 +131,15 @@ export function GhepBaiView({
         buildPtpSpec(token),
         buildPlacedMap(token),
         mayThietBi.list(token).then((r) => r.items).catch(() => [] as Row[]),
+        // Danh mục GIẤY để resolve `giay_id` → tên giấy. Endpoint gác `kho|tinh_gia_thanh|san_xuat:read`
+        // nên vai Kế hoạch đọc được; thiếu quyền thì lùi êm về khổ mua (không vỡ màn).
+        giay.list(token).then((r) => r.items).catch(() => [] as Row[]),
       ]);
       if (!alive) return;
 
       const orders = new Map<number, OrderDetail>();
       for (const e of orderEntries) if (e) orders.set(e[0], e[1]);
+      const giayById = new Map<number, Row>(giayList.map((g) => [g.id, g]));
 
       const items: PoolItem[] = draft.map((lenh) => {
         const o = orders.get(lenh.order_id) ?? null;
@@ -141,7 +151,7 @@ export function GhepBaiView({
           khach: o?.customer_name ?? "—",
           orderNo: o?.order_no ?? `Đơn #${lenh.order_id}`,
           targetSL: line?.qty ?? null,
-          spec: tp ? specOf(tp) : null,
+          spec: tp ? specOf(tp, giayById) : null,
           placedForms: placedMap.get(lenh.id) ?? [],
         };
       });
@@ -355,6 +365,12 @@ export function GhepBaiView({
                           <span className="lsx-specchip__k">Giấy</span>
                           <span className="lsx-specchip__v">{p.spec?.giayLabel || "—"}</span>
                         </span>
+                        {p.spec?.khoNguyen ? (
+                          <span className="lsx-specchip">
+                            <span className="lsx-specchip__k">Khổ nguyên</span>
+                            <span className="lsx-specchip__v">{p.spec.khoNguyen}</span>
+                          </span>
+                        ) : null}
                         <span className="lsx-specchip">
                           <span className="lsx-specchip__k">Khổ in</span>
                           <span className="lsx-specchip__v">{khoLabel(p.spec)}</span>
@@ -400,7 +416,9 @@ export function GhepBaiView({
                       <span className="lsx-trayrow__code">{maLenh(p.lenh.id)}</span>
                       <span className="lsx-trayrow__name">{p.anPham}</span>
                       <span className="lsx-trayrow__spec">
-                        {p.spec?.giayLabel || "—"} · {khoLabel(p.spec)} · {mauLabel(p.spec)} màu
+                        {p.spec?.giayLabel || "—"}
+                        {p.spec?.khoNguyen ? ` · khổ nguyên ${p.spec.khoNguyen}` : ""} · khổ in{" "}
+                        {khoLabel(p.spec)} · {mauLabel(p.spec)} màu
                         {p.targetSL != null ? ` · SL đơn ${fmt(p.targetSL)}` : ""}
                       </span>
                     </div>

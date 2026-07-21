@@ -40,6 +40,16 @@ function vndShort(v: number | null | undefined): string {
   return vnd(v);
 }
 
+// MOCK tiến độ NHẬP KHO THÀNH PHẨM theo từng ấn phẩm (dòng đơn). Nhập kho thật thuộc Lát 4 —
+// CHƯA nối BE. Deterministic theo `line.id` (số KHÔNG nhảy mỗi lần render) + mỗi ấn phẩm một mức
+// KHÁC NHAU để thấy đủ 3 trạng thái: xong (100%) · đang dở · chưa có (0%).
+// Mẫu số là SL đặt THẬT của dòng đơn (sinh từ báo giá/tính giá) — chỉ tử số là mock.
+const MOCK_TP_PCT = [100, 64, 0, 95, 38, 100, 12, 77, 55, 0];
+function mockNhapKho(lineId: number, qty: number): number {
+  const pct = MOCK_TP_PCT[Math.abs(lineId) % MOCK_TP_PCT.length];
+  return Math.min(qty, Math.round((qty * pct) / 100));
+}
+
 // V5: hình thức thu của Phiếu thu Kế toán (PAYMENT_VOUCHER_TYPES).
 const RECEIPT_METHOD_LABELS: Record<string, string> = {
   cash: "Tiền mặt",
@@ -692,6 +702,28 @@ function OrderDrawer({
                           <KV k="Chuyển lúc" v={<span className="dhb__mono">{fmtDate(order.san_xuat_released_at)}</span>} />
                           {activeLenhs.length > 0 && (
                             <KV k="Lệnh SX" v={`${activeLenhs.filter((l) => l.trang_thai === "xong").length}/${activeLenhs.length} lệnh xong`} />
+                          )}
+                          {order.lines.length > 0 && (
+                            <div className="dhb__tp">
+                              <div className="dhb__tp-head">
+                                <span>Thành phẩm nhập kho</span>
+                                <em>mock — chưa nối kho</em>
+                              </div>
+                              {order.lines.map((l) => {
+                                const kho = mockNhapKho(l.id, l.qty);
+                                const pct = l.qty > 0 ? Math.round((kho / l.qty) * 100) : 0;
+                                const st = pct >= 100 ? "done" : kho === 0 ? "none" : "run";
+                                return (
+                                  <div key={l.id} className={`dhb__tp-row dhb__tp-row--${st}`}>
+                                    <span className="dhb__tp-ten">{l.description}</span>
+                                    <span className="dhb__tp-num">
+                                      <b>{kho.toLocaleString("vi-VN")}</b> / {l.qty.toLocaleString("vi-VN")}
+                                    </span>
+                                    <span className="dhb__tp-pct">{pct}%</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
                           )}
                           <p style={{ color: "var(--ash)", fontSize: 12, margin: "2px 0 0" }}>
                             {sxState === "cho_kh"

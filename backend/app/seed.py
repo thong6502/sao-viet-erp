@@ -34,7 +34,6 @@ MODULES: list[tuple[str, str]] = [
     ("bao_gia", "Báo giá in ấn"),
     ("don_hang_ban", "Đơn hàng bán"),
     ("tinh_gia_thanh", "Tính giá thành"),
-    ("hop_dong", "Hợp đồng"),
     ("thu_mua", "Thu mua"),
     ("ke_toan", "Kế toán"),
     ("san_xuat", "Sản xuất"),
@@ -56,7 +55,6 @@ MODULES: list[tuple[str, str]] = [
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
     ("luong", "Lương"),
-    ("san_luong", "Sản lượng công đoạn"),
 ]
 
 ALL_MODULE_KEYS = [k for k, _ in MODULES]
@@ -66,7 +64,6 @@ KD_MODULE_KEYS = [
     "bao_gia",
     "don_hang_ban",
     "tinh_gia_thanh",
-    "hop_dong",
 ]
 
 DEPARTMENTS = [
@@ -190,8 +187,6 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "nghi_phep": _leave_admin(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
-            # Sản lượng công đoạn (Pha 5b): HCNS xem/sửa phiếu + bật 'tính khoán' lệnh bù.
-            "san_luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
             # đặt lại MK, khóa/mở, thu hồi phiên, gán vai trò, chuyển phòng ban.
             "nguoi_dung": {
@@ -335,8 +330,6 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "kho": {**_read(SCOPE_ALL), "can_create": True},
             "san_xuat": _rcu(SCOPE_ALL),
-            # Ghi phiếu sản lượng công đoạn (Pha 5b) — CHỈ ghi, KHÔNG có quyền Chốt sổ (thuộc `luong`).
-            "san_luong": _rcu(SCOPE_ALL),
         },
     ),
     # Quản lý sản xuất: như trên + duyệt phiếu SX-liên-quan + quản lý lệnh SX.
@@ -347,7 +340,6 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_ALL),
             "kho": {**_read(SCOPE_ALL), "can_create": True, "can_approve": True},
             "san_xuat": _full(SCOPE_ALL),
-            "san_luong": _full(SCOPE_ALL),
         },
     ),
     # Nhân viên mua hàng: nhập NVL từ NCC (PO), xuất trả NCC.

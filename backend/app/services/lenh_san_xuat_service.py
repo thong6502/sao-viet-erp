@@ -246,9 +246,14 @@ class LenhSanXuatService:
             for o in orders
         ]
 
-    @staticmethod
-    def _spec_tom_tat(ptp) -> str:
-        """Quy cách rút gọn 1 dòng cho sổ hàng chờ (KỸ THUẬT — không giá): khổ TP · số màu · nhãn giấy."""
+    def _spec_tom_tat(self, ptp) -> str:
+        """Quy cách rút gọn 1 dòng cho sổ hàng chờ / thẻ lịch chạy (KỸ THUẬT — không giá):
+        `khổ TP · số màu · GIẤY`.
+
+        Phần giấy = TÊN GIẤY THẬT (resolve `giay_id` → `GiayNguyen.ten` qua `_giay_label`), lùi về
+        `kho_nguyen` (KHỔ MUA) chỉ khi ấn phẩm chưa gán giấy. Trước đây lấy thẳng `kho_nguyen` làm
+        nhãn giấy nên mọi nơi hiện KHỔ chứ không phải GIẤY — người kế hoạch không biết lệnh dùng giấy gì.
+        """
         if ptp is None:
             return ""
         parts: list[str] = []
@@ -256,8 +261,9 @@ class LenhSanXuatService:
             parts.append(f"{ptp.dai_thanh_pham}×{ptp.rong_thanh_pham}mm")
         if (ptp.so_mau_a or 0) > 0 or (ptp.so_mau_b or 0) > 0:
             parts.append(f"{ptp.so_mau_a}/{ptp.so_mau_b} màu")
-        if ptp.kho_nguyen:
-            parts.append(str(ptp.kho_nguyen))
+        giay = self._giay_label(ptp) or (str(ptp.kho_nguyen) if ptp.kho_nguyen else None)
+        if giay:
+            parts.append(giay)
         return " · ".join(parts)
 
     # ============ Routing riêng mỗi lệnh (§13.2): copy từ job spec + kế hoạch sửa ============

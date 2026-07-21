@@ -172,9 +172,9 @@ const MODULE_GROUPS: { key: string; label: string; modules: string[] }[] = [
   {
     key: "kinh_doanh",
     label: "Kinh doanh",
-    modules: ["khach_hang", "bao_gia", "don_hang_ban", "tinh_gia_thanh", "hop_dong"],
+    modules: ["khach_hang", "bao_gia", "don_hang_ban", "tinh_gia_thanh"],
   },
-  { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat", "san_luong"] },
+  { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat"] },
   { key: "kho", label: "Kho", modules: ["kho", "thu_mua"] },
   { key: "ke_toan", label: "Kế toán", modules: ["ke_toan"] },
   { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "luong"] },

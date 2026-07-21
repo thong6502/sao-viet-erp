@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Clock,
   Flag,
+  Gauge,
   Lock,
   MoreHorizontal,
   Scissors,
@@ -54,6 +55,26 @@ const isMayIn = (val: unknown) => {
   const s = String(val || "").trim().toLowerCase();
   return s === "máy in" || s === "in ngoài" || s.startsWith("in ") || s.includes("máy in") || s.includes("in offset");
 };
+// ===== MOCK công suất máy (CHƯA nối BE) =====
+// Công suất THẬT sau này suy từ `may_thiet_bi.toc_do` (đơn vị `to_gio`) × giờ chạy/ngày (`so_ca`).
+// Ở đây MOCK, deterministic theo id để số không nhảy mỗi lần render, và MỖI MÁY MỘT MỨC khác nhau.
+const MOCK_CONG_SUAT = [5200, 6800, 4500, 7600, 3800, 6100, 5500, 4200, 7100, 3400];
+const mockCongSuat = (may: { id: number; ten?: string }) => {
+  // Máy IN: suy theo SỐ MÀU trong tên (2 màu→7.000 · 4→9.000 · 5→10.000 · 6→11.000 · 7→12.000)
+  // — máy nhiều màu/khổ lớn thì công suất cao hơn, nên mỗi máy ra một mức khác nhau, trông như thật.
+  const mau = /(\d+)\s*màu/i.exec(may.ten ?? "")?.[1];
+  if (mau) return 5000 + Number(mau) * 1000;
+  // Máy sau in (bế/cán/bồi…): bảng mock rải đều, deterministic theo id.
+  return MOCK_CONG_SUAT[Math.abs(may.id) % MOCK_CONG_SUAT.length];
+};
+
+// MOCK số TỜ IN của 1 lệnh — tải máy đếm THEO TỜ IN (chủ chốt).
+// ⚠️ Bản THẬT phải gom theo `print_form.so_to_chay` và KHỬ TRÙNG: xưởng ghép bài ~40% nên NHIỀU
+// lệnh có thể in CHUNG 1 tờ in = 1 lượt chạy máy — cộng theo lệnh sẽ đếm trùng, cảnh báo sai.
+const MOCK_TO_IN = [3200, 5400, 1800, 8600, 2500, 6100, 4300, 7400, 900, 5900];
+const mockToIn = (lenhId: number) => MOCK_TO_IN[Math.abs(lenhId) % MOCK_TO_IN.length];
+const fmtTo = (n: number) => n.toLocaleString("vi-VN");
+
 const dueRank = (r: LichChayRow): number => {
   const d = hanGiao(r.han_giao_noi_bo ?? r.han_giao_khach);
   return d ? { over: 0, soon: 1, ok: 2 }[d.level] : 3;
@@ -707,14 +728,31 @@ export function LenhSanXuatLichChayView({
                 const bars = barsByMachine.get(m.id) ?? [];
                 const cover = coverByMachine.get(m.id) ?? [0, 0, 0, 0, 0, 0, 0];
                 const clashDays = cover.filter((c) => c >= 2).length;
+                // MOCK công suất + tải: tải NGÀY = tổng tờ in của các lệnh BẮT ĐẦU chạy đúng ngày đó.
+                const congSuat = mockCongSuat(m);
+                const tai = [0, 0, 0, 0, 0, 0, 0];
+                bars.forEach((b) => {
+                  if (!b.clippedLeft && b.startIdx >= 0 && b.startIdx < 7) {
+                    tai[b.startIdx] += mockToIn(b.row.lenh_id);
+                  }
+                });
+                const overDays = tai.filter((t) => t > congSuat).length;
                 return (
                   <div key={m.id} className="lsx-lich__mrow" style={{ display: "contents" }}>
                     <div className="lsx-lich__mach">
                       <span className="lsx-lich__machname">{m.ten}</span>
                       <span className="lsx-lich__machma mono">{m.ma}</span>
+                      <span className="lsx-lich__machcap">
+                        <Gauge size={10} /> {fmtTo(congSuat)} tờ/ngày <em>mock</em>
+                      </span>
                       {clashDays > 0 ? (
                         <span className="lsx-grow__clash">
                           <AlertTriangle size={11} /> Kẹt máy · {clashDays} ngày chồng
+                        </span>
+                      ) : null}
+                      {overDays > 0 ? (
+                        <span className="lsx-grow__over">
+                          <AlertTriangle size={11} /> Quá tải · {overDays} ngày
                         </span>
                       ) : null}
                     </div>
@@ -725,6 +763,7 @@ export function LenhSanXuatLichChayView({
                           const we = d.getDay() === 0 || d.getDay() === 6;
                           const cellKey = `${m.id}|${k}`;
                           const isClash = cover[ci] >= 2;
+                          const isOver = tai[ci] > congSuat;
                           return (
                             <div
                               key={k}
@@ -734,6 +773,7 @@ export function LenhSanXuatLichChayView({
                                 (we ? " lsx-gcell--we" : "") +
                                 (k === todayStr ? " lsx-gcell--today" : "") +
                                 (dropKey === cellKey ? " lsx-gcell--drop" : "") +
+                                (isOver ? " lsx-gcell--over" : "") +
                                 (isClash ? " lsx-gcell--clash" : "")
                               }
                               onDragOver={(e) => {
@@ -745,7 +785,13 @@ export function LenhSanXuatLichChayView({
                                 e.preventDefault();
                                 onDropCell(m.id, k);
                               }}
-                            />
+                            >
+                              {tai[ci] > 0 ? (
+                                <span className={"lsx-gcell__load" + (isOver ? " is-over" : "")}>
+                                  {isOver ? `${fmtTo(tai[ci])} / ${fmtTo(congSuat)}` : fmtTo(tai[ci])}
+                                </span>
+                              ) : null}
+                            </div>
                           );
                         })}
                       </div>
