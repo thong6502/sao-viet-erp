@@ -676,8 +676,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     [giays],
   );
 
-  // Chọn máy → khổ tờ in ② = VÙNG IN của máy (đã trừ nhíp/lề, `vung_in_*`) → bình bài con ra số
-  // THỰC TẾ, không phải khổ giấy đầy đủ. Máy chưa khai vùng in → fallback khổ giấy max. Giữ con_auto.
+  // Chọn máy → chừa NHÍP theo máy (`gripper_mm`): bình bài trên KHỔ GIẤY IN − nhíp. KHÔNG ghi đè
+  // khổ tờ in bằng vùng in máy nữa (khổ tờ in = khổ giấy in, lấy từ giấy). Giữ con_auto.
   const onPickMay = useCallback(
     (uid: string, mid: number | null) => {
       setComps((cs) =>
@@ -687,10 +687,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           const m = mays.find((x) => x.id === mid);
           if (!m) return { ...c, may_id: mid };
           const patch: Partial<EditableComponent> = { may_id: mid, con_auto: true };
-          const kd = numOf(m.vung_in_dai) || numOf(m.kho_max_dai);
-          const kr = numOf(m.vung_in_rong) || numOf(m.kho_max_rong);
-          if (kd) patch.kho_in_dai = kd;
-          if (kr) patch.kho_in_rong = kr;
+          const nhip = numOf(m.gripper_mm);
+          if (nhip) patch.chua_nhip = nhip;   // chừa nhíp theo máy
           return { ...c, ...patch };
         }),
       );

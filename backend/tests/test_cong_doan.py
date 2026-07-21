@@ -34,11 +34,11 @@ def test_crud_and_duplicate():
         svc.create(dict(ma="IN", ten="khác", nhom="print", pricing_basis="per_sheet"))
 
 
-def test_validate_basis_and_hour():
+def test_validate_basis():
     db, svc = _svc()
     with pytest.raises(CongDoanValidationError):          # E-CD-BASIS
         svc.create(dict(ma="X1", ten="x", nhom="finishing", che_do_tinh="theo_san_luong"))
-    with pytest.raises(CongDoanValidationError):          # E-CD-HOUR-MAY (thiếu may_id)
+    with pytest.raises(CongDoanValidationError):          # theo_gio đã gỡ → chế độ không hợp lệ
         svc.create(dict(ma="X2", ten="x", nhom="prepress", che_do_tinh="theo_gio"))
 
 

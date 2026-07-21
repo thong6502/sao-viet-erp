@@ -35,12 +35,8 @@ class CongDoanService:
         che_do = data.get("che_do_tinh", "theo_san_luong")
         if che_do not in CHE_DO_TINH:
             raise CongDoanValidationError("Chế độ tính không hợp lệ.")
-        if che_do == "theo_san_luong":
-            if data.get("pricing_basis") not in PRICING_BASIS:
-                raise CongDoanValidationError("Tính theo sản lượng cần pricing_basis hợp lệ. [E-CD-BASIS]")
-        else:  # theo_gio
-            if not data.get("may_id"):
-                raise CongDoanValidationError("Tính theo giờ cần chọn máy. [E-CD-HOUR-MAY]")
+        if data.get("pricing_basis") not in PRICING_BASIS:
+            raise CongDoanValidationError("Tính theo sản lượng cần pricing_basis hợp lệ. [E-CD-BASIS]")
         if data.get("tooling_type") not in (None, "") and data["tooling_type"] not in TOOLING_TYPE:
             raise CongDoanValidationError("Loại khuôn/kẽm không hợp lệ.")
         if data.get("kieu_bu_hao", "khong") not in KIEU_BU_HAO:

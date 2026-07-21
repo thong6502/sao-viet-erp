@@ -34,10 +34,10 @@
 | ten | string(150) | ✓ | | Cắt xén, Cán màng, Bế, Ép kim, Đóng ghim… |
 | nhom | enum(prepress, print, finishing) | ✓ | | |
 | may_id | FK → máy | ✓ | | máy chạy công đoạn |
-| che_do_tinh | enum(theo_gio, theo_san_luong) | ✓ | theo_san_luong | **trục tính tiền** (khác `pricing_basis`) |
+| che_do_tinh | enum(theo_san_luong) | ✓ | theo_san_luong | **trục tính tiền** (khác `pricing_basis`). `theo_gio` ĐÃ GỠ — công đoạn chỉ tính theo công thức/sản lượng |
 | pricing_basis | enum(per_sheet, per_finished_area, per_finished_qty, per_book_page, per_position, per_bag, per_carton, per_area_sides, per_sheet_area, per_book_page_q4, per_other) | khi theo_san_luong | | **đơn vị** đo (§4.3) |
 | setup_cost | money | | 0 | phí cố định/lần |
-| setup_time | number | phút | 0 | (dùng khi theo_gio) |
+| setup_time | number | phút | 0 | (cột CHẾT — chỉ dùng cho `theo_gio` đã gỡ) |
 | run_rate | money | | | đơn giá theo basis |
 | rate_tiers[] | json | | | bậc thang §5.2 |
 | first_unit_floor | money | | | **sàn cho bậc đầu** (VD 1.000 lượt đầu) — KHÁC `min_charge` |
@@ -75,8 +75,7 @@
 
 ### 4.1 Tiền 1 công đoạn
 ```
-theo_san_luong:  run_cost = run_rate × basis_qty   (áp bậc thang §5.2 nếu có)
-theo_gio:        run_cost = BHR(máy) × (basis_qty / (toc_do×efficiency) + setup_time/60)
+run_cost = run_rate × basis_qty   (theo sản lượng/công thức; áp bậc thang §5.2 nếu có)
 total = setup_cost + run_cost + tooling_cost
 total = max(total, min_charge)              ← sàn cả công đoạn
 tooling_cost = reuse_tooling ? 0 : tooling.one_time_cost   ← tái bản bỏ khuôn
@@ -178,7 +177,6 @@ Job cost thực = Σ routing_step.actual + vật tư (giấy/mực/kẽm)
 | Code | Điều kiện | Loại |
 |---|---|---|
 | E-CD-BASIS | che_do_tinh=theo_san_luong nhưng thiếu pricing_basis | chặn |
-| E-CD-HOUR-MAY | che_do_tinh=theo_gio nhưng thiếu may_id hoặc toc_do ≤ 0 | chặn |
 | E-CD-TOOL | requires_tooling nhưng thiếu tooling_ref (khi báo giá) | chặn |
 | E-CD-KEM-DIG | sinh kem_line cho máy digital | chặn |
 | W-CD-PRINT-SPOIL | spoilage_pct > 0 trên bước in (trùng bù hao máy) | cảnh báo (ép 0) |
@@ -191,7 +189,7 @@ Job cost thực = Σ routing_step.actual + vật tư (giấy/mực/kẽm)
 ## 9. Seed data
 | ma | nhóm | máy | che_do_tinh | basis | rate (VN) | tooling |
 |---|---|---|---|---|---|---|
-| GHI-KEM | prepress | CTP-B1 | theo_gio | — | BHR×giờ | (bản = kem_line) |
+| GHI-KEM | prepress | CTP-B1 | theo_san_luong | per_other | công thức | (bản = kem_line) |
 | IN | print | OFF-74-4C | theo_san_luong | per_1000_luot | + first_unit_floor 1.000 lượt | kẽm |
 | XEN | finishing | XEN-115 | theo_san_luong | per_ram | 50–70k/ram | — |
 | CAN-BONG | finishing | CAN-BONG | theo_san_luong | per_m2 | 2.000–2.500đ/m², min 50m² | — |
@@ -227,4 +225,5 @@ SFDC             : actual theo (job, sequence, công đoạn)
 9. **Actual** có cấu trúc + SFDC key theo (job, bước), không chỉ theo máy.
 10. **theo_gio** bắt buộc may_id + tốc độ; lao động thủ công (thuê ngoài) đi đường labor rate.
 11. **Mực**: công thức tiêu hao theo số màu × lượt (+ coverage), không bỏ số màu.
+12. **Gỡ `theo_gio`**: công đoạn chỉ còn `theo_san_luong` (tính theo công thức/sản lượng). Engine bỏ nhánh giờ + param `bhr`; `E-CD-HOUR-MAY` và cột `setup_time` thành vô dụng. Tính công theo giờ (nếu cần) thuộc module lương (`Operation.pricing_method`), KHÔNG phải công đoạn.
 ```

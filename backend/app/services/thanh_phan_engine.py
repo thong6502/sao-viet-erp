@@ -229,9 +229,6 @@ def _ct(dan: str, tien: float, sl: int) -> str:
 
 def _step_cost_safe(cd: dict, ctx: dict, warnings: list[str], ten: str) -> tuple[float, str]:
     """Tiền 1 công đoạn theo compute_step_cost, KHÔNG crash. Ghi chú = diễn giải `số × đơn giá`."""
-    if cd.get("che_do_tinh", "theo_san_luong") == "theo_gio":
-        warnings.append(f"Công đoạn '{ten}': tính theo giờ — bản này theo sản lượng, tính 0đ.")
-        return 0.0, "theo giờ — không tính (bản sản lượng)"
     try:
         res = compute_step_cost(cd, ctx)
     except Exception as e:  # noqa: BLE001 — không crash, gom vào warnings
@@ -258,9 +255,23 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     kho_in_r = _f(tp.get("kho_in_rong"))
     if kho_in_d <= 0 or kho_in_r <= 0:   # thiếu khổ in → in thẳng khổ giấy nguyên (không xả)
         kho_in_d, kho_in_r = kho_ng_d, kho_ng_r
+    # Cảnh báo: khổ tờ in > khổ giấy nguyên (bất khả thi vật lý) → bình bài trên vùng ảo, số con
+    # thổi phồng, giá thành thiếu. MÁY CHỈ GHI NHẬN — chỉ nhắc, KHÔNG tự sửa/chặn.
+    if kho_ng_d > 0 and kho_ng_r > 0 and (kho_in_d > kho_ng_d or kho_in_r > kho_ng_r):
+        warnings.append(
+            f"Thành phần '{name}': khổ tờ in {kho_in_d:g}×{kho_in_r:g} lớn hơn khổ giấy "
+            f"{kho_ng_d:g}×{kho_ng_r:g} — số con có thể sai (bình bài vượt khổ giấy)."
+        )
     # Khổ giấy CHẠY máy (cho XẢ GIẤY): khác khổ tờ in ② (vùng in) khi chọn máy. Thiếu → = khổ tờ in.
     kho_may_d = _f(tp.get("kho_may_dai")) or kho_in_d
     kho_may_r = _f(tp.get("kho_may_rong")) or kho_in_r
+    # A: khổ tờ in KHÔNG lọt khổ giấy MÁY nhận (kho_may = kho_max máy) — máy không kẹp/chạy được tờ
+    # này (xét cả XOAY qua `_fit`). Chỉ nhắc, không chặn. Không có máy → kho_may = kho_in → luôn lọt.
+    if kho_may_d > 0 and kho_may_r > 0 and _fit(kho_may_d, kho_may_r, kho_in_d, kho_in_r) < 1:
+        warnings.append(
+            f"Thành phần '{name}': khổ tờ in {kho_in_d:g}×{kho_in_r:g} lớn hơn khổ giấy máy nhận "
+            f"{kho_may_d:g}×{kho_may_r:g} — máy không chạy được tờ này."
+        )
     dai_tp = _f(tp.get("dai_thanh_pham"))    # thành phẩm ③
     rong_tp = _f(tp.get("rong_thanh_pham"))
     chua_mm = (_f(tp.get("chua_xen")) + _f(tp.get("chua_tay_ke")) + _f(tp.get("chua_nhip"))

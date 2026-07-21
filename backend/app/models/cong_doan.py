@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from ..db import Base
 
 NHOM = ("prepress", "print", "finishing")
-CHE_DO_TINH = ("theo_gio", "theo_san_luong")
+CHE_DO_TINH = ("theo_san_luong",)  # "theo_gio" đã gỡ — công đoạn chỉ tính theo công thức/sản lượng
 # Đơn vị tính giá công đoạn (bao trùm chế bản + in + sau in). Engine `routing_engine.basis_qty`
 # quy đổi mỗi key → số lượng tính tiền từ ctx job.
 PRICING_BASIS = (
