@@ -7,7 +7,9 @@ from __future__ import annotations
 
 from math import ceil
 
-from app.services.thanh_phan_engine import binh_bai_con, binh_bai_layout, compute_phieu
+from app.services.thanh_phan_engine import (
+    binh_bai_con, binh_bai_layout, binh_bai_nghich, compute_phieu,
+)
 
 
 def test_binh_bai_con_geometric():
@@ -31,6 +33,27 @@ def test_binh_bai_layout_chi_tiet():
 
 def test_binh_bai_con_qua_kho_tra_0():
     assert binh_bai_con(kho_in_dai=100, kho_in_rong=100, dai_tp=200, rong_tp=50) == 0
+
+
+def test_binh_bai_nghich_dung_N_it_phe():
+    # Name card 90×54, chừa 0, tờ nguyên 650×430, muốn ĐÚNG 49 con.
+    # 49 = 7×7 → khổ tờ in 630×378 (lọt nguyên); phân rã khác (1×49 / 49×1) quá khổ.
+    r = binh_bai_nghich(con=49, dai_tp=90, rong_tp=54, chua_mm=0,
+                        kho_nguyen_dai=650, kho_nguyen_rong=430)
+    assert r["con"] == 49
+    assert r["kho_in_dai"] == 630 and r["kho_in_rong"] == 378
+    assert r["rows"] == 7 and r["cols"] == 7
+    # Round-trip: nạp khổ vừa tính vào bình bài XUÔI → đúng 49 con.
+    assert binh_bai_con(kho_in_dai=630, kho_in_rong=378, dai_tp=90, rong_tp=54, chua_mm=0) == 49
+
+
+def test_binh_bai_nghich_khong_xep_duoc_tra_0():
+    # N=13 (nguyên tố) không xếp lọt tờ nguyên 650×430 với SP 90×54 → con=0 (FE báo đỏ).
+    assert binh_bai_nghich(con=13, dai_tp=90, rong_tp=54, chua_mm=0,
+                           kho_nguyen_dai=650, kho_nguyen_rong=430)["con"] == 0
+    # Chưa nhập khổ giấy nguyên → KHÔNG tính (con=0).
+    assert binh_bai_nghich(con=49, dai_tp=90, rong_tp=54, chua_mm=0,
+                           kho_nguyen_dai=0, kho_nguyen_rong=0)["con"] == 0
 
 
 def _component() -> dict:

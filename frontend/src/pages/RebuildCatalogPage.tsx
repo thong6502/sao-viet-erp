@@ -32,7 +32,8 @@ export interface FacetDef {
 }
 export interface CatalogConfig {
   title: string;
-  subtitle: string;
+  subtitle?: string;
+  showCount?: boolean;
   prefix: string;
   columns: ColumnDef[];
   fields: FieldDef[];
@@ -96,10 +97,10 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
       <header className="rc__head">
         <div className="rc__headrow">
           <h1 className="rc__title">{config.title}</h1>
-          {/* Số lượng: mono muted cạnh title (bỏ count-pill tròn đen) */}
-          <span className="rc__count">{rows.length} mục</span>
+          {/* Số lượng: mono muted cạnh title (ẩn khi showCount = false) */}
+          {config.showCount !== false && <span className="rc__count">{rows.length} mục</span>}
         </div>
-        <p className="rc__sub">{config.subtitle}</p>
+        {config.subtitle ? <p className="rc__sub">{config.subtitle}</p> : null}
       </header>
 
       <div className="rc__toolbar">
@@ -144,7 +145,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
                 const isCenter = c.key === "bac" || c.key === "dai" || c.key === "active";
                 return <th key={c.key} className={isCenter ? "text-center" : ""}>{c.label}</th>;
               })}
-              <th className="rc__actcol" style={{ width: "180px" }}>Hành động</th>
+              <th className="rc__actcol" style={{ width: "100px" }}>Hành động</th>
             </tr>
           </thead>
           <tbody>
@@ -198,10 +199,6 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
                     );
                   })}
                   <td className="rc__actcol" onClick={(e) => e.stopPropagation()}>
-                    <button type="button" className="rc__link-btn" onClick={() => setEditing(r)} title="Chỉnh sửa">
-                      <EditIcon />
-                      <span>Sửa</span>
-                    </button>
                     {config.hasVersions && (
                       <button type="button" className="rc__link-btn" onClick={() => setPricingRow(r)} title="Lịch sử giá / nhập đơn giá">
                         <TagIcon />
@@ -446,11 +443,7 @@ const SearchIcon = () => (
   </svg>
 );
 
-const EditIcon = () => (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-  </svg>
-);
+
 
 const TrashIcon2 = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -716,60 +709,7 @@ function SizeTiersField({ value, onChange }: { value: SizeTierRow[]; onChange: (
   );
 }
 
-function getGroupIcon(name: string) {
-  const n = name.toLowerCase();
-  if (n.includes("thông tin") || n.includes("phân loại") || n.includes("thông số") || n.includes("nhận diện")) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10"/>
-        <path d="M12 16v-4M12 8h.01"/>
-      </svg>
-    );
-  }
-  if (n.includes("giá") || n.includes("tính giá") || n.includes("đơn giá")) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <line x1="12" x2="12" y1="2" y2="22"/>
-        <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
-      </svg>
-    );
-  }
-  if (n.includes("bù hao") || n.includes("quy tắc")) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-        <line x1="12" y1="9" x2="12" y2="13"/>
-        <line x1="12" y1="17" x2="12.01" y2="17"/>
-      </svg>
-    );
-  }
-  if (n.includes("mặc định") || n.includes("công đoạn")) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <rect width="18" height="18" x="3" y="3" rx="2"/>
-        <path d="M9 22V12h6v10M2 17l10-10 10 10"/>
-      </svg>
-    );
-  }
-  if (n.includes("khổ kẽm") || n.includes("khổ giấy") || n.includes("kích thước") || n.includes("thiết bị")) {
-    return (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <rect width="18" height="18" x="3" y="3" rx="2"/>
-        <path d="M7 3v4M17 3v4M3 7h18M3 17h18M7 21v-4M17 21v-4"/>
-      </svg>
-    );
-  }
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="8" y1="6" x2="21" y2="6"/>
-      <line x1="8" y1="12" x2="21" y2="12"/>
-      <line x1="8" y1="18" x2="21" y2="18"/>
-      <line x1="3" y1="6" x2="3.01" y2="6"/>
-      <line x1="3" y1="12" x2="3.01" y2="12"/>
-      <line x1="3" y1="18" x2="3.01" y2="18"/>
-    </svg>
-  );
-}
+
 
 // ── DRAWER COMPONENT ─────────────────────────────────────────────────────────────
 function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
@@ -816,46 +756,12 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     return () => { alive = false; };
   }, [token, config.fields]);
 
-  // Field hiển thị theo điều kiện
   const visibleFields = useMemo(
     () => config.fields.filter((f) => !f.showIf || f.showIf(form)),
     [config.fields, form],
   );
 
-  // Nhóm field theo `group`
-  const groups = useMemo(() => {
-    const order: string[] = [];
-    const map = new Map<string, FieldDef[]>();
-    for (const f of visibleFields) {
-      const g = f.group ?? "Thông số";
-      if (!map.has(g)) { map.set(g, []); order.push(g); }
-      map.get(g)!.push(f);
-    }
-    return order.map((g) => ({ name: g, fields: map.get(g)! }));
-  }, [visibleFields]);
-
-  // Quản lý Tab hoạt động trong Form Drawer (chỉ chia tab khi danh mục phức tạp > 12 fields)
-  const useTabs = config.fields.length > 12;
-  const [activeTab, setActiveTab] = useState<string>("");
-  useEffect(() => {
-    if (useTabs && groups.length > 0) {
-      const names = groups.map((g) => g.name);
-      if (!names.includes(activeTab)) {
-        setActiveTab(names[0]);
-      }
-    }
-  }, [groups, activeTab, useTabs]);
-
-  // Kiểm tra trùng mã (Live validation)
-  const typedMa = String(form.ma ?? "").trim().toUpperCase();
-  const isMaDuplicate = useMemo(() => {
-    if (isEdit || !typedMa) return false;
-    return allRows.some((r) => String(r.ma).trim().toUpperCase() === typedMa);
-  }, [isEdit, typedMa, allRows]);
-
-  const hasFormulaField = useMemo(() => {
-    return visibleFields.some((f) => f.type === "formula");
-  }, [visibleFields]);
+  const [formulaTab, setFormulaTab] = useState<"info" | "formula">("info");
 
   const renderField = (f: FieldDef) => {
     const { cleanLabel, suffix } = parseLabelAndSuffix(f.label);
@@ -909,11 +815,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             onChange={(v) => set(f.key, v)}
           />
         ) : f.type === "formula" ? (
-          <FormulaField
-            value={String(form[f.key] ?? "")}
-            onChange={(v) => set(f.key, v)}
-            configPrefix={config.prefix}
-          />
+          <FormulaField value={String(form[f.key] ?? "")} onChange={(v) => set(f.key, v)} configPrefix={config.prefix} />
         ) : f.type === "checkbox" ? (
           <label className="rc-switch">
             <input type="checkbox" checked={!!form[f.key]} onChange={(e) => set(f.key, e.target.checked)} />
@@ -925,17 +827,14 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
             <input className="rc-input" type="date"
               value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} />
           </div>
-        ) : f.type === "json" ? (
+        ) : f.key === "ghi_chu" || f.key === "ghi_chu_2" || f.key === "mo_ta" ? (
           <div className="rc-input-wrapper">
-            <input className="rc-input rc-mono" placeholder='[1,2] hoặc {"k":1}'
-              value={typeof form[f.key] === "string" ? String(form[f.key]) : JSON.stringify(form[f.key] ?? "")}
-              onChange={(e) => set(f.key, e.target.value)} />
+            <textarea className="rc-textarea" rows={2} value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} placeholder="Nhập ghi chú hoặc thông tin bổ sung..." />
           </div>
         ) : (
           <div className="rc-input-wrapper">
             <input className={`rc-input${f.type === "number" ? " rc-input--num" : ""}`}
               type={f.type === "number" ? "number" : "text"} step="any" inputMode={f.type === "number" ? "decimal" : undefined}
-              placeholder={f.type === "number" ? (f.default != null ? String(f.default) : "0") : (f.hint ?? "")}
               value={String(form[f.key] ?? "")} onChange={(e) => set(f.key, e.target.value)} />
             {suffix && <span className="rc-input-suffix">{suffix}</span>}
           </div>
@@ -949,7 +848,6 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     e.preventDefault();
     if (!token || isMaDuplicate) return;
     setSaving(true); setErr(null);
-    // autoCode + tạo mới: KHÔNG gửi ma → backend tự sinh KHO-####. Sửa thì mã bất biến (gửi kèm).
     const body: Record<string, unknown> = { ten: form.ten };
     if (!config.autoCode || isEdit) body.ma = form.ma;
     for (const f of visibleFields) {
@@ -961,7 +859,6 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
         try { v = JSON.parse(v); } catch { setErr(`${f.label}: JSON không hợp lệ.`); setSaving(false); return; }
       }
       if (f.jsonKey) {
-        // gom vào cột JSON, GIỮ key lạ đã có (vd seed đặt thêm) — không ghi đè cả object
         const box = (body[f.jsonKey] as Record<string, unknown>) ??
           { ...((existing?.[f.jsonKey] as Record<string, unknown>) ?? {}) };
         box[f.key] = v;
@@ -981,9 +878,16 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
     } catch (e2) { setErr(e2 instanceof ApiError ? e2.message : "Lưu thất bại."); setSaving(false); }
   }
 
+  const typedMa = String(form.ma ?? "").trim().toUpperCase();
+  const isMaDuplicate = useMemo(() => {
+    if (isEdit || !typedMa) return false;
+    return allRows.some((r) => String(r.ma).trim().toUpperCase() === typedMa);
+  }, [isEdit, typedMa, allRows]);
+
+  const hasFormulaField = useMemo(() => visibleFields.some((f) => f.type === "formula"), [visibleFields]);
+
   return (
     <div className="rc-drawer__scrim" role="dialog" aria-modal="true" onClick={onClose}>
-      {/* Form có công thức → drawer rộng (2 cột form|công thức); còn lại → bề rộng mặc định */}
       <aside className={`rc-drawer${hasFormulaField ? " rc-drawer--formula" : ""}`} onClick={(e) => e.stopPropagation()}>
         <header className="rc-drawer__head">
           <div>
@@ -1001,14 +905,29 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
           {err && <div className="banner banner--error" style={{ marginBottom: "var(--sp-4)" }}>{err}</div>}
           
           {hasFormulaField ? (
-            <div className="rc-drawer__body-split">
-              <div className="rc-drawer__col-form">
-                <section className="rc-card-section rc-sec--ident">
-                  <div className="rc-card-section__title">
-                    {getGroupIcon("Nhận diện")}
-                    <span>Nhận diện</span>
-                  </div>
-                  <div className="rc-grid">
+            <div>
+              {/* Tab chuyển đổi thanh thoát không icon phèn, không nút toggle rác */}
+              <div className="rc-drawer__tabs" style={{ marginBottom: "var(--sp-4)" }}>
+                <button
+                  type="button"
+                  className={`rc-drawer__tab${formulaTab === "info" ? " is-active" : ""}`}
+                  onClick={() => setFormulaTab("info")}
+                >
+                  Khai báo thông tin
+                </button>
+                <button
+                  type="button"
+                  className={`rc-drawer__tab${formulaTab === "formula" ? " is-active" : ""}`}
+                  onClick={() => setFormulaTab("formula")}
+                >
+                  Công thức tính giá
+                </button>
+              </div>
+
+              {formulaTab === "info" ? (
+                /* Tab Khai báo: Gọn gàng 100% trong 1 Card 2 Cột duy nhất — KHÔNG cuộn trang */
+                <section className="rc-card-section" style={{ padding: "16px 20px" }}>
+                  <div className="rc-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px 16px" }}>
                     {!(config.autoCode && !isEdit) && (
                       <label className="rc-field">
                         <span className="rc-field__label">Mã <em>*</em></span>
@@ -1018,7 +937,7 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                         </div>
                         {!isEdit && typedMa && (
                           <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
-                            {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
+                            {isMaDuplicate ? "Mã đã tồn tại!" : "Mã hợp lệ!"}
                           </span>
                         )}
                       </label>
@@ -1029,125 +948,50 @@ function CatalogDrawer({ config, existing, allRows, onClose, onSaved }: {
                         <input className="rc-input" value={String(form.ten ?? "")} onChange={(e) => set("ten", e.target.value)} required />
                       </div>
                     </label>
+
+                    {visibleFields
+                      .filter((f) => f.type !== "formula")
+                      .map(renderField)}
                   </div>
                 </section>
-
-                {groups
-                  .map((g) => {
-                    const fields = g.fields.filter((f) => f.type !== "formula");
-                    if (fields.length === 0) return null;
-                    const isActive = !useTabs || groups.length <= 1 || g.name === activeTab;
-                    if (!isActive) return null;
-                    return (
-                      <section className="rc-card-section" key={g.name}>
-                        {(!useTabs || groups.length <= 1) && (
-                          <div className="rc-card-section__title">
-                            {getGroupIcon(g.name)}
-                            <span>{g.name}</span>
-                          </div>
-                        )}
-                        <div className="rc-grid">
-                          {fields.map(renderField)}
-                        </div>
-                      </section>
-                    );
-                  })
-                  .filter(Boolean)}
-              </div>
-
-              <div className="rc-drawer__col-formula">
-                {groups
-                  .map((g) => {
-                    const fields = g.fields.filter((f) => f.type === "formula");
-                    if (fields.length === 0) return null;
-                    const isActive = !useTabs || groups.length <= 1 || g.name === activeTab;
-                    if (!isActive) return null;
-                    return (
-                      <section className="rc-card-section" key={g.name} style={{ height: "100%" }}>
-                        {(!useTabs || groups.length <= 1) && (
-                          <div className="rc-card-section__title">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px" }}>
-                              <rect x="4" y="4" width="16" height="16" rx="2"/>
-                              <line x1="9" y1="9" x2="15" y2="9"/>
-                              <line x1="9" y1="13" x2="15" y2="13"/>
-                              <line x1="9" y1="17" x2="15" y2="17"/>
-                            </svg>
-                            <span>Công thức tính</span>
-                          </div>
-                        )}
-                        <div className="rc-grid" style={{ gridTemplateColumns: "1fr" }}>
-                          {fields.map(renderField)}
-                        </div>
-                      </section>
-                    );
-                  })
-                  .filter(Boolean)}
-              </div>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-4)" }}>
-              <section className="rc-card-section rc-sec--ident">
-                <div className="rc-card-section__title">
-                  {getGroupIcon("Nhận diện")}
-                  <span>Nhận diện</span>
-                </div>
-                <div className="rc-grid">
-                  {!(config.autoCode && !isEdit) && (
-                    <label className="rc-field">
-                      <span className="rc-field__label">Mã <em>*</em></span>
-                      <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
-                        <input className="rc-input rc-mono" value={String(form.ma ?? "")}
-                          disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
-                      </div>
-                      {!isEdit && typedMa && (
-                        <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
-                          {isMaDuplicate ? "❌ Mã đã tồn tại!" : "✅ Mã hợp lệ!"}
-                        </span>
-                      )}
-                    </label>
-                  )}
-                  <label className="rc-field">
-                    <span className="rc-field__label">Tên <em>*</em></span>
-                    <div className="rc-input-wrapper">
-                      <input className="rc-input" value={String(form.ten ?? "")} onChange={(e) => set("ten", e.target.value)} required />
-                    </div>
-                  </label>
-                </div>
-              </section>
-
-              {useTabs && groups.length > 1 && (
-                <div className="rc-drawer__tabs">
-                  {groups.map((g) => (
-                    <button
-                      key={g.name}
-                      type="button"
-                      className={`rc-drawer__tab${activeTab === g.name ? " is-active" : ""}`}
-                      onClick={() => setActiveTab(g.name)}
-                    >
-                      {g.name}
-                    </button>
-                  ))}
+              ) : (
+                /* Tab Công thức tính giá */
+                <div>
+                  {visibleFields
+                    .filter((f) => f.type === "formula")
+                    .map(renderField)}
                 </div>
               )}
-
-              <div className="rc-drawer__fields-container">
-                {groups
-                  .filter((g) => !useTabs || groups.length <= 1 || g.name === activeTab)
-                  .map((g) => (
-                    <section className="rc-card-section" key={g.name}>
-                      {(!useTabs || groups.length <= 1) && (
-                        <div className="rc-card-section__title">
-                          {getGroupIcon(g.name)}
-                          <span>{g.name}</span>
-                        </div>
-                      )}
-                      <div className="rc-grid">
-                        {g.fields.map(renderField)}
-                      </div>
-                    </section>
-                  ))}
-              </div>
             </div>
+          ) : (
+            <section className="rc-card-section" style={{ padding: "16px 20px" }}>
+              <div className="rc-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)", gap: "12px 16px" }}>
+                {!(config.autoCode && !isEdit) && (
+                  <label className="rc-field">
+                    <span className="rc-field__label">Mã <em>*</em></span>
+                    <div className={`rc-input-wrapper${isEdit ? " rc-input-wrapper--ro" : ""}`}>
+                      <input className="rc-input rc-mono" value={String(form.ma ?? "")}
+                        disabled={isEdit} onChange={(e) => set("ma", e.target.value.toUpperCase())} required placeholder="Mã..." />
+                    </div>
+                    {!isEdit && typedMa && (
+                      <span style={{ fontSize: "11px", fontWeight: "600", marginTop: "1px", color: isMaDuplicate ? "var(--signal, #8a1f1f)" : "var(--moss, #2f5d3a)" }}>
+                        {isMaDuplicate ? "Mã đã tồn tại!" : "Mã hợp lệ!"}
+                      </span>
+                    )}
+                  </label>
+                )}
+                <label className="rc-field">
+                  <span className="rc-field__label">Tên <em>*</em></span>
+                  <div className="rc-input-wrapper">
+                    <input className="rc-input" value={String(form.ten ?? "")} onChange={(e) => set("ten", e.target.value)} required />
+                  </div>
+                </label>
+
+                {visibleFields
+                  .filter((f) => f.type !== "formula")
+                  .map(renderField)}
+              </div>
+            </section>
           )}
 
           {config.renderExtra?.(form)}
@@ -1285,9 +1129,16 @@ const PHIEU_VARS = [
   "dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in",
   "so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen",
 ];
+// Giấy: ngoài 14 biến phiếu, phơi thêm `dinh_luong` (lấy từ ô Định lượng) + `don_gia_kg`
+// (lấy từ ô Đơn giá/kg) — công thức theo cân: dinh_luong * dai_nguyen * rong_nguyen * don_gia_kg * to_nguyen.
+const GIAY_VARS = [...PHIEU_VARS, "dinh_luong", "don_gia_kg"];
 const WHITELIST_VARS = {
   cong_doan: PHIEU_VARS,
-  vat_tu: PHIEU_VARS,
+  giay: GIAY_VARS,
+  // Vật tư: ngoài 14 biến phiếu, chỉ phơi thêm 1 biến `don_gia` (engine bơm từ ô Đơn giá danh mục)
+  // — công thức nhân ra thành tiền, vd: so_luong * don_gia. KHÔNG thêm don_gia_kg (nhãn "giấy") /
+  // don_gia_m2 (alias trùng don_gia với vật tư) → gây rối.
+  vat_tu: [...PHIEU_VARS, "don_gia"],
 };
 
 // Giải thích ngắn từng biến — hiện khi hover chip. Kích thước ở đơn vị MÉT trong công thức.
@@ -1317,36 +1168,37 @@ const EXTRA_VALID_VARS = [
   "dinh_luong", "don_gia", "don_gia_kg", "don_gia_m2", "don_gia_luot", "don_gia_kem",
   "so_vi_tri", "dien_tich",
 ];
+
+const FRIENDLY_NAMES: Record<string, string> = {
+  dai_tp: "Dài sản phẩm",
+  rong_tp: "Rộng sản phẩm",
+  dai_nguyen: "Dài tờ nguyên",
+  rong_nguyen: "Rộng tờ nguyên",
+  dai_in: "Dài tờ in",
+  rong_in: "Rộng tờ in",
+  so_luong: "Số lượng đặt",
+  so_tp: "Số con/tờ in",
+  so_mau: "Số màu in",
+  so_mat: "Số mặt in",
+  so_kem: "Số bản kẽm",
+  to_dau_vao: "Tờ vào máy",
+  to_sau_in: "Tờ tốt sau in",
+  to_nguyen: "Tờ giấy nguyên",
+  dinh_luong: "Định lượng giấy",
+  don_gia: "Đơn giá",
+  don_gia_kg: "Đơn giá giấy (kg)",
+  don_gia_m2: "Đơn giá (m²)",
+  don_gia_luot: "Đơn giá lượt in",
+  don_gia_kem: "Đơn giá kẽm",
+  so_vi_tri: "Số vị trí",
+  dien_tich: "Diện tích",
+};
+
 function translateFormula(formula: string): ReactNode[] {
   if (!formula.trim()) return [<span key="empty" style={{ color: "var(--ash, #8a8676)", fontStyle: "italic" }}>Trống (trả về 0đ)</span>];
   let s = formula.replace(/×/g, "*").replace(/÷/g, "/").replace(/−/g, "-");
   const regex = /([a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)\,])/g;
   const matches = s.match(regex) || [];
-  
-  const friendlyNames: Record<string, string> = {
-    dai_tp: "Dài sản phẩm",
-    rong_tp: "Rộng sản phẩm",
-    dai_nguyen: "Dài tờ nguyên",
-    rong_nguyen: "Rộng tờ nguyên",
-    dai_in: "Dài tờ in",
-    rong_in: "Rộng tờ in",
-    so_luong: "Số lượng đặt",
-    so_tp: "Số con/tờ in",
-    so_mau: "Số màu in",
-    so_mat: "Số mặt in",
-    so_kem: "Số bản kẽm",
-    to_dau_vao: "Tờ vào máy",
-    to_sau_in: "Tờ tốt sau in",
-    to_nguyen: "Tờ giấy nguyên",
-    dinh_luong: "Định lượng giấy",
-    don_gia: "Đơn giá",
-    don_gia_kg: "Đơn giá giấy (kg)",
-    don_gia_m2: "Đơn giá (m²)",
-    don_gia_luot: "Đơn giá lượt in",
-    don_gia_kem: "Đơn giá kẽm",
-    so_vi_tri: "Số vị trí",
-    dien_tich: "Diện tích",
-  };
   
   const elements: ReactNode[] = [];
   let index = 0;
@@ -1355,10 +1207,10 @@ function translateFormula(formula: string): ReactNode[] {
     const trimmed = m.trim();
     if (!trimmed) continue;
     
-    if (friendlyNames[trimmed]) {
+    if (FRIENDLY_NAMES[trimmed]) {
       elements.push(
         <span key={index++} className="rc-formula__trans-token rc-formula__trans-token--var">
-          {friendlyNames[trimmed]}
+          {FRIENDLY_NAMES[trimmed]}
         </span>
       );
     } else if (MATH_FUNCS.includes(trimmed)) {
@@ -1407,11 +1259,37 @@ function FormulaField({
   configPrefix: string;
 }) {
   const isCd = configPrefix.includes("cong-doan");
-  const whitelist = isCd ? WHITELIST_VARS.cong_doan : WHITELIST_VARS.vat_tu; // chip gợi ý (14 biến phiếu)
-  const validVars = useMemo(() => [...whitelist, ...EXTRA_VALID_VARS], [whitelist]); // validator (rộng hơn)
+  const isGiay = configPrefix.endsWith("/giay");   // "/api/vat-lieu-kho/giay"
+  const whitelist = isCd ? WHITELIST_VARS.cong_doan
+    : isGiay ? WHITELIST_VARS.giay : WHITELIST_VARS.vat_tu; // chip gợi ý
+  const validVars = useMemo(() => [...whitelist, ...EXTRA_VALID_VARS], [whitelist]);
   const [hoveredVar, setHoveredVar] = useState<string | null>(null);
 
-  // Popover "Cú pháp" — bảng tra cứu phép tính · hàm · biến (chỉ đọc). Đóng khi bấm ngoài / Esc.
+  // Presets
+  const presets = useMemo(() => {
+    if (isCd) {
+      return [
+        { label: "Sản lượng", desc: "Số lượng × Đơn giá", formula: "so_luong * don_gia" },
+        { label: "Theo tờ in", desc: "Tờ vào máy × Đơn giá", formula: "to_dau_vao * don_gia" },
+        { label: "Theo lượt in", desc: "Tờ vào máy × Số mặt × Đơn giá lượt", formula: "to_dau_vao * so_mat * don_gia_luot" },
+        { label: "Theo con kẽm", desc: "Số kẽm × Đơn giá kẽm", formula: "so_kem * don_gia_kem" },
+      ];
+    }
+    if (isGiay) {
+      return [
+        { label: "Giấy theo cân (kg)", desc: "Định lượng × Dài nguyên × Rộng nguyên × Tờ nguyên × Đơn giá/kg", formula: "dinh_luong * dai_nguyen * rong_nguyen * to_nguyen * don_gia_kg" },
+        { label: "Tờ giấy nguyên", desc: "Tờ giấy nguyên × Đơn giá", formula: "to_nguyen * don_gia" },
+        { label: "Theo diện tích m²", desc: "Dài nguyên × Rộng nguyên × Tờ nguyên × Đơn giá m²", formula: "dai_nguyen * rong_nguyen * to_nguyen * don_gia_m2" },
+      ];
+    }
+    return [
+      { label: "Theo sản lượng", desc: "Số lượng × Đơn giá", formula: "so_luong * don_gia" },
+      { label: "Theo tờ vào máy", desc: "Tờ vào máy × Đơn giá", formula: "to_dau_vao * don_gia" },
+      { label: "Theo diện tích in", desc: "Dài in × Rộng in × Tờ vào máy × Đơn giá m²", formula: "dai_in * rong_in * to_dau_vao * don_gia_m2" },
+    ];
+  }, [isCd, isGiay]);
+
+  // Popover "Cú pháp"
   const [showSyntax, setShowSyntax] = useState(false);
   const syntaxBtnRef = useRef<HTMLButtonElement>(null);
   const syntaxPopRef = useRef<HTMLDivElement>(null);
@@ -1449,13 +1327,13 @@ function FormulaField({
 
   // Group variables for clean categorical rendering
   const groups = useMemo(() => {
-    const sizeVars = ["dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in", "dinh_luong"];
+    const sizeVars = ["dai_tp", "rong_tp", "dai_nguyen", "rong_nguyen", "dai_in", "rong_in"];
     const qtyVars = ["so_luong", "so_tp", "so_mau", "so_mat", "so_kem", "to_dau_vao", "to_sau_in", "to_nguyen"];
-    const priceVars = ["don_gia", "don_gia_m2", "don_gia_luot", "don_gia_kem", "don_gia_kg"];
+    const priceVars = ["dinh_luong", "don_gia", "don_gia_m2", "don_gia_luot", "don_gia_kem", "don_gia_kg"];
 
     return [
       {
-        name: "Kích thước & Định lượng",
+        name: "Kích thước",
         key: "size",
         colorClass: "rc-formula__var-tag--size",
         icon: (
@@ -1497,7 +1375,6 @@ function FormulaField({
   const { valid, error } = useMemo(() => {
     if (!value.trim()) return { valid: true, error: null };
     
-    // Check balanced parenthesis
     let openParen = 0;
     for (const char of value) {
       if (char === '(') openParen++;
@@ -1510,7 +1387,6 @@ function FormulaField({
       return { valid: false, error: "Thiếu dấu đóng hoặc mở ngoặc đơn" };
     }
 
-    // Tokenize
     const tokenRegex = /[a-zA-Z_][a-zA-Z0-9_]*|\d+(?:\.\d+)?|[\+\-\*\/\(\)]|\s+/g;
     const tokens = value.match(tokenRegex) || [];
     
@@ -1536,50 +1412,10 @@ function FormulaField({
 
   return (
     <div className="rc-formula">
-      <div className="rc-formula__groups">
-        {groups.map((g) => (
-          <div key={g.key} className="rc-formula__group">
-            <div className="rc-formula__group-title">
-              {g.icon}
-              <span>{g.name}</span>
-            </div>
-            <div className="rc-formula__vars">
-              {g.vars.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  className={`rc-formula__var-tag ${g.colorClass}`}
-                  onClick={() => insertVar(v)}
-                  onMouseEnter={() => setHoveredVar(v)}
-                  onMouseLeave={() => setHoveredVar(null)}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="rc-formula__legend">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px", color: "var(--rust)" }}>
-          <circle cx="12" cy="12" r="10"/>
-          <line x1="12" y1="16" x2="12" y2="12"/>
-          <line x1="12" y1="8" x2="12.01" y2="8"/>
-        </svg>
-        <span>
-          {hoveredVar ? (
-            <><strong>{hoveredVar}</strong>: {VAR_DESC[hoveredVar]}</>
-          ) : (
-            "Rê chuột vào biến để giải nghĩa, click để chèn nhanh vào công thức..."
-          )}
-        </span>
-      </div>
-
+      {/* 1. Trình soạn thảo công thức ở trên cùng */}
       <div className="rc-formula__editor-container">
-        {/* Header gọn: nhãn "Công thức" + nút "Cú pháp" mở bảng tra cứu */}
         <div className="rc-formula__editor-header">
-          <span className="rc-formula__editor-label">Công thức</span>
+          <span className="rc-formula__editor-label">Công thức tính giá</span>
           <button
             ref={syntaxBtnRef}
             type="button"
@@ -1620,23 +1456,37 @@ function FormulaField({
                   <tr><td><code>floor(x)</code></td><td>làm tròn xuống</td></tr>
                 </tbody></table>
                 <div className="rc-syntax__sec-title">Biến</div>
-                <p className="rc-syntax__note">Bấm chip biến ở trên để chèn (22 biến: kích thước · số lượng · đơn giá). Kích thước tính bằng <b>mét</b>.</p>
-                <div className="rc-syntax__sec-title">Không hỗ trợ</div>
-                <p className="rc-syntax__note rc-syntax__note--no">So sánh (&gt; &lt; ==) · if/điều kiện · % (chia dư) · hàm khác (sqrt, abs, log…)</p>
+                <p className="rc-syntax__note">Bấm chip biến ở dưới để chèn. Kích thước tính bằng <b>mét</b>.</p>
               </div>
             </div>
           )}
         </div>
+
+        {/* Thanh chèn toán tử nhanh */}
+        <div className="rc-formula__op-toolbar">
+          <span className="rc-formula__op-label">Chèn toán tử:</span>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" + ")} title="Cộng">+</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" - ")} title="Trừ">−</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" * ")} title="Nhân">×</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(" / ")} title="Chia">÷</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("(")} title="Mở ngoặc">(</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar(")")} title="Đóng ngoặc">)</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("max(")} title="Hàm max">max</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("min(")} title="Hàm min">min</button>
+          <button type="button" className="rc-formula__op-btn" onClick={() => insertVar("round(")} title="Hàm round">round</button>
+        </div>
+
         <textarea
           id="formula-textarea"
           className="rc-formula__textarea"
-          rows={3}
+          rows={2}
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          placeholder="Nhập công thức tính giá vốn động (vd: dai_tp * rong_tp * 250)..."
+          placeholder="Nhập công thức tính giá (vd: dai_tp * rong_tp * don_gia)..."
         />
       </div>
 
+      {/* 2. Dịch nghĩa tiếng Việt ngay dưới ô gõ */}
       <div className="rc-formula__trans-container">
         <div className="rc-formula__trans-title">Dịch nghĩa công thức (tiếng Việt):</div>
         <div className="rc-formula__trans-content">
@@ -1652,6 +1502,79 @@ function FormulaField({
               <path d="m15 9-6 6M9 9l6 6"/>
             </svg>
             {error}
+          </div>
+        </div>
+      )}
+
+      {/* 3. Danh sách biến khả dụng */}
+      <div className="rc-formula__header-bar">
+        <span className="rc-formula__header-title">Danh sách biến khả dụng</span>
+      </div>
+
+      <div className="rc-formula__groups">
+        {groups.map((g) => (
+          <div key={g.key} className="rc-formula__group">
+            <div className="rc-formula__group-title">
+              {g.icon}
+              <span>{g.name}</span>
+            </div>
+            <div className="rc-formula__vars">
+              {g.vars.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={`rc-formula__var-tag ${g.colorClass}`}
+                  onClick={() => insertVar(v)}
+                  onMouseEnter={() => setHoveredVar(v)}
+                  onMouseLeave={() => setHoveredVar(null)}
+                  title={VAR_DESC[v] || v}
+                >
+                  <span className="rc-formula__var-name">{FRIENDLY_NAMES[v] || v}</span>
+                  <code className="rc-formula__var-code">{v}</code>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="rc-formula__legend">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: "4px", color: "var(--rust)" }}>
+          <circle cx="12" cy="12" r="10"/>
+          <line x1="12" y1="16" x2="12" y2="12"/>
+          <line x1="12" y1="8" x2="12.01" y2="8"/>
+        </svg>
+        <span>
+          {hoveredVar ? (
+            <><strong>{FRIENDLY_NAMES[hoveredVar] || hoveredVar} ({hoveredVar})</strong>: {VAR_DESC[hoveredVar]}</>
+          ) : (
+            "Rê chuột vào biến để giải nghĩa, click để chèn nhanh vào công thức..."
+          )}
+        </span>
+      </div>
+
+      {/* 4. Công thức mẫu chèn nhanh */}
+      {presets.length > 0 && (
+        <div className="rc-formula__presets">
+          <div className="rc-formula__presets-label">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
+            Công thức mẫu gợi ý (Chèn nhanh 1-Click):
+          </div>
+          <div className="rc-formula__presets-list">
+            {presets.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                className="rc-formula__preset-btn"
+                onClick={() => onChange(p.formula)}
+                title={`Bấm để áp dụng công thức: ${p.desc}`}
+              >
+                <span className="rc-formula__preset-title">{p.label}</span>
+                <span className="rc-formula__preset-code">{p.formula}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}

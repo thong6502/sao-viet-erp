@@ -110,7 +110,7 @@ class QuotationStatsOut(BaseModel):
     expired: int
     converted_to_order: int
     cancelled: int
-    need_action: int  # draft + sent (cần tôi xử lý: soạn tiếp / follow-up)
+    need_action: int  # draft + sent (cần tôi xử lý: soạn tiếp / chờ chốt)
 
 
 class VersionRow(BaseModel):
@@ -118,6 +118,9 @@ class VersionRow(BaseModel):
     version: int
     status: str
     total: int | None
+    total_cost: int | None = None   # giá vốn khóa (so sánh phiên bản)
+    subtotal: int | None = None     # giá bán chưa VAT
+    discount: int | None = None     # chiết khấu
     created_at: datetime
     change_reason: str | None = None
 

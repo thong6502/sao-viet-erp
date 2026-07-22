@@ -170,7 +170,7 @@ interface EditableComponent {
   chua_duoi: number;
   chua_ca_gay: number;
   // Kỹ thuật in ② — In/kẽm nay là CÔNG ĐOẠN (chuỗi), không còn field cứng ở đây.
-  quy_cach_in: string; // mot_mat | hai_mat | tu_tro
+  quy_cach_in: string; // mot_mat | hai_mat (AB) | tu_tro | tro_nhip
   kho_in_dai: number; // mm
   kho_in_rong: number; // mm
   so_con: number; // ④
@@ -532,6 +532,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const [editingUid, setEditingUid] = useState<string | null>(null);
   // Số [Hiện] LIVE của sản phẩm đang mở modal (gọi /preview — engine thật, không ghi DB).
   const [editMeta, setEditMeta] = useState<TinhGiaComponentMeta | null>(null);
+  // Bình bài NGHỊCH: uid → true khi gõ Số con mà KHÔNG xếp được đúng N trong khổ giấy nguyên.
+  const [nghichWarn, setNghichWarn] = useState<Record<string, boolean>>({});
 
   // --- Kết quả ---
   const [result, setResult] = useState<TinhGiaPreviewOut | null>(null);
@@ -643,8 +645,8 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     setEditingUid(c.uid);
   }, []);
 
-  // Chọn giấy → khổ nguyên ① (nhãn) + đơn giá + đơn vị; nếu khổ in ② còn trống thì lấy khổ giấy
-  // (in thẳng, không xả) để bình bài có số ngay.
+  // Chọn giấy → đơn giá + đơn vị (CHỐT CỨNG theo danh mục, read-only). Khổ giấy nguyên KHÔNG còn
+  // ở danh mục Giấy → người dùng nhập tay khổ ở phiếu (ô Khổ giấy nguyên ①).
   const onPickGiay = useCallback(
     (uid: string, gid: number | null) => {
       setComps((cs) =>
@@ -653,23 +655,13 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           if (gid === null) return { ...c, giay_id: null };
           const g = giays.find((x) => x.id === gid);
           if (!g) return { ...c, giay_id: gid };
-          const kd = numOf(g.kho_dai);
-          const kr = numOf(g.kho_rong);
-          const patch: Partial<EditableComponent> = {
+          // Đổi giấy → đổi giá (không giữ giá cũ) + đồng bộ đơn vị giá theo danh mục.
+          return {
+            ...c,
             giay_id: gid,
-            kho_nguyen: kd && kr ? `${kr}×${kd}` : c.kho_nguyen,
+            don_gia_giay: numOf(g.don_gia),
+            don_gia_don_vi: (g.don_vi_gia as string) || "kg",
           };
-          // Khổ giấy nguyên ①: đổi giấy → set lại theo khổ danh mục (giống đơn giá). Người dùng có
-          // thể gõ đè sau đó; engine sẽ tính theo số trên phiếu.
-          if (kd) patch.kho_nguyen_dai = kd;
-          if (kr) patch.kho_nguyen_rong = kr;
-          // Đơn giá giấy ĂN THẲNG theo DANH MỤC (spec §6: read-only theo danh mục) — LUÔN ghi đè
-          // theo giấy vừa chọn (đổi giấy → đổi giá, không giữ giá cũ) + đồng bộ đơn vị giá.
-          patch.don_gia_giay = numOf(g.don_gia);
-          patch.don_gia_don_vi = (g.don_vi_gia as string) || "to"; // giữ ĐÚNG đơn vị danh mục (kg/tấn/tờ/ram/cái)
-          if (!c.kho_in_dai && kd) patch.kho_in_dai = kd;
-          if (!c.kho_in_rong && kr) patch.kho_in_rong = kr;
-          return { ...c, ...patch };
         }),
       );
     },
@@ -739,36 +731,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     );
   }, []);
 
-  // Backfill khổ tờ in ② từ GIẤY cho SP đã lưu (có giay_id nhưng kho_in=0) → in thẳng khổ giấy,
-  // bình bài + sơ đồ chạy ngay khi mở phiếu, không bắt chọn lại giấy/máy.
-  useEffect(() => {
-    if (giays.length === 0) return;
-    setComps((cs) => {
-      let changed = false;
-      const next = cs.map((c) => {
-        if (!c.giay_id) return c;
-        const needIn = !c.kho_in_dai || !c.kho_in_rong;
-        const needNg = !c.kho_nguyen_dai || !c.kho_nguyen_rong;
-        if (!needIn && !needNg) return c;
-        const g = giays.find((x) => x.id === c.giay_id);
-        if (!g) return c;
-        const kd = numOf(g.kho_dai);
-        const kr = numOf(g.kho_rong);
-        if (!kd || !kr) return c;
-        changed = true;
-        return {
-          ...c,
-          kho_in_dai: c.kho_in_dai || kd,
-          kho_in_rong: c.kho_in_rong || kr,
-          kho_nguyen_dai: c.kho_nguyen_dai || kd,
-          kho_nguyen_rong: c.kho_nguyen_rong || kr,
-          kho_nguyen: c.kho_nguyen || `${kr}×${kd}`,
-        };
-      });
-      return changed ? next : cs;
-    });
-  }, [giays, comps.length]);
-
   // ---- Bình bài LIVE: gọi /binh-bai (debounce) → đổ so_con cho thành phần con_auto ----
   // Chữ ký loại trừ so_con để patch kết quả KHÔNG tự kích lại (tránh vòng lặp).
   const binhBaiSig = useMemo(
@@ -818,6 +780,71 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     }, 300);
     return () => window.clearTimeout(h);
   }, [binhBaiSig, token]);
+
+  // ---- Bình bài NGHỊCH: chủ động gõ Số con (con_auto=false) → suy ra khổ tờ in ÍT PHẾ nhất ----
+  // Cần khổ giấy nguyên làm mốc; chưa có nguyên → bỏ qua (không tính). Không xếp được đúng N → báo đỏ.
+  const binhBaiNghichSig = useMemo(
+    () =>
+      JSON.stringify(
+        comps.map((c) => {
+          const m = c.may_id ? mays.find((x) => x.id === c.may_id) : null;
+          return {
+            u: c.uid,
+            a: c.con_auto,
+            n: c.so_con,
+            d: c.dai_thanh_pham,
+            r: c.rong_thanh_pham,
+            knd: c.kho_nguyen_dai,
+            knr: c.kho_nguyen_rong,
+            mvd: m ? numOf(m.vung_in_dai) || numOf(m.kho_max_dai) : 0,
+            mvr: m ? numOf(m.vung_in_rong) || numOf(m.kho_max_rong) : 0,
+            ch: c.chua_xen + c.chua_tay_ke + c.chua_nhip + c.chua_duoi + c.chua_ca_gay,
+          };
+        }),
+      ),
+    [comps, mays],
+  );
+  useEffect(() => {
+    if (!token) return;
+    const rows = JSON.parse(binhBaiNghichSig) as {
+      u: string; a: boolean; n: number; d: number; r: number;
+      knd: number; knr: number; mvd: number; mvr: number; ch: number;
+    }[];
+    // Chiều NGHỊCH: người dùng tự gõ con (a=false), có khổ nguyên + khổ SP + con hợp lệ.
+    const targets = rows.filter((x) => !x.a && x.n >= 1 && x.d > 0 && x.r > 0 && x.knd > 0 && x.knr > 0);
+    if (targets.length === 0) return;
+    const h = window.setTimeout(() => {
+      targets.forEach((x) => {
+        api.tinhGia
+          .binhBaiNghich(token, {
+            con: x.n,
+            dai_thanh_pham: x.d,
+            rong_thanh_pham: x.r,
+            chua_mm: x.ch,
+            kho_nguyen_dai: x.knd,
+            kho_nguyen_rong: x.knr,
+            kho_may_dai: x.mvd,
+            kho_may_rong: x.mvr,
+          })
+          .then((res) => {
+            if (res.con >= 1) {
+              setNghichWarn((w) => (w[x.u] ? { ...w, [x.u]: false } : w));
+              setComps((cs) =>
+                cs.map((c) =>
+                  c.uid === x.u && !c.con_auto
+                    ? { ...c, kho_in_dai: res.kho_in_dai, kho_in_rong: res.kho_in_rong }
+                    : c,
+                ),
+              );
+            } else {
+              setNghichWarn((w) => ({ ...w, [x.u]: true })); // không xếp được đúng N → báo đỏ
+            }
+          })
+          .catch(() => {});
+      });
+    }, 300);
+    return () => window.clearTimeout(h);
+  }, [binhBaiNghichSig, token]);
 
   // ---- Số tờ LIVE trong modal: gọi /preview cho SP đang mở (debounce) → editMeta ----
   const phieuSL = result?.meta?.so_luong ?? 0;
@@ -1338,6 +1365,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           removeFin={removeFin}
           addVt={addVt}
           removeVt={removeVt}
+          nghichWarn={!!nghichWarn[editing.uid]}
         />
       ) : null}
 
@@ -1372,6 +1400,7 @@ function ComponentModal({
   removeFin,
   addVt,
   removeVt,
+  nghichWarn,
 }: {
   comp: EditableComponent;
   idx: number;
@@ -1382,6 +1411,7 @@ function ComponentModal({
   vatTus: Row[];
   liveMeta: TinhGiaComponentMeta | null;
   phieuSL: number;
+  nghichWarn: boolean;   // gõ Số con mà không xếp được đúng N trong khổ giấy nguyên
   onClose: () => void;
   onRemove: () => void;
   patchComp: (uid: string, patch: Partial<EditableComponent>) => void;
@@ -1640,8 +1670,9 @@ function ComponentModal({
                     onChange={(v) => patchComp(c.uid, { quy_cach_in: v })}
                     options={[
                       { val: "mot_mat", label: "1 mặt" },
-                      { val: "hai_mat", label: "2 mặt" },
+                      { val: "hai_mat", label: "AB" },
                       { val: "tu_tro", label: "Tự trở" },
+                      { val: "tro_nhip", label: "Trở nhíp" },
                     ]}
                   />
                 </div>
@@ -1695,6 +1726,20 @@ function ComponentModal({
                       })
                     }
                   />
+                  {!c.con_auto &&
+                    (nghichWarn ? (
+                      <span className="tg-hint" style={{ marginTop: "2px", color: "#c0392b" }}>
+                        Không xếp được đúng {c.so_con} con trong khổ giấy nguyên — giữ nguyên khổ tờ in.
+                      </span>
+                    ) : c.kho_nguyen_dai > 0 && c.kho_nguyen_rong > 0 ? (
+                      <span className="tg-hint" style={{ marginTop: "2px" }}>
+                        Khổ tờ in tự tính theo số con (ít phế giấy nhất).
+                      </span>
+                    ) : (
+                      <span className="tg-hint" style={{ marginTop: "2px" }}>
+                        Nhập khổ giấy nguyên ① để tự tính khổ tờ in theo số con.
+                      </span>
+                    ))}
                 </div>
                 <div className={c.quy_cach_in === "hai_mat" ? "tg-span-6" : "tg-span-12"}>
                   <NumField

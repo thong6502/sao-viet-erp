@@ -79,22 +79,18 @@ def _resolve_thanh_phan(db: Session, tp) -> dict:
         else:
             d[k] = _f(v)  # Decimal → float
 
-    # Giấy: bơm khổ (mm) + định lượng + tên + CÔNG THỨC; fallback đơn giá nếu component để trống.
+    # Giấy: bơm định lượng + tên + CÔNG THỨC + đơn giá. Đơn giá/kg CHỐT CỨNG ở danh mục Giấy —
+    # luôn lấy theo record (phiếu không sửa). Khổ KHÔNG còn ở danh mục → nhập tay ở phiếu (kho_nguyen).
     if tp.giay_id is not None:
         giay = db.get(GiayNguyen, tp.giay_id)
         if giay is not None:
-            d["kho_dai"] = giay.kho_dai
-            d["kho_rong"] = giay.kho_rong
             d["gsm"] = giay.gsm
             d["giay_ten"] = giay.ten
             d["cong_thuc_gia"] = giay.cong_thuc_gia   # G1: bơm công thức cấu hình từ danh mục Giấy
-            # Đơn giá + đơn vị lấy từ danh mục khi component để trống (MỌI đơn vị, không chỉ "to").
-            if not _f(d.get("don_gia_giay")):
-                d["don_gia_giay"] = _f(giay.don_gia)
-                d["don_gia_don_vi"] = giay.don_vi_gia
+            d["don_gia_giay"] = _f(giay.don_gia)      # chốt cứng: đơn giá/kg theo danh mục
+            d["don_gia_don_vi"] = giay.don_vi_gia
 
-    # Khổ giấy nguyên ①: phiếu nhập (kho_nguyen_dai/rong > 0) → ĐÈ khổ danh mục (đặt hàng xả khổ
-    # khác). 0 → giữ theo danh mục Giấy (đã bơm ở trên). Áp cả khi khách cấp giấy (tự nhập khổ).
+    # Khổ giấy nguyên ①: nhập tay ở phiếu (kho_nguyen_dai/rong). Áp cả khi khách cấp giấy.
     if _f(d.get("kho_nguyen_dai")):
         d["kho_dai"] = _f(d.get("kho_nguyen_dai"))
     if _f(d.get("kho_nguyen_rong")):

@@ -1,4 +1,4 @@
-"""Danh mục Giấy & Vật tư — CRUD chủng loại / giấy / vật tư (phẳng) / khổ giấy chuẩn.
+"""Danh mục Giấy & Vật tư — CRUD chủng loại / giấy / vật tư (phẳng).
 
 Model mới: `VatTuInAn` gộp phẳng (bỏ `Muc`/`BanKem` cũ); `GiayNguyen` ăn theo 1 Chủng loại
 (`chung_loai_giay_id`, soft int). Self-contained in-memory DB.
@@ -10,7 +10,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.db import Base
 import app.models  # noqa: F401 — đăng ký metadata mọi bảng
-from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, KhoGiayChuan, VatTuInAn  # noqa: F401
+from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn  # noqa: F401
 from app.repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from app.services.vat_lieu_kho_service import (
     VatLieuKhoDuplicate,
@@ -57,18 +57,6 @@ def test_vat_tu_flat_crud():
         svc.create("vat_tu", dict(ma="X", ten="x", don_vi_gia="xyz"))
     with pytest.raises(VatLieuKhoDuplicate):
         svc.create("vat_tu", dict(ma="MUC-CMYK", ten="khác"))
-
-
-def test_kho_giay_chuan_crud():
-    db, svc = _svc()
-    cl = svc.create("chung_loai_giay", dict(ma="DUPLEX", ten="Duplex"))
-    k = svc.create("kho_giay_chuan", dict(ma="KGC-DUPLEX-79", ten="Duplex khổ 79",
-                                          chung_loai_giay_id=cl.id, rong=79))  # dai trống = cuộn
-    assert k.id and k.rong == 79 and k.dai is None
-    with pytest.raises(VatLieuKhoValidationError):            # thiếu chủng loại
-        svc.create("kho_giay_chuan", dict(ma="X", ten="x", rong=60))
-    with pytest.raises(VatLieuKhoValidationError):            # rộng <= 0
-        svc.create("kho_giay_chuan", dict(ma="Y", ten="y", chung_loai_giay_id=cl.id, rong=0))
 
 
 def test_list_filter_active():

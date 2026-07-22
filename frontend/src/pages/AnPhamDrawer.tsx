@@ -23,8 +23,9 @@ const NGUON_GIAY: Record<string, string> = {
 // quy_cach_in → nhãn mặt in.
 const QUY_CACH_IN: Record<string, string> = {
   mot_mat: "1 mặt",
-  hai_mat: "2 mặt",
+  hai_mat: "AB",
   tu_tro: "tự trở",
+  tro_nhip: "trở nhíp",
 };
 // loai_thanh_phan → nhãn người đọc (fallback giữ giá trị thô nếu chưa map).
 const LOAI_THANH_PHAN: Record<string, string> = {
@@ -52,8 +53,9 @@ const NGUON_OPTS: SelectOption<string>[] = [
 ];
 const QCIN_OPTS: SelectOption<string>[] = [
   { value: "mot_mat", label: "1 mặt" },
-  { value: "hai_mat", label: "2 mặt" },
+  { value: "hai_mat", label: "AB" },
   { value: "tu_tro", label: "tự trở" },
+  { value: "tro_nhip", label: "trở nhíp" },
 ];
 
 // 1 giấy trong danh mục (đủ để chọn override + lọc cùng chủng loại).

@@ -15,7 +15,7 @@ from .models.cong_doan import CongDoan
 from .models.khuon_be import KhuonBe
 from .models.loai_san_pham import LoaiSanPham
 from .models.may_thiet_bi import MayThietBi
-from .models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, KhoGiayChuan, VatTuInAn
+from .models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn
 
 
 def _empty(db: Session, model) -> bool:
@@ -172,36 +172,6 @@ def seed_rebuild_catalog(db: Session) -> None:
             VatTuInAn(ma="KEO-GAY", ten="Keo vào gáy", don_vi_gia="kg", don_gia=45000,
                       ghi_chu="UV định hình 1 thùng = 3kg"),
         ])
-        db.commit()
-
-    # --- Khổ giấy chuẩn (DANH MỤC KHỔ GIẤY CHUẨN, cm) — Duplex/Ivory cuộn, Ford/Couché ream ---
-    if _empty(db, KhoGiayChuan):
-        cuon = {  # chủng loại cuộn (dai=None) → (khổ rộng chuẩn, khổ rộng hiếm)
-            "DUPLEX": ([60, 65, 79, 84, 86, 89, 109, 120], [70, 72, 75, 100, 102, 105, 140]),
-            "IVORY": ([60, 65, 79, 84, 86, 89, 109, 120], [70, 72, 75, 100, 102, 105, 144]),
-        }
-        ream = {  # chủng loại ream → ([(rộng,dài) chuẩn], [rộng cuộn hiếm])
-            "FORD": ([(60, 84), (65, 86), (79, 109)], [60, 65, 79, 86]),
-            "COUCHE": ([(60, 84), (65, 86), (79, 109)], [60, 65, 79, 86]),
-        }
-        rows = []
-        for cl_ma, (chuan, hiem) in cuon.items():
-            clid = _cl.get(cl_ma)
-            for w in chuan:
-                rows.append(KhoGiayChuan(ma=f"KGC-{cl_ma}-{w}", ten=f"{cl_ma} khổ {w} (cuộn)",
-                                         chung_loai_giay_id=clid, rong=w, la_hiem=False))
-            for w in hiem:
-                rows.append(KhoGiayChuan(ma=f"KGC-{cl_ma}-{w}H", ten=f"{cl_ma} khổ {w} (cuộn, hiếm)",
-                                         chung_loai_giay_id=clid, rong=w, la_hiem=True))
-        for cl_ma, (chuan, hiem_cuon) in ream.items():
-            clid = _cl.get(cl_ma)
-            for (w, d) in chuan:
-                rows.append(KhoGiayChuan(ma=f"KGC-{cl_ma}-{w}x{d}", ten=f"{cl_ma} {w}×{d} (ream)",
-                                         chung_loai_giay_id=clid, rong=w, dai=d, la_hiem=False))
-            for w in hiem_cuon:
-                rows.append(KhoGiayChuan(ma=f"KGC-{cl_ma}-{w}C", ten=f"{cl_ma} khổ {w} (cuộn, hiếm)",
-                                         chung_loai_giay_id=clid, rong=w, la_hiem=True))
-        db.add_all(rows)
         db.commit()
 
     # --- Công đoạn: seed ÍT (6 mẫu) đủ minh hoạ 3 kiểu bù hao (khong/tra_bang/cố định) ---

@@ -14,7 +14,7 @@ export const BOX_SUB: Lbls = { folding_carton: "Hộp giấy gấp", corrugated:
 export const COVER: Lbls = { tu_bia: "Bìa tự thân (cùng ruột)", bia_roi: "Bìa rời (giấy khác)" };
 export const BINDING: Lbls = { ghim: "Đóng ghim", keo: "Vào keo", khau: "Khâu chỉ" };
 
-const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in" };
+const NHOM_CD: Lbls = { prepress: "Chế bản", print: "In", finishing: "Gia công sau in", other: "Dịch vụ khác" };
 
 // Cách công đoạn góp bù hao — trỏ 1 mã bù hao (tra bảng theo SL), hoặc cộng cố định.
 const KIEU_BU_HAO: Lbls = {
@@ -113,16 +113,17 @@ export const CFG_MAY: CatalogConfig = {
 
 export const CFG_CONG_DOAN: CatalogConfig = {
   title: "Công đoạn",
-  subtitle: "Danh mục thao tác (chế bản · in · sau in) + cách tính giá. Chuỗi công đoạn của từng đơn = do Loại sản phẩm gán.",
+  subtitle: "",
+  showCount: false,
   prefix: "/api/cong-doan",
   facet: { key: "nhom", values: mapOpt(NHOM_CD) },
   columns: [
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
     { key: "kieu_bu_hao", label: "Bù hao", render: (r) =>
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
-    { key: "ten_hien_thi", label: "Tên hiển thị cho sản xuất", type: "text", group: "Thông tin" },
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
     { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin",
       hint: "Tổ/bộ phận sẽ nhận việc công đoạn này khi phát lệnh sản xuất" },
@@ -137,7 +138,7 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "so_to_bu_hao", label: "Số tờ cộng cố định", type: "number", group: "Bù hao", default: 50,
       showIf: (f) => f.kieu_bu_hao === "co_dinh",
       hint: "Mặc định 50; bế nổi / dán móc đáy = 30" },
-    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Bù hao" },
+    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Thông tin" },
   ],
   // CHỈ TÍNH THEO CÔNG THỨC: công đoạn luôn ở chế độ sản lượng + basis 'per_other' (giá phẳng/công
   // thức) để backend không chặn E-CD-BASIS. Dọn run_rate/size_tiers (đơn giá nay nhập per-phiếu).
@@ -182,24 +183,24 @@ export const CFG_CHUNG_LOAI_GIAY: CatalogConfig = {
 
 export const CFG_GIAY: CatalogConfig = {
   title: "Giấy",
-  subtitle: "Từng loại giấy cụ thể (khổ mua) — thuộc 1 Chủng loại giấy. Chỉ khai công thức (mặc định tính theo cân); đơn giá nhập ở phiếu tính giá.",
+  subtitle: "Từng loại giấy cụ thể — thuộc 1 Chủng loại giấy. Khai định lượng + đơn giá theo cân (đ/kg); khổ giấy nhập ở phiếu tính giá.",
   prefix: "/api/vat-lieu-kho/giay",
   softDelete: true,
   hasVersions: false,
   facet: KHO_FACET,
   columns: [
-    { key: "gsm", label: "Định lượng" },
-    { key: "kho", label: "Khổ (mm)", render: (r) => (Number(r.kho_rong) || Number(r.kho_dai) ? `${r.kho_rong}×${r.kho_dai}` : "Cuộn / khổ mở") },
+    { key: "gsm", label: "Định lượng", render: (r) => `${r.gsm} g/m²` },
     { key: "don_vi_gia", label: "ĐVT", render: (r) => lbl(DV_GIA_GIAY)(r.don_vi_gia) },
+    { key: "don_gia", label: "Đơn giá (đ/kg)", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "—") },
+    { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
     { key: "chung_loai_giay_id", label: "Chủng loại giấy", type: "ref", required: true,
       refPrefix: "/api/vat-lieu-kho/chung-loai-giay", group: "Phân loại" },
     { key: "gsm", label: "Định lượng (g/m²)", type: "number", required: true, group: "Thông số" },
-    { key: "don_vi_gia", label: "ĐVT", type: "select", group: "Thông số", options: mapOpt(DV_GIA_GIAY) },
-    { key: "kho_rong", label: "Khổ rộng (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
-    { key: "kho_dai", label: "Khổ dài (mm)", type: "number", group: "Thông số", hint: "0 = cuộn / khổ mở" },
-    // Bỏ ô "Đơn giá" — chỉ tính theo CÔNG THỨC; đơn giá nhập per-phiếu (engine lấy don_gia từ phiếu).
+    { key: "don_vi_gia", label: "ĐVT", type: "select", group: "Thông số", options: mapOpt(DV_GIA_GIAY), default: "kg" },
+    // Đơn giá theo cân — CHỐT CỨNG ở danh mục (engine lấy thẳng, phiếu không sửa).
+    { key: "don_gia", label: "Đơn giá (đ/kg)", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn (mặc định đ/kg)" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Ghi chú" },
   ],
@@ -211,30 +212,15 @@ export const CFG_VAT_TU: CatalogConfig = {
   prefix: "/api/vat-lieu-kho/vat-tu-in-an",
   columns: [
     { key: "don_vi_gia", label: "ĐVT", render: (r) => lbl(DV_GIA_VAT_TU)(r.don_vi_gia) },
+    { key: "don_gia", label: "Đơn giá", render: (r) => (Number(r.don_gia) ? Number(r.don_gia).toLocaleString("vi-VN") : "—") },
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
     { key: "don_vi_gia", label: "Đơn vị tính (ĐVT)", type: "select", group: "Giá", options: mapOpt(DV_GIA_VAT_TU) },
-    // Bỏ ô "Giá" — chỉ tính theo CÔNG THỨC; đơn giá nhập per-phiếu (engine lấy don_gia từ phiếu).
+    // Đơn giá chốt ở danh mục — engine phơi thành biến `don_gia` (+ don_gia_kg/m²) cho công thức vật tư.
+    { key: "don_gia", label: "Đơn giá", type: "number", group: "Giá", hint: "Đơn giá theo ĐVT đã chọn — dùng làm biến don_gia trong công thức" },
     { key: "cong_thuc_gia", label: "Công thức tính giá", type: "formula", group: "Giá" },
     { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Giá" },
-  ],
-};
-
-export const CFG_KHO_GIAY_CHUAN: CatalogConfig = {
-  title: "Khổ giấy chuẩn",
-  subtitle: "Mỗi dòng = 1 khổ của 1 chủng loại giấy (cm). Khổ dài trống = giấy cuộn / khổ mở 1 chiều.",
-  prefix: "/api/vat-lieu-kho/kho-giay-chuan",
-  columns: [
-    { key: "kho", label: "Khổ (cm)", render: (r) => (r.dai ? `${r.rong}×${r.dai}` : `${r.rong} (cuộn)`) },
-  ],
-  fields: [
-    { key: "chung_loai_giay_id", label: "Chủng loại giấy", type: "ref", required: true,
-      refPrefix: "/api/vat-lieu-kho/chung-loai-giay", group: "Phân loại" },
-    { key: "rong", label: "Khổ rộng (cm)", type: "number", required: true, group: "Khổ" },
-    { key: "dai", label: "Khổ dài (cm)", type: "number", group: "Khổ",
-      hint: "Bỏ trống = giấy cuộn / khổ mở (cắt tự do chiều dài)" },
-    { key: "ghi_chu", label: "Ghi chú", type: "text", group: "Khổ" },
   ],
 };
 
@@ -303,7 +289,6 @@ export const REBUILD_CONFIGS: Record<string, CatalogConfig> = {
   "bu-hao": CFG_BU_HAO,
   "chung-loai-giay": CFG_CHUNG_LOAI_GIAY,
   "giay": CFG_GIAY,
-  "kho-giay-chuan": CFG_KHO_GIAY_CHUAN,
   "vat-tu-in-an": CFG_VAT_TU,
   "khuon-be": CFG_KHUON_BE,
 };

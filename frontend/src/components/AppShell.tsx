@@ -18,6 +18,7 @@ import { SanXuatPage } from "../pages/SanXuatPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
+import { QuyTrinhKinhDoanhPage } from "../pages/QuyTrinhKinhDoanhPage";
 import { ChamCongPage } from "../pages/ChamCongPage";
 import { NghiPhepPage } from "../pages/NghiPhepPage";
 import { LuongPage } from "../pages/LuongPage";
@@ -430,6 +431,8 @@ export function AppShell() {
       return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
     }
     switch (baseId) {
+      case "quy-trinh-kinh-doanh":
+        return <QuyTrinhKinhDoanhPage navigate={navigate} />;
       case "phong-ban":
         return <DepartmentsPage onDeptChanged={reloadToSx} />;
       case "nhan-su":

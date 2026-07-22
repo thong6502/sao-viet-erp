@@ -44,9 +44,6 @@ class VatLieuKhoService:
         elif kind == "giay":
             if not data.get("chung_loai_giay_id"):
                 raise VatLieuKhoValidationError("Phải chọn Chủng loại giấy.")
-            # Khổ 0 = cuộn/khổ mở (bảng xưởng ghi "0x0") — cho phép; chỉ chặn số âm.
-            if _f(data.get("kho_dai")) < 0 or _f(data.get("kho_rong")) < 0:
-                raise VatLieuKhoValidationError("Khổ giấy không được âm.")
             if _f(data.get("gsm")) <= 0:
                 raise VatLieuKhoValidationError("GSM phải > 0.")
             if data.get("don_vi_gia") and data["don_vi_gia"] not in DON_VI_GIA_GIAY:
@@ -56,13 +53,6 @@ class VatLieuKhoService:
         elif kind == "vat_tu":
             if data.get("don_vi_gia") and data["don_vi_gia"] not in DON_VI_GIA_VAT_TU:
                 raise VatLieuKhoValidationError("Đơn vị giá vật tư không hợp lệ.")
-        elif kind == "kho_giay_chuan":
-            if not data.get("chung_loai_giay_id"):
-                raise VatLieuKhoValidationError("Phải chọn Chủng loại giấy.")
-            if _f(data.get("rong")) <= 0:
-                raise VatLieuKhoValidationError("Khổ rộng phải > 0.")
-            if data.get("dai") not in (None, "") and _f(data.get("dai")) <= 0:
-                raise VatLieuKhoValidationError("Khổ dài nếu nhập phải > 0 (bỏ trống = cuộn/khổ mở).")
 
     def get(self, kind: str, item_id: int):
         obj = self.repo.get(kind, item_id)

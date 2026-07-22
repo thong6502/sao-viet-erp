@@ -15,7 +15,7 @@ from ..models.user import User
 from ..repositories.vat_lieu_kho_repo import VatLieuKhoRepository
 from ..schemas.vat_lieu_kho import (
     ChungLoaiGiayIn, ChungLoaiGiayRow, GiayGiaVersionIn, GiayGiaVersionRow, GiayIn, GiayRow,
-    KhoGiayChuanIn, KhoGiayChuanRow, ListOut, VatTuIn, VatTuRow,
+    ListOut, VatTuIn, VatTuRow,
 )
 from ..services.vat_lieu_kho_service import (
     VatLieuKhoDuplicate, VatLieuKhoNotFound, VatLieuKhoService, VatLieuKhoValidationError,
@@ -94,7 +94,6 @@ def _make_crud(kind: str, InModel, RowModel, path: str):
 _make_crud("chung_loai_giay", ChungLoaiGiayIn, ChungLoaiGiayRow, "chung-loai-giay")
 _make_crud("giay", GiayIn, GiayRow, "giay")
 _make_crud("vat_tu", VatTuIn, VatTuRow, "vat-tu-in-an")
-_make_crud("kho_giay_chuan", KhoGiayChuanIn, KhoGiayChuanRow, "kho-giay-chuan")
 
 
 # -- Phiên bản giá giấy (lịch sử) — route custom (không theo factory CRUD) --

@@ -45,6 +45,14 @@ const NAV: NavSection[] = [
     id: "kinh-doanh",
     label: "Kinh doanh",
     items: [
+      // Bản đồ luồng khối bán hàng — hiện cho ai vào được BẤT KỲ màn KD nào (không đẻ quyền mới).
+      {
+        id: "quy-trinh-kinh-doanh",
+        label: "Quy trình kinh doanh",
+        icon: "workflow",
+        module: "tinh_gia_thanh",
+        modules: ["tinh_gia_thanh", "bao_gia", "don_hang_ban", "khach_hang"],
+      },
       { id: "tinh-gia", label: "Tính giá", icon: "calculator", module: "tinh_gia_thanh" },
       { id: "bao-gia", label: "Báo giá in ấn", icon: "fileText", module: "bao_gia" },
       { id: "don-hang-ban", label: "Đơn hàng bán", icon: "cart", module: "don_hang_ban" },
@@ -109,7 +117,6 @@ const NAV: NavSection[] = [
       { id: "cong-doan", label: "Công đoạn", icon: "activity", module: "dm_cong_doan" },
       { id: "bu-hao", label: "Bù hao", icon: "fileText", module: "dm_cong_doan" },
       { id: "chung-loai-giay", label: "Chủng loại giấy", icon: "fileText", module: "kho" },
-      { id: "kho-giay-chuan", label: "Khổ giấy chuẩn", icon: "clipboard", module: "kho" },
       { id: "giay", label: "Giấy", icon: "bag", module: "kho" },
       { id: "vat-tu-in-an", label: "Vật tư in ấn", icon: "bag", module: "kho" },
       // Khuôn bế: khai báo nơi lưu trữ khuôn (số kệ · ngày làm · tình trạng). Quyền RIÊNG `khuon_be`.

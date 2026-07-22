@@ -213,6 +213,16 @@ const ICONS = {
       <path d="M12 17.2h.01" />
     </>
   ),
+  // Quy trình / luồng: hai nút trái gộp vào một nút phải
+  workflow: (
+    <>
+      <rect x="3" y="3.5" width="6.5" height="5.5" rx="1.3" />
+      <rect x="3" y="15" width="6.5" height="5.5" rx="1.3" />
+      <rect x="14.5" y="9.25" width="6.5" height="5.5" rx="1.3" />
+      <path d="M9.5 6.25h2.5a2 2 0 0 1 2 2v3.75" />
+      <path d="M9.5 17.75h2.5a2 2 0 0 0 2-2v-1.75" />
+    </>
+  ),
 } satisfies Record<string, ReactNode>;
 
 export type IconName = keyof typeof ICONS;

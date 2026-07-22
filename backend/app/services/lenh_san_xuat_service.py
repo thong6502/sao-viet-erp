@@ -720,10 +720,10 @@ class LenhSanXuatService:
 
     @staticmethod
     def _so_kem_eff(so_mau_a, so_mau_b, quy_cach_in, so_to_per_sp) -> int:
-        """Số kẽm theo giá trị HIỆU LỰC: 1 mặt / tự trở = màu A × số tờ/SP; 2 mặt = (A+B) × số tờ."""
+        """Số kẽm theo giá trị HIỆU LỰC: 1 mặt / tự trở / trở nhíp = màu A × số tờ/SP; AB = (A+B) × số tờ."""
         a, b = int(so_mau_a or 0), int(so_mau_b or 0)
         per = int(so_to_per_sp or 1)
-        kem_mau = a if quy_cach_in in ("mot_mat", "tu_tro") else (a + b)
+        kem_mau = a if quy_cach_in in ("mot_mat", "tu_tro", "tro_nhip") else (a + b)
         return kem_mau * per
 
     def _engine_comp(self, ptp) -> dict | None:

@@ -4,7 +4,6 @@
 - `GiayNguyen`     — tờ giấy nguyên (khổ mua); ăn theo 1 Chủng loại giấy (`chung_loai_giay_id`).
 - `GiayGiaVersion` — lịch sử giá của 1 Giấy. DI TÍCH: UI đã tắt (`hasVersions: false`) từ khi
                      đơn giá chuyển sang nhập per-phiếu; endpoint còn nhưng màn không gọi.
-- `KhoGiayChuan`   — danh mục khổ giấy chuẩn (cm) theo từng Chủng loại giấy.
 - `VatTuInAn`      — vật tư in ấn danh mục PHẲNG (mực/kẽm/hoá chất/màng/keo… chung 1 bảng, phân
                      biệt bằng TÊN): Mã · Tên · ĐVT · công thức · ghi chú. Không phân loại con, không tồn.
 
@@ -17,7 +16,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean, Date, DateTime, Integer, JSON, Numeric, String, Text,
-    false as sa_false, true as sa_true,
+    true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -121,31 +120,6 @@ class VatTuInAn(Base):
     don_vi_gia: Mapped[str] = mapped_column(String(16), nullable=False, server_default="cai", default="cai")
     don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     cong_thuc_gia: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
-    )
-
-
-class KhoGiayChuan(Base):
-    """Khổ giấy chuẩn — mỗi dòng = 1 khổ của 1 chủng loại giấy (danh mục "DANH MỤC KHỔ GIẤY CHUẨN").
-
-    Đơn vị **cm** (khớp bảng xưởng). `dai` trống = giấy cuộn/khổ mở — cắt tự do 1 chiều, chỉ chốt
-    khổ rộng. `la_hiem` = khổ hiếm (báo thu mua/hỏi giấy trước khi dùng). Ăn theo 1 Chủng loại giấy
-    (`chung_loai_giay_id`, soft ref — no DB FK).
-    """
-
-    __tablename__ = "kho_giay_chuan"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ma: Mapped[str] = mapped_column(String(30), unique=True, index=True, nullable=False)
-    ten: Mapped[str] = mapped_column(String(150), nullable=False)
-    chung_loai_giay_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → chung_loai_giay.id
-    rong: Mapped[int] = mapped_column(Integer, nullable=False)          # khổ rộng (cm)
-    dai: Mapped[int | None] = mapped_column(Integer, nullable=True)     # khổ dài (cm); NULL = cuộn/mở 1 chiều
-    la_hiem: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_false(), default=False)
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_true(), default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

@@ -67,7 +67,7 @@ from .user import User
 from .plate_die_rate import PlateDieRate
 from .norm import Norm
 from .may_thiet_bi import MayThietBi
-from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, KhoGiayChuan, VatTuInAn
+from .vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 from .cong_doan import CongDoan
 from .bu_hao import BuHao
 from .kho_hang import KhoHang

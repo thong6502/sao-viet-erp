@@ -4,23 +4,21 @@ from __future__ import annotations
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from ..models.vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, KhoGiayChuan, VatTuInAn
+from ..models.vat_lieu_kho import ChungLoaiGiay, GiayGiaVersion, GiayNguyen, VatTuInAn
 
 # Các trường "ảnh chụp" của 1 phiên bản giá giấy (khớp cột GiayGiaVersion + GiayNguyen).
 VERSION_SNAPSHOT = ("kho_dai", "kho_rong", "gsm", "caliper_micron", "tho",
                     "don_vi_gia", "don_gia", "gia_thi_truong")
 
 _CHUNG_LOAI = ("ten", "be_mat", "tho_mac_dinh", "mo_ta", "active")
-_GIAY = ("ten", "chung_loai_giay_id", "kho_dai", "kho_rong", "gsm", "caliper_micron",
+_GIAY = ("ten", "chung_loai_giay_id", "gsm", "caliper_micron",
          "tho", "don_vi_gia", "don_gia", "gia_thi_truong", "kho_tinh_gia", "ghi_chu", "active", "cong_thuc_gia")
 _VAT_TU = ("ten", "don_vi_gia", "don_gia", "ghi_chu", "active", "cong_thuc_gia")
-_KHO_GIAY_CHUAN = ("ten", "chung_loai_giay_id", "rong", "dai", "la_hiem", "ghi_chu", "active")
 
 _MODELS = {
     "chung_loai_giay": (ChungLoaiGiay, _CHUNG_LOAI),
     "giay": (GiayNguyen, _GIAY),
     "vat_tu": (VatTuInAn, _VAT_TU),
-    "kho_giay_chuan": (KhoGiayChuan, _KHO_GIAY_CHUAN),
 }
 
 

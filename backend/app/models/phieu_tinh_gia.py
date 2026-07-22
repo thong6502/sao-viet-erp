@@ -112,7 +112,7 @@ class PhieuThanhPhan(Base):
     co_in: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     che_ban_loai: Mapped[str | None] = mapped_column(String(30), nullable=True)
     che_ban_don_gia: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
-    quy_cach_in: Mapped[str] = mapped_column(String(12), nullable=False, default="mot_mat")  # mot_mat|hai_mat|tu_tro
+    quy_cach_in: Mapped[str] = mapped_column(String(12), nullable=False, default="mot_mat")  # mot_mat|hai_mat(AB)|tu_tro|tro_nhip
     kho_in_dai: Mapped[int] = mapped_column(Integer, nullable=False, default=0)     # mm — khổ tờ in ② (bình bài + số lượt)
     kho_in_rong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)    # mm ★
     so_con: Mapped[int] = mapped_column(Integer, nullable=False, default=1)         # con/tờ ④ (auto bình bài; override được)

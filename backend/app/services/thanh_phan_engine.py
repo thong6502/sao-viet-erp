@@ -208,6 +208,59 @@ def binh_bai_con(*, kho_in_dai: float, kho_in_rong: float, dai_tp: float, rong_t
                            dai_tp=dai_tp, rong_tp=rong_tp, chua_mm=chua_mm)["con"]
 
 
+def binh_bai_nghich(*, con: int, dai_tp: float, rong_tp: float, chua_mm: float,
+                    kho_nguyen_dai: float, kho_nguyen_rong: float,
+                    kho_may_dai: float = 0.0, kho_may_rong: float = 0.0) -> dict:
+    """Bình bài NGHỊCH: cho số con ĐÚNG N → khổ tờ in ÍT PHẾ nhất khi xả từ tờ giấy nguyên.
+
+    Duyệt mọi phân rã hàng×cột với hàng×cột = N (đúng N) × 2 hướng xoay SP. Khổ tờ in cần:
+    Dài = hàng×(cạnh SP dọc theo chiều dài) + chừa; Rộng = cột×(cạnh SP theo chiều rộng) + chừa
+    — khớp `binh_bai_layout` (usable = khổ − chừa), nên nạp khổ này trả lại đúng N con.
+    Loại khổ vượt tờ giấy nguyên (và vùng in máy nếu có). Chấm ÍT PHẾ = (số tờ in xả được từ
+    nguyên × N × dt·rt) / (nguyên_dài·nguyên_rộng); chọn max, hòa → khổ nhỏ hơn.
+
+    Trả {con, kho_in_dai, kho_in_rong, rows, cols, rotated, so_to_in, hieu_suat, util_pct}.
+    con=0 khi KHÔNG cách nào đúng N mà lọt nguyên (FE báo đỏ, giữ nguyên khổ). Yêu cầu khổ
+    nguyên > 0 — caller PHẢI bỏ qua (không gọi) khi chưa nhập nguyên.
+    """
+    N = int(con)
+    dt, rt, ch = _f(dai_tp), _f(rong_tp), max(_f(chua_mm), 0.0)
+    KND, KNR = _f(kho_nguyen_dai), _f(kho_nguyen_rong)
+    none = {"con": 0, "kho_in_dai": 0.0, "kho_in_rong": 0.0, "rows": 0, "cols": 0,
+            "rotated": False, "so_to_in": 0, "hieu_suat": 0.0, "util_pct": 0.0}
+    if N < 1 or dt <= 0 or rt <= 0 or KND <= 0 or KNR <= 0:
+        return none
+    # Ràng buộc trên: tờ giấy nguyên, và vùng in máy nếu có (lấy min).
+    max_d = min(KND, _f(kho_may_dai)) if _f(kho_may_dai) > 0 else KND
+    max_r = min(KNR, _f(kho_may_rong)) if _f(kho_may_rong) > 0 else KNR
+    dt_tp, dt_ng = dt * rt, KND * KNR
+    best = None
+    for rows in range(1, N + 1):
+        if N % rows:                       # chỉ phân rã ĐÚNG N (hàng×cột = N)
+            continue
+        cols = N // rows
+        for pd, pr, rot in ((dt, rt, False), (rt, dt, True)):   # 2 hướng xoay sản phẩm
+            D = rows * pd + ch
+            R = cols * pr + ch
+            if D > max_d + 1e-6 or R > max_r + 1e-6:
+                continue
+            sheets = max(floor(KND / D) * floor(KNR / R),       # xả tờ in từ nguyên (± xoay tờ in)
+                         floor(KND / R) * floor(KNR / D))
+            if sheets < 1:
+                continue
+            util = sheets * N * dt_tp / dt_ng
+            key = (round(util, 6), -round(D * R, 3))            # max phế↓; hòa → khổ nhỏ hơn
+            if best is None or key > best[0]:
+                best = (key, D, R, rows, cols, rot, sheets, util)
+    if best is None:
+        return none
+    _, D, R, rows, cols, rot, sheets, util = best
+    hieu_suat = round(N * dt_tp / (D * R) * 100, 1) if D * R > 0 else 0.0
+    return {"con": N, "kho_in_dai": round(D, 1), "kho_in_rong": round(R, 1),
+            "rows": rows, "cols": cols, "rotated": rot, "so_to_in": sheets,
+            "hieu_suat": hieu_suat, "util_pct": round(util * 100, 1)}
+
+
 def _vi(n) -> str:
     """Số → chuỗi vi-VN (chấm ngăn nghìn, phẩy thập phân) cho ghi chú diễn giải."""
     n = _f(n)
@@ -327,7 +380,8 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     dinh_luong = _f(tp.get("gsm")) / 1000.0  # gsm / 1000 -> kg/m2 (0.25)
 
     # --- Số kẽm ---
-    kem_mau = so_mau_a if qc in ("mot_mat", "tu_tro") else (so_mau_a + so_mau_b)
+    # 1 bộ kẽm mang cả 2 mặt (mot_mat / tự trở / trở nhíp) → chỉ màu A; AB (hai_mat) = 2 bộ riêng A+B.
+    kem_mau = so_mau_a if qc in ("mot_mat", "tu_tro", "tro_nhip") else (so_mau_a + so_mau_b)
     so_kem = kem_mau * so_to_per_sp
     so_luot = to_dau_vao * passes
 
@@ -541,32 +595,15 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
                 dan_d = "lỗi công thức — 0đ"
                 ghi_chu = str(e)
         else:
+            # Formula-only (chốt 2026-07-22): công đoạn finishing/gia công CHƯA khai công thức
+            # → 0đ + cảnh báo. KHÔNG dùng fallback đơn giá routing / rate cũ (tránh "×400đ ma"
+            # không ai chủ ý nhập). In/kẽm (print/prepress) vẫn có công thức mặc định ở trên.
+            warnings.append(f"Công đoạn '{ten_r}': chưa khai công thức tính giá — tính 0đ.")
+            tien = 0.0
+            dan_d = "thiếu công thức — 0đ"
             ghi_chu = ""
-            dan_d = None
-            if don_gia_r > 0:
-                if basis:
-                    try:
-                        qty = basis_qty(basis, ctx)
-                    except Exception:
-                        qty = row_sl if row_sl > 0 else sl
-                else:
-                    qty = row_sl if row_sl > 0 else sl
-                tien = don_gia_r * qty
-                dan_d = f"{_vi(round(qty, 2))} × {_vi(don_gia_r)}đ"
-            elif cd:
-                tien, ghi_chu = _step_cost_safe(cd, ctx, warnings, ten_r)
-                if "×" in ghi_chu:
-                    dan_d = ghi_chu
 
-            if not dan_d:
-                if don_gia_r <= 0 and not cd:
-                    warnings.append(f"Dòng gia công '{ten_r}': thiếu đơn giá & công đoạn — tính 0đ.")
-                    tien, ghi_chu = 0.0, "thiếu đơn giá/công đoạn — 0đ"
-                    dan_d = "0đ"
-                else:
-                    dan_d = f"{_vi(tien)}đ"
-
-        cong_thuc = _ct(dan_d, tien, sl) if ("÷" not in dan_d and "đ/sp" not in dan_d) else dan_d
+        cong_thuc = _ct(dan_d, tien, sl) if ("÷" not in dan_d and "đ/sp" not in dan_d and "thiếu" not in dan_d) else dan_d
         if row.get("nha_cung_cap"):
             suffix = f"(thuê ngoài: {row['nha_cung_cap']})"
             ghi_chu = f"{ghi_chu} {suffix}".strip() if ghi_chu else suffix

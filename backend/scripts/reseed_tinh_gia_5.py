@@ -19,7 +19,7 @@ from app.db import Base, SessionLocal, engine  # noqa: E402
 from app.models.bu_hao import BuHao  # noqa: E402
 from app.models.cong_doan import CongDoan  # noqa: E402
 from app.models.loai_san_pham import LoaiSanPham  # noqa: E402
-from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, KhoGiayChuan, VatTuInAn  # noqa: E402
+from app.models.vat_lieu_kho import ChungLoaiGiay, GiayNguyen, VatTuInAn  # noqa: E402
 from app.models.phieu_tinh_gia import PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia, PhieuVatTu  # noqa: E402
 from app.services.tinh_gia_service import compute_phieu_snapshot  # noqa: E402
 
@@ -37,7 +37,7 @@ def _vi(n) -> str:
 def wipe(db):
     # Con → cha (FK cascade thật ở phiếu); catalog xoá thẳng (soft-FK).
     for model in (PhieuThanhPham, PhieuThanhPhan, PhieuTinhGia,
-                  GiayNguyen, ChungLoaiGiay, KhoGiayChuan, VatTuInAn,
+                  GiayNguyen, ChungLoaiGiay, VatTuInAn,
                   CongDoan, BuHao, LoaiSanPham):
         db.execute(delete(model))
     db.commit()

@@ -66,8 +66,6 @@ class GiayIn(BaseModel):
     ma: str = Field(min_length=1, max_length=30)
     ten: str = Field(min_length=1, max_length=150)
     chung_loai_giay_id: int | None = None
-    kho_dai: int = Field(default=0, ge=0)   # 0 = cuộn/khổ mở
-    kho_rong: int = Field(default=0, ge=0)  # 0 = cuộn/khổ mở
     gsm: int = Field(gt=0)
     caliper_micron: int | None = None
     tho: str | None = None
@@ -86,8 +84,6 @@ class GiayRow(BaseModel):
     ma: str
     ten: str
     chung_loai_giay_id: int | None = None
-    kho_dai: int
-    kho_rong: int
     gsm: int
     caliper_micron: int | None = None
     tho: str | None = None
@@ -122,32 +118,6 @@ class VatTuRow(BaseModel):
     don_gia: float
     ghi_chu: str | None = None
     cong_thuc_gia: str | None = None
-    active: bool
-    updated_at: datetime | None = None
-
-
-# ---- Khổ giấy chuẩn (mỗi khổ 1 dòng, cm) ----
-class KhoGiayChuanIn(BaseModel):
-    ma: str = Field(min_length=1, max_length=30)
-    ten: str = Field(min_length=1, max_length=150)
-    chung_loai_giay_id: int | None = None
-    rong: int = Field(gt=0)
-    dai: int | None = Field(default=None, gt=0)
-    la_hiem: bool = False
-    ghi_chu: str | None = None
-    active: bool = True
-
-
-class KhoGiayChuanRow(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    id: int
-    ma: str
-    ten: str
-    chung_loai_giay_id: int | None = None
-    rong: int
-    dai: int | None = None
-    la_hiem: bool
-    ghi_chu: str | None = None
     active: bool
     updated_at: datetime | None = None
 

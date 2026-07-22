@@ -2659,12 +2659,6 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 **Tất cả cột:** `id`, `giay_id`, `version_no`, `ngay_hieu_luc`, `is_current`, `kho_dai`, `kho_rong`, `gsm`, `caliper_micron`, `tho`, `don_vi_gia`, `don_gia`, `gia_thi_truong`, `ghi_chu`, `created_by`, `created_at`.
 
-### `kho_giay_chuan`
-
-**Purpose:** khổ giấy chuẩn (DANH MỤC KHỔ GIẤY CHUẨN, đơn vị **cm**) — mỗi row = 1 khổ của 1 chủng loại. `dai` NULL = giấy cuộn/khổ mở (cắt tự do 1 chiều). `la_hiem` = khổ hiếm (báo thu mua trước). `chung_loai_giay_id` soft int → `chung_loai_giay`.
-
-**Tất cả cột:** `id`, `ma`, `ten`, `chung_loai_giay_id`, `rong`, `dai`, `la_hiem`, `ghi_chu`, `active`, `created_at`, `updated_at`.
-
 ### `vat_tu_in_an`
 
 **Purpose:** vật tư in ấn — danh mục PHẲNG (mực/kẽm/hoá chất/màng/keo… chung 1 bảng, phân biệt bằng tên) theo bảng xưởng: Mã · Tên · ĐVT · Giá · Ghi chú. Thay 2 bảng cũ `muc`+`ban_kem`.

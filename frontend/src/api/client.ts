@@ -959,6 +959,30 @@ export interface BinhBaiOut {
   hieu_suat: number;
 }
 
+/** Bình bài NGHỊCH (POST /api/tinh-gia/binh-bai-nghich) — số con ĐÚNG N → khổ tờ in ít phế nhất.
+ *  Yêu cầu khổ giấy nguyên > 0 (caller KHÔNG gọi khi nguyên trống). con=0 = không xếp được đúng N. */
+export interface BinhBaiNghichIn {
+  con: number;
+  dai_thanh_pham: number;
+  rong_thanh_pham: number;
+  chua_mm: number;
+  kho_nguyen_dai: number;
+  kho_nguyen_rong: number;
+  kho_may_dai?: number;
+  kho_may_rong?: number;
+}
+export interface BinhBaiNghichOut {
+  con: number;          // 0 = không xếp được đúng N mà lọt tờ nguyên
+  kho_in_dai: number;
+  kho_in_rong: number;
+  rows: number;
+  cols: number;
+  rotated: boolean;
+  so_to_in: number;     // số tờ in xả được từ 1 tờ giấy nguyên
+  hieu_suat: number;
+  util_pct: number;     // % diện tích tờ nguyên thành thành phẩm
+}
+
 // --- Phiếu tính giá (PERSISTED costing tickets) — master/detail của "Tính giá" ---
 // Mô hình MỚI theo THÀNH PHẦN: 1 phiếu = nhiều "Thành phần" (mỗi cái = giấy + kỹ thuật in +
 // màu + gia công sau in). List item 2 tầng (sản phẩm + số thành phần); detail lồng nested.
@@ -1233,6 +1257,9 @@ export interface VersionRow {
   version: number;
   status: string;
   total: number | null;
+  total_cost?: number | null;   // giá vốn khóa (so sánh phiên bản)
+  subtotal?: number | null;     // giá bán chưa VAT
+  discount?: number | null;     // chiết khấu
   created_at: string;
   change_reason?: string | null;
 }
@@ -4317,6 +4344,13 @@ export const api = {
   tinhGia: {
     binhBai(token: string, body: BinhBaiIn): Promise<BinhBaiOut> {
       return authed<BinhBaiOut>("/api/tinh-gia/binh-bai", token, {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+    },
+    /** Bình bài NGHỊCH: số con ĐÚNG N → khổ tờ in ít phế nhất (xả từ tờ giấy nguyên). */
+    binhBaiNghich(token: string, body: BinhBaiNghichIn): Promise<BinhBaiNghichOut> {
+      return authed<BinhBaiNghichOut>("/api/tinh-gia/binh-bai-nghich", token, {
         method: "POST",
         body: JSON.stringify(body),
       });

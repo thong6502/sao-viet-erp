@@ -2336,6 +2336,17 @@ def _migrate_routing_step_may_ca(db: Session) -> None:
     db.commit()
 
 
+def _migrate_drop_kho_giay_chuan(db: Session) -> None:
+    """Gỡ HẲN module "Khổ giấy chuẩn": drop bảng `kho_giay_chuan`. Khổ giấy nguyên tờ
+    nay nhập tay ở phiếu tính giá; danh mục Giấy chỉ giữ định lượng + đơn giá/kg. No-op trên
+    DB fresh (bảng không còn trong create_all vì model đã xóa)."""
+    try:
+        db.execute(text("DROP TABLE IF EXISTS kho_giay_chuan"))
+        db.commit()
+    except Exception:
+        db.rollback()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2449,6 +2460,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0088_drop_hop_dong_module", _migrate_drop_hop_dong_module),
     # Gỡ module ma `san_luong` — sót của "Theo dõi SX" đã gỡ; ghi sản lượng Lát 2 dùng san_xuat:record_output.
     ("0089_drop_san_luong_module", _migrate_drop_san_luong_module),
+    # Gỡ module "Khổ giấy chuẩn" — danh mục thừa; khổ giấy nhập tay ở phiếu tính giá.
+    ("0090_drop_kho_giay_chuan", _migrate_drop_kho_giay_chuan),
 ]
 
 

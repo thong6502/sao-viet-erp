@@ -31,13 +31,11 @@ import {
   ChevronLeft,
   CornerDownLeft,
   DollarSign,
-  Eye,
   FileText,
   GitBranch,
   History,
-  Link2,
+  Lock,
   Pencil,
-  Phone,
   Plus,
   Printer,
   Save,
@@ -550,14 +548,14 @@ function QuotationDetailView({
   const [validity, setValidity] = useState<number>(30);
   const [validUntilEdit, setValidUntilEdit] = useState<string>("");   // ngày hết hạn (editable)
   const [verNote, setVerNote] = useState("");
+  // Ghi chú nội bộ (per-quote, không in cho khách) — sửa được khi NHÁP, lưu cùng điều khoản.
+  const [internalNoteEdit, setInternalNoteEdit] = useState<string>("");
 
   // Feed Hoạt động — nhật ký tương tác THẬT (ai làm gì) đọc từ backend.
   const [acts, setActs] = useState<QuotationActivity[]>([]);
   // Tạo phiên bản mới: BẮT BUỘC ghi chú → modal nhập lý do trước khi tạo.
   const [requoteOpen, setRequoteOpen] = useState(false);
   const [requoteNote, setRequoteNote] = useState("");
-  // Theo dõi gửi khách (follow-up) — localStorage theo mã BG.
-  const [lastContact, setLastContact] = useState<string | null>(null);
 
   const reload = useCallback(
     async (id: number) => {
@@ -570,6 +568,7 @@ function QuotationDetailView({
         setDiscDraft({});
         setTermsText(det.terms_text ?? DEFAULT_TERMS);
         setVerNote((det as any).change_reason ?? "");
+        setInternalNoteEdit(det.internal_note ?? "");
         setValidUntilEdit(det.valid_until ?? "");
         // Hiệu lực (ngày) suy từ valid_until so với ngày tạo bản hiện tại.
         const vr = det.versions.find((v) => v.version === det.version);
@@ -580,7 +579,6 @@ function QuotationDetailView({
           );
           setValidity(days > 0 ? days : 30);
         } else setValidity(30);
-        setLastContact(lsGet(`bgv_contact_${det.code}`, null));
         // Feed Hoạt động — nhật ký THẬT (ai làm gì) từ backend.
         api.quotations.activity(token, id).then((r) => setActs(r.items)).catch(() => setActs([]));
       } catch {
@@ -657,6 +655,7 @@ function QuotationDetailView({
         customer_id: d.customer_id,
         valid_until: validUntilEdit || null,
         terms_text: termsText,
+        internal_note: internalNoteEdit,
         items: d.items.map((it) => {
           const patch = items.find((x) => x.id === it.id);
           return {
@@ -715,6 +714,7 @@ function QuotationDetailView({
         customer_id: newId,
         valid_until: d.valid_until,
         terms_text: termsText,
+        internal_note: internalNoteEdit,
         items: null,
       });
       await reload(d.id);
@@ -735,6 +735,7 @@ function QuotationDetailView({
         customer_id: d.customer_id,
         valid_until: validUntilEdit || null,
         terms_text: termsText,
+        internal_note: internalNoteEdit,
         items: null,
       });
       await reload(d.id);
@@ -823,18 +824,7 @@ function QuotationDetailView({
     }
   }
 
-  // ---- Follow-up handler ---------------------------------------------------
-  function recordContact() {
-    if (!d) return;
-    const today = new Date().toLocaleDateString("vi-VN");
-    setLastContact(today);
-    lsSet(`bgv_contact_${d.code}`, today);
-  }
-  // ---- Follow-up (chỉ khi 'sent') ------------------------------------------
-  const curVerRow = d.versions.find((v) => v.version === d.version);
-  const sentDate = curVerRow?.created_at ?? null;
-  const sentDays = sentDate ? Math.max(0, Math.floor((Date.now() - new Date(sentDate).getTime()) / 86_400_000)) : 0;
-  const stale = d.status === "sent" && sentDays > 3;
+
 
   const marginPctDisp = multi ? aggMarginPct : Math.round(singleMargin);
   const meterW = Math.max(0, Math.min(100, marginPctDisp));
@@ -1003,72 +993,135 @@ function QuotationDetailView({
             </table>
           </div>
 
-          {/* Điều khoản & hiệu lực */}
-          <div className="panel">
-            <div className="panel__hd"><h3><FileText size={16} /> Điều khoản &amp; hiệu lực</h3></div>
+          {/* Điều khoản & hiệu lực (Redesigned Modern WOW UI) */}
+          <div className="panel terms-redesign-panel">
+            <div className="panel__hd">
+              <div className="terms-hd-title">
+                <h3><FileText size={18} className="terms-hd-icon" /> Điều khoản &amp; Hiệu lực báo giá</h3>
+                <span className="terms-badge-pill">
+                  {editable ? "Đang mở chỉnh sửa" : "Bản đã khóa"}
+                </span>
+              </div>
+            </div>
+
             <div className="terms">
-              <textarea
-                rows={6}
-                value={termsText}
-                disabled={!editable}
-                onChange={(e) => setTermsText(e.target.value)}
-                placeholder="Mỗi dòng là một điều khoản — bản in tự đánh số 1, 2, 3…"
-              />
-              <div className="row">
-                <span className="lbl">Hạn hiệu lực</span>
+              {/* Section 1: Điều khoản in cho khách */}
+              <div className="terms-section">
+                <div className="terms-section__title">
+                  <span className="terms-section__lbl">Điều khoản áp dụng (Gửi khách hàng)</span>
+                  <span className="terms-section__hint">Hiển thị trên bản in báo giá PDF</span>
+                </div>
+
                 {editable ? (
-                  <input
-                    className="datepill"
-                    type="date"
-                    value={validUntilEdit}
-                    onChange={(e) => setValidUntilEdit(e.target.value)}
+                  <textarea
+                    className="terms-textarea"
+                    rows={6}
+                    value={termsText}
+                    onChange={(e) => setTermsText(e.target.value)}
+                    placeholder="Mỗi dòng là một điều khoản — bản in tự đánh số 1, 2, 3…"
                   />
                 ) : (
-                  <span className="datepill"><Calendar size={13} /> {validUntilEdit ? fmtDate(validUntilEdit) : "—"}</span>
+                  <div className="terms-read-list">
+                    {termsText
+                      .split("\n")
+                      .filter((line) => line.trim().length > 0)
+                      .map((line, idx) => (
+                        <div key={idx} className="terms-read-item">
+                          <span className="terms-item-num">{idx + 1}</span>
+                          <span className="terms-item-text">{line}</span>
+                        </div>
+                      ))}
+                  </div>
                 )}
-                <span>{validUntilEdit ? `· ${validity} ngày kể từ ngày gửi` : "để trống = đến khi có thông báo mới"}</span>
               </div>
-              {verNote && <div className="verline">Lý do phiên bản này: <b>{verNote}</b></div>}
-              {!editable && (
-                <div className="ro-note2">
-                  <Eye size={14} /> Phiên bản này {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"} — khóa chỉnh sửa. Bấm "Tạo phiên bản mới" để sửa.
+
+              {/* Section 2: Hạn hiệu lực & Thời gian */}
+              <div className="terms-validity-bar">
+                <div className="validity-pill-box">
+                  <div className="validity-icon"><Calendar size={15} /></div>
+                  <div className="validity-info">
+                    <span className="validity-lbl">Hạn hiệu lực báo giá</span>
+                    <div className="validity-val-row">
+                      {editable ? (
+                        <input
+                          className="datepill-edit"
+                          type="date"
+                          value={validUntilEdit}
+                          onChange={(e) => setValidUntilEdit(e.target.value)}
+                        />
+                      ) : (
+                        <span className="validity-date-str">
+                          {validUntilEdit ? fmtDate(validUntilEdit) : "Cho đến khi có thông báo mới"}
+                        </span>
+                      )}
+                      {validUntilEdit && (
+                        <span className="validity-tag">
+                          {validity > 0 ? `Còn ${validity} ngày` : "Đã hết hạn"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Section 3: Ghi chú nội bộ (Confidential box) */}
+              <div className="internal-note-box">
+                <div className="internal-note-hd">
+                  <Lock size={14} className="internal-note-icon" />
+                  <span>Ghi chú nội bộ (Bảo mật - Chỉ hiển thị cho SX &amp; Kế toán)</span>
+                </div>
+                {editable ? (
+                  <textarea
+                    className="internal-note-textarea"
+                    rows={3}
+                    value={internalNoteEdit}
+                    onChange={(e) => setInternalNoteEdit(e.target.value)}
+                    placeholder="Lưu ý nội bộ cho SX/kế toán — KHÔNG in cho khách."
+                  />
+                ) : (
+                  <p className="internal-note-text">
+                    {internalNoteEdit || "Không có ghi chú nội bộ cho phiên bản này."}
+                  </p>
+                )}
+              </div>
+
+              {verNote && (
+                <div className="verline-box">
+                  <span className="verline-lbl">Lý do điều chỉnh phiên bản này:</span>
+                  <span className="verline-val">{verNote}</span>
                 </div>
               )}
-              <div className="tactions">
-                {editable && <Button variant="secondary" disabled={busy} onClick={saveTerms}><Save size={15} /> Lưu nháp</Button>}
+
+              {!editable && (
+                <div className="ro-lock-banner">
+                  <Lock size={16} className="ro-lock-icon" />
+                  <div className="ro-lock-desc">
+                    <strong>Phiên bản {STATUS_LABEL_SHORT[d.status] ?? "đã khóa"}</strong> — Đã khóa chỉnh sửa để bảo đảm tính toàn vẹn dữ liệu. Bấm "Tạo phiên bản mới" nếu cần thay đổi giá hoặc điều khoản.
+                  </div>
+                </div>
+              )}
+
+              <div className="tactions-redesign">
+                {editable && (
+                  <Button variant="secondary" disabled={busy} onClick={saveTerms}>
+                    <Save size={15} /> Lưu nháp điều khoản
+                  </Button>
+                )}
                 {canRequote && viewingLatest && d.allowed_transitions.includes("change_order") && (
-                  <Button variant="primary" disabled={busy} onClick={openRequote} title="Giữ bản hiện tại + tạo phiên bản mới (bắt buộc ghi chú)"><GitBranch size={15} /> Tạo phiên bản mới</Button>
+                  <Button
+                    variant="primary"
+                    disabled={busy}
+                    onClick={openRequote}
+                    title="Giữ bản hiện tại + tạo phiên bản mới (bắt buộc ghi chú)"
+                  >
+                    <GitBranch size={15} /> Tạo phiên bản mới (v{d.version + 1})
+                  </Button>
                 )}
               </div>
             </div>
           </div>
 
-          {/* Theo dõi gửi khách (follow-up) */}
-          {d.status === "sent" && (
-            <div className="panel">
-              <div className="panel__hd">
-                <h3><Link2 size={16} /> Theo dõi gửi khách</h3>
-                {stale && <span className="tag" style={{ color: "var(--rust-deep)", borderColor: "var(--rust)" }}>Cần follow-up</span>}
-              </div>
-              <div className="info">
-                <div className="irow"><span className="k">Kênh gửi</span><span className="v">Email</span></div>
-                <div className="irow"><span className="k">Ngày gửi</span><span className="v">{fmtDate(sentDate)}</span></div>
-                <div className="irow"><span className="k">Hạn phản hồi</span><span className="v">{fmtDate(d.valid_until)} ({validity} ngày)</span></div>
-                {lastContact && <div className="irow"><span className="k">Liên hệ gần nhất</span><span className="v">{lastContact}</span></div>}
-                <div className="irow"><span className="k">Đã gửi</span><span className="v" style={stale ? { color: "var(--rust-deep)" } : undefined}>{sentDays} ngày</span></div>
-              </div>
-              {stale && (
-                <div className="hint" style={{ marginBottom: "14px" }}>
-                  <AlertCircle size={15} /><span>Quá 3 ngày chưa chốt — nên liên hệ nhắc khách.</span>
-                </div>
-              )}
-              {viewingLatest && (
-                <div style={{ padding: "0 16px 16px" }}>
-                  <Button variant="secondary" onClick={recordContact}><Phone size={15} /> Ghi nhận đã liên hệ</Button>
-                </div>
-              )}
-            </div>
-          )}
+
           {d.status === "rejected" && d.cancel_reason && (
             <div className="panel">
               <div className="panel__hd"><h3><Ban size={16} /> Lý do từ chối</h3></div>
@@ -1261,8 +1314,10 @@ function QuotationDetailView({
                   key={v.id}
                   className={`vrow${active ? " cur" : ""}${!isCur ? " old" : ""}`}
                   onClick={() => v.id !== d.id && reload(v.id)}
+                  title={active ? "Đang xem phiên bản này" : "Bấm để xem phiên bản này"}
                 >
                   <span className="vtag">v{v.version}</span>
+                  {active && <span className="vnow">Đang xem</span>}
                   <div className="vmid">
                     <div className="a">{v.change_reason || "—"}</div>
                     <div className="m">{fmtDate(v.created_at)}{isCur ? " · hiện tại" : ""}</div>
@@ -1283,6 +1338,7 @@ function QuotationDetailView({
                     <tr><th>Chỉ tiêu</th>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <th key={v.id}>v{v.version}</th>)}</tr>
                   </thead>
                   <tbody>
+                    <tr><td>Giá vốn (khóa)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.total_cost != null ? vnd(v.total_cost) : "—"}</td>)}</tr>
                     <tr><td>Giá bán (đã VAT)</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{vnd(v.total ?? 0)}</td>)}</tr>
                     <tr>
                       <td>Chênh lệch</td>
@@ -1293,6 +1349,8 @@ function QuotationDetailView({
                         return <td key={v.id}><span className={diff > 0 ? "up" : "down"}>{diff > 0 ? "+" : ""}{vnd(diff)}</span></td>;
                       })}
                     </tr>
+                    <tr><td>Chiết khấu</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{v.discount ? vnd(v.discount) : "—"}</td>)}</tr>
+                    <tr><td>Lý do</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id} style={{ textAlign: "left", fontWeight: 400, whiteSpace: "normal" }}>{v.change_reason || "—"}</td>)}</tr>
                     <tr><td>Trạng thái</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{labelOf(statuses, v.status)}</td>)}</tr>
                     <tr><td>Ngày</td>{d.versions.slice().sort((a, b) => a.version - b.version).map((v) => <td key={v.id}>{fmtDate(v.created_at)}</td>)}</tr>
                   </tbody>
@@ -1625,18 +1683,4 @@ function vnd(v: number): string {
 function numf(v: number): string {
   return Math.round(v).toLocaleString("vi-VN");
 }
-function lsGet<T>(key: string, fallback: T): T {
-  try {
-    const v = localStorage.getItem(key);
-    return v ? (JSON.parse(v) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-function lsSet(key: string, val: unknown): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(val));
-  } catch {
-    /* ignore */
-  }
-}
+

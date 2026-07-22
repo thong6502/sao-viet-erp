@@ -614,6 +614,30 @@
   background: #fff;
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--rust, #c5400a) 12%, transparent);
 }
+.rc-textarea {
+  width: 100%;
+  min-height: 60px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink, #14130f);
+  background: var(--canvas, #fbfaf5);
+  border: 1px solid var(--rule, #d8d2c0);
+  border-radius: 8px;
+  resize: vertical;
+  transition: all 0.20s cubic-bezier(0.2, 0.8, 0.2, 1);
+  box-shadow: inset 0 1px 2px rgba(20, 19, 15, 0.02);
+}
+.rc-textarea:hover {
+  border-color: var(--ash, #6b665b);
+}
+.rc-textarea:focus {
+  outline: none;
+  border-color: var(--rust, #c5400a);
+  background: #fff;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--rust, #c5400a) 12%, transparent);
+}
 .rc-input:disabled {
   opacity: .65;
   background: rgba(138, 134, 118, 0.04);
@@ -1111,24 +1135,137 @@ select.rc-input:focus {
   opacity: 0.85;
   color: var(--rust, #c5400a);
 }
+/* Presets công thức mẫu nhanh 1-Click */
+.rc-formula__presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: color-mix(in srgb, var(--rust) 4%, transparent);
+  border: 1px dashed color-mix(in srgb, var(--rust) 20%, transparent);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.rc-formula__presets-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--rust-deep, #9e3104);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.rc-formula__presets-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.rc-formula__preset-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  background: var(--paper, #ffffff);
+  border: 1px solid color-mix(in srgb, var(--rust) 22%, transparent);
+  border-radius: 6px;
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--easing-standard);
+  text-align: left;
+  line-height: 1.3;
+}
+.rc-formula__preset-btn:hover {
+  background: color-mix(in srgb, var(--rust) 8%, var(--paper, #ffffff));
+  border-color: var(--rust);
+  box-shadow: 0 2px 6px rgba(197, 64, 10, 0.12);
+  transform: translateY(-1px);
+}
+.rc-formula__preset-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.rc-formula__preset-code {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  color: var(--ash);
+  margin-top: 1px;
+}
+
+/* Header nhóm biến & Toggle chế độ xem */
+.rc-formula__header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+.rc-formula__header-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ash-2, #5a564b);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.rc-formula__toggle-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  background: rgba(138, 134, 118, 0.1);
+  padding: 2px;
+  border-radius: 6px;
+}
+.rc-formula__toggle-btn {
+  border: none;
+  background: transparent;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ash);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.rc-formula__toggle-btn.is-active {
+  background: var(--canvas, #ffffff);
+  color: var(--rust, #c5400a);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
 .rc-formula__vars {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
-/* Chip biến: phẳng, token — KHÔNG gradient, KHÔNG transform hover (chỉ đổi nền nhẹ) */
+/* Chip biến: phẳng, token — KHÔNG gradient */
 .rc-formula__var-tag {
-  border-radius: var(--r-2);
-  font-family: var(--ff-mono);
+  border-radius: 6px;
+  font-family: var(--ff-sans);
   font-size: 11.5px;
-  font-weight: var(--fw-bold);
-  padding: 5px 10px;
+  font-weight: 600;
+  padding: 4px 9px;
   cursor: pointer;
   border: 1px solid transparent;
   transition: background-color var(--duration-fast) var(--easing-standard);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  line-height: 1.2;
+}
+.rc-formula__var-name {
+  font-weight: 600;
+}
+.rc-formula__var-code {
+  font-family: var(--ff-mono);
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.75;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.rc-formula__var-code-only {
+  font-family: var(--ff-mono);
+  font-size: 11.5px;
+  font-weight: 700;
 }
 /* Kích thước & định lượng → tông rust nhạt */
 .rc-formula__var-tag--size {
@@ -1156,6 +1293,42 @@ select.rc-input:focus {
 }
 .rc-formula__var-tag--price:hover {
   background: color-mix(in srgb, var(--steel) 18%, var(--steel-soft));
+}
+
+/* Thanh chèn phép toán nhanh */
+.rc-formula__op-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  background: #15171f;
+  padding: 5px 12px;
+  border-bottom: 1px solid #232530;
+}
+.rc-formula__op-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: #70758a;
+  margin-right: 2px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.rc-formula__op-btn {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid #2e3140;
+  color: #d1d5e6;
+  border-radius: 4px;
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.rc-formula__op-btn:hover {
+  background: color-mix(in srgb, var(--rust) 30%, transparent);
+  color: #fff;
+  border-color: var(--rust);
 }
 
 .rc-formula__legend {

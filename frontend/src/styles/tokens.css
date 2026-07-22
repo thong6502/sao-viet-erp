@@ -23,6 +23,7 @@
   --amber-deep: #7a5c0f;
   --signal: #8a1f1f;
   --signal-soft: #efd5d5;
+  --signal-deep: #6b1717;
   --steel: #4a5560;
   --steel-soft: #dde1e5;
   /* Khối tối (header hồ sơ, pill active, nút primary đậm) — mockup CRM. */
@@ -56,6 +57,14 @@
   --fw-regular: 400;
   --fw-medium: 500;
   --fw-bold: 600;
+  /* Font size — modular scale (px, SVG-safe) */
+  --fs-2xs: 11px;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-md: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
 
   /* Spacing — 4px scale */
   --sp-1: 4px;
@@ -81,9 +90,12 @@
   --shadow-1: 0 1px 0 var(--rule-soft);
   --shadow-4: 0 4px 12px rgba(20, 19, 15, 0.06);
   --shadow-lg: 0 14px 34px rgba(20, 19, 15, 0.17);
+  /* Node hover lift (SVG filter drop-shadow — no spread/inset). */
+  --shadow-lift: 0 6px 12px rgba(20, 19, 15, 0.16);
 
   /* Motion */
   --duration-fast: 120ms;
   --duration-base: 140ms;
+  --duration-enter: 400ms;
   --easing-standard: ease;
 }

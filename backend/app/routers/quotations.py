@@ -81,6 +81,9 @@ STATUS_LABELS = {
     "expired": "Hết hiệu lực",
     "converted_to_order": "Đã lên đơn",
     "cancelled": "Hủy báo giá",
+    # Trạng thái riêng của PHIÊN BẢN (không phải header) — pill lịch sử phiên bản dùng chung enum này.
+    "locked": "Đã khóa",
+    "superseded": "Đã thay thế",
 }
 
 
@@ -228,6 +231,9 @@ def _detail(
                 version=v.version_number,
                 status=v.status,
                 total=int(v.final_amount),
+                total_cost=int(v.total_cost_snapshot) if v.total_cost_snapshot is not None else None,
+                subtotal=int(v.subtotal_amount) if v.subtotal_amount is not None else None,
+                discount=int(v.discount_amount) if v.discount_amount is not None else None,
                 created_at=v.created_at,
                 change_reason=v.change_reason,
             )
@@ -298,7 +304,8 @@ def quotation_enums(
 ) -> QuotationEnumsOut:
     return QuotationEnumsOut(
         statuses=[
-            EnumOption(value=v, label=STATUS_LABELS.get(v, v)) for v in QUOTE_STATUSES
+            EnumOption(value=v, label=STATUS_LABELS.get(v, v))
+            for v in (*QUOTE_STATUSES, "locked", "superseded")
         ]
     )
 
