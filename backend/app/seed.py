@@ -213,6 +213,11 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True},
             "khuon_be": _read(SCOPE_ALL),  # ③ điều độ đọc danh mục khuôn để gán vào lệnh có bế
+            # Sửa routing của lệnh cần ĐỌC danh mục: công đoạn (thêm bước), máy (gán máy), tổ
+            # (đổi tổ phụ trách). Chỉ READ — cấu hình danh mục vẫn là việc của phòng khác.
+            "dm_cong_doan": _read(SCOPE_ALL),
+            "dm_thiet_bi": _read(SCOPE_ALL),
+            "phong_ban": _read(SCOPE_ALL),
             "nghi_phep": _leave_self(),
         },
     ),
@@ -1858,7 +1863,7 @@ def seed_pit_brackets(db: Session) -> None:
 
 
 def seed_san_xuat_org(db: Session) -> None:
-    """Nền phòng ban SẢN XUẤT (spec-ke-hoach-san-xuat §13.1): đánh dấu "Sản xuất" là khối sản
+    """Nền phòng ban SẢN XUẤT: đánh dấu "Sản xuất" là khối sản
     xuất + dựng cây TỔ con (Chế bản/In/Cán/Bế/Đóng gói/KCS, cấp "Tổ"), gắn công đoạn → tổ, chuyển
     thợ demo từ HCNS về đúng tổ. Idempotent (bấm lại an toàn). Chạy trong SEED_DEMO (cần công đoạn
     + nhân sự demo). Thực tế: con người tự cấu hình tổ trong màn Phòng ban — đây chỉ là dữ liệu mẫu."""

@@ -2848,86 +2848,91 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 ---
 
-## Kế hoạch & Lệnh sản xuất (P0) — bảng mới
+## Kế hoạch & Lệnh sản xuất — LSX (bản dựng lại 2026-07)
 
-> 6 bảng RECORD-ONLY (máy CHỈ GHI NHẬN) của module Kế hoạch & Lệnh SX — spec
-> `docs/spec-ke-hoach-san-xuat.md` §11. 3 tầng: Đơn (`orders`) 1–n Lệnh (`lenh_sx`) n–n
-> Tờ in (`print_form`) qua `gang_placement` (+ số con); routing riêng mỗi lệnh (`routing_step`),
-> bài con (`lenh_item`), gán thợ vào bước (`routing_step_assignment`, Lát 1). Lệnh ĐỌC quy cách/routing/vật tư từ PTG
-> (`phieu_thanh_phan`/`phieu_thanh_pham`) — không chép lại. FK MỀM (soft int) tới danh mục
-> (`may_thiet_bi` · `giay_nguyen` · `cong_doan` · `departments` = tổ · `users`); FK THẬT chỉ trong
-> module + `orders`. Bảng mới `create_all` tự tạo (không migration). Không cột Boolean (trạng thái =
-> chuỗi enum; "đã duyệt" suy từ cột `*_at` nullable).
->
-> (Module theo dõi thực thi xưởng — `san_luong`/`ban_giao`/`qc_defect` + cột execution của
-> `routing_step` — đã GỠ.)
->
-> ⚠️ **2026-07-23 — TẦNG CODE ĐÃ GỠ HẾT.** Model + schema + repo + service + router + toàn bộ màn FE
-> của module Kế hoạch sản xuất đã xóa. **Các BẢNG dưới đây GIỮ NGUYÊN trong DB** — KHÔNG drop,
-> migration `0083`–`0085` vẫn ship — để dữ liệu production không mất. Tài liệu giữ lại làm nền dựng
-> lại module. Vì không còn model, guard `test_schema_documented` không kiểm các bảng này nữa.
+> Mô hình 3 tầng chuẩn print MIS: **Job** (`orders` + `order_lines`) → **Part** (`lsx`) →
+> **Operation** (`lsx_cong_doan`). Mỗi DÒNG ĐƠN sinh đúng 1 lệnh; các lệnh NGANG HÀNG (không
+> cha-con). Quy cách + routing CHỤP SNAPSHOT lúc tạo lệnh (`quy_cach_json` + các dòng
+> `lsx_cong_doan`) nên sửa phiếu tính giá về sau không lay lệnh, và sửa routing tại lệnh không
+> ngược lên phiếu tính giá. Số lượng lấy từ ĐƠN (`order_lines.qty`), không lấy số lúc tính giá.
+> FK THẬT: `lsx.order_id`/`order_line_id` + `lsx_cong_doan.lsx_id`; FK danh mục (máy · khuôn ·
+> công đoạn · tổ · users) là MỀM. Bảng mới → `create_all` tự tạo (không migration).
+> Ghép bài (nhiều lệnh in chung 1 tờ) là tầng KHÁC, dựng ở pha sau.
 
-### `lenh_sx`
+### `lsx`
 
-**Purpose:** Lệnh SX = 1 ấn phẩm/cấu phần in = 1 routing (ruột · bìa · name card · tem) — traveler qua các tổ. Thuộc 1 đơn (`order_id` FK thật → `orders`, cascade); đọc quy cách + routing từ PTG qua `phieu_thanh_phan_id` (soft → `phieu_thanh_phan.id`). Móc n–n với tờ in qua `gang_placement`. `may_id` soft → `may_thiet_bi.id` (máy gán cho lệnh; máy chạy thực gán ở tờ in). `trang_thai` ∈ `nhap`/`dang_chay`/`xong`/`huy` (suy ra theo routing, không bấm tay). Hạn giao (①, migration 0083): `han_giao_khach` (DATE nullable) = hạn KHÁCH snapshot `orders.delivery_committed_date` lúc bung (kế thừa đơn); `han_giao_noi_bo` (DATE nullable) = hạn NỘI BỘ buffer (planner nhập). Sửa khi NHÁP; đóng băng lúc phát (service chặn theo `trang_thai`, chưa có ô quyền đổi-hạn sau phát). Khuôn bế (③, migration 0084): `khuon_be_id` (INTEGER nullable, soft → `khuon_be.id`) — điều độ gán khuôn cho lệnh có công đoạn bế (cảnh báo mềm, không chặn phát). Lịch chạy (④ bảng Máy×Ngày, migration 0085): `ngay_chay` (DATE nullable) = ngày dự kiến chạy (cột lưới); `thu_tu_chay` (INTEGER nullable) = thứ tự trong 1 ô máy×ngày; `thoi_luong_phut` (INTEGER nullable) = thời lượng dự kiến — NỀN cho Gantt-đầy-đủ pha sau (để trống giờ). Máy chạy = `may_id` (điều độ kéo lệnh vào hàng máy). Người xếp tay, máy CHỈ ghi nhận (không auto-schedule). Cụm duyệt mẫu (§5): `mau_approved_at` + `mau_approved_by` (soft → `users.id`) + `mau_approved_snapshot` (JSON đóng băng `{to, chuc_vu, ten}` người duyệt tại thời điểm duyệt).
+**Purpose:** 1 lệnh sản xuất = 1 dòng đơn hàng = 1 "chi tiết sản phẩm" đã tính giá. Hồ sơ sản xuất độc lập: số lượng · bù hao · quy cách snapshot · routing · hạn · trạng thái.
 
-**Tất cả cột:** `id`, `order_id`, `phieu_thanh_phan_id`, `may_id`, `khuon_be_id`, `trang_thai`, `han_giao_khach`, `han_giao_noi_bo`, `ngay_chay`, `thu_tu_chay`, `thoi_luong_phut`, `mau_approved_at`, `mau_approved_by`, `mau_approved_snapshot`, `created_at`, `updated_at`.
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `ma` | `String(30)` → `VARCHAR(30)` | U, IX | no | — | `LSX26-0001` (`SequenceService.generate_code("job")`). |
+| `loai` | `String(20)` | — | no | `san_xuat_moi` | `san_xuat_moi`/`bo_sung`/`bu`/`lam_lai`/`mau`/`noi_bo`. Lát 1 chỉ sinh loại mới. |
+| `lsx_goc_id` | `Integer` | IX | yes | — | Soft → `lsx.id`: lệnh gốc của bổ sung/bù/làm lại (pha sau). |
+| `ten` | `String(255)` | — | no | `""` | Tên chi tiết sản phẩm (snapshot `order_lines.description`). |
+| `order_id` | `Integer` | FK→`orders.id`, IX | no | — | Đơn nguồn. |
+| `order_line_id` | `Integer` | FK→`order_lines.id`, IX | no | — | Dòng đơn nguồn — 1 dòng chỉ 1 lệnh `san_xuat_moi` (guard ở service). |
+| `quote_version_id` | `Integer` | — | yes | — | Soft → `quote_versions.id`: phiên bản báo giá đã chốt (truy vết). |
+| `phieu_thanh_phan_id` | `Integer` | — | yes | — | Soft → `phieu_thanh_phan.id`: chi tiết tính giá nguồn. CHỈ truy vết — id đổi mỗi lần lưu PTG (replace-all) nên KHÔNG đọc-sống. |
+| `so_luong_dat` | `Integer` | — | no | `0` | SL khách đặt = `order_lines.qty`. |
+| `don_vi_tinh` | `String(30)` | — | no | `cái` | ĐVT thành phẩm (từ dòng đơn). |
+| `bu_hao_to` | `Integer` | — | no | `0` | Tờ bù hao (Σ bù hao công đoạn tự tra + bù nhập tay, từ engine). |
+| `so_to_ke_hoach` | `Integer` | — | no | `0` | Tờ vào máy (`to_dau_vao`). |
+| `so_to_nguyen` | `Integer` | — | no | `0` | Tờ giấy nguyên cần xuất (`to_nguyen`). |
+| `so_con` | `Integer` | — | no | `1` | Con/tờ (bình bài). |
+| `ban_giao_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Mốc Sale chuyển xuống SX (snapshot `orders.san_xuat_released_at`). |
+| `han_giao_khach` | `Date` → `DATE` | — | yes | — | Hạn giao khách (snapshot `orders.delivery_committed_date`). |
+| `han_hoan_thanh_sx` | `Date` → `DATE` | — | yes | — | Hạn nội bộ — kế hoạch nhập. |
+| `is_rush` | `Boolean` → `BOOLEAN` | — | no | `false` | Ưu tiên gấp (snapshot `orders.is_rush`, sửa được). |
+| `quy_cach_json` | `JSON` | — | yes | — | Snapshot quy cách: khổ ①②③ · giấy + định lượng · số màu A/B · cách in · chừa · số kẽm · số lượt · ghi chú kỹ thuật. Read-only ở lát 1. |
+| `khuon_be_id` | `Integer` | IX | yes | — | Soft → `khuon_be.id` — kế hoạch gán khuôn. |
+| `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` — máy in dự kiến. |
+| `trang_thai` | `String(20)` | — | no | `nhap` | `nhap` → `cho_bo_sung` → `san_sang`. Các mốc xếp lịch/phát hành thuộc pha sau. |
+| `nguoi_phu_trach_id` | `Integer` | IX | yes | — | Soft → `users.id` — người kế hoạch phụ trách lệnh. |
+| `ghi_chu` | `Text` | — | yes | — | Ghi chú kế hoạch. |
+| `created_by` | `Integer` | — | yes | — | Soft → `users.id`. |
+| `created_at` | `DateTime(timezone=True)` | — | no | now | |
+| `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
 
----
-
-### `print_form`
-
-**Purpose:** Tờ in = 1 lượt chạy máy vật lý (1 bộ kẽm · 1 lần canh) — NƠI ghép bài; móc n–n với lệnh qua `gang_placement`. `giay_id` soft → `giay_nguyen.id` + `giay_label` nhãn hiển thị. `kho_in_dai`/`kho_in_rong` = khổ tờ in (mm). `so_mau` = số màu (bộ kẽm cả tờ). `may_id` soft → `may_thiet_bi.id`. `so_to_chay` = số tờ chạy; `so_kem` = số kẽm. `trang_thai` phát ∈ `cho_ghep`/`du_dieu_kien`/`da_phat`/`in_xong` (cổng phát = đã gán máy + MỌI lệnh trên tờ duyệt mẫu, §8). Giấy/khổ/màu là ẢNH CHỤP để người kế hoạch dễ nhìn — máy KHÔNG lọc/chặn/cảnh báo.
-
-**Tất cả cột:** `id`, `giay_id`, `giay_label`, `kho_in_dai`, `kho_in_rong`, `so_mau`, `may_id`, `so_to_chay`, `so_kem`, `trang_thai`, `created_at`, `updated_at`.
-
----
-
-### `gang_placement`
-
-**Purpose:** Danh sách xếp bài (placement) = "cái bóng kế toán" của ghép — 1 dòng: tờ · lệnh · số con (§3). `print_form_id` FK thật → `print_form.id` (cascade), `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `so_con` = con/tờ của lệnh này, NHẬP TAY (dàn bài là việc chế bản ngoài ERP). Nguồn sự thật của ghép; KHÔNG phải layout dàn trang.
-
-**Tất cả cột:** `id`, `print_form_id`, `lenh_sx_id`, `so_con`, `created_at`.
-
----
-
-### `routing_step`
-
-**Purpose:** Routing RIÊNG mỗi lệnh SX (spec-ke-hoach-san-xuat §13.2) — copy công đoạn từ job spec PTG (`PhieuThanhPham`, thứ tự `thu_tu`) khi bung lệnh; kế hoạch sửa được (thêm/bớt/đổi thứ tự/đổi tổ). `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `cong_doan_id` soft → `cong_doan.id`; `to_id` = tổ phụ trách (soft → `departments.id`, snapshot `cong_doan.department_id` lúc copy). `ten` = tên công đoạn (ảnh chụp hiển thị). `ghi_chu` (VARCHAR nullable) = ghi chú kỹ thuật BƯỚC + `quy_cach` (VARCHAR nullable) = quy cách tóm tắt bước ("N mặt · M vị trí · thuê ngoài") — cả hai ẢNH CHỤP từ `PhieuThanhPham` lúc copy (migration 0082, ②: tổ hết trơ). `may_id` (soft → `may_thiet_bi.id`) + `ca` (VARCHAR16, "Ca 1/2/3") = máy finishing + ca do TỔ tự xếp cho bước này (Lát 1 · 1.12 — record-only, máy CHỈ GHI NHẬN; migration 0086). Bảng MỚI → `create_all` tự tạo; cột thêm sau qua migration. Routing riêng trên lệnh → sửa KHÔNG đụng phiếu tính giá.
-
-**Tất cả cột:** `id`, `lenh_sx_id`, `thu_tu`, `cong_doan_id`, `to_id`, `ten`, `ghi_chu`, `quy_cach`, `may_id`, `ca`, `created_at`, `updated_at`.
-
----
-
-### `routing_step_assignment`
-
-**Purpose:** Gán thợ vào 1 bước routing (spec-ke-hoach-san-xuat, Lát 1 — hộp việc 2 tầng). Tổ trưởng (quyền `can_assign_work`) gán; thợ được gán mới HỨNG thông báo + xem lệnh của mình (thợ chỉ-xem). n–n: 1 bước nhiều thợ, 1 thợ nhiều bước. `routing_step_id` FK thật → `routing_step.id` (cascade xoá theo bước). `user_id` soft → `users.id` (thợ được gán); `assigned_by` soft → `users.id` (tổ trưởng gán). Unique (`routing_step_id`, `user_id`) chống gán trùng. Bảng MỚI → `create_all` tự tạo (không migration). Không cột Boolean.
-
-**Tất cả cột:** `id`, `routing_step_id`, `user_id`, `assigned_by`, `assigned_at`.
-
-### `san_luong`
-
-**Purpose:** Sản lượng THỰC THI của 1 bước routing (Lát 2) — tổ trưởng ghi ĐẠT/HỎNG theo BƯỚC (không theo thợ; offset đếm máy/kíp). Event-log CỘNG DỒN nhiều đợt → tổng = Σ (lệnh chạy nhiều ca). `lenh_sx_id`/`routing_step_id` FK thật cascade; `to_id`/`nguoi_ghi` soft. `don_vi` = "to"/"con" (Tổ In/Cán đếm tờ, Tổ Bế trở đi đếm con) — ghi nhãn, KHÔNG engine quy đổi. Bảng MỚI → `create_all` tự tạo (không migration). Máy CHỈ GHI NHẬN; tiến độ bước SUY từ bảng này (không cột lifecycle trên `routing_step`).
-
-**Tất cả cột:** `id`, `lenh_sx_id`, `routing_step_id`, `to_id`, `so_dat`, `so_hong`, `don_vi`, `ghi_chu`, `nguoi_ghi`, `created_at`.
-
-### `ban_giao`
-
-**Purpose:** Bàn giao 2 CON DẤU giữa 2 bước routing (Lát 2). Tổ giao khai `so_giao` (`giao_at`); tổ nhận XÁC NHẬN `so_nhan` (`nhan_at`) — LỆCH được (thất thoát/đếm lại), KHÔNG chặn. Trạng thái nhận SUY từ `nhan_at` (null = chưa nhận); lệch = `so_giao − so_nhan`. Giao cho bước KẾ trong routing (`toi_step_id`; null = bước cuối → chờ nhập kho L4). `lenh_sx_id` FK thật cascade; `tu_step_id`/`toi_step_id`/`to_giao`/`to_nhan`/`nguoi_giao`/`nguoi_nhan` soft. Bảng MỚI → `create_all` tự tạo (không migration). Máy CHỈ GHI NHẬN — "nhận" KHÔNG gate chặn tổ nhận chạy.
-
-**Tất cả cột:** `id`, `lenh_sx_id`, `tu_step_id`, `toi_step_id`, `to_giao`, `to_nhan`, `so_giao`, `don_vi`, `nguoi_giao`, `giao_at`, `so_nhan`, `ly_do_lech`, `nguoi_nhan`, `nhan_at`.
+**Tất cả cột:** `id`, `ma`, `loai`, `lsx_goc_id`, `ten`, `order_id`, `order_line_id`, `quote_version_id`, `phieu_thanh_phan_id`, `so_luong_dat`, `don_vi_tinh`, `bu_hao_to`, `so_to_ke_hoach`, `so_to_nguyen`, `so_con`, `ban_giao_at`, `han_giao_khach`, `han_hoan_thanh_sx`, `is_rush`, `quy_cach_json`, `khuon_be_id`, `may_id`, `trang_thai`, `nguoi_phu_trach_id`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
 
 ---
 
-### `lenh_item`
+### `lsx_cong_doan`
 
-**Purpose:** Bài con trong 1 lệnh SX (spec-ke-hoach-san-xuat § pick nhiều ấn phẩm/lệnh) — 1 dòng: lệnh · ấn phẩm · dòng đơn. Cho phép 1 LỆNH ôm NHIỀU ấn phẩm (người kế hoạch tự PICK gom; máy CHỈ GHI NHẬN, không phán "đủ giống"): mỗi ấn phẩm = 1 bài con giữ chi tiết riêng, dùng CHUNG routing của lệnh. NGUỒN SỰ THẬT ấn phẩm của lệnh (cột `lenh_sx.phieu_thanh_phan_id` GIỮ = ấn phẩm đại diện/bài con đầu để tương thích). `lenh_sx_id` FK thật → `lenh_sx.id` (cascade). `phieu_thanh_phan_id` soft → `phieu_thanh_phan.id` (ấn phẩm nguồn — đọc quy cách/routing, không chép). `order_line_id` soft → `order_lines.id` (đọc SL đích `OrderLine.qty` SỐNG). `thu_tu` = thứ tự bài con trong lệnh. Bảng MỚI → `create_all` tự tạo (không migration). Không cột Boolean.
+**Purpose:** 1 bước routing của lệnh (Operation) — copy từ `phieu_thanh_pham` lúc tạo, kế hoạch sửa được (thêm/bỏ/đổi thứ tự/đổi tổ/đổi máy/thuê ngoài). Mỗi bước mang SL vào/ra + đơn vị riêng vì đơn vị đổi qua ranh giới xén.
 
-`quy_cach_override` (JSON nullable, migration 0080) = OVERRIDE quy cách in tại lệnh — `{field: value}` người kế hoạch sửa so với báo giá (null/absent = kế thừa); chỉ sửa khi lệnh NHÁP, khóa sau phát; KHÔNG đụng bảng tính giá. Ghép bài (tờ in) lấy giá trị HIỆU LỰC (báo giá + override) làm mặc định.
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` | **PK** | no | auto | |
+| `lsx_id` | `Integer` | FK→`lsx.id` (CASCADE), IX | no | — | Lệnh chứa bước. |
+| `thu_tu` | `Integer` | — | no | `0` | Thứ tự routing. |
+| `cong_doan_id` | `Integer` | IX | yes | — | Soft → `cong_doan.id`. |
+| `ten` | `String(255)` | — | no | `""` | Tên bước (snapshot hiển thị). |
+| `nhom` | `String(12)` | — | yes | — | `prepress`/`print`/`finishing` (snapshot). |
+| `department_id` | `Integer` | IX | yes | — | Soft → `departments.id` = tổ nhận việc (snapshot `cong_doan.department_id`). |
+| `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` cho bước này. |
+| `so_luong_vao` | `Numeric(14,2)` | — | no | `0` | SL đầu vào bước. |
+| `so_luong_ra` | `Numeric(14,2)` | — | no | `0` | SL đầu ra bước. |
+| `don_vi` | `String(8)` | — | no | `to` | `to` (tờ in) / `cai` (con) / `kem` (bộ kẽm). |
+| `hao_hut` | `Numeric(14,2)` | — | no | `0` | Hao hụt dự kiến của bước. |
+| `thue_ngoai` | `Boolean` | — | no | `false` | Bước gia công ngoài. |
+| `nha_cung_cap` | `String(150)` | — | yes | — | Nhà gia công khi `thue_ngoai`. |
+| `ghi_chu` | `String(500)` | — | yes | — | |
+| `created_at` | `DateTime(timezone=True)` | — | no | now | |
+| `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
 
-**Tất cả cột:** `id`, `lenh_sx_id`, `phieu_thanh_phan_id`, `order_line_id`, `thu_tu`, `quy_cach_override`, `created_at`.
+**Tất cả cột:** `id`, `lsx_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `department_id`, `may_id`, `so_luong_vao`, `so_luong_ra`, `don_vi`, `hao_hut`, `thue_ngoai`, `nha_cung_cap`, `ghi_chu`, `created_at`, `updated_at`.
 
 ---
+
+## (LỊCH SỬ) Kế hoạch & Lệnh sản xuất — 8 bảng cũ ĐÃ DROP
+
+> ⛔ **2026-07-23** — `lenh_sx` · `print_form` · `gang_placement` · `routing_step` ·
+> `routing_step_assignment` · `san_luong` · `ban_giao` · `lenh_item` đã bị **DROP** ở migration
+> `0092_drop_lenh_sx_cu` (tầng code gỡ trước đó ở commit `bcefd1c`). Module dựng lại dùng
+> `lsx` / `lsx_cong_doan` ở mục trên. Migration `0079`–`0087` (ALTER các bảng cũ) vẫn ship nhưng
+> tự no-op vì bảng không còn. Tài liệu mô tả 8 bảng cũ đã xoá khỏi file này để khỏi gây nhiễu.
 
 ## Template for a new table (copy when adding one)
 

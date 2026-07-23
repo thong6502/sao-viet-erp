@@ -2214,7 +2214,7 @@ def _migrate_care_task_recurrence(db: Session) -> None:
 
 
 def _migrate_department_la_san_xuat(db: Session) -> None:
-    """Phân hệ Sản xuất (spec-ke-hoach-san-xuat §13.1): thêm `departments.la_san_xuat` (Boolean,
+    """Phân hệ Sản xuất: thêm `departments.la_san_xuat` (Boolean,
     default false) — đánh dấu phòng/khối là bộ phận sản xuất; cả cây con (theo parent_id) kế thừa.
     No-op trên DB fresh (create_all đã dựng cột) / bảng chưa có / cột đã có."""
     insp = inspect(db.get_bind())
@@ -2360,6 +2360,27 @@ def _migrate_drop_kho_giay_chuan(db: Session) -> None:
         db.rollback()
 
 
+def _migrate_drop_lenh_sx_cu(db: Session) -> None:
+    """DỌN NỀN module Kế hoạch SX cũ: DROP 8 bảng của bản đã gỡ (commit `bcefd1c` xoá tầng code
+    nhưng GIỮ bảng). Module mới dựng bảng TÊN KHÁC (`lsx` / `lsx_cong_doan`), nên bảng cũ chỉ còn
+    là rác — mà để lại thì `create_all` không đụng tới, dữ liệu mồ côi nằm mãi trên prod.
+
+    Drop CON TRƯỚC CHA để khỏi vướng FK; Postgres thêm CASCADE (SQLite bỏ qua từ khoá này nên tách
+    2 nhánh theo dialect). Best-effort từng bảng: bảng nào không có thì bỏ qua, no-op trên DB fresh.
+    Các migration 0079–0087 (ALTER mấy bảng này) GIỮ NGUYÊN — chúng đã tự guard "bảng chưa có → return".
+    """
+    is_pg = (db.get_bind().dialect.name or "").startswith("postgres")
+    for table in (
+        "routing_step_assignment", "san_luong", "ban_giao", "gang_placement",
+        "lenh_item", "routing_step", "print_form", "lenh_sx",
+    ):
+        try:
+            db.execute(text(f"DROP TABLE IF EXISTS {table}{' CASCADE' if is_pg else ''}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2477,6 +2498,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0090_drop_kho_giay_chuan", _migrate_drop_kho_giay_chuan),
     # Khách chốt MỘT PHẦN: cờ dòng báo giá khách ưng/không (đơn chỉ kéo dòng accepted).
     ("0091_quote_item_accepted", _migrate_quote_item_accepted),
+    # Dọn nền module Kế hoạch SX cũ (bảng còn sót sau khi gỡ code) — bản mới dùng `lsx`/`lsx_cong_doan`.
+    ("0092_drop_lenh_sx_cu", _migrate_drop_lenh_sx_cu),
 ]
 
 

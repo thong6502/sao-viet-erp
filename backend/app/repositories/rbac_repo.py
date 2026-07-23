@@ -180,7 +180,7 @@ class DepartmentRepository:
         return dept
 
     def set_la_san_xuat(self, dept: Department, value: bool) -> Department:
-        """Đánh dấu / bỏ dấu phòng ban thuộc khối SẢN XUẤT (spec-ke-hoach-san-xuat §13.1)."""
+        """Đánh dấu / bỏ dấu phòng ban thuộc khối SẢN XUẤT (nền phân tổ cho Kế hoạch SX)."""
         dept.la_san_xuat = bool(value)
         self.db.commit()
         self.db.refresh(dept)

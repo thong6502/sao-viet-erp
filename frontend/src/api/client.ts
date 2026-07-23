@@ -198,37 +198,127 @@ export type QuoteEvent =
   // bàn kế hoạch "ting" (badge nhảy). Nội dung chính xác FE refetch hàng chờ / detail.
   | { type: "order_ordered"; code?: string; order_id: number }
   | { type: "order_sx_hint_changed"; code?: string; order_id: number; is_rush: boolean }
+  // Kế hoạch tạo/sửa/xoá lệnh sản xuất → hàng chờ + bước "Sản xuất" ở Đơn hàng cập nhật ngay.
+  | { type: "lsx_changed"; order_id: number }
   // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
   | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number };
 
-// --- Hộp việc TỔ sản xuất (Lát 1) --------------------------------------------
-export interface ToInboxAssignee { user_id: number; ten: string }
-export interface StepSanLuong { so_dat: number; so_hong: number; don_vi: string }
-export interface StepChoNhan { ban_giao_id: number; so_giao: number; don_vi: string; tu_to_ten: string | null }
-export interface ToInboxStep {
-  step_id: number; thu_tu: number; ten: string;
-  to_id: number | null; to_ten: string | null; is_mine: boolean; assignees: ToInboxAssignee[];
-  ghi_chu: string | null; quy_cach: string | null;   // ② ghi chú + quy cách BƯỚC (tổ hết trơ)
-  may_id: number | null; may_label: string | null; ca: string | null;  // 1.12 máy finishing + ca (tổ tự xếp)
-  san_luong: StepSanLuong | null;   // Lát 2: Σ đạt/hỏng đã ghi cho bước
-  da_giao: number;                  // Lát 2: Σ đã giao đi từ bước
-  cho_nhan: StepChoNhan | null;     // Lát 2: bàn giao đến chờ bước này xác nhận
+// --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ------------------------------
+// Job (đơn) → Part (lệnh) → Operation (công đoạn). Mỗi DÒNG ĐƠN = 1 lệnh, ngang hàng.
+export type LsxTrangThai = "nhap" | "cho_bo_sung" | "san_sang";
+export type LsxDonVi = "to" | "cai" | "kem";
+
+/** Mã checklist "thiếu gì" → nhãn hiển thị (server trả mã, FE dịch). */
+export const LSX_THIEU_LABELS: Record<string, string> = {
+  khong_co_ptg: "Chưa có bài tính giá",
+  thieu_giay: "Thiếu loại giấy",
+  thieu_kho: "Thiếu kích thước",
+  thieu_routing: "Chưa có công đoạn",
+  thieu_ngay_giao: "Thiếu ngày giao",
+  thieu_khuon: "Chưa gán khuôn bế",
+};
+
+export interface HangChoItem {
+  order_id: number;
+  order_no: string;
+  customer_name: string | null;
+  sale_name: string | null;
+  delivery_committed_date: string | null;
+  is_rush: boolean;
+  production_note: string | null;
+  san_xuat_released_at: string | null;
+  so_dong: number;
+  so_dong_co_lsx: number;
 }
-export interface ToInboxItem {
-  lenh_id: number; order_id: number; order_no: string | null;
-  khach: string | null; muc_tieu_sl: number; steps: ToInboxStep[];
-  han_giao_khach: string | null; han_giao_noi_bo: string | null;  // ① hạn khách + nội bộ
-  ghi_chu_ky_thuat: string | null;                                // ghi chú kỹ thuật cả lệnh
-  can_khuon: boolean; khuon_be_label: string | null;              // ③ khuôn bế (read-only, điều độ gán)
-  may_in_label: string | null; ngay_chay: string | null;          // ④ lịch chạy máy in (read-only)
+export interface HangChoOut { items: HangChoItem[]; total: number }
+
+export interface LsxPreviewRouting {
+  thu_tu: number; ten: string; nhom: string | null;
+  department_id: number | null; department_ten: string | null;
+  thue_ngoai: boolean; nha_cung_cap: string | null;
 }
-export interface ToInboxOut {
-  to_id: number; to_ten: string; to_ma: string;
-  view: "full" | "assigned"; can_assign: boolean; items: ToInboxItem[];
+export interface LsxPreviewLine {
+  order_line_id: number;
+  ten: string;
+  so_luong_dat: number;
+  don_vi_tinh: string;
+  phieu_thanh_phan_id: number | null;
+  ptg_ma: string | null;
+  bu_hao_to: number;
+  so_to_ke_hoach: number;
+  so_to_nguyen: number;
+  so_con: number;
+  so_kem: number;
+  so_luot: number;
+  routing: LsxPreviewRouting[];
+  quy_cach: Record<string, unknown> | null;
+  thieu: string[];
+  /** SL lúc tính giá KHÁC SL đơn (cảnh báo mềm — số dùng thật là của đơn). */
+  sl_ptg: number | null;
+  lsx_id: number | null;
+  lsx_ma: string | null;
 }
-export interface ToMember { user_id: number; ten: string; chuc_vu: string | null }
-export interface FinishingMay { id: number; ma: string; ten: string }  // 1.12 máy finishing (đã lọc non-press server-side)
-export interface ToBadge { to_id: number; count: number }
+export interface LsxPreviewOut {
+  order_id: number;
+  order_no: string;
+  customer_name: string | null;
+  sale_name: string | null;
+  delivery_committed_date: string | null;
+  is_rush: boolean;
+  production_note: string | null;
+  lines: LsxPreviewLine[];
+  warnings: string[];
+}
+
+export interface LsxCongDoan {
+  id: number; thu_tu: number; cong_doan_id: number | null;
+  ten: string; nhom: string | null;
+  department_id: number | null; department_ten: string | null;
+  may_id: number | null; may_ten: string | null;
+  so_luong_vao: number; so_luong_ra: number; don_vi: string; hao_hut: number;
+  thue_ngoai: boolean; nha_cung_cap: string | null; ghi_chu: string | null;
+}
+export interface LsxCongDoanBody {
+  thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
+  department_id?: number | null; may_id?: number | null;
+  so_luong_vao?: number; so_luong_ra?: number; don_vi?: string; hao_hut?: number;
+  thue_ngoai?: boolean; nha_cung_cap?: string | null; ghi_chu?: string | null;
+}
+export interface LsxListItem {
+  id: number; ma: string; loai: string; ten: string; trang_thai: LsxTrangThai;
+  order_id: number; order_no: string | null; customer_name: string | null;
+  so_luong_dat: number; don_vi_tinh: string; so_to_ke_hoach: number;
+  han_giao_khach: string | null; han_hoan_thanh_sx: string | null;
+  is_rush: boolean; to_dau_ten: string | null; so_cong_doan: number;
+}
+export interface LsxListOut { items: LsxListItem[]; total: number }
+export interface LsxDetail {
+  id: number; ma: string; loai: string; lsx_goc_id: number | null; ten: string;
+  trang_thai: LsxTrangThai;
+  order_id: number; order_line_id: number; order_no: string | null;
+  customer_name: string | null; customer_po_no: string | null; sale_name: string | null;
+  quote_version_id: number | null; quote_number: string | null; quote_version_number: number | null;
+  phieu_thanh_phan_id: number | null; ptg_id: number | null; ptg_ma: string | null;
+  so_luong_dat: number; don_vi_tinh: string; bu_hao_to: number;
+  so_to_ke_hoach: number; so_to_nguyen: number; so_con: number;
+  ban_giao_at: string | null; han_giao_khach: string | null; han_hoan_thanh_sx: string | null;
+  is_rush: boolean;
+  quy_cach_json: Record<string, unknown> | null;
+  khuon_be_id: number | null; khuon_be_ten: string | null;
+  may_id: number | null; may_ten: string | null;
+  nguoi_phu_trach_id: number | null; nguoi_phu_trach_ten: string | null;
+  ghi_chu: string | null; created_at: string; updated_at: string;
+  cong_doans: LsxCongDoan[];
+  thieu: string[];
+}
+export interface LsxUpdateBody {
+  ten?: string; so_luong_dat?: number; don_vi_tinh?: string; bu_hao_to?: number;
+  so_to_ke_hoach?: number; so_to_nguyen?: number; so_con?: number;
+  han_hoan_thanh_sx?: string | null; is_rush?: boolean;
+  khuon_be_id?: number | null; may_id?: number | null;
+  nguoi_phu_trach_id?: number | null; ghi_chu?: string | null;
+}
+export interface LsxActivity { at: string; actor_name: string | null; action: string; detail: string }
 
 export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
   let closed = false;
@@ -4158,6 +4248,61 @@ export const api = {
     },
   },
 
+  // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ---------------------------
+  lsx: {
+    /** Đơn Sale đã "Chuyển xuống sản xuất" mà còn dòng chưa lên lệnh. */
+    hangCho(token: string): Promise<HangChoOut> {
+      return authed<HangChoOut>("/api/lsx/hang-cho", token);
+    },
+    /** Danh sách lệnh DỰ KIẾN của 1 đơn — dẫn xuất tại chỗ, chưa ghi DB. */
+    preview(token: string, orderId: number): Promise<LsxPreviewOut> {
+      return authed<LsxPreviewOut>(`/api/lsx/preview/${orderId}`, token);
+    },
+    /** Xác nhận tạo lệnh cho các dòng đã tick. */
+    tao(token: string, orderId: number, orderLineIds: number[]): Promise<LsxListOut> {
+      return authed<LsxListOut>(`/api/lsx/tao/${orderId}`, token, {
+        method: "POST",
+        body: JSON.stringify({ order_line_ids: orderLineIds }),
+      });
+    },
+    list(token: string, params: { order_id?: number; trang_thai?: string; q?: string } = {}): Promise<LsxListOut> {
+      const qs = new URLSearchParams();
+      if (params.order_id) qs.set("order_id", String(params.order_id));
+      if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<LsxListOut>(`/api/lsx${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}`, token);
+    },
+    update(token: string, id: number, body: LsxUpdateBody): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    },
+    /** REPLACE-ALL routing của LỆNH (không đụng phiếu tính giá, không ảnh hưởng lệnh khác). */
+    saveRouting(token: string, id: number, congDoans: LsxCongDoanBody[]): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}/routing`, token, {
+        method: "PUT",
+        body: JSON.stringify({ cong_doans: congDoans }),
+      });
+    },
+    setTrangThai(token: string, id: number, trangThai: LsxTrangThai): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}/trang-thai`, token, {
+        method: "POST",
+        body: JSON.stringify({ trang_thai: trangThai }),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/lsx/${id}`, token, { method: "DELETE" });
+    },
+    activity(token: string, id: number): Promise<{ items: LsxActivity[] }> {
+      return authed<{ items: LsxActivity[] }>(`/api/lsx/${id}/activity`, token);
+    },
+  },
+
   // --- Báo giá (Quotation), spec-09 -----------------------------------------
   quotations: {
     list(token: string, params: QuotationListParams = {}): Promise<QuotationListOut> {
@@ -4775,8 +4920,9 @@ export const api = {
 
   // --- Công đoạn (danh mục, lite cho dropdown) -----------------------------
   congDoan: {
+    // size ≤ 200 — router chặn `le=200`, gửi 500 là 422 (đừng nâng lại).
     list(token: string): Promise<{ items: CongDoanLite[] }> {
-      return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=500", token);
+      return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=200", token);
     },
   },
 

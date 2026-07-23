@@ -13,6 +13,7 @@ import {
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
+import { KeHoachSXPage } from "../pages/KeHoachSXPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
@@ -60,6 +61,8 @@ export interface NavParams {
   focusReceiptQuery?: string;
   /** P3 (redesign-bao-gia §6): mở thẳng 1 Phiếu tính giá (link "↳ PTG" từ Báo giá). */
   focusPhieuId?: number;
+  /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
+  openSxOrderId?: number;
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -171,6 +174,13 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Kế hoạch SX = số đơn Sale đã chuyển xuống mà CÒN dòng chưa lên lệnh (hàng chờ).
+    if (readable.has("san_xuat")) {
+      api.lsx
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total })))
+        .catch(() => {});
+    }
     // Badge Lương = số đề nghị tạm ứng đang chờ TÔI duyệt (0 với người không có quyền duyệt).
     if (readable.has("luong")) {
       api.luong
@@ -247,6 +257,18 @@ export function AppShell() {
               pushToast("🔔 Có đơn hàng chờ bạn xử lý", "info");
             }
             lastOrderAction.current = s.action_count;
+          })
+          .catch(() => {});
+      } else if (readable.has("san_xuat") && (e.type === "order_ordered" || e.type === "lsx_changed")) {
+        // Sale bấm "Chuyển xuống sản xuất" → đơn rơi vào hàng chờ Kế hoạch NGAY (badge nhảy + toast);
+        // Kế hoạch tạo/xoá lệnh → hàng chờ tự co lại. Nội dung do màn tự refetch qua `quoteTick`.
+        api.lsx
+          .hangCho(token)
+          .then((r) => {
+            setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total }));
+            if (e.type === "order_ordered") {
+              pushToast(`🔔 Đơn ${e.code ?? ""} vừa chuyển xuống sản xuất`.trim(), "info");
+            }
           })
           .catch(() => {});
       } else if (readable.has("khach_hang") && e.type === "care_due") {
@@ -380,6 +402,15 @@ export function AppShell() {
         );
       case "don-hang-ban":
         return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
+      case "ke-hoach-sx":
+        return (
+          <KeHoachSXPage
+            navigate={navigate}
+            openOrderId={navParams?.openSxOrderId ?? null}
+            eventTick={quoteTick}
+            onBadgeStale={reloadBadges}
+          />
+        );
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage

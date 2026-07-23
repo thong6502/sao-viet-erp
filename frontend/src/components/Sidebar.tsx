@@ -60,6 +60,14 @@ const NAV: NavSection[] = [
     ],
   },
   {
+    // Bàn của bộ phận Kế hoạch sản xuất: nhận đơn Sale đã chuyển xuống → bung lệnh sản xuất.
+    id: "san-xuat",
+    label: "Sản xuất",
+    items: [
+      { id: "ke-hoach-sx", label: "Kế hoạch sản xuất", icon: "workflow", module: "san_xuat" },
+    ],
+  },
+  {
     id: "thu-mua",
     label: "Thu mua",
     items: [
