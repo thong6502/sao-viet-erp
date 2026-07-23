@@ -1,6 +1,6 @@
 // Đơn hàng bán — redesign-don-hang-ban.md (P1: list + chi tiết + tạo + sửa đặt-hàng).
 // Cọc/duyệt/chốt/hủy = P2–P5. Icon dùng bộ Icon nhà (không emoji).
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Icon, type IconName } from "../components/Icons";
 import { useAuth } from "../auth/useAuth";
@@ -10,7 +10,6 @@ import {
   ApiError,
   type CustomerAddress,
   type CustomerContact,
-  type LenhSXRow,
   type OrderCreateInput,
   type OrderDetail,
   type OrderEnumsOut,
@@ -404,11 +403,16 @@ function OrderDrawer({
   const remaining = Math.max(0, order.deposit_required - order.deposit_received);
 
   // Bước Sản xuất — suy từ lệnh + mốc "Chuyển SX": chưa chuyển → chờ KH → đang chạy → XONG (nhập kho TP).
-  const [lenhs, setLenhs] = useState<LenhSXRow[]>([]);
-  useEffect(() => {
-    if (!token || order.status !== "ordered" || !order.san_xuat_released_at) { setLenhs([]); return; }
-    api.lenhSanXuat.list(token, { order_id: order.id }).then((r) => setLenhs(r.items)).catch(() => setLenhs([]));
-  }, [token, order.id, order.status, order.san_xuat_released_at]);
+  // ⚠️ MOCK — module Kế hoạch SX đã gỡ nên CHƯA có API thật. Danh sách lệnh dưới đây là DỮ LIỆU GIẢ,
+  // chỉ để giữ nguyên hình hài bước "Sản xuất" trong vòng đời đơn. Khi dựng lại module Kế hoạch SX →
+  // thay bằng lời gọi thật (`api.lenhSanXuat.list(token, { order_id })`) và bỏ khối mock này.
+  const lenhs = useMemo<{ id: number; ma: string; trang_thai: string }[]>(() => {
+    if (order.status !== "ordered" || !order.san_xuat_released_at) return [];
+    return [
+      { id: 1, ma: `${order.order_no}-1`, trang_thai: "xong" },
+      { id: 2, ma: `${order.order_no}-2`, trang_thai: "dang_chay" },
+    ];
+  }, [order.status, order.san_xuat_released_at, order.order_no]);
   const sxReleased = !!order.san_xuat_released_at;
   const activeLenhs = lenhs.filter((l) => l.trang_thai !== "huy");
   const sxDone = sxReleased && activeLenhs.length > 0 && activeLenhs.every((l) => l.trang_thai === "xong");
@@ -700,11 +704,12 @@ function OrderDrawer({
                               ? "Xưởng đang chạy — bước này XONG khi nhập kho thành phẩm."
                               : "Đã nhập kho thành phẩm — sản xuất hoàn tất."}
                           </p>
+                          {/* Nút GIỮ CHỖ: module Kế hoạch SX đã gỡ nên chưa có màn để mở. Nối lại
+                              navigate("ke-hoach-sx") khi dựng lại module. */}
                           <button
                             type="button"
                             className="link dhb__mono"
                             style={{ color: "var(--rust)", background: "none", border: 0, padding: 0, cursor: "pointer", fontWeight: 600, justifySelf: "start" }}
-                            onClick={() => navigate?.("ke-hoach-sx")}
                           >
                             Mở bàn Kế hoạch sản xuất ↗
                           </button>

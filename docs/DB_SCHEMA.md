@@ -2861,6 +2861,11 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 >
 > (Module theo dõi thực thi xưởng — `san_luong`/`ban_giao`/`qc_defect` + cột execution của
 > `routing_step` — đã GỠ.)
+>
+> ⚠️ **2026-07-23 — TẦNG CODE ĐÃ GỠ HẾT.** Model + schema + repo + service + router + toàn bộ màn FE
+> của module Kế hoạch sản xuất đã xóa. **Các BẢNG dưới đây GIỮ NGUYÊN trong DB** — KHÔNG drop,
+> migration `0083`–`0085` vẫn ship — để dữ liệu production không mất. Tài liệu giữ lại làm nền dựng
+> lại module. Vì không còn model, guard `test_schema_documented` không kiểm các bảng này nữa.
 
 ### `lenh_sx`
 

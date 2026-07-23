@@ -60,15 +60,6 @@ const NAV: NavSection[] = [
     ],
   },
   {
-    id: "san-xuat",
-    label: "Sản xuất",
-    items: [
-      // "Kế hoạch SX" = list/detail lệnh (bung → ghép → duyệt mẫu → phát). Module theo dõi thực thi
-      // xưởng (theo dõi SX · nhập liệu xưởng · QC/KCS) đã gỡ.
-      { id: "ke-hoach-sx", label: "Kế hoạch SX", icon: "calendar", module: "san_xuat" },
-    ],
-  },
-  {
     id: "thu-mua",
     label: "Thu mua",
     items: [
