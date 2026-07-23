@@ -6,11 +6,14 @@
 """
 from __future__ import annotations
 
+from datetime import date, datetime
+
 from app.db import SessionLocal
+from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
-from app.services.attendance_service import compute_day_cong
+from app.services.attendance_service import VN_TZ, check_in_block_reason, compute_day_cong
 
 ADMIN = {"username": "admin", "password": "admin123"}
 
@@ -89,6 +92,29 @@ def test_compute_day_cong_examples():
     assert r["cong"] == 0.0 and r["incomplete"] is True
 
 
+def test_check_in_window_blocks_morning_for_evening_shift():
+    shift = type("Shift", (), {
+        "name": "Ca tối", "start_minute": 18 * 60, "end_minute": 23 * 60,
+        "is_overnight": False,
+    })()
+    work_day = date(2026, 7, 21)
+
+    too_early = check_in_block_reason(
+        shift=shift, work_day=work_day,
+        now_local=datetime(2026, 7, 21, 7, 0, tzinfo=VN_TZ),
+    )
+    assert too_early is not None and "17:00" in too_early
+    assert check_in_block_reason(
+        shift=shift, work_day=work_day,
+        now_local=datetime(2026, 7, 21, 17, 0, tzinfo=VN_TZ),
+    ) is None
+    ended = check_in_block_reason(
+        shift=shift, work_day=work_day,
+        now_local=datetime(2026, 7, 21, 23, 0, tzinfo=VN_TZ),
+    )
+    assert ended is not None and "đã kết thúc" in ended
+
+
 def test_compute_day_cong_overnight():
     """Ca đêm 22:00→06:00: giờ RA rạng sáng ánh xạ lên trục ca (theo ngày VÀO)."""
     def night(fin, fout):
@@ -122,6 +148,15 @@ def test_shift_crud_and_validation(client):
     sid = created.json()["id"]
     assert created.json()["start_time"] == "08:00" and created.json()["end_time"] == "17:00"
 
+    compact = client.post(
+        "/api/attendance/shifts",
+        json={"name": "Ca nhập nhanh", "start_time": "7", "end_time": "1200"},
+        headers=_h(token),
+    )
+    assert compact.status_code == 201
+    assert compact.json()["start_time"] == "07:00"
+    assert compact.json()["end_time"] == "12:00"
+
     listed = client.get("/api/attendance/shifts", headers=_h(token)).json()["items"]
     assert any(s["id"] == sid for s in listed)
 
@@ -132,13 +167,22 @@ def test_shift_crud_and_validation(client):
         headers=_h(token),
     )
     assert bad.status_code == 400
-    # ca đêm thì chấp nhận end < start
-    night = client.post(
+    invalid_time = client.post(
         "/api/attendance/shifts",
-        json={"name": "Ca 3", "start_time": "22:00", "end_time": "06:00", "is_overnight": True, "night_shift": True},
+        json={"name": "x", "start_time": "1260", "end_time": "17"},
         headers=_h(token),
     )
-    assert night.status_code == 201 and night.json()["is_overnight"] is True
+    assert invalid_time.status_code == 400
+    # ca qua đêm thì chấp nhận end < start
+    night = client.post(
+        "/api/attendance/shifts",
+        json={"name": "Ca 3", "start_time": "1900", "end_time": "0", "is_overnight": True},
+        headers=_h(token),
+    )
+    assert night.status_code == 201
+    assert night.json()["is_overnight"] is True
+    assert "night_shift" not in night.json()  # cờ ca đêm đã gỡ hẳn
+    assert night.json()["start_time"] == "19:00" and night.json()["end_time"] == "00:00"
 
     upd = client.put(
         f"/api/attendance/shifts/{sid}",
@@ -148,6 +192,45 @@ def test_shift_crud_and_validation(client):
     assert upd.status_code == 200 and upd.json()["start_time"] == "08:30"
 
     assert client.delete(f"/api/attendance/shifts/{sid}", headers=_h(token)).status_code == 204
+
+
+def test_shift_meal_shift_allowance_roundtrip(client):
+    """Phụ cấp cơm/ca khai theo CA: mặc định 25k/50k, tạo có khai thì lưu + đọc lại đúng,
+    sửa được. Đợt 1 CHỈ lưu/phơi — engine `_compute` CHƯA cộng (nối ở Đợt 2)."""
+    token = _admin_token(client)
+    # Không khai → nhận mặc định 25k/50k.
+    d = client.post(
+        "/api/attendance/shifts",
+        json={"name": "Ca mặc định PC", "start_time": "08:00", "end_time": "17:00"},
+        headers=_h(token),
+    ).json()
+    assert d["meal_allowance"] == 25000 and d["shift_allowance"] == 50000
+
+    # Khai tay lúc tạo → lưu đúng số.
+    created = client.post(
+        "/api/attendance/shifts",
+        json={"name": "Ca tối PC", "start_time": "18:00", "end_time": "22:00",
+              "meal_allowance": 30000, "shift_allowance": 70000},
+        headers=_h(token),
+    )
+    assert created.status_code == 201
+    sid = created.json()["id"]
+    assert created.json()["meal_allowance"] == 30000 and created.json()["shift_allowance"] == 70000
+
+    # Đọc lại qua list → giữ nguyên.
+    listed = client.get("/api/attendance/shifts", headers=_h(token)).json()["items"]
+    got = next(s for s in listed if s["id"] == sid)
+    assert got["meal_allowance"] == 30000 and got["shift_allowance"] == 70000
+
+    # Sửa → cập nhật đúng.
+    upd = client.put(
+        f"/api/attendance/shifts/{sid}",
+        json={"name": "Ca tối PC", "start_time": "18:00", "end_time": "22:00",
+              "meal_allowance": 40000, "shift_allowance": 80000},
+        headers=_h(token),
+    )
+    assert upd.status_code == 200
+    assert upd.json()["meal_allowance"] == 40000 and upd.json()["shift_allowance"] == 80000
 
 
 def test_shift_forbidden_without_permission(client):
@@ -167,7 +250,7 @@ def test_assign_shift_and_timesheet_cong(client):
     token = _admin_token(client)
     shift = client.post(
         "/api/attendance/shifts",
-        json={"name": "Hành chính", "start_time": "08:00", "end_time": "17:00"},
+        json={"name": "Hành chính", "start_time": "00:00", "end_time": "23:59"},
         headers=_h(token),
     ).json()
     # Hồ sơ SẴN CÓ của admin (mọi tài khoản đều có hồ sơ — `backfill_employee_profiles`; tạo hồ sơ
@@ -222,6 +305,57 @@ def test_assign_shift_endpoint_does_not_clobber(client):
 
     r2 = client.put(f"/api/employees/{emp['id']}/shift", json={"default_shift_id": None}, headers=_h(token))
     assert r2.status_code == 200 and r2.json()["default_shift_id"] is None
+
+
+def test_shift_history_resolves_the_shift_on_each_effective_date(client):
+    token = _admin_token(client)
+    shift_1 = client.post(
+        "/api/attendance/shifts",
+        json={"name": "Ca lịch sử 1", "start_time": "06:00", "end_time": "14:00"},
+        headers=_h(token),
+    ).json()
+    shift_2 = client.post(
+        "/api/attendance/shifts",
+        json={"name": "Ca lịch sử 2", "start_time": "14:00", "end_time": "22:00"},
+        headers=_h(token),
+    ).json()
+    emp = client.post(
+        "/api/employees",
+        json={"full_name": "NV Đổi Ca", "department_id": _dept_id("Hành chính nhân sự"),
+              "hire_date": "2026-01-01"},
+        headers=_h(token),
+    ).json()["employee"]
+
+    first = client.put(
+        f"/api/employees/{emp['id']}/shift",
+        json={"default_shift_id": shift_1["id"], "effective_from": "2026-01-01"},
+        headers=_h(token),
+    )
+    second = client.put(
+        f"/api/employees/{emp['id']}/shift",
+        json={"default_shift_id": shift_2["id"], "effective_from": "2026-07-01"},
+        headers=_h(token),
+    )
+    assert first.status_code == 200 and second.status_code == 200
+
+    history = client.get(
+        f"/api/employees/{emp['id']}/shift-history", headers=_h(token)
+    ).json()["items"]
+    assert len(history) == 2
+    assert history[0]["shift_id"] == shift_2["id"] and history[0]["effective_to"] is None
+    assert history[1]["shift_id"] == shift_1["id"] and history[1]["effective_to"] == "2026-06-30"
+
+    db = SessionLocal()
+    try:
+        repo = EmployeeRepository(db)
+        employee = repo.get_by_id(emp["id"])
+        assert repo.shift_id_on(employee, date(2026, 6, 30)) == shift_1["id"]
+        assert repo.shift_id_on(employee, date(2026, 7, 1)) == shift_2["id"]
+    finally:
+        db.close()
+
+    blocked = client.delete(f"/api/attendance/shifts/{shift_1['id']}", headers=_h(token))
+    assert blocked.status_code == 400
 
 
 def test_timesheet_credits_paid_holiday(client):

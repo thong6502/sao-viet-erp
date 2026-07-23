@@ -24,6 +24,8 @@ export interface NavItem {
   children?: NavChild[];
 }
 
+export const SELF_SERVICE_MODULE = "self_service";
+
 interface NavSection {
   id: string;
   label: string;
@@ -134,9 +136,16 @@ const NAV: NavSection[] = [
       // sự vì nó là cái khung chứa.
       { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
       { id: "nhan-su", label: "Hồ sơ nhân sự", icon: "users", module: "nhan_su" },
-      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su" },
+      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su", modules: ["nhan_su", SELF_SERVICE_MODULE] },
       { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nghi_phep" },
-      { id: "luong", label: "Lương", icon: "calculator", module: "luong" },
+      { id: "tang-ca", label: "Tăng ca", icon: "clock", module: "tang_ca" },
+      {
+        id: "luong",
+        label: "Lương",
+        icon: "calculator",
+        module: "luong",
+        modules: ["luong", SELF_SERVICE_MODULE],
+      },
     ],
   },
   {

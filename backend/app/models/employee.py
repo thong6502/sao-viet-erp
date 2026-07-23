@@ -25,6 +25,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -103,6 +104,12 @@ class Employee(Base):
     position: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Bậc thợ (vd "3/7") — đầu vào lương khoán sau này. Free-text ở lát #1.
     job_grade: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Thâm niên ĐÃ CÓ trước khi vào làm (tháng) — người từng làm nơi khác chuyển sang phải khai.
+    # Tổng thâm niên = prior_seniority_months + thời gian từ hire_date. Đợt 1 chỉ LƯU + hiển thị;
+    # engine CHƯA dùng số này tính tiền (phụ cấp thâm niên vẫn khai tay per-người).
+    prior_seniority_months: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
     status: Mapped[str] = mapped_column(
         String(16), nullable=False, default=STATUS_PROBATION, server_default=STATUS_PROBATION
     )
@@ -153,6 +160,33 @@ class Employee(Base):
     # `/static/hr/<id>/photo.jpg`. Null → UI shows initials fallback.
     photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
+class EmployeeShiftAssignment(Base):
+    """Ca mac dinh cua nhan vien tai mot moc hieu luc.
+
+    Doi ca tao them mot moc moi. Khoang ket thuc cua mot moc duoc suy ra bang
+    ngay lien truoc moc ke tiep, giong cach employee_salaries chon muc luong
+    hien hanh. ``shift_id = NULL`` bieu dien bo gan ca tu ngay hieu luc.
+    """
+
+    __tablename__ = "employee_shift_assignments"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "effective_from", name="uq_employee_shift_effective"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    employee_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Logical link to work_shifts.id. Nullable means the employee has no default
+    # shift from this date onward.
+    shift_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    effective_from: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False
     )

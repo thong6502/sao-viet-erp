@@ -9,7 +9,10 @@ from sqlalchemy.orm import Session
 
 from ..models.payroll import (
     ADV_APPROVED,
+    ADV_PENDING,
+    DepartmentSalaryComponent,
     EmployeeSalary,
+    LatePenaltyBracket,
     PayrollLine,
     PayrollParams,
     PayrollPeriod,
@@ -97,6 +100,69 @@ class PayrollRepository:
         self.db.delete(b)
         self.db.commit()
 
+    # --- late_penalty_brackets (bảng phạt trễ/sớm, sửa được) ----------------
+
+    def list_late_penalty_brackets(self) -> list[LatePenaltyBracket]:
+        return list(self.db.execute(
+            select(LatePenaltyBracket).order_by(LatePenaltyBracket.seq, LatePenaltyBracket.id)
+        ).scalars())
+
+    def get_late_penalty_bracket(self, bracket_id: int) -> LatePenaltyBracket | None:
+        return self.db.get(LatePenaltyBracket, bracket_id)
+
+    def create_late_penalty_bracket(self, **fields) -> LatePenaltyBracket:
+        b = LatePenaltyBracket(**fields)
+        self.db.add(b)
+        self.db.commit()
+        self.db.refresh(b)
+        return b
+
+    def update_late_penalty_bracket(self, b: LatePenaltyBracket, **fields) -> LatePenaltyBracket:
+        for k, v in fields.items():
+            setattr(b, k, v)
+        self.db.commit()
+        self.db.refresh(b)
+        return b
+
+    def delete_late_penalty_bracket(self, b: LatePenaltyBracket) -> None:
+        self.db.delete(b)
+        self.db.commit()
+
+    # --- department_salary_components (thành phần lương theo BỘ PHẬN) -------
+
+    def list_dept_components(self, department_id: int) -> list[DepartmentSalaryComponent]:
+        return list(
+            self.db.execute(
+                select(DepartmentSalaryComponent)
+                .where(DepartmentSalaryComponent.department_id == department_id)
+                .order_by(DepartmentSalaryComponent.id)
+            ).scalars()
+        )
+
+    def get_dept_component(self, department_id: int, key: str) -> DepartmentSalaryComponent | None:
+        return self.db.execute(
+            select(DepartmentSalaryComponent).where(
+                DepartmentSalaryComponent.department_id == department_id,
+                DepartmentSalaryComponent.component_key == key,
+            )
+        ).scalars().first()
+
+    def upsert_dept_component(self, *, department_id: int, component_key: str,
+                              **fields) -> DepartmentSalaryComponent:
+        """UNIQUE(department_id, component_key) → có thì cập nhật, chưa có thì tạo."""
+        row = self.get_dept_component(department_id, component_key)
+        if row is None:
+            row = DepartmentSalaryComponent(
+                department_id=department_id, component_key=component_key, **fields
+            )
+            self.db.add(row)
+        else:
+            for k, v in fields.items():
+                setattr(row, k, v)
+        self.db.commit()
+        self.db.refresh(row)
+        return row
+
     # --- employee_salaries (versioned) --------------------------------------
 
     def list_salaries(self, employee_id: int) -> list[EmployeeSalary]:
@@ -137,12 +203,27 @@ class PayrollRepository:
     def get_salary(self, salary_id: int) -> EmployeeSalary | None:
         return self.db.get(EmployeeSalary, salary_id)
 
+    def salary_on_date(self, employee_id: int, effective_from: date) -> EmployeeSalary | None:
+        return self.db.execute(
+            select(EmployeeSalary).where(
+                EmployeeSalary.employee_id == employee_id,
+                EmployeeSalary.effective_from == effective_from,
+            )
+        ).scalars().first()
+
     def create_salary(self, **fields) -> EmployeeSalary:
         s = EmployeeSalary(**fields)
         self.db.add(s)
         self.db.commit()
         self.db.refresh(s)
         return s
+
+    def update_salary(self, salary: EmployeeSalary, **fields) -> EmployeeSalary:
+        for key, value in fields.items():
+            setattr(salary, key, value)
+        self.db.commit()
+        self.db.refresh(salary)
+        return salary
 
     def delete_salary(self, s: EmployeeSalary) -> None:
         self.db.delete(s)
@@ -209,6 +290,21 @@ class PayrollRepository:
             .group_by(SalaryAdvance.employee_id)
         ).all()
         return {emp_id: float(total or 0) for emp_id, total in rows}
+
+    def advance_used(self, employee_id: int, year: int, month: int, *,
+                     exclude_id: int | None = None) -> float:
+        """Tổng tạm ứng 1 NV ĐÃ CHIẾM CHỖ trong kỳ = ĐÃ DUYỆT **+ ĐANG CHỜ DUYỆT** (chủ chốt
+        2026-07-23: đơn chờ duyệt giữ chỗ, chặn chiêu gửi nhiều đơn nhỏ rồi duyệt hết thành vượt trần).
+        `exclude_id` để lúc DUYỆT một đơn không tự đếm chính nó vào phần đã dùng."""
+        stmt = select(func.sum(SalaryAdvance.amount)).where(
+            SalaryAdvance.employee_id == employee_id,
+            SalaryAdvance.period_year == year,
+            SalaryAdvance.period_month == month,
+            SalaryAdvance.status.in_((ADV_PENDING, ADV_APPROVED)),
+        )
+        if exclude_id is not None:
+            stmt = stmt.where(SalaryAdvance.id != exclude_id)
+        return float(self.db.execute(stmt).scalar() or 0)
 
     # --- payroll_periods ----------------------------------------------------
 

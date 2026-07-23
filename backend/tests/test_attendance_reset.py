@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.db import SessionLocal
 from app.repositories.attendance_repo import AttendanceRepository
+from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository
 from app.repositories.user_repo import UserRepository
 
@@ -38,9 +39,24 @@ def _uid(username: str) -> int:
         db.close()
 
 
+def _assign_shift(employee_id: int) -> None:
+    """Gán 1 ca hành chính cho NV. Chưa gán ca → next_action = None (chặn chấm) → phải gán trước khi
+    test luồng VÀO/RA. Test mode KHÔNG seed work_shifts (SEED_DEMO=false) nên tự tạo ca + gán mặc định."""
+    db = SessionLocal()
+    try:
+        shift = AttendanceRepository(db).create_shift(
+            name="Hành chính", start_minute=480, end_minute=1020, is_overnight=False, grace_minutes=5,
+        )
+        emp = EmployeeRepository(db).get_by_id(employee_id)
+        emp.default_shift_id = shift.id
+        db.commit()
+    finally:
+        db.close()
+
+
 def _emp_linked(client, token) -> dict:
     """Hồ sơ SẴN CÓ của admin (mọi tài khoản đều có hồ sơ — `backfill_employee_profiles`), nắn lại
-    tên/phòng ban; KHÔNG tạo hồ sơ thứ 2 rồi gán (link tài khoản 1–1 sẽ chối)."""
+    tên/phòng ban + GÁN CA (bắt buộc để có next_action); KHÔNG tạo hồ sơ thứ 2 rồi gán (link 1–1 sẽ chối)."""
     emp = client.get("/api/employees/me", headers=_h(token)).json()["employee"]
     client.put(
         f"/api/employees/{emp['id']}",
@@ -48,6 +64,7 @@ def _emp_linked(client, token) -> dict:
               "hire_date": "2020-01-01"},
         headers=_h(token),
     )
+    _assign_shift(emp["id"])
     return emp
 
 

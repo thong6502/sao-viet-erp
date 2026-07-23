@@ -4,11 +4,8 @@ import {
   api,
   type Department,
   type DepartmentMember,
-  type DepartmentSalaryRow,
-  type DepartmentSalaryRowInput,
   type DepartmentSubtreeRow,
   type EmployeeMeta,
-  type SalaryMechanism,
   type ModuleDef,
   type PermissionRow,
   type Role,
@@ -29,77 +26,10 @@ import {
 } from "../components/PermissionMatrix";
 import { EmployeeWizard } from "./NhanSuPage";
 import { Icon } from "../components/Icons";
+import type { NavigateFn } from "../components/AppShell";
 import "./departments.css";
 import "./nhan-su.css";
 import "./redesign-phong-ban.css";
-
-/** Cơ chế lương của phòng (Pha 1) — nhãn tiếng Việt cho từng kiểu ra mức lương. */
-const SALARY_MECHANISM_OPTIONS: { value: SalaryMechanism; label: string }[] = [
-  { value: "cung", label: "Lương cứng (ấn định tay từng người)" },
-  { value: "bac_tho", label: "Theo bậc thợ (thợ 1/2/3, phụ 1/2)" },
-  { value: "tham_nien", label: "Theo thâm niên (số năm làm)" },
-  { value: "tham_nien_gioi_tinh", label: "Theo thâm niên + giới tính" },
-];
-
-/** Nhãn ngắn cho kiểu áp — hiện trong bảng lương của phòng. */
-const APPLY_LABEL: Record<SalaryMechanism, string> = {
-  cung: "Lương cứng",
-  bac_tho: "Theo bậc thợ",
-  tham_nien: "Theo thâm niên",
-  tham_nien_gioi_tinh: "Thâm niên + giới tính",
-};
-
-const GRADE_OPTIONS = [
-  { value: "tho_1", label: "Thợ bậc 1" },
-  { value: "tho_2", label: "Thợ bậc 2" },
-  { value: "tho_3", label: "Thợ bậc 3" },
-  { value: "phu_1", label: "Phụ 1" },
-  { value: "phu_2", label: "Phụ 2" },
-];
-const SENIORITY_BAND_OPTIONS = [
-  { value: "lt1", label: "Dưới 1 năm" },
-  { value: "y1_5", label: "1–5 năm" },
-  { value: "y5_10", label: "5–10 năm" },
-  { value: "gt10", label: "Trên 10 năm" },
-];
-const GENDER_OPTIONS = [
-  { value: "male", label: "Nam" },
-  { value: "female", label: "Nữ" },
-];
-
-function emptySalaryRow(): DepartmentSalaryRowInput {
-  return {
-    label: "",
-    apply_by: "cung",
-    pay_grade_key: null,
-    seniority_band: null,
-    gender: null,
-    luong_vi_tri: 0,
-    luong_trach_nhiem: 0,
-    phu_cap: 0,
-    chuyen_can: 0,
-  };
-}
-
-/** Mô tả điều kiện khớp của một dòng lương (bậc/thâm niên/giới tính), để hiện cạnh cách áp. */
-function applyDetail(row: DepartmentSalaryRow): string {
-  const label = (opts: { value: string; label: string }[], v?: string | null) =>
-    v ? (opts.find((o) => o.value === v)?.label ?? v) : null;
-  const parts = [
-    label(GRADE_OPTIONS, row.pay_grade_key),
-    label(SENIORITY_BAND_OPTIONS, row.seniority_band),
-    label(GENDER_OPTIONS, row.gender),
-  ].filter(Boolean);
-  return parts.length ? ` · ${parts.join(", ")}` : "";
-}
-
-/** Mức nền của một dòng = vị trí + trách nhiệm (phụ cấp/chuyên cần khai theo từng NV). */
-function salaryRowTotal(r: {
-  luong_vi_tri: number;
-  luong_trach_nhiem: number;
-}): number {
-  return r.luong_vi_tri + r.luong_trach_nhiem;
-}
 
 /** Group departments by parent and find the roots, so the list can render as a real tree.
  *  Orphans (parent missing/filtered out) are treated as roots so nothing ever disappears. */
@@ -132,7 +62,9 @@ function initials(name: string): string {
     .join("");
 }
 
-export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void } = {}) {
+export function DepartmentsPage({
+  onDeptChanged,
+}: { onDeptChanged?: () => void; navigate?: NavigateFn } = {}) {
   const { token } = useAuth();
   const can = useCan();
   const canCreateDept = can("phong_ban", "create");
@@ -226,28 +158,13 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
   const [editDescription, setEditDescription] = useState("");
   const [editHead, setEditHead] = useState<number | null>(null);
   const [editParentId, setEditParentId] = useState<number | null>(null);
-  // Thuộc tính lương cấp phòng (Pha 1). Cơ chế đã chuyển sang từng dòng bảng lương.
-  const [editHasPieceWork, setEditHasPieceWork] = useState(false);
   // Tỷ lệ thử việc là quy định CHUNG toàn công ty (payroll_params) — chỉ HIỂN THỊ ở form
-  // phòng, khai thật ở Lương → Quy tắc lương. null = chưa tải được (thiếu quyền luong).
+  // phòng, khai thật ở Lương → Cấu hình lương. null = chưa tải được (thiếu quyền luong).
   const [companyProbationRatio, setCompanyProbationRatio] = useState<
     number | null
   >(null);
   const [editLaSanXuat, setEditLaSanXuat] = useState(false);
   const [dirty, setDirty] = useState(false);
-  // Bảng lương của phòng (Pha 1, lát 2).
-  const [salaryRows, setSalaryRows] = useState<DepartmentSalaryRow[]>([]);
-  // null = đóng; "new" = thêm dòng; object = sửa dòng.
-  const [salaryEditing, setSalaryEditing] = useState<
-    DepartmentSalaryRow | "new" | null
-  >(null);
-  const [salaryForm, setSalaryForm] = useState<DepartmentSalaryRowInput>(
-    emptySalaryRow(),
-  );
-  const [salaryBusy, setSalaryBusy] = useState(false);
-  const [salaryError, setSalaryError] = useState<string | null>(null);
-  const [salaryDeleting, setSalaryDeleting] =
-    useState<DepartmentSalaryRow | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -264,8 +181,8 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
   const [treeFilter, setTreeFilter] = useState<"all" | "san_xuat" | "van_phong" | "no_head">(
     "all",
   );
-  // Drawer chi tiết (cột phải): 4 tab progressive-disclosure.
-  const [activeTab, setActiveTab] = useState<"overview" | "staff" | "roles" | "salary">(
+  // Drawer chi tiết (cột phải): 3 tab progressive-disclosure.
+  const [activeTab, setActiveTab] = useState<"overview" | "staff" | "roles">(
     "overview",
   );
 
@@ -446,7 +363,6 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
       setMembers([]);
       setRoles([]);
       setHeadCandidates([]);
-      setSalaryRows([]);
       return;
     }
     let cancelled = false;
@@ -456,23 +372,18 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
       api.rbac.departmentUsers(token, selectedId),
       api.rbac.roles(token, selectedId),
       api.rbac.headCandidates(token, selectedId).catch(() => [] as UserBrief[]),
-      api.rbac
-        .listSalaryRows(token, selectedId)
-        .catch(() => [] as DepartmentSalaryRow[]),
     ])
-      .then(([ms, rs, cands, srows]) => {
+      .then(([ms, rs, cands]) => {
         if (cancelled) return;
         setMembers(ms);
         setRoles(rs);
         setHeadCandidates(cands);
-        setSalaryRows(srows);
       })
       .catch(() => {
         if (cancelled) return;
         setMembers([]);
         setRoles([]);
         setHeadCandidates([]);
-        setSalaryRows([]);
         setDetailError("Không tải được nhân sự / vai trò của phòng.");
       })
       .finally(() => !cancelled && setDetailLoading(false));
@@ -502,7 +413,6 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
     setEditDescription(currentDept?.description ?? "");
     setEditHead(currentDept?.head_user_id ?? null);
     setEditParentId(currentDept?.parent_id ?? null);
-    setEditHasPieceWork(currentDept?.has_piece_work ?? false);
     setEditLaSanXuat(currentDept?.la_san_xuat ?? false);
     setSaveError(null);
     setDirty(false);
@@ -662,7 +572,6 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
         {
           salary_mechanism: currentDept?.salary_mechanism ?? "cung",
           probation_ratio: currentDept?.probation_ratio ?? 0.8,
-          has_piece_work: editHasPieceWork,
         },
         editLaSanXuat,
       );
@@ -676,83 +585,6 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
       else setSaveError("Lưu thất bại. Vui lòng thử lại.");
     } finally {
       setSaving(false);
-    }
-  }
-
-  // --- Bảng lương của phòng (Pha 1, lát 2) ---------------------------------
-  async function reloadSalaryRows() {
-    if (!token || selectedId == null) return;
-    try {
-      setSalaryRows(await api.rbac.listSalaryRows(token, selectedId));
-    } catch {
-      /* giữ danh sách hiện tại nếu tải lại lỗi */
-    }
-  }
-  function openSalaryAdd() {
-    setSalaryForm(emptySalaryRow());
-    setSalaryError(null);
-    setSalaryEditing("new");
-  }
-  function openSalaryEdit(row: DepartmentSalaryRow) {
-    setSalaryForm({
-      label: row.label,
-      apply_by: row.apply_by,
-      pay_grade_key: row.pay_grade_key ?? null,
-      seniority_band: row.seniority_band ?? null,
-      gender: row.gender ?? null,
-      luong_vi_tri: row.luong_vi_tri,
-      luong_trach_nhiem: row.luong_trach_nhiem,
-      phu_cap: row.phu_cap,
-      chuyen_can: row.chuyen_can,
-    });
-    setSalaryError(null);
-    setSalaryEditing(row);
-  }
-  async function saveSalaryRow() {
-    if (!token || selectedId == null || !salaryForm.label.trim() || salaryBusy)
-      return;
-    setSalaryBusy(true);
-    setSalaryError(null);
-    // Chuẩn hóa: chiều không dùng theo kiểu áp thì để trống.
-    const payload: DepartmentSalaryRowInput = {
-      ...salaryForm,
-      label: salaryForm.label.trim(),
-      pay_grade_key:
-        salaryForm.apply_by === "bac_tho" ? salaryForm.pay_grade_key : null,
-      seniority_band:
-        salaryForm.apply_by === "tham_nien" ||
-        salaryForm.apply_by === "tham_nien_gioi_tinh"
-          ? salaryForm.seniority_band
-          : null,
-      gender:
-        salaryForm.apply_by === "tham_nien_gioi_tinh" ? salaryForm.gender : null,
-    };
-    try {
-      if (salaryEditing === "new")
-        await api.rbac.createSalaryRow(token, selectedId, payload);
-      else if (salaryEditing)
-        await api.rbac.updateSalaryRow(token, salaryEditing.id, payload);
-      setSalaryEditing(null);
-      await reloadSalaryRows();
-    } catch (err) {
-      setSalaryError(
-        err instanceof ApiError ? err.message : "Lưu dòng lương thất bại.",
-      );
-    } finally {
-      setSalaryBusy(false);
-    }
-  }
-  async function confirmDeleteSalaryRow() {
-    if (!token || !salaryDeleting || salaryBusy) return;
-    setSalaryBusy(true);
-    try {
-      await api.rbac.deleteSalaryRow(token, salaryDeleting.id);
-      setSalaryDeleting(null);
-      await reloadSalaryRows();
-    } catch {
-      setSalaryError("Xóa dòng lương thất bại.");
-    } finally {
-      setSalaryBusy(false);
     }
   }
 
@@ -1030,7 +862,6 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
     { key: "overview", label: "Tổng quan" },
     { key: "staff", label: "Nhân sự" },
     { key: "roles", label: "Vai trò & Quyền" },
-    { key: "salary", label: "Lương" },
   ] as const;
 
   return (
@@ -1715,88 +1546,6 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
                   </div>
                 )}
 
-                {/* ── TAB: Lương ────────────────────────────────────── */}
-                {activeTab === "salary" && (
-                  <div className="rdx-tab">
-                    <div className="depts__section-head">
-                      <div className="depts__eyebrow-row">
-                        <p className="eyebrow">Bảng lương của phòng</p>
-                        <InfoHint label="Các mức lương của phòng. Mỗi dòng: đặt tên + chọn cách áp (lương cứng / bậc thợ / thâm niên / thâm niên+giới tính) rồi gõ 4 khoản. Một phòng khai bao nhiêu dòng, bao nhiêu kiểu tùy ý. Người mới gán vào phòng sẽ theo bảng này." />
-                      </div>
-                      {canUpdateDept && (
-                        <Button type="button" variant="ghost" onClick={openSalaryAdd}>
-                          + Thêm mức lương
-                        </Button>
-                      )}
-                    </div>
-                    {detailLoading ? (
-                      <p className="depts__status">Đang tải…</p>
-                    ) : salaryRows.length === 0 ? (
-                      <p className="depts__hint">
-                        {canUpdateDept
-                          ? "Chưa có mức lương. Bấm “+ Thêm mức lương” để phòng tự khai."
-                          : "Phòng này chưa khai bảng lương."}
-                      </p>
-                    ) : (
-                      <div className="depts__salary-wrap">
-                        <table className="depts__salary-table">
-                          <thead>
-                            <tr>
-                              <th>Tên mức</th>
-                              <th>Cách áp</th>
-                              <th className="num">Vị trí</th>
-                              <th className="num">Trách nhiệm</th>
-                              <th className="num">Mức nền</th>
-                              {canUpdateDept && <th aria-label="Thao tác" />}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {salaryRows.map((r) => (
-                              <tr key={r.id}>
-                                <td>
-                                  <strong>{r.label}</strong>
-                                </td>
-                                <td className="depts__salary-apply">
-                                  {APPLY_LABEL[r.apply_by]}
-                                  {applyDetail(r)}
-                                </td>
-                                <td className="num">
-                                  {r.luong_vi_tri.toLocaleString("vi-VN")}
-                                </td>
-                                <td className="num">
-                                  {r.luong_trach_nhiem.toLocaleString("vi-VN")}
-                                </td>
-                                <td className="num">
-                                  <strong>
-                                    {salaryRowTotal(r).toLocaleString("vi-VN")}
-                                  </strong>
-                                </td>
-                                {canUpdateDept && (
-                                  <td className="num depts__salary-actions">
-                                    <button
-                                      type="button"
-                                      className="btn btn--ghost md-page__rowbtn"
-                                      onClick={() => openSalaryEdit(r)}
-                                    >
-                                      Sửa
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="btn btn--ghost md-page__rowbtn md-page__rowbtn--danger"
-                                      onClick={() => setSalaryDeleting(r)}
-                                    >
-                                      Xóa
-                                    </button>
-                                  </td>
-                                )}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
           ) : (
@@ -1939,7 +1688,7 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
             </div>
 
             {/* Thuộc tính lương của phòng (Pha 1). Thử việc là quy định CHUNG toàn
-                công ty → chỉ hiển thị; khai thật ở Lương → Quy tắc lương. */}
+                công ty → chỉ hiển thị; khai thật ở Lương → Cấu hình lương. */}
             <div className="field">
               <span className="field__label depts__label">
                 Lương thử việc
@@ -1951,24 +1700,9 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
                     : "—"}
                 </strong>{" "}
                 <span className="depts__hint">
-                  áp chung toàn công ty · khai ở Lương → Quy tắc lương
+                  áp chung toàn công ty · khai ở Lương → Cấu hình lương
                 </span>
               </div>
-            </div>
-
-            <div className="field">
-              <span className="field__label depts__label">Lương khoán</span>
-              <label className="depts__checkline">
-                <input
-                  type="checkbox"
-                  checked={editHasPieceWork}
-                  onChange={(e) => {
-                    setEditHasPieceWork(e.target.checked);
-                    setDirty(true);
-                  }}
-                />
-                <span>Phòng sản xuất, có lương khoán theo sản lượng</span>
-              </label>
             </div>
           </div>
         </ConfirmDialog>
@@ -1983,208 +1717,6 @@ export function DepartmentsPage({ onDeptChanged }: { onDeptChanged?: () => void 
         }}
         onKeepEditing={() => setConfirmDiscard(false)}
       />
-
-      {/* Thêm/sửa một mức lương của phòng. */}
-      <ConfirmDialog
-        open={salaryEditing !== null}
-        title={salaryEditing === "new" ? "Thêm mức lương" : "Sửa mức lương"}
-        wide
-        confirmLabel="Lưu"
-        busy={salaryBusy}
-        error={salaryError}
-        confirmDisabled={!salaryForm.label.trim()}
-        onConfirm={saveSalaryRow}
-        onCancel={() => {
-          if (!salaryBusy) setSalaryEditing(null);
-        }}
-      >
-        <div className="depts__form-grid">
-          <div className="field depts__field--full">
-            <label className="field__label" htmlFor="sal-label">
-              Tên mức
-            </label>
-            <input
-              id="sal-label"
-              className="input"
-              placeholder="Vd: Thợ bậc 1 · Tổ trưởng · Dưới 1 năm - Nam"
-              value={salaryForm.label}
-              onChange={(e) =>
-                setSalaryForm((f) => ({ ...f, label: e.target.value }))
-              }
-            />
-          </div>
-          <div className="field depts__field--full">
-            <label className="field__label" htmlFor="sal-apply">
-              Cách áp (map người vào mức này)
-            </label>
-            <select
-              id="sal-apply"
-              className="input"
-              value={salaryForm.apply_by}
-              onChange={(e) =>
-                setSalaryForm((f) => ({
-                  ...f,
-                  apply_by: e.target.value as SalaryMechanism,
-                }))
-              }
-            >
-              {SALARY_MECHANISM_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          {salaryForm.apply_by === "bac_tho" && (
-            <div className="field">
-              <label className="field__label" htmlFor="sal-grade">
-                Bậc thợ
-              </label>
-              <select
-                id="sal-grade"
-                className="input"
-                value={salaryForm.pay_grade_key ?? ""}
-                onChange={(e) =>
-                  setSalaryForm((f) => ({
-                    ...f,
-                    pay_grade_key: e.target.value || null,
-                  }))
-                }
-              >
-                <option value="">— Chọn bậc —</option>
-                {GRADE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {(salaryForm.apply_by === "tham_nien" ||
-            salaryForm.apply_by === "tham_nien_gioi_tinh") && (
-            <div className="field">
-              <label className="field__label" htmlFor="sal-band">
-                Thâm niên
-              </label>
-              <select
-                id="sal-band"
-                className="input"
-                value={salaryForm.seniority_band ?? ""}
-                onChange={(e) =>
-                  setSalaryForm((f) => ({
-                    ...f,
-                    seniority_band: e.target.value || null,
-                  }))
-                }
-              >
-                <option value="">— Chọn thâm niên —</option>
-                {SENIORITY_BAND_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {salaryForm.apply_by === "tham_nien_gioi_tinh" && (
-            <div className="field">
-              <label className="field__label" htmlFor="sal-gender">
-                Giới tính
-              </label>
-              <select
-                id="sal-gender"
-                className="input"
-                value={salaryForm.gender ?? ""}
-                onChange={(e) =>
-                  setSalaryForm((f) => ({
-                    ...f,
-                    gender: e.target.value || null,
-                  }))
-                }
-              >
-                <option value="">— Chọn —</option>
-                {GENDER_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          <div className="field">
-            <label className="field__label" htmlFor="sal-vt">
-              Lương vị trí
-            </label>
-            <input
-              id="sal-vt"
-              className="input"
-              type="number"
-              min={0}
-              step={100000}
-              value={salaryForm.luong_vi_tri}
-              onChange={(e) =>
-                setSalaryForm((f) => ({
-                  ...f,
-                  luong_vi_tri: Number(e.target.value) || 0,
-                }))
-              }
-            />
-          </div>
-          <div className="field">
-            <label className="field__label" htmlFor="sal-tn">
-              Lương trách nhiệm
-            </label>
-            <input
-              id="sal-tn"
-              className="input"
-              type="number"
-              min={0}
-              step={100000}
-              value={salaryForm.luong_trach_nhiem}
-              onChange={(e) =>
-                setSalaryForm((f) => ({
-                  ...f,
-                  luong_trach_nhiem: Number(e.target.value) || 0,
-                }))
-              }
-            />
-          </div>
-          <div className="field depts__field--full">
-            <span className="depts__hint">
-              Phụ cấp + Chuyên cần khai theo TỪNG NHÂN VIÊN (mỗi người mỗi khác) — ở
-              hồ sơ nhân sự / màn Lương, không khai ở đây.
-            </span>
-          </div>
-          <div className="field depts__field--full">
-            <span className="depts__hint">
-              Mức nền (vị trí + trách nhiệm):{" "}
-              <strong>
-                {salaryRowTotal(salaryForm).toLocaleString("vi-VN")} đ
-              </strong>{" "}
-              · Tăng ca sẽ tính trên (vị trí + trách nhiệm).
-            </span>
-          </div>
-        </div>
-      </ConfirmDialog>
-
-      {/* Xác nhận xóa một mức lương. */}
-      <ConfirmDialog
-        open={salaryDeleting !== null}
-        title="Xóa mức lương"
-        danger
-        confirmLabel="Xóa"
-        busy={salaryBusy}
-        onConfirm={confirmDeleteSalaryRow}
-        onCancel={() => {
-          if (!salaryBusy) setSalaryDeleting(null);
-        }}
-      >
-        <p>
-          Xóa mức lương{" "}
-          <strong>{salaryDeleting?.label}</strong> khỏi bảng lương của
-          phòng?
-        </p>
-      </ConfirmDialog>
 
       {/* Create department form (popup). */}
       <ConfirmDialog

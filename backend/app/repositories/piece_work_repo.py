@@ -13,10 +13,13 @@ class PieceWorkRepository:
 
     # --- piece_rates --------------------------------------------------------
 
-    def list_rates(self, *, active_only: bool = False) -> list[PieceRate]:
+    def list_rates(self, *, active_only: bool = False,
+                   department_id: int | None = None) -> list[PieceRate]:
         stmt = select(PieceRate)
         if active_only:
             stmt = stmt.where(PieceRate.is_active.is_(True))
+        if department_id is not None:
+            stmt = stmt.where(PieceRate.department_id == department_id)
         return list(self.db.execute(stmt.order_by(PieceRate.group_name, PieceRate.id)).scalars())
 
     def get_rate(self, rate_id: int) -> PieceRate | None:
