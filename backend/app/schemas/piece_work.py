@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class RateIn(BaseModel):
     group_name: str = Field(min_length=1, max_length=40)
+    department_id: int | None = None
     code: str | None = Field(default=None, max_length=20)
     name: str = Field(min_length=1, max_length=255)
     cong_doan: str | None = Field(default=None, max_length=30)
@@ -23,6 +24,7 @@ class RateOut(BaseModel):
 
     id: int
     group_name: str
+    department_id: int | None = None
     code: str | None = None
     name: str
     cong_doan: str | None = None

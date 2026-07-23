@@ -2,6 +2,20 @@
 
 .lg-toolbar { flex-wrap: wrap; display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); }
 
+/* Hạn mức tạm ứng còn lại — hiện TRƯỚC ô nhập tiền để NV khỏi gõ đại rồi ăn lỗi. */
+.lg-quota {
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border-radius: 10px;
+  background: rgba(120, 113, 108, 0.08);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.lg-quota--over {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .lg-search {
   padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--r-3);
   background: var(--canvas); font: inherit; color: var(--ink); min-width: 240px;
@@ -97,8 +111,6 @@
 .lg-plus-val { color: var(--moss-deep); }
 .lg-foot td { border-top: 2px solid var(--rule); font-weight: var(--fw-bold); background: var(--paper-contrast); }
 
-.ns-badge--danger { background: var(--signal-soft); color: var(--signal); }
-
 /* Modal rộng cho Lương nhân viên */
 .ns-modal__box--wide { max-width: 720px; width: 92vw; }
 .lg-preview {
@@ -107,10 +119,6 @@
 }
 /* Khối liệt kê BHXH/BHYT/BHTN nhân viên đóng (SalaryModal) — nhiều dòng, giãn cho dễ đọc. */
 .lg-bh { line-height: 1.7; font-size: 13px; }
-
-/* Tham số */
-.lg-params-grid { grid-template-columns: repeat(4, 1fr); }
-@media (max-width: 720px) { .lg-params-grid { grid-template-columns: repeat(2, 1fr); } }
 
 /* Phiếu lương */
 .lg-payslip { display: flex; justify-content: center; padding-top: var(--sp-4); }
@@ -698,109 +706,116 @@
   margin: 0;
 }
 
-/* === Cải tiến UI/UX mới: Tab Quy tắc lương (QuyTacTab) === */
-.lg-rules-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-4);
+/* === Cấu hình lương (cl-*) — 3 tab con: Bậc lương & KPI · Cơ chế lương theo bộ
+   phận · Phụ cấp & Bảo hiểm. Primitive drawer / field / switch / skeleton tái
+   dùng từ rebuild-catalog.css (.rc-*); ở đây chỉ khai phần riêng của màn. ==== */
+.cl {
   max-width: 1200px;
 }
-.lg-params-card {
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-6);
-  padding: var(--sp-4);
-  box-shadow: var(--shadow-1);
-}
-.lg-params-card-title {
-  font-size: 14.5px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-  margin: 0 0 var(--sp-3) 0;
-  padding-bottom: var(--sp-2);
-  border-bottom: 1px solid var(--rule-hair);
-}
-.lg-params-fields {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--sp-3);
-}
 
-.lg-field-wrapper {
+/* Thanh tab con — gạch chân (bám .rc__tab), cố tình khác tab CHA đang là pill. */
+.cl-subtabs {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--rule);
 }
-.lg-field-label {
-  font-size: 12.5px;
-  font-weight: var(--fw-medium);
-  color: var(--ink);
-}
-.lg-input-wrapper {
-  position: relative;
-  display: flex;
+.cl-subtab {
+  display: inline-flex;
   align-items: center;
-}
-.lg-input-wrapper input {
-  width: 100%;
-  padding: 8px 36px 8px 12px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-3);
-  background: var(--canvas);
-  color: var(--ink);
+  gap: var(--sp-2);
+  border: none;
+  background: transparent;
+  color: var(--ash);
   font-family: var(--ff-sans);
-  font-size: 13px;
-  height: 33px;
-  transition: all var(--duration-base) var(--easing-standard);
+  font-size: 13.5px;
+  font-weight: var(--fw-medium);
+  padding: 8px 14px;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color var(--duration-base) var(--easing-standard),
+    border-color var(--duration-base) var(--easing-standard);
 }
-.lg-input-wrapper input:focus {
-  outline: none;
-  border-color: var(--rust);
+.cl-subtab:hover { color: var(--ink); }
+.cl-subtab:focus-visible { outline: 2px solid var(--rust); outline-offset: -2px; }
+.cl-subtab.is-active {
+  color: var(--ink);
+  font-weight: var(--fw-bold);
+  border-bottom-color: var(--rust);
 }
-.lg-input-suffix {
-  position: absolute;
-  right: 12px;
-  color: var(--ash);
-  font-size: 12px;
-  pointer-events: none;
-}
-.lg-input-helper {
-  font-size: 11px;
-  color: var(--ash);
-  margin-top: 2px;
-  min-height: 14px;
-  font-style: italic;
+.cl-subtab__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--rust);
 }
 
-/* Biểu thuế TNCN */
-.lg-tncn-wrapper {
-  max-width: 1200px;
+/* Dải chip chọn phòng/tổ (chip dùng primitive .seg). */
+.cl-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+  margin-bottom: var(--sp-4);
+}
+.cl-chip__parent {
+  color: var(--ash-2);
+  font-weight: var(--fw-regular);
+}
+.seg.is-active .cl-chip__parent { color: var(--on-charcoal-muted); }
+
+/* Card khối */
+.cl-card {
   background: var(--canvas);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r-6);
   box-shadow: var(--shadow-1);
   padding: var(--sp-4);
-  margin-top: var(--sp-4);
   margin-bottom: var(--sp-4);
 }
-.lg-tncn-title {
+.cl-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-3);
+}
+.cl-card__title {
   font-size: 15px;
   font-weight: var(--fw-bold);
   color: var(--ink);
-  margin: 0 0 var(--sp-2) 0;
+  margin: 0;
 }
-.lg-tncn-desc {
-  font-size: 13px;
+.cl-card__desc {
+  font-size: 12.5px;
   color: var(--ash);
-  margin: 0 0 var(--sp-4) 0;
+  line-height: 1.5;
+  margin: 4px 0 0;
+  max-width: 78ch;
 }
-.lg-tncn-table {
+.cl-card__body { margin-top: var(--sp-3); }
+/* Ô nhập trong CARD chạy 3 cột (mặc định .rc-grid là 2 — quá rộng cho ô "26 công").
+   Scope theo .cl-card để KHÔNG đụng grid trong drawer thêm/sửa bậc. */
+.cl .cl-card .rc-grid { grid-template-columns: repeat(3, 1fr); }
+.cl .cl-card .rc-field--full { grid-column: span 3; }
+@media (max-width: 900px) {
+  .cl .cl-card .rc-grid { grid-template-columns: repeat(2, 1fr); }
+  .cl .cl-card .rc-field--full { grid-column: span 2; }
+}
+
+/* Bảng dùng chung: thang bậc (Tab 1) + biểu thuế TNCN (Tab 3). */
+.cl-table__wrap {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+.cl-table {
   width: 100%;
   border-collapse: collapse;
-  margin-bottom: var(--sp-3);
+  font-size: 13px;
 }
-.lg-tncn-table th {
+.cl-table th {
   background: var(--paper-contrast);
   color: var(--ash);
   font-weight: var(--fw-bold);
@@ -811,132 +826,237 @@
   border-bottom: 2px solid var(--rule-soft);
   text-align: left;
 }
-.lg-tncn-table td {
+.cl-table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--rule-hair);
-  text-align: left;
   vertical-align: top;
-}
-.lg-btn-delete-bracket {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-3);
-  border: 1px solid var(--rule-soft);
-  background: var(--canvas);
-  color: var(--signal);
-  cursor: pointer;
-  transition: all var(--duration-fast) var(--easing-standard);
-}
-.lg-btn-delete-bracket:hover {
-  background: var(--signal-soft);
-  border-color: var(--signal);
-}
-
-/* Lương chuẩn scale styling */
-.lg-scale-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  max-width: 1200px;
-  margin-top: var(--sp-5);
-  margin-bottom: var(--sp-2);
-}
-.lg-scale-title {
-  font-size: 15px;
-  font-weight: var(--fw-bold);
   color: var(--ink);
-  margin: 0;
 }
-
-/* Summary Card for parameters on main page */
-.lg-params-summary-card {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: var(--sp-4);
-  background: var(--paper-contrast);
-  border: 1px solid var(--rule);
-  border-radius: var(--r-6);
-  padding: var(--sp-4) var(--sp-5);
-  box-shadow: var(--shadow-2);
-  max-width: 1200px;
-  margin-bottom: var(--sp-4);
+.cl-table tbody tr:last-child td { border-bottom: none; }
+.cl-table th.num, .cl-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
-@media (max-width: 900px) {
-  .lg-params-summary-card {
-    flex-direction: column;
-    align-items: stretch;
-    gap: var(--sp-3);
-  }
+.cl-table td.mono { font-family: var(--ff-mono); font-variant-numeric: tabular-nums; }
+.cl-table td .rc-input-wrapper { max-width: 240px; }
+.cl-table td.num .rc-input-wrapper { margin-left: auto; max-width: 140px; }
+/* Công tắc trong bảng (Đơn giá ca) — căn giữa theo chiều dọc, KHÔNG flex trên <td>. */
+.cl-table td .rc-switch { vertical-align: middle; }
+.cl-table td.act { text-align: right; white-space: nowrap; }
+.cl-table td.act .btn { margin-left: 4px; }
+.cl-cell__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--ash-2);
+  font-weight: var(--fw-regular);
 }
-
-.lg-summary-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-width: 320px;
-}
-.lg-summary-title {
-  font-size: 14.5px;
-  font-weight: var(--fw-bold);
-  color: var(--ink);
-  margin: 0;
-}
-.lg-summary-desc {
+.cl-muted { color: var(--ash-2); }
+.cl-row--invalid td { background: var(--signal-soft); }
+.cl-err {
+  margin: var(--sp-2) 0 0;
   font-size: 12px;
-  color: var(--ash);
-  margin: 0;
-  line-height: 1.4;
+  color: var(--signal);
 }
 
-.lg-summary-grid {
+/* Danh sách thành phần lương / phụ cấp — GRID, KHÔNG phải <table>: mỗi dòng có
+   công tắc + ô nhập + đơn vị + badge nguồn (cấm display:flex trên <td>). */
+.cl-comp {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+.cl-comp__row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--sp-4);
-  flex: 1;
-  padding: 0 var(--sp-3);
+  grid-template-columns: 52px minmax(200px, 1fr) 168px 96px 172px;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--rule-hair);
 }
-@media (max-width: 600px) {
-  .lg-summary-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--sp-2);
-    padding: 0;
-  }
+.cl-comp__row:last-child { border-bottom: none; }
+.cl-comp__row.is-off { opacity: 0.55; }
+/* Danh mục phụ cấp (Tab 3) — C6: chỉ icon + công tắc + tên/mô tả + đơn vị, KHÔNG có ô tiền. */
+.cl-comp__row--alw { grid-template-columns: 28px 52px minmax(240px, 1fr) 180px; }
+.cl-comp__ic { color: var(--ash); display: flex; }
+.cl-comp__name {
+  display: block;
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.cl-comp__desc {
+  display: block;
+  font-size: 11.5px;
+  color: var(--ash);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+.cl-comp__unit { font-size: 12px; color: var(--ash-2); }
+.cl-comp__src { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+.cl-comp__ro { font-size: 12.5px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.cl-link {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--rust-deep);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cl-link:hover { color: var(--rust); }
+@media (max-width: 1000px) {
+  .cl-comp__row { grid-template-columns: 52px 1fr; }
+  .cl-comp__row > *:nth-child(n + 3) { grid-column: 2; }
+  .cl-comp__row--alw { grid-template-columns: 28px 52px 1fr; }
+  .cl-comp__row--alw > *:nth-child(n + 4) { grid-column: 3; }
 }
 
-.lg-summary-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.lg-summary-label {
+/* Bảng bảo hiểm 2 phía (NSDLĐ | NLĐ) */
+.cl-ins { width: 100%; border-collapse: collapse; font-size: 13px; }
+.cl-ins th {
+  background: var(--paper-contrast);
+  color: var(--ash);
+  font-weight: var(--fw-bold);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--ash);
+  padding: 8px 12px;
+  border-bottom: 2px solid var(--rule-soft);
+  text-align: left;
 }
-.lg-summary-value {
+.cl-ins th.num, .cl-ins td.num { text-align: right; }
+.cl-ins td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--rule-hair);
+  vertical-align: middle;
+}
+.cl-ins td.num .rc-input-wrapper { margin-left: auto; max-width: 128px; }
+.cl-ins__total td {
+  background: var(--paper-contrast);
+  font-family: var(--ff-mono);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  border-bottom: none;
+}
+
+/* Dải "CẤU TRÚC TÍNH LƯƠNG" — chỉ hiển thị, phản ánh ĐÚNG engine. */
+.cl-formula {
+  border-radius: var(--r-6);
+  padding: var(--sp-4) var(--sp-5);
+  margin-bottom: var(--sp-4);
+}
+.cl-formula__title {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--on-charcoal-muted);
+  margin: 0 0 var(--sp-3);
+}
+.cl-formula__row {
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--on-charcoal);
+}
+.cl-formula__eqrow { margin-top: var(--sp-2); }
+.cl-formula__eq {
+  font-size: 13.5px;
+  font-weight: var(--fw-bold);
+}
+.cl-formula__note {
+  margin: var(--sp-3) 0 0;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--on-charcoal-muted);
+}
+
+/* Thanh lưu sticky — MỘT thanh cho MỘT tab con (bám .lsx-actionbar). */
+.cl-savebar {
+  position: sticky;
+  bottom: var(--sp-3);
+  z-index: 20;
+  margin-top: var(--sp-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-4);
+  animation: cl-bar-in var(--duration-base) var(--easing-standard);
+}
+@keyframes cl-bar-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.cl-savebar__txt {
+  font-size: 13px;
+  color: var(--ink);
+  min-width: 0;
+}
+.cl-savebar__txt.is-blocked { color: var(--signal); }
+.cl-savebar__acts { display: flex; align-items: center; gap: var(--sp-2); }
+
+/* Trạng thái rỗng */
+.cl-empty {
+  padding: var(--sp-6) var(--sp-4);
+  text-align: center;
+}
+.cl-empty__title {
+  display: block;
   font-size: 13.5px;
   font-weight: var(--fw-bold);
   color: var(--ink);
-  font-family: var(--ff-mono);
+}
+.cl-empty__desc {
+  display: block;
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--ash);
 }
 
-.lg-summary-action {
+/* Ghi chú / chú thích */
+.cl-note { margin-top: var(--sp-3); }
+.cl-override-note {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-}
-.lg-summary-action .btn--secondary {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
-  padding: 8px 16px;
-  font-size: 13px;
-  font-weight: var(--fw-bold);
+  align-items: flex-start;
+  gap: var(--sp-2);
+  background: var(--rule-hair);
   border-radius: var(--r-3);
-  white-space: nowrap;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.5;
+  margin-bottom: var(--sp-3);
 }
+.cl-override-note svg { flex: none; margin-top: 2px; color: var(--ash); }
+.cl-hint-inline {
+  margin: var(--sp-2) 0 0;
+  font-size: 12px;
+  color: var(--ash);
+  line-height: 1.55;
+}
+.cl-warn { color: var(--amber-deep); }
+.cl-banner-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  opacity: 0.85;
+}
+
+/* Cảnh báo MỀM "ngoài khung bậc" ở modal Lương nhân viên — vẫn lưu được (PRD C1). */
+.lg-warn-sub {
+  display: block;
+  margin-top: 3px;
+  font-size: 11.5px;
+  opacity: 0.85;
+}
+
+/* Nút dạng liên kết trong ghi chú ô "Đi trễ" (đổi tự động ⇄ sửa tay). */
+.lg-linkbtn { background: none; border: none; padding: 0; font: inherit; color: var(--rust);
+  cursor: pointer; text-decoration: underline; }

@@ -20,6 +20,7 @@ from .repositories.costing_repo import CostingRepository
 from .repositories.attendance_repo import AttendanceRepository
 from .repositories.calendar_repo import CalendarRepository
 from .repositories.leave_repo import LeaveRepository
+from .repositories.overtime_repo import OvertimeRepository
 from .repositories.payroll_repo import PayrollRepository
 from .repositories.piece_work_repo import PieceWorkRepository
 from .repositories.cong_doan_repo import CongDoanRepository
@@ -59,6 +60,7 @@ from .services.customer_analytics import CustomerAnalyticsService
 from .services.attendance_service import AttendanceService
 from .services.calendar_service import CalendarService
 from .services.leave_service import LeaveService
+from .services.overtime_service import OvertimeService
 from .services.lenh_san_xuat_service import LenhSanXuatService
 from .services.payroll_service import PayrollService
 from .services.piece_work_service import PieceWorkService
@@ -301,10 +303,13 @@ def get_attendance_service(
     leaves: Annotated[LeaveRepository, Depends(get_leave_repository)],
     calendar: Annotated[CalendarService, Depends(get_calendar_service)],
     payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
+    overtime: Annotated[OvertimeRepository, Depends(get_overtime_repository)],
 ) -> AttendanceService:
     # leaves → đánh dấu ngày nghỉ (P/KL); calendar → công lễ; payroll (REPO) → chặn mở kỳ công
-    # khi kỳ lương đã chốt (Q3). Chỉ đọc payroll REPO nên không vòng service↔service.
-    return AttendanceService(attendance, employees, audit, leaves=leaves, calendar=calendar, payroll=payroll)
+    # khi kỳ lương đã chốt (Q3); overtime (REPO) → gate tiền tăng ca theo phiếu đã duyệt.
+    # Chỉ đọc REPO nên không vòng service↔service.
+    return AttendanceService(attendance, employees, audit, leaves=leaves, calendar=calendar,
+                             payroll=payroll, overtime=overtime)
 
 
 def get_leave_service(
@@ -315,6 +320,20 @@ def get_leave_service(
 ) -> LeaveService:
     # calendar → loại ngày lễ khỏi quota + tuần T2–T7 (Thứ 7 nay trừ phép).
     return LeaveService(leaves, employees, audit, calendar=calendar)
+
+
+def get_overtime_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> OvertimeRepository:
+    return OvertimeRepository(db)
+
+
+def get_overtime_service(
+    overtime: Annotated[OvertimeRepository, Depends(get_overtime_repository)],
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+) -> OvertimeService:
+    return OvertimeService(overtime, employees, audit)
 
 
 def get_payroll_repository(

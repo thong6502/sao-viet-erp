@@ -13,6 +13,7 @@ import {
   type CheckResult,
   type DayDetail,
   type EmployeeRow,
+  type EmployeeShiftAssignment,
   type TodayKpi,
   type Timesheet,
   type TimesheetRow,
@@ -56,9 +57,11 @@ import {
   Map as MapIcon,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Info,
   LogIn,
-  LogOut
+  LogOut,
+  History
 } from "lucide-react";
 import { MixDonut } from "../components/charts";
 import "./nhan-su.css";
@@ -72,6 +75,9 @@ const FAULT_OPTIONS: { value: string; label: string }[] = [
   { value: "duyet", label: "Được duyệt (công tác/họp)" },
   { value: "khac", label: "Khác" },
 ];
+
+const TIME_HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"));
+const TIME_MINUTES = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, "0"));
 const FAULT_LABEL: Record<string, string> = Object.fromEntries(FAULT_OPTIONS.map((o) => [o.value, o.label]));
 
 function fmtDateTime(s: string | null | undefined): string {
@@ -83,6 +89,45 @@ function fmtDateTime(s: string | null | undefined): string {
   return Number.isNaN(d.getTime())
     ? s
     : d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+}
+
+function todayYmd(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function fmtYmd(value: string | null | undefined): string {
+  if (!value) return "Đến nay";
+  const [y, m, d] = value.split("-");
+  return y && m && d ? `${d}/${m}/${y}` : value;
+}
+
+function normalizeTime24(value: string): string | null {
+  const raw = value.trim();
+  let hour: number;
+  let minute: number;
+
+  if (/^\d{1,2}$/.test(raw)) {
+    hour = Number(raw);
+    minute = 0;
+  } else if (/^\d{3}$/.test(raw)) {
+    hour = Number(raw.slice(0, 1));
+    minute = Number(raw.slice(1));
+  } else if (/^\d{4}$/.test(raw)) {
+    hour = Number(raw.slice(0, 2));
+    minute = Number(raw.slice(2));
+  } else {
+    const match = raw.match(/^(\d{1,2}):(\d{1,2})$/);
+    if (!match) return null;
+    hour = Number(match[1]);
+    minute = Number(match[2]);
+  }
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 /** "HH:MM:SS" đã trôi kể từ mốc `fromIso` (coi chuỗi thiếu nhãn là UTC như fmtDateTime). */
@@ -263,8 +308,8 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
     }
   }, [token]);
   useEffect(() => {
-    if (status?.has_employee && status.locations_configured) refreshPreview();
-  }, [status?.has_employee, status?.locations_configured, refreshPreview]);
+    if (status?.has_employee && status.can_check && status.locations_configured) refreshPreview();
+  }, [status?.has_employee, status?.can_check, status?.locations_configured, refreshPreview]);
 
   // Đồng hồ LIVE khi đang trong ca (lần chấm gần nhất là VÀO → next_action = "out").
   useEffect(() => {
@@ -274,6 +319,10 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
   }, [status?.next_action]);
 
   async function doCheck(bypassConfirm = false) {
+    if (!status?.can_check) {
+      setGeoErr(status?.check_block_reason ?? "Hiện chưa thể chấm công.");
+      return;
+    }
     const isOut = status?.next_action === "out";
     if (isOut && !bypassConfirm) {
       setShowConfirmOut(true);
@@ -330,10 +379,10 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
     );
   }
 
-  const isIn = status.next_action === "in";
+  const isIn = status.next_action !== "out";
   const outside = preview != null && !preview.within_range;
   const showTimer = status.next_action === "out" && status.last_check?.check_type === "in";
-  const btnDisabled = checking || locating || !status.locations_configured || outside;
+  const btnDisabled = checking || locating || !status.can_check || !status.locations_configured || outside;
 
   const geoCls = locating ? "cc-geo-status--wait" : preview?.within_range ? "cc-geo-status--in" : preview ? "cc-geo-status--out" : "";
 
@@ -404,6 +453,12 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
           </div>
         )}
 
+        {status.check_block_reason && (
+          <div className="banner banner--warn" style={{ width: "100%" }}>
+            {status.check_block_reason}
+          </div>
+        )}
+
         {/* GPS Range Status Bar */}
         {status.locations_configured && (
           <div className={`cc-geo-status ${geoCls}`}>
@@ -430,10 +485,10 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
             disabled={btnDisabled}
           >
             <span className="cc-radar-btn-icon">
-              {locating ? <RefreshCw className="cc-animate-spin" size={24} /> : outside ? <Lock size={24} /> : <UserCheck size={24} />}
+              {locating ? <RefreshCw className="cc-animate-spin" size={24} /> : !status.can_check || outside ? <Lock size={24} /> : <UserCheck size={24} />}
             </span>
             <span style={{ fontSize: "14px", marginTop: "2px" }}>
-              {checking ? "Đang chấm…" : locating ? "Đang dò GPS…" : isIn ? "CHẤM VÀO" : "CHẤM RA"}
+              {checking ? "Đang chấm…" : locating ? "Đang dò GPS…" : !status.can_check ? "CHƯA ĐẾN GIỜ CHẤM" : isIn ? "CHẤM VÀO" : "CHẤM RA"}
             </span>
           </button>
         </div>
@@ -1395,7 +1450,7 @@ function ShiftsTab({ token }: { token: string }) {
 
       <div className="cc-card-grid">
         {items?.map((s) => (
-          <div key={s.id} className={`cc-shift-card ${s.is_overnight ? "cc-shift-card--overnight" : s.night_shift ? "cc-shift-card--night" : ""}`}>
+          <div key={s.id} className={`cc-shift-card ${s.is_overnight ? "cc-shift-card--overnight" : ""}`}>
             <div className="cc-shift-card-actions">
               <button className="btn btn--ghost" style={{ padding: "4px 6px", minWidth: "auto" }} onClick={() => setEditing(s)} title="Sửa ca">
                 <Edit3 size={13} />
@@ -1417,9 +1472,9 @@ function ShiftsTab({ token }: { token: string }) {
             </div>
             <div className="cc-shift-meta">
               <span className="cc-badge-pill cc-badge-pill--gray">Dung sai trễ: {s.grace_minutes}′</span>
-              {s.is_overnight && <span className="cc-badge-pill cc-badge-pill--purple"><Moon size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "2px" }} /> Qua đêm</span>}
-              {s.night_shift && <span className="cc-badge-pill cc-badge-pill--orange"><Coffee size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "2px" }} /> Ca đêm</span>}
-              {!s.is_overnight && !s.night_shift && <span className="cc-badge-pill cc-badge-pill--primary"><Sun size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "2px" }} /> Ca ngày</span>}
+              {s.is_overnight
+                ? <span className="cc-badge-pill cc-badge-pill--purple"><Moon size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "2px" }} /> Qua đêm</span>
+                : <span className="cc-badge-pill cc-badge-pill--primary"><Sun size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "2px" }} /> Ca ngày</span>}
             </div>
             {s.note && <div style={{ fontSize: "12px", color: "var(--ash)", marginTop: "8px" }}>Ghi chú: {s.note}</div>}
           </div>
@@ -1444,6 +1499,10 @@ function AssignShiftPanel({ token, shifts }: { token: string; shifts: WorkShift[
   const [bulkShift, setBulkShift] = useState<number | "">("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [effectiveFrom, setEffectiveFrom] = useState(todayYmd());
+  const [historyEmployee, setHistoryEmployee] = useState<EmployeeRow | null>(null);
+  const [shiftHistory, setShiftHistory] = useState<EmployeeShiftAssignment[]>([]);
+  const [historyBusy, setHistoryBusy] = useState(false);
 
   const load = useCallback(() => {
     api.employees.list(token, { size: 200, sort: "code" })
@@ -1457,17 +1516,43 @@ function AssignShiftPanel({ token, shifts }: { token: string; shifts: WorkShift[
   );
   const shown = (emps ?? []).filter((e) => deptFilter === "" || e.department_id === deptFilter);
 
-  async function assignOne(id: number, shiftId: number | null) {
+  async function showHistory(emp: EmployeeRow) {
+    setHistoryEmployee(emp);
+    setHistoryBusy(true);
+    try {
+      const result = await api.employees.shiftHistory(token, emp.id);
+      setShiftHistory(result.items);
+    } catch {
+      setShiftHistory([]);
+    } finally {
+      setHistoryBusy(false);
+    }
+  }
+
+  async function assignOne(id: number, shiftId: number | null): Promise<boolean> {
     setMsg(null);
-    await api.employees.setShift(token, id, shiftId);
-    setEmps((list) => (list ?? []).map((e) => (e.id === id ? { ...e, default_shift_id: shiftId } : e)));
+    try {
+      await api.employees.setShift(token, id, shiftId, effectiveFrom);
+      setEmps((list) => (list ?? []).map((e) => (e.id === id ? { ...e, default_shift_id: shiftId } : e)));
+      setMsg(`Đã lưu ca áp dụng từ ${fmtYmd(effectiveFrom)}.`);
+      if (historyEmployee?.id === id) {
+        const result = await api.employees.shiftHistory(token, id);
+        setShiftHistory(result.items);
+      }
+      return true;
+    } catch (err) {
+      setMsg(err instanceof Error ? err.message : "Lỗi khi gán ca.");
+      return false;
+    }
   }
 
   async function applyBulk() {
     if (bulkShift === "" || !shown.length) return;
     setBusy(true); setMsg(null);
     try {
-      for (const e of shown) await assignOne(e.id, bulkShift);
+      for (const e of shown) {
+        if (!(await assignOne(e.id, bulkShift))) return;
+      }
       setMsg(`Đã gán ca cho ${shown.length} nhân viên.`);
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Lỗi khi gán ca.");
@@ -1479,9 +1564,13 @@ function AssignShiftPanel({ token, shifts }: { token: string; shifts: WorkShift[
   return (
     <div className="cc-assign">
       <h4 className="ns-section__title">Gán ca mặc định</h4>
-      <p className="cc-note">Ca mặc định dùng để tính công ở Bảng công tháng. Chọn ca ở từng dòng để lưu ngay,
-        hoặc lọc theo phòng/tổ rồi “Gán hàng loạt”.</p>
+      <p className="cc-note">Chỉ cần gán một lần: ca sẽ tự áp dụng từ ngày đã chọn trở về sau.
+        Khi đổi ca, hệ thống giữ nguyên lịch sử để bảng công tháng cũ không thay đổi.</p>
       <div className="cc-toolbar cc-assign__bar">
+        <label className="cc-assign__date">
+          <span>Áp dụng từ</span>
+          <input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
+        </label>
         <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value === "" ? "" : Number(e.target.value))}>
           <option value="">Tất cả phòng/tổ</option>
           {depts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
@@ -1498,7 +1587,7 @@ function AssignShiftPanel({ token, shifts }: { token: string; shifts: WorkShift[
       <div className="ns__tablewrap">
         <table className="ns__table">
           <thead>
-            <tr><th>Mã</th><th>Họ tên</th><th>Phòng/Tổ</th><th>Ca mặc định</th></tr>
+            <tr><th>Mã</th><th>Họ tên</th><th>Phòng/Tổ</th><th>Ca mặc định</th><th>Thao tác</th></tr>
           </thead>
           <tbody>
             {shown.map((e) => (
@@ -1509,18 +1598,56 @@ function AssignShiftPanel({ token, shifts }: { token: string; shifts: WorkShift[
                 <td>
                   <select
                     value={e.default_shift_id ?? ""}
-                    onChange={(ev) => assignOne(e.id, ev.target.value === "" ? null : Number(ev.target.value))}
+                    onChange={(ev) => void assignOne(e.id, ev.target.value === "" ? null : Number(ev.target.value))}
                   >
                     <option value="">— chưa gán —</option>
                     {shifts.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
                 </td>
+                <td>
+                  <button className="btn btn--ghost cc-history-btn" type="button" onClick={() => void showHistory(e)}>
+                    <History size={15} /> Lịch sử
+                  </button>
+                </td>
               </tr>
             ))}
-            {emps && shown.length === 0 && <tr><td colSpan={4} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
+            {emps && shown.length === 0 && <tr><td colSpan={5} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
           </tbody>
         </table>
       </div>
+      {historyEmployee && (
+        <div className="cc-shift-history">
+          <div className="cc-shift-history__head">
+            <div>
+              <strong>Lịch sử ca của {historyEmployee.full_name}</strong>
+              <span>{historyEmployee.code}</span>
+            </div>
+            <button type="button" className="btn btn--ghost" onClick={() => setHistoryEmployee(null)}>Đóng</button>
+          </div>
+          <div className="ns__tablewrap">
+            <table className="ns__table">
+              <thead><tr><th>Ca làm việc</th><th>Áp dụng từ</th><th>Đến ngày</th><th>Trạng thái</th></tr></thead>
+              <tbody>
+                {shiftHistory.map((item) => {
+                  const shift = shifts.find((s) => s.id === item.shift_id);
+                  return (
+                    <tr key={item.id}>
+                      <td>{shift?.name ?? (item.shift_id == null ? "Không gán ca" : `Ca #${item.shift_id}`)}</td>
+                      <td>{fmtYmd(item.effective_from)}</td>
+                      <td>{fmtYmd(item.effective_to)}</td>
+                      <td>{item.is_current ? <span className="ns-badge ns-badge--ok">Đang áp dụng</span> : "—"}</td>
+                    </tr>
+                  );
+                })}
+                {!historyBusy && shiftHistory.length === 0 && (
+                  <tr><td colSpan={4} className="ns__empty">Chưa có lịch sử gán ca.</td></tr>
+                )}
+                {historyBusy && <tr><td colSpan={4} className="ns__empty">Đang tải...</td></tr>}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1530,17 +1657,36 @@ function ShiftForm({ token, shift, onClose, onSaved }: {
 }) {
   const [form, setForm] = useState<WorkShiftInput>({
     name: shift?.name ?? "", start_time: shift?.start_time ?? "08:00", end_time: shift?.end_time ?? "17:00",
-    is_overnight: shift?.is_overnight ?? false, night_shift: shift?.night_shift ?? false,
-    grace_minutes: shift?.grace_minutes ?? 5, note: shift?.note ?? "", is_active: shift?.is_active ?? true,
+    is_overnight: shift?.is_overnight ?? false,
+    night_multiplier: shift?.night_multiplier ?? 1.3,
+    grace_minutes: shift?.grace_minutes ?? 5,
+    meal_allowance: shift?.meal_allowance ?? 25000, shift_allowance: shift?.shift_allowance ?? 50000,
+    note: shift?.note ?? "", is_active: shift?.is_active ?? true,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   function set<K extends keyof WorkShiftInput>(k: K, v: WorkShiftInput[K]) { setForm((f) => ({ ...f, [k]: v })); }
+  function timeParts(field: "start_time" | "end_time") {
+    return (normalizeTime24(form[field]) ?? "00:00").split(":");
+  }
+  function setTimePart(field: "start_time" | "end_time", part: "hour" | "minute", value: string) {
+    const [hour, minute] = timeParts(field);
+    set(field, part === "hour" ? `${value}:${minute}` : `${hour}:${value}`);
+  }
   async function save() {
     setBusy(true); setError(null);
+    const startTime = normalizeTime24(form.start_time);
+    const endTime = normalizeTime24(form.end_time);
+    if (!startTime || !endTime) {
+      setError("Giờ ca không hợp lệ. Vui lòng chọn lại giờ và phút.");
+      setBusy(false);
+      return;
+    }
+    const payload = { ...form, start_time: startTime, end_time: endTime };
+    setForm(payload);
     try {
-      if (shift) await api.attendance.updateShift(token, shift.id, form);
-      else await api.attendance.createShift(token, form);
+      if (shift) await api.attendance.updateShift(token, shift.id, payload);
+      else await api.attendance.createShift(token, payload);
       onSaved();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Lỗi khi lưu.");
@@ -1559,21 +1705,79 @@ function ShiftForm({ token, shift, onClose, onSaved }: {
           <label className="ns-field"><span className="ns-field__label">Tên ca *</span>
             <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Hành chính / Ca 1…" /></label>
           <div className="ns-grid" style={{ marginTop: 12 }}>
-            <label className="ns-field"><span className="ns-field__label">Giờ vào ca</span>
-              <input type="time" value={form.start_time} onChange={(e) => set("start_time", e.target.value)} /></label>
-            <label className="ns-field"><span className="ns-field__label">Giờ ra ca</span>
-              <input type="time" value={form.end_time} onChange={(e) => set("end_time", e.target.value)} /></label>
+            <label className="ns-field"><span className="ns-field__label">Giờ vào ca (24 giờ)</span>
+              <span className="cc-time-selects">
+                <span className="cc-time-select">
+                  <span className="cc-time-select__caption">Giờ</span>
+                  <select aria-label="Giờ vào ca" value={timeParts("start_time")[0]}
+                    onChange={(e) => setTimePart("start_time", "hour", e.target.value)}>
+                    {TIME_HOURS.map((hour) => <option key={hour} value={hour}>{hour}</option>)}
+                  </select>
+                  <ChevronDown className="cc-time-select__chevron" size={15} />
+                </span>
+                <strong className="cc-time-selects__separator">:</strong>
+                <span className="cc-time-select">
+                  <span className="cc-time-select__caption">Phút</span>
+                  <select aria-label="Phút vào ca" value={timeParts("start_time")[1]}
+                    onChange={(e) => setTimePart("start_time", "minute", e.target.value)}>
+                    {TIME_MINUTES.map((minute) => <option key={minute} value={minute}>{minute}</option>)}
+                  </select>
+                  <ChevronDown className="cc-time-select__chevron" size={15} />
+                </span>
+              </span>
+            </label>
+            <label className="ns-field"><span className="ns-field__label">Giờ ra ca (24 giờ)</span>
+              <span className="cc-time-selects">
+                <span className="cc-time-select">
+                  <span className="cc-time-select__caption">Giờ</span>
+                  <select aria-label="Giờ ra ca" value={timeParts("end_time")[0]}
+                    onChange={(e) => setTimePart("end_time", "hour", e.target.value)}>
+                    {TIME_HOURS.map((hour) => <option key={hour} value={hour}>{hour}</option>)}
+                  </select>
+                  <ChevronDown className="cc-time-select__chevron" size={15} />
+                </span>
+                <strong className="cc-time-selects__separator">:</strong>
+                <span className="cc-time-select">
+                  <span className="cc-time-select__caption">Phút</span>
+                  <select aria-label="Phút ra ca" value={timeParts("end_time")[1]}
+                    onChange={(e) => setTimePart("end_time", "minute", e.target.value)}>
+                    {TIME_MINUTES.map((minute) => <option key={minute} value={minute}>{minute}</option>)}
+                  </select>
+                  <ChevronDown className="cc-time-select__chevron" size={15} />
+                </span>
+              </span>
+            </label>
             <label className="ns-field"><span className="ns-field__label">Dung sai đi muộn (phút)</span>
               <input type="number" min={0} value={form.grace_minutes} onChange={(e) => set("grace_minutes", Number(e.target.value))} /></label>
           </div>
+          <p className="cc-note" style={{ marginTop: 8 }}>
+            Chọn theo giờ 24 giờ: <strong>00:00 là nửa đêm</strong>, còn <strong>12:00 là buổi trưa</strong>.
+          </p>
+          <div className="ns-grid" style={{ marginTop: 12 }}>
+            <label className="ns-field"><span className="ns-field__label">Phụ cấp cơm (đ)</span>
+              <input type="number" min={0} step={5000} value={form.meal_allowance ?? 0}
+                onChange={(e) => set("meal_allowance", Number(e.target.value))} /></label>
+            <label className="ns-field"><span className="ns-field__label">Phụ cấp ca (đ)</span>
+              <input type="number" min={0} step={5000} value={form.shift_allowance ?? 0}
+                onChange={(e) => set("shift_allowance", Number(e.target.value))} /></label>
+          </div>
+          <p className="cc-note" style={{ marginTop: 8 }}>
+            Phụ cấp gắn theo ca: nhân viên được gán ca này sẽ tự cộng khi tính lương.
+          </p>
           <label className="ns-check" style={{ marginTop: 12 }}>
             <input type="checkbox" checked={!!form.is_overnight} onChange={(e) => set("is_overnight", e.target.checked)} />
             Ca qua đêm (ra hôm sau, vd 22:00→06:00)
           </label>
-          <label className="ns-check">
-            <input type="checkbox" checked={!!form.night_shift} onChange={(e) => set("night_shift", e.target.checked)} />
-            Ca đêm (có phụ cấp)
-          </label>
+          {form.is_overnight && (
+            <label className="ns-field" style={{ marginTop: 10 }}>
+              <span className="ns-field__label">Hệ số ca đêm (vd 1.3 = +30%)</span>
+              <input type="number" min={1} step={0.05} value={form.night_multiplier ?? 1.3}
+                onChange={(e) => set("night_multiplier", Number(e.target.value))} />
+              <span className="cc-note" style={{ marginTop: 4 }}>
+                Cộng thêm cho GIỜ rơi 22h–06h trong ca (theo luật ≥ 1.3 = +30%). Tăng ca đêm tính riêng theo Cấu hình lương.
+              </span>
+            </label>
+          )}
           <label className="ns-check">
             <input type="checkbox" checked={!!form.is_active} onChange={(e) => set("is_active", e.target.checked)} /> Đang dùng
           </label>

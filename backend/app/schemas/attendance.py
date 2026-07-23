@@ -40,11 +40,19 @@ class WorkLocationsOut(BaseModel):
 
 class WorkShiftIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    start_time: str = Field(min_length=3, max_length=5, description='HH:MM, vd "08:00"')
-    end_time: str = Field(min_length=3, max_length=5)
+    start_time: str = Field(
+        min_length=1,
+        max_length=5,
+        description='HH:MM hoặc dạng rút gọn, vd "08:00", "8", "730"',
+    )
+    end_time: str = Field(min_length=1, max_length=5)
     is_overnight: bool = False
-    night_shift: bool = False
+    # Hệ số ca đêm (1.3 = +30%) cho giờ rơi 22h–06h trong ca — chỉ áp ca qua đêm.
+    night_multiplier: float = Field(default=1.3, ge=1.0, le=3.0)
     grace_minutes: int = Field(default=5, ge=0, le=240)
+    # Phụ cấp khai theo ca (đ): cơm (tăng ca 17h30→24h) · ca (áp ca ngày/đêm).
+    meal_allowance: float = Field(default=25000, ge=0)
+    shift_allowance: float = Field(default=50000, ge=0)
     note: str | None = Field(default=None, max_length=500)
     is_active: bool = True
 
@@ -55,8 +63,10 @@ class WorkShiftOut(BaseModel):
     start_time: str          # "HH:MM" (router convert từ start_minute)
     end_time: str
     is_overnight: bool
-    night_shift: bool
+    night_multiplier: float = 1.3
     grace_minutes: int
+    meal_allowance: float = 25000
+    shift_allowance: float = 50000
     is_active: bool
     note: str | None = None
 
@@ -139,7 +149,6 @@ class MyShiftOut(BaseModel):
     start_time: str          # "HH:MM"
     end_time: str
     is_overnight: bool = False
-    night_shift: bool = False
 
 
 class TodaySummaryOut(BaseModel):
@@ -156,6 +165,8 @@ class MyStatusOut(BaseModel):
     has_employee: bool
     employee_name: str | None = None
     next_action: str | None = None          # "in" | "out"
+    can_check: bool = False
+    check_block_reason: str | None = None
     last_check: AttendanceLogOut | None = None
     locations_configured: bool = False
     shift: MyShiftOut | None = None          # ca mặc định của NV (nếu đã gán)
@@ -166,6 +177,8 @@ class MyStatusOut(BaseModel):
 
 
 class TimesheetDay(BaseModel):
+    shift_id: int | None = None
+    shift_name: str | None = None
     first_in: str | None = None    # "HH:MM"
     last_out: str | None = None
     hours: float | None = None

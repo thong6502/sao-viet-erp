@@ -389,10 +389,20 @@
   align-items: center;
   gap: 4px;
 }
+/* Dấu hỏi tròn giải thích quyền — icon nét (bộ Icons), không dùng ký tự Unicode.
+   inline-flex + vertical-align để icon canh giữa theo dòng chữ bên cạnh. */
 .rdx-perm__fine-hint {
   color: var(--ash);
   cursor: help;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 5px;
+  vertical-align: middle;
+  opacity: 0.65;
+  transition: opacity 0.15s ease;
+}
+.rdx-perm__fine-hint:hover {
+  opacity: 1;
 }
 
 @media (max-width: 620px) {

@@ -43,6 +43,9 @@ class PieceRate(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     # Tổ khoán (vd 'to_boi', 'to_can_phu', 'to_cat', 'may_in_5mau'). Trục gom + tra.
     group_name: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    # Tổ (departments.id) sở hữu đơn giá — khai đơn giá NGAY trong Cấu hình lương của tổ.
+    # Nullable: đơn giá cũ/chưa gắn tổ vẫn hợp lệ; group_name giữ làm nhãn hiển thị.
+    department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     code: Mapped[str | None] = mapped_column(String(20), nullable=True)  # mã (A–F cho máy in)
     name: Mapped[str] = mapped_column(String(255), nullable=False)       # tên công việc
     # Công đoạn gắn đơn giá (mã cong_doan.ma) — tra đơn giá theo (tổ + công đoạn) khi ghi phiếu.

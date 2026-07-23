@@ -54,6 +54,7 @@ MODULES: list[tuple[str, str]] = [
     ("dm_cong_doan", "Công đoạn gia công"),
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
+    ("tang_ca", "Tăng ca"),
     ("luong", "Lương"),
 ]
 
@@ -151,6 +152,24 @@ def _leave_admin(scope: str = SCOPE_ALL) -> dict:
     )
 
 
+def _ot_self(scope: str = SCOPE_OWN) -> dict:
+    """Tự phục vụ Phiếu tăng ca cho MỌI nhân viên: xem phiếu của mình + tự gửi + tự hủy.
+    KHÔNG duyệt (duyệt gate bằng `can_approve`)."""
+    return dict(
+        can_read=True, can_create=True, can_update=False, can_delete=False,
+        scope=scope, can_cancel=True,
+    )
+
+
+def _ot_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
+    """Quyền DUYỆT phiếu tăng ca (+ tạo hộ cho thợ, tạo hộ là duyệt luôn). Scope `department`
+    = tổ mình + cây con ⇒ tổ trưởng CHỈ duyệt được người trong tổ; HCNS/Admin dùng scope `all`."""
+    return dict(
+        can_read=True, can_create=True, can_update=True, can_delete=False,
+        scope=scope, can_approve=True, can_cancel=True,
+    )
+
+
 # Roles: (department_name, role_name, {module_key: permission}). The minimal default
 # role ("Nhân viên") is Read-only on Dashboard, scope own.
 ROLES: list[tuple[str, str, dict[str, dict]]] = [
@@ -185,6 +204,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             },
             # Nghỉ phép: HCNS là nơi DUYỆT tập trung (mọi đơn toàn công ty) + quản loại nghỉ.
             "nghi_phep": _leave_admin(SCOPE_ALL),
+            "tang_ca": _ot_lead(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
@@ -203,7 +223,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         },
     ),
     # Vai "Nhân viên" tối thiểu: Dashboard + tự phục vụ Nghỉ phép (cửa vào self-service).
-    ("Hành chính nhân sự", "Nhân viên", {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self()}),
+    ("Hành chính nhân sự", "Nhân viên",
+     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self()}),
     # --- Khối SẢN XUẤT (Lát 1 — hộp việc 2 tầng, gate theo Ô QUYỀN, không theo chức danh) ---
     # Kế hoạch SX: cấu hình lệnh + PHÁT (can_approve), thấy mọi tổ (scope all). KHÔNG gán thợ.
     (
@@ -214,6 +235,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True},
             "khuon_be": _read(SCOPE_ALL),  # ③ điều độ đọc danh mục khuôn để gán vào lệnh có bế
             "nghi_phep": _leave_self(),
+            "tang_ca": _ot_self(),
         },
     ),
     # Tổ trưởng SX: xem tổ mình (scope own) + GÁN thợ (can_assign_work) → hộp việc FULL + nút gán.
@@ -224,19 +246,23 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "dashboard": _read(SCOPE_OWN),
             "san_xuat": {**_read(SCOPE_OWN), "can_assign_work": True, "can_record_output": True, "can_handover": True},
             "nghi_phep": _leave_self(),
+            # Tổ trưởng DUYỆT phiếu tăng ca của tổ mình (scope department = tổ + cây con).
+            "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
         },
     ),
     # Thợ SX: CHỈ xem việc được gán (read scope own, không gán) → hộp việc lọc theo bước được gán.
     (
         "Sản xuất",
         "Thợ SX",
-        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN), "nghi_phep": _leave_self()},
+        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
     ),
     # QC: xem mọi tổ (scope all) để soi công đoạn bất kỳ (ghi lỗi = Lát 3, thêm can_report_defect sau).
     (
         "Sản xuất",
         "QC",
-        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL), "nghi_phep": _leave_self()},
+        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL),
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
     ),
     (
         "Kinh doanh",
@@ -1472,13 +1498,13 @@ def seed_work_shifts(db: Session) -> None:
         return
     shifts = {
         "Hành chính": repo.create_shift(name="Hành chính", start_minute=8 * 60, end_minute=17 * 60,
-                                        is_overnight=False, night_shift=False, grace_minutes=5, is_active=True),
+                                        is_overnight=False, grace_minutes=5, is_active=True),
         "Ca 1": repo.create_shift(name="Ca 1", start_minute=6 * 60, end_minute=14 * 60,
-                                  is_overnight=False, night_shift=False, grace_minutes=5, is_active=True),
+                                  is_overnight=False, grace_minutes=5, is_active=True),
         "Ca 2": repo.create_shift(name="Ca 2", start_minute=14 * 60, end_minute=22 * 60,
-                                  is_overnight=False, night_shift=False, grace_minutes=5, is_active=True),
+                                  is_overnight=False, grace_minutes=5, is_active=True),
         "Ca 3": repo.create_shift(name="Ca 3", start_minute=22 * 60, end_minute=6 * 60,
-                                  is_overnight=True, night_shift=True, grace_minutes=5, is_active=True),
+                                  is_overnight=True, grace_minutes=5, is_active=True),
     }
     assign = {
         "Trần Văn An": "Hành chính", "Lê Thị Bình": "Hành chính", "Phạm Minh Cường": "Hành chính",

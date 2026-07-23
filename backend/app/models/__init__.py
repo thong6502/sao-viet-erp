@@ -10,9 +10,10 @@ from .audit import AuditLog
 from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
 from .department import Department
-from .employee import Employee, EmployeeAttachment, EmployeeEvent
+from .employee import Employee, EmployeeAttachment, EmployeeEvent, EmployeeShiftAssignment
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
+from .overtime import OvertimeRequest
 from .work_calendar import SpecialDay, WorkCalendarConfig
 from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
@@ -26,6 +27,7 @@ from .order import (
 )
 from .payroll import (
     EmployeeSalary,
+    LatePenaltyBracket,
     PayrollLine,
     PayrollParams,
     PayrollPeriod,
@@ -96,6 +98,7 @@ __all__ = [
     "RefreshToken",
     "UnitLevel",
     "Employee",
+    "EmployeeShiftAssignment",
     "EmployeeEvent",
     "EmployeeAttachment",
     "ProfileUpdateRequest",
@@ -106,6 +109,7 @@ __all__ = [
     "AttendancePeriodLine",
     "LeaveType",
     "LeaveRequest",
+    "OvertimeRequest",
     "WorkCalendarConfig",
     "SpecialDay",
     "Customer",
@@ -150,6 +154,7 @@ __all__ = [
     "PayrollPeriod",
     "PayrollLine",
     "PitTaxBracket",
+    "LatePenaltyBracket",
     "PieceRate",
     "PlateDieRate",
     "Norm",
