@@ -1007,6 +1007,24 @@ class QuotationService:
         if quote.valid_until is None:
             quote.valid_until = date.today()
 
+    def _apply_accept_picks(self, version, accepted_item_ids: list[int] | None) -> None:
+        """Ghi quyết định khách chốt MỘT PHẦN lên các dòng của version. None → ưng tất cả (chốt nhanh /
+        tương thích cũ). Có danh sách → dòng trong danh sách = ưng, còn lại = không lấy (giữ vết);
+        phải ≥1 dòng ưng và id phải thuộc báo giá này."""
+        items = list(version.items)
+        if accepted_item_ids is None:
+            for it in items:
+                it.accepted = True
+            return
+        picked = set(accepted_item_ids)
+        valid_ids = {it.id for it in items}
+        if picked - valid_ids:
+            raise QuotationValidationError("Có dòng được chọn không thuộc báo giá này.")
+        if not (picked & valid_ids):
+            raise QuotationValidationError("Phải chọn ít nhất 1 sản phẩm khách chốt.")
+        for it in items:
+            it.accepted = it.id in picked
+
     def transition(
         self,
         *,
@@ -1015,9 +1033,13 @@ class QuotationService:
         scope: str,
         actor,
         cancel_reason: str | None = None,
+        accepted_item_ids: list[int] | None = None,
     ) -> Quote:
         """Chuyển trạng thái báo giá (redesign-bao-gia §3). Báo giá ĐẶC THÙ KHÔNG được gửi/khách-duyệt
-        thẳng — phải TRÌNH DUYỆT (draft→pending_approval) rồi Giám đốc Kinh doanh duyệt (qua /approval)."""
+        thẳng — phải TRÌNH DUYỆT (draft→pending_approval) rồi Giám đốc Kinh doanh duyệt (qua /approval).
+
+        `accepted_item_ids` (chỉ khi to_status="accepted"): khách chốt MỘT PHẦN — id các dòng khách ƯNG;
+        None = ưng tất cả. Đơn hàng sau đó chỉ kéo dòng accepted=True."""
         quote = self.get_quotation(quotation_id=quotation_id, scope=scope, actor=actor)
         version = self.quotations.db.get(QuoteVersion, quote.current_version_id)
 
@@ -1060,6 +1082,7 @@ class QuotationService:
             if version:
                 version.status = VERSION_STATUS_ACCEPTED
                 version.accepted_at = datetime.now(timezone.utc)
+                self._apply_accept_picks(version, accepted_item_ids)
 
         elif to_status == STATUS_REJECTED:
             # Khách từ chối (SAU khi gửi) — khác với Giám đốc KD từ chối duyệt (→ về Nháp).

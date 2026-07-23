@@ -1688,3 +1688,41 @@ select.input {
   margin-top: 16px;
   flex-wrap: wrap;
 }
+
+/* ---- Khách chốt MỘT PHẦN: dòng "khách không lấy" (declined) ----------------- */
+.rdx-quote tbody tr.declined td { opacity: 0.5; }
+.rdx-quote tbody tr.declined .pname { text-decoration: line-through; text-decoration-color: var(--ash-2); color: var(--ash); }
+.rdx-quote .declined-badge {
+  display: inline-flex; align-items: center; margin-left: 8px; padding: 2px 8px;
+  font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap;
+  color: var(--ash); background: var(--rule-soft); border: 1px solid var(--rule);
+  border-radius: var(--r-pill); opacity: 1; vertical-align: middle;
+}
+
+/* ---- Picker "Khách chốt — chọn sản phẩm" ----------------------------------- */
+.rdx-quote .accept-pick-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid var(--rule);
+}
+.rdx-quote .accept-pick-all { display: flex; align-items: center; gap: 9px; cursor: pointer; font-weight: 600; font-size: 13px; color: var(--ink); }
+.rdx-quote .accept-pick-all input { width: 17px; height: 17px; accent-color: var(--rust); cursor: pointer; }
+.rdx-quote .accept-pick-head-count { font-size: 12px; color: var(--ash); font-variant-numeric: tabular-nums; }
+.rdx-quote .accept-pick-list { display: flex; flex-direction: column; gap: 6px; }
+.rdx-quote .accept-pick-row {
+  display: flex; align-items: center; gap: 12px; padding: 11px 12px; cursor: pointer;
+  background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-3);
+  transition: border-color 0.12s, background 0.12s;
+}
+.rdx-quote .accept-pick-row:hover { border-color: var(--rust); }
+.rdx-quote .accept-pick-row input { width: 17px; height: 17px; accent-color: var(--rust); flex: none; cursor: pointer; }
+.rdx-quote .accept-pick-row.off { opacity: 0.55; background: var(--paper); }
+.rdx-quote .accept-pick-row.off .accept-pick-name { text-decoration: line-through; text-decoration-color: var(--ash-2); }
+.rdx-quote .accept-pick-name { flex: 1; font-weight: 600; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
+.rdx-quote .accept-pick-qty { font-weight: 500; font-size: 11.5px; color: var(--ash); }
+.rdx-quote .accept-pick-amt { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.rdx-quote .accept-pick-sum {
+  display: flex; justify-content: space-between; align-items: center; margin-top: 12px;
+  padding-top: 12px; border-top: 1.5px solid var(--rule); font-size: 13.5px; color: var(--ash);
+}
+.rdx-quote .accept-pick-sum b { color: var(--rust-deep); }
+.rdx-quote .accept-pick-sum-amt { font-weight: 700; font-size: 15px; color: var(--ink); font-variant-numeric: tabular-nums; }

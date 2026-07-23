@@ -1147,7 +1147,9 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
             </section>
 
             {/* --- Chi tiết dòng giá vốn (Diễn giải người-đọc-được) --- */}
-            {result ? (
+            {/* Chỉ hiện khi CÒN sản phẩm — xóa hết sản phẩm thì bảng NVL/Công đoạn (result cũ server
+                trả về) không còn ý nghĩa, phải về trạng thái rỗng cho khớp panel "Sản phẩm trong phiếu". */}
+            {result && comps.length > 0 ? (
               <section className="panel">
                 <div className="panel__hd">
                   <h3><RowsIcon /> Chi tiết dòng giá vốn</h3>
@@ -1257,12 +1259,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
               ) : null}
             </div>
 
-            <div className="hint">
-              <InfoIcon />
-              <span>
-                Giá vốn nội bộ, <b>chưa cộng lợi nhuận</b>. Markup &amp; giá bán ở module Báo giá.
-              </span>
-            </div>
 
             {/* Phiếu này */}
             <section className="panel">
@@ -1896,27 +1892,6 @@ function ComponentModal({
                 </select>
               </div>
             </section>
-
-            {/* ---- LƯU Ý SẢN XUẤT (note kỹ thuật theo sản phẩm → drawer lệnh SX) ---- */}
-            <section className="rc-sec">
-              <div className="rc-sec__title">
-                <span className="tg-step-badge">6</span> Lưu ý sản xuất
-              </div>
-              <label className="tg-field">
-                <span className="tg-microlabel">
-                  Lưu ý SX / Ghi chú kỹ thuật{" "}
-                  <span className="tg-microlabel__opt">tổ sản xuất đọc khi chạy lệnh</span>
-                </span>
-                <textarea
-                  className="tg-input"
-                  rows={2}
-                  style={{ minHeight: "64px", resize: "vertical", lineHeight: 1.5 }}
-                  value={c.ghi_chu_ky_thuat}
-                  placeholder="VD: canh màu như mẫu · kẽm cũ L203 · bù hao 1%"
-                  onChange={(e) => patchComp(c.uid, { ghi_chu_ky_thuat: e.target.value })}
-                />
-              </label>
-            </section>
           </div>
 
           {/* Cột phải: Trực quan hóa và Số liệu ước lượng */}
@@ -2108,12 +2083,6 @@ const FileIcon = () => (
 const BoltIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-  </svg>
-);
-const InfoIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="10" />
-    <path d="M12 16v-4M12 8h.01" />
   </svg>
 );
 const RefreshIcon = () => (

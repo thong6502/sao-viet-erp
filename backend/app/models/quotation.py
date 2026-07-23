@@ -210,6 +210,12 @@ class QuoteItem(Base):
     vat_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False, default=0)
     final_amount: Mapped[float] = mapped_column(Numeric(15, 2), nullable=False, default=0)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Khách chốt MỘT PHẦN: khi ghi "Khách chốt", mỗi dòng nhận quyết định — True = khách ƯNG dòng
+    # này (kéo lên đơn hàng), False = khách KHÔNG lấy (giữ vết, không xóa). Ý nghĩa CHỈ có sau khi
+    # báo giá `accepted`; trước đó là false trung tính. server_default=false (bool Python — né gotcha
+    # Postgres). Đơn hàng chỉ kéo dòng accepted=True (fallback: 0 dòng True → kéo tất cả, tương thích
+    # báo giá cũ chốt trước khi có cột này).
+    accepted: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false", default=False)
 
     # Relationships
     quote_version: Mapped[QuoteVersion] = relationship("QuoteVersion", back_populates="items")

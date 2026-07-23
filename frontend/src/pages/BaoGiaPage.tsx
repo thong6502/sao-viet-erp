@@ -556,6 +556,10 @@ function QuotationDetailView({
   // Tạo phiên bản mới: BẮT BUỘC ghi chú → modal nhập lý do trước khi tạo.
   const [requoteOpen, setRequoteOpen] = useState(false);
   const [requoteNote, setRequoteNote] = useState("");
+  // Khách chốt MỘT PHẦN: picker chọn dòng khách ưng trước khi ghi "Khách chốt". Mặc định tick hết
+  // (case phổ biến = ưng cả) → 1 lần bấm là xong; bỏ tick dòng khách không lấy.
+  const [acceptOpen, setAcceptOpen] = useState(false);
+  const [acceptPicks, setAcceptPicks] = useState<Record<number, boolean>>({});
 
   const reload = useCallback(
     async (id: number) => {
@@ -762,6 +766,33 @@ function QuotationDetailView({
     }
   }
 
+  // Khách chốt: mở picker chọn dòng khách ưng (mặc định tick hết). 1 dòng thì khỏi hỏi — chốt luôn.
+  function openAcceptPicker() {
+    if (!d) return;
+    if (d.items.length <= 1) { void doAccept(d.items.map((it) => it.id)); return; }
+    setAcceptPicks(Object.fromEntries(d.items.map((it) => [it.id, true])));
+    setErr(null);
+    setAcceptOpen(true);
+  }
+
+  // Ghi "Khách chốt" kèm danh sách dòng khách ƯNG (khách chốt một phần). Đơn hàng sau chỉ kéo dòng này.
+  async function doAccept(ids: number[]) {
+    if (!token || !d) return;
+    if (ids.length === 0) { setErr("Chọn ít nhất 1 sản phẩm khách chốt."); return; }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.quotations.transition(token, d.id, { to_status: "accepted", accepted_item_ids: ids });
+      setAcceptOpen(false);
+      await reload(d.id);
+      onChanged();
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : "Thao tác không thành công.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Khách đã chốt (accepted) → lên đơn hàng bán từ CHÍNH báo giá này (BE kéo dòng/giá/cọc; guard
   // 1 báo giá → 1 đơn). Xong điều hướng sang màn Đơn hàng bán, mở luôn đơn vừa tạo.
   async function createOrderFromQuote() {
@@ -829,6 +860,12 @@ function QuotationDetailView({
   const marginPctDisp = multi ? aggMarginPct : Math.round(singleMargin);
   const meterW = Math.max(0, Math.min(100, marginPctDisp));
 
+  // Khách chốt một phần: chỉ đánh dấu "khách không lấy" khi báo giá ĐÃ chốt VÀ có ít nhất 1 dòng được
+  // ưng (phân biệt với báo giá cũ chốt-toàn-phần: accepted toàn false → coi như lấy hết, không gạch).
+  const quoteClosed = d.status === "accepted" || d.status === "converted_to_order";
+  const acceptedDecided = d.items.some((it) => it.accepted);
+  const declinedCount = quoteClosed && acceptedDecided ? d.items.filter((it) => !it.accepted).length : 0;
+
   return (
     <main className="rdx-quote bgv">
       {/* ---------- Header ---------- */}
@@ -853,7 +890,7 @@ function QuotationDetailView({
                 <Button variant="secondary" disabled={busy} onClick={() => doTransition("rejected")}><X size={15} /> Khách từ chối</Button>
               )}
               {d.can_approve && (
-                <Button variant="primary" disabled={busy || !d.allowed_transitions.includes("accepted")} onClick={() => doTransition("accepted")}><Check size={15} /> Khách chốt</Button>
+                <Button variant="primary" disabled={busy || !d.allowed_transitions.includes("accepted")} onClick={openAcceptPicker}><Check size={15} /> Khách chốt</Button>
               )}
             </>
           )}
@@ -918,7 +955,12 @@ function QuotationDetailView({
               <span className="tag">{multi ? `${d.items.length} phiếu tính giá` : "Khóa từ PTG"}</span>
             </div>
             <div className="hint">
-              <ShieldCheck size={15} /><span>Markup riêng từng dòng · giá đã gồm VAT.</span>
+              <ShieldCheck size={15} />
+              <span>
+                {declinedCount > 0
+                  ? `Khách chốt ${d.items.length - declinedCount}/${d.items.length} sản phẩm · ${declinedCount} dòng khách không lấy (đã gạch) không lên đơn.`
+                  : "Markup riêng từng dòng · giá đã gồm VAT."}
+              </span>
             </div>
             <table>
               <thead>
@@ -931,9 +973,13 @@ function QuotationDetailView({
                   const c = calcItem(it);
                   const markupVal = multi ? (lineDraft[it.id] ?? it.margin_percent) : (draftMargin ?? it.margin_percent);
                   const discPct = c.selling > 0 ? Math.round(((discDraft[it.id] ?? it.discount_amount) / c.selling) * 100) : 0;
+                  const declined = quoteClosed && acceptedDecided && !it.accepted;
                   return (
-                    <tr key={it.id}>
-                      <td><span className="pname">{it.product_name}</span></td>
+                    <tr key={it.id} className={declined ? "declined" : undefined}>
+                      <td>
+                        <span className="pname">{it.product_name}</span>
+                        {declined && <span className="declined-badge">Khách không lấy</span>}
+                      </td>
                       <td className="num">{it.quantity.toLocaleString("vi-VN")}</td>
                       <td className="num muted">{numf(c.cost)}</td>
                       <td className="num">
@@ -1414,6 +1460,64 @@ function QuotationDetailView({
           </div>
         </div>
       )}
+
+      {acceptOpen && (() => {
+        const picked = d.items.filter((it) => acceptPicks[it.id]);
+        const pickedIds = picked.map((it) => it.id);
+        const pickedTotal = picked.reduce((s, it) => s + calcItem(it).final, 0);
+        return (
+          <div className="bg__overlay" onClick={() => setAcceptOpen(false)}>
+            <div className="card bg__dialog" style={{ maxWidth: "560px" }} onClick={(e) => e.stopPropagation()}>
+              <div className="bg__dialog-head">
+                <h2>Khách chốt — chọn sản phẩm</h2>
+                <button type="button" className="bg__close" onClick={() => setAcceptOpen(false)} aria-label="Đóng"><X size={18} /></button>
+              </div>
+              <div style={{ padding: "16px" }}>
+                <div className="accept-pick-head">
+                  <label className="accept-pick-all">
+                    <input
+                      type="checkbox"
+                      checked={pickedIds.length === d.items.length}
+                      ref={(el) => { if (el) el.indeterminate = pickedIds.length > 0 && pickedIds.length < d.items.length; }}
+                      onChange={(e) => setAcceptPicks(Object.fromEntries(d.items.map((it) => [it.id, e.target.checked])))}
+                    />
+                    <span>Chọn tất cả</span>
+                  </label>
+                  <span className="accept-pick-head-count">{pickedIds.length}/{d.items.length} khách lấy</span>
+                </div>
+                <div className="accept-pick-list">
+                  {d.items.map((it) => {
+                    const on = !!acceptPicks[it.id];
+                    return (
+                      <label key={it.id} className={`accept-pick-row${on ? "" : " off"}`}>
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={(e) => setAcceptPicks((p) => ({ ...p, [it.id]: e.target.checked }))}
+                        />
+                        <span className="accept-pick-name">
+                          {it.product_name}
+                          <span className="accept-pick-qty">{it.quantity.toLocaleString("vi-VN")} {it.unit}</span>
+                        </span>
+                        <span className="accept-pick-amt">{vnd(calcItem(it).final)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <div className="accept-pick-sum">
+                  <span>Khách chốt <b>{pickedIds.length}</b>/{d.items.length} sản phẩm</span>
+                  <span className="accept-pick-sum-amt">{vnd(pickedTotal)}</span>
+                </div>
+                {err && <div className="ro-note" style={{ marginTop: "8px", color: "var(--signal)" }}>{err}</div>}
+                <div style={{ marginTop: "14px", display: "flex", gap: "8px", justifyContent: "flex-end" }}>
+                  <Button variant="ghost" disabled={busy} onClick={() => setAcceptOpen(false)}>Hủy</Button>
+                  <Button variant="primary" disabled={busy || pickedIds.length === 0} onClick={() => doAccept(pickedIds)}><Check size={15} /> Xác nhận khách chốt</Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {showPrint && <QuotationPrintModal d={d} canDownload={canExport} onClose={() => setShowPrint(false)} />}
     </main>

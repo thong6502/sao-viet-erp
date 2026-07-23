@@ -1284,6 +1284,8 @@ export interface QuoteItemDetail {
   vat_amount: number;
   final_amount: number;
   note: string | null;
+  /** Khách chốt một phần: true = khách ưng (kéo lên đơn), false = không lấy. Chỉ có nghĩa khi báo giá đã accepted. */
+  accepted: boolean;
 }
 
 export interface QuotationDetail {
@@ -4436,7 +4438,7 @@ export const api = {
     transition(
       token: string,
       id: number,
-      body: { to_status: string; cancel_reason?: string | null; row_version?: number | null },
+      body: { to_status: string; cancel_reason?: string | null; row_version?: number | null; accepted_item_ids?: number[] | null },
     ): Promise<QuotationDetail> {
       return authed<QuotationDetail>(`/api/quotations/${id}/transition`, token, {
         method: "POST",

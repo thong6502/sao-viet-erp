@@ -220,6 +220,7 @@ def _detail(
                     vat_amount=float(item.vat_amount),
                     final_amount=float(item.final_amount),
                     note=item.note,
+                    accepted=bool(item.accepted),
                 )
             )
 
@@ -658,6 +659,7 @@ def transition_quotation(
             scope=scope,
             actor=user,
             cancel_reason=payload.cancel_reason,
+            accepted_item_ids=payload.accepted_item_ids,
         )
     except (QuotationNotFound, QuotationForbidden) as e:
         if isinstance(e, QuotationForbidden) and "duyệt" in str(e):

@@ -56,6 +56,9 @@ class QuotationUpdate(BaseModel):
 class TransitionRequest(BaseModel):
     to_status: str = Field(min_length=1, max_length=20)
     cancel_reason: str | None = Field(default=None, max_length=500)
+    # Khách chốt MỘT PHẦN (to_status="accepted"): id các dòng khách ƯNG. None = ưng TẤT CẢ (tương
+    # thích luồng cũ / chốt nhanh). Danh sách rỗng bị chặn (phải chọn ≥1). Bỏ qua ở transition khác.
+    accepted_item_ids: list[int] | None = None
 
 
 class RequoteRequest(BaseModel):
@@ -146,6 +149,9 @@ class QuoteItemOut(BaseModel):
     vat_amount: float
     final_amount: float
     note: str | None
+    # Khách chốt một phần: True = khách ưng (kéo lên đơn), False = không lấy. Chỉ có nghĩa khi báo
+    # giá đã `accepted`; UI dùng để làm mờ/gạch dòng khách không lấy.
+    accepted: bool = False
 
 
 class QuotationDetailOut(BaseModel):

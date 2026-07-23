@@ -440,8 +440,14 @@ class OrderService:
         if version is None:
             raise OrderValidationError("Báo giá chưa có phiên bản hiệu lực")
 
+        # Khách chốt MỘT PHẦN: chỉ kéo dòng khách ƯNG (accepted=True). Fallback: 0 dòng True → kéo TẤT
+        # CẢ — an toàn cho báo giá cũ chốt trước khi có cột `accepted` (service accept bắt buộc ≥1 dòng
+        # True nên báo giá mới luôn có ít nhất 1).
+        accepted_items = [it for it in version.items if getattr(it, "accepted", False)]
+        source_items = accepted_items if accepted_items else list(version.items)
+
         lines = []
-        for it in sorted(version.items, key=lambda x: x.line_no):
+        for it in sorted(source_items, key=lambda x: x.line_no):
             # line_total = NET trước VAT (SAU chiết khấu) = final_amount − vat_amount — khớp đúng số
             # trên báo giá đã ghim. KHÔNG dùng qty×unit_price: `unit_price` của báo giá là giá GỘP
             # (trước CK, = selling_price/qty) → nhân trực tiếp sẽ thổi phồng đúng bằng discount.

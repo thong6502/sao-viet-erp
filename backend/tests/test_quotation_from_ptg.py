@@ -392,3 +392,55 @@ def test_resync_no_active_quote_conflict(client):
     # PTG chưa có báo giá đang hiệu lực → 409 (màn PTG sẽ đi đường tạo mới).
     r = client.post(f"/api/quotations/resync-from-ptg/{pid}", headers=_h(token))
     assert r.status_code == 409
+
+
+# --- Khách chốt MỘT PHẦN: báo giá 3 dòng, khách ưng 2 → đơn chỉ kéo 2 -----------
+
+def test_partial_accept_marks_declined_and_order_pulls_only_accepted(client):
+    """Khách chốt 2/3: 2 dòng accepted=True + 1 dòng False (giữ vết); lên đơn chỉ kéo 2 dòng ưng."""
+    token = _token(client)
+    cid = _seed_customer_full()
+    pid = _seed_ptg(products=[("A", 3_000, 3_000_000), ("B", 3_000, 3_000_000), ("C", 3_000, 3_000_000)])
+    q = client.post("/api/quotations",
+                    json={"phieu_tinh_gia_id": pid, "customer_id": cid}, headers=_h(token)).json()
+    ids = [it["id"] for it in q["items"]]
+    r = client.post(f"/api/quotations/{q['id']}/transition",
+                    json={"to_status": "accepted", "accepted_item_ids": ids[:2]}, headers=_h(token))
+    assert r.status_code == 200, r.text
+    d = r.json()
+    assert d["status"] == "accepted"
+    acc = {it["id"]: it["accepted"] for it in d["items"]}
+    assert acc[ids[0]] is True and acc[ids[1]] is True
+    assert acc[ids[2]] is False          # dòng khách không lấy — giữ trên báo giá, cờ False
+    # Lên đơn hàng: chỉ 2 dòng khách ưng được kéo sang.
+    order = client.post("/api/orders",
+                        json={"source_type": "bao_gia", "quotation_id": q["id"]}, headers=_h(token))
+    assert order.status_code == 201, order.text
+    assert len(order.json()["lines"]) == 2
+
+
+def test_accept_no_selection_accepts_all(client):
+    """Không gửi accepted_item_ids (chốt nhanh / 1 dòng) → ưng TẤT CẢ; đơn kéo đủ dòng."""
+    token = _token(client)
+    cid = _seed_customer_full()
+    pid = _seed_ptg(products=[("A", 3_000, 3_000_000), ("B", 3_000, 3_000_000)])
+    q = client.post("/api/quotations",
+                    json={"phieu_tinh_gia_id": pid, "customer_id": cid}, headers=_h(token)).json()
+    r = client.post(f"/api/quotations/{q['id']}/transition",
+                    json={"to_status": "accepted"}, headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert all(it["accepted"] for it in r.json()["items"])
+    order = client.post("/api/orders",
+                        json={"source_type": "bao_gia", "quotation_id": q["id"]}, headers=_h(token))
+    assert order.status_code == 201, order.text
+    assert len(order.json()["lines"]) == 2
+
+
+def test_accept_empty_selection_rejected(client):
+    """Tick 0 dòng = không phải 'chốt' → 422 (bắt chọn ≥1)."""
+    token = _token(client)
+    pid = _seed_ptg(products=[("A", 3_000, 3_000_000), ("B", 3_000, 3_000_000)])
+    q = client.post("/api/quotations", json={"phieu_tinh_gia_id": pid}, headers=_h(token)).json()
+    r = client.post(f"/api/quotations/{q['id']}/transition",
+                    json={"to_status": "accepted", "accepted_item_ids": []}, headers=_h(token))
+    assert r.status_code == 422

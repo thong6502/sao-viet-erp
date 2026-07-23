@@ -2336,6 +2336,19 @@ def _migrate_routing_step_may_ca(db: Session) -> None:
     db.commit()
 
 
+def _migrate_quote_item_accepted(db: Session) -> None:
+    """Khách chốt MỘT PHẦN: thêm `quote_items.accepted` (BOOLEAN NOT NULL DEFAULT FALSE). Khi ghi
+    "Khách chốt", mỗi dòng nhận quyết định ưng/không-ưng; đơn hàng chỉ kéo dòng accepted=True. DEFAULT
+    FALSE (bool Postgres) an toàn cho báo giá cũ (chưa quyết định) — order_service fallback: 0 dòng
+    True → kéo tất cả. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "quote_items" not in insp.get_table_names():
+        return
+    if "accepted" not in _existing_columns(insp, "quote_items"):
+        db.execute(text("ALTER TABLE quote_items ADD COLUMN accepted BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
 def _migrate_drop_kho_giay_chuan(db: Session) -> None:
     """Gỡ HẲN module "Khổ giấy chuẩn": drop bảng `kho_giay_chuan`. Khổ giấy nguyên tờ
     nay nhập tay ở phiếu tính giá; danh mục Giấy chỉ giữ định lượng + đơn giá/kg. No-op trên
@@ -2462,6 +2475,8 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0089_drop_san_luong_module", _migrate_drop_san_luong_module),
     # Gỡ module "Khổ giấy chuẩn" — danh mục thừa; khổ giấy nhập tay ở phiếu tính giá.
     ("0090_drop_kho_giay_chuan", _migrate_drop_kho_giay_chuan),
+    # Khách chốt MỘT PHẦN: cờ dòng báo giá khách ưng/không (đơn chỉ kéo dòng accepted).
+    ("0091_quote_item_accepted", _migrate_quote_item_accepted),
 ]
 
 

@@ -483,7 +483,9 @@ select.tg-input {
   justify-content: space-between;
   gap: var(--sp-4);
   margin-top: var(--sp-4);
-  padding-top: var(--sp-4);
+  /* Padding ngang 14px khớp inset ô bảng (.secttl / td) + padding dưới để nội dung không bị bo
+     góc r-5 của .panel (overflow:hidden) "lẹm" vào số/chữ. */
+  padding: var(--sp-4) 14px;
   border-top: 2px solid var(--ink);
   font-family: var(--ff-sans);
   font-size: 15px;

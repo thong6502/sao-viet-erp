@@ -632,6 +632,7 @@ pick** (logic chốt: báo giá không soạn tay, chỉ pick từ phiếu tính
 | `vat_amount` | `Numeric(15,2)` | — | no | `0` | Tiền VAT dòng. |
 | `final_amount` | `Numeric(15,2)` | — | no | `0` | Thành tiền dòng (đã VAT). |
 | `note` | `String(500)` | — | yes | — | Ghi chú dòng. |
+| `accepted` | `Boolean` → `BOOLEAN` | — | no | `false` | Khách chốt MỘT PHẦN: True = khách ưng dòng (kéo lên đơn), False = không lấy (giữ vết). Chỉ có nghĩa sau khi báo giá `accepted`. Đơn kéo dòng True (0 True → kéo tất cả, tương thích cũ). Migration 0091. |
 
 ### `quote_attachments`
 
