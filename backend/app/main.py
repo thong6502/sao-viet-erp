@@ -48,6 +48,7 @@ from .routers import (
     phieu_tinh_gia,
     lsx,
     bai_ghep,
+    xep_lich,
 )
 from .seed import seed_all
 
@@ -133,6 +134,7 @@ app.include_router(tinh_gia.router)
 app.include_router(phieu_tinh_gia.router)
 app.include_router(lsx.router)
 app.include_router(bai_ghep.router)
+app.include_router(xep_lich.router)
 
 
 

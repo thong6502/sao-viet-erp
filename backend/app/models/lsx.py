@@ -35,13 +35,15 @@ LOAI_MAU = "mau"
 LOAI_NOI_BO = "noi_bo"
 LOAI_LSX = (LOAI_MOI, LOAI_BO_SUNG, LOAI_BU, LOAI_LAM_LAI, LOAI_MAU, LOAI_NOI_BO)
 
-# --- Trạng thái — lát 1 dừng ở `san_sang`. Các mốc sau (`da_lap_ke_hoach`, `da_phat_hanh`,
-# `dang_san_xuat`, `hoan_thanh`, `da_dong`) thuộc pha xếp lịch / thực thi, CHƯA dùng.
+# --- Trạng thái. `da_lap_ke_hoach` (pha xếp lịch) ĐÃ dùng: set qua service xếp lịch (KHÔNG qua
+# `set_trang_thai` chung) và KHÓA routing khi ở mốc này — gỡ kế hoạch để mở lại. Các mốc sau
+# (`da_phat_hanh`, `dang_san_xuat`, `hoan_thanh`, `da_dong`) thuộc pha thực thi, CHƯA dùng.
 TT_NHAP = "nhap"                 # vừa tạo, dữ liệu đủ
 TT_CHO_BO_SUNG = "cho_bo_sung"   # thiếu file/khuôn/quy cách/routing
 TT_SAN_SANG = "san_sang"         # kế hoạch xác nhận đủ → chờ xếp lịch
-TRANG_THAI_LSX = (TT_NHAP, TT_CHO_BO_SUNG, TT_SAN_SANG)
-TRANG_THAI_SUA_DUOC = (TT_NHAP, TT_CHO_BO_SUNG, TT_SAN_SANG)  # chưa phát hành → sửa/xoá được
+TT_DA_LAP_KE_HOACH = "da_lap_ke_hoach"  # đã sinh dòng xếp lịch → routing bị khóa
+TRANG_THAI_LSX = (TT_NHAP, TT_CHO_BO_SUNG, TT_SAN_SANG, TT_DA_LAP_KE_HOACH)
+TRANG_THAI_SUA_DUOC = (TT_NHAP, TT_CHO_BO_SUNG, TT_SAN_SANG)  # chưa lập KH → sửa/xoá routing được
 
 # --- Đơn vị đếm của 1 công đoạn (print MIS: mỗi operation có đơn vị riêng, đổi ở ranh giới xén).
 DV_TO = "to"      # tờ in

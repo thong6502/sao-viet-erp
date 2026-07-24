@@ -15,6 +15,7 @@ import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
 import { BaiGhepPage } from "../pages/BaiGhepPage";
+import { XepLichPage } from "../pages/XepLichPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
@@ -186,6 +187,11 @@ export function AppShell() {
         .hangCho(token)
         .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
         .catch(() => {});
+      // Badge Xếp lịch = số nguồn (LSX / bài ghép) đang chờ xếp (chưa đưa vào kế hoạch).
+      api.xepLich
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
+        .catch(() => {});
     }
     // Badge Lương = số đề nghị tạm ứng đang chờ TÔI duyệt (0 với người không có quyền duyệt).
     if (readable.has("luong")) {
@@ -265,9 +271,15 @@ export function AppShell() {
             lastOrderAction.current = s.action_count;
           })
           .catch(() => {});
-      } else if (readable.has("san_xuat") && (e.type === "order_ordered" || e.type === "lsx_changed")) {
-        // Sale bấm "Chuyển xuống sản xuất" → đơn rơi vào hàng chờ Kế hoạch NGAY (badge nhảy + toast);
-        // Kế hoạch tạo/xoá lệnh → hàng chờ tự co lại. Nội dung do màn tự refetch qua `quoteTick`.
+      } else if (
+        readable.has("san_xuat") &&
+        (e.type === "order_ordered" ||
+          e.type === "lsx_changed" ||
+          e.type === "bai_ghep_changed" ||
+          e.type === "xep_lich_changed")
+      ) {
+        // Sale "Chuyển xuống sản xuất" → hàng chờ Kế hoạch nhảy (badge + toast); Kế hoạch/ghép bài/
+        // xếp lịch đổi → 3 badge khối Sản xuất co giãn NGAY. Nội dung màn tự refetch qua `quoteTick`.
         api.lsx
           .hangCho(token)
           .then((r) => {
@@ -276,6 +288,14 @@ export function AppShell() {
               pushToast(`🔔 Đơn ${e.code ?? ""} vừa chuyển xuống sản xuất`.trim(), "info");
             }
           })
+          .catch(() => {});
+        api.baiGhep
+          .hangCho(token)
+          .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
+          .catch(() => {});
+        api.xepLich
+          .hangCho(token)
+          .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
           .catch(() => {});
       } else if (readable.has("khach_hang") && e.type === "care_due") {
         // Tới giờ hẹn → ting người phụ trách: toast + badge "Khách hàng" (số việc đến hạn) tự nhảy.
@@ -419,6 +439,8 @@ export function AppShell() {
         );
       case "bai-ghep":
         return <BaiGhepPage eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+      case "xep-lich-cong-doan":
+        return <XepLichPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage

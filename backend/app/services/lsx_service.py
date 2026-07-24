@@ -41,6 +41,7 @@ from ..models.lsx import (
     NS_KEM_GIO,
     NS_TO_GIO,
     TT_CHO_BO_SUNG,
+    TT_DA_LAP_KE_HOACH,
     TT_NHAP,
     TT_SAN_SANG,
     TRANG_THAI_LSX,
@@ -911,6 +912,8 @@ class LsxService:
 
     def update(self, *, lsx_id: int, payload, actor) -> Lsx:
         lsx = self.get(lsx_id)
+        if lsx.trang_thai == TT_DA_LAP_KE_HOACH:
+            raise LsxConflict("Lệnh đã lập kế hoạch — gỡ kế hoạch trước khi sửa")
         data = payload.model_dump(exclude_unset=True)
         changed: list[str] = []
         for field in (
@@ -948,6 +951,8 @@ class LsxService:
 
     def replace_routing(self, *, lsx_id: int, rows_in, actor, ly_do: str | None = None) -> Lsx:
         lsx = self.get(lsx_id)
+        if lsx.trang_thai == TT_DA_LAP_KE_HOACH:
+            raise LsxConflict("Lệnh đã lập kế hoạch — gỡ kế hoạch trước khi sửa routing")
         truoc = len(lsx.cong_doans)
         rows: list[LsxCongDoan] = []
         for i, r in enumerate(rows_in):
@@ -1001,6 +1006,10 @@ class LsxService:
         lsx = self.get(lsx_id)
         if trang_thai not in TRANG_THAI_LSX:
             raise LsxValidationError("Trạng thái không hợp lệ")
+        if trang_thai == TT_DA_LAP_KE_HOACH:
+            raise LsxValidationError("Lập kế hoạch qua màn Xếp lịch, không đổi trực tiếp ở đây")
+        if lsx.trang_thai == TT_DA_LAP_KE_HOACH:
+            raise LsxConflict("Lệnh đã lập kế hoạch — gỡ kế hoạch trước")
         if trang_thai == TT_SAN_SANG:
             thieu = self.thieu_cua(lsx)
             if thieu:
@@ -1016,6 +1025,8 @@ class LsxService:
     def xoa(self, *, lsx_id: int, actor) -> int:
         """Xoá lệnh chưa phát hành → dòng đơn quay lại hàng chờ. Trả `order_id` để router bắn SSE."""
         lsx = self.get(lsx_id)
+        if lsx.trang_thai == TT_DA_LAP_KE_HOACH:
+            raise LsxConflict("Lệnh đã lập kế hoạch — gỡ kế hoạch trước khi xoá")
         # Coupling bài ghép: neo thành viên là FK RESTRICT (chặn ở Postgres); SQLite dev tắt FK nên
         # chặn ở đây + báo đẹp. Gỡ LSX khỏi bài ghép trước rồi mới xoá được lệnh.
         ghep_ma = self.db.execute(

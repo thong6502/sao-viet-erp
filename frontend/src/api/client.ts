@@ -202,6 +202,8 @@ export type QuoteEvent =
   | { type: "lsx_changed"; order_id: number }
   // Bài ghép tạo/sửa/xoá → hàng chờ ghép + danh sách bài ghép cập nhật ngay (không cần refresh).
   | { type: "bai_ghep_changed" }
+  // Xếp lịch: đưa vào/gỡ kế hoạch · gán máy-ca-giờ · khóa → bàn Xếp lịch + badge cập nhật ngay.
+  | { type: "xep_lich_changed" }
   // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
   | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number };
 
@@ -330,6 +332,92 @@ export interface BaiGhepUpdateBody {
   giay_id?: number | null; kho_in_dai?: number | null; kho_in_rong?: number | null;
   may_id?: number | null; hao_hut_setup?: number; hao_hut_chay?: number; ghi_chu?: string | null;
 }
+
+// --- Xếp lịch công đoạn — bàn xếp lịch (máy + giờ) của Kế hoạch sản xuất -------
+// Routing đã "sẵn sàng" → đưa vào kế hoạch (khóa routing) → gán máy/tổ/NCC + ca + giờ; hệ tính giờ
+// kết thúc + độ dư + nhãn nguy cơ + cờ xung đột. Số DẪN XUẤT tính lúc đọc ở server (không lưu cột).
+export type XepLichNguon = "lsx" | "in_ghep";
+/** Nhãn nguy cơ trễ do server chấm (theo độ dư so hạn). FE dịch qua NguyCoTreChip. */
+export type XepLichRuiRo =
+  | "an_toan"
+  | "sap_toi_han"
+  | "nguy_co_tre"
+  | "da_tre"
+  | "chua_co_han";
+
+/** 1 nguồn trong order-pool "Chờ xếp": LSX độc lập hoặc bài ghép đã sẵn sàng, chưa đưa vào kế hoạch. */
+export interface XepLichHangChoItem {
+  nguon: XepLichNguon;
+  id: number;
+  ma: string;
+  ten: string | null;
+  so_cong_doan: number;
+  is_rush: boolean;
+  han_hoan_thanh_sx: string | null;
+}
+export interface XepLichHangChoOut { items: XepLichHangChoItem[]; total: number }
+
+/** 1 dòng lịch = 1 công đoạn cần xếp (hoặc lần in chung của bài ghép). Mọi số dẫn xuất đã tính sẵn. */
+export interface XepLichRow {
+  id: number;
+  nguon: XepLichNguon;
+  lsx_id: number | null;
+  bai_ghep_id: number | null;
+  lsx_ma: string | null;         // in_ghep → mã bài ghép
+  cong_doan_ten: string | null;  // in_ghep → "In chung"
+  loai_buoc: LsxLoaiBuoc | null;
+  so_luong_vao: number | null;
+  don_vi_vao: string | null;
+  // Tài nguyên gán (record-only: máy đề xuất, người quyết)
+  may_id: number | null;
+  may_ten: string | null;
+  department_id: number | null;
+  department_ten: string | null;
+  nha_cung_cap: string | null;
+  work_shift_id: number | null;
+  // Lịch (ISO datetime "giờ nhà máy") + dẫn xuất
+  som_nhat: string | null;
+  muon_nhat: string | null;
+  start_at: string | null;
+  finish_at: string | null;
+  chiem_may_phut: number;
+  tong_phut: number;
+  slack_ngay: number | null;
+  nhan_rui_ro: XepLichRuiRo | null;
+  // Trạng thái
+  trang_thai: string;            // cho_xep | da_xep
+  is_locked: boolean;
+  co_xung_dot: boolean;
+  blocked_reason: string | null; // thieu_may | thieu_thoi_luong | cho_tien_de | …
+  is_rush: boolean;
+}
+export interface XepLichRowListOut { items: XepLichRow[]; total: number }
+
+/** Gán tài nguyên/giờ cho 1 dòng — CHỈ gửi field cần sửa (router `exclude_unset`). */
+export interface XepLichGanBody {
+  may_id?: number | null;
+  department_id?: number | null;
+  nha_cung_cap?: string | null;
+  work_shift_id?: number | null;
+  start_at?: string | null;
+}
+/** 1 dòng trong gán-loạt (bulk) — kèm id dòng. */
+export type XepLichGanLoatRow = XepLichGanBody & { id: number };
+
+/** Gợi ý xếp (chỉ đọc): máy trống sớm nhất + kết thúc nếu xếp + hạn lùi còn kịp giao. */
+export interface XepLichGoiY {
+  may_id: number | null;
+  khe_trong: string | null;
+  finish_neu_xep: string | null;
+  han_lui: string | null;
+}
+
+/** Mã lý do bị chặn (`blocked_reason`) → nhãn hiển thị (server trả mã, FE dịch). */
+export const XEP_LICH_BLOCKED_LABELS: Record<string, string> = {
+  thieu_may: "Chưa gán máy / tổ",
+  thieu_thoi_luong: "Chưa khai năng suất — không tính được thời lượng",
+  cho_tien_de: "Chờ bước trước xếp / xong",
+};
 
 export interface HangChoItem {
   order_id: number;
@@ -4539,6 +4627,57 @@ export const api = {
     },
     activity(token: string, id: number): Promise<{ items: LsxActivity[] }> {
       return authed<{ items: LsxActivity[] }>(`/api/bai-ghep/${id}/activity`, token);
+    },
+  },
+
+  // --- Xếp lịch công đoạn — bàn xếp lịch (máy + giờ) của Kế hoạch sản xuất ----
+  xepLich: {
+    /** Order-pool "Chờ xếp": LSX độc lập + bài ghép đã sẵn sàng, CHƯA đưa vào kế hoạch. */
+    hangCho(token: string): Promise<XepLichHangChoOut> {
+      return authed<XepLichHangChoOut>("/api/xep-lich/hang-cho", token);
+    },
+    /** Bảng dòng lịch (đã đưa vào kế hoạch). `may_id`/`q` lọc phía server; màn dùng lọc client-side. */
+    dong(token: string, params: { may_id?: number; q?: string } = {}): Promise<XepLichRowListOut> {
+      const qs = new URLSearchParams();
+      if (params.may_id) qs.set("may_id", String(params.may_id));
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<XepLichRowListOut>(`/api/xep-lich/dong${suffix}`, token);
+    },
+    duaVaoLsx(token: string, lsxId: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/dua-vao/lsx/${lsxId}`, token, { method: "POST" });
+    },
+    duaVaoBaiGhep(token: string, baiGhepId: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/dua-vao/bai-ghep/${baiGhepId}`, token, { method: "POST" });
+    },
+    goLsx(token: string, lsxId: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/lsx/${lsxId}`, token, { method: "DELETE" });
+    },
+    goBaiGhep(token: string, baiGhepId: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/bai-ghep/${baiGhepId}`, token, { method: "DELETE" });
+    },
+    /** Gán 1 dòng — chỉ gửi field cần sửa. Trả về dòng đã tính lại (finish/xung đột/trạng thái). */
+    gan(token: string, dongId: number, body: XepLichGanBody): Promise<XepLichRow> {
+      return authed<XepLichRow>(`/api/xep-lich/dong/${dongId}/gan`, token, {
+        method: "PUT", body: JSON.stringify(body),
+      });
+    },
+    /** Gán hàng loạt (bulk) — mỗi dòng kèm id + field cần sửa. */
+    ganLoat(token: string, rows: XepLichGanLoatRow[]): Promise<XepLichRowListOut> {
+      return authed<XepLichRowListOut>("/api/xep-lich/dong/gan-loat", token, {
+        method: "PUT", body: JSON.stringify({ rows }),
+      });
+    },
+    khoa(token: string, dongId: number, khoa: boolean): Promise<XepLichRow> {
+      return authed<XepLichRow>(`/api/xep-lich/dong/${dongId}/khoa`, token, {
+        method: "POST", body: JSON.stringify({ khoa }),
+      });
+    },
+    moKhoa(token: string, dongId: number): Promise<XepLichRow> {
+      return authed<XepLichRow>(`/api/xep-lich/dong/${dongId}/mo-khoa`, token, { method: "POST" });
+    },
+    goiY(token: string, dongId: number): Promise<XepLichGoiY> {
+      return authed<XepLichGoiY>(`/api/xep-lich/dong/${dongId}/goi-y`, token);
     },
   },
 

@@ -12,10 +12,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models.bai_ghep import (
-    TRANG_THAI_BAI_GHEP, TT_NHAP, TT_SAN_SANG, BaiGhep, BaiGhepThanhVien,
+    TRANG_THAI_BAI_GHEP, TT_DA_LAP_KE_HOACH, TT_NHAP, TT_SAN_SANG, BaiGhep, BaiGhepThanhVien,
 )
 from ..models.customer import Customer
-from ..models.lsx import LB_MAY, TT_SAN_SANG as LSX_SAN_SANG, Lsx
+from ..models.lsx import (
+    LB_MAY, TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_SAN_SANG as LSX_SAN_SANG, Lsx,
+)
 from ..models.may_thiet_bi import MayThietBi
 from ..models.order import STATUS_ORDERED, Order
 from ..models.vat_lieu_kho import GiayNguyen
@@ -108,6 +110,11 @@ class BaiGhepService:
         if bg.trang_thai == TT_SAN_SANG:
             bg.trang_thai = TT_NHAP
 
+    def _chan_da_lap(self, bg: BaiGhep) -> None:
+        """Đã lập kế hoạch → khóa sửa thành viên/giấy (gỡ kế hoạch ở màn Xếp lịch để mở lại)."""
+        if bg.trang_thai == TT_DA_LAP_KE_HOACH:
+            raise BaiGhepConflict("Bài ghép đã lập kế hoạch — gỡ kế hoạch trước khi sửa")
+
     # ================= HÀNG CHỜ GHÉP =================
 
     def hang_cho_ghep(self, *, giay_id: int | None = None, q: str | None = None) -> list[dict]:
@@ -190,6 +197,7 @@ class BaiGhepService:
 
     def them_thanh_vien(self, *, bai_ghep_id: int, lsx_ids: list[int], actor) -> BaiGhep:
         bg = self._get(bai_ghep_id)
+        self._chan_da_lap(bg)
         co_san = {tv.lsx_id for tv in bg.thanh_viens}
         ids = [int(i) for i in dict.fromkeys(lsx_ids) if int(i) not in co_san]
         if not ids:
@@ -210,6 +218,7 @@ class BaiGhepService:
 
     def bo_thanh_vien(self, *, bai_ghep_id: int, thanh_vien_id: int, actor) -> BaiGhep:
         bg = self._get(bai_ghep_id)
+        self._chan_da_lap(bg)
         tv = next((t for t in bg.thanh_viens if t.id == thanh_vien_id), None)
         if tv is None:
             raise BaiGhepNotFound("Không tìm thấy thành viên")
@@ -224,6 +233,7 @@ class BaiGhepService:
 
     def sua_thanh_vien(self, *, bai_ghep_id: int, thanh_vien_id: int, so_con_tren_to: int, actor) -> BaiGhep:
         bg = self._get(bai_ghep_id)
+        self._chan_da_lap(bg)
         tv = next((t for t in bg.thanh_viens if t.id == thanh_vien_id), None)
         if tv is None:
             raise BaiGhepNotFound("Không tìm thấy thành viên")
@@ -236,6 +246,7 @@ class BaiGhepService:
 
     def sua(self, *, bai_ghep_id: int, patch: dict, actor) -> BaiGhep:
         bg = self._get(bai_ghep_id)
+        self._chan_da_lap(bg)
         for field in ("giay_id", "kho_in_dai", "kho_in_rong", "may_id", "hao_hut_setup",
                       "hao_hut_chay", "ghi_chu"):
             if field in patch:
@@ -355,7 +366,7 @@ class BaiGhepService:
         hans = [l.han_hoan_thanh_sx for l in lsxs if l and l.han_hoan_thanh_sx]
         if len(hans) >= 2 and (max(hans) - min(hans)).days > LECH_HAN_NGAY:
             cb.append("lech_han")
-        if any(l and l.trang_thai != LSX_SAN_SANG for l in lsxs):
+        if any(l and l.trang_thai not in (LSX_SAN_SANG, LSX_DA_LAP) for l in lsxs):
             cb.append("thanh_vien_khong_san_sang")
         # Đơn thành viên bị huỷ sau khi ghép.
         order_ids = {l.order_id for l in lsxs if l}
@@ -377,6 +388,10 @@ class BaiGhepService:
         bg = self._get(bai_ghep_id)
         if trang_thai not in TRANG_THAI_BAI_GHEP:
             raise BaiGhepValidationError("Trạng thái không hợp lệ")
+        if trang_thai == TT_DA_LAP_KE_HOACH:
+            raise BaiGhepValidationError("Lập kế hoạch qua màn Xếp lịch, không đổi trực tiếp ở đây")
+        if bg.trang_thai == TT_DA_LAP_KE_HOACH:
+            raise BaiGhepConflict("Bài ghép đã lập kế hoạch — gỡ kế hoạch trước")
         if trang_thai == TT_SAN_SANG and self.thieu_cua(bg):
             raise BaiGhepConflict("Còn thiếu dữ liệu — bổ sung xong mới đánh dấu sẵn sàng")
         bg.trang_thai = trang_thai
@@ -389,6 +404,7 @@ class BaiGhepService:
 
     def xoa(self, *, bai_ghep_id: int, actor) -> None:
         bg = self._get(bai_ghep_id)
+        self._chan_da_lap(bg)
         ma = bg.ma
         self.repo.delete(bg)  # cascade xoá thành viên → LSX tự do lại
         self.audit.create(

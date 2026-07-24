@@ -2892,7 +2892,7 @@ Ba cột nuôi thẳng routing của Lệnh SX (giá trị MẶC ĐỊNH, kế h
 | `routing_goc_json` | `JSON` | — | yes | — | Ảnh chụp routing LÚC TẠO lệnh (list rút gọn: `ten`·`nhom`·`loai_buoc`). CHỈ để cảnh báo "routing đã đổi so với bài tính giá" — không dùng tính lại gì. |
 | `khuon_be_id` | `Integer` | IX | yes | — | Soft → `khuon_be.id` — kế hoạch gán khuôn. |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` — máy in dự kiến. |
-| `trang_thai` | `String(20)` | — | no | `nhap` | `nhap` → `cho_bo_sung` → `san_sang`. Các mốc xếp lịch/phát hành thuộc pha sau. |
+| `trang_thai` | `String(20)` | — | no | `nhap` | `nhap` → `cho_bo_sung` → `san_sang` → `da_lap_ke_hoach` (đã sinh dòng xếp lịch → routing khóa). Mốc phát hành/thực thi thuộc pha sau. |
 | `nguoi_phu_trach_id` | `Integer` | IX | yes | — | Soft → `users.id` — người kế hoạch phụ trách lệnh. |
 | `ghi_chu` | `Text` | — | yes | — | Ghi chú kế hoạch. |
 | `created_by` | `Integer` | — | yes | — | Soft → `users.id`. |
@@ -2968,7 +2968,7 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 | --- | --- | --- | --- | --- | --- |
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
 | `ma` | `String(30)` → `VARCHAR(30)` | U, IX | no | — | `GB26-0001` (`SequenceService.generate_code("bai_ghep")`). |
-| `trang_thai` | `String(20)` | — | no | `nhap` | `nhap` → `san_sang`. Mốc xếp lịch/phát hành/in thuộc pha sau. |
+| `trang_thai` | `String(20)` | — | no | `nhap` | `nhap` → `san_sang` → `da_lap_ke_hoach` (đã lập kế hoạch → khóa sửa thành viên/giấy). Mốc phát hành/in thuộc pha sau. |
 | `giay_id` | `Integer` | IX | yes | — | Soft → `giay_nguyen.id` — giấy chạy chung (1 tờ ghép 1 loại giấy). |
 | `kho_in_dai` | `Integer` | — | yes | — | Khổ tờ in chạy chung (mm). |
 | `kho_in_rong` | `Integer` | — | yes | — | Khổ tờ in chạy chung (mm). |
@@ -3014,6 +3014,47 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 - Nhiều `bai_ghep_thanh_vien` thuộc một `bai_ghep`; mỗi thành viên trỏ một `lsx`. Guard "1 LSX ≤ 1 bài ghép" ở service (`NOT EXISTS`).
 
 **Tất cả cột:** `id`, `bai_ghep_id`, `lsx_id`, `so_con_tren_to`.
+
+---
+
+### `xep_lich_cong_doan`
+
+**Purpose:** 1 dòng kế hoạch xếp lịch cho 1 công đoạn (operation của lệnh) HOẶC 1 lần in chung của bài ghép. Chỉ lưu QUYẾT ĐỊNH của người (máy/tổ/NCC · ca · giờ · trạng thái · khóa); số dẫn xuất tính lúc đọc. Bảng mới → `create_all` tự tạo (không migration).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `nguon` | `String(12)` | — | no | `lsx` | `lsx` (công đoạn 1 lệnh) / `in_ghep` (in chung bài ghép). |
+| `lsx_id` | `Integer` | FK→`lsx.id` (CASCADE), IX | yes | — | Lệnh chứa dòng; NULL khi `in_ghep`. |
+| `lsx_cong_doan_id` | `Integer` | IX | yes | — | Soft → `lsx_cong_doan.id` (neo CHÍNH; id ổn định nhờ khóa routing khi đã lập KH). NULL khi `in_ghep`. |
+| `bai_ghep_id` | `Integer` | FK→`bai_ghep.id` (CASCADE), IX | yes | — | Bài ghép của dòng in chung; NULL khi `lsx`. |
+| `source_thu_tu` | `Integer` | — | no | `0` | Snapshot `lsx_cong_doan.thu_tu` — sắp chuỗi + suy bước trước/sau. |
+| `loai_buoc` | `String(12)` | — | no | `may` | Snapshot loại bước (`may`/`to`/`thue_ngoai`/`cho`/`kcs`/`xa_to`). |
+| `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` — máy được gán. |
+| `department_id` | `Integer` | IX | yes | — | Soft → `departments.id` — tổ (bước `to`/`kcs`). |
+| `nha_cung_cap` | `String(150)` | — | yes | — | NCC khi thuê ngoài — text tự do (như `lsx_cong_doan.nha_cung_cap`). |
+| `work_shift_id` | `Integer` | IX | yes | — | Soft → `work_shifts.id` — ca. |
+| `start_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Giờ bắt đầu kế hoạch (intraday, giờ nhà máy). |
+| `finish_at` | `DateTime(timezone=True)` | — | yes | — | Giờ kết thúc = `start_at` + chiếm máy (cộng theo giờ làm). Nguồn query xung đột máy. |
+| `trang_thai` | `String(16)` | — | no | `cho_xep` | `cho_xep` / `da_xep`. "Đã khóa"/"Có xung đột" là hiển thị DẪN XUẤT (từ `is_locked` + cờ xung đột). |
+| `is_locked` | `Boolean` → `BOOLEAN` | — | no | `false` | Ghim/khóa dòng (freeze — thao tác hàng loạt bỏ qua). |
+| `blocked_reason` | `String(200)` | — | yes | — | Mã lý do chưa xếp được (`thieu_may` / `thieu_thoi_luong` / `cho_tien_de`). |
+| `ghi_chu` | `String(500)` | — | yes | — | |
+| `created_by` | `Integer` | — | yes | — | Soft → `users.id`. |
+| `created_at` | `DateTime(timezone=True)` | — | no | now | |
+| `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
+
+> **Derived, KHÔNG lưu cột** (service `xep_lich_service` tính lúc đọc): thời lượng (`chiem_may_phut`/`tong_phut` = `thoi_luong_buoc`) · sớm-nhất/muộn-nhất (forward/backward theo giờ làm) · độ dư + nhãn nguy cơ (`an_toan`/`sap_toi_han`/`nguy_co_tre`/`da_tre`/`chua_co_han`) · cờ xung đột máy (so khoảng `[start_at, finish_at)` cùng máy).
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign keys: `lsx_id` FK→`lsx.id` (on delete CASCADE), `bai_ghep_id` FK→`bai_ghep.id` (on delete CASCADE). Indexes: `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `may_id`, `department_id`, `work_shift_id`, tổ hợp `ix_xep_lich_may_thoigian` (`may_id`, `start_at`).
+
+**Relationships**
+
+- Neo `lsx_cong_doan_id` là SOFT (không FK) — an toàn vì routing bị khóa khi lệnh `da_lap_ke_hoach`. Cấu trúc (`lsx_id`/`bai_ghep_id`) là FK THẬT + CASCADE (lớp chặn cuối DB); vòng đời "gỡ kế hoạch" xóa dòng TRƯỚC khi mở lại routing nên không mồ côi.
+
+**Tất cả cột:** `id`, `nguon`, `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `source_thu_tu`, `loai_buoc`, `may_id`, `department_id`, `nha_cung_cap`, `work_shift_id`, `start_at`, `finish_at`, `trang_thai`, `is_locked`, `blocked_reason`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
 
 ---
 

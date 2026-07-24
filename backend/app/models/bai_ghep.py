@@ -27,12 +27,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 
-# --- Trạng thái — lát 1 dừng ở `san_sang` (đủ điều kiện tối thiểu → chờ xếp lịch). Các mốc sau
-# (`da_xep_lich`, `da_phat_hanh`, `dang_in`, `da_in_xong`, `da_xa_to`, `hoan_thanh`) thuộc pha
-# xếp lịch / thực thi, CHƯA dùng.
+# --- Trạng thái. `da_lap_ke_hoach` (pha xếp lịch) ĐÃ dùng: set qua service xếp lịch, khóa sửa thành
+# viên/giấy khi ở mốc này — gỡ kế hoạch để mở lại. Các mốc sau (`da_phat_hanh`, `dang_in`,
+# `da_in_xong`, `da_xa_to`, `hoan_thanh`) thuộc pha thực thi, CHƯA dùng.
 TT_NHAP = "nhap"            # vừa tạo / đang cấu hình giấy·khổ·thành viên
 TT_SAN_SANG = "san_sang"   # qua checklist tối thiểu → sẵn sàng xếp lịch
-TRANG_THAI_BAI_GHEP = (TT_NHAP, TT_SAN_SANG)
+TT_DA_LAP_KE_HOACH = "da_lap_ke_hoach"  # đã sinh dòng xếp lịch → khóa sửa thành viên/giấy
+TRANG_THAI_BAI_GHEP = (TT_NHAP, TT_SAN_SANG, TT_DA_LAP_KE_HOACH)
 
 
 def _utcnow() -> datetime:

@@ -72,6 +72,83 @@ export const TRANG_THAI_TABS: { key: string; label: string; tone?: "default" | "
   { key: "san_sang", label: "Sẵn sàng" },
 ];
 
+// --- trạng thái XẾP LỊCH (bàn Xếp lịch công đoạn) ---------------------------
+// Mọi nhãn của bàn xếp lịch nằm ĐÚNG MỘT chỗ (cùng file với pill/chip lệnh) — không đẻ file nhãn riêng.
+
+/** Thời lượng phút → "1 giờ 13 phút". Chữ CÓ DẤU nên KHÔNG dùng mono; canh cột bằng tabular-nums ở CSS. */
+export function thoiLuong(phut: number | null | undefined): string {
+  if (phut == null || phut <= 0) return "—";
+  const t = Math.round(phut);
+  const gio = Math.floor(t / 60);
+  const p = t % 60;
+  if (gio && p) return `${gio} giờ ${p} phút`;
+  if (gio) return `${gio} giờ`;
+  return `${p} phút`;
+}
+
+/** Pill trạng thái xếp lịch (bo TRÒN, bám .khsx-pill). Suy từ trang_thai + is_locked + co_xung_dot;
+ *  ưu tiên Xung đột > Khóa > Đã xếp > Chờ. CÓ CHỮ (không chỉ dựa màu — a11y). */
+export function LichTrangThaiPill({
+  trangThai,
+  isLocked = false,
+  coXungDot = false,
+}: {
+  trangThai: string;
+  isLocked?: boolean;
+  coXungDot?: boolean;
+}) {
+  let cls = "xlcd-lpill--cho";
+  let label = "Chờ xếp lịch";
+  let icon: IconName | null = null;
+  if (coXungDot) {
+    cls = "xlcd-lpill--xungdot";
+    label = "Có xung đột";
+    icon = "ban";
+  } else if (isLocked) {
+    cls = "xlcd-lpill--khoa";
+    label = "Đã khóa";
+    icon = "lock";
+  } else if (trangThai === "da_xep") {
+    cls = "xlcd-lpill--daxep";
+    label = "Đã xếp lịch";
+  }
+  return (
+    <span className={`khsx-pill ${cls}`}>
+      {icon ? <Icon name={icon} size={11} /> : <span className="khsx-pill__dot" aria-hidden="true" />}
+      {label}
+    </span>
+  );
+}
+
+const RUI_RO_META: Record<string, { label: string; cls: string }> = {
+  an_toan: { label: "An toàn", cls: "xlcd-risk--an-toan" },
+  sap_toi_han: { label: "Sắp tới hạn", cls: "xlcd-risk--sap" },
+  nguy_co_tre: { label: "Nguy cơ trễ", cls: "xlcd-risk--nguy-co" },
+  da_tre: { label: "Đã trễ", cls: "xlcd-risk--tre" },
+  chua_co_han: { label: "Chưa có hạn", cls: "xlcd-risk--chua" },
+};
+
+/** Chip nguy cơ trễ (bo VUÔNG nhẹ) — nhãn rủi ro + độ dư ("−2d"/"+5d"). CÓ CHỮ (a11y color-not-only). */
+export function NguyCoTreChip({
+  nhan,
+  slackNgay = null,
+}: {
+  nhan: string | null | undefined;
+  slackNgay?: number | null;
+}) {
+  const meta = RUI_RO_META[nhan ?? "chua_co_han"] ?? RUI_RO_META.chua_co_han;
+  const slack =
+    slackNgay == null
+      ? null
+      : `${slackNgay > 0 ? "+" : slackNgay < 0 ? "−" : ""}${Math.abs(slackNgay)}d`;
+  return (
+    <span className={`xlcd-risk ${meta.cls}`}>
+      {meta.label}
+      {slack && <span className="xlcd-risk__slack">{slack}</span>}
+    </span>
+  );
+}
+
 // --- chip -------------------------------------------------------------------
 export function ChipGap() {
   return (
@@ -136,8 +213,11 @@ export function CanhBaoMem({ children, title }: { children: ReactNode; title?: s
  *  thì màu hết mang tin. */
 export function ChuoiCongDoan({
   steps,
+  activeIndex,
 }: {
   steps: { ten: string; loai_buoc?: string }[];
+  /** Tô đậm bước ĐANG xem (drawer 1 công đoạn) — bỏ trống thì không tô (giữ nguyên hành vi cũ). */
+  activeIndex?: number;
 }) {
   if (!steps.length) {
     return <span className="khsx-flow khsx-flow--none">chưa có công đoạn</span>;
@@ -147,11 +227,13 @@ export function ChuoiCongDoan({
       {steps.map((s, i) => {
         const meta = s.loai_buoc ? LSX_LOAI_BUOC_META[s.loai_buoc as LsxLoaiBuoc] : undefined;
         const ngoaiLe = !!meta && s.loai_buoc !== "may" && s.loai_buoc !== "to";
+        const active = i === activeIndex;
         return (
           <span
             key={`${s.ten}-${i}`}
-            className={`khsx-flow__step ${ngoaiLe ? `khsx-flow__step--${meta.tone}` : ""}`}
+            className={`khsx-flow__step ${ngoaiLe ? `khsx-flow__step--${meta.tone}` : ""} ${active ? "khsx-flow__step--active" : ""}`}
             title={meta?.hint}
+            aria-current={active ? "step" : undefined}
           >
             {s.loai_buoc === "thue_ngoai" && <Icon name="truck" size={10} />}
             {s.loai_buoc === "cho" && <Icon name="clock" size={10} />}

@@ -192,6 +192,29 @@ const ICONS = {
       <path d="M10 11v5M14 11v5" />
     </>
   ),
+  // Khóa dòng lịch (đã chốt máy + giờ)
+  lock: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+      <path d="M12 14.5v2.5" />
+    </>
+  ),
+  // Mở khóa
+  lockOpen: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path d="M8 10.5V7a4 4 0 0 1 7.7-1.5" />
+      <path d="M12 14.5v2.5" />
+    </>
+  ),
+  // Ẩn/hiện nhóm cột (menu "Cột")
+  columns: (
+    <>
+      <rect x="3.5" y="4" width="17" height="16" rx="2" />
+      <path d="M9.5 4v16M15 4v16" />
+    </>
+  ),
   // Affordance
   chevron: <path d="m6 9 6 6 6-6" />,
   plus: <path d="M12 5v14M5 12h14" />,
