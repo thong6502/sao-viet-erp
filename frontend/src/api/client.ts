@@ -200,6 +200,8 @@ export type QuoteEvent =
   | { type: "order_sx_hint_changed"; code?: string; order_id: number; is_rush: boolean }
   // Kế hoạch tạo/sửa/xoá lệnh sản xuất → hàng chờ + bước "Sản xuất" ở Đơn hàng cập nhật ngay.
   | { type: "lsx_changed"; order_id: number }
+  // Bài ghép tạo/sửa/xoá → hàng chờ ghép + danh sách bài ghép cập nhật ngay (không cần refresh).
+  | { type: "bai_ghep_changed" }
   // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
   | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number };
 
@@ -248,6 +250,86 @@ export const LSX_CANH_BAO_LABELS: Record<string, string> = {
   khac_bai_tinh_gia: "Routing đã đổi so với bài tính giá",
   may_khong_hop_kho: "Khổ tờ in vượt khổ tối đa của máy",
 };
+
+// --- Bài ghép (print gang) — gom công đoạn in nhiều LSX chạy chung 1 tờ --------
+export type BaiGhepTrangThai = "nhap" | "san_sang";
+
+/** Checklist CHẶN "sẵn sàng xếp lịch" (server trả mã, FE dịch). */
+export const BAI_GHEP_THIEU_LABELS: Record<string, string> = {
+  thieu_thanh_vien: "Cần ít nhất 2 lệnh",
+  thieu_giay: "Chưa chọn giấy chạy chung",
+  thieu_kho_in: "Chưa có khổ tờ in chung",
+  thieu_ups: "Có thành viên chưa khai số con/tờ",
+  thieu_so_to: "Chưa tính được số tờ",
+};
+
+/** Cảnh báo MỀM — chỉ tô màu, không chặn. */
+export const BAI_GHEP_CANH_BAO_LABELS: Record<string, string> = {
+  khac_giay: "Thành viên khác loại giấy",
+  khac_so_mau: "Thành viên khác số màu",
+  khac_so_mat: "Thành viên khác số mặt / kiểu trở",
+  co_gap: "Có lệnh GẤP trong bài",
+  lech_han: "Hạn giao các lệnh lệch nhau xa",
+  thanh_vien_khong_san_sang: "Có lệnh không còn sẵn sàng",
+  don_huy: "Có lệnh thuộc đơn đã huỷ",
+  bai_thua: "Bài thưa — nhiều chỗ trống, phí giấy",
+};
+
+/** Mức tương thích 1 thuộc tính giữa các thành viên → nhãn + tone (class `.bghep-muc--{tone}`). */
+export const BAI_GHEP_MUC_META: Record<string, { label: string; tone: string }> = {
+  phu_hop: { label: "Phù hợp", tone: "ok" },
+  can_xac_nhan: { label: "Cần xác nhận", tone: "warn" },
+  khong_phu_hop: { label: "Không phù hợp", tone: "bad" },
+};
+
+export interface HangChoGhepItem {
+  lsx_id: number; ma: string; ten: string | null;
+  so_luong_dat: number; don_vi_tinh: string | null; so_con: number;
+  han_hoan_thanh_sx: string | null; is_rush: boolean;
+  order_id: number | null; customer_name: string | null;
+  giay_id: number | null; giay_ten: string | null; gsm: number | null;
+  so_mau_a: number | null; so_mau_b: number | null; quy_cach_in: string | null;
+  kho_tp: string | null; kho_in: string | null;
+}
+export interface HangChoGhepOut { items: HangChoGhepItem[]; total: number }
+
+export interface BaiGhepListItem {
+  id: number; ma: string; trang_thai: BaiGhepTrangThai; so_lsx: number;
+  giay_ten: string | null; kho_in: string | null;
+  so_to_tot: number; tong_to: number; han_in_muon_nhat: string | null; so_canh_bao: number;
+}
+export interface BaiGhepListOut { items: BaiGhepListItem[]; total: number }
+
+export interface BaiGhepThanhVien {
+  thanh_vien_id: number; lsx_id: number; lsx_ma: string | null; lsx_ten: string | null;
+  so_luong_dat: number; don_vi_tinh: string | null; is_rush: boolean; trang_thai_lsx: string | null;
+  so_con_tren_to: number; san_luong_du_kien: number; du: number;
+  giay_id: number | null; giay_ten: string | null;
+  so_mau_a: number | null; so_mau_b: number | null; quy_cach_in: string | null;
+  kho_tp: string | null; han_hoan_thanh_sx: string | null;
+}
+export interface BaiGhepSoTo {
+  so_to_tot: number; tong_to: number; fill_pct: number | null; han_in_muon_nhat: string | null;
+  rows: { thanh_vien_id: number; lsx_id: number; can: number; con: number;
+          san_luong_du_kien: number; du: number }[];
+}
+export interface BaiGhepTuongThichRow { thuoc_tinh: string; gia_tri: (string | null)[]; muc: string }
+export interface BaiGhepTuongThich { thanh_vien: { lsx_id: number }[]; rows: BaiGhepTuongThichRow[] }
+export interface BaiGhepDetail {
+  id: number; ma: string; trang_thai: BaiGhepTrangThai;
+  giay_id: number | null; giay_ten: string | null;
+  kho_in_dai: number | null; kho_in_rong: number | null;
+  may_id: number | null; may_ten: string | null;
+  hao_hut_setup: number; hao_hut_chay: number; ghi_chu: string | null;
+  thanh_vien: BaiGhepThanhVien[];
+  so_to: BaiGhepSoTo;
+  tuong_thich: BaiGhepTuongThich;
+  thieu: string[]; canh_bao: string[];
+}
+export interface BaiGhepUpdateBody {
+  giay_id?: number | null; kho_in_dai?: number | null; kho_in_rong?: number | null;
+  may_id?: number | null; hao_hut_setup?: number; hao_hut_chay?: number; ghi_chu?: string | null;
+}
 
 export interface HangChoItem {
   order_id: number;
@@ -4405,6 +4487,58 @@ export const api = {
     },
     activity(token: string, id: number): Promise<{ items: LsxActivity[] }> {
       return authed<{ items: LsxActivity[] }>(`/api/lsx/${id}/activity`, token);
+    },
+  },
+
+  // --- Bài ghép (print gang) — gom công đoạn in nhiều LSX chạy chung 1 tờ ----
+  baiGhep: {
+    /** LSX sẵn sàng, có công đoạn in, chưa thuộc bài ghép nào. */
+    hangCho(token: string, params: { giay_id?: number; q?: string } = {}): Promise<HangChoGhepOut> {
+      const qs = new URLSearchParams();
+      if (params.giay_id) qs.set("giay_id", String(params.giay_id));
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<HangChoGhepOut>(`/api/bai-ghep/hang-cho${suffix}`, token);
+    },
+    list(token: string): Promise<BaiGhepListOut> {
+      return authed<BaiGhepListOut>("/api/bai-ghep", token);
+    },
+    get(token: string, id: number): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}`, token);
+    },
+    tao(token: string, lsxIds: number[]): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>("/api/bai-ghep", token, {
+        method: "POST", body: JSON.stringify({ lsx_ids: lsxIds }),
+      });
+    },
+    update(token: string, id: number, body: BaiGhepUpdateBody): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}`, token, {
+        method: "PUT", body: JSON.stringify(body),
+      });
+    },
+    themThanhVien(token: string, id: number, lsxIds: number[]): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien`, token, {
+        method: "POST", body: JSON.stringify({ lsx_ids: lsxIds }),
+      });
+    },
+    suaThanhVien(token: string, id: number, tvId: number, soConTrenTo: number): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, {
+        method: "PUT", body: JSON.stringify({ so_con_tren_to: soConTrenTo }),
+      });
+    },
+    boThanhVien(token: string, id: number, tvId: number): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, { method: "DELETE" });
+    },
+    setTrangThai(token: string, id: number, trangThai: BaiGhepTrangThai): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/trang-thai`, token, {
+        method: "POST", body: JSON.stringify({ trang_thai: trangThai }),
+      });
+    },
+    remove(token: string, id: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/bai-ghep/${id}`, token, { method: "DELETE" });
+    },
+    activity(token: string, id: number): Promise<{ items: LsxActivity[] }> {
+      return authed<{ items: LsxActivity[] }>(`/api/bai-ghep/${id}/activity`, token);
     },
   },
 

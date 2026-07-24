@@ -18,6 +18,7 @@ from math import ceil
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from ..models.bai_ghep import BaiGhep, BaiGhepThanhVien
 from ..models.bu_hao import BuHao
 from ..models.cong_doan import CongDoan
 from ..models.customer import Customer
@@ -1015,6 +1016,15 @@ class LsxService:
     def xoa(self, *, lsx_id: int, actor) -> int:
         """Xoá lệnh chưa phát hành → dòng đơn quay lại hàng chờ. Trả `order_id` để router bắn SSE."""
         lsx = self.get(lsx_id)
+        # Coupling bài ghép: neo thành viên là FK RESTRICT (chặn ở Postgres); SQLite dev tắt FK nên
+        # chặn ở đây + báo đẹp. Gỡ LSX khỏi bài ghép trước rồi mới xoá được lệnh.
+        ghep_ma = self.db.execute(
+            select(BaiGhep.ma)
+            .join(BaiGhepThanhVien, BaiGhepThanhVien.bai_ghep_id == BaiGhep.id)
+            .where(BaiGhepThanhVien.lsx_id == lsx_id)
+        ).scalars().first()
+        if ghep_ma:
+            raise LsxConflict(f"LSX đang trong bài ghép {ghep_ma} — gỡ khỏi bài trước khi xoá")
         order_id, ma = lsx.order_id, lsx.ma
         self.repo.delete(lsx)
         self.audit.create(

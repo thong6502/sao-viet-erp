@@ -75,6 +75,7 @@ from .khuon_be import KhuonBe
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .lsx import Lsx, LsxCongDoan
+from .bai_ghep import BaiGhep, BaiGhepThanhVien
 from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
 
@@ -156,4 +157,6 @@ __all__ = [
     "KhuonBe",
     "Lsx",
     "LsxCongDoan",
+    "BaiGhep",
+    "BaiGhepThanhVien",
 ]

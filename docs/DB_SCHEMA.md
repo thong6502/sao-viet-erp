@@ -2960,6 +2960,63 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 
 ---
 
+### `bai_ghep`
+
+**Purpose:** Header một bài ghép (gang form) — gom công đoạn IN của nhiều LSX chạy chung 1 tờ, 1 lần lên máy. 1 dòng = 1 bài ghép. Chỉ quản phần chạy chung (giấy + khổ tờ in chung + máy + hao hụt); mỗi LSX vẫn độc lập.
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `ma` | `String(30)` → `VARCHAR(30)` | U, IX | no | — | `GB26-0001` (`SequenceService.generate_code("bai_ghep")`). |
+| `trang_thai` | `String(20)` | — | no | `nhap` | `nhap` → `san_sang`. Mốc xếp lịch/phát hành/in thuộc pha sau. |
+| `giay_id` | `Integer` | IX | yes | — | Soft → `giay_nguyen.id` — giấy chạy chung (1 tờ ghép 1 loại giấy). |
+| `kho_in_dai` | `Integer` | — | yes | — | Khổ tờ in chạy chung (mm). |
+| `kho_in_rong` | `Integer` | — | yes | — | Khổ tờ in chạy chung (mm). |
+| `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` — máy in (không bắt buộc lát 1). |
+| `hao_hut_setup` | `Integer` | — | no | `0` | Tờ bù canh máy. |
+| `hao_hut_chay` | `Integer` | — | no | `0` | Tờ bù khi chạy. |
+| `ghi_chu` | `Text` | — | yes | — | Ghi chú kế hoạch. |
+| `created_by` | `Integer` | — | yes | — | Soft → `users.id`. |
+| `created_at` | `DateTime(timezone=True)` | — | no | now | |
+| `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
+
+> **Derived, KHÔNG lưu cột** (engine `bai_ghep_service` tính lúc đọc): số tờ tốt = `max_i(ceil(lsx.so_luong_dat / so_con_tren_to))` · sản lượng dự kiến/dư mỗi thành viên · tổng tờ cấp = số tờ tốt + hao hụt · hạn in muộn nhất = `min(han_hoan_thanh_sx)` · % tờ dùng (fill).
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique: `ma`. Indexes: `giay_id`, `may_id`.
+
+**Relationships**
+
+- Một `bai_ghep` có nhiều `bai_ghep_thanh_vien` (cascade delete). Các FK danh mục (`giay_id`, `may_id`) là MỀM.
+
+**Tất cả cột:** `id`, `ma`, `trang_thai`, `giay_id`, `kho_in_dai`, `kho_in_rong`, `may_id`, `hao_hut_setup`, `hao_hut_chay`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
+
+---
+
+### `bai_ghep_thanh_vien`
+
+**Purpose:** 1 LSX tham gia 1 bài ghép (gang member). 1 dòng = 1 LSX trong 1 bài. Neo `lsx_id` (FK THẬT), KHÔNG neo công đoạn (sửa routing LSX làm `lsx_cong_doan.id` tái sinh).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `bai_ghep_id` | `Integer` | FK→`bai_ghep.id` (CASCADE), IX | no | — | Bài ghép chứa thành viên. |
+| `lsx_id` | `Integer` | FK→`lsx.id` (RESTRICT), IX | no | — | LSX thành viên — RESTRICT chặn xoá LSX đang ghép ở tầng DB. |
+| `so_con_tren_to` | `Integer` | — | no | `1` | Số con/tờ của LSX trong bài (ups). INPUT người sửa, mặc định `lsx.so_con`. |
+
+**Keys & indexes**
+
+- Primary key: `id`. Foreign keys: `bai_ghep_id` FK→`bai_ghep.id` (on delete CASCADE), `lsx_id` FK→`lsx.id` (on delete RESTRICT). Unique: `(bai_ghep_id, lsx_id)` = `uq_bai_ghep_lsx` (chống thêm trùng LSX trong cùng bài). Indexes: `bai_ghep_id`, `lsx_id`.
+
+**Relationships**
+
+- Nhiều `bai_ghep_thanh_vien` thuộc một `bai_ghep`; mỗi thành viên trỏ một `lsx`. Guard "1 LSX ≤ 1 bài ghép" ở service (`NOT EXISTS`).
+
+**Tất cả cột:** `id`, `bai_ghep_id`, `lsx_id`, `so_con_tren_to`.
+
+---
+
 ## (LỊCH SỬ) Kế hoạch & Lệnh sản xuất — 8 bảng cũ ĐÃ DROP
 
 > ⛔ **2026-07-23** — `lenh_sx` · `print_form` · `gang_placement` · `routing_step` ·

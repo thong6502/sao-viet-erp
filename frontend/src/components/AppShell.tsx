@@ -14,6 +14,7 @@ import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
 import { KeHoachSXPage } from "../pages/KeHoachSXPage";
+import { BaiGhepPage } from "../pages/BaiGhepPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
@@ -179,6 +180,11 @@ export function AppShell() {
       api.lsx
         .hangCho(token)
         .then((r) => setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total })))
+        .catch(() => {});
+      // Badge Bài ghép = số LSX sẵn sàng đang chờ ghép (pool).
+      api.baiGhep
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
         .catch(() => {});
     }
     // Badge Lương = số đề nghị tạm ứng đang chờ TÔI duyệt (0 với người không có quyền duyệt).
@@ -411,6 +417,8 @@ export function AppShell() {
             onBadgeStale={reloadBadges}
           />
         );
+      case "bai-ghep":
+        return <BaiGhepPage eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage

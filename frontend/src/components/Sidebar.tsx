@@ -65,6 +65,7 @@ const NAV: NavSection[] = [
     label: "Sản xuất",
     items: [
       { id: "ke-hoach-sx", label: "Kế hoạch sản xuất", icon: "workflow", module: "san_xuat" },
+      { id: "bai-ghep", label: "Bài ghép", icon: "layers", module: "san_xuat" },
     ],
   },
   {

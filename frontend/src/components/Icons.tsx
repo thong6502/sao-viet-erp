@@ -13,6 +13,14 @@ const ICONS = {
       <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
     </>
   ),
+  // Bài ghép — sheets xếp lớp (nhiều bài chung một tờ in)
+  layers: (
+    <>
+      <path d="M12 3 3 8l9 5 9-5-9-5Z" />
+      <path d="M3 12l9 5 9-5" />
+      <path d="M3 16l9 5 9-5" />
+    </>
+  ),
   // Sản phẩm
   box: (
     <>
