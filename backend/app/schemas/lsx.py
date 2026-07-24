@@ -35,9 +35,11 @@ class PreviewRouting(BaseModel):
     thu_tu: int
     ten: str
     nhom: str | None = None
+    # Cùng bộ mã với `LsxCongDoanOut.loai_buoc` — THAY cờ `thue_ngoai` cũ để màn "lệnh dự kiến"
+    # và màn lệnh đã tạo hiển thị giống nhau (`thue_ngoai` chỉ là một giá trị của trường này).
+    loai_buoc: str = "may"
     department_id: int | None = None
     department_ten: str | None = None
-    thue_ngoai: bool = False
     nha_cung_cap: str | None = None
 
 
@@ -82,19 +84,60 @@ class TaoLsxIn(BaseModel):
 
 
 # ============================ LSX ============================
+class LeadTimeOut(BaseModel):
+    """Tổng thời gian dẫn của cả lệnh — DẪN XUẤT, không lưu cột."""
+
+    tong_phut: float = 0
+    chiem_may_phut: float = 0     # phần ĂN capacity máy/tổ (không gồm chờ, di chuyển)
+    so_ngay: float = 0            # quy ước 8h/ngày, CHƯA trừ nghỉ lễ/ca kíp
+    ngay_du_kien_xong: date | None = None
+    ngay_con_lai: int | None = None   # tới `han_giao_khach`; âm = đã trễ
+
+
 class LsxCongDoanIn(BaseModel):
+    """1 dòng routing client gửi lên (REPLACE-ALL). Field nào bỏ trống thì server điền mặc định
+    từ danh mục — không bắt người dùng khai lại thứ đã có."""
+
     thu_tu: int | None = None
     cong_doan_id: int | None = None
     ten: str | None = None
     nhom: str | None = None
+    loai_buoc: str | None = None
+    bat_buoc: bool | None = None
     department_id: int | None = None
     may_id: int | None = None
+    may_thay_the_ids: list[int] | None = None
+    # Số lượng & hao hụt
     so_luong_vao: float | None = None
     so_luong_ra: float | None = None
-    don_vi: str | None = None
-    hao_hut: float | None = None
-    thue_ngoai: bool | None = None
+    don_vi_vao: str | None = None
+    don_vi_ra: str | None = None
+    he_so_quy_doi: float | None = Field(default=None, gt=0)
+    hao_hut: float | None = Field(default=None, ge=0)
+    hao_hut_pct: float | None = Field(default=None, ge=0)
+    so_luot_chay: int | None = Field(default=None, ge=1)
+    # Năng suất & thời gian (phút)
+    so_nhan_cong: int | None = Field(default=None, ge=1)
+    setup_phut: float | None = Field(default=None, ge=0)
+    nang_suat: float | None = Field(default=None, ge=0)
+    don_vi_nang_suat: str | None = None
+    chay_phut: float | None = Field(default=None, ge=0)
+    ve_sinh_phut: float | None = Field(default=None, ge=0)
+    cho_phut: float | None = Field(default=None, ge=0)
+    di_chuyen_phut: float | None = Field(default=None, ge=0)
+    # Điều kiện bắt đầu (§4.5)
+    dieu_kien_json: list[str] | None = None
+    # Gia công ngoài (§8)
     nha_cung_cap: str | None = None
+    sl_gui: float | None = Field(default=None, ge=0)
+    ngay_gui_dk: date | None = None
+    van_chuyen_ngay: float | None = Field(default=None, ge=0)
+    gia_cong_ngay: float | None = Field(default=None, ge=0)
+    ngay_nhan_dk: date | None = None
+    hao_hut_cho_phep: float | None = Field(default=None, ge=0)
+    don_gia_gia_cong: float | None = Field(default=None, ge=0)
+    yeu_cau_ky_thuat: str | None = None
+    nguoi_giao_nhan_id: int | None = None
     ghi_chu: str | None = None
 
 
@@ -106,16 +149,49 @@ class LsxCongDoanOut(BaseModel):
     cong_doan_id: int | None = None
     ten: str
     nhom: str | None = None
+    loai_buoc: str
+    bat_buoc: bool = True
     department_id: int | None = None
     department_ten: str | None = None
     may_id: int | None = None
     may_ten: str | None = None
+    may_thay_the_ids: list[int] = Field(default_factory=list)
+
     so_luong_vao: float
     so_luong_ra: float
-    don_vi: str
+    don_vi_vao: str
+    don_vi_ra: str
+    he_so_quy_doi: float
     hao_hut: float
-    thue_ngoai: bool
+    hao_hut_pct: float
+    ty_le_hao_hut: float = 0      # derived = hao_hut / so_luong_vao
+    so_luot_chay: int = 1
+
+    so_nhan_cong: int = 1
+    setup_phut: float = 0
+    nang_suat: float | None = None
+    don_vi_nang_suat: str | None = None
+    chay_phut: float | None = None      # None = để máy tính từ năng suất
+    ve_sinh_phut: float = 0
+    cho_phut: float = 0
+    di_chuyen_phut: float = 0
+    # derived — chiếm máy ĂN capacity; tổng thêm chờ + di chuyển (KHÔNG ăn capacity)
+    chiem_may_phut: float = 0
+    tong_phut: float = 0
+
+    dieu_kien_json: list[str] = Field(default_factory=list)
+
     nha_cung_cap: str | None = None
+    sl_gui: float | None = None
+    ngay_gui_dk: date | None = None
+    van_chuyen_ngay: float | None = None
+    gia_cong_ngay: float | None = None
+    ngay_nhan_dk: date | None = None
+    hao_hut_cho_phep: float | None = None
+    don_gia_gia_cong: float | None = None
+    yeu_cau_ky_thuat: str | None = None
+    nguoi_giao_nhan_id: int | None = None
+    nguoi_giao_nhan_ten: str | None = None
     ghi_chu: str | None = None
 
 
@@ -193,7 +269,10 @@ class LsxOut(BaseModel):
     updated_at: datetime
 
     cong_doans: list[LsxCongDoanOut] = Field(default_factory=list)
+    # Hai rổ TÁCH BẠCH: `thieu` CHẶN "Sẵn sàng lập kế hoạch" (§12); `canh_bao` chỉ tô màu (§14).
     thieu: list[str] = Field(default_factory=list)
+    canh_bao: list[str] = Field(default_factory=list)
+    lead_time: LeadTimeOut | None = None
 
 
 class LsxUpdateIn(BaseModel):
@@ -214,6 +293,48 @@ class LsxUpdateIn(BaseModel):
 
 class RoutingReplaceIn(BaseModel):
     cong_doans: list[LsxCongDoanIn] = Field(default_factory=list)
+    # §10: routing lệch bài tính giá → ghi lý do vào nhật ký (người xác nhận đã có ở audit).
+    ly_do: str | None = None
+
+
+class TinhNguocRow(BaseModel):
+    """1 dòng GỢI Ý của phép tính ngược — chưa ghi DB, người kế hoạch xem rồi mới bấm áp dụng."""
+
+    id: int
+    thu_tu: int
+    ten: str
+    so_luong_vao: float
+    so_luong_ra: float
+    don_vi_vao: str
+    don_vi_ra: str
+
+
+class TinhNguocOut(BaseModel):
+    rows: list[TinhNguocRow] = Field(default_factory=list)
+    # Số tờ bài tính giá chốt — để người dùng thấy ngay routing đang lệch báo giá bao nhiêu.
+    so_to_ke_hoach: int = 0
+
+
+class BuocMacDinhOut(BaseModel):
+    """Bộ mặc định khi ĐỔI một bước sang công đoạn khác — client áp đè lên dòng đang sửa.
+
+    KHÔNG có số lượng vào/ra: chúng thuộc CHUỖI chứ không thuộc công đoạn, nên giữ nguyên số người
+    kế hoạch đang cân (lệch thì đã có cảnh báo `dut_chuyen` + nút "Tính ngược").
+    """
+
+    cong_doan_id: int
+    ten: str
+    nhom: str | None = None
+    loai_buoc: str
+    department_id: int | None = None
+    may_id: int | None = None
+    don_vi_vao: str
+    don_vi_ra: str
+    he_so_quy_doi: float
+    setup_phut: float
+    nang_suat: float | None = None
+    don_vi_nang_suat: str | None = None
+    ve_sinh_phut: float
 
 
 class TrangThaiIn(BaseModel):

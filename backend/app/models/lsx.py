@@ -20,7 +20,7 @@ from datetime import date, datetime, timezone
 
 from sqlalchemy import (
     Boolean, Date, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text,
-    false as sa_false,
+    false as sa_false, true as sa_true,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,7 +47,40 @@ TRANG_THAI_SUA_DUOC = (TT_NHAP, TT_CHO_BO_SUNG, TT_SAN_SANG)  # chưa phát hàn
 DV_TO = "to"      # tờ in
 DV_CAI = "cai"    # con / thành phẩm
 DV_KEM = "kem"    # bộ kẽm (chế bản)
-DON_VI_CONG_DOAN = (DV_TO, DV_CAI, DV_KEM)
+DV_BAI = "bai"    # bài bình (chế bản: 1 bài → n bản kẽm)
+DON_VI_CONG_DOAN = (DV_TO, DV_CAI, DV_KEM, DV_BAI)
+
+# --- Loại bước (execution type). Quyết định bước CHIẾM cái gì khi lên Gantt — đây là lý do routing
+# tồn tại. Đối chiếu Dynamics 365 BC (nền của print MIS PrintVis): "wait/move time don't consume
+# capacity on the work center calendar" → `cho` chỉ đẩy thời gian, không chiếm tài nguyên nào.
+LB_MAY = "may"                 # chiếm MÁY (in, cán, bế, xén)
+LB_TO = "to"                   # chiếm TỔ lao động (dán tay, đóng gói)
+LB_THUE_NGOAI = "thue_ngoai"   # nhà gia công làm — không chiếm máy/tổ nội bộ
+LB_CHO = "cho"                 # chờ kỹ thuật (khô mực, khô keo) — không chiếm gì
+LB_KCS = "kcs"                 # kiểm tra — chiếm tổ
+LB_XA_TO = "xa_to"             # chia/tách bán thành phẩm — chiếm máy xén
+LB_BAI_GHEP = "bai_ghep"       # chạy chung ở bài ghép — khai sẵn, PHA SAU mới sinh
+LOAI_BUOC = (LB_MAY, LB_TO, LB_THUE_NGOAI, LB_CHO, LB_KCS, LB_XA_TO, LB_BAI_GHEP)
+# Bước chiếm tổ (nhiều người làm song song được → `so_nhan_cong` chia thời gian chạy).
+LOAI_BUOC_THEO_TO = (LB_TO, LB_KCS)
+
+# --- Đơn vị năng suất (output/giờ). Khớp `may_thiet_bi.don_vi_toc_do` ở phần dùng được.
+NS_TO_GIO = "to_gio"
+NS_CAI_GIO = "cai_gio"
+NS_KEM_GIO = "kem_gio"
+NS_BAI_GIO = "bai_gio"
+DON_VI_NANG_SUAT = (NS_TO_GIO, NS_CAI_GIO, NS_KEM_GIO, NS_BAI_GIO)
+
+# --- Điều kiện bắt đầu (§4.5) — tập cờ CỐ ĐỊNH, lưu trong `dieu_kien_json`. "Công đoạn trước xong"
+# là mặc định của mô hình tuyến tính nên không có cờ riêng.
+DIEU_KIEN = (
+    "co_vat_tu",         # vật tư (giấy/mực) đã sẵn
+    "file_duyet",        # file khách đã duyệt
+    "kem_xong",          # kẽm đã xuất
+    "khuon_san_sang",    # khuôn bế/ép đã có
+    "mau_mau_ky",        # mẫu màu đã ký
+    "nhan_tu_gia_cong",  # đã nhận bán thành phẩm từ nhà gia công
+)
 
 
 def _utcnow() -> datetime:
@@ -99,6 +132,9 @@ class Lsx(Base):
     # Snapshot quy cách lúc tạo: khổ ①②③ · giấy + định lượng · số màu A/B · cách in · chừa · số kẽm ·
     # số lượt · ghi chú kỹ thuật. READ-ONLY ở lát 1 (đổi giấy/màu/khổ = yêu cầu thay đổi kỹ thuật).
     quy_cach_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Ảnh chụp routing NGAY LÚC TẠO lệnh (list dict rút gọn: ten · nhom · loai_buoc · thue ngoài).
+    # Chỉ để §14 phát hiện "routing đã đổi so với bài tính giá" — KHÔNG dùng để tính lại bất cứ gì.
+    routing_goc_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
     khuon_be_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → khuon_be.id
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)       # → may_thiet_bi.id
 
@@ -115,21 +151,28 @@ class Lsx(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
 
+    # KHÔNG dùng `passive_deletes=True`: nó giao việc xoá con cho DB, mà SQLite (dev) mặc định
+    # TẮT `PRAGMA foreign_keys` → xoá lệnh xong công đoạn còn mồ côi, rồi lệnh mới TÁI DÙNG id
+    # sẽ nhận nhầm routing của lệnh đã xoá. Để SQLAlchemy tự xoá con thì đúng trên cả SQLite lẫn
+    # Postgres. `ondelete="CASCADE"` dưới FK vẫn giữ làm lớp chặn cuối ở DB.
     cong_doans: Mapped[list["LsxCongDoan"]] = relationship(
         "LsxCongDoan",
         back_populates="lsx",
         order_by="LsxCongDoan.thu_tu",
         cascade="all, delete-orphan",
-        passive_deletes=True,
     )
 
 
 class LsxCongDoan(Base):
     """1 bước routing của lệnh (Operation) — copy từ `phieu_thanh_pham` lúc tạo, kế hoạch SỬA được.
 
-    Mỗi bước tự mang SỐ LƯỢNG VÀO/RA + ĐƠN VỊ riêng vì đơn vị đổi qua ranh giới xén: chế bản đếm
-    bộ kẽm, in/cán/bế đếm TỜ, dán/đóng gói đếm CON. Máy điền mặc định theo nhóm công đoạn, người
-    kế hoạch quyết con số cuối.
+    Mỗi bước tự mang SỐ LƯỢNG VÀO/RA + ĐƠN VỊ VÀO/RA riêng vì đơn vị đổi qua ranh giới xén: chế bản
+    đếm bộ kẽm, in/cán/bế đếm TỜ vào, dán/đóng gói đếm CON. Máy điền mặc định theo nhóm công đoạn +
+    danh mục (`cong_doan.setup_time`, `may_thiet_bi.toc_do`…), người kế hoạch quyết con số cuối —
+    kế thừa là MẶC ĐỊNH, không phải read-only.
+
+    Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): setup tính 1 lần/lệnh, chạy
+    scale theo SL, `cho_phut`/`di_chuyen_phut` đẩy lịch nhưng KHÔNG ăn capacity của máy.
     """
 
     __tablename__ = "lsx_cong_doan"
@@ -147,15 +190,73 @@ class LsxCongDoan(Base):
     department_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     may_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → may_thiet_bi.id
 
+    # --- Nhận diện bước ---
+    loai_buoc: Mapped[str] = mapped_column(
+        String(12), nullable=False, server_default=LB_MAY, default=LB_MAY
+    )
+    bat_buoc: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_true(), default=True
+    )
+
+    # --- Số lượng & hao hụt ---
+    # Đơn vị VÀO ≠ RA là chuyện thường ở ranh giới xén/bế: 5.170 tờ vào → 20.680 con ra (hệ số 4).
     so_luong_vao: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
     so_luong_ra: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
-    don_vi: Mapped[str] = mapped_column(String(8), nullable=False, default=DV_TO)
-    hao_hut: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
-
-    thue_ngoai: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=sa_false(), default=False
+    don_vi_vao: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default=DV_TO, default=DV_TO
     )
+    don_vi_ra: Mapped[str] = mapped_column(
+        String(8), nullable=False, server_default=DV_TO, default=DV_TO
+    )
+    he_so_quy_doi: Mapped[float] = mapped_column(
+        Numeric(12, 4), nullable=False, server_default="1", default=1
+    )
+    # Cặp hao hụt kiểu BC: `hao_hut_pct` = Scrap Factor % (theo SL), `hao_hut` = Fixed Scrap Qty
+    # (số tuyệt đối, canh máy). Tính ngược: SL_vào = SL_ra × (1 + pct) + hao_hut.
+    hao_hut: Mapped[float] = mapped_column(Numeric(14, 2), nullable=False, default=0)
+    hao_hut_pct: Mapped[float] = mapped_column(
+        Numeric(6, 2), nullable=False, server_default="0", default=0
+    )
+    so_luot_chay: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
+
+    # --- Năng suất & thời gian (phút) — nguồn dữ liệu cho Gantt ---
+    # `chiếm máy` = setup + chạy + vệ sinh (ăn capacity). `chờ`/`di chuyển` CHỈ đẩy thời gian, không
+    # ăn capacity — đúng BC: "wait time and move time don't consume capacity on the work center".
+    setup_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
+    nang_suat: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    don_vi_nang_suat: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    # Người kế hoạch gõ đè thời gian chạy → thắng công thức năng suất. NULL = để máy tính.
+    chay_phut: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    ve_sinh_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
+    cho_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
+    di_chuyen_phut: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, server_default="0", default=0)
+    # Số người/máy chạy ĐỒNG THỜI (BC: Concurrent Capacities) — 5 người dán thì thời gian chạy ÷ 5.
+    # Chỉ có nghĩa với bước chiếm tổ; bước chiếm máy để 1.
+    so_nhan_cong: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1", default=1
+    )
+
+    # --- Phương thức thực hiện ---
+    # DS máy thay thế — CHỈ ĐỂ THAM KHẢO, không tự xếp lịch (BC: "for information only").
+    may_thay_the_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # Cờ điều kiện bắt đầu, tập `DIEU_KIEN`.
+    dieu_kien_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # --- Gia công ngoài (§8) — chỉ dùng khi `loai_buoc = thue_ngoai`. NCC khai TAY (text tự do):
+    # cơ sở gia công nhỏ lẻ thường chưa có trong danh mục `suppliers`, chốt không bắt khai trước.
     nha_cung_cap: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    sl_gui: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    ngay_gui_dk: Mapped[date | None] = mapped_column(Date, nullable=True)
+    van_chuyen_ngay: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)  # 1 chiều
+    gia_cong_ngay: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    ngay_nhan_dk: Mapped[date | None] = mapped_column(Date, nullable=True)
+    hao_hut_cho_phep: Mapped[float | None] = mapped_column(Numeric(14, 2), nullable=True)
+    don_gia_gia_cong: Mapped[float | None] = mapped_column(Numeric(18, 2), nullable=True)
+    yeu_cau_ky_thuat: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nguoi_giao_nhan_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)  # → users.id
+
     ghi_chu: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(

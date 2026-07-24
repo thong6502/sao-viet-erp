@@ -206,9 +206,27 @@ export type QuoteEvent =
 // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ------------------------------
 // Job (đơn) → Part (lệnh) → Operation (công đoạn). Mỗi DÒNG ĐƠN = 1 lệnh, ngang hàng.
 export type LsxTrangThai = "nhap" | "cho_bo_sung" | "san_sang";
-export type LsxDonVi = "to" | "cai" | "kem";
+export type LsxDonVi = "to" | "cai" | "kem" | "bai";
+/** Loại bước = bước CHIẾM cái gì khi lên Gantt (`bai_ghep` khai sẵn, pha sau mới sinh). */
+export type LsxLoaiBuoc = "may" | "to" | "thue_ngoai" | "cho" | "kcs" | "xa_to" | "bai_ghep";
+export type LsxDonViNangSuat = "to_gio" | "cai_gio" | "kem_gio" | "bai_gio";
 
-/** Mã checklist "thiếu gì" → nhãn hiển thị (server trả mã, FE dịch). */
+export const LSX_DON_VI_LABELS: Record<string, string> = {
+  to: "tờ", cai: "con", kem: "kẽm", bai: "bài",
+};
+
+/** Nhãn + màu của loại bước. `tone` map sang class `.khsx-lb--{tone}` trong ke-hoach-sx.css. */
+export const LSX_LOAI_BUOC_META: Record<LsxLoaiBuoc, { label: string; tone: string; hint: string }> = {
+  may: { label: "Máy", tone: "may", hint: "Chiếm máy — có thanh trên lịch máy" },
+  to: { label: "Tổ", tone: "to", hint: "Tổ lao động làm tay — chiếm nhân công, không chiếm máy" },
+  thue_ngoai: { label: "Thuê ngoài", tone: "ngoai", hint: "Nhà gia công làm — không chiếm máy nội bộ" },
+  cho: { label: "Chờ", tone: "cho", hint: "Chờ kỹ thuật (khô mực/khô keo) — chỉ đẩy lịch, không chiếm gì" },
+  kcs: { label: "KCS", tone: "kcs", hint: "Kiểm tra — chiếm tổ" },
+  xa_to: { label: "Xả tờ", tone: "xa", hint: "Chia bán thành phẩm — chiếm máy xén" },
+  bai_ghep: { label: "Bài ghép", tone: "ghep", hint: "Chạy chung ở bài ghép (chưa dùng ở bản này)" },
+};
+
+/** Mã checklist "thiếu gì" → nhãn hiển thị (server trả mã, FE dịch). CHẶN nút Sẵn sàng. */
 export const LSX_THIEU_LABELS: Record<string, string> = {
   khong_co_ptg: "Chưa có bài tính giá",
   thieu_giay: "Thiếu loại giấy",
@@ -216,6 +234,19 @@ export const LSX_THIEU_LABELS: Record<string, string> = {
   thieu_routing: "Chưa có công đoạn",
   thieu_ngay_giao: "Thiếu ngày giao",
   thieu_khuon: "Chưa gán khuôn bế",
+  thieu_to_may: "Có công đoạn chưa gán tổ / máy",
+  thieu_ncc: "Công đoạn thuê ngoài chưa có nhà gia công",
+  thieu_tg_thue_ngoai: "Công đoạn thuê ngoài chưa có ngày gửi / nhận",
+  thieu_he_so: "Đổi đơn vị nhưng chưa khai hệ số quy đổi",
+};
+
+/** Cảnh báo MỀM — chỉ tô màu, không chặn lưu và không chặn Sẵn sàng. */
+export const LSX_CANH_BAO_LABELS: Record<string, string> = {
+  ra_lon_hon_vao: "Có công đoạn ra nhiều hơn vào",
+  dut_chuyen: "Đứt chuyền — bước sau đòi nhiều hơn bước trước giao",
+  vuot_han_giao: "Tổng thời gian dẫn vượt hạn giao khách",
+  khac_bai_tinh_gia: "Routing đã đổi so với bài tính giá",
+  may_khong_hop_kho: "Khổ tờ in vượt khổ tối đa của máy",
 };
 
 export interface HangChoItem {
@@ -234,8 +265,11 @@ export interface HangChoOut { items: HangChoItem[]; total: number }
 
 export interface LsxPreviewRouting {
   thu_tu: number; ten: string; nhom: string | null;
+  /** Cùng bộ mã với `LsxCongDoan.loai_buoc` — thay cờ `thue_ngoai` cũ, để màn "lệnh dự kiến"
+   *  và màn lệnh đã tạo hiển thị giống nhau. */
+  loai_buoc: LsxLoaiBuoc;
   department_id: number | null; department_ten: string | null;
-  thue_ngoai: boolean; nha_cung_cap: string | null;
+  nha_cung_cap: string | null;
 }
 export interface LsxPreviewLine {
   order_line_id: number;
@@ -270,19 +304,75 @@ export interface LsxPreviewOut {
   warnings: string[];
 }
 
-export interface LsxCongDoan {
-  id: number; thu_tu: number; cong_doan_id: number | null;
-  ten: string; nhom: string | null;
-  department_id: number | null; department_ten: string | null;
-  may_id: number | null; may_ten: string | null;
-  so_luong_vao: number; so_luong_ra: number; don_vi: string; hao_hut: number;
-  thue_ngoai: boolean; nha_cung_cap: string | null; ghi_chu: string | null;
+/** Khối gia công ngoài (§8) — chỉ có nghĩa khi `loai_buoc = "thue_ngoai"`. */
+interface LsxThueNgoaiFields {
+  nha_cung_cap: string | null;
+  sl_gui: number | null;
+  ngay_gui_dk: string | null;
+  van_chuyen_ngay: number | null;
+  gia_cong_ngay: number | null;
+  ngay_nhan_dk: string | null;
+  hao_hut_cho_phep: number | null;
+  don_gia_gia_cong: number | null;
+  yeu_cau_ky_thuat: string | null;
+  nguoi_giao_nhan_id: number | null;
 }
-export interface LsxCongDoanBody {
+
+export interface LsxCongDoan extends LsxThueNgoaiFields {
+  id: number; thu_tu: number; cong_doan_id: number | null;
+  ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
+  department_id: number | null; department_ten: string | null;
+  may_id: number | null; may_ten: string | null; may_thay_the_ids: number[];
+  // Đơn vị VÀO ≠ RA là chuyện thường ở bế/xén — hệ số quy đổi nối hai đầu.
+  so_luong_vao: number; so_luong_ra: number;
+  don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
+  hao_hut: number; hao_hut_pct: number; ty_le_hao_hut: number; so_luot_chay: number;
+  so_nhan_cong: number;
+  setup_phut: number; nang_suat: number | null; don_vi_nang_suat: string | null;
+  chay_phut: number | null;   // null = để máy tính từ năng suất
+  ve_sinh_phut: number; cho_phut: number; di_chuyen_phut: number;
+  // derived: chiếm máy ĂN capacity; tổng thêm chờ + di chuyển (KHÔNG ăn capacity)
+  chiem_may_phut: number; tong_phut: number;
+  dieu_kien_json: string[];
+  nguoi_giao_nhan_ten: string | null;
+  ghi_chu: string | null;
+}
+export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
   thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
-  department_id?: number | null; may_id?: number | null;
-  so_luong_vao?: number; so_luong_ra?: number; don_vi?: string; hao_hut?: number;
-  thue_ngoai?: boolean; nha_cung_cap?: string | null; ghi_chu?: string | null;
+  loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
+  department_id?: number | null; may_id?: number | null; may_thay_the_ids?: number[];
+  so_luong_vao?: number; so_luong_ra?: number;
+  don_vi_vao?: string; don_vi_ra?: string; he_so_quy_doi?: number;
+  hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number; so_nhan_cong?: number;
+  setup_phut?: number; nang_suat?: number | null; don_vi_nang_suat?: string | null;
+  chay_phut?: number | null;
+  ve_sinh_phut?: number; cho_phut?: number; di_chuyen_phut?: number;
+  dieu_kien_json?: string[];
+  ghi_chu?: string | null;
+}
+/** Tổng thời gian dẫn cả lệnh — DẪN XUẤT ở server, không lưu cột. */
+export interface LsxLeadTime {
+  tong_phut: number;
+  chiem_may_phut: number;
+  so_ngay: number;              // quy ước 8h/ngày, chưa trừ nghỉ lễ
+  ngay_du_kien_xong: string | null;
+  ngay_con_lai: number | null;  // tới hạn giao khách; âm = đã trễ
+}
+/** 1 dòng GỢI Ý của phép tính ngược — chưa ghi DB. */
+export interface LsxTinhNguocRow {
+  id: number; thu_tu: number; ten: string;
+  so_luong_vao: number; so_luong_ra: number;
+  don_vi_vao: string; don_vi_ra: string;
+}
+export interface LsxTinhNguocOut { rows: LsxTinhNguocRow[]; so_to_ke_hoach: number }
+/** Bộ mặc định khi ĐỔI bước sang công đoạn khác. KHÔNG có SL vào/ra — số đó thuộc CHUỖI
+ *  (bước trước giao bao nhiêu thì bước này nhận bấy nhiêu), không thuộc công đoạn. */
+export interface LsxBuocMacDinh {
+  cong_doan_id: number; ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc;
+  department_id: number | null; may_id: number | null;
+  don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
+  setup_phut: number; nang_suat: number | null; don_vi_nang_suat: string | null;
+  ve_sinh_phut: number;
 }
 export interface LsxListItem {
   id: number; ma: string; loai: string; ten: string; trang_thai: LsxTrangThai;
@@ -309,7 +399,10 @@ export interface LsxDetail {
   nguoi_phu_trach_id: number | null; nguoi_phu_trach_ten: string | null;
   ghi_chu: string | null; created_at: string; updated_at: string;
   cong_doans: LsxCongDoan[];
+  /** Hai rổ TÁCH BẠCH: `thieu` chặn nút Sẵn sàng; `canh_bao` chỉ tô màu. */
   thieu: string[];
+  canh_bao: string[];
+  lead_time: LsxLeadTime | null;
 }
 export interface LsxUpdateBody {
   ten?: string; so_luong_dat?: number; don_vi_tinh?: string; bu_hao_to?: number;
@@ -4282,12 +4375,24 @@ export const api = {
         body: JSON.stringify(body),
       });
     },
-    /** REPLACE-ALL routing của LỆNH (không đụng phiếu tính giá, không ảnh hưởng lệnh khác). */
-    saveRouting(token: string, id: number, congDoans: LsxCongDoanBody[]): Promise<LsxDetail> {
+    /** REPLACE-ALL routing của LỆNH (không đụng phiếu tính giá, không ảnh hưởng lệnh khác).
+     *  `lyDo` chỉ gửi khi routing đã lệch bài tính giá — server ghép vào nhật ký (§10). */
+    saveRouting(
+      token: string, id: number, congDoans: LsxCongDoanBody[], lyDo?: string,
+    ): Promise<LsxDetail> {
       return authed<LsxDetail>(`/api/lsx/${id}/routing`, token, {
         method: "PUT",
-        body: JSON.stringify({ cong_doans: congDoans }),
+        body: JSON.stringify({ cong_doans: congDoans, ly_do: lyDo || null }),
       });
+    },
+    /** Gợi ý SL vào/ra cho cả chuỗi, chạy ngược từ SL thành phẩm. CHỈ ĐỌC — không ghi gì. */
+    tinhNguoc(token: string, id: number): Promise<LsxTinhNguocOut> {
+      return authed<LsxTinhNguocOut>(`/api/lsx/${id}/tinh-nguoc`, token);
+    },
+    /** Bộ mặc định khi ĐỔI một bước sang công đoạn khác (loại bước · tổ · máy · đơn vị · chuẩn bị ·
+     *  năng suất). Luật nằm ở backend — client chỉ áp kết quả, KHÔNG tự tính lại. */
+    macDinhBuoc(token: string, id: number, congDoanId: number): Promise<LsxBuocMacDinh> {
+      return authed<LsxBuocMacDinh>(`/api/lsx/${id}/mac-dinh-buoc/${congDoanId}`, token);
     },
     setTrangThai(token: string, id: number, trangThai: LsxTrangThai): Promise<LsxDetail> {
       return authed<LsxDetail>(`/api/lsx/${id}/trang-thai`, token, {

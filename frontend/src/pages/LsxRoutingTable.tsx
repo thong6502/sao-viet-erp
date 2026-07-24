@@ -1,130 +1,114 @@
-// Bảng ROUTING của lệnh — kế thừa từ bài tính giá nhưng SỬA ĐƯỢC tại lệnh (thêm/bỏ/đổi thứ tự/đổi
-// tổ/đổi máy/thuê ngoài/số lượng vào-ra). Lưu = REPLACE-ALL, không đụng phiếu tính giá và không
-// ảnh hưởng lệnh khác.
+// Bảng ROUTING của lệnh — kế thừa từ bài tính giá nhưng SỬA ĐƯỢC tại lệnh. Lưu = REPLACE-ALL,
+// không đụng phiếu tính giá và không ảnh hưởng lệnh khác.
 //
-// Máy CHỈ ĐỀ XUẤT: số gợi ý nằm ở placeholder + nút "dùng số gợi ý" (1 click), KHÔNG tự ghi vào ô.
-// Các kiểm tra (ra > vào, chưa gán tổ, thuê ngoài thiếu NCC, trùng bước liền kề) chỉ TÔ MÀU,
-// không chặn lưu — phán đoán nghề để người kế hoạch quyết.
-import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import type { LsxCongDoan, LsxCongDoanBody } from "../api/client";
+// Bảng cố tình chỉ giữ 7 cột — phần QUYẾT ĐỊNH: bước nào · ai làm · vào ra bao nhiêu · mất bao lâu.
+// Phần KHAI BÁO (2 đơn vị + hệ số, 5 loại thời gian, số nhân công, điều kiện, 10 ô gia công ngoài)
+// nằm trong drawer từng bước. Nhồi ~20 ô vào bảng thì mỗi ô còn ~60px và phải cuộn ngang liên tục.
+//
+// Máy CHỈ ĐỀ XUẤT: số gợi ý nằm ở placeholder + nút 1-click, KHÔNG tự ghi vào ô. Các kiểm tra
+// (ra > vào, chưa gán tổ, thuê ngoài thiếu NCC, đứt chuyền) chỉ TÔ MÀU, không chặn lưu — phán đoán
+// nghề để người kế hoạch quyết.
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  LSX_DON_VI_LABELS,
+  LSX_LOAI_BUOC_META,
+  type LsxBuocMacDinh,
+  type LsxCongDoan,
+  type LsxCongDoanBody,
+  type LsxLeadTime,
+  type LsxTinhNguocRow,
+} from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
-import { ChuoiCongDoan } from "./keHoachSxShared";
+import { LsxBuocDrawer } from "./LsxBuocDrawer";
+import { ChuoiCongDoan, ngay, num } from "./keHoachSxShared";
+import {
+  type EditRow,
+  emptyRow,
+  n,
+  phut,
+  thoiLuong,
+  toBody,
+  toEdit,
+} from "./lsxBuoc";
 
 export interface RefRow {
   id: number;
   ten: string;
 }
 
-interface EditRow {
-  key: string;
-  cong_doan_id: number | null;
-  ten: string;
-  nhom: string | null;
-  department_id: number | null;
-  may_id: number | null;
-  so_luong_vao: string;
-  so_luong_ra: string;
-  don_vi: string;
-  hao_hut: string;
-  thue_ngoai: boolean;
-  nha_cung_cap: string;
-  ghi_chu: string;
-}
-
-const DON_VI: { key: string; label: string }[] = [
-  { key: "to", label: "Tờ" },
-  { key: "cai", label: "Con" },
-  { key: "kem", label: "Kẽm" },
-];
-
-/** Giá trị select cho bước có TÊN TỰ DO (không gắn danh mục công đoạn). */
-const KEEP = "__keep__";
-
-let seq = 0;
-function newKey(): string {
-  seq += 1;
-  return `r${seq}`;
-}
-
-function toEdit(cd: LsxCongDoan): EditRow {
-  return {
-    key: newKey(),
-    cong_doan_id: cd.cong_doan_id,
-    ten: cd.ten,
-    nhom: cd.nhom,
-    department_id: cd.department_id,
-    may_id: cd.may_id,
-    so_luong_vao: cd.so_luong_vao ? String(cd.so_luong_vao) : "",
-    so_luong_ra: cd.so_luong_ra ? String(cd.so_luong_ra) : "",
-    don_vi: cd.don_vi || "to",
-    hao_hut: cd.hao_hut ? String(cd.hao_hut) : "",
-    thue_ngoai: cd.thue_ngoai,
-    nha_cung_cap: cd.nha_cung_cap ?? "",
-    ghi_chu: cd.ghi_chu ?? "",
-  };
-}
-
-function emptyRow(): EditRow {
-  return {
-    key: newKey(), cong_doan_id: null, ten: "", nhom: null, department_id: null, may_id: null,
-    so_luong_vao: "", so_luong_ra: "", don_vi: "to", hao_hut: "", thue_ngoai: false,
-    nha_cung_cap: "", ghi_chu: "",
-  };
-}
-
-function toBody(rows: EditRow[]): LsxCongDoanBody[] {
-  return rows.map((r, i) => ({
-    thu_tu: i,
-    cong_doan_id: r.cong_doan_id,
-    ten: r.ten || "Công đoạn",
-    nhom: r.nhom,
-    // Để TRỐNG tổ → server tự lấy tổ mặc định của công đoạn (không ép người dùng khai lại).
-    department_id: r.department_id,
-    may_id: r.may_id,
-    so_luong_vao: Number(r.so_luong_vao || 0),
-    so_luong_ra: Number(r.so_luong_ra || 0),
-    don_vi: r.don_vi,
-    hao_hut: Number(r.hao_hut || 0),
-    thue_ngoai: r.thue_ngoai,
-    nha_cung_cap: r.thue_ngoai ? r.nha_cung_cap || null : null,
-    ghi_chu: r.ghi_chu || null,
-  }));
+/** Lỗi/nghi vấn của RIÊNG 1 dòng — chỉ tô màu, không chặn lưu. */
+function loiDong(rows: EditRow[], i: number): string[] {
+  const r = rows[i];
+  const out: string[] = [];
+  const vao = n(r.so_luong_vao);
+  const ra = n(r.so_luong_ra);
+  if (r.don_vi_vao === r.don_vi_ra && vao > 0 && ra > vao) out.push("ra nhiều hơn vào");
+  if (r.don_vi_vao !== r.don_vi_ra && n(r.he_so_quy_doi) <= 1) out.push("thiếu hệ số quy đổi");
+  if (r.loai_buoc === "thue_ngoai") {
+    if (!r.nha_cung_cap.trim()) out.push("chưa có nhà gia công");
+    if (!r.ngay_gui_dk || !r.ngay_nhan_dk) out.push("chưa có ngày gửi / nhận");
+  } else if (r.loai_buoc !== "cho" && r.department_id == null && r.may_id == null) {
+    out.push("chưa gán tổ / máy");
+  }
+  if (i > 0) {
+    const truoc = rows[i - 1];
+    const raTruoc = n(truoc.so_luong_ra);
+    if (truoc.don_vi_ra === r.don_vi_vao && raTruoc > 0 && vao > raTruoc) out.push("đứt chuyền");
+  }
+  if (i > 0 && r.ten && rows[i - 1].ten === r.ten) out.push("trùng bước trước");
+  return out;
 }
 
 export function LsxRoutingTable({
   congDoans,
   soToKeHoach,
   soLuongDat,
+  soCon,
+  leadTime,
   congDoanRefs,
   toRefs,
   mayRefs,
   canUpdate,
   saving,
   onSave,
+  onTinhNguoc,
+  onMacDinhBuoc,
   onDirtyChange,
 }: {
   congDoans: LsxCongDoan[];
   soToKeHoach: number;
   soLuongDat: number;
+  soCon: number;
+  leadTime: LsxLeadTime | null;
   congDoanRefs: RefRow[] | null;
   toRefs: RefRow[] | null;
   mayRefs: RefRow[] | null;
   canUpdate: boolean;
   saving: boolean;
-  onSave: (body: LsxCongDoanBody[]) => void;
+  onSave: (body: LsxCongDoanBody[], lyDo?: string) => void;
+  onTinhNguoc: () => Promise<LsxTinhNguocRow[]>;
+  onMacDinhBuoc: (congDoanId: number) => Promise<LsxBuocMacDinh>;
   onDirtyChange: (dirty: boolean) => void;
 }) {
   const [rows, setRows] = useState<EditRow[]>(() => congDoans.map(toEdit));
   const [undo, setUndo] = useState<{ row: EditRow; at: number } | null>(null);
   const [live, setLive] = useState("");
+  const [moBuoc, setMoBuoc] = useState<number | null>(null);
+  const [keo, setKeo] = useState<number | null>(null);
+  const [goiY, setGoiY] = useState<LsxTinhNguocRow[] | null>(null);
+  const [dangTinh, setDangTinh] = useState(false);
+  const [lyDo, setLyDo] = useState("");
   const goc = useRef(JSON.stringify(toBody(congDoans.map(toEdit))));
   const tbodyRef = useRef<HTMLTableSectionElement>(null);
+  // Hàng đang mở drawer — đóng lại thì trả tiêu điểm về đúng hàng đó (nợ của lát trước).
+  const hangMo = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const fresh = congDoans.map(toEdit);
     setRows(fresh);
     goc.current = JSON.stringify(toBody(fresh));
+    setGoiY(null);
   }, [congDoans]);
 
   const dirty = JSON.stringify(toBody(rows)) !== goc.current;
@@ -137,16 +121,57 @@ export function LsxRoutingTable({
     return () => clearTimeout(t);
   }, [undo]);
 
-  function patch(key: string, p: Partial<EditRow>) {
+  const patch = useCallback((key: string, p: Partial<EditRow>) => {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...p } : r)));
-  }
+  }, []);
+
+  /** Đổi công đoạn của 1 bước → KÉO LẠI mặc định của công đoạn mới (loại bước · tổ · máy · đơn vị ·
+   *  chuẩn bị · năng suất · vệ sinh).
+   *
+   *  Không làm việc này thì bước đổi xong vẫn đeo nguyên số của công đoạn CŨ — đổi "Dán hộp" (tổ,
+   *  đếm con, 4.000 con/giờ) sang "Cán màng" (máy, đếm tờ) mà thời lượng và đơn vị vẫn của Dán hộp,
+   *  chẳng cảnh báo gì.
+   *
+   *  GIỮ số lượng vào/ra: chúng thuộc CHUỖI (bước trước giao bao nhiêu thì bước này nhận bấy nhiêu),
+   *  không thuộc công đoạn — lệch thì đã có cảnh báo "đứt chuyền" + nút Tính ngược.
+   *  Luật suy loại bước/đơn vị nằm ở BACKEND, ở đây chỉ áp kết quả để hai nơi không trôi khỏi nhau. */
+  const doiCongDoan = useCallback(
+    async (key: string, id: number | null, tenHienTai: string) => {
+      if (id == null) {
+        patch(key, { cong_doan_id: null });
+        return;
+      }
+      try {
+        const m = await onMacDinhBuoc(id);
+        patch(key, {
+          cong_doan_id: m.cong_doan_id, ten: m.ten, nhom: m.nhom, loai_buoc: m.loai_buoc,
+          department_id: m.department_id, may_id: m.may_id,
+          don_vi_vao: m.don_vi_vao, don_vi_ra: m.don_vi_ra,
+          he_so_quy_doi: m.he_so_quy_doi > 1 ? String(m.he_so_quy_doi) : "",
+          setup_phut: m.setup_phut ? String(m.setup_phut) : "",
+          nang_suat: m.nang_suat ? String(m.nang_suat) : "",
+          don_vi_nang_suat: m.don_vi_nang_suat ?? "",
+          ve_sinh_phut: m.ve_sinh_phut ? String(m.ve_sinh_phut) : "",
+          chay_phut: "",   // bước mới ⇒ bỏ ghi đè cũ, để máy tính lại từ năng suất
+        });
+        setLive(`Đã đổi sang ${m.ten} và lấy lại số mặc định của công đoạn này`);
+      } catch {
+        // Mất mạng / không có quyền đọc danh mục → ít nhất vẫn đổi được tên, đừng chặn người dùng.
+        patch(key, { cong_doan_id: id, ten: tenHienTai, department_id: null });
+      }
+    },
+    [onMacDinhBuoc, patch],
+  );
 
   function move(idx: number, delta: number) {
+    doiCho(idx, idx + delta);
+  }
+
+  function doiCho(from: number, to: number) {
     setRows((prev) => {
-      const to = idx + delta;
-      if (to < 0 || to >= prev.length) return prev;
+      if (to < 0 || to >= prev.length || from === to) return prev;
       const next = [...prev];
-      const [row] = next.splice(idx, 1);
+      const [row] = next.splice(from, 1);
       next.splice(to, 0, row);
       setLive(`Đã chuyển ${row.ten || "công đoạn"} tới vị trí ${to + 1}`);
       return next;
@@ -160,6 +185,7 @@ export function LsxRoutingTable({
       setLive(`Đã bỏ ${row.ten || "công đoạn"}, có thể hoàn tác`);
       return prev.filter((_, i) => i !== idx);
     });
+    setMoBuoc(null);
   }
 
   function hoanTac() {
@@ -176,29 +202,46 @@ export function LsxRoutingTable({
   function them() {
     setRows((prev) => [...prev, emptyRow()]);
     setLive("Đã thêm công đoạn mới ở cuối");
-    // Cuộn + focus ô đầu của hàng vừa thêm.
     setTimeout(() => {
-      const last = tbodyRef.current?.querySelector<HTMLElement>("tr:last-of-type select, tr:last-of-type input");
+      const last = tbodyRef.current?.querySelector<HTMLElement>("tr:last-of-type .khsx-rt__open");
       last?.focus();
       last?.scrollIntoView({ block: "nearest" });
     }, 0);
   }
 
-  /** Số gợi ý cho ô SL: bước đầu = số tờ kế hoạch; bước sau = SL ra của bước trước. */
-  function goiY(i: number, row: EditRow): number {
-    if (row.don_vi === "cai") return soLuongDat;
-    if (i === 0) return soToKeHoach;
-    const truoc = rows[i - 1];
-    const raTruoc = Number(truoc.so_luong_ra || truoc.so_luong_vao || 0);
-    return raTruoc || soToKeHoach;
+  async function tinhNguoc() {
+    setDangTinh(true);
+    try {
+      setGoiY(await onTinhNguoc());
+      setLive("Đã tính ngược — xem cột gợi ý rồi bấm áp dụng");
+    } finally {
+      setDangTinh(false);
+    }
   }
 
-  const flow = useMemo(
-    () => rows.map((r) => ({ ten: r.ten || "…", thue_ngoai: r.thue_ngoai })),
-    [rows],
-  );
-  const soNgoai = rows.filter((r) => r.thue_ngoai).length;
-  const soChuaTo = rows.filter((r) => r.department_id == null).length;
+  /** Máy ĐỀ XUẤT, người BẤM: chỉ khi bấm mới ghi số vào ô. */
+  function apDungGoiY() {
+    if (!goiY) return;
+    setRows((prev) =>
+      prev.map((r, i) => {
+        const g = goiY[i];
+        return g
+          ? { ...r, so_luong_vao: String(g.so_luong_vao), so_luong_ra: String(g.so_luong_ra) }
+          : r;
+      }));
+    setGoiY(null);
+    setLive("Đã áp dụng số tính ngược cho cả chuỗi");
+  }
+
+  function moDrawer(i: number, el: HTMLElement | null) {
+    hangMo.current = el;
+    setMoBuoc(i);
+  }
+
+  function dongDrawer() {
+    setMoBuoc(null);
+    hangMo.current?.focus();
+  }
 
   function onRowKeyDown(e: KeyboardEvent, idx: number) {
     if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
@@ -206,6 +249,31 @@ export function LsxRoutingTable({
       move(idx, e.key === "ArrowUp" ? -1 : 1);
     }
   }
+
+  const flow = useMemo(
+    () => rows.map((r) => ({ ten: r.ten || "…", loai_buoc: r.loai_buoc })),
+    [rows],
+  );
+  const tong = useMemo(
+    () => rows.reduce(
+      (acc, r) => {
+        const t = thoiLuong(r);
+        return { chiemMay: acc.chiemMay + t.chiemMay, tong: acc.tong + t.tong };
+      },
+      { chiemMay: 0, tong: 0 },
+    ),
+    [rows],
+  );
+  const soNgay = tong.tong / 60 / 8;
+  const conLai = leadTime?.ngay_con_lai ?? null;
+  const treHan = conLai != null && soNgay > conLai;
+  const soNgoai = rows.filter((r) => r.loai_buoc === "thue_ngoai").length;
+  // Chỉ hỏi lý do khi routing đã khác CẤU TRÚC ban đầu (thêm/bớt/đổi thứ tự/đổi loại bước) —
+  // sửa số lượng hay thời gian là việc thường ngày, hỏi lý do mỗi lần là phiền vô ích.
+  const doiCauTruc = useMemo(() => {
+    const van = (cd: { ten: string; loai_buoc: string }) => `${cd.ten}|${cd.loai_buoc}`;
+    return JSON.stringify(congDoans.map(van)) !== JSON.stringify(rows.map(van));
+  }, [congDoans, rows]);
 
   return (
     <div className="khsx-rt">
@@ -216,6 +284,15 @@ export function LsxRoutingTable({
         </div>
         {canUpdate && (
           <div className="khsx-rt__baracts">
+            <Button
+              variant="ghost"
+              disabled={rows.length === 0}
+              loading={dangTinh}
+              onClick={tinhNguoc}
+              title="Chạy ngược từ số thành phẩm để ra số vào/ra từng bước"
+            >
+              <Icon name="workflow" size={14} /> Tính ngược từ SL thành phẩm
+            </Button>
             <Button variant="secondary" onClick={them}>
               <Icon name="plus" size={14} /> Thêm công đoạn
             </Button>
@@ -223,7 +300,7 @@ export function LsxRoutingTable({
               variant="accent"
               disabled={!dirty}
               loading={saving}
-              onClick={() => onSave(toBody(rows))}
+              onClick={() => onSave(toBody(rows), doiCauTruc ? lyDo : undefined)}
             >
               Lưu công đoạn
             </Button>
@@ -235,28 +312,42 @@ export function LsxRoutingTable({
         <ChuoiCongDoan steps={flow} />
       </div>
 
+      {goiY && (
+        <div className="khsx-goiy">
+          <Icon name="help" size={15} />
+          <p className="khsx-goiy__text">
+            Đã chạy ngược từ <strong>{num(soLuongDat)}</strong> thành phẩm. Cột{" "}
+            <em>gợi ý</em> trong bảng là số máy tính ra — chưa ghi vào đâu cả.
+          </p>
+          <div className="khsx-goiy__acts">
+            <button type="button" className="khsx-xlink" onClick={() => setGoiY(null)}>
+              Bỏ qua
+            </button>
+            <Button variant="primary" onClick={apDungGoiY}>Áp dụng cho cả chuỗi</Button>
+          </div>
+        </div>
+      )}
+
       <div className="khsx__tablewrap">
         <table className="khsx-rt__table">
-          <caption className="sr-only">Danh sách công đoạn của lệnh, sửa được</caption>
+          <caption className="sr-only">
+            Danh sách công đoạn của lệnh. Bấm một hàng để mở chi tiết bước.
+          </caption>
           <thead>
             <tr>
               <th scope="col" className="khsx-rt__thord">#</th>
               <th scope="col">Công đoạn</th>
-              <th scope="col">Tổ phụ trách</th>
-              <th scope="col">Máy</th>
-              <th scope="col" className="khsx-th--num">SL vào</th>
-              <th scope="col" className="khsx-th--num">SL ra</th>
-              <th scope="col">ĐVT</th>
-              <th scope="col" className="khsx-th--num">Hao hụt</th>
-              <th scope="col">Ngoài</th>
-              <th scope="col">Ghi chú</th>
+              <th scope="col">Thực hiện</th>
+              <th scope="col" className="khsx-th--num">Vào → Ra</th>
+              <th scope="col" className="khsx-th--num">Thời lượng</th>
+              <th scope="col">Cần xem lại</th>
               <th scope="col"><span className="sr-only">Thao tác</span></th>
             </tr>
           </thead>
           <tbody ref={tbodyRef}>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={11}>
+                <td colSpan={7}>
                   <div className="khsx-empty khsx-empty--inline">
                     <Icon name="workflow" size={32} />
                     <p className="khsx-empty__title">Chưa có công đoạn nào.</p>
@@ -274,239 +365,123 @@ export function LsxRoutingTable({
               </tr>
             )}
             {rows.map((r, i) => {
-              const vao = Number(r.so_luong_vao || 0);
-              const ra = Number(r.so_luong_ra || 0);
-              const hao = Number(r.hao_hut || 0);
-              const raQua = ra > 0 && vao > 0 && ra > vao;
-              const lechHao = vao > 0 && ra > 0 && Math.abs(vao - ra - hao) > 0.001;
-              const trungTruoc = i > 0 && r.ten && rows[i - 1].ten === r.ten;
+              const meta = LSX_LOAI_BUOC_META[r.loai_buoc];
+              const t = thoiLuong(r);
+              const loi = loiDong(rows, i);
+              const g = goiY?.[i];
+              const ngoai = r.loai_buoc === "thue_ngoai";
+              const lamO = ngoai
+                ? r.nha_cung_cap || "chưa có nhà gia công"
+                : [toRefs?.find((x) => x.id === r.department_id)?.ten,
+                   mayRefs?.find((x) => x.id === r.may_id)?.ten]
+                    .filter(Boolean).join(" · ");
               return (
-                <Fragment key={r.key}>
-                  <tr
-                    className={`khsx-rt__row ${r.thue_ngoai ? "khsx-rt__row--ngoai" : ""}`}
-                    onKeyDown={(e) => onRowKeyDown(e, i)}
-                  >
-                    <td>
-                      <span className="khsx-rt__ord">{i + 1}</span>
-                    </td>
-                    <td>
-                      {congDoanRefs ? (
-                        <select
-                          className="khsx-rt__cd"
-                          value={r.cong_doan_id ?? (r.ten ? KEEP : "")}
-                          disabled={!canUpdate}
-                          onChange={(e) => {
-                            if (e.target.value === KEEP) return;   // giữ nguyên tên tự do
-                            const id = e.target.value ? Number(e.target.value) : null;
-                            const ref = congDoanRefs.find((c) => c.id === id);
-                            // Đổi công đoạn → bỏ tổ đã chọn tay để server điền lại tổ mặc định.
-                            patch(r.key, { cong_doan_id: id, ten: ref?.ten ?? r.ten, department_id: null });
-                          }}
-                          aria-label={`Công đoạn bước ${i + 1}`}
-                        >
-                          <option value="">— chọn công đoạn —</option>
-                          {/* Bước lấy từ bài tính giá có thể là TÊN TỰ DO (không gắn danh mục), hoặc
-                              công đoạn nằm ngoài trang danh mục đang tải → giữ nguyên tên đã chụp,
-                              không để select rơi về rỗng làm mất dữ liệu. */}
-                          {r.cong_doan_id == null && r.ten && <option value={KEEP}>{r.ten} (tên tự do)</option>}
-                          {r.cong_doan_id != null && !congDoanRefs.some((c) => c.id === r.cong_doan_id) && (
-                            <option value={r.cong_doan_id}>{r.ten}</option>
-                          )}
-                          {congDoanRefs.map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.ten}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          className="khsx-rt__cd"
-                          value={r.ten}
-                          disabled={!canUpdate}
-                          onChange={(e) => patch(r.key, { ten: e.target.value })}
-                          aria-label={`Tên công đoạn bước ${i + 1}`}
-                        />
-                      )}
-                      {trungTruoc && <div className="khsx-warn-inline">trùng bước trước?</div>}
-                    </td>
-                    <td>
-                      {toRefs ? (
-                        <select
-                          className={`khsx-rt__to ${r.department_id == null ? "khsx-rt__to--empty" : ""}`}
-                          value={r.department_id ?? ""}
-                          disabled={!canUpdate}
-                          onChange={(e) =>
-                            patch(r.key, { department_id: e.target.value ? Number(e.target.value) : null })
-                          }
-                          aria-label={`Tổ phụ trách bước ${i + 1}`}
-                          title={r.department_id == null ? "Để trống → lấy tổ mặc định của công đoạn" : undefined}
-                        >
-                          <option value="">— tổ mặc định —</option>
-                          {toRefs.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.ten}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="khsx-muted">tổ mặc định</span>
-                      )}
-                    </td>
-                    <td>
-                      {mayRefs ? (
-                        <select
-                          className="khsx-rt__may"
-                          value={r.may_id ?? ""}
-                          disabled={!canUpdate}
-                          onChange={(e) => patch(r.key, { may_id: e.target.value ? Number(e.target.value) : null })}
-                          aria-label={`Máy bước ${i + 1}`}
-                        >
-                          <option value="">— chưa gán —</option>
-                          {mayRefs.map((m) => (
-                            <option key={m.id} value={m.id}>
-                              {m.ten}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <span className="khsx-muted">—</span>
-                      )}
-                    </td>
-                    <td className="khsx-rt__numcell">
-                      <input
-                        type="number"
-                        className="khsx-rt__num"
-                        value={r.so_luong_vao}
-                        placeholder={String(goiY(i, r))}
-                        disabled={!canUpdate}
-                        onChange={(e) => patch(r.key, { so_luong_vao: e.target.value })}
-                        aria-label={`Số lượng vào bước ${i + 1}`}
-                      />
-                      {canUpdate && !r.so_luong_vao && (
+                <tr
+                  key={r.key}
+                  className={`khsx-rt__row khsx-rt__row--${meta.tone} ${keo === i ? "is-keo" : ""}`}
+                  draggable={canUpdate}
+                  onDragStart={() => setKeo(i)}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={() => {
+                    if (keo != null) doiCho(keo, i);
+                    setKeo(null);
+                  }}
+                  onDragEnd={() => setKeo(null)}
+                  onKeyDown={(e) => onRowKeyDown(e, i)}
+                >
+                  <td>
+                    <span className="khsx-rt__ord khsx-num">{(i + 1) * 10}</span>
+                  </td>
+                  <td>
+                    <button
+                      type="button"
+                      className="khsx-rt__open"
+                      onClick={(e) => moDrawer(i, e.currentTarget)}
+                    >
+                      <span className="khsx-rt__ten">{r.ten || "— chưa chọn công đoạn —"}</span>
+                      <span className={`khsx-lb khsx-lb--${meta.tone}`}>{meta.label}</span>
+                      {!r.bat_buoc && <span className="khsx-lb khsx-lb--opt">tùy chọn</span>}
+                    </button>
+                  </td>
+                  <td>
+                    <span className={lamO ? "" : "khsx-muted"}>{lamO || "tổ mặc định"}</span>
+                    {r.so_nhan_cong && n(r.so_nhan_cong) > 1 && (
+                      <span className="khsx-rt__sub2">{r.so_nhan_cong} người</span>
+                    )}
+                  </td>
+                  <td className="khsx-rt__qty">
+                    <span className="khsx-num">{num(n(r.so_luong_vao))}</span>
+                    <span className="khsx-rt__dv">{LSX_DON_VI_LABELS[r.don_vi_vao]}</span>
+                    <span className="khsx-rt__arrow" aria-label="ra">→</span>
+                    <span className="khsx-num">{num(n(r.so_luong_ra))}</span>
+                    <span className="khsx-rt__dv">{LSX_DON_VI_LABELS[r.don_vi_ra]}</span>
+                    {g && (g.so_luong_vao !== n(r.so_luong_vao)
+                      || g.so_luong_ra !== n(r.so_luong_ra)) && (
+                      <span className="khsx-rt__goiy">
+                        gợi ý {num(g.so_luong_vao)} → {num(g.so_luong_ra)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="khsx-rt__time">
+                    <span className="khsx-dur">{phut(t.tong)}</span>
+                    {t.tong !== t.chiemMay && (
+                      <span className="khsx-rt__sub2">chiếm máy {phut(t.chiemMay)}</span>
+                    )}
+                  </td>
+                  <td>
+                    {loi.length === 0 ? (
+                      <span className="khsx-muted">—</span>
+                    ) : (
+                      <span className="khsx-need-stack">
+                        {loi.slice(0, 2).map((l) => (
+                          <span key={l} className="khsx-need khsx-need--soft">
+                            <Icon name="help" size={10} /> {l}
+                          </span>
+                        ))}
+                        {loi.length > 2 && (
+                          <span className="khsx-need khsx-need--more" title={loi.join(" · ")}>
+                            +{loi.length - 2}
+                          </span>
+                        )}
+                      </span>
+                    )}
+                  </td>
+                  {/* Không vẽ tay cầm kéo bằng ký tự ⠿: nó là glyph chữ lạc giữa bộ icon Lucide
+                      của app. Cả hàng đã `cursor: grab` để kéo, còn đổi thứ tự vẫn làm được bằng
+                      nút ▲▼ và Alt+↑↓ — rõ ràng hơn và dùng được bàn phím. */}
+                  <td>
+                    {canUpdate && (
+                      <div className="khsx-rt__acts">
                         <button
                           type="button"
-                          className="khsx-rt__fill"
-                          title="Dùng số gợi ý cho cả dòng"
-                          onClick={() => {
-                            const g = goiY(i, r);
-                            patch(r.key, { so_luong_vao: String(g), so_luong_ra: String(g) });
-                          }}
+                          className="khsx-rt__btn khsx-rt__btn--up"
+                          disabled={i === 0}
+                          onClick={() => move(i, -1)}
+                          aria-label={`Chuyển bước ${i + 1} lên`}
                         >
-                          <Icon name="check" size={11} />
+                          <Icon name="chevron" size={14} />
                         </button>
-                      )}
-                    </td>
-                    <td className="khsx-rt__numcell">
-                      <input
-                        type="number"
-                        className={`khsx-rt__num ${raQua ? "khsx-rt__num--bad" : ""}`}
-                        value={r.so_luong_ra}
-                        placeholder={String(goiY(i, r))}
-                        disabled={!canUpdate}
-                        title={raQua ? "Ra nhiều hơn vào — kiểm tra lại" : undefined}
-                        onChange={(e) => patch(r.key, { so_luong_ra: e.target.value })}
-                        aria-label={`Số lượng ra bước ${i + 1}`}
-                      />
-                    </td>
-                    <td>
-                      <div className="khsx-rt__unit" role="group" aria-label={`Đơn vị bước ${i + 1}`}>
-                        {DON_VI.map((u) => (
-                          <button
-                            key={u.key}
-                            type="button"
-                            className={r.don_vi === u.key ? "is-active" : ""}
-                            disabled={!canUpdate}
-                            onClick={() => patch(r.key, { don_vi: u.key })}
-                            aria-pressed={r.don_vi === u.key}
-                          >
-                            {u.label}
-                          </button>
-                        ))}
+                        <button
+                          type="button"
+                          className="khsx-rt__btn"
+                          disabled={i === rows.length - 1}
+                          onClick={() => move(i, 1)}
+                          aria-label={`Chuyển bước ${i + 1} xuống`}
+                        >
+                          <Icon name="chevron" size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="khsx-rt__btn khsx-rt__btn--del"
+                          onClick={() => remove(i)}
+                          aria-label={`Bỏ bước ${i + 1}`}
+                        >
+                          <Icon name="trash" size={14} />
+                        </button>
                       </div>
-                    </td>
-                    <td className="khsx-rt__numcell">
-                      <input
-                        type="number"
-                        className="khsx-rt__num"
-                        value={r.hao_hut}
-                        placeholder="0"
-                        disabled={!canUpdate}
-                        onChange={(e) => patch(r.key, { hao_hut: e.target.value })}
-                        aria-label={`Hao hụt bước ${i + 1}`}
-                      />
-                      {lechHao && <div className="khsx-rt__gap">lệch {Math.abs(vao - ra - hao)}</div>}
-                    </td>
-                    <td>
-                      <label className="khsx-rt__ext">
-                        <input
-                          type="checkbox"
-                          checked={r.thue_ngoai}
-                          disabled={!canUpdate}
-                          onChange={(e) => patch(r.key, { thue_ngoai: e.target.checked })}
-                        />
-                        <span className="sr-only">Thuê ngoài bước {i + 1}</span>
-                      </label>
-                    </td>
-                    <td>
-                      <input
-                        className="khsx-rt__note"
-                        value={r.ghi_chu}
-                        disabled={!canUpdate}
-                        onChange={(e) => patch(r.key, { ghi_chu: e.target.value })}
-                        aria-label={`Ghi chú bước ${i + 1}`}
-                      />
-                    </td>
-                    <td>
-                      {canUpdate && (
-                        <div className="khsx-rt__acts">
-                          <button
-                            type="button"
-                            className="khsx-rt__btn khsx-rt__btn--up"
-                            disabled={i === 0}
-                            onClick={() => move(i, -1)}
-                            aria-label={`Chuyển bước ${i + 1} lên`}
-                          >
-                            <Icon name="chevron" size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="khsx-rt__btn"
-                            disabled={i === rows.length - 1}
-                            onClick={() => move(i, 1)}
-                            aria-label={`Chuyển bước ${i + 1} xuống`}
-                          >
-                            <Icon name="chevron" size={14} />
-                          </button>
-                          <button
-                            type="button"
-                            className="khsx-rt__btn khsx-rt__btn--del"
-                            onClick={() => remove(i)}
-                            aria-label={`Bỏ bước ${i + 1}`}
-                          >
-                            <Icon name="trash" size={14} />
-                          </button>
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                  {r.thue_ngoai && (
-                    <tr className="khsx-rt__sub">
-                      <td />
-                      <td colSpan={10}>
-                        <label className="khsx-rt__sublabel">
-                          Nhà cung cấp gia công
-                          <input
-                            className={`khsx-rt__ncc ${!r.nha_cung_cap ? "khsx-rt__num--bad" : ""}`}
-                            value={r.nha_cung_cap}
-                            disabled={!canUpdate}
-                            placeholder="Tên cơ sở nhận gia công"
-                            onChange={(e) => patch(r.key, { nha_cung_cap: e.target.value })}
-                          />
-                        </label>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
+                    )}
+                  </td>
+                </tr>
               );
             })}
           </tbody>
@@ -522,22 +497,82 @@ export function LsxRoutingTable({
         </div>
       )}
 
+      {rows.length > 0 && (
+        <div className={`khsx-lead ${treHan ? "khsx-lead--tre" : ""}`}>
+          <div className="khsx-lead__main">
+            <span className="khsx-lead__label">Tổng thời gian dẫn</span>
+            <strong className="khsx-lead__val khsx-dur">{phut(tong.tong)}</strong>
+            <span className="khsx-lead__note">
+              ≈ {soNgay.toFixed(1)} ngày làm việc · chiếm máy {phut(tong.chiemMay)}
+            </span>
+          </div>
+          <div className="khsx-lead__side">
+            {leadTime?.ngay_du_kien_xong && !dirty && (
+              <span>Dự kiến xong {ngay(leadTime.ngay_du_kien_xong)}</span>
+            )}
+            {conLai != null && (
+              <span className={treHan ? "khsx-lead__warn" : ""}>
+                {treHan
+                  ? `Vượt hạn giao khách — chỉ còn ${conLai} ngày`
+                  : `Còn ${conLai} ngày tới hạn giao khách`}
+              </span>
+            )}
+            {soNgoai > 0 && <span>{soNgoai} bước thuê ngoài</span>}
+          </div>
+        </div>
+      )}
+
+      {canUpdate && doiCauTruc && (
+        <label className="khsx-lydo">
+          <span className="khsx-field__label">
+            Routing đã khác bài tính giá — ghi lý do để lưu vào nhật ký
+          </span>
+          <input
+            value={lyDo}
+            placeholder="vd: khách đổi sang cán màng thuê ngoài"
+            onChange={(e) => setLyDo(e.target.value)}
+          />
+        </label>
+      )}
+
       <div className="khsx-rt__foot">
         <p className="khsx-rt__summary">
           {rows.length} công đoạn
           {soNgoai > 0 && ` · ${soNgoai} thuê ngoài`}
-          {soChuaTo > 0 && ` · ${soChuaTo} lấy tổ mặc định`}
         </p>
         {canUpdate && (
-          <Button variant="accent" disabled={!dirty} loading={saving} onClick={() => onSave(toBody(rows))}>
+          <Button
+            variant="accent"
+            disabled={!dirty}
+            loading={saving}
+            onClick={() => onSave(toBody(rows), doiCauTruc ? lyDo : undefined)}
+          >
             Lưu công đoạn
           </Button>
         )}
       </div>
 
-      <p className="sr-only" aria-live="polite">
-        {live}
-      </p>
+      <p className="sr-only" aria-live="polite">{live}</p>
+
+      {moBuoc != null && rows[moBuoc] && (
+        <LsxBuocDrawer
+          row={rows[moBuoc]}
+          index={moBuoc}
+          tong={rows.length}
+          soCon={soCon}
+          soToKeHoach={soToKeHoach}
+          soLuongDat={soLuongDat}
+          congDoanRefs={congDoanRefs}
+          toRefs={toRefs}
+          mayRefs={mayRefs}
+          canUpdate={canUpdate}
+          onPatch={(p) => patch(rows[moBuoc].key, p)}
+          onDoiCongDoan={(id) => doiCongDoan(rows[moBuoc].key, id, rows[moBuoc].ten)}
+          onClose={dongDrawer}
+          onPrev={() => setMoBuoc(Math.max(moBuoc - 1, 0))}
+          onNext={() => setMoBuoc(Math.min(moBuoc + 1, rows.length - 1))}
+        />
+      )}
     </div>
   );
 }

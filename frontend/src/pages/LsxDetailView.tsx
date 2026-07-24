@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ApiError,
+  LSX_CANH_BAO_LABELS,
   LSX_THIEU_LABELS,
   api,
   type LsxActivity,
@@ -184,12 +185,27 @@ export function LsxDetailView({
     }
   }
 
-  async function luuRouting(body: LsxCongDoanBody[]) {
+  /** Gợi ý SL vào/ra chạy ngược từ SL thành phẩm — CHỈ ĐỌC, bảng tự hỏi người dùng có áp không. */
+  const tinhNguoc = useCallback(async () => {
+    if (!token || !d) return [];
+    return (await api.lsx.tinhNguoc(token, d.id)).rows;
+  }, [token, d]);
+
+  /** Bộ mặc định của công đoạn mới khi kế hoạch đổi 1 bước — luật ở backend, client chỉ áp. */
+  const macDinhBuoc = useCallback(
+    async (congDoanId: number) => {
+      if (!token || !d) throw new Error("chưa sẵn sàng");
+      return api.lsx.macDinhBuoc(token, d.id, congDoanId);
+    },
+    [token, d],
+  );
+
+  async function luuRouting(body: LsxCongDoanBody[], lyDo?: string) {
     if (!token || !d) return;
     setSavingRouting(true);
     setErr(null);
     try {
-      const r = await api.lsx.saveRouting(token, d.id, body);
+      const r = await api.lsx.saveRouting(token, d.id, body, lyDo);
       setD(r);
       setForm(toForm(r));
       setActs(null);
@@ -565,12 +581,16 @@ export function LsxDetailView({
                 congDoans={d.cong_doans}
                 soToKeHoach={d.so_to_ke_hoach}
                 soLuongDat={d.so_luong_dat}
+                soCon={d.so_con}
+                leadTime={d.lead_time}
                 congDoanRefs={congDoanRefs}
                 toRefs={toRefs}
                 mayRefs={mayRefs}
                 canUpdate={canUpdate}
                 saving={savingRouting}
                 onSave={luuRouting}
+                onTinhNguoc={tinhNguoc}
+                onMacDinhBuoc={macDinhBuoc}
                 onDirtyChange={setRoutingDirty}
               />
             </section>
@@ -664,6 +684,30 @@ export function LsxDetailView({
             )}
             {readyErr && <BangLoi text={readyErr} onRetry={load} />}
           </div>
+
+          {/* Rổ MỀM — tách hẳn khỏi checklist chặn ở trên: đây là nghi vấn nghề, người kế hoạch
+              đọc rồi tự quyết, hệ thống KHÔNG chặn phát hành vì mấy dòng này. */}
+          {d.canh_bao.length > 0 && (
+            <div className="khsx-luuy">
+              <p className="khsx-luuy__title">
+                <Icon name="help" size={14} /> Lưu ý ({d.canh_bao.length})
+              </p>
+              <ul className="khsx-luuy__list">
+                {d.canh_bao.map((code) => (
+                  <li key={code}>
+                    <span>{LSX_CANH_BAO_LABELS[code] ?? code}</span>
+                    {(code === "dut_chuyen" || code === "ra_lon_hon_vao"
+                      || code === "khac_bai_tinh_gia" || code === "vuot_han_giao") && (
+                      <button type="button" className="khsx-xlink" onClick={() => setTab("routing")}>
+                        Xem →
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              <p className="khsx-luuy__foot">Không chặn — bạn vẫn đánh dấu sẵn sàng được.</p>
+            </div>
+          )}
 
           <div className="khsx-facts">
             <Fact k="SL đặt" v={`${num(d.so_luong_dat)} ${d.don_vi_tinh}`} />

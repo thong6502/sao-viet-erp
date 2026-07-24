@@ -80,6 +80,12 @@ class CongDoan(Base):
 
     setup_cost: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, server_default="0", default=0)
     setup_time: Mapped[float] = mapped_column(Numeric(8, 2), nullable=False, server_default="0", default=0)  # phút
+    # Năng suất mặc định KHI LÊN LỆNH SẢN XUẤT (output/giờ) — dành cho bước KHÔNG gắn máy: máy có
+    # `may_thiet_bi.toc_do` riêng, còn việc làm tay (dán, đóng gói) thì năng suất thuộc về công đoạn.
+    # ĐƠN VỊ KHÔNG LƯU: suy từ đơn vị ĐẦU VÀO của bước (chế bản = kẽm/giờ · in–cán–bế = tờ/giờ ·
+    # dán–đóng gói = con/giờ). Lưu riêng đơn vị chỉ tạo cơ hội cho nó lệch với đơn vị bước, vì
+    # `thoi_luong_buoc` tính `so_luong_vao / nang_suat` nên hai thứ BUỘC phải cùng đơn vị.
+    nang_suat: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
     run_rate: Mapped[float | None] = mapped_column(Numeric(18, 4), nullable=True)   # đơn giá theo basis
     rate_tiers: Mapped[list | None] = mapped_column(JSON, nullable=True)            # [{from_qty,rate,kieu,driver}]
     # Bậc đơn giá theo KÍCH THƯỚC thành phẩm (cạnh dài, cm): [{den_cm, don_gia}] — "≤ den_cm → đơn giá".

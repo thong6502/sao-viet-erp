@@ -9,7 +9,7 @@ from ..models.cong_doan import CongDoan
 ASSIGNABLE = (
     "ten", "ten_hien_thi", "kieu_bu_hao", "bu_hao_id", "so_to_bu_hao", "nhom", "may_id", "department_id", "khoan_ghi_theo",
     "allowed_defect_pct", "allowed_defect_abs",
-    "che_do_tinh", "pricing_basis", "setup_cost", "setup_time",
+    "che_do_tinh", "pricing_basis", "setup_cost", "setup_time", "nang_suat",
     "run_rate", "rate_tiers", "size_tiers", "first_unit_floor", "min_charge", "requires_tooling",
     "tooling_type", "spoilage_pct", "inline_flag", "ghi_chu", "active", "cong_thuc_gia",
 )

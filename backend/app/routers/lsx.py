@@ -24,6 +24,7 @@ from ..repositories.document_sequence_repo import DocumentSequenceRepository
 from ..repositories.lsx_repo import LsxRepository
 from ..repositories.org_scope import dept_subtree_ids
 from ..schemas.lsx import (
+    BuocMacDinhOut,
     HangChoOut,
     LsxActivityItem,
     LsxActivityOut,
@@ -34,6 +35,8 @@ from ..schemas.lsx import (
     PreviewOut,
     RoutingReplaceIn,
     TaoLsxIn,
+    TinhNguocOut,
+    TinhNguocRow,
     TrangThaiIn,
 )
 from ..services.actor_display import actor_labels
@@ -210,11 +213,60 @@ def replace_routing(
     svc = _svc(db)
     try:
         _guard_scope(db, svc.get(lsx_id), user, authz)
-        lsx = svc.replace_routing(lsx_id=lsx_id, rows_in=payload.cong_doans, actor=user)
+        lsx = svc.replace_routing(
+            lsx_id=lsx_id, rows_in=payload.cong_doans, actor=user, ly_do=payload.ly_do
+        )
     except Exception as exc:
         raise _map(exc)
     hub.broadcast({"type": "lsx_changed", "order_id": lsx.order_id})
     return _out(svc, lsx)
+
+
+@router.get("/{lsx_id}/tinh-nguoc", response_model=TinhNguocOut)
+def tinh_nguoc(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> TinhNguocOut:
+    """Gợi ý SL vào/ra cho CẢ chuỗi, chạy ngược từ SL thành phẩm (BC: scrap cộng dồn từ bước cuối).
+
+    CHỈ ĐỌC — không ghi gì. Máy đề xuất, người kế hoạch xem diff rồi mới bấm áp dụng + Lưu.
+    """
+    svc = _svc(db)
+    try:
+        lsx = svc.get(lsx_id)
+    except Exception as exc:
+        raise _map(exc)
+    _guard_scope(db, lsx, user, authz)
+    return TinhNguocOut(
+        rows=[TinhNguocRow.model_validate(r) for r in svc.tinh_nguoc_routing(lsx)],
+        so_to_ke_hoach=lsx.so_to_ke_hoach,
+    )
+
+
+@router.get("/{lsx_id}/mac-dinh-buoc/{cong_doan_id}", response_model=BuocMacDinhOut)
+def mac_dinh_buoc(
+    lsx_id: int,
+    cong_doan_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> BuocMacDinhOut:
+    """Bộ mặc định khi kế hoạch ĐỔI một bước sang công đoạn khác (loại bước · tổ · máy · đơn vị ·
+    chuẩn bị · năng suất).
+
+    Luật suy loại bước / đơn vị nằm ở service — client CHỈ áp kết quả, không tự tính lại, để hai
+    nơi không trôi khỏi nhau. CHỈ ĐỌC, chưa ghi gì; người dùng vẫn phải bấm "Lưu công đoạn".
+    """
+    svc = _svc(db)
+    try:
+        _guard_scope(db, svc.get(lsx_id), user, authz)
+        return BuocMacDinhOut.model_validate(
+            svc.mac_dinh_buoc(lsx_id=lsx_id, cong_doan_id=cong_doan_id)
+        )
+    except Exception as exc:
+        raise _map(exc)
 
 
 @router.post("/{lsx_id}/trang-thai", response_model=LsxOut)

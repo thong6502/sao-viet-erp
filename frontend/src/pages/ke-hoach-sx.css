@@ -282,7 +282,12 @@
   background: var(--rule-hair);
   color: var(--ink);
 }
-.khsx-flow__step--ngoai { background: var(--steel-soft); color: var(--steel); }
+/* Chuỗi công đoạn chỉ tô bước NGOẠI LỆ, dùng đúng bảng màu của badge loại bước để hai chỗ
+   nói cùng một thứ tiếng. Bước máy/tổ (phần lớn routing) để trơn. */
+.khsx-flow__step--ngoai { background: var(--rust-soft); color: var(--rust-deep); }
+.khsx-flow__step--cho { background: var(--amber-soft); color: var(--amber-deep); }
+.khsx-flow__step--kcs { background: var(--moss-soft); color: var(--moss-deep); }
+.khsx-flow__step--xa { background: var(--plum-soft); color: var(--plum-deep); }
 .khsx-flow__step + .khsx-flow__step::before { content: "›"; color: var(--ash-2); margin-right: 4px; }
 .khsx-flow--none { color: var(--signal); font-size: var(--fs-xs); }
 
@@ -609,84 +614,100 @@
 .khsx-rt__baracts { margin-left: auto; display: flex; gap: var(--sp-2); }
 .khsx-rt__flow { padding: var(--sp-2) 0; }
 
-.khsx-rt__table { width: 100%; border-collapse: collapse; min-width: 940px; }
+/* Bảng chỉ còn 7 cột nên vừa màn laptop — không cần min-width to như bản 11 cột. */
+.khsx-rt__table { width: 100%; border-collapse: collapse; min-width: 760px; }
 .khsx-rt__table td {
   padding: 8px;
   border-bottom: 1px solid var(--rule-hair);
-  vertical-align: top;
+  vertical-align: middle;
   font-size: var(--fs-sm);
 }
-.khsx-rt__thord { width: 44px; }
+.khsx-rt__thord { width: 52px; }
 .khsx-rt__ord {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
+  min-width: 30px;
   height: 24px;
-  border-radius: 50%;
-  background: var(--charcoal);
-  color: var(--on-charcoal);
-  font-family: var(--ff-mono);
-  font-size: var(--fs-xs);
-}
-.khsx-rt__row--ngoai { background: color-mix(in srgb, var(--steel-soft) 55%, transparent); }
-.khsx-rt__cd,
-.khsx-rt__to,
-.khsx-rt__may,
-.khsx-rt__note,
-.khsx-rt__ncc {
-  font: inherit;
-  font-size: var(--fs-sm);
-  color: var(--ink);
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
+  padding: 0 6px;
   border-radius: var(--r-3);
-  padding: 6px 8px;
-  min-height: 30px;
-  max-width: 190px;
-  width: 100%;
-}
-.khsx-rt__to--empty { background: color-mix(in srgb, var(--amber-soft) 45%, var(--canvas)); }
-.khsx-rt__numcell { position: relative; }
-.khsx-rt__num {
-  font-family: var(--ff-mono);
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  font-size: var(--fs-sm);
-  color: var(--ink);
-  background: var(--canvas);
-  border: 1px solid var(--rule-soft);
-  border-radius: var(--r-3);
-  padding: 6px 8px;
-  min-height: 30px;
-  width: 96px;
-}
-.khsx-rt__num--bad { border-color: var(--signal); }
-.khsx-rt__fill {
-  position: absolute;
-  right: 10px;
-  top: 6px;
-  border: 0;
   background: var(--rule-hair);
   color: var(--ash);
-  border-radius: var(--r-2);
-  cursor: pointer;
-  padding: 2px 4px;
-  line-height: 0;
-}
-.khsx-rt__gap { font-size: var(--fs-xs); color: var(--amber-deep); margin-top: 3px; }
-.khsx-rt__unit { display: inline-flex; border: 1px solid var(--rule-soft); border-radius: var(--r-3); overflow: hidden; }
-.khsx-rt__unit button {
-  border: 0;
-  background: var(--canvas);
-  color: var(--ash);
+  font-family: var(--ff-mono);
   font-size: var(--fs-xs);
-  padding: 6px 10px;
-  cursor: pointer;
 }
-.khsx-rt__unit button.is-active { background: var(--charcoal); color: var(--on-charcoal); }
-.khsx-rt__ext { display: inline-flex; padding: 4px; cursor: pointer; }
-.khsx-rt__acts { display: inline-flex; gap: 2px; }
+/* Dải màu bên trái CHỈ cho bước NGOẠI LỆ (thuê ngoài · chờ · KCS · xả tờ). Bước máy/tổ là
+   phần lớn routing nên để trơn: tô màu mọi hàng thì màu hết mang tin, mắt không còn biết nhìn
+   đâu. Nhãn loại bước vẫn hiện ở badge cho mọi hàng. */
+.khsx-rt__row td:first-child { border-left: 3px solid transparent; }
+.khsx-rt__row--ngoai td:first-child { border-left-color: var(--rust); }
+.khsx-rt__row--cho td:first-child { border-left-color: var(--amber); }
+.khsx-rt__row--kcs td:first-child { border-left-color: var(--moss); }
+.khsx-rt__row--xa td:first-child { border-left-color: var(--plum); }
+.khsx-rt__row[draggable="true"] { cursor: grab; }
+.khsx-rt__row.is-keo { opacity: 0.45; }
+
+/* Cả ô tên là NÚT mở drawer — vùng bấm to, không bắt nhắm vào icon nhỏ. */
+.khsx-rt__open {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 4px 2px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--ink);
+  border-radius: var(--r-3);
+}
+.khsx-rt__open:hover { background: var(--rule-hair); }
+.khsx-rt__open:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; }
+.khsx-rt__ten { font-size: var(--fs-sm); }
+
+/* Badge loại bước — chữ thường có dấu, KHÔNG mono/IN HOA (font mono không dựng cho dấu tiếng Việt). */
+.khsx-lb {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--r-2);
+  padding: 2px 8px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.khsx-lb--may { background: var(--steel-soft); color: var(--steel); }
+.khsx-lb--to { background: var(--rule-hair); color: var(--ash); }
+.khsx-lb--ngoai { background: var(--rust-soft); color: var(--rust-deep); }
+.khsx-lb--cho { background: var(--amber-soft); color: var(--amber-deep); }
+.khsx-lb--kcs { background: var(--moss-soft); color: var(--moss-deep); }
+.khsx-lb--xa { background: var(--plum-soft); color: var(--plum-deep); }
+.khsx-lb--ghep { background: var(--rule-hair); color: var(--ash); }
+.khsx-lb--opt { background: transparent; color: var(--ash); border: 1px dashed var(--rule); }
+
+/* Thời lượng ("1 giờ 13 phút") có CHỮ CÓ DẤU nên KHÔNG được dùng mono — JetBrains Mono không
+   dựng cho dấu tiếng Việt, đọc rất khó. Giữ canh cột bằng `tabular-nums` trên chính font app. */
+.khsx-dur { font-variant-numeric: tabular-nums; }
+
+/* Vào → Ra: SỐ mono canh cột, ĐƠN VỊ sans (chữ có dấu). */
+.khsx-rt__qty { white-space: nowrap; }
+.khsx-rt__qty .khsx-num { font-variant-numeric: tabular-nums; }
+.khsx-rt__dv { color: var(--ash); font-size: var(--fs-xs); margin: 0 2px 0 3px; }
+.khsx-rt__arrow { color: var(--rule); margin: 0 4px; }
+.khsx-rt__goiy {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--rust);
+}
+.khsx-rt__time { white-space: nowrap; }
+.khsx-rt__sub2 { display: block; font-size: var(--fs-xs); color: var(--ash); margin-top: 2px; }
+.khsx-need--soft {
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  border-color: transparent;
+}
+.khsx-rt__acts { display: inline-flex; gap: 2px; align-items: center; }
 .khsx-rt__btn {
   width: 28px;
   height: 28px;
@@ -702,14 +723,166 @@
 .khsx-rt__btn:disabled { opacity: 0.4; cursor: default; }
 .khsx-rt__btn--up svg { transform: rotate(180deg); }
 .khsx-rt__btn--del:hover { color: var(--signal); border-color: var(--signal); }
-.khsx-rt__sub td { background: var(--steel-soft); }
-.khsx-rt__sublabel {
+/* --- dải gợi ý "tính ngược" ------------------------------------------------ */
+.khsx-goiy {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  background: var(--rust-soft);
+  border-left: 3px solid var(--rust);
+  border-radius: var(--r-3);
+  padding: var(--sp-3);
+  color: var(--rust-deep);
+}
+.khsx-goiy__text { margin: 0; flex: 1 1 260px; font-size: var(--fs-sm); }
+.khsx-goiy__acts { display: flex; align-items: center; gap: var(--sp-3); }
+
+/* --- dải tổng thời gian dẫn ------------------------------------------------ */
+.khsx-lead {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+  background: var(--paper);
+  border: 1px solid var(--rule-soft);
+  border-left: 3px solid var(--steel);
+  border-radius: var(--r-3);
+  padding: var(--sp-3);
+}
+.khsx-lead--tre { border-left-color: var(--signal); background: var(--rust-soft); }
+.khsx-lead__main { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+.khsx-lead__label { font-size: var(--fs-xs); color: var(--ash); }
+.khsx-lead__val { font-size: var(--fs-lg); color: var(--ink); }
+.khsx-lead__note { font-size: var(--fs-xs); color: var(--ash); }
+.khsx-lead__side {
+  margin-left: auto;
+  display: flex;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+}
+.khsx-lead__warn { color: var(--signal); font-weight: var(--fw-bold); }
+
+.khsx-lydo { display: flex; flex-direction: column; gap: 4px; }
+.khsx-lydo input {
+  font: inherit;
+  font-size: var(--fs-sm);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: 8px 10px;
+  color: var(--ink);
+}
+
+/* --- lưu ý mềm ở cột phải (khác hẳn checklist CHẶN màu đỏ ở trên) ---------- */
+.khsx-luuy {
+  background: var(--amber-soft);
+  border-radius: var(--r-3);
+  padding: var(--sp-3);
+  color: var(--amber-deep);
+}
+.khsx-luuy__title {
+  margin: 0 0 var(--sp-2);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   font-size: var(--fs-sm);
-  color: var(--steel);
+  font-weight: var(--fw-bold);
 }
+.khsx-luuy__list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.khsx-luuy__list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.khsx-luuy__foot { margin: var(--sp-2) 0 0; font-size: var(--fs-xs); opacity: 0.75; }
+
+/* --- drawer chi tiết 1 bước ------------------------------------------------ */
+.khsx-drawer--buoc { width: min(760px, 96vw); }
+.khsx-buoc__nav { display: inline-flex; gap: 2px; align-self: center; }
+.khsx-buoc__nav button {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rule-soft);
+  background: var(--canvas);
+  border-radius: var(--r-3);
+  color: var(--ash);
+  cursor: pointer;
+}
+.khsx-buoc__nav button:disabled { opacity: 0.35; cursor: default; }
+.khsx-buoc__nav button:first-child svg { transform: rotate(180deg); }
+
+.khsx-nhom {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4);
+  background: var(--canvas);
+}
+.khsx-nhom__title {
+  margin: 0 0 var(--sp-3);
+  font-size: var(--fs-md);
+  color: var(--ink);
+}
+.khsx-nhom__sub { margin: -6px 0 var(--sp-3); font-size: var(--fs-xs); color: var(--ash); }
+
+.khsx-inline { display: flex; align-items: center; gap: var(--sp-2); }
+.khsx-inline input { flex: 1 1 auto; min-width: 0; }
+.khsx-inline__unit { flex: 0 0 auto; width: auto; min-width: 92px; }
+.khsx-field__hint { font-size: var(--fs-xs); color: var(--ash); line-height: 1.45; }
+.khsx-input--bad { border-color: var(--signal) !important; }
+
+/* Segmented chọn loại bước — nhãn tiếng Việt nên để chữ thường, không mono/IN HOA. */
+.khsx-seg { display: inline-flex; border: 1px solid var(--rule-soft); border-radius: var(--r-3); overflow: hidden; }
+.khsx-seg--wrap { flex-wrap: wrap; width: fit-content; max-width: 100%; }
+.khsx-seg button {
+  border: 0;
+  border-right: 1px solid var(--rule-soft);
+  background: var(--canvas);
+  color: var(--ash);
+  font-size: var(--fs-sm);
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.khsx-seg button:last-child { border-right: 0; }
+.khsx-seg button.is-active { background: var(--charcoal); color: var(--on-charcoal); }
+.khsx-seg button:disabled { opacity: 0.5; cursor: default; }
+
+/* Bảng tính thời gian trong drawer — hai con số TÁCH BẠCH vì chúng dùng khác nhau:
+   chiếm máy ăn capacity (vẽ thanh Gantt), tổng dẫn chỉ đẩy bước sau. */
+.khsx-tinh {
+  margin-top: var(--sp-3);
+  border-top: 1px solid var(--rule-hair);
+  padding-top: var(--sp-3);
+  display: grid;
+  gap: var(--sp-2);
+}
+.khsx-tinh__row { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; }
+.khsx-tinh__label { font-size: var(--fs-sm); color: var(--ash); min-width: 140px; }
+.khsx-tinh__val { font-size: var(--fs-md); color: var(--ink); }
+.khsx-tinh__row--total .khsx-tinh__val { font-size: var(--fs-lg); font-weight: var(--fw-bold); }
+.khsx-tinh__note { font-size: var(--fs-xs); color: var(--ash); flex: 1 1 200px; }
+
+.khsx-cond {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--sp-2) var(--sp-3);
+}
+.khsx-cond__item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  cursor: pointer;
+}
+
 .khsx-rt__undo {
   display: flex;
   align-items: center;
@@ -763,4 +936,10 @@
   .khsx-drawer { width: 100vw; border-radius: 0; }
   .khsx__col--opt { display: none; }
   .khsx__segrow .seg { flex: 1 1 0; justify-content: center; }
+}
+
+/* Tôn trọng "giảm chuyển động" — bỏ shimmer skeleton + trượt drawer (bám convention các màn khác). */
+@media (prefers-reduced-motion: reduce) {
+  .khsx-skel__bar { animation: none; }
+  .khsx-drawer { animation: none; }
 }

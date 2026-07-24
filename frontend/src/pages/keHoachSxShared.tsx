@@ -3,7 +3,12 @@
 // tiết) không chép lại — và để mọi nhãn trạng thái nằm ĐÚNG MỘT chỗ.
 import type { ReactNode } from "react";
 import { Icon, type IconName } from "../components/Icons";
-import { LSX_THIEU_LABELS, type LsxTrangThai } from "../api/client";
+import {
+  LSX_LOAI_BUOC_META,
+  LSX_THIEU_LABELS,
+  type LsxLoaiBuoc,
+  type LsxTrangThai,
+} from "../api/client";
 
 // --- định dạng --------------------------------------------------------------
 export function num(v: number | null | undefined): string {
@@ -124,26 +129,36 @@ export function CanhBaoMem({ children, title }: { children: ReactNode; title?: s
   );
 }
 
-/** Chuỗi công đoạn "In › Cán › Bế › Dán" — nhìn 1 giây là hiểu cả routing. */
+/** Chuỗi công đoạn "In › Cán › Bế › Dán" — nhìn 1 giây là hiểu cả routing.
+ *
+ *  Nhận `loai_buoc` (không phải cờ thuê-ngoài) để màn "lệnh dự kiến" và màn lệnh đã tạo dùng
+ *  CHUNG một cách gọi tên. Chỉ đánh dấu bước NGOẠI LỆ — bước máy/tổ là phần lớn routing, tô hết
+ *  thì màu hết mang tin. */
 export function ChuoiCongDoan({
   steps,
 }: {
-  steps: { ten: string; thue_ngoai?: boolean }[];
+  steps: { ten: string; loai_buoc?: string }[];
 }) {
   if (!steps.length) {
     return <span className="khsx-flow khsx-flow--none">chưa có công đoạn</span>;
   }
   return (
     <span className="khsx-flow">
-      {steps.map((s, i) => (
-        <span
-          key={`${s.ten}-${i}`}
-          className={`khsx-flow__step ${s.thue_ngoai ? "khsx-flow__step--ngoai" : ""}`}
-        >
-          {s.thue_ngoai && <Icon name="truck" size={10} />}
-          {s.ten}
-        </span>
-      ))}
+      {steps.map((s, i) => {
+        const meta = s.loai_buoc ? LSX_LOAI_BUOC_META[s.loai_buoc as LsxLoaiBuoc] : undefined;
+        const ngoaiLe = !!meta && s.loai_buoc !== "may" && s.loai_buoc !== "to";
+        return (
+          <span
+            key={`${s.ten}-${i}`}
+            className={`khsx-flow__step ${ngoaiLe ? `khsx-flow__step--${meta.tone}` : ""}`}
+            title={meta?.hint}
+          >
+            {s.loai_buoc === "thue_ngoai" && <Icon name="truck" size={10} />}
+            {s.loai_buoc === "cho" && <Icon name="clock" size={10} />}
+            {s.ten}
+          </span>
+        );
+      })}
     </span>
   );
 }

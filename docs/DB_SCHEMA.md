@@ -2668,9 +2668,13 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 
 ### `cong_doan`
 
-**Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job (`routing_step`) = Phase D. `may_id` soft int → `may_thiet_bi`. `department_id` soft int → `departments` (tổ/bộ phận phụ trách — phát Lệnh SX đẩy việc theo đây).
+**Purpose:** danh mục công đoạn (thao tác + cách tính giá + máy) — spec-cong-doan §2. Routing per-job = `lsx_cong_doan` (Lệnh sản xuất). `may_id` soft int → `may_thiet_bi`. `department_id` soft int → `departments` (tổ/bộ phận phụ trách — phát Lệnh SX đẩy việc theo đây).
 
-**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `may_id`, `department_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
+Ba cột nuôi thẳng routing của Lệnh SX (giá trị MẶC ĐỊNH, kế hoạch sửa được tại lệnh): `setup_time` (phút canh máy, tính 1 lần/lệnh) · `may_id` (máy mặc định của bước) · `nang_suat` (output/giờ cho bước LÀM TAY — bước gắn máy lấy `may_thiet_bi.toc_do`). `nang_suat` KHÔNG lưu đơn vị: suy từ đơn vị đầu vào của bước (chế bản = kẽm/giờ · in–cán–bế = tờ/giờ · dán–đóng gói = con/giờ), vì `thoi_luong_buoc` tính `so_luong_vao / nang_suat` nên hai thứ buộc phải cùng đơn vị. NULL = chưa khai → routing để trống, không bịa 0.
+
+`spoilage_pct` là cột CŨ, chỉ `routing_engine` của hệ tính giá cũ dùng; không có ô nhập và Lệnh SX KHÔNG đọc — hao hụt đi qua module `bu_hao` (mỗi bậc tự chọn `to`|`pct`).
+
+**Tất cả cột:** `id`, `ma`, `ten`, `ten_hien_thi`, `kieu_bu_hao`, `bu_hao_id`, `nhom`, `may_id`, `department_id`, `khoan_ghi_theo`, `allowed_defect_pct`, `allowed_defect_abs`, `che_do_tinh`, `pricing_basis`, `setup_cost`, `setup_time`, `nang_suat`, `run_rate`, `rate_tiers`, `size_tiers`, `first_unit_floor`, `min_charge`, `requires_tooling`, `tooling_type`, `spoilage_pct`, `so_to_bu_hao`, `inline_flag`, `cong_thuc_gia`, `ghi_chu`, `active`, `created_at`, `updated_at`.
 
 `size_tiers` (JSON): bậc đơn giá theo KÍCH THƯỚC thành phẩm (cạnh dài, cm) — `[{den_cm, don_gia}]`, "≤ den_cm → đơn giá"; engine chọn giá theo cỡ thay `run_rate` (vd công dán ≤20cm=100 · 40cm=200 · 100cm=800). `pricing_basis="per_job"` = trọn gói một lần (khuôn bế) — engine ÷ SL.
 
@@ -2885,6 +2889,7 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 | `han_hoan_thanh_sx` | `Date` → `DATE` | — | yes | — | Hạn nội bộ — kế hoạch nhập. |
 | `is_rush` | `Boolean` → `BOOLEAN` | — | no | `false` | Ưu tiên gấp (snapshot `orders.is_rush`, sửa được). |
 | `quy_cach_json` | `JSON` | — | yes | — | Snapshot quy cách: khổ ①②③ · giấy + định lượng · số màu A/B · cách in · chừa · số kẽm · số lượt · ghi chú kỹ thuật. Read-only ở lát 1. |
+| `routing_goc_json` | `JSON` | — | yes | — | Ảnh chụp routing LÚC TẠO lệnh (list rút gọn: `ten`·`nhom`·`loai_buoc`). CHỈ để cảnh báo "routing đã đổi so với bài tính giá" — không dùng tính lại gì. |
 | `khuon_be_id` | `Integer` | IX | yes | — | Soft → `khuon_be.id` — kế hoạch gán khuôn. |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` — máy in dự kiến. |
 | `trang_thai` | `String(20)` | — | no | `nhap` | `nhap` → `cho_bo_sung` → `san_sang`. Các mốc xếp lịch/phát hành thuộc pha sau. |
@@ -2894,35 +2899,64 @@ hàng; HCNS duyệt (quyền `approve`) mới áp vào `employees`.
 | `created_at` | `DateTime(timezone=True)` | — | no | now | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
 
-**Tất cả cột:** `id`, `ma`, `loai`, `lsx_goc_id`, `ten`, `order_id`, `order_line_id`, `quote_version_id`, `phieu_thanh_phan_id`, `so_luong_dat`, `don_vi_tinh`, `bu_hao_to`, `so_to_ke_hoach`, `so_to_nguyen`, `so_con`, `ban_giao_at`, `han_giao_khach`, `han_hoan_thanh_sx`, `is_rush`, `quy_cach_json`, `khuon_be_id`, `may_id`, `trang_thai`, `nguoi_phu_trach_id`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
+**Tất cả cột:** `id`, `ma`, `loai`, `lsx_goc_id`, `ten`, `order_id`, `order_line_id`, `quote_version_id`, `phieu_thanh_phan_id`, `so_luong_dat`, `don_vi_tinh`, `bu_hao_to`, `so_to_ke_hoach`, `so_to_nguyen`, `so_con`, `ban_giao_at`, `han_giao_khach`, `han_hoan_thanh_sx`, `is_rush`, `quy_cach_json`, `routing_goc_json`, `khuon_be_id`, `may_id`, `trang_thai`, `nguoi_phu_trach_id`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
 
 ---
 
 ### `lsx_cong_doan`
 
-**Purpose:** 1 bước routing của lệnh (Operation) — copy từ `phieu_thanh_pham` lúc tạo, kế hoạch sửa được (thêm/bỏ/đổi thứ tự/đổi tổ/đổi máy/thuê ngoài). Mỗi bước mang SL vào/ra + đơn vị riêng vì đơn vị đổi qua ranh giới xén.
+**Purpose:** 1 bước routing của lệnh (Operation) — copy từ `phieu_thanh_pham` lúc tạo, kế hoạch sửa được (thêm/bỏ/đổi thứ tự/đổi tổ/đổi máy/thuê ngoài/số lượng/thời gian). Mỗi bước mang SL + ĐƠN VỊ VÀO/RA riêng vì đơn vị đổi qua ranh giới xén (5.170 tờ vào → 20.680 con ra, hệ số 4).
+
+Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **setup tính 1 lần/lệnh, chạy scale theo SL**; `cho_phut`/`di_chuyen_phut` đẩy lịch nhưng **KHÔNG ăn capacity của máy** → Gantt vẽ thanh chiếm máy = `setup + chạy + vệ sinh`, còn chờ/di chuyển chỉ dời bước sau.
 
 | Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
 | --- | --- | --- | --- | --- | --- |
 | `id` | `Integer` | **PK** | no | auto | |
 | `lsx_id` | `Integer` | FK→`lsx.id` (CASCADE), IX | no | — | Lệnh chứa bước. |
-| `thu_tu` | `Integer` | — | no | `0` | Thứ tự routing. |
-| `cong_doan_id` | `Integer` | IX | yes | — | Soft → `cong_doan.id`. |
+| `thu_tu` | `Integer` | — | no | `0` | Thứ tự routing. Quan hệ trước–sau là TUYẾN TÍNH theo cột này (chốt MVP §5); nhánh song song để pha sau. |
+| `cong_doan_id` | `Integer` | IX | yes | — | Soft → `cong_doan.id`. `null` = bước tên tự do. |
 | `ten` | `String(255)` | — | no | `""` | Tên bước (snapshot hiển thị). |
 | `nhom` | `String(12)` | — | yes | — | `prepress`/`print`/`finishing` (snapshot). |
-| `department_id` | `Integer` | IX | yes | — | Soft → `departments.id` = tổ nhận việc (snapshot `cong_doan.department_id`). |
+| `department_id` | `Integer` | IX | yes | — | Soft → `departments.id` = tổ nhận việc (snapshot `cong_doan.department_id`). Cũng là "trung tâm sản xuất" — KHÔNG có bảng work_center riêng. |
 | `may_id` | `Integer` | IX | yes | — | Soft → `may_thiet_bi.id` cho bước này. |
+| `loai_buoc` | `String(12)` | — | no | `may` | Bước CHIẾM cái gì khi lên Gantt: `may` · `to` (tổ lao động) · `thue_ngoai` · `cho` (chờ kỹ thuật, không chiếm gì) · `kcs` · `xa_to` (chia bán thành phẩm) · `bai_ghep` (khai sẵn, pha sau mới sinh). THAY cờ `thue_ngoai` cũ. |
+| `bat_buoc` | `Boolean` → `BOOLEAN` | — | no | `true` | Bước bắt buộc hay tùy chọn (§4.1). |
 | `so_luong_vao` | `Numeric(14,2)` | — | no | `0` | SL đầu vào bước. |
 | `so_luong_ra` | `Numeric(14,2)` | — | no | `0` | SL đầu ra bước. |
-| `don_vi` | `String(8)` | — | no | `to` | `to` (tờ in) / `cai` (con) / `kem` (bộ kẽm). |
-| `hao_hut` | `Numeric(14,2)` | — | no | `0` | Hao hụt dự kiến của bước. |
-| `thue_ngoai` | `Boolean` | — | no | `false` | Bước gia công ngoài. |
-| `nha_cung_cap` | `String(150)` | — | yes | — | Nhà gia công khi `thue_ngoai`. |
+| `don_vi_vao` | `String(8)` | — | no | `to` | `to` (tờ in) / `cai` (con) / `kem` (bộ kẽm) / `bai` (bài bình). |
+| `don_vi_ra` | `String(8)` | — | no | `to` | Như trên — khác `don_vi_vao` là bình thường ở bước bế/xén. |
+| `he_so_quy_doi` | `Numeric(12,4)` | — | no | `1` | Nhân khi đơn vị vào ≠ ra (tờ→con = số con/tờ). Vào ≠ ra mà hệ số vẫn `1` → chặn "Sẵn sàng". |
+| `hao_hut` | `Numeric(14,2)` | — | no | `0` | Hao hụt TUYỆT ĐỐI (BC: Fixed Scrap Qty) — tờ canh máy, không theo SL. |
+| `hao_hut_pct` | `Numeric(6,2)` | — | no | `0` | Hao hụt THEO % SL (BC: Scrap Factor %). Tính ngược: `SL_vào = SL_ra × (1 + pct) + hao_hut`, cộng dồn từ bước CUỐI về ĐẦU. Mặc định ← `cong_doan.spoilage_pct`. |
+| `so_luot_chay` | `Integer` | — | no | `1` | Số lượt qua máy (in trở = 2) — nhân vào thời gian chạy. |
+| `setup_phut` | `Numeric(10,2)` | — | no | `0` | Chuẩn bị máy, tính 1 LẦN/lệnh (không scale theo SL). Mặc định ← `cong_doan.setup_time`. |
+| `nang_suat` | `Numeric(12,2)` | — | yes | — | Sản lượng/giờ. Mặc định ← `may_thiet_bi.toc_do`. |
+| `don_vi_nang_suat` | `String(10)` | — | yes | — | `to_gio`/`cai_gio`/`kem_gio`/`bai_gio`. |
+| `chay_phut` | `Numeric(10,2)` | — | yes | — | Người kế hoạch GÕ ĐÈ thời gian chạy. `null` = để máy tính từ `nang_suat`. |
+| `ve_sinh_phut` | `Numeric(10,2)` | — | no | `0` | Vệ sinh/chuyển đổi máy — VẪN chiếm máy. Mặc định ← `may_thiet_bi.thoi_gian_rua_muc`. |
+| `cho_phut` | `Numeric(10,2)` | — | no | `0` | Chờ kỹ thuật (khô mực/khô keo). Đẩy bước sau nhưng KHÔNG chiếm máy. |
+| `di_chuyen_phut` | `Numeric(10,2)` | — | no | `0` | Di chuyển bán thành phẩm sang tổ/máy kế. KHÔNG chiếm máy. |
+| `so_nhan_cong` | `Integer` | — | no | `1` | Số người/máy chạy ĐỒNG THỜI (BC: Concurrent Capacities) — thời gian chạy ÷ số này. Chỉ có nghĩa với `loai_buoc` = `to`/`kcs`. |
+| `may_thay_the_ids` | `JSON` | — | yes | — | `list[int]` soft → `may_thiet_bi.id`. CHỈ THAM KHẢO, không tự xếp lịch. |
+| `dieu_kien_json` | `JSON` | — | yes | — | `list[str]` cờ điều kiện bắt đầu (§4.5): `co_vat_tu` · `file_duyet` · `kem_xong` · `khuon_san_sang` · `mau_mau_ky` · `nhan_tu_gia_cong`. |
+| `nha_cung_cap` | `String(150)` | — | yes | — | Nhà gia công khi `loai_buoc='thue_ngoai'` — khai TAY (cơ sở nhỏ thường chưa có trong `suppliers`). |
+| `sl_gui` | `Numeric(14,2)` | — | yes | — | SL gửi đi gia công. |
+| `ngay_gui_dk` | `Date` | — | yes | — | Ngày dự kiến gửi. |
+| `van_chuyen_ngay` | `Numeric(6,2)` | — | yes | — | Thời gian vận chuyển 1 chiều (ngày). |
+| `gia_cong_ngay` | `Numeric(6,2)` | — | yes | — | Thời gian gia công tại NCC (ngày). |
+| `ngay_nhan_dk` | `Date` | — | yes | — | Ngày dự kiến nhận lại. Có nút gợi ý `gửi + vận chuyển + gia công + vận chuyển`, người quyết. |
+| `hao_hut_cho_phep` | `Numeric(14,2)` | — | yes | — | Hao hụt cho phép ở NCC. |
+| `don_gia_gia_cong` | `Numeric(18,2)` | — | yes | — | Giá gia công dự kiến. |
+| `yeu_cau_ky_thuat` | `Text` | — | yes | — | Yêu cầu kỹ thuật gửi NCC. |
+| `nguoi_giao_nhan_id` | `Integer` | IX | yes | — | Soft → `users.id` — người phụ trách giao nhận. |
 | `ghi_chu` | `String(500)` | — | yes | — | |
 | `created_at` | `DateTime(timezone=True)` | — | no | now | |
 | `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
 
-**Tất cả cột:** `id`, `lsx_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `department_id`, `may_id`, `so_luong_vao`, `so_luong_ra`, `don_vi`, `hao_hut`, `thue_ngoai`, `nha_cung_cap`, `ghi_chu`, `created_at`, `updated_at`.
+> **Derived, KHÔNG lưu cột** (engine `lsx_service` tính): `chiem_may_phut = setup + chạy + vệ sinh` · `tong_phut = chiem_may + chờ + di chuyển` · `ty_le_hao_hut = hao_hut / so_luong_vao` · lead time cả lệnh.
+> **Đã BỎ ở migration `0093`:** `thue_ngoai` (tập con của `loai_buoc`) · `don_vi` (tách thành `don_vi_vao`/`don_vi_ra`).
+
+**Tất cả cột:** `id`, `lsx_id`, `thu_tu`, `cong_doan_id`, `ten`, `nhom`, `department_id`, `may_id`, `loai_buoc`, `bat_buoc`, `so_luong_vao`, `so_luong_ra`, `don_vi_vao`, `don_vi_ra`, `he_so_quy_doi`, `hao_hut`, `hao_hut_pct`, `so_luot_chay`, `setup_phut`, `nang_suat`, `don_vi_nang_suat`, `chay_phut`, `ve_sinh_phut`, `cho_phut`, `di_chuyen_phut`, `so_nhan_cong`, `may_thay_the_ids`, `dieu_kien_json`, `nha_cung_cap`, `sl_gui`, `ngay_gui_dk`, `van_chuyen_ngay`, `gia_cong_ngay`, `ngay_nhan_dk`, `hao_hut_cho_phep`, `don_gia_gia_cong`, `yeu_cau_ky_thuat`, `nguoi_giao_nhan_id`, `ghi_chu`, `created_at`, `updated_at`.
 
 ---
 
