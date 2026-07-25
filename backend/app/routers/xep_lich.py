@@ -27,6 +27,14 @@ from ..schemas.xep_lich import (
     HangChoOut,
     KhoaIn,
     LichNenMayOut,
+    PhatHanhOut,
+    SanSangOut,
+    VanDeActionIn,
+    VanDeGhiChuIn,
+    VanDeGiaoIn,
+    VanDeListOut,
+    VanDeNgoaiLeIn,
+    VanDeStateOut,
     VungKhoaIn,
     VungKhoaItemOut,
     VungKhoaListOut,
@@ -41,6 +49,7 @@ from ..services.xep_lich_service import (
     XepLichService,
     XepLichValidationError,
 )
+from ..services.xep_lich_van_de_service import XepLichVanDeService
 
 router = APIRouter(prefix="/api/xep-lich", tags=["xep-lich"])
 MODULE = "san_xuat"
@@ -48,6 +57,17 @@ MODULE = "san_xuat"
 
 def _svc(db: Session) -> XepLichService:
     return XepLichService(db, XepLichRepository(db), AuditLogRepository(db))
+
+
+def _svc_vd(db: Session) -> XepLichVanDeService:
+    return XepLichVanDeService(db, AuditLogRepository(db))
+
+
+def _vd_state_out(row) -> VanDeStateOut:
+    return VanDeStateOut(
+        issue_key=row.issue_key, trang_thai=row.trang_thai,
+        assigned_to=row.assigned_to, note=row.note, tai_phat=row.tai_phat,
+    )
 
 
 def _map(exc: Exception) -> HTTPException:
@@ -317,3 +337,167 @@ def xoa_vung_khoa(
         raise _map(exc)
     hub.broadcast({"type": "xep_lich_changed"})
     return {"ok": True}
+
+
+# --- Vấn đề kế hoạch (xung đột & nguy cơ trễ) -------------------------------
+@router.get("/van-de", response_model=VanDeListOut)
+def van_de(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    severity: str | None = Query(default=None),
+    category: str | None = Query(default=None),
+    trang_thai: str | None = Query(default=None),
+    lsx_id: int | None = Query(default=None),
+    may_id: int | None = Query(default=None),
+) -> VanDeListOut:
+    """Danh sách xung đột & nguy cơ trễ (dẫn xuất lúc đọc) + tổng hợp theo mức. CHỈ ĐỌC."""
+    return VanDeListOut.model_validate(
+        _svc_vd(db).liet_ke(severity=severity, category=category, trang_thai=trang_thai,
+                            lsx_id=lsx_id, may_id=may_id)
+    )
+
+
+@router.get("/san-sang-phat-hanh", response_model=SanSangOut)
+def san_sang_phat_hanh(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> SanSangOut:
+    """LSX/bài ghép đã lập kế hoạch + số xung đột CHẶN còn lại (0 = phát hành được)."""
+    return SanSangOut.model_validate(_svc_vd(db).san_sang_phat_hanh())
+
+
+@router.post("/van-de/tiep-nhan", response_model=VanDeStateOut)
+def van_de_tiep_nhan(
+    payload: VanDeActionIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> VanDeStateOut:
+    row = _svc_vd(db).tiep_nhan(issue_key=payload.issue_key, actor=user)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return _vd_state_out(row)
+
+
+@router.post("/van-de/giao", response_model=VanDeStateOut)
+def van_de_giao(
+    payload: VanDeGiaoIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> VanDeStateOut:
+    row = _svc_vd(db).giao(issue_key=payload.issue_key, user_id=payload.user_id, actor=user)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return _vd_state_out(row)
+
+
+@router.post("/van-de/ghi-chu", response_model=VanDeStateOut)
+def van_de_ghi_chu(
+    payload: VanDeGhiChuIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> VanDeStateOut:
+    row = _svc_vd(db).ghi_chu(issue_key=payload.issue_key, note=payload.note, actor=user)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return _vd_state_out(row)
+
+
+@router.post("/van-de/danh-dau-xu-ly", response_model=VanDeStateOut)
+def van_de_danh_dau_xu_ly(
+    payload: VanDeActionIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> VanDeStateOut:
+    row = _svc_vd(db).danh_dau_xu_ly(issue_key=payload.issue_key, actor=user)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return _vd_state_out(row)
+
+
+@router.post("/van-de/tam-hoan", response_model=VanDeStateOut)
+def van_de_tam_hoan(
+    payload: VanDeActionIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> VanDeStateOut:
+    row = _svc_vd(db).tam_hoan(issue_key=payload.issue_key, actor=user)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return _vd_state_out(row)
+
+
+@router.post("/van-de/ngoai-le", response_model=VanDeStateOut)
+def van_de_ngoai_le(
+    payload: VanDeNgoaiLeIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+) -> VanDeStateOut:
+    """Chấp nhận ngoại lệ — cần quyền PHÁT (`can_approve`). Vấn đề kỹ thuật bất khả → 409."""
+    svc = _svc_vd(db)
+    try:
+        row = svc.ngoai_le(issue_key=payload.issue_key, ly_do=payload.ly_do,
+                           expires_at=payload.expires_at, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return _vd_state_out(row)
+
+
+# --- Phát hành kế hoạch (Released) — gate 0 xung đột Chặn ---------------------
+@router.post("/phat-hanh/lsx/{lsx_id}", response_model=PhatHanhOut)
+def phat_hanh_lsx(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+) -> PhatHanhOut:
+    svc = _svc_vd(db)
+    try:
+        lsx = svc.phat_hanh_lsx(lsx_id=lsx_id, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    hub.broadcast({"type": "lsx_changed"})
+    return PhatHanhOut(id=lsx.id, ma=lsx.ma, trang_thai=lsx.trang_thai)
+
+
+@router.post("/phat-hanh/bai-ghep/{bai_ghep_id}", response_model=PhatHanhOut)
+def phat_hanh_bai_ghep(
+    bai_ghep_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+) -> PhatHanhOut:
+    svc = _svc_vd(db)
+    try:
+        bg = svc.phat_hanh_bai_ghep(bai_ghep_id=bai_ghep_id, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    hub.broadcast({"type": "bai_ghep_changed"})
+    return PhatHanhOut(id=bg.id, ma=bg.ma, trang_thai=bg.trang_thai)
+
+
+@router.delete("/phat-hanh/lsx/{lsx_id}", response_model=PhatHanhOut)
+def go_phat_hanh_lsx(
+    lsx_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+) -> PhatHanhOut:
+    svc = _svc_vd(db)
+    try:
+        lsx = svc.go_phat_hanh_lsx(lsx_id=lsx_id, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    hub.broadcast({"type": "lsx_changed"})
+    return PhatHanhOut(id=lsx.id, ma=lsx.ma, trang_thai=lsx.trang_thai)
+
+
+@router.delete("/phat-hanh/bai-ghep/{bai_ghep_id}", response_model=PhatHanhOut)
+def go_phat_hanh_bai_ghep(
+    bai_ghep_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+) -> PhatHanhOut:
+    svc = _svc_vd(db)
+    try:
+        bg = svc.go_phat_hanh_bai_ghep(bai_ghep_id=bai_ghep_id, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    hub.broadcast({"type": "bai_ghep_changed"})
+    return PhatHanhOut(id=bg.id, ma=bg.ma, trang_thai=bg.trang_thai)

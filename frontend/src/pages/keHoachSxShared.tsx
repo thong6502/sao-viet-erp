@@ -8,6 +8,9 @@ import {
   LSX_THIEU_LABELS,
   type LsxLoaiBuoc,
   type LsxTrangThai,
+  type XepLichSeverity,
+  type XepLichVanDeCategory,
+  type XepLichVanDeTrangThai,
 } from "../api/client";
 
 // --- định dạng --------------------------------------------------------------
@@ -53,6 +56,8 @@ const PILL: Record<LsxTrangThai, { label: string; cls: string }> = {
   nhap: { label: "Nháp", cls: "khsx-pill--nhap" },
   cho_bo_sung: { label: "Chờ bổ sung", cls: "khsx-pill--thieu" },
   san_sang: { label: "Sẵn sàng", cls: "khsx-pill--sansang" },
+  da_lap_ke_hoach: { label: "Đã lập kế hoạch", cls: "khsx-pill--dakethoach" },
+  da_phat_hanh: { label: "Đã phát hành", cls: "khsx-pill--phathanh" },
 };
 
 export function TrangThaiPill({ tt, lg = false }: { tt: LsxTrangThai; lg?: boolean }) {
@@ -145,6 +150,79 @@ export function NguyCoTreChip({
     <span className={`xlcd-risk ${meta.cls}`}>
       {meta.label}
       {slack && <span className="xlcd-risk__slack">{slack}</span>}
+    </span>
+  );
+}
+
+// --- Vấn đề kế hoạch (xung đột & nguy cơ trễ) -------------------------------
+// Mọi nhãn của bàn "Vấn đề" (loại · mức · trạng thái xử lý) nằm ĐÚNG MỘT chỗ — cùng file với
+// pill/chip lệnh. KHÔNG đẻ bảng màu rời: mức trỏ cặp token có sẵn (signal→rust→amber→steel), luôn
+// kèm CHỮ nhãn để phân biệt (a11y — không chỉ dựa màu). Icon lấy từ bộ Icons có sẵn.
+
+/** Loại vấn đề → nhãn + icon (dùng ở chip category + drawer). */
+export const XEP_LICH_CATEGORY_META: Record<XepLichVanDeCategory, { label: string; icon: IconName }> = {
+  trung_may: { label: "Trùng máy", icon: "printer" },
+  de_khoa_may: { label: "Đè vùng khóa máy", icon: "lock" },
+  sai_tien_nhiem: { label: "Sai thứ tự công đoạn", icon: "workflow" },
+  gang_thieu_xa_to: { label: "Bài ghép thiếu xả tờ", icon: "layers" },
+  thieu_du_lieu: { label: "Thiếu dữ liệu", icon: "help" },
+  nguy_co_tre: { label: "Nguy cơ trễ hạn", icon: "clock" },
+  may_khong_kham: { label: "Máy không đáp ứng", icon: "ban" },
+};
+
+/** Mức nghiêm trọng → nhãn + class (thang NÓNG→NGUỘI). chan đậm nhất (icon `ban`); moss KHÔNG
+ *  dùng cho mức (dành cho OK/đã-xử-lý). Class trỏ cặp token trong xep-lich.css (.xlcd-sev--*). */
+export const XEP_LICH_SEV_META: Record<XepLichSeverity, { label: string; cls: string; icon?: IconName }> = {
+  chan: { label: "Chặn", cls: "xlcd-sev--chan", icon: "ban" },
+  nghiem_trong: { label: "Nghiêm trọng", cls: "xlcd-sev--nghiem-trong" },
+  cao: { label: "Cao", cls: "xlcd-sev--cao" },
+  canh_bao: { label: "Cảnh báo", cls: "xlcd-sev--canh-bao" },
+};
+
+/** Trạng thái xử lý vấn đề → nhãn + class pill (.xlcd-tt--*). */
+export const XEP_LICH_VANDE_TT_META: Record<XepLichVanDeTrangThai, { label: string; cls: string }> = {
+  moi: { label: "Mới", cls: "xlcd-tt--moi" },
+  tiep_nhan: { label: "Đã tiếp nhận", cls: "xlcd-tt--tiep-nhan" },
+  dang_xu_ly: { label: "Đang xử lý", cls: "xlcd-tt--dang-xu-ly" },
+  da_xu_ly: { label: "Đã xử lý", cls: "xlcd-tt--da-xu-ly" },
+  ngoai_le: { label: "Ngoại lệ", cls: "xlcd-tt--ngoai-le" },
+  tam_hoan: { label: "Tạm hoãn", cls: "xlcd-tt--tam-hoan" },
+};
+
+/** Pill MỨC (bo tròn, bám .khsx-pill nhưng nền/màu theo token mức). chan dùng icon `ban`, còn lại
+ *  chấm tròn. Luôn có chữ nhãn → phân biệt được cả khi mù màu. `lg` cho head drawer. */
+export function SevPill({ sev, lg = false }: { sev: XepLichSeverity; lg?: boolean }) {
+  const meta = XEP_LICH_SEV_META[sev];
+  return (
+    <span className={`xlcd-sevpill ${meta.cls} ${lg ? "xlcd-sevpill--lg" : ""}`}>
+      {meta.icon ? (
+        <Icon name={meta.icon} size={lg ? 13 : 11} />
+      ) : (
+        <span className="xlcd-sevpill__dot" aria-hidden="true" />
+      )}
+      {meta.label}
+    </span>
+  );
+}
+
+/** Pill TRẠNG THÁI xử lý (bo tròn, bám .khsx-pill). */
+export function VanDeTrangThaiPill({ tt }: { tt: XepLichVanDeTrangThai }) {
+  const meta = XEP_LICH_VANDE_TT_META[tt] ?? XEP_LICH_VANDE_TT_META.moi;
+  return (
+    <span className={`khsx-pill ${meta.cls}`}>
+      <span className="khsx-pill__dot" aria-hidden="true" />
+      {meta.label}
+    </span>
+  );
+}
+
+/** Chip LOẠI vấn đề (icon + nhãn, bo vuông nhẹ) — nhìn icon là biết nhóm nguyên nhân. */
+export function CategoryChip({ category }: { category: XepLichVanDeCategory }) {
+  const meta = XEP_LICH_CATEGORY_META[category] ?? XEP_LICH_CATEGORY_META.thieu_du_lieu;
+  return (
+    <span className="xlcd-vcat">
+      <Icon name={meta.icon} size={12} />
+      {meta.label}
     </span>
   );
 }

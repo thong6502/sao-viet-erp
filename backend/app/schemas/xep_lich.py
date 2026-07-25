@@ -174,3 +174,96 @@ class VungKhoaItemOut(BaseModel):
 
 class VungKhoaListOut(BaseModel):
     items: list[VungKhoaItemOut] = Field(default_factory=list)
+
+
+# ============================ Vấn đề kế hoạch (xung đột & nguy cơ trễ) ============================
+# Vấn đề là DẪN XUẤT (service tính lúc đọc) — response model chỉ để validate + tài liệu.
+class VanDeImpact(BaseModel):
+    lsx_ids: list[int] = Field(default_factory=list)
+    bai_ghep_ids: list[int] = Field(default_factory=list)
+    may_ids: list[int] = Field(default_factory=list)
+    dong_ids: list[int] = Field(default_factory=list)
+    mas: list[str] = Field(default_factory=list)
+
+
+class VanDeException(BaseModel):
+    ly_do: str | None = None
+    by: int | None = None
+    expires_at: datetime | None = None
+
+
+class VanDeItem(BaseModel):
+    issue_key: str
+    category: str                        # trung_may | de_khoa_may | sai_tien_nhiem | gang_thieu_xa_to | thieu_du_lieu | nguy_co_tre | may_khong_kham
+    severity: str                        # chan | nghiem_trong | cao | canh_bao
+    title: str
+    nguyen_nhan: str | None = None
+    impacts: VanDeImpact
+    delay_phut: float | None = None
+    group_key: str | None = None
+    # State người xử lý (trộn lúc đọc)
+    trang_thai: str                      # moi | tiep_nhan | dang_xu_ly | ngoai_le | tam_hoan
+    assigned_to: int | None = None
+    note: str | None = None
+    tai_phat: int = 0
+    mo_lai: bool = False                 # vấn đề tái phát (đã xử lý mà lại dẫn xuất)
+    exception: VanDeException | None = None
+
+
+class VanDeSummary(BaseModel):
+    chan: int = 0
+    nghiem_trong: int = 0
+    cao: int = 0
+    canh_bao: int = 0
+    ngoai_le: int = 0
+    tong: int = 0
+
+
+class VanDeListOut(BaseModel):
+    items: list[VanDeItem] = Field(default_factory=list)
+    summary: VanDeSummary
+    total: int = 0
+
+
+class VanDeActionIn(BaseModel):
+    issue_key: str
+
+
+class VanDeGiaoIn(VanDeActionIn):
+    user_id: int
+
+
+class VanDeGhiChuIn(VanDeActionIn):
+    note: str
+
+
+class VanDeNgoaiLeIn(VanDeActionIn):
+    ly_do: str
+    expires_at: datetime | None = None
+
+
+class VanDeStateOut(BaseModel):
+    """Dòng state sau một hành động (không kèm phần dẫn xuất)."""
+    issue_key: str
+    trang_thai: str
+    assigned_to: int | None = None
+    note: str | None = None
+    tai_phat: int = 0
+
+
+class PhatHanhOut(BaseModel):
+    id: int
+    ma: str
+    trang_thai: str
+
+
+class SanSangItem(BaseModel):
+    nguon: str                           # lsx | in_ghep
+    id: int
+    ma: str
+    blocking: int                        # số xung đột CHẶN còn lại (0 = phát hành được)
+
+
+class SanSangOut(BaseModel):
+    items: list[SanSangItem] = Field(default_factory=list)
+    total: int = 0

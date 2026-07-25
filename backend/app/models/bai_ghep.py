@@ -27,13 +27,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db import Base
 
-# --- Trạng thái. `da_lap_ke_hoach` (pha xếp lịch) ĐÃ dùng: set qua service xếp lịch, khóa sửa thành
-# viên/giấy khi ở mốc này — gỡ kế hoạch để mở lại. Các mốc sau (`da_phat_hanh`, `dang_in`,
-# `da_in_xong`, `da_xa_to`, `hoan_thanh`) thuộc pha thực thi, CHƯA dùng.
+# --- Trạng thái (song song LSX). `da_lap_ke_hoach` (≈ Firm Planned) ĐÃ dùng: set qua service xếp lịch,
+# khóa sửa thành viên/giấy — gỡ kế hoạch để mở lại. `da_phat_hanh` (≈ Released) ĐÃ dùng: gate xung đột
+# 0-Chặn → thả xuống xưởng (cả thành viên). Các mốc sau (`dang_in`, `da_in_xong`, `da_xa_to`,
+# `hoan_thanh`) thuộc pha thực thi, CHƯA dùng.
 TT_NHAP = "nhap"            # vừa tạo / đang cấu hình giấy·khổ·thành viên
 TT_SAN_SANG = "san_sang"   # qua checklist tối thiểu → sẵn sàng xếp lịch
 TT_DA_LAP_KE_HOACH = "da_lap_ke_hoach"  # đã sinh dòng xếp lịch → khóa sửa thành viên/giấy
-TRANG_THAI_BAI_GHEP = (TT_NHAP, TT_SAN_SANG, TT_DA_LAP_KE_HOACH)
+TT_DA_PHAT_HANH = "da_phat_hanh"        # đã phát hành xuống xưởng (Released)
+TRANG_THAI_BAI_GHEP = (TT_NHAP, TT_SAN_SANG, TT_DA_LAP_KE_HOACH, TT_DA_PHAT_HANH)
 
 
 def _utcnow() -> datetime:

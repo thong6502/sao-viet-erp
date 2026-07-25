@@ -28,6 +28,8 @@ import {
   type XepLichHangChoItem,
   type XepLichNguon,
   type XepLichRow,
+  type XepLichSanSangOut,
+  type XepLichVanDeListOut,
 } from "../api/client";
 import { crud, type Row } from "../api/rebuildCatalog";
 import { useAuth } from "../auth/useAuth";
@@ -49,6 +51,7 @@ import {
   thoiLuong,
 } from "./keHoachSxShared";
 import { GanttBoard } from "./GanttBoard";
+import { VanDeView, type PhuongAnNav } from "./XepLichVanDeView";
 import "./ke-hoach-sx.css"; // primitive dùng lại: .khsx-pill · .khsx-seg · .khsx-scrim · .khsx-drawer--buoc · .khsx-nhom …
 import "./xep-lich.css";
 
@@ -80,9 +83,12 @@ const COL_GROUPS: { key: string; label: string }[] = [
 const COLS_LS_KEY = "xlcd.cols";
 const VIEW_LS_KEY = "xlcd.view";
 
-type ViewMode = "bang" | "gantt";
+type ViewMode = "bang" | "gantt" | "van-de";
 function loadViewLS(): ViewMode {
-  try { return localStorage.getItem(VIEW_LS_KEY) === "gantt" ? "gantt" : "bang"; } catch { return "bang"; }
+  try {
+    const v = localStorage.getItem(VIEW_LS_KEY);
+    return v === "gantt" || v === "van-de" ? v : "bang";
+  } catch { return "bang"; }
 }
 
 function loadColsLS(): Set<string> {
@@ -145,6 +151,7 @@ function popStyle(a: DOMRect, width = 260): CSSProperties {
 
 // ============================ controller =====================================
 export function XepLichPage({
+  navigate,
   eventTick,
   onBadgeStale,
 }: {
@@ -152,16 +159,22 @@ export function XepLichPage({
   eventTick?: number;
   onBadgeStale?: () => void;
 }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const can = useCan();
   const canCreate = can("san_xuat", "create");
   const canUpdate = can("san_xuat", "update");
+  const canApprove = can("san_xuat", "approve"); // quyền PHÁT (can_approve) — nút Phát hành + Xin ngoại lệ
 
   const [rows, setRows] = useState<XepLichRow[] | null>(null);
   const [queue, setQueue] = useState<XepLichHangChoItem[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [mays, setMays] = useState<Row[]>([]);
   const [phongBans, setPhongBans] = useState<Row[]>([]);
+  // View "Vấn đề": xung đột & nguy cơ trễ (dẫn xuất) + danh sách sẵn-sàng-phát-hành. Nạp LUÔN (không
+  // chỉ khi mở view) để badge Chặn trên tab + chỉ báo readiness ở header tự nhảy theo SSE.
+  const [vanDe, setVanDe] = useState<XepLichVanDeListOut | null>(null);
+  const [sanSang, setSanSang] = useState<XepLichSanSangOut | null>(null);
+  const [vanDeErr, setVanDeErr] = useState<string | null>(null);
 
   const [groupBy, setGroupBy] = useState<GroupBy>("may");
   const [viewMode, setViewMode] = useState<ViewMode>(loadViewLS);
@@ -192,6 +205,17 @@ export function XepLichPage({
     api.xepLich.hangCho(token).then((r) => setQueue(r.items)).catch(() => {});
   }, [token]);
   useEffect(() => load(), [load, eventTick]);
+
+  // Vấn đề + sẵn-sàng-phát-hành: 1 lần nạp, cả badge Chặn (tab) lẫn view Vấn đề dùng chung state.
+  const loadVanDe = useCallback(() => {
+    if (!token) return;
+    setVanDeErr(null);
+    api.xepLich.vanDe(token).then(setVanDe).catch((e: unknown) =>
+      setVanDeErr(e instanceof ApiError ? e.message : String(e)),
+    );
+    api.xepLich.sanSangPhatHanh(token).then(setSanSang).catch(() => {});
+  }, [token]);
+  useEffect(() => loadVanDe(), [loadVanDe, eventTick]);
 
   useEffect(() => {
     if (!token) return;
@@ -303,6 +327,18 @@ export function XepLichPage({
     id == null ? null : mays.find((m) => m.id === id)?.ten ?? null, [mays]);
   const deptName = useCallback((id: number | null) =>
     id == null ? null : phongBans.find((d) => d.id === id)?.ten ?? null, [phongBans]);
+
+  // Điều hướng "phương án" từ view Vấn đề — MÁY CHỈ GHI NHẬN: đổi view / nhảy màn, KHÔNG auto-fix.
+  // Nhánh bảng: xoá lọc để dòng cần xem chắc chắn hiện, rồi tái dùng pendingFlash để cuộn + nháy band.
+  const onPhuongAn = useCallback((p: PhuongAnNav) => {
+    if (p.kind === "man-ke-hoach") { navigate?.("ke-hoach-sx"); return; }
+    if (p.kind === "gantt-may") { setGroupBy("may"); setViewMode("gantt"); return; }
+    setFilters({ thueNgoai: false, chiXungDot: false });
+    if (p.kind === "bang-ma") { setQ(p.ma); setGroupBy("lenh"); setViewMode("bang"); return; }
+    setQ("");
+    if (p.kind === "bang-lenh") { setGroupBy("lenh"); setViewMode("bang"); if (p.flash) setPendingFlash(p.flash); return; }
+    if (p.kind === "bang-bai-ghep") { setGroupBy("bai-ghep"); setViewMode("bang"); if (p.flash) setPendingFlash(p.flash); }
+  }, [navigate]);
 
   // ---- gán 1 dòng (optimistic → PUT → cập nhật) ----
   const onGan = useCallback(async (id: number, body: XepLichGanBody) => {
@@ -466,6 +502,13 @@ export function XepLichPage({
   };
   const colCount = 9 + (show.somNhat ? 1 : 0) + (show.ketThuc ? 1 : 0) + (show.thoiLuong ? 1 : 0);
 
+  // ---- dẫn xuất view Vấn đề (badge tab + readiness header) ----
+  const vanDeSummary = vanDe?.summary ?? null;
+  const chanCount = vanDeSummary?.chan ?? 0;
+  const tongVanDe = vanDeSummary?.tong ?? 0;
+  const readyCount = (sanSang?.items ?? []).filter((i) => i.blocking === 0).length;
+  const currentUserId = user?.id ?? null;
+
   // ---- điều hướng drawer ----
   const drawerIdx = openRow ? flatOrder.findIndex((r) => r.id === openRow.id) : -1;
   const goPrev = drawerIdx > 0 ? () => setOpenRowId(flatOrder[drawerIdx - 1].id) : undefined;
@@ -481,6 +524,11 @@ export function XepLichPage({
           <span className="xlcd-count">
             {num(summary.cho)} chờ xếp · {num(summary.daXep)} đã xếp
             {summary.xungDot > 0 && <span className="xlcd-count__alert"> · {num(summary.xungDot)} xung đột</span>}
+            {sanSang && (
+              <span className={readyCount > 0 ? "xlcd-count__ready" : "xlcd-count__muted"}>
+                {" · "}{num(readyCount)} sẵn sàng phát hành
+              </span>
+            )}
           </span>
         </div>
       </header>
@@ -520,38 +568,58 @@ export function XepLichPage({
               >
                 <Icon name="calendar" size={13} /> Gantt
               </button>
-            </div>
-            <div className="khsx-seg" role="tablist" aria-label="Gom nhóm theo">
-              {GROUP_TABS.map((g) => (
-                <button
-                  key={g.key}
-                  type="button"
-                  role="tab"
-                  aria-selected={groupBy === g.key}
-                  className={groupBy === g.key ? "is-active" : ""}
-                  onClick={() => setGroupBy(g.key)}
-                >
-                  <Icon name={g.icon} size={13} /> {g.label}
-                </button>
-              ))}
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "van-de"}
+                className={viewMode === "van-de" ? "is-active" : ""}
+                onClick={() => setViewMode("van-de")}
+              >
+                <Icon name="shield" size={13} /> Vấn đề
+                {chanCount > 0 ? (
+                  <span className="xlcd-segbadge xlcd-segbadge--chan">{num(chanCount)}</span>
+                ) : tongVanDe > 0 ? (
+                  <span className="xlcd-segbadge">{num(tongVanDe)}</span>
+                ) : null}
+              </button>
             </div>
 
-            <button
-              type="button"
-              className={`xlcd-fchip ${filters.thueNgoai ? "is-on" : ""}`}
-              aria-pressed={filters.thueNgoai}
-              onClick={() => setFilters((f) => ({ ...f, thueNgoai: !f.thueNgoai }))}
-            >
-              <Icon name="truck" size={12} /> Thuê ngoài
-            </button>
-            <button
-              type="button"
-              className={`xlcd-fchip ${filters.chiXungDot ? "is-on" : ""}`}
-              aria-pressed={filters.chiXungDot}
-              onClick={() => setFilters((f) => ({ ...f, chiXungDot: !f.chiXungDot }))}
-            >
-              <Icon name="ban" size={12} /> Chỉ xung đột
-            </button>
+            {/* Gom-nhóm + 2 chip lọc chỉ có nghĩa với Bảng/Gantt — ẩn ở view Vấn đề. */}
+            {viewMode !== "van-de" && (
+              <>
+                <div className="khsx-seg" role="tablist" aria-label="Gom nhóm theo">
+                  {GROUP_TABS.map((g) => (
+                    <button
+                      key={g.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={groupBy === g.key}
+                      className={groupBy === g.key ? "is-active" : ""}
+                      onClick={() => setGroupBy(g.key)}
+                    >
+                      <Icon name={g.icon} size={13} /> {g.label}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  className={`xlcd-fchip ${filters.thueNgoai ? "is-on" : ""}`}
+                  aria-pressed={filters.thueNgoai}
+                  onClick={() => setFilters((f) => ({ ...f, thueNgoai: !f.thueNgoai }))}
+                >
+                  <Icon name="truck" size={12} /> Thuê ngoài
+                </button>
+                <button
+                  type="button"
+                  className={`xlcd-fchip ${filters.chiXungDot ? "is-on" : ""}`}
+                  aria-pressed={filters.chiXungDot}
+                  onClick={() => setFilters((f) => ({ ...f, chiXungDot: !f.chiXungDot }))}
+                >
+                  <Icon name="ban" size={12} /> Chỉ xung đột
+                </button>
+              </>
+            )}
 
             <div className="khsx__spacer" />
 
@@ -560,37 +628,55 @@ export function XepLichPage({
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Tìm mã LSX / bài ghép / công đoạn"
-                aria-label="Tìm dòng xếp lịch"
+                placeholder={viewMode === "van-de" ? "Tìm mã / mô tả vấn đề" : "Tìm mã LSX / bài ghép / công đoạn"}
+                aria-label={viewMode === "van-de" ? "Tìm vấn đề" : "Tìm dòng xếp lịch"}
               />
             </label>
 
-            <div className="xlcd-cols">
-              <button
-                type="button"
-                className="xlcd-cols__btn"
-                aria-expanded={colsMenuOpen}
-                onClick={() => setColsMenuOpen((v) => !v)}
-              >
-                <Icon name="columns" size={14} /> Cột
-              </button>
-              {colsMenuOpen && (
-                <ColsMenu
-                  hidden={colsHidden}
-                  onToggle={(key) =>
-                    setColsHidden((prev) => {
-                      const next = new Set(prev);
-                      next.has(key) ? next.delete(key) : next.add(key);
-                      return next;
-                    })
-                  }
-                  onClose={() => setColsMenuOpen(false)}
-                />
-              )}
-            </div>
+            {viewMode !== "van-de" && (
+              <div className="xlcd-cols">
+                <button
+                  type="button"
+                  className="xlcd-cols__btn"
+                  aria-expanded={colsMenuOpen}
+                  onClick={() => setColsMenuOpen((v) => !v)}
+                >
+                  <Icon name="columns" size={14} /> Cột
+                </button>
+                {colsMenuOpen && (
+                  <ColsMenu
+                    hidden={colsHidden}
+                    onToggle={(key) =>
+                      setColsHidden((prev) => {
+                        const next = new Set(prev);
+                        next.has(key) ? next.delete(key) : next.add(key);
+                        return next;
+                      })
+                    }
+                    onClose={() => setColsMenuOpen(false)}
+                  />
+                )}
+              </div>
+            )}
           </div>
 
-          {rows === null ? (
+          {viewMode === "van-de" ? (
+            <VanDeView
+              data={vanDe}
+              sanSang={sanSang}
+              err={vanDeErr}
+              onRetry={loadVanDe}
+              token={token}
+              canApprove={canApprove}
+              currentUserId={currentUserId}
+              q={q}
+              mayTen={mayName}
+              onRefetch={() => { loadVanDe(); load(); onBadgeStale?.(); }}
+              onPhuongAn={onPhuongAn}
+              onToast={(text) => setToast({ text })}
+              onSetSearch={setQ}
+            />
+          ) : rows === null ? (
             <BoardSkeleton colCount={colCount} />
           ) : filtered.length === 0 ? (
             coLoc ? (
@@ -712,7 +798,7 @@ export function XepLichPage({
         </section>
       </div>
 
-      {picked.size > 0 && (
+      {picked.size > 0 && viewMode !== "van-de" && (
         <BulkBar
           count={picked.size}
           canUpdate={canUpdate}

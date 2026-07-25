@@ -3081,6 +3081,38 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 
 ---
 
+### `xep_lich_van_de`
+
+**Purpose:** phần CON NGƯỜI XỬ LÝ của 1 vấn đề kế hoạch (xung đột / nguy cơ trễ). Bản thân vấn đề là DẪN XUẤT (service `xep_lich_van_de_service.liet_ke()` tính lúc đọc từ lịch — bám BC Planning Worksheet, KHÔNG lưu). Bảng chỉ neo tiếp nhận/giao/ghi chú/ngoại lệ theo `issue_key` (vân tay ổn định). Lịch sử chuyển trạng thái dùng `audit_log`. Bảng mới → `create_all` tự tạo (không migration).
+
+| Column | Type (SQLAlchemy → SQLite / Postgres) | Key | Null | Default | Meaning |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto | Surrogate PK. |
+| `issue_key` | `String(120)` | **U**, IX | no | — | Vân tay vấn đề dẫn xuất (vd `trung_may:{may_id}:{a}:{b}`). 1 vấn đề ↔ 1 dòng state. |
+| `trang_thai` | `String(16)` | — | no | `tiep_nhan` | Vòng đời: `moi`(không có dòng)/`tiep_nhan`/`dang_xu_ly`/`da_xu_ly`/`ngoai_le`/`tam_hoan`. |
+| `assigned_to` | `Integer` | — | yes | — | Soft → `users.id` — người xử lý. |
+| `note` | `String(500)` | — | yes | — | Ghi chú xử lý. |
+| `exception_ly_do` | `Text` | — | yes | — | Lý do khi chấp nhận ngoại lệ. |
+| `exception_by` | `Integer` | — | yes | — | Soft → `users.id` — người duyệt ngoại lệ (`can_approve`). |
+| `exception_expires_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời hạn ngoại lệ. |
+| `tai_phat` | `Integer` | — | no | `0` | Số lần vấn đề tái phát (tự hết hiệu lực rồi khớp lại `issue_key`). |
+| `resolved_at` | `DateTime(timezone=True)` | — | yes | — | Khi đánh dấu đã xử lý. |
+| `created_by` | `Integer` | — | yes | — | Soft → `users.id`. |
+| `created_at` | `DateTime(timezone=True)` | — | no | now (UTC) | Lần đầu có người chạm vào vấn đề. |
+| `updated_at` | `DateTime(timezone=True)` | — | no | now/onupdate | |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique index: `issue_key` (1 vấn đề dẫn xuất ↔ 1 dòng state). FK user MỀM theo convention.
+
+**Relationships**
+
+- Không FK cấu trúc. `issue_key` liên kết logic tới các đối tượng lịch (`xep_lich_cong_doan` / `lsx` / `may_thiet_bi`) qua vân tay, nhưng vấn đề tính lúc đọc nên không neo FK cứng.
+
+**Tất cả cột:** `id`, `issue_key`, `trang_thai`, `assigned_to`, `note`, `exception_ly_do`, `exception_by`, `exception_expires_at`, `tai_phat`, `resolved_at`, `created_by`, `created_at`, `updated_at`.
+
+---
+
 ## (LỊCH SỬ) Kế hoạch & Lệnh sản xuất — 8 bảng cũ ĐÃ DROP
 
 > ⛔ **2026-07-23** — `lenh_sx` · `print_form` · `gang_placement` · `routing_step` ·

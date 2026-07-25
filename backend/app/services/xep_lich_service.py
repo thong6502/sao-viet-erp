@@ -19,13 +19,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..models.bai_ghep import (
-    TT_DA_LAP_KE_HOACH as BG_DA_LAP, TT_SAN_SANG as BG_SAN_SANG, BaiGhep, BaiGhepThanhVien,
+    TT_DA_LAP_KE_HOACH as BG_DA_LAP, TT_DA_PHAT_HANH as BG_DA_PHAT_HANH,
+    TT_SAN_SANG as BG_SAN_SANG, BaiGhep, BaiGhepThanhVien,
 )
 from ..models.attendance import WorkShift
 from ..models.department import Department
 from ..models.lsx import (
     DV_TO, LB_BAI_GHEP, LB_MAY, NS_TO_GIO,
-    TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_SAN_SANG as LSX_SAN_SANG, Lsx, LsxCongDoan,
+    TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_DA_PHAT_HANH as LSX_DA_PHAT_HANH,
+    TT_SAN_SANG as LSX_SAN_SANG, Lsx, LsxCongDoan,
 )
 from ..models.machine_unavailable import LY_DO_BAO_TRI, LY_DO_KHOA, MachineUnavailablePeriod
 from ..models.may_thiet_bi import MayThietBi
@@ -484,6 +486,8 @@ class XepLichService:
         lsx = self.lsx_repo.get(lsx_id)
         if lsx is None:
             raise XepLichNotFound("Không tìm thấy lệnh sản xuất")
+        if lsx.trang_thai == LSX_DA_PHAT_HANH:
+            raise XepLichConflict("Lệnh đã phát hành — thu hồi phát hành trước khi gỡ kế hoạch")
         if self.bg_repo.lsx_da_ghep([lsx_id]):
             raise XepLichConflict("Lệnh nằm trong bài ghép — gỡ kế hoạch qua bài ghép")
         self._go(self.repo.by_lsx(lsx_id))
@@ -498,6 +502,8 @@ class XepLichService:
         bg = self.bg_repo.get(bai_ghep_id)
         if bg is None:
             raise XepLichNotFound("Không tìm thấy bài ghép")
+        if bg.trang_thai == BG_DA_PHAT_HANH:
+            raise XepLichConflict("Bài ghép đã phát hành — thu hồi phát hành trước khi gỡ kế hoạch")
         member_ids = [tv.lsx_id for tv in bg.thanh_viens]
         rows = self.repo.by_bai_ghep(bai_ghep_id)
         for mid in member_ids:

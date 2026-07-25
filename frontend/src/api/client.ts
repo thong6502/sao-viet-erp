@@ -209,7 +209,12 @@ export type QuoteEvent =
 
 // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ------------------------------
 // Job (đơn) → Part (lệnh) → Operation (công đoạn). Mỗi DÒNG ĐƠN = 1 lệnh, ngang hàng.
-export type LsxTrangThai = "nhap" | "cho_bo_sung" | "san_sang";
+export type LsxTrangThai =
+  | "nhap"
+  | "cho_bo_sung"
+  | "san_sang"
+  | "da_lap_ke_hoach"   // đã sinh dòng xếp lịch (≈ Firm Planned) — routing khóa
+  | "da_phat_hanh";     // đã phát hành xuống xưởng (≈ Released)
 export type LsxDonVi = "to" | "cai" | "kem" | "bai";
 /** Loại bước = bước CHIẾM cái gì khi lên Gantt (`bai_ghep` khai sẵn, pha sau mới sinh). */
 export type LsxLoaiBuoc = "may" | "to" | "thue_ngoai" | "cho" | "kcs" | "xa_to" | "bai_ghep";
@@ -461,6 +466,84 @@ export interface XepLichVungKhoaItem {
 }
 export interface XepLichVungKhoaListOut { items: XepLichVungKhoaItem[] }
 export interface XepLichVungKhoaIn { tu: string; den: string; ly_do?: string; note?: string | null }
+
+// --- Vấn đề kế hoạch (xung đột & nguy cơ trễ) — dẫn xuất lúc đọc + state người xử lý ---
+export type XepLichSeverity = "chan" | "nghiem_trong" | "cao" | "canh_bao";
+export type XepLichVanDeCategory =
+  | "trung_may"
+  | "de_khoa_may"
+  | "sai_tien_nhiem"
+  | "gang_thieu_xa_to"
+  | "thieu_du_lieu"
+  | "nguy_co_tre"
+  | "may_khong_kham";
+export type XepLichVanDeTrangThai =
+  | "moi"
+  | "tiep_nhan"
+  | "dang_xu_ly"
+  | "da_xu_ly"
+  | "ngoai_le"
+  | "tam_hoan";
+
+export interface XepLichVanDeImpact {
+  lsx_ids: number[];
+  bai_ghep_ids: number[];
+  may_ids: number[];
+  dong_ids: number[];
+  mas: string[];
+}
+export interface XepLichVanDeException {
+  ly_do: string | null;
+  by: number | null;
+  expires_at: string | null;
+}
+export interface XepLichVanDe {
+  issue_key: string;
+  category: XepLichVanDeCategory;
+  severity: XepLichSeverity;
+  title: string;
+  nguyen_nhan: string | null;
+  impacts: XepLichVanDeImpact;
+  delay_phut: number | null;
+  group_key: string | null;
+  // State người xử lý (trộn lúc đọc)
+  trang_thai: XepLichVanDeTrangThai;
+  assigned_to: number | null;
+  note: string | null;
+  tai_phat: number;
+  mo_lai: boolean;                 // vấn đề tái phát (đã xử lý mà lại dẫn xuất)
+  exception: XepLichVanDeException | null;
+}
+export interface XepLichVanDeSummary {
+  chan: number;
+  nghiem_trong: number;
+  cao: number;
+  canh_bao: number;
+  ngoai_le: number;
+  tong: number;
+}
+export interface XepLichVanDeListOut {
+  items: XepLichVanDe[];
+  summary: XepLichVanDeSummary;
+  total: number;
+}
+export interface XepLichVanDeState {
+  issue_key: string;
+  trang_thai: XepLichVanDeTrangThai;
+  assigned_to: number | null;
+  note: string | null;
+  tai_phat: number;
+}
+export interface XepLichPhatHanhOut { id: number; ma: string; trang_thai: string }
+export interface XepLichSanSangItem { nguon: XepLichNguon; id: number; ma: string; blocking: number }
+export interface XepLichSanSangOut { items: XepLichSanSangItem[]; total: number }
+export interface XepLichVanDeParams {
+  severity?: XepLichSeverity;
+  category?: XepLichVanDeCategory;
+  trang_thai?: XepLichVanDeTrangThai;
+  lsx_id?: number;
+  may_id?: number;
+}
 
 /** Lý do khóa máy → nhãn hiển thị. */
 export const XEP_LICH_KHOA_LABELS: Record<string, string> = {
@@ -4774,6 +4857,67 @@ export const api = {
     },
     xoaVungKhoa(token: string, pid: number): Promise<{ ok: boolean }> {
       return authed<{ ok: boolean }>(`/api/xep-lich/vung-khoa/${pid}`, token, { method: "DELETE" });
+    },
+
+    // --- Vấn đề kế hoạch (xung đột & nguy cơ trễ) + phát hành ---------------
+    /** Danh sách xung đột & nguy cơ trễ (dẫn xuất) + tổng hợp theo mức. */
+    vanDe(token: string, params: XepLichVanDeParams = {}): Promise<XepLichVanDeListOut> {
+      const qs = new URLSearchParams();
+      if (params.severity) qs.set("severity", params.severity);
+      if (params.category) qs.set("category", params.category);
+      if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
+      if (params.lsx_id) qs.set("lsx_id", String(params.lsx_id));
+      if (params.may_id) qs.set("may_id", String(params.may_id));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<XepLichVanDeListOut>(`/api/xep-lich/van-de${suffix}`, token);
+    },
+    /** LSX/bài ghép đã lập kế hoạch + số xung đột CHẶN còn lại (0 = phát hành được). */
+    sanSangPhatHanh(token: string): Promise<XepLichSanSangOut> {
+      return authed<XepLichSanSangOut>("/api/xep-lich/san-sang-phat-hanh", token);
+    },
+    vanDeTiepNhan(token: string, issueKey: string): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/tiep-nhan", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey }),
+      });
+    },
+    vanDeGiao(token: string, issueKey: string, userId: number): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/giao", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey, user_id: userId }),
+      });
+    },
+    vanDeGhiChu(token: string, issueKey: string, note: string): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/ghi-chu", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey, note }),
+      });
+    },
+    vanDeDanhDauXuLy(token: string, issueKey: string): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/danh-dau-xu-ly", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey }),
+      });
+    },
+    vanDeTamHoan(token: string, issueKey: string): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/tam-hoan", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey }),
+      });
+    },
+    /** Duyệt ngoại lệ (cần quyền PHÁT). `expiresAt`=ISO hoặc null (không hạn). */
+    vanDeNgoaiLe(token: string, issueKey: string, lyDo: string, expiresAt: string | null = null): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/ngoai-le", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey, ly_do: lyDo, expires_at: expiresAt }),
+      });
+    },
+    /** Phát hành kế hoạch (Released) — gate 0 xung đột Chặn. Cần quyền PHÁT. */
+    phatHanhLsx(token: string, lsxId: number): Promise<XepLichPhatHanhOut> {
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/lsx/${lsxId}`, token, { method: "POST" });
+    },
+    phatHanhBaiGhep(token: string, baiGhepId: number): Promise<XepLichPhatHanhOut> {
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/bai-ghep/${baiGhepId}`, token, { method: "POST" });
+    },
+    goPhatHanhLsx(token: string, lsxId: number): Promise<XepLichPhatHanhOut> {
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/lsx/${lsxId}`, token, { method: "DELETE" });
+    },
+    goPhatHanhBaiGhep(token: string, baiGhepId: number): Promise<XepLichPhatHanhOut> {
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/bai-ghep/${baiGhepId}`, token, { method: "DELETE" });
     },
   },
 
