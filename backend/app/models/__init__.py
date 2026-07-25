@@ -77,6 +77,7 @@ from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
 from .lsx import Lsx, LsxCongDoan
 from .bai_ghep import BaiGhep, BaiGhepThanhVien
 from .xep_lich import XepLichCongDoan
+from .machine_unavailable import MachineUnavailablePeriod
 from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
 
@@ -161,4 +162,5 @@ __all__ = [
     "BaiGhep",
     "BaiGhepThanhVien",
     "XepLichCongDoan",
+    "MachineUnavailablePeriod",
 ]

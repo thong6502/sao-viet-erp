@@ -8,6 +8,7 @@ xung đột) → khóa/gỡ. Máy chỉ ghi nhận; người kế hoạch quyế
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -25,6 +26,12 @@ from ..schemas.xep_lich import (
     GoiYOut,
     HangChoOut,
     KhoaIn,
+    LichNenMayOut,
+    VungKhoaIn,
+    VungKhoaItemOut,
+    VungKhoaListOut,
+    XemTruocIn,
+    XemTruocOut,
     XepLichDongListOut,
     XepLichDongOut,
 )
@@ -225,3 +232,88 @@ def goi_y(
         return GoiYOut.model_validate(svc.goi_y(dong_id=dong_id))
     except Exception as exc:
         raise _map(exc)
+
+
+@router.post("/dong/{dong_id}/xem-truoc", response_model=XemTruocOut)
+def xem_truoc(
+    dong_id: int,
+    payload: XemTruocIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> XemTruocOut:
+    """Ảnh hưởng khi thả dòng vào (máy, giờ) trước khi xác nhận — KHÔNG commit, KHÔNG broadcast."""
+    svc = _svc(db)
+    try:
+        return XemTruocOut.model_validate(
+            svc.xem_truoc(dong_id=dong_id, may_id=payload.may_id, start_at=payload.start_at)
+        )
+    except Exception as exc:
+        raise _map(exc)
+
+
+# --- Lịch nền máy (Gantt) ---------------------------------------------------
+@router.get("/may/{may_id}/lich-nen", response_model=LichNenMayOut)
+def lich_nen(
+    may_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    tu: date = Query(..., description="Ngày đầu dải xem"),
+    den: date = Query(..., description="Ngày cuối dải xem"),
+) -> LichNenMayOut:
+    """Khoảng làm-việc theo ca + vùng khóa máy trong [tu, den] — Gantt vẽ nền + curtains. CHỈ ĐỌC."""
+    return LichNenMayOut.model_validate(_svc(db).lich_nen_may(may_id=may_id, tu=tu, den=den))
+
+
+# --- Vùng khóa máy (bảo trì/hỏng/nghỉ) — CRUD tối thiểu -----------------------
+@router.get("/vung-khoa", response_model=VungKhoaListOut)
+def vung_khoa_range(
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    tu: date = Query(..., description="Ngày đầu dải"),
+    den: date = Query(..., description="Ngày cuối dải"),
+) -> VungKhoaListOut:
+    """Mọi khoảng khóa (mọi máy) giao [tu, den] — Gantt overlay theo lane. CHỈ ĐỌC."""
+    items = _svc(db).vung_khoa_range(tu=tu, den=den)
+    return VungKhoaListOut(items=[VungKhoaItemOut.model_validate(x) for x in items])
+
+
+@router.get("/may/{may_id}/vung-khoa", response_model=VungKhoaListOut)
+def list_vung_khoa(
+    may_id: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> VungKhoaListOut:
+    items = _svc(db).list_vung_khoa(may_id=may_id)
+    return VungKhoaListOut(items=[VungKhoaItemOut.model_validate(x) for x in items])
+
+
+@router.post("/may/{may_id}/vung-khoa", response_model=VungKhoaItemOut, status_code=status.HTTP_201_CREATED)
+def tao_vung_khoa(
+    may_id: int,
+    payload: VungKhoaIn,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> VungKhoaItemOut:
+    svc = _svc(db)
+    try:
+        x = svc.tao_vung_khoa(may_id=may_id, tu=payload.tu, den=payload.den,
+                              ly_do=payload.ly_do, note=payload.note, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return VungKhoaItemOut.model_validate(x)
+
+
+@router.delete("/vung-khoa/{pid}")
+def xoa_vung_khoa(
+    pid: int,
+    db: Annotated[Session, Depends(get_db)],
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> dict:
+    svc = _svc(db)
+    try:
+        svc.xoa_vung_khoa(pid=pid, actor=user)
+    except Exception as exc:
+        raise _map(exc)
+    hub.broadcast({"type": "xep_lich_changed"})
+    return {"ok": True}

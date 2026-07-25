@@ -19,6 +19,7 @@ import {
   ApiError,
   LSX_LOAI_BUOC_META,
   XEP_LICH_BLOCKED_LABELS,
+  XEP_LICH_XAC_NHAN_LABELS,
   api,
   type LsxLoaiBuoc,
   type XepLichGanBody,
@@ -47,11 +48,12 @@ import {
   num,
   thoiLuong,
 } from "./keHoachSxShared";
+import { GanttBoard } from "./GanttBoard";
 import "./ke-hoach-sx.css"; // primitive dùng lại: .khsx-pill · .khsx-seg · .khsx-scrim · .khsx-drawer--buoc · .khsx-nhom …
 import "./xep-lich.css";
 
 // ============================ hằng số + helper thuần =========================
-type GroupBy = "may" | "lenh" | "bai-ghep";
+export type GroupBy = "may" | "lenh" | "bai-ghep";
 interface Filters { thueNgoai: boolean; chiXungDot: boolean }
 
 const GROUP_TABS: { key: GroupBy; label: string; icon: IconName }[] = [
@@ -76,6 +78,12 @@ const COL_GROUPS: { key: string; label: string }[] = [
   { key: "thoiLuong", label: "Thời lượng" },
 ];
 const COLS_LS_KEY = "xlcd.cols";
+const VIEW_LS_KEY = "xlcd.view";
+
+type ViewMode = "bang" | "gantt";
+function loadViewLS(): ViewMode {
+  try { return localStorage.getItem(VIEW_LS_KEY) === "gantt" ? "gantt" : "bang"; } catch { return "bang"; }
+}
 
 function loadColsLS(): Set<string> {
   try {
@@ -156,6 +164,7 @@ export function XepLichPage({
   const [phongBans, setPhongBans] = useState<Row[]>([]);
 
   const [groupBy, setGroupBy] = useState<GroupBy>("may");
+  const [viewMode, setViewMode] = useState<ViewMode>(loadViewLS);
   const [filters, setFilters] = useState<Filters>({ thueNgoai: false, chiXungDot: false });
   const [q, setQ] = useState("");
   const [picked, setPicked] = useState<Set<number>>(new Set());
@@ -193,6 +202,10 @@ export function XepLichPage({
   useEffect(() => {
     try { localStorage.setItem(COLS_LS_KEY, JSON.stringify([...colsHidden])); } catch { /* ignore */ }
   }, [colsHidden]);
+
+  useEffect(() => {
+    try { localStorage.setItem(VIEW_LS_KEY, viewMode); } catch { /* ignore */ }
+  }, [viewMode]);
 
   useEffect(() => {
     if (!toast?.undo) {
@@ -488,6 +501,26 @@ export function XepLichPage({
 
         <section className="xlcd-board" aria-label="Bảng xếp lịch công đoạn">
           <div className="khsx__toolbar">
+            <div className="khsx-seg" role="tablist" aria-label="Kiểu xem">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "bang"}
+                className={viewMode === "bang" ? "is-active" : ""}
+                onClick={() => setViewMode("bang")}
+              >
+                <Icon name="columns" size={13} /> Bảng
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={viewMode === "gantt"}
+                className={viewMode === "gantt" ? "is-active" : ""}
+                onClick={() => setViewMode("gantt")}
+              >
+                <Icon name="calendar" size={13} /> Gantt
+              </button>
+            </div>
             <div className="khsx-seg" role="tablist" aria-label="Gom nhóm theo">
               {GROUP_TABS.map((g) => (
                 <button
@@ -578,6 +611,16 @@ export function XepLichPage({
                 sub="Đưa một lệnh sản xuất hoặc bài ghép từ khay “Chờ xếp” vào kế hoạch để bắt đầu xếp máy và giờ."
               />
             )
+          ) : viewMode === "gantt" ? (
+            <GanttBoard
+              bands={bands}
+              groupBy={groupBy}
+              token={token}
+              canUpdate={canUpdate}
+              onOpenRow={setOpenRowId}
+              onGan={onGan}
+              onToast={(text, undo) => setToast({ text, undo })}
+            />
           ) : (
             <div
               ref={wrapRef}
@@ -739,7 +782,7 @@ export function XepLichPage({
 }
 
 // ============================ band ===========================================
-interface Band {
+export interface Band {
   key: string;
   label: string;
   icon: IconName;
@@ -916,6 +959,14 @@ function BoardRow({
         <div className="xlcd-tt">
           <LichTrangThaiPill trangThai={row.trang_thai} isLocked={row.is_locked} coXungDot={row.co_xung_dot} />
           <NguyCoTreChip nhan={row.nhan_rui_ro} slackNgay={row.slack_ngay} />
+          {row.can_xac_nhan && (
+            <span
+              className="xlcd-xnchip"
+              title={row.ly_do_xac_nhan.map((l) => XEP_LICH_XAC_NHAN_LABELS[l] ?? l).join("\n")}
+            >
+              <Icon name="ban" size={11} /> Cần xác nhận
+            </span>
+          )}
         </div>
       </td>
     </tr>

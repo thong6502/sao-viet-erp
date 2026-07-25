@@ -382,6 +382,12 @@ export interface XepLichRow {
   finish_at: string | null;
   chiem_may_phut: number;
   tong_phut: number;
+  // Breakdown chiếm máy (Gantt vẽ thanh 2 đoạn setup+chạy; vệ sinh gộp cuối).
+  setup_phut: number;
+  chay_phut: number;
+  ve_sinh_phut: number;
+  theo_may: boolean;                     // thời lượng tính LẠI theo tốc độ máy đang gán (HM3) vs snapshot
+  canh_bao_thoi_luong: string | null;    // may_chua_toc_do | don_vi_lech — vì sao không tính-theo-máy được
   slack_ngay: number | null;
   nhan_rui_ro: XepLichRuiRo | null;
   // Trạng thái
@@ -389,6 +395,9 @@ export interface XepLichRow {
   is_locked: boolean;
   co_xung_dot: boolean;
   blocked_reason: string | null; // thieu_may | thieu_thoi_luong | cho_tien_de | …
+  // Kiểm khả năng máy (HM4) — soft, KHÔNG chặn (khổ/số màu/định lượng vượt spec máy đang gán).
+  can_xac_nhan: boolean;
+  ly_do_xac_nhan: string[];      // kho_vuot_may | so_mau_vuot_units | gsm_ngoai_khoang
   is_rush: boolean;
 }
 export interface XepLichRowListOut { items: XepLichRow[]; total: number }
@@ -412,11 +421,73 @@ export interface XepLichGoiY {
   han_lui: string | null;
 }
 
+/** Nền lịch máy cho Gantt: khoảng LÀM VIỆC theo ca của xưởng + vùng KHÓA máy (bảo trì/khóa). */
+export interface XepLichLichKhoang { start: string; finish: string }
+export interface XepLichVungKhoa { start: string; finish: string; ly_do: string | null }
+export interface XepLichLichNen {
+  may_id: number;
+  khoang_lam: XepLichLichKhoang[];
+  khoang_khoa: XepLichVungKhoa[];
+}
+
+/** Xem-trước-ảnh-hưởng khi kéo-thả (đợt 4 — endpoint `/xem-truoc`, KHÔNG commit). Khớp `XemTruocOut`. */
+export interface XepLichPreviewBody { may_id?: number | null; start_at: string }
+export interface XepLichPreviewDayDoi {
+  id: number; cong_doan_ten: string | null; som_nhat: string | null;  // sớm-nhất MỚI sau khi bị đẩy
+}
+export interface XepLichPreview {
+  finish_at: string | null;
+  chiem_may_phut: number;
+  setup_phut: number;
+  chay_phut: number;
+  ve_sinh_phut: number;
+  theo_may: boolean;
+  xung_dot_ids: number[];              // id dòng đã xếp sẽ chồng giờ trên máy này
+  day_doi: XepLichPreviewDayDoi[];     // bước sau bị đẩy
+  han_hoan_thanh_moi: string | null;
+  nhan_rui_ro: XepLichRuiRo | null;
+  can_xac_nhan: boolean;               // máy có thể không kham nổi (khổ/số màu/định lượng) — cảnh báo, không chặn
+  ly_do_xac_nhan: string[];
+}
+
+/** 1 khoảng khóa máy (bảo trì/hỏng/nghỉ) — CRUD + Gantt overlay. */
+export interface XepLichVungKhoaItem {
+  id: number;
+  may_id: number;
+  start: string;
+  finish: string;
+  ly_do: string;   // bao_tri | hong_hoc | nghi | khac
+  note: string | null;
+}
+export interface XepLichVungKhoaListOut { items: XepLichVungKhoaItem[] }
+export interface XepLichVungKhoaIn { tu: string; den: string; ly_do?: string; note?: string | null }
+
+/** Lý do khóa máy → nhãn hiển thị. */
+export const XEP_LICH_KHOA_LABELS: Record<string, string> = {
+  bao_tri: "Bảo trì",
+  hong_hoc: "Máy hỏng",
+  nghi: "Nghỉ",
+  khac: "Khác",
+};
+
 /** Mã lý do bị chặn (`blocked_reason`) → nhãn hiển thị (server trả mã, FE dịch). */
 export const XEP_LICH_BLOCKED_LABELS: Record<string, string> = {
   thieu_may: "Chưa gán máy / tổ",
   thieu_thoi_luong: "Chưa khai năng suất — không tính được thời lượng",
   cho_tien_de: "Chờ bước trước xếp / xong",
+};
+
+/** Kiểm khả năng máy (HM4) — mã lý do `ly_do_xac_nhan` → nhãn (máy đề xuất, người quyết; KHÔNG chặn). */
+export const XEP_LICH_XAC_NHAN_LABELS: Record<string, string> = {
+  kho_vuot_may: "Khổ tờ in vượt khổ máy",
+  so_mau_vuot_units: "Số màu vượt số đầu mực máy",
+  gsm_ngoai_khoang: "Định lượng giấy ngoài dải máy",
+};
+
+/** Cảnh báo thời lượng (HM3) — vì sao KHÔNG tính-theo-máy được (số đang là snapshot bước). */
+export const XEP_LICH_CANH_BAO_TL_LABELS: Record<string, string> = {
+  may_chua_toc_do: "Máy chưa khai tốc độ — thời lượng theo snapshot bước",
+  don_vi_lech: "Đơn vị máy/bước lệch — thời lượng theo snapshot bước",
 };
 
 export interface HangChoItem {
@@ -4678,6 +4749,31 @@ export const api = {
     },
     goiY(token: string, dongId: number): Promise<XepLichGoiY> {
       return authed<XepLichGoiY>(`/api/xep-lich/dong/${dongId}/goi-y`, token);
+    },
+    /** Nền lịch máy (khoảng làm-việc theo ca + vùng khóa) cho Gantt vẽ nền + curtains. `tu`/`den` = YYYY-MM-DD. */
+    lichNen(token: string, mayId: number, tu: string, den: string): Promise<XepLichLichNen> {
+      const qs = new URLSearchParams({ tu, den });
+      return authed<XepLichLichNen>(`/api/xep-lich/may/${mayId}/lich-nen?${qs.toString()}`, token);
+    },
+    /** Xem-trước-ảnh-hưởng khi kéo (đợt 4) — KHÔNG commit; trả xung đột + bước bị đẩy + nguy cơ trễ. */
+    preview(token: string, dongId: number, body: XepLichPreviewBody): Promise<XepLichPreview> {
+      return authed<XepLichPreview>(`/api/xep-lich/dong/${dongId}/xem-truoc`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
+    /** Mọi khoảng khóa máy (mọi máy) giao [tu, den] — Gantt overlay nền bảo trì. `tu`/`den`=YYYY-MM-DD. */
+    vungKhoaRange(token: string, tu: string, den: string): Promise<XepLichVungKhoaListOut> {
+      const qs = new URLSearchParams({ tu, den });
+      return authed<XepLichVungKhoaListOut>(`/api/xep-lich/vung-khoa?${qs.toString()}`, token);
+    },
+    /** Tạo khoảng khóa 1 máy (bảo trì/hỏng/nghỉ). */
+    taoVungKhoa(token: string, mayId: number, body: XepLichVungKhoaIn): Promise<XepLichVungKhoaItem> {
+      return authed<XepLichVungKhoaItem>(`/api/xep-lich/may/${mayId}/vung-khoa`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
+    xoaVungKhoa(token: string, pid: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/vung-khoa/${pid}`, token, { method: "DELETE" });
     },
   },
 

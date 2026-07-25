@@ -789,4 +789,469 @@
   .xlcd-band.is-flash td { animation: none; }
   .xlcd-band__caret { transition: none; }
   .xlcd-queue__item { transition: none; }
+  .xlcd-gbar { transition: none; }
+}
+
+/* ======================= GANTT THEO MÁY (view lane × giờ) ================= */
+.xlcd-gantt {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  overflow: hidden;
+}
+
+/* --- thanh điều khiển: zoom · điều hướng · ẩn ngoài ca · chú giải --------- */
+.xlcd-gantt__controls {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+.xlcd-gantt__nav { display: inline-flex; align-items: center; gap: var(--sp-2); }
+.xlcd-gnav {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ink);
+  cursor: pointer;
+}
+.xlcd-gnav:hover { border-color: var(--rule); }
+.xlcd-gnav svg { transform: rotate(180deg); }
+.xlcd-gnav--r svg { transform: none; }
+.xlcd-goff {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  cursor: pointer;
+}
+.xlcd-glegend { display: inline-flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; }
+.xlcd-glegend__it {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+}
+.xlcd-glegend__sw {
+  position: static;
+  display: inline-block;
+  width: 18px;
+  height: 12px;
+  cursor: default;
+}
+
+/* --- vùng cuộn + lưới ----------------------------------------------------- */
+.xlcd-gantt__scroll {
+  position: relative;
+  overflow: auto;
+  max-height: 72vh;
+}
+.xlcd-gantt__inner { position: relative; }
+
+.xlcd-gantt__head {
+  display: flex;
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--paper);
+  border-bottom: 1px solid var(--rule);
+}
+.xlcd-gantt__corner {
+  position: sticky;
+  left: 0;
+  z-index: 6;
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-3);
+  height: 32px;
+  background: var(--paper);
+  border-right: 1px solid var(--rule);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ash);
+}
+.xlcd-gtimehead { position: relative; height: 32px; flex: none; }
+.xlcd-gtick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--rule-hair);
+  padding-left: 4px;
+}
+.xlcd-gtick.is-strong { border-left-color: var(--rule); }
+.xlcd-gtick span {
+  font-family: var(--ff-mono);
+  font-size: var(--fs-2xs);
+  color: var(--ash);
+  line-height: 32px;
+}
+.xlcd-gtick.is-strong span { color: var(--ink); font-weight: var(--fw-bold); }
+
+/* --- lane (dòng máy) ------------------------------------------------------ */
+.xlcd-glane {
+  display: flex;
+  border-bottom: 1px solid var(--rule-hair);
+  position: relative;
+}
+.xlcd-glane__label {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--canvas);
+  border-right: 1px solid var(--rule);
+}
+.xlcd-glane--nomay .xlcd-glane__label { background: var(--amber-soft); }
+.xlcd-glane__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.xlcd-glane__name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.xlcd-glane__name svg { color: var(--ash); flex: none; }
+.xlcd-glane__meta { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+.xlcd-glane__sub { font-size: var(--fs-2xs); color: var(--ash); }
+.xlcd-glane__track { position: relative; flex: none; overflow: hidden; }
+
+/* nền ngoài-ca/nghỉ (tô loang — thanh chạy liền qua) */
+.xlcd-gback--off {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    var(--rule-hair),
+    var(--rule-hair) 5px,
+    transparent 5px,
+    transparent 10px
+  );
+  pointer-events: none;
+}
+/* đường "bây giờ" */
+.xlcd-gnow {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--rust);
+  z-index: 3;
+  pointer-events: none;
+}
+.xlcd-gnow--head { top: auto; bottom: 0; height: 8px; }
+
+/* --- thanh việc (FILL cõng rủi ro; badge/ký hiệu không chỉ-màu) ----------- */
+.xlcd-gbar {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  border: 1px solid var(--steel);
+  border-radius: var(--r-2);
+  background: var(--steel-soft);
+  color: var(--ink);
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+  overflow: hidden;
+  transition: filter var(--duration-fast) var(--easing-standard);
+}
+.xlcd-gbar:hover { filter: brightness(0.97); }
+.xlcd-gbar:focus-visible { outline: 2px solid var(--rust); outline-offset: 1px; z-index: 4; }
+.xlcd-gbar__txt { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.xlcd-gbar__ma {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--ff-mono);
+}
+.xlcd-gbar svg { flex: none; }
+
+/* bài ghép — gờ trái đậm + badge BG (spec: tím; palette không có → dùng steel-deep + accent) */
+.xlcd-gbar--ghep {
+  background: color-mix(in srgb, var(--steel-soft) 60%, var(--canvas));
+  border-color: var(--steel);
+  box-shadow: inset 3px 0 0 var(--steel);
+}
+/* trạng thái/rủi ro — override FILL (nổi nhất) */
+.xlcd-gbar.is-warn { background: var(--amber-soft); border-color: var(--amber-deep); }
+.xlcd-gbar.is-conflict {
+  background: color-mix(in srgb, var(--signal-soft) 70%, var(--canvas));
+  border: 1px dashed var(--signal);
+  color: var(--signal-deep, var(--ink));
+}
+.xlcd-gbar.is-late {
+  background: var(--signal-soft);
+  border-color: var(--signal);
+  box-shadow: inset 3px 0 0 var(--signal);
+}
+.xlcd-gbar.is-locked {
+  background: var(--moss-soft);
+  border-color: var(--moss-deep);
+}
+.xlcd-gbadge {
+  flex: none;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.02em;
+}
+.xlcd-gbadge--bg { background: var(--steel); color: var(--on-charcoal); }
+/* Cờ TRỄ/GẤP: nền charcoal đục — đọc được trên MỌI màu thanh (không thêm hue mới). */
+.xlcd-gbadge--flag { background: var(--charcoal); color: var(--on-charcoal); }
+
+/* --- tải máy % ------------------------------------------------------------ */
+.xlcd-gload { display: inline-flex; align-items: center; gap: 5px; }
+.xlcd-gload__bar {
+  width: 46px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--rule-hair);
+  overflow: hidden;
+}
+.xlcd-gload__fill { display: block; height: 100%; background: var(--moss-deep); }
+.xlcd-gload__pct { font-family: var(--ff-mono); font-size: var(--fs-2xs); color: var(--ash); }
+.xlcd-gload--over .xlcd-gload__fill { background: var(--signal); }
+.xlcd-gload--over .xlcd-gload__pct { color: var(--signal); font-weight: var(--fw-bold); }
+
+/* --- Đợt 2: vùng khóa máy (bảo trì) + đoạn setup + form khóa --------------- */
+/* Nền bảo trì: hatch STEEL đậm hơn nền ngoài-ca (rule-hair) → đọc là "máy bị khóa". */
+.xlcd-gback--maint {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--steel) 24%, transparent),
+    color-mix(in srgb, var(--steel) 24%, transparent) 5px,
+    color-mix(in srgb, var(--steel) 8%, transparent) 5px,
+    color-mix(in srgb, var(--steel) 8%, transparent) 10px
+  );
+  border-inline: 1px solid var(--steel);
+  z-index: 2;             /* NỔI trên thanh việc → thấy rõ "máy dừng" ngay cả khi bar phủ qua */
+  pointer-events: none;
+}
+.xlcd-gback--maint.is-click { pointer-events: auto; cursor: pointer; }
+.xlcd-gback--maint.is-click:hover { filter: brightness(0.94); }
+
+/* Đoạn setup (chuẩn bị) ở đầu thanh AN TOÀN — tông đậm hơn phần chạy. */
+.xlcd-gbar__setup {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--steel) 34%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--steel) 55%, transparent);
+  pointer-events: none;
+}
+
+/* Nút thêm khóa máy trên nhãn lane. */
+.xlcd-glane__name span { flex: 1 1 auto; min-width: 0; }
+.xlcd-glane__khoa {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ash);
+  cursor: pointer;
+}
+.xlcd-glane__khoa:hover { border-color: var(--steel); color: var(--steel); }
+
+/* Form khóa máy (bọc trong .xlcd-pop — card/shadow sẵn). */
+.xlcd-gkhoa__f { display: flex; flex-direction: column; gap: 3px; font-size: var(--fs-2xs); color: var(--ash); }
+.xlcd-gkhoa__f select,
+.xlcd-gkhoa__f input {
+  padding: 5px 8px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-2);
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+.xlcd-gkhoa__row { display: flex; gap: var(--sp-2); justify-content: flex-end; margin-top: 2px; }
+.xlcd-gkhoa__t { margin: 0 0 var(--sp-1); font-size: var(--fs-sm); color: var(--ink); }
+
+/* ======================= ĐỢT 3: cờ CẦN XÁC NHẬN + cảnh báo thời-lượng ===== */
+/* Badge "!" tròn amber trên bar — cue phụ, KHÔNG override FILL trạng thái. */
+.xlcd-gbadge--warn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 13px;
+  height: 13px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--amber-deep);
+  color: var(--on-charcoal);
+}
+/* Bar AN TOÀN nhưng cần-xác-nhận → viền amber (không đổi nền để giữ nghĩa "đã xếp"). */
+.xlcd-gbar.has-flag:not(.is-late):not(.is-conflict):not(.is-warn):not(.is-locked) {
+  border-color: var(--amber-deep);
+}
+/* Chip "Cần xác nhận" trong ô trạng thái bảng — parity với Gantt. */
+.xlcd-xnchip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px var(--sp-2);
+  border: 1px solid var(--amber-deep);
+  border-radius: var(--r-pill);
+  background: var(--amber-soft);
+  color: var(--amber-deep);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+}
+
+/* ======================= ĐỢT 4: kéo-thả + xem-trước ảnh-hưởng ============= */
+.xlcd-gbar.is-draggable { cursor: grab; touch-action: none; }
+.xlcd-gbar.is-dragging { opacity: 0.4; cursor: grabbing; }
+/* Ghost = vệt chèn nơi sẽ thả (curtains đã snap ra ca hợp lệ); đỏ = vùng cấm/không máy. */
+.xlcd-gghost {
+  position: absolute;
+  border: 1.5px dashed var(--rust);
+  border-radius: var(--r-2);
+  background: color-mix(in srgb, var(--rust-soft) 45%, transparent);
+  pointer-events: none;
+  z-index: 5;
+}
+.xlcd-gghost.is-invalid {
+  border-color: var(--signal);
+  background: color-mix(in srgb, var(--signal-soft) 45%, transparent);
+}
+/* Ghost mang NHÃN GIỜ đích (+ "đè" khi chồng dòng đã xếp) — phản hồi live lúc kéo. */
+.xlcd-gghost { display: flex; align-items: center; overflow: hidden; }
+.xlcd-gghost__t {
+  padding: 0 4px;
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-bold);
+  color: var(--rust-deep, var(--ink));
+  white-space: nowrap;
+  pointer-events: none;
+}
+.xlcd-gghost.is-collide {
+  border-color: var(--amber-deep);
+  background: color-mix(in srgb, var(--amber-soft) 55%, transparent);
+}
+.xlcd-gghost.is-collide .xlcd-gghost__t { color: var(--amber-deep); }
+.xlcd-gghost.is-invalid .xlcd-gghost__t { color: var(--signal); }
+
+/* Vệt CHỜ (khô mực/keo/di chuyển) — lag không chiếm máy, chấm mờ nối bar sang bước sau. */
+.xlcd-gdry {
+  position: absolute;
+  height: 0;
+  border-top: 2px dotted color-mix(in srgb, var(--ash) 60%, transparent);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Hộp thoại ảnh-hưởng (bật khi có bước-sau / xung-đột / cần-xác-nhận). */
+.xlcd-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-4);
+  background: color-mix(in srgb, var(--charcoal) 42%, transparent);
+}
+.xlcd-gimpact {
+  display: flex;
+  flex-direction: column;
+  width: min(440px, 94vw);
+  max-height: 90vh;
+  overflow: hidden;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-6);
+  box-shadow: var(--shadow-lg);
+}
+.xlcd-gimpact__head {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  padding: var(--sp-4);
+  border-bottom: 1px solid var(--rule-soft);
+}
+.xlcd-gimpact__head svg { flex: none; margin-top: 2px; color: var(--steel); }
+.xlcd-gimpact__head h3 { margin: 0; font-size: var(--fs-md); color: var(--ink); }
+.xlcd-gimpact__when {
+  margin: 3px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--ash);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+}
+.xlcd-gimpact__tag {
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--moss-soft);
+  color: var(--moss-deep);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+}
+.xlcd-gimpact__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  overflow-y: auto;
+}
+.xlcd-gimpact__sec {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+  border: 1px solid var(--rule-soft);
+}
+.xlcd-gimpact__sec--warn { background: var(--amber-soft); border-color: var(--amber-deep); }
+.xlcd-gimpact__sec--bad { background: var(--signal-soft); border-color: var(--signal); }
+.xlcd-gimpact__t {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.xlcd-gimpact__sec ul { margin: var(--sp-1) 0 0; padding-left: 22px; font-size: var(--fs-xs); color: var(--ash); }
+.xlcd-gimpact__sec li { margin: 1px 0; }
+.xlcd-gimpact__han { margin: 0; font-size: var(--fs-sm); color: var(--ink); }
+.xlcd-gimpact__late { color: var(--signal); font-weight: var(--fw-bold); }
+.xlcd-gimpact__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--rule-soft);
 }

@@ -2252,6 +2252,7 @@ và tính công theo tỷ lệ giờ làm.
 | `night_shift`   | `Boolean` → `BOOLEAN`                                  | —      | no   | `false`        | Ca đêm (cờ phụ cấp — quy tiền để module Lương).                  |
 | `grace_minutes` | `Integer` → `INTEGER`                                  | —      | no   | `5`            | Dung sai đi muộn (phút): vào trễ ≤ giá trị này vẫn coi đúng giờ. |
 | `is_active`     | `Boolean` → `BOOLEAN`                                  | —      | no   | `true`         | Ca đang dùng.                                                    |
+| `dung_cho_lich_may` | `Boolean` → `BOOLEAN`                              | —      | no   | `false`        | Ca thuộc LỊCH CHẠY MÁY của xưởng (khác ca chấm công HR). Xếp lịch công đoạn (Gantt) tính giờ theo tập ca có cờ này (nghỉ trưa = khe giữa 2 ca); chưa tick ca nào → fallback 8h phẳng `[08:00,16:00)`. Thêm qua migration 0095. |
 | `note`          | `String(500)` → `VARCHAR(500)`                         | —      | yes  | —              | Ghi chú.                                                         |
 | `created_at`    | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —      | no   | now (UTC)      | Khi tạo.                                                         |
 
@@ -3055,6 +3056,28 @@ Mô hình thời gian bám Dynamics 365 BC (nền của print MIS PrintVis): **s
 - Neo `lsx_cong_doan_id` là SOFT (không FK) — an toàn vì routing bị khóa khi lệnh `da_lap_ke_hoach`. Cấu trúc (`lsx_id`/`bai_ghep_id`) là FK THẬT + CASCADE (lớp chặn cuối DB); vòng đời "gỡ kế hoạch" xóa dòng TRƯỚC khi mở lại routing nên không mồ côi.
 
 **Tất cả cột:** `id`, `nguon`, `lsx_id`, `lsx_cong_doan_id`, `bai_ghep_id`, `source_thu_tu`, `loai_buoc`, `may_id`, `department_id`, `nha_cung_cap`, `work_shift_id`, `start_at`, `finish_at`, `trang_thai`, `is_locked`, `blocked_reason`, `ghi_chu`, `created_by`, `created_at`, `updated_at`.
+
+---
+
+### `machine_unavailable_periods`
+
+**Purpose:** vùng máy KHÔNG khả dụng (Gantt theo máy, lát 2) — khoảng THỜI GIAN 1 máy bị khóa (bảo trì/hỏng/nghỉ riêng/khóa tay). Xếp lịch đọc để engine NÉ khi cộng giờ + tìm khe trống, và Gantt vẽ vùng khóa trên lane. Tách khỏi `may_thiet_bi.trang_thai` (cờ hiện tại) và cột `ngay_bao_tri_*` (mức ngày). Bảng MỚI → `create_all` tự tạo, KHÔNG migration.
+
+| Column             | Type (SQLAlchemy → SQLite / Postgres)                 | Key    | Null | Default        | Meaning                                                                    |
+| ------------------ | ----------------------------------------------------- | ------ | ---- | -------------- | -------------------------------------------------------------------------- |
+| `id`               | `Integer` → `INTEGER` / `SERIAL`                      | **PK** | no   | auto-increment | Surrogate primary key.                                                     |
+| `may_id`           | `Integer` → `INTEGER`                                 | **IX** | no   | —              | Soft → `may_thiet_bi.id` (không FK cứng) — máy bị khóa.                    |
+| `reason`           | `String(16)` → `VARCHAR(16)`                          | —      | no   | `bao_tri`      | `bao_tri` / `hong_hoc` / `nghi` / `khac`.                                  |
+| `unavailable_from` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ`| —      | no   | —              | Đầu khoảng khóa (giờ nhà máy).                                             |
+| `unavailable_to`   | `DateTime(timezone=True)`                             | —      | no   | —              | Cuối khoảng khóa. Validate `from < to`.                                    |
+| `note`             | `String(500)` → `VARCHAR(500)`                        | —      | yes  | —              | Ghi chú.                                                                   |
+| `created_by`       | `Integer` → `INTEGER`                                 | —      | yes  | —              | Soft → `users.id`.                                                         |
+| `created_at`       | `DateTime(timezone=True)`                             | —      | no   | now (UTC)      | Khi tạo.                                                                   |
+| `updated_at`       | `DateTime(timezone=True)`                             | —      | no   | now/onupdate   | Lần cập nhật.                                                              |
+
+**Keys & indexes**
+
+- Primary key: `id`. Index: `may_id`; tổ hợp `ix_may_khoa_may_time` (`may_id`, `unavailable_from`). FK máy MỀM theo convention.
 
 ---
 

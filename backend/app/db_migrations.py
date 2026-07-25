@@ -2507,6 +2507,21 @@ def _migrate_cong_doan_nang_suat(db: Session) -> None:
     db.commit()
 
 
+def _migrate_work_shift_dung_cho_lich_may(db: Session) -> None:
+    """Thêm `work_shifts.dung_cho_lich_may` (BOOLEAN NOT NULL DEFAULT FALSE) — đánh dấu ca nào thuộc
+    LỊCH CHẠY MÁY của xưởng (khác ca chấm công HR). Xếp lịch công đoạn (Gantt theo máy) tính giờ theo
+    TẬP ca có cờ này (nghỉ trưa = khe giữa 2 ca); chưa tick ca nào → fallback 8h phẳng [08:00,16:00)
+    giữ nguyên hành vi lát 1. Idempotent; no-op DB fresh (create_all đã ra cột) / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "work_shifts" not in insp.get_table_names():
+        return
+    if "dung_cho_lich_may" not in _existing_columns(insp, "work_shifts"):
+        db.execute(text(
+            "ALTER TABLE work_shifts ADD COLUMN dung_cho_lich_may BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2631,6 +2646,9 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0093_lsx_routing_chi_tiet", _migrate_lsx_routing_chi_tiet),
     # Năng suất mặc định của công đoạn — cho bước làm TAY (không gắn máy) khỏi phải gõ lại mỗi lệnh.
     ("0094_cong_doan_nang_suat", _migrate_cong_doan_nang_suat),
+    # Gantt theo máy (lát 2): cờ ca thuộc lịch chạy máy của xưởng — engine tính giờ theo ca thật
+    # (nghỉ trưa/đa ca/ca đêm); rỗng → fallback 8h phẳng giữ hành vi lát 1.
+    ("0095_work_shift_dung_cho_lich_may", _migrate_work_shift_dung_cho_lich_may),
 ]
 
 
