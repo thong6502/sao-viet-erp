@@ -316,13 +316,18 @@ class XepLichService:
                 setattr(dong, field, patch[field])
         if "start_at" in patch:
             dong.start_at = _aware(patch["start_at"])
+        # start_at đã lưu từ SQLite đọc lên là naive → phải chuẩn hóa tz-aware TRƯỚC khi
+        # tính giờ. Nếu không, patch một phần (chỉ đổi máy/tổ/NCC, không kèm start_at) trên
+        # dòng đã có giờ sẽ đẩy naive vào `_cong_gio_lam` → so naive vs aware → TypeError → 500.
+        start = _aware(dong.start_at)
+        dong.start_at = start
         chiem = self._thoi_luong(dong)["chiem_may_phut"]
-        if dong.start_at is not None and chiem > 0:
-            dong.finish_at = _cong_gio_lam(dong.start_at, chiem, self.cal)
+        if start is not None and chiem > 0:
+            dong.finish_at = _cong_gio_lam(start, chiem, self.cal)
         else:
             dong.finish_at = None
         co_tai_nguyen = bool(dong.may_id or dong.department_id or (dong.nha_cung_cap or "").strip())
-        if dong.start_at is not None and co_tai_nguyen and chiem > 0:
+        if start is not None and co_tai_nguyen and chiem > 0:
             dong.trang_thai, dong.blocked_reason = TT_DA_XEP, None
         else:
             dong.trang_thai = TT_CHO_XEP

@@ -326,3 +326,29 @@ def test_cong_gio_lam_tran_sang_ngay_ke(db, xl_svc, monkeypatch):
     bat_dau = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
     # 600 phút = 8h ngày đầu (đến 16:00) + 120 phút ngày kế (08:00 → 10:00).
     assert _cong_gio_lam(bat_dau, 600, xl_svc.cal) == datetime(2026, 7, 28, 10, 0, tzinfo=timezone.utc)
+
+
+def test_gan_lai_mot_phan_tren_dong_da_co_gio(db, orders, lsx_svc, xl_svc, admin, customer, monkeypatch):
+    """Regression: patch MỘT PHẦN (chỉ đổi máy, KHÔNG kèm start_at) trên dòng ĐÃ có giờ.
+
+    Sau `commit()` SQLAlchemy expire object → lần gán sau đọc lại `start_at` từ SQLite là
+    NAIVE. Trước fix, giá trị naive rơi vào `_cong_gio_lam` → so naive vs aware → TypeError
+    (500 + mất header CORS → trình duyệt báo ERR_FAILED). Inline sửa máy/tổ/NCC đều gửi patch
+    một phần nên dính. Fix: chuẩn hóa `start_at` qua `_aware()` trước khi tính giờ.
+    """
+    monkeypatch.setattr(xl_svc.cal, "is_working_day", lambda d: True)
+    lsx = _hai_lsx_san_sang(db, orders, lsx_svc, admin, customer)[0]
+    step = _in_step(db, lsx.id)
+    step.setup_phut, step.nang_suat, step.so_luong_vao = 0, 5000, 5000
+    step.chay_phut, step.ve_sinh_phut, step.so_luot_chay = None, 0, 1  # chiếm máy = 5000/5000*60 = 60 phút
+    db.commit()
+    xl_svc.dua_vao_lsx(lsx_id=lsx.id, actor=admin)
+    dong = XepLichRepository(db).by_lsx(lsx.id)[0]
+    bat_dau = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+    xl_svc.gan(dong_id=dong.id, patch={"may_id": step.may_id, "start_at": bat_dau}, actor=admin)
+
+    # Gán LẠI, chỉ đổi máy — KHÔNG kèm start_at (giống inline popover). Không được lỗi.
+    res = xl_svc.gan(dong_id=dong.id, patch={"may_id": step.may_id}, actor=admin)
+    assert res.trang_thai == "da_xep"
+    assert res.start_at.replace(tzinfo=None) == datetime(2026, 7, 27, 8, 0)   # giờ giữ nguyên
+    assert res.finish_at.replace(tzinfo=None) == datetime(2026, 7, 27, 9, 0)  # 08:00 + 60 phút
