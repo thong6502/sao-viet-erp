@@ -7,9 +7,7 @@ nâng bậc) go through `/transitions` so each writes a Quá trình công tác e
 """
 from __future__ import annotations
 
-import secrets
 from datetime import date, timedelta
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import (
@@ -81,13 +79,15 @@ from ..services.employee_service import (
 )
 from ..services.rbac_service import AuthorizationService
 from ..services.payroll_service import PayrollError, PayrollService
+from ..storage import get_storage, make_key, url_from_key
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
 
 MODULE = "nhan_su"
 
-# Uploaded HR files live under <backend>/static/hr and are served read-only at /static.
-_STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+# Hồ sơ HR (CCCD, hợp đồng…) đi qua kho file dùng chung; đọc lại qua /api/files, chỉ người
+# có quyền `nhan_su` mới xem được (app/routers/files.py).
+_HR_SUBDIR = "hr"
 
 Service = Annotated[EmployeeService, Depends(get_employee_service)]
 Payroll = Annotated[PayrollService, Depends(get_payroll_service)]
@@ -659,14 +659,9 @@ def upload_attachment(
     except EmployeeError as exc:
         _raise(exc)
 
-    safe_name = Path(file.filename or "file").name
-    token = secrets.token_hex(4)
-    dest_dir = _STATIC_DIR / "hr" / str(employee_id)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / f"{token}_{safe_name}"
-    with dest.open("wb") as f:
-        f.write(file.file.read())
-    file_url = f"/static/hr/{employee_id}/{token}_{safe_name}"
+    key, safe_name = make_key(_HR_SUBDIR, employee_id, file.filename)
+    get_storage().save(key, file.file.read(), file.content_type)
+    file_url = url_from_key(key)
 
     try:
         att = svc.add_attachment(

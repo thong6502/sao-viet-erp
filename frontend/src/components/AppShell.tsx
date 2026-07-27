@@ -13,8 +13,10 @@ import {
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
+import { KeHoachSXPage } from "../pages/KeHoachSXPage";
+import { BaiGhepPage } from "../pages/BaiGhepPage";
+import { XepLichPage } from "../pages/XepLichPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
-import { SanXuatPage } from "../pages/SanXuatPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
@@ -27,7 +29,6 @@ import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoHangView } from "../pages/KhoHangView";
-import { ToSanXuatView } from "../pages/ToSanXuatView";
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
 import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
@@ -63,6 +64,8 @@ export interface NavParams {
   focusReceiptQuery?: string;
   /** P3 (redesign-bao-gia §6): mở thẳng 1 Phiếu tính giá (link "↳ PTG" từ Báo giá). */
   focusPhieuId?: number;
+  /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
+  openSxOrderId?: number;
   /** Liên thông Phòng ban → Lương: mở thẳng tab "Cấu hình lương" (bảng lương của tổ). */
   luongTab?: "cauhinh";
 }
@@ -80,9 +83,6 @@ export function AppShell() {
   // Kho đã khai báo → đổ menu con ĐỘNG dưới "Kho hàng" (Cấu hình danh mục). Refetch khi
   // khai báo/sửa/xoá kho (onMutate màn khai báo) → navbar cập nhật NGAY, không cần refresh.
   const [khoList, setKhoList] = useState<{ id: number; ma: string; ten: string }[]>([]);
-  // Tổ khối SẢN XUẤT (phòng tick `la_san_xuat` + cây con thừa hưởng) → menu con ĐỘNG dưới "Sản
-  // xuất", mỗi tổ 1 hộp việc. Refetch khi tick/bỏ cờ ở form sửa phòng → navbar nhảy NGAY.
-  const [toSxList, setToSxList] = useState<{ id: number; ma: string; ten: string }[]>([]);
   // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
   const [leaveUnseen, setLeaveUnseen] = useState(0);
   // Real-time luồng gửi duyệt (SSE): toast nổi + mốc 'chờ tôi duyệt' gần nhất để chỉ toast khi TĂNG.
@@ -95,10 +95,6 @@ export function AppShell() {
   const lastOrderAction = useRef(0);
   const lastAdvancePending = useRef(0);
   const lastOtPending = useRef(0);
-  // Sản xuất (Lát 1): tick tăng mỗi sự kiện SX → hộp việc tổ đang mở tự refetch. Ref danh sách tổ
-  // CỦA TÔI để toast ĐÚNG tổ khi có lệnh mới phát (tránh stale closure trong kênh SSE mở-1-lần).
-  const [sxTick, setSxTick] = useState(0);
-  const toSxRef = useRef<{ id: number }[]>([]);
   const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { id, text, tone }]);
@@ -199,6 +195,23 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Kế hoạch SX = số đơn Sale đã chuyển xuống mà CÒN dòng chưa lên lệnh (hàng chờ).
+    if (readable.has("san_xuat")) {
+      api.lsx
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total })))
+        .catch(() => {});
+      // Badge Bài ghép = số LSX sẵn sàng đang chờ ghép (pool).
+      api.baiGhep
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
+        .catch(() => {});
+      // Badge Xếp lịch = số nguồn (LSX / bài ghép) đang chờ xếp (chưa đưa vào kế hoạch).
+      api.xepLich
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
+        .catch(() => {});
+    }
     // Badge Lương = số đề nghị tạm ứng đang chờ TÔI duyệt (0 với người không có quyền duyệt).
     if (readable.has("luong")) {
       api.luong
@@ -206,20 +219,6 @@ export function AppShell() {
         .then((s) => {
           lastAdvancePending.current = s.pending_approval_count;
           setBadges((prev) => ({ ...prev, luong: s.pending_approval_count }));
-        })
-        .catch(() => {});
-    }
-    // Badge Sản xuất (Lát 1) = số việc đang chờ ở MỖI tổ user thấy (đã lọc scope server-side) →
-    // map sang nav id `to-sx:<id>`. Tổ trưởng đếm mọi lệnh ghé tổ; thợ đếm lệnh mình được gán.
-    if (readable.has("san_xuat")) {
-      api.lenhSanXuat
-        .toBadges(token)
-        .then((r) => {
-          setBadges((prev) => {
-            const next = { ...prev };
-            for (const b of r.items) next[`to-sx:${b.to_id}`] = b.count;
-            return next;
-          });
         })
         .catch(() => {});
     }
@@ -238,18 +237,6 @@ export function AppShell() {
       .catch(() => {});
   }, [token, readable]);
   useEffect(() => { reloadKho(); }, [reloadKho]);
-
-  // Tổ khối SX cho menu con động (chỉ người có quyền `san_xuat`). Gọi lại sau khi tick/bỏ cờ
-  // `la_san_xuat` ở form sửa phòng (onDeptChanged) → navbar cập nhật ngay, không cần refresh.
-  const reloadToSx = useCallback(() => {
-    if (!token || readable === null || !readable.has("san_xuat")) return;
-    crud("/api/lenh-sx/to")
-      .list(token)
-      .then((r) => setToSxList(r.items.map((t) => ({ id: Number(t.id), ma: String(t.ma), ten: String(t.ten) }))))
-      .catch(() => {});
-  }, [token, readable]);
-  useEffect(() => { reloadToSx(); }, [reloadToSx]);
-  useEffect(() => { toSxRef.current = toSxList; }, [toSxList]);
 
   // Real-time luồng gửi duyệt (CLAUDE.md "gửi nội bộ = real-time"): mở 1 kênh SSE sau đăng nhập →
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
@@ -303,6 +290,32 @@ export function AppShell() {
             lastOrderAction.current = s.action_count;
           })
           .catch(() => {});
+      } else if (
+        readable.has("san_xuat") &&
+        (e.type === "order_ordered" ||
+          e.type === "lsx_changed" ||
+          e.type === "bai_ghep_changed" ||
+          e.type === "xep_lich_changed")
+      ) {
+        // Sale "Chuyển xuống sản xuất" → hàng chờ Kế hoạch nhảy (badge + toast); Kế hoạch/ghép bài/
+        // xếp lịch đổi → 3 badge khối Sản xuất co giãn NGAY. Nội dung màn tự refetch qua `quoteTick`.
+        api.lsx
+          .hangCho(token)
+          .then((r) => {
+            setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total }));
+            if (e.type === "order_ordered") {
+              pushToast(`🔔 Đơn ${e.code ?? ""} vừa chuyển xuống sản xuất`.trim(), "info");
+            }
+          })
+          .catch(() => {});
+        api.baiGhep
+          .hangCho(token)
+          .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
+          .catch(() => {});
+        api.xepLich
+          .hangCho(token)
+          .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
+          .catch(() => {});
       } else if (readable.has("khach_hang") && e.type === "care_due") {
         // Tới giờ hẹn → ting người phụ trách: toast + badge "Khách hàng" (số việc đến hạn) tự nhảy.
         pushToast(`🔔 Tới hẹn chăm sóc: ${e.customer}${e.note ? " — " + e.note : ""}`, "info");
@@ -353,29 +366,6 @@ export function AppShell() {
             lastAdvancePending.current = s.pending_approval_count;
           })
           .catch(() => {});
-      } else if (readable.has("san_xuat") && e.type === "lenh_sx_routing") {
-        // Có lệnh mới PHÁT vào tổ trong routing → reload badge tổ (scope-filtered) + refetch hộp việc
-        // đang mở; toast CHỈ khi tổ của tôi (broadcast tới mọi vai SX, nên lọc lại theo tổ mình).
-        reloadBadges();
-        setSxTick((n) => n + 1);
-        const mine = new Set(toSxRef.current.map((t) => t.id));
-        if ((e.to_ids ?? []).some((id) => mine.has(id))) {
-          pushToast("🔔 Có lệnh sản xuất mới ở tổ của bạn", "info");
-        }
-      } else if (readable.has("san_xuat") && e.type === "lenh_sx_assigned") {
-        // Đích danh tới thợ được gán → toast + reload badge + refetch hộp việc.
-        reloadBadges();
-        setSxTick((n) => n + 1);
-        pushToast("📋 Bạn được giao việc sản xuất mới", "info");
-      } else if (readable.has("san_xuat") && e.type === "lenh_sx_ban_giao") {
-        // Có hàng BÀN GIAO tới 1 tổ → reload badge (scope-filtered) + refetch hộp việc; toast CHỈ khi
-        // tổ nhận là tổ của tôi (đích danh to_nhan_id; broadcast tới mọi vai SX nên lọc lại theo tổ mình).
-        reloadBadges();
-        setSxTick((n) => n + 1);
-        const mine = new Set(toSxRef.current.map((t) => t.id));
-        if (e.to_nhan_id != null && mine.has(e.to_nhan_id)) {
-          pushToast("📦 Có hàng bàn giao tới tổ của bạn", "info");
-        }
       }
     });
     return close;
@@ -407,7 +397,7 @@ export function AppShell() {
   // "kho-item:<id>" = màn 1 kho (menu con động) — gác cùng quyền `kho` với mục cha "Kho hàng".
   const moduleKeys =
     MODULES_BY_NAV_ID[baseId] ??
-    (baseId === "kho-item" ? ["kho"] : baseId === "to-sx" ? ["san_xuat"] : undefined);
+    (baseId === "kho-item" ? ["kho"] : undefined);
   const allowed = moduleKeys != null && moduleKeys.some((moduleKey) => readable.has(moduleKey));
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
@@ -415,12 +405,6 @@ export function AppShell() {
   if (khoList.length) {
     dynamicItems["kho-hang"] = khoList.map((w): NavItem => ({
       id: `kho-item:${w.id}`, label: w.ten, icon: "warehouse", module: "kho",
-    }));
-  }
-  // Tổ khối SX → item ĐỘNG (phẳng) dưới SECTION "Sản xuất", ngang hàng "Kế hoạch SX". Bấm 1 tổ → hộp việc riêng.
-  if (toSxList.length) {
-    dynamicItems["san-xuat"] = toSxList.map((t): NavItem => ({
-      id: `to-sx:${t.id}`, label: t.ten, icon: "users", module: "san_xuat",
     }));
   }
 
@@ -452,21 +436,6 @@ export function AppShell() {
       const w = khoList.find((x) => x.id === id);
       return <KhoHangView ten={w?.ten ?? "Kho"} ma={w?.ma} />;
     }
-    // Màn TẠM cho 1 tổ khối SX (bấm item "to-sx:<id>" dưới section "Sản xuất").
-    if (baseId === "to-sx") {
-      const id = Number(activeId.split(":")[1]);
-      const t = toSxList.find((x) => x.id === id);
-      return (
-        <ToSanXuatView
-          key={`to-sx-${id}`}
-          toId={id}
-          ten={t?.ten ?? "Tổ sản xuất"}
-          ma={t?.ma}
-          token={token ?? ""}
-          refetchSignal={sxTick}
-        />
-      );
-    }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
       return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
@@ -475,7 +444,7 @@ export function AppShell() {
       case "quy-trinh-kinh-doanh":
         return <QuyTrinhKinhDoanhPage navigate={navigate} />;
       case "phong-ban":
-        return <DepartmentsPage onDeptChanged={reloadToSx} navigate={navigate} />;
+        return <DepartmentsPage />;
       case "nhan-su":
         return <NhanSuPage navigate={navigate} />;
       case "ho-so-cua-toi":
@@ -511,7 +480,18 @@ export function AppShell() {
       case "don-hang-ban":
         return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
       case "ke-hoach-sx":
-        return <SanXuatPage />;
+        return (
+          <KeHoachSXPage
+            navigate={navigate}
+            openOrderId={navParams?.openSxOrderId ?? null}
+            eventTick={quoteTick}
+            onBadgeStale={reloadBadges}
+          />
+        );
+      case "bai-ghep":
+        return <BaiGhepPage eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+      case "xep-lich-cong-doan":
+        return <XepLichPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage

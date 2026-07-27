@@ -2214,7 +2214,7 @@ def _migrate_care_task_recurrence(db: Session) -> None:
 
 
 def _migrate_department_la_san_xuat(db: Session) -> None:
-    """Phân hệ Sản xuất (spec-ke-hoach-san-xuat §13.1): thêm `departments.la_san_xuat` (Boolean,
+    """Phân hệ Sản xuất: thêm `departments.la_san_xuat` (Boolean,
     default false) — đánh dấu phòng/khối là bộ phận sản xuất; cả cây con (theo parent_id) kế thừa.
     No-op trên DB fresh (create_all đã dựng cột) / bảng chưa có / cột đã có."""
     insp = inspect(db.get_bind())
@@ -2793,6 +2793,168 @@ def _migrate_piece_rate_department_id(db: Session) -> None:
     db.commit()
 
 
+def _migrate_drop_lenh_sx_cu(db: Session) -> None:
+    """DỌN NỀN module Kế hoạch SX cũ: DROP 8 bảng của bản đã gỡ (commit `bcefd1c` xoá tầng code
+    nhưng GIỮ bảng). Module mới dựng bảng TÊN KHÁC (`lsx` / `lsx_cong_doan`), nên bảng cũ chỉ còn
+    là rác — mà để lại thì `create_all` không đụng tới, dữ liệu mồ côi nằm mãi trên prod.
+
+    Drop CON TRƯỚC CHA để khỏi vướng FK; Postgres thêm CASCADE (SQLite bỏ qua từ khoá này nên tách
+    2 nhánh theo dialect). Best-effort từng bảng: bảng nào không có thì bỏ qua, no-op trên DB fresh.
+    Các migration 0079–0087 (ALTER mấy bảng này) GIỮ NGUYÊN — chúng đã tự guard "bảng chưa có → return".
+    """
+    is_pg = (db.get_bind().dialect.name or "").startswith("postgres")
+    for table in (
+        "routing_step_assignment", "san_luong", "ban_giao", "gang_placement",
+        "lenh_item", "routing_step", "print_form", "lenh_sx",
+    ):
+        try:
+            db.execute(text(f"DROP TABLE IF EXISTS {table}{' CASCADE' if is_pg else ''}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+# (tên cột, định nghĩa SQL) cho `lsx_cong_doan` ở migration 0093. Mọi cột NOT NULL đều kèm DEFAULT
+# nên ALTER chạy được trên bảng đã có dữ liệu. BOOLEAN dùng literal `TRUE` (KHÔNG phải '1') — chuỗi
+# '1' chạy SQLite nhưng vỡ khi Postgres tạo bảng trắng.
+_LSX_CD_COLS_0093: tuple[tuple[str, str], ...] = (
+    # Nhận diện bước
+    ("loai_buoc", "VARCHAR(12) NOT NULL DEFAULT 'may'"),
+    ("bat_buoc", "BOOLEAN NOT NULL DEFAULT TRUE"),
+    # Số lượng & hao hụt (cặp Scrap Factor % + Fixed Scrap Qty)
+    ("don_vi_vao", "VARCHAR(8) NOT NULL DEFAULT 'to'"),
+    ("don_vi_ra", "VARCHAR(8) NOT NULL DEFAULT 'to'"),
+    ("he_so_quy_doi", "NUMERIC(12,4) NOT NULL DEFAULT 1"),
+    ("hao_hut_pct", "NUMERIC(6,2) NOT NULL DEFAULT 0"),
+    ("so_luot_chay", "INTEGER NOT NULL DEFAULT 1"),
+    # Năng suất & thời gian (nguồn cho Gantt)
+    ("setup_phut", "NUMERIC(10,2) NOT NULL DEFAULT 0"),
+    ("nang_suat", "NUMERIC(12,2)"),
+    ("don_vi_nang_suat", "VARCHAR(10)"),
+    ("chay_phut", "NUMERIC(10,2)"),
+    ("ve_sinh_phut", "NUMERIC(10,2) NOT NULL DEFAULT 0"),
+    ("cho_phut", "NUMERIC(10,2) NOT NULL DEFAULT 0"),
+    ("di_chuyen_phut", "NUMERIC(10,2) NOT NULL DEFAULT 0"),
+    ("so_nhan_cong", "INTEGER NOT NULL DEFAULT 1"),
+    # Phương thức thực hiện
+    ("may_thay_the_ids", "JSON"),
+    ("dieu_kien_json", "JSON"),
+    # Gia công ngoài (§8)
+    ("sl_gui", "NUMERIC(14,2)"),
+    ("ngay_gui_dk", "DATE"),
+    ("van_chuyen_ngay", "NUMERIC(6,2)"),
+    ("gia_cong_ngay", "NUMERIC(6,2)"),
+    ("ngay_nhan_dk", "DATE"),
+    ("hao_hut_cho_phep", "NUMERIC(14,2)"),
+    ("don_gia_gia_cong", "NUMERIC(18,2)"),
+    ("yeu_cau_ky_thuat", "TEXT"),
+    ("nguoi_giao_nhan_id", "INTEGER"),
+)
+
+# Suy `loai_buoc` từ TÊN bước khi backfill (bản cũ chỉ có cờ `thue_ngoai` + `nhom`). Chạy trong
+# Python chứ không LIKE trong SQL: SQLite `LOWER()` không hạ được chữ có dấu tiếng Việt.
+_TEN_LOAI_BUOC_0093: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("kcs", ("kcs", "kiểm tra", "kiem tra", "duyệt màu", "duyet mau")),
+    ("cho", ("chờ", "cho kho", "khô mực", "kho muc", "khô keo", "kho keo")),
+    ("xa_to", ("xả tờ", "xa to", "chia bán thành phẩm", "chia ban thanh pham")),
+    ("to", ("dán", "dan tay", "gấp", "gap tay", "đóng gói", "dong goi", "vào bìa", "vao bia",
+            "đóng cuốn", "dong cuon", "bao bì", "bao bi")),
+)
+
+
+def _migrate_lsx_routing_chi_tiet(db: Session) -> None:
+    """Routing lệnh SX lát 2: bổ sung dữ liệu để xếp được Gantt + khối gia công ngoài đầy đủ.
+
+    Thêm 26 cột `lsx_cong_doan` (loại bước · đơn vị vào/ra + hệ số quy đổi · hao hụt % · năng suất
+    và 4 loại thời gian · số nhân công · điều kiện bắt đầu · 9 cột thuê ngoài) + `lsx.routing_goc_json`
+    (ảnh chụp routing lúc tạo, để cảnh báo "routing đã đổi so với bài tính giá").
+
+    Rồi BỎ hai cột cũ đã bị thay: `thue_ngoai` (tập con của `loai_buoc`) và `don_vi` (tách thành
+    `don_vi_vao`/`don_vi_ra`) — giữ lại sẽ thành hai nguồn sự thật. DROP là best-effort: SQLite
+    < 3.35 từ chối thì để cột mồ côi, vô hại vì model không map nữa và cả hai đều có DEFAULT.
+
+    Idempotent, no-op trên DB fresh (create_all đã ra schema mới) và trên DB chưa có bảng `lsx`."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    if "lsx_cong_doan" not in tables:
+        return
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    cols = _existing_columns(insp, "lsx_cong_doan")
+    for name, ddl in _LSX_CD_COLS_0093:
+        if name not in cols:
+            db.execute(text(f"ALTER TABLE lsx_cong_doan ADD COLUMN {name} {ddl}"))
+    if "routing_goc_json" not in _existing_columns(insp, "lsx"):
+        db.execute(text("ALTER TABLE lsx ADD COLUMN routing_goc_json JSON"))
+    db.commit()
+    run("CREATE INDEX IF NOT EXISTS ix_lsx_cong_doan_nguoi_giao_nhan_id "
+        "ON lsx_cong_doan (nguoi_giao_nhan_id)")
+
+    # --- Backfill từ schema cũ (chỉ khi cột cũ còn) ---
+    if "don_vi" in cols:
+        db.execute(text("UPDATE lsx_cong_doan SET don_vi_vao = don_vi, don_vi_ra = don_vi "
+                        "WHERE don_vi IS NOT NULL AND don_vi <> ''"))
+        db.commit()
+    if "thue_ngoai" in cols:
+        db.execute(text("UPDATE lsx_cong_doan SET loai_buoc = 'thue_ngoai' WHERE thue_ngoai"))
+        db.commit()
+        # Bước nội bộ: mặc định 'may', hạ về 'to'/'kcs'/'cho'/'xa_to' theo tên (thủ công/kiểm/chờ).
+        rows = db.execute(text(
+            "SELECT id, ten FROM lsx_cong_doan WHERE loai_buoc <> 'thue_ngoai'"
+        )).all()
+        for row_id, ten in rows:
+            low = (ten or "").strip().lower()
+            for loai, keys in _TEN_LOAI_BUOC_0093:
+                if any(k in low for k in keys):
+                    db.execute(
+                        text("UPDATE lsx_cong_doan SET loai_buoc = :l WHERE id = :i"),
+                        {"l": loai, "i": row_id},
+                    )
+                    break
+        db.commit()
+
+    # --- Bỏ cột đã bị thay (best-effort) ---
+    run("ALTER TABLE lsx_cong_doan DROP COLUMN thue_ngoai")
+    run("ALTER TABLE lsx_cong_doan DROP COLUMN don_vi")
+
+
+def _migrate_cong_doan_nang_suat(db: Session) -> None:
+    """Thêm `cong_doan.nang_suat` (output/giờ) — năng suất mặc định khi lên Lệnh sản xuất.
+
+    Dành cho bước KHÔNG gắn máy: máy có `may_thiet_bi.toc_do` riêng, còn việc làm tay (dán, đóng
+    gói) thì năng suất thuộc về công đoạn — không có ô này thì kế hoạch phải gõ lại ở MỌI lệnh.
+    NULL = chưa khai (routing để trống, không bịa số 0). Đơn vị KHÔNG lưu: suy từ đơn vị đầu vào
+    của bước. Idempotent; no-op trên DB fresh (create_all đã ra cột) hoặc khi bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+    if "nang_suat" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN nang_suat NUMERIC(12,2)"))
+    db.commit()
+
+
+def _migrate_work_shift_dung_cho_lich_may(db: Session) -> None:
+    """Thêm `work_shifts.dung_cho_lich_may` (BOOLEAN NOT NULL DEFAULT FALSE) — đánh dấu ca nào thuộc
+    LỊCH CHẠY MÁY của xưởng (khác ca chấm công HR). Xếp lịch công đoạn (Gantt theo máy) tính giờ theo
+    TẬP ca có cờ này (nghỉ trưa = khe giữa 2 ca); chưa tick ca nào → fallback 8h phẳng [08:00,16:00)
+    giữ nguyên hành vi lát 1. Idempotent; no-op DB fresh (create_all đã ra cột) / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "work_shifts" not in insp.get_table_names():
+        return
+    if "dung_cho_lich_may" not in _existing_columns(insp, "work_shifts"):
+        db.execute(text(
+            "ALTER TABLE work_shifts ADD COLUMN dung_cho_lich_may BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2913,6 +3075,18 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0090_drop_kho_giay_chuan", _migrate_drop_kho_giay_chuan),
     # Khách chốt MỘT PHẦN: cờ dòng báo giá khách ưng/không (đơn chỉ kéo dòng accepted).
     ("0091_quote_item_accepted", _migrate_quote_item_accepted),
+    # --- Nhánh rebuild-san-xuat (Kế hoạch SX / Gantt) — id chuỗi ĐẦY ĐỦ khác main dù trùng số ---
+    # Dọn nền module Kế hoạch SX cũ (bảng còn sót sau khi gỡ code) — bản mới dùng `lsx`/`lsx_cong_doan`.
+    ("0092_drop_lenh_sx_cu", _migrate_drop_lenh_sx_cu),
+    # Routing lệnh SX lát 2: dữ liệu đủ để lên Gantt (loại bước · đơn vị vào/ra · năng suất & thời
+    # gian · số nhân công) + gia công ngoài đầy đủ; bỏ `thue_ngoai`/`don_vi` đã bị thay.
+    ("0093_lsx_routing_chi_tiet", _migrate_lsx_routing_chi_tiet),
+    # Năng suất mặc định của công đoạn — cho bước làm TAY (không gắn máy) khỏi phải gõ lại mỗi lệnh.
+    ("0094_cong_doan_nang_suat", _migrate_cong_doan_nang_suat),
+    # Gantt theo máy (lát 2): cờ ca thuộc lịch chạy máy của xưởng — engine tính giờ theo ca thật
+    # (nghỉ trưa/đa ca/ca đêm); rỗng → fallback 8h phẳng giữ hành vi lát 1.
+    ("0095_work_shift_dung_cho_lich_may", _migrate_work_shift_dung_cho_lich_may),
+    # --- Nhánh main (Nhân sự / Lương / Chấm công) — bảng khác, chạy độc lập với khối trên ---
     # PRD v2 Cấu hình lương: khung bậc + mức hợp đồng riêng của NV (tách bậc khỏi tiền).
     ("0088_luong_v2_khung_bac", _migrate_luong_v2_khung_bac),
     # Phiếu lương tách dòng phụ cấp trách nhiệm / thâm niên (B2 — không đổi tổng tiền).

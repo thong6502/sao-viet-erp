@@ -16,6 +16,7 @@ PREFIX_MAP = {
     "quotation": "BG",
     "order": "DH",
     "job": "LSX",
+    "bai_ghep": "GB",  # Bài ghép (gang) — KHÔNG dùng "BG" vì đã là mã Báo giá (quotation).
 }
 
 # Số chứng từ IN trên mẫu Bộ Tài chính (PC00445 / PT00027) — không có năm, chạy liên tục.

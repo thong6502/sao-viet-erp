@@ -8,8 +8,13 @@ from app.models.role import SCOPE_ALL
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.security import create_access_token, hash_password
+from app.storage import LOCAL_ROOT, key_from_url
 
-STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
+
+def _disk(file_url: str) -> Path:
+    """Chỗ nằm thật trên đĩa của một `file_url`. Test chạy LocalStorage (không có MinIO),
+    nên dùng chính `key_from_url` của app thay vì tự chắp lại quy tắc đường dẫn."""
+    return LOCAL_ROOT / key_from_url(file_url)
 
 
 def _headers(client) -> dict[str, str]:
@@ -162,8 +167,8 @@ def test_upload_list_count_and_disk(client):
     jpg = _upload(client, headers, voucher["id"])
     assert jpg.status_code == 201, jpg.text
     body = jpg.json()
-    assert body["file_url"].startswith(f"/static/ke-toan/{voucher['id']}/")
-    disk_path = STATIC_DIR.parent / body["file_url"].lstrip("/")
+    assert body["file_url"].startswith(f"/api/files/ke-toan/{voucher['id']}/")
+    disk_path = _disk(body["file_url"])
     assert disk_path.exists() and disk_path.read_bytes() == b"anh-hoa-don"
 
     pdf = _upload(client, headers, voucher["id"], name="bien-nhan.pdf", mime="application/pdf")
@@ -245,9 +250,9 @@ def test_filename_sanitized_against_traversal(client):
     body = nasty.json()
     assert "/" not in body["file_name"] and "\\" not in body["file_name"]
     assert ".." not in body["file_url"].split("/")[-1].split("_", 1)[0]
-    disk_path = STATIC_DIR.parent / body["file_url"].lstrip("/")
+    disk_path = _disk(body["file_url"])
     assert disk_path.exists()
-    assert disk_path.parent == STATIC_DIR / "ke-toan" / str(voucher["id"])
+    assert disk_path.parent == LOCAL_ROOT / "ke-toan" / str(voucher["id"])
     client.delete(
         f"/api/accounting/payment-vouchers/{voucher['id']}/attachments/{body['id']}",
         headers=headers,
@@ -258,7 +263,7 @@ def test_delete_removes_row_and_disk_file(client):
     headers = _headers(client)
     voucher = _voucher(client, headers, _supplier(client, headers)["id"])
     body = _upload(client, headers, voucher["id"]).json()
-    disk_path = STATIC_DIR.parent / body["file_url"].lstrip("/")
+    disk_path = _disk(body["file_url"])
     assert disk_path.exists()
 
     deleted = client.delete(
@@ -321,8 +326,8 @@ def test_receipt_upload_list_count_and_disk(client):
     jpg = _upload_receipt(client, headers, receipt["id"])
     assert jpg.status_code == 201, jpg.text
     body = jpg.json()
-    assert body["file_url"].startswith(f"/static/ke-toan-thu/{receipt['id']}/")
-    disk_path = STATIC_DIR.parent / body["file_url"].lstrip("/")
+    assert body["file_url"].startswith(f"/api/files/ke-toan-thu/{receipt['id']}/")
+    disk_path = _disk(body["file_url"])
     assert disk_path.exists() and disk_path.read_bytes() == b"anh-thu"
 
     pdf = _upload_receipt(client, headers, receipt["id"], name="bao-co.pdf", mime="application/pdf")
@@ -390,7 +395,7 @@ def test_receipt_upload_rejects_bad_type_and_delete(client):
         == 422
     )
     body = _upload_receipt(client, headers, receipt["id"]).json()
-    disk_path = STATIC_DIR.parent / body["file_url"].lstrip("/")
+    disk_path = _disk(body["file_url"])
     assert disk_path.exists()
 
     assert (

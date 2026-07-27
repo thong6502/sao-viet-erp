@@ -23,6 +23,8 @@ class CongDoanIn(BaseModel):
     pricing_basis: str | None = None
     setup_cost: float = Field(default=0, ge=0)
     setup_time: float = Field(default=0, ge=0)
+    # Năng suất mặc định lúc lên lệnh SX (output/giờ) — đơn vị theo đầu vào của bước, không lưu.
+    nang_suat: float | None = Field(default=None, gt=0)
     run_rate: float | None = None
     rate_tiers: list | None = None
     size_tiers: list | None = None
@@ -56,6 +58,7 @@ class CongDoanRow(BaseModel):
     pricing_basis: str | None = None
     setup_cost: float
     setup_time: float
+    nang_suat: float | None = None
     run_rate: float | None = None
     rate_tiers: list | None = None
     size_tiers: list | None = None

@@ -62,7 +62,7 @@ class Department(Base):
     has_piece_work: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # Đánh dấu phòng ban thuộc khối SẢN XUẤT (spec-ke-hoach-san-xuat §13.1). Tick ở 1 nút cha ⇒ cả
+    # Đánh dấu phòng ban thuộc khối SẢN XUẤT (nền phân tổ cho Kế hoạch SX). Tick ở 1 nút cha ⇒ cả
     # cây con (theo parent_id) coi như sản xuất; phân hệ Sản xuất liệt kê đúng subtree này. "Effective
     # sản xuất" = cột này true HOẶC có tổ tiên true (tính ở service, KHÔNG cascade lưu).
     la_san_xuat: Mapped[bool] = mapped_column(

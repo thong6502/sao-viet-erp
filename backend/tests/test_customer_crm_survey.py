@@ -199,7 +199,7 @@ def test_attachment_upload_and_delete(client):
     assert r.status_code == 201, r.text
     att = r.json()
     assert att["doc_kind"] == "hop_dong"
-    assert att["file_url"].startswith(f"/static/crm/{cid}/")
+    assert att["file_url"].startswith(f"/api/files/crm/{cid}/")
 
     items = client.get(f"/api/customers/{cid}/attachments", headers=_h(token)).json()["items"]
     assert len(items) == 1

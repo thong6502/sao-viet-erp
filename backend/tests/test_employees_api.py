@@ -512,7 +512,7 @@ def test_attachment_upload_list_delete(client):
     assert up.status_code == 201
     att = up.json()
     assert att["doc_kind"] == "cccd" and att["file_name"] == "cccd.pdf"
-    assert att["file_url"].startswith(f"/static/hr/{eid}/")
+    assert att["file_url"].startswith(f"/api/files/hr/{eid}/")
 
     listed = client.get(f"/api/employees/{eid}/attachments", headers=_h(token)).json()["items"]
     assert len(listed) == 1

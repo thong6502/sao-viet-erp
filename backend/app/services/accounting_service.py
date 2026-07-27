@@ -1,12 +1,10 @@
 """Business rules for Accounting purchase approvals and payment vouchers."""
 from __future__ import annotations
 
-import re
 import secrets
 import string
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from pathlib import Path
 
 from sqlalchemy.exc import IntegrityError
 
@@ -51,6 +49,7 @@ from ..repositories.accounting_repo import AccountingRepository
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.purchase_repo import PurchaseRequestRepository, SupplierRepository
 from ..repositories.user_repo import UserRepository
+from ..storage import get_storage, key_from_url, make_key, url_from_key
 from .purchase_service import _purchase_line_amounts
 from .sequence_service import SequenceService
 
@@ -75,19 +74,19 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# File đính kèm phiếu chi: bytes nằm dưới <backend>/static (cùng gốc mount
-# /static của main.py) — /static là public nên giới hạn loại + cỡ file.
-_STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+# File đính kèm chứng từ: bytes đi qua kho file dùng chung (app/storage.py), đọc lại qua
+# /api/files và chỉ người có quyền `ke_toan` mới xem được. Vẫn giới hạn loại + cỡ file.
 _ATTACHMENT_SUBDIR = "ke-toan"
 _RECEIPT_ATTACHMENT_SUBDIR = "ke-toan-thu"
 MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 MAX_ATTACHMENTS_PER_VOUCHER = 20
 
 
-def _safe_attachment_name(file_name: str | None) -> str:
-    """Chặn traversal (kể cả Windows "\\") + thay ký tự cấm; cắt 180 ký tự."""
-    name = Path((file_name or "file").replace("\\", "/")).name
-    return re.sub(r'[<>:"|?*\x00-\x1f]', "_", name)[:180].strip(" .") or "file"
+def _delete_stored_file(file_url: str | None) -> None:
+    """Gỡ bytes best-effort — xoá row mới là việc chính, file rác không được làm hỏng request."""
+    key = key_from_url(file_url)
+    if key:
+        get_storage().delete(key)
 
 
 def _text(value, *, label: str, required: bool = False, max_length: int | None = None):
@@ -738,15 +737,12 @@ class AccountingService:
             raise AccountingValidationError(
                 f"Mỗi chứng từ tối đa {MAX_ATTACHMENTS_PER_VOUCHER} file đính kèm."
             )
-        safe_name = _safe_attachment_name(file_name)
-        token = secrets.token_hex(4)
-        dest_dir = _STATIC_DIR / _ATTACHMENT_SUBDIR / str(voucher.id)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        (dest_dir / f"{token}_{safe_name}").write_bytes(data)
+        key, safe_name = make_key(_ATTACHMENT_SUBDIR, voucher.id, file_name)
+        get_storage().save(key, data, content_type)
         attachment = PaymentVoucherAttachment(
             payment_voucher_id=voucher.id,
             file_name=safe_name,
-            file_url=f"/static/{_ATTACHMENT_SUBDIR}/{voucher.id}/{token}_{safe_name}",
+            file_url=url_from_key(key),
             file_type=content_type,
             uploaded_by=actor.id,
         )
@@ -764,10 +760,7 @@ class AccountingService:
         attachment = self.repo.get_attachment(attachment_id)
         if attachment is None or attachment.payment_voucher_id != voucher_id:
             raise AccountingNotFound("Không tìm thấy file đính kèm.")
-        try:
-            (_STATIC_DIR.parent / attachment.file_url.lstrip("/")).unlink(missing_ok=True)
-        except OSError:
-            pass  # gỡ file đĩa best-effort — row vẫn phải xóa
+        _delete_stored_file(attachment.file_url)
         file_name = attachment.file_name
         self.repo.delete_attachment(attachment)
         self.audit.create(
@@ -821,15 +814,12 @@ class AccountingService:
             raise AccountingValidationError(
                 f"Mỗi phiếu thu tối đa {MAX_ATTACHMENTS_PER_VOUCHER} file đính kèm."
             )
-        safe_name = _safe_attachment_name(file_name)
-        token = secrets.token_hex(4)
-        dest_dir = _STATIC_DIR / _RECEIPT_ATTACHMENT_SUBDIR / str(receipt.id)
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        (dest_dir / f"{token}_{safe_name}").write_bytes(data)
+        key, safe_name = make_key(_RECEIPT_ATTACHMENT_SUBDIR, receipt.id, file_name)
+        get_storage().save(key, data, content_type)
         attachment = PaymentReceiptAttachment(
             payment_receipt_id=receipt.id,
             file_name=safe_name,
-            file_url=f"/static/{_RECEIPT_ATTACHMENT_SUBDIR}/{receipt.id}/{token}_{safe_name}",
+            file_url=url_from_key(key),
             file_type=content_type,
             uploaded_by=actor.id,
         )
@@ -847,10 +837,7 @@ class AccountingService:
         attachment = self.repo.get_receipt_attachment(attachment_id)
         if attachment is None or attachment.payment_receipt_id != receipt_id:
             raise AccountingNotFound("Không tìm thấy file đính kèm.")
-        try:
-            (_STATIC_DIR.parent / attachment.file_url.lstrip("/")).unlink(missing_ok=True)
-        except OSError:
-            pass  # gỡ file đĩa best-effort — row vẫn phải xóa
+        _delete_stored_file(attachment.file_url)
         file_name = attachment.file_name
         self.repo.delete_receipt_attachment(attachment)
         self.audit.create(

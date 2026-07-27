@@ -10,9 +10,7 @@ from __future__ import annotations
 
 import csv
 import io
-import secrets
 from datetime import datetime
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import (
@@ -104,13 +102,14 @@ from ..services.customer_service import (
     ReceivableUnavailable,
 )
 from ..services.rbac_service import AuthorizationService
+from ..storage import get_storage, make_key, url_from_key
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
 
 MODULE = "khach_hang"
 
-# Tài liệu KH nằm dưới <backend>/static/crm, serve read-only tại /static (mirror hr).
-_STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+# Tài liệu KH đi qua kho file dùng chung; đọc lại qua /api/files, cần quyền `khach_hang`.
+_CRM_SUBDIR = "crm"
 
 Service = Annotated[CustomerService, Depends(get_customer_service)]
 Analytics = Annotated[CustomerAnalyticsService, Depends(get_customer_analytics_service)]
@@ -1375,14 +1374,9 @@ def upload_attachment(
     # Access check first so we don't write a file for an inaccessible customer.
     _load_scoped(svc, customer_id, scope, user)
 
-    safe_name = Path(file.filename or "file").name
-    token = secrets.token_hex(4)
-    dest_dir = _STATIC_DIR / "crm" / str(customer_id)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / f"{token}_{safe_name}"
-    with dest.open("wb") as f:
-        f.write(file.file.read())
-    file_url = f"/static/crm/{customer_id}/{token}_{safe_name}"
+    key, safe_name = make_key(_CRM_SUBDIR, customer_id, file.filename)
+    get_storage().save(key, file.file.read(), file.content_type)
+    file_url = url_from_key(key)
 
     try:
         att = svc.add_attachment(

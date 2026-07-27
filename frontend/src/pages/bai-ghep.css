@@ -1,0 +1,71 @@
+/* Bài ghép — DELTA trên nền .khsx (dùng chung bảng · pill · aside · tabs của ke-hoach-sx.css).
+   Mọi rule bọc trong .bghep để không rò; màu lấy từ tokens.css, không hex thô. */
+
+/* --- Khu chờ ghép: cột chọn + hàng đã chọn --- */
+.bghep .bghep-check { width: 40px; text-align: center; }
+.bghep .bghep-check input { width: 16px; height: 16px; accent-color: var(--rust); cursor: pointer; }
+.bghep .bghep-row--on,
+.bghep .bghep-row--on:hover { background: var(--rust-soft); }
+.bghep .bghep-picked { font-size: var(--fs-sm); color: var(--rust-deep); font-weight: var(--fw-medium); }
+
+/* --- Bảng thành viên: input số con/tờ + số dư --- */
+.bghep .bghep-ups {
+  width: 68px; text-align: right; padding: 4px 8px;
+  border: 1px solid var(--rule-hair); border-radius: var(--radius-1, 6px);
+  font-size: var(--fs-sm); color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.bghep .bghep-ups:focus-visible { outline: 2px solid var(--rust); outline-offset: -1px; }
+.bghep .bghep-du { color: var(--amber-deep); font-weight: var(--fw-medium); }
+
+/* --- Kiểm tương thích --- */
+.bghep .bghep-hint { font-size: var(--fs-sm); color: var(--ash); margin: 0 0 var(--sp-4); }
+.bghep .bghep-compat__attr { font-weight: var(--fw-medium); color: var(--ink); white-space: nowrap; }
+.bghep .bghep-muc {
+  display: inline-block; padding: 2px 10px; border-radius: 999px;
+  font-size: var(--fs-xs); font-weight: var(--fw-medium); white-space: nowrap;
+}
+/* "Phù hợp" = trung tính (xám): màu chỉ dành cho thiểu số cần chú ý (cần xác nhận / không phù hợp). */
+.bghep .bghep-muc--ok { background: var(--rule-soft); color: var(--ash); }
+.bghep .bghep-muc--warn { background: var(--amber-soft); color: var(--amber-deep); }
+.bghep .bghep-muc--bad { background: var(--signal-soft); color: var(--signal); }
+
+/* --- Nhắc xả tờ (callout hổ phách) --- */
+.bghep .bghep-note {
+  display: flex; gap: var(--sp-2); align-items: flex-start;
+  padding: var(--sp-3) var(--sp-4); border-radius: var(--radius-2, 8px);
+  background: var(--amber-soft); color: var(--amber-deep); font-size: var(--fs-sm);
+}
+.bghep .bghep-note strong { color: var(--amber-deep); }
+
+/* --- Thanh % tờ dùng (fill) --- */
+.bghep .bghep-fill { margin: var(--sp-4) 0; display: grid; gap: 6px; }
+.bghep .bghep-fill__label { font-size: var(--fs-sm); color: var(--ash); }
+.bghep .bghep-fill__label strong { color: var(--ink); }
+.bghep .bghep-fill__track { height: 8px; border-radius: 999px; background: var(--rule-hair); overflow: hidden; }
+.bghep .bghep-fill__bar { height: 100%; background: var(--moss-deep); }
+.bghep .bghep-fill__bar.is-low { background: var(--amber-deep); }
+
+/* --- Số tờ nổi bật (tab Giấy & số tờ) --- */
+.bghep .bghep-soto { display: flex; gap: var(--sp-6); margin: var(--sp-5) 0 var(--sp-3); flex-wrap: wrap; }
+.bghep .bghep-soto__big { display: grid; gap: 2px; }
+.bghep .bghep-soto__num {
+  font-size: var(--fs-xl); font-weight: var(--fw-bold); color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.bghep .bghep-soto__lbl { font-size: var(--fs-sm); color: var(--ash); }
+
+/* --- Picker thêm lệnh --- */
+.bghep .bghep-pick {
+  margin-top: var(--sp-4); padding: var(--sp-4);
+  border: 1px dashed var(--rule-soft); border-radius: var(--radius-2, 8px); background: var(--paper);
+}
+.bghep .bghep-pick__title { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); color: var(--ink); font-weight: var(--fw-medium); }
+.bghep .bghep-pick__list {
+  list-style: none; margin: 0 0 var(--sp-3); padding: 0; display: grid; gap: 6px; max-height: 220px; overflow: auto;
+}
+.bghep .bghep-pick__list label {
+  display: flex; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); color: var(--ink); cursor: pointer;
+}
+.bghep .bghep-pick__foot { display: flex; gap: var(--sp-2); justify-content: flex-end; }
+
+/* --- Field nhỏ (khổ / hao hụt) --- */
+.bghep .khsx-field--sm { max-width: 190px; }

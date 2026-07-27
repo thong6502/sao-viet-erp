@@ -13,6 +13,14 @@ const ICONS = {
       <rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5" />
     </>
   ),
+  // Bài ghép — sheets xếp lớp (nhiều bài chung một tờ in)
+  layers: (
+    <>
+      <path d="M12 3 3 8l9 5 9-5-9-5Z" />
+      <path d="M3 12l9 5 9-5" />
+      <path d="M3 16l9 5 9-5" />
+    </>
+  ),
   // Sản phẩm
   box: (
     <>
@@ -182,6 +190,29 @@ const ICONS = {
     <>
       <path d="M4.5 7h15M9 7V4h6v3M7 7l.8 13h8.4L17 7" />
       <path d="M10 11v5M14 11v5" />
+    </>
+  ),
+  // Khóa dòng lịch (đã chốt máy + giờ)
+  lock: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" />
+      <path d="M12 14.5v2.5" />
+    </>
+  ),
+  // Mở khóa
+  lockOpen: (
+    <>
+      <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+      <path d="M8 10.5V7a4 4 0 0 1 7.7-1.5" />
+      <path d="M12 14.5v2.5" />
+    </>
+  ),
+  // Ẩn/hiện nhóm cột (menu "Cột")
+  columns: (
+    <>
+      <rect x="3.5" y="4" width="17" height="16" rx="2" />
+      <path d="M9.5 4v16M15 4v16" />
     </>
   ),
   // Affordance

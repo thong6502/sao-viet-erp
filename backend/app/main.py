@@ -8,11 +8,9 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from .config import assert_secure_config, settings
 from .db import SessionLocal, init_db
@@ -29,6 +27,7 @@ from .routers import (
     estimates,
     customers,
     employees,
+    files,
     machines,
     materials,
     operations,
@@ -47,24 +46,31 @@ from .routers import (
     loai_san_pham,
     tinh_gia,
     phieu_tinh_gia,
-    lenh_san_xuat,
+    lsx,
+    bai_ghep,
+    xep_lich,
 )
 from .seed import seed_all
 
-# Uploaded files (e.g. avatars, spec-04) live under <backend>/static and are served
-# read-only at /static. Created up-front so the StaticFiles mount never errors on a
-# fresh checkout.
-STATIC_DIR = Path(__file__).resolve().parents[1] / "static"
+# File người dùng tải lên KHÔNG còn mount công khai ở /static — chúng đi qua kho file
+# (app/storage.py) và chỉ đọc được qua /api/files sau khi kiểm đăng nhập + quyền
+# (app/routers/files.py). Mount cũ là lỗ hở: ai có URL là xem được CCCD/hợp đồng/chứng từ.
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Real-time SSE hub: ghim event loop đang chạy để publisher (endpoint sync trong threadpool) đẩy
-    # sự kiện an toàn qua call_soon_threadsafe (app/realtime.py). Chỉ đúng khi 1 uvicorn worker.
+    # sự kiện an toàn qua call_soon_threadsafe (app/realtime.py).
     from .realtime import hub
     hub.set_loop(asyncio.get_running_loop())
+    # Có REDIS_URL → đẩy qua pub/sub, chạy được nhiều worker. Không có → in-process, 1 worker.
+    if settings.redis_url:
+        hub.connect_redis(settings.redis_url)
     # Refuse to boot in production with an insecure JWT secret (no-op in development).
     assert_secure_config(settings)
+    # Tạo bucket MinIO nếu chưa có (no-op khi chạy LocalStorage — test/dev không Docker).
+    from .storage import ensure_storage_ready
+    ensure_storage_ready()
     # create_all + idempotent seed (RBAC catalog/roles + admin). Alembic is a later spec.
     init_db()
     db = SessionLocal()
@@ -81,11 +87,16 @@ async def lifespan(app: FastAPI):
     if settings.care_reminder_seconds > 0:
         from .care_reminders import run_care_reminder_loop
         reminder_task = asyncio.create_task(run_care_reminder_loop(settings.care_reminder_seconds))
+    # Cầu Redis→SSE: nghe channel chung, bơm sự kiện vào các kết nối của worker này.
+    bridge_task: asyncio.Task | None = None
+    if hub.uses_redis:
+        bridge_task = asyncio.create_task(hub.run_redis_bridge())
     try:
         yield
     finally:
-        if reminder_task is not None:
-            reminder_task.cancel()
+        for task in (reminder_task, bridge_task):
+            if task is not None:
+                task.cancel()
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
@@ -98,10 +109,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
 app.include_router(auth.router)
+app.include_router(files.router)
 app.include_router(profile.router)
 app.include_router(rbac.router)
 app.include_router(customers.router)
@@ -132,7 +141,9 @@ app.include_router(khuon_be.router)
 app.include_router(loai_san_pham.router)
 app.include_router(tinh_gia.router)
 app.include_router(phieu_tinh_gia.router)
-app.include_router(lenh_san_xuat.router)
+app.include_router(lsx.router)
+app.include_router(bai_ghep.router)
+app.include_router(xep_lich.router)
 
 
 

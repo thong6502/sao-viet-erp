@@ -2,13 +2,12 @@
 
 No RBAC permission is required — a user always owns their profile; `CurrentUser`
 (a valid, unlocked token) is the only gate. Display-name edit + avatar upload/remove.
-Avatar files are written under the backend `static/avatars/` dir; only the relative
-path is stored in `users.avatar_url`.
+Avatar bytes go through the shared file store (`app/storage.py`); only the served path
+is stored in `users.avatar_url`.
 """
 from __future__ import annotations
 
 import secrets
-from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, status
@@ -17,12 +16,12 @@ from ..deps import CurrentUser, get_profile_service
 from ..schemas.auth import UserOut
 from ..schemas.profile import AvatarOut, UpdateNameRequest
 from ..services.profile_service import ProfileError, ProfileService
+from ..storage import get_storage, key_from_url, url_from_key
 
 router = APIRouter(prefix="/api/users", tags=["profile"])
 
-# Avatar storage: <backend>/static/avatars (served at /static/avatars by main.py).
-AVATAR_DIR = Path(__file__).resolve().parents[2] / "static" / "avatars"
-AVATAR_URL_PREFIX = "/static/avatars"
+# Avatar nằm trong kho file dùng chung; đọc lại qua /api/files (cần đăng nhập).
+AVATAR_SUBDIR = "avatars"
 MAX_AVATAR_BYTES = 2 * 1024 * 1024  # 2 MB (spec-04)
 # Accepted image types -> file extension.
 ALLOWED_AVATAR_TYPES = {"image/jpeg": ".jpg", "image/png": ".png"}
@@ -64,12 +63,11 @@ async def upload_my_avatar(
     if not data:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tệp ảnh rỗng")
 
-    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    filename = f"user_{user.id}_{secrets.token_hex(8)}{ext}"
-    (AVATAR_DIR / filename).write_bytes(data)
+    key = f"{AVATAR_SUBDIR}/user_{user.id}_{secrets.token_hex(8)}{ext}"
+    get_storage().save(key, data, file.content_type)
 
     _remove_avatar_file(user.avatar_url)  # delete the previous file, if any
-    avatar_url = f"{AVATAR_URL_PREFIX}/{filename}"
+    avatar_url = url_from_key(key)
     profiles.set_avatar(user, avatar_url)
     return AvatarOut(avatar_url=avatar_url)
 
@@ -83,13 +81,9 @@ def remove_my_avatar(user: CurrentUser, profiles: Profiles) -> Response:
 
 
 def _remove_avatar_file(avatar_url: str | None) -> None:
-    """Delete a previously-stored avatar file (best effort). Only touches files inside our
-    avatars dir, identified by the stored URL prefix."""
-    if not avatar_url or not avatar_url.startswith(f"{AVATAR_URL_PREFIX}/"):
+    """Delete a previously-stored avatar file (best effort). Only touches keys inside our
+    avatars prefix, so a hand-edited `avatar_url` can't point the delete elsewhere."""
+    key = key_from_url(avatar_url)
+    if not key or not key.startswith(f"{AVATAR_SUBDIR}/"):
         return
-    name = avatar_url.rsplit("/", 1)[-1]
-    target = AVATAR_DIR / name
-    try:
-        target.unlink(missing_ok=True)
-    except OSError:
-        pass  # a stale file is harmless; don't fail the request over cleanup
+    get_storage().delete(key)  # best effort — a stale file must not fail the request

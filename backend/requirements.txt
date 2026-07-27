@@ -15,6 +15,11 @@ bcrypt==4.2.1
 reportlab==4.4.5              # Báo giá PDF đối ngoại (spec-09 F6)
 openpyxl==3.1.5              # Xuất bảng lương + file chuyển khoản .xlsx (Lương Pha 4c)
 
+# Hạ tầng — import TRỄ trong app/realtime.py, app/locks.py, app/storage.py: thiếu REDIS_URL /
+# MINIO_ENDPOINT thì hai gói này không được nạp, nên pytest vẫn chạy offline như cũ.
+redis==6.4.0                  # pub/sub SSE (nhiều worker) + khoá chống chạy trùng
+boto3==1.40.45                # MinIO/S3 — kho file thay cho mount /static công khai
+
 # Test-only (kept here so init.ps1 / init.sh can run backend tests offline-after-install)
 pytest==8.4.2
 httpx==0.28.1                  # required by FastAPI/Starlette TestClient

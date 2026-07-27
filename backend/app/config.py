@@ -7,8 +7,15 @@ see docs/SECURITY.md). `DATABASE_URL` selects SQLite (local/test) or Postgres
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Đường dẫn TUYỆT ĐỐI tới <backend>/.env. Nếu để ".env" tương đối, tiến trình chạy từ gốc repo
+# (pytest, script) sẽ đọc nhầm `.env` của docker-compose — file đó khai biến cho tầng HẠ TẦNG
+# (APP_ENV, POSTGRES_*, cổng). Đã vỡ thật: `.env` gốc mang APP_ENV=production làm mọi test dùng
+# fixture `client` chết vì guard JWT_SECRET. Hai file, hai mục đích, không được lẫn vào nhau.
+_BACKEND_ENV = Path(__file__).resolve().parents[1] / ".env"
 
 # The well-known dev default. Convenient for zero-config local runs, but it is public
 # (it lives in source/examples) so it must never sign tokens in production.
@@ -20,7 +27,7 @@ MIN_JWT_SECRET_LEN = 32
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=_BACKEND_ENV,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -64,6 +71,20 @@ class Settings(BaseSettings):
     # browser-validate runtime turns it ON (SEED_DEMO=true in .env) to exercise the
     # own/department/all data-scope on the Khách hàng screen.
     seed_demo: bool = False
+
+    # --- Redis (pub/sub SSE + lock) ---------------------------------------
+    # RỖNG = không có Redis → hub SSE chạy in-process và lock thành no-op (app/realtime.py,
+    # app/locks.py). Nhờ vậy pytest + máy dev không cần dựng service ngoài.
+    # Có giá trị (vd redis://redis:6379/0) → SSE đẩy qua pub/sub nên chạy được >1 worker.
+    redis_url: str = ""
+
+    # --- MinIO / S3 (kho file) --------------------------------------------
+    # RỖNG = ghi thẳng đĩa <backend>/static (LocalStorage). Có endpoint → MinIO.
+    # Xem app/storage.py; bucket riêng tư, người dùng đọc qua /api/files có kiểm quyền.
+    minio_endpoint: str = ""
+    minio_access_key: str = ""
+    minio_secret_key: str = ""
+    minio_bucket: str = "svn-files"
 
     # --- CORS --------------------------------------------------------------
     # Comma-separated list of allowed frontend origins.

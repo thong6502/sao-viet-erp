@@ -42,6 +42,22 @@ def test_validate_basis():
         svc.create(dict(ma="X2", ten="x", nhom="prepress", che_do_tinh="theo_gio"))
 
 
+def test_nang_suat_luu_va_sua_duoc():
+    """`nang_suat` phải nằm trong whitelist `ASSIGNABLE` — thiếu là field bị NUỐT IM LẶNG:
+    form gửi lên, API trả 200, mà giá trị không vào DB và không ai biết."""
+    db, svc = _svc()
+    cd = svc.create(dict(ma="DAN", ten="Dán hộp", nhom="finishing",
+                         pricing_basis="per_finished_qty", nang_suat=4000))
+    assert float(cd.nang_suat) == 4000
+    # `update` chạy full validation nên phải gửi cả bản ghi, không phải patch lẻ 1 field.
+    sua = svc.update(cd.id, dict(ma="DAN", ten="Dán hộp", nhom="finishing",
+                                 pricing_basis="per_finished_qty", nang_suat=5200))
+    assert float(sua.nang_suat) == 5200
+    # Không khai vẫn hợp lệ → NULL (routing để trống, không bịa 0).
+    assert svc.create(dict(ma="GOI", ten="Đóng gói", nhom="finishing",
+                           pricing_basis="per_finished_qty")).nang_suat is None
+
+
 def test_print_spoilage_forced_zero():
     db, svc = _svc()
     cd = svc.create(dict(ma="IN2", ten="In", nhom="print", pricing_basis="per_sheet", spoilage_pct=5))

@@ -306,10 +306,9 @@ class PaymentReceipt(Base):
 
 class PaymentVoucherAttachment(Base):
     """Chứng từ scan đính kèm Phiếu chi/UNC (hóa đơn/biên nhận/UNC ngân hàng).
-    Bytes nằm dưới <backend>/static/ke-toan/<voucher_id>/, phục vụ read-only qua
-    mount /static (public — known-tradeoff, cùng phạm vi avatars/hr/kho); DB chỉ
-    lưu metadata + path (mirror stock_voucher_attachments). Cho đính THÊM cả khi
-    phiếu đã `paid` (hóa đơn về sau khi đi mua); chỉ chặn `cancelled`."""
+    Bytes nằm trong kho file `ke-toan/<voucher_id>/` (app/storage.py), đọc lại qua
+    /api/files — cần đăng nhập + quyền `ke_toan`; DB chỉ lưu metadata + path. Cho
+    đính THÊM cả khi phiếu đã `paid` (hóa đơn về sau khi đi mua); chỉ chặn `cancelled`."""
 
     __tablename__ = "payment_voucher_attachments"
 
@@ -332,8 +331,8 @@ class PaymentVoucherAttachment(Base):
 
 class PaymentReceiptAttachment(Base):
     """Ảnh minh chứng đã thu đính kèm Phiếu thu (biên nhận/UNC báo có).
-    Bytes nằm dưới <backend>/static/ke-toan-thu/<receipt_id>/, phục vụ qua mount
-    /static; DB chỉ lưu metadata + path (mirror payment_voucher_attachments).
+    Bytes nằm trong kho file `ke-toan-thu/<receipt_id>/`, đọc lại qua /api/files (cần
+    quyền `ke_toan`); DB chỉ lưu metadata + path (mirror payment_voucher_attachments).
     Cho đính THÊM cả khi đã `received`; chỉ chặn `cancelled`."""
 
     __tablename__ = "payment_receipt_attachments"

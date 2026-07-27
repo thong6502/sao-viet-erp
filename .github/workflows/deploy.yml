@@ -69,11 +69,31 @@ jobs:
             git fetch --all --prune
             git reset --hard origin/main
 
+            # .env nằm ngoài git nên `git reset` không đụng tới — thêm khoá mới (Redis/MinIO)
+            # mà quên cập nhật .env thì backend crash-loop. Chặn ngay ở đây cho dễ hiểu.
+            echo "→ Kiểm .env có đủ khoá"
+            REQUIRED="COMPOSE_PROFILES POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB JWT_SECRET SEED_ADMIN_PASSWORD CORS_ORIGINS SITE_DOMAIN MINIO_ROOT_USER MINIO_ROOT_PASSWORD"
+            MISSING=""
+            for KEY in $REQUIRED; do
+              VALUE=$(grep -E "^${KEY}=" .env | head -n1 | cut -d= -f2- || true)
+              if [ -z "$VALUE" ] || [ "$VALUE" = "__DIEN_VAO__" ]; then
+                MISSING="$MISSING $KEY"
+              fi
+            done
+            if [ -n "$MISSING" ]; then
+              echo "DỪNG deploy — .env trên VPS thiếu hoặc chưa điền:$MISSING"
+              echo "Cách sửa: chép nội dung .env.prod (hoặc .env.stg) sang .env rồi điền các chỗ __DIEN_VAO__."
+              exit 1
+            fi
+
+            # Dựng service nào là do COMPOSE_PROFILES trong .env quyết (bản triển khai khai đủ
+            # 6). KHÔNG dùng --remove-orphans: chạy kèm profiles rất dễ xoá nhầm container của
+            # profile đang tắt.
             echo "→ Dựng lại & khởi động containers"
-            docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
+            docker compose up -d --build
 
             echo "→ Dọn image cũ"
             docker image prune -f
 
             echo "→ Trạng thái"
-            docker compose -f docker-compose.prod.yml ps
+            docker compose ps

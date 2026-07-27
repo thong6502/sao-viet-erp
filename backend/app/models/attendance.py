@@ -13,7 +13,10 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint,
+    false as sa_false,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -97,6 +100,12 @@ class WorkShift(Base):
     )
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+    # Ca này thuộc LỊCH CHẠY MÁY của xưởng (khác ca chấm công HR): Xếp lịch công đoạn tính giờ theo
+    # TẬP ca có cờ này (nghỉ trưa = khe giữa 2 ca). Chưa tick ca nào → fallback 8h phẳng [08:00,16:00)
+    # (giữ hành vi lát 1). server_default sa_false() (bẫy Postgres — KHÔNG "0"/"1").
+    dung_cho_lich_may: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=sa_false()
     )
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
