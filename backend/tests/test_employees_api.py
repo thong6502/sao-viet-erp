@@ -126,6 +126,91 @@ def test_create_assigns_code_probation_and_hired_event(client):
     assert any(e["event_type"] == "hired" for e in events)
 
 
+def test_create_with_employee_specific_salary_can_have_different_amounts(client):
+    """Bậc thợ chỉ là free-text `job_grade`, KHÔNG quyết định tiền — cùng bậc, 2 NV 2 mức
+    lương vị trí khác nhau (bảng T05: cùng bậc 2 mà người 20tr người 10,5tr)."""
+    token = _admin_token(client)
+    dept_id = _dept_id("Hành chính nhân sự")
+
+    first = _create(
+        client, token, full_name="NV mức riêng A", department_id=dept_id,
+        job_grade="Thợ bậc 2",
+        initial_salary={"luong_vi_tri": 8_000_000, "luong_trach_nhiem": 1_000_000,
+                        "chuyen_can": 300_000},
+    )
+    second = _create(
+        client, token, full_name="NV mức riêng B", department_id=dept_id,
+        job_grade="Thợ bậc 2",
+        initial_salary={"luong_vi_tri": 13_000_000, "luong_trach_nhiem": 2_000_000,
+                        "chuyen_can": 500_000},
+    )
+    assert first.status_code == 201 and second.status_code == 201
+    assert first.json()["employee"]["job_grade"] == "Thợ bậc 2"
+
+    salary_a = client.get(
+        f"/api/luong/salaries/{first.json()['employee']['id']}", headers=_h(token)
+    ).json()["items"][0]
+    salary_b = client.get(
+        f"/api/luong/salaries/{second.json()['employee']['id']}", headers=_h(token)
+    ).json()["items"][0]
+    assert salary_a["amount_mode"] == salary_b["amount_mode"] == "manual"
+    assert salary_a["luong_vi_tri"] + salary_a["luong_trach_nhiem"] == 9_000_000
+    assert salary_b["luong_vi_tri"] + salary_b["luong_trach_nhiem"] == 15_000_000
+    # Mức đóng BH = lương vị trí (khác nhau giữa 2 người cùng bậc).
+    assert salary_a["luong_vi_tri"] == 8_000_000 and salary_b["luong_vi_tri"] == 13_000_000
+
+
+def test_create_employee_with_initial_salary_no_grade_does_not_break(client):
+    """Sau khi GỠ bậc: tạo NV + khai lương ban đầu (chỉ lương vị trí, không bậc) vẫn chạy."""
+    token = _admin_token(client)
+    resp = _create(
+        client, token, full_name="NV gõ lương tay", department_id=_dept_id("Kinh doanh"),
+        initial_salary={"luong_vi_tri": 8_000_000},
+    )
+    assert resp.status_code == 201, resp.text
+    eid = resp.json()["employee"]["id"]
+    prev = client.get(f"/api/luong/salaries/{eid}/preview", headers=_h(token)).json()
+    assert prev["monthly"] == 8_000_000 and prev["insurance_base"] == 8_000_000
+
+
+def test_create_with_initial_salary_requires_payroll_permission_before_creating_employee(client):
+    admin = _admin_token(client)
+    token = _ns_no_salary_token()
+    before = client.get("/api/employees", headers=_h(admin)).json()["total"]
+
+    response = _create(
+        client,
+        token,
+        full_name="NV khong duoc khai luong ban dau",
+        initial_salary={"luong_vi_tri": 8_000_000},
+    )
+
+    assert response.status_code == 403
+    after = client.get("/api/employees", headers=_h(admin)).json()["total"]
+    assert after == before
+
+
+def test_create_rejects_salary_effective_before_hire_date_without_partial_employee(client):
+    token = _admin_token(client)
+    before = client.get("/api/employees", headers=_h(token)).json()["total"]
+
+    response = _create(
+        client,
+        token,
+        full_name="NV sai ngay hieu luc luong",
+        hire_date="2026-02-01",
+        initial_salary={
+            "effective_from": "2026-01-01",
+            "luong_vi_tri": 8_000_000,
+        },
+    )
+
+    assert response.status_code == 400
+    assert "ngay vao lam" in response.json()["detail"].lower()
+    after = client.get("/api/employees", headers=_h(token)).json()["total"]
+    assert after == before
+
+
 def test_list_has_kpis_and_status_filter(client):
     token = _admin_token(client)
     # Baseline: mọi tài khoản đều có hồ sơ (`backfill_employee_profiles`) nên DB đã có sẵn hồ sơ
@@ -261,6 +346,49 @@ def test_transfer_and_promote_record_events(client):
 
     kinds = {e["event_type"] for e in client.get(f"/api/employees/{eid}/events", headers=_h(token)).json()["items"]}
     assert {"hired", "transferred", "promoted"} <= kinds
+
+
+def test_transfer_and_promote_use_free_text_grade_without_changing_salary(client):
+    """Bậc gỡ hẳn → điều chuyển đổi PHÒNG, thăng bậc đổi `job_grade` (free-text) + chức danh;
+    lương của NV KHÔNG đổi và KHÔNG sinh mốc lương mới (lương theo NV, không theo bậc/phòng)."""
+    token = _admin_token(client)
+    hcns = _dept_id("Hành chính nhân sự")
+    kd = _dept_id("Kinh doanh")
+
+    employee = _create(
+        client, token, full_name="NV giữ nguyên lương khi đổi bậc", department_id=hcns,
+        hire_date="2026-01-01", job_grade="Thợ bậc 1",
+        initial_salary={"effective_from": "2026-01-01", "luong_vi_tri": 11_000_000,
+                        "luong_trach_nhiem": 2_000_000, "allowance": 700_000},
+    ).json()["employee"]
+
+    transferred = client.post(
+        f"/api/employees/{employee['id']}/transitions",
+        json={"kind": "transfer", "new_department_id": kd,
+              "new_job_grade": "Thợ bậc 2", "effective_date": "2026-04-01"},
+        headers=_h(token),
+    )
+    assert transferred.status_code == 200
+    assert transferred.json()["department_id"] == kd
+    assert transferred.json()["job_grade"] == "Thợ bậc 2"
+
+    promoted = client.post(
+        f"/api/employees/{employee['id']}/transitions",
+        json={"kind": "promote", "new_job_grade": "Thợ bậc 3", "new_position": "Tổ phó",
+              "effective_date": "2026-07-01"},
+        headers=_h(token),
+    )
+    assert promoted.status_code == 200
+    assert promoted.json()["job_grade"] == "Thợ bậc 3"
+
+    # Lương KHÔNG đổi, KHÔNG sinh mốc lương mới (vẫn đúng 1 bản ghi ban đầu).
+    history = client.get(
+        f"/api/luong/salaries/{employee['id']}", headers=_h(token)
+    ).json()["items"]
+    assert len(history) == 1
+    assert history[0]["luong_vi_tri"] == 11_000_000
+    assert history[0]["luong_trach_nhiem"] == 2_000_000
+    assert history[0]["allowance"] == 700_000
 
 
 # --- account link -----------------------------------------------------------

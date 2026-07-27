@@ -11,6 +11,12 @@ Sáu bảng:
   - `payroll_periods`    — kỳ lương tháng (year, month UNIQUE); draft→locked.
   - `payroll_lines`      — dòng lương 1 NV/kỳ (snapshot bất biến khi khóa).
 
+Cấu hình lương — hai cấp `NV → tổ` (KHÔNG còn hệ thống bậc lương):
+  - `employee_salaries`           — lương vị trí (= lương cơ bản = mức đóng BH) + trách nhiệm +
+                                    3 khoản PHỤ CẤP KHAI TAY (ca · thâm niên · khác). Bậc thợ
+                                    chỉ là free-text `employees.job_grade`, hệ thống không quản.
+  - `department_salary_components` — bật/tắt + MỨC theo BỘ PHẬN: KPI · chuyên cần · khoán · tăng ca.
+
 Portable SQLite/Postgres: Numeric(14,2) cho tiền, Date/DateTime DB-agnostic.
 """
 from __future__ import annotations
@@ -56,6 +62,17 @@ PERIOD_LOCKED = "locked"  # đã chốt, khóa số
 PERIOD_PAID = "paid"      # đã chi trả (khóa cứng; hủy chi → về locked)
 PERIOD_STATUSES = (PERIOD_DRAFT, PERIOD_LOCKED, PERIOD_PAID)
 
+# --- Thành phần lương bật/tắt theo BỘ PHẬN (màn Cấu hình lương, Tab 2) -------
+COMP_KPI = "kpi"                                # thưởng năng suất KPI — `value` = mức trần đ/tháng
+COMP_CHUYEN_CAN = "chuyen_can"                  # `value` = đ/tháng (trừ dần theo ngày nghỉ — C3)
+COMP_LUONG_KHOAN = "luong_khoan"                # bật/tắt — soi cờ departments.has_piece_work
+COMP_TANG_CA = "tang_ca"                        # bật/tắt tăng ca theo giờ
+# Ba khoản phụ cấp (ca · trách nhiệm · thâm niên) ĐÃ CHUYỂN sang khai TAY theo TỪNG NGƯỜI ở
+# `employee_salaries` — chủ chốt 2026-07-20: "cho nó khai tay đi, hệ thống không cần tính toán".
+SALARY_COMPONENT_KEYS = (
+    COMP_KPI, COMP_CHUYEN_CAN, COMP_LUONG_KHOAN, COMP_TANG_CA,
+)
+
 _MONEY = Numeric(14, 2)
 
 
@@ -81,12 +98,22 @@ class PayrollParams(Base):
     bhxh_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.08, server_default="0.08")
     bhyt_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.015, server_default="0.015")
     bhtn_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.01, server_default="0.01")
+    # Tỷ lệ NGƯỜI SỬ DỤNG LAO ĐỘNG đóng: BHXH 17.5% + BHYT 3% + BHTN 1% = 21.5%.
+    # KHÔNG trừ vào lương NV — chỉ để tính chi phí bảo hiểm của công ty + tổng quỹ lương.
+    bhxh_rate_er: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.175, server_default="0.175")
+    bhyt_rate_er: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.03, server_default="0.03")
+    bhtn_rate_er: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.01, server_default="0.01")
     # Đoàn phí công đoàn NV đóng (mẫu 0.5% = 0.005). Mặc định 0 — chủ tự khai; trừ vào thực nhận, KHÔNG giảm TNCN.
     cong_doan_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0, server_default="0")
+    # Tỷ lệ TNLĐ-BNN (Tai nạn lao động – Bệnh nghề nghiệp) do CÔNG TY chịu, mẫu 0.5% = 0.005. Dùng khi NV
+    # có BH đóng ở nơi khác (cờ `employee_salaries.insurance_elsewhere`): công ty chỉ chịu khoản này, KHÔNG
+    # trừ vào lương NV. Chỉ hiển thị ở màn Sửa lương (FE), engine không xuất vào bảng lương tháng.
+    tnld_bnn_rate: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.005, server_default="0.005")
     # Giảm trừ gia cảnh TNCN — mức 2026 (NQ 110/2025/UBTVQH15, từ kỳ tính thuế 2026).
     deduction_self: Mapped[float] = mapped_column(_MONEY, nullable=False, default=15_500_000, server_default="15500000")
     deduction_dependent: Mapped[float] = mapped_column(_MONEY, nullable=False, default=6_200_000, server_default="6200000")
-    # Mức chuyên cần mặc định (thưởng đủ công).
+    # DORMANT từ 2026-07-23 (chủ chốt): tiền chuyên cần chỉ khai ở HỒ SƠ NV, tổ chỉ còn công tắc
+    # bật/tắt. Engine KHÔNG còn đọc cột này — giữ lại để không phải drop cột trên DB thật.
     chuyen_can_default: Mapped[float] = mapped_column(_MONEY, nullable=False, default=300_000, server_default="300000")
     # --- Pha 4a: tăng ca (OT) + phụ cấp ca đêm ---
     # Giờ công chuẩn/ngày để quy đơn giá giờ khi tính OT.
@@ -98,13 +125,22 @@ class PayrollParams(Base):
     # Làm NGUYÊN CÔNG ngày nghỉ tuần / ngày lễ (Đ98 kh.1): CN ≥200% · lễ ≥300% (gồm cả lương công).
     restday_work_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=2.0, server_default="2")
     holiday_work_multiplier: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False, default=3.0, server_default="3")
-    # Phụ cấp ca đêm: % đơn giá 1 công cho mỗi ngày làm ca đêm (Đ98 kh.2: ≥30%).
+    # PHỤ TRỘI GIỜ ĐÊM (chủ 2026-07-22): dùng cho phần cộng dồn TĂNG CA ĐÊM (Đ98.3) — mặc định 0.3 = +30%
+    # (sàn luật). Giờ đêm TRONG ca theo lịch dùng hệ số per-ca `work_shifts.night_multiplier` (khác).
     night_pct: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False, default=0.30, server_default="0.3")
+    # Cộng dồn TĂNG CA ĐÊM (Đ98.3): +20% × hệ số loại ngày trên đơn giá giờ. Mặc định 0.2. KHAI ĐƯỢC.
+    ot_night_extra_pct: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.20, server_default="0.2")
     # --- Pha 4a: trần đóng BHXH (mức tham chiếu × 20; đổi hằng năm → sửa ở tham số) ---
     # Trần BHXH+BHYT = 20× mức tham chiếu (2.53tr từ 1/7/2026 → 50.6tr). 0 = không áp trần.
     bh_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=50_600_000, server_default="50600000")
     # Trần BHTN = 20× lương tối thiểu vùng (vùng I 5.31tr từ 1/1/2026 → 106.2tr). 0 = không áp trần.
     bhtn_base_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=106_200_000, server_default="106200000")
+    # TRẦN TẠM ỨNG (chủ 2026-07-23): tổng tạm ứng trong MỘT tháng của 1 NV không vượt tỷ lệ này ×
+    # (lương vị trí + trách nhiệm). Ứng nhiều lần trong tháng được, nhưng cộng dồn phải nằm trong trần.
+    # Đơn ĐANG CHỜ DUYỆT cũng chiếm chỗ. 0 = KHÔNG giới hạn (đường thoát để duyệt nốt đơn tồn).
+    advance_max_pct: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.10, server_default="0.1")
+    # Phụ cấp cơm/ca ĐÃ CHUYỂN sang khai theo TỪNG CA (`work_shifts.meal_allowance` ·
+    # `.shift_allowance`) — chủ đổi ý 2026-07-21: gắn vào ca thì NV được gán ca đó tự cộng.
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
@@ -132,37 +168,28 @@ class SalaryRateRule(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
-class DepartmentSalaryRow(Base):
-    """Một DÒNG trong 'bảng lương của phòng' (Pha 1, lát 2). Mỗi phòng tự thêm nhiều dòng
-    mức lương, mỗi dòng: nhãn tự do + kiểu áp (cứng/bậc thợ/thâm niên/±giới tính) + 4 thành
-    phần (vị trí/trách nhiệm/phụ cấp/chuyên cần). Một phòng có thể trộn nhiều kiểu (chủ chốt
-    'cho chọn nhiều'). Khi gán người vào phòng, hệ thống gợi ý dòng khớp theo
-    pay_grade_key/seniority_band/gender của người (lát sau)."""
+class DepartmentSalaryComponent(Base):
+    """Bật/tắt + giá trị TỪNG THÀNH PHẦN lương của một bộ phận (Cấu hình lương, Tab 2).
 
-    __tablename__ = "department_salary_rows"
+    Cấp GIỮA trong chuỗi ghi đè 3 cấp `NV → bộ phận → công ty`: không có dòng = "chưa khai"
+    (rơi xuống cấp công ty); `is_enabled=false` = TẮT hẳn khoản đó cho cả bộ phận (cấp NV
+    cũng không được cộng). `value` NULL = bật nhưng dùng mức mặc định của công ty."""
+
+    __tablename__ = "department_salary_components"
+    __table_args__ = (
+        UniqueConstraint("department_id", "component_key", name="uq_dept_salary_component"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     department_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("departments.id", ondelete="CASCADE"), index=True, nullable=False
     )
-    # Nhãn tự do phòng đặt, vd "Tổ trưởng", "Thợ bậc 1", "Dưới 1 năm - Nam".
-    label: Mapped[str] = mapped_column(String(120), nullable=False)
-    # Kiểu áp (xem SALARY_APPLY_BYS) — cách map người vào dòng này.
-    apply_by: Mapped[str] = mapped_column(
-        String(24), nullable=False, default=APPLY_CUNG, server_default=APPLY_CUNG
-    )
-    # Điều kiện khớp (null nếu kiểu áp không dùng chiều đó).
-    pay_grade_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
-    seniority_band: Mapped[str | None] = mapped_column(String(8), nullable=True)
-    gender: Mapped[str | None] = mapped_column(String(8), nullable=True)
-    # 4 thành phần lương (VND). Tăng ca sẽ tính trên vị trí + trách nhiệm (lát engine).
-    luong_vi_tri: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
-    luong_trach_nhiem: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
-    phu_cap: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
-    chuyen_can: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    # Một trong SALARY_COMPONENT_KEYS.
+    component_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    # Đơn vị theo key: kpi/trách nhiệm/chuyên cần = đồng; ca đêm = % ; khoán/tăng ca/lương bậc = NULL.
+    value: Mapped[float | None] = mapped_column(_MONEY, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
 
 
 class EmployeeSalary(Base):
@@ -180,16 +207,37 @@ class EmployeeSalary(Base):
     # bảng lương của tổ (source_salary_row_id) → mức đổi theo khi sửa bảng lương của tổ.
     amount_mode: Mapped[str] = mapped_column(String(8), nullable=False, default=AMOUNT_RULE, server_default=AMOUNT_RULE)
     base_amount: Mapped[float | None] = mapped_column(_MONEY, nullable=True)      # khi manual
-    # Trỏ tới 1 dòng `department_salary_rows` (khi amount_mode=dept_row). Soft-ref (không FK cứng,
-    # theo tiền lệ default_shift_id) → engine đọc SỐNG 4 thành phần của dòng lúc tính lương.
+    # LEGACY/DORMANT: trỏ 1 dòng bảng lương của tổ. Bảng bậc đã GỠ (chủ 2026-07-20: bậc chỉ
+    # để phân nhóm, về `employees.job_grade` free-text) — cột giữ dormant, engine không đọc.
     source_salary_row_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # Mức đóng BH (nullable → mặc định = mức lương). KHÔNG prorate theo công.
+    # MỨC LƯƠNG của NV — gõ riêng từng ô. Chủ 2026-07-20: **lương vị trí CHÍNH LÀ lương cơ bản,
+    # dựa vào đó đóng bảo hiểm** (xem `_compute`). `monthly` nền = vị trí + trách nhiệm.
+    luong_vi_tri: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    luong_trach_nhiem: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # DORMANT: mức đóng BH khai riêng — engine THÔI đọc (mức đóng = `luong_vi_tri`). Giữ cột
+    # cho tương thích dữ liệu cũ, không migration phá hủy.
     insurance_base: Mapped[float | None] = mapped_column(_MONEY, nullable=True)
-    # Phụ cấp hàng tháng của RIÊNG người này (cơm/xăng/điện thoại/kiêm nhiệm…). Cộng phẳng,
-    # KHÔNG prorate, KHÔNG vào tăng ca. (Mỗi người mỗi khác → khai per-NV, không ở bảng lương tổ.)
+    # --- 4 khoản PHỤ CẤP KHAI TAY theo TỪNG NGƯỜI (chủ chốt 2026-07-20) ------------------
+    # Một SỐ CỐ ĐỊNH dùng cho mọi tháng; hệ thống KHÔNG tính toán gì (không đơn giá × số lượt,
+    # không suy theo thâm niên) — sửa khi nào cần thì sửa. Cả 4 cộng PHẲNG vào thu nhập:
+    # KHÔNG prorate theo công, KHÔNG vào gốc tính tăng ca.
+    # `allowance` = "Phụ cấp KHÁC" (gộp: xăng/điện thoại/kiêm nhiệm… — giữ dữ liệu cũ).
     allowance: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
-    # Chuyên cần của RIÊNG người này (mỗi người mỗi khác). All-or-nothing: chỉ cộng khi đủ công.
+    # Phụ cấp CA (ca đêm/ca tới sáng/cơm ca…) — gộp 1 số; dòng lương lưu ở `payroll_lines.night_pay`.
+    phu_cap_ca: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # `phu_cap_trach_nhiem` (khai tay) ĐÃ BỎ — trùng ý với `luong_trach_nhiem` (thành phần mức
+    # nền). Trách nhiệm giờ CHỈ ở `luong_trach_nhiem`. Thâm niên vẫn khai tay ở đây.
+    phu_cap_tham_nien: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Chuyên cần của RIÊNG người này (mỗi người mỗi khác). TRỪ DẦN theo số ngày nghỉ (C3):
+    # tỷ lệ = max(0, 1 − 0,5 × số ngày nghỉ).
     chuyen_can: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Cờ "BH đóng ở nơi khác": NV đã được nơi khác (công ty B) đóng BHXH/BHYT/BHTN → công ty mình KHÔNG
+    # trừ 3 khoản này của NV, chỉ chịu TNLĐ-BNN (`payroll_params.tnld_bnn_rate`, phía chủ SDLĐ, không trừ
+    # vào lương). Đoàn phí công đoàn VẪN trừ như thường. Xem nhánh trong `_compute`.
+    insurance_elsewhere: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    # Cờ "đoàn viên công đoàn": CHỈ đoàn viên mới bị trừ đoàn phí công đoàn (`params.cong_doan_rate`).
+    # Mặc định false (opt-in — chủ 2026-07-21): không ai đóng cho tới khi tích từng người. Xem `_compute`.
+    union_member: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -258,14 +306,28 @@ class PayrollLine(Base):
     monthly_salary: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     luong_cong: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     chuyen_can: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # TỔNG phụ cấp tháng = phụ cấp khác + thâm niên (cột dưới). Trách nhiệm KHÔNG ở đây — nó là
+    # `luong_trach_nhiem`, đã nằm trong mức nền (luong_cong).
     allowance: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # TRONG ĐÓ của `allowance` — chép từ `employee_salaries.phu_cap_tham_nien` để phiếu lương
+    # hiện DÒNG RIÊNG (bệnh B2 "phụ cấp một cục"). ĐỪNG cộng thêm vào gross: đã nằm trong `allowance`.
+    phu_cap_tham_nien: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     khoan: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # lương khoán (nhịp 2)
     ot_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # tổng phút tăng ca (Pha 4a)
     ot_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")          # tiền tăng ca (Pha 4a)
-    night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày ca đêm (Pha 4a)
-    night_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")       # phụ cấp ca đêm (Pha 4a)
+    night_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # số ngày ca đêm (từ Chấm công)
+    # PHỤ CẤP CA của kỳ = số KHAI TAY ở `employee_salaries.phu_cap_ca` (cộng phẳng, không
+    # prorate). Giữ TÊN CỘT cũ vì đã nối sẵn gross/miễn TNCN/export/phiếu lương — không đẻ cột
+    # thứ hai cùng nghĩa (API phơi thêm alias `ca_pay`).
+    night_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # Premium CA ĐÊM theo GIỜ (giờ đêm × hệ số + tăng ca đêm) — tự tính từ chấm công, DÒNG RIÊNG, miễn TNCN.
+    night_premium_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     vi_pham: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")        # tay — giảm trừ khác (RAW; gộp trần 30% Đ102)
     other_bonus: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # tay (thưởng khác/hoa hồng)
+    # --- Thưởng năng suất KPI: % đạt nhập TAY theo tháng × mức trần của bộ phận (component `kpi`).
+    # kpi_bonus CHỊU thuế TNCN (khác tăng ca/ca đêm được miễn).
+    kpi_percent: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
+    kpi_bonus: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # --- Khoản chi tiết phiếu lương (Pha 4d) — HCNS nhập tay/tháng. Thưởng = thu nhập chịu thuế. ---
     thuong_5s: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     thuong_doanh_so: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
@@ -274,6 +336,8 @@ class PayrollLine(Base):
     tra_dong_phuc: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     dieu_chinh_luong: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")  # ± cộng đại số
     di_tre: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")           # đi trễ/về sớm/nghỉ KP (phạt)
+    # HCNS sửa tay ô "Đi trễ" → khóa không cho phạt TỰ ĐỘNG (từ chấm công) ghi đè. Mirror `pit_manual`.
+    di_tre_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     dt_vuot_troi: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")     # điện thoại vượt trội (phạt)
     phat_bien_ban: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     phat_5s_dong_phuc: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
@@ -301,3 +365,18 @@ class PitTaxBracket(Base):
     seq: Mapped[int] = mapped_column(Integer, nullable=False)                 # thứ tự bậc (1..N)
     up_to: Mapped[float | None] = mapped_column(_MONEY, nullable=True)        # trần bậc; NULL = ∞
     rate: Mapped[float] = mapped_column(Numeric(5, 4), nullable=False)        # thuế suất (0.05 = 5%)
+
+
+class LatePenaltyBracket(Base):
+    """Bậc PHẠT đi trễ / về sớm KHÔNG phép (toàn công ty) — dữ liệu SỬA ĐƯỢC, mirror PitTaxBracket.
+    Tra theo SỐ PHÚT trễ/sớm (quá dung sai ca): bậc đầu tiên có `phút ≤ up_to_minute` → `amount`
+    (tiền phạt/lần); `up_to_minute` NULL = bậc cao nhất (∞). Seed-once 4 bậc mặc định (PRD §4/D11).
+    Bảng do create_all tạo (không migration), seed-once. ENGINE CHƯA áp bảng này để TỰ tính phạt
+    (auto từ chấm công là Đợt 2) — hiện chỉ lưu + phơi + sửa + tra TAY ở helper "Tính nhanh phạt"."""
+
+    __tablename__ = "late_penalty_brackets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)                 # thứ tự bậc (1..N)
+    up_to_minute: Mapped[int | None] = mapped_column(Integer, nullable=True)  # trần PHÚT của bậc; NULL = ∞
+    amount: Mapped[float] = mapped_column(_MONEY, nullable=False)             # tiền phạt/lần (đồng)

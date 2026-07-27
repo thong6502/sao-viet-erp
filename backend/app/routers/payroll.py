@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
@@ -16,6 +17,8 @@ from ..deps import (
     get_employee_repository,
     get_payroll_service,
     get_piece_work_service,
+    get_user_repository,
+    require_any_permission,
     require_permission,
 )
 from ..models.user import User
@@ -23,13 +26,21 @@ from ..realtime import hub
 from ..services.rbac_service import AuthorizationService
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
-from ..schemas.rbac import DepartmentSalaryRowOut
+from ..repositories.user_repo import UserRepository
 from ..schemas.payroll import (
     AdvanceDecisionIn,
     AdvanceIn,
     AdvanceOut,
     AdvancesOut,
+    DeptComponentOut,
+    DeptComponentsIn,
+    DeptComponentsOut,
     GenerateIn,
+    LatePenaltyBracketIn,
+    LatePenaltyBracketOut,
+    LatePenaltyBracketsOut,
+    AdvanceQuotaOut,
+    InsuranceLineOut,
     LineOut,
     LineUpdateIn,
     MyAdvanceIn,
@@ -70,10 +81,15 @@ from ..services.piece_work_service import (
 router = APIRouter(prefix="/api/luong", tags=["luong"])
 
 MODULE = "luong"
+ConfigViewer = Annotated[
+    User,
+    Depends(require_any_permission((MODULE, "view_salary"), (MODULE, "update"))),
+]
 
 Service = Annotated[PayrollService, Depends(get_payroll_service)]
 PieceService = Annotated[PieceWorkService, Depends(get_piece_work_service)]
 Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
+Users = Annotated[UserRepository, Depends(get_user_repository)]
 Departments = Annotated[DepartmentRepository, Depends(get_department_repository)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 
@@ -88,8 +104,39 @@ def _raise(exc: Exception) -> None:
     raise exc
 
 
-def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepository) -> list[LineOut]:
+def _pct(rate) -> str:
+    """0.015 → '1,5' (bỏ số 0 thừa, dấu phẩy thập phân kiểu VN) cho nhãn 'BHYT 1,5%'."""
+    return f"{float(rate) * 100:g}".replace(".", ",")
+
+
+def _insurance_lines(ln, params) -> list[InsuranceLineOut]:
+    """Tách TỔNG bảo hiểm đã đóng băng (`ln.bhxh`) thành 3 dòng BHXH / BHYT / BHTN cho phiếu lương.
+
+    Dùng ĐÚNG công thức của `_compute` (trần BHXH+BHYT khác trần BHTN). Phần lệch do làm tròn — hoặc
+    do tỷ lệ đã đổi sau khi kỳ được chốt — DỒN vào dòng cuối (BHTN), nên 3 dòng LUÔN cộng đúng bằng
+    `ln.bhxh`: TỔNG TRỪ trên phiếu không bao giờ lệch THỰC NHẬN.
+    """
+    total = round(float(ln.bhxh or 0))
+    base = float(ln.insurance_base or 0)
+    bh_cap = float(getattr(params, "bh_base_cap", 0) or 0)
+    tn_cap = float(getattr(params, "bhtn_base_cap", 0) or 0)
+    base_y = min(base, bh_cap) if bh_cap > 0 else base
+    base_tn = min(base, tn_cap) if tn_cap > 0 else base
+    bhxh = round(base_y * float(params.bhxh_rate)) if total else 0
+    bhyt = round(base_y * float(params.bhyt_rate)) if total else 0
+    bhtn = total - bhxh - bhyt          # dồn phần dư → tổng luôn khớp
+    return [
+        InsuranceLineOut(label=f"BHXH {_pct(params.bhxh_rate)}%", amount=float(bhxh)),
+        InsuranceLineOut(label=f"BHYT {_pct(params.bhyt_rate)}%", amount=float(bhyt)),
+        InsuranceLineOut(label=f"BHTN {_pct(params.bhtn_rate)}%", amount=float(bhtn)),
+    ]
+
+
+def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepository,
+               svc: PayrollService | None = None) -> list[LineOut]:
     dept_names = {d.id: d.name for d in departments.list_all()} if lines else {}
+    # Tỷ lệ + trần BH: lấy MỘT lần cho cả mẻ. Không có `svc` (đường xuất Excel) → bỏ qua phần tách.
+    params = svc.get_params() if svc is not None else None
     emp_map = {}
     for eid in {ln.employee_id for ln in lines}:
         emp = employees.get_by_id(eid)
@@ -98,6 +145,13 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
     out: list[LineOut] = []
     for ln in lines:
         o = LineOut.model_validate(ln)
+        o.ca_pay = float(ln.night_pay)     # alias FE v2 — CÙNG một số với night_pay
+        o.night_premium_pay = float(getattr(ln, "night_premium_pay", 0) or 0)
+        # "Phụ cấp khác" = phần còn lại của TỔNG phụ cấp sau khi tách 2 khoản khai ở tổ →
+        # 3 dòng trên phiếu cộng lại đúng bằng `allowance` (dòng lương cũ: khác = allowance).
+        o.phu_cap_khac = max(0.0, float(ln.allowance) - float(ln.phu_cap_tham_nien))
+        if params is not None:
+            o.insurance_lines = _insurance_lines(ln, params)
         emp = emp_map.get(ln.employee_id)
         if emp is not None:
             o.employee_code = emp.code
@@ -151,7 +205,7 @@ def _notify_advance_decision(a, employees: EmployeeRepository, decision: str) ->
 
 
 @router.get("/params", response_model=ParamsOut)
-def get_params(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> ParamsOut:
+def get_params(svc: Service, user: ConfigViewer) -> ParamsOut:
     return ParamsOut.model_validate(svc.get_params())
 
 
@@ -162,7 +216,7 @@ def update_params(body: ParamsIn, svc: Service,
 
 
 @router.get("/rules", response_model=RulesOut)
-def list_rules(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> RulesOut:
+def list_rules(svc: Service, user: ConfigViewer) -> RulesOut:
     return RulesOut(items=[RuleOut.model_validate(r) for r in svc.list_rules()])
 
 
@@ -195,11 +249,32 @@ def delete_rule(rule_id: int, svc: Service,
         _raise(exc)
 
 
+# --- Cấu hình lương: thành phần lương theo BỘ PHẬN (Tab 2) ------------------
+
+
+@router.get("/dept-components/{dept_id}", response_model=DeptComponentsOut)
+def get_dept_components(dept_id: int, svc: Service,
+                        user: ConfigViewer) -> DeptComponentsOut:
+    items = [DeptComponentOut(**c) for c in svc.dept_components(dept_id)]
+    return DeptComponentsOut(department_id=dept_id, items=items)
+
+
+@router.put("/dept-components/{dept_id}", response_model=DeptComponentsOut)
+def set_dept_components(dept_id: int, body: DeptComponentsIn, svc: Service,
+                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> DeptComponentsOut:
+    try:
+        rows = svc.set_dept_components(department_id=dept_id,
+                                       items=[i.model_dump() for i in body.items], actor=user)
+    except PayrollError as exc:
+        _raise(exc)
+    return DeptComponentsOut(department_id=dept_id, items=[DeptComponentOut(**c) for c in rows])
+
+
 # --- biểu thuế TNCN (sửa được) ----------------------------------------------
 
 
 @router.get("/pit-brackets", response_model=PitBracketsOut)
-def list_pit_brackets(svc: Service, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> PitBracketsOut:
+def list_pit_brackets(svc: Service, user: ConfigViewer) -> PitBracketsOut:
     return PitBracketsOut(items=[PitBracketOut.model_validate(b) for b in svc.get_pit_brackets()])
 
 
@@ -232,21 +307,81 @@ def delete_pit_bracket(bracket_id: int, svc: Service,
         _raise(exc)
 
 
+# --- bảng phạt đi trễ / về sớm (sửa được) -----------------------------------
+
+
+@router.get("/late-penalty-brackets", response_model=LatePenaltyBracketsOut)
+def list_late_penalty_brackets(svc: Service, user: ConfigViewer) -> LatePenaltyBracketsOut:
+    return LatePenaltyBracketsOut(
+        items=[LatePenaltyBracketOut.model_validate(b) for b in svc.get_late_penalty_brackets()]
+    )
+
+
+@router.post("/late-penalty-brackets", response_model=LatePenaltyBracketOut,
+             status_code=status.HTTP_201_CREATED)
+def create_late_penalty_bracket(body: LatePenaltyBracketIn, svc: Service,
+                                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LatePenaltyBracketOut:
+    try:
+        b = svc.create_late_penalty_bracket(
+            seq=body.seq, up_to_minute=body.up_to_minute, amount=body.amount)
+    except PayrollError as exc:
+        _raise(exc)
+    return LatePenaltyBracketOut.model_validate(b)
+
+
+@router.put("/late-penalty-brackets/{bracket_id}", response_model=LatePenaltyBracketOut)
+def update_late_penalty_bracket(bracket_id: int, body: LatePenaltyBracketIn, svc: Service,
+                                user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LatePenaltyBracketOut:
+    try:
+        b = svc.update_late_penalty_bracket(
+            bracket_id, seq=body.seq, up_to_minute=body.up_to_minute, amount=body.amount)
+    except PayrollError as exc:
+        _raise(exc)
+    return LatePenaltyBracketOut.model_validate(b)
+
+
+@router.delete("/late-penalty-brackets/{bracket_id}", status_code=204)
+def delete_late_penalty_bracket(bracket_id: int, svc: Service,
+                                user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    try:
+        svc.delete_late_penalty_bracket(bracket_id)
+    except PayrollError as exc:
+        _raise(exc)
+
+
 # --- lương nhân viên (khai báo + điều chỉnh) --------------------------------
 
 
 @router.get("/salaries/{employee_id}", response_model=SalariesOut)
 def list_salaries(employee_id: int, svc: Service, employees: Employees,
-                  user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> SalariesOut:
+                  users: Users, user: ConfigViewer) -> SalariesOut:
     emp = employees.get_by_id(employee_id)
-    items = [SalaryOut.model_validate(s) for s in svc.list_salaries(employee_id)]
+    rows = svc.list_salaries(employee_id)
+    today = date.today()
+    actor_cache: dict[int, str | None] = {}
+    items = []
+    for index, row in enumerate(rows):
+        newer = rows[index - 1] if index > 0 else None
+        effective_to = newer.effective_from - timedelta(days=1) if newer is not None else None
+        out = SalaryOut.model_validate(row)
+        out.effective_to = effective_to
+        out.is_current = row.effective_from <= today and (
+            effective_to is None or effective_to >= today
+        )
+        # Người điều chỉnh (cho nhật ký "ai sửa"): tra tên từ created_by, cache trong 1 lần list.
+        if row.created_by is not None:
+            if row.created_by not in actor_cache:
+                u = users.get_by_id(row.created_by)
+                actor_cache[row.created_by] = (u.name or u.username) if u is not None else None
+            out.actor_name = actor_cache[row.created_by]
+        items.append(out)
     return SalariesOut(employee_id=employee_id,
                        employee_name=emp.full_name if emp else None, items=items)
 
 
 @router.get("/salaries/{employee_id}/preview", response_model=SalaryPreviewOut)
 def preview_salary(employee_id: int, svc: Service,
-                   user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> SalaryPreviewOut:
+                   user: ConfigViewer) -> SalaryPreviewOut:
     try:
         return SalaryPreviewOut(**svc.salary_preview(employee_id))
     except PayrollError as exc:
@@ -260,18 +395,14 @@ def set_salary(employee_id: int, body: SalaryIn, svc: Service,
         s = svc.set_salary(employee_id=employee_id, actor=user, effective_from=body.effective_from,
                            amount_mode=body.amount_mode, base_amount=body.base_amount,
                            insurance_base=body.insurance_base, allowance=body.allowance, note=body.note,
-                           source_salary_row_id=body.source_salary_row_id, chuyen_can=body.chuyen_can)
+                           chuyen_can=body.chuyen_can,
+                           luong_vi_tri=body.luong_vi_tri, luong_trach_nhiem=body.luong_trach_nhiem,
+                           phu_cap_ca=body.phu_cap_ca, phu_cap_tham_nien=body.phu_cap_tham_nien,
+                           insurance_elsewhere=body.insurance_elsewhere,
+                           union_member=body.union_member)
     except PayrollError as exc:
         _raise(exc)
     return SalaryOut.model_validate(s)
-
-
-@router.get("/salary-rows/{dept_id}", response_model=list[DepartmentSalaryRowOut])
-def list_dept_salary_rows(dept_id: int, depts: Departments,
-                          _: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> list:
-    """Dòng bảng lương của tổ — cho tab 'Lương nhân viên' (SalaryModal) chọn/sửa mức theo
-    dòng tổ. Gác quyền LƯƠNG (không cần quyền `phong_ban`)."""
-    return depts.list_salary_rows(dept_id)
 
 
 @router.delete("/salaries/item/{salary_id}", status_code=204)
@@ -370,6 +501,20 @@ def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
     return out
 
 
+@router.get("/advances/quota", response_model=AdvanceQuotaOut)
+def my_advance_quota(svc: Service, employees: Employees, user: CurrentUser,
+                     year: int = Query(...), month: int = Query(ge=1, le=12)) -> AdvanceQuotaOut:
+    """Hạn mức tạm ứng CÒN LẠI của chính tôi trong kỳ — để form hiện "còn được ứng X đ" TRƯỚC khi gõ.
+    Dùng chung `advance_quota()` với chỗ CHẶN nên số trên màn luôn khớp số backend áp dụng."""
+    emp = employees.get_by_user_id(user.id)
+    if emp is None:
+        raise HTTPException(status_code=400, detail="Tài khoản chưa gắn hồ sơ nhân sự.")
+    try:
+        return AdvanceQuotaOut(**svc.advance_quota(employee_id=emp.id, year=year, month=month))
+    except PayrollError as exc:
+        _raise(exc)
+
+
 @router.get("/advances/notify-summary")
 def advance_notify_summary(svc: Service, authz: Authz, user: CurrentUser) -> dict:
     """Badge real-time cho Tạm ứng: `pending_approval_count` = số đề nghị đang chờ duyệt.
@@ -394,7 +539,7 @@ def get_table(svc: Service, employees: Employees, departments: Departments,
     if data is None:
         return TableOut(period=None, lines=[])
     return TableOut(period=PeriodOut.model_validate(data["period"]),
-                    lines=_lines_out(data["lines"], employees, departments))
+                    lines=_lines_out(data["lines"], employees, departments, svc))
 
 
 @router.post("/generate", response_model=TableOut)
@@ -406,7 +551,7 @@ def generate(body: GenerateIn, svc: Service, employees: Employees, departments: 
         _raise(exc)
     data = svc.get_table(year=body.year, month=body.month)
     return TableOut(period=PeriodOut.model_validate(data["period"]),
-                    lines=_lines_out(data["lines"], employees, departments))
+                    lines=_lines_out(data["lines"], employees, departments, svc))
 
 
 @router.put("/lines/{line_id}", response_model=LineOut)
@@ -415,15 +560,17 @@ def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Emplo
     try:
         ln = svc.update_line(line_id=line_id, actor=user, vi_pham=body.vi_pham,
                              other_bonus=body.other_bonus, pit=body.pit, pit_manual=body.pit_manual,
+                             di_tre_manual=body.di_tre_manual,
                              monthly_override=body.monthly_override, note=body.note,
                              thuong_5s=body.thuong_5s, thuong_doanh_so=body.thuong_doanh_so,
                              thuong_thanh_tich=body.thuong_thanh_tich, phep_nam=body.phep_nam,
                              tra_dong_phuc=body.tra_dong_phuc, dieu_chinh_luong=body.dieu_chinh_luong,
                              di_tre=body.di_tre, dt_vuot_troi=body.dt_vuot_troi,
-                             phat_bien_ban=body.phat_bien_ban, phat_5s_dong_phuc=body.phat_5s_dong_phuc)
+                             phat_bien_ban=body.phat_bien_ban, phat_5s_dong_phuc=body.phat_5s_dong_phuc,
+                             kpi_percent=body.kpi_percent)
     except PayrollError as exc:
         _raise(exc)
-    return _lines_out([ln], employees, departments)[0]
+    return _lines_out([ln], employees, departments, svc)[0]
 
 
 @router.post("/lock", response_model=PeriodOut)
@@ -484,13 +631,14 @@ def _build_table_xlsx(year: int, month: int, lines) -> bytes:
     ws = wb.active
     ws.title = f"Luong {month:02d}-{year}"
     ws.append(["Mã", "Họ tên", "Phòng/Tổ", "Loại", "Công", "Lương công", "Chuyên cần", "Phụ cấp",
-               "Khoán", "Tăng ca", "Ca đêm", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
+               "Khoán", "Tăng ca", "Ca đêm", "Ca đêm (giờ×hệ số)", "Vi phạm", "Thưởng", "Tổng", "BHXH", "TNCN",
                "Tạm ứng", "Thực lĩnh"])
     for l in lines:
         ws.append([l.employee_code or "", l.employee_name or "", l.department_name or "",
                    "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
                    int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
-                   int(l.ot_pay), int(l.night_pay), int(l.vi_pham), int(l.other_bonus),
+                   int(l.ot_pay), int(l.night_pay), int(getattr(l, "night_premium_pay", 0) or 0),
+                   int(l.vi_pham), int(l.other_bonus),
                    int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
     buf = BytesIO()
     wb.save(buf)
@@ -545,7 +693,7 @@ def my_payslip(svc: Service, employees: Employees, departments: Departments, use
     res = svc.my_payslip(user=user)
     line = None
     if res["line"] is not None:
-        line = _lines_out([res["line"]], employees, departments)[0]
+        line = _lines_out([res["line"]], employees, departments, svc)[0]
     period = PeriodOut.model_validate(res["period"]) if res["period"] is not None else None
     return PayslipOut(has_employee=res["has_employee"], employee_name=res["employee_name"],
                       period=period, line=line)
@@ -555,8 +703,9 @@ def my_payslip(svc: Service, employees: Employees, departments: Departments, use
 
 
 @router.get("/khoan/rates", response_model=RatesOut)
-def list_rates(svc: PieceService, user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> RatesOut:
-    return RatesOut(items=[RateOut.model_validate(r) for r in svc.list_rates()])
+def list_rates(svc: PieceService, user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+               department_id: int | None = None) -> RatesOut:
+    return RatesOut(items=[RateOut.model_validate(r) for r in svc.list_rates(department_id=department_id)])
 
 
 @router.post("/khoan/rates", response_model=RateOut, status_code=status.HTTP_201_CREATED)

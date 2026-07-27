@@ -194,6 +194,19 @@ export type QuoteEvent =
   // duyệt/từ chối → 'decision' gửi riêng nhân viên đề nghị.
   | { type: "advance_pending_changed"; code?: string }
   | { type: "advance_decision"; code?: string; decision: "approved" | "rejected" }
+  // Phiếu tăng ca: NV gửi/hủy → 'ot_pending_changed' (người duyệt refetch badge); tổ trưởng
+  // duyệt/từ chối → 'ot_decision' đẩy riêng cho nhân viên nộp phiếu.
+  | { type: "ot_pending_changed"; code?: string }
+  | { type: "ot_decision"; code?: string; decision: "approved" | "rejected" }
+  // Sản xuất (Lát 1) dùng CHUNG kênh hub — tín hiệu NHẸ để hộp việc tổ refetch + "ting". Số chính
+  // xác lấy qua to-badges/inbox (đã lọc scope server-side). `lenh_sx_routing` = có lệnh mới PHÁT
+  // vào các tổ `to_ids`; `lenh_sx_assigned` = 1 thợ được gán (đích danh tới user).
+  | { type: "lenh_sx_routing"; form_id?: number; lenh_ids?: number[]; to_ids: number[] }
+  | { type: "lenh_sx_assigned"; lenh_id: number; to_id: number | null }
+  | { type: "lenh_sx_phat"; form_id: number; lenh_ids: number[] }
+  | { type: "lenh_sx_duyet_mau"; lenh_id: number }
+  | { type: "lenh_sx_ban_giao"; lenh_id: number; ban_giao_id: number; to_nhan_id: number | null }
+  | { type: "lenh_sx_qc_loi"; lenh_id: number; qc_id: number; to_bi_quy_id: number | null }
   // Handoff Đơn → bàn Kế hoạch SX: đơn chốt 'bắn xuống' hàng chờ; Sale đổi gấp/lưu ý SAU chốt →
   // bàn kế hoạch "ting" (badge nhảy). Nội dung chính xác FE refetch hàng chờ / detail.
   | { type: "order_ordered"; code?: string; order_id: number }
@@ -840,36 +853,7 @@ export type SalaryMechanism =
 export interface DepartmentSalaryPolicy {
   salary_mechanism: SalaryMechanism;
   probation_ratio: number;
-  has_piece_work: boolean;
-}
-
-/** Một dòng mức lương trong "bảng lương của phòng" (Pha 1, lát 2). */
-export interface DepartmentSalaryRow {
-  id: number;
-  department_id: number;
-  label: string;
-  apply_by: SalaryMechanism;
-  pay_grade_key?: string | null;
-  seniority_band?: string | null;
-  gender?: string | null;
-  luong_vi_tri: number;
-  luong_trach_nhiem: number;
-  phu_cap: number;
-  chuyen_can: number;
-  sort_order: number;
-  is_active: boolean;
-}
-
-export interface DepartmentSalaryRowInput {
-  label: string;
-  apply_by: SalaryMechanism;
-  pay_grade_key?: string | null;
-  seniority_band?: string | null;
-  gender?: string | null;
-  luong_vi_tri: number;
-  luong_trach_nhiem: number;
-  phu_cap: number;
-  chuyen_can: number;
+  has_piece_work?: boolean;
 }
 
 /** A tier in the org-level catalog (spec-06 / PBI-4009). */
@@ -1917,6 +1901,16 @@ export interface EmployeeRow {
   created_at: string | null;
 }
 
+export interface EmployeeShiftAssignment {
+  id: number;
+  employee_id: number;
+  shift_id: number | null;
+  effective_from: string;
+  effective_to: string | null;
+  is_current: boolean;
+  created_at: string;
+}
+
 export interface EmployeeDetail extends EmployeeRow {
   date_of_birth: string | null;
   gender: string | null;
@@ -2023,6 +2017,22 @@ export interface EmployeeAccountInput {
   role_id?: number | null;
 }
 
+export interface EmployeeInitialSalaryInput {
+  effective_from?: string | null;
+  /** Lương cơ bản (đóng BH) — mức đóng BHXH/BHYT/BHTN bám số này. */
+  luong_vi_tri: number;
+  luong_trach_nhiem?: number;
+  allowance?: number;
+  phu_cap_ca?: number;
+  phu_cap_tham_nien?: number;
+  chuyen_can?: number;
+  /** BH đóng ở nơi khác → công ty chỉ đóng TNLĐ-BNN (không trừ BHXH/BHYT/BHTN của NV). */
+  insurance_elsewhere?: boolean;
+  /** Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn. */
+  union_member?: boolean;
+  note?: string | null;
+}
+
 export interface EmployeeInput {
   full_name: string;
   department_id: number | null;
@@ -2051,7 +2061,10 @@ export interface EmployeeInput {
   payroll_group?: string | null;
   pay_grade_key?: string | null;
   note?: string | null;
+  /** Thâm niên đã có TRƯỚC khi vào làm (tháng) — chỉ gửi lúc TẠO hồ sơ. */
+  prior_seniority_months?: number;
   account?: EmployeeAccountInput | null;
+  initial_salary?: EmployeeInitialSalaryInput | null;
 }
 
 export interface EmployeeTransitionInput {
@@ -2173,7 +2186,6 @@ export interface MyShift {
   start_time: string;   // "HH:MM"
   end_time: string;
   is_overnight: boolean;
-  night_shift: boolean;
 }
 
 export interface TodaySummary {
@@ -2190,6 +2202,8 @@ export interface AttendanceStatus {
   has_employee: boolean;
   employee_name: string | null;
   next_action: string | null;
+  can_check: boolean;
+  check_block_reason: string | null;
   last_check: AttendanceLog | null;
   locations_configured: boolean;
   shift: MyShift | null;         // ca mặc định của NV (nếu đã gán)
@@ -2202,8 +2216,13 @@ export interface WorkShift {
   start_time: string;   // "HH:MM"
   end_time: string;
   is_overnight: boolean;
-  night_shift: boolean;
+  /** Hệ số ca đêm (1.3 = +30%) cho giờ rơi 22h–06h trong ca — chỉ ca qua đêm. */
+  night_multiplier: number;
   grace_minutes: number;
+  /** Phụ cấp cơm khai theo ca (đ). Đợt 1: lưu/phơi; engine chưa dùng. */
+  meal_allowance: number;
+  /** Phụ cấp ca khai theo ca (đ), áp ca ngày/đêm. Đợt 1: lưu/phơi; engine chưa dùng. */
+  shift_allowance: number;
   is_active: boolean;
   note: string | null;
 }
@@ -2213,13 +2232,17 @@ export interface WorkShiftInput {
   start_time: string;
   end_time: string;
   is_overnight?: boolean;
-  night_shift?: boolean;
+  night_multiplier?: number;
   grace_minutes?: number;
+  meal_allowance?: number;
+  shift_allowance?: number;
   note?: string | null;
   is_active?: boolean;
 }
 
 export interface TimesheetDay {
+  shift_id?: number | null;
+  shift_name?: string | null;
   first_in: string | null;
   last_out: string | null;
   hours: number | null;
@@ -2265,6 +2288,46 @@ export interface LeaveTypeInput {
   annual_quota?: number;
   note?: string | null;
   is_active?: boolean;
+}
+
+// --- Tăng ca (module `tang_ca`) ---------------------------------------------
+// `from_minute`/`to_minute` = phút tính từ 00:00 của NGÀY CÔNG; > 1440 nghĩa là đã sang hôm sau
+// (vd 03:00 hôm sau = 1620). Cùng trục với cách bảng công gom ca qua đêm.
+export interface OvertimeRequest {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  work_date: string;
+  from_minute: number;
+  to_minute: number;
+  minutes: number;
+  reason: string | null;
+  status: string;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string | null;
+}
+export interface OvertimeInput {
+  work_date: string;
+  from_minute: number;
+  to_minute: number;
+  reason?: string | null;
+}
+export interface OvertimeForInput extends OvertimeInput {
+  employee_id: number;
+}
+export interface MyOvertime {
+  has_employee: boolean;
+  employee_name: string | null;
+  items: OvertimeRequest[];
+}
+export interface OvertimeSummary {
+  pending_in_scope: number | null;
+  my_decided_unseen: number;
+}
+export interface OvertimeBulkResult {
+  done: number[];
+  skipped: number[];
 }
 
 export interface LeaveRequest {
@@ -2325,7 +2388,13 @@ export interface PayrollParams {
   bhxh_rate: number;
   bhyt_rate: number;
   bhtn_rate: number;
+  /** Phía NGƯỜI SỬ DỤNG LAO ĐỘNG — KHÔNG trừ vào lương NV, chỉ để tính chi phí công ty. */
+  bhxh_rate_er: number;
+  bhyt_rate_er: number;
+  bhtn_rate_er: number;
   cong_doan_rate: number;
+  /** Tỷ lệ TNLĐ-BNN công ty chịu (mẫu 0.5%=0.005) — khi NV có BH đóng ở nơi khác. */
+  tnld_bnn_rate: number;
   deduction_self: number;
   deduction_dependent: number;
   chuyen_can_default: number;
@@ -2336,8 +2405,20 @@ export interface PayrollParams {
   restday_work_multiplier: number;
   holiday_work_multiplier: number;
   night_pct: number;
+  /** Cộng dồn tăng ca đêm (Đ98.3) — mặc định 0.2 = +20%. Khai được ở Cấu hình lương. */
+  ot_night_extra_pct: number;
   bh_base_cap: number;
   bhtn_base_cap: number;
+  /** Trần tạm ứng/tháng: tổng tạm ứng ≤ tỷ lệ này × (lương vị trí + trách nhiệm). 0 = không giới hạn. */
+  advance_max_pct: number;
+}
+/** Hạn mức tạm ứng còn lại của NV trong 1 kỳ. `limit`/`remaining` = null ⇒ không giới hạn. */
+export interface AdvanceQuota {
+  monthly: number;
+  pct: number;
+  limit: number | null;
+  used: number;
+  remaining: number | null;
 }
 export interface SalaryRule {
   id: number;
@@ -2366,26 +2447,47 @@ export interface EmployeeSalary {
   id: number;
   employee_id: number;
   effective_from: string;
+  effective_to?: string | null;
+  is_current?: boolean;
   amount_mode: string;
   base_amount: number | null;
-  source_salary_row_id: number | null;
+  /** Mức HỢP ĐỒNG riêng của NV — mức nền = vị trí + trách nhiệm. */
+  luong_vi_tri: number;
+  luong_trach_nhiem: number;
+  /** Mức đóng BH khai riêng (dormant — engine bám luong_vi_tri). */
   insurance_base: number | null;
-  allowance: number;
+  /** 3 khoản PHỤ CẤP KHAI TAY — số cố định, engine cộng phẳng, KHÔNG tự tính gì. */
+  allowance: number; // phụ cấp KHÁC (gộp)
+  phu_cap_ca?: number;
+  phu_cap_tham_nien?: number;
   chuyen_can: number;
+  /** BH đóng ở nơi khác → công ty chỉ đóng TNLĐ-BNN (prefill checkbox Sửa lương). */
+  insurance_elsewhere?: boolean;
+  /** Đoàn viên công đoàn → mới bị trừ đoàn phí (prefill checkbox Sửa lương). */
+  union_member?: boolean;
   note: string | null;
   created_at: string;
+  created_by?: number | null;
+  /** Tên người điều chỉnh (nhật ký "ai sửa"). */
+  actor_name?: string | null;
 }
 export interface EmployeeSalaryInput {
   effective_from: string;
   amount_mode: string;
   base_amount?: number | null;
-  /** Trỏ 1 dòng bảng lương của tổ → engine đọc sống (amount_mode tự thành 'dept_row'). */
-  source_salary_row_id?: number | null;
-  insurance_base?: number | null;
-  /** Phụ cấp của riêng NV (mỗi người mỗi khác). */
-  allowance?: number;
-  /** Chuyên cần của riêng NV (mỗi người mỗi khác). */
+  /** Gõ riêng 2 ô mức hợp đồng của chính NV — khai thì amount_mode tự thành 'manual'. */
+  luong_vi_tri?: number;
+  luong_trach_nhiem?: number;
+  /** 3 khoản phụ cấp KHAI TAY của riêng NV — gõ một lần, tháng nào cũng cộng đúng số này. */
+  allowance?: number; // phụ cấp KHÁC (gộp)
+  phu_cap_ca?: number;
+  phu_cap_tham_nien?: number;
+  /** Chuyên cần của riêng NV (0 = dùng mức của tổ). */
   chuyen_can?: number;
+  /** BH đóng ở nơi khác → công ty chỉ đóng TNLĐ-BNN (không trừ BHXH/BHYT/BHTN của NV). */
+  insurance_elsewhere?: boolean;
+  /** Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn. */
+  union_member?: boolean;
   note?: string | null;
 }
 export interface EmployeeSalaries {
@@ -2399,7 +2501,11 @@ export interface SalaryPreview {
   source: string;
   chuyen_can: number;
   allowance: number;
+  phu_cap_ca: number;
+  phu_cap_tham_nien: number;
   insurance_base: number;
+  luong_vi_tri: number;
+  luong_trach_nhiem: number;
 }
 export interface SalaryAdvance {
   id: number;
@@ -2463,12 +2569,24 @@ export interface PayrollLine {
   monthly_salary: number;
   luong_cong: number;
   chuyen_can: number;
+  /** TỔNG phụ cấp tháng — ĐÃ GỒM 3 dòng dưới. Render 3 dòng thì ĐỪNG cộng thêm số này.
+   *  Phụ cấp CA (`ca_pay`/`night_pay`) là khoản RIÊNG, KHÔNG nằm trong `allowance`. */
   allowance: number;
+  phu_cap_tham_nien?: number;
+  /** Phần còn lại = allowance − thâm niên (backend tính). */
+  phu_cap_khac?: number;
   khoan: number;
   ot_minutes: number;
   ot_pay: number;
   night_days: number;
+  /** Phụ cấp CA khai tay của NV (v2.1) — cột DB. `ca_pay` là alias, CÙNG một số, đừng cộng 2 lần. */
   night_pay: number;
+  ca_pay?: number;
+  /** Premium CA ĐÊM theo giờ (giờ 22h–06h × hệ số + tăng ca đêm) — tự tính từ chấm công, DÒNG RIÊNG. */
+  night_premium_pay?: number;
+  /** % đạt KPI của tháng (nhập tay ở modal "Sửa lương") và tiền thưởng đã quy ra. */
+  kpi_percent: number;
+  kpi_bonus: number;
   vi_pham: number;
   other_bonus: number;
   thuong_5s: number;
@@ -2478,12 +2596,17 @@ export interface PayrollLine {
   tra_dong_phuc: number;
   dieu_chinh_luong: number;
   di_tre: number;
+  /** True = HCNS sửa tay ô "Đi trễ" (phạt tự động không đè); False = tự động từ chấm công. */
+  di_tre_manual: boolean;
   dt_vuot_troi: number;
   phat_bien_ban: number;
   phat_5s_dong_phuc: number;
   gross: number;
   insurance_base: number;
+  /** TỔNG bảo hiểm NV đóng (10.5%) — số đã đóng băng lúc tính lương. */
   bhxh: number;
+  /** Tách 3 khoản cho phiếu lương (nhãn đã kèm tỷ lệ). Tổng 3 dòng == `bhxh`. Rỗng ở đường xuất Excel. */
+  insurance_lines?: { label: string; amount: number }[];
   cong_doan: number;
   pit: number;
   pit_manual: boolean;
@@ -2497,8 +2620,12 @@ export interface PayrollLineInput {
   other_bonus?: number | null;
   pit?: number | null;
   pit_manual?: boolean | null;
+  /** False = đưa phạt trễ VỀ TỰ ĐỘNG (tính lại từ chấm công); None = giữ nguyên. */
+  di_tre_manual?: boolean | null;
   monthly_override?: number | null;
   note?: string | null;
+  /** % đạt KPI → tiền = % × mức trần KPI của bộ phận (Cấu hình lương, Tab 2). */
+  kpi_percent?: number | null;
   thuong_5s?: number | null;
   thuong_doanh_so?: number | null;
   thuong_thanh_tich?: number | null;
@@ -2521,6 +2648,50 @@ export interface PitBracketInput {
   up_to?: number | null;
   rate: number;
 }
+// Bảng phạt đi trễ / về sớm (toàn công ty, sửa được) — mirror biểu thuế TNCN.
+// `up_to_minute` null = bậc cao nhất (∞, trên 1 giờ); `amount` = tiền phạt/lần (đồng).
+export interface LatePenaltyBracket {
+  id: number;
+  seq: number;
+  up_to_minute: number | null;
+  amount: number;
+}
+export interface LatePenaltyBracketInput {
+  seq: number;
+  up_to_minute?: number | null;
+  amount: number;
+}
+
+// --- Cấu hình lương: thành phần lương theo BỘ PHẬN (Tab 2) ------------------
+// PRD v2.1: chỉ còn 4 khoản khai theo TỔ. Các khoản phụ cấp (ca · thâm niên) đã chuyển sang
+// KHAI TAY ở từng NV (`employee_salaries`); gửi key cũ lên BE giờ ăn 422.
+export type SalaryComponentKey =
+  | "kpi"
+  | "chuyen_can"
+  | "luong_khoan"
+  | "tang_ca";
+export interface DeptComponent {
+  component_key: SalaryComponentKey;
+  is_enabled: boolean;
+  /** null = bật nhưng CHƯA khai mức → 0 đ (không còn mức mặc định công ty để rơi xuống). */
+  value: number | null;
+  /** Bộ phận đã khai riêng dòng này chưa. */
+  is_set: boolean;
+  /** LEGACY — danh mục phụ cấp cấp công ty đã gỡ, BE luôn trả mặc định. */
+  company_enabled: boolean;
+  company_value: number | null;
+  company_unit: string | null;
+}
+export interface DeptComponentInput {
+  component_key: SalaryComponentKey;
+  is_enabled: boolean;
+  value?: number | null;
+}
+export interface DeptComponents {
+  department_id: number;
+  items: DeptComponent[];
+}
+
 export interface PayrollTable {
   period: PayrollPeriod | null;
   lines: PayrollLine[];
@@ -2536,6 +2707,7 @@ export interface MyPayslip {
 export interface PieceRate {
   id: number;
   group_name: string;
+  department_id: number | null;
   code: string | null;
   name: string;
   unit: string;
@@ -2545,6 +2717,7 @@ export interface PieceRate {
 }
 export interface PieceRateInput {
   group_name: string;
+  department_id?: number | null;
   code?: string | null;
   name: string;
   unit: string;
@@ -3606,40 +3779,6 @@ export const api = {
     departmentSubtree(token: string, id: number): Promise<DepartmentSubtreeRow[]> {
       return authed<DepartmentSubtreeRow[]>(`/api/departments/${id}/subtree`, token);
     },
-    /** Bảng lương của phòng (Pha 1, lát 2). */
-    listSalaryRows(token: string, deptId: number): Promise<DepartmentSalaryRow[]> {
-      return authed<DepartmentSalaryRow[]>(
-        `/api/departments/${deptId}/salary-rows`,
-        token,
-      );
-    },
-    createSalaryRow(
-      token: string,
-      deptId: number,
-      input: DepartmentSalaryRowInput,
-    ): Promise<DepartmentSalaryRow> {
-      return authed<DepartmentSalaryRow>(
-        `/api/departments/${deptId}/salary-rows`,
-        token,
-        { method: "POST", body: JSON.stringify(input) },
-      );
-    },
-    updateSalaryRow(
-      token: string,
-      rowId: number,
-      input: DepartmentSalaryRowInput,
-    ): Promise<DepartmentSalaryRow> {
-      return authed<DepartmentSalaryRow>(
-        `/api/departments/salary-rows/${rowId}`,
-        token,
-        { method: "PUT", body: JSON.stringify(input) },
-      );
-    },
-    deleteSalaryRow(token: string, rowId: number): Promise<void> {
-      return authed<void>(`/api/departments/salary-rows/${rowId}`, token, {
-        method: "DELETE",
-      });
-    },
     /** People eligible to head a unit: everyone in the unit + its sub-units (PBI-4004). */
     headCandidates(token: string, id: number): Promise<UserBrief[]> {
       return authed<UserBrief[]>(`/api/departments/${id}/head-candidates`, token);
@@ -4152,10 +4291,6 @@ export const api = {
     meta(token: string): Promise<EmployeeMeta> {
       return authed<EmployeeMeta>("/api/employees/meta", token);
     },
-    /** Dòng bảng lương của tổ — cho form thêm NV chọn mức (gác quyền nhân sự). */
-    salaryRows(token: string, deptId: number): Promise<DepartmentSalaryRow[]> {
-      return authed<DepartmentSalaryRow[]>(`/api/employees/meta/salary-rows/${deptId}`, token);
-    },
     get(token: string, id: number): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}`, token);
     },
@@ -4172,11 +4307,14 @@ export const api = {
       });
     },
     /** Gán ca mặc định (an toàn — chỉ đụng default_shift_id). Dùng cho panel Gán ca ở Chấm công. */
-    setShift(token: string, id: number, shiftId: number | null): Promise<{ ok: boolean; employee_id: number; default_shift_id: number | null }> {
+    setShift(token: string, id: number, shiftId: number | null, effectiveFrom: string): Promise<{ ok: boolean; employee_id: number; default_shift_id: number | null; assignment_id: number; effective_from: string }> {
       return authed(`/api/employees/${id}/shift`, token, {
         method: "PUT",
-        body: JSON.stringify({ default_shift_id: shiftId }),
+        body: JSON.stringify({ default_shift_id: shiftId, effective_from: effectiveFrom }),
       });
+    },
+    shiftHistory(token: string, id: number): Promise<{ employee_id: number; items: EmployeeShiftAssignment[] }> {
+      return authed<{ employee_id: number; items: EmployeeShiftAssignment[] }>(`/api/employees/${id}/shift-history`, token);
     },
     transition(token: string, id: number, input: EmployeeTransitionInput): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}/transitions`, token, {
@@ -4402,6 +4540,50 @@ export const api = {
     },
   },
 
+  // --- Tăng ca (tang_ca) ----------------------------------------------------
+  overtime: {
+    mine(token: string): Promise<MyOvertime> {
+      return authed<MyOvertime>("/api/overtime/me", token);
+    },
+    createMine(token: string, input: OvertimeInput): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>("/api/overtime/me", token,
+        { method: "POST", body: JSON.stringify(input) });
+    },
+    createFor(token: string, input: OvertimeForInput): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>("/api/overtime", token,
+        { method: "POST", body: JSON.stringify(input) });
+    },
+    list(token: string, statusFilter?: string): Promise<{ items: OvertimeRequest[] }> {
+      const q = statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : "";
+      return authed<{ items: OvertimeRequest[] }>(`/api/overtime${q}`, token);
+    },
+    approve(token: string, id: number, note?: string): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}/approve`, token,
+        { method: "POST", body: JSON.stringify({ note: note ?? null }) });
+    },
+    reject(token: string, id: number, note: string): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}/reject`, token,
+        { method: "POST", body: JSON.stringify({ note }) });
+    },
+    cancel(token: string, id: number): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}/cancel`, token, { method: "POST" });
+    },
+    bulkApprove(token: string, ids: number[]): Promise<OvertimeBulkResult> {
+      return authed<OvertimeBulkResult>("/api/overtime/bulk-approve", token,
+        { method: "POST", body: JSON.stringify({ ids }) });
+    },
+    bulkReject(token: string, ids: number[], note: string): Promise<OvertimeBulkResult> {
+      return authed<OvertimeBulkResult>("/api/overtime/bulk-reject", token,
+        { method: "POST", body: JSON.stringify({ ids, note }) });
+    },
+    summary(token: string): Promise<OvertimeSummary> {
+      return authed<OvertimeSummary>("/api/overtime/summary", token);
+    },
+    markSeen(token: string): Promise<void> {
+      return authed<void>("/api/overtime/mark-seen", token, { method: "POST" });
+    },
+  },
+
   // --- Nghỉ phép (nhan_su) --------------------------------------------------
   leaves: {
     types(token: string): Promise<{ items: LeaveType[] }> {
@@ -4508,10 +4690,6 @@ export const api = {
     setSalary(token: string, employeeId: number, input: EmployeeSalaryInput): Promise<EmployeeSalary> {
       return authed<EmployeeSalary>(`/api/luong/salaries/${employeeId}`, token, { method: "POST", body: JSON.stringify(input) });
     },
-    /** Dòng bảng lương của tổ — cho SalaryModal chọn/sửa mức theo dòng tổ (gác quyền lương). */
-    salaryRows(token: string, deptId: number): Promise<DepartmentSalaryRow[]> {
-      return authed<DepartmentSalaryRow[]>(`/api/luong/salary-rows/${deptId}`, token);
-    },
     deleteSalary(token: string, salaryId: number): Promise<void> {
       return authed<void>(`/api/luong/salaries/item/${salaryId}`, token, { method: "DELETE" });
     },
@@ -4536,6 +4714,9 @@ export const api = {
     },
     createMyAdvance(token: string, input: MyAdvanceInput): Promise<SalaryAdvance> {
       return authed<SalaryAdvance>("/api/luong/advances/me", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    advanceQuota(token: string, year: number, month: number): Promise<AdvanceQuota> {
+      return authed<AdvanceQuota>(`/api/luong/advances/quota?year=${year}&month=${month}`, token);
     },
     advanceNotifySummary(token: string): Promise<AdvanceNotifySummary> {
       return authed<AdvanceNotifySummary>("/api/luong/advances/notify-summary", token);
@@ -4563,6 +4744,26 @@ export const api = {
     },
     deletePitBracket(token: string, id: number): Promise<void> {
       return authed<void>(`/api/luong/pit-brackets/${id}`, token, { method: "DELETE" });
+    },
+    // --- Bảng phạt đi trễ / về sớm (toàn công ty) — mirror pit-brackets ---
+    latePenaltyBrackets(token: string): Promise<{ items: LatePenaltyBracket[] }> {
+      return authed<{ items: LatePenaltyBracket[] }>("/api/luong/late-penalty-brackets", token);
+    },
+    createLatePenaltyBracket(token: string, input: LatePenaltyBracketInput): Promise<LatePenaltyBracket> {
+      return authed<LatePenaltyBracket>("/api/luong/late-penalty-brackets", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateLatePenaltyBracket(token: string, id: number, input: LatePenaltyBracketInput): Promise<LatePenaltyBracket> {
+      return authed<LatePenaltyBracket>(`/api/luong/late-penalty-brackets/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteLatePenaltyBracket(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/luong/late-penalty-brackets/${id}`, token, { method: "DELETE" });
+    },
+    // --- Cấu hình lương: thành phần lương theo bộ phận (Tab 2) ---
+    deptComponents(token: string, deptId: number): Promise<DeptComponents> {
+      return authed<DeptComponents>(`/api/luong/dept-components/${deptId}`, token);
+    },
+    setDeptComponents(token: string, deptId: number, items: DeptComponentInput[]): Promise<DeptComponents> {
+      return authed<DeptComponents>(`/api/luong/dept-components/${deptId}`, token, { method: "PUT", body: JSON.stringify({ items }) });
     },
     lock(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/lock", token, { method: "POST", body: JSON.stringify({ year, month }) });
@@ -4595,8 +4796,9 @@ export const api = {
       return authed<MyPayslip>("/api/luong/payslip/me", token);
     },
     // --- Lương khoán (nhịp 2) ---
-    khoanRates(token: string): Promise<{ items: PieceRate[] }> {
-      return authed<{ items: PieceRate[] }>("/api/luong/khoan/rates", token);
+    khoanRates(token: string, departmentId?: number | null): Promise<{ items: PieceRate[] }> {
+      const q = departmentId != null ? `?department_id=${departmentId}` : "";
+      return authed<{ items: PieceRate[] }>(`/api/luong/khoan/rates${q}`, token);
     },
     createKhoanRate(token: string, input: PieceRateInput): Promise<PieceRate> {
       return authed<PieceRate>("/api/luong/khoan/rates", token, { method: "POST", body: JSON.stringify(input) });

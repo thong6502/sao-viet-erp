@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
-    Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, UniqueConstraint,
+    Boolean, Date, DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint,
     false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
@@ -78,9 +78,21 @@ class WorkShift(Base):
     is_overnight: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
-    # Ca đêm — cờ phụ cấp (engine đánh dấu; quy tiền để module Lương).
-    night_shift: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=False, server_default="false"
+    # Phụ cấp KHAI THEO CA (chủ 2026-07-21): NV được gán ca này thì tự cộng. Đợt 1 chỉ LƯU +
+    # phơi; engine `_compute` CHƯA cộng vào lương (nối ở Đợt 2).
+    # Phụ cấp tiền cơm (tăng ca 17h30→24h) của ca.
+    meal_allowance: Mapped[float] = mapped_column(
+        Numeric(14, 2), nullable=False, default=25_000, server_default="25000"
+    )
+    # Phụ cấp CA (áp cho ca ngày hay đêm) của ca — bỏ chữ "đêm".
+    shift_allowance: Mapped[float] = mapped_column(
+        Numeric(14, 2), nullable=False, default=50_000, server_default="50000"
+    )
+    # Hệ số ca đêm (Đ106/98): premium cho GIỜ rơi 22h–06h TRONG ca = (hệ số − 1) × đơn giá giờ × giờ đêm.
+    # 1.3 = +30% (sàn luật). Chỉ dùng cho ca qua đêm (form chỉ hiện ô khi is_overnight). Tăng ca đêm dùng
+    # tham số riêng (`payroll_params.night_pct` + `ot_night_extra_pct`), không dùng hệ số này.
+    night_multiplier: Mapped[float] = mapped_column(
+        Numeric(6, 4), nullable=False, default=1.3, server_default="1.3"
     )
     # Dung sai đi muộn (phút): vào trễ ≤ giá trị này vẫn coi đúng giờ.
     grace_minutes: Mapped[int] = mapped_column(
@@ -219,5 +231,14 @@ class AttendancePeriodLine(Base):
     restday_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")  # công LÀM ngày nghỉ tuần
     ot_holiday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # phút OT ngày lễ
     ot_restday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # phút OT ngày nghỉ tuần
+    # Lương ca đêm theo giờ: Σ phút đêm TRONG ca × (hệ số ca − 1) → premium giờ đêm; + phút TĂNG CA ĐÊM
+    # theo loại ngày (engine áp hệ số luật). Đóng băng lúc Chốt công.
+    night_premium_minutes: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0, server_default="0")
+    ot_night_normal_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    ot_night_restday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    ot_night_holiday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # Phạt trễ/sớm tự động: danh sách SỐ PHÚT vi phạm (trễ+sớm, không phép) MỖI NGÀY, lưu JSON để đóng
+    # băng qua Chốt; Lương áp bảng phạt (mỗi phần tử = 1 lần). NULL/"[]" = không vi phạm.
+    late_off_days_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

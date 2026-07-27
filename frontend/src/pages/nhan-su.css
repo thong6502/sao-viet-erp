@@ -986,6 +986,11 @@ button.ns__kpi:hover {
   font-weight: var(--fw-bold);
 }
 
+.ns-field__required {
+  color: #c62828;
+  font-weight: var(--fw-bold);
+}
+
 .ns-field input, 
 .ns-field select {
   padding: 8px 12px;
@@ -997,12 +1002,17 @@ button.ns__kpi:hover {
   transition: all 0.2s ease;
 }
 
-.ns-field input:focus, 
+.ns-field input:focus,
 .ns-field select:focus {
   border-color: var(--rust);
   outline: none;
   background: #fff;
   box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.08);
+}
+
+.ns-field__hint {
+  font-size: 12px;
+  color: var(--ash);
 }
 
 .ns-check {
@@ -1031,6 +1041,69 @@ button.ns__kpi:hover {
   margin: -2px 0 2px;
 }
 .ns-wizard__hint--tv { color: var(--rust); font-weight: var(--fw-medium); }
+
+.ns-wizard__salary-intro {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 10px 12px;
+  border-left: 3px solid var(--rust);
+  background: color-mix(in srgb, var(--rust) 5%, var(--canvas));
+}
+
+.ns-wizard__salary-intro strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.ns-wizard__salary-intro span {
+  color: var(--ash);
+  font-size: 12.5px;
+  text-align: right;
+}
+
+.ns-wizard__salary-total {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 2px var(--sp-3);
+  padding: 10px 12px;
+  border: 1px solid var(--rule-soft);
+  background: var(--canvas);
+}
+
+.ns-wizard__salary-total span,
+.ns-wizard__salary-total small {
+  color: var(--ash);
+  font-size: 12px;
+}
+
+.ns-wizard__salary-total strong {
+  color: var(--ink);
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ns-wizard__salary-total small { grid-column: 1 / -1; }
+
+.ns-wizard__range-warning {
+  grid-column: 1 / -1;
+  padding: 8px 10px;
+  color: #8a4b08;
+  background: #fff4dc;
+  border: 1px solid #ead6ad;
+  font-size: 12.5px;
+}
+
+.ns-wizard__section-title {
+  margin-top: var(--sp-2);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--rule-soft);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: var(--fw-bold);
+}
 
 .ns-review {
   margin-top: var(--sp-4);
@@ -1250,5 +1323,15 @@ button.ns__kpi:hover {
   
   .ns2__kpis {
     grid-template-columns: repeat(2, 1fr);
+  }
+
+  .ns-wizard__salary-intro {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .ns-wizard__salary-intro span {
+    text-align: left;
   }
 }

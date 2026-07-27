@@ -2,6 +2,8 @@
 for work_locations + attendance_logs. No business rules (those live in AttendanceService)."""
 from __future__ import annotations
 
+import json
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -14,6 +16,17 @@ from ..models.attendance import (
     WorkLocation,
     WorkShift,
 )
+
+
+def _load_off_days(raw: str | None) -> list[int]:
+    """Đọc cột JSON `late_off_days_json` (danh sách số phút vi phạm mỗi ngày) an toàn → list[int]."""
+    if not raw:
+        return []
+    try:
+        v = json.loads(raw)
+        return [int(x) for x in v] if isinstance(v, list) else []
+    except (ValueError, TypeError):
+        return []
 
 
 class AttendanceRepository:
@@ -237,6 +250,11 @@ class AttendanceRepository:
                 "restday_cong": float(getattr(ln, "restday_cong", 0) or 0),
                 "ot_holiday_minutes": int(getattr(ln, "ot_holiday_minutes", 0) or 0),
                 "ot_restday_minutes": int(getattr(ln, "ot_restday_minutes", 0) or 0),
+                "late_off_days": _load_off_days(getattr(ln, "late_off_days_json", None)),
+                "night_premium_minutes": float(getattr(ln, "night_premium_minutes", 0) or 0),
+                "ot_night_normal_minutes": int(getattr(ln, "ot_night_normal_minutes", 0) or 0),
+                "ot_night_restday_minutes": int(getattr(ln, "ot_night_restday_minutes", 0) or 0),
+                "ot_night_holiday_minutes": int(getattr(ln, "ot_night_holiday_minutes", 0) or 0),
             }
             for ln in self.list_period_lines(period_id)
         }

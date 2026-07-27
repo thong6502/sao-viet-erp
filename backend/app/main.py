@@ -23,6 +23,7 @@ from .routers import (
     attendance,
     calendar,
     leaves,
+    overtime,
     payroll,
     costings,
     estimates,
@@ -110,6 +111,7 @@ app.include_router(employees.router)
 app.include_router(attendance.router)
 app.include_router(calendar.router)
 app.include_router(leaves.router)
+app.include_router(overtime.router)
 app.include_router(payroll.router)
 app.include_router(costings.router)
 app.include_router(estimates.router)

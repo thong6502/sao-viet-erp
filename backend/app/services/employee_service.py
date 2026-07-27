@@ -247,6 +247,13 @@ class EmployeeService:
             hire_date=hire_date,
             **clean,
         )
+        if employee.default_shift_id is not None:
+            self.employees.set_shift_assignment(
+                employee=employee,
+                shift_id=employee.default_shift_id,
+                effective_from=hire_date or date.today(),
+                created_by=actor.id,
+            )
         # First stage on the Quá trình công tác timeline (effective = ngày vào).
         self.employees.add_event(
             employee_id=employee.id,
@@ -292,7 +299,15 @@ class EmployeeService:
             social_insurance_no=clean.get("social_insurance_no", employee.social_insurance_no),
             exclude_id=employee.id,
         )
+        shift_marker = clean.pop("default_shift_id", ...)
         self.employees.update(employee, **clean)
+        if shift_marker is not ... and shift_marker != employee.default_shift_id:
+            self.employees.set_shift_assignment(
+                employee=employee,
+                shift_id=shift_marker,
+                effective_from=date.today(),
+                created_by=actor.id,
+            )
         self._sync_user_from_employee(employee)  # Đ1: đồng bộ tên/ảnh/phòng xuống tài khoản
         self.audit.create(
             actor_user_id=actor.id,
@@ -302,17 +317,32 @@ class EmployeeService:
         )
         return employee, dup_nid, dup_si
 
-    def set_default_shift(self, *, employee_id: int, scope: str, actor, shift_id: int | None) -> Employee:
+    def set_default_shift(
+        self, *, employee_id: int, scope: str, actor, shift_id: int | None,
+        effective_from: date,
+    ):
         """Gán ca làm việc mặc định cho NV — AN TOÀN: chỉ đụng default_shift_id (không clobber
         field khác như PUT hồ sơ đầy đủ). Dùng cho panel 'Gán ca' ở Chấm công (kể cả hàng loạt)."""
         employee = self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
-        self.employees.update(employee, default_shift_id=shift_id)
+        if employee.hire_date is not None and effective_from < employee.hire_date:
+            raise EmployeeValidationError("Ngày áp dụng ca không được trước ngày vào làm.")
+        assignment = self.employees.set_shift_assignment(
+            employee=employee,
+            shift_id=shift_id,
+            effective_from=effective_from,
+            created_by=actor.id,
+        )
         self.audit.create(
             actor_user_id=actor.id, action="assign_default_shift",
             target=f"employee:{employee.id}",
-            detail=(f"{employee.code} → ca #{shift_id}" if shift_id else f"{employee.code} → bỏ ca"),
+            detail=(f"{employee.code} → ca #{shift_id} từ {effective_from.isoformat()}"
+                    if shift_id else f"{employee.code} → bỏ ca từ {effective_from.isoformat()}"),
         )
-        return employee
+        return employee, assignment
+
+    def list_shift_assignments(self, *, employee_id: int, scope: str, actor):
+        self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
+        return self.employees.list_shift_assignments(employee_id)
 
     # --- self-service "Hồ sơ của tôi" (nhân viên thường) --------------------
 
@@ -415,11 +445,15 @@ class EmployeeService:
     ) -> Employee:
         employee = self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
         note = _clean(note)
+        effective_date = effective_date or date.today()
 
         if kind in _STATUS_TRANSITIONS:
             return self._apply_status(employee, actor, kind, effective_date, note, resign_reason)
         if kind == "transfer":
-            return self._apply_transfer(employee, actor, effective_date, note, new_department_id)
+            return self._apply_transfer(
+                employee, actor, effective_date, note, new_department_id,
+                new_job_grade=new_job_grade,
+            )
         if kind == "promote":
             return self._apply_promote(employee, actor, effective_date, note, new_job_grade, new_position)
         raise EmployeeValidationError(f"Loại thao tác không hợp lệ: {kind!r}")
@@ -475,7 +509,8 @@ class EmployeeService:
         )
         return employee
 
-    def _apply_transfer(self, employee, actor, effective_date, note, new_department_id) -> Employee:
+    def _apply_transfer(self, employee, actor, effective_date, note, new_department_id,
+                        new_job_grade=None) -> Employee:
         if employee.status == STATUS_RESIGNED:
             raise EmployeeValidationError("Nhân viên đã nghỉ việc — không điều chuyển được.")
         if new_department_id is None:
@@ -483,7 +518,12 @@ class EmployeeService:
         old = employee.department_id
         if old == new_department_id:
             raise EmployeeValidationError("Phòng/tổ mới trùng phòng hiện tại.")
-        self.employees.update(employee, department_id=new_department_id)
+        # `job_grade` is now only a compatibility/display mirror of the
+        # canonical pay-grade row stored in salary history. Clear it when the
+        # target team has no grade instead of carrying a stale old-team label.
+        self.employees.update(
+            employee, department_id=new_department_id, job_grade=_clean(new_job_grade)
+        )
         self._sync_user_from_employee(employee)  # Đ1/Đ2: chuyển phòng → tài khoản đổi phòng (scope)
         # Đ2: NV đang là trưởng phòng CŨ → gỡ chức (không để head phòng cũ treo người đã đi).
         if old is not None and employee.user_id is not None:
@@ -543,7 +583,7 @@ class EmployeeService:
                 raise EmployeeValidationError(f"{emp.code} đã thuộc phòng đích.")
             employees.append(emp)
         for emp in employees:
-            self._apply_transfer(emp, actor, None, note, target_department_id)
+            self._apply_transfer(emp, actor, date.today(), note, target_department_id)
         return len(employees)
 
     def _apply_promote(self, employee, actor, effective_date, note, new_job_grade, new_position) -> Employee:

@@ -23,6 +23,7 @@ import { KhachHangPage } from "../pages/KhachHangPage";
 import { QuyTrinhKinhDoanhPage } from "../pages/QuyTrinhKinhDoanhPage";
 import { ChamCongPage } from "../pages/ChamCongPage";
 import { NghiPhepPage } from "../pages/NghiPhepPage";
+import { TangCaPage } from "../pages/TangCaPage";
 import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
@@ -37,7 +38,7 @@ import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPag
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
 import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
-import { MODULES_BY_NAV_ID, Sidebar, type NavItem } from "./Sidebar";
+import { MODULES_BY_NAV_ID, SELF_SERVICE_MODULE, Sidebar, type NavItem } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
 /** A cross-module navigation intent: which screen to open + optional payload so the
@@ -65,6 +66,8 @@ export interface NavParams {
   focusPhieuId?: number;
   /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
   openSxOrderId?: number;
+  /** Liên thông Phòng ban → Lương: mở thẳng tab "Cấu hình lương" (bảng lương của tổ). */
+  luongTab?: "cauhinh";
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -91,6 +94,7 @@ export function AppShell() {
   const lastPending = useRef(0);
   const lastOrderAction = useRef(0);
   const lastAdvancePending = useRef(0);
+  const lastOtPending = useRef(0);
   const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { id, text, tone }]);
@@ -112,7 +116,9 @@ export function AppShell() {
       .myAccess(token)
       .then((acc) => {
         if (cancelled) return;
-        setReadable(new Set(acc.modules));
+        // Các API "của tôi" tự giới hạn theo hồ sơ đăng nhập, không cần cấp
+        // `luong:read` (quyền quản trị). Module ảo này chỉ mở cửa menu tự phục vụ.
+        setReadable(new Set([...acc.modules, SELF_SERVICE_MODULE]));
         setCaps(buildCapabilities(acc.permissions));
       })
       .catch(() => {
@@ -138,6 +144,19 @@ export function AppShell() {
             "nghi-phep": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
           }));
           setLeaveUnseen(s.my_decided_unseen ?? 0);
+        })
+        .catch(() => {});
+    }
+    // Badge Tăng ca: số phiếu chờ duyệt trong scope (endpoint trả null nếu không có quyền duyệt).
+    if (readable.has("tang_ca")) {
+      api.overtime
+        .summary(token)
+        .then((s) => {
+          setBadges((prev) => ({
+            ...prev,
+            "tang-ca": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
+          }));
+          lastOtPending.current = s.pending_in_scope ?? 0;
         })
         .catch(() => {});
     }
@@ -223,7 +242,7 @@ export function AppShell() {
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat"))) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("tang_ca"))) return;
     const close = connectQuoteEvents(token, (e) => {
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
       setQuoteTick((n) => n + 1);
@@ -313,6 +332,28 @@ export function AppShell() {
           e.decision === "approved" ? "ok" : "warn",
         );
         reloadBadges();
+      } else if (e.type === "ot_decision") {
+        // NV nộp phiếu tăng ca nhận quyết định của tổ trưởng — đẩy riêng tới đúng người.
+        pushToast(
+          e.decision === "approved"
+            ? "✓ Phiếu tăng ca của bạn đã được duyệt"
+            : "✕ Phiếu tăng ca của bạn bị từ chối",
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("tang_ca") && e.type === "ot_pending_changed") {
+        // Có phiếu tăng ca mới/hủy → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
+        api.overtime
+          .summary(token)
+          .then((s) => {
+            const n = s.pending_in_scope ?? 0;
+            setBadges((prev) => ({ ...prev, "tang-ca": n }));
+            if (n > lastOtPending.current) {
+              pushToast("🔔 Có phiếu tăng ca chờ bạn duyệt", "info");
+            }
+            lastOtPending.current = n;
+          })
+          .catch(() => {});
       } else if (readable.has("luong") && e.type === "advance_pending_changed") {
         // Có đề nghị tạm ứng mới/đổi → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
         api.luong
@@ -412,8 +453,18 @@ export function AppShell() {
         return <ChamCongPage navigate={navigate} focusEmployeeId={navParams?.focusEmployeeId} />;
       case "nghi-phep":
         return <NghiPhepPage onChanged={reloadBadges} focusEmployeeId={navParams?.focusEmployeeId} />;
+      case "tang-ca":
+        // `eventTick` nhảy theo MỌI sự kiện SSE → bảng phiếu đang mở tự tải lại ngay khi bên kia
+        // duyệt/từ chối/gửi phiếu (không chỉ nhảy badge).
+        return <TangCaPage onChanged={reloadBadges} eventTick={quoteTick} />;
       case "luong":
-        return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} eventTick={quoteTick} />;
+        return (
+          <LuongPage
+            focusEmployeeId={navParams?.focusEmployeeId}
+            eventTick={quoteTick}
+            openTab={navParams?.luongTab}
+          />
+        );
       case "khach-hang":
         return <KhachHangPage navigate={navigate} onBadgeStale={reloadBadges} />;
       case "tinh-gia":
