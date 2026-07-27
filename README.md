@@ -57,27 +57,41 @@ API docs tự sinh khi backend chạy: **http://localhost:8000/docs**.
 
 Lệnh xác minh chuẩn duy nhất — chạy `pytest` + `compileall` (hiện **308 passed**).
 
-## Chạy với PostgreSQL (Docker)
+## Chạy với Docker (Postgres / Redis / MinIO)
 
-Mặc định là SQLite (zero-config). Để dùng PostgreSQL:
+Mặc định là SQLite + ghi file xuống đĩa (zero-config, `./dev` là đủ). Chỉ dùng Docker khi cần
+hạ tầng thật.
+
+Dự án có **một file compose duy nhất**: `docker-compose.prod.yml`. Mỗi service mang một
+`profile` riêng, nên **`docker compose up` trần sẽ dựng 0 container** — phải liệt kê profile:
 
 ```bash
-cp .env.example .env       # chỉnh secrets nếu cần
-docker compose up -d       # Postgres + backend API (:8000)
+cp .env.example .env
+# chỉ Redis + MinIO cho backend chạy ngoài container (cách hay dùng nhất khi dev)
+docker compose -f docker-compose.prod.yml --profile redis --profile minio up -d
+# thêm Postgres + backend trong container
+docker compose -f docker-compose.prod.yml --profile db --profile redis --profile minio --profile backend up -d --build
 ```
 
+Rồi trỏ backend vào: `REDIS_URL=redis://127.0.0.1:6380/0`, `MINIO_ENDPOINT=http://127.0.0.1:9010`
+(console MinIO: <http://127.0.0.1:9002>). Bỏ hai biến này là quay về in-process + ghi đĩa.
+
 Backend tự tạo bảng (`create_all`) + seed admin lúc khởi động; frontend vẫn chạy bằng `./dev`.
+Chi tiết profile, `.env.prod`/`.env.stg` và luồng deploy: `docs/spec-ha-tang-redis-minio.md`.
 
 ## Cấu hình (`.env`)
 
-Secrets nạp từ `.env` (đã gitignore — **không commit**). Mỗi tầng một file, kèm `*.env.example`
-làm mẫu; `./setup` tự tạo nếu chưa có:
+Secrets nạp từ `.env` (đã gitignore — **không commit**). Mỗi tầng một file:
 
 | File | Dùng cho |
 |---|---|
-| `.env` | `docker compose` (Postgres + backend) |
-| `backend/.env` | backend chạy local (`JWT_SECRET`, `DATABASE_URL`, seed) |
+| `.env` | `docker compose` — chép từ `.env.example` rồi điền (xem khối "TRIỂN KHAI THẬT" trong đó) |
+| `backend/.env` | backend chạy local qua `./dev` (`JWT_SECRET`, `DATABASE_URL`, seed) |
 | `frontend/.env` | `VITE_API_BASE_URL` — **công khai**, không để secret |
+
+Ba file phục vụ ba đối tượng khác nhau (compose · backend-trên-máy · bundle FE) và có khoá
+trùng tên nhưng khác nghĩa — **đừng gộp**. `backend/app/config.py` cố ý trỏ `env_file` bằng
+đường dẫn tuyệt đối tới `backend/.env` để `.env` của compose không lọt vào cấu hình app.
 
 ## Tài liệu
 

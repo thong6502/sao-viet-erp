@@ -31,28 +31,71 @@ def verify_password(plain: str, hashed: str) -> bool:
         return False
 
 
+# Claim `typ` phân biệt hai loại token cùng ký bằng jwt_secret. Không có nó thì cookie file
+# (sống 7 ngày) dùng thay Bearer được → leo quyền. Mỗi decoder chỉ nhận đúng loại của mình.
+TOKEN_TYPE_ACCESS = "access"
+TOKEN_TYPE_FILE = "file"
+
+
+def _encode(subject: str, token_version: int, *, token_type: str, expires: timedelta) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": subject,
+        "tv": token_version,
+        "typ": token_type,
+        "iat": int(now.timestamp()),
+        "exp": int((now + expires).timestamp()),
+    }
+    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def _decode(token: str, *, token_type: str) -> dict | None:
+    try:
+        claims = jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+    except jwt.PyJWTError:
+        return None
+    # Token cũ (phát trước khi có `typ`) coi như access — chỉ ảnh hưởng phiên đang mở lúc deploy.
+    if claims.get("typ", TOKEN_TYPE_ACCESS) != token_type:
+        return None
+    return claims
+
+
 def create_access_token(subject: str, token_version: int = 0) -> str:
     """Issue a signed JWT whose `sub` claim is the user id (as a string).
 
     `token_version` is embedded as the `tv` claim; the request path rejects a token whose
     `tv` no longer matches the user's current `token_version` (spec-03 hard-revoke).
     """
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": subject,
-        "tv": token_version,
-        "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(minutes=settings.access_token_expire_minutes)).timestamp()),
-    }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+    return _encode(
+        subject,
+        token_version,
+        token_type=TOKEN_TYPE_ACCESS,
+        expires=timedelta(minutes=settings.access_token_expire_minutes),
+    )
 
 
 def decode_access_token(token: str) -> dict | None:
-    """Return the JWT claims, or None if the token is invalid/expired."""
-    try:
-        return jwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
-    except jwt.PyJWTError:
-        return None
+    """Return the JWT claims, or None if the token is invalid/expired/không phải access token."""
+    return _decode(token, token_type=TOKEN_TYPE_ACCESS)
+
+
+def create_file_token(subject: str, token_version: int = 0) -> str:
+    """Token đặt trong cookie `file_access` để `<img src>` đọc được /api/files.
+
+    `<img>` do trình duyệt tự phát nên KHÔNG mang được header Bearer, mà access token cố ý chỉ
+    nằm trong RAM của tab (frontend/src/auth/AuthContext.tsx). Cookie là đường duy nhất. Sống
+    bằng refresh token để không chết giữa phiên; `tv` khiến đổi-mật-khẩu/logout-all giết luôn nó.
+    """
+    return _encode(
+        subject,
+        token_version,
+        token_type=TOKEN_TYPE_FILE,
+        expires=timedelta(days=settings.refresh_token_expire_days),
+    )
+
+
+def decode_file_token(token: str) -> dict | None:
+    return _decode(token, token_type=TOKEN_TYPE_FILE)
 
 
 def generate_refresh_token() -> str:

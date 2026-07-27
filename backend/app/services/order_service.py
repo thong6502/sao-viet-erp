@@ -5,10 +5,7 @@ update (chỉ khi nháp). Chốt/cọc/duyệt/hủy = P2–P5. Đọc báo giá
 """
 from __future__ import annotations
 
-import re
-import secrets
 from datetime import date, datetime, timedelta, timezone
-from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -57,6 +54,7 @@ from ..schemas.order import (
     OrderRow,
     OrderStatsOut,
 )
+from ..storage import get_storage, key_from_url, make_key, url_from_key
 from .accounting_service import AccountingService, AccountingValidationError
 
 
@@ -94,18 +92,12 @@ def _i(x) -> int:
     return int(round(float(x))) if x is not None else 0
 
 
-# --- Đính kèm: lưu bytes dưới <backend>/static, phục vụ qua /static -----------
-_STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+# --- Đính kèm: bytes đi qua kho file dùng chung, đọc lại qua /api/files --------
 _MAX_ATTACH_BYTES = 10 * 1024 * 1024
 _MAX_ATTACH_PER = 20
 
 
-def _safe_name(file_name: str | None) -> str:
-    name = Path((file_name or "file").replace("\\", "/")).name
-    return re.sub(r'[<>:"|?*\x00-\x1f]', "_", name)[:180].strip(" .") or "file"
-
-
-def _save_static(subdir: str, owner_id: int, file_name, content_type, data: bytes) -> tuple[str, str, int]:
+def _save_attachment(subdir: str, owner_id: int, file_name, content_type, data: bytes) -> tuple[str, str, int]:
     ct = (content_type or "").lower()
     if not (ct.startswith("image/") or ct == "application/pdf"):
         raise OrderValidationError("Chỉ nhận ảnh (image/*) hoặc PDF")
@@ -113,19 +105,15 @@ def _save_static(subdir: str, owner_id: int, file_name, content_type, data: byte
         raise OrderValidationError("Tệp rỗng")
     if len(data) > _MAX_ATTACH_BYTES:
         raise OrderValidationError("Tệp vượt quá 10 MB")
-    safe = _safe_name(file_name)
-    token = secrets.token_hex(4)
-    dest = _STATIC_DIR / subdir / str(owner_id)
-    dest.mkdir(parents=True, exist_ok=True)
-    (dest / f"{token}_{safe}").write_bytes(data)
-    return f"/static/{subdir}/{owner_id}/{token}_{safe}", safe, len(data)
+    key, safe = make_key(subdir, owner_id, file_name)
+    get_storage().save(key, data, content_type)
+    return url_from_key(key), safe, len(data)
 
 
-def _unlink_static(url: str) -> None:
-    try:
-        (_STATIC_DIR.parent / url.lstrip("/")).unlink(missing_ok=True)
-    except OSError:
-        pass
+def _unlink_attachment(url: str) -> None:
+    key = key_from_url(url)
+    if key:
+        get_storage().delete(key)
 
 
 class OrderService:
@@ -832,7 +820,7 @@ class OrderService:
         order = self._load_editable_draft(order_id, actor, scope)
         if sum(1 for a in order.attachments if a.kind == ATTACH_KIND_CONSENT) >= _MAX_ATTACH_PER:
             raise OrderValidationError(f"Tối đa {_MAX_ATTACH_PER} đính kèm")
-        url, safe, size = _save_static("don-hang", order.id, file_name, content_type, data)
+        url, safe, size = _save_attachment("don-hang", order.id, file_name, content_type, data)
         self.db.add(OrderAttachment(order_id=order.id, kind=ATTACH_KIND_CONSENT, file_url=url,
             file_name=safe, content_type=content_type, size_bytes=size, uploaded_by=actor.id))
         self.db.commit()
@@ -845,7 +833,7 @@ class OrderService:
         att = self.db.get(OrderAttachment, attachment_id)
         if att is None or att.order_id != order.id:
             raise OrderNotFound("Không tìm thấy đính kèm")
-        _unlink_static(att.file_url)
+        _unlink_attachment(att.file_url)
         self.db.delete(att)
         self.db.commit()
         self.audit.create(actor_user_id=actor.id, action="delete_consent",

@@ -8,6 +8,7 @@ xung đột) → khóa/gỡ. Máy chỉ ghi nhận; người kế hoạch quyế
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import date
 from typing import Annotated
 
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..deps import require_permission
+from ..locks import LockBusy, lock
 from ..models.user import User
 from ..realtime import hub
 from ..repositories.audit_repo import AuditLogRepository
@@ -53,6 +55,22 @@ from ..services.xep_lich_van_de_service import XepLichVanDeService
 
 router = APIRouter(prefix="/api/xep-lich", tags=["xep-lich"])
 MODULE = "san_xuat"
+
+
+@contextmanager
+def _mot_nguoi_mot_luc(ten_khoa: str):
+    """Chặn chạy trùng cho các thao tác mà bấm hai lần ra hai kết quả (xem app/locks.py).
+
+    Không có Redis (test / máy dev 1 worker) thì đây là no-op — không đổi hành vi hiện tại.
+    """
+    try:
+        with lock(ten_khoa):
+            yield
+    except LockBusy:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Thao tác này đang được chạy, thử lại sau vài giây.",
+        ) from None
 
 
 def _svc(db: Session) -> XepLichService:
@@ -180,11 +198,13 @@ def gan_loat(
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> XepLichDongListOut:
     svc = _svc(db)
-    try:
-        rows = [r.model_dump(exclude_unset=True) for r in payload.rows]
-        done = svc.gan_loat(rows=rows, actor=user)
-    except Exception as exc:
-        raise _map(exc)
+    # Gán loạt đọc-rồi-ghi cả bảng lịch; hai lần chạy chồng nhau sẽ xếp đè lên nhau.
+    with _mot_nguoi_mot_luc("xep-lich:gan-loat"):
+        try:
+            rows = [r.model_dump(exclude_unset=True) for r in payload.rows]
+            done = svc.gan_loat(rows=rows, actor=user)
+        except Exception as exc:
+            raise _map(exc)
     hub.broadcast({"type": "xep_lich_changed"})
     ids = {d.id for d in done}
     items = [it for it in svc.danh_sach()["items"] if it["id"] in ids]
@@ -447,10 +467,11 @@ def phat_hanh_lsx(
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ) -> PhatHanhOut:
     svc = _svc_vd(db)
-    try:
-        lsx = svc.phat_hanh_lsx(lsx_id=lsx_id, actor=user)
-    except Exception as exc:
-        raise _map(exc)
+    with _mot_nguoi_mot_luc(f"xep-lich:phat-hanh-lsx:{lsx_id}"):
+        try:
+            lsx = svc.phat_hanh_lsx(lsx_id=lsx_id, actor=user)
+        except Exception as exc:
+            raise _map(exc)
     hub.broadcast({"type": "xep_lich_changed"})
     hub.broadcast({"type": "lsx_changed"})
     return PhatHanhOut(id=lsx.id, ma=lsx.ma, trang_thai=lsx.trang_thai)
@@ -463,10 +484,11 @@ def phat_hanh_bai_ghep(
     user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
 ) -> PhatHanhOut:
     svc = _svc_vd(db)
-    try:
-        bg = svc.phat_hanh_bai_ghep(bai_ghep_id=bai_ghep_id, actor=user)
-    except Exception as exc:
-        raise _map(exc)
+    with _mot_nguoi_mot_luc(f"xep-lich:phat-hanh-bai-ghep:{bai_ghep_id}"):
+        try:
+            bg = svc.phat_hanh_bai_ghep(bai_ghep_id=bai_ghep_id, actor=user)
+        except Exception as exc:
+            raise _map(exc)
     hub.broadcast({"type": "xep_lich_changed"})
     hub.broadcast({"type": "bai_ghep_changed"})
     return PhatHanhOut(id=bg.id, ma=bg.ma, trang_thai=bg.trang_thai)

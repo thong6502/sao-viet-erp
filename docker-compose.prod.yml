@@ -1,13 +1,45 @@
-# Stack PRODUCTION cho VPS: Postgres + FastAPI backend + nginx (frontend build + reverse-proxy).
+# FILE COMPOSE DUY NHẤT của dự án: Postgres + Redis + MinIO + FastAPI backend + nginx + Caddy.
+# (`docker-compose.yml` bản dev đã bỏ — nó khai trùng redis/minio; dev thật chạy `./dev.ps1`
+# với uvicorn + vite trên máy, DB SQLite, không cần compose.)
 #
-#   Frontend (nginx, cổng 80) ──/api──▶ backend (uvicorn :8000) ──▶ db (Postgres)
+#   Caddy (TLS, :80/:443) ─▶ web (nginx, build FE) ─/api─▶ backend (uvicorn :8000)
+#                                                            ├─▶ db     (Postgres — dữ liệu)
+#                                                            ├─▶ redis  (pub/sub SSE + khoá)
+#                                                            └─▶ minio  (kho file)
 #
-# Deploy:  docker compose -f docker-compose.prod.yml up -d --build
-# Bí mật đọc từ file .env cùng thư mục (KHÔNG commit) — xem .env.prod.example.
-name: erp-svn
+# MỖI SERVICE MỘT PROFILE. Trong Compose, service có `profiles:` KHÔNG chạy khi `up` trần —
+# `docker compose up -d` sẽ dựng ĐÚNG 0 container. Muốn dựng cả stack phải liệt kê đủ:
+#
+#   docker compose -f docker-compose.prod.yml \
+#     --profile db --profile redis --profile minio \
+#     --profile backend --profile web --profile caddy \
+#     up -d --build
+#
+# (đúng lệnh mà .github/workflows/deploy.yml chạy).
+#
+# BẬT LẺ ĐƯỢC TỚI ĐÂU: Compose từ chối cả project nếu một service được bật lại `depends_on` một
+# service đang tắt. Đã thử thật, kết quả:
+#
+#   --profile db | redis | minio                          → chạy lẻ được
+#   --profile backend  → phải kèm  db, redis, minio       (backend chờ cả 3 healthy)
+#   --profile web      → phải kèm  backend + 3 cái trên   (nginx phân giải `backend` LÚC KHỞI
+#                                                          ĐỘNG, thiếu là nginx không lên nổi)
+#   --profile caddy    → phải kèm  web + chuỗi trên
+#
+# Nói cách khác: ba service hạ tầng restart lẻ thoải mái; ba service ứng dụng đi theo chuỗi.
+#
+# DÙNG Ở MÁY DEV để có Redis + MinIO cho backend chạy ngoài container:
+#
+#   docker compose -f docker-compose.prod.yml --env-file .env.example --profile redis --profile minio up -d
+#   # rồi đặt REDIS_URL=redis://127.0.0.1:6380/0  MINIO_ENDPOINT=http://127.0.0.1:9010
+#
+# Bí mật đọc từ file .env cùng thư mục (KHÔNG commit) — chép nội dung từ .env.prod (production)
+# hoặc .env.stg (staging) sang .env rồi mới `up`.
+name: erp-svn                          # COMPOSE_PROJECT_NAME trong .env ghi đè được
 
 services:
   db:
+    profiles: ["db"]
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
@@ -23,11 +55,58 @@ services:
       retries: 10
     # Không publish 5432 ra ngoài — chỉ backend trong mạng compose truy cập.
 
+  redis:
+    profiles: ["redis"]
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Không bật persistence: Redis ở đây CHỈ làm pub/sub SSE + khoá chống chạy trùng, mất sạch
+    # khi restart cũng không sao (badge tự lành qua notify-summary, khoá tự hết hạn theo TTL).
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      # CHỈ loopback — không ra Internet. Có mặt để backend chạy ngoài container (máy dev) nối
+      # được. 6380 chứ không phải 6379 vì cổng mặc định hay bị Redis khác chiếm sẵn; đặt qua
+      # .env để prod và staging chạy chung VPS không đá cổng nhau.
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    profiles: ["minio"]
+    image: minio/minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    ports:
+      # CHỈ loopback. Người dùng KHÔNG bao giờ chạm MinIO trực tiếp — họ đọc file qua backend
+      # /api/files (có kiểm đăng nhập + quyền), nên Caddyfile không phải sửa gì. Hai cổng này
+      # chỉ để backend-chạy-ngoài-container (dev) và để soi bucket bằng console.
+      # 9010/9002 thay vì 9000/9001: trên VPS 9001 đã thuộc stack myanphu-staging.
+      - "127.0.0.1:${MINIO_API_PORT:-9010}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9002}:9001"
+    healthcheck:
+      # `curl` có sẵn trong image minio/minio (đã kiểm bằng cách chạy thật, không đoán).
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   backend:
+    profiles: ["backend"]
     build: ./backend
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     environment:
       APP_ENV: production                # bật guard bắt buộc JWT_SECRET mạnh
@@ -39,18 +118,27 @@ services:
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin}
       SEED_DEMO: ${SEED_DEMO:-false}     # production: KHÔNG seed dữ liệu demo
       CORS_ORIGINS: ${CORS_ORIGINS}
-    volumes:
-      # File upload (/static: avatar, đính kèm kho/LSX/phiếu chi) phải sống
-      # qua rebuild image — không có volume này là mất sạch mỗi lần deploy.
-      - uploads:/app/static
+      # Có REDIS_URL → SSE đẩy qua pub/sub (chạy được nhiều worker) + khoá bật.
+      REDIS_URL: redis://redis:6379/0
+      # Có MINIO_ENDPOINT → file ghi vào MinIO thay vì đĩa container (app/storage.py).
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-svn-files}
     expose:
       - "8000"                           # chỉ nội bộ; nginx proxy vào
+    # KHÔNG còn volume cho /app/static: file người dùng nằm ở MinIO, không nằm trên đĩa container.
 
   web:
+    profiles: ["web"]
     build:
       context: ./frontend
       args:
-        VITE_API_BASE_URL: ""            # same-origin: client gọi /api tương đối
+        # Bundle FE là file TĨNH, biến này được nướng vào lúc build chứ không đọc lúc chạy —
+        # đổi giá trị thì phải `up --build` lại `web`.
+        # Rỗng = same-origin: client gọi /api tương đối, nginx trong image proxy sang backend.
+        # Dùng ${VAR-} (một gạch) để giá trị RỖNG cố ý vẫn được giữ, không bị thay bằng default.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL-}
     restart: unless-stopped
     depends_on:
       - backend
@@ -59,13 +147,15 @@ services:
 
   # Reverse-proxy + auto-HTTPS (Let's Encrypt) cho subdomain.
   caddy:
+    profiles: ["caddy"]
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
       - web
     ports:
-      - "80:80"
-      - "443:443"
+      # Đặt qua .env để staging (8090/8443) không tranh cổng với production (80/443).
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
     environment:
       SITE_DOMAIN: ${SITE_DOMAIN}        # vd: erp.saovietnhat.vn (đặt trong .env)
     volumes:
@@ -75,6 +165,6 @@ services:
 
 volumes:
   pgdata:
+  miniodata:
   caddy_data:
   caddy_config:
-  uploads:

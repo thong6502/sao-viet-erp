@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -50,7 +50,7 @@ from .repositories.plate_die_rate_repo import PlateDieRateRepository
 from .repositories.norm_repo import NormRepository
 from .repositories.document_sequence_repo import DocumentSequenceRepository
 from .repositories.estimate_repo import EstimateRepository
-from .security import decode_access_token
+from .security import decode_access_token, decode_file_token
 from .services.auth_service import AuthError, AuthService
 from .services.accounting_service import AccountingService
 from .services.activity_service import ActivityService
@@ -112,29 +112,27 @@ def get_refresh_service(
     return RefreshTokenService(tokens, users)
 
 
-def get_current_user(
-    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
-    auth: Annotated[AuthService, Depends(get_auth_service)],
-) -> User:
-    unauthorized = HTTPException(
+def _unauthorized() -> HTTPException:
+    return HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Not authenticated",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    if creds is None or not creds.credentials:
-        raise unauthorized
 
-    claims = decode_access_token(creds.credentials)
+
+def _user_from_claims(claims: dict | None, auth: AuthService) -> User:
+    """Claims đã giải mã → User. Hai chốt chặn dùng chung cho MỌI đường vào (Bearer lẫn cookie
+    file), nên thêm đường vào mới không lỡ bỏ sót cái nào."""
     if claims is None:
-        raise unauthorized
+        raise _unauthorized()
     try:
         user = auth.user_from_token_subject(claims.get("sub"))
     except AuthError:
-        raise unauthorized from None
+        raise _unauthorized() from None
     # Hard-revoke: a token whose `tv` no longer matches the user's token_version is dead
     # (logout-all / forced invalidation), even if not yet expired (spec-03).
     if claims.get("tv") != user.token_version:
-        raise unauthorized
+        raise _unauthorized()
     # A locked account is rejected even with a still-valid token (RBAC, spec-02).
     if not user.is_active:
         raise HTTPException(
@@ -144,7 +142,36 @@ def get_current_user(
     return user
 
 
+def get_current_user(
+    creds: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    auth: Annotated[AuthService, Depends(get_auth_service)],
+) -> User:
+    if creds is None or not creds.credentials:
+        raise _unauthorized()
+    return _user_from_claims(decode_access_token(creds.credentials), auth)
+
+
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+# --- Cửa vào bằng cookie (chỉ cho /api/files) -------------------------------
+# `<img src>` / `<a download>` do trình duyệt tự phát nên KHÔNG mang được header Bearer, mà
+# access token cố ý chỉ nằm trong RAM của tab. Cookie là đường duy nhất — xem app/routers/files.py.
+FILE_COOKIE = "file_access"
+FILE_COOKIE_PATH = "/api/files"
+
+
+def get_file_user(
+    request: Request,
+    auth: Annotated[AuthService, Depends(get_auth_service)],
+) -> User:
+    raw = request.cookies.get(FILE_COOKIE)
+    if not raw:
+        raise _unauthorized()
+    return _user_from_claims(decode_file_token(raw), auth)
+
+
+FileUser = Annotated[User, Depends(get_file_user)]
 
 
 # --- Authorization (RBAC enforcement) --------------------------------------

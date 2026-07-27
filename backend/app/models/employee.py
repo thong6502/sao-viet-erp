@@ -9,8 +9,8 @@ Three tables:
   - `employee_events`      — Quá trình công tác: mỗi giai đoạn (thử việc→chính thức, điều
                              chuyển, nâng bậc, nghỉ…) là 1 dòng theo `effective_date` (ngày
                              hiệu lực, KHÁC `created_at` ngày nhập máy). Là nguồn timeline.
-  - `employee_attachments` — file hồ sơ (HĐ scan / CCCD / bằng cấp), lưu dưới /static như
-                             avatar (mirror `quote_attachments`).
+  - `employee_attachments` — file hồ sơ (HĐ scan / CCCD / bằng cấp), nằm trong kho file
+                             (app/storage.py) như avatar; đọc qua /api/files, đòi quyền `nhan_su`.
 
 Portable across SQLite and Postgres (integer PK, string/date columns, DB-agnostic
 timestamp default).
@@ -157,7 +157,7 @@ class Employee(Base):
     default_shift_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
 
     # Server-relative path of the profile photo (mirror users.avatar_url), e.g.
-    # `/static/hr/<id>/photo.jpg`. Null → UI shows initials fallback.
+    # `/api/files/hr/<id>/photo.jpg`. Null → UI shows initials fallback.
     photo_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -220,9 +220,9 @@ class EmployeeEvent(Base):
 
 
 class EmployeeAttachment(Base):
-    """A file attached to an employee (HĐ scan / CCCD / bằng cấp). The bytes live under
-    <backend>/static and are served read-only at /static; only the path is stored here
-    (mirror quote_attachments / users.avatar_url)."""
+    """A file attached to an employee (HĐ scan / CCCD / bằng cấp). The bytes live in the shared
+    file store (app/storage.py) and are served through /api/files, which requires a login and the
+    `nhan_su` read permission; only the path is stored here (mirror users.avatar_url)."""
 
     __tablename__ = "employee_attachments"
 
