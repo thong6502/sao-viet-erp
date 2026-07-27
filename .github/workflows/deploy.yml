@@ -1,15 +1,20 @@
-name: Deploy (production)
+name: Deploy
 
-# Đẩy lên main → chạy CI gate rồi deploy sang VPS bằng Docker Compose.
+# Quy trình: nhánh tính năng → `dev` → test UI trên staging → `dev` vào `main` → production.
+#   push `dev`  → deploy STAGING    (thư mục vars.APP_DIR_STG, .env lấy từ .env.stg)
+#   push `main` → deploy PRODUCTION (thư mục vars.APP_DIR)
+# Hai thư mục riêng vì bước deploy chạy `git reset --hard origin/<nhánh>` — hai nhánh khác nhau
+# không dùng chung một cây làm việc được.
 # Có thể chạy tay ở tab Actions (workflow_dispatch).
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
   workflow_dispatch:
 
-# Không cho 2 lần deploy chồng nhau; không hủy lần đang chạy (deploy dở nguy hiểm).
+# Không cho 2 lần deploy chồng nhau TRÊN CÙNG môi trường; không hủy lần đang chạy (deploy dở
+# nguy hiểm). Tách theo nhánh để deploy staging không phải xếp hàng sau production.
 concurrency:
-  group: deploy-production
+  group: deploy-${{ github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -63,11 +68,11 @@ jobs:
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -euo pipefail
-            cd "${{ vars.APP_DIR }}"
+            cd "${{ github.ref_name == 'main' && vars.APP_DIR || vars.APP_DIR_STG }}"
 
-            echo "→ Kéo code mới nhất (origin/main)"
+            echo "→ Kéo code mới nhất (origin/${{ github.ref_name }})"
             git fetch --all --prune
-            git reset --hard origin/main
+            git reset --hard "origin/${{ github.ref_name }}"
 
             # .env nằm ngoài git nên `git reset` không đụng tới — thêm khoá mới (Redis/MinIO)
             # mà quên cập nhật .env thì backend crash-loop. Chặn ngay ở đây cho dễ hiểu.
