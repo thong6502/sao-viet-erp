@@ -89,37 +89,52 @@ nghiệp vụ. Gắn ở `PUT /api/xep-lich/dong/gan-loat`, `POST /api/xep-lich/
 
 ## 6. Compose + profile
 
-**Một file compose duy nhất** — `docker-compose.prod.yml`. Bản dev `docker-compose.yml` đã bỏ:
-nó khai trùng `redis`/`minio` (sửa một bên quên bên kia là lệch), mà dev thật của dự án chạy
-`./dev.ps1` (uvicorn + vite trên máy, SQLite) chứ không qua compose. Khi dev cần hạ tầng thật thì
-dùng chính file này với `--profile redis --profile minio`.
+**Một file compose duy nhất** (`docker-compose.yml`) và **một lệnh duy nhất** cho mọi môi trường:
 
-Mỗi service một profile: `db` · `redis` · `minio` · `backend` · `web` · `caddy`.
+```
+docker compose up -d --build
+```
 
-> **Bẫy:** service có `profiles:` KHÔNG chạy khi `up` trần. Đã kiểm: `docker compose config
-> --services` không kèm profile trả về **rỗng** → `up` trần dựng đúng 0 container. Vì vậy
-> `deploy.yml` phải liệt kê đủ 6 profile.
+Không `-f`, không `--profile`. Dựng service nào là do **`COMPOSE_PROFILES` trong `.env`** quyết:
 
-**Bật lẻ tới đâu** (đã thử thật — Compose từ chối cả project nếu service được bật lại
-`depends_on` service đang tắt):
+| Môi trường | `COMPOSE_PROFILES` | Ra cái gì |
+|---|---|---|
+| máy dev | `db,redis,minio` | chỉ hạ tầng — **không có caddy nên không đụng chứng chỉ**; BE/FE chạy ngoài bằng `./dev.ps1` |
+| staging / prod | `db,redis,minio,backend,web,caddy` | full stack kèm TLS |
 
-| Lệnh | Kết quả |
+Mỗi service vẫn mang profile riêng nên vẫn bật/tắt lẻ được: `docker compose --profile redis
+restart redis`.
+
+> **Bẫy đã đo:** service có `profiles:` mà `COMPOSE_PROFILES` không nhắc tới thì **không chạy**.
+> Bỏ trống biến này = `up` dựng đúng 0 container.
+
+**Ràng buộc phụ thuộc** (đã thử thật — Compose từ chối cả project nếu một service được bật lại
+`depends_on` một service đang tắt):
+
+| Bật | Bắt buộc kèm |
 |---|---|
-| `--profile db` / `redis` / `minio` | chạy lẻ được |
-| `--profile backend` | phải kèm `db redis minio` (chờ cả 3 healthy) |
-| `--profile web` | phải kèm `backend` + 3 cái trên — nginx phân giải `backend` **lúc khởi động** |
-| `--profile caddy` | phải kèm `web` + chuỗi trên |
+| `db` / `redis` / `minio` | không cần gì — chạy lẻ được |
+| `backend` | `db redis minio` (chờ cả 3 healthy) |
+| `web` | `backend` + 3 cái trên — nginx phân giải `backend` **lúc khởi động** |
+| `caddy` | `web` + chuỗi trên |
 
-Nói gọn: ba service hạ tầng restart lẻ thoải mái; ba service ứng dụng đi theo chuỗi.
+Hai bộ `COMPOSE_PROFILES` ở bảng trên là hai tổ hợp hợp lệ; đừng cắt lưng chừng.
 
 Khác: Redis không bật persistence (chỉ pub/sub + khoá); backend **bỏ volume
 `uploads:/app/static`**; cổng lấy hết từ `.env` (`HTTP_PORT`/`HTTPS_PORT`/`REDIS_PORT`/
 `MINIO_API_PORT`/`MINIO_CONSOLE_PORT`) để prod và staging chạy chung VPS không đá nhau.
 
-Redis/MinIO publish **chỉ trên `127.0.0.1`**, không ra Internet — có mặt để backend chạy ngoài
-container (máy dev) nối được và để soi bucket bằng console. Người dùng KHÔNG bao giờ chạm MinIO
-trực tiếp; họ đọc file qua `/api/files`, nên **`Caddyfile` không phải sửa gì**. Cổng mặc định
-lệch (6380/9010/9002) vì trên VPS 6379/9001 đã có stack khác chiếm.
+Postgres/Redis/MinIO publish **chỉ trên `127.0.0.1`**, không ra Internet — có mặt để backend chạy
+ngoài container (`./dev.ps1`) nối được và để soi bucket bằng console. Người dùng KHÔNG bao giờ
+chạm MinIO trực tiếp; họ đọc file qua `/api/files`, nên **`Caddyfile` không phải sửa gì**. Cổng
+mặc định lệch (5433/6380/9010/9002) vì máy dev thường đã cài Postgres, và trên VPS thì
+5432/6379/9001 đã có stack khác chiếm.
+
+**Đã chạy thật ở local để chốt** (`COMPOSE_PROFILES=db,redis,minio` + `uvicorn` trên máy):
+backend tạo **104 bảng** trong Postgres của container; upload avatar → object nằm trong bucket
+`svn-files-local` và **không** có trên đĩa `backend/static`; đọc lại qua `/api/files` có cookie
+ra 200 đúng bytes, không cookie ra 401; `redis-cli pubsub channels` thấy `svn:events` có người
+nghe → cầu SSE đang chạy.
 
 Healthcheck MinIO dùng `curl` — đã kiểm `curl` và `mc` đều có trong image `minio/minio` bằng cách
 chạy thật, không chép từ trí nhớ.

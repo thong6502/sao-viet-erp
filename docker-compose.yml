@@ -7,34 +7,31 @@
 #                                                            ├─▶ redis  (pub/sub SSE + khoá)
 #                                                            └─▶ minio  (kho file)
 #
-# MỖI SERVICE MỘT PROFILE. Trong Compose, service có `profiles:` KHÔNG chạy khi `up` trần —
-# `docker compose up -d` sẽ dựng ĐÚNG 0 container. Muốn dựng cả stack phải liệt kê đủ:
+# LỆNH DUY NHẤT, MỌI MÔI TRƯỜNG:
 #
-#   docker compose -f docker-compose.prod.yml \
-#     --profile db --profile redis --profile minio \
-#     --profile backend --profile web --profile caddy \
-#     up -d --build
+#   docker compose up -d --build
 #
-# (đúng lệnh mà .github/workflows/deploy.yml chạy).
+# Dựng những service nào là do `.env` quyết, qua biến COMPOSE_PROFILES — KHÔNG phải gõ
+# `--profile` ở dòng lệnh:
 #
-# BẬT LẺ ĐƯỢC TỚI ĐÂU: Compose từ chối cả project nếu một service được bật lại `depends_on` một
-# service đang tắt. Đã thử thật, kết quả:
+#   .env local           COMPOSE_PROFILES=db,redis,minio
+#                        → chỉ hạ tầng. Không caddy ⇒ KHÔNG xin chứng chỉ gì cả.
+#                          Backend + frontend chạy ngoài bằng ./dev.ps1.
+#   .env.stg / .env.prod COMPOSE_PROFILES=db,redis,minio,backend,web,caddy
+#                        → full stack, có TLS.
 #
-#   --profile db | redis | minio                          → chạy lẻ được
-#   --profile backend  → phải kèm  db, redis, minio       (backend chờ cả 3 healthy)
-#   --profile web      → phải kèm  backend + 3 cái trên   (nginx phân giải `backend` LÚC KHỞI
-#                                                          ĐỘNG, thiếu là nginx không lên nổi)
-#   --profile caddy    → phải kèm  web + chuỗi trên
+# Mỗi service vẫn mang profile riêng nên vẫn bật/tắt lẻ được khi cần:
+#   docker compose --profile redis restart redis
 #
-# Nói cách khác: ba service hạ tầng restart lẻ thoải mái; ba service ứng dụng đi theo chuỗi.
+# LƯU Ý về phụ thuộc: Compose từ chối cả project nếu một service được bật lại `depends_on` một
+# service đang tắt. Đã thử thật:
+#   db | redis | minio  → chạy lẻ được
+#   backend             → phải kèm db, redis, minio  (chờ cả 3 healthy)
+#   web                 → phải kèm backend + 3 cái trên (nginx phân giải `backend` LÚC KHỞI ĐỘNG)
+#   caddy               → phải kèm web + chuỗi trên
+# Nghĩa là hai bộ COMPOSE_PROFILES ở trên là hai tổ hợp hợp lệ; đừng cắt lưng chừng.
 #
-# DÙNG Ở MÁY DEV để có Redis + MinIO cho backend chạy ngoài container:
-#
-#   docker compose -f docker-compose.prod.yml --env-file .env.example --profile redis --profile minio up -d
-#   # rồi đặt REDIS_URL=redis://127.0.0.1:6380/0  MINIO_ENDPOINT=http://127.0.0.1:9010
-#
-# Bí mật đọc từ file .env cùng thư mục (KHÔNG commit) — chép nội dung từ .env.prod (production)
-# hoặc .env.stg (staging) sang .env rồi mới `up`.
+# Bí mật đọc từ `.env` cùng thư mục (KHÔNG commit). Bản mẫu duy nhất trong git: `.env.example`.
 name: erp-svn                          # COMPOSE_PROJECT_NAME trong .env ghi đè được
 
 services:
@@ -48,12 +45,16 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      # CHỈ loopback — không ra Internet. Cần có để backend chạy NGOÀI container (./dev.ps1)
+      # nối được vào. 5433 chứ không phải 5432: máy dev thường đã cài sẵn Postgres, và trên
+      # VPS thì 5432 đã thuộc stack myanphu-staging.
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
-    # Không publish 5432 ra ngoài — chỉ backend trong mạng compose truy cập.
 
   redis:
     profiles: ["redis"]

@@ -72,7 +72,7 @@ jobs:
             # .env nằm ngoài git nên `git reset` không đụng tới — thêm khoá mới (Redis/MinIO)
             # mà quên cập nhật .env thì backend crash-loop. Chặn ngay ở đây cho dễ hiểu.
             echo "→ Kiểm .env có đủ khoá"
-            REQUIRED="POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB JWT_SECRET SEED_ADMIN_PASSWORD CORS_ORIGINS SITE_DOMAIN MINIO_ROOT_USER MINIO_ROOT_PASSWORD"
+            REQUIRED="COMPOSE_PROFILES POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB JWT_SECRET SEED_ADMIN_PASSWORD CORS_ORIGINS SITE_DOMAIN MINIO_ROOT_USER MINIO_ROOT_PASSWORD"
             MISSING=""
             for KEY in $REQUIRED; do
               VALUE=$(grep -E "^${KEY}=" .env | head -n1 | cut -d= -f2- || true)
@@ -86,19 +86,14 @@ jobs:
               exit 1
             fi
 
-            # Mỗi service một profile → `up` trần sẽ dựng 0 container, phải liệt kê đủ.
-            # KHÔNG dùng --remove-orphans: chạy kèm profiles rất dễ xoá nhầm container của
+            # Dựng service nào là do COMPOSE_PROFILES trong .env quyết (bản triển khai khai đủ
+            # 6). KHÔNG dùng --remove-orphans: chạy kèm profiles rất dễ xoá nhầm container của
             # profile đang tắt.
             echo "→ Dựng lại & khởi động containers"
-            docker compose -f docker-compose.prod.yml \
-              --profile db --profile redis --profile minio \
-              --profile backend --profile web --profile caddy \
-              up -d --build
+            docker compose up -d --build
 
             echo "→ Dọn image cũ"
             docker image prune -f
 
             echo "→ Trạng thái"
-            docker compose -f docker-compose.prod.yml \
-              --profile db --profile redis --profile minio \
-              --profile backend --profile web --profile caddy ps
+            docker compose ps

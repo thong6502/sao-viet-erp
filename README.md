@@ -59,25 +59,32 @@ Lệnh xác minh chuẩn duy nhất — chạy `pytest` + `compileall` (hiện *
 
 ## Chạy với Docker (Postgres / Redis / MinIO)
 
-Mặc định là SQLite + ghi file xuống đĩa (zero-config, `./dev` là đủ). Chỉ dùng Docker khi cần
-hạ tầng thật.
+**Một file compose duy nhất** (`docker-compose.yml`) và **một lệnh duy nhất** cho mọi môi trường:
 
-Dự án có **một file compose duy nhất**: `docker-compose.prod.yml`. Mỗi service mang một
-`profile` riêng, nên **`docker compose up` trần sẽ dựng 0 container** — phải liệt kê profile:
+```bash
+docker compose up -d --build
+```
+
+Dựng service nào là do `COMPOSE_PROFILES` trong `.env` quyết — không phải gõ `--profile`.
+
+**Máy dev** (`COMPOSE_PROFILES=db,redis,minio`): chỉ dựng hạ tầng. Không có `caddy` nên **không
+đụng gì tới chứng chỉ**. Backend + frontend chạy ngoài bằng `./dev` để giữ hot-reload:
 
 ```bash
 cp .env.example .env
-# chỉ Redis + MinIO cho backend chạy ngoài container (cách hay dùng nhất khi dev)
-docker compose -f docker-compose.prod.yml --profile redis --profile minio up -d
-# thêm Postgres + backend trong container
-docker compose -f docker-compose.prod.yml --profile db --profile redis --profile minio --profile backend up -d --build
+docker compose up -d
+./dev
 ```
 
-Rồi trỏ backend vào: `REDIS_URL=redis://127.0.0.1:6380/0`, `MINIO_ENDPOINT=http://127.0.0.1:9010`
-(console MinIO: <http://127.0.0.1:9002>). Bỏ hai biến này là quay về in-process + ghi đĩa.
+`backend/.env` đã trỏ sẵn vào ba container đó (`127.0.0.1:5433` Postgres, `:6380` Redis,
+`:9010` MinIO — console MinIO ở <http://127.0.0.1:9002>). Comment ba biến hạ tầng trong
+`backend/.env` là quay về SQLite + ghi đĩa, không cần Docker.
 
-Backend tự tạo bảng (`create_all`) + seed admin lúc khởi động; frontend vẫn chạy bằng `./dev`.
-Chi tiết profile, `.env.prod`/`.env.stg` và luồng deploy: `docs/spec-ha-tang-redis-minio.md`.
+**Triển khai** (`COMPOSE_PROFILES=db,redis,minio,backend,web,caddy`): cùng lệnh trên, dựng full
+stack kèm TLS. Chỉ cần dán nội dung env của môi trường đó vào `.env` trước.
+
+Backend tự tạo bảng (`create_all`) + seed admin lúc khởi động.
+Chi tiết profile, cổng và luồng deploy: `docs/spec-ha-tang-redis-minio.md`.
 
 ## Cấu hình (`.env`)
 
