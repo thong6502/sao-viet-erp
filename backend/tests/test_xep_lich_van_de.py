@@ -6,7 +6,7 @@ lệ (kỹ thuật bất khả không được duyệt), và gate PHÁT HÀNH (c
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
@@ -21,7 +21,7 @@ from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
 from app.repositories.user_repo import UserRepository
 from app.repositories.xep_lich_repo import XepLichRepository
 from app.security import create_access_token, hash_password
-from app.services.xep_lich_service import XepLichConflict
+from app.services.xep_lich_service import XepLichConflict, _utcnow
 from app.services.xep_lich_van_de_service import XepLichVanDeService
 
 # Fixtures (db/admin/customer/orders/lsx_svc/bg_svc/xl_svc) + helpers dùng chung từ test xếp lịch.
@@ -131,7 +131,12 @@ def test_phat_hanh_gate_ngoai_le_revert(db, orders, lsx_svc, xl_svc, vd_svc, adm
     xl_svc.dua_vao_lsx(lsx_id=b.id, actor=admin)
     repo = XepLichRepository(db)
     may_id = _in_step(db, a.id).may_id
-    bat_dau = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+    # Mốc xếp phải nằm ở TƯƠNG LAI so với lúc chạy test, không được ghim cứng ngày.
+    # `_san_thoi_gian` lấy sàn = max(now, ban_giao_at) — mà `ban_giao_at` do fixture đóng dấu
+    # bằng giờ THẬT. Ghim cứng một ngày thì tới ngày đó test đỏ vĩnh viễn: sàn vượt `start_at`
+    # ⇒ detector `sai_tien_nhiem` bắn thêm xung đột Chặn, gate phát hành không bao giờ mở.
+    # ĐÃ NỔ THẬT lúc 2026-07-27 08:00 UTC với mốc cũ `datetime(2026, 7, 27, 8, 0)`.
+    bat_dau = (_utcnow() + timedelta(days=1)).replace(hour=8, minute=0, second=0, microsecond=0)
     xl_svc.gan(dong_id=repo.by_lsx(a.id)[0].id, patch={"may_id": may_id, "start_at": bat_dau}, actor=admin)
     xl_svc.gan(dong_id=repo.by_lsx(b.id)[0].id, patch={"may_id": may_id, "start_at": bat_dau}, actor=admin)
 

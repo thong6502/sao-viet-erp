@@ -144,21 +144,36 @@ class OrderService:
         return {uid: name for uid, name in rows}
 
     def _quote_codes(self, ids: list[int | None]) -> dict[int, str]:
-        """Map quotation_id → mã báo giá (quote_number) để hiển thị 'Nguồn'."""
-        out: dict[int, str] = {}
-        for qid in {i for i in ids if i}:
-            q = self.quotations.get_by_id(qid)
-            if q is not None:
-                out[qid] = q.quote_number
-        return out
+        """Map quotation_id → mã báo giá (quote_number) để hiển thị 'Nguồn'.
 
-    def _money(self, order: Order) -> dict:
-        """Các số tiền suy diễn của 1 đơn (dùng chung cho row + detail)."""
-        total = self.repo.line_total_sum(order.id)
-        total_with_vat = self.repo.total_with_vat(order.id)
-        order_cost = self.repo.order_cost_sum(order.id)
+        MỘT câu cho cả trang. Trước đây lặp `get_by_id` từng báo giá → N+1.
+        """
+        qids = {i for i in ids if i}
+        if not qids:
+            return {}
+        rows = self.db.query(Quote.id, Quote.quote_number).filter(Quote.id.in_(qids)).all()
+        return {qid: code for qid, code in rows}
+
+    def _money(self, order: Order, *, agg: dict | None = None,
+               received: int | None = None) -> dict:
+        """Các số tiền suy diễn của 1 đơn (dùng chung cho row + detail).
+
+        `agg`/`received` là số ĐÃ TÍNH SẴN theo lô cho cả trang danh sách (repo.money_sums +
+        accounting_repo.received_deposit_sums). Truyền vào thì hàm này KHÔNG chạm DB — đó là
+        cách gỡ N+1 ở màn danh sách. Bỏ trống (đường detail 1 đơn) thì tự truy vấn như cũ.
+        """
+        if agg is None:
+            total = self.repo.line_total_sum(order.id)
+            total_with_vat = self.repo.total_with_vat(order.id)
+            order_cost = self.repo.order_cost_sum(order.id)
+        else:
+            # Đơn không có dòng nào thì vắng mặt trong map → mặc định ĐÚNG như bản lẻ.
+            total = agg.get("total")
+            total_with_vat = agg.get("total_with_vat", 0)
+            order_cost = agg.get("order_cost")
         # V5: cọc đọc từ phiếu thu THẬT (Kế toán) — Σ PaymentReceipt(order, source=đơn, received).
-        received = self.accounting_repo.received_deposit_sum(order.id)
+        if received is None:
+            received = self.accounting_repo.received_deposit_sum(order.id)
         pct = order.deposit_pct
         required = int(round(float(pct) * total_with_vat / 100)) if pct else 0
         # biên: chỉ khi có giá vốn (cost_basis=quote) + có total
@@ -208,8 +223,9 @@ class OrderService:
         return (len(blockers) == 0), blockers
 
     def _row(self, order: Order, customer_name: str | None, sale_name: str | None,
-             quotation_code: str | None = None) -> OrderRow:
-        m = self._money(order)
+             quotation_code: str | None = None, *, agg: dict | None = None,
+             received: int | None = None) -> OrderRow:
+        m = self._money(order, agg=agg, received=received)
         return OrderRow(
             id=order.id,
             order_no=order.order_no,
@@ -328,9 +344,14 @@ class OrderService:
         )
         sale_names = self._user_names([r.sale_user_id for r in rows])
         q_codes = self._quote_codes([r.quotation_id for r in rows])
+        # Gỡ N+1: 4 tổng tiền của MỌI đơn trên trang lấy bằng 2 câu gộp, thay vì 4 câu mỗi đơn.
+        order_ids = [r.id for r in rows]
+        sums = self.repo.money_sums(order_ids)
+        received = self.accounting_repo.received_deposit_sums(order_ids)
         items = [
             self._row(o, names.get(o.id), sale_names.get(o.sale_user_id),
-                      q_codes.get(o.quotation_id))
+                      q_codes.get(o.quotation_id),
+                      agg=sums.get(o.id, {}), received=received.get(o.id, 0))
             for o in rows
         ]
         return OrderListOut(items=items, total=total, page=page, size=size)

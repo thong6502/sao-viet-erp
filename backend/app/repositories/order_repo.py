@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import BigInteger, asc, cast, desc, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.customer import Customer
@@ -20,6 +20,17 @@ from ..models.user import User
 from .org_scope import dept_subtree_ids
 
 # Columns a caller may sort by (whitelist — never interpolate a raw sort key).
+def _line_total_with_vat():
+    """`line_total · (100 + vat_pct)` — ép 64-bit TRƯỚC khi nhân.
+
+    Cả hai cột đều là `Integer` (int32). Postgres nhân int32×int32 ra int32 nên tràn ngay khi
+    `line_total` vượt ~19,5 triệu VND (2.147.483.647 ÷ 110) — cỡ đơn thường ngày của xưởng in.
+    SQLite dùng số nguyên 64-bit động nên không lộ, lỗi chỉ nổ trên Postgres.
+    Gọi hàm mới mỗi lần vì biểu thức SQLAlchemy không nên dùng chung giữa các câu lệnh.
+    """
+    return cast(OrderLine.line_total, BigInteger) * (100 + OrderLine.vat_pct_estimate)
+
+
 _SORTABLE = {
     "order_no": Order.order_no,
     "status": Order.status,
@@ -115,10 +126,41 @@ class OrderRepository:
         tiền mặt thật khách đưa, gồm VAT). Dòng chưa định giá (line_total NULL) bỏ qua như
         line_total_sum. Số nguyên (floor) — đủ cho ngưỡng cọc."""
         val = self.db.execute(
-            select(func.sum(OrderLine.line_total * (100 + OrderLine.vat_pct_estimate)))
+            select(func.sum(_line_total_with_vat()))
             .where(OrderLine.order_id == order_id)
         ).scalar()
         return int(val) // 100 if val is not None else 0
+
+    def money_sums(self, order_ids: list[int]) -> dict[int, dict]:
+        """Batch của `line_total_sum` + `total_with_vat` + `order_cost_sum` — MỘT câu cho cả trang.
+
+        Màn danh sách trước đây gọi ba hàm lẻ đó cho TỪNG đơn (N+1: 3 câu × số dòng hiển thị).
+        Ở đây gom một câu `GROUP BY order_id`.
+
+        Đơn KHÔNG có dòng nào sẽ vắng mặt trong map — caller phải mặc định đúng như bản lẻ:
+        `total=None`, `order_cost=None`, `total_with_vat=0`.
+        """
+        if not order_ids:
+            return {}
+        stmt = (
+            select(
+                OrderLine.order_id,
+                func.sum(OrderLine.line_total),
+                func.sum(_line_total_with_vat()),
+                func.sum(OrderLine.cost_snapshot),
+            )
+            .where(OrderLine.order_id.in_(order_ids))
+            .group_by(OrderLine.order_id)
+        )
+        out: dict[int, dict] = {}
+        for oid, total, with_vat, cost in self.db.execute(stmt):
+            out[int(oid)] = {
+                "total": int(total) if total is not None else None,
+                # //100 vì biểu thức nhân với (100 + vat_pct) — khớp total_with_vat() bản lẻ.
+                "total_with_vat": int(with_vat) // 100 if with_vat is not None else 0,
+                "order_cost": int(cost) if cost is not None else None,
+            }
+        return out
 
     def list(
         self,
@@ -272,7 +314,7 @@ class OrderRepository:
                 Order.id,
                 Order.status,
                 Order.deposit_pct,
-                func.coalesce(func.sum(OrderLine.line_total * (100 + OrderLine.vat_pct_estimate)), 0),
+                func.coalesce(func.sum(_line_total_with_vat()), 0),
             )
             .select_from(Order)
             .join(OrderLine, OrderLine.order_id == Order.id, isouter=True)

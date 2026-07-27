@@ -19,6 +19,13 @@ os.environ["SEED_ADMIN_NAME"] = "Admin"
 os.environ["SEED_DEMO"] = "false"
 # Tắt ticker nhắc lịch hẹn (SSE) trong test — tránh đụng DB in-memory + treo loop.
 os.environ["CARE_REMINDER_SECONDS"] = "0"
+# Hạ tầng: ÉP về chế độ offline, bất kể `backend/.env` của máy đang trỏ đi đâu.
+# Rỗng ⇒ hub SSE chạy in-process (app/realtime.py), khoá thành no-op (app/locks.py), file ghi
+# thẳng đĩa (app/storage.py) — đúng giả định của bộ test, và giữ CI không cần service ngoài.
+# ĐÃ VỠ THẬT: máy dev trỏ REDIS_URL/MINIO_ENDPOINT vào container → 7 test đỏ vì test đi hỏi
+# Redis/MinIO thật. Đừng gỡ hai dòng này.
+os.environ["REDIS_URL"] = ""
+os.environ["MINIO_ENDPOINT"] = ""
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
