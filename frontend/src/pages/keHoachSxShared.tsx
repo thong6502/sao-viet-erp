@@ -168,6 +168,9 @@ export const XEP_LICH_CATEGORY_META: Record<XepLichVanDeCategory, { label: strin
   thieu_du_lieu: { label: "Thiếu dữ liệu", icon: "help" },
   nguy_co_tre: { label: "Nguy cơ trễ hạn", icon: "clock" },
   may_khong_kham: { label: "Máy không đáp ứng", icon: "ban" },
+  qua_tai_may: { label: "Quá tải máy", icon: "activity" },
+  han_bai_ghep: { label: "Hạn sớm hơn bài ghép", icon: "calendar" },
+  thue_ngoai: { label: "Thuê ngoài", icon: "truck" },
 };
 
 /** Mức nghiêm trọng → nhãn + class (thang NÓNG→NGUỘI). chan đậm nhất (icon `ban`); moss KHÔNG

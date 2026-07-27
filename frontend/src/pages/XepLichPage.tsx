@@ -163,7 +163,8 @@ export function XepLichPage({
   const can = useCan();
   const canCreate = can("san_xuat", "create");
   const canUpdate = can("san_xuat", "update");
-  const canApprove = can("san_xuat", "approve"); // quyền PHÁT (can_approve) — nút Phát hành + Xin ngoại lệ
+  const canApprove = can("san_xuat", "approve"); // quyền PHÁT (can_approve) — nút Phát hành
+  const canApproveException = can("san_xuat", "approve_exception"); // duyệt ngoại lệ — nút Xin ngoại lệ (tách khỏi phát hành)
 
   const [rows, setRows] = useState<XepLichRow[] | null>(null);
   const [queue, setQueue] = useState<XepLichHangChoItem[] | null>(null);
@@ -668,6 +669,7 @@ export function XepLichPage({
               onRetry={loadVanDe}
               token={token}
               canApprove={canApprove}
+              canApproveException={canApproveException}
               currentUserId={currentUserId}
               q={q}
               mayTen={mayName}

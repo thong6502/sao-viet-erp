@@ -76,6 +76,15 @@ function phuongAnCho(it: XepLichVanDe): ActMsg[] {
     case "may_khong_kham":
       out.push({ icon: "printer", label: "Đổi sang máy phù hợp trong bảng", nav: lsx != null ? { kind: "bang-lenh", flash: { nguon: "lsx", id: lsx } } : { kind: "bang-lenh" } });
       break;
+    case "qua_tai_may":
+      out.push({ icon: "calendar", label: "Mở Gantt máy để giãn tải sang khe khác", nav: { kind: "gantt-may" } });
+      break;
+    case "han_bai_ghep":
+      out.push({ icon: "layers", label: "Mở bài ghép để xem thành viên & hạn", nav: bg != null ? { kind: "bang-bai-ghep", flash: { nguon: "in_ghep", id: bg } } : { kind: "bang-bai-ghep" } });
+      break;
+    case "thue_ngoai":
+      out.push({ icon: "truck", label: "Mở lệnh để cập nhật gia công ngoài", nav: lsx != null ? { kind: "bang-lenh", flash: { nguon: "lsx", id: lsx } } : { kind: "bang-lenh" } });
+      break;
   }
   return out;
 }
@@ -88,6 +97,7 @@ export function VanDeView({
   onRetry,
   token,
   canApprove,
+  canApproveException,
   currentUserId,
   q,
   mayTen,
@@ -102,6 +112,7 @@ export function VanDeView({
   onRetry: () => void;
   token: string | null;
   canApprove: boolean;
+  canApproveException: boolean;
   currentUserId: number | null;
   q: string;
   mayTen: (id: number) => string | null;
@@ -317,7 +328,7 @@ export function VanDeView({
           it={openIssue}
           groupSize={openIssue.group_key ? items.filter((x) => x.group_key === openIssue.group_key).length : 0}
           token={token}
-          canApprove={canApprove}
+          canApproveException={canApproveException}
           currentUserId={currentUserId}
           mayTen={mayTen}
           hasPrev={!!goPrev}
@@ -493,12 +504,12 @@ function VanDeRow({
 
 // ============================ drawer chi tiết vấn đề =========================
 function DrawerVanDe({
-  it, groupSize, token, canApprove, currentUserId, mayTen, hasPrev, hasNext, onPrev, onNext, onClose, onDone, onToast, onPhuongAn, onShowGroup,
+  it, groupSize, token, canApproveException, currentUserId, mayTen, hasPrev, hasNext, onPrev, onNext, onClose, onDone, onToast, onPhuongAn, onShowGroup,
 }: {
   it: XepLichVanDe;
   groupSize: number;
   token: string | null;
-  canApprove: boolean;
+  canApproveException: boolean;
   currentUserId: number | null;
   mayTen: (id: number) => string | null;
   hasPrev: boolean;
@@ -512,6 +523,7 @@ function DrawerVanDe({
   onShowGroup: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [doiBusy, setDoiBusy] = useState(false);
   const [note, setNote] = useState(it.note ?? "");
   const [excOpen, setExcOpen] = useState(false);
   const [excLyDo, setExcLyDo] = useState("");
@@ -539,8 +551,29 @@ function DrawerVanDe({
   const isChan = it.severity === "chan";
   const mayNames = it.impacts.may_ids.map((id) => mayTen(id)).filter((x): x is string => !!x);
   const acts = phuongAnCho(it);
-  const canException = canApprove && it.category !== "may_khong_kham" && it.exception == null;
+  const canException = canApproveException && it.category !== "may_khong_kham" && it.exception == null;
   const nav = (p: PhuongAnNav) => { onClose(); onPhuongAn(p); };
+
+  // §11 xử lý nhanh: người kế hoạch BẤM để dời công đoạn gây trùng/đè-khóa sang khe trống sớm nhất
+  // trên máy (máy chỉ GỢI Ý khe — người quyết bấm). Chọn dòng phát-sinh-sau (id lớn nhất) để dời.
+  const canDoiKhe =
+    (it.category === "trung_may" || it.category === "de_khoa_may") && it.impacts.dong_ids.length > 0;
+  const doiKhe = async () => {
+    if (!token || busy || doiBusy) return;
+    setDoiBusy(true);
+    try {
+      const dong = it.impacts.dong_ids[it.impacts.dong_ids.length - 1];
+      const g = await api.xepLich.goiY(token, dong);
+      if (!g.khe_trong) { onToast("Chưa tìm được khe trống phù hợp trên máy"); return; }
+      await api.xepLich.gan(token, dong, { start_at: g.khe_trong });
+      onToast("Đã dời công đoạn sang khe trống sớm nhất");
+      onDone();
+    } catch (e: unknown) {
+      onToast(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setDoiBusy(false);
+    }
+  };
 
   return (
     <div className="khsx-scrim" onClick={onClose}>
@@ -626,6 +659,17 @@ function DrawerVanDe({
                   </button>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* xử lý nhanh: dời sang khe trống (chỉ trùng máy / đè khóa) */}
+          {canDoiKhe && (
+            <div className="khsx-nhom">
+              <h3 className="khsx-nhom__title">Xử lý nhanh</h3>
+              <p className="khsx-nhom__sub">Dời công đoạn phát sinh sau sang khe trống sớm nhất trên máy. Máy gợi ý khe — bạn quyết.</p>
+              <Button variant="secondary" disabled={busy || doiBusy || !token} onClick={doiKhe}>
+                <Icon name="clock" size={14} /> Dời sang khe trống sớm nhất
+              </Button>
             </div>
           )}
 

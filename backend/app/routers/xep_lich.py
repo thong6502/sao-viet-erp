@@ -425,9 +425,10 @@ def van_de_tam_hoan(
 def van_de_ngoai_le(
     payload: VanDeNgoaiLeIn,
     db: Annotated[Session, Depends(get_db)],
-    user: Annotated[User, Depends(require_permission(MODULE, "approve"))],
+    user: Annotated[User, Depends(require_permission(MODULE, "approve_exception"))],
 ) -> VanDeStateOut:
-    """Chấp nhận ngoại lệ — cần quyền PHÁT (`can_approve`). Vấn đề kỹ thuật bất khả → 409."""
+    """Chấp nhận ngoại lệ — cần quyền DUYỆT NGOẠI LỆ (`can_approve_exception`), TÁCH khỏi phát hành
+    (`can_approve`): bỏ qua cảnh báo khi phát hành là quyết định nặng hơn. Vấn đề kỹ thuật bất khả → 409."""
     svc = _svc_vd(db)
     try:
         row = svc.ngoai_le(issue_key=payload.issue_key, ly_do=payload.ly_do,

@@ -11,6 +11,8 @@ Phân mức: Chặn (bắt buộc xử lý trước phát hành) · Nghiêm tr�
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 from sqlalchemy import exists, select
 from sqlalchemy.orm import Session
 
@@ -18,7 +20,8 @@ from ..models.bai_ghep import (
     TT_DA_LAP_KE_HOACH as BG_DA_LAP, TT_DA_PHAT_HANH as BG_DA_PHAT_HANH, BaiGhep, BaiGhepThanhVien,
 )
 from ..models.lsx import (
-    LB_XA_TO, TT_DA_LAP_KE_HOACH as LSX_DA_LAP, TT_DA_PHAT_HANH as LSX_DA_PHAT_HANH, Lsx,
+    LB_THUE_NGOAI, LB_XA_TO, TT_DA_LAP_KE_HOACH as LSX_DA_LAP,
+    TT_DA_PHAT_HANH as LSX_DA_PHAT_HANH, Lsx,
 )
 from ..models.xep_lich_van_de import (
     TT_DANG_XU_LY, TT_DA_XU_LY, TT_MOI, TT_NGOAI_LE, TT_TAM_HOAN, TT_TIEP_NHAN,
@@ -27,7 +30,8 @@ from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.xep_lich_repo import XepLichRepository
 from ..repositories.xep_lich_van_de_repo import XepLichVanDeRepository
 from .xep_lich_service import (
-    PHUT_LAM_NGAY, XepLichConflict, XepLichNotFound, XepLichService, _aware, _naive, _utcnow,
+    PHUT_LAM_NGAY, XepLichConflict, XepLichNotFound, XepLichService,
+    _aware, _cuoi_ngay, _dau_ngay, _naive, _utcnow,
 )
 
 # --- Mức nghiêm trọng (4 mức; Chặn = chặn phát hành) ---
@@ -45,6 +49,15 @@ CAT_GANG_THIEU_XA_TO = "gang_thieu_xa_to"
 CAT_THIEU_DU_LIEU = "thieu_du_lieu"
 CAT_NGUY_CO_TRE = "nguy_co_tre"
 CAT_MAY_KHONG_KHAM = "may_khong_kham"
+CAT_QUA_TAI_MAY = "qua_tai_may"
+CAT_HAN_BAI_GHEP = "han_bai_ghep"
+CAT_THUE_NGOAI = "thue_ngoai"
+
+# §3.1 ngưỡng tải máy trên CỬA SỔ TRƯỢT (§6 dùng hằng cấu hình thay bảng planning_issue_rules):
+# 85–100% → Cảnh báo, >100% → Cao. Cửa sổ = số ngày tới tính từ hôm nay.
+TAI_CUA_SO_NGAY = 7
+TAI_PCT_CAO = 100.0
+TAI_PCT_CANH_BAO = 85.0
 
 _RUI_RO_SEV = {"da_tre": SEV_NGHIEM_TRONG, "nguy_co_tre": SEV_CAO, "sap_toi_han": SEV_CANH_BAO}
 _RUI_RO_RANK = {"da_tre": 0, "nguy_co_tre": 1, "sap_toi_han": 2, "an_toan": 3, "chua_co_han": 4}
@@ -115,6 +128,9 @@ class XepLichVanDeService:
         issues += self._thieu_du_lieu(rows)
         issues += self._nguy_co_tre(rows)
         issues += self._may_khong_kham(rows)
+        issues += self._qua_tai_may(rows)
+        issues += self._han_som_bai_ghep(rows)
+        issues += self._thue_ngoai(rows)
         self._merge_state(issues)
         return issues
 
@@ -358,6 +374,131 @@ class XepLichVanDeService:
                 "delay_phut": None,
                 "group_key": f"may:{r['may_id']}",
             })
+        return out
+
+    def _qua_tai_may(self, rows: list[dict]) -> list[dict]:
+        """Tổng giờ đã xếp / giờ khả dụng của 1 máy trong CỬA SỔ 7 ngày tới (Cao/Cảnh báo). Khác
+        trùng-máy: từng thanh Gantt chưa chồng nhau nhưng TỔNG tải vượt công suất → nguy cơ trễ."""
+        today = _utcnow().date()
+        den = today + timedelta(days=TAI_CUA_SO_NGAY - 1)
+        win_s, win_e = _dau_ngay(today), _dau_ngay(today + timedelta(days=TAI_CUA_SO_NGAY))
+        by_may: dict[int, list[dict]] = {}
+        for r in self._da_xep_co_may(rows):
+            by_may.setdefault(r["may_id"], []).append(r)
+        out: list[dict] = []
+        for mid, rs in by_may.items():
+            # Giờ đã xếp = Σ giờ CHIẾM MÁY của các dòng BẮT ĐẦU trong cửa sổ (cùng đơn vị "giờ làm"
+            # với giờ khả dụng — không đếm wall-clock đêm/ngoài-ca mà job trải qua).
+            xep = sum((r["chiem_may_phut"] or 0) for r in rs if win_s <= _aware(r["start_at"]) < win_e)
+            if xep <= 0:
+                continue
+            # Giờ khả dụng = Σ khoảng-làm (clamp vào cửa sổ) − phần khóa máy giao khoảng-làm.
+            nen = self.xl.lich_nen_may(may_id=mid, tu=today, den=den)
+            khoa = [(_aware(k["start"]), _aware(k["finish"])) for k in nen["khoang_khoa"]]
+            avail = 0.0
+            for kl in nen["khoang_lam"]:
+                ks, ke = max(_aware(kl["start"]), win_s), min(_aware(kl["finish"]), win_e)
+                if ke <= ks:
+                    continue
+                dur = (ke - ks).total_seconds() / 60.0 - sum(_overlap_phut(bs, be, ks, ke) for bs, be in khoa)
+                avail += max(0.0, dur)
+            pct = (xep / avail * 100.0) if avail > 0 else float("inf")
+            if pct < TAI_PCT_CANH_BAO:
+                continue
+            sev = SEV_CAO if pct >= TAI_PCT_CAO else SEV_CANH_BAO
+            if avail > 0:
+                title = (f"{rs[0]['may_ten']}: tải {pct:.0f}% trong {TAI_CUA_SO_NGAY} ngày tới "
+                         f"({xep / 60.0:.0f}h đã xếp / {avail / 60.0:.0f}h khả dụng)")
+            else:
+                title = (f"{rs[0]['may_ten']}: {xep / 60.0:.0f}h đã xếp nhưng KHÔNG có giờ khả dụng "
+                         f"trong {TAI_CUA_SO_NGAY} ngày tới")
+            out.append({
+                "issue_key": f"{CAT_QUA_TAI_MAY}:{mid}",
+                "category": CAT_QUA_TAI_MAY, "severity": sev,
+                "title": title,
+                "nguyen_nhan": "Tổng giờ công việc đã xếp trên máy vượt (hoặc sát) công suất khả dụng của kỳ.",
+                "impacts": self._impact(rs),
+                "delay_phut": None,
+                "group_key": f"may:{mid}",
+            })
+        return out
+
+    def _han_som_bai_ghep(self, rows: list[dict]) -> list[dict]:
+        """Thành viên bài ghép có HẠN hoàn thành sớm hơn thời điểm in ghép xong (Nghiêm trọng).
+        Sau in mới xả tờ tách ra chạy tiếp — hạn trước lúc in xong là bất khả về mặt kế hoạch."""
+        by_bg: dict[int, list] = {}
+        for r in rows:
+            if (r["nguon"] == "in_ghep" and r["bai_ghep_id"]
+                    and r["trang_thai"] == "da_xep" and r["finish_at"]):
+                by_bg.setdefault(r["bai_ghep_id"], []).append(_aware(r["finish_at"]))
+        out: list[dict] = []
+        for bgid, finishes in by_bg.items():
+            finish_in = max(finishes)
+            bg = self.xl.bg_repo.get(bgid)
+            if bg is None:
+                continue
+            for tv in bg.thanh_viens:
+                lsx = self.xl.lsx_repo.get(tv.lsx_id)
+                han = self.xl._han(lsx)
+                if han is None or _aware(_cuoi_ngay(han)) >= finish_in:
+                    continue
+                member_rows = [r for r in rows if r["nguon"] == "lsx" and r["lsx_id"] == tv.lsx_id]
+                out.append({
+                    "issue_key": f"{CAT_HAN_BAI_GHEP}:{tv.lsx_id}:{bgid}",
+                    "category": CAT_HAN_BAI_GHEP, "severity": SEV_NGHIEM_TRONG,
+                    "title": (f"{lsx.ma}: hạn hoàn thành {_fmt(_cuoi_ngay(han))} SỚM HƠN lúc bài ghép "
+                              f"{bg.ma} in xong {_fmt(finish_in)}"),
+                    "nguyen_nhan": "Lệnh có hạn sớm hơn thời điểm bài ghép in xong — không kịp xả tờ chạy tiếp.",
+                    "impacts": self._impact(member_rows, extra_bg=[bgid]),
+                    "delay_phut": round((finish_in - _aware(_cuoi_ngay(han))).total_seconds() / 60.0),
+                    "group_key": f"bai_ghep:{bgid}",
+                })
+        return out
+
+    def _thue_ngoai(self, rows: list[dict]) -> list[dict]:
+        """Bước gia công ngoài: (a) thiếu NCC / ngày gửi-nhận → Chặn (không chốt được lịch nhận);
+        (b) bước SAU (trong LSX) xếp bắt đầu TRƯỚC ngày nhận gia công dự kiến → Nghiêm trọng."""
+        out: list[dict] = []
+        for r in rows:
+            if r["loai_buoc"] != LB_THUE_NGOAI:
+                continue
+            orm = self.xl.repo.get(r["id"])
+            lcd = self.xl._lcd(orm.lsx_cong_doan_id) if orm else None
+            if lcd is None or not lcd.bat_buoc:
+                continue
+            # (a) thiếu dữ liệu gia công ngoài
+            thieu = []
+            if not (lcd.nha_cung_cap or "").strip():
+                thieu.append("chưa chọn nhà gia công")
+            if lcd.ngay_gui_dk is None or lcd.ngay_nhan_dk is None:
+                thieu.append("chưa có ngày gửi/nhận")
+            if thieu:
+                out.append({
+                    "issue_key": f"thue_ngoai_thieu:{r['id']}",
+                    "category": CAT_THUE_NGOAI, "severity": SEV_CHAN,
+                    "title": f"{r['lsx_ma']} · {r['cong_doan_ten']} (thuê ngoài): {', '.join(thieu)}",
+                    "nguyen_nhan": "Bước gia công ngoài thiếu dữ liệu nên không chốt được lịch nhận hàng.",
+                    "impacts": self._impact([r]),
+                    "delay_phut": None,
+                    "group_key": f"lsx:{r['lsx_id']}",
+                })
+            # (b) bước sau xếp trước ngày nhận gia công dự kiến
+            if lcd.ngay_nhan_dk is not None and orm is not None and r["lsx_id"]:
+                nhan = _aware(_cuoi_ngay(lcd.ngay_nhan_dk))
+                starts = [_aware(x.start_at) for x in self.xl.repo.by_lsx(r["lsx_id"])
+                          if x.source_thu_tu > orm.source_thu_tu and x.start_at]
+                early = min(starts) if starts else None
+                if early is not None and early < nhan:
+                    out.append({
+                        "issue_key": f"thue_ngoai_tre:{r['id']}",
+                        "category": CAT_THUE_NGOAI, "severity": SEV_NGHIEM_TRONG,
+                        "title": (f"{r['lsx_ma']}: bước sau xếp {_fmt(early)} — TRƯỚC khi nhận hàng gia công "
+                                  f"{r['cong_doan_ten']} (dự kiến {_fmt(nhan)})"),
+                        "nguyen_nhan": "Công đoạn sau được xếp bắt đầu trước ngày dự kiến nhận hàng gia công về.",
+                        "impacts": self._impact([r]),
+                        "delay_phut": round((nhan - early).total_seconds() / 60.0),
+                        "group_key": f"lsx:{r['lsx_id']}",
+                    })
         return out
 
     # ================= HÀNH ĐỘNG NGƯỜI XỬ LÝ =================

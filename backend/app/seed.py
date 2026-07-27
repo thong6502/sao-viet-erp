@@ -211,7 +211,9 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Kế hoạch SX",
         {
             "dashboard": _read(SCOPE_OWN),
-            "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True},
+            # can_approve = phát hành kế hoạch; can_approve_exception = duyệt ngoại lệ (bỏ qua cảnh
+            # báo khi phát hành) — Kế hoạch SX (trưởng điều độ) cầm cả hai.
+            "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
             "khuon_be": _read(SCOPE_ALL),  # ③ điều độ đọc danh mục khuôn để gán vào lệnh có bế
             # Sửa routing của lệnh cần ĐỌC danh mục: công đoạn (thêm bước), máy (gán máy), tổ
             # (đổi tổ phụ trách). Chỉ READ — cấu hình danh mục vẫn là việc của phòng khác.

@@ -476,7 +476,10 @@ export type XepLichVanDeCategory =
   | "gang_thieu_xa_to"
   | "thieu_du_lieu"
   | "nguy_co_tre"
-  | "may_khong_kham";
+  | "may_khong_kham"
+  | "qua_tai_may"
+  | "han_bai_ghep"
+  | "thue_ngoai";
 export type XepLichVanDeTrangThai =
   | "moi"
   | "tiep_nhan"
