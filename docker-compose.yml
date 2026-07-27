@@ -146,10 +146,17 @@ services:
     expose:
       - "80"                             # Caddy CÙNG project gọi thẳng `web:80`
     ports:
-      # Publish loopback để Caddy của project KHÁC với tới được — đây là đường staging đi nhờ
-      # TLS của Caddy production (xem Caddyfile + STG_UPSTREAM). Mỗi môi trường một cổng:
-      # production 8180, staging 8181. Né 8080/8081 vì trên VPS stack myanphu đã chiếm.
-      - "127.0.0.1:${WEB_PORT:-8180}:80"
+      # Cổng để Caddy của project KHÁC với tới — đường staging đi nhờ TLS của Caddy production
+      # (xem Caddyfile + STG_UPSTREAM). Mỗi môi trường một cổng: production 8180, staging 8181.
+      # Né 8080/8081 vì trên VPS stack myanphu đã chiếm.
+      #
+      # WEB_BIND: 127.0.0.1 CHỈ mở cho loopback của host — container KHÔNG vào được. Caddy gọi
+      # `host.docker.internal`, và địa chỉ đó phân giải ra IP gateway của bridge Docker
+      # (thường 172.17.0.1), nên bind loopback là `Connection refused` → 502. Đã vỡ thật.
+      # Staging vì thế khai WEB_BIND=172.17.0.1: container tới được, mà vẫn KHÔNG lộ ra
+      # Internet (IP nội bộ của host). Production giữ mặc định 127.0.0.1 vì Caddy của nó nằm
+      # cùng mạng compose, gọi thẳng `web:80`, không cần cổng này.
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8180}:80"
 
   # Reverse-proxy + auto-HTTPS (Let's Encrypt) cho subdomain.
   caddy:
