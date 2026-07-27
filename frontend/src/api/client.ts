@@ -198,15 +198,6 @@ export type QuoteEvent =
   // duyệt/từ chối → 'ot_decision' đẩy riêng cho nhân viên nộp phiếu.
   | { type: "ot_pending_changed"; code?: string }
   | { type: "ot_decision"; code?: string; decision: "approved" | "rejected" }
-  // Sản xuất (Lát 1) dùng CHUNG kênh hub — tín hiệu NHẸ để hộp việc tổ refetch + "ting". Số chính
-  // xác lấy qua to-badges/inbox (đã lọc scope server-side). `lenh_sx_routing` = có lệnh mới PHÁT
-  // vào các tổ `to_ids`; `lenh_sx_assigned` = 1 thợ được gán (đích danh tới user).
-  | { type: "lenh_sx_routing"; form_id?: number; lenh_ids?: number[]; to_ids: number[] }
-  | { type: "lenh_sx_assigned"; lenh_id: number; to_id: number | null }
-  | { type: "lenh_sx_phat"; form_id: number; lenh_ids: number[] }
-  | { type: "lenh_sx_duyet_mau"; lenh_id: number }
-  | { type: "lenh_sx_ban_giao"; lenh_id: number; ban_giao_id: number; to_nhan_id: number | null }
-  | { type: "lenh_sx_qc_loi"; lenh_id: number; qc_id: number; to_bi_quy_id: number | null }
   // Handoff Đơn → bàn Kế hoạch SX: đơn chốt 'bắn xuống' hàng chờ; Sale đổi gấp/lưu ý SAU chốt →
   // bàn kế hoạch "ting" (badge nhảy). Nội dung chính xác FE refetch hàng chờ / detail.
   | { type: "order_ordered"; code?: string; order_id: number }
