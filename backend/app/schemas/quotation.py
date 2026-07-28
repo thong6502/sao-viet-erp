@@ -17,6 +17,9 @@ class QuoteItemUpdate(BaseModel):
     rounding: str = Field(default="no_rounding")
     note: str | None = None
     po_code: str | None = None
+    # Diễn giải quy cách in dưới tên sản phẩm (mỗi dòng = 1 gạch đầu dòng). FE echo giá trị cũ khi
+    # không sửa — payload dump đủ field nên bỏ trống là XOÁ (cùng quy ước với `note`).
+    dien_giai: str | None = None
 
 
 # --- create / update ----------------------------------------------------------
@@ -138,6 +141,7 @@ class QuoteItemOut(BaseModel):
     product_type: str
     product_name: str
     product_spec_text: str | None
+    dien_giai: str | None = None   # diễn giải quy cách in dưới tên SP (bung từ tính giá, sửa được)
     quantity: int
     unit: str
     total_cost_snapshot: float

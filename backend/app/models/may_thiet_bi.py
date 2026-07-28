@@ -135,9 +135,12 @@ class MayThietBi(Base):
     kho_kem_rong: Mapped[int | None] = mapped_column(Integer, nullable=True)
     vung_in_dai: Mapped[int | None] = mapped_column(Integer, nullable=True)   # vùng in lớn nhất (mm)
     vung_in_rong: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    gripper_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)    # ★ cạnh nhíp không in
-    le_hong_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    duoi_thang_mau_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gripper_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)    # mép nhíp trên BẢN KẼM (~44mm)
+    # Nhíp GIẤY — cạnh máy kẹp tờ giấy, KHÁC `gripper_mm` (nhíp kẽm) cả về nghĩa lẫn độ lớn (~8-12mm).
+    # ★ bình bài: trừ vào chiều DÀI tờ in (1 cạnh nạp), KHÔNG trừ chiều rộng.
+    nhip_giay_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    le_hong_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)          # ★ trừ MỖI BÊN chiều rộng
+    duoi_thang_mau_mm: Mapped[int | None] = mapped_column(Integer, nullable=True)   # ★ trừ chiều dài (đuôi tờ)
     so_units: Mapped[int | None] = mapped_column(Integer, nullable=True)      # ★ đếm lượt/kẽm
     units_truoc: Mapped[int | None] = mapped_column(Integer, nullable=True)   # perfector
     units_sau: Mapped[int | None] = mapped_column(Integer, nullable=True)

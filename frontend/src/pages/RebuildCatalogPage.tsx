@@ -29,6 +29,9 @@ export interface ColumnDef {
 export interface FacetDef {
   key: string;                  // field lọc (vd "nhom")
   values: { value: string; label: string }[];
+  /** Field gõ TỰ DO (type "suggest"): sinh thêm tab cho giá trị có thật trong dữ liệu mà
+   *  `values` chưa liệt kê — khai cứng sẽ bỏ sót nhóm người dùng tự đặt. */
+  dynamic?: boolean;
 }
 export interface CatalogConfig {
   title: string;
@@ -66,6 +69,18 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
       .finally(() => setLoading(false));
   }, [token, api, config.softDelete]);
   useEffect(() => { load(); }, [load]);
+
+  // Tab lọc: giữ THỨ TỰ khai sẵn, nối thêm giá trị tự do có trong dữ liệu (facet.dynamic).
+  const facetValues = useMemo(() => {
+    const f = config.facet;
+    if (!f) return [];
+    if (!f.dynamic) return f.values;
+    const known = new Set(f.values.map((v) => v.value));
+    const extra = [...new Set(rows.map((r) => String(r[f.key] ?? "").trim()).filter(Boolean))]
+      .filter((v) => !known.has(v))
+      .sort((a, b) => a.localeCompare(b, "vi"));
+    return [...f.values, ...extra.map((v) => ({ value: v, label: v }))];
+  }, [config.facet, rows]);
 
   const shown = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -119,7 +134,7 @@ export function RebuildCatalogPage({ config, onMutate }: { config: CatalogConfig
           <button className={`rc__tab${facet === "all" ? " is-active" : ""}`} onClick={() => setFacet("all")}>
             Tất cả <span className="rc__tabn">{rows.length}</span>
           </button>
-          {config.facet.values.map((v) => (
+          {facetValues.map((v) => (
             <button key={v.value} className={`rc__tab${facet === v.value ? " is-active" : ""}`}
               onClick={() => setFacet(v.value)}>
               {v.label} <span className="rc__tabn">{facetCount(v.value)}</span>

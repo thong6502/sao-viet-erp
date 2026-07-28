@@ -8,7 +8,7 @@ from __future__ import annotations
 from math import ceil
 
 from app.services.thanh_phan_engine import (
-    binh_bai_con, binh_bai_layout, binh_bai_nghich, compute_phieu,
+    binh_bai_con, binh_bai_layout, compute_phieu,
 )
 
 
@@ -35,25 +35,47 @@ def test_binh_bai_con_qua_kho_tra_0():
     assert binh_bai_con(kho_in_dai=100, kho_in_rong=100, dai_tp=200, rong_tp=50) == 0
 
 
-def test_binh_bai_nghich_dung_N_it_phe():
-    # Name card 90×54, chừa 0, tờ nguyên 650×430, muốn ĐÚNG 49 con.
-    # 49 = 7×7 → khổ tờ in 630×378 (lọt nguyên); phân rã khác (1×49 / 49×1) quá khổ.
-    r = binh_bai_nghich(con=49, dai_tp=90, rong_tp=54, chua_mm=0,
-                        kho_nguyen_dai=650, kho_nguyen_rong=430)
-    assert r["con"] == 49
-    assert r["kho_in_dai"] == 630 and r["kho_in_rong"] == 378
-    assert r["rows"] == 7 and r["cols"] == 7
-    # Round-trip: nạp khổ vừa tính vào bình bài XUÔI → đúng 49 con.
-    assert binh_bai_con(kho_in_dai=630, kho_in_rong=378, dai_tp=90, rong_tp=54, chua_mm=0) == 49
+def test_chua_tach_chieu_khong_an_chieu_con_lai():
+    """Nhíp là cạnh NẠP giấy — chỉ ăn chiều DÀI. Bản cũ trừ đều 2 chiều → hụt con."""
+    # Tem 100×43 lên tờ in 1020×720. Cùng một số chừa 44mm, chỉ khác trừ 1 chiều hay 2 chiều.
+    gop = binh_bai_con(kho_in_dai=1020, kho_in_rong=720, dai_tp=100, rong_tp=43, chua_mm=44)
+    tach = binh_bai_con(kho_in_dai=1020, kho_in_rong=720, dai_tp=100, rong_tp=43,
+                        chua_dai_mm=44, chua_rong_mm=0)
+    assert (gop, tach) == (135, 154)       # chiều rộng không còn bị trừ oan → +19 con
+    # Nhíp GIẤY thật (~10mm) thay vì nhíp KẼM (44mm) — gộp cả 2 lỗi thì hụt 135 vs 161.
+    assert binh_bai_con(kho_in_dai=1020, kho_in_rong=720, dai_tp=100, rong_tp=43,
+                        chua_dai_mm=10, chua_rong_mm=0) == 161
+    # Lề hông ăn chiều RỘNG, không đụng chiều dài.
+    assert binh_bai_con(kho_in_dai=1020, kho_in_rong=720, dai_tp=100, rong_tp=43,
+                        chua_dai_mm=0, chua_rong_mm=40) == 150
 
 
-def test_binh_bai_nghich_khong_xep_duoc_tra_0():
-    # N=13 (nguyên tố) không xếp lọt tờ nguyên 650×430 với SP 90×54 → con=0 (FE báo đỏ).
-    assert binh_bai_nghich(con=13, dai_tp=90, rong_tp=54, chua_mm=0,
-                           kho_nguyen_dai=650, kho_nguyen_rong=430)["con"] == 0
-    # Chưa nhập khổ giấy nguyên → KHÔNG tính (con=0).
-    assert binh_bai_nghich(con=49, dai_tp=90, rong_tp=54, chua_mm=0,
-                           kho_nguyen_dai=0, kho_nguyen_rong=0)["con"] == 0
+def test_bleed_phinh_con_moi_chieu():
+    """bleed cộng 2 CẠNH mỗi chiều: con 100×43 + bleed 3 → 106×49."""
+    khong = binh_bai_con(kho_in_dai=1020, kho_in_rong=720, dai_tp=100, rong_tp=43)
+    co = binh_bai_con(kho_in_dai=1020, kho_in_rong=720, dai_tp=100, rong_tp=43, bleed_mm=3)
+    assert khong == 161                    # xoay: floor(1020/43) × floor(720/100) = 23 × 7
+    assert co == 9 * 14                    # thẳng: floor(1020/106) × floor(720/49)
+    lay = binh_bai_layout(kho_in_dai=1020, kho_in_rong=720, dai_tp=100, rong_tp=43, bleed_mm=3)
+    assert lay["piece_dai"] == 106 and lay["piece_rong"] == 49
+
+
+def test_khe_cat_n_con_chi_co_n_tru_1_khe():
+    """3 con chỉ có 2 khe. Khổ vừa khít 3 con + 2 khe → đúng 3; hụt 1mm → chỉ còn 2."""
+    # 3×100 + 2×5 = 310
+    assert binh_bai_con(kho_in_dai=310, kho_in_rong=43, dai_tp=100, rong_tp=43, khe_cat_mm=5) == 3
+    assert binh_bai_con(kho_in_dai=309, kho_in_rong=43, dai_tp=100, rong_tp=43, khe_cat_mm=5) == 2
+    # Không khe thì 3 con chỉ cần 300.
+    assert binh_bai_con(kho_in_dai=300, kho_in_rong=43, dai_tp=100, rong_tp=43) == 3
+
+
+def test_tham_so_moi_mac_dinh_giu_nguyen_hanh_vi_cu():
+    """bleed=0, khe=0, KHÔNG truyền chua_dai/rong → y hệt bản cũ (tương thích ngược)."""
+    for d, r, dt, rt, ch in ((650, 430, 90, 54, 0), (1090, 800, 210, 140, 60),
+                             (1020, 720, 100, 43, 44), (100, 100, 200, 50, 0)):
+        lay = binh_bai_layout(kho_in_dai=d, kho_in_rong=r, dai_tp=dt, rong_tp=rt, chua_mm=ch)
+        assert lay["usable_dai"] == max(d - ch, 0) and lay["usable_rong"] == max(r - ch, 0)
+        assert lay["piece_dai"] == dt and lay["piece_rong"] == rt
 
 
 def _component() -> dict:

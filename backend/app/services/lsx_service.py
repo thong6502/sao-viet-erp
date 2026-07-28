@@ -423,12 +423,17 @@ class LsxService:
                 "don_vi_tinh": line.don_vi_tinh or "cái",
                 "phieu_thanh_phan_id": line.phieu_thanh_phan_id,
                 "ptg_ma": ptg_ma,
-                "bu_hao_to": int(round(float(comp.get("bu_hao_auto") or 0) + float(comp.get("bu_hao_tay") or 0))),
-                "so_to_ke_hoach": int(round(float(comp.get("to_dau_vao") or 0))),
-                "so_to_nguyen": int(comp.get("to_nguyen") or 0),
-                "so_con": int(comp.get("con") or 1),
-                "so_kem": int(comp.get("so_kem") or 0),
-                "so_luot": int(round(float(comp.get("so_luot") or 0))),
+                # Chưa có bài tính giá → comp rỗng, các số dẫn xuất là "chưa tính được" → None
+                # (UI hiện "—"), KHÔNG ép 0/1 giả. Có PTG mà số thật = 0 thì vẫn hiện 0.
+                "bu_hao_to": (
+                    int(round(float(comp.get("bu_hao_auto") or 0) + float(comp.get("bu_hao_tay") or 0)))
+                    if tp is not None else None
+                ),
+                "so_to_ke_hoach": int(round(float(comp.get("to_dau_vao") or 0))) if tp is not None else None,
+                "so_to_nguyen": int(comp.get("to_nguyen") or 0) if tp is not None else None,
+                "so_con": int(comp.get("con") or 1) if tp is not None else None,
+                "so_kem": int(comp.get("so_kem") or 0) if tp is not None else None,
+                "so_luot": int(round(float(comp.get("so_luot") or 0))) if tp is not None else None,
                 "routing": [
                     {**r, "department_ten": dept_names.get(r.get("department_id"))}
                     for r in calc["routing"]

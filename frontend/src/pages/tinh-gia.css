@@ -1582,6 +1582,14 @@ select.tg-input--sm {
   stroke-width: 1.2;
   transition: all var(--duration-base) var(--easing-standard);
 }
+/* Vùng TRÀN LỀ quanh mỗi con (bleed > 0): con thật nằm gọn bên trong hình này. */
+.tg-imp__bleed {
+  fill: var(--rust-soft);
+  stroke: var(--rust);
+  stroke-width: 0.8;
+  stroke-dasharray: 3 2;
+  opacity: 0.4;
+}
 .tg-imp__piece--unused {
   fill: transparent;
   stroke: var(--rule);
@@ -1636,6 +1644,34 @@ select.tg-input--sm {
 .tg-imp__warn {
   color: var(--signal, #8a1f1f);
   font-weight: var(--fw-bold);
+}
+/* Đè số con vượt sức chứa lưới — nhắc, không chặn. */
+.tg-imp__over {
+  font-size: 10.5px;
+  color: var(--signal, #8a1f1f);
+  font-weight: var(--fw-medium);
+  margin-left: 2px;
+}
+/* Thông số bình bài đang áp dụng (bleed / khe cắt / chừa) — dòng phụ dưới caption. */
+.tg-imp__params {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 6px;
+  font-family: var(--ff-mono);
+  font-size: 10.5px;
+  color: var(--ash-2);
+}
+.tg-imp__param {
+  padding: 2px 7px;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  background: var(--paper-contrast);
+  white-space: nowrap;
+}
+.tg-imp__param b {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
 }
 .tg-imp__loading {
   color: var(--ash-2);

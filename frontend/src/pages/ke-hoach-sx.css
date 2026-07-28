@@ -415,7 +415,9 @@
 .khsx-prev td {
   font-size: var(--fs-md);
   line-height: 1.45;
-  padding: var(--sp-3);
+  /* Padding NGANG phải KHỚP header (.khsx-prev thead th dùng sp-4), nếu không cột số căn-phải
+     lệch mép với tiêu đề của nó. */
+  padding: var(--sp-3) var(--sp-4);
   border-bottom: 1px solid var(--rule-hair);
   vertical-align: top;
 }

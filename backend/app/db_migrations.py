@@ -890,6 +890,35 @@ def _migrate_may_thiet_bi_plate_print_area(db: Session) -> None:
     db.commit()
 
 
+def _migrate_may_nhip_giay(db: Session) -> None:
+    """Bình bài: thêm `may_thiet_bi.nhip_giay_mm` — cạnh máy KẸP TỜ GIẤY (~8-12mm).
+
+    KHÁC `gripper_mm` (mép nhíp trên BẢN KẼM, ~44mm) cả nghĩa lẫn độ lớn. Trước đây màn tính giá
+    lấy nhầm nhíp kẽm làm chừa giấy → hụt 14-19% số con. Để trống = 0 = không trừ. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "may_thiet_bi" not in insp.get_table_names():
+        return
+    if "nhip_giay_mm" not in _existing_columns(insp, "may_thiet_bi"):
+        db.execute(text("ALTER TABLE may_thiet_bi ADD COLUMN nhip_giay_mm INTEGER"))
+    db.commit()
+
+
+def _migrate_ptg_bleed_khe_cat(db: Session) -> None:
+    """Tính giá: thêm `phieu_thanh_phan.bleed_mm` + `khe_cat_mm` (mm) — bình bài đúng kích thước con.
+
+    bleed = tràn lề MỖI CẠNH con (0 = không tràn lề); khe_cat = khe giữa 2 con kề nhau
+    (0 = bình sát, cắt chung nhát). Sale nhập trên phiếu. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "phieu_thanh_phan")
+    for col in ("bleed_mm", "khe_cat_mm"):
+        if col not in cols:
+            db.execute(text(
+                f"ALTER TABLE phieu_thanh_phan ADD COLUMN {col} NUMERIC(10,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
 def _migrate_may_thiet_bi_ghi_chu_2(db: Session) -> None:
     """Máy: thêm cột Ghi chú 2 (`ghi_chu_2`) — TEXT nullable. Bảng dữ liệu xưởng có 2 cột
     ghi chú. No-op trên DB fresh / bảng chưa có / cột đã có."""
@@ -2263,6 +2292,18 @@ def _migrate_ptp_ghi_chu_ky_thuat(db: Session) -> None:
     db.commit()
 
 
+def _migrate_quote_item_dien_giai(db: Session) -> None:
+    """Diễn giải quy cách in ra báo giá: thêm `quote_items.dien_giai` (TEXT nullable) — máy bung từ
+    bài tính giá lúc tạo dòng, người soạn sửa được. Nullable nên không cần default.
+    No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "quote_items" not in insp.get_table_names():
+        return
+    if "dien_giai" not in _existing_columns(insp, "quote_items"):
+        db.execute(text("ALTER TABLE quote_items ADD COLUMN dien_giai TEXT"))
+    db.commit()
+
+
 def _migrate_routing_step_ghi_chu(db: Session) -> None:
     """② Fix routing copy: thêm `routing_step.ghi_chu` (VARCHAR nullable) + `quy_cach` (VARCHAR
     nullable) — ảnh chụp ghi chú kỹ thuật + quy cách BƯỚC copy từ `PhieuThanhPham` khi bung (tổ hết
@@ -3112,6 +3153,11 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0103_payroll_ot_night_extra_pct", _migrate_payroll_ot_night_extra_pct),
     ("0104_piece_rate_department_id", _migrate_piece_rate_department_id),
     ("0105_payroll_advance_max_pct", _migrate_payroll_advance_max_pct),
+    # Diễn giải quy cách dưới mỗi sản phẩm trên bản in báo giá (bung từ tính giá, sửa được).
+    ("0106_quote_item_dien_giai", _migrate_quote_item_dien_giai),
+    # Bình bài: nhíp GIẤY của máy (khác nhíp kẽm) + bleed/khe cắt trên phiếu tính giá.
+    ("0107_may_nhip_giay", _migrate_may_nhip_giay),
+    ("0108_ptg_bleed_khe_cat", _migrate_ptg_bleed_khe_cat),
 ]
 
 

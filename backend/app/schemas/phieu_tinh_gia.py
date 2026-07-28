@@ -100,6 +100,8 @@ class ThanhPhanIn(BaseModel):
     chua_nhip: float | None = None
     chua_duoi: float | None = None
     chua_ca_gay: float | None = None
+    bleed_mm: float | None = None
+    khe_cat_mm: float | None = None
     # In
     co_in: bool | None = None
     che_ban_loai: str | None = None
@@ -152,6 +154,8 @@ class ThanhPhanOut(BaseModel):
     chua_nhip: float
     chua_duoi: float
     chua_ca_gay: float
+    bleed_mm: float = 0
+    khe_cat_mm: float = 0
     # In
     co_in: bool
     che_ban_loai: str | None = None

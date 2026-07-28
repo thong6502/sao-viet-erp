@@ -951,9 +951,12 @@ def seed_sales_history(db: Session) -> None:
     # Giữ demo "1 báo giá nhiều dòng" (như BG26-0011 trước đây) — mỗi dòng khóa 1 phiếu tính giá.
     if an_phat is not None and sale1 is not None:
         created = _month_mid(0, day=14)
+        # Cột cuối = DIỄN GIẢI quy cách in dưới tên sản phẩm (mỗi dòng = 1 gạch đầu dòng trên bản in).
         ml_lines = [
-            ("Catalogue A4 công ty", "brochure", _CATALOGUE_SPEC, _CATALOGUE_SPEC_TEXT, 1000, 3_264_000),
-            ("Tờ rơi A5 khuyến mãi", "flyer", _FLYER_SPEC, _FLYER_SPEC_TEXT, 5000, 3_655_500),
+            ("Catalogue A4 công ty", "brochure", _CATALOGUE_SPEC, _CATALOGUE_SPEC_TEXT, 1000, 3_264_000,
+             "KT: 210×297mm\nGiấy Couche 150g\nIn 4 màu 2 mặt\nCán màng mờ · Gấp · Đóng ghim"),
+            ("Tờ rơi A5 khuyến mãi", "flyer", _FLYER_SPEC, _FLYER_SPEC_TEXT, 5000, 3_655_500,
+             "KT: 148×210mm\nGiấy Couche 120g\nIn 4 màu 2 mặt\nCắt thành phẩm"),
         ]
         q = Quote(
             quote_number=_seq.generate_code("quotation", at_date=created.date()),
@@ -970,7 +973,7 @@ def seed_sales_history(db: Session) -> None:
         db.flush()
         q.current_version_id = qv.id
         sub = disc = vat = fin = tc = 0.0
-        for i, (pname, ptype, spec, stext, qty, cost) in enumerate(ml_lines, start=1):
+        for i, (pname, ptype, spec, stext, qty, cost, dgiai) in enumerate(ml_lines, start=1):
             est, opt = _mk_estimate(an_phat, sale1.id, pname, ptype, spec, qty, cost, created)
             if i == 1:
                 q.estimate_id = est.id
@@ -979,6 +982,7 @@ def seed_sales_history(db: Session) -> None:
             db.add(QuoteItem(
                 quote_version_id=qv.id, estimate_id=est.id, estimate_option_id=opt.id,
                 line_no=i, product_type=ptype, product_name=pname, product_spec_text=stext,
+                dien_giai=dgiai,
                 product_spec_snapshot_json=spec, quantity=qty, unit="cái",
                 total_cost_snapshot=cost, margin_percent=12.0, selling_price=selling,
                 unit_price=selling / qty, discount_amount=0.0, vat_percent=10.0,

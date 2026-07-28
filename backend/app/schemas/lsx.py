@@ -51,12 +51,13 @@ class PreviewLine(BaseModel):
     phieu_thanh_phan_id: int | None = None
     ptg_ma: str | None = None
     # Số của engine chạy lại theo SL của ĐƠN (không lấy số lúc tính giá).
-    bu_hao_to: int = 0
-    so_to_ke_hoach: int = 0
-    so_to_nguyen: int = 0
-    so_con: int = 1
-    so_kem: int = 0
-    so_luot: int = 0
+    # None = CHƯA tính được (dòng chưa có bài tính giá) → UI hiện "—", KHÔNG bày số 0 giả.
+    bu_hao_to: int | None = None
+    so_to_ke_hoach: int | None = None
+    so_to_nguyen: int | None = None
+    so_con: int | None = None
+    so_kem: int | None = None
+    so_luot: int | None = None
     routing: list[PreviewRouting] = Field(default_factory=list)
     quy_cach: dict | None = None
     thieu: list[str] = Field(default_factory=list)

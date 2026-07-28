@@ -196,6 +196,10 @@ class QuoteItem(Base):
     product_type: Mapped[str] = mapped_column(String(50), nullable=False)
     product_name: Mapped[str] = mapped_column(String(255), nullable=False)
     product_spec_text: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Diễn giải quy cách IN RA BÁO GIÁ (mỗi dòng = 1 gạch đầu dòng: khổ · giấy · in · gia công).
+    # Máy bung sẵn từ bài tính giá lúc TẠO dòng rồi ĐÔNG CỨNG ở đây — sửa PTG về sau không đổi bản
+    # đã gửi khách. Người soạn báo giá sửa/bổ sung được (thứ máy không suy ra nổi: bồi sóng, đục lỗ…).
+    dien_giai: Mapped[str | None] = mapped_column(Text, nullable=True)
     product_spec_snapshot_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     
     quantity: Mapped[int] = mapped_column(Integer, nullable=False)

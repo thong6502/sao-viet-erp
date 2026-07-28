@@ -37,6 +37,25 @@ const cdName = (r: Row): string => (r.ten_hien_thi ? String(r.ten_hien_thi) : St
 const vtName = (r: Row): string => `${r.ma ? String(r.ma) + " · " : ""}${String(r.ten)}`;
 const numOf = (v: unknown): number => (typeof v === "number" ? v : Number(v) || 0);
 
+/** Chừa TÁCH THEO CHIỀU — khớp `_compute_one` của engine (đừng để hai bên lệch nhau).
+ *
+ *  · DÀI  ← nhíp GIẤY (cạnh nạp, 1 đầu) + đuôi/thanh màu
+ *  · RỘNG ← lề hông ×2 (hai bên)
+ *  · xén / cả gáy: chưa gán được chiều → cộng đều cả hai.
+ *
+ * Ô `chua_*` của phiếu là ĐÈ thủ công; để trống thì lấy theo danh mục máy. `gripper_mm` là nhíp
+ * KẼM — KHÔNG dùng ở đây (dùng nhầm là hụt 14-19% số con). */
+function chuaTheoChieu(
+  c: { chua_xen: number; chua_tay_ke: number; chua_nhip: number; chua_duoi: number; chua_ca_gay: number },
+  may: Row | null | undefined,
+): { dai: number; rong: number } {
+  const nhip = c.chua_nhip || numOf(may?.nhip_giay_mm);
+  const duoi = c.chua_duoi || numOf(may?.duoi_thang_mau_mm);
+  const leHong = c.chua_tay_ke || numOf(may?.le_hong_mm);
+  const deu = c.chua_xen + c.chua_ca_gay;
+  return { dai: nhip + duoi + deu, rong: leHong * 2 + deu };
+}
+
 const LOAI_TP: Record<string, string> = {
   to_roi: "Tờ rời",
   than: "Thân",
@@ -169,6 +188,8 @@ interface EditableComponent {
   chua_nhip: number;
   chua_duoi: number;
   chua_ca_gay: number;
+  bleed_mm: number;
+  khe_cat_mm: number;
   // Kỹ thuật in ② — In/kẽm nay là CÔNG ĐOẠN (chuỗi), không còn field cứng ở đây.
   quy_cach_in: string; // mot_mat | hai_mat (AB) | tu_tro | tro_nhip
   kho_in_dai: number; // mm
@@ -232,6 +253,8 @@ function blankComponent(ten = ""): EditableComponent {
     chua_nhip: 0,
     chua_duoi: 0,
     chua_ca_gay: 0,
+    bleed_mm: 0,
+    khe_cat_mm: 0,
     quy_cach_in: "mot_mat",
     kho_in_dai: 0,
     kho_in_rong: 0,
@@ -301,6 +324,8 @@ function fromComponent(c: ThanhPhanOut): EditableComponent {
     chua_nhip: c.chua_nhip ?? 0,
     chua_duoi: c.chua_duoi ?? 0,
     chua_ca_gay: c.chua_ca_gay ?? 0,
+    bleed_mm: c.bleed_mm ?? 0,
+    khe_cat_mm: c.khe_cat_mm ?? 0,
     quy_cach_in: c.quy_cach_in ?? "mot_mat",
     kho_in_dai: c.kho_in_dai ?? 0,
     kho_in_rong: c.kho_in_rong ?? 0,
@@ -344,6 +369,8 @@ function toThanhPhanIn(c: EditableComponent): ThanhPhanIn {
     chua_nhip: c.chua_nhip,
     chua_duoi: c.chua_duoi,
     chua_ca_gay: c.chua_ca_gay,
+    bleed_mm: c.bleed_mm,
+    khe_cat_mm: c.khe_cat_mm,
     quy_cach_in: c.quy_cach_in,
     kho_in_dai: c.kho_in_dai,
     kho_in_rong: c.kho_in_rong,
@@ -533,7 +560,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   // Số [Hiện] LIVE của sản phẩm đang mở modal (gọi /preview — engine thật, không ghi DB).
   const [editMeta, setEditMeta] = useState<TinhGiaComponentMeta | null>(null);
   // Bình bài NGHỊCH: uid → true khi gõ Số con mà KHÔNG xếp được đúng N trong khổ giấy nguyên.
-  const [nghichWarn, setNghichWarn] = useState<Record<string, boolean>>({});
 
   // --- Kết quả ---
   const [result, setResult] = useState<TinhGiaPreviewOut | null>(null);
@@ -668,24 +694,19 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     [giays],
   );
 
-  // Chọn máy → chừa NHÍP theo máy (`gripper_mm`): bình bài trên KHỔ GIẤY IN − nhíp. KHÔNG ghi đè
-  // khổ tờ in bằng vùng in máy nữa (khổ tờ in = khổ giấy in, lấy từ giấy). Giữ con_auto.
+  // Chọn máy → CHỈ gán may_id. KHÔNG copy thông số máy vào phiếu nữa: engine đọc thẳng
+  // `nhip_giay_mm` / `le_hong_mm` / `duoi_thang_mau_mm` từ danh mục máy khi bình bài.
+  // (Bản cũ copy `gripper_mm` = nhíp KẼM ~44mm vào `chua_nhip` làm chừa GIẤY rồi trừ cả hai
+  //  chiều → hụt 14-19% số con. Các ô `chua_*` giờ chỉ còn là ĐÈ thủ công, trống = theo máy.)
   const onPickMay = useCallback(
     (uid: string, mid: number | null) => {
       setComps((cs) =>
-        cs.map((c) => {
-          if (c.uid !== uid) return c;
-          if (mid === null) return { ...c, may_id: null };
-          const m = mays.find((x) => x.id === mid);
-          if (!m) return { ...c, may_id: mid };
-          const patch: Partial<EditableComponent> = { may_id: mid, con_auto: true };
-          const nhip = numOf(m.gripper_mm);
-          if (nhip) patch.chua_nhip = nhip;   // chừa nhíp theo máy
-          return { ...c, ...patch };
-        }),
+        cs.map((c) =>
+          c.uid === uid ? { ...c, may_id: mid, ...(mid === null ? {} : { con_auto: true }) } : c,
+        ),
       );
     },
-    [mays],
+    [],
   );
 
   const addFin = useCallback((
@@ -736,17 +757,23 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
   const binhBaiSig = useMemo(
     () =>
       JSON.stringify(
-        comps.map((c) => ({
-          u: c.uid,
-          a: c.con_auto,
-          kd: c.kho_in_dai,
-          kr: c.kho_in_rong,
-          d: c.dai_thanh_pham,
-          r: c.rong_thanh_pham,
-          ch: c.chua_xen + c.chua_tay_ke + c.chua_nhip + c.chua_duoi + c.chua_ca_gay,
-        })),
+        comps.map((c) => {
+          const ch = chuaTheoChieu(c, c.may_id ? mays.find((x) => x.id === c.may_id) : null);
+          return {
+            u: c.uid,
+            a: c.con_auto,
+            kd: c.kho_in_dai,
+            kr: c.kho_in_rong,
+            d: c.dai_thanh_pham,
+            r: c.rong_thanh_pham,
+            cd: ch.dai,
+            cr: ch.rong,
+            bl: c.bleed_mm,
+            ke: c.khe_cat_mm,
+          };
+        }),
       ),
-    [comps],
+    [comps, mays],
   );
   useEffect(() => {
     if (!token) return;
@@ -757,7 +784,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       kr: number;
       d: number;
       r: number;
-      ch: number;
+      cd: number;
+      cr: number;
+      bl: number;
+      ke: number;
     }[];
     const targets = rows.filter((x) => x.a && x.kd > 0 && x.kr > 0 && x.d > 0 && x.r > 0);
     if (targets.length === 0) return;
@@ -769,7 +799,10 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
             kho_in_rong: x.kr,
             dai_thanh_pham: x.d,
             rong_thanh_pham: x.r,
-            chua_mm: x.ch,
+            chua_dai_mm: x.cd,
+            chua_rong_mm: x.cr,
+            bleed_mm: x.bl,
+            khe_cat_mm: x.ke,
           })
           .then(({ con }) => {
             if (con >= 1)
@@ -780,71 +813,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
     }, 300);
     return () => window.clearTimeout(h);
   }, [binhBaiSig, token]);
-
-  // ---- Bình bài NGHỊCH: chủ động gõ Số con (con_auto=false) → suy ra khổ tờ in ÍT PHẾ nhất ----
-  // Cần khổ giấy nguyên làm mốc; chưa có nguyên → bỏ qua (không tính). Không xếp được đúng N → báo đỏ.
-  const binhBaiNghichSig = useMemo(
-    () =>
-      JSON.stringify(
-        comps.map((c) => {
-          const m = c.may_id ? mays.find((x) => x.id === c.may_id) : null;
-          return {
-            u: c.uid,
-            a: c.con_auto,
-            n: c.so_con,
-            d: c.dai_thanh_pham,
-            r: c.rong_thanh_pham,
-            knd: c.kho_nguyen_dai,
-            knr: c.kho_nguyen_rong,
-            mvd: m ? numOf(m.vung_in_dai) || numOf(m.kho_max_dai) : 0,
-            mvr: m ? numOf(m.vung_in_rong) || numOf(m.kho_max_rong) : 0,
-            ch: c.chua_xen + c.chua_tay_ke + c.chua_nhip + c.chua_duoi + c.chua_ca_gay,
-          };
-        }),
-      ),
-    [comps, mays],
-  );
-  useEffect(() => {
-    if (!token) return;
-    const rows = JSON.parse(binhBaiNghichSig) as {
-      u: string; a: boolean; n: number; d: number; r: number;
-      knd: number; knr: number; mvd: number; mvr: number; ch: number;
-    }[];
-    // Chiều NGHỊCH: người dùng tự gõ con (a=false), có khổ nguyên + khổ SP + con hợp lệ.
-    const targets = rows.filter((x) => !x.a && x.n >= 1 && x.d > 0 && x.r > 0 && x.knd > 0 && x.knr > 0);
-    if (targets.length === 0) return;
-    const h = window.setTimeout(() => {
-      targets.forEach((x) => {
-        api.tinhGia
-          .binhBaiNghich(token, {
-            con: x.n,
-            dai_thanh_pham: x.d,
-            rong_thanh_pham: x.r,
-            chua_mm: x.ch,
-            kho_nguyen_dai: x.knd,
-            kho_nguyen_rong: x.knr,
-            kho_may_dai: x.mvd,
-            kho_may_rong: x.mvr,
-          })
-          .then((res) => {
-            if (res.con >= 1) {
-              setNghichWarn((w) => (w[x.u] ? { ...w, [x.u]: false } : w));
-              setComps((cs) =>
-                cs.map((c) =>
-                  c.uid === x.u && !c.con_auto
-                    ? { ...c, kho_in_dai: res.kho_in_dai, kho_in_rong: res.kho_in_rong }
-                    : c,
-                ),
-              );
-            } else {
-              setNghichWarn((w) => ({ ...w, [x.u]: true })); // không xếp được đúng N → báo đỏ
-            }
-          })
-          .catch(() => {});
-      });
-    }, 300);
-    return () => window.clearTimeout(h);
-  }, [binhBaiNghichSig, token]);
 
   // ---- Số tờ LIVE trong modal: gọi /preview cho SP đang mở (debounce) → editMeta ----
   const phieuSL = result?.meta?.so_luong ?? 0;
@@ -861,6 +829,7 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
       ma: c.so_mau_a, mb: c.so_mau_b, bu: c.bu_hao_so_to, hao: c.hao_so_to,
       tbh: c.tinh_bu_hao_cd,
       ch: c.chua_xen + c.chua_tay_ke + c.chua_nhip + c.chua_duoi + c.chua_ca_gay,
+      bl: c.bleed_mm, ke: c.khe_cat_mm,
       gid: c.giay_id, may: c.may_id, cds: c.thanh_phams.map((f) => f.cong_doan_id),
     });
   }, [editingComp, phieuSL]);
@@ -1361,7 +1330,6 @@ export function PhieuTinhGiaDetailView({ id, onBack, navigate }: {
           removeFin={removeFin}
           addVt={addVt}
           removeVt={removeVt}
-          nghichWarn={!!nghichWarn[editing.uid]}
         />
       ) : null}
 
@@ -1396,7 +1364,6 @@ function ComponentModal({
   removeFin,
   addVt,
   removeVt,
-  nghichWarn,
 }: {
   comp: EditableComponent;
   idx: number;
@@ -1407,7 +1374,6 @@ function ComponentModal({
   vatTus: Row[];
   liveMeta: TinhGiaComponentMeta | null;
   phieuSL: number;
-  nghichWarn: boolean;   // gõ Số con mà không xếp được đúng N trong khổ giấy nguyên
   onClose: () => void;
   onRemove: () => void;
   patchComp: (uid: string, patch: Partial<EditableComponent>) => void;
@@ -1421,6 +1387,7 @@ function ComponentModal({
 }) {
   const isToRoi = c.loai_thanh_phan === "to_roi";
   const chuaTong = c.chua_xen + c.chua_tay_ke + c.chua_nhip + c.chua_duoi + c.chua_ca_gay;
+  const chuaCh = chuaTheoChieu(c, c.may_id ? mays.find((x) => x.id === c.may_id) : null);
   // Bình bài chỉ tính được khi có ĐỦ khổ thành phẩm ③ + khổ tờ in ② (khổ in tự lấy từ giấy/máy).
   const canBinhBai =
     c.dai_thanh_pham > 0 && c.rong_thanh_pham > 0 && c.kho_in_dai > 0 && c.kho_in_rong > 0;
@@ -1562,6 +1529,26 @@ function ComponentModal({
                     </div>
                   </>
                 )}
+                {/* Bleed + khe cắt: cộng vào kích thước con khi bình bài. Hỏi khách/kỹ thuật;
+                    không biết thì để 0 — engine bình sát như trước. */}
+                <div className="tg-span-6">
+                  <NumField
+                    label="Bleed (tràn lề)"
+                    value={c.bleed_mm}
+                    onChange={(n) => patchComp(c.uid, { bleed_mm: n })}
+                    opt="mỗi cạnh con · 0 = không tràn lề"
+                    suffix="mm"
+                  />
+                </div>
+                <div className="tg-span-6">
+                  <NumField
+                    label="Khe cắt giữa con"
+                    value={c.khe_cat_mm}
+                    onChange={(n) => patchComp(c.uid, { khe_cat_mm: n })}
+                    opt="0 = bình sát, cắt chung nhát"
+                    suffix="mm"
+                  />
+                </div>
               </div>
             </section>
 
@@ -1722,20 +1709,11 @@ function ComponentModal({
                       })
                     }
                   />
-                  {!c.con_auto &&
-                    (nghichWarn ? (
-                      <span className="tg-hint" style={{ marginTop: "2px", color: "#c0392b" }}>
-                        Không xếp được đúng {c.so_con} con trong khổ giấy nguyên — giữ nguyên khổ tờ in.
-                      </span>
-                    ) : c.kho_nguyen_dai > 0 && c.kho_nguyen_rong > 0 ? (
-                      <span className="tg-hint" style={{ marginTop: "2px" }}>
-                        Khổ tờ in tự tính theo số con (ít phế giấy nhất).
-                      </span>
-                    ) : (
-                      <span className="tg-hint" style={{ marginTop: "2px" }}>
-                        Nhập khổ giấy nguyên ① để tự tính khổ tờ in theo số con.
-                      </span>
-                    ))}
+                  {!c.con_auto && (
+                    <span className="tg-hint" style={{ marginTop: "2px" }}>
+                      Đang ĐÈ số con — engine không bình bài lại. Xoá ô để tính tự động.
+                    </span>
+                  )}
                 </div>
                 <div className={c.quy_cach_in === "hai_mat" ? "tg-span-6" : "tg-span-12"}>
                   <NumField
@@ -1905,6 +1883,10 @@ function ComponentModal({
                 daiTP={c.dai_thanh_pham}
                 rongTP={c.rong_thanh_pham}
                 chuaMm={chuaTong}
+                chuaDai={chuaCh.dai}
+                chuaRong={chuaCh.rong}
+                bleedMm={c.bleed_mm}
+                kheCatMm={c.khe_cat_mm}
                 soCon={c.so_con}
               />
             </div>

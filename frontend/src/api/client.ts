@@ -609,12 +609,13 @@ export interface LsxPreviewLine {
   don_vi_tinh: string;
   phieu_thanh_phan_id: number | null;
   ptg_ma: string | null;
-  bu_hao_to: number;
-  so_to_ke_hoach: number;
-  so_to_nguyen: number;
-  so_con: number;
-  so_kem: number;
-  so_luot: number;
+  // null = chưa tính được (dòng chưa có bài tính giá) → hiện "—", không phải số 0 thật.
+  bu_hao_to: number | null;
+  so_to_ke_hoach: number | null;
+  so_to_nguyen: number | null;
+  so_con: number | null;
+  so_kem: number | null;
+  so_luot: number | null;
   routing: LsxPreviewRouting[];
   quy_cach: Record<string, unknown> | null;
   thieu: string[];
@@ -1419,7 +1420,13 @@ export interface BinhBaiIn {
   kho_in_rong: number;
   dai_thanh_pham: number;
   rong_thanh_pham: number;
-  chua_mm: number;
+  /** Chừa GỘP — trừ đều mỗi chiều. Dùng khi KHÔNG tách chiều (đường cũ). */
+  chua_mm?: number;
+  /** Chừa TÁCH CHIỀU (ưu tiên hơn `chua_mm`): dài ← nhíp giấy + đuôi; rộng ← lề hông ×2. */
+  chua_dai_mm?: number;
+  chua_rong_mm?: number;
+  bleed_mm?: number;
+  khe_cat_mm?: number;
 }
 export interface BinhBaiOut {
   con: number;
@@ -1428,35 +1435,17 @@ export interface BinhBaiOut {
   rotated: boolean;
   usable_dai: number;
   usable_rong: number;
+  /** Chừa engine ĐÃ trừ, theo từng chiều — FE vẽ sơ đồ theo số này, đừng tự tính lại. */
+  chua_dai: number;
+  chua_rong: number;
+  /** Kích thước 1 con ĐÃ cộng bleed (= thành phẩm + 2×bleed). */
+  piece_dai: number;
+  piece_rong: number;
   kho_in_dai: number;
   kho_in_rong: number;
   dai_tp: number;
   rong_tp: number;
   hieu_suat: number;
-}
-
-/** Bình bài NGHỊCH (POST /api/tinh-gia/binh-bai-nghich) — số con ĐÚNG N → khổ tờ in ít phế nhất.
- *  Yêu cầu khổ giấy nguyên > 0 (caller KHÔNG gọi khi nguyên trống). con=0 = không xếp được đúng N. */
-export interface BinhBaiNghichIn {
-  con: number;
-  dai_thanh_pham: number;
-  rong_thanh_pham: number;
-  chua_mm: number;
-  kho_nguyen_dai: number;
-  kho_nguyen_rong: number;
-  kho_may_dai?: number;
-  kho_may_rong?: number;
-}
-export interface BinhBaiNghichOut {
-  con: number;          // 0 = không xếp được đúng N mà lọt tờ nguyên
-  kho_in_dai: number;
-  kho_in_rong: number;
-  rows: number;
-  cols: number;
-  rotated: boolean;
-  so_to_in: number;     // số tờ in xả được từ 1 tờ giấy nguyên
-  hieu_suat: number;
-  util_pct: number;     // % diện tích tờ nguyên thành thành phẩm
 }
 
 // --- Phiếu tính giá (PERSISTED costing tickets) — master/detail của "Tính giá" ---
@@ -1529,6 +1518,10 @@ export interface ThanhPhanOut {
   chua_nhip: number;
   chua_duoi: number;
   chua_ca_gay: number;
+  /** Tràn lề MỖI CẠNH con (0 = không tràn lề) — con để bình = thành phẩm + 2×bleed. */
+  bleed_mm: number;
+  /** Khe giữa 2 con kề nhau (0 = bình sát, cắt chung nhát). n con chỉ có n−1 khe. */
+  khe_cat_mm: number;
   // Kỹ thuật in
   co_in: boolean;
   che_ban_loai: string | null;
@@ -1629,6 +1622,8 @@ export interface ThanhPhanIn {
   chua_nhip?: number;
   chua_duoi?: number;
   chua_ca_gay?: number;
+  bleed_mm?: number;
+  khe_cat_mm?: number;
   co_in?: boolean;
   che_ban_loai?: string | null;
   che_ban_don_gia?: number;
@@ -1749,6 +1744,8 @@ export interface QuoteItemDetail {
   product_type: string;
   product_name: string;
   product_spec_text: string | null;
+  /** Diễn giải quy cách in dưới tên SP — mỗi dòng = 1 gạch đầu dòng. Bung từ tính giá, sửa được. */
+  dien_giai: string | null;
   quantity: number;
   unit: string;
   total_cost_snapshot: number;
@@ -1844,6 +1841,8 @@ export interface QuoteItemUpdateInput {
   vat_percent?: number;
   rounding?: string;
   note?: string | null;
+  /** Diễn giải quy cách in dưới tên SP. BE dump đủ field → không gửi = XOÁ; luôn echo giá trị cũ. */
+  dien_giai?: string | null;
 }
 
 export interface QuotationUpdateInput {
@@ -4806,13 +4805,6 @@ export const api = {
   tinhGia: {
     binhBai(token: string, body: BinhBaiIn): Promise<BinhBaiOut> {
       return authed<BinhBaiOut>("/api/tinh-gia/binh-bai", token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    /** Bình bài NGHỊCH: số con ĐÚNG N → khổ tờ in ít phế nhất (xả từ tờ giấy nguyên). */
-    binhBaiNghich(token: string, body: BinhBaiNghichIn): Promise<BinhBaiNghichOut> {
-      return authed<BinhBaiNghichOut>("/api/tinh-gia/binh-bai-nghich", token, {
         method: "POST",
         body: JSON.stringify(body),
       });

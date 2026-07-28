@@ -537,6 +537,9 @@ function QuotationDetailView({
   const [lineDraft, setLineDraft] = useState<Record<number, number>>({});
   // Chiết khấu (đồng) từng dòng khi đang gõ — override tạm để preview trước khi persist.
   const [discDraft, setDiscDraft] = useState<Record<number, number>>({});
+  // Diễn giải quy cách đang sửa: id dòng đang mở ô + nội dung gõ dở (lưu khi rời ô).
+  const [dgOpen, setDgOpen] = useState<number | null>(null);
+  const [dgDraft, setDgDraft] = useState<string>("");
   // P3: danh sách khách để CHỌN/ĐỔI khách ngay ở detail (khi còn nháp) — auto-fill lại liên hệ + ĐC giao.
   const [customers, setCustomers] = useState<{ id: number; name: string; code: string }[]>([]);
 
@@ -649,7 +652,7 @@ function QuotationDetailView({
   // Patch theo dòng: bỏ trống field nào thì GIỮ giá trị hiện tại của dòng đó (dùng ?? để 0 vẫn áp).
   // Header lấy từ edit-state (không clobber ghi chú/điều khoản đang sửa chưa lưu).
   async function persistItems(
-    items: { id: number; margin_percent?: number; vat_percent?: number; discount_amount?: number; rounding?: string; note?: string | null }[],
+    items: { id: number; margin_percent?: number; vat_percent?: number; discount_amount?: number; rounding?: string; note?: string | null; dien_giai?: string | null }[],
   ) {
     if (!token || !d) return;
     setBusy(true);
@@ -670,6 +673,8 @@ function QuotationDetailView({
             vat_percent: patch?.vat_percent ?? it.vat_percent,
             rounding: patch?.rounding ?? "no_rounding",
             note: patch?.note !== undefined ? patch.note : it.note,
+            // Payload dump đủ field ở BE → phải echo giá trị cũ, không gửi = XOÁ diễn giải.
+            dien_giai: patch?.dien_giai !== undefined ? patch.dien_giai : it.dien_giai,
           };
         }),
       });
@@ -690,6 +695,15 @@ function QuotationDetailView({
     if (!editable) return;
     const v = Math.max(0, Math.min(100, val));
     persistItems([{ id: itemId, margin_percent: v }]);
+  }
+  /** Lưu diễn giải quy cách của 1 dòng (rời ô mới lưu). Không đổi thì bỏ qua — khỏi ghi nhật ký thừa. */
+  function commitDienGiai(itemId: number) {
+    setDgOpen(null);
+    if (!editable || !d) return;
+    const cur = d.items.find((it) => it.id === itemId)?.dien_giai ?? "";
+    const next = dgDraft.trim();
+    if (next === cur.trim()) return;
+    persistItems([{ id: itemId, dien_giai: next || null }]);
   }
   // VAT áp CHUNG mọi dòng (VN chuẩn 0/8/10%).
   function commitVat(val: number) {
@@ -979,6 +993,38 @@ function QuotationDetailView({
                       <td>
                         <span className="pname">{it.product_name}</span>
                         {declined && <span className="declined-badge">Khách không lấy</span>}
+                        {/* Diễn giải quy cách IN cho khách — máy bung từ bài tính giá, sửa tại chỗ. */}
+                        {dgOpen === it.id ? (
+                          <textarea
+                            className="dg-ta"
+                            autoFocus
+                            rows={4}
+                            value={dgDraft}
+                            placeholder={"Mỗi dòng 1 ý, ví dụ:\nKT: 350×215mm\nGiấy kraft 200g\nIn 1 màu"}
+                            onChange={(e) => setDgDraft(e.target.value)}
+                            onBlur={() => commitDienGiai(it.id)}
+                            onKeyDown={(e) => { if (e.key === "Escape") setDgOpen(null); }}
+                          />
+                        ) : it.dien_giai ? (
+                          <ul className="dg-list">
+                            {it.dien_giai.split("\n").filter(Boolean).map((ln, k) => <li key={k}>{ln}</li>)}
+                            {editable && (
+                              <li className="dg-edit">
+                                <button type="button" onClick={() => { setDgDraft(it.dien_giai ?? ""); setDgOpen(it.id); }}>
+                                  Sửa diễn giải
+                                </button>
+                              </li>
+                            )}
+                          </ul>
+                        ) : editable ? (
+                          <button
+                            type="button"
+                            className="dg-add"
+                            onClick={() => { setDgDraft(""); setDgOpen(it.id); }}
+                          >
+                            + Thêm diễn giải
+                          </button>
+                        ) : null}
                       </td>
                       <td className="num">{it.quantity.toLocaleString("vi-VN")}</td>
                       <td className="num muted">{numf(c.cost)}</td>
@@ -1625,7 +1671,15 @@ function QuotationPrintModal({
                 <tr key={it.id}>
                   <td className="c">{i + 1}</td>
                   <td className="c">{it.estimate_number ?? "—"}</td>
-                  <td><span className="q-prod">{it.product_name}</span>{it.note ? `, ${it.note}` : ""}</td>
+                  <td>
+                    <span className="q-prod">{it.product_name}</span>{it.note ? `, ${it.note}` : ""}
+                    {/* Diễn giải quy cách: gạch đầu dòng dưới tên SP (mỗi dòng dữ liệu = 1 mục). */}
+                    {it.dien_giai && (
+                      <ul className="q-dg">
+                        {it.dien_giai.split("\n").filter(Boolean).map((ln, k) => <li key={k}>{ln}</li>)}
+                      </ul>
+                    )}
+                  </td>
                   <td className="c">{it.product_spec_text ?? "—"}</td>
                   <td className="c">{it.unit}</td>
                   <td className="c">{it.quantity.toLocaleString("vi-VN")}</td>

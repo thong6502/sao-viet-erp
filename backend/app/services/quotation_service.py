@@ -44,6 +44,64 @@ from ..services.exception_gate import (
 from ..services.sequence_service import SequenceService
 
 
+_QUY_CACH_IN_NHAN = {
+    "mot_mat": "1 mặt",
+    "hai_mat": "2 mặt",
+    "tu_tro": "trở tự",
+    "tro_nhip": "trở nhíp",
+}
+
+
+def dien_giai_tu_thanh_phan(db, tp) -> str | None:
+    """Bung DIỄN GIẢI quy cách (in ra báo giá) từ 1 'sản phẩm' của bài tính giá.
+
+    Mỗi dòng = 1 gạch đầu dòng trên bản in: khổ · giấy · in · gia công. Là ĐỀ XUẤT — người soạn
+    báo giá sửa/bổ sung được (máy không suy ra nổi bồi sóng, đục lỗ, cột thành phẩm…). Thiếu dữ
+    liệu thì BỎ dòng đó, KHÔNG bịa (dòng trống trên báo giá gửi khách tệ hơn là không có dòng).
+    """
+    from ..models.vat_lieu_kho import GiayNguyen
+
+    dong: list[str] = []
+
+    # Khổ thành phẩm: ưu tiên số đo thật; không có thì lấy nhãn tự do người dùng gõ.
+    dai, rong = int(getattr(tp, "dai_thanh_pham", 0) or 0), int(getattr(tp, "rong_thanh_pham", 0) or 0)
+    if dai and rong:
+        dong.append(f"KT: {dai}×{rong}mm")
+    elif getattr(tp, "kho_thanh_pham", None):
+        dong.append(f"KT: {tp.kho_thanh_pham}")
+
+    # Giấy: tên + định lượng từ danh mục. Khách cấp giấy thì nói rõ (ảnh hưởng giá — khách cần biết).
+    if getattr(tp, "giay_id", None) is not None:
+        giay = db.get(GiayNguyen, tp.giay_id)
+        if giay is not None:
+            g = giay.ten or ""
+            if giay.gsm:
+                g = f"{g} {giay.gsm}g".strip()
+            if g:
+                if getattr(tp, "nguon_giay", None) == "khach":
+                    g += " (khách cấp)"
+                dong.append(g)
+
+    # In: số màu + quy cách. 2 mặt khác số màu → "4+1 màu"; bằng nhau → "4 màu".
+    if getattr(tp, "co_in", False):
+        a, b = int(getattr(tp, "so_mau_a", 0) or 0), int(getattr(tp, "so_mau_b", 0) or 0)
+        mau = f"{a}+{b}" if b and b != a else (str(a) if a else "")
+        if mau:
+            nhan = _QUY_CACH_IN_NHAN.get(getattr(tp, "quy_cach_in", None) or "", "")
+            dong.append(f"In {mau} màu {nhan}".strip())
+
+    # Gia công sau in: chuỗi công đoạn theo đúng thứ tự người tính giá đã khai.
+    gia_cong = [
+        (r.ten or "").strip()
+        for r in sorted(getattr(tp, "thanh_phams", []) or [], key=lambda r: (r.thu_tu or 0, r.id or 0))
+        if (r.ten or "").strip()
+    ]
+    if gia_cong:
+        dong.append(" · ".join(gia_cong))
+
+    return "\n".join(dong) or None
+
+
 class QuotationError(Exception):
     """Base for quotation domain errors."""
     pass
@@ -623,6 +681,8 @@ class QuotationService:
                 product_type=tp.loai_thanh_phan or "san_pham",
                 product_name=tp.ten or ptg.ten_san_pham or f"Sản phẩm {i}",
                 product_spec_text=tp.kho_thanh_pham,
+                # Đông cứng lúc tạo: sửa PTG về sau KHÔNG đổi bản đã gửi khách (đồng bộ → version mới).
+                dien_giai=dien_giai_tu_thanh_phan(self.quotations.db, tp),
                 quantity=qty,
                 unit=(getattr(tp, "don_vi_tinh", None) or "cái"),   # ĐVT chảy từ sản phẩm PTG
                 total_cost_snapshot=cost,
@@ -927,6 +987,7 @@ class QuotationService:
                     db_item.final_amount = pricing["final_amount"]
                     db_item.note = ip.get("note", db_item.note)
                     db_item.po_code = ip.get("po_code", db_item.po_code)
+                    db_item.dien_giai = ip.get("dien_giai", db_item.dien_giai)
 
                     subtotal += pricing["selling_price"]
                     discount += pricing["discount_amount"]
@@ -1171,6 +1232,7 @@ class QuotationService:
                     product_type=item.product_type,
                     product_name=item.product_name,
                     product_spec_text=item.product_spec_text,
+                    dien_giai=item.dien_giai,
                     product_spec_snapshot_json=item.product_spec_snapshot_json,
                     quantity=item.quantity,
                     unit=item.unit,

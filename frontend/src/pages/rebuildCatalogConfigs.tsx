@@ -78,6 +78,19 @@ export const CFG_MAY: CatalogConfig = {
     { key: "toc_do", label: "Tốc độ",
       render: (r) => (r.toc_do ? `${Number(r.toc_do).toLocaleString("vi-VN")} tờ/giờ` : "—") },
   ],
+  // Lọc theo Nhóm máy. `dynamic` vì ô này gõ TỰ DO: nhóm chủ xưởng tự đặt vẫn có tab riêng,
+  // không bị rơi ra ngoài như khi khai cứng 5 giá trị gợi ý.
+  facet: {
+    key: "loai_may",
+    values: [
+      { value: "Máy in", label: "Máy in" },
+      { value: "In ngoài", label: "In ngoài" },
+      { value: "Cán màng / UV", label: "Cán màng / UV" },
+      { value: "Bồi", label: "Bồi" },
+      { value: "Bế", label: "Bế" },
+    ],
+    dynamic: true,
+  },
   fields: [
     // ── Nhóm máy (chữ gợi ý + tự do) ──────────────────────────────────────────
     { key: "loai_may", label: "Nhóm máy", type: "suggest", required: true, group: "Phân loại",
@@ -98,6 +111,16 @@ export const CFG_MAY: CatalogConfig = {
     { key: "gripper_mm", label: "Nhíp kẽm (mm)", type: "number", group: "Khổ kẽm & vùng in",
       showIf: (f) => isMayIn(f.loai_may),
       hint: "Mép nhíp trên kẽm, vd 44 mm" },
+    // ── Chừa trên TỜ GIẤY (khác nhíp kẽm ở trên) → engine tính giá trừ khi bình bài ────────────
+    { key: "nhip_giay_mm", label: "Nhíp giấy (mm)", type: "number", group: "Chừa tờ in",
+      showIf: (f) => isMayIn(f.loai_may),
+      hint: "Cạnh máy KẸP TỜ GIẤY, thường 8–12 mm. KHÁC nhíp kẽm (~44mm) ở trên — trừ vào chiều DÀI tờ in" },
+    { key: "le_hong_mm", label: "Lề hông (mm)", type: "number", group: "Chừa tờ in",
+      showIf: (f) => isMayIn(f.loai_may),
+      hint: "Trừ MỖI BÊN chiều rộng tờ in" },
+    { key: "duoi_thang_mau_mm", label: "Đuôi + thanh màu (mm)", type: "number", group: "Chừa tờ in",
+      showIf: (f) => isMayIn(f.loai_may),
+      hint: "Cuối tờ, trừ vào chiều DÀI" },
     // ── Vùng in lớn nhất ───────────────────────────────────────────────────────
     { key: "vung_in_rong", label: "Vùng in max — rộng (mm)", type: "number", group: "Khổ kẽm & vùng in",
       showIf: (f) => isMayIn(f.loai_may),

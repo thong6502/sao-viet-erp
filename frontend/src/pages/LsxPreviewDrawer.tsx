@@ -299,7 +299,7 @@ function PreviewRow({
       <td className="khsx-num">{num(line.so_to_nguyen)}</td>
       <td className="khsx-num">{num(line.so_con)}</td>
       <td className="khsx-num">
-        {num(line.so_kem)} · {num(line.so_luot)}
+        {line.so_kem == null && line.so_luot == null ? "—" : `${num(line.so_kem)} · ${num(line.so_luot)}`}
       </td>
       <td>
         <ChuoiCongDoan steps={line.routing} />

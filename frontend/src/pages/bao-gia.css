@@ -1157,6 +1157,10 @@ select.input {
 .qpdf table.q-tbl td.c { text-align: center; }
 .qpdf table.q-tbl td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .qpdf table.q-tbl .q-prod { font-weight: 700; }
+/* Diễn giải quy cách dưới tên SP: gạch đầu dòng nhỏ, thụt nhẹ — đọc như tờ báo giá viết tay. */
+.qpdf table.q-tbl .q-dg { margin: 3px 0 0; padding-left: 12px; list-style: none; }
+.qpdf table.q-tbl .q-dg li { position: relative; font-size: 8.5px; line-height: 1.45; color: var(--q-muted); }
+.qpdf table.q-tbl .q-dg li::before { content: "-"; position: absolute; left: -8px; }
 .qpdf table.q-tbl tfoot td { background: var(--q-band); font-weight: 800; border-top: 1.5px solid var(--q-line-strong); }
 .qpdf table.q-tbl tfoot .q-sub-lbl { text-align: right; text-transform: uppercase; letter-spacing: .03em; font-size: 9px; }
 .qpdf table.q-tbl tfoot .q-sub-lbl .q-en { font-weight: 600; }
@@ -1698,6 +1702,28 @@ select.input {
   color: var(--ash); background: var(--rule-soft); border: 1px solid var(--rule);
   border-radius: var(--r-pill); opacity: 1; vertical-align: middle;
 }
+
+/* ---- Diễn giải quy cách theo dòng (bung từ tính giá, sửa tại chỗ) ----------- */
+.rdx-quote .dg-list { margin: 4px 0 0; padding-left: 12px; list-style: none; }
+.rdx-quote .dg-list li {
+  position: relative; font-size: 11.5px; line-height: 1.5; color: var(--ash);
+}
+.rdx-quote .dg-list li::before { content: "-"; position: absolute; left: -8px; }
+.rdx-quote .dg-list .dg-edit::before { content: none; }
+.rdx-quote .dg-list .dg-edit button,
+.rdx-quote .dg-add {
+  margin-top: 2px; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 11px; font-weight: 600; color: var(--rust);
+}
+.rdx-quote .dg-list .dg-edit button:hover,
+.rdx-quote .dg-add:hover { text-decoration: underline; }
+.rdx-quote .dg-ta {
+  display: block; width: 100%; max-width: 320px; margin-top: 5px; padding: 7px 9px;
+  font: inherit; font-size: 11.5px; line-height: 1.5; color: var(--ink);
+  background: var(--canvas); border: 1px solid var(--rule); border-radius: var(--r-3);
+  resize: vertical;
+}
+.rdx-quote .dg-ta:focus-visible { outline: 2px solid var(--rust); outline-offset: -1px; }
 
 /* ---- Picker "Khách chốt — chọn sản phẩm" ----------------------------------- */
 .rdx-quote .accept-pick-head {

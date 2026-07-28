@@ -107,6 +107,10 @@ class PhieuThanhPhan(Base):
     chua_nhip: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     chua_duoi: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     chua_ca_gay: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    # Bình bài: con để bình = thành phẩm ③ + 2×bleed; giữa 2 con kề nhau chừa `khe_cat_mm`.
+    # 0 = không tràn lề / bình sát cắt chung nhát. Sale nhập trên phiếu (hỏi khách hoặc kỹ thuật).
+    bleed_mm: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
+    khe_cat_mm: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False, default=0)
 
     # --- In ---
     co_in: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)

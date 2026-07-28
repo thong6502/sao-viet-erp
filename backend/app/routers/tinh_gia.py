@@ -17,7 +17,7 @@ from ..deps import require_permission
 from ..models.phieu_tinh_gia import PhieuTinhGia
 from ..models.user import User
 from ..schemas.phieu_tinh_gia import PhieuTinhGiaCreate
-from ..services.thanh_phan_engine import binh_bai_layout, binh_bai_nghich
+from ..services.thanh_phan_engine import binh_bai_layout
 from ..services.tinh_gia_service import compute_phieu_snapshot
 from .phieu_tinh_gia import _build_thanh_phan
 
@@ -31,7 +31,12 @@ class BinhBaiIn(BaseModel):
     kho_in_rong: float = Field(ge=0)
     dai_thanh_pham: float = Field(ge=0)
     rong_thanh_pham: float = Field(ge=0)
-    chua_mm: float = Field(default=0, ge=0)   # tổng chừa (mm) trừ mỗi chiều
+    chua_mm: float = Field(default=0, ge=0)   # chừa GỘP (mm) trừ mỗi chiều — dùng khi không tách chiều
+    # Chừa TÁCH CHIỀU (ưu tiên hơn `chua_mm` khi gửi): dài ← nhíp giấy + đuôi; rộng ← lề hông ×2.
+    chua_dai_mm: float | None = Field(default=None, ge=0)
+    chua_rong_mm: float | None = Field(default=None, ge=0)
+    bleed_mm: float = Field(default=0, ge=0)    # tràn lề mỗi cạnh con
+    khe_cat_mm: float = Field(default=0, ge=0)  # khe giữa 2 con kề nhau
 
 
 @router.post("/binh-bai")
@@ -43,41 +48,13 @@ def binh_bai(
     lay = binh_bai_layout(
         kho_in_dai=payload.kho_in_dai, kho_in_rong=payload.kho_in_rong,
         dai_tp=payload.dai_thanh_pham, rong_tp=payload.rong_thanh_pham, chua_mm=payload.chua_mm,
+        chua_dai_mm=payload.chua_dai_mm, chua_rong_mm=payload.chua_rong_mm,
+        bleed_mm=payload.bleed_mm, khe_cat_mm=payload.khe_cat_mm,
     )
     dt_tp = payload.dai_thanh_pham * payload.rong_thanh_pham
     dt_in = payload.kho_in_dai * payload.kho_in_rong
     hieu_suat = round(lay["con"] * dt_tp / dt_in * 100, 1) if dt_in > 0 else 0.0
     return {**lay, "hieu_suat": hieu_suat}
-
-
-class BinhBaiNghichIn(BaseModel):
-    """Bình bài NGHỊCH — số con ĐÚNG N → khổ tờ in ít phế nhất (xả từ tờ giấy nguyên).
-
-    Yêu cầu khổ giấy nguyên > 0 (mốc tính phế); caller KHÔNG gọi khi nguyên còn trống.
-    """
-    con: int = Field(ge=1)
-    dai_thanh_pham: float = Field(ge=0)
-    rong_thanh_pham: float = Field(ge=0)
-    chua_mm: float = Field(default=0, ge=0)
-    kho_nguyen_dai: float = Field(ge=0)
-    kho_nguyen_rong: float = Field(ge=0)
-    kho_may_dai: float = Field(default=0, ge=0)    # vùng in máy (nếu có) → ràng buộc trên
-    kho_may_rong: float = Field(default=0, ge=0)
-
-
-@router.post("/binh-bai-nghich")
-def binh_bai_nghich_api(
-    payload: BinhBaiNghichIn,
-    _: Annotated[User, Depends(require_permission(MODULE, "read"))],
-) -> dict:
-    """Cho số con → khổ tờ in ít phế nhất khi xả từ tờ giấy nguyên. `con`=0 trong kết quả nghĩa
-    là KHÔNG xếp được đúng N mà lọt tờ nguyên (FE báo đỏ, giữ nguyên khổ hiện tại)."""
-    return binh_bai_nghich(
-        con=payload.con, dai_tp=payload.dai_thanh_pham, rong_tp=payload.rong_thanh_pham,
-        chua_mm=payload.chua_mm, kho_nguyen_dai=payload.kho_nguyen_dai,
-        kho_nguyen_rong=payload.kho_nguyen_rong,
-        kho_may_dai=payload.kho_may_dai, kho_may_rong=payload.kho_may_rong,
-    )
 
 
 @router.post("/preview")
