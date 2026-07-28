@@ -39,6 +39,8 @@ from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
 from ..repositories.user_repo import UserRepository
 from ..schemas.employee import (
     AccountIn,
+    AssignShiftBulkIn,
+    AssignShiftBulkOut,
     AssignShiftIn,
     AttachmentOut,
     AttachmentsOut,
@@ -489,6 +491,26 @@ def update_employee(
     )
 
 
+@router.put("/shift/bulk", response_model=AssignShiftBulkOut)
+def assign_default_shift_bulk(
+    body: AssignShiftBulkIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> AssignShiftBulkOut:
+    """Đặt CA NỀN cho nhiều NV trong MỘT request — nút "Đặt ca nền" ở màn Phân ca tháng.
+
+    NV không hợp lệ trả về trong `failed` kèm lý do; các NV còn lại vẫn được ghi."""
+    try:
+        res = svc.set_default_shift_bulk(
+            employee_ids=body.employee_ids, scope=_scope_for(authz, user), actor=user,
+            shift_id=body.default_shift_id, effective_from=body.effective_from,
+        )
+    except EmployeeError as exc:
+        _raise(exc)
+    return AssignShiftBulkOut(**res)
+
+
 @router.put("/{employee_id}/shift")
 def assign_default_shift(
     employee_id: int,
@@ -512,6 +534,24 @@ def assign_default_shift(
         "assignment_id": assignment.id,
         "effective_from": assignment.effective_from,
     }
+
+
+@router.delete("/{employee_id}/shift-history/{assignment_id}", status_code=204)
+def delete_shift_assignment(
+    employee_id: int,
+    assignment_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+):
+    """Gỡ một mốc ca nền gán nhầm (drawer lịch sử ở màn Phân ca tháng)."""
+    try:
+        svc.delete_shift_assignment(
+            employee_id=employee_id, assignment_id=assignment_id,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except EmployeeError as exc:
+        _raise(exc)
 
 
 @router.get("/{employee_id}/shift-history", response_model=ShiftAssignmentsOut)

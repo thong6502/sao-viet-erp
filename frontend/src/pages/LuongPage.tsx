@@ -4,7 +4,7 @@
 //   • Tạm ứng — ghi nhiều lần → duyệt → tự trừ.
 //   • Cấu hình lương — 3 tab con: bậc lương & KPI · cơ chế theo bộ phận · phụ cấp & bảo hiểm.
 //   • Phiếu lương của tôi — self-service.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import {
   Calendar,
   DollarSign,
@@ -24,7 +24,7 @@ import {
   type PayrollLine,
   type PayrollParams,
   type PayrollPeriod,
-  type AdvanceQuota,
+  type MyAdvances,
   type SalaryAdvance,
   type SalaryPreview,
 } from "../api/client";
@@ -252,7 +252,8 @@ function BangLuongTab({ token }: { token: string }) {
   const probationCount = shown.filter((l) => l.is_probation).length;
   const totalWorkdays = shown.reduce((s, l) => s + (l.actual_cong ?? 0), 0);
   const totalDeductions = shown.reduce(
-    (s, l) => s + (l.vi_pham ?? 0) + (l.bhxh ?? 0) + (l.advance_total ?? 0),
+    (s, l) =>
+      s + (l.vi_pham ?? 0) + (l.bhxh ?? 0) + (l.advance_total ?? 0) + (l.luong_dot_1_total ?? 0),
     0,
   );
 
@@ -581,7 +582,7 @@ function BangLuongTab({ token }: { token: string }) {
                 <th className="lg-num">Vi phạm</th>
                 <th className="lg-num">Thưởng</th>
                 <th className="lg-num">BHXH</th>
-                <th className="lg-num">Tạm ứng</th>
+                <th className="lg-num">Đợt 1 / Tạm ứng</th>
                 <th className="lg-num lg-net">Thực lĩnh</th>
                 <th></th>
               </tr>
@@ -632,8 +633,14 @@ function BangLuongTab({ token }: { token: string }) {
                   <td className="lg-num lg-minus">
                     {l.bhxh ? "−" + money(l.bhxh) : "—"}
                   </td>
-                  <td className={`lg-num ${l.advance_total ? "lg-minus" : ""}`}>
-                    {l.advance_total ? "−" + money(l.advance_total) : "—"}
+                  <td className={`lg-num ${(l.advance_total || l.luong_dot_1_total) ? "lg-minus" : ""}`}>
+                    {l.luong_dot_1_total ? (
+                      <div title="Thanh toán lương đợt 1">−{money(l.luong_dot_1_total)}</div>
+                    ) : null}
+                    {l.advance_total ? (
+                      <div title="Tạm ứng đã nhận">−{money(l.advance_total)}</div>
+                    ) : null}
+                    {!l.advance_total && !l.luong_dot_1_total ? "—" : null}
                   </td>
                   <td className="lg-num lg-net">{money(l.net_pay)}</td>
                   <td className="lg-rowact">
@@ -1077,6 +1084,9 @@ function SalaryModal({
   // C2: mức HỢP ĐỒNG của chính NV — gõ riêng 2 ô, không tự tách từ một số tổng.
   const [luongViTri, setLuongViTri] = useState(0);
   const [luongTrachNhiem, setLuongTrachNhiem] = useState(0);
+  // "Lương trả 1 lần" (đợt 1): mức trả trong MỘT lần — chỉ là số điền sẵn khi lập phiếu
+  // "thanh toán lương đợt 1". Khai ở đây, muốn trả thì sang tab Tạm ứng lập phiếu + duyệt.
+  const [luongDot1, setLuongDot1] = useState(0);
   // 3 khoản PHỤ CẤP KHAI TAY của NV — số cố định, cộng phẳng mọi tháng, hệ thống KHÔNG tự
   // tính gì. Gõ một lần, khi nào đổi thì sửa lại.
   const [allowance, setAllowance] = useState(0); // phụ cấp KHÁC (gộp)
@@ -1109,6 +1119,7 @@ function SalaryModal({
     if (latest) {
       setAllowance(latest.allowance ?? 0);
       setChuyenCan(latest.chuyen_can ?? 0);
+      setLuongDot1(latest.luong_dot_1 ?? 0);
       setInsuranceElsewhere(!!latest.insurance_elsewhere);
       setUnionMember(!!latest.union_member);
       // Bản ghi cũ chưa tách 2 ô → dồn base_amount vào lương cơ bản để sửa tiếp, không mất số.
@@ -1144,6 +1155,7 @@ function SalaryModal({
         amount_mode: "manual",
         luong_vi_tri: luongViTri,
         luong_trach_nhiem: luongTrachNhiem,
+        luong_dot_1: luongDot1,
         allowance,
         chuyen_can: chuyenCan,
         insurance_elsewhere: insuranceElsewhere,
@@ -1258,6 +1270,20 @@ function SalaryModal({
               />
               <span className="cc-card__hint">
                 Để 0 = dùng mức chuyên cần của tổ (Cấu hình lương → Cơ chế lương theo bộ phận).
+              </span>
+            </label>
+            <label className="ns-field">
+              <span className="ns-field__label">Lương trả 1 lần (đợt 1)</span>
+              <input
+                type="number"
+                min={0}
+                step={100000}
+                value={luongDot1}
+                onChange={(e) => setLuongDot1(Number(e.target.value))}
+              />
+              <span className="cc-card__hint">
+                Mức trả trong MỘT lần. Đây chỉ là số điền sẵn — muốn trả đợt 1 thì sang tab
+                <b> Tạm ứng</b> bấm <b>“+ Phiếu lương đợt 1”</b>, duyệt xong mới trừ vào lương.
               </span>
             </label>
           </div>
@@ -1446,6 +1472,7 @@ function advPrintData(a: SalaryAdvance) {
     periodMonth: a.period_month,
     periodYear: a.period_year,
     reason: a.reason,
+    kind: a.kind,
   };
 }
 
@@ -1453,7 +1480,7 @@ function TamUngTab({ token, eventTick }: { token: string; eventTick?: number }) 
   const [ym, setYm] = useState(curYm);
   const [items, setItems] = useState<SalaryAdvance[]>([]);
   const [emps, setEmps] = useState<EmployeeRow[]>([]);
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState<null | "tam_ung" | "luong_dot_1">(null);
   const [year, month] = ym.split("-").map(Number);
 
   const load = useCallback(() => {
@@ -1487,6 +1514,10 @@ function TamUngTab({ token, eventTick }: { token: string; eventTick?: number }) 
     rejected: ["Từ chối", "ns-badge--danger"],
     cancelled: ["Đã hủy", "ns-badge--muted"],
   };
+  const KIND: Record<string, [string, string]> = {
+    tam_ung: ["Tạm ứng", "ns-badge--muted"],
+    luong_dot_1: ["Lương đợt 1", "ns-badge--info"],
+  };
   const totalApproved = items
     .filter((a) => a.status === "approved")
     .reduce((s, a) => s + a.amount, 0);
@@ -1504,8 +1535,11 @@ function TamUngTab({ token, eventTick }: { token: string; eventTick?: number }) 
             onChange={(e) => setYm(e.target.value)}
           />
         </div>
-        <button className="btn btn--primary" onClick={() => setAdding(true)}>
+        <button className="btn btn--primary" onClick={() => setAdding("tam_ung")}>
           + Thêm ứng
+        </button>
+        <button className="btn btn--ghost" onClick={() => setAdding("luong_dot_1")}>
+          + Phiếu lương đợt 1
         </button>
         <span className="lg-approved-badge">
           Đã duyệt: <b>{money(totalApproved)}đ</b>
@@ -1532,6 +1566,7 @@ function TamUngTab({ token, eventTick }: { token: string; eventTick?: number }) 
               <tr>
                 <th>Mã</th>
                 <th>Nhân viên</th>
+                <th>Loại</th>
                 <th>Ngày ứng</th>
                 <th className="lg-num">Số tiền</th>
                 <th>Lý do</th>
@@ -1545,11 +1580,15 @@ function TamUngTab({ token, eventTick }: { token: string; eventTick?: number }) 
                   a.status,
                   "ns-badge--muted",
                 ];
+                const [kLabel, kCls] = KIND[a.kind] ?? KIND.tam_ung;
                 return (
                   <tr key={a.id}>
                     <td className="font-mono">{a.code ?? "—"}</td>
                     <td>
                       <b>{a.employee_name ?? `NV#${a.employee_id}`}</b>
+                    </td>
+                    <td>
+                      <span className={`ns-badge ${kCls}`}>{kLabel}</span>
                     </td>
                     <td>{a.advance_date}</td>
                     <td className="lg-num font-mono">{money(a.amount)}đ</td>
@@ -1609,9 +1648,10 @@ function TamUngTab({ token, eventTick }: { token: string; eventTick?: number }) 
           emps={emps}
           year={year}
           month={month}
-          onClose={() => setAdding(false)}
+          kind={adding}
+          onClose={() => setAdding(null)}
           onSaved={() => {
-            setAdding(false);
+            setAdding(null);
             load();
           }}
         />
@@ -1625,6 +1665,7 @@ function AddAdvanceModal({
   emps,
   year,
   month,
+  kind,
   onClose,
   onSaved,
 }: {
@@ -1632,17 +1673,46 @@ function AddAdvanceModal({
   emps: EmployeeRow[];
   year: number;
   month: number;
+  kind: "tam_ung" | "luong_dot_1";
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const isDot1 = kind === "luong_dot_1";
   const [empId, setEmpId] = useState<number | "">("");
   const [amount, setAmount] = useState(0);
+  const [dot1Profile, setDot1Profile] = useState<number | null>(null); // mức đợt 1 khai ở hồ sơ
   const [dateStr, setDateStr] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // Phiếu đợt 1: chọn NV xong tự điền sẵn số tiền = "Lương trả 1 lần" trong hồ sơ (cho sửa).
+  useEffect(() => {
+    if (!isDot1 || empId === "") {
+      setDot1Profile(null);
+      return;
+    }
+    let alive = true;
+    api.luong
+      .salaries(token, Number(empId))
+      .then((r) => {
+        if (!alive) return;
+        const latest = r.items.length
+          ? [...r.items].sort((a, b) => b.effective_from.localeCompare(a.effective_from))[0]
+          : null;
+        const d1 = latest?.luong_dot_1 ?? 0;
+        setDot1Profile(d1);
+        setAmount(d1);
+      })
+      .catch(() => {
+        if (alive) setDot1Profile(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [isDot1, empId, token]);
 
   async function save() {
     if (empId === "" || amount <= 0) {
@@ -1659,6 +1729,7 @@ function AddAdvanceModal({
         advance_date: dateStr,
         amount,
         reason: reason || null,
+        kind,
       });
       onSaved();
     } catch (e) {
@@ -1671,7 +1742,7 @@ function AddAdvanceModal({
       <div className="ns-modal__box">
         <header className="ns-modal__head">
           <h2>
-            Thêm tạm ứng — {String(month).padStart(2, "0")}/{year}
+            {isDot1 ? "Phiếu lương đợt 1" : "Thêm tạm ứng"} — {String(month).padStart(2, "0")}/{year}
           </h2>
           <button className="ns-modal__x" onClick={onClose}>
             ×
@@ -1679,6 +1750,12 @@ function AddAdvanceModal({
         </header>
         <div className="ns-modal__body">
           {err && <div className="banner banner--error">{err}</div>}
+          {isDot1 && (
+            <p className="cc-note">
+              Số tiền điền sẵn theo <b>“Lương trả 1 lần”</b> trong hồ sơ NV (sửa được). Duyệt phiếu
+              xong mới trừ vào lương — hiện thành dòng <b>“Thanh toán lương đợt 1”</b> trên phiếu lương.
+            </p>
+          )}
           <label className="ns-field">
             <span className="ns-field__label">Nhân viên *</span>
             <select
@@ -1704,6 +1781,13 @@ function AddAdvanceModal({
                 value={amount}
                 onChange={(e) => setAmount(Number(e.target.value))}
               />
+              {isDot1 && empId !== "" && (
+                <span className="cc-card__hint">
+                  {dot1Profile && dot1Profile > 0
+                    ? `Hồ sơ khai: ${money(dot1Profile)}đ`
+                    : "Hồ sơ chưa khai 'Lương trả 1 lần' — nhập số tiền cần trả."}
+                </span>
+              )}
             </label>
             <label className="ns-field">
               <span className="ns-field__label">Ngày ứng</span>
@@ -1746,6 +1830,15 @@ function PayslipCard({ line: l, period }: {
   const pcThamNien = l.phu_cap_tham_nien ?? 0;
   const pcKhac = l.phu_cap_khac ?? l.allowance - pcThamNien;
 
+  // Dòng phụ "TRONG ĐÓ" — chỉ để NV đối chiếu, TUYỆT ĐỐI KHÔNG cộng vào TỔNG THU: số này đã
+  // nằm sẵn trong `luong_cong` (ngày nghỉ phép chỉ trả LƯƠNG VỊ TRÍ, không có lương trách
+  // nhiệm). Cùng idiom `phu_cap_tham_nien ⊂ allowance`; cộng nhầm là SAI TIỀN LƯƠNG.
+  // Key = nhãn dòng cha → dòng phụ render ngay dưới dòng đó và nằm NGOÀI `incomeTotal`.
+  const luongNgayPhep = l.luong_ngay_phep ?? 0;
+  const incomeSub: Record<string, [string, number]> = luongNgayPhep > 0
+    ? { "Lương theo công": ["Trong đó: lương ngày phép (theo lương vị trí)", luongNgayPhep] }
+    : {};
+
   const income = ([
     ["Lương theo công", l.luong_cong],
     ["Phụ cấp ca", pcCa],
@@ -1780,6 +1873,8 @@ function PayslipCard({ line: l, period }: {
     ["Phạt biên bản", l.phat_bien_ban],
     ["Đồng phục / phạt 5S", l.phat_5s_dong_phuc],
     ["Giảm trừ khác", l.vi_pham],
+    // 2 dòng RIÊNG: đợt 1 (đã trả giữa tháng qua phiếu) và tạm ứng ad-hoc. Thực nhận = đợt 2.
+    ["Thanh toán lương đợt 1", l.luong_dot_1_total ?? 0],
     ["Tạm ứng đã nhận", l.advance_total],
   ] as [string, number][]);
   const deductTotal = deduct.reduce((s, [, v]) => s + v, 0);
@@ -1804,7 +1899,19 @@ function PayslipCard({ line: l, period }: {
         <table className="lg-payslip2__tbl">
           <thead><tr><th>Các khoản THU</th><th className="lg-num">Số tiền</th></tr></thead>
           <tbody>
-            {income.map(([lbl, v]) => <tr key={lbl}><td>{lbl}</td><td className="lg-num">{v ? money(v) : "—"}</td></tr>)}
+            {income.map(([lbl, v]) => {
+              const sub = incomeSub[lbl];
+              return (
+                <Fragment key={lbl}>
+                  <tr><td>{lbl}</td><td className="lg-num">{v ? money(v) : "—"}</td></tr>
+                  {sub && (
+                    <tr className="lg-payslip2__in">
+                      <td>{sub[0]}</td><td className="lg-num">{money(sub[1])}</td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
             <tr className="lg-payslip2__sub"><td>TỔNG THU</td><td className="lg-num">{money(incomeTotal)}</td></tr>
           </tbody>
         </table>
@@ -1828,14 +1935,14 @@ function PayslipCard({ line: l, period }: {
 // --- Tab: Tạm ứng của tôi (self-service — nhân viên tự đề nghị) --------------
 
 function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: number }) {
-  const [data, setData] = useState<{ has_employee: boolean; items: SalaryAdvance[] } | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [data, setData] = useState<MyAdvances | null>(null);
+  const [adding, setAdding] = useState<null | "tam_ung" | "luong_dot_1">(null);
 
   const load = useCallback(() => {
     api.luong
       .myAdvances(token)
       .then(setData)
-      .catch(() => setData({ has_employee: false, items: [] }));
+      .catch(() => setData({ has_employee: false, items: [], luong_dot_1: 0 }));
   }, [token]);
   useEffect(() => {
     load();
@@ -1846,6 +1953,10 @@ function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: numb
     approved: ["Đã duyệt", "ns-badge--ok"],
     rejected: ["Từ chối", "ns-badge--danger"],
     cancelled: ["Đã hủy", "ns-badge--muted"],
+  };
+  const KIND: Record<string, [string, string]> = {
+    tam_ung: ["Tạm ứng", "ns-badge--muted"],
+    luong_dot_1: ["Lương đợt 1", "ns-badge--info"],
   };
 
   if (!data)
@@ -1867,8 +1978,11 @@ function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: numb
   return (
     <div>
       <div className="cc-toolbar lg-toolbar">
-        <button className="btn btn--primary" onClick={() => setAdding(true)}>
+        <button className="btn btn--primary" onClick={() => setAdding("tam_ung")}>
           + Đề nghị tạm ứng
+        </button>
+        <button className="btn btn--ghost" onClick={() => setAdding("luong_dot_1")}>
+          + Xin lương đợt 1
         </button>
         <span className="cc-card__hint">Đề nghị gửi tới kế toán duyệt; bấm “In phiếu” để ký &amp; nộp.</span>
       </div>
@@ -1884,6 +1998,7 @@ function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: numb
             <thead>
               <tr>
                 <th>Mã</th>
+                <th>Loại</th>
                 <th>Kỳ</th>
                 <th>Ngày ứng</th>
                 <th className="lg-num">Số tiền</th>
@@ -1895,9 +2010,11 @@ function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: numb
             <tbody>
               {data.items.map((a) => {
                 const [label, cls] = STATUS[a.status] ?? [a.status, "ns-badge--muted"];
+                const [kLabel, kCls] = KIND[a.kind] ?? KIND.tam_ung;
                 return (
                   <tr key={a.id}>
                     <td className="font-mono">{a.code ?? "—"}</td>
+                    <td><span className={`ns-badge ${kCls}`}>{kLabel}</span></td>
                     <td>{String(a.period_month).padStart(2, "0")}/{a.period_year}</td>
                     <td>{a.advance_date}</td>
                     <td className="lg-num font-mono">{money(a.amount)}đ</td>
@@ -1921,9 +2038,11 @@ function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: numb
       {adding && (
         <MyAdvanceModal
           token={token}
-          onClose={() => setAdding(false)}
+          kind={adding}
+          dot1Prefill={data.luong_dot_1}
+          onClose={() => setAdding(null)}
           onSaved={() => {
-            setAdding(false);
+            setAdding(null);
             load();
           }}
         />
@@ -1934,31 +2053,25 @@ function TamUngCuaToiTab({ token, eventTick }: { token: string; eventTick?: numb
 
 function MyAdvanceModal({
   token,
+  kind,
+  dot1Prefill,
   onClose,
   onSaved,
 }: {
   token: string;
+  kind: "tam_ung" | "luong_dot_1";
+  dot1Prefill: number;
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const isDot1 = kind === "luong_dot_1";
   const [ym, setYm] = useState(curYm());
-  const [amount, setAmount] = useState(0);
+  // Phiếu đợt 1: điền sẵn theo "Lương trả 1 lần" trong hồ sơ (vẫn cho sửa).
+  const [amount, setAmount] = useState(isDot1 ? dot1Prefill : 0);
   const [dateStr, setDateStr] = useState(() => new Date().toISOString().slice(0, 10));
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  // Hạn mức CÒN LẠI của kỳ đang chọn — lấy từ backend (cùng nguồn với chỗ chặn) để NV biết TRƯỚC
-  // khi gõ số, khỏi gõ đại rồi ăn lỗi. Đổi kỳ → gọi lại.
-  const [quota, setQuota] = useState<AdvanceQuota | null>(null);
-  useEffect(() => {
-    const [y, m] = ym.split("-").map(Number);
-    if (!y || !m) return;
-    setQuota(null);
-    api.luong.advanceQuota(token, y, m).then(setQuota).catch(() => setQuota(null));
-  }, [token, ym]);
-
-  const capped = quota?.remaining != null;          // có trần (khác "không giới hạn")
-  const overLimit = capped && amount > (quota?.remaining ?? 0);
 
   async function save() {
     if (amount <= 0) {
@@ -1975,6 +2088,7 @@ function MyAdvanceModal({
         advance_date: dateStr,
         amount,
         reason: reason || null,
+        kind,
       });
       onSaved();
     } catch (e) {
@@ -1986,27 +2100,17 @@ function MyAdvanceModal({
     <div className="ns-modal" role="dialog" aria-modal="true">
       <div className="ns-modal__box">
         <header className="ns-modal__head">
-          <h2>Đề nghị tạm ứng</h2>
+          <h2>{isDot1 ? "Xin thanh toán lương đợt 1" : "Đề nghị tạm ứng"}</h2>
           <button className="ns-modal__x" onClick={onClose}>×</button>
         </header>
         <div className="ns-modal__body">
           {err && <div className="banner banner--error">{err}</div>}
-          {quota && (
-            <div className={`lg-quota${overLimit ? " lg-quota--over" : ""}`}>
-              {quota.remaining == null ? (
-                <b>Tạm ứng không giới hạn</b>
-              ) : (
-                <>
-                  <div>
-                    Còn được ứng tháng này: <b>{money(quota.remaining)}đ</b>
-                  </div>
-                  <div className="cc-card__hint">
-                    Trần {quota.pct * 100}% của {money(quota.monthly)}đ = {money(quota.limit ?? 0)}đ
-                    {quota.used > 0 && <> · đã dùng/đang chờ {money(quota.used)}đ</>}
-                  </div>
-                </>
-              )}
-            </div>
+          {isDot1 && (
+            <p className="cc-note">
+              Số tiền điền sẵn theo <b>“Lương trả 1 lần”</b> trong hồ sơ của bạn — sửa được. Kế toán
+              duyệt xong mới trừ, hiện thành dòng <b>“Thanh toán lương đợt 1”</b> trên phiếu lương.
+              {dot1Prefill <= 0 && <> Hồ sơ chưa khai mức này — nhập số bạn muốn ứng hoặc hỏi HCNS.</>}
+            </p>
           )}
           <div className="ns-grid">
             <label className="ns-field">
@@ -2029,8 +2133,8 @@ function MyAdvanceModal({
         </div>
         <footer className="ns-modal__foot">
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn--primary" onClick={save} disabled={busy || overLimit}>
-            {busy ? "Đang gửi…" : overLimit ? "Vượt hạn mức" : "Gửi đề nghị"}
+          <button className="btn btn--primary" onClick={save} disabled={busy}>
+            {busy ? "Đang gửi…" : "Gửi đề nghị"}
           </button>
         </footer>
       </div>

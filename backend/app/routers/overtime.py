@@ -63,9 +63,10 @@ def _raise(exc: Exception) -> None:
     raise exc
 
 
-def _out(r, emp_names: dict[int, str]) -> OvertimeRequestOut:
+def _out(r, emp_names: dict[int, str], decider_names: dict[int, str]) -> OvertimeRequestOut:
     o = OvertimeRequestOut.model_validate(r)
     o.employee_name = emp_names.get(r.employee_id)
+    o.decided_by_name = decider_names.get(r.decided_by) if r.decided_by else None
     o.minutes = max(0, int(r.to_minute) - int(r.from_minute))
     return o
 
@@ -76,7 +77,13 @@ def _resolve(employees: EmployeeRepository, reqs: list) -> list[OvertimeRequestO
         emp = employees.get_by_id(eid)
         if emp is not None:
             names[eid] = emp.full_name
-    return [_out(r, names) for r in reqs]
+    # Người DUYỆT/từ chối là 1 user id → tra hồ sơ NV theo user_id (tổ trưởng/HCNS/GĐ đều có hồ sơ).
+    decider_names: dict[int, str] = {}
+    for uid in {r.decided_by for r in reqs if r.decided_by}:
+        emp = employees.get_by_user_id(uid)
+        if emp is not None:
+            decider_names[uid] = emp.full_name
+    return [_out(r, names, decider_names) for r in reqs]
 
 
 # --- real-time (bám hub SSE chung; event chỉ là TÍN HIỆU nhẹ, FE tự refetch số) ------------
@@ -212,6 +219,21 @@ def reject(request_id: int, body: OvertimeRejectIn, svc: Service, employees: Emp
     except OvertimeError as exc:
         _raise(exc)
     _notify_decision(r, employees, "rejected")
+    return _resolve(employees, [r])[0]
+
+
+@router.put("/{request_id}", response_model=OvertimeRequestOut)
+def update_my_request(request_id: int, body: OvertimeRequestIn, svc: Service, employees: Employees,
+                      user: CurrentUser):
+    """SỬA phiếu đang chờ duyệt — chỉ người tạo, chỉ khi pending (service chặn). Không cần ô quyền
+    riêng (tự phục vụ, giống POST /me)."""
+    try:
+        r = svc.update_request(actor=user, request_id=request_id, work_date=body.work_date,
+                               from_minute=body.from_minute, to_minute=body.to_minute,
+                               reason=body.reason)
+    except OvertimeError as exc:
+        _raise(exc)
+    _notify_pending_changed()
     return _resolve(employees, [r])[0]
 
 

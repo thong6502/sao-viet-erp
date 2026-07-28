@@ -80,17 +80,11 @@ class OvertimeService:
 
     # --- tạo phiếu ----------------------------------------------------------
 
-    def create_request(self, *, actor, work_date: date, from_minute: int, to_minute: int,
-                       reason=None, employee_id=None, auto_approve: bool = False) -> OvertimeRequest:
-        """Tạo phiếu. `employee_id` != None = tổ trưởng tạo HỘ; `auto_approve` = duyệt luôn
-        (tổ trưởng tự tạo cho thợ thì không bắt duyệt lại bước nữa)."""
-        if employee_id is not None:
-            emp = self.employees.get_by_id(employee_id)
-            if emp is None:
-                raise OvertimeValidationError("Không tìm thấy nhân viên.")
-        else:
-            emp = self._employee_for_user(actor)
-
+    def _validate_window(self, employee_id: int, work_date: date, from_minute, to_minute,
+                         *, exclude_id: int | None = None) -> tuple[int, int]:
+        """Kiểm khoảng tăng ca dùng chung cho TẠO + SỬA: biên phút · to>from · ≤12h (Đ107) ·
+        **tối đa 1 phiếu còn hiệu lực/ngày** (chủ chốt 2026-07-24). `exclude_id` để lúc SỬA không
+        tự đếm chính phiếu đang sửa. Trả (from, to) đã ép int."""
         if work_date is None:
             raise OvertimeValidationError("Cần chọn ngày công.")
         try:
@@ -105,13 +99,24 @@ class OvertimeService:
             raise OvertimeValidationError(
                 f"Một phiếu tăng ca tối đa {MAX_OT_MINUTES // 60} giờ (Điều 107 BLLĐ)."
             )
-        # Chặn 2 phiếu còn hiệu lực GIAO nhau trong cùng một ngày công.
-        for other in self.overtime.live_for_day(emp.id, work_date):
-            if from_minute < other.to_minute and other.from_minute < to_minute:
-                raise OvertimeValidationError(
-                    f"Đã có phiếu tăng ca {hhmm(other.from_minute)}–{hhmm(other.to_minute)} "
-                    f"cho ngày này."
-                )
+        if self.overtime.live_for_day(employee_id, work_date, exclude_id=exclude_id):
+            raise OvertimeValidationError(
+                "Mỗi ngày chỉ được 1 phiếu tăng ca. Ngày này đã có phiếu — sửa hoặc hủy phiếu cũ."
+            )
+        return from_minute, to_minute
+
+    def create_request(self, *, actor, work_date: date, from_minute: int, to_minute: int,
+                       reason=None, employee_id=None, auto_approve: bool = False) -> OvertimeRequest:
+        """Tạo phiếu. `employee_id` != None = tổ trưởng tạo HỘ; `auto_approve` = duyệt luôn
+        (tổ trưởng tự tạo cho thợ thì không bắt duyệt lại bước nữa)."""
+        if employee_id is not None:
+            emp = self.employees.get_by_id(employee_id)
+            if emp is None:
+                raise OvertimeValidationError("Không tìm thấy nhân viên.")
+        else:
+            emp = self._employee_for_user(actor)
+
+        from_minute, to_minute = self._validate_window(emp.id, work_date, from_minute, to_minute)
 
         approved = bool(auto_approve)
         r = self.overtime.create_request(
@@ -200,6 +205,28 @@ class OvertimeService:
                 continue
             out.append(self.reject(actor=actor, request_id=rid, note=note))
         return out
+
+    def update_request(self, *, actor, request_id: int, work_date: date, from_minute: int,
+                       to_minute: int, reason=None) -> OvertimeRequest:
+        """Sửa phiếu ĐANG CHỜ DUYỆT (chủ chốt 2026-07-24). Chỉ người TẠO sửa được phiếu của mình,
+        và chỉ khi còn `pending` — duyệt/từ chối/hủy rồi thì khóa. Chạy lại đúng bộ validate như tạo
+        (loại chính phiếu này khỏi luật 1 phiếu/ngày)."""
+        r = self.overtime.get_request(request_id)
+        if r is None:
+            raise OvertimeNotFound("Không tìm thấy phiếu tăng ca.")
+        if r.created_by != actor.id:
+            raise OvertimeForbidden("Bạn chỉ sửa được phiếu do mình tạo.")
+        if r.status != STATUS_PENDING:
+            raise OvertimeValidationError("Chỉ sửa được phiếu đang chờ duyệt.")
+        from_minute, to_minute = self._validate_window(
+            r.employee_id, work_date, from_minute, to_minute, exclude_id=r.id
+        )
+        self.overtime.update_request(r, work_date=work_date, from_minute=from_minute,
+                                     to_minute=to_minute, reason=_clean(reason))
+        self.audit.create(actor_user_id=actor.id, action="overtime_updated",
+                          target=f"overtime_request:{r.id}",
+                          detail=f"{work_date} {hhmm(from_minute)}–{hhmm(to_minute)}")
+        return r
 
     def cancel(self, *, actor, request_id: int, is_manager: bool = False) -> OvertimeRequest:
         """Hủy phiếu: người TẠO tự hủy, hoặc người có quyền duyệt hủy hộ. Chỉ hủy phiếu chưa quyết."""

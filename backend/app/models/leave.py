@@ -52,7 +52,13 @@ class LeaveType(Base):
 
 
 class LeaveRequest(Base):
-    """Đơn xin nghỉ của 1 NV (nguyên ngày, từ start_date đến end_date bao gồm)."""
+    """Đơn xin nghỉ NGUYÊN NGÀY của 1 NV (start_date → end_date, bao gồm 2 đầu).
+
+    Nghỉ theo GIỜ (đi muộn / về sớm / nửa buổi) KHÔNG nằm ở đây — đó là phiếu chấm công
+    ngoại lệ, bảng riêng ``late_early_requests``, tổ trưởng duyệt (chốt của chủ 27/07/2026).
+    Từng gộp chung ở đây rồi gỡ ra: người duyệt khác nhau, và 7 nơi đọc đơn nghỉ đều phải
+    nhớ lọc — sót một chỗ là lỗi quay lại.
+    """
 
     __tablename__ = "leave_requests"
 
@@ -66,7 +72,7 @@ class LeaveRequest(Base):
     )
     start_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
-    # Số ngày nghỉ = số ngày lịch bao gồm 2 đầu (nguyên ngày; nghỉ nửa ngày ngoài phạm vi).
+    # Số ngày nghỉ = số ngày lịch bao gồm 2 đầu.
     days: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     status: Mapped[str] = mapped_column(

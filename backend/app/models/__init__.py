@@ -10,9 +10,16 @@ from .audit import AuditLog
 from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
 from .department import Department
-from .employee import Employee, EmployeeAttachment, EmployeeEvent, EmployeeShiftAssignment
+from .employee import (
+    Employee,
+    EmployeeAttachment,
+    EmployeeEvent,
+    EmployeeShiftAssignment,
+    EmployeeShiftDay,
+)
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
+from .late_early import LateEarlyRequest
 from .overtime import OvertimeRequest
 from .work_calendar import SpecialDay, WorkCalendarConfig
 from .material import Material, MaterialCost
@@ -95,6 +102,7 @@ __all__ = [
     "UnitLevel",
     "Employee",
     "EmployeeShiftAssignment",
+    "EmployeeShiftDay",
     "EmployeeEvent",
     "EmployeeAttachment",
     "ProfileUpdateRequest",
@@ -106,6 +114,7 @@ __all__ = [
     "LeaveType",
     "LeaveRequest",
     "OvertimeRequest",
+    "LateEarlyRequest",
     "WorkCalendarConfig",
     "SpecialDay",
     "Customer",

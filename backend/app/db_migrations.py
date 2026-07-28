@@ -1660,6 +1660,62 @@ def _migrate_attendance_line_special_day(db: Session) -> None:
     db.commit()
 
 
+def _migrate_attendance_line_plain_cong(db: Session) -> None:
+    """Ngày nghỉ 'off1x' (chủ 25/07/2026): công LÀM ngày đó trả 1× (không hệ số). Snapshot vào
+    `attendance_period_lines.plain_cong` để Lương trả sau khi chốt. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "attendance_period_lines" not in insp.get_table_names():
+        return
+    if "plain_cong" not in _existing_columns(insp, "attendance_period_lines"):
+        db.execute(text(
+            "ALTER TABLE attendance_period_lines ADD COLUMN plain_cong NUMERIC(6,2) NOT NULL DEFAULT 0"))
+        db.commit()
+
+
+def _migrate_attendance_line_paid_leave_fraction(db: Session) -> None:
+    """Phiếu nghỉ NỬA BUỔI có trừ phép (chủ 27/07/2026) ⇒ `paid_leave_days` phải chứa 0,5.
+    SQLite không ALTER kiểu cột được, nhưng nó lưu kiểu động nên cột INTEGER cũ vẫn nhận 0.5 —
+    chỉ Postgres mới cần đổi thật. Idempotent, no-op nếu đã là NUMERIC hoặc bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "attendance_period_lines" not in insp.get_table_names():
+        return
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.execute(text(
+        "ALTER TABLE attendance_period_lines "
+        "ALTER COLUMN paid_leave_days TYPE NUMERIC(6,2) USING paid_leave_days::numeric"))
+    db.commit()
+
+
+def _migrate_payroll_line_luong_ngay_phep(db: Session) -> None:
+    """Ngày nghỉ phép năm chỉ trả LƯƠNG VỊ TRÍ (chủ 27/07/2026). `luong_ngay_phep` là số TRONG ĐÓ
+    của `luong_cong` (đừng cộng vào gross); 2 cột công đi kèm để giải trình. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "luong_ngay_phep" not in cols:
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN luong_ngay_phep NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    for name in ("paid_leave_cong", "excused_cong"):
+        if name not in cols:
+            db.execute(text(
+                f"ALTER TABLE payroll_lines ADD COLUMN {name} NUMERIC(6,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_attendance_line_excused_cong(db: Session) -> None:
+    """Nghỉ theo GIỜ có đơn (chủ 27/07/2026): phần công thiếu ĐƯỢC PHÉP, snapshot để phụ cấp
+    chuyên cần không bị trừ sau khi chốt công. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "attendance_period_lines" not in insp.get_table_names():
+        return
+    if "excused_cong" not in _existing_columns(insp, "attendance_period_lines"):
+        db.execute(text(
+            "ALTER TABLE attendance_period_lines ADD COLUMN excused_cong NUMERIC(6,2) NOT NULL DEFAULT 0"))
+        db.commit()
+
+
 def _migrate_order_redesign_fields(db: Session) -> None:
     """Redesign Đơn hàng bán (P1, redesign-don-hang-ban.md): thêm cột mới vào `orders`
     (nguồn/bản chất/đặt hàng/duyệt/chốt/hủy). Chỉ ADD COLUMN với default
@@ -2771,6 +2827,18 @@ def _migrate_payroll_ot_night_extra_pct(db: Session) -> None:
     db.commit()
 
 
+def _migrate_payroll_adjust_max_per_month(db: Session) -> None:
+    """Hạn mức chỉnh công (chủ 2026-07-27): `payroll_params.adjust_max_per_month` — mỗi NV tự gửi
+    yêu cầu chỉnh công cho tối đa ngần này NGÀY CÔNG mỗi tháng. 0 = không giới hạn.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("payroll_params" in insp.get_table_names()
+            and "adjust_max_per_month" not in _existing_columns(insp, "payroll_params")):
+        db.execute(text(
+            "ALTER TABLE payroll_params ADD COLUMN adjust_max_per_month INTEGER NOT NULL DEFAULT 5"))
+    db.commit()
+
+
 def _migrate_payroll_advance_max_pct(db: Session) -> None:
     """Trần tạm ứng (chủ 2026-07-23): `payroll_params.advance_max_pct` — tổng tạm ứng 1 tháng của 1 NV
     không vượt tỷ lệ này × (lương vị trí + trách nhiệm). 0 = không giới hạn.
@@ -2779,6 +2847,36 @@ def _migrate_payroll_advance_max_pct(db: Session) -> None:
     if ("payroll_params" in insp.get_table_names()
             and "advance_max_pct" not in _existing_columns(insp, "payroll_params")):
         db.execute(text("ALTER TABLE payroll_params ADD COLUMN advance_max_pct NUMERIC(6,4) NOT NULL DEFAULT 0.1"))
+    db.commit()
+
+
+def _migrate_salary_luong_dot_1(db: Session) -> None:
+    """Lương đợt 1 (chủ 2026-07-24): `employee_salaries.luong_dot_1` — mức trả 1 lần cố định theo hồ sơ.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("employee_salaries" in insp.get_table_names()
+            and "luong_dot_1" not in _existing_columns(insp, "employee_salaries")):
+        db.execute(text("ALTER TABLE employee_salaries ADD COLUMN luong_dot_1 NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_salary_advance_kind(db: Session) -> None:
+    """Phân loại phiếu (chủ 2026-07-24): `salary_advances.kind` = tam_ung | luong_dot_1. Mặc định tam_ung
+    (hàng cũ = tạm ứng). Guard theo cột → idempotent."""
+    insp = inspect(db.get_bind())
+    if ("salary_advances" in insp.get_table_names()
+            and "kind" not in _existing_columns(insp, "salary_advances")):
+        db.execute(text("ALTER TABLE salary_advances ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'tam_ung'"))
+    db.commit()
+
+
+def _migrate_payroll_line_luong_dot_1_total(db: Session) -> None:
+    """Snapshot lương đợt 1 đã duyệt của kỳ (chủ 2026-07-24): `payroll_lines.luong_dot_1_total`.
+    Guard theo cột → idempotent."""
+    insp = inspect(db.get_bind())
+    if ("payroll_lines" in insp.get_table_names()
+            and "luong_dot_1_total" not in _existing_columns(insp, "payroll_lines")):
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN luong_dot_1_total NUMERIC(14,2) NOT NULL DEFAULT 0"))
     db.commit()
 
 
@@ -3112,6 +3210,14 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0103_payroll_ot_night_extra_pct", _migrate_payroll_ot_night_extra_pct),
     ("0104_piece_rate_department_id", _migrate_piece_rate_department_id),
     ("0105_payroll_advance_max_pct", _migrate_payroll_advance_max_pct),
+    ("0106_salary_luong_dot_1", _migrate_salary_luong_dot_1),
+    ("0107_salary_advance_kind", _migrate_salary_advance_kind),
+    ("0108_payroll_line_luong_dot_1_total", _migrate_payroll_line_luong_dot_1_total),
+    ("0109_attendance_line_plain_cong", _migrate_attendance_line_plain_cong),
+    ("0111_attendance_line_excused_cong", _migrate_attendance_line_excused_cong),
+    ("0112_payroll_line_luong_ngay_phep", _migrate_payroll_line_luong_ngay_phep),
+    ("0113_attendance_line_paid_leave_fraction", _migrate_attendance_line_paid_leave_fraction),
+    ("0114_payroll_adjust_max_per_month", _migrate_payroll_adjust_max_per_month),
 ]
 
 

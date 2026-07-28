@@ -161,6 +161,13 @@
 .lg-payslip2__sub td {
   font-weight: var(--fw-bold); border-top: 1px solid var(--rule); border-bottom: 2px solid var(--ink);
 }
+/* Dòng "Trong đó: …" — số ĐÃ nằm trong dòng cha, KHÔNG cộng vào TỔNG. Thụt vào + chữ nhạt
+   để không ai đọc nhầm thành một khoản thu riêng. */
+.lg-payslip2__in td {
+  padding-top: 0; font-size: 11.5px; font-style: italic; color: var(--ash);
+  border-bottom: 1px dashed var(--rule-soft);
+}
+.lg-payslip2__in td:first-child { padding-left: 14px; }
 .lg-payslip2__net {
   display: flex; justify-content: space-between; align-items: center; margin-top: 14px;
   padding: 10px 14px; background: var(--moss-soft); border-radius: var(--r-3);

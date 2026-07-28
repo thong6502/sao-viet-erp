@@ -21,7 +21,10 @@ from ..db import Base
 # Loại ngày đặc biệt.
 KIND_OFF = "off"    # nghỉ lễ / nghỉ hoán đổi (ngày lẽ ra làm nhưng nghỉ)
 KIND_WORK = "work"  # làm bù (ngày lẽ ra nghỉ — T7/CN — nhưng đi làm để bù kỳ nghỉ dài)
-SPECIAL_KINDS = (KIND_OFF, KIND_WORK)
+# Ngày NGHỈ nhưng ai đi làm chỉ nhận LƯƠNG CHÍNH (1×) — KHÔNG nhân hệ số lễ/nghỉ. Nghỉ = KHÔNG lương
+# (không +1 công); đi làm = cộng THÊM 1 công lương chính (uncapped, không bị trần công tháng nuốt).
+KIND_OFF1X = "off1x"
+SPECIAL_KINDS = (KIND_OFF, KIND_WORK, KIND_OFF1X)
 
 
 def _utcnow() -> datetime:

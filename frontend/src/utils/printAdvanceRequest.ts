@@ -16,6 +16,8 @@ export interface AdvancePrintData {
   periodMonth: number;
   periodYear: number;
   reason: string | null;
+  /** "tam_ung" (mặc định) | "luong_dot_1" — đổi diễn giải/nội dung CK cho phiếu đợt 1. */
+  kind?: string;
 }
 
 const DOTS = "..............................";
@@ -35,10 +37,16 @@ export function printAdvanceRequest(d: AdvancePrintData): boolean {
   const { d: dd, m: mm, y: yy } = dmyParts(d.advanceDate);
   const mmYear = `${String(d.periodMonth).padStart(2, "0")}/${d.periodYear}`;
   const words = amountInWords(d.amount);
-  const dienGiai = d.reason?.trim()
-    ? `${escapeHtml(d.reason)}`
+  const isDot1 = d.kind === "luong_dot_1";
+  const docTitle = isDot1 ? "Phiếu thanh toán lương đợt 1" : "Giấy đề nghị tạm ứng";
+  const defReason = isDot1
+    ? `Thanh toán lương đợt 1 tháng ${mmYear}`
     : `Tạm ứng lương tháng ${mmYear}`;
-  const ndCk = noAccent(`Tam ung luong ${d.employeeName ?? ""} thang ${mmYear}`.trim());
+  const dienGiai = d.reason?.trim() ? `${escapeHtml(d.reason)}` : defReason;
+  const ndCk = noAccent(
+    (isDot1 ? `Thanh toan luong dot 1 ` : `Tam ung luong `) +
+      `${d.employeeName ?? ""} thang ${mmYear}`.trim(),
+  );
 
   const docs = [
     "Hợp đồng", "Báo giá", "Đề nghị thanh toán", "Tờ trình", "Hóa đơn",
@@ -46,7 +54,7 @@ export function printAdvanceRequest(d: AdvancePrintData): boolean {
   ].map((x) => `${BOX} ${escapeHtml(x)}`).join("&nbsp;&nbsp;&nbsp;");
 
   win.document.write(`<!doctype html><html lang="vi"><head><meta charset="utf-8">
-<title>Giấy đề nghị tạm ứng — ${escapeHtml(d.employeeName ?? "")}</title><style>
+<title>${escapeHtml(docTitle)} — ${escapeHtml(d.employeeName ?? "")}</title><style>
 @page{size:A4;margin:16mm}
 *{box-sizing:border-box}
 body{font:13px "Times New Roman",serif;color:#000;margin:0}

@@ -25,6 +25,7 @@ from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
 from ..schemas.attendance import (
     AdjustIn,
+    AdjustQuotaOut,
     AdjustRequestOut,
     AdjustRequestsOut,
     ApproveRequestIn,
@@ -43,6 +44,9 @@ from ..schemas.attendance import (
     HolidayMark,
     PeriodActionIn,
     AttendancePeriodOut,
+    ShiftPlanOut,
+    ShiftPlanSaveIn,
+    ShiftPlanSaveOut,
     TimesheetDay,
     TimesheetOut,
     TimesheetRow,
@@ -167,6 +171,54 @@ def delete_shift(
         _raise(exc)
 
 
+# --- lưới phân ca tháng (khai ca NV × ngày) ---------------------------------
+
+
+@router.get("/shift-plan", response_model=ShiftPlanOut)
+def get_shift_plan(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    year: int,
+    month: int,
+    department_id: int | None = None,
+) -> ShiftPlanOut:
+    """Lưới khai ca của một tháng. Lọc theo scope người gọi — tổ trưởng (scope
+    `department`) chỉ thấy và sửa được tổ mình."""
+    try:
+        data = svc.shift_plan(
+            year=year, month=month, department_id=department_id,
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except AttendanceError as exc:
+        _raise(exc)
+    return ShiftPlanOut(
+        year=data["year"], month=data["month"], days_in_month=data["days_in_month"],
+        locked=data["locked"], calendar=data["calendar"],
+        shifts=[_shift_out(s) for s in data["shifts"]], rows=data["rows"],
+    )
+
+
+@router.put("/shift-plan", response_model=ShiftPlanSaveOut)
+def save_shift_plan(
+    body: ShiftPlanSaveIn,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "update"))],
+) -> ShiftPlanSaveOut:
+    """Ghi hàng loạt ô lưới trong MỘT request (không lặp N request). Ô không hợp lệ
+    trả về trong `rejected` kèm lý do thay vì bị bỏ qua im lặng."""
+    try:
+        res = svc.set_shift_plan(
+            year=body.year, month=body.month,
+            cells=[c.model_dump() for c in body.cells],
+            scope=_scope_for(authz, user), actor=user,
+        )
+    except AttendanceError as exc:
+        _raise(exc)
+    return ShiftPlanSaveOut(**res)
+
+
 # --- work locations (HR) ----------------------------------------------------
 
 
@@ -236,6 +288,7 @@ def my_status(svc: Service, user: CurrentUser) -> MyStatusOut:
         has_employee=st["has_employee"],
         employee_name=st.get("employee_name"),
         next_action=st.get("next_action"),
+        ot_mode=st.get("ot_mode", False),
         can_check=st.get("can_check", False),
         check_block_reason=st.get("check_block_reason"),
         last_check=AttendanceLogOut.model_validate(last) if last is not None else None,
@@ -270,6 +323,7 @@ def check(body: CheckIn, svc: Service, user: CurrentUser) -> CheckResultOut:
         success=res["success"],
         within_range=res["within_range"],
         check_type=res["check_type"],
+        ot_mode=res.get("ot_mode", False),
         distance_m=res["distance_m"],
         nearest_location=(NearestLocationOut(id=nearest.id, name=nearest.name, radius_m=nearest.radius_m)
                           if nearest is not None else None),
@@ -352,7 +406,9 @@ def _timesheet_rows(svc: AttendanceService, depts: DepartmentRepository, data: d
             shift_id=r.get("shift_id"), shift_name=r.get("shift_name"),
             days={k: TimesheetDay(**v) for k, v in r["days"].items()},
             total_days=r["total_days"], total_leave=r.get("total_leave", 0),
+            paid_leave_days=r.get("paid_leave_days", 0),
             total_hours=r["total_hours"], total_cong=r.get("total_cong"),
+            excused_cong=r.get("excused_cong", 0),
         ))
     return rows
 
@@ -545,10 +601,16 @@ def create_adjust_request(body: RequestAdjustIn, svc: Service, user: CurrentUser
 @router.get("/me/adjust-requests", response_model=AdjustRequestsOut)
 def my_adjust_requests(svc: Service, user: CurrentUser) -> AdjustRequestsOut:
     try:
-        items = svc.my_requests(user=user)
+        res = svc.my_requests(user=user)
     except AttendanceError as exc:
         _raise(exc)
-    return AdjustRequestsOut(items=[AdjustRequestOut(**r) for r in items])
+    q = res["quota"]
+    return AdjustRequestsOut(
+        items=[AdjustRequestOut(**r) for r in res["items"]],
+        quota=AdjustQuotaOut(year=q["year"], month=q["month"], limit=q["limit"],
+                             used=q["used"], remaining=q["remaining"],
+                             days=sorted(q["days"])),
+    )
 
 
 @router.post("/me/adjust-requests/{request_id}/cancel", response_model=AdjustRequestOut)

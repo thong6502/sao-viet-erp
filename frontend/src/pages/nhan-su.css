@@ -869,6 +869,15 @@ button.ns__kpi:hover {
   font-style: italic;
 }
 
+/* Dòng chỉ đường nhỏ dưới giá trị (vd: ca làm việc nay gán ở màn Chấm công). */
+.ns-info-field__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ash-2);
+}
+
 .ns-inforow {
   margin-bottom: var(--sp-4);
   display: flex;

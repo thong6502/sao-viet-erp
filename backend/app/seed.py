@@ -55,6 +55,7 @@ MODULES: list[tuple[str, str]] = [
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
     ("tang_ca", "Tăng ca"),
+    ("di_muon", "Đi muộn / về sớm"),
     ("luong", "Lương"),
 ]
 
@@ -170,6 +171,23 @@ def _ot_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
     )
 
 
+# Phiếu ĐI MUỘN / VỀ SỚM / NGHỈ NỬA BUỔI — cùng luồng duyệt với tăng ca (tổ trưởng duyệt tổ mình).
+def _el_self(scope: str = SCOPE_OWN) -> dict:
+    """Tự phục vụ cho MỌI nhân viên: xem phiếu của mình + tự gửi + tự hủy. KHÔNG duyệt."""
+    return dict(
+        can_read=True, can_create=True, can_update=False, can_delete=False,
+        scope=scope, can_cancel=True,
+    )
+
+
+def _el_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
+    """Quyền DUYỆT phiếu đi muộn/về sớm (+ khai hộ cho thợ, khai hộ là duyệt luôn)."""
+    return dict(
+        can_read=True, can_create=True, can_update=True, can_delete=False,
+        scope=scope, can_approve=True, can_cancel=True,
+    )
+
+
 # Roles: (department_name, role_name, {module_key: permission}). The minimal default
 # role ("Nhân viên") is Read-only on Dashboard, scope own.
 ROLES: list[tuple[str, str, dict[str, dict]]] = [
@@ -205,6 +223,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # Nghỉ phép: HCNS là nơi DUYỆT tập trung (mọi đơn toàn công ty) + quản loại nghỉ.
             "nghi_phep": _leave_admin(SCOPE_ALL),
             "tang_ca": _ot_lead(SCOPE_ALL),
+            "di_muon": _el_lead(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
@@ -224,7 +243,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     ),
     # Vai "Nhân viên" tối thiểu: Dashboard + tự phục vụ Nghỉ phép (cửa vào self-service).
     ("Hành chính nhân sự", "Nhân viên",
-     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self()}),
+     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()}),
     # --- Khối SẢN XUẤT (Lát 1 — hộp việc 2 tầng, gate theo Ô QUYỀN, không theo chức danh) ---
     # Kế hoạch SX: cấu hình lệnh + PHÁT (can_approve), thấy mọi tổ (scope all). KHÔNG gán thợ.
     (
@@ -243,6 +262,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "phong_ban": _read(SCOPE_ALL),
             "nghi_phep": _leave_self(),
             "tang_ca": _ot_self(),
+            "di_muon": _el_self(),
         },
     ),
     # Tổ trưởng SX: xem tổ mình (scope own) + GÁN thợ (can_assign_work) → hộp việc FULL + nút gán.
@@ -255,6 +275,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "nghi_phep": _leave_self(),
             # Tổ trưởng DUYỆT phiếu tăng ca của tổ mình (scope department = tổ + cây con).
             "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
+            "di_muon": _el_lead(SCOPE_DEPARTMENT),
         },
     ),
     # Thợ SX: CHỈ xem việc được gán (read scope own, không gán) → hộp việc lọc theo bước được gán.
@@ -262,14 +283,14 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Sản xuất",
         "Thợ SX",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
-         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
     ),
     # QC: xem mọi tổ (scope all) để soi công đoạn bất kỳ (ghi lỗi = Lát 3, thêm can_report_defect sau).
     (
         "Sản xuất",
         "QC",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL),
-         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
     ),
     (
         "Kinh doanh",

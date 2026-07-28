@@ -340,6 +340,65 @@ class EmployeeService:
         )
         return employee, assignment
 
+    def set_default_shift_bulk(
+        self, *, employee_ids: list[int], scope: str, actor, shift_id: int | None,
+        effective_from: date,
+    ) -> dict:
+        """Gán ca nền cho NHIỀU NV trong MỘT request + MỘT transaction.
+
+        Ca nền là lớp áp dụng "từ ngày hiệu lực trở về sau, cho mọi tháng" — khác
+        với tô ca trên lưới (chỉ đúng ngày đã tô). Đây là đường duy nhất để đặt ca
+        nền sau khi gộp thao tác vào màn Phân ca tháng.
+
+        Ai VÀO LÀM SAU ngày được chọn thì tự lùi mốc về đúng ngày vào làm của họ
+        (`adjusted`) thay vì bị loại — người khai ca không có cách nào biết ngày vào
+        làm của từng người, mà loại họ ra thì cả lô hỏng vì một người mới. Ca vẫn
+        không bao giờ có hiệu lực trước khi người ta vào làm.
+
+        NV thực sự không hợp lệ (ngoài phạm vi, không tồn tại…) đi vào `failed` KÈM
+        LÝ DO — không bỏ qua im lặng; các NV còn lại vẫn được ghi.
+        """
+        updated = 0
+        adjusted = 0
+        failed: list[dict] = []
+        for eid in employee_ids:
+            try:
+                employee = self.get_employee(employee_id=eid, scope=scope, actor=actor)
+                eff = effective_from
+                if employee.hire_date is not None and eff < employee.hire_date:
+                    eff = employee.hire_date
+                    adjusted += 1
+                self.employees.set_shift_assignment(
+                    employee=employee, shift_id=shift_id,
+                    effective_from=eff, created_by=actor.id, commit=False,
+                )
+                updated += 1
+            except EmployeeError as exc:
+                failed.append({"employee_id": eid, "reason": str(exc)})
+        self.employees.commit()
+        self.audit.create(
+            actor_user_id=actor.id, action="assign_default_shift_bulk",
+            target=f"employee_shift_bulk:{effective_from.isoformat()}",
+            detail=(f"{updated} NV → ca #{shift_id} từ {effective_from.isoformat()}"
+                    if shift_id else f"{updated} NV → bỏ ca từ {effective_from.isoformat()}")
+                   + (f" · {adjusted} NV lùi về ngày vào làm" if adjusted else "")
+                   + (f" · {len(failed)} NV bị bỏ qua" if failed else ""),
+        )
+        return {"updated": updated, "adjusted": adjusted, "failed": failed}
+
+    def delete_shift_assignment(self, *, employee_id: int, assignment_id: int, scope: str, actor):
+        """Gỡ một mốc ca nền gán nhầm. Không có đường này thì mọi lần gán nhầm đều
+        VĨNH VIỄN — chỉ đè được bằng mốc khác đúng ngày hiệu lực của nó, mà người dùng
+        không có cách nào đoán ra ngày đó."""
+        employee = self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
+        if not self.employees.delete_shift_assignment(employee, assignment_id):
+            raise EmployeeNotFound("Không tìm thấy mốc ca này của nhân viên.")
+        self.audit.create(
+            actor_user_id=actor.id, action="delete_shift_assignment",
+            target=f"employee:{employee.id}", detail=f"{employee.code} → xóa mốc #{assignment_id}",
+        )
+        return employee
+
     def list_shift_assignments(self, *, employee_id: int, scope: str, actor):
         self.get_employee(employee_id=employee_id, scope=scope, actor=actor)
         return self.employees.list_shift_assignments(employee_id)

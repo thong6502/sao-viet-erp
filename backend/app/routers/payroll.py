@@ -39,7 +39,6 @@ from ..schemas.payroll import (
     LatePenaltyBracketIn,
     LatePenaltyBracketOut,
     LatePenaltyBracketsOut,
-    AdvanceQuotaOut,
     InsuranceLineOut,
     LineOut,
     LineUpdateIn,
@@ -399,7 +398,7 @@ def set_salary(employee_id: int, body: SalaryIn, svc: Service,
                            luong_vi_tri=body.luong_vi_tri, luong_trach_nhiem=body.luong_trach_nhiem,
                            phu_cap_ca=body.phu_cap_ca, phu_cap_tham_nien=body.phu_cap_tham_nien,
                            insurance_elsewhere=body.insurance_elsewhere,
-                           union_member=body.union_member)
+                           union_member=body.union_member, luong_dot_1=body.luong_dot_1)
     except PayrollError as exc:
         _raise(exc)
     return SalaryOut.model_validate(s)
@@ -432,7 +431,7 @@ def create_advance(body: AdvanceIn, svc: Service, employees: Employees, departme
     try:
         a = svc.create_advance(employee_id=body.employee_id, actor=user, period_year=body.period_year,
                                period_month=body.period_month, advance_date=body.advance_date,
-                               amount=body.amount, reason=body.reason)
+                               amount=body.amount, reason=body.reason, kind=body.kind)
     except PayrollError as exc:
         _raise(exc)
     out = _adv_out([a], employees, departments)[0]
@@ -479,7 +478,8 @@ def my_advances(svc: Service, employees: Employees, departments: Departments,
                 user: CurrentUser) -> MyAdvancesOut:
     res = svc.my_advances(user=user)
     return MyAdvancesOut(has_employee=res["has_employee"],
-                         items=_adv_out(res["items"], employees, departments))
+                         items=_adv_out(res["items"], employees, departments),
+                         luong_dot_1=res.get("luong_dot_1", 0))
 
 
 @router.post("/advances/me", response_model=AdvanceOut, status_code=status.HTTP_201_CREATED)
@@ -493,26 +493,12 @@ def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
     try:
         a = svc.create_advance(employee_id=emp.id, actor=user, period_year=body.period_year,
                                period_month=body.period_month, advance_date=body.advance_date,
-                               amount=body.amount, reason=body.reason)
+                               amount=body.amount, reason=body.reason, kind=body.kind)
     except PayrollError as exc:
         _raise(exc)
     out = _adv_out([a], employees, departments)[0]
     _notify_advance_pending(out.employee_name)
     return out
-
-
-@router.get("/advances/quota", response_model=AdvanceQuotaOut)
-def my_advance_quota(svc: Service, employees: Employees, user: CurrentUser,
-                     year: int = Query(...), month: int = Query(ge=1, le=12)) -> AdvanceQuotaOut:
-    """Hạn mức tạm ứng CÒN LẠI của chính tôi trong kỳ — để form hiện "còn được ứng X đ" TRƯỚC khi gõ.
-    Dùng chung `advance_quota()` với chỗ CHẶN nên số trên màn luôn khớp số backend áp dụng."""
-    emp = employees.get_by_user_id(user.id)
-    if emp is None:
-        raise HTTPException(status_code=400, detail="Tài khoản chưa gắn hồ sơ nhân sự.")
-    try:
-        return AdvanceQuotaOut(**svc.advance_quota(employee_id=emp.id, year=year, month=month))
-    except PayrollError as exc:
-        _raise(exc)
 
 
 @router.get("/advances/notify-summary")

@@ -132,14 +132,15 @@ class OvertimeRepository:
             ).scalars()
         )
 
-    def live_for_day(self, employee_id: int, work_date: date) -> list[OvertimeRequest]:
-        """Phiếu còn hiệu lực (chờ duyệt hoặc đã duyệt) của 1 NV trong 1 ngày công — chặn tạo trùng."""
-        return list(
-            self.db.execute(
-                select(OvertimeRequest).where(
-                    OvertimeRequest.employee_id == employee_id,
-                    OvertimeRequest.work_date == work_date,
-                    OvertimeRequest.status.in_(_LIVE),
-                )
-            ).scalars()
+    def live_for_day(self, employee_id: int, work_date: date, *,
+                     exclude_id: int | None = None) -> list[OvertimeRequest]:
+        """Phiếu còn hiệu lực (chờ duyệt hoặc đã duyệt) của 1 NV trong 1 ngày công — nền cho luật
+        'tối đa 1 phiếu/ngày'. `exclude_id` để đường SỬA không tự đếm chính phiếu đang sửa."""
+        stmt = select(OvertimeRequest).where(
+            OvertimeRequest.employee_id == employee_id,
+            OvertimeRequest.work_date == work_date,
+            OvertimeRequest.status.in_(_LIVE),
         )
+        if exclude_id is not None:
+            stmt = stmt.where(OvertimeRequest.id != exclude_id)
+        return list(self.db.execute(stmt).scalars())

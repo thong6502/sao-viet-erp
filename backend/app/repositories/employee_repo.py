@@ -13,7 +13,13 @@ from datetime import date
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from ..models.employee import Employee, EmployeeAttachment, EmployeeEvent, EmployeeShiftAssignment
+from ..models.employee import (
+    Employee,
+    EmployeeAttachment,
+    EmployeeEvent,
+    EmployeeShiftAssignment,
+    EmployeeShiftDay,
+)
 from ..models.profile_request import ProfileUpdateRequest
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from .org_scope import dept_subtree_ids
@@ -208,13 +214,32 @@ class EmployeeRepository:
             .limit(1)
         ).scalars().first()
 
-    def shift_id_on(self, employee: Employee, on: date) -> int | None:
-        """Resolve the default shift on a date, preserving legacy employees.
+    def shift_day_on(self, employee_id: int, on: date) -> EmployeeShiftDay | None:
+        return self.db.execute(
+            select(EmployeeShiftDay).where(
+                EmployeeShiftDay.employee_id == employee_id,
+                EmployeeShiftDay.work_date == on,
+            )
+        ).scalars().first()
 
-        Before an employee has any versioned assignment, ``default_shift_id`` is
-        the compatibility source. Once history exists, a date before its first
-        row intentionally means "no shift", not the cached current value.
+    def shift_id_on(self, employee: Employee, on: date) -> int | None:
+        """Resolve the shift on a date, preserving legacy employees.
+
+        Order: ca khai riêng cho NGÀY đó (lưới phân ca) → mốc hiệu lực → cache
+        ``default_shift_id``. Before an employee has any versioned assignment,
+        ``default_shift_id`` is the compatibility source. Once history exists, a
+        date before its first row intentionally means "no shift", not the cached
+        current value.
+
+        Dòng per-day chỉ thắng khi có ``shift_id``. Dòng ``is_off`` (nghỉ theo
+        lịch) cố ý TRONG SUỐT với bước này: nghỉ luân phiên là dấu KẾ HOẠCH, nó
+        không được chặn người bị gọi đi làm hôm đó chấm công (họ vẫn hưởng 1× như
+        ngày thường). Nhờ chỉ hành động khi ``shift_id`` khác NULL, hàm cũng không
+        vướng chỗ dễ sai "không có dòng" vs "dòng NULL".
         """
+        day = self.shift_day_on(employee.id, on)
+        if day is not None and day.shift_id is not None:
+            return day.shift_id
         row = self.shift_assignment_on(employee.id, on)
         if row is not None:
             return row.shift_id
@@ -225,6 +250,26 @@ class EmployeeRepository:
         ).first()
         return None if has_history is not None else employee.default_shift_id
 
+    def delete_shift_assignment(self, employee: Employee, assignment_id: int) -> bool:
+        """Xóa một MỐC ca nền gán nhầm. Trả False nếu mốc không thuộc NV này.
+
+        Sau khi xóa, đồng bộ lại `default_shift_id` theo mốc mới nhất còn lại — nó là
+        cache của mốc hiện hành, để lệch thì các màn cũ hiển thị sai. Nếu không còn mốc
+        nào thì GIỮ NGUYÊN giá trị cũ: `shift_id_on` lúc đó rơi về `default_shift_id`,
+        xóa nó đi là NV mất ca và không chấm công được.
+        """
+        row = self.db.get(EmployeeShiftAssignment, assignment_id)
+        if row is None or row.employee_id != employee.id:
+            return False
+        self.db.delete(row)
+        self.db.flush()
+        remaining = self.list_shift_assignments(employee.id)
+        if remaining:
+            employee.default_shift_id = remaining[0].shift_id
+        self.db.commit()
+        self.db.refresh(employee)
+        return True
+
     def shift_is_referenced(self, shift_id: int) -> bool:
         history_ref = self.db.execute(
             select(EmployeeShiftAssignment.id)
@@ -233,10 +278,67 @@ class EmployeeRepository:
         ).first()
         if history_ref is not None:
             return True
+        # Ca chỉ được dùng trong lưới phân ca ngày cũng là ĐANG DÙNG. Bỏ nhánh này
+        # thì xóa được ca đó, những ngày đã khai sẽ trỏ vào ca không tồn tại và
+        # mất công một cách im lặng.
+        day_ref = self.db.execute(
+            select(EmployeeShiftDay.id).where(EmployeeShiftDay.shift_id == shift_id).limit(1)
+        ).first()
+        if day_ref is not None:
+            return True
         legacy_ref = self.db.execute(
             select(Employee.id).where(Employee.default_shift_id == shift_id).limit(1)
         ).first()
         return legacy_ref is not None
+
+    def shift_days_map(
+        self, employee_ids: set[int] | None, start: date, end: date
+    ) -> dict[tuple[int, date], EmployeeShiftDay]:
+        """Mọi ô đã khai trong [start, end] — 1 query, để cắt N+1 của lưới NV × ngày.
+
+        Key vắng mặt = ngày đó không khai riêng (kế thừa mốc). Trả nguyên dòng để
+        caller phân biệt được "ca cụ thể" với "nghỉ theo lịch" (`is_off`).
+        """
+        stmt = select(EmployeeShiftDay).where(
+            EmployeeShiftDay.work_date >= start, EmployeeShiftDay.work_date <= end
+        )
+        if employee_ids is not None:
+            if not employee_ids:
+                return {}
+            stmt = stmt.where(EmployeeShiftDay.employee_id.in_(employee_ids))
+        return {(r.employee_id, r.work_date): r for r in self.db.execute(stmt).scalars()}
+
+    def upsert_shift_day(
+        self, *, employee_id: int, work_date: date, shift_id: int | None,
+        is_off: bool, created_by: int | None,
+    ) -> EmployeeShiftDay:
+        """Ghi 1 ô. KHÔNG commit — caller gom cả lô rồi commit một lần (lưới có thể
+        tới ~1.800 ô; commit từng ô sẽ chết)."""
+        row = self.shift_day_on(employee_id, work_date)
+        if row is None:
+            row = EmployeeShiftDay(
+                employee_id=employee_id, work_date=work_date,
+                shift_id=shift_id, is_off=is_off, created_by=created_by,
+            )
+            self.db.add(row)
+        else:
+            row.shift_id = shift_id
+            row.is_off = is_off
+            row.created_by = created_by
+        return row
+
+    def delete_shift_day(self, employee_id: int, work_date: date) -> bool:
+        """Xóa ô → ngày đó quay về kế thừa ca mặc định. KHÔNG commit (xem trên)."""
+        row = self.shift_day_on(employee_id, work_date)
+        if row is None:
+            return False
+        self.db.delete(row)
+        return True
+
+    def commit(self) -> None:
+        """Chốt lô ghi lưới phân ca — ranh giới transaction do caller quyết định vì
+        một lần lưu có thể tới hàng nghìn ô."""
+        self.db.commit()
 
     def set_shift_assignment(
         self,
@@ -245,6 +347,7 @@ class EmployeeRepository:
         shift_id: int | None,
         effective_from: date,
         created_by: int | None,
+        commit: bool = True,
     ) -> EmployeeShiftAssignment:
         history = self.list_shift_assignments(employee.id)
 
@@ -281,9 +384,15 @@ class EmployeeRepository:
         # Compatibility cache used by older screens. Attendance calculations use
         # the versioned history above and therefore remain correct for old dates.
         employee.default_shift_id = shift_id
-        self.db.commit()
-        self.db.refresh(row)
-        self.db.refresh(employee)
+        # `commit=False` cho đường gán HÀNG LOẠT: gom cả lô vào một transaction thay
+        # vì commit từng người (gán cả tổ = hàng chục commit, và lỗi giữa chừng để lại
+        # trạng thái ghi một nửa).
+        if commit:
+            self.db.commit()
+            self.db.refresh(row)
+            self.db.refresh(employee)
+        else:
+            self.db.flush()
         return row
 
     # --- writes -------------------------------------------------------------

@@ -55,6 +55,11 @@ ADV_APPROVED = "approved"
 ADV_REJECTED = "rejected"
 ADV_CANCELLED = "cancelled"
 ADVANCE_STATUSES = (ADV_PENDING, ADV_APPROVED, ADV_REJECTED, ADV_CANCELLED)
+# LOẠI phiếu trên bảng salary_advances (chủ 2026-07-24): tạm ứng ad-hoc vs thanh toán lương đợt 1
+# (số cố định theo hồ sơ). Cùng workflow duyệt, tách nhau khi hiển thị trên phiếu lương.
+ADV_KIND_TAM_UNG = "tam_ung"
+ADV_KIND_LUONG_DOT_1 = "luong_dot_1"
+ADVANCE_KINDS = (ADV_KIND_TAM_UNG, ADV_KIND_LUONG_DOT_1)
 
 # --- Trạng thái kỳ lương ----------------------------------------------------
 PERIOD_DRAFT = "draft"    # đang soạn, sửa được
@@ -139,6 +144,12 @@ class PayrollParams(Base):
     # (lương vị trí + trách nhiệm). Ứng nhiều lần trong tháng được, nhưng cộng dồn phải nằm trong trần.
     # Đơn ĐANG CHỜ DUYỆT cũng chiếm chỗ. 0 = KHÔNG giới hạn (đường thoát để duyệt nốt đơn tồn).
     advance_max_pct: Mapped[float] = mapped_column(Numeric(6, 4), nullable=False, default=0.10, server_default="0.1")
+    # HẠN MỨC CHỈNH CÔNG (chủ 2026-07-27): mỗi NV tự gửi "Yêu cầu chỉnh công" cho tối đa ngần này
+    # NGÀY CÔNG trong một tháng. Đếm theo NGÀY chứ không theo số đơn — quên cả giờ vào lẫn giờ ra
+    # của một ngày phải gửi 2 đơn, tính 2 lượt là chặt gấp đôi con số chủ nói. Đơn đang chờ duyệt
+    # cũng giữ chỗ; bị từ chối/hủy thì trả lại lượt. HCNS chấm bù TRỰC TIẾP không bị giới hạn này
+    # (máy chấm hỏng cả ngày thì phải sửa được cho cả tổ). 0 = KHÔNG giới hạn.
+    adjust_max_per_month: Mapped[int] = mapped_column(Integer, nullable=False, default=5, server_default="5")
     # Phụ cấp cơm/ca ĐÃ CHUYỂN sang khai theo TỪNG CA (`work_shifts.meal_allowance` ·
     # `.shift_allowance`) — chủ đổi ý 2026-07-21: gắn vào ca thì NV được gán ca đó tự cộng.
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
@@ -214,6 +225,9 @@ class EmployeeSalary(Base):
     # dựa vào đó đóng bảo hiểm** (xem `_compute`). `monthly` nền = vị trí + trách nhiệm.
     luong_vi_tri: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     luong_trach_nhiem: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # "Lương trả 1 lần" (chủ 2026-07-24): số CỐ ĐỊNH điền sẵn khi tạo phiếu "Thanh toán lương đợt 1".
+    # Bản thân cột chỉ là mức mặc định; tiền thực trả ghi ở phiếu (salary_advances kind=luong_dot_1).
+    luong_dot_1: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # DORMANT: mức đóng BH khai riêng — engine THÔI đọc (mức đóng = `luong_vi_tri`). Giữ cột
     # cho tương thích dữ liệu cũ, không migration phá hủy.
     insurance_base: Mapped[float | None] = mapped_column(_MONEY, nullable=True)
@@ -259,6 +273,8 @@ class SalaryAdvance(Base):
     advance_date: Mapped[date] = mapped_column(Date, nullable=False)
     amount: Mapped[float] = mapped_column(_MONEY, nullable=False)
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Loại phiếu: `tam_ung` (ad-hoc) | `luong_dot_1` (thanh toán lương đợt 1, số cố định theo hồ sơ).
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, default=ADV_KIND_TAM_UNG, server_default=ADV_KIND_TAM_UNG)
     status: Mapped[str] = mapped_column(String(12), index=True, nullable=False, default=ADV_PENDING, server_default=ADV_PENDING)
     decided_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -305,6 +321,14 @@ class PayrollLine(Base):
     standard_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=26, server_default="26")
     monthly_salary: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     luong_cong: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    # TRONG ĐÓ của `luong_cong` — tiền của những NGÀY NGHỈ PHÉP, trả theo LƯƠNG VỊ TRÍ (không
+    # lương trách nhiệm). Để phiếu lương giải thích được vì sao tháng có phép thì lương công thấp
+    # hơn. ĐỪNG cộng thêm vào gross: đã nằm trong `luong_cong`. Khác hẳn cột tay `phep_nam`.
+    luong_ngay_phep: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    paid_leave_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
+    # Công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ đã duyệt) — chỉ để giải trình vì sao công thiếu mà
+    # chuyên cần vẫn đủ. Không tham gia công thức nào ở dòng lương.
+    excused_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
     chuyen_can: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     # TỔNG phụ cấp tháng = phụ cấp khác + thâm niên (cột dưới). Trách nhiệm KHÔNG ở đây — nó là
     # `luong_trach_nhiem`, đã nằm trong mức nền (luong_cong).
@@ -348,7 +372,9 @@ class PayrollLine(Base):
     pit: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")            # thuế TNCN (tự tính, có thể ghi đè tay)
     pit_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")  # HCNS ghi đè TNCN tay (Pha 4b)
     pit_taxable: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")    # thu nhập tính thuế đã dùng (Pha 4b)
-    advance_total: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
+    advance_total: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")  # tạm ứng ĐÃ DUYỆT (kind=tam_ung)
+    # Thanh toán lương đợt 1 ĐÃ DUYỆT (kind=luong_dot_1) của kỳ — snapshot, dòng riêng trên phiếu lương.
+    luong_dot_1_total: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     net_pay: Mapped[float] = mapped_column(_MONEY, nullable=False, default=0, server_default="0")
     note: Mapped[str | None] = mapped_column(String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)

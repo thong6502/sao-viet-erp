@@ -95,6 +95,11 @@ export function AppShell() {
   const lastOrderAction = useRef(0);
   const lastAdvancePending = useRef(0);
   const lastOtPending = useRef(0);
+  const lastElPending = useRef(0);
+  // Sản xuất (Lát 1): tick tăng mỗi sự kiện SX → hộp việc tổ đang mở tự refetch. Ref danh sách tổ
+  // CỦA TÔI để toast ĐÚNG tổ khi có lệnh mới phát (tránh stale closure trong kênh SSE mở-1-lần).
+  const [sxTick, setSxTick] = useState(0);
+  const toSxRef = useRef<{ id: number }[]>([]);
   const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { id, text, tone }]);
@@ -157,6 +162,18 @@ export function AppShell() {
             "tang-ca": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
           }));
           lastOtPending.current = s.pending_in_scope ?? 0;
+        })
+        .catch(() => {});
+    }
+    // Badge Chấm công: số phiếu ĐI MUỘN / VỀ SỚM chờ duyệt trong scope (null nếu không duyệt được).
+    // Treo ở nav `cham-cong` vì tab phiếu nằm trong màn Chấm công, KHÔNG phải màn Tăng ca.
+    if (readable.has("di_muon")) {
+      api.lateEarly
+        .summary(token)
+        .then((s) => {
+          const n = s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0;
+          setBadges((prev) => ({ ...prev, "cham-cong": n }));
+          lastElPending.current = s.pending_in_scope ?? 0;
         })
         .catch(() => {});
     }
@@ -242,7 +259,7 @@ export function AppShell() {
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("tang_ca"))) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("tang_ca") || readable.has("di_muon"))) return;
     const close = connectQuoteEvents(token, (e) => {
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
       setQuoteTick((n) => n + 1);
@@ -354,6 +371,29 @@ export function AppShell() {
             lastOtPending.current = n;
           })
           .catch(() => {});
+      } else if (e.type === "el_decision") {
+        // NV nộp phiếu đi muộn / về sớm nhận quyết định của tổ trưởng — đẩy riêng tới đúng người.
+        pushToast(
+          e.decision === "approved"
+            ? "✓ Phiếu đi muộn / về sớm của bạn đã được duyệt"
+            : "✕ Phiếu đi muộn / về sớm của bạn bị từ chối",
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("di_muon") && e.type === "el_pending_changed") {
+        // Có phiếu đi muộn mới/hủy → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
+        // Badge treo ở nav "cham-cong" (tab phiếu nằm trong màn Chấm công).
+        api.lateEarly
+          .summary(token)
+          .then((s) => {
+            const n = s.pending_in_scope ?? 0;
+            setBadges((prev) => ({ ...prev, "cham-cong": n }));
+            if (n > lastElPending.current) {
+              pushToast("🔔 Có phiếu đi muộn / về sớm chờ bạn duyệt", "info");
+            }
+            lastElPending.current = n;
+          })
+          .catch(() => {});
       } else if (readable.has("luong") && e.type === "advance_pending_changed") {
         // Có đề nghị tạm ứng mới/đổi → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
         api.luong
@@ -450,7 +490,16 @@ export function AppShell() {
       case "ho-so-cua-toi":
         return <HoSoCuaToiPage />;
       case "cham-cong":
-        return <ChamCongPage navigate={navigate} focusEmployeeId={navParams?.focusEmployeeId} />;
+        // `eventTick` nhảy theo MỌI sự kiện SSE → tab phiếu đi muộn/về sớm đang mở tự tải lại ngay
+        // khi tổ trưởng duyệt/từ chối (không chỉ nhảy badge).
+        return (
+          <ChamCongPage
+            navigate={navigate}
+            focusEmployeeId={navParams?.focusEmployeeId}
+            onChanged={reloadBadges}
+            eventTick={quoteTick}
+          />
+        );
       case "nghi-phep":
         return <NghiPhepPage onChanged={reloadBadges} focusEmployeeId={navParams?.focusEmployeeId} />;
       case "tang-ca":

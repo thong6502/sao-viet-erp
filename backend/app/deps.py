@@ -19,6 +19,7 @@ from .repositories.accounting_repo import AccountingRepository
 from .repositories.costing_repo import CostingRepository
 from .repositories.attendance_repo import AttendanceRepository
 from .repositories.calendar_repo import CalendarRepository
+from .repositories.late_early_repo import LateEarlyRepository
 from .repositories.leave_repo import LeaveRepository
 from .repositories.overtime_repo import OvertimeRepository
 from .repositories.payroll_repo import PayrollRepository
@@ -60,6 +61,7 @@ from .services.customer_analytics import CustomerAnalyticsService
 from .services.attendance_service import AttendanceService
 from .services.calendar_service import CalendarService
 from .services.leave_service import LeaveService
+from .services.late_early_service import LateEarlyService
 from .services.overtime_service import OvertimeService
 from .services.payroll_service import PayrollService
 from .services.piece_work_service import PieceWorkService
@@ -322,6 +324,12 @@ def get_leave_repository(
     return LeaveRepository(db)
 
 
+def get_late_early_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> LateEarlyRepository:
+    return LateEarlyRepository(db)
+
+
 def get_attendance_service(
     attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
@@ -330,12 +338,14 @@ def get_attendance_service(
     calendar: Annotated[CalendarService, Depends(get_calendar_service)],
     payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
     overtime: Annotated[OvertimeRepository, Depends(get_overtime_repository)],
+    late_early: Annotated[LateEarlyRepository, Depends(get_late_early_repository)],
 ) -> AttendanceService:
     # leaves → đánh dấu ngày nghỉ (P/KL); calendar → công lễ; payroll (REPO) → chặn mở kỳ công
-    # khi kỳ lương đã chốt (Q3); overtime (REPO) → gate tiền tăng ca theo phiếu đã duyệt.
+    # khi kỳ lương đã chốt (Q3); overtime (REPO) → gate tiền tăng ca theo phiếu đã duyệt;
+    # late_early (REPO) → phiếu đi muộn/về sớm: miễn phạt + nhánh trừ phép.
     # Chỉ đọc REPO nên không vòng service↔service.
     return AttendanceService(attendance, employees, audit, leaves=leaves, calendar=calendar,
-                             payroll=payroll, overtime=overtime)
+                             payroll=payroll, overtime=overtime, late_early=late_early)
 
 
 def get_leave_service(
@@ -343,9 +353,23 @@ def get_leave_service(
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     calendar: Annotated[CalendarService, Depends(get_calendar_service)],
+    late_early: Annotated[LateEarlyRepository, Depends(get_late_early_repository)],
 ) -> LeaveService:
     # calendar → loại ngày lễ khỏi quota + tuần T2–T7 (Thứ 7 nay trừ phép).
-    return LeaveService(leaves, employees, audit, calendar=calendar)
+    # late_early (REPO) → phiếu đi muộn/về sớm có tick "trừ phép" cũng tiêu quỹ phép năm.
+    return LeaveService(leaves, employees, audit, calendar=calendar, late_early=late_early)
+
+
+def get_late_early_service(
+    late_early: Annotated[LateEarlyRepository, Depends(get_late_early_repository)],
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    attendance: Annotated[AttendanceRepository, Depends(get_attendance_repository)],
+    leaves: Annotated[LeaveService, Depends(get_leave_service)],
+) -> LateEarlyService:
+    # attendance (REPO) → lấy KHUNG CA để quy phút vắng ra ngày phép (cùng mẫu số với tiền công).
+    # leaves (SERVICE) → hỏi số ngày phép còn lại. Một chiều: LeaveService chỉ đọc LateEarly REPO.
+    return LateEarlyService(late_early, employees, audit, attendance=attendance, leaves=leaves)
 
 
 def get_overtime_repository(

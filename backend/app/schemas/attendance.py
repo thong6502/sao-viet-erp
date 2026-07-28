@@ -125,6 +125,7 @@ class CheckResultOut(BaseModel):
     success: bool
     within_range: bool
     check_type: str | None = None
+    ot_mode: bool = False                  # lượt vừa chấm thuộc phiên TĂNG CA (vào/ra tăng ca)
     distance_m: float | None = None
     nearest_location: NearestLocationOut | None = None
     message: str
@@ -140,6 +141,7 @@ class PreviewOut(BaseModel):
     nearest_name: str | None = None
     radius_m: int | None = None
     next_action: str | None = None        # "in" | "out" — nhãn nút kế tiếp
+    ot_mode: bool = False                  # lượt kế tiếp thuộc phiên TĂNG CA (vào/ra tăng ca)
     message: str
 
 
@@ -165,6 +167,7 @@ class MyStatusOut(BaseModel):
     has_employee: bool
     employee_name: str | None = None
     next_action: str | None = None          # "in" | "out"
+    ot_mode: bool = False                    # lượt kế tiếp thuộc phiên TĂNG CA → FE đổi nhãn nút
     can_check: bool = False
     check_block_reason: str | None = None
     last_check: AttendanceLogOut | None = None
@@ -192,6 +195,9 @@ class TimesheetDay(BaseModel):
     leave: str | None = None       # tên loại nghỉ (nếu ngày này nghỉ đã duyệt) HOẶC tên ngày lễ
     leave_paid: bool = False       # nghỉ có lương (P) hay không (KL)
     holiday: bool = False          # ngày nghỉ lễ hưởng lương (cộng 1 công tự động, không cần chấm)
+    # Nghỉ luân phiên đã khai trên lưới phân ca — để phân biệt "nghỉ theo lịch" với
+    # "vắng". Chỉ là dấu kế hoạch: không công, không tiền.
+    planned_off: bool = False
 
 
 class TimesheetRow(BaseModel):
@@ -205,8 +211,12 @@ class TimesheetRow(BaseModel):
     days: dict[str, TimesheetDay]  # keyed by day-of-month ("1".."31")
     total_days: int
     total_leave: int = 0             # số ngày nghỉ đã duyệt trong tháng
+    paid_leave_days: int = 0         # trong đó: nghỉ CÓ lương (Lương trả theo lương vị trí)
     total_hours: float
     total_cong: float | None = None  # tổng công (theo ca + nghỉ có lương)
+    # Công thiếu nhưng CÓ ĐƠN nghỉ theo giờ đã duyệt — KHÔNG cộng vào total_cong (tiền công vẫn
+    # trừ), chỉ để Lương giữ nguyên phụ cấp chuyên cần.
+    excused_cong: float = 0
 
 
 class HolidayMark(BaseModel):
@@ -223,6 +233,75 @@ class TimesheetOut(BaseModel):
     standard_cong: int | None = None
     holidays: list[HolidayMark] = []   # ngày nghỉ lễ hưởng lương trong tháng (tô màu)
     rows: list[TimesheetRow]
+
+
+# --- Lưới phân ca tháng (khai ca NV × ngày) ---------------------------------
+
+
+class ShiftPlanCellOut(BaseModel):
+    """Một ô lưới. `source` cho biết ca ĐẾN TỪ ĐÂU để UI phân biệt "đã khai tay"
+    với "đang kế thừa": day = khai trên lưới · assign = mốc ca mặc định ·
+    default = cache `default_shift_id` · none = chưa có ca."""
+
+    shift_id: int | None = None
+    source: str
+    is_off: bool = False
+
+
+class ShiftPlanDayOut(BaseModel):
+    day: int
+    date: date
+    weekday: int                      # Mon=0 … Sun=6
+    is_working: bool
+    special_kind: str | None = None   # off | work | off1x
+    name: str | None = None
+
+
+class ShiftPlanRowOut(BaseModel):
+    employee_id: int
+    employee_code: str | None = None
+    employee_name: str
+    department_id: int | None = None
+    no_default: bool = False          # cả tháng không có ca nào → UI cảnh báo
+    days: dict[str, ShiftPlanCellOut]
+
+
+class ShiftPlanOut(BaseModel):
+    year: int
+    month: int
+    days_in_month: int
+    locked: bool = False              # kỳ công đã chốt → lưới read-only
+    calendar: list[ShiftPlanDayOut] = []
+    shifts: list[WorkShiftOut] = []
+    rows: list[ShiftPlanRowOut] = []
+
+
+class ShiftPlanCellIn(BaseModel):
+    employee_id: int
+    work_date: date
+    # Tường minh 3 hành động thay vì suy diễn từ shift_id=null (null vừa có thể là
+    # "nghỉ" vừa có thể là "xóa ô" — nhập nhằng đó là chỗ dễ mất dữ liệu).
+    action: str = Field(default="set", pattern="^(set|off|inherit)$")
+    shift_id: int | None = None       # bắt buộc khi action="set"
+
+
+class ShiftPlanSaveIn(BaseModel):
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    # Trần 2000: lưới lớn nhất thực tế 31 ngày × 60 NV = 1.860 ô.
+    cells: list[ShiftPlanCellIn] = Field(min_length=1, max_length=2000)
+
+
+class ShiftPlanRejectOut(BaseModel):
+    employee_id: int | None = None
+    date: str
+    reason: str
+
+
+class ShiftPlanSaveOut(BaseModel):
+    saved: int = 0
+    cleared: int = 0
+    rejected: list[ShiftPlanRejectOut] = []
 
 
 # --- Chốt công tháng (kỳ công) ----------------------------------------------
@@ -243,6 +322,7 @@ class AttendancePeriodOut(BaseModel):
     employee_count: int               # số NV trong bảng công tháng
     hanging_days: int                 # số ngày treo (thiếu chấm RA) — xử trước khi Chốt
     pending_leaves: int               # đơn nghỉ phép chưa duyệt của tháng
+    pending_late_early: int = 0       # phiếu đi muộn/về sớm chưa duyệt (chặn chốt công y như trên)
     pending_adjusts: int              # yêu cầu chỉnh công chưa duyệt
     payroll_locked: bool              # kỳ lương tháng này đã chốt → không mở lại kỳ công
 
@@ -260,6 +340,12 @@ class DayPunchOut(BaseModel):
     distance_m: float | None = None
 
 
+class OtSuggestionOut(BaseModel):
+    """Gợi ý chấm bù cặp tăng ca theo khung phiếu đã duyệt (khi NV thiếu cặp chấm TC)."""
+    from_time: str            # "HH:MM" — giờ bắt đầu phiếu (prefill lượt VÀO tăng ca)
+    to_time: str              # "HH:MM" — giờ kết thúc phiếu (prefill lượt RA, HCNS sửa theo thực tế)
+
+
 class DayDetailOut(BaseModel):
     employee_id: int
     employee_name: str
@@ -267,6 +353,8 @@ class DayDetailOut(BaseModel):
     shift_name: str | None = None
     cong: float | None = None
     reason: str | None = None
+    # Có giá trị khi NV có phiếu TC đã duyệt (trong ngày) nhưng CHƯA có cặp chấm tăng ca → FE nhắc + nút.
+    ot_suggestion: OtSuggestionOut | None = None
     punches: list[DayPunchOut]
 
 
@@ -307,8 +395,22 @@ class AdjustRequestOut(BaseModel):
     decided_by_name: str | None = None
 
 
+class AdjustQuotaOut(BaseModel):
+    """Hạn mức chỉnh công của NV đăng nhập trong THÁNG HIỆN TẠI. `limit = 0` ⇒ không giới hạn
+    (khi đó `remaining` là None). `days` = các ngày công đã tính lượt — để màn nói rõ "ngày này
+    đã tính rồi, gửi thêm không tốn lượt"."""
+    year: int
+    month: int
+    limit: int
+    used: int
+    remaining: int | None = None
+    days: list[date] = []
+
+
 class AdjustRequestsOut(BaseModel):
     items: list[AdjustRequestOut]
+    # Chỉ điền ở đường TỰ PHỤC VỤ (`/me/adjust-requests`); danh sách của HCNS để None.
+    quota: AdjustQuotaOut | None = None
 
 
 class RequestAdjustIn(BaseModel):

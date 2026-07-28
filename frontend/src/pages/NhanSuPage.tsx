@@ -542,6 +542,8 @@ export function EmployeeWizard({
   // Lương cơ bản = mức đóng BH; các khoản phụ cấp là số cố định khai riêng từng nhân viên.
   const [luongViTri, setLuongViTri] = useState(0);
   const [luongTrachNhiem, setLuongTrachNhiem] = useState(0);
+  // "Lương trả 1 lần" (đợt 1): mức trả trong MỘT lần — số điền sẵn khi lập phiếu đợt 1 ở màn Lương.
+  const [luongDot1, setLuongDot1] = useState(0);
   const [allowance, setAllowance] = useState(0);
   const [chuyenCan, setChuyenCan] = useState(0);
   // BH đóng ở nơi khác → công ty chỉ đóng TNLĐ-BNN (không trừ BHXH/BHYT/BHTN của NV).
@@ -592,6 +594,7 @@ export function EmployeeWizard({
             effective_from: form.hire_date || new Date().toISOString().slice(0, 10),
             luong_vi_tri: luongViTri,
             luong_trach_nhiem: luongTrachNhiem,
+            luong_dot_1: luongDot1,
             allowance,
             chuyen_can: chuyenCan,
             insurance_elsewhere: insuranceElsewhere,
@@ -726,6 +729,9 @@ export function EmployeeWizard({
                   </div>
                   <Field label="Thưởng chuyên cần">
                     <input type="number" min={0} step={50000} value={chuyenCan} onChange={(e) => setChuyenCan(Number(e.target.value))} />
+                  </Field>
+                  <Field label="Lương trả 1 lần (đợt 1)" hint="Mức trả trong 1 lần. Điền sẵn khi lập phiếu 'lương đợt 1' ở màn Lương; duyệt xong mới trừ.">
+                    <input type="number" min={0} step={100000} value={luongDot1} onChange={(e) => setLuongDot1(Number(e.target.value))} />
                   </Field>
                   <Field label="Các khoản phụ cấp">
                     <input type="number" min={0} step={50000} value={allowance} onChange={(e) => setAllowance(Number(e.target.value))} />
@@ -862,7 +868,7 @@ function seniorityLabel(priorYears: number, hireDate?: string | null): string | 
   return `Thâm niên hiện tại: ${Math.floor(total / 12)} năm ${total % 12} tháng`;
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   const required = label.trimEnd().endsWith("*");
   const text = required ? label.trimEnd().slice(0, -1).trimEnd() : label;
   return (
@@ -871,6 +877,7 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
         {text}{required && <span className="ns-field__required" aria-hidden="true"> *</span>}
       </span>
       {children}
+      {hint && <span className="ns-field__hint">{hint}</span>}
     </label>
   );
 }
@@ -1120,7 +1127,11 @@ function InfoTab({
     setBusy(true);
     setError(null);
     try {
-      await api.employees.update(token, emp.id, form);
+      // Ca làm việc KHÔNG gán ở đây nữa (Chấm công → Khai ca → Phân ca tháng là nơi duy
+      // nhất). Bỏ khỏi payload để form hồ sơ không bao giờ ghi đè ca — đường ghi này
+      // không tạo mốc hiệu lực nên sẽ làm mất dấu lịch sử đổi ca.
+      const { default_shift_id: _ignored, ...payload } = form;
+      await api.employees.update(token, emp.id, payload as EmployeeInput);
       setEdit(false);
       onSaved();
     } catch (e) {
@@ -1146,12 +1157,6 @@ function InfoTab({
           <Field label="Chỗ ở hiện tại"><input value={form.current_address ?? ""} onChange={(e) => set("current_address", e.target.value)} /></Field>
           <Field label="Liên hệ khẩn (tên)"><input value={form.emergency_contact_name ?? ""} onChange={(e) => set("emergency_contact_name", e.target.value)} /></Field>
           <Field label="Liên hệ khẩn (SĐT)"><input value={form.emergency_contact_phone ?? ""} onChange={(e) => set("emergency_contact_phone", e.target.value)} /></Field>
-          <Field label="Ca làm việc">
-            <select value={form.default_shift_id ?? ""} onChange={(e) => set("default_shift_id", e.target.value === "" ? null : Number(e.target.value))}>
-              <option value="">— chưa gán —</option>
-              {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time}–{s.end_time})</option>)}
-            </select>
-          </Field>
           <Field label="Ghi chú"><input value={form.note ?? ""} onChange={(e) => set("note", e.target.value)} /></Field>
         </div>
         <div className="ns2-editfoot">
@@ -1172,7 +1177,8 @@ function InfoTab({
           <InfoField label="Bậc thợ" value={emp.job_grade} icon={TrendingUp} />
           <InfoField label="Ngày vào" value={fmtDate(emp.hire_date)} icon={Calendar} />
           <InfoField label="Hết thử việc" value={fmtDate(emp.probation_end_date)} icon={Calendar} />
-          <InfoField label="Ca làm việc" value={shiftName} icon={Clock} />
+          <InfoField label="Ca làm việc" value={shiftName ?? "— chưa gán —"} icon={Clock}
+            hint="Gán/đổi ca ở Chấm công → Khai ca → Phân ca tháng" />
           {emp.resign_date && <InfoField label="Ngày nghỉ" value={fmtDate(emp.resign_date)} icon={Calendar} />}
           {emp.resign_reason && <InfoField label="Lý do nghỉ" value={emp.resign_reason} icon={FileText} />}
         </InfoCard>
@@ -1486,7 +1492,9 @@ function InfoCard({ title, icon: Icon, children }: { title: string; icon: any; c
   );
 }
 
-function InfoField({ label, value, icon: Icon }: { label: string; value: string | null | undefined; icon?: any }) {
+function InfoField({ label, value, icon: Icon, hint }: {
+  label: string; value: string | null | undefined; icon?: any; hint?: string;
+}) {
   return (
     <div className="ns-info-field">
       {Icon && <Icon className="ns-info-field__icon" size={14} />}
@@ -1497,6 +1505,7 @@ function InfoField({ label, value, icon: Icon }: { label: string; value: string 
         ) : (
           <span className="ns-info-field__value ns-info-field__value--empty">—</span>
         )}
+        {hint && <span className="ns-info-field__hint">{hint}</span>}
       </div>
     </div>
   );

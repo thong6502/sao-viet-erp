@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, type EmployeeRow, type OvertimeRequest } from "../api/client";
 import { useCan } from "../auth/permissions";
 import { useAuth } from "../auth/useAuth";
+import { fmtDateTime } from "../utils/format";
 import "./nhan-su.css";
 import "./tang-ca.css";
 
@@ -30,6 +31,12 @@ function minToHhmm(m: number): string {
   const rem = ((m % 1440) + 1440) % 1440;
   const s = `${String(Math.floor(rem / 60)).padStart(2, "0")}:${String(rem % 60).padStart(2, "0")}`;
   return day > 0 ? `${s} (+${day})` : s;
+}
+
+/** Phút → "HH:MM" thuần (không kèm "+1") để đổ vào ô nhập; lấy phần trong ngày. */
+function plainHhmm(m: number): string {
+  const rem = ((m % 1440) + 1440) % 1440;
+  return `${String(Math.floor(rem / 60)).padStart(2, "0")}:${String(rem % 60).padStart(2, "0")}`;
 }
 
 function hhmmToMin(v: string): number | null {
@@ -59,22 +66,25 @@ function StatusBadge({ status }: { status: string }) {
 function OvertimeFormModal({
   token,
   forEmployee,
+  editing,
   onClose,
   onSaved,
 }: {
   token: string;
   /** true = tổ trưởng tạo HỘ (chọn nhân viên, duyệt luôn); false = NV tự gửi. */
   forEmployee: boolean;
+  /** Có = SỬA phiếu chờ duyệt (đổ sẵn dữ liệu, lưu bằng PUT). Không = tạo mới. */
+  editing?: OvertimeRequest;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [emps, setEmps] = useState<EmployeeRow[]>([]);
   const [employeeId, setEmployeeId] = useState<number | null>(null);
-  const [workDate, setWorkDate] = useState("");
-  const [from, setFrom] = useState("22:00");
-  const [to, setTo] = useState("00:00");
-  const [nextDay, setNextDay] = useState(true);
-  const [reason, setReason] = useState("");
+  const [workDate, setWorkDate] = useState(editing?.work_date ?? "");
+  const [from, setFrom] = useState(editing ? plainHhmm(editing.from_minute) : "22:00");
+  const [to, setTo] = useState(editing ? plainHhmm(editing.to_minute) : "00:00");
+  const [nextDay, setNextDay] = useState(editing ? editing.to_minute >= 1440 : true);
+  const [reason, setReason] = useState(editing?.reason ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -108,7 +118,9 @@ function OvertimeFormModal({
         to_minute: toAbs,
         reason: reason.trim() || null,
       };
-      if (forEmployee) {
+      if (editing) {
+        await api.overtime.updateMine(token, editing.id, input);
+      } else if (forEmployee) {
         await api.overtime.createFor(token, {
           ...input,
           employee_id: employeeId as number,
@@ -129,7 +141,11 @@ function OvertimeFormModal({
       <div className="ns-modal__box">
         <header className="ns-modal__head">
           <h2>
-            {forEmployee ? "Tạo phiếu tăng ca cho thợ" : "Gửi phiếu tăng ca"}
+            {editing
+              ? "Sửa phiếu tăng ca"
+              : forEmployee
+                ? "Tạo phiếu tăng ca cho thợ"
+                : "Gửi phiếu tăng ca"}
           </h2>
           <button className="ns-modal__x" onClick={onClose}>
             ×
@@ -300,7 +316,7 @@ function RequestTable({
 }) {
   return (
     <div className="ns__tablewrap">
-      <table className="ns__table">
+      <table className="ns__table tc-table">
         <thead>
           <tr>
             {selectable && <th style={{ width: 36 }}></th>}
@@ -310,7 +326,9 @@ function RequestTable({
             <th>Số giờ</th>
             <th>Lý do</th>
             <th>Trạng thái</th>
-            <th></th>
+            <th>Người duyệt</th>
+            <th>Ghi chú duyệt</th>
+            <th className="tc-col-act"></th>
           </tr>
         </thead>
         <tbody>
@@ -339,16 +357,28 @@ function RequestTable({
               <td>{r.reason ?? "—"}</td>
               <td>
                 <StatusBadge status={r.status} />
-                {r.decision_note && (
-                  <div className="tc-muted">{r.decision_note}</div>
+              </td>
+              <td>
+                {r.decided_by_name ? (
+                  <>
+                    {r.decided_by_name}
+                    {r.decided_at && (
+                      <div className="tc-muted">{fmtDateTime(r.decided_at)}</div>
+                    )}
+                  </>
+                ) : (
+                  "—"
                 )}
               </td>
-              <td className="cc-rowact">{actions(r)}</td>
+              <td>{r.decision_note || "—"}</td>
+              <td className="tc-col-act">
+                <div className="cc-rowact">{actions(r)}</div>
+              </td>
             </tr>
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={9} className="ns__empty">
+              <td colSpan={10} className="ns__empty">
                 Chưa có phiếu tăng ca nào.
               </td>
             </tr>
@@ -379,6 +409,7 @@ export function TangCaPage({
   const [queue, setQueue] = useState<OvertimeRequest[]>([]);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [creating, setCreating] = useState<null | "mine" | "for">(null);
+  const [editing, setEditing] = useState<OvertimeRequest | null>(null);
   const [rejecting, setRejecting] = useState<null | number[]>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -490,12 +521,22 @@ export function TangCaPage({
               onToggle={toggle}
               actions={(r) =>
                 r.status === "pending" || r.status === "approved" ? (
-                  <button
-                    className="btn btn--ghost ns-danger"
-                    onClick={() => run(() => api.overtime.cancel(token, r.id))}
-                  >
-                    Hủy
-                  </button>
+                  <>
+                    {r.status === "pending" && (
+                      <button
+                        className="btn btn--ghost"
+                        onClick={() => setEditing(r)}
+                      >
+                        Sửa
+                      </button>
+                    )}
+                    <button
+                      className="btn btn--ghost ns-danger"
+                      onClick={() => run(() => api.overtime.cancel(token, r.id))}
+                    >
+                      Hủy
+                    </button>
+                  </>
                 ) : null
               }
             />
@@ -570,6 +611,18 @@ export function TangCaPage({
           onClose={() => setCreating(null)}
           onSaved={() => {
             setCreating(null);
+            load();
+          }}
+        />
+      )}
+      {editing && (
+        <OvertimeFormModal
+          token={token}
+          forEmployee={false}
+          editing={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
             load();
           }}
         />

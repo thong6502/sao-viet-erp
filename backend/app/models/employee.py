@@ -20,12 +20,14 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     Date,
     DateTime,
     ForeignKey,
     Integer,
     String,
     UniqueConstraint,
+    false as sa_false,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -186,6 +188,47 @@ class EmployeeShiftAssignment(Base):
     # shift from this date onward.
     shift_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
     effective_from: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False
+    )
+
+
+class EmployeeShiftDay(Base):
+    """Ca cua nhan vien tai MOT NGAY cu the — lop DE len ca mac dinh theo moc.
+
+    Dung cho xoay ca linh hoat (hom nay ca khuya, mai ca ngay). Moi ngay cong van
+    chi 1 ca: ``UniqueConstraint(employee_id, work_date)`` la hang rao cung cho luat
+    do. Lam ngoai khung ca la TANG CA (module rieng), khong phai ca thu hai.
+
+    Ba trang thai cua mot o luoi phan ca:
+      - KHONG co dong        -> ke thua ca mac dinh (employee_shift_assignments).
+      - dong co ``shift_id`` -> ca cu the cho ngay do (de len moc).
+      - dong ``is_off=True`` -> NGHI theo lich (nghi luan phien rieng cua tung nguoi).
+
+    ``is_off`` chi la DAU KE HOACH: no KHONG chan cham cong va KHONG sinh he so
+    luong. Nguoi bi goi di lam dung ngay nghi rieng van cham cong duoc va huong
+    1x nhu ngay thuong — nen ``shift_id_on`` co y BO QUA dong ``is_off`` va roi
+    xuong ca nen. Chu nhat van theo luat nghi tuan chung (x2), khong doi.
+    """
+
+    __tablename__ = "employee_shift_days"
+    __table_args__ = (
+        UniqueConstraint("employee_id", "work_date", name="uq_employee_shift_day"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    employee_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("employees.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # NGAY CONG (khong phai ngay lich cua luot bam) — cung truc voi work_day_of().
+    work_date: Mapped[date] = mapped_column(Date, index=True, nullable=False)
+    # Logical link to work_shifts.id (khong FK cung, giong employee_shift_assignments).
+    # NULL di kem is_off=True nghia la ngay nghi theo lich.
+    shift_id: Mapped[int | None] = mapped_column(Integer, index=True, nullable=True)
+    is_off: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa_false(), nullable=False
+    )
     created_by: Mapped[int | None] = mapped_column(Integer, ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, nullable=False

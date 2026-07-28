@@ -714,7 +714,7 @@ const PARAMS_A = [
   "holiday_work_multiplier",
   "night_pct",
   "ot_night_extra_pct",
-  "advance_max_pct",
+  "adjust_max_per_month",
 ] as const satisfies readonly (keyof PayrollParams)[];
 const PARAMS_INS = [
   "bhxh_rate",
@@ -952,6 +952,17 @@ function CoCheTab({
                 value={toPct(p.probation_ratio)}
                 onChange={(v) => setP("probation_ratio", v / 100)}
               />
+              <ParamField
+                label="Hạn mức chỉnh công / tháng"
+                hint="Số NGÀY CÔNG mỗi người được tự xin chỉnh trong 1 tháng. Đếm theo ngày, không theo số đơn — quên cả giờ vào lẫn giờ ra của cùng một ngày vẫn là 1 lần. Đơn bị từ chối/hủy trả lại lượt. HCNS chấm bù trực tiếp KHÔNG bị giới hạn. 0 = không giới hạn."
+                suffix="ngày"
+                step={1}
+                min={0}
+                max={31}
+                readOnly={readOnly}
+                value={p.adjust_max_per_month}
+                onChange={(v) => setP("adjust_max_per_month", Math.round(v))}
+              />
             </div>
           </section>
           <section className="rc-sec">
@@ -1002,22 +1013,6 @@ function CoCheTab({
               />
             </div>
           </section>
-          <section className="rc-sec">
-            <div className="rc-sec__title">Tạm ứng lương</div>
-            <div className="rc-grid">
-              <ParamField
-                label="Trần tạm ứng / tháng"
-                hint="Tổng tạm ứng TRONG THÁNG của một người không vượt tỷ lệ này × (lương vị trí + trách nhiệm). Ứng nhiều lần vẫn được, nhưng cộng dồn phải nằm trong trần — đơn đang chờ duyệt cũng chiếm chỗ. Để 0% = không giới hạn."
-                suffix="%"
-                step={5}
-                min={0}
-                max={100}
-                readOnly={readOnly}
-                value={toPct(p.advance_max_pct)}
-                onChange={(v) => setP("advance_max_pct", v / 100)}
-              />
-            </div>
-          </section>
         </div>
       </div>
 
@@ -1034,15 +1029,16 @@ function CoCheTab({
         <h3 className="cl-card__title">Cơ chế lương — {deptName}</h3>
         <p className="cl-card__desc">
           Bật thành phần nào thì bộ phận này được tính thành phần đó. Công ty
-          không đặt mức chung — khoản nào bật mà chưa khai mức tiền thì tính 0 đ.
+          không đặt mức chung — khoản nào bật mà chưa khai mức tiền thì tính 0
+          đ.
         </p>
         <div className="cl-card__body">
           <div className="cl-override-note">
             <Info size={14} />
             <span>
-              <b>Chuyên cần</b>: tổ chỉ bật/tắt — mức tiền khai ở <b>hồ sơ từng
-              nhân viên</b>, chưa khai thì 0 đ. <b>KPI</b>: bật mà bỏ trống ô
-              tiền = 0 đ.
+              <b>Chuyên cần</b>: tổ chỉ bật/tắt — mức tiền khai ở{" "}
+              <b>hồ sơ từng nhân viên</b>, chưa khai thì 0 đ. <b>KPI</b>: bật mà
+              bỏ trống ô tiền = 0 đ.
             </span>
           </div>
           {loading ? (
@@ -1499,12 +1495,13 @@ function PhuCapTab({
       </div>
 
       <div className="cl-card">
-        <h3 className="cl-card__title">Phạt đi trễ / về sớm</h3>
+        <h3 className="cl-card__title">khấu trừ đi trễ / về sớm</h3>
         <p className="cl-card__desc">
-          Áp cho buổi đi trễ / về sớm KHÔNG phép (quá dung sai ca) — phạt theo
-          TỪNG LẦN, tra bảng theo số phút, Chủ nhật ×2 phút. Máy tự tính từ chấm
-          công sẽ có ở bước sau; hiện dùng ở ô “Tính nhanh phạt” của modal Sửa
-          lương.
+          Áp cho buổi đi trễ / về sớm KHÔNG phép (quá dung sai ca) — khấu trừ
+          theo TỪNG LẦN
+          {/* tra bảng theo số phút, Chủ nhật ×2 phút. Máy tự tính từ chấm
+          công sẽ có ở bước sau; hiện dùng ở ô “Tính nhanh khấu trừ” của modal Sửa
+          lương. */}
         </p>
         <div className="cl-card__body">
           <div className="cl-table__wrap">

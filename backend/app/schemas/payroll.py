@@ -15,8 +15,6 @@ class ParamsIn(BaseModel):
     bhxh_rate: float | None = Field(default=None, ge=0, le=1)
     bhyt_rate: float | None = Field(default=None, ge=0, le=1)
     bhtn_rate: float | None = Field(default=None, ge=0, le=1)
-    # Trần tạm ứng/tháng theo % (lương vị trí + trách nhiệm). 0 = không giới hạn.
-    advance_max_pct: float | None = Field(default=None, ge=0, le=1)
     # Phía NGƯỜI SỬ DỤNG LAO ĐỘNG — KHÔNG trừ vào lương NV, chỉ tính chi phí công ty.
     bhxh_rate_er: float | None = Field(default=None, ge=0, le=1)
     bhyt_rate_er: float | None = Field(default=None, ge=0, le=1)
@@ -37,6 +35,8 @@ class ParamsIn(BaseModel):
     ot_night_extra_pct: float | None = Field(default=None, ge=0, le=2)
     bh_base_cap: float | None = Field(default=None, ge=0)
     bhtn_base_cap: float | None = Field(default=None, ge=0)
+    # Hạn mức chỉnh công/tháng (số NGÀY CÔNG, không phải số đơn). 0 = không giới hạn.
+    adjust_max_per_month: int | None = Field(default=None, ge=0, le=31)
     # Phụ cấp cơm/ca đêm KHÔNG còn ở cấp công ty — khai theo từng CA (`work_shifts`).
 
 
@@ -49,6 +49,8 @@ class ParamsOut(BaseModel):
     bhyt_rate: float
     bhtn_rate: float
     advance_max_pct: float = 0.10
+    # Mặc định để dòng params CŨ (chưa có cột) không vỡ validate.
+    adjust_max_per_month: int = 5
     bhxh_rate_er: float = 0.175
     bhyt_rate_er: float = 0.03
     bhtn_rate_er: float = 0.01
@@ -202,6 +204,8 @@ class SalaryIn(BaseModel):
     insurance_elsewhere: bool = False
     # Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn (mặc định false = không đóng).
     union_member: bool = False
+    # "Lương trả 1 lần" — mức cố định điền sẵn khi tạo phiếu thanh toán lương đợt 1.
+    luong_dot_1: float = Field(default=0, ge=0)
     note: str | None = Field(default=None, max_length=255)
 
 
@@ -224,6 +228,7 @@ class SalaryOut(BaseModel):
     chuyen_can: float = 0
     insurance_elsewhere: bool = False   # cờ "BH đóng ở nơi khác" — để modal prefill checkbox
     union_member: bool = False          # cờ "đoàn viên công đoàn" — để modal prefill checkbox
+    luong_dot_1: float = 0              # "lương trả 1 lần" — prefill khi tạo phiếu đợt 1
     note: str | None = None
     created_at: datetime
     created_by: int | None = None
@@ -259,6 +264,8 @@ class AdvanceIn(BaseModel):
     advance_date: date
     amount: float = Field(gt=0)
     reason: str | None = Field(default=None, max_length=255)
+    # Loại phiếu: "tam_ung" (mặc định) | "luong_dot_1" (thanh toán lương đợt 1).
+    kind: str = Field(default="tam_ung", pattern="^(tam_ung|luong_dot_1)$")
 
 
 class MyAdvanceIn(BaseModel):
@@ -268,6 +275,7 @@ class MyAdvanceIn(BaseModel):
     advance_date: date
     amount: float = Field(gt=0)
     reason: str | None = Field(default=None, max_length=255)
+    kind: str = Field(default="tam_ung", pattern="^(tam_ung|luong_dot_1)$")
 
 
 class AdvanceDecisionIn(BaseModel):
@@ -289,6 +297,7 @@ class AdvanceOut(BaseModel):
     advance_date: date
     amount: float
     reason: str | None = None
+    kind: str = "tam_ung"                   # tam_ung | luong_dot_1
     status: str
     decision_note: str | None = None
     created_at: datetime
@@ -301,6 +310,8 @@ class AdvancesOut(BaseModel):
 class MyAdvancesOut(BaseModel):
     has_employee: bool
     items: list[AdvanceOut]
+    # Mức "Lương trả 1 lần" hiện hành của NV — FE điền sẵn khi tự xin phiếu đợt 1 (0 = chưa khai).
+    luong_dot_1: float = 0
 
 
 # --- periods / bảng lương ---------------------------------------------------
@@ -334,16 +345,6 @@ class PeriodPayIn(BaseModel):
     note: str | None = Field(default=None, max_length=255)
 
 
-class AdvanceQuotaOut(BaseModel):
-    """Hạn mức tạm ứng của 1 NV trong 1 kỳ — nuôi dòng "còn được ứng" trên form đề nghị."""
-
-    monthly: float               # lương tháng làm gốc (vị trí + trách nhiệm)
-    pct: float                   # tỷ lệ trần đang áp (0 = không giới hạn)
-    limit: float | None = None   # số tiền trần; None = không giới hạn
-    used: float = 0              # đã duyệt + đang chờ duyệt trong kỳ
-    remaining: float | None = None  # còn được ứng; None = không giới hạn
-
-
 class InsuranceLineOut(BaseModel):
     """Một dòng bảo hiểm NV đóng trên phiếu lương (BHXH / BHYT / BHTN), nhãn đã kèm tỷ lệ.
 
@@ -371,6 +372,11 @@ class LineOut(BaseModel):
     standard_cong: float
     monthly_salary: float
     luong_cong: float
+    # TRONG ĐÓ của `luong_cong` — tiền những ngày nghỉ phép, trả theo LƯƠNG VỊ TRÍ (không lương
+    # trách nhiệm). ĐỪNG cộng thêm vào tổng: đã nằm trong `luong_cong` (cùng kiểu `phu_cap_tham_nien`).
+    luong_ngay_phep: float = 0
+    paid_leave_cong: float = 0     # số công phép có lương thực được trả
+    excused_cong: float = 0        # công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ) — giải trình chuyên cần
     chuyen_can: float
     allowance: float               # TỔNG phụ cấp tháng (đã gồm 3 dòng dưới)
     # Tách dòng cho phiếu lương (B2) — 2 số này CỘNG LẠI = `allowance`, đừng cộng thêm vào tổng.
@@ -408,6 +414,7 @@ class LineOut(BaseModel):
     pit_manual: bool = False
     pit_taxable: float = 0
     advance_total: float
+    luong_dot_1_total: float = 0
     net_pay: float
     note: str | None = None
 

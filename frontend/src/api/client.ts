@@ -198,6 +198,18 @@ export type QuoteEvent =
   // duyệt/từ chối → 'ot_decision' đẩy riêng cho nhân viên nộp phiếu.
   | { type: "ot_pending_changed"; code?: string }
   | { type: "ot_decision"; code?: string; decision: "approved" | "rejected" }
+  // Phiếu đi muộn / về sớm / nghỉ nửa buổi: cùng luồng với tăng ca (tổ trưởng duyệt), bảng riêng.
+  | { type: "el_pending_changed"; code?: string }
+  | { type: "el_decision"; code?: string; decision: "approved" | "rejected" }
+  // Sản xuất (Lát 1) dùng CHUNG kênh hub — tín hiệu NHẸ để hộp việc tổ refetch + "ting". Số chính
+  // xác lấy qua to-badges/inbox (đã lọc scope server-side). `lenh_sx_routing` = có lệnh mới PHÁT
+  // vào các tổ `to_ids`; `lenh_sx_assigned` = 1 thợ được gán (đích danh tới user).
+  | { type: "lenh_sx_routing"; form_id?: number; lenh_ids?: number[]; to_ids: number[] }
+  | { type: "lenh_sx_assigned"; lenh_id: number; to_id: number | null }
+  | { type: "lenh_sx_phat"; form_id: number; lenh_ids: number[] }
+  | { type: "lenh_sx_duyet_mau"; lenh_id: number }
+  | { type: "lenh_sx_ban_giao"; lenh_id: number; ban_giao_id: number; to_nhan_id: number | null }
+  | { type: "lenh_sx_qc_loi"; lenh_id: number; qc_id: number; to_bi_quy_id: number | null }
   // Handoff Đơn → bàn Kế hoạch SX: đơn chốt 'bắn xuống' hàng chờ; Sale đổi gấp/lưu ý SAU chốt →
   // bàn kế hoạch "ting" (badge nhảy). Nội dung chính xác FE refetch hàng chờ / detail.
   | { type: "order_ordered"; code?: string; order_id: number }
@@ -2013,6 +2025,8 @@ export interface EmployeeInitialSalaryInput {
   /** Lương cơ bản (đóng BH) — mức đóng BHXH/BHYT/BHTN bám số này. */
   luong_vi_tri: number;
   luong_trach_nhiem?: number;
+  /** "Lương trả 1 lần" (đợt 1) — mức điền sẵn khi lập phiếu thanh toán lương đợt 1. */
+  luong_dot_1?: number;
   allowance?: number;
   phu_cap_ca?: number;
   phu_cap_tham_nien?: number;
@@ -2154,6 +2168,7 @@ export interface CheckResult {
   success: boolean;
   within_range: boolean;
   check_type: string | null;
+  ot_mode?: boolean;           // lượt vừa chấm thuộc phiên TĂNG CA
   distance_m: number | null;
   nearest_location: NearestLocation | null;
   message: string;
@@ -2168,6 +2183,7 @@ export interface AttendancePreview {
   nearest_name: string | null;
   radius_m: number | null;
   next_action: string | null;  // "in" | "out"
+  ot_mode?: boolean;           // lượt kế tiếp thuộc phiên TĂNG CA
   message: string;
 }
 
@@ -2193,6 +2209,7 @@ export interface AttendanceStatus {
   has_employee: boolean;
   employee_name: string | null;
   next_action: string | null;
+  ot_mode?: boolean;             // lượt kế tiếp thuộc phiên TĂNG CA → đổi nhãn nút
   can_check: boolean;
   check_block_reason: string | null;
   last_check: AttendanceLog | null;
@@ -2246,6 +2263,7 @@ export interface TimesheetDay {
   leave: string | null;  // tên loại nghỉ (nếu ngày nghỉ đã duyệt) HOẶC tên ngày lễ
   leave_paid: boolean;   // nghỉ có lương (P) hay không (KL)
   holiday?: boolean;     // ngày nghỉ lễ hưởng lương (cộng 1 công tự động)
+  planned_off?: boolean; // ngày nghỉ theo lịch phân ca (dấu kế hoạch, không sinh hệ số)
 }
 
 export interface TimesheetRow {
@@ -2259,8 +2277,70 @@ export interface TimesheetRow {
   days: Record<string, TimesheetDay>;
   total_days: number;
   total_leave: number;
+  /** TRONG ĐÓ `total_leave`: số ngày nghỉ CÓ lương (trả theo lương vị trí) — đừng cộng thêm. */
+  paid_leave_days?: number;
+  /** Công THIẾU nhưng có đơn nghỉ theo giờ đã duyệt — KHÔNG nằm trong `total_cong`
+   *  (tiền công vẫn trừ), chỉ để Lương giữ nguyên phụ cấp chuyên cần. */
+  excused_cong?: number;
   total_hours: number;
   total_cong: number | null;
+}
+
+// --- Lưới phân ca tháng (shift plan) ----------------------------------------
+// Ô trống = KẾ THỪA ca mặc định; lưới chỉ dùng để ĐÈ ngày khác thường.
+// `source` cho biết ca đến từ đâu: day = khai tay trên lưới · assign = mốc ca mặc định ·
+// default = cache `default_shift_id` · none = chưa có ca.
+export interface ShiftPlanCell {
+  shift_id: number | null;
+  source: "day" | "assign" | "default" | "none";
+  is_off: boolean;
+}
+
+export interface ShiftPlanDay {
+  day: number;
+  date: string;                       // YYYY-MM-DD
+  weekday: number;                    // Mon=0 … Sun=6
+  is_working: boolean;
+  special_kind: "off" | "work" | "off1x" | null;
+  name: string | null;
+}
+
+export interface ShiftPlanRow {
+  employee_id: number;
+  employee_code: string | null;
+  employee_name: string;
+  department_id: number | null;
+  no_default: boolean;                // cả tháng không có ca nào → UI cảnh báo
+  days: Record<string, ShiftPlanCell>;
+}
+
+export interface ShiftPlanMonth {
+  year: number;
+  month: number;
+  days_in_month: number;
+  locked: boolean;                    // kỳ công đã chốt → lưới read-only
+  calendar: ShiftPlanDay[];
+  shifts: WorkShift[];
+  rows: ShiftPlanRow[];
+}
+
+export interface ShiftPlanPatchItem {
+  employee_id: number;
+  work_date: string;                  // YYYY-MM-DD
+  action: "set" | "off" | "inherit";  // set = gán ca · off = nghỉ · inherit = xoá ô
+  shift_id?: number | null;           // bắt buộc khi action="set"
+}
+
+export interface ShiftPlanReject {
+  employee_id: number | null;
+  date: string;
+  reason: string;
+}
+
+export interface ShiftPlanSaveOut {
+  saved: number;
+  cleared: number;
+  rejected: ShiftPlanReject[];
 }
 
 // --- Nghỉ phép (leave) ---
@@ -2294,6 +2374,7 @@ export interface OvertimeRequest {
   minutes: number;
   reason: string | null;
   status: string;
+  decided_by_name: string | null;
   decided_at: string | null;
   decision_note: string | null;
   created_at: string | null;
@@ -2319,6 +2400,62 @@ export interface OvertimeSummary {
 export interface OvertimeBulkResult {
   done: number[];
   skipped: number[];
+}
+
+// --- Đi muộn / về sớm / nghỉ nửa buổi (module `di_muon`) ---------------------
+// Phiếu CHẤM CÔNG ngoại lệ, KHÔNG phải đơn nghỉ phép: 1 phiếu/ngày, tổ trưởng duyệt, khai
+// khoảng VẮNG MẶT (`from_minute`→`to_minute`, phút từ 00:00 ngày công, KHÔNG qua nửa đêm).
+// `leave_type_id` khác null = người tạo tick "trừ vào phép năm" ⇒ tiêu `leave_cong` ngày phép
+// (làm tròn lên 0,5) và phần vắng VẪN được trả lương. Null = mất công phần vắng, quỹ phép nguyên.
+export interface LateEarlyRequest {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  work_date: string;
+  from_minute: number;
+  to_minute: number;
+  minutes: number;
+  leave_type_id: number | null;
+  leave_type_name: string | null;
+  leave_cong: number;
+  reason: string | null;
+  status: string;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string | null;
+}
+export interface LateEarlyInput {
+  work_date: string;
+  from_minute: number;
+  to_minute: number;
+  reason?: string | null;
+  /** Tick "trừ vào phép năm" → id loại nghỉ; bỏ tick → null. */
+  leave_type_id?: number | null;
+}
+export interface LateEarlyForInput extends LateEarlyInput {
+  employee_id: number;
+}
+export interface MyLateEarly {
+  has_employee: boolean;
+  employee_name: string | null;
+  items: LateEarlyRequest[];
+}
+export interface LateEarlySummary {
+  pending_in_scope: number | null;
+  my_decided_unseen: number;
+}
+export interface LateEarlyBulkResult {
+  done: number[];
+  skipped: number[];
+}
+/** Thợ trong tầm + danh mục ca, gác bằng `di_muon:approve`. Tồn tại vì vai "Tổ trưởng SX"
+ *  KHÔNG có module `nhan_su` ⇒ `/api/employees` và `/api/attendance/shifts` đều 403 với họ. */
+export interface LateEarlyRoster {
+  employees: { id: number; code: string | null; full_name: string;
+               department: string | null; default_shift_id: number | null }[];
+  shifts: { id: number; name: string; start_minute: number; end_minute: number;
+            is_overnight: boolean }[];
 }
 
 export interface LeaveRequest {
@@ -2400,16 +2537,10 @@ export interface PayrollParams {
   ot_night_extra_pct: number;
   bh_base_cap: number;
   bhtn_base_cap: number;
-  /** Trần tạm ứng/tháng: tổng tạm ứng ≤ tỷ lệ này × (lương vị trí + trách nhiệm). 0 = không giới hạn. */
+  /** DORMANT — trần tạm ứng đã gỡ (2026-07-24). Backend vẫn trả field; FE không còn dùng. */
   advance_max_pct: number;
-}
-/** Hạn mức tạm ứng còn lại của NV trong 1 kỳ. `limit`/`remaining` = null ⇒ không giới hạn. */
-export interface AdvanceQuota {
-  monthly: number;
-  pct: number;
-  limit: number | null;
-  used: number;
-  remaining: number | null;
+  /** Số NGÀY CÔNG tối đa 1 NV được tự xin chỉnh công trong 1 tháng. 0 = không giới hạn. */
+  adjust_max_per_month: number;
 }
 export interface SalaryRule {
   id: number;
@@ -2445,6 +2576,8 @@ export interface EmployeeSalary {
   /** Mức HỢP ĐỒNG riêng của NV — mức nền = vị trí + trách nhiệm. */
   luong_vi_tri: number;
   luong_trach_nhiem: number;
+  /** Lương trả 1 lần (đợt 1) — số điền sẵn khi tạo phiếu "thanh toán lương đợt 1". */
+  luong_dot_1?: number;
   /** Mức đóng BH khai riêng (dormant — engine bám luong_vi_tri). */
   insurance_base: number | null;
   /** 3 khoản PHỤ CẤP KHAI TAY — số cố định, engine cộng phẳng, KHÔNG tự tính gì. */
@@ -2469,6 +2602,8 @@ export interface EmployeeSalaryInput {
   /** Gõ riêng 2 ô mức hợp đồng của chính NV — khai thì amount_mode tự thành 'manual'. */
   luong_vi_tri?: number;
   luong_trach_nhiem?: number;
+  /** Lương trả 1 lần (đợt 1) — mức trả trong 1 lần, dùng để điền sẵn phiếu đợt 1. */
+  luong_dot_1?: number;
   /** 3 khoản phụ cấp KHAI TAY của riêng NV — gõ một lần, tháng nào cũng cộng đúng số này. */
   allowance?: number; // phụ cấp KHÁC (gộp)
   phu_cap_ca?: number;
@@ -2511,6 +2646,8 @@ export interface SalaryAdvance {
   advance_date: string;
   amount: number;
   reason: string | null;
+  /** tam_ung (mặc định) | luong_dot_1 (thanh toán lương đợt 1). */
+  kind: string;
   status: string;
   decision_note: string | null;
   created_at: string;
@@ -2522,6 +2659,8 @@ export interface MyAdvanceInput {
   advance_date: string;
   amount: number;
   reason?: string | null;
+  /** tam_ung (mặc định) | luong_dot_1 (tự xin phiếu thanh toán lương đợt 1). */
+  kind?: string;
 }
 export interface SalaryAdvanceInput {
   employee_id: number;
@@ -2530,10 +2669,14 @@ export interface SalaryAdvanceInput {
   advance_date: string;
   amount: number;
   reason?: string | null;
+  /** tam_ung (mặc định) | luong_dot_1 (phiếu thanh toán lương đợt 1). */
+  kind?: string;
 }
 export interface MyAdvances {
   has_employee: boolean;
   items: SalaryAdvance[];
+  /** Mức "Lương trả 1 lần" hiện hành — điền sẵn khi NV tự xin phiếu đợt 1 (0 = chưa khai). */
+  luong_dot_1: number;
 }
 export interface PayrollPeriod {
   id: number;
@@ -2559,6 +2702,14 @@ export interface PayrollLine {
   standard_cong: number;
   monthly_salary: number;
   luong_cong: number;
+  /** TRONG ĐÓ `luong_cong`: phần trả cho NGÀY NGHỈ PHÉP (chỉ tính lương vị trí, không có
+   *  lương trách nhiệm). TUYỆT ĐỐI KHÔNG cộng lại vào tổng thu — cùng idiom với
+   *  `phu_cap_tham_nien ⊂ allowance`. Cộng nhầm là SAI TIỀN LƯƠNG. */
+  luong_ngay_phep?: number;
+  /** Số công phép CÓ lương đã được trả trong `luong_ngay_phep`. */
+  paid_leave_cong?: number;
+  /** Công thiếu nhưng có đơn nghỉ theo giờ đã duyệt (được miễn phạt, giữ chuyên cần). */
+  excused_cong?: number;
   chuyen_can: number;
   /** TỔNG phụ cấp tháng — ĐÃ GỒM 3 dòng dưới. Render 3 dòng thì ĐỪNG cộng thêm số này.
    *  Phụ cấp CA (`ca_pay`/`night_pay`) là khoản RIÊNG, KHÔNG nằm trong `allowance`. */
@@ -2603,6 +2754,8 @@ export interface PayrollLine {
   pit_manual: boolean;
   pit_taxable: number;
   advance_total: number;
+  /** Tổng "thanh toán lương đợt 1" đã duyệt của kỳ — dòng RIÊNG, KHÔNG gộp vào advance_total. */
+  luong_dot_1_total: number;
   net_pay: number;
   note: string | null;
 }
@@ -2797,6 +2950,9 @@ export interface AttendancePeriod {
   employee_count: number;
   hanging_days: number;      // ngày treo (thiếu chấm RA) — xử trước khi Chốt
   pending_leaves: number;    // đơn nghỉ phép chưa duyệt của tháng
+  /** Phiếu đi muộn/về sớm chưa duyệt — CHẶN chốt công y như đơn nghỉ: snapshot đóng băng lúc
+   *  chốt, phiếu duyệt sau đó không vào được nữa ⇒ NLĐ vẫn ăn phạt dù đã xin phép đúng luật. */
+  pending_late_early: number;
   pending_adjusts: number;   // yêu cầu chỉnh công chưa duyệt
   payroll_locked: boolean;   // kỳ lương tháng này đã chốt → không mở lại kỳ công
 }
@@ -2823,14 +2979,14 @@ export type WorkCalendarConfigInput = Partial<Omit<WorkCalendarConfig, "updated_
 export interface SpecialDay {
   id: number;
   day: string;      // ISO date
-  kind: "off" | "work";
+  kind: "off" | "work" | "off1x";   // off1x = nghỉ, đi làm chỉ lương chính 1× (không hệ số)
   name: string;
   is_paid: boolean;
   note: string | null;
 }
 export interface SpecialDayInput {
   day: string;
-  kind: "off" | "work";
+  kind: "off" | "work" | "off1x";
   name: string;
   is_paid?: boolean;
   note?: string | null;
@@ -2875,6 +3031,8 @@ export interface DayDetail {
   shift_name: string | null;
   cong: number | null;
   reason: string | null;
+  /** Có khi NV có phiếu TC đã duyệt (trong ngày) nhưng chưa có cặp chấm tăng ca → FE nhắc + nút 1 chạm. */
+  ot_suggestion?: { from_time: string; to_time: string } | null;
   punches: DayPunch[];
 }
 
@@ -2892,6 +3050,21 @@ export interface TodayKpi {
   missing_out: number;
   late_today: number;
   pending_requests: number;
+}
+
+/** Hạn mức chỉnh công THÁNG HIỆN TẠI. `limit = 0` ⇒ không giới hạn (`remaining` là null).
+ *  `days` = các ngày công ĐÃ tính lượt — gửi thêm đơn cho chính ngày đó KHÔNG tốn lượt mới. */
+export interface AdjustQuota {
+  year: number;
+  month: number;
+  limit: number;
+  used: number;
+  remaining: number | null;
+  days: string[];
+}
+export interface MyAdjustRequests {
+  items: AdjustRequest[];
+  quota: AdjustQuota | null;
 }
 
 export interface AdjustRequest {
@@ -4304,8 +4477,22 @@ export const api = {
         body: JSON.stringify({ default_shift_id: shiftId, effective_from: effectiveFrom }),
       });
     },
+    /** Đặt CA NỀN cho nhiều NV trong MỘT request (nút "Đặt ca nền" ở màn Phân ca tháng).
+     *  Ca nền áp dụng từ `effectiveFrom` trở về sau cho MỌI tháng — khác với tô ca trên
+     *  lưới (chỉ đúng ngày đã tô). */
+    setShiftBulk(token: string, employeeIds: number[], shiftId: number | null, effectiveFrom: string):
+      Promise<{ updated: number; adjusted: number; failed: { employee_id: number; reason: string }[] }> {
+      return authed("/api/employees/shift/bulk", token, {
+        method: "PUT",
+        body: JSON.stringify({ employee_ids: employeeIds, default_shift_id: shiftId, effective_from: effectiveFrom }),
+      });
+    },
     shiftHistory(token: string, id: number): Promise<{ employee_id: number; items: EmployeeShiftAssignment[] }> {
       return authed<{ employee_id: number; items: EmployeeShiftAssignment[] }>(`/api/employees/${id}/shift-history`, token);
+    },
+    /** Gỡ một mốc ca nền gán nhầm — không có đường này thì mốc sai là vĩnh viễn. */
+    deleteShiftAssignment(token: string, id: number, assignmentId: number): Promise<void> {
+      return authed<void>(`/api/employees/${id}/shift-history/${assignmentId}`, token, { method: "DELETE" });
     },
     transition(token: string, id: number, input: EmployeeTransitionInput): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}/transitions`, token, {
@@ -4459,8 +4646,8 @@ export const api = {
         method: "POST", body: JSON.stringify(input),
       });
     },
-    myAdjustRequests(token: string): Promise<{ items: AdjustRequest[] }> {
-      return authed<{ items: AdjustRequest[] }>("/api/attendance/me/adjust-requests", token);
+    myAdjustRequests(token: string): Promise<MyAdjustRequests> {
+      return authed<MyAdjustRequests>("/api/attendance/me/adjust-requests", token);
     },
     cancelAdjustRequest(token: string, id: number): Promise<AdjustRequest> {
       return authed<AdjustRequest>(`/api/attendance/me/adjust-requests/${id}/cancel`, token, { method: "POST" });
@@ -4517,6 +4704,17 @@ export const api = {
     deleteShift(token: string, id: number): Promise<void> {
       return authed<void>(`/api/attendance/shifts/${id}`, token, { method: "DELETE" });
     },
+    // --- Lưới phân ca tháng (shift plan) ---
+    shiftPlan(token: string, year: number, month: number, departmentId?: number | null): Promise<ShiftPlanMonth> {
+      const qs = new URLSearchParams({ year: String(year), month: String(month) });
+      if (departmentId != null) qs.set("department_id", String(departmentId));
+      return authed<ShiftPlanMonth>(`/api/attendance/shift-plan?${qs.toString()}`, token);
+    },
+    /** Lưu hàng loạt (tối đa 2000 ô/request) — ô sai trả về trong `rejected`, KHÔNG bị nuốt. */
+    saveShiftPlan(token: string, year: number, month: number, items: ShiftPlanPatchItem[]): Promise<ShiftPlanSaveOut> {
+      return authed<ShiftPlanSaveOut>("/api/attendance/shift-plan", token,
+        { method: "PUT", body: JSON.stringify({ year, month, cells: items }) });
+    },
     // --- Chốt công tháng (kỳ công) ---
     period(token: string, year: number, month: number): Promise<AttendancePeriod> {
       return authed<AttendancePeriod>(`/api/attendance/period?year=${year}&month=${month}`, token);
@@ -4539,6 +4737,10 @@ export const api = {
     createMine(token: string, input: OvertimeInput): Promise<OvertimeRequest> {
       return authed<OvertimeRequest>("/api/overtime/me", token,
         { method: "POST", body: JSON.stringify(input) });
+    },
+    updateMine(token: string, id: number, input: OvertimeInput): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}`, token,
+        { method: "PUT", body: JSON.stringify(input) });
     },
     createFor(token: string, input: OvertimeForInput): Promise<OvertimeRequest> {
       return authed<OvertimeRequest>("/api/overtime", token,
@@ -4572,6 +4774,59 @@ export const api = {
     },
     markSeen(token: string): Promise<void> {
       return authed<void>("/api/overtime/mark-seen", token, { method: "POST" });
+    },
+  },
+
+  // --- Đi muộn / về sớm / nghỉ nửa buổi (di_muon) ---------------------------
+  // Cùng khuôn với `overtime` (tổ trưởng duyệt) nhưng BẢNG RIÊNG: phiếu này không bao giờ
+  // lẫn vào Nghỉ phép, và không sinh tiền tăng ca.
+  lateEarly: {
+    mine(token: string): Promise<MyLateEarly> {
+      return authed<MyLateEarly>("/api/late-early/me", token);
+    },
+    createMine(token: string, input: LateEarlyInput): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>("/api/late-early/me", token,
+        { method: "POST", body: JSON.stringify(input) });
+    },
+    updateMine(token: string, id: number, input: LateEarlyInput): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>(`/api/late-early/${id}`, token,
+        { method: "PUT", body: JSON.stringify(input) });
+    },
+    createFor(token: string, input: LateEarlyForInput): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>("/api/late-early", token,
+        { method: "POST", body: JSON.stringify(input) });
+    },
+    list(token: string, statusFilter?: string): Promise<{ items: LateEarlyRequest[] }> {
+      const q = statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : "";
+      return authed<{ items: LateEarlyRequest[] }>(`/api/late-early${q}`, token);
+    },
+    approve(token: string, id: number, note?: string): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>(`/api/late-early/${id}/approve`, token,
+        { method: "POST", body: JSON.stringify({ note: note ?? null }) });
+    },
+    reject(token: string, id: number, note: string): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>(`/api/late-early/${id}/reject`, token,
+        { method: "POST", body: JSON.stringify({ note }) });
+    },
+    cancel(token: string, id: number): Promise<LateEarlyRequest> {
+      return authed<LateEarlyRequest>(`/api/late-early/${id}/cancel`, token, { method: "POST" });
+    },
+    bulkApprove(token: string, ids: number[]): Promise<LateEarlyBulkResult> {
+      return authed<LateEarlyBulkResult>("/api/late-early/bulk-approve", token,
+        { method: "POST", body: JSON.stringify({ ids }) });
+    },
+    bulkReject(token: string, ids: number[], note: string): Promise<LateEarlyBulkResult> {
+      return authed<LateEarlyBulkResult>("/api/late-early/bulk-reject", token,
+        { method: "POST", body: JSON.stringify({ ids, note }) });
+    },
+    roster(token: string): Promise<LateEarlyRoster> {
+      return authed<LateEarlyRoster>("/api/late-early/roster", token);
+    },
+    summary(token: string): Promise<LateEarlySummary> {
+      return authed<LateEarlySummary>("/api/late-early/summary", token);
+    },
+    markSeen(token: string): Promise<void> {
+      return authed<void>("/api/late-early/mark-seen", token, { method: "POST" });
     },
   },
 
@@ -4705,9 +4960,6 @@ export const api = {
     },
     createMyAdvance(token: string, input: MyAdvanceInput): Promise<SalaryAdvance> {
       return authed<SalaryAdvance>("/api/luong/advances/me", token, { method: "POST", body: JSON.stringify(input) });
-    },
-    advanceQuota(token: string, year: number, month: number): Promise<AdvanceQuota> {
-      return authed<AdvanceQuota>(`/api/luong/advances/quota?year=${year}&month=${month}`, token);
     },
     advanceNotifySummary(token: string): Promise<AdvanceNotifySummary> {
       return authed<AdvanceNotifySummary>("/api/luong/advances/notify-summary", token);

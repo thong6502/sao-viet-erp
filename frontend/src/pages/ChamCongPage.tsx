@@ -3,17 +3,22 @@
 //   • Điểm chấm công (HR) — khai toạ độ + bán kính; "Lấy vị trí hiện tại" để điền nhanh.
 //   • Bảng chấm công (HR) — toàn bộ log.
 // Server là cổng geofence thật (Haversine); ngoài phạm vi bị chặn cứng.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   api,
   type AttendanceLog,
+  type AdjustQuota,
   type AdjustRequest,
   type AttendancePreview,
   type AttendanceStatus,
   type CheckResult,
   type DayDetail,
-  type EmployeeRow,
   type EmployeeShiftAssignment,
+  type LateEarlyRequest,
+  type LateEarlyRoster,
+  type LeaveQuota,
+  type LeaveType,
+  type MyShift,
   type TodayKpi,
   type Timesheet,
   type TimesheetRow,
@@ -29,6 +34,10 @@ import {
   type SpecialDaysOut,
   type CalendarMonth,
   type CalendarDayCell,
+  type ShiftPlanMonth,
+  type ShiftPlanDay,
+  type ShiftPlanRow,
+  type ShiftPlanPatchItem,
 } from "../api/client";
 import type { NavigateFn } from "../components/AppShell";
 import { useAuth } from "../auth/useAuth";
@@ -38,6 +47,7 @@ import {
   CalendarDays,
   MapPin,
   Clock,
+  Clock3,
   Calendar,
   ClipboardList,
   Table,
@@ -61,13 +71,29 @@ import {
   Info,
   LogIn,
   LogOut,
-  History
+  Search,
+  Save,
+  Undo2,
+  Eraser,
+  Users,
+  Repeat,
 } from "lucide-react";
 import { MixDonut } from "../components/charts";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import "./nhan-su.css";
 import "./cham-cong.css";
 
-type Tab = "me" | "my-timesheet" | "locations" | "khai-ca" | "lich-le" | "logs" | "timesheet" | "yeu-cau";
+type Tab =
+  | "me"
+  | "my-timesheet"
+  | "di-muon"
+  | "locations"
+  | "khai-ca"
+  | "lich-le"
+  | "logs"
+  | "timesheet"
+  | "yeu-cau";
 
 const FAULT_OPTIONS: { value: string; label: string }[] = [
   { value: "nv_quen", label: "NV quên chấm" },
@@ -91,12 +117,10 @@ function fmtDateTime(s: string | null | undefined): string {
     : d.toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
 }
 
-function todayYmd(): string {
+/** Hôm nay dạng YYYY-MM-DD (giờ máy) — so chuỗi ISO là đủ để biết mốc ở tương lai. */
+function isoToday(): string {
   const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function fmtYmd(value: string | null | undefined): string {
@@ -184,11 +208,24 @@ function geoErrText(e: unknown): string {
   return "Không lấy được vị trí.";
 }
 
-export function ChamCongPage({ navigate, focusEmployeeId }: { navigate?: NavigateFn; focusEmployeeId?: number }) {
+export function ChamCongPage({
+  navigate,
+  focusEmployeeId,
+  onChanged,
+  eventTick,
+}: {
+  navigate?: NavigateFn;
+  focusEmployeeId?: number;
+  /** Gọi sau mỗi lần tải/thao tác → AppShell refetch badge sidebar + chuông ngay. */
+  onChanged?: () => void;
+  /** Tăng theo mỗi sự kiện real-time (SSE) → tab phiếu đang mở tự tải lại, khỏi bắt F5. */
+  eventTick?: number;
+}) {
   const { token } = useAuth();
   const can = useCan();
   const canConfig = can("nhan_su", "update");   // cấu hình điểm/ca
   const canView = can("nhan_su", "read");       // xem toàn xưởng (theo scope)
+  const canApproveEl = can("di_muon", "approve"); // duyệt phiếu đi muộn / về sớm
   const [tab, setTab] = useState<Tab>("me");
 
   // Liên thông từ Hồ sơ NV → mở "Bảng chấm công" lọc đúng NV đó.
@@ -211,6 +248,10 @@ export function ChamCongPage({ navigate, focusEmployeeId }: { navigate?: Navigat
         </button>
         <button className={tab === "my-timesheet" ? "is-active" : ""} onClick={() => setTab("my-timesheet")}>
           <CalendarDays size={14} /> Công của tôi
+        </button>
+        {/* LUÔN hiện: ai vào được màn Chấm công cũng phải xin đi muộn/về sớm cho CHÍNH MÌNH được. */}
+        <button className={tab === "di-muon" ? "is-active" : ""} onClick={() => setTab("di-muon")}>
+          <Clock3 size={14} /> Đi muộn / về sớm / nghỉ nửa buổi
         </button>
         {canConfig && (
           <button className={tab === "locations" ? "is-active" : ""} onClick={() => setTab("locations")}>
@@ -246,6 +287,14 @@ export function ChamCongPage({ navigate, focusEmployeeId }: { navigate?: Navigat
 
       {tab === "me" && <MyCheckIn token={token!} canConfig={canConfig} navigate={navigate} />}
       {tab === "my-timesheet" && <MyTimesheetTab token={token!} />}
+      {tab === "di-muon" && (
+        <LateEarlyTab
+          token={token!}
+          canApprove={canApproveEl}
+          onChanged={onChanged}
+          eventTick={eventTick}
+        />
+      )}
       {tab === "locations" && canConfig && <LocationsTab token={token!} />}
       {tab === "khai-ca" && canConfig && <ShiftsTab token={token!} />}
       {tab === "lich-le" && canConfig && <CalendarTab token={token!} />}
@@ -380,6 +429,11 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
   }
 
   const isIn = status.next_action !== "out";
+  // Lượt kế tiếp thuộc phiên TĂNG CA (đã ra ca chính + có phiếu duyệt) → đổi nhãn nút cho rõ.
+  const otMode = !!status.ot_mode;
+  const actionLabel = isIn
+    ? (otMode ? "CHẤM VÀO TĂNG CA" : "CHẤM VÀO")
+    : (otMode ? "CHẤM RA TĂNG CA" : "CHẤM RA");
   const outside = preview != null && !preview.within_range;
   const showTimer = status.next_action === "out" && status.last_check?.check_type === "in";
   const btnDisabled = checking || locating || !status.can_check || !status.locations_configured || outside;
@@ -488,7 +542,7 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
               {locating ? <RefreshCw className="cc-animate-spin" size={24} /> : !status.can_check || outside ? <Lock size={24} /> : <UserCheck size={24} />}
             </span>
             <span style={{ fontSize: "14px", marginTop: "2px" }}>
-              {checking ? "Đang chấm…" : locating ? "Đang dò GPS…" : !status.can_check ? "CHƯA ĐẾN GIỜ CHẤM" : isIn ? "CHẤM VÀO" : "CHẤM RA"}
+              {checking ? "Đang chấm…" : locating ? "Đang dò GPS…" : !status.can_check ? "CHƯA ĐẾN GIỜ CHẤM" : actionLabel}
             </span>
           </button>
         </div>
@@ -548,7 +602,7 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
           <div className="ns-modal__box cc-confirm-box" style={{ maxWidth: "420px" }}>
             <header className="ns-modal__head">
               <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
-                Xác nhận kết thúc ca
+                {otMode ? "Xác nhận kết thúc tăng ca" : "Xác nhận kết thúc ca"}
               </h2>
               <button className="ns-modal__x" onClick={() => setShowConfirmOut(false)}>×</button>
             </header>
@@ -557,16 +611,18 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
                 <LogOut size={32} />
               </div>
               <p style={{ fontSize: "16px", fontWeight: "var(--fw-bold)", color: "var(--ink)", margin: "20px 0 8px 0" }}>
-                Bạn sắp chấm RA
+                {otMode ? "Bạn sắp chấm RA TĂNG CA" : "Bạn sắp chấm RA"}
               </p>
               <p style={{ fontSize: "13px", color: "var(--ash)", lineHeight: "1.5", margin: 0 }}>
-                Hành động này sẽ ghi nhận giờ kết thúc ca làm việc của bạn. Bạn chắc chắn muốn kết thúc ca chứ?
+                {otMode
+                  ? "Hành động này sẽ ghi nhận giờ kết thúc phiên tăng ca của bạn. Giờ tăng ca được trả theo thực tế bạn chấm ra (trong khung phiếu đã duyệt)."
+                  : "Hành động này sẽ ghi nhận giờ kết thúc ca làm việc của bạn. Bạn chắc chắn muốn kết thúc ca chứ?"}
               </p>
             </div>
             <footer className="ns-modal__foot" style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
               <button className="btn btn--ghost" style={{ flex: 1 }} onClick={() => setShowConfirmOut(false)}>Hủy</button>
               <button className="btn btn--primary" style={{ flex: 1, background: "var(--signal)", borderColor: "var(--signal)", color: "#fff" }} onClick={() => doCheck(true)}>
-                Đồng ý (RA)
+                {otMode ? "Đồng ý (RA TĂNG CA)" : "Đồng ý (RA)"}
               </button>
             </footer>
           </div>
@@ -634,6 +690,7 @@ function MyTimesheetTab({ token }: { token: string }) {
   const [data, setData] = useState<Timesheet | null>(null);
   const [loading, setLoading] = useState(true);
   const [reqs, setReqs] = useState<AdjustRequest[]>([]);
+  const [quota, setQuota] = useState<AdjustQuota | null>(null);
   const [reqDate, setReqDate] = useState<string | null>(null);   // ngày đang xin chỉnh (mở modal)
   const [year, month] = ym.split("-").map(Number);
 
@@ -644,7 +701,9 @@ function MyTimesheetTab({ token }: { token: string }) {
   }, [token, year, month]);
 
   const loadReqs = useCallback(() => {
-    api.attendance.myAdjustRequests(token).then((r) => setReqs(r.items)).catch(() => setReqs([]));
+    api.attendance.myAdjustRequests(token)
+      .then((r) => { setReqs(r.items); setQuota(r.quota ?? null); })
+      .catch(() => { setReqs([]); setQuota(null); });
   }, [token]);
   useEffect(() => { loadReqs(); }, [loadReqs]);
 
@@ -770,7 +829,14 @@ function MyTimesheetTab({ token }: { token: string }) {
 
       {reqs.length > 0 && (
         <div style={{ marginTop: 24 }}>
-          <h4 className="ns-section__title">Yêu cầu chỉnh công đã gửi</h4>
+          <h4 className="ns-section__title">
+            Yêu cầu chỉnh công đã gửi
+            {quota && quota.limit > 0 && (
+              <span className="cc-note" style={{ marginLeft: 8, fontWeight: 400 }}>
+                · tháng {quota.month}: {quota.used}/{quota.limit} ngày, còn {quota.remaining} lần
+              </span>
+            )}
+          </h4>
           <div className="ns__tablewrap">
             <table className="ns__table">
               <thead><tr><th>Ngày</th><th>Chấm</th><th>Giờ đề xuất</th><th>Lý do</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
@@ -794,7 +860,7 @@ function MyTimesheetTab({ token }: { token: string }) {
       )}
 
       {reqDate && (
-        <RequestAdjustModal token={token} date={reqDate}
+        <RequestAdjustModal token={token} date={reqDate} quota={quota}
           onClose={() => setReqDate(null)} onSaved={() => { setReqDate(null); loadReqs(); }} />
       )}
     </div>
@@ -802,14 +868,32 @@ function MyTimesheetTab({ token }: { token: string }) {
 }
 
 // NV gửi yêu cầu chỉnh công cho 1 ngày (self-service).
-function RequestAdjustModal({ token, date, onClose, onSaved }: {
-  token: string; date: string; onClose: () => void; onSaved: () => void;
+function RequestAdjustModal({ token, date, quota, onClose, onSaved }: {
+  token: string; date: string; quota: AdjustQuota | null;
+  onClose: () => void; onSaved: () => void;
 }) {
   const [checkType, setCheckType] = useState<"in" | "out">("out");
   const [time, setTime] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Hạn mức đếm theo NGÀY CÔNG: ngày này đã có đơn còn hiệu lực thì gửi thêm (vd bù nốt lượt RA)
+  // KHÔNG tốn lượt mới — phải nói ra, không thì người ta sợ không dám gửi.
+  // Quota trả về là của THÁNG HIỆN TẠI, còn modal mở được cho ngày thuộc tháng khác (xem bảng
+  // công tháng trước rồi bấm vào ô). Lệch tháng thì im lặng để backend quyết — thà không nhắc
+  // còn hơn khoá nhầm nút Gửi bằng số của tháng khác.
+  const sameMonth = !!quota && date.startsWith(`${quota.year}-${String(quota.month).padStart(2, "0")}-`);
+  const dayCounted = sameMonth && !!quota && quota.days.includes(date);
+  const quotaBlocked = sameMonth && !!quota && quota.limit > 0 && !dayCounted && quota.used >= quota.limit;
+  const quotaNote = !quota || quota.limit === 0 || !sameMonth ? null
+    : quotaBlocked
+      ? `Tháng ${quota.month} đã dùng hết ${quota.used}/${quota.limit} lần chỉnh công. `
+        + `Hủy một yêu cầu đang chờ, hoặc nhờ HCNS chấm bù trực tiếp.`
+      : dayCounted
+        ? `Ngày này đã tính lượt rồi — gửi thêm không tốn lượt. `
+          + `(Tháng ${quota.month}: đã dùng ${quota.used}/${quota.limit} ngày.)`
+        : `Tháng ${quota.month}: đã dùng ${quota.used}/${quota.limit} ngày, còn ${quota.remaining} lần.`;
 
   async function submit() {
     if (!reason.trim()) { setError("Phải nhập lý do."); return; }
@@ -834,6 +918,11 @@ function RequestAdjustModal({ token, date, onClose, onSaved }: {
         </header>
         <div className="ns-modal__body">
           {error && <div className="banner banner--error">{error}</div>}
+          {quotaNote && (
+            <div className={`banner ${quotaBlocked ? "banner--warn" : ""}`} style={{ marginBottom: 12 }}>
+              {quotaNote}
+            </div>
+          )}
           <div className="ns-grid">
             <label className="ns-field"><span className="ns-field__label">Chấm còn thiếu</span>
               <select value={checkType} onChange={(e) => setCheckType(e.target.value as "in" | "out")}>
@@ -848,7 +937,7 @@ function RequestAdjustModal({ token, date, onClose, onSaved }: {
         </div>
         <footer className="ns-modal__foot">
           <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn--primary" onClick={submit} disabled={busy}>{busy ? "Đang gửi…" : "Gửi yêu cầu"}</button>
+          <button className="btn btn--primary" onClick={submit} disabled={busy || quotaBlocked}>{busy ? "Đang gửi…" : "Gửi yêu cầu"}</button>
         </footer>
       </div>
     </div>
@@ -1131,7 +1220,7 @@ const WEEKDAY_FIELDS: { key: keyof WorkCalendarConfigInput; label: string }[] = 
   { key: "works_fri", label: "T6" }, { key: "works_sat", label: "T7" },
   { key: "works_sun", label: "CN" },
 ];
-const KIND_LABEL: Record<string, string> = { off: "Nghỉ lễ", work: "Làm bù" };
+const KIND_LABEL: Record<string, string> = { off: "Nghỉ lễ", work: "Làm bù", off1x: "Nghỉ — làm 1×" };
 
 function fmtDateVN(iso: string): string {
   const [y, m, d] = iso.split("-");
@@ -1262,8 +1351,8 @@ function CalendarTab({ token }: { token: string }) {
                     <td className="ns__code">{fmtDateVN(s.day)}</td>
                     <td style={{ fontWeight: "var(--fw-medium)" }}>{s.name}</td>
                     <td>
-                      <span className={`ns-badge ${s.kind === "work" ? "ns-badge--info" : "ns-badge--ok"}`}>
-                        {KIND_LABEL[s.kind]}
+                      <span className={`ns-badge ${s.kind === "work" ? "ns-badge--info" : s.kind === "off1x" ? "ns-badge--warn" : "ns-badge--ok"}`}>
+                        {KIND_LABEL[s.kind] ?? s.kind}
                       </span>
                     </td>
                     <td>{s.kind === "off" ? (s.is_paid ? "Có" : "Không") : "—"}</td>
@@ -1403,15 +1492,22 @@ function SpecialDayForm({ token, special, year, onClose, onSaved }: {
           <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Tên *</span>
             <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="vd Quốc khánh" /></label>
           <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Loại</span>
-            <select value={form.kind} onChange={(e) => set("kind", e.target.value as "off" | "work")}>
+            <select value={form.kind} onChange={(e) => set("kind", e.target.value as "off" | "work" | "off1x")}>
               <option value="off">Nghỉ lễ (ngày lẽ ra làm nhưng nghỉ)</option>
               <option value="work">Làm bù (đi làm ngày lẽ ra nghỉ)</option>
+              <option value="off1x">Nghỉ — đi làm chỉ lương chính (1×, không hệ số)</option>
             </select></label>
           {form.kind === "off" && (
             <label className="ns-check" style={{ marginTop: 12 }}>
               <input type="checkbox" checked={!!form.is_paid} onChange={(e) => set("is_paid", e.target.checked)} />
               Hưởng nguyên lương (cộng 1 công vào bảng công)
             </label>
+          )}
+          {form.kind === "off1x" && (
+            <p className="cc-note" style={{ marginTop: 10 }}>
+              Ngày nghỉ <b>không lương</b>. Ai đi làm được <b>cộng thêm 1 công lương chính (1×)</b> — KHÔNG
+              nhân hệ số lễ/nghỉ, không bị trần công tháng.
+            </p>
           )}
           <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Ghi chú</span>
             <input value={form.note ?? ""} onChange={(e) => set("note", e.target.value)} placeholder="vd mùng 1 Tết Âm lịch" /></label>
@@ -1423,6 +1519,1205 @@ function SpecialDayForm({ token, special, year, onClose, onSaved }: {
           </button>
         </footer>
       </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Khai ca — 3 khối gập: A · Ca làm việc · B · Phân ca tháng · C · Ca mặc định
+// ============================================================================
+
+/** Khối gập dùng chung. Nội dung mount LAZY lần mở đầu rồi GIỮ (ẩn bằng `hidden`)
+ *  — nếu unmount, bản nháp phân ca đang gõ dở sẽ bay mất khi gập khối lại. */
+function CollapsibleSection({ title, summary, defaultOpen = false, children }: {
+  title: string;
+  summary?: ReactNode;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  const [mounted, setMounted] = useState(defaultOpen);
+  useEffect(() => { if (open) setMounted(true); }, [open]);
+  return (
+    <section className={`cc-sp-sect ${open ? "is-open" : ""}`}>
+      <button type="button" className="cc-sp-sect__head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
+        <ChevronDown size={16} className="cc-sp-sect__chev" aria-hidden="true" />
+        <span className="cc-sp-sect__title">{title}</span>
+        {summary != null && <span className="cc-sp-sect__sum">{summary}</span>}
+      </button>
+      {mounted && <div className="cc-sp-sect__body" hidden={!open}>{children}</div>}
+    </section>
+  );
+}
+
+// --- Mã ca ngắn + màu: SUY DIỄN Ở FE (backend không có cột code/color) -------
+// CẤM `signal` (màu lỗi hệ thống) — chỉ 5 họ dưới đây.
+const SHIFT_TONES = ["moss", "amber", "steel", "plum", "rust"] as const;
+type ShiftTone = (typeof SHIFT_TONES)[number];
+
+interface ShiftMeta { id: number; code: string; tone: ShiftTone; name: string; title: string }
+
+function stripTones(value: string): string {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D");
+}
+
+/** Luật deterministic: "ca <n>" → C<n> · "hành chính" → HC · qua đêm → K · còn lại viết tắt ≤3 ký tự. */
+function shiftShortCode(s: WorkShift): string {
+  const plain = stripTones(s.name).trim();
+  const numbered = plain.match(/ca\s*(\d+)/i);
+  if (numbered) return `C${numbered[1]}`;
+  if (/hanh\s*chinh/i.test(plain)) return "HC";
+  if (s.is_overnight) return "K";
+  const words = plain.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return words.slice(0, 3).map((w) => w[0]).join("").toUpperCase();
+  return (words[0] ?? "?").slice(0, 3).toUpperCase();
+}
+
+function buildShiftMeta(shifts: WorkShift[]): Map<number, ShiftMeta> {
+  const ordered = [...shifts].sort((a, b) => a.id - b.id);   // màu bám thứ tự id tăng dần
+  const used = new Map<string, number>();
+  const out = new Map<number, ShiftMeta>();
+  ordered.forEach((s, i) => {
+    const base = shiftShortCode(s);
+    const seen = used.get(base) ?? 0;
+    used.set(base, seen + 1);
+    out.set(s.id, {
+      id: s.id,
+      code: seen > 0 ? `${base}${seen + 1}` : base,          // trùng thì nối chỉ số
+      tone: SHIFT_TONES[i % SHIFT_TONES.length],
+      name: s.name,
+      title: `${s.name} · ${s.start_time}–${s.end_time}${s.is_overnight ? " (qua đêm)" : ""}`,
+    });
+  });
+  return out;
+}
+
+// --- Lưới phân ca tháng ------------------------------------------------------
+type Brush = { kind: "shift"; shiftId: number } | { kind: "off" } | { kind: "inherit" };
+interface EffCell { shiftId: number | null; hand: boolean; off: boolean }
+interface DragRect { r0: number; c0: number; r1: number; c1: number }
+
+const DENSITY_KEY = "cc-sp-density";
+const SAVE_CHUNK = 500;
+// Dải xem trước trong modal "Áp nhanh" — chỉ để mắt thấy các kíp có lệch nhau thật không.
+const QF_STRIP_ROWS = 4;
+const QF_STRIP_DAYS = 14;
+
+function ymd(year: number, month: number, day: number): string {
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+function cellKey(employeeId: number, date: string): string {
+  return `${employeeId}:${date}`;
+}
+
+/** Giá trị KẾ THỪA của từng ngày (ca nền) — suy từ chính các ô server trả về `source !== "day"`.
+ *  Cần cho lúc người dùng bấm "Mặc định ⌫": biết trước ô sẽ rơi về ca nào mà không phải gọi lại API. */
+function inheritOfRow(row: ShiftPlanRow, cal: ShiftPlanDay[]): { inherit: (number | null)[]; base: number | null } {
+  const n = cal.length;
+  const arr: (number | null)[] = new Array(n).fill(null);
+  const known: boolean[] = new Array(n).fill(false);
+  cal.forEach((c, i) => {
+    const cell = row.days[String(c.day)];
+    if (cell && cell.source !== "day") { arr[i] = cell.shift_id; known[i] = true; }
+  });
+  let last: number | null = null;
+  let seen = false;
+  for (let i = 0; i < n; i++) {
+    if (known[i]) { last = arr[i]; seen = true; } else if (seen) arr[i] = last;
+  }
+  const first = known.indexOf(true);
+  if (first > 0) for (let i = 0; i < first; i++) arr[i] = arr[first];
+  const freq = new Map<number, number>();
+  for (const v of arr) if (v != null) freq.set(v, (freq.get(v) ?? 0) + 1);
+  let base: number | null = null;
+  let bestCount = 0;
+  freq.forEach((count, id) => { if (count > bestCount) { bestCount = count; base = id; } });
+  return { inherit: arr, base };
+}
+
+// --- Áp nhanh: lặp một mẫu xoay ca cho cả tổ ---------------------------------
+/** Mẫu xoay ca = danh sách BƯỚC, mỗi bước là MỘT NGÀY trong chu kỳ.
+ *  Xưởng 3 ca chạy 2-2-2 thì mẫu là [C1, C1, C2, C2, K, K].
+ *  `phase` = số bước người kế tiếp bắt đầu MUỘN HƠN người liền trước — nhờ đó các
+ *  kíp lệch nhau và ngày nào cũng có người đủ ở cả 3 ca. */
+interface RotationPlan {
+  pattern: Brush[];
+  startDay: number;      // ngày trong tháng bắt đầu tô (1..số ngày)
+  phase: number;         // số bước lệch giữa hai người liền nhau
+  skipRest: boolean;     // bỏ trắng ngày nghỉ tuần / lễ
+}
+
+/** Rải mẫu lên từng người theo ĐÚNG THỨ TỰ ĐANG HIỂN THỊ trên lưới.
+ *  Hàm thuần: không đụng state, mọi việc ghi đẩy hết qua `paint` (ở màn này là `applyBrush`). */
+function runRotation(
+  rows: ShiftPlanRow[],
+  cal: ShiftPlanDay[],
+  plan: RotationPlan,
+  paint: (row: ShiftPlanRow, day: ShiftPlanDay, brush: Brush) => void,
+): void {
+  const len = plan.pattern.length;
+  if (len === 0 || rows.length === 0) return;
+  const step = ((Math.trunc(plan.phase) % len) + len) % len;
+  rows.forEach((row, i) => {
+    let pos = (i * step) % len;
+    for (const c of cal) {
+      if (c.day < plan.startDay) continue;
+      // Ngày bỏ qua thì KHÔNG tiêu 1 bước — tăng pos ở đây là lệch cả chu kỳ về sau.
+      if (plan.skipRest && !c.is_working) continue;
+      const b = plan.pattern[pos % len];
+      pos += 1;
+      if (b) paint(row, c, b);
+    }
+  });
+}
+
+/** Số ô THỰC SỰ đổi so với nháp đang giữ (thêm mới · bỏ đi · đổi giá trị).
+ *  Tô đè đúng giá trị đang có thì không tính — con số khoe trên modal phải là số thật. */
+function countPatchDiff(
+  before: Map<string, ShiftPlanPatchItem>,
+  after: Map<string, ShiftPlanPatchItem>,
+): number {
+  let n = 0;
+  after.forEach((v, k) => {
+    const b = before.get(k);
+    if (!b || b.action !== v.action || (b.shift_id ?? null) !== (v.shift_id ?? null)) n += 1;
+  });
+  before.forEach((_, k) => { if (!after.has(k)) n += 1; });
+  return n;
+}
+
+/** Ô nhập số: kẹp về khoảng cho phép ngay khi gõ, khỏi lọt giá trị vô nghĩa vào mẫu. */
+function clampNum(raw: string, lo: number, hi: number): number {
+  const n = Math.trunc(Number(raw));
+  if (!Number.isFinite(n)) return lo;
+  return Math.min(hi, Math.max(lo, n));
+}
+
+function ShiftPlanPanel({ token }: { token: string }) {
+  const [ym, setYm] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() + 1 }; });
+  const { year, month } = ym;
+  const [deptId, setDeptId] = useState<number | "">("");
+  const [depts, setDepts] = useState<{ id: number; name: string }[]>([]);
+  const [q, setQ] = useState("");
+  const [density, setDensity] = useState<"compact" | "roomy">(
+    () => (localStorage.getItem(DENSITY_KEY) === "roomy" ? "roomy" : "compact"));
+  const [data, setData] = useState<ShiftPlanMonth | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [brush, setBrush] = useState<Brush | null>(null);
+  const [pending, setPending] = useState<Map<string, ShiftPlanPatchItem>>(() => new Map());
+  const [rejects, setRejects] = useState<Map<string, string>>(() => new Map());
+  const [drag, setDrag] = useState<DragRect | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [result, setResult] = useState<{ saved: number; cleared: number; rejected: number } | null>(null);
+  const [guard, setGuard] = useState<{ run: () => void } | null>(null);
+  // Lọc nhanh người CHƯA CÓ CA NỀN. Quan trọng vì form hồ sơ không còn gán ca nữa:
+  // người mới tạo sẽ không chấm công được cho tới khi được đặt ca nền ở đây.
+  const [onlyNoDefault, setOnlyNoDefault] = useState(false);
+  // "Đặt ca nền" — ghi vào MỐC hiệu lực (áp dụng mọi tháng sau), khác hẳn tô lưới.
+  // `baseTarget` cho phép áp cho MỘT người (bấm ô Ca nền của hàng đó) hoặc TẤT CẢ
+  // người đang hiển thị (nút trên thanh công cụ) — cùng một form, cùng một endpoint.
+  const [baseTarget, setBaseTarget] = useState<{ ids: number[]; label: string } | null>(null);
+  // "" = chưa chọn (chặn Áp dụng) · "none" = cố ý bỏ gán ca. Hai thứ này PHẢI khác nhau:
+  // để trống mà vẫn cho bấm thì lỡ tay là xoá ca nền cả phòng, và ai mất ca thì không
+  // chấm công được.
+  const [baseShift, setBaseShift] = useState<number | "" | "none">("");
+  const [baseFrom, setBaseFrom] = useState("");
+  const [baseBusy, setBaseBusy] = useState(false);
+  const [baseMsg, setBaseMsg] = useState<string | null>(null);
+  // Lịch sử đổi ca nền của 1 NV (thay cho bảng lịch sử ở khối "Ca mặc định" cũ).
+  const [histFor, setHistFor] = useState<{ id: number; name: string } | null>(null);
+  const [hist, setHist] = useState<EmployeeShiftAssignment[] | null>(null);
+  const [histNonce, setHistNonce] = useState(0);
+  const [histBusy, setHistBusy] = useState(false);
+  const [histErr, setHistErr] = useState<string | null>(null);
+  const [confirmDel, setConfirmDel] = useState<EmployeeShiftAssignment | null>(null);
+  // "Áp nhanh" — rải sẵn một mẫu xoay ca (vd 2-2-2) cho cả tổ, các kíp lệch pha nhau.
+  // Chỉ ghi vào NHÁP như tô tay: xem lưới xong người dùng mới bấm Lưu.
+  const [qfOpen, setQfOpen] = useState(false);
+  const [qfPattern, setQfPattern] = useState<Brush[]>([]);
+  const [qfStart, setQfStart] = useState(1);
+  const [qfPhase, setQfPhase] = useState(0);
+  const [qfSkipRest, setQfSkipRest] = useState(false);
+
+  const locked = data?.locked === true;
+  const dirtyCount = pending.size;
+
+  useEffect(() => { localStorage.setItem(DENSITY_KEY, density); }, [density]);
+  useEffect(() => {
+    api.employees.meta(token).then((m) => setDepts(m.departments)).catch(() => setDepts([]));
+  }, [token]);
+
+  const reload = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      setData(await api.attendance.shiftPlan(token, year, month, deptId === "" ? null : deptId));
+    } catch (e) {
+      setData(null);
+      setError(e instanceof Error ? e.message : "Không tải được lưới phân ca.");
+    } finally { setLoading(false); }
+  }, [token, year, month, deptId]);
+  useEffect(() => { void reload(); }, [reload]);
+  // Đổi tháng/phòng = thay bộ dữ liệu → nháp cũ không còn ý nghĩa (đã hỏi ở guard trước đó).
+  useEffect(() => {
+    setPending(new Map()); setRejects(new Map()); setResult(null);
+    setQfStart(1);   // tháng khác = số ngày khác → ngày bắt đầu cũ có thể vượt ra ngoài
+  }, [year, month, deptId]);
+
+  // --- Lịch tháng + hàng hiển thị -------------------------------------------
+  const cal: ShiftPlanDay[] = useMemo(() => {
+    if (!data) return [];
+    if (data.calendar.length) return data.calendar;
+    return Array.from({ length: data.days_in_month }, (_, i) => {
+      const day = i + 1;
+      return {
+        day,
+        date: ymd(data.year, data.month, day),
+        weekday: (new Date(data.year, data.month - 1, day).getDay() + 6) % 7,
+        is_working: !isWeekend(data.year, data.month, day),
+        special_kind: null,
+        name: null,
+      };
+    });
+  }, [data]);
+
+  const noDefaultCount = useMemo(
+    () => (data?.rows ?? []).filter((r) => r.no_default).length, [data]);
+
+  const visibleRows = useMemo(() => {
+    let rows = data?.rows ?? [];
+    if (onlyNoDefault) rows = rows.filter((r) => r.no_default);
+    const needle = stripTones(q).trim().toLowerCase();
+    if (!needle) return rows;
+    return rows.filter((r) => stripTones(`${r.employee_name} ${r.employee_code ?? ""}`).toLowerCase().includes(needle));
+  }, [data, q, onlyNoDefault]);
+
+  const shiftMeta = useMemo(() => buildShiftMeta(data?.shifts ?? []), [data]);
+  const orderedShifts = useMemo(() => [...(data?.shifts ?? [])].sort((a, b) => a.id - b.id), [data]);
+  const paintShifts = useMemo(() => orderedShifts.filter((s) => s.is_active), [orderedShifts]);
+
+  const inheritInfo = useMemo(() => {
+    const m = new Map<number, { inherit: (number | null)[]; base: number | null }>();
+    for (const r of data?.rows ?? []) m.set(r.employee_id, inheritOfRow(r, cal));
+    return m;
+  }, [data, cal]);
+
+  /** Giá trị HIỂN THỊ của mọi ô = dữ liệu server + nháp đang giữ. */
+  const grid: EffCell[][] = useMemo(() => visibleRows.map((row) => cal.map((c, ci) => {
+    const patch = pending.get(cellKey(row.employee_id, c.date));
+    if (patch) {
+      if (patch.action === "set") return { shiftId: patch.shift_id ?? null, hand: true, off: false };
+      if (patch.action === "off") return { shiftId: null, hand: true, off: true };
+      return { shiftId: inheritInfo.get(row.employee_id)?.inherit[ci] ?? null, hand: false, off: false };
+    }
+    const cell = row.days[String(c.day)];
+    if (!cell) return { shiftId: null, hand: false, off: false };
+    return { shiftId: cell.shift_id, hand: cell.source === "day", off: cell.is_off };
+  })), [visibleRows, cal, pending, inheritInfo]);
+
+  const footCounts = useMemo(() => cal.map((_, ci) => {
+    const byShift = new Map<number, number>();
+    let off = 0;
+    let none = 0;
+    for (const cells of grid) {
+      const eff = cells[ci];
+      if (!eff) continue;
+      if (eff.off) off += 1;
+      else if (eff.shiftId != null) byShift.set(eff.shiftId, (byShift.get(eff.shiftId) ?? 0) + 1);
+      else none += 1;
+    }
+    return { byShift, off, none };
+  }), [grid, cal]);
+
+  // --- Bút ca: tô 1 ô hoặc kéo cả hình chữ nhật ------------------------------
+  const paintable = !locked && !!brush && !saving;
+
+  const applyBrush = useCallback((next: Map<string, ShiftPlanPatchItem>, row: ShiftPlanRow, c: ShiftPlanDay, b: Brush) => {
+    const key = cellKey(row.employee_id, c.date);
+    const cell = row.days[String(c.day)];
+    const wasHand = cell?.source === "day";
+    const wasOff = cell?.is_off === true;
+    const wasShift = cell?.shift_id ?? null;
+    // Ô quay lại đúng giá trị gốc thì TỰ RƠI khỏi map (không gửi request thừa).
+    if (b.kind === "inherit") {
+      if (!wasHand) next.delete(key);
+      else next.set(key, { employee_id: row.employee_id, work_date: c.date, action: "inherit" });
+    } else if (b.kind === "off") {
+      if (wasHand && wasOff) next.delete(key);
+      else next.set(key, { employee_id: row.employee_id, work_date: c.date, action: "off" });
+    } else {
+      if (wasHand && !wasOff && wasShift === b.shiftId) next.delete(key);
+      else next.set(key, { employee_id: row.employee_id, work_date: c.date, action: "set", shift_id: b.shiftId });
+    }
+  }, []);
+
+  // --- Áp nhanh: dựng nháp thử + xem trước -----------------------------------
+  const qfPlan: RotationPlan = useMemo(() => ({
+    pattern: qfPattern,
+    startDay: Math.min(Math.max(1, qfStart), Math.max(1, cal.length)),
+    phase: qfPhase,
+    skipRest: qfSkipRest,
+  }), [qfPattern, qfStart, qfPhase, qfSkipRest, cal.length]);
+
+  /** Nháp SAU KHI áp + số ô đổi. Dùng chung cho dòng tóm tắt và nút "Áp vào nháp",
+   *  nên con số người dùng thấy đúng bằng thứ sắp ghi xuống, không phải ước lượng. */
+  const qfDraft = useMemo(() => {
+    if (!qfOpen || qfPattern.length === 0 || visibleRows.length === 0) return null;
+    const next = new Map(pending);
+    const touched: string[] = [];
+    runRotation(visibleRows, cal, qfPlan, (row, day, b) => {
+      applyBrush(next, row, day, b);
+      touched.push(cellKey(row.employee_id, day.date));
+    });
+    return { next, touched, changed: countPatchDiff(pending, next) };
+  }, [qfOpen, qfPattern.length, visibleRows, cal, qfPlan, pending, applyBrush]);
+
+  /** Dải xem trước: vài người đầu × ít ngày đầu — để mắt kiểm tra các kíp có lệch thật không. */
+  const qfStrip = useMemo(() => {
+    if (!qfOpen || qfPattern.length === 0) return null;
+    const rows = visibleRows.slice(0, QF_STRIP_ROWS);
+    if (rows.length === 0) return null;
+    const byRow = rows.map(() => new Map<number, Brush>());
+    const at = new Map(rows.map((r, i) => [r.employee_id, i]));
+    runRotation(rows, cal, qfPlan, (row, day, b) => {
+      const i = at.get(row.employee_id);
+      if (i != null) byRow[i]?.set(day.day, b);
+    });
+    return { rows, byRow, days: cal.filter((c) => c.day >= qfPlan.startDay).slice(0, QF_STRIP_DAYS) };
+  }, [qfOpen, qfPattern.length, visibleRows, cal, qfPlan]);
+
+  const commitRef = useRef<(rect: DragRect) => void>(() => undefined);
+  commitRef.current = (rect: DragRect) => {
+    if (!brush || locked) return;
+    const rA = Math.min(rect.r0, rect.r1), rB = Math.max(rect.r0, rect.r1);
+    const cA = Math.min(rect.c0, rect.c1), cB = Math.max(rect.c0, rect.c1);
+    const hits: { row: ShiftPlanRow; day: ShiftPlanDay }[] = [];
+    for (let r = rA; r <= rB; r += 1) {
+      const row = visibleRows[r];
+      if (!row) continue;
+      for (let c = cA; c <= cB; c += 1) {
+        const day = cal[c];
+        if (day) hits.push({ row, day });
+      }
+    }
+    if (!hits.length) return;
+    const b = brush;
+    setPending((prev) => {
+      const next = new Map(prev);
+      for (const h of hits) applyBrush(next, h.row, h.day, b);
+      return next;
+    });
+    // Ô vừa sửa lại thì gỡ cờ "bị từ chối" của lần lưu trước.
+    setRejects((prev) => {
+      if (!prev.size) return prev;
+      const next = new Map(prev);
+      for (const h of hits) next.delete(cellKey(h.row.employee_id, h.day.date));
+      return next.size === prev.size ? prev : next;
+    });
+  };
+
+  const dragRef = useRef<DragRect | null>(null);
+  dragRef.current = drag;
+  useEffect(() => {
+    function onUp() {
+      const rect = dragRef.current;
+      if (rect) commitRef.current(rect);
+      setDrag(null);
+    }
+    window.addEventListener("mouseup", onUp);
+    return () => window.removeEventListener("mouseup", onUp);
+  }, []);
+
+  // Phím tắt: 1..9 chọn ca thứ N · 0 = Nghỉ · Backspace/Delete = về mặc định · Esc = bỏ bút.
+  useEffect(() => {
+    if (locked || qfOpen) return;   // đang mở modal Áp nhanh thì phím số là để nhập, không phải đổi bút
+    function onKey(e: KeyboardEvent) {
+      const t = e.target as HTMLElement | null;
+      if (t && (/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "Escape") { setBrush(null); return; }
+      if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); setBrush({ kind: "inherit" }); return; }
+      if (e.key === "0") { setBrush({ kind: "off" }); return; }
+      if (/^[1-9]$/.test(e.key)) {
+        const s = paintShifts[Number(e.key) - 1];
+        if (s) setBrush({ kind: "shift", shiftId: s.id });
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [locked, paintShifts, qfOpen]);
+
+  // Chặn mất dữ liệu khi còn nháp.
+  useEffect(() => {
+    if (!dirtyCount) return;
+    function onBeforeUnload(e: BeforeUnloadEvent) { e.preventDefault(); e.returnValue = ""; }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirtyCount]);
+
+  useEffect(() => {
+    if (histFor == null) { setHist(null); setHistErr(null); return; }
+    let alive = true;
+    api.employees.shiftHistory(token, histFor.id)
+      .then((r) => { if (alive) setHist(r.items); })
+      .catch(() => { if (alive) setHist([]); });
+    return () => { alive = false; };
+  }, [token, histFor, histNonce]);
+
+  async function removeMilestone(assignmentId: number) {
+    if (histFor == null) return;
+    setHistBusy(true); setHistErr(null);
+    try {
+      await api.employees.deleteShiftAssignment(token, histFor.id, assignmentId);
+      setConfirmDel(null);
+      setHistNonce((n) => n + 1);   // nạp lại lịch sử
+      await reload();               // ca nền đổi ⇒ lưới phải vẽ lại
+    } catch (e) {
+      setHistErr(e instanceof Error ? e.message : "Không xóa được mốc này.");
+    } finally { setHistBusy(false); }
+  }
+
+  // Mở form đặt ca nền: mặc định áp dụng từ NGÀY 1 của tháng đang xem.
+  function openBase(ids: number[], label: string, current?: number | null) {
+    setBaseFrom(`${year}-${String(month).padStart(2, "0")}-01`);
+    setBaseShift(current ?? "");
+    setBaseMsg(null);
+    setBaseTarget({ ids, label });
+  }
+
+  async function applyBase() {
+    const ids = baseTarget?.ids ?? [];
+    if (ids.length === 0) { setBaseMsg("Không có nhân viên nào để áp dụng."); return; }
+    setBaseBusy(true); setBaseMsg(null);
+    try {
+      const res = await api.employees.setShiftBulk(
+        token, ids, typeof baseShift === "number" ? baseShift : null, baseFrom);
+      // Ca nền đổi ⇒ mọi ô đang "kế thừa" phải vẽ lại theo ca mới.
+      await reload();
+      if (res.failed.length === 0 && res.adjusted === 0) {
+        setBaseTarget(null);
+      } else {
+        setBaseMsg([
+          `Đã đặt ca nền cho ${res.updated} nhân viên.`,
+          res.adjusted
+            ? `${res.adjusted} người vào làm sau ngày bạn chọn — mốc của họ tự lùi về đúng ngày vào làm.`
+            : null,
+          res.failed.length
+            ? `${res.failed.length} người bị bỏ qua: ${[...new Set(res.failed.map((f) => f.reason))].join(" · ")}`
+            : null,
+        ].filter(Boolean).join(" "));
+      }
+    } catch (e) {
+      setBaseMsg(e instanceof Error ? e.message : "Không đặt được ca nền.");
+    } finally { setBaseBusy(false); }
+  }
+
+  function guarded(run: () => void) {
+    if (dirtyCount) setGuard({ run });
+    else run();
+  }
+  function stepMonth(delta: number) {
+    guarded(() => setYm((cur) => {
+      const m = cur.month + delta;
+      if (m < 1) return { year: cur.year - 1, month: 12 };
+      if (m > 12) return { year: cur.year + 1, month: 1 };
+      return { year: cur.year, month: m };
+    }));
+  }
+
+  async function save() {
+    const items = Array.from(pending.values());
+    if (!items.length) return;
+    setSaving(true); setResult(null); setError(null);
+    let saved = 0;
+    let cleared = 0;
+    const rejected: { employee_id: number | null; date: string; reason: string }[] = [];
+    try {
+      for (let i = 0; i < items.length; i += SAVE_CHUNK) {
+        const lot = items.slice(i, i + SAVE_CHUNK);
+        setProgress({ done: Math.min(i + lot.length, items.length), total: items.length });
+        const out = await api.attendance.saveShiftPlan(token, year, month, lot);
+        saved += out.saved; cleared += out.cleared; rejected.push(...out.rejected);
+      }
+      const rejMap = new Map(rejected.map((r) => [cellKey(r.employee_id ?? -1, r.date), r.reason]));
+      setRejects(rejMap);
+      // Ô bị từ chối Ở LẠI trạng thái bẩn — tuyệt đối không im lặng bỏ qua.
+      setPending((prev) => {
+        const next = new Map<string, ShiftPlanPatchItem>();
+        prev.forEach((v, k) => { if (rejMap.has(k)) next.set(k, v); });
+        return next;
+      });
+      setResult({ saved, cleared, rejected: rejected.length });
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Lỗi khi lưu phân ca.");
+      await reload();
+    } finally { setSaving(false); setProgress(null); }
+  }
+
+  const rejectReasons = useMemo(() => Array.from(new Set(rejects.values())), [rejects]);
+
+  function brushLabel(b: Brush): string {
+    if (b.kind === "off") return "Nghỉ";
+    if (b.kind === "inherit") return "Mặc định";
+    return shiftMeta.get(b.shiftId)?.code ?? "?";
+  }
+  function brushCode(b: Brush): string {
+    if (b.kind === "off") return "–";
+    if (b.kind === "inherit") return "⌫";
+    return shiftMeta.get(b.shiftId)?.code ?? "?";
+  }
+  function brushTone(b: Brush): string {
+    return b.kind === "shift" ? (shiftMeta.get(b.shiftId)?.tone ?? "steel") : "rest";
+  }
+
+  // --- Áp nhanh --------------------------------------------------------------
+  const qf222 = paintShifts.length >= 3 ? paintShifts.slice(0, 3) : null;   // 3 kíp đầu theo thứ tự bút ca
+  const qfWeekly = paintShifts.length >= 2 ? paintShifts : null;
+  const qfLen = qfPattern.length;
+  // Lệch nhiều hơn số bước của chu kỳ thì quay vòng — nói thẳng ra để khỏi tưởng máy ăn gian.
+  const qfEffPhase = qfLen > 0 ? ((Math.trunc(qfPhase) % qfLen) + qfLen) % qfLen : 0;
+
+  function openQuickFill() {
+    // Ca đã ngưng hoạt động thì gỡ khỏi mẫu — tô vào chỉ để server từ chối.
+    const live = new Set(paintShifts.map((s) => s.id));
+    setQfPattern((p) => p.filter((b) => b.kind !== "shift" || live.has(b.shiftId)));
+    setQfStart((d) => Math.min(Math.max(1, d), Math.max(1, cal.length)));
+    setQfOpen(true);
+  }
+
+  function applyQuickFill() {
+    if (locked || !qfDraft) return;
+    setPending(qfDraft.next);
+    // Ô vừa tô lại thì gỡ cờ "bị từ chối" của lần lưu trước — giống hệt lúc tô tay.
+    setRejects((prev) => {
+      if (!prev.size) return prev;
+      const next = new Map(prev);
+      for (const k of qfDraft.touched) next.delete(k);
+      return next.size === prev.size ? prev : next;
+    });
+    setResult(null);
+    setQfOpen(false);
+  }
+
+  return (
+    <div className="cc-sp">
+      <div className="cc-ts-header-actions cc-sp-toolbar">
+        <div className="cc-ts-filters">
+          <div className="cc-sp-month">
+            <button type="button" className="cc-sp-month__nav" onClick={() => stepMonth(-1)} title="Tháng trước" aria-label="Tháng trước">
+              <ChevronLeft size={15} />
+            </button>
+            <span className="cc-sp-month__label">Tháng {month}/{year}</span>
+            <button type="button" className="cc-sp-month__nav" onClick={() => stepMonth(1)} title="Tháng sau" aria-label="Tháng sau">
+              <ChevronRight size={15} />
+            </button>
+          </div>
+          <select className="cc-ts-select-dept" value={deptId} aria-label="Lọc phòng/tổ"
+            onChange={(e) => { const v = e.target.value === "" ? "" : Number(e.target.value); guarded(() => setDeptId(v)); }}>
+            <option value="">Tất cả phòng/tổ</option>
+            {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <div className="cc-sp-search">
+            <Search size={14} aria-hidden="true" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm tên / mã NV" aria-label="Tìm nhân viên" />
+          </div>
+          {noDefaultCount > 0 && (
+            <button type="button"
+              className={`cc-sp-flag${onlyNoDefault ? " is-on" : ""}`}
+              aria-pressed={onlyNoDefault}
+              onClick={() => setOnlyNoDefault((v) => !v)}
+              title="Những người chưa có ca nền — họ CHƯA CHẤM CÔNG ĐƯỢC cho tới khi được đặt ca">
+              <AlertTriangle size={13} aria-hidden="true" /> Chưa có ca ({noDefaultCount})
+            </button>
+          )}
+        </div>
+        <div className="cc-ts-actions">
+          <button type="button" className="btn btn--ghost" disabled={locked || visibleRows.length === 0}
+            onClick={() => openBase(visibleRows.map((r) => r.employee_id),
+              `tất cả ${visibleRows.length} nhân viên đang hiển thị`)}
+            title="Đặt ca nền cho TẤT CẢ nhân viên đang hiển thị (bấm ô 'Ca nền' của một hàng để đặt riêng cho người đó)">
+            <Users size={14} /> Đặt ca nền cho tất cả…
+          </button>
+          <button type="button" className="btn btn--ghost" disabled={locked || visibleRows.length === 0}
+            onClick={openQuickFill}
+            title="Rải sẵn cả tháng theo một chu kỳ lặp (vd 2-2-2), các kíp tự lệch nhau — khỏi tô tay từng ô">
+            <Repeat size={14} /> Áp nhanh…
+          </button>
+          <div className="cc-sp-density" role="group" aria-label="Mật độ lưới">
+            <button type="button" className={density === "compact" ? "is-on" : ""} aria-pressed={density === "compact"}
+              onClick={() => setDensity("compact")}>Gọn</button>
+            <button type="button" className={density === "roomy" ? "is-on" : ""} aria-pressed={density === "roomy"}
+              onClick={() => setDensity("roomy")}>Thoáng</button>
+          </div>
+          <button type="button" className="btn btn--ghost" onClick={() => void reload()} disabled={loading || saving} title="Tải lại lưới">
+            <RefreshCw size={14} className={loading ? "cc-animate-spin" : undefined} /> Tải lại
+          </button>
+        </div>
+      </div>
+
+      {locked && (
+        <div className="banner banner--warn cc-sp-banner">
+          <span><Lock size={13} aria-hidden="true" /> Kỳ công tháng {month}/{year} đã chốt — mở lại kỳ mới sửa được phân ca.</span>
+        </div>
+      )}
+      {error && <div className="banner banner--error cc-sp-banner"><span>{error}</span></div>}
+      {result && (
+        <div className="banner banner--success cc-sp-banner">
+          <span>Đã lưu {result.saved} ô{result.cleared ? ` · gỡ ${result.cleared} ô về mặc định` : ""} · {result.rejected} ô bị từ chối</span>
+        </div>
+      )}
+      {rejectReasons.length > 0 && (
+        <div className="banner banner--warn cc-sp-banner">
+          <span>Ô bị từ chối vẫn còn đánh dấu trên lưới (viền cảnh báo) — di chuột vào ô để xem lý do. {rejectReasons.join(" · ")}</span>
+        </div>
+      )}
+
+      {!locked && (
+        <div className="cc-sp-brush" role="toolbar" aria-label="Bút ca">
+          <span className="cc-sp-brush__label">Bút ca</span>
+          {paintShifts.map((s, i) => {
+            const meta = shiftMeta.get(s.id);
+            const on = brush?.kind === "shift" && brush.shiftId === s.id;
+            return (
+              <button key={s.id} type="button" aria-pressed={on}
+                className={`cc-sp-pill cc-sp-pill--${meta?.tone ?? "steel"} ${on ? "is-on" : ""}`}
+                title={`${meta?.title ?? s.name}${i < 9 ? ` · phím ${i + 1}` : ""}`}
+                onClick={() => setBrush(on ? null : { kind: "shift", shiftId: s.id })}>
+                <span className="cc-sp-pill__code">{meta?.code ?? "?"}</span>
+                <span className="cc-sp-pill__name">{s.name}</span>
+              </button>
+            );
+          })}
+          <button type="button" aria-pressed={brush?.kind === "off"}
+            className={`cc-sp-pill cc-sp-pill--rest ${brush?.kind === "off" ? "is-on" : ""}`}
+            title="Nghỉ luân phiên — dấu kế hoạch, không chặn chấm công, không sinh hệ số tiền · phím 0"
+            onClick={() => setBrush(brush?.kind === "off" ? null : { kind: "off" })}>
+            <span className="cc-sp-pill__code">–</span><span className="cc-sp-pill__name">Nghỉ</span>
+          </button>
+          <button type="button" aria-pressed={brush?.kind === "inherit"}
+            className={`cc-sp-pill cc-sp-pill--erase ${brush?.kind === "inherit" ? "is-on" : ""}`}
+            title="Xoá ô đã khai tay → về ca mặc định · phím Backspace"
+            onClick={() => setBrush(brush?.kind === "inherit" ? null : { kind: "inherit" })}>
+            <Eraser size={13} aria-hidden="true" /><span className="cc-sp-pill__name">Mặc định ⌫</span>
+          </button>
+          <span className="cc-sp-brush__hint">
+            {brush
+              ? `Đang cầm bút "${brushLabel(brush)}" — click 1 ô hoặc kéo để tô cả vùng · Esc bỏ bút`
+              : "Chọn 1 bút rồi click/kéo trên lưới · phím 1–9 chọn ca · 0 nghỉ · ⌫ mặc định"}
+          </span>
+        </div>
+      )}
+
+      <div className="cc-sp-legend">
+        <span className="cc-sp-lg cc-sp-lg--ghost">Kế thừa ca nền</span>
+        <span className="cc-sp-lg cc-sp-lg--hand">Khai tay</span>
+        <span className="cc-sp-lg cc-sp-lg--rest">Nghỉ theo lịch</span>
+        <span className="cc-sp-lg cc-sp-lg--hol">Lễ</span>
+        <span className="cc-sp-lg cc-sp-lg--make">Làm bù</span>
+        <span className="cc-sp-lg cc-sp-lg--x1">Nghỉ 1×</span>
+        <span className="cc-sp-lg cc-sp-lg--dirty">Chưa lưu</span>
+      </div>
+
+      {loading && <p className="ns__empty">Đang tải lưới phân ca…</p>}
+      {!loading && data && (
+        <div className="cc-timesheet-scroll-container cc-sp-scroll">
+          <table className={`cc-timesheet-table cc-sp-table ${density === "roomy" ? "cc-sp-table--roomy" : ""} ${drag ? "is-dragging" : ""}`}>
+            <thead>
+              <tr>
+                <th className="cc-sp-col-name">Nhân viên</th>
+                <th className="cc-sp-col-base" title="Ca mặc định (nền) đang áp dụng cho nhân viên">Ca nền</th>
+                {cal.map((c) => {
+                  const restDay = c.weekday === 6 || !c.is_working;
+                  const cls = ["cc-sp-hdr",
+                    c.weekday === 0 ? "cc-sp-hdr--wk" : "",
+                    restDay ? "cc-sp-hdr--we" : "",
+                    c.special_kind === "off" ? "cc-sp-hdr--hol" : "",
+                    c.special_kind === "work" ? "cc-sp-hdr--make" : "",
+                    c.special_kind === "off1x" ? "cc-sp-hdr--x1" : ""].filter(Boolean).join(" ");
+                  const tip = [`${getWeekdayLabel(year, month, c.day)} ${fmtYmd(c.date)}`,
+                    c.name,
+                    c.special_kind === "off1x" ? "Nghỉ không lương — đi làm hưởng 1× lương chính" : null,
+                    c.special_kind === "work" ? "Ngày làm bù" : null,
+                  ].filter(Boolean).join(" · ");
+                  return (
+                    <th key={c.day} className={cls} title={tip} scope="col">
+                      <div className="cc-sp-hdr__wd">{getWeekdayLabel(year, month, c.day)}</div>
+                      <div className="cc-sp-hdr__d">{c.day}</div>
+                      {c.special_kind === "off1x" && <div className="cc-sp-hdr__flag">1×</div>}
+                    </th>
+                  );
+                })}
+                <th className="cc-sp-col-bar" title="Tỷ trọng ca trong tháng của từng nhân viên">Ca/tháng</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleRows.map((row, ri) => {
+                const base = inheritInfo.get(row.employee_id)?.base ?? null;
+                const baseMeta = base != null ? shiftMeta.get(base) : undefined;
+                const counts = new Map<number, number>();
+                let restDays = 0;
+                grid[ri]?.forEach((eff) => {
+                  if (eff.off) restDays += 1;
+                  else if (eff.shiftId != null) counts.set(eff.shiftId, (counts.get(eff.shiftId) ?? 0) + 1);
+                });
+                const segs = orderedShifts
+                  .filter((s) => (counts.get(s.id) ?? 0) > 0)
+                  .map((s) => ({ key: `s${s.id}`, tone: shiftMeta.get(s.id)?.tone ?? "steel", n: counts.get(s.id) ?? 0 }));
+                const barTitle = [
+                  ...orderedShifts.filter((s) => (counts.get(s.id) ?? 0) > 0)
+                    .map((s) => `${shiftMeta.get(s.id)?.name ?? s.name}: ${counts.get(s.id)}`),
+                  restDays ? `Nghỉ: ${restDays}` : null,
+                ].filter(Boolean).join(" · ") || "Chưa có ca nào trong tháng";
+                const total = Math.max(1, cal.length);
+                return (
+                  <tr key={row.employee_id} className={row.no_default ? "cc-sp-row--nodef" : ""}>
+                    <td className="cc-sp-col-name">
+                      <div className="cc-name-cell-wrapper">
+                        <span className="cc-name-avatar">{getInitials(row.employee_name)}</span>
+                        <span className="cc-sp-who">
+                          <button type="button" className="cc-sp-who__name cc-sp-who__link"
+                            title={`${row.employee_name} — xem lịch sử đổi ca nền`}
+                            onClick={() => setHistFor({ id: row.employee_id, name: row.employee_name })}>
+                            {row.employee_name}
+                          </button>
+                          <span className="cc-sp-who__sub">
+                            <span className="cc-sp-who__code">{row.employee_code ?? "—"}</span>
+                            {row.no_default && (
+                              <span className="ns-badge ns-badge--warn cc-sp-nodef" title="Nhân viên chưa được gán ca mặc định — khai ca trên lưới hoặc gán ở khối C · Ca mặc định">
+                                Chưa có ca
+                              </span>
+                            )}
+                          </span>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="cc-sp-col-base">
+                      <button type="button" className="cc-sp-basebtn" disabled={locked}
+                        onClick={() => openBase([row.employee_id], row.employee_name, base)}
+                        title={`Đặt ca nền riêng cho ${row.employee_name}`
+                          + (baseMeta ? ` — hiện: ${baseMeta.title}` : " — hiện chưa có ca nền")}>
+                        {baseMeta
+                          ? <span className={`cc-sp-chip cc-sp-chip--${baseMeta.tone} is-ghost`}>{baseMeta.code}</span>
+                          : <span className="cc-sp-chip cc-sp-chip--none is-ghost">·</span>}
+                      </button>
+                    </td>
+                    {cal.map((c, ci) => {
+                      const key = cellKey(row.employee_id, c.date);
+                      const inRect = !!drag
+                        && ri >= Math.min(drag.r0, drag.r1) && ri <= Math.max(drag.r0, drag.r1)
+                        && ci >= Math.min(drag.c0, drag.c1) && ci <= Math.max(drag.c0, drag.c1);
+                      let eff = grid[ri]?.[ci] ?? { shiftId: null, hand: false, off: false };
+                      if (inRect && brush) {
+                        if (brush.kind === "off") eff = { shiftId: null, hand: true, off: true };
+                        else if (brush.kind === "inherit") eff = { shiftId: inheritInfo.get(row.employee_id)?.inherit[ci] ?? null, hand: false, off: false };
+                        else eff = { shiftId: brush.shiftId, hand: true, off: false };
+                      }
+                      const meta = eff.shiftId != null ? shiftMeta.get(eff.shiftId) : undefined;
+                      const reason = rejects.get(key);
+                      const restDay = c.weekday === 6 || !c.is_working;
+                      const cls = ["cc-day-cell", "cc-sp-cell",
+                        c.weekday === 0 ? "cc-sp-cell--wk" : "",
+                        restDay ? "cc-sp-cell--we" : "",
+                        c.special_kind === "off" || c.special_kind === "off1x" ? "cc-sp-cell--hol" : "",
+                        c.special_kind === "work" ? "cc-sp-cell--make" : "",
+                        eff.off ? "cc-sp-cell--rest" : "",
+                        pending.has(key) ? "is-dirty" : "",
+                        reason ? "is-rejected" : "",
+                        inRect ? "is-preview" : "",
+                        paintable ? "is-paintable" : ""].filter(Boolean).join(" ");
+                      const dayTip = [`${getWeekdayLabel(year, month, c.day)} ${fmtYmd(c.date)}`, c.name].filter(Boolean).join(" · ");
+                      const chipTip = [
+                        eff.off ? "Nghỉ theo lịch (dấu kế hoạch — không chặn chấm công, không sinh hệ số)" : meta?.title ?? "Chưa có ca",
+                        eff.hand ? "khai tay" : "kế thừa ca nền",
+                        dayTip,
+                        c.special_kind === "off1x" ? "Nghỉ không lương — đi làm hưởng 1× lương chính" : null,
+                        reason ? `TỪ CHỐI: ${reason}` : null,
+                      ].filter(Boolean).join(" · ");
+                      return (
+                        <td key={c.day} className={cls} title={dayTip}
+                          onMouseDown={paintable ? (e) => { e.preventDefault(); setDrag({ r0: ri, c0: ci, r1: ri, c1: ci }); } : undefined}
+                          onMouseEnter={paintable ? () => setDrag((d) => (d ? { ...d, r1: ri, c1: ci } : d)) : undefined}>
+                          {eff.off
+                            ? <span className="cc-sp-rest" title={chipTip}>–</span>
+                            : meta
+                              ? <span className={`cc-sp-chip cc-sp-chip--${meta.tone} ${eff.hand ? "is-hand" : "is-ghost"}`} title={chipTip}>{meta.code}</span>
+                              : <span className="cc-sp-chip cc-sp-chip--none is-ghost" title={chipTip}>·</span>}
+                        </td>
+                      );
+                    })}
+                    <td className="cc-sp-col-bar">
+                      <div className="cc-sp-bar" title={barTitle}>
+                        {segs.map((s) => (
+                          <span key={s.key} className={`cc-sp-bar__seg cc-sp-bar__seg--${s.tone}`} style={{ width: `${(s.n / total) * 100}%` }} />
+                        ))}
+                        {restDays > 0 && <span className="cc-sp-bar__seg cc-sp-bar__seg--rest" style={{ width: `${(restDays / total) * 100}%` }} />}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {visibleRows.length === 0 && (
+                <tr><td colSpan={cal.length + 3} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td className="cc-sp-col-name cc-sp-foot__label">Người / ca</td>
+                <td className="cc-sp-col-base" />
+                {cal.map((c, ci) => {
+                  const f = footCounts[ci];
+                  const parts = orderedShifts.filter((s) => (f?.byShift.get(s.id) ?? 0) > 0);
+                  const tip = [
+                    ...parts.map((s) => `${shiftMeta.get(s.id)?.name ?? s.name}: ${f.byShift.get(s.id)}`),
+                    f?.off ? `Nghỉ: ${f.off}` : null,
+                    f?.none ? `Chưa có ca: ${f.none}` : null,
+                  ].filter(Boolean).join(" · ") || "Không có ai";
+                  return (
+                    <td key={c.day} className={`cc-sp-foot ${c.weekday === 0 ? "cc-sp-cell--wk" : ""}`} title={tip}>
+                      {parts.map((s, i) => (
+                        <span key={s.id}>
+                          {i > 0 && <span className="cc-sp-foot__sep">·</span>}
+                          <span className={`cc-sp-foot__n cc-sp-foot__n--${shiftMeta.get(s.id)?.tone ?? "steel"}`}>{f.byShift.get(s.id)}</span>
+                        </span>
+                      ))}
+                      {!!f?.off && (
+                        <span>
+                          {parts.length > 0 && <span className="cc-sp-foot__sep">·</span>}
+                          <span className="cc-sp-foot__n cc-sp-foot__n--rest">{f.off}</span>
+                        </span>
+                      )}
+                      {!parts.length && !f?.off && <span className="cc-sp-foot__n cc-sp-foot__n--zero">—</span>}
+                    </td>
+                  );
+                })}
+                <td className="cc-sp-col-bar" />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {!locked && (
+        <div className="cc-sp-actionbar">
+          <span className={`cc-sp-dirty ${dirtyCount ? "is-on" : ""}`} aria-live="polite">
+            <span className="cc-sp-dirty__dot" aria-hidden="true" />
+            {dirtyCount ? `${dirtyCount} thay đổi chưa lưu` : "Chưa có thay đổi"}
+          </span>
+          {progress && <span className="cc-sp-progress">Đang lưu {progress.done}/{progress.total}…</span>}
+          <span className="cc-sp-actionbar__gap" />
+          <button type="button" className="btn btn--ghost" disabled={!dirtyCount || saving}
+            onClick={() => { setPending(new Map()); setRejects(new Map()); setResult(null); }}>
+            <Undo2 size={14} /> Hoàn tác tất cả
+          </button>
+          <button type="button" className="btn btn--primary" disabled={!dirtyCount || saving} onClick={() => void save()}>
+            <Save size={14} /> {saving ? "Đang lưu…" : "Lưu"}
+          </button>
+        </div>
+      )}
+
+      {baseTarget && (
+        <div className="ns-modal" role="dialog" aria-modal="true">
+          <div className="ns-modal__box" style={{ maxWidth: "460px" }}>
+            <header className="ns-modal__head">
+              <div className="cc-modal-title-group">
+                <h2>Đặt ca nền</h2>
+                <span className="cc-modal-subtitle">Áp cho: {baseTarget.label}</span>
+              </div>
+              <button className="ns-modal__x" onClick={() => setBaseTarget(null)} disabled={baseBusy}>×</button>
+            </header>
+            <div className="ns-modal__body">
+              <p className="cc-note">
+                Ca nền áp dụng <strong>từ ngày đã chọn trở về sau, cho MỌI tháng</strong> — khác với tô ca
+                trên lưới (chỉ đúng ngày đã tô). Ngày nào không khai trên lưới thì dùng ca nền này.
+              </p>
+              <label className="cc-sp-basepop__row">
+                <span>Ca</span>
+                <select value={baseShift}
+                  onChange={(e) => setBaseShift(
+                    e.target.value === "" ? "" : e.target.value === "none" ? "none" : Number(e.target.value))}>
+                  <option value="">— chọn ca —</option>
+                  {paintShifts.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name} ({s.start_time}–{s.end_time})</option>
+                  ))}
+                  <option value="none">— bỏ gán ca nền —</option>
+                </select>
+              </label>
+              <label className="cc-sp-basepop__row">
+                <span>Áp dụng từ</span>
+                <input type="date" value={baseFrom} onChange={(e) => setBaseFrom(e.target.value)} />
+              </label>
+              {baseShift === "none" && (
+                <p className="cc-sp-basepop__msg">
+                  Bỏ ca nền = những ngày không khai trên lưới sẽ <strong>không có ca</strong>, và người đó
+                  <strong> không chấm công được</strong>. Chỉ dùng khi thực sự muốn vậy.
+                </p>
+              )}
+              {baseMsg && <p className="cc-sp-basepop__msg">{baseMsg}</p>}
+            </div>
+            <footer className="ns-modal__foot" style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+              <button className="btn btn--ghost" onClick={() => setBaseTarget(null)} disabled={baseBusy}>Hủy</button>
+              <button className="btn btn--primary" onClick={() => void applyBase()}
+                disabled={baseBusy || baseShift === "" || !baseFrom}>
+                {baseBusy ? "Đang áp dụng…" : baseShift === "none" ? "Bỏ gán ca nền" : "Áp dụng"}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {qfOpen && (
+        <div className="ns-modal" role="dialog" aria-modal="true">
+          <div className="ns-modal__box cc-qf-box">
+            <header className="ns-modal__head">
+              <div className="cc-modal-title-group">
+                <h2>Áp nhanh mẫu xoay ca</h2>
+                <span className="cc-modal-subtitle">
+                  Tháng {month}/{year} · {visibleRows.length} nhân viên đang hiển thị
+                </span>
+              </div>
+              <button className="ns-modal__x" onClick={() => setQfOpen(false)}>×</button>
+            </header>
+            <div className="ns-modal__body cc-qf-body">
+              <p className="cc-note">
+                Rải sẵn cả tháng theo một chu kỳ lặp đi lặp lại, thay cho việc tô tay từng ô.
+                Máy chỉ ghi vào nháp — <strong>áp xong vẫn phải bấm Lưu</strong>.
+              </p>
+
+              {(qf222 || qfWeekly) && (
+                <div className="cc-qf-block">
+                  <div className="cc-qf-head">Mẫu có sẵn</div>
+                  <div className="cc-qf-row">
+                    {qf222 && (
+                      <button type="button" className="cc-qf-preset"
+                        title="2 ngày ca đầu → 2 ngày ca giữa → 2 ngày ca khuya, người sau lệch 2 ngày so với người trước"
+                        onClick={() => {
+                          const [a, b, c] = qf222;
+                          if (!a || !b || !c) return;
+                          setQfPattern([a, a, b, b, c, c].map((s) => ({ kind: "shift", shiftId: s.id })));
+                          setQfPhase(2);
+                        }}>
+                        <span className="cc-qf-preset__name">2-2-2 (3 kíp)</span>
+                        <span className="cc-qf-preset__sub">
+                          {qf222.map((s) => shiftMeta.get(s.id)?.code ?? "?").join(" · ")} · lệch 2 ngày
+                        </span>
+                      </button>
+                    )}
+                    {qfWeekly && (
+                      <button type="button" className="cc-qf-preset"
+                        title="Mỗi ca làm trọn 7 ngày rồi đổi, người sau lệch nguyên 1 tuần"
+                        onClick={() => {
+                          const p: Brush[] = [];
+                          for (const s of qfWeekly) for (let k = 0; k < 7; k += 1) p.push({ kind: "shift", shiftId: s.id });
+                          setQfPattern(p);
+                          setQfPhase(7);
+                        }}>
+                        <span className="cc-qf-preset__name">Xoay tuần</span>
+                        <span className="cc-qf-preset__sub">mỗi ca 7 ngày · lệch 1 tuần</span>
+                      </button>
+                    )}
+                    <span className="cc-note">Bấm xong vẫn sửa lại được ở dưới.</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="cc-qf-block">
+                <div className="cc-qf-head">
+                  Chu kỳ lặp — mỗi ô là một ngày
+                  {qfLen > 0 && <span className="cc-qf-head__n">{qfLen} ngày/vòng</span>}
+                </div>
+                <div className="cc-qf-chips">
+                  {qfLen === 0 && <span className="cc-qf-chips__empty">Chưa có ngày nào — bấm ca ở dưới để thêm</span>}
+                  {qfPattern.map((b, i) => (
+                    <span key={i} className={`cc-qf-chip cc-qf-chip--${brushTone(b)}`}
+                      title={`Ngày thứ ${i + 1} của vòng · ${brushLabel(b)}`}>
+                      {brushCode(b)}
+                    </span>
+                  ))}
+                </div>
+                <div className="cc-qf-row">
+                  <span className="cc-qf-row__label">Thêm ngày</span>
+                  {paintShifts.map((s) => {
+                    const meta = shiftMeta.get(s.id);
+                    return (
+                      <button key={s.id} type="button"
+                        className={`cc-sp-pill cc-sp-pill--${meta?.tone ?? "steel"}`}
+                        title={meta?.title ?? s.name}
+                        onClick={() => setQfPattern((p) => [...p, { kind: "shift", shiftId: s.id }])}>
+                        <span className="cc-sp-pill__code">{meta?.code ?? "?"}</span>
+                        <span className="cc-sp-pill__name">{s.name}</span>
+                      </button>
+                    );
+                  })}
+                  <button type="button" className="cc-sp-pill"
+                    title="Ngày nghỉ luân phiên trong chu kỳ"
+                    onClick={() => setQfPattern((p) => [...p, { kind: "off" }])}>
+                    <span className="cc-sp-pill__code">–</span><span className="cc-sp-pill__name">Nghỉ</span>
+                  </button>
+                  <span className="cc-qf-row__gap" />
+                  <button type="button" className="btn btn--ghost" disabled={qfLen === 0}
+                    onClick={() => setQfPattern((p) => p.slice(0, -1))}>Xoá ngày cuối</button>
+                  <button type="button" className="btn btn--ghost" disabled={qfLen === 0}
+                    onClick={() => setQfPattern([])}>Xoá hết</button>
+                </div>
+              </div>
+
+              <div className="cc-qf-block">
+                <div className="cc-qf-opts">
+                  <label className="cc-qf-field">
+                    <span>Bắt đầu từ ngày</span>
+                    <input type="number" min={1} max={Math.max(1, cal.length)} value={qfStart}
+                      onChange={(e) => setQfStart(clampNum(e.target.value, 1, Math.max(1, cal.length)))} />
+                  </label>
+                  <label className="cc-qf-field">
+                    <span>Lệch pha giữa các nhân viên</span>
+                    <input type="number" min={0} max={30} value={qfPhase}
+                      onChange={(e) => setQfPhase(clampNum(e.target.value, 0, 30))} />
+                  </label>
+                </div>
+                <p className="cc-note">
+                  Người thứ 2 bắt đầu muộn hơn người thứ nhất bấy nhiêu bước — để các kíp phủ kín mọi ca.
+                  Để <strong>0</strong> thì cả tổ chạy y hệt nhau.
+                  {qfLen > 0 && qfEffPhase !== qfPhase && ` Vòng chỉ có ${qfLen} ngày nên lệch ${qfPhase} thực ra bằng lệch ${qfEffPhase}.`}
+                </p>
+                <label className="cc-qf-check">
+                  <input type="checkbox" checked={qfSkipRest} onChange={(e) => setQfSkipRest(e.target.checked)} />
+                  <span>
+                    Không tô vào ngày nghỉ tuần &amp; ngày lễ
+                    <em>Xưởng 3 ca chạy liên tục thì cứ để TẮT. Bật thì ngày nghỉ bỏ trắng và không tiêu một bước
+                      của chu kỳ, nên vòng xoay không bị lệch.</em>
+                  </span>
+                </label>
+              </div>
+
+              {qfStrip && (
+                <div className="cc-qf-block">
+                  <div className="cc-qf-head">
+                    Xem trước {qfStrip.rows.length} người đầu · {qfStrip.days.length} ngày đầu
+                  </div>
+                  <div className="cc-qf-strip">
+                    <div className="cc-qf-strip__row cc-qf-strip__row--head">
+                      <span className="cc-qf-strip__who" />
+                      {qfStrip.days.map((c) => <span key={c.day} className="cc-qf-strip__d">{c.day}</span>)}
+                    </div>
+                    {qfStrip.rows.map((r, i) => (
+                      <div key={r.employee_id} className="cc-qf-strip__row">
+                        <span className="cc-qf-strip__who" title={r.employee_name}>{r.employee_name}</span>
+                        {qfStrip.days.map((c) => {
+                          const b = qfStrip.byRow[i]?.get(c.day);
+                          if (!b) return <span key={c.day} className="cc-qf-strip__c cc-qf-strip__c--skip" title="Bỏ trắng">·</span>;
+                          return (
+                            <span key={c.day} className={`cc-qf-strip__c cc-qf-chip--${brushTone(b)}`}
+                              title={`Ngày ${c.day} · ${brushLabel(b)}`}>{brushCode(b)}</span>
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <p className="cc-qf-sum">
+                Áp cho <strong>{visibleRows.length} nhân viên</strong> đang hiển thị · từ ngày <strong>{qfPlan.startDay}</strong> ·{" "}
+                <strong>{qfDraft?.changed ?? 0} ô</strong> sẽ đổi
+              </p>
+              {qfLen > 0 && visibleRows.length > 0 && qfDraft?.changed === 0 && (
+                <p className="cc-sp-basepop__msg">Mẫu này trùng đúng thứ lưới đang có — áp vào cũng không đổi ô nào.</p>
+              )}
+            </div>
+            <footer className="ns-modal__foot" style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
+              <button className="btn btn--ghost" onClick={() => setQfOpen(false)}>Hủy</button>
+              <button className="btn btn--primary" onClick={applyQuickFill}
+                disabled={locked || qfLen === 0 || visibleRows.length === 0}>
+                Áp vào nháp
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {histFor && (
+        <div className="cc-sp-drawer" role="dialog" aria-label={`Lịch sử đổi ca nền — ${histFor.name}`}>
+          <div className="cc-sp-drawer__backdrop" onClick={() => setHistFor(null)} />
+          <div className="cc-sp-drawer__panel">
+            <div className="cc-sp-drawer__head">
+              <div>
+                <div className="cc-sp-drawer__title">Lịch sử ca nền</div>
+                <div className="cc-sp-drawer__sub">{histFor.name}</div>
+              </div>
+              <button type="button" className="btn btn--ghost" onClick={() => setHistFor(null)}>Đóng</button>
+            </div>
+            <p className="cc-note">
+              Ca nền áp dụng từ ngày hiệu lực trở về sau. Ngày nào khai riêng trên lưới thì ô đó thắng ca nền.
+            </p>
+            {histErr && <div className="banner banner--error"><span>{histErr}</span></div>}
+            {hist == null && <p className="ns__empty">Đang tải…</p>}
+            {hist?.length === 0 && <p className="ns__empty">Chưa có mốc ca nền nào.</p>}
+            {hist && hist.length > 0 && (
+              <ul className="cc-sp-hist">
+                {hist.map((h) => {
+                  // 3 trạng thái, KHÔNG phải 2: mốc đặt cho ngày mai không phải "đã qua".
+                  const state = h.is_current ? "current"
+                    : h.effective_from > isoToday() ? "future" : "past";
+                  return (
+                  <li key={h.id} className={`cc-sp-hist__item is-${state}`}>
+                    <div className="cc-sp-hist__body">
+                      <div className="cc-sp-hist__top">
+                        <span className="cc-sp-hist__name">
+                          {h.shift_id == null
+                            ? "Bỏ ca (không có ca)"
+                            : (shiftMeta.get(h.shift_id)?.name ?? `Ca #${h.shift_id}`)}
+                        </span>
+                        <span className={`cc-sp-hist__tag is-${state}`}>
+                          {state === "current" ? "Đang áp dụng"
+                            : state === "future" ? "Sắp áp dụng" : "Đã qua"}
+                        </span>
+                      </div>
+                      <div className="cc-sp-hist__range">
+                        {fmtYmd(h.effective_from)} → {h.effective_to ? fmtYmd(h.effective_to) : "trở về sau"}
+                      </div>
+                    </div>
+                    <button type="button" className="cc-sp-hist__del" disabled={histBusy}
+                      onClick={() => setConfirmDel(h)} title="Gỡ mốc này (dùng khi gán nhầm)"
+                      aria-label="Gỡ mốc này">
+                      <Trash2 size={14} />
+                    </button>
+                  </li>
+                  );
+                })}
+              </ul>
+            )}
+            <p className="cc-note">
+              Gỡ một mốc thì ngày tháng thuộc mốc đó quay về theo <strong>mốc liền trước</strong>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!confirmDel}
+        danger
+        title="Gỡ mốc ca nền"
+        message={confirmDel
+          ? `Gỡ mốc "${confirmDel.shift_id == null ? "Bỏ ca"
+              : (shiftMeta.get(confirmDel.shift_id)?.name ?? `Ca #${confirmDel.shift_id}`)}"`
+            + ` áp dụng từ ${fmtYmd(confirmDel.effective_from)}?`
+            + " Những ngày thuộc mốc này sẽ quay về theo mốc liền trước."
+          : undefined}
+        confirmLabel="Gỡ mốc"
+        busy={histBusy}
+        error={histErr}
+        onConfirm={() => { if (confirmDel) void removeMilestone(confirmDel.id); }}
+        onCancel={() => { setConfirmDel(null); setHistErr(null); }}
+      />
+
+      <DiscardChangesDialog
+        open={!!guard}
+        message={`Còn ${dirtyCount} ô phân ca chưa lưu. Rời tháng/phòng này mà không lưu?`}
+        onDiscard={() => { const g = guard; setPending(new Map()); setRejects(new Map()); setGuard(null); g?.run(); }}
+        onKeepEditing={() => setGuard(null)}
+      />
     </div>
   );
 }
@@ -1440,15 +2735,35 @@ function ShiftsTab({ token }: { token: string }) {
     await api.attendance.deleteShift(token, id);
     load();
   }
-  return (
-    <div>
-      <div className="cc-toolbar">
-        <button className="btn btn--primary" onClick={() => setEditing("new")}>
-          <Plus size={14} /> Thêm ca làm việc
-        </button>
-      </div>
 
-      <div className="cc-card-grid">
+  const shiftMeta = buildShiftMeta(items ?? []);
+  const activeCount = (items ?? []).filter((s) => s.is_active).length;
+
+  return (
+    <div className="cc-sp-stack">
+      <CollapsibleSection
+        title="A · Ca làm việc"
+        summary={items == null ? "đang tải…" : (
+          <>
+            <span className="cc-sp-sum__txt">{items.length} ca{activeCount !== items.length ? ` · ${activeCount} đang dùng` : ""}</span>
+            {[...items].sort((a, b) => a.id - b.id).map((s) => {
+              const m = shiftMeta.get(s.id);
+              return (
+                <span key={s.id} className={`cc-sp-chip cc-sp-chip--${m?.tone ?? "steel"} is-hand`} title={m?.title}>
+                  {m?.code}
+                </span>
+              );
+            })}
+          </>
+        )}
+      >
+        <div className="cc-toolbar">
+          <button className="btn btn--primary" onClick={() => setEditing("new")}>
+            <Plus size={14} /> Thêm ca làm việc
+          </button>
+        </div>
+
+        <div className="cc-card-grid">
         {items?.map((s) => (
           <div key={s.id} className={`cc-shift-card ${s.is_overnight ? "cc-shift-card--overnight" : ""}`}>
             <div className="cc-shift-card-actions">
@@ -1480,173 +2795,20 @@ function ShiftsTab({ token }: { token: string }) {
           </div>
         ))}
         {items?.length === 0 && <div className="ns__empty" style={{ gridColumn: "1/-1" }}>Chưa có ca làm việc nào được cấu hình.</div>}
-      </div>
+        </div>
+      </CollapsibleSection>
 
-      <AssignShiftPanel token={token} shifts={items ?? []} />
+      <CollapsibleSection
+        title="B · Phân ca tháng"
+        defaultOpen
+        summary={<span className="cc-sp-sum__txt">Lưới ngày × nhân viên · ô trống = kế thừa ca nền</span>}
+      >
+        <ShiftPlanPanel token={token} />
+      </CollapsibleSection>
 
       {editing && (
         <ShiftForm token={token} shift={editing === "new" ? null : editing}
           onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
-      )}
-    </div>
-  );
-}
-
-// Gán ca mặc định cho nhân viên (đơn lẻ auto-save + gán hàng loạt theo bộ lọc).
-function AssignShiftPanel({ token, shifts }: { token: string; shifts: WorkShift[] }) {
-  const [emps, setEmps] = useState<EmployeeRow[] | null>(null);
-  const [deptFilter, setDeptFilter] = useState<number | "">("");
-  const [bulkShift, setBulkShift] = useState<number | "">("");
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [effectiveFrom, setEffectiveFrom] = useState(todayYmd());
-  const [historyEmployee, setHistoryEmployee] = useState<EmployeeRow | null>(null);
-  const [shiftHistory, setShiftHistory] = useState<EmployeeShiftAssignment[]>([]);
-  const [historyBusy, setHistoryBusy] = useState(false);
-
-  const load = useCallback(() => {
-    api.employees.list(token, { size: 200, sort: "code" })
-      .then((r) => setEmps(r.items)).catch(() => setEmps([]));
-  }, [token]);
-  useEffect(() => { load(); }, [load]);
-
-  const depts = Array.from(
-    new Map((emps ?? []).filter((e) => e.department_id != null)
-      .map((e) => [e.department_id!, e.department_name ?? `Phòng #${e.department_id}`])).entries()
-  );
-  const shown = (emps ?? []).filter((e) => deptFilter === "" || e.department_id === deptFilter);
-
-  async function showHistory(emp: EmployeeRow) {
-    setHistoryEmployee(emp);
-    setHistoryBusy(true);
-    try {
-      const result = await api.employees.shiftHistory(token, emp.id);
-      setShiftHistory(result.items);
-    } catch {
-      setShiftHistory([]);
-    } finally {
-      setHistoryBusy(false);
-    }
-  }
-
-  async function assignOne(id: number, shiftId: number | null): Promise<boolean> {
-    setMsg(null);
-    try {
-      await api.employees.setShift(token, id, shiftId, effectiveFrom);
-      setEmps((list) => (list ?? []).map((e) => (e.id === id ? { ...e, default_shift_id: shiftId } : e)));
-      setMsg(`Đã lưu ca áp dụng từ ${fmtYmd(effectiveFrom)}.`);
-      if (historyEmployee?.id === id) {
-        const result = await api.employees.shiftHistory(token, id);
-        setShiftHistory(result.items);
-      }
-      return true;
-    } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Lỗi khi gán ca.");
-      return false;
-    }
-  }
-
-  async function applyBulk() {
-    if (bulkShift === "" || !shown.length) return;
-    setBusy(true); setMsg(null);
-    try {
-      for (const e of shown) {
-        if (!(await assignOne(e.id, bulkShift))) return;
-      }
-      setMsg(`Đã gán ca cho ${shown.length} nhân viên.`);
-    } catch (err) {
-      setMsg(err instanceof Error ? err.message : "Lỗi khi gán ca.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div className="cc-assign">
-      <h4 className="ns-section__title">Gán ca mặc định</h4>
-      <p className="cc-note">Chỉ cần gán một lần: ca sẽ tự áp dụng từ ngày đã chọn trở về sau.
-        Khi đổi ca, hệ thống giữ nguyên lịch sử để bảng công tháng cũ không thay đổi.</p>
-      <div className="cc-toolbar cc-assign__bar">
-        <label className="cc-assign__date">
-          <span>Áp dụng từ</span>
-          <input type="date" value={effectiveFrom} onChange={(e) => setEffectiveFrom(e.target.value)} />
-        </label>
-        <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value === "" ? "" : Number(e.target.value))}>
-          <option value="">Tất cả phòng/tổ</option>
-          {depts.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-        </select>
-        <select value={bulkShift} onChange={(e) => setBulkShift(e.target.value === "" ? "" : Number(e.target.value))}>
-          <option value="">— chọn ca để gán hàng loạt —</option>
-          {shifts.map((s) => <option key={s.id} value={s.id}>{s.name} ({s.start_time}–{s.end_time})</option>)}
-        </select>
-        <button className="btn btn--ghost" onClick={applyBulk} disabled={busy || bulkShift === "" || !shown.length}>
-          {busy ? "Đang gán…" : `Gán hàng loạt (${shown.length})`}
-        </button>
-        {msg && <span className="cc-assign__msg">{msg}</span>}
-      </div>
-      <div className="ns__tablewrap">
-        <table className="ns__table">
-          <thead>
-            <tr><th>Mã</th><th>Họ tên</th><th>Phòng/Tổ</th><th>Ca mặc định</th><th>Thao tác</th></tr>
-          </thead>
-          <tbody>
-            {shown.map((e) => (
-              <tr key={e.id}>
-                <td className="ns__code">{e.code}</td>
-                <td>{e.full_name}</td>
-                <td>{e.department_name ?? "—"}</td>
-                <td>
-                  <select
-                    value={e.default_shift_id ?? ""}
-                    onChange={(ev) => void assignOne(e.id, ev.target.value === "" ? null : Number(ev.target.value))}
-                  >
-                    <option value="">— chưa gán —</option>
-                    {shifts.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-                  </select>
-                </td>
-                <td>
-                  <button className="btn btn--ghost cc-history-btn" type="button" onClick={() => void showHistory(e)}>
-                    <History size={15} /> Lịch sử
-                  </button>
-                </td>
-              </tr>
-            ))}
-            {emps && shown.length === 0 && <tr><td colSpan={5} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>}
-          </tbody>
-        </table>
-      </div>
-      {historyEmployee && (
-        <div className="cc-shift-history">
-          <div className="cc-shift-history__head">
-            <div>
-              <strong>Lịch sử ca của {historyEmployee.full_name}</strong>
-              <span>{historyEmployee.code}</span>
-            </div>
-            <button type="button" className="btn btn--ghost" onClick={() => setHistoryEmployee(null)}>Đóng</button>
-          </div>
-          <div className="ns__tablewrap">
-            <table className="ns__table">
-              <thead><tr><th>Ca làm việc</th><th>Áp dụng từ</th><th>Đến ngày</th><th>Trạng thái</th></tr></thead>
-              <tbody>
-                {shiftHistory.map((item) => {
-                  const shift = shifts.find((s) => s.id === item.shift_id);
-                  return (
-                    <tr key={item.id}>
-                      <td>{shift?.name ?? (item.shift_id == null ? "Không gán ca" : `Ca #${item.shift_id}`)}</td>
-                      <td>{fmtYmd(item.effective_from)}</td>
-                      <td>{fmtYmd(item.effective_to)}</td>
-                      <td>{item.is_current ? <span className="ns-badge ns-badge--ok">Đang áp dụng</span> : "—"}</td>
-                    </tr>
-                  );
-                })}
-                {!historyBusy && shiftHistory.length === 0 && (
-                  <tr><td colSpan={4} className="ns__empty">Chưa có lịch sử gán ca.</td></tr>
-                )}
-                {historyBusy && <tr><td colSpan={4} className="ns__empty">Đang tải...</td></tr>}
-              </tbody>
-            </table>
-          </div>
-        </div>
       )}
     </div>
   );
@@ -2084,11 +3246,11 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
       </div>
 
       {/* Warning banner for pending checks */}
-      {period && period.status !== "locked" && (period.hanging_days > 0 || period.pending_leaves + period.pending_adjusts > 0) && (
+      {period && period.status !== "locked" && (period.hanging_days > 0 || period.pending_leaves + period.pending_adjusts + period.pending_late_early > 0) && (
         <div className="banner banner--warn cc-ts-warn-banner" style={{ marginBottom: "16px" }}>
           <AlertTriangle size={14} style={{ marginRight: "6px" }} />
           <span>
-            Kỳ công có <strong>{period.hanging_days}</strong> ngày treo (thiếu chấm RA) và <strong>{period.pending_leaves + period.pending_adjusts}</strong> đơn chờ duyệt.
+            Kỳ công có <strong>{period.hanging_days}</strong> ngày treo (thiếu chấm RA) và <strong>{period.pending_leaves + period.pending_adjusts + period.pending_late_early}</strong> đơn chờ duyệt.
           </span>
         </div>
       )}
@@ -2292,11 +3454,21 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
   const [time, setTime] = useState("08:00");
   const [fault, setFault] = useState("nv_quen");
   const [reason, setReason] = useState("");
+  // Chấm bù CẶP tăng ca (1 chạm) khi NV có phiếu TC nhưng thiếu cặp chấm — điền sẵn theo khung phiếu.
+  const [otIn, setOtIn] = useState("");
+  const [otOut, setOtOut] = useState("");
+  const [otBusy, setOtBusy] = useState(false);
 
   const load = useCallback(() => {
     api.attendance.day(token, employeeId, date).then(setDetail).catch(() => setDetail(null));
   }, [token, employeeId, date]);
   useEffect(() => { load(); }, [load]);
+  // Điền sẵn giờ vào/ra tăng ca theo phiếu khi có gợi ý (HCNS chỉnh lại giờ ra thực tế rồi lưu).
+  const sugFrom = detail?.ot_suggestion?.from_time;
+  const sugTo = detail?.ot_suggestion?.to_time;
+  useEffect(() => {
+    if (sugFrom && sugTo) { setOtIn(sugFrom); setOtOut(sugTo); }
+  }, [sugFrom, sugTo]);
 
   async function addPunch() {
     if (!reason.trim()) { setError("Phải nhập lý do."); return; }
@@ -2319,6 +3491,28 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
     } catch (e) {
       setError(e instanceof Error ? e.message : "Lỗi khi xóa.");
     } finally { setBusy(false); }
+  }
+
+  // Chấm bù cặp tăng ca: thêm lượt VÀO rồi RA (2 punch) → engine tự gom thành phiên tăng ca.
+  async function addOtPair() {
+    if (!otIn || !otOut) { setError("Nhập đủ giờ vào và ra tăng ca."); return; }
+    if (otOut <= otIn) { setError("Giờ ra tăng ca phải sau giờ vào."); return; }
+    setOtBusy(true); setError(null);
+    const reasonTxt = "Chấm bù cặp tăng ca (NV quên chấm)";
+    try {
+      await api.attendance.adjust(token, {
+        employee_id: employeeId, date, check_type: "in", time: otIn,
+        reason: reasonTxt, fault_party: "nv_quen",
+      });
+      const d = await api.attendance.adjust(token, {
+        employee_id: employeeId, date, check_type: "out", time: otOut,
+        reason: reasonTxt, fault_party: "nv_quen",
+      });
+      setDetail(d); onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Lỗi khi chấm bù cặp tăng ca.");
+      load();   // tải lại: có thể lượt VÀO đã thêm nhưng RA lỗi
+    } finally { setOtBusy(false); }
   }
 
   return (
@@ -2396,6 +3590,33 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
                 </div>
               </div>
 
+              {/* Nhắc + nút 1 chạm: NV có phiếu TC đã duyệt nhưng thiếu cặp chấm tăng ca */}
+              {canAdjust && detail.ot_suggestion && (
+                <div className="cc-ot-suggest">
+                  <h4 className="cc-ot-suggest__title">
+                    <AlertTriangle size={14} /> Chưa chấm cặp tăng ca — phiếu {detail.ot_suggestion.from_time}–{detail.ot_suggestion.to_time}
+                  </h4>
+                  <p className="cc-ot-suggest__hint">Giờ điền sẵn theo phiếu; sửa <b>giờ ra</b> theo thực tế rồi lưu.</p>
+                  <div className="cc-ot-suggest__grid">
+                    <div className="cc-adjust-field">
+                      <span className="cc-field-label">Vào tăng ca</span>
+                      <div className="cc-input-time-wrapper">
+                        <input type="time" value={otIn} onChange={(e) => setOtIn(e.target.value)} />                      </div>
+                    </div>
+                    <div className="cc-adjust-field">
+                      <span className="cc-field-label">Ra tăng ca (thực tế)</span>
+                      <div className="cc-input-time-wrapper">
+                        <input type="time" value={otOut} onChange={(e) => setOtOut(e.target.value)} />                      </div>
+                    </div>
+                  </div>
+                  <div className="cc-adjust-action-row">
+                    <button className="btn cc-btn-add-punch" onClick={addOtPair} disabled={otBusy}>
+                      {otBusy ? <RefreshCw className="cc-animate-spin" size={14} /> : "Chấm bù cặp tăng ca"}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Form Adjust */}
               {canAdjust && (
                 <div className="cc-adjust-section">
@@ -2413,9 +3634,7 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
                     <div className="cc-adjust-field">
                       <span className="cc-field-label">Giờ</span>
                       <div className="cc-input-time-wrapper">
-                        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
-                        <Clock size={14} className="cc-time-icon-inside" />
-                      </div>
+                        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />                      </div>
                     </div>
                     <div className="cc-adjust-field">
                       <span className="cc-field-label">Nguyên nhân</span>
@@ -2457,14 +3676,20 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
 
 // --- Tab: Yêu cầu chỉnh công (HCNS duyệt) -----------------------------------
 
+const STATUS_MAP: Record<string, [string, string]> = {
+  pending: ["cc-badge-status--pending", "Chờ duyệt"],
+  approved: ["cc-badge-status--approved", "Đã duyệt"],
+  rejected: ["cc-badge-status--rejected", "Từ chối"],
+  cancelled: ["cc-badge-status--cancelled", "Đã hủy"],
+};
+
+/** Nhãn trạng thái thuần chữ (dùng trong câu văn, không phải badge). */
+function statusText(s: string): string {
+  return STATUS_MAP[s]?.[1] ?? s;
+}
+
 function statusBadge(s: string) {
-  const map: Record<string, [string, string]> = {
-    pending: ["cc-badge-status--pending", "Chờ duyệt"],
-    approved: ["cc-badge-status--approved", "Đã duyệt"],
-    rejected: ["cc-badge-status--rejected", "Từ chối"],
-    cancelled: ["cc-badge-status--cancelled", "Đã hủy"],
-  };
-  const [cls, label] = map[s] ?? ["cc-badge-status--cancelled", s];
+  const [cls, label] = STATUS_MAP[s] ?? ["cc-badge-status--cancelled", s];
   return <span className={`cc-badge-status ${cls}`}>{label}</span>;
 }
 
@@ -2681,6 +3906,1140 @@ function AttendanceTable({ logs, showEmployee }: { logs: AttendanceLog[]; showEm
           )}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// --- Tab: Đi muộn / về sớm / nghỉ nửa buổi (module `di_muon`) ----------------
+// Phiếu CHẤM CÔNG ngoại lệ — KHÔNG phải đơn nghỉ phép. 1 phiếu/ngày, khai khoảng VẮNG MẶT,
+// tổ trưởng duyệt. NV tự xin; tổ trưởng khai hộ thì duyệt luôn.
+// Nghỉ nửa buổi có thể tick "Trừ vào phép năm": tick → tiêu ngày phép (tròn lên 0,5) và phần
+// vắng VẪN được trả lương; không tick → quỹ phép nguyên, MẤT CÔNG phần vắng nhưng KHÔNG bị phạt.
+//
+// Backend KHÔNG lưu "kiểu" (đi muộn / về sớm / nửa buổi) — FE suy ra từ KHUNG CA để hiển thị.
+// Không biết ca ⇒ chỉ hiện chip trung tính, ẨN mini-bar: nhãn đoán sai tệ hơn không nhãn.
+
+type ElKind = "late" | "early" | "half" | "mid";
+type ElFormKind = "late" | "early" | "half";
+/** Một dòng thợ trong roster của module `di_muon` (backend đã lọc scope + bỏ NV đã nghỉ). */
+type ElRosterEmp = LateEarlyRoster["employees"][number];
+
+/** Khung ca đã quy về PHÚT trên trục ngày công (ca qua đêm: `endMin` đã cộng 1440). */
+interface ElShift {
+  name: string;
+  startMin: number;
+  endMin: number;
+  overnight: boolean;
+}
+
+const EL_TOLERANCE = 10;          // dung sai mép ca (phút) khi suy ra kiểu vắng
+const EL_FALLBACK_WINDOW = 480;   // ca 8h — mẫu số dự phòng khi chưa gán ca (khớp backend)
+
+const EL_KIND_META: Record<ElKind, { label: string; Icon: typeof Clock; cls: string }> = {
+  late: { label: "Đi muộn", Icon: LogIn, cls: "el-kind--late" },
+  early: { label: "Về sớm", Icon: LogOut, cls: "el-kind--early" },
+  half: { label: "Nghỉ nửa buổi", Icon: Coffee, cls: "el-kind--half" },
+  mid: { label: "Vắng giữa ca", Icon: Clock, cls: "el-kind--mid" },
+};
+
+const EL_FORM_KINDS: { value: ElFormKind; label: string; Icon: typeof Clock }[] = [
+  { value: "late", label: "Đi muộn", Icon: LogIn },
+  { value: "early", label: "Về sớm", Icon: LogOut },
+  { value: "half", label: "Nghỉ nửa buổi", Icon: Coffee },
+];
+
+const EL_WEEKDAYS = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+
+function elErr(e: unknown): string {
+  // Lỗi 400 của backend đã là tiếng Việt và khớp nhãn UI → hiện NGUYÊN VĂN, đừng viết lại.
+  return e instanceof Error ? e.message : "Có lỗi xảy ra.";
+}
+
+function elHhmmToMin(v: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mi = Number(m[2]);
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
+/** Phút trên trục ngày công → "HH:MM" (lấy phần trong ngày; ca đêm vẫn ra giờ đồng hồ đúng). */
+function elMinToHhmm(m: number): string {
+  const rem = ((m % 1440) + 1440) % 1440;
+  return `${String(Math.floor(rem / 60)).padStart(2, "0")}:${String(rem % 60).padStart(2, "0")}`;
+}
+
+/** Ca ở dạng "HH:MM" (nguồn `myStatus().shift` — self-service, ai cũng gọi được). */
+function elMakeShift(
+  s: { name: string; start_time: string; end_time: string; is_overnight: boolean } | null | undefined,
+): ElShift | null {
+  if (!s) return null;
+  const st = elHhmmToMin(s.start_time);
+  const en = elHhmmToMin(s.end_time);
+  if (st == null || en == null) return null;
+  return elShiftFrom(s.name, st, en, s.is_overnight);
+}
+
+/** Ca ở dạng PHÚT (nguồn `lateEarly.roster()` — gác bằng `di_muon:approve`). */
+function elShiftFromMinutes(s: {
+  name: string;
+  start_minute: number;
+  end_minute: number;
+  is_overnight: boolean;
+}): ElShift | null {
+  return elShiftFrom(s.name, s.start_minute, s.end_minute, s.is_overnight);
+}
+
+function elShiftFrom(name: string, st: number, en: number, overnight: boolean): ElShift | null {
+  const endMin = en + (overnight || en <= st ? 1440 : 0);
+  if (endMin <= st) return null;
+  return { name, startMin: st, endMin, overnight: endMin > 1440 };
+}
+
+/** Ca qua đêm: giờ ĐỒNG HỒ rơi vào phần "sang hôm sau" → đẩy +1440 cho cùng trục với khung ca. */
+function elOnAxis(minute: number, sh: ElShift | null): number {
+  if (!sh || !sh.overnight) return minute;
+  return minute < sh.startMin ? minute + 1440 : minute;
+}
+
+/** Suy ra kiểu vắng theo khung ca (dung sai 10'). Không biết ca ⇒ null (chip trung tính). */
+function elKindOf(fromMinute: number, toMinute: number, sh: ElShift | null): ElKind | null {
+  if (!sh) return null;
+  const from = elOnAxis(fromMinute, sh);
+  const to = elOnAxis(toMinute, sh);
+  const span = sh.endMin - sh.startMin;
+  const minutes = to - from;
+  if (span <= 0 || minutes <= 0) return null;
+  const half = span / 2;
+  if (from <= sh.startMin + EL_TOLERANCE && minutes < half) return "late";
+  if (to >= sh.endMin - EL_TOLERANCE && minutes < half) return "early";
+  if (minutes >= half) return "half";
+  return "mid";
+}
+
+/** "1 giờ 30 phút" — dòng phụ + hint (đọc thành tiếng được). */
+function elDurLong(m: number): string {
+  const h = Math.floor(m / 60);
+  const mi = m % 60;
+  if (h && mi) return `${h} giờ ${mi} phút`;
+  if (h) return `${h} giờ`;
+  return `${mi} phút`;
+}
+
+/** "1h30" / "45'" — chip trung tính khi KHÔNG biết ca. */
+function elDurShort(m: number): string {
+  const h = Math.floor(m / 60);
+  const mi = m % 60;
+  if (h && mi) return `${h}h${String(mi).padStart(2, "0")}`;
+  if (h) return `${h}h`;
+  return `${mi}'`;
+}
+
+/** 0.5 → "0,5" (dấu phẩy thập phân kiểu Việt). */
+function elNum(n: number): string {
+  return n.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
+}
+
+/** Quy phút vắng ra ngày phép — LÀM TRÒN LÊN 0,5, trần 1,0 (đúng công thức backend). */
+function elLeaveCong(minutes: number, windowMin: number): number {
+  if (minutes <= 0 || windowMin <= 0) return 0;
+  return Math.min(1, Math.ceil((minutes / windowMin) * 2) / 2);
+}
+
+function elWeekday(ymd: string): string {
+  const [y, m, d] = ymd.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  return EL_WEEKDAYS[new Date(y, m - 1, d).getDay()] ?? "";
+}
+
+/** "2026-07-27" → "27/07" (dòng chính ô Ngày công). */
+function elDayMonth(ymd: string): string {
+  const [, m, d] = ymd.split("-");
+  return d && m ? `${d}/${m}` : ymd;
+}
+
+/** Mã 1 (icon + CHỮ) + Mã 2 (mini-bar đặt đúng vị trí trong ca). */
+function ElKindCell({ r, shift }: { r: LateEarlyRequest; shift: ElShift | null }) {
+  const kind = elKindOf(r.from_minute, r.to_minute, shift);
+  if (kind === null || shift === null) {
+    return (
+      <div className="el-kindcell">
+        <span
+          className="el-kind el-kind--mid"
+          title="Chưa biết khung ca của nhân viên nên không suy được kiểu vắng."
+        >
+          <Clock size={12} /> Vắng {elDurShort(r.minutes)}
+        </span>
+      </div>
+    );
+  }
+  const meta = EL_KIND_META[kind];
+  const span = shift.endMin - shift.startMin;
+  const from = elOnAxis(r.from_minute, shift);
+  const to = elOnAxis(r.to_minute, shift);
+  const left = Math.max(0, Math.min(100, ((from - shift.startMin) / span) * 100));
+  const right = Math.max(0, Math.min(100, ((to - shift.startMin) / span) * 100));
+  const width = Math.max(5, Math.min(right - left, 100 - left));
+  return (
+    <div className="el-kindcell">
+      <span className={`el-kind ${meta.cls}`}>
+        <meta.Icon size={12} /> {meta.label}
+      </span>
+      <div
+        className="el-bar"
+        aria-hidden="true"
+        title={`Ca ${elMinToHhmm(shift.startMin)}–${elMinToHhmm(shift.endMin)} · vắng ${elDurLong(r.minutes)}`}
+      >
+        <span
+          className={`el-bar__seg el-bar__seg--${kind}`}
+          style={{ left: `${left}%`, width: `${width}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** Cột "Phép năm" — nhánh TIỀN tách riêng, không nhét vào màu chip kiểu. */
+function ElLeaveCell({ r }: { r: LateEarlyRequest }) {
+  if (r.leave_type_id != null) {
+    return (
+      <span className="el-leave" title={r.leave_type_name ?? "Trừ vào phép năm"}>
+        −{elNum(r.leave_cong)} ngày
+      </span>
+    );
+  }
+  return (
+    <span className="el-noleave" title="Không đụng quỹ phép — mất công phần vắng, nhưng không bị phạt.">
+      Không lương
+    </span>
+  );
+}
+
+/** Bảng phiếu dùng chung cho cả 2 tab con. */
+function ElTable({
+  rows,
+  shiftFor,
+  showEmployee,
+  selectable,
+  showDecision,
+  selected,
+  onToggle,
+  actions,
+}: {
+  rows: LateEarlyRequest[];
+  shiftFor: (r: LateEarlyRequest) => ElShift | null;
+  showEmployee: boolean;
+  selectable: boolean;
+  showDecision: boolean;
+  selected: Set<number>;
+  onToggle: (id: number) => void;
+  actions: (r: LateEarlyRequest) => ReactNode;
+}) {
+  return (
+    <div className="cc-timesheet-scroll-container">
+      <table className="cc-timesheet-table">
+        <thead>
+          <tr>
+            {selectable && <th style={{ width: "40px" }} aria-label="Chọn" />}
+            {showEmployee && <th style={{ textAlign: "left" }}>Nhân viên</th>}
+            <th style={{ textAlign: "left" }}>Ngày công</th>
+            <th style={{ textAlign: "left" }}>Kiểu</th>
+            <th style={{ textAlign: "left" }}>Vắng mặt</th>
+            <th style={{ textAlign: "center" }}>Phép năm</th>
+            <th style={{ textAlign: "left" }}>Lý do</th>
+            <th style={{ textAlign: "center" }}>Trạng thái</th>
+            {showDecision && <th style={{ textAlign: "left" }}>Kết quả duyệt</th>}
+            <th style={{ textAlign: "right" }} aria-label="Thao tác" />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              {selectable && (
+                <td style={{ textAlign: "center" }}>
+                  {r.status === "pending" && (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(r.id)}
+                      onChange={() => onToggle(r.id)}
+                      aria-label={`Chọn phiếu của ${r.employee_name ?? `NV#${r.employee_id}`}`}
+                    />
+                  )}
+                </td>
+              )}
+              {showEmployee && (
+                <td>
+                  <div className="cc-name-cell-wrapper">
+                    <span className="cc-name-avatar">{getInitials(r.employee_name)}</span>
+                    <span className="cc-name-text-plain" title={r.employee_name ?? `NV#${r.employee_id}`}>
+                      {r.employee_name ?? `NV#${r.employee_id}`}
+                    </span>
+                  </div>
+                </td>
+              )}
+              <td>
+                <span className="el-cell-main">{elDayMonth(r.work_date)}</span>
+                <span className="el-cell-sub">{elWeekday(r.work_date)}</span>
+              </td>
+              <td>
+                <ElKindCell r={r} shift={shiftFor(r)} />
+              </td>
+              <td>
+                <span className="el-cell-mono">
+                  {elMinToHhmm(r.from_minute)} → {elMinToHhmm(r.to_minute)}
+                </span>
+                <span className="el-cell-sub">{elDurLong(r.minutes)}</span>
+              </td>
+              <td style={{ textAlign: "center" }}>
+                <ElLeaveCell r={r} />
+              </td>
+              <td>
+                <div className="cc-reason-wrapper">
+                  <span className="cc-reason-text">{r.reason || "—"}</span>
+                </div>
+              </td>
+              <td style={{ textAlign: "center" }}>{statusBadge(r.status)}</td>
+              {showDecision && (
+                <td>
+                  {r.decided_by_name || r.decided_at || r.decision_note ? (
+                    <div className="cc-reason-wrapper">
+                      <span className="cc-reason-text">{r.decided_by_name ?? "—"}</span>
+                      {r.decided_at && <span className="el-cell-sub">{fmtDateTime(r.decided_at)}</span>}
+                      {r.decision_note && <div className="cc-decision-note-sub">💬 {r.decision_note}</div>}
+                    </div>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+              )}
+              <td style={{ textAlign: "right" }}>
+                <div className="cc-rowact">{actions(r)}</div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Từ chối phải ghi lý do — ô bắt buộc trong modal (KHÔNG dùng window.prompt). */
+function ElRejectModal({
+  count,
+  onClose,
+  onConfirm,
+}: {
+  count: number;
+  onClose: () => void;
+  onConfirm: (note: string) => void;
+}) {
+  const [note, setNote] = useState("");
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box cc-day-detail-modal-box">
+        <header className="ns-modal__head">
+          <h2>{count > 1 ? `Từ chối ${count} phiếu` : "Từ chối phiếu"}</h2>
+          <button className="ns-modal__x" onClick={onClose}>×</button>
+        </header>
+        <div className="ns-modal__body">
+          <label className="ns-field">
+            <span className="ns-field__label">Lý do từ chối *</span>
+            <input
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="vd: hôm đó xưởng chạy đơn gấp, không bố trí được"
+              autoFocus
+            />
+          </label>
+          <p className="np-hint">Lý do này hiện ở cột <b>Kết quả duyệt</b> để thợ biết vì sao bị từ chối.</p>
+        </div>
+        <footer className="ns-modal__foot">
+          <button className="btn btn--ghost" onClick={onClose}>Hủy</button>
+          <button className="btn btn--primary" disabled={!note.trim()} onClick={() => onConfirm(note.trim())}>
+            Từ chối
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+/** Form tạo / sửa phiếu. `forEmployee` = tổ trưởng khai hộ (tạo & duyệt luôn). */
+function ElFormModal({
+  token,
+  forEmployee,
+  editing,
+  myShift,
+  shiftById,
+  roster,
+  mine,
+  onClose,
+  onSaved,
+  onOpenExisting,
+}: {
+  token: string;
+  forEmployee: boolean;
+  editing?: LateEarlyRequest | null;
+  /** Ca của CHÍNH TÔI (nguồn `myStatus` — self-service, ai cũng gọi được). */
+  myShift: ElShift | null;
+  shiftById: Map<number, ElShift>;
+  roster: ElRosterEmp[];
+  /** Danh sách phiếu của tôi — dò trùng ngày TRƯỚC khi bấm Gửi. */
+  mine: LateEarlyRequest[];
+  onClose: () => void;
+  onSaved: (msg: string) => void;
+  onOpenExisting: (r: LateEarlyRequest) => void;
+}) {
+  const [employeeId, setEmployeeId] = useState<number | null>(null);
+  const [empQuery, setEmpQuery] = useState("");
+  const [workDate, setWorkDate] = useState(editing?.work_date ?? isoToday());
+  const [from, setFrom] = useState(editing ? elMinToHhmm(editing.from_minute) : "");
+  const [to, setTo] = useState(editing ? elMinToHhmm(editing.to_minute) : "");
+  const [kind, setKind] = useState<ElFormKind | null>(null);
+  const [deduct, setDeduct] = useState(editing ? editing.leave_type_id != null : false);
+  const [leaveTypeId, setLeaveTypeId] = useState<number | null>(editing?.leave_type_id ?? null);
+  const [reason, setReason] = useState(editing?.reason ?? "");
+  const [types, setTypes] = useState<LeaveType[]>([]);
+  const [quotas, setQuotas] = useState<LeaveQuota[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Loại nghỉ có hạn mức năm (backend nhận `leave_type_id`, không nhận boolean) + số dư phép
+  // của CHÍNH TÔI. Cả 2 endpoint đều là self-service của module `nghi_phep`.
+  useEffect(() => {
+    api.leaves
+      .types(token)
+      .then((r) => {
+        const list = r.items.filter((t) => t.is_active && t.annual_quota > 0);
+        setTypes(list);
+        setLeaveTypeId((cur) => cur ?? (list.length ? list[0].id : null));
+      })
+      .catch(() => setTypes([]));
+    if (!forEmployee) {
+      api.leaves.me(token).then((r) => setQuotas(r.quotas ?? [])).catch(() => setQuotas([]));
+    }
+  }, [token, forEmployee]);
+
+  const pickedEmp = employeeId != null ? roster.find((e) => e.id === employeeId) ?? null : null;
+  const activeShift = forEmployee
+    ? (pickedEmp?.default_shift_id != null ? shiftById.get(pickedEmp.default_shift_id) ?? null : null)
+    : myShift;
+
+  // SỬA phiếu: suy lại kiểu từ khung ca (ca nạp async) để nút segmented sáng đúng ô. Chỉ chạy
+  // MỘT LẦN — sau đó người dùng bấm gì là quyền của họ, đừng ghi đè lựa chọn đang gõ dở.
+  const kindInferred = useRef(false);
+  useEffect(() => {
+    if (!editing || kindInferred.current || !activeShift) return;
+    const k = elKindOf(editing.from_minute, editing.to_minute, activeShift);
+    if (k === null) return;
+    kindInferred.current = true;
+    if (k !== "mid") setKind(k);
+  }, [editing, activeShift]);
+
+  // Checkbox trừ phép CHỈ mở cho nghỉ nửa buổi (đi muộn 20' mà tick trừ sẽ tròn thành 0,5 ngày
+  // → lỗ hổng quỹ phép). Ngoại lệ: đang SỬA phiếu vốn có trừ phép mà chưa suy được kiểu ⇒ vẫn
+  // phơi ra, nếu không lưu lại sẽ ÂM THẦM mất phần trừ phép cũ.
+  const canDeduct = kind === "half" || (kind === null && editing?.leave_type_id != null);
+
+  // Chọn kiểu vắng → TỰ ĐIỀN GIỜ theo mép ca: vừa ít thao tác, vừa khoá giờ đúng mép nên
+  // chip suy ra kiểu đúng y như người dùng vừa chọn.
+  function pickKind(k: ElFormKind) {
+    setKind(k);
+    if (k !== "half") setDeduct(false);
+    const sh = activeShift;
+    if (!sh) return;
+    const span = sh.endMin - sh.startMin;
+    if (k === "late") {
+      setFrom(elMinToHhmm(sh.startMin));
+      setTo(elMinToHhmm(Math.min(sh.startMin + 60, sh.endMin)));
+    } else if (k === "early") {
+      setTo(elMinToHhmm(sh.endMin));
+      setFrom(elMinToHhmm(Math.max(sh.endMin - 60, sh.startMin)));
+    } else {
+      setFrom(elMinToHhmm(sh.startMin + Math.round(span / 2)));
+      setTo(elMinToHhmm(sh.endMin));
+    }
+  }
+
+  const fromRaw = elHhmmToMin(from);
+  const toRaw = elHhmmToMin(to);
+  // Ca qua đêm: đẩy giờ "sang hôm sau" về cùng trục ngày công với khung ca — nhờ vậy KHÔNG cần
+  // checkbox "sang hôm sau" mà `from_minute`/`to_minute` gửi lên vẫn đúng trục backend.
+  const fromAbs = fromRaw == null ? null : elOnAxis(fromRaw, activeShift);
+  const toAbs = toRaw == null ? null : elOnAxis(toRaw, activeShift);
+  const minutes = fromAbs != null && toAbs != null ? toAbs - fromAbs : null;
+  const timeErr = minutes != null && minutes <= 0 ? "Đến lúc phải sau Vắng từ lúc." : null;
+
+  const windowMin = activeShift ? activeShift.endMin - activeShift.startMin : EL_FALLBACK_WINDOW;
+  const leaveCong = elLeaveCong(minutes ?? 0, windowMin);
+  const quota = quotas.find((q) => q.leave_type_id === leaveTypeId) ?? quotas.find((q) => q.annual_quota > 0) ?? null;
+  const remaining = quota?.remaining ?? 0;
+  const shortOfLeave = !forEmployee && quotas.length > 0 && remaining < 0.5;
+
+  // 1 phiếu/ngày: dò trong danh sách `mine` NGAY khi đổi ngày, đừng để bấm Gửi rồi mới báo.
+  const clash = useMemo(() => {
+    if (forEmployee || !workDate) return null;
+    return (
+      mine.find(
+        (r) =>
+          r.work_date === workDate &&
+          (r.status === "pending" || r.status === "approved") &&
+          r.id !== editing?.id,
+      ) ?? null
+    );
+  }, [mine, workDate, forEmployee, editing]);
+
+  const empOptions = useMemo(() => {
+    const q = empQuery.trim().toLowerCase();
+    const list = q
+      ? roster.filter(
+          (e) => e.full_name.toLowerCase().includes(q) || (e.code ?? "").toLowerCase().includes(q),
+        )
+      : roster;
+    return list.slice(0, 300);
+  }, [roster, empQuery]);
+
+  async function save() {
+    setErr(null);
+    if (forEmployee && employeeId == null) return setErr("Cần chọn nhân viên.");
+    if (!workDate) return setErr("Cần chọn ngày công.");
+    if (fromAbs == null || toAbs == null) return setErr("Cần khai giờ bắt đầu và giờ kết thúc.");
+    if (minutes == null || minutes <= 0) return setErr("Đến lúc phải sau Vắng từ lúc.");
+    const input = {
+      work_date: workDate,
+      from_minute: fromAbs,
+      to_minute: toAbs,
+      reason: reason.trim() || null,
+      leave_type_id: canDeduct && deduct ? leaveTypeId : null,
+    };
+    setBusy(true);
+    try {
+      if (editing) {
+        await api.lateEarly.updateMine(token, editing.id, input);
+        onSaved("Đã lưu phiếu — chờ tổ trưởng duyệt.");
+      } else if (forEmployee) {
+        await api.lateEarly.createFor(token, { ...input, employee_id: employeeId as number });
+        onSaved(`Đã tạo & duyệt phiếu cho ${pickedEmp?.full_name ?? "thợ"}.`);
+      } else {
+        await api.lateEarly.createMine(token, input);
+        onSaved("Đã gửi phiếu — chờ tổ trưởng duyệt.");
+      }
+    } catch (e) {
+      setErr(elErr(e)); // NGUYÊN VĂN `detail` của backend — đã tiếng Việt và khớp nhãn UI.
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ns-modal" role="dialog" aria-modal="true">
+      <div className="ns-modal__box cc-day-detail-modal-box">
+        <header className="ns-modal__head">
+          <h2>
+            {editing
+              ? "Sửa phiếu đi muộn / về sớm"
+              : forEmployee
+                ? "Khai hộ thợ — đi muộn / về sớm"
+                : "Xin đi muộn / về sớm"}
+          </h2>
+          <button className="ns-modal__x" onClick={onClose}>×</button>
+        </header>
+        <div className="ns-modal__body">
+          {err && <div className="banner banner--error">{err}</div>}
+
+          {forEmployee ? (
+            <div className="el-balance el-balance--muted">
+              <span>Số dư phép của thợ sẽ được hệ thống kiểm khi lưu.</span>
+            </div>
+          ) : quota ? (
+            <div className="el-balance">
+              <span>Phép năm · {quota.name}</span>
+              <span className="el-balance__val">
+                còn {elNum(remaining)} / {elNum(quota.annual_quota)} ngày
+              </span>
+            </div>
+          ) : null}
+
+          {forEmployee && (
+            <label className="ns-field">
+              <span className="ns-field__label">Nhân viên *</span>
+              <input
+                value={empQuery}
+                onChange={(e) => setEmpQuery(e.target.value)}
+                placeholder="Gõ tên hoặc mã NV để tìm…"
+              />
+              <select
+                value={employeeId ?? ""}
+                onChange={(e) => setEmployeeId(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">— chọn thợ trong tổ của bạn —</option>
+                {empOptions.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.full_name}
+                    {e.code ? ` · ${e.code}` : ""}
+                    {e.department ? ` · ${e.department}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+
+          <label className={`ns-field ${forEmployee ? "el-field" : ""}`}>
+            <span className="ns-field__label">Ngày công *</span>
+            <input type="date" value={workDate} onChange={(e) => setWorkDate(e.target.value)} />
+          </label>
+
+          {clash && (
+            <div className="banner banner--warn el-stack">
+              <span>
+                Ngày {elDayMonth(clash.work_date)} đã có phiếu <b>{statusText(clash.status)}</b>. Mỗi ngày
+                chỉ được một phiếu — sửa hoặc hủy phiếu cũ trước.
+              </span>
+              <button className="btn btn--ghost" onClick={() => onOpenExisting(clash)}>
+                Mở phiếu ngày đó
+              </button>
+            </div>
+          )}
+
+          <div className="el-stack">
+            <span className="ns-field__label">Kiểu vắng *</span>
+            <div className="np-seg el-stack-sm">
+              {EL_FORM_KINDS.map((k) => (
+                <button
+                  key={k.value}
+                  type="button"
+                  className={`np-seg__btn ${kind === k.value ? "is-active" : ""}`}
+                  onClick={() => pickKind(k.value)}
+                >
+                  <k.Icon size={13} /> {k.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {activeShift ? (
+            <div className="el-shiftline">
+              <Clock size={13} />
+              <span>
+                Ca của {forEmployee ? "thợ" : "bạn"}: <b>{activeShift.name}</b> ·{" "}
+                <span className="el-shiftline__time">
+                  {elMinToHhmm(activeShift.startMin)}–{elMinToHhmm(activeShift.endMin)}
+                </span>
+              </span>
+            </div>
+          ) : (
+            <div className="el-shiftline">
+              <AlertTriangle size={13} />
+              <span>
+                Chưa rõ khung ca{forEmployee ? " của thợ" : ""} — hãy tự khai giờ vắng bên dưới.
+              </span>
+            </div>
+          )}
+
+          <div className="el-timegrid">
+            <label className="ns-field">
+              <span className="ns-field__label">Vắng từ lúc *</span>
+              <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
+            </label>
+            <label className="ns-field">
+              <span className="ns-field__label">Đến lúc *</span>
+              <input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
+            </label>
+          </div>
+
+          <p className="np-hint">
+            Khai đúng khoảng anh/chị <b>KHÔNG có mặt</b> ở xưởng. Ví dụ ca 07:30–16:30:
+            <br />• Đi muộn 1 tiếng → vắng từ <b>07:30</b> đến <b>08:30</b>
+            <br />• Về sớm 2 tiếng → vắng từ <b>14:30</b> đến <b>16:30</b>
+            <br />• Nghỉ nửa buổi chiều → vắng từ <b>12:30</b> đến <b>16:30</b>
+          </p>
+          {timeErr ? (
+            <p className="np-hint np-hint--warn">{timeErr}</p>
+          ) : minutes != null && minutes > 0 ? (
+            <p className="np-hint np-hint--ok">Nghỉ {elDurLong(minutes)}</p>
+          ) : null}
+
+          {canDeduct && types.length > 0 && (
+            <div className="el-stack">
+              <label className="ns-check">
+                <input type="checkbox" checked={deduct} onChange={(e) => setDeduct(e.target.checked)} />
+                Trừ vào phép năm — vẫn được trả lương phần vắng
+              </label>
+              {deduct ? (
+                <>
+                  <p className="np-hint np-hint--ok">
+                    {leaveCong > 0 ? `Tiêu ${elNum(leaveCong)} ngày phép năm` : "Khai giờ vắng để biết tiêu bao nhiêu ngày phép"}
+                    {forEmployee
+                      ? " · số dư của thợ được hệ thống kiểm khi lưu."
+                      : leaveCong > 0
+                        ? ` · Phép còn lại: ${elNum(remaining)} → ${elNum(Math.max(0, remaining - leaveCong))} ngày`
+                        : ""}
+                  </p>
+                  <label className="ns-field el-field">
+                    <span className="ns-field__label">Loại nghỉ</span>
+                    <select
+                      value={leaveTypeId ?? ""}
+                      onChange={(e) => setLeaveTypeId(e.target.value ? Number(e.target.value) : null)}
+                    >
+                      {types.map((t) => (
+                        <option key={t.id} value={t.id}>
+                          {t.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {shortOfLeave && (
+                    <div className="banner banner--warn el-stack">
+                      <span>
+                        Phép năm chỉ còn {elNum(remaining)} ngày — phiếu này cần {elNum(leaveCong)} ngày.
+                        Bỏ tick để xin không lương (vẫn không bị phạt).
+                      </span>
+                      <button className="btn btn--ghost" onClick={() => setDeduct(false)}>
+                        Bỏ tick, gửi không lương
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="np-hint">
+                  Không đụng quỹ phép · mất công phần vắng
+                  {minutes != null && minutes > 0 ? ` (${elDurLong(minutes)})` : ""} · không bị phạt đi
+                  muộn.
+                </p>
+              )}
+            </div>
+          )}
+
+          <label className="ns-field el-field">
+            <span className="ns-field__label">Lý do</span>
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="vd: con ốm, đưa đi khám"
+            />
+          </label>
+        </div>
+        <footer className="ns-modal__foot">
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn--primary" onClick={save} disabled={busy}>
+            {busy ? "Đang lưu…" : forEmployee ? "Tạo & duyệt luôn" : "Gửi phiếu"}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function LateEarlyTab({
+  token,
+  canApprove,
+  onChanged,
+  eventTick,
+}: {
+  token: string;
+  canApprove: boolean;
+  onChanged?: () => void;
+  eventTick?: number;
+}) {
+  const [sub, setSub] = useState<"mine" | "queue">(canApprove ? "queue" : "mine");
+  // KHỞI TẠO `null` chứ KHÔNG phải `[]`: `[]` làm lúc đang fetch hiện "chưa có phiếu nào" — báo SAI.
+  const [mine, setMine] = useState<LateEarlyRequest[] | null>(null);
+  const [queue, setQueue] = useState<LateEarlyRequest[] | null>(null);
+  const [hasEmployee, setHasEmployee] = useState(true);
+  const [statusFilter, setStatusFilter] = useState("pending");
+  const [kindFilter, setKindFilter] = useState<Set<ElKind>>(new Set());
+  const [pendingCount, setPendingCount] = useState(0);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [creating, setCreating] = useState<null | "mine" | "for">(null);
+  const [editing, setEditing] = useState<LateEarlyRequest | null>(null);
+  const [rejecting, setRejecting] = useState<null | number[]>(null);
+  // 2 state lỗi RIÊNG — dùng chung một `err` thì lỗi tab này hiện ở tab kia.
+  const [errMine, setErrMine] = useState<string | null>(null);
+  const [errQueue, setErrQueue] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
+  const [myShift, setMyShift] = useState<ElShift | null>(null);
+  const [shiftById, setShiftById] = useState<Map<number, ElShift>>(new Map());
+  const [roster, setRoster] = useState<ElRosterEmp[]>([]);
+
+  useEffect(() => {
+    // Ca của TÔI: `myStatus` là self-service (ai cũng gọi được) → nguồn ca cho tab "của tôi",
+    // và là nguồn DUY NHẤT với người KHÔNG có quyền duyệt (họ không gọi được /roster).
+    api.attendance.myStatus(token)
+      .then((s) => setMyShift(elMakeShift(s.shift as MyShift | null)))
+      .catch(() => setMyShift(null));
+  }, [token]);
+
+  // Roster của chính module `di_muon` (gác bằng `di_muon:approve`, backend đã lọc theo scope,
+  // bỏ NV đã nghỉ và sắp theo tên). MỘT lời gọi nuôi cả dropdown "Khai hộ thợ" LẪN khung ca dùng
+  // để suy kiểu vắng / vẽ mini-bar / tự điền giờ — khỏi phải mượn quyền `nhan_su:read`.
+  useEffect(() => {
+    if (!canApprove) return;
+    api.lateEarly
+      .roster(token)
+      .then((r) => {
+        setRoster(r.employees);
+        const m = new Map<number, ElShift>();
+        for (const s of r.shifts) {
+          const sh = elShiftFromMinutes(s);
+          if (sh) m.set(s.id, sh);
+        }
+        setShiftById(m);
+      })
+      .catch(() => {
+        setRoster([]);
+        setShiftById(new Map());
+      });
+  }, [token, canApprove]);
+
+  const load = useCallback(() => {
+    api.lateEarly
+      .mine(token)
+      .then((r) => {
+        setHasEmployee(r.has_employee);
+        setMine(r.items ?? []);
+        setErrMine(null);
+      })
+      .catch((e) => {
+        setMine([]);
+        setErrMine(elErr(e));
+      });
+    if (canApprove) {
+      api.lateEarly
+        .list(token, statusFilter === "all" ? undefined : statusFilter)
+        .then((r) => {
+          setQueue(r.items);
+          setErrQueue(null);
+        })
+        .catch((e) => {
+          setQueue([]);
+          setErrQueue(elErr(e));
+        });
+      api.lateEarly.summary(token)
+        .then((s) => setPendingCount(s.pending_in_scope ?? 0))
+        .catch(() => undefined);
+    }
+    // Hạ badge sidebar + chuông NGAY sau mỗi lần load (không bắt người dùng đổi màn).
+    api.lateEarly.markSeen(token).catch(() => undefined);
+    onChanged?.();
+  }, [token, canApprove, statusFilter, onChanged]);
+
+  // `eventTick` đổi = có sự kiện real-time (SSE) → tải lại bảng, khỏi bắt người dùng F5.
+  useEffect(() => { load(); }, [load, eventTick]);
+
+  const shiftFor = useCallback(
+    (r: LateEarlyRequest): ElShift | null => {
+      const emp = roster.find((e) => e.id === r.employee_id);
+      if (emp?.default_shift_id != null) return shiftById.get(emp.default_shift_id) ?? null;
+      return null;
+    },
+    [roster, shiftById],
+  );
+  const shiftForMine = useCallback(
+    (r: LateEarlyRequest): ElShift | null => myShift ?? shiftFor(r),
+    [myShift, shiftFor],
+  );
+
+  // Chỉ hiện hàng chip lọc kiểu khi THỰC SỰ suy được kiểu — không thì nó lọc trắng bảng.
+  const canInferKind = shiftById.size > 0 && roster.length > 0;
+  const queueRows = useMemo(() => {
+    if (!queue) return null;
+    if (!canInferKind || kindFilter.size === 0) return queue;
+    return queue.filter((r) => {
+      const k = elKindOf(r.from_minute, r.to_minute, shiftFor(r));
+      return k !== null && kindFilter.has(k);
+    });
+  }, [queue, kindFilter, canInferKind, shiftFor]);
+
+  const selectable = useMemo(
+    () => new Set((queueRows ?? []).filter((r) => r.status === "pending").map((r) => r.id)),
+    [queueRows],
+  );
+  const picked = useMemo(
+    () => [...selected].filter((id) => selectable.has(id)),
+    [selected, selectable],
+  );
+
+  function toggle(id: number) {
+    setSelected((s) => {
+      const next = new Set(s);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleKind(k: ElKind) {
+    setKindFilter((s) => {
+      const next = new Set(s);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+  }
+
+  async function run(fn: () => Promise<unknown>, scope: "mine" | "queue") {
+    const setErr = scope === "mine" ? setErrMine : setErrQueue;
+    setErr(null);
+    setOkMsg(null);
+    try {
+      await fn();
+      setSelected(new Set());
+      load();
+    } catch (e) {
+      setErr(elErr(e));
+    }
+  }
+
+  const showDecision = statusFilter !== "pending";
+
+  return (
+    <div>
+      <div className="np-seg np-seg--tabs" role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={sub === "mine"}
+          className={`np-seg__btn ${sub === "mine" ? "is-active" : ""}`}
+          onClick={() => setSub("mine")}
+        >
+          Phiếu của tôi
+        </button>
+        {canApprove && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sub === "queue"}
+            className={`np-seg__btn ${sub === "queue" ? "is-active" : ""}`}
+            onClick={() => setSub("queue")}
+          >
+            Duyệt phiếu{pendingCount ? ` (${pendingCount})` : ""}
+          </button>
+        )}
+      </div>
+
+      {okMsg && <div className="banner banner--success el-stack">{okMsg}</div>}
+
+      {sub === "mine" && (
+        <>
+          <div className="cc-ts-toolbar">
+            <div className="cc-info-card-note el-toolbar-grow" style={{ margin: 0, padding: "8px 12px" }}>
+              <Info size={14} className="cc-note-icon" />
+              <span>
+                Khai đúng khoảng <b>không có mặt</b> ở xưởng. Phiếu được duyệt = <b>không bị phạt</b> đi
+                muộn / về sớm đúng số phút đã xin.
+              </span>
+            </div>
+            {hasEmployee && (
+              <button className="btn btn--primary" onClick={() => setCreating("mine")}>
+                <Plus size={14} /> Xin đi muộn / về sớm
+              </button>
+            )}
+          </div>
+
+          {!hasEmployee && (
+            <div className="banner banner--warn el-stack">
+              Tài khoản của bạn <b>chưa gắn hồ sơ nhân viên</b> nên chưa gửi phiếu được. Liên hệ HCNS.
+            </div>
+          )}
+          {errMine && <div className="banner banner--error el-stack">{errMine}</div>}
+
+          {mine === null ? (
+            <p className="ns__empty">Đang tải phiếu…</p>
+          ) : mine.length === 0 ? (
+            <div className="el-empty">
+              <p className="el-empty__title">Bạn chưa có phiếu đi muộn / về sớm nào.</p>
+              <p className="el-empty__hint">
+                Hôm nào đến muộn hoặc về sớm thì khai ở đây — <b>có phiếu được duyệt mới không bị phạt tiền</b>.
+              </p>
+              {hasEmployee && (
+                <div className="el-empty__cta">
+                  <button className="btn btn--primary" onClick={() => setCreating("mine")}>
+                    <Plus size={14} /> Xin đi muộn / về sớm
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <ElTable
+              rows={mine}
+              shiftFor={shiftForMine}
+              showEmployee={false}
+              selectable={false}
+              showDecision
+              selected={selected}
+              onToggle={toggle}
+              actions={(r) =>
+                r.status === "pending" || r.status === "approved" ? (
+                  <>
+                    {r.status === "pending" && (
+                      <button className="btn btn--ghost" onClick={() => setEditing(r)}>Sửa</button>
+                    )}
+                    <button
+                      className="btn btn--ghost cc-btn-reject"
+                      onClick={() => run(() => api.lateEarly.cancel(token, r.id), "mine")}
+                    >
+                      Hủy
+                    </button>
+                  </>
+                ) : null
+              }
+            />
+          )}
+        </>
+      )}
+
+      {sub === "queue" && canApprove && (
+        <>
+          <div className="cc-ts-toolbar">
+            <div className="cc-select-wrapper" style={{ width: "160px" }}>
+              <select
+                value={statusFilter}
+                onChange={(e) => {
+                  setStatusFilter(e.target.value);
+                  setSelected(new Set());
+                }}
+                aria-label="Lọc theo trạng thái"
+              >
+                <option value="pending">Chờ duyệt</option>
+                <option value="approved">Đã duyệt</option>
+                <option value="rejected">Từ chối</option>
+                <option value="all">Tất cả</option>
+              </select>
+            </div>
+            {canInferKind && (
+              <div className="el-filters el-toolbar-grow">
+                {(Object.keys(EL_KIND_META) as ElKind[]).map((k) => {
+                  const meta = EL_KIND_META[k];
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      className={`el-filter ${kindFilter.has(k) ? "is-on" : ""}`}
+                      aria-pressed={kindFilter.has(k)}
+                      onClick={() => toggleKind(k)}
+                    >
+                      <meta.Icon size={12} /> {meta.label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <button className="btn btn--primary" onClick={() => setCreating("for")}>
+              <Plus size={14} /> Khai hộ thợ
+            </button>
+          </div>
+
+          {errQueue && <div className="banner banner--error el-stack">{errQueue}</div>}
+
+          {picked.length > 0 && (
+            <div className="cc-bulk-actions-floating">
+              <span className="cc-bulk-label">Đã chọn {picked.length} phiếu</span>
+              <div className="cc-bulk-btn-group">
+                <button
+                  className="btn btn--primary cc-btn-approve"
+                  onClick={() => run(() => api.lateEarly.bulkApprove(token, picked), "queue")}
+                >
+                  ✓ Duyệt {picked.length}
+                </button>
+                <button className="btn btn--ghost cc-btn-reject" onClick={() => setRejecting(picked)}>
+                  ✕ Từ chối {picked.length}
+                </button>
+                <button className="btn btn--ghost" onClick={() => setSelected(new Set())}>Bỏ chọn</button>
+              </div>
+            </div>
+          )}
+
+          {queueRows === null ? (
+            <p className="ns__empty">Đang tải phiếu…</p>
+          ) : queueRows.length === 0 ? (
+            <div className="el-empty">
+              <p className="el-empty__title">
+                {statusFilter === "pending"
+                  ? "Không có phiếu nào chờ bạn duyệt."
+                  : "Không có phiếu nào khớp bộ lọc."}
+              </p>
+              {statusFilter === "pending" ? (
+                <p className="el-empty__hint">
+                  Đổi bộ lọc sang <b>Tất cả</b> để xem phiếu đã xử lý.
+                </p>
+              ) : kindFilter.size > 0 ? (
+                <p className="el-empty__hint">Bỏ bớt chip lọc kiểu để thấy thêm phiếu.</p>
+              ) : null}
+            </div>
+          ) : (
+            <ElTable
+              rows={queueRows}
+              shiftFor={shiftFor}
+              showEmployee
+              selectable
+              showDecision={showDecision}
+              selected={selected}
+              onToggle={toggle}
+              actions={(r) =>
+                r.status === "pending" ? (
+                  <div className="cc-approve-actions-cell">
+                    <button
+                      className="btn btn--primary cc-btn-approve"
+                      onClick={() => run(() => api.lateEarly.approve(token, r.id), "queue")}
+                    >
+                      Duyệt
+                    </button>
+                    <button className="btn btn--ghost cc-btn-reject" onClick={() => setRejecting([r.id])}>
+                      Từ chối
+                    </button>
+                  </div>
+                ) : null
+              }
+            />
+          )}
+        </>
+      )}
+
+      {(creating || editing) && (
+        <ElFormModal
+          token={token}
+          forEmployee={creating === "for"}
+          editing={editing}
+          myShift={myShift}
+          shiftById={shiftById}
+          roster={roster}
+          mine={mine ?? []}
+          onClose={() => {
+            setCreating(null);
+            setEditing(null);
+          }}
+          onSaved={(msg) => {
+            setCreating(null);
+            setEditing(null);
+            setOkMsg(msg);
+            load();
+          }}
+          onOpenExisting={(r) => {
+            setCreating(null);
+            setEditing(r);
+            setSub("mine");
+          }}
+        />
+      )}
+
+      {rejecting && (
+        <ElRejectModal
+          count={rejecting.length}
+          onClose={() => setRejecting(null)}
+          onConfirm={(note) => {
+            const ids = rejecting;
+            setRejecting(null);
+            run(
+              () =>
+                ids.length > 1
+                  ? api.lateEarly.bulkReject(token, ids, note)
+                  : api.lateEarly.reject(token, ids[0], note),
+              "queue",
+            );
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -29,6 +29,8 @@ class InitialEmployeeSalaryIn(BaseModel):
     effective_from: date | None = None
     luong_vi_tri: float = Field(gt=0)
     luong_trach_nhiem: float = Field(default=0, ge=0)
+    # "Lương trả 1 lần" (đợt 1) — mức điền sẵn khi lập phiếu thanh toán lương đợt 1.
+    luong_dot_1: float = Field(default=0, ge=0)
     insurance_base: float | None = Field(default=None, ge=0)
     allowance: float = Field(default=0, ge=0)
     phu_cap_ca: float = Field(default=0, ge=0)
@@ -124,6 +126,29 @@ class AccountIn(BaseModel):
 class AssignShiftIn(BaseModel):
     effective_from: date = Field(default_factory=date.today)
     default_shift_id: int | None = None   # null = bỏ gán ca
+
+
+class AssignShiftBulkIn(BaseModel):
+    """Đặt CA NỀN cho nhiều NV một lượt (màn Phân ca tháng).
+
+    Ca nền áp dụng từ `effective_from` trở về sau cho MỌI tháng — khác với tô ca
+    trên lưới (chỉ đúng ngày đã tô)."""
+
+    employee_ids: list[int] = Field(min_length=1, max_length=500)
+    effective_from: date = Field(default_factory=date.today)
+    default_shift_id: int | None = None   # null = bỏ gán ca
+
+
+class AssignShiftBulkFail(BaseModel):
+    employee_id: int
+    reason: str
+
+
+class AssignShiftBulkOut(BaseModel):
+    updated: int = 0
+    # Số NV vào làm SAU ngày được chọn → mốc tự lùi về đúng ngày vào làm của họ.
+    adjusted: int = 0
+    failed: list[AssignShiftBulkFail] = []
 
 
 class ShiftAssignmentOut(BaseModel):
