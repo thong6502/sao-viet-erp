@@ -55,6 +55,9 @@ import {
   UserMinus,
   AlertTriangle,
   Key,
+  User,
+  Shield,
+  Hash,
   X,
 } from "lucide-react";
 import "./nhan-su.css";
@@ -508,12 +511,7 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
           {canApprove && (
             <button
               type="button"
-              className={`btn btn--ghost${reqCount > 0 ? " ns2-reqbtn--on" : ""}`}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
+              className={`ns-btn-secondary${reqCount > 0 ? " ns2-reqbtn--on" : ""}`}
               onClick={() => setReqOpen(true)}
             >
               <Activity size={14} />
@@ -523,15 +521,10 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
           {canCreate && (
             <button
               type="button"
-              className="btn btn--primary"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "6px",
-              }}
+              className="ns-btn-primary"
               onClick={() => setWizardOpen(true)}
             >
-              <UserPlus size={14} />
+              <UserPlus size={15} />
               Thêm nhân viên
             </button>
           )}
@@ -540,12 +533,25 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
 
       <div className="ns2__grid">
         <section className="ns2__list">
+          {/* Dải lọc nhanh + thanh lọc nằm CHUNG một khung: chúng là một việc
+              (thu hẹp danh sách), không phải hai khối rời cần hai lớp viền. */}
+          <div className="ns2__controls">
           {data && (
             <KpiStrip
               kpis={data.kpis}
+              statusFilter={statusFilter}
+              endingSoon={endingSoon}
+              onPickAll={() => {
+                setEndingSoon(false);
+                setStatusFilter("");
+              }}
               onPickProbation={() => {
                 setEndingSoon(false);
                 setStatusFilter("probation");
+              }}
+              onPickActive={() => {
+                setEndingSoon(false);
+                setStatusFilter("active");
               }}
               onPickEndingSoon={() => {
                 setStatusFilter("probation");
@@ -567,6 +573,29 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                   setQ(e.target.value);
                 }}
               />
+              {q && (
+                <button
+                  type="button"
+                  style={{
+                    position: "absolute",
+                    right: "10px",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "#94a3b8",
+                    display: "flex",
+                    alignItems: "center",
+                    padding: 0,
+                  }}
+                  onClick={() => {
+                    setQ("");
+                    setPage(1);
+                  }}
+                  title="Xóa tìm kiếm"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
             <div className="ns2__filters">
               <div className="ns-select-wrapper">
@@ -647,16 +676,10 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                 <Download size={14} />
                 {exporting ? "Đang xuất…" : "Xuất Excel"}
               </button>
-              {endingSoon && (
-                <button
-                  className="ns2-chip"
-                  onClick={() => setEndingSoon(false)}
-                >
-                  <AlertCircle size={14} />
-                  Sắp hết thử việc ×
-                </button>
-              )}
+              {/* Bỏ chip "Sắp hết thử việc ×": dải lọc phía trên đã sáng đúng ô đó rồi,
+                  hai chỗ báo cùng một trạng thái chỉ làm người dùng phải đọc hai lần. */}
             </div>
+          </div>
           </div>
 
           {error && (
@@ -695,16 +718,24 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                         className="ns-table-row"
                         onClick={() => setSelectedId(e.id)}
                       >
-                        <td className="ns-cell-code">{e.code}</td>
+                        <td className="ns-cell-code">
+                          <span className="ns-code-chip">{e.code}</span>
+                        </td>
                         <td>
                           <div className="ns-cell-employee">
-                            <span className={`ns-table-avatar ${avatarClass}`}>
-                              {e.full_name.trim().slice(0, 1).toUpperCase()}
-                            </span>
+                            <div className="ns-avatar-wrapper">
+                              <span className={`ns-table-avatar ${avatarClass}`}>
+                                {e.full_name.trim().slice(0, 1).toUpperCase()}
+                              </span>
+                              <span
+                                className={`ns-avatar-dot ns-avatar-dot--${e.status}`}
+                                title={`Trạng thái: ${STATUS_LABEL[e.status] ?? e.status}`}
+                              />
+                            </div>
                             <span className="ns-cell-name">
                               {e.full_name}
                               {e.account_username && (
-                                <span title="Có tài khoản">
+                                <span title={`Tài khoản: ${e.account_username}`}>
                                   <Key
                                     size={13}
                                     style={{ marginLeft: "2px" }}
@@ -714,8 +745,8 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                             </span>
                           </div>
                         </td>
-                        <td>{e.department_name ?? "—"}</td>
-                        <td>{e.role_name ?? e.position ?? "—"}</td>
+                        <td className="ns-cell-dept">{e.department_name ?? "—"}</td>
+                        <td className="ns-cell-title">{e.role_name ?? e.position ?? "—"}</td>
                         {/* Rơi về `job_grade` = bậc kiểu CŨ (chữ tự gõ, chưa vào danh mục) —
                           nói rõ ở tooltip để HCNS biết vì sao người này không sửa bậc được. */}
                         <td
@@ -725,9 +756,15 @@ export function NhanSuPage({ navigate }: { navigate?: NavigateFn }) {
                               : undefined
                           }
                         >
-                          {e.job_grade_name ?? e.job_grade ?? "—"}
+                          {e.job_grade_name || e.job_grade ? (
+                            <span className="ns-grade-chip">
+                              {e.job_grade_name ?? e.job_grade}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
                         </td>
-                        <td>{fmtDate(e.hire_date)}</td>
+                        <td className="ns-cell-date">{fmtDate(e.hire_date)}</td>
                         <td>
                           <StatusBadge status={e.status} />
                         </td>
@@ -944,67 +981,105 @@ function RequestQueueModal({
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const dotBg =
+    status === "active"
+      ? "#16a34a"
+      : status === "probation"
+      ? "#d97706"
+      : status === "on_leave"
+      ? "#9333ea"
+      : status === "resigned"
+      ? "#dc2626"
+      : "#9ca3af";
+
   return (
     <span className={`ns-badge ${STATUS_CLASS[status] ?? "ns-badge--muted"}`}>
-      {STATUS_LABEL[status] ?? status}
+      <span className="ns-badge-dot" style={{ backgroundColor: dotBg }} />
+      <span>{STATUS_LABEL[status] ?? status}</span>
     </span>
   );
 }
 
 function KpiStrip({
   kpis,
+  statusFilter,
+  endingSoon,
+  onPickAll,
   onPickProbation,
+  onPickActive,
   onPickEndingSoon,
 }: {
   kpis: EmployeeKpis;
+  statusFilter: string;
+  endingSoon: boolean;
+  onPickAll: () => void;
   onPickProbation: () => void;
+  onPickActive: () => void;
   onPickEndingSoon: () => void;
 }) {
+  const isAllActive = statusFilter === "" && !endingSoon;
+  const isProbationActive = statusFilter === "probation" && !endingSoon;
+  const isActiveActive = statusFilter === "active" && !endingSoon;
+  const isEndingSoonActive = endingSoon;
+
+  // "Sắp hết thử việc" = 0 thì KHÔNG tô cảnh báo: màu để dành cho lúc thật sự có việc.
+  const endingSoonCount = kpis.probation_ending_soon;
+
   return (
-    <div className="ns2__kpis">
-      <div className="ns__kpi ns__kpi--total">
-        <span className="ns__kpi-icon">
-          <Users size={16} />
-        </span>
-        <div className="ns__kpi-content">
-          <span className="ns__kpilabel">Tổng nhân sự</span>
-          <span className="ns__kpival">{kpis.total}</span>
-        </div>
-      </div>
+    <div className="ns2__kpis" role="group" aria-label="Lọc nhanh theo trạng thái">
       <button
         type="button"
-        className="ns__kpi ns__kpi--probation"
-        onClick={onPickProbation}
+        className={`ns__kpi${isAllActive ? " is-active" : ""}`}
+        onClick={onPickAll}
+        aria-pressed={isAllActive}
+        title="Xem tất cả nhân sự"
       >
-        <span className="ns__kpi-icon">
-          <Hourglass size={16} />
-        </span>
-        <div className="ns__kpi-content">
-          <span className="ns__kpilabel">Đang thử việc</span>
-          <span className="ns__kpival">{kpis.probation}</span>
-        </div>
+        <Users size={13} aria-hidden="true" />
+        <span className="ns__kpilabel">Tất cả</span>
+        <span className="ns__kpival">{kpis.total}</span>
       </button>
-      <div className="ns__kpi ns__kpi--active">
-        <span className="ns__kpi-icon">
-          <UserCheck size={16} />
-        </span>
-        <div className="ns__kpi-content">
-          <span className="ns__kpilabel">Chính thức</span>
-          <span className="ns__kpival">{kpis.active}</span>
-        </div>
-      </div>
+
       <button
         type="button"
-        className="ns__kpi ns__kpi--action"
-        onClick={onPickEndingSoon}
+        className={`ns__kpi${isProbationActive ? " is-active" : ""}`}
+        onClick={onPickProbation}
+        aria-pressed={isProbationActive}
+        title="Chỉ xem người đang thử việc"
       >
-        <span className="ns__kpi-icon">
-          <AlertCircle size={16} />
-        </span>
-        <div className="ns__kpi-content">
-          <span className="ns__kpilabel">Sắp hết thử việc</span>
-          <span className="ns__kpival">{kpis.probation_ending_soon}</span>
-        </div>
+        <Hourglass size={13} aria-hidden="true" />
+        <span className="ns__kpilabel">Thử việc</span>
+        <span className="ns__kpival">{kpis.probation}</span>
+      </button>
+
+      <button
+        type="button"
+        className={`ns__kpi${isActiveActive ? " is-active" : ""}`}
+        onClick={onPickActive}
+        aria-pressed={isActiveActive}
+        title="Chỉ xem người đã chính thức"
+      >
+        <UserCheck size={13} aria-hidden="true" />
+        <span className="ns__kpilabel">Chính thức</span>
+        <span className="ns__kpival">{kpis.active}</span>
+      </button>
+
+      {/* Tách sang phải: đây là ô DUY NHẤT đòi người làm gì đó, không xếp lẫn 3 ô đếm kia. */}
+      <button
+        type="button"
+        className={`ns__kpi ns__kpi--action${isEndingSoonActive ? " is-active" : ""}${
+          endingSoonCount === 0 ? " is-quiet" : ""
+        }`}
+        onClick={onPickEndingSoon}
+        aria-pressed={isEndingSoonActive}
+        title={
+          endingSoonCount === 0
+            ? "Không có ai sắp hết thử việc trong 30 ngày tới"
+            : `${endingSoonCount} người hết thử việc trong 30 ngày tới — cần quyết định ký chính thức`
+        }
+      >
+        <AlertCircle size={13} aria-hidden="true" />
+        <span className="ns__kpilabel">Sắp hết thử việc</span>
+        <span className="ns__kpival">{endingSoonCount}</span>
       </button>
     </div>
   );
@@ -2900,12 +2975,12 @@ function AccountTab({
           <InfoField
             label="Tên đăng nhập"
             value={row?.username ?? emp.account_username}
-            icon={Key}
+            icon={User}
           />
           <InfoField
             label="Mã tài khoản"
             value={row?.code ?? null}
-            icon={FileText}
+            icon={Hash}
           />
           <InfoField
             label="Trạng thái"
@@ -2913,32 +2988,35 @@ function AccountTab({
             icon={Lock}
           />
         </InfoCard>
-        <InfoCard title="Vai trò" icon={Users}>
+        <InfoCard title="Vai trò" icon={Shield}>
           {canAssignRole ? (
             <div className="ns-info-field" style={{ gridColumn: "1 / -1" }}>
-              <div className="ns-info-field__content">
+              <div className="ns-info-field__content" style={{ width: "100%" }}>
                 <span className="ns-info-field__label">
                   Vai trò (theo phòng của hồ sơ)
                 </span>
-                <select
-                  value={row?.role_id ?? ""}
-                  disabled={busy}
-                  onChange={(e) => {
-                    const v = e.target.value ? Number(e.target.value) : null;
-                    run(() => api.rbac.assignUserRole(token, uid, v));
-                  }}
-                >
-                  <option value="">— chưa gán —</option>
-                  {roleOpts.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.name}
-                    </option>
-                  ))}
-                </select>
+                <div className="ns-info-select-wrapper">
+                  <select
+                    value={row?.role_id ?? ""}
+                    disabled={busy}
+                    onChange={(e) => {
+                      const v = e.target.value ? Number(e.target.value) : null;
+                      run(() => api.rbac.assignUserRole(token, uid, v));
+                    }}
+                  >
+                    <option value="">— chưa gán —</option>
+                    {roleOpts.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="ns-info-select-chevron" size={14} />
+                </div>
               </div>
             </div>
           ) : (
-            <InfoField label="Vai trò" value={row?.role_name} icon={Users} />
+            <InfoField label="Vai trò" value={row?.role_name} icon={Shield} />
           )}
         </InfoCard>
       </div>
@@ -2973,7 +3051,7 @@ function AccountTab({
           {canLock && (
             <button
               type="button"
-              className={`btn btn--sm ${locked ? "btn--primary" : "btn--ghost"}`}
+              className={`btn btn--sm ${locked ? "btn--primary" : "btn--ghost ns-btn--danger"}`}
               disabled={busy}
               onClick={() =>
                 run(() => api.rbac.setUserActive(token, uid, locked))
