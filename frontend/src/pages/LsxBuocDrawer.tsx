@@ -9,7 +9,7 @@
 // công đoạn" duy nhất ở bảng, nên người dùng không phải nhớ mình đang ở tầng lưu nào.
 //
 // Máy CHỈ ĐỀ XUẤT: số kế thừa nằm ở placeholder + nút 1-click, KHÔNG tự ghi vào ô.
-import { useEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { LSX_DON_VI_LABELS, LSX_LOAI_BUOC_META, type LsxLoaiBuoc } from "../api/client";
 import { Button } from "../components/Button";
 import { Icon } from "../components/Icons";
@@ -26,6 +26,25 @@ import {
 } from "./lsxBuoc";
 
 const LOAI_BUOC_ORDER: LsxLoaiBuoc[] = ["may", "to", "thue_ngoai", "cho", "kcs", "xa_to"];
+
+/** Gom máy theo `loai_may`, máy mặc định của công đoạn tách riêng lên đầu.
+ *  Xưởng có ~24 máy đủ loại (bế, bồi, UV, cán, in) — đổ phẳng thì gán máy bế cho bước ghi kẽm
+ *  cũng trôi. Nhóm KHÔNG chặn: vẫn chọn được máy bất kỳ, chỉ là mắt phải đi qua nhãn loại. */
+function nhomMayTheoLoai(mayRefs: RefRow[], mayGoiYId: number | null): { ten: string; items: RefRow[] }[] {
+  const groups = new Map<string, RefRow[]>();
+  for (const m of mayRefs) {
+    if (m.id === mayGoiYId) continue;
+    const k = (m.nhom || "").trim() || "Chưa phân loại";
+    const arr = groups.get(k);
+    if (arr) arr.push(m);
+    else groups.set(k, [m]);
+  }
+  const out = [...groups.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], "vi"))
+    .map(([ten, items]) => ({ ten, items }));
+  const goiY = mayRefs.find((m) => m.id === mayGoiYId);
+  return goiY ? [{ ten: "Máy mặc định của công đoạn", items: [goiY] }, ...out] : out;
+}
 
 export function LsxBuocDrawer({
   row,
@@ -66,6 +85,25 @@ export function LsxBuocDrawer({
   const ngoai = row.loai_buoc === "thue_ngoai";
   const doiDonVi = row.don_vi_vao !== row.don_vi_ra;
   const t = useMemo(() => thoiLuong(row), [row]);
+  const [hienTatCaMay, setHienTatCaMay] = useState(false);
+
+  const mayGoiYId = congDoanRefs?.find((c) => c.id === row.cong_doan_id)?.mayId ?? null;
+  const nhomMay = useMemo(
+    () => (mayRefs ? nhomMayTheoLoai(mayRefs, mayGoiYId) : []),
+    [mayRefs, mayGoiYId],
+  );
+  // Máy thay thế chỉ có nghĩa trong CÙNG loại máy (bế thay bế, không thay bằng máy cán). Mặc định
+  // lọc theo loại của máy chính + giữ máy đã chọn; cần khác loại thì bấm "Hiện tất cả".
+  const mayChinh = mayRefs?.find((m) => m.id === row.may_id) ?? null;
+  const dsMayThayThe = useMemo(() => {
+    if (!mayRefs) return [];
+    const base = hienTatCaMay
+      ? mayRefs
+      : mayRefs.filter(
+          (m) => (mayChinh != null && m.nhom === mayChinh.nhom) || row.may_thay_the_ids.includes(m.id),
+        );
+    return base.filter((m) => m.id !== row.may_id);
+  }, [mayRefs, hienTatCaMay, mayChinh, row.may_id, row.may_thay_the_ids]);
 
   useEffect(() => titleRef.current?.focus(), [row.key]);
 
@@ -321,13 +359,17 @@ export function LsxBuocDrawer({
 
               <label className="khsx-field">
                 <span className="khsx-field__label">Hao hụt cố định (canh máy)</span>
-                <input
-                  type="number"
-                  value={row.hao_hut}
-                  placeholder="0"
-                  disabled={!canUpdate}
-                  onChange={(e) => set("hao_hut", e.target.value)}
-                />
+                <div className="khsx-inline">
+                  <input
+                    type="number"
+                    value={row.hao_hut}
+                    placeholder="0"
+                    disabled={!canUpdate}
+                    onChange={(e) => set("hao_hut", e.target.value)}
+                  />
+                  {/* Ô số trần không nói 50 là 50 tờ hay 50 kẽm — dán đơn vị VÀO của bước vào cạnh. */}
+                  <span className="khsx-unit-tag">{LSX_DON_VI_LABELS[row.don_vi_vao] ?? row.don_vi_vao}</span>
+                </div>
               </label>
               <label className="khsx-field">
                 <span className="khsx-field__label">Hao hụt theo tỷ lệ (%)</span>
@@ -386,8 +428,12 @@ export function LsxBuocDrawer({
                         onChange={(e) => set("may_id", e.target.value ? Number(e.target.value) : null)}
                       >
                         <option value="">— chưa gán —</option>
-                        {mayRefs.map((m) => (
-                          <option key={m.id} value={m.id}>{m.ten}</option>
+                        {nhomMay.map((g) => (
+                          <optgroup key={g.ten} label={g.ten}>
+                            {g.items.map((m) => (
+                              <option key={m.id} value={m.id}>{m.ten}</option>
+                            ))}
+                          </optgroup>
                         ))}
                       </select>
                     ) : (
@@ -410,27 +456,55 @@ export function LsxBuocDrawer({
                     </label>
                   )}
                   {mayRefs && (
-                    <label className="khsx-field khsx-field--wide">
+                    <div className="khsx-field khsx-field--wide">
                       <span className="khsx-field__label">
                         Máy thay thế
                         <span className="khsx-field__origin">tham khảo — không tự xếp lịch</span>
                       </span>
-                      <select
-                        multiple
-                        size={Math.min(mayRefs.length, 4) || 2}
-                        value={row.may_thay_the_ids.map(String)}
-                        disabled={!canUpdate}
-                        onChange={(e) =>
-                          set(
-                            "may_thay_the_ids",
-                            Array.from(e.target.selectedOptions, (o) => Number(o.value)),
-                          )}
-                      >
-                        {mayRefs.map((m) => (
-                          <option key={m.id} value={m.id}>{m.ten}</option>
-                        ))}
-                      </select>
-                    </label>
+                      {dsMayThayThe.length === 0 ? (
+                        <span className="khsx-field__hint">
+                          {mayChinh
+                            ? "Không có máy nào cùng loại."
+                            : "Chọn Máy ở trên trước — rồi bấm chọn máy cùng loại để dự phòng."}
+                        </span>
+                      ) : (
+                        <div className="khsx-maychip">
+                          {dsMayThayThe.map((m) => {
+                            const on = row.may_thay_the_ids.includes(m.id);
+                            return (
+                              <button
+                                key={m.id}
+                                type="button"
+                                className={`khsx-maychip__item${on ? " is-on" : ""}`}
+                                aria-pressed={on}
+                                disabled={!canUpdate}
+                                onClick={() =>
+                                  set(
+                                    "may_thay_the_ids",
+                                    on
+                                      ? row.may_thay_the_ids.filter((x) => x !== m.id)
+                                      : [...row.may_thay_the_ids, m.id],
+                                  )}
+                              >
+                                {/* Đã chọn không chỉ đổi màu — có dấu tick, để không phải phân
+                                    biệt bằng riêng màu nền. */}
+                                {on && <Icon name="check" size={11} />}
+                                {m.ten}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {canUpdate && mayRefs.length > 1 && (
+                        <button
+                          type="button"
+                          className="khsx-xlink"
+                          onClick={() => setHienTatCaMay((v) => !v)}
+                        >
+                          {hienTatCaMay ? "Chỉ máy cùng loại" : `Hiện tất cả ${mayRefs.length} máy`}
+                        </button>
+                      )}
+                    </div>
                   )}
                 </>
               )}

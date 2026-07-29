@@ -66,6 +66,13 @@ interface FormState {
   so_con: string;
 }
 
+/** Số bài in = 1 sản phẩm ăn mấy TỜ IN khác nội dung. Tờ rơi/hộp/name card = 1; sách 200 trang
+ *  tay 32 → 7. Bỏ vế này khỏi công thức thì số tờ hụt đúng bấy nhiêu lần. Quy cách cũ chưa có
+ *  khoá → coi như 1, không phải 0 (0 sẽ nuốt sạch số tờ). */
+function soBaiIn(qc: Record<string, unknown>): number {
+  return Math.max(Number(qc.so_to_per_sp ?? 1) || 1, 1);
+}
+
 function toForm(d: LsxDetail): FormState {
   return {
     ten: d.ten,
@@ -133,9 +140,9 @@ export function LsxDetailView({
     if (!token) return;
     // Không có quyền đọc danh mục → để null, ô hiện read-only thay vì select rỗng (select rỗng
     // + lưu = xoá trắng dữ liệu).
-    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten })))).catch(() => setCongDoanRefs(null));
+    api.congDoan.list(token).then((r) => setCongDoanRefs(r.items.map((c) => ({ id: c.id, ten: c.ten, mayId: c.may_id ?? null })))).catch(() => setCongDoanRefs(null));
     crud("/api/cong-doan/phong-ban").list(token).then((r) => setToRefs(r.items.map((t) => ({ id: t.id, ten: t.ten })))).catch(() => setToRefs(null));
-    crud("/api/may-thiet-bi").list(token).then((r) => setMayRefs(r.items.map((m) => ({ id: m.id, ten: m.ten })))).catch(() => setMayRefs(null));
+    crud("/api/may-thiet-bi").list(token).then((r) => setMayRefs(r.items.map((m) => ({ id: m.id, ten: m.ten, nhom: m.loai_may ? String(m.loai_may) : null })))).catch(() => setMayRefs(null));
     api.khuonBe.list(token, { active: true }).then((r) => setKhuonRefs(r.items.map((k) => ({ id: k.id, ten: k.ten })))).catch(() => setKhuonRefs(null));
   }, [token]);
 
@@ -152,6 +159,27 @@ export function LsxDetailView({
 
   function set<K extends keyof FormState>(k: K, v: FormState[K]) {
     setForm((prev) => (prev ? { ...prev, [k]: v } : prev));
+  }
+
+  // SL đặt · Con/tờ · Bù hao đổi → Số tờ in và Số tờ giấy nguyên NHẢY THEO NGAY, không bắt
+  // bấm "Dùng số máy tính". Hai ô đó vẫn gõ đè tay được (gõ xong lệch thì có dòng cảnh báo), nhưng
+  // hễ đụng lại 3 ô nguồn là máy tính lại từ đầu.
+  function setSoLuong(k: "so_luong_dat" | "so_con" | "bu_hao_to", v: string) {
+    const qcj = (d?.quy_cach_json ?? {}) as Record<string, unknown>;
+    const xa = Math.max(Number(qcj.so_manh_xa ?? 1) || 1, 1);
+    const bai = soBaiIn(qcj);
+    setForm((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, [k]: v };
+      const sl = Number(next.so_luong_dat || 0);
+      const con = Number(next.so_con || 0);
+      if (sl > 0 && con > 0) {
+        const toIn = Math.ceil((sl * bai) / con) + Number(next.bu_hao_to || 0);
+        next.so_to_ke_hoach = String(toIn);
+        next.so_to_nguyen = String(Math.ceil(toIn / xa));
+      }
+      return next;
+    });
   }
 
   async function luu() {
@@ -298,7 +326,14 @@ export function LsxDetailView({
   const chuaMm =
     n("chua_xen") + n("chua_tay_ke") + n("chua_nhip") + n("chua_duoi") + n("chua_ca_gay");
   const canKhuon = d.cong_doans.some((c) => /bế|cấn/i.test(c.ten));
-  const goiYToIn = d.so_con > 0 ? Math.ceil(d.so_luong_dat / d.so_con) + Number(form.bu_hao_to || 0) : 0;
+  // Gợi ý phải bám số ĐANG GÕ, không phải số đã lưu — sửa SL/Con-trên-tờ mà gợi ý đứng im thì
+  // cảnh báo lệch không bao giờ nổ, lệnh lưu xong in thiếu hàng.
+  const slDangGo = Number(form.so_luong_dat || 0);
+  const conDangGo = Number(form.so_con || 0);
+  const goiYToIn =
+    slDangGo > 0 && conDangGo > 0
+      ? Math.ceil((slDangGo * soBaiIn(qc)) / conDangGo) + Number(form.bu_hao_to || 0)
+      : 0;
   const lechToIn = goiYToIn > 0 && Number(form.so_to_ke_hoach || 0) !== goiYToIn;
   const hanTre =
     !!form.han_hoan_thanh_sx && !!d.han_giao_khach && form.han_hoan_thanh_sx >= d.han_giao_khach;
@@ -307,52 +342,63 @@ export function LsxDetailView({
     <div className="khsx-detail">
       <header className="khsx-detail__head">
         <button type="button" className="khsx-back" onClick={onBack}>
-          ‹ Quay lại danh sách lệnh
+          <Icon name="chevron" size={13} style={{ transform: "rotate(90deg)" }} /> Quay lại danh sách lệnh
         </button>
-        <p className="eyebrow">Sản xuất · Lệnh sản xuất</p>
-        <div className="khsx-detail__titlerow">
-          <h1 className="khsx-detail__ma">{d.ma}</h1>
-          <TrangThaiPill tt={d.trang_thai} lg />
-          {d.is_rush && <ChipGap />}
-          <div className="khsx-detail__spacer" />
+
+        <div className="khsx-detail__titlebox">
+          <div className="khsx-detail__titlerow">
+            <span className="eyebrow">SẢN XUẤT · LỆNH SẢN XUẤT</span>
+            <div className="khsx-detail__mabox">
+              <h1 className="khsx-detail__ma">{d.ma}</h1>
+              <TrangThaiPill tt={d.trang_thai} lg />
+              {d.is_rush && <ChipGap />}
+            </div>
+            {d.ten && <p className="khsx-detail__name">{d.ten}</p>}
+          </div>
+
           {canUpdate && d.trang_thai !== "san_sang" && (
             <Button variant="ghost" className="khsx-btn--danger" onClick={() => setAskDelete(true)}>
               <Icon name="trash" size={14} /> Xoá lệnh
             </Button>
           )}
         </div>
-        <p className="khsx-detail__name">{d.ten}</p>
-        <p className="khsx-detail__meta">
+
+        <div className="khsx-detail__chips">
           {d.order_no && (
             <button
               type="button"
-              className="khsx-xlink"
+              className="khsx-chip-btn"
               onClick={() => navigate?.("don-hang-ban", { openOrderId: d.order_id })}
             >
-              Đơn {d.order_no}
+              <Icon name="cart" size={13} /> Đơn {d.order_no}
             </button>
           )}
-          {d.customer_name && <span> · {d.customer_name}</span>}
-          {d.customer_po_no && <span> · PO {d.customer_po_no}</span>}
+          {d.customer_name && (
+            <span className="khsx-chip-tag">
+              <Icon name="users" size={13} /> {d.customer_name}
+            </span>
+          )}
+          {d.customer_po_no && (
+            <span className="khsx-chip-tag">
+              <Icon name="fileText" size={13} /> PO: {d.customer_po_no}
+            </span>
+          )}
           {d.quote_number && (
-            <span>
-              {" "}· Báo giá {d.quote_number}
+            <span className="khsx-chip-tag">
+              <Icon name="calculator" size={13} /> Báo giá {d.quote_number}
               {d.quote_version_number ? ` v${d.quote_version_number}` : ""}
             </span>
           )}
           {d.ptg_ma && (
-            <>
-              {" · "}
-              <button
-                type="button"
-                className="khsx-xlink"
-                onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.ptg_id })}
-              >
-                {d.ptg_ma}
-              </button>
-            </>
+            <button
+              type="button"
+              className="khsx-chip-btn khsx-chip-btn--accent"
+              onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.ptg_id })}
+            >
+              <Icon name="clipboard" size={13} /> {d.ptg_ma}
+            </button>
           )}
-        </p>
+        </div>
       </header>
 
       {err && <BangLoi text={err} onRetry={load} />}
@@ -382,284 +428,390 @@ export function LsxDetailView({
 
           {tab === "chung" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-chung" aria-labelledby="khsx-tab-chung" tabIndex={0}>
-              <div className="khsx-form">
-                <label className="khsx-field">
-                  <span className="khsx-field__label">Tên lệnh</span>
-                  <input value={form.ten} onChange={(e) => set("ten", e.target.value)} />
-                </label>
-                <label className="khsx-field">
-                  <span className="khsx-field__label">Hạn hoàn thành sản xuất</span>
-                  <input
-                    type="date"
-                    value={form.han_hoan_thanh_sx}
-                    onChange={(e) => set("han_hoan_thanh_sx", e.target.value)}
-                  />
-                  {hanTre && (
-                    <span className="khsx-field__warn">
-                      Hạn sản xuất nên sớm hơn hạn giao khách ít nhất 1 ngày
-                    </span>
-                  )}
-                </label>
-                <label className="khsx-field khsx-field--check">
-                  <input
-                    type="checkbox"
-                    checked={form.is_rush}
-                    onChange={(e) => set("is_rush", e.target.checked)}
-                  />
-                  <span>Hàng GẤP — ưu tiên ở xưởng</span>
-                </label>
-                {canKhuon && (
-                  <label className="khsx-field">
-                    <span className="khsx-field__label">Khuôn bế</span>
-                    {khuonRefs ? (
-                      <select value={form.khuon_be_id} onChange={(e) => set("khuon_be_id", e.target.value)}>
-                        <option value="">— chưa gán —</option>
-                        {khuonRefs.map((k) => (
-                          <option key={k.id} value={k.id}>
-                            {k.ten}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="khsx-kv__val">{d.khuon_be_ten ?? "—"}</span>
+              <div className="khsx-spec__card">
+                <div className="khsx-spec__card-head">
+                  <div className="khsx-spec__card-icon">
+                    <Icon name="pencil" size={16} />
+                  </div>
+                  <h4 className="khsx-spec__title">Thông tin kế hoạch</h4>
+                </div>
+                <div className="khsx-spec__card-body">
+                  <div className="khsx-form">
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">Tên lệnh</span>
+                      <input value={form.ten} onChange={(e) => set("ten", e.target.value)} />
+                    </label>
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">Hạn hoàn thành sản xuất</span>
+                      <input
+                        type="date"
+                        value={form.han_hoan_thanh_sx}
+                        onChange={(e) => set("han_hoan_thanh_sx", e.target.value)}
+                      />
+                      {hanTre && (
+                        <span className="khsx-field__warn">
+                          Hạn sản xuất nên sớm hơn hạn giao khách ít nhất 1 ngày
+                        </span>
+                      )}
+                    </label>
+                    <label className={`khsx-field khsx-field--check ${form.is_rush ? "is-checked" : ""}`}>
+                      <input
+                        type="checkbox"
+                        checked={form.is_rush}
+                        onChange={(e) => set("is_rush", e.target.checked)}
+                      />
+                      <span>Hàng GẤP — ưu tiên ở xưởng</span>
+                    </label>
+                    {canKhuon && (
+                      <label className="khsx-field">
+                        <span className="khsx-field__label">Khuôn bế</span>
+                        {khuonRefs ? (
+                          <select value={form.khuon_be_id} onChange={(e) => set("khuon_be_id", e.target.value)}>
+                            <option value="">— chưa gán —</option>
+                            {khuonRefs.map((k) => (
+                              <option key={k.id} value={k.id}>
+                                {k.ten}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <span className="khsx-kv__val">{d.khuon_be_ten ?? "—"}</span>
+                        )}
+                      </label>
                     )}
-                  </label>
-                )}
-                <label className="khsx-field">
-                  <span className="khsx-field__label">
-                    Máy in dự kiến
-                    {d.may_id != null && <span className="khsx-field__origin">đề xuất</span>}
-                  </span>
-                  {mayRefs ? (
-                    <select value={form.may_id} onChange={(e) => set("may_id", e.target.value)}>
-                      <option value="">— chưa gán —</option>
-                      {mayRefs.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.ten}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="khsx-kv__val">{d.may_ten ?? "—"}</span>
-                  )}
-                </label>
-                <label className="khsx-field khsx-field--wide">
-                  <span className="khsx-field__label">Ghi chú kế hoạch</span>
-                  <textarea rows={3} value={form.ghi_chu} onChange={(e) => set("ghi_chu", e.target.value)} />
-                </label>
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">
+                        Máy in dự kiến
+                        {d.may_id != null && <span className="khsx-field__origin">đề xuất</span>}
+                      </span>
+                      {mayRefs ? (
+                        <select value={form.may_id} onChange={(e) => set("may_id", e.target.value)}>
+                          <option value="">— chưa gán —</option>
+                          {mayRefs.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.ten}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span className="khsx-kv__val">{d.may_ten ?? "—"}</span>
+                      )}
+                    </label>
+                    <label className="khsx-field khsx-field--wide">
+                      <span className="khsx-field__label">Ghi chú kế hoạch</span>
+                      <textarea rows={3} value={form.ghi_chu} onChange={(e) => set("ghi_chu", e.target.value)} />
+                    </label>
+                  </div>
+                </div>
               </div>
 
-              <div className="khsx-kvgrid">
-                <KV k="Đơn hàng" v={d.order_no ?? "—"} />
-                <KV k="Khách hàng" v={d.customer_name ?? "—"} />
-                <KV k="Sale phụ trách" v={d.sale_name ?? "—"} />
-                <KV k="Người phụ trách KH" v={d.nguoi_phu_trach_ten ?? "—"} />
-                <KV k="Hạn giao khách" v={ngay(d.han_giao_khach)} mono />
-                <KV k="Bàn giao lúc" v={ngayGio(d.ban_giao_at)} mono />
-                <KV k="Tạo lúc" v={ngayGio(d.created_at)} mono />
-                <KV k="Sửa lúc" v={ngayGio(d.updated_at)} mono />
+              <div className="khsx-spec__card">
+                <div className="khsx-spec__card-head">
+                  <div className="khsx-spec__card-icon">
+                    <Icon name="fileCheck" size={16} />
+                  </div>
+                  <h4 className="khsx-spec__title">Đơn hàng &amp; Nhân sự phụ trách</h4>
+                </div>
+                <div className="khsx-spec__card-body">
+                  <div className="khsx-kvgrid">
+                    <KV k="Đơn hàng" v={d.order_no ?? "—"} />
+                    <KV k="Khách hàng" v={d.customer_name ?? "—"} />
+                    <KV k="Sale phụ trách" v={d.sale_name ?? "—"} />
+                    <KV k="Người phụ trách KH" v={d.nguoi_phu_trach_ten ?? "—"} />
+                    <KV k="Hạn giao khách" v={ngay(d.han_giao_khach)} mono />
+                    <KV k="Bàn giao lúc" v={ngayGio(d.ban_giao_at)} mono />
+                    <KV k="Tạo lúc" v={ngayGio(d.created_at)} mono />
+                    <KV k="Sửa lúc" v={ngayGio(d.updated_at)} mono />
+                  </div>
+                </div>
               </div>
             </section>
           )}
 
           {tab === "quycach" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-quycach" aria-labelledby="khsx-tab-quycach" tabIndex={0}>
-              <p className="khsx-callout khsx-callout--steel">
-                <Icon name="help" size={14} />
-                <span>
-                  Quy cách chốt từ bài tính giá {d.ptg_ma ?? ""} — sửa ở phiếu tính giá, không sửa tại
-                  đây.
-                </span>
-                {d.ptg_id && (
-                  <button
-                    type="button"
-                    className="khsx-xlink"
-                    onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.ptg_id })}
-                  >
-                    Mở phiếu tính giá →
-                  </button>
-                )}
-              </p>
-
-              <h4 className="khsx-spec__head">Thành phẩm</h4>
-              <div className="khsx-kvgrid">
-                <KV k="Dài × rộng (mm)" v={`${num(n("dai_thanh_pham"))} × ${num(n("rong_thanh_pham"))}`} mono />
-                <KV k="Khổ thành phẩm" v={s("kho_thanh_pham")} />
-                <KV k="Khổ mở rộng" v={s("kho_mo_rong")} />
-                <KV k="Tay gấp" v={s("tay_gap")} />
-                <KV k="Số bài in" v={num(n("so_to_per_sp"))} mono />
-                {/* Ưu tiên nhãn ĐỌC SỐNG từ dòng đơn; ảnh chụp quy cách chỉ là dự phòng cho
-                    lệnh tạo trước khi có tính năng nhóm. */}
-                <KV k="Thuộc sản phẩm" v={d.nhom || s("nhom_bao_gia")} />
+              <div className="khsx-callout khsx-callout--steel">
+                <Icon name="fileText" size={16} />
+                <div className="khsx-callout__content">
+                  <span>
+                    Quy cách chốt từ bài tính giá <strong>{d.ptg_ma ?? ""}</strong> — sửa ở phiếu tính giá, không sửa tại đây.
+                  </span>
+                  {d.ptg_id && (
+                    <button
+                      type="button"
+                      className="khsx-xlink khsx-callout__btn"
+                      onClick={() => navigate?.("tinh-gia", { focusPhieuId: d.ptg_id })}
+                    >
+                      Mở phiếu tính giá →
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <h4 className="khsx-spec__head">Giấy &amp; tờ in</h4>
-              <div className="khsx-kvgrid">
-                <KV k="Giấy" v={s("giay_ten")} />
-                <KV k="Định lượng (gsm)" v={qc.gsm ? num(n("gsm")) : "—"} mono />
-                <KV k="Nguồn giấy" v={qc.nguon_giay === "khach" ? "Khách cấp" : "Công ty"} />
-                <KV k="Khổ giấy nguyên (mm)" v={`${num(n("kho_nguyen_dai"))} × ${num(n("kho_nguyen_rong"))}`} mono />
-                <KV k="Khổ tờ in (mm)" v={khoToIn} mono />
-                <KV k="Cách in" v={cachIn} />
-                <KV k="Số màu A / B" v={`${num(n("so_mau_a"))} / ${num(n("so_mau_b"))}`} mono />
-                {/* Màu pha nằm TRONG tổng số màu (không cộng thêm kẽm) nhưng thợ phải pha mực +
-                    rửa máy → phải hiện, không thì xưởng không biết đường chuẩn bị. */}
-                <KV
-                  k="Trong đó màu pha"
-                  v={co("so_mau_pha") ? (n("so_mau_pha") > 0 ? num(n("so_mau_pha")) : "không") : "—"}
-                  mono
-                />
-                <KV k="Tổng chừa (mm)" v={num(chuaMm)} mono />
+              <div className="khsx-spec__card">
+                <div className="khsx-spec__card-head">
+                  <div className="khsx-spec__card-icon">
+                    <Icon name="box" size={16} />
+                  </div>
+                  <h4 className="khsx-spec__title">Thành phẩm</h4>
+                </div>
+                <div className="khsx-spec__card-body">
+                  <div className="khsx-kvgrid">
+                    <KV k="Dài × rộng (mm)" v={`${num(n("dai_thanh_pham"))} × ${num(n("rong_thanh_pham"))}`} mono />
+                    <KV k="Khổ thành phẩm" v={s("kho_thanh_pham")} />
+                    <KV k="Khổ mở rộng" v={s("kho_mo_rong")} />
+                    <KV k="Tay gấp" v={s("tay_gap")} />
+                    <KV k="Số bài in" v={num(n("so_to_per_sp"))} mono />
+                    {/* Ưu tiên nhãn ĐỌC SỐNG từ dòng đơn; ảnh chụp quy cách chỉ là dự phòng cho
+                        lệnh tạo trước khi có tính năng nhóm. */}
+                    <KV k="Thuộc sản phẩm" v={d.nhom || s("nhom_bao_gia")} />
+                  </div>
+                </div>
               </div>
 
-              <h4 className="khsx-spec__head">Bình bài</h4>
-              <div className="khsx-kvgrid">
-                <KV k="Con / tờ" v={num(n("so_con"))} mono />
-                <KV k="Số mảnh xả" v={num(n("so_manh_xa"))} mono />
-                <KV k="Số kẽm" v={num(n("so_kem"))} mono />
-                <KV k="Số lượt in" v={num(n("so_luot"))} mono />
-                {/* Hai số thợ bình bài cần: tràn lề mỗi cạnh con + khe giữa 2 con kề nhau. */}
-                <KV
-                  k="Bleed / khe cắt (mm)"
-                  v={co("bleed_mm") || co("khe_cat_mm") ? `${num(n("bleed_mm"))} / ${num(n("khe_cat_mm"))}` : "—"}
-                  mono
-                />
-                <KV
-                  k="Cách bình"
-                  v={co("con_auto") ? (qc.con_auto === false ? "Ép số con" : "Máy tự bình") : "—"}
-                />
+              <div className="khsx-spec__card">
+                <div className="khsx-spec__card-head">
+                  <div className="khsx-spec__card-icon">
+                    <Icon name="printer" size={16} />
+                  </div>
+                  <h4 className="khsx-spec__title">Giấy &amp; tờ in</h4>
+                </div>
+                <div className="khsx-spec__card-body">
+                  <div className="khsx-kvgrid">
+                    <KV k="Giấy" v={s("giay_ten")} />
+                    <KV k="Định lượng (gsm)" v={qc.gsm ? num(n("gsm")) : "—"} mono />
+                    <KV k="Nguồn giấy" v={qc.nguon_giay === "khach" ? "Khách cấp" : "Công ty"} badge />
+                    <KV k="Khổ giấy nguyên (mm)" v={`${num(n("kho_nguyen_dai"))} × ${num(n("kho_nguyen_rong"))}`} mono />
+                    <KV k="Khổ tờ in (mm)" v={khoToIn} mono />
+                    <KV k="Cách in" v={cachIn} badge />
+                    <KV k="Số màu A / B" v={`${num(n("so_mau_a"))} / ${num(n("so_mau_b"))}`} mono />
+                    {/* Màu pha nằm TRONG tổng số màu (không cộng thêm kẽm) nhưng thợ phải pha mực +
+                        rửa máy → phải hiện, không thì xưởng không biết đường chuẩn bị. */}
+                    <KV
+                      k="Trong đó màu pha"
+                      v={co("so_mau_pha") ? (n("so_mau_pha") > 0 ? num(n("so_mau_pha")) : "không") : "—"}
+                      mono
+                    />
+                    <KV k="Tổng chừa (mm)" v={num(chuaMm)} mono />
+                  </div>
+                </div>
+              </div>
+
+              <div className="khsx-spec__card">
+                <div className="khsx-spec__card-head">
+                  <div className="khsx-spec__card-icon">
+                    <Icon name="grid" size={16} />
+                  </div>
+                  <h4 className="khsx-spec__title">Bình bài</h4>
+                </div>
+                <div className="khsx-spec__card-body">
+                  <div className="khsx-kvgrid">
+                    <KV k="Con / tờ" v={num(n("so_con"))} mono />
+                    <KV k="Số mảnh xả" v={num(n("so_manh_xa"))} mono />
+                    <KV k="Số kẽm" v={num(n("so_kem"))} mono />
+                    <KV k="Số lượt in" v={num(n("so_luot"))} mono />
+                    {/* Hai số thợ bình bài cần: tràn lề mỗi cạnh con + khe giữa 2 con kề nhau. */}
+                    <KV
+                      k="Bleed / khe cắt (mm)"
+                      v={co("bleed_mm") || co("khe_cat_mm") ? `${num(n("bleed_mm"))} / ${num(n("khe_cat_mm"))}` : "—"}
+                      mono
+                    />
+                    <KV
+                      k="Cách bình"
+                      v={co("con_auto") ? (qc.con_auto === false ? "Ép số con" : "Máy tự bình") : "—"}
+                      badge
+                    />
+                  </div>
+                </div>
               </div>
 
               {vatTus.length > 0 && (
-                <>
-                  <h4 className="khsx-spec__head">Vật tư in ấn</h4>
-                  <div className="khsx-kvgrid">
-                    {vatTus.map((vt, i) => (
-                      <KV
-                        key={i}
-                        k={vt.ten || `Vật tư ${i + 1}`}
-                        v={vt.so_luong ? num(Number(vt.so_luong)) : "theo định mức"}
-                        mono
-                      />
-                    ))}
+                <div className="khsx-spec__card">
+                  <div className="khsx-spec__card-head">
+                    <div className="khsx-spec__card-icon">
+                      <Icon name="layers" size={16} />
+                    </div>
+                    <h4 className="khsx-spec__title">Vật tư in ấn</h4>
                   </div>
-                </>
+                  <div className="khsx-spec__card-body">
+                    <div className="khsx-kvgrid">
+                      {vatTus.map((vt, i) => (
+                        <KV
+                          key={i}
+                          k={vt.ten || `Vật tư ${i + 1}`}
+                          v={vt.so_luong ? num(Number(vt.so_luong)) : "theo định mức"}
+                          mono
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
               )}
 
               {coBinhBai && (
-                <div className="khsx-spec__diagram">
-                  <ImpositionDiagram
-                    khoInDai={n("kho_in_dai")}
-                    khoInRong={n("kho_in_rong")}
-                    daiTP={n("dai_thanh_pham")}
-                    rongTP={n("rong_thanh_pham")}
-                    chuaMm={chuaMm}
-                    soCon={n("so_con")}
-                  />
+                <div className="khsx-spec__card khsx-spec__card--diagram">
+                  <div className="khsx-spec__card-head">
+                    <div className="khsx-spec__card-icon">
+                      <Icon name="clipboard" size={16} />
+                    </div>
+                    <h4 className="khsx-spec__title">Sơ đồ bình khổ</h4>
+                  </div>
+                  <div className="khsx-spec__card-body">
+                    <ImpositionDiagram
+                      khoInDai={n("kho_in_dai")}
+                      khoInRong={n("kho_in_rong")}
+                      daiTP={n("dai_thanh_pham")}
+                      rongTP={n("rong_thanh_pham")}
+                      chuaMm={chuaMm}
+                      soCon={n("so_con")}
+                    />
+                  </div>
                 </div>
               )}
 
               {qc.ghi_chu_ky_thuat ? (
-                <p className="khsx-spec__note">
-                  <Icon name="bell" size={13} /> Ghi chú kỹ thuật: {String(qc.ghi_chu_ky_thuat)}
-                </p>
+                <div className="khsx-spec__note">
+                  <Icon name="bell" size={15} />
+                  <span>
+                    <strong>Ghi chú kỹ thuật:</strong> {String(qc.ghi_chu_ky_thuat)}
+                  </span>
+                </div>
               ) : null}
             </section>
           )}
 
           {tab === "soluong" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-soluong" aria-labelledby="khsx-tab-soluong" tabIndex={0}>
-              <div className="khsx-form">
-                <label className="khsx-field">
-                  <span className="khsx-field__label">Số lượng khách đặt ({d.don_vi_tinh})</span>
-                  <input
-                    type="number"
-                    value={form.so_luong_dat}
-                    onChange={(e) => set("so_luong_dat", e.target.value)}
-                  />
-                </label>
-                <label className="khsx-field">
-                  <span className="khsx-field__label">Bù hao (tờ)</span>
-                  <input type="number" value={form.bu_hao_to} onChange={(e) => set("bu_hao_to", e.target.value)} />
-                </label>
-                <label className="khsx-field">
-                  <span className="khsx-field__label">
-                    Số tờ kế hoạch<span className="khsx-field__origin">đề xuất</span>
-                  </span>
-                  <input
-                    type="number"
-                    value={form.so_to_ke_hoach}
-                    onChange={(e) => set("so_to_ke_hoach", e.target.value)}
-                  />
-                </label>
-                <label className="khsx-field">
-                  <span className="khsx-field__label">Số tờ giấy nguyên</span>
-                  <input
-                    type="number"
-                    value={form.so_to_nguyen}
-                    onChange={(e) => set("so_to_nguyen", e.target.value)}
-                  />
-                </label>
-                <label className="khsx-field">
-                  <span className="khsx-field__label">Con / tờ</span>
-                  <input type="number" value={form.so_con} onChange={(e) => set("so_con", e.target.value)} />
-                </label>
-              </div>
+              <div className="khsx-spec__card">
+                <div className="khsx-spec__card-head">
+                  <div className="khsx-spec__card-icon">
+                    <Icon name="calculator" size={16} />
+                  </div>
+                  <h4 className="khsx-spec__title">Cấu hình số lượng &amp; bù hao</h4>
+                </div>
+                <div className="khsx-spec__card-body">
+                  <div className="khsx-form">
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">Số lượng khách đặt ({d.don_vi_tinh})</span>
+                      <input
+                        type="number"
+                        value={form.so_luong_dat}
+                        onChange={(e) => setSoLuong("so_luong_dat", e.target.value)}
+                      />
+                    </label>
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">Bù hao (tờ)</span>
+                      <input type="number" value={form.bu_hao_to} onChange={(e) => setSoLuong("bu_hao_to", e.target.value)} />
+                    </label>
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">
+                        Số tờ in<span className="khsx-field__origin">đề xuất</span>
+                      </span>
+                      <input
+                        type="number"
+                        value={form.so_to_ke_hoach}
+                        onChange={(e) => set("so_to_ke_hoach", e.target.value)}
+                      />
+                    </label>
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">Số tờ giấy nguyên</span>
+                      <input
+                        type="number"
+                        value={form.so_to_nguyen}
+                        onChange={(e) => set("so_to_nguyen", e.target.value)}
+                      />
+                    </label>
+                    <label className="khsx-field">
+                      <span className="khsx-field__label">Con / tờ</span>
+                      <input type="number" value={form.so_con} onChange={(e) => setSoLuong("so_con", e.target.value)} />
+                    </label>
+                  </div>
 
-              <p className="khsx-qty__derive">
-                Tờ in = ⌈{num(d.so_luong_dat)} ÷ {num(d.so_con)}⌉ + bù hao {num(Number(form.bu_hao_to || 0))} →{" "}
-                <strong>{num(goiYToIn)} tờ</strong>
-              </p>
-              {lechToIn && (
-                <p className="khsx-qty__mismatch">
-                  Số bạn nhập ({num(Number(form.so_to_ke_hoach || 0))}) khác số máy tính ra.
-                  <button
-                    type="button"
-                    className="khsx-xlink"
-                    onClick={() => set("so_to_ke_hoach", String(goiYToIn))}
-                  >
-                    Dùng số máy tính
-                  </button>
-                </p>
-              )}
+                  <div className="khsx-qty__card">
+                    <p className="khsx-qty__derive">
+                      Công thức: Tờ in = ⌈{num(slDangGo)}
+                      {soBaiIn(qc) > 1 ? ` × ${num(soBaiIn(qc))} bài` : ""} ÷ {num(conDangGo)}⌉ + bù hao{" "}
+                      {num(Number(form.bu_hao_to || 0))} → <strong className="khsx-qty__res">{num(goiYToIn)} tờ</strong>
+                    </p>
+                    {soBaiIn(qc) > 1 && (
+                      <p className="khsx-qty__hint">
+                        Mỗi {d.don_vi_tinh} cần {num(soBaiIn(qc))} bài in khác nội dung (theo quy cách chụp từ
+                        bài tính giá) — nên số tờ gấp {num(soBaiIn(qc))} lần.
+                      </p>
+                    )}
+                    {lechToIn && (
+                      <p className="khsx-qty__mismatch">
+                        Số bạn nhập ({num(Number(form.so_to_ke_hoach || 0))}) khác số máy tính ra.
+                        <button
+                          type="button"
+                          className="khsx-xlink"
+                          onClick={() => set("so_to_ke_hoach", String(goiYToIn))}
+                        >
+                          Dùng số máy tính
+                        </button>
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
             </section>
           )}
 
           {tab === "routing" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-routing" aria-labelledby="khsx-tab-routing" tabIndex={0}>
-              <LsxRoutingTable
-                congDoans={d.cong_doans}
-                soToKeHoach={d.so_to_ke_hoach}
-                soLuongDat={d.so_luong_dat}
-                soCon={d.so_con}
-                leadTime={d.lead_time}
-                congDoanRefs={congDoanRefs}
-                toRefs={toRefs}
-                mayRefs={mayRefs}
-                canUpdate={canUpdate}
-                saving={savingRouting}
-                onSave={luuRouting}
-                onTinhNguoc={tinhNguoc}
-                onMacDinhBuoc={macDinhBuoc}
-                onDirtyChange={setRoutingDirty}
-              />
+              <div className="khsx-spec__card">
+                <div className="khsx-spec__card-head">
+                  <div className="khsx-spec__card-icon">
+                    <Icon name="workflow" size={16} />
+                  </div>
+                  <h4 className="khsx-spec__title">Công đoạn sản xuất (Routing)</h4>
+                </div>
+                <div className="khsx-spec__card-body">
+                  <LsxRoutingTable
+                    congDoans={d.cong_doans}
+                    soToKeHoach={d.so_to_ke_hoach}
+                    soLuongDat={d.so_luong_dat}
+                    soCon={d.so_con}
+                    leadTime={d.lead_time}
+                    congDoanRefs={congDoanRefs}
+                    toRefs={toRefs}
+                    mayRefs={mayRefs}
+                    canUpdate={canUpdate}
+                    saving={savingRouting}
+                    onSave={luuRouting}
+                    onTinhNguoc={tinhNguoc}
+                    onMacDinhBuoc={macDinhBuoc}
+                    onDirtyChange={setRoutingDirty}
+                  />
+                </div>
+              </div>
             </section>
           )}
 
           {tab === "nhatky" && (
             <section className="khsx-panel" role="tabpanel" id="khsx-panel-nhatky" aria-labelledby="khsx-tab-nhatky" tabIndex={0}>
-              {acts === null ? (
-                <p className="khsx-muted">Đang tải nhật ký…</p>
-              ) : (
-                <Timeline
-                  emptyText="Chưa có hoạt động."
-                  items={acts.map((a) => ({
-                    title: a.detail || ACTION_LABEL[a.action] || a.action,
-                    meta: `${a.actor_name ?? "—"} · ${ngayGio(a.at)}`,
-                    accent: a.action === "create_lsx" || a.action === "lsx_trang_thai",
-                  }))}
-                />
-              )}
+              <div className="khsx-spec__card">
+                <div className="khsx-spec__card-head">
+                  <div className="khsx-spec__card-icon">
+                    <Icon name="clock" size={16} />
+                  </div>
+                  <h4 className="khsx-spec__title">Nhật ký hoạt động &amp; Lịch sử thay đổi</h4>
+                </div>
+                <div className="khsx-spec__card-body">
+                  {acts === null ? (
+                    <p className="khsx-muted">Đang tải nhật ký…</p>
+                  ) : (
+                    <Timeline
+                      emptyText="Chưa có hoạt động."
+                      items={acts.map((a) => ({
+                        title: a.detail || ACTION_LABEL[a.action] || a.action,
+                        meta: `${a.actor_name ?? "—"} · ${ngayGio(a.at)}`,
+                        accent: a.action === "create_lsx" || a.action === "lsx_trang_thai",
+                      }))}
+                    />
+                  )}
+                </div>
+              </div>
             </section>
           )}
         </div>
@@ -799,11 +951,26 @@ export function LsxDetailView({
   );
 }
 
-function KV({ k, v, mono = false }: { k: string; v: string; mono?: boolean }) {
+function KV({
+  k,
+  v,
+  mono = false,
+  badge = false,
+}: {
+  k: string;
+  v: React.ReactNode;
+  mono?: boolean;
+  badge?: boolean;
+}) {
+  const isNil = typeof v === "string" && (v === "—" || v === "-" || v.startsWith("— "));
   return (
     <div className="khsx-kv">
       <span className="khsx-kv__key">{k}</span>
-      <span className={`khsx-kv__val ${mono ? "khsx-num" : ""}`}>{v}</span>
+      <span
+        className={`khsx-kv__val ${mono ? "khsx-num" : ""} ${isNil ? "is-nil" : ""} ${badge && !isNil ? "is-badge" : ""}`}
+      >
+        {v}
+      </span>
     </div>
   );
 }

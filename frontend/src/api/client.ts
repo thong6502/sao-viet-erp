@@ -2734,6 +2734,8 @@ export interface CongDoanLite {
   ma: string;
   ten: string;
   khoan_ghi_theo: string;
+  /** Máy mặc định trong danh mục — lệnh SX dùng để đẩy máy đúng lên đầu dropdown. */
+  may_id?: number | null;
 }
 
 // Phiếu sản lượng công đoạn (Pha 5b)
