@@ -2698,6 +2698,11 @@ function clampNum(raw: string, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, n));
 }
 
+// Họp 28/07: tạm ẩn nút "Áp nhanh" (rải ca cả tháng theo chu kỳ). Hàm openQuickFill + modal
+// giữ nguyên, bật lại = đổi cờ này thành true. ĐỪNG comment-out khối JSX để ẩn: làm vậy thì
+// openQuickFill và icon Repeat thành mồ côi → tsc gãy vì noUnusedLocals (đúng lỗi CI 29/07).
+const SHOW_QUICK_FILL: boolean = false;
+
 function ShiftPlanPanel({ token }: { token: string }) {
   const [ym, setYm] = useState(() => {
     const d = new Date();
@@ -3377,11 +3382,17 @@ function ShiftPlanPanel({ token }: { token: string }) {
           >
             <Users size={14} /> Đặt ca chính cho tất cả…
           </button>
-          {/* <button type="button" className="btn btn--ghost" disabled={locked || visibleRows.length === 0}
-            onClick={openQuickFill}
-            title="Rải sẵn cả tháng theo một chu kỳ lặp (vd 2-2-2), các kíp tự lệch nhau — khỏi tô tay từng ô">
-            <Repeat size={14} /> Áp nhanh…
-          </button> */}
+          {SHOW_QUICK_FILL && (
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={locked || visibleRows.length === 0}
+              onClick={openQuickFill}
+              title="Rải sẵn cả tháng theo một chu kỳ lặp (vd 2-2-2), các kíp tự lệch nhau — khỏi tô tay từng ô"
+            >
+              <Repeat size={14} /> Áp nhanh…
+            </button>
+          )}
           <div className="cc-sp-density" role="group" aria-label="Mật độ lưới">
             <button
               type="button"

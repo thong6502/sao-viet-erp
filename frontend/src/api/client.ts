@@ -4207,10 +4207,6 @@ export interface AnPhamChiTiet {
   vat_tu: VatTuGocRow[];
   routing: RoutingGocRow[];
 }
-export interface PrintFormDetailOut extends PrintFormRow {
-  placements: PlacementRow[];
-  lenhs: LenhSXRow[];
-}
 // Handoff (§5.1): đơn đã chốt CHỜ lên kế hoạch — kèm ngữ cảnh để kế hoạch cấu hình.
 export interface HangChoAnPham {
   phieu_thanh_phan_id: number | null;
@@ -4227,12 +4223,6 @@ export interface HangChoDon {
   delivery_committed_date: string | null;
   production_note: string | null;
   an_pham: HangChoAnPham[];
-}
-export interface PrintFormListOut {
-  items: PrintFormRow[];
-  total: number;
-  page: number;
-  size: number;
 }
 export interface LenhSXListParams {
   order_id?: number;

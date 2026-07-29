@@ -104,10 +104,6 @@ export function AppShell() {
   const lastAdvancePending = useRef(0);
   const lastOtPending = useRef(0);
   const lastElPending = useRef(0);
-  // Sản xuất (Lát 1): tick tăng mỗi sự kiện SX → hộp việc tổ đang mở tự refetch. Ref danh sách tổ
-  // CỦA TÔI để toast ĐÚNG tổ khi có lệnh mới phát (tránh stale closure trong kênh SSE mở-1-lần).
-  const [sxTick, setSxTick] = useState(0);
-  const toSxRef = useRef<{ id: number }[]>([]);
   const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { id, text, tone }]);

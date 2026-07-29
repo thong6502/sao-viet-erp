@@ -1243,27 +1243,6 @@ def _migrate_payment_voucher_amount_vnd(db: Session) -> None:
     db.commit()
 
 
-def _migrate_production_order_bu(db: Session) -> None:
-    """Sản xuất: thêm cột lệnh bù vào `production_orders` (order_kind/parent_order_id/bu_reason).
-    No-op trên DB fresh (create_all đã dựng đủ cột)."""
-    insp = inspect(db.get_bind())
-    if "production_orders" not in insp.get_table_names():
-        return
-    cols = [
-        ("order_kind", "VARCHAR(10) NOT NULL DEFAULT 'thuong'"),
-        ("parent_order_id", "INTEGER"),
-        ("bu_reason", "VARCHAR(255)"),
-    ]
-    existing = _existing_columns(insp, "production_orders")
-    for name, ddl in cols:
-        if name not in existing:
-            db.execute(text(f"ALTER TABLE production_orders ADD COLUMN {name} {ddl}"))
-    db.execute(text(
-        "CREATE INDEX IF NOT EXISTS ix_production_orders_order_kind ON production_orders (order_kind)"
-    ))
-    db.commit()
-
-
 def _migrate_production_order_bu_fields(db: Session) -> None:
     """Sản xuất: thêm loại lệnh bù vào `production_orders` — order_kind (thuong/bu),
     parent_order_id (LSX gốc), bu_reason (lý do bù). No-op trên DB fresh."""
@@ -3579,21 +3558,6 @@ def _migrate_work_shift_dung_cho_lich_may(db: Session) -> None:
         db.execute(text(
             "ALTER TABLE work_shifts ADD COLUMN dung_cho_lich_may BOOLEAN NOT NULL DEFAULT FALSE"
         ))
-    db.commit()
-
-
-def _migrate_role_permission_kho_direction(db: Session) -> None:
-    """Phân quyền CHIỀU kho (spec-kho-de-nghi): thêm `role_permissions.can_nhap`/`can_xuat`.
-    Quyền thật = chiều ∩ việc. DEFAULT FALSE (bool). No-op DB fresh / bảng chưa có / cột đã có."""
-    insp = inspect(db.get_bind())
-    if "role_permissions" not in insp.get_table_names():
-        return
-    cols = _existing_columns(insp, "role_permissions")
-    for col in ("can_nhap", "can_xuat"):
-        if col not in cols:
-            db.execute(text(
-                f"ALTER TABLE role_permissions ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT FALSE"
-            ))
     db.commit()
 
 
