@@ -1111,102 +1111,181 @@ select.input {
 .bgv .flash { animation: bgv-flash 700ms ease; }
 @keyframes bgv-flash { 0% { background: rgba(197,64,10,0.18); } 100% { background: transparent; } }
 
-/* ===== bản in BÁO GIÁ — bám phong cách "Phiếu tính giá" (đen-trắng, header xám, panel tổng đóng khung) ===== */
+/* ===== bản in BÁO GIÁ — tài liệu A4 hai mực: đen #000 + trắng #fff. Không xám, không màu nhấn,
+   không bo góc, không đổ bóng. Chiều sâu = độ dày nét kẻ + hai khối đảo màu. ===== */
 .qpdf {
-  --q-ink: #161616; --q-muted: #555; --q-line: #8c8c8c; --q-line-strong: #2a2a2a;
-  --q-hair: #c4c4c4; --q-head: #e9e9e9; --q-band: #f2f2f2;
-  background: #fff; color: var(--q-ink);
-  font-family: "Be Vietnam Pro", "Segoe UI", Arial, sans-serif;
-  font-size: 11.5px; line-height: 1.45;
-  padding: 13mm 12mm 12mm; max-height: 74vh; overflow-y: auto;
-  -webkit-font-smoothing: antialiased;
+  /* ĐÚNG HAI MỰC: đen và trắng. Không xám, không màu nhấn.
+     Phân cấp dựng bằng ba thứ: CỠ CHỮ theo thang cố định · ĐỘ DÀY NÉT KẺ (0.75 / 1 / 2 / 3px) ·
+     ĐẢO MÀU (khối đen chữ trắng). Không dùng độ nhạt — xám nhạt ra máy in thành nét chấm, đó
+     chính là cái làm bản in cũ trông mờ. Không bo góc, không đổ bóng. */
+  --q-ink: #000;
+  --q-paper: #fff;
+  /* ==== Theo thể thức văn bản hành chính (Nghị định 30/2020/NĐ-CP), CÓ ĐIỀU CHỈNH CỠ ====
+     Giữ đúng nghị định: phông Times New Roman (Unicode TCVN 6909:2001) màu đen · chỉ hai độ
+     đậm 400/700 (Times không có cân nặng nào khác) · KHÔNG giãn chữ (nghị định không quy định
+     `letter-spacing`) · cách dòng tối đa 1,5 lines → 1.4 · cách đoạn tối thiểu 6pt (= 8px) ·
+     lề trang trên/dưới 20mm, trái 30mm, phải 20mm.
+     CHỖ LỆCH CÓ CHỦ Ý: nghị định để nội dung 13–14pt, nhưng cỡ đó dựng cho công văn toàn chữ
+     chạy; nhét vào tờ báo giá có bảng 6 cột thì phình và vỡ cột. Hạ về cỡ chứng từ thương mại:
+     nội dung 10pt · phần phụ 8–9pt · tên loại văn bản 16pt.
+     Cỡ vẫn khai bằng **pt** chứ không px — px phụ thuộc mật độ màn hình, ra giấy sai cỡ. */
+  --q-fs-micro: 8pt; --q-fs-small: 9pt; --q-fs-body: 10pt;
+  --q-fs-lead: 12pt; --q-fs-title: 16pt; --q-fs-hero: 18pt;
+  --q-sp-1: 4px; --q-sp-2: 8px; --q-sp-3: 12px; --q-sp-4: 16px; --q-sp-6: 24px;
+  background: var(--q-paper); color: var(--q-ink);
+  font-family: "Times New Roman", Times, "Liberation Serif", "Nimbus Roman", serif;
+  font-size: var(--q-fs-body); line-height: 1.4;
+  /* Xem trước ĐÚNG KHỔ A4 + đúng lề (trên/dưới 20mm · trái 30mm · phải 20mm) để nhìn trên màn ra
+     sao thì in ra vậy. Khoá bề ngang là bắt buộc: khung hẹp làm con số trông như tràn ô, sửa theo
+     đó là nới cột thừa — trên giấy A4 vùng nội dung rộng 160mm, dư chỗ.
+     Khi in, @page cầm khổ và lề nên tờ tự nhả bề ngang + padding này. */
+  /* Khoá CẢ HAI chiều của A4 — chỉ khoá bề ngang mà để `max-height` thì tờ bị bóp, phần đầu
+     dính sát lề trên còn phần cuối tràn ra ngoài. Việc cuộn để KHUNG NGOÀI lo. */
+  width: 210mm; min-height: 297mm; margin: 0 auto;
+  padding: 20mm 20mm 20mm 30mm;
+}
+/* Nhãn: chữ hoa + cỡ nhỏ + đậm — phân cấp bằng kiểu chữ, không bằng giãn chữ. */
+.qpdf .q-lbl,
+.qpdf .q-sub,
+.qpdf table.q-tbl tfoot .q-sub-lbl,
+.qpdf .q-signs .q-role {
+  text-transform: uppercase; font-size: var(--q-fs-micro); font-weight: 700;
 }
 .qpdf * { box-sizing: border-box; }
 .qpdf h1 { margin: 0; }
 
-/* header: logo hộp | tiêu đề giữa | số/ngày phải */
-.qpdf .q-mh { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; border-bottom: 2px solid var(--q-line-strong); padding-bottom: 9px; }
-.qpdf .q-logo { border: 1px solid var(--q-line-strong); padding: 8px 10px; width: 108px; text-align: center; }
-.qpdf .q-logo img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+/* header: logo | tiêu đề giữa | số/ngày phải. Bỏ khung viền quanh logo — khung mảnh làm logo
+   trông như con tem dán vào; để logo thở tự nhiên, nét 2px dưới header gánh phần "chốt đầu trang". */
+.qpdf .q-mh {
+  display: grid; grid-template-columns: 96px 1fr max-content; align-items: center;
+  gap: var(--q-sp-4); padding-bottom: var(--q-sp-3); border-bottom: 3px solid var(--q-ink);
+}
+.qpdf .q-logo { width: 96px; }
+.qpdf .q-logo img { display: block; width: 100%; height: auto; }
 .qpdf .q-th { text-align: center; }
-.qpdf .q-th h1 { font-size: 20px; font-weight: 800; letter-spacing: .02em; }
-.qpdf .q-th .q-th-en { font-size: 11px; font-weight: 700; letter-spacing: .16em; color: var(--q-muted); text-transform: uppercase; margin-top: 1px; }
-.qpdf .q-th .q-cty { font-size: 9.5px; color: var(--q-muted); margin-top: 3px; }
-.qpdf .q-meta-r { text-align: right; font-size: 11px; line-height: 1.55; }
+/* Times chỉ có HAI cân nặng thật: 400 và 700. Khai 600/800 thì trình duyệt tự "dựng giả" nét
+   đậm — chữ bệt, viền lởm, in ra càng lộ. Cả tờ chỉ dùng đúng 400 và 700. */
+.qpdf .q-th h1 { font-size: var(--q-fs-title); font-weight: 700; line-height: 1.15; }
+.qpdf .q-th .q-th-en { font-size: var(--q-fs-small); font-weight: 700; text-transform: uppercase; margin-top: var(--q-sp-1); }
+.qpdf .q-th .q-cty { font-size: var(--q-fs-micro); font-weight: 700; text-transform: uppercase; margin-top: var(--q-sp-2); }
+.qpdf .q-meta-r { text-align: right; font-size: var(--q-fs-small); line-height: 1.7; }
 .qpdf .q-meta-r b { font-weight: 700; font-variant-numeric: tabular-nums; }
 
-/* dải thông tin: khách (trái) + bên bán (phải) */
-.qpdf .q-info { border-bottom: 1px solid var(--q-hair); padding: 8px 0 9px; }
-.qpdf .q-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 28px; }
-.qpdf .q-info-col > div { padding: 1.5px 0; }
-.qpdf .q-lbl { color: var(--q-muted); }
-.qpdf .q-info b { font-weight: 700; color: var(--q-ink); }
-.qpdf .q-en { color: var(--q-muted); font-style: italic; }
-.qpdf .q-intro { font-style: italic; color: var(--q-muted); margin: 9px 0 2px; font-size: 11px; }
+/* dải thông tin: nhãn cột trái cố định bề ngang ⇒ mọi giá trị thẳng hàng dọc, không so le */
+.qpdf .q-info { border-bottom: 1px solid var(--q-ink); padding: var(--q-sp-3) 0; }
+.qpdf .q-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--q-sp-1) 32px; }
+.qpdf .q-info-col > div { display: grid; grid-template-columns: 84px 1fr; align-items: baseline; gap: var(--q-sp-2); padding: var(--q-sp-1) 0 0; }
+.qpdf .q-info b { font-weight: 700; }
+/* CÁCH ĐỀU HAI LỀ: cột phải căn giá trị sát LỀ PHẢI. Căn trái thì "28/08/2026" kết thúc cách lề
+   phải mấy centimet trong khi bảng bên dưới chạm sát — cả dải nhìn dồn về trái. */
+.qpdf .q-info-col:last-child { text-align: right; }
+.qpdf .q-info-col:last-child .q-lbl { text-align: left; }
+.qpdf .q-en { font-style: italic; }
+.qpdf .q-intro { font-style: italic; margin: var(--q-sp-3) 0 0; font-size: var(--q-fs-body); }
 
-/* tiêu đề mục */
-.qpdf .q-sec { font-weight: 800; font-size: 12.5px; text-transform: uppercase; letter-spacing: .03em; margin: 14px 0 6px; padding-bottom: 3px; border-bottom: 1.5px solid var(--q-line-strong); }
-.qpdf .q-sec .q-sec-en { font-weight: 600; font-size: 9.5px; color: var(--q-muted); text-transform: none; letter-spacing: 0; font-style: italic; }
+/* tiêu đề mục: nét đen full-bleed làm vách ngăn — ngôn ngữ chia mục của tờ, không cần màu */
+.qpdf .q-sec {
+  font-weight: 700; font-size: var(--q-fs-lead); text-transform: uppercase;
+  margin: var(--q-sp-6) 0 var(--q-sp-2); padding-bottom: var(--q-sp-1);
+  border-bottom: 2px solid var(--q-ink);
+}
+.qpdf .q-sec .q-sec-en { font-weight: 400; font-size: var(--q-fs-micro); text-transform: none; letter-spacing: 0; font-style: italic; }
 
 /* bảng chi tiết */
-.qpdf table.q-tbl { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
-.qpdf table.q-tbl th, .qpdf table.q-tbl td { border: 1px solid var(--q-line); padding: 5px 7px; vertical-align: top; word-wrap: break-word; overflow-wrap: anywhere; }
-.qpdf table.q-tbl thead th { background: var(--q-head); font-weight: 700; text-align: center; font-size: 9px; text-transform: uppercase; letter-spacing: .02em; line-height: 1.25; }
+.qpdf table.q-tbl { width: 100%; border-collapse: collapse; font-size: var(--q-fs-body); table-layout: fixed; border: 2px solid var(--q-ink); }
+/* Ô số + ĐVT căn GIỮA CHIỀU DỌC: hàng cao lên vì phần mô tả nhiều dòng, để `top` thì mấy con số
+   dính mép trên trông như rơi lệch. Riêng ô mô tả vẫn bám mép trên vì nó là khối chữ dài. */
+.qpdf table.q-tbl th, .qpdf table.q-tbl td { border: 0.75px solid var(--q-ink); padding: var(--q-sp-2); vertical-align: middle; word-wrap: break-word; overflow-wrap: anywhere; }
+.qpdf table.q-tbl td.q-desc { vertical-align: top; }
+/* Header bảng: KHÔNG tô đen đặc — mảng đen lớn ra giấy rất gắt và ăn mực. Dùng nét kẻ 2px dưới
+   chân + chữ hoa giãn — vẫn tách bạch hẳn phần đầu bảng mà tờ giấy nhẹ mắt hơn. */
+.qpdf table.q-tbl thead th {
+  /* `.rdx-quote thead th` của màn Báo giá nhỏ cả nền kem --paper LẪN chữ xám --ash vào đây; ra
+     giấy thành vệt nhạt + chữ mờ, đúng hai thứ gây xấu. Ép về đúng hai mực của tờ in. */
+  background: var(--q-paper); color: var(--q-ink);
+  border-bottom: 2px solid var(--q-ink);
+  font-weight: 700; text-align: center; font-size: var(--q-fs-small); text-transform: uppercase; line-height: 1.35;
+  padding: var(--q-sp-3) var(--q-sp-1);   /* nhan CHU HOA can cho hon chu thuong -> dem ngang hep lai */
+}
+/* NHÃN ĐẦU BẢNG căn GIỮA hết — kể cả cột số. Trước đây nhãn cột số căn phải cho "thẳng cột với
+   con số", nhưng hàng nhãn khi đó nửa giữa nửa phải, nhìn so le. Con số trong ô vẫn căn phải
+   (`td.r`) — đó mới là chỗ cần thẳng cột để cộng nhẩm. */
 .qpdf table.q-tbl thead th .q-en,
-.qpdf table.q-tbl thead th .q-sub { display: block; font-weight: 400; font-size: 7.5px; font-style: normal; color: var(--q-muted); text-transform: none; letter-spacing: 0; margin-top: 1px; }
+.qpdf table.q-tbl thead th .q-sub { display: block; font-weight: 400; font-size: var(--q-fs-micro); font-style: normal; text-transform: none; margin-top: 2px; }
+/* HÀNG RÀO — đừng gỡ. Tờ in nằm BÊN TRONG màn Báo giá nên nhặt phải style bảng của màn
+   (`.rdx-quote thead th` nhỏ giãn chữ .07em, `.rdx-quote tbody tr:last-child td` xoá viền dưới
+   của dòng cuối). Mấy rule đó specificity cao hơn rule chung của tờ nên phải chặn đích danh. */
+.qpdf table.q-tbl thead th { letter-spacing: normal; }
+.qpdf table.q-tbl tbody tr:last-child td { border-bottom: 0.75px solid var(--q-ink); }
+
 .qpdf table.q-tbl td.c { text-align: center; }
+.qpdf table.q-tbl td.q-empty { font-style: italic; padding: var(--q-sp-4) var(--q-sp-2); }
 .qpdf table.q-tbl td.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .qpdf table.q-tbl .q-prod { font-weight: 700; }
 /* Diễn giải quy cách dưới tên SP: gạch đầu dòng nhỏ, thụt nhẹ — đọc như tờ báo giá viết tay. */
-.qpdf table.q-tbl .q-dg { margin: 3px 0 0; padding-left: 12px; list-style: none; }
-.qpdf table.q-tbl .q-dg li { position: relative; font-size: 8.5px; line-height: 1.45; color: var(--q-muted); }
-.qpdf table.q-tbl .q-dg li::before { content: "-"; position: absolute; left: -8px; }
-.qpdf table.q-tbl tfoot td { background: var(--q-band); font-weight: 800; border-top: 1.5px solid var(--q-line-strong); }
-.qpdf table.q-tbl tfoot .q-sub-lbl { text-align: right; text-transform: uppercase; letter-spacing: .03em; font-size: 9px; }
-.qpdf table.q-tbl tfoot .q-sub-lbl .q-en { font-weight: 600; }
+.qpdf table.q-tbl .q-dg { margin: var(--q-sp-1) 0 0; padding-left: var(--q-sp-3); list-style: none; }
+.qpdf table.q-tbl .q-dg li { position: relative; font-size: var(--q-fs-small); line-height: 1.55; }
+.qpdf table.q-tbl .q-dg li::before { content: "–"; position: absolute; left: calc(var(--q-sp-3) * -1); }
+/* Dòng cộng: trắng, nét kẻ dày gánh việc phân tách. */
+.qpdf table.q-tbl tfoot td { font-weight: 700; border-top: 1px solid var(--q-ink); }
+.qpdf table.q-tbl tfoot .q-sub-lbl { text-align: right; }
+.qpdf table.q-tbl tfoot .q-sub-lbl .q-en { font-weight: 400; }
 
-/* panel tổng thanh toán */
-.qpdf .q-grand { margin-top: 14px; border: 1.5px solid var(--q-line-strong); background: var(--q-band); display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 16px; }
-.qpdf .q-grand .q-gt { font-size: 14px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+/* TỔNG THANH TOÁN — điểm nhìn số 1 của tờ giấy. Đóng KHUNG 2px chứ không tô nền đen: con số
+   30px tự nó đã là thứ to nhất trang, thêm mảng đen nữa thành gắt và ăn mực. */
+.qpdf .q-grand {
+  margin-top: var(--q-sp-4); border: 2px solid var(--q-ink);
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--q-sp-4); padding: var(--q-sp-3) var(--q-sp-4);
+}
+.qpdf .q-grand .q-gt { font-size: var(--q-fs-lead); font-weight: 700; text-transform: uppercase; }
 .qpdf .q-grand .q-gt .q-gt-en,
-.qpdf .q-grand .q-gt .q-gt-sub { font-size: 9.5px; font-weight: 600; color: var(--q-muted); text-transform: none; letter-spacing: 0; font-style: normal; }
-.qpdf .q-grand .q-gs { font-size: 8.5px; color: var(--q-muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
-.qpdf .q-grand .q-ga { font-size: 23px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.qpdf .q-grand .q-ga .q-u { font-size: 12px; font-weight: 700; margin-left: 4px; }
+.qpdf .q-grand .q-gt .q-gt-sub { font-size: var(--q-fs-micro); font-weight: 400; text-transform: none; font-style: normal; }
+.qpdf .q-grand .q-gs { font-size: var(--q-fs-micro); margin-top: var(--q-sp-1); font-variant-numeric: tabular-nums; }
+.qpdf .q-grand .q-ga { font-size: var(--q-fs-hero); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; line-height: 1.1; }
+.qpdf .q-grand .q-ga .q-u { font-size: var(--q-fs-lead); font-weight: 700; margin-left: 5px; }
 
 /* điều khoản */
-.qpdf ol.q-notes { margin: 4px 0 0; padding-left: 20px; font-size: 10.5px; }
-.qpdf ol.q-notes li { margin-bottom: 3px; line-height: 1.4; }
+.qpdf ol.q-notes { margin: 0; padding-left: var(--q-sp-4); font-size: var(--q-fs-body); }
+.qpdf ol.q-notes li { margin-bottom: var(--q-sp-1); line-height: 1.55; }
 
-/* chữ ký 2 cột */
-.qpdf .q-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 44px; margin-top: 22px; text-align: center; }
-.qpdf .q-signs .q-role { font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: .04em; }
-.qpdf .q-signs .q-role span { display: block; font-weight: 400; font-size: 8.5px; font-style: italic; text-transform: none; letter-spacing: 0; color: var(--q-muted); margin-top: 1px; }
-.qpdf .q-signs .q-hint { font-size: 8px; color: var(--q-muted); font-style: italic; margin-top: 2px; }
-.qpdf .q-signs .q-sp { height: 20mm; }
+/* chữ ký 2 cột — chừa khoảng ký rồi KẺ NÉT để người ta biết ký lên đâu, thay vì bỏ trống trơn */
+.qpdf .q-signs { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; margin-top: var(--q-sp-6); text-align: center; }
+.qpdf .q-signs .q-role { font-weight: 700; }
+.qpdf .q-signs .q-role span { display: block; font-weight: 400; font-size: var(--q-fs-micro); font-style: italic; text-transform: none; letter-spacing: 0; margin-top: 2px; }
+.qpdf .q-signs .q-hint { font-size: var(--q-fs-micro); font-style: italic; margin-top: var(--q-sp-1); }
+.qpdf .q-signs .q-sp { height: 20mm; border-bottom: 0.75px solid var(--q-ink); margin: 0 10%; }
 
 /* chân trang */
-.qpdf .q-foot { margin-top: 16px; padding-top: 7px; border-top: 1px solid var(--q-hair); display: flex; justify-content: space-between; gap: 12px; font-size: 8px; color: var(--q-muted); }
+.qpdf .q-foot { margin-top: var(--q-sp-6); padding-top: var(--q-sp-2); border-top: 0.75px solid var(--q-ink); display: flex; justify-content: space-between; gap: var(--q-sp-3); font-size: var(--q-fs-micro); }
 
 /* ---- IN: chỉ chừa tờ .qpdf, chảy qua nhiều trang A4 (bám cơ chế print của Tính giá) ---- */
 @media print {
-  @page { size: A4; margin: 11mm; }
+  /* Le trang theo Nghi dinh 30/2020/ND-CP: tren/duoi 20-25mm, trai 30-35mm,
+     phai 15-20mm. Le trai rong de dong/luu ho so. */
+  @page { size: A4; margin: 20mm 20mm 20mm 30mm; }
   body:has(.qpdf) .shell > *:not(.shell__main),
   body:has(.qpdf) .shell__main > *:not(.shell__content) { display: none !important; }
   body:has(.qpdf) .shell__content { padding: 0 !important; overflow: visible !important; }
-  body:has(.qpdf) .bg > *:not(.bg__overlay) { display: none !important; }
-  body:has(.qpdf) .bg { padding: 0 !important; }
-  body:has(.qpdf) .bg__overlay {
-    position: static !important; background: none !important; backdrop-filter: none !important;
-    padding: 0 !important; display: block !important; overflow: visible !important;
-  }
-  body:has(.qpdf) .bg__dialog {
-    max-width: none !important; width: 100% !important; max-height: none !important;
-    box-shadow: none !important; border: none !important; border-radius: 0 !important; overflow: visible !important;
+  /* Màn Báo giá từng mang class `.bg`; sau redesign thành `.rdx-quote.bgv` nên rule cũ neo vào
+     `.bg` trượt sạch → nội dung trang nền vẫn in ra trước bản báo giá ("in cả trang").
+     Neo theo QUAN HỆ với bản in, KHÔNG theo tên màn/độ sâu: giữ đúng tổ tiên của `.qpdf` +
+     chính nó + ruột nó, ẩn mọi thứ còn lại. Đổi tên màn hay lồng thêm tầng đều không vỡ. */
+  body:has(.qpdf) .shell__content *:not(:has(.qpdf)):not(.qpdf):not(.qpdf *) { display: none !important; }
+  /* Tổ tiên (overlay, dialog, drawer…) phải nhả hết định vị/khung để tờ in chảy theo dòng trang. */
+  body:has(.qpdf) .shell__content :has(.qpdf) {
+    position: static !important; inset: auto !important; transform: none !important;
+    display: block !important; width: auto !important; max-width: none !important;
+    height: auto !important; max-height: none !important; overflow: visible !important;
+    padding: 0 !important; margin: 0 !important;
+    background: none !important; backdrop-filter: none !important;
+    box-shadow: none !important; border: 0 !important; border-radius: 0 !important;
   }
   body:has(.qpdf) .bg__dialog-head,
   body:has(.qpdf) .bg__dialog-actions { display: none !important; }
-  body:has(.qpdf) .qpdf { max-height: none !important; overflow: visible !important; padding: 0 !important; }
+  /* Khi in, @page đã cầm khổ và lề → tờ phải nhả bề ngang/lề của bản xem trước, không thì cộng
+     dồn thành lề đôi và tràn sang trang thứ hai. */
+  body:has(.qpdf) .qpdf { max-height: none !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; width: auto !important; margin: 0 !important; }
   body:has(.qpdf) .qpdf .q-mh,
   body:has(.qpdf) .qpdf table.q-tbl thead th,
   body:has(.qpdf) .qpdf table.q-tbl tfoot td,
@@ -1214,6 +1293,9 @@ select.input {
   body:has(.qpdf) .qpdf table.q-tbl tr,
   body:has(.qpdf) .qpdf .q-grand,
   body:has(.qpdf) .qpdf .q-signs { page-break-inside: avoid; }
+
+  /* Tờ không còn mảng tô nền nào — chỉ chữ đen và nét kẻ đen trên giấy trắng — nên không cần ép
+     `print-color-adjust`; máy in nào cũng dựng đúng. */
 }
 
 /* ============================================================

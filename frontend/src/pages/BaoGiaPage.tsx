@@ -1701,8 +1701,18 @@ function QuotationPrintModal({
   const now = new Date();
   const p2 = (n: number) => (n < 10 ? "0" : "") + n;
   const qdate = `${p2(now.getDate())}/${p2(now.getMonth() + 1)}/${now.getFullYear()}`;
-  const qno = d.code.replace(/[^0-9A-Za-z]/g, "");
+  // Mã in ra phải Y HỆT mã trong hệ thống: bóc dấu gạch thành "BG260024" là khách đọc lại mã đó
+  // gọi lên thì tra không ra phiếu nào.
+  const qno = d.code.trim();
   const money = (v: number) => Math.round(v).toLocaleString("vi-VN");
+  // Đơn giá KHÔNG làm tròn: dòng gộp (ruột + bìa) hay ra số lẻ .5, làm tròn xong khách nhân
+  // Số lượng × Đơn giá ra khác Thành tiền. Giữ tối đa 2 số lẻ để phép nhân trên giấy luôn khớp.
+  const donGia = (v: number) => v.toLocaleString("vi-VN", { maximumFractionDigits: 2 });
+  // Mọi ngày trên tờ dùng CHUNG một định dạng dd/mm/yyyy — không để chỗ dd/mm chỗ ISO.
+  const ngayVN = (iso: string) => {
+    const [y, m, dd] = iso.split("-");
+    return y && m && dd ? `${dd}/${m}/${y}` : iso;
+  };
 
   // Bảng hiển thị giá CHƯA VAT; VAT + tổng thanh toán ở panel dưới (bám dữ liệu thật của báo giá).
   // GỘP NHÓM: ruột + bìa cùng nhãn `nhom` in ra 1 dòng "quyển sách" (khách mua 1 cuốn, không phải
@@ -1715,7 +1725,6 @@ function QuotationPrintModal({
     thanhTien: Math.max(0, it.selling_price - it.discount_amount),   // net chưa VAT
     tienVat: it.vat_amount,
     vatPct: it.vat_percent,
-    kichThuoc: it.product_spec_text,
     dienGiai: it.dien_giai,
   }));
   const netSubtotal = lines.reduce((s, l) => s + l.thanhTien, 0); // Σ tiền hàng chưa VAT
@@ -1737,7 +1746,13 @@ function QuotationPrintModal({
 
   return (
     <div className="bg__overlay" onClick={onClose}>
-      <div className="card bg__dialog" style={{ maxWidth: "900px", padding: 0 }} onClick={(e) => e.stopPropagation()}>
+      {/* Rộng đủ ôm tờ A4 (210mm ≈ 794px). Việc CUỘN nằm ở khung này, không nằm ở tờ — tờ luôn
+          giữ đúng khổ A4 để xem trước ra sao thì in ra vậy. */}
+      <div
+        className="card bg__dialog"
+        style={{ maxWidth: "820px", padding: 0, maxHeight: "88vh", overflow: "auto" }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="bg__dialog-head">
           <h2>Xem trước báo giá in</h2>
           <button type="button" className="bg__close" onClick={onClose} aria-label="Đóng"><X size={18} /></button>
@@ -1764,7 +1779,7 @@ function QuotationPrintModal({
                 <div><span className="q-lbl">MST:</span> {d.customer?.tax_code ?? "—"}</div>
               </div>
               <div className="q-info-col">
-                <div><span className="q-lbl">Hiệu lực đến:</span> {d.valid_until ?? "Đến khi có thông báo mới"}</div>
+                <div><span className="q-lbl">Hiệu lực đến:</span> {d.valid_until ? ngayVN(d.valid_until) : "Đến khi có thông báo mới"}</div>
               </div>
             </div>
           </div>
@@ -1774,17 +1789,18 @@ function QuotationPrintModal({
           {/* CHI TIẾT: header xám, viền mảnh, cột tiền căn phải + tfoot Cộng/VAT */}
           <div className="q-sec">Chi tiết báo giá</div>
           <table className="q-tbl">
+            {/* Bỏ 2 cột không mang tin: "Kích thước" (khổ đã nằm ở dòng đầu phần diễn giải) và
+                "Mã hàng" (dòng gộp ruột+bìa có 2 mã khác nhau nên luôn để trống — mà báo giá kiểu
+                quyển sách thì hầu hết dòng đều gộp). Chỗ trống dồn cho mô tả và 3 cột số. */}
             <colgroup>
-              <col style={{ width: "5%" }} /><col style={{ width: "12%" }} /><col style={{ width: "26%" }} />
-              <col style={{ width: "15%" }} /><col style={{ width: "6%" }} /><col style={{ width: "9%" }} />
-              <col style={{ width: "13%" }} /><col style={{ width: "14%" }} />
+              <col style={{ width: "5%" }} /><col style={{ width: "45%" }} />
+              <col style={{ width: "7%" }} /><col style={{ width: "12%" }} />
+              <col style={{ width: "15%" }} /><col style={{ width: "16%" }} />
             </colgroup>
             <thead>
               <tr>
                 <th>STT</th>
-                <th>Mã hàng</th>
                 <th>Mô tả sản phẩm</th>
-                <th>Kích thước</th>
                 <th>ĐVT</th>
                 <th>Số lượng</th>
                 <th>Đơn giá<span className="q-sub">chưa VAT</span></th>
@@ -1792,6 +1808,13 @@ function QuotationPrintModal({
               </tr>
             </thead>
             <tbody>
+              {/* Báo giá chưa có dòng nào: in ra khung bảng rỗng trông như lỗi in. Nói thẳng ra
+                  giấy là chưa có sản phẩm, để người cầm tờ biết đây không phải trang bị mất chữ. */}
+              {lines.length === 0 && (
+                <tr>
+                  <td className="c q-empty" colSpan={6}>Báo giá chưa có sản phẩm nào.</td>
+                </tr>
+              )}
               {lines.map((g, i) => {
                 // Nhóm 1 dòng → mã hàng + ghi chú của chính dòng đó; nhóm gộp → để trống vì mã
                 // của ruột và bìa khác nhau, in một cái ra là sai.
@@ -1799,8 +1822,7 @@ function QuotationPrintModal({
                 return (
                   <tr key={g.key}>
                     <td className="c">{i + 1}</td>
-                    <td className="c">{don?.estimate_number ?? "—"}</td>
-                    <td>
+                    <td className="q-desc">
                       <span className="q-prod">{g.ten}</span>{don?.note ? `, ${don.note}` : ""}
                       {/* Diễn giải quy cách: gạch đầu dòng dưới tên SP (nhóm gộp → mỗi phần 1 mục). */}
                       {g.dienGiai.length > 0 && (
@@ -1809,10 +1831,9 @@ function QuotationPrintModal({
                         </ul>
                       )}
                     </td>
-                    <td className="c">{g.kichThuoc ?? "—"}</td>
                     <td className="c">{g.donViTinh}</td>
-                    <td className="c">{g.soLuong.toLocaleString("vi-VN")}</td>
-                    <td className="r">{money(g.donGia)}</td>
+                    <td className="r">{g.soLuong.toLocaleString("vi-VN")}</td>
+                    <td className="r">{donGia(g.soLuong > 0 ? g.thanhTien / g.soLuong : g.thanhTien)}</td>
                     <td className="r">{money(g.thanhTien)}</td>
                   </tr>
                 );
@@ -1820,11 +1841,11 @@ function QuotationPrintModal({
             </tbody>
             <tfoot>
               <tr>
-                <td className="q-sub-lbl" colSpan={7}>Cộng tiền hàng (chưa VAT)</td>
+                <td className="q-sub-lbl" colSpan={5}>Cộng tiền hàng (chưa VAT)</td>
                 <td className="r">{money(netSubtotal)}</td>
               </tr>
               <tr>
-                <td className="q-sub-lbl" colSpan={7}>Thuế GTGT {vatPct}%</td>
+                <td className="q-sub-lbl" colSpan={5}>Thuế GTGT {vatPct}%</td>
                 <td className="r">{money(vatAmount)}</td>
               </tr>
             </tfoot>

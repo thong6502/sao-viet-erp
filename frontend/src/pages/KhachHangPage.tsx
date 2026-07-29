@@ -40,6 +40,7 @@ import {
   AlarmClock,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
   Download,
   FileText,
   Gauge,
@@ -2366,21 +2367,106 @@ function QuotesTab({
   );
 }
 
-// --- Nhật ký tab (unified activity timeline, real events) --------------------
-
 function fmtDateTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  // "HH:mm dd/MM/yyyy" — gọn kiểu Việt Nam, bỏ giây (toLocaleString vi-VN trả "05:02:50 10/7/2026").
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
 
-const AUDIT_KIND_META: Record<CustomerAuditRow["kind"], { icon: JSX.Element; label: string; cls: string }> = {
-  profile: { icon: <PencilLine size={15} />, label: "Hồ sơ", cls: "kh__tl--profile" },
-  order: { icon: <Package size={15} />, label: "Đơn hàng", cls: "kh__tl--order" },
-  quote: { icon: <FileText size={15} />, label: "Báo giá", cls: "kh__tl--quote" },
-  care: { icon: <HeartHandshake size={15} />, label: "Chăm sóc", cls: "kh__tl--care" },
+function fmtTimeOnly(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function renderAuditDetailTags(detail: string | null) {
+  if (!detail) return null;
+
+  const trimmed = detail.trim();
+  if (trimmed === "converted_to_order") {
+    return (
+      <div className="kh__tl-tags">
+        <span className="kh__tl-badge kh__tl-badge--success">
+          <CheckCircle2 size={11} /> Đã chuyển thành đơn hàng
+        </span>
+      </div>
+    );
+  }
+
+  const parts = trimmed.split(/\s*·\s*|,\s*/).map((p) => p.trim()).filter(Boolean);
+
+  return (
+    <div className="kh__tl-tags">
+      {parts.map((p, idx) => {
+        let cls = "kh__tl-tag--default";
+        let label = p;
+
+        if (p === "converted_to_order") {
+          label = "Đã chuyển thành đơn hàng";
+          cls = "kh__tl-tag--success";
+        } else if (p === "Đơn mới") {
+          cls = "kh__tl-tag--brand";
+        } else if (p === "Đã chốt") {
+          cls = "kh__tl-tag--primary";
+        } else if (p === "Nháp") {
+          cls = "kh__tl-tag--muted";
+        }
+
+        return (
+          <span key={idx} className={`kh__tl-tag ${cls}`}>
+            {label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function groupAuditRowsByDate(rows: CustomerAuditRow[]) {
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, "0")}-${String(yesterday.getDate()).padStart(2, "0")}`;
+
+  const groupsMap = new Map<string, { dateKey: string; dateLabel: string; items: CustomerAuditRow[] }>();
+
+  for (const r of rows) {
+    const d = new Date(r.at);
+    let dateKey = r.at ? r.at.substring(0, 10) : "unknown";
+    let dateLabel = "";
+
+    if (Number.isNaN(d.getTime())) {
+      dateKey = "khac";
+      dateLabel = "Khác";
+    } else {
+      const formattedDate = `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+      if (dateKey === todayStr) {
+        dateLabel = `Hôm nay · ${formattedDate}`;
+      } else if (dateKey === yesterdayStr) {
+        dateLabel = `Hôm qua · ${formattedDate}`;
+      } else {
+        dateLabel = formattedDate;
+      }
+    }
+
+    if (!groupsMap.has(dateKey)) {
+      groupsMap.set(dateKey, { dateKey, dateLabel, items: [] });
+    }
+    groupsMap.get(dateKey)!.items.push(r);
+  }
+
+  return Array.from(groupsMap.values());
+}
+
+const AUDIT_KIND_META: Record<CustomerAuditRow["kind"], { icon: JSX.Element; label: string; nodeCls: string }> = {
+  profile: { icon: <PencilLine size={14} />, label: "Hồ sơ", nodeCls: "kh__tl-node--profile" },
+  order: { icon: <Package size={14} />, label: "Đơn hàng", nodeCls: "kh__tl-node--order" },
+  quote: { icon: <FileText size={14} />, label: "Báo giá", nodeCls: "kh__tl-node--quote" },
+  care: { icon: <HeartHandshake size={14} />, label: "Chăm sóc", nodeCls: "kh__tl-node--care" },
 };
 
 function AuditTab({
@@ -2393,6 +2479,18 @@ function AuditTab({
   const { token } = useAuth();
   const [rows, setRows] = useState<CustomerAuditRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const [search, setSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState<"all" | CustomerAuditRow["kind"]>("all");
+  const [timeRange, setTimeRange] = useState<"all" | "7d" | "30d" | "this_month" | "custom">("all");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+  
+  // Trạng thái thu gọn nhóm ngày (mặc định rỗng = TẤT CẢ MẶC ĐỊNH MỞ RỘNG)
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     if (!token) return;
@@ -2408,6 +2506,112 @@ function AuditTab({
     };
   }, [token, customerId]);
 
+  const kindCounts = useMemo(() => {
+    if (!rows) return { all: 0, profile: 0, order: 0, quote: 0, care: 0 };
+    const counts = { all: rows.length, profile: 0, order: 0, quote: 0, care: 0 };
+    for (const r of rows) {
+      if (counts[r.kind] !== undefined) {
+        counts[r.kind]++;
+      }
+    }
+    return counts;
+  }, [rows]);
+
+  const filteredRows = useMemo(() => {
+    if (!rows) return [];
+    const normSearch = search
+      .trim()
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/đ/g, "d")
+      .replace(/Đ/g, "D");
+
+    return rows.filter((r) => {
+      if (kindFilter !== "all" && r.kind !== kindFilter) return false;
+
+      // Lọc Khoảng thời gian
+      if (timeRange !== "all" && r.at) {
+        const d = new Date(r.at);
+        if (!Number.isNaN(d.getTime())) {
+          const now = Date.now();
+          if (timeRange === "7d") {
+            const cutoff = now - 7 * 86400 * 1000;
+            if (d.getTime() < cutoff) return false;
+          } else if (timeRange === "30d") {
+            const cutoff = now - 30 * 86400 * 1000;
+            if (d.getTime() < cutoff) return false;
+          } else if (timeRange === "this_month") {
+            const first = new Date();
+            first.setDate(1);
+            first.setHours(0, 0, 0, 0);
+            if (d.getTime() < first.getTime()) return false;
+          } else if (timeRange === "custom") {
+            if (startDate) {
+              const s = new Date(startDate);
+              s.setHours(0, 0, 0, 0);
+              if (d.getTime() < s.getTime()) return false;
+            }
+            if (endDate) {
+              const e = new Date(endDate);
+              e.setHours(23, 59, 59, 999);
+              if (d.getTime() > e.getTime()) return false;
+            }
+          }
+        }
+      }
+
+      if (normSearch) {
+        const textToSearch = `${r.title || ""} ${r.detail || ""} ${r.action || ""} ${r.actor_name || ""} ${AUDIT_KIND_META[r.kind]?.label || ""}`
+          .toLowerCase()
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/đ/g, "d")
+          .replace(/Đ/g, "D");
+        if (!textToSearch.includes(normSearch)) return false;
+      }
+
+      return true;
+    });
+  }, [rows, kindFilter, timeRange, startDate, endDate, search]);
+
+  const totalItems = filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+
+  const paginatedRows = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, currentPage, pageSize]);
+
+  const groupedPaginatedRows = useMemo(() => {
+    return groupAuditRowsByDate(paginatedRows);
+  }, [paginatedRows]);
+
+  const areAllCollapsed = useMemo(() => {
+    if (groupedPaginatedRows.length === 0) return false;
+    return groupedPaginatedRows.every((g) => !!collapsedGroups[g.dateKey]);
+  }, [groupedPaginatedRows, collapsedGroups]);
+
+  function toggleGroup(dateKey: string) {
+    setCollapsedGroups((prev) => ({
+      ...prev,
+      [dateKey]: !prev[dateKey],
+    }));
+  }
+
+  function toggleAllGroups() {
+    if (areAllCollapsed) {
+      setCollapsedGroups({});
+    } else {
+      const next: Record<string, boolean> = {};
+      for (const g of groupedPaginatedRows) {
+        next[g.dateKey] = true;
+      }
+      setCollapsedGroups(next);
+    }
+  }
+
   if (error) return <div className="banner banner--error" role="alert">{error}</div>;
   if (rows == null) return <TableSkeleton cols={3} />;
   if (rows.length === 0)
@@ -2421,42 +2625,302 @@ function AuditTab({
       </div>
     );
 
+  const filterOptions: Array<{ key: "all" | CustomerAuditRow["kind"]; label: string; icon?: JSX.Element }> = [
+    { key: "all", label: "Tất cả" },
+    { key: "order", label: "Đơn hàng", icon: <Package size={13} /> },
+    { key: "quote", label: "Báo giá", icon: <FileText size={13} /> },
+    { key: "profile", label: "Hồ sơ", icon: <PencilLine size={13} /> },
+    { key: "care", label: "Chăm sóc", icon: <HeartHandshake size={13} /> },
+  ];
+
+  const startItemIndex = totalItems > 0 ? (currentPage - 1) * pageSize + 1 : 0;
+  const endItemIndex = Math.min(currentPage * pageSize, totalItems);
+
   return (
-    <div className="kh__timeline">
-      <p className="kh__muted kh__tl-sub">{rows.length} sự kiện · mới nhất trước</p>
-      <ol className="kh__tl-list">
-        {rows.map((r, i) => {
-          const meta = AUDIT_KIND_META[r.kind];
-          // Đơn hàng bán đã gỡ → chỉ báo giá còn mở được chi tiết (order-ref hiển thị nhưng không dẫn đi đâu).
-          const drillable = r.ref_type === "quotation" && r.ref_id != null;
-          return (
-            <li
-              key={`${r.kind}-${r.ref_id ?? "p"}-${i}`}
-              className={`kh__tl-item ${meta.cls}${drillable ? " is-drillable" : ""}`}
-              onClick={drillable ? () => onDrill(r.ref_type!, r.ref_id!) : undefined}
-              tabIndex={drillable ? 0 : undefined}
-              onKeyDown={
-                drillable ? (e) => e.key === "Enter" && onDrill(r.ref_type!, r.ref_id!) : undefined
-              }
-              title={drillable ? `Mở chi tiết ${r.title}` : undefined}
+    <div className="kh__tl-v2">
+      {/* Sleek Toolbar: Search, Time Range & Filter Segment Bar */}
+      <div className="kh__tl-toolbar">
+        <div className="kh__tl-toolbar-row">
+          <div className="kh__tl-search-wrap">
+            <Search size={14} className="kh__tl-search-icon" aria-hidden="true" />
+            <input
+              type="text"
+              className="kh__tl-search-input"
+              placeholder="Tìm sự kiện, mã đơn/báo giá, người thực hiện..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+            />
+            {search && (
+              <button
+                type="button"
+                className="kh__tl-search-clear"
+                title="Xóa tìm kiếm"
+                onClick={() => {
+                  setSearch("");
+                  setPage(1);
+                }}
+              >
+                <X size={13} />
+              </button>
+            )}
+          </div>
+
+          <div className="kh__tl-controls-right">
+            <select
+              className="kh__tl-range-select"
+              value={timeRange}
+              aria-label="Khoảng thời gian"
+              onChange={(e) => {
+                setTimeRange(e.target.value as any);
+                setPage(1);
+              }}
             >
-              <span className="kh__tl-dot" aria-hidden="true">
-                {meta.icon}
-              </span>
-              <div className="kh__tl-body">
-                <div className="kh__tl-line1">
-                  <span className={`kh__tl-title${drillable ? " kh__link" : ""}`}>{r.title}</span>
-                  <span className="kh__tl-kind">{meta.label}</span>
-                  <span className="kh__tl-time kh__mono">{fmtDateTime(r.at)}</span>
-                </div>
-                {r.detail && <p className="kh__tl-detail">{r.detail}</p>}
-                {r.actor_name && <p className="kh__muted kh__tl-actor">bởi {r.actor_name}</p>}
+              <option value="all">Tất cả thời gian</option>
+              <option value="7d">7 ngày qua</option>
+              <option value="30d">30 ngày qua</option>
+              <option value="this_month">Tháng này</option>
+              <option value="custom">Tùy chọn ngày...</option>
+            </select>
+
+            {timeRange === "custom" && (
+              <div className="kh__tl-custom-dates">
+                <input
+                  type="date"
+                  className="kh__tl-date-input"
+                  value={startDate}
+                  onChange={(e) => {
+                    setStartDate(e.target.value);
+                    setPage(1);
+                  }}
+                  title="Từ ngày"
+                />
+                <span className="kh__muted" style={{ fontSize: "12px" }}>-</span>
+                <input
+                  type="date"
+                  className="kh__tl-date-input"
+                  value={endDate}
+                  onChange={(e) => {
+                    setEndDate(e.target.value);
+                    setPage(1);
+                  }}
+                  title="Đến ngày"
+                />
               </div>
-              {drillable && <ChevronRight size={16} className="kh__tl-arrow" aria-hidden="true" />}
-            </li>
-          );
-        })}
-      </ol>
+            )}
+
+            {groupedPaginatedRows.length > 0 && (
+              <button
+                type="button"
+                className="kh__tl-toggle-all-btn"
+                onClick={toggleAllGroups}
+                title={areAllCollapsed ? "Mở rộng toàn bộ nhóm ngày" : "Thu gọn toàn bộ nhóm ngày"}
+              >
+                {areAllCollapsed ? <ChevronDown size={13} /> : <ChevronUp size={13} />}
+                <span>{areAllCollapsed ? "Mở tất cả" : "Thu gọn tất cả"}</span>
+              </button>
+            )}
+
+            <div className="kh__tl-counter-badge">
+              {search || kindFilter !== "all" || timeRange !== "all" ? (
+                <span>
+                  <strong>{totalItems}</strong> / {rows.length}
+                </span>
+              ) : (
+                <span>
+                  <strong>{rows.length}</strong> sự kiện
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="kh__tl-toolbar-row" style={{ marginTop: "4px" }}>
+          <div className="kh__tl-filters" role="tablist" aria-label="Lọc theo loại sự kiện">
+            {filterOptions.map((opt) => {
+              const count = kindCounts[opt.key];
+              const isActive = kindFilter === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  className={`kh__tl-chip${isActive ? " is-active" : ""}`}
+                  onClick={() => {
+                    setKindFilter(opt.key);
+                    setPage(1);
+                  }}
+                >
+                  {opt.icon}
+                  <span>{opt.label}</span>
+                  {count > 0 && <span className="kh__tl-chip-count">{count}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Empty filter result */}
+      {filteredRows.length === 0 ? (
+        <div className="kh__empty-panel kh__tl-empty">
+          <p className="kh__empty-title">Không tìm thấy sự kiện nào</p>
+          <p className="kh__muted">
+            Không có nhật ký nào phù hợp với điều kiện tìm kiếm hoặc bộ lọc hiện tại.
+          </p>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setSearch("");
+              setKindFilter("all");
+              setTimeRange("all");
+              setStartDate("");
+              setEndDate("");
+              setPage(1);
+            }}
+          >
+            Xóa tìm kiếm &amp; bộ lọc
+          </Button>
+        </div>
+      ) : (
+        <>
+          {/* Scrollable Timeline Body Container */}
+          <div className="kh__tl-scroll-body">
+            {/* Vertical Timeline Tree */}
+            <div className="kh__tl-tree">
+              {groupedPaginatedRows.map((group) => {
+                const isExpanded = !collapsedGroups[group.dateKey];
+
+                return (
+                  <div key={`group-${group.dateKey}`} className="kh__tl-date-group">
+                    <div
+                      className="kh__tl-date-header"
+                      onClick={() => toggleGroup(group.dateKey)}
+                      title={isExpanded ? "Bấm để thu gọn" : "Bấm để mở rộng"}
+                    >
+                      <Calendar size={13} />
+                      <span>{group.dateLabel}</span>
+                      <span className="kh__tl-date-count">({group.items.length})</span>
+                      <ChevronDown size={13} className={`kh__tl-header-chevron${isExpanded ? " is-expanded" : ""}`} />
+                    </div>
+
+                    {isExpanded && (
+                      <div className="kh__tl-group-items">
+                        {group.items.map((r, i) => {
+                          const meta = AUDIT_KIND_META[r.kind];
+                          const drillable = (r.ref_type === "quotation" || r.ref_type === "order") && r.ref_id != null;
+                          const initials = r.actor_name ? getInitials(r.actor_name) : null;
+                          const itemTime = fmtTimeOnly(r.at);
+
+                          return (
+                            <div
+                              key={`${r.kind}-${r.ref_id ?? "p"}-${i}`}
+                              className={`kh__tl-item-v2${drillable ? " is-drillable" : ""}`}
+                              onClick={drillable ? () => onDrill(r.ref_type as "order" | "quotation", r.ref_id!) : undefined}
+                              tabIndex={drillable ? 0 : undefined}
+                              onKeyDown={
+                                drillable ? (e) => e.key === "Enter" && onDrill(r.ref_type as "order" | "quotation", r.ref_id!) : undefined
+                              }
+                              title={drillable ? `Mở chi tiết ${r.title}` : undefined}
+                            >
+                              <div className={`kh__tl-node-v2 ${meta.nodeCls}`} aria-hidden="true">
+                                {meta.icon}
+                              </div>
+
+                              <div className="kh__tl-card-v2">
+                                <div className="kh__tl-card-row">
+                                  <div className="kh__tl-card-left">
+                                    <h4 className="kh__tl-card-title">{r.title}</h4>
+                                    {!r.title.toLowerCase().startsWith(meta.label.toLowerCase()) && (
+                                      <span className="kh__tl-kind-label">{meta.label}</span>
+                                    )}
+                                    {renderAuditDetailTags(r.detail)}
+                                  </div>
+
+                                  <div className="kh__tl-card-right">
+                                    {r.actor_name && (
+                                      <div className="kh__tl-actor-chip" title={`Thực hiện bởi ${r.actor_name}`}>
+                                        <div className="kh__tl-actor-avatar">{initials}</div>
+                                        <span>{r.actor_name}</span>
+                                      </div>
+                                    )}
+                                    <span className="kh__tl-card-time" title={fmtDateTime(r.at)}>
+                                      <Clock size={11} /> {itemTime}
+                                    </span>
+                                    {drillable && (
+                                      <span className="kh__tl-drill-link" title="Xem chi tiết">
+                                        Xem chi tiết <ChevronRight size={13} />
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 || totalItems > 5 ? (
+            <div className="kh__tl-pagination">
+              <div className="kh__tl-page-info">
+                <span>
+                  Hiển thị <strong>{startItemIndex}–{endItemIndex}</strong> trong tổng số <strong>{totalItems}</strong> sự kiện
+                </span>
+              </div>
+              <div className="kh__tl-page-controls">
+                <div className="kh__tl-size-select">
+                  <span className="kh__muted" style={{ fontSize: "12px" }}>Hiển thị:</span>
+                  <select
+                    className="kh__tl-select"
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setPage(1);
+                    }}
+                  >
+                    <option value={5}>5</option>
+                    <option value={10}>10</option>
+                    <option value={20}>20</option>
+                    <option value={50}>50</option>
+                  </select>
+                </div>
+
+                <div className="kh__tl-nav-btns">
+                  <button
+                    type="button"
+                    className="kh__tl-nav-btn"
+                    disabled={currentPage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    title="Trang trước"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span className="kh__tl-page-num">
+                    Trang {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    className="kh__tl-nav-btn"
+                    disabled={currentPage >= totalPages}
+                    onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                    title="Trang sau"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

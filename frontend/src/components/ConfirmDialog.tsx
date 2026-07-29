@@ -7,7 +7,7 @@ import "./confirm-dialog.css";
 
 interface ConfirmDialogProps {
   open: boolean;
-  title: string;
+  title: ReactNode;
   message?: string;
   confirmLabel?: string;
   cancelLabel?: string;
@@ -83,11 +83,11 @@ export function ConfirmDialog({
         className={`cdlg${wide ? " cdlg--wide" : ""}`}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={typeof title === "string" ? title : undefined}
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="cdlg__head">
-          <h2 className="cdlg__title">{title}</h2>
+          <div className="cdlg__title">{title}</div>
         </div>
         <div className="cdlg__body">
           {message && <p className="cdlg__msg">{message}</p>}

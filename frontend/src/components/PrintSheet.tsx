@@ -55,12 +55,9 @@ export function PrintSheet({
             </div>
           </header>
           {children}
-          {footer ?? (
-            <div className="ps-foot">
-              <span>{COMPANY.name}</span>
-              <span>In lúc {new Date().toLocaleString("vi-VN")}</span>
-            </div>
-          )}
+          {/* Không có chân trang mặc định: tên công ty đã nằm ngay dưới tiêu đề, còn "In lúc…"
+              là dấu vết hệ thống — chứng từ gửi khách không cần. Màn nào cần thì tự truyền `footer`. */}
+          {footer}
         </div>
         <div className="ps-dialog-actions">
           <button className="btn btn--secondary" onClick={onClose}>
