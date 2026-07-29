@@ -93,13 +93,56 @@ def test_nv_tu_gui_roi_duoc_duyet(client):
                        headers=_h(token)).status_code == 400
 
 
-def test_validate_gio_va_chan_trung_phieu(client):
+def test_validate_gio_va_toi_da_1_phieu_ngay(client):
+    """Biên giờ + luật 1 phiếu/ngày (chủ chốt 2026-07-24)."""
     token = _admin_token(client)
     eid = _make_emp(client, token, name="Thợ TC 2")
     _mk(client, token, eid, frm=1500, to=1320, expect=400)             # kết thúc trước bắt đầu
     _mk(client, token, eid, frm=1320, to=1320 + 13 * 60, expect=400)   # quá 12h (Đ107 BLLĐ)
-    _mk(client, token, eid, frm=1320, to=1620)                         # hợp lệ
-    _mk(client, token, eid, frm=1500, to=1700, expect=400)             # GIAO phiếu đã có
+    _mk(client, token, eid, frm=1320, to=1620)                         # phiếu 1 hợp lệ
+    _mk(client, token, eid, frm=100, to=300, expect=400)              # phiếu 2 KHÔNG trùng giờ vẫn bị chặn
+    _mk(client, token, eid, work_date="2026-07-17")                    # ngày khác → OK
+
+
+def test_tu_choi_roi_thi_tao_lai_cung_ngay_duoc(client):
+    """Phiếu bị TỪ CHỐI không còn 'giữ chỗ' → tạo lại phiếu khác cùng ngày được."""
+    token = _admin_token(client)
+    eid = _make_emp(client, token, name="Thợ TC tạo lại")
+    r = client.post("/api/overtime/me",
+                    json={"work_date": "2026-07-16", "from_minute": 1320, "to_minute": 1440},
+                    headers=_h(token))
+    rid = r.json()["id"]
+    client.post(f"/api/overtime/{rid}/reject", json={"note": "chưa cần"}, headers=_h(token))
+    # Cùng ngày, tạo phiếu mới → OK vì phiếu cũ đã bị từ chối.
+    _mk(client, token, eid, work_date="2026-07-16", frm=1320, to=1500)
+
+
+def test_sua_phieu_cho_duyet(client):
+    """Sửa phiếu đang chờ: đổi giờ OK; duyệt rồi thì khóa; người khác không sửa được."""
+    token = _admin_token(client)
+    r = client.post("/api/overtime/me",
+                    json={"work_date": "2026-07-18", "from_minute": 1320, "to_minute": 1440,
+                          "reason": "cũ"}, headers=_h(token))
+    rid = r.json()["id"]
+    upd = client.put(f"/api/overtime/{rid}",
+                     json={"work_date": "2026-07-18", "from_minute": 1200, "to_minute": 1500,
+                           "reason": "mới"}, headers=_h(token))
+    assert upd.status_code == 200, upd.text
+    assert upd.json()["from_minute"] == 1200 and upd.json()["minutes"] == 300
+    assert upd.json()["reason"] == "mới"
+
+    # Người KHÁC (tổ trưởng, không phải người tạo) → không sửa được phiếu của admin.
+    lead = _lead_token()
+    assert client.put(f"/api/overtime/{rid}",
+                      json={"work_date": "2026-07-18", "from_minute": 1200, "to_minute": 1260},
+                      headers=_h(lead)).status_code in (400, 403)
+
+    # Duyệt rồi thì khóa, không sửa được nữa.
+    client.post(f"/api/overtime/{rid}/approve", json={}, headers=_h(token))
+    locked = client.put(f"/api/overtime/{rid}",
+                        json={"work_date": "2026-07-18", "from_minute": 1200, "to_minute": 1260},
+                        headers=_h(token))
+    assert locked.status_code == 400 and "chờ duyệt" in locked.json()["detail"].lower()
 
 
 def test_tu_choi_bat_buoc_ly_do(client):

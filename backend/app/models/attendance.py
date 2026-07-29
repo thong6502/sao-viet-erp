@@ -220,7 +220,8 @@ class AttendancePeriodLine(Base):
     total_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
     total_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")      # ngày có chấm
     total_leave: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")     # tổng ngày nghỉ phép
-    paid_leave_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0") # nghỉ phép CÓ lương
+    # Nghỉ phép CÓ lương. Numeric vì phiếu nửa buổi có trừ phép = 0,5 ngày (ép int là mất tiền).
+    paid_leave_days: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
     unpaid_leave_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")  # nghỉ KHÔNG lương
     holiday_days: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # ngày nghỉ lễ hưởng công
     total_hours: Mapped[float] = mapped_column(Numeric(7, 2), nullable=False, default=0, server_default="0")
@@ -229,6 +230,10 @@ class AttendancePeriodLine(Base):
     # Pha 4d (Đ98): phân loại công/OT theo LOẠI NGÀY để Lương trả premium (đóng băng lúc Chốt).
     holiday_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")  # công LÀM ngày lễ
     restday_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")  # công LÀM ngày nghỉ tuần
+    plain_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")    # công LÀM ngày nghỉ 'off1x' — trả 1× (không hệ số)
+    # Công THIẾU nhưng CÓ ĐƠN nghỉ theo giờ đã duyệt (đi muộn/về sớm/nửa ngày). KHÔNG cộng vào
+    # total_cong (tiền công vẫn trừ) — chỉ để Lương giữ nguyên phụ cấp chuyên cần.
+    excused_cong: Mapped[float] = mapped_column(Numeric(6, 2), nullable=False, default=0, server_default="0")
     ot_holiday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # phút OT ngày lễ
     ot_restday_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")    # phút OT ngày nghỉ tuần
     # Lương ca đêm theo giờ: Σ phút đêm TRONG ca × (hệ số ca − 1) → premium giờ đêm; + phút TĂNG CA ĐÊM

@@ -869,6 +869,15 @@ button.ns__kpi:hover {
   font-style: italic;
 }
 
+/* Dòng chỉ đường nhỏ dưới giá trị (vd: ca làm việc nay gán ở màn Chấm công). */
+.ns-info-field__hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ash-2);
+}
+
 .ns-inforow {
   margin-bottom: var(--sp-4);
   display: flex;
@@ -1015,6 +1024,27 @@ button.ns__kpi:hover {
   color: var(--ash);
 }
 
+/* Hàng "ô + nút" bên trong một .ns-field (chọn bậc + Thêm bậc, và ô nhập tên bậc mới).
+   KHÔNG mượn .ns-comp-add: class đó thuộc bộ chọn KHOẢN THU NHẬP, đổi bên đó là vỡ bên này. */
+.ns-inline-add {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+
+.ns-inline-add > select,
+.ns-inline-add > input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Lỗi hiện NGAY DƯỚI ô (trùng tên bậc, tải danh mục hỏng) — banner ở đầu modal thì người dùng
+   không biết ô nào sai. */
+.ns-field__hint--err {
+  color: var(--signal);
+  font-weight: var(--fw-medium);
+}
+
 .ns-check {
   display: flex;
   align-items: center;
@@ -1086,15 +1116,6 @@ button.ns__kpi:hover {
 }
 
 .ns-wizard__salary-total small { grid-column: 1 / -1; }
-
-.ns-wizard__range-warning {
-  grid-column: 1 / -1;
-  padding: 8px 10px;
-  color: #8a4b08;
-  background: #fff4dc;
-  border: 1px solid #ead6ad;
-  font-size: 12.5px;
-}
 
 .ns-wizard__section-title {
   margin-top: var(--sp-2);
@@ -1334,4 +1355,83 @@ button.ns__kpi:hover {
   .ns-wizard__salary-intro span {
     text-align: left;
   }
+}
+
+/* --- Chọn khoản thu nhập từ DANH MỤC trong wizard tạo hồ sơ (chủ 27/07/2026) ---
+   Thay ô "phụ cấp gộp một cục": gộp thì engine không biết khoản nào miễn thuế TNCN. */
+.ns-comp-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) 130px minmax(140px, 1fr) auto;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.ns-comp-row__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  min-width: 0;
+}
+.ns-tag {
+  border-radius: var(--r-pill);
+  padding: 1px 8px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.ns-tag--tax { background: var(--amber-soft); color: var(--amber-deep); }
+.ns-tag--free { background: var(--moss-soft); color: var(--moss-deep); }
+.ns-comp-add {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+  margin-top: var(--sp-2);
+}
+.ns-comp-add select { flex: 1; min-width: 0; }
+
+/* Popover chọn khoản — bám khuôn `.md-page__menu` đã có, KHÔNG dùng <select> trần:
+   select mặc định của trình duyệt không style được phần option nên nhãn chịu/miễn thuế
+   phải viết bằng chữ "· miễn thuế", nhìn lạc hẳn khỏi phần còn lại của app. */
+.ns-comp-add { position: relative; }
+.ns-comp-add__btn { font-size: 13px; }
+.ns-comp-pop__veil { position: fixed; inset: 0; z-index: 30; }
+.ns-comp-pop {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 4px);
+  z-index: 31;
+  min-width: 320px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  box-shadow: 0 10px 28px rgba(20, 19, 15, 0.16);
+  padding: 4px;
+}
+.ns-comp-pop button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-radius: var(--r-2);
+  font-size: 13px;
+  color: var(--ink);
+  cursor: pointer;
+}
+.ns-comp-pop button:hover { background: var(--rule-hair); }
+.ns-comp-pop__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ns-comp-pop__empty { padding: 10px; font-size: 12.5px; color: var(--ash); margin: 0; }
+.ns-comp-pop__foot {
+  border-top: 1px solid var(--rule-soft);
+  margin-top: 4px;
+  padding: 8px 10px 4px;
+  font-size: 12px;
+  color: var(--ash-2);
 }

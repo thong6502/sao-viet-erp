@@ -126,26 +126,37 @@ def test_create_assigns_code_probation_and_hired_event(client):
     assert any(e["event_type"] == "hired" for e in events)
 
 
+def _bac(client, token, code: str) -> int:
+    """id của một bậc trong danh mục theo mã (bac_1..bac_5)."""
+    items = client.get("/api/employees/bac-tay-nghe", headers=_h(token)).json()["items"]
+    return next(g["id"] for g in items if g["code"] == code)
+
+
 def test_create_with_employee_specific_salary_can_have_different_amounts(client):
-    """Bậc thợ chỉ là free-text `job_grade`, KHÔNG quyết định tiền — cùng bậc, 2 NV 2 mức
-    lương vị trí khác nhau (bảng T05: cùng bậc 2 mà người 20tr người 10,5tr)."""
+    """Bậc thợ KHÔNG quyết định tiền — cùng bậc, 2 NV 2 mức lương vị trí khác nhau (bảng T05:
+    cùng bậc 2 mà người 20tr người 10,5tr).
+
+    Từ 29/07/2026 bậc là DANH MỤC (`job_grade_id`) chứ không còn là chữ tự do, nhưng luật trên
+    không đổi: chủ chốt "khai bậc thôi, không cần điền tiền"."""
     token = _admin_token(client)
     dept_id = _dept_id("Hành chính nhân sự")
+    bac_2 = _bac(client, token, "bac_2")
 
     first = _create(
         client, token, full_name="NV mức riêng A", department_id=dept_id,
-        job_grade="Thợ bậc 2",
+        job_grade_id=bac_2,
         initial_salary={"luong_vi_tri": 8_000_000, "luong_trach_nhiem": 1_000_000,
                         "chuyen_can": 300_000},
     )
     second = _create(
         client, token, full_name="NV mức riêng B", department_id=dept_id,
-        job_grade="Thợ bậc 2",
+        job_grade_id=bac_2,
         initial_salary={"luong_vi_tri": 13_000_000, "luong_trach_nhiem": 2_000_000,
                         "chuyen_can": 500_000},
     )
     assert first.status_code == 201 and second.status_code == 201
-    assert first.json()["employee"]["job_grade"] == "Thợ bậc 2"
+    assert first.json()["employee"]["job_grade_name"] == "Bậc 2"
+    assert second.json()["employee"]["job_grade_id"] == bac_2, "hai người CÙNG một bậc"
 
     salary_a = client.get(
         f"/api/luong/salaries/{first.json()['employee']['id']}", headers=_h(token)
@@ -336,19 +347,20 @@ def test_transfer_and_promote_record_events(client):
     )
     assert same.status_code == 400
 
-    # promote (bậc thợ)
+    # promote (bậc tay nghề — chọn từ danh mục, không còn gõ chữ tự do)
+    bac_3 = _bac(client, token, "bac_3")
     p = client.post(
         f"/api/employees/{eid}/transitions",
-        json={"kind": "promote", "new_job_grade": "3/7"},
+        json={"kind": "promote", "new_job_grade_id": bac_3},
         headers=_h(token),
     )
-    assert p.status_code == 200 and p.json()["job_grade"] == "3/7"
+    assert p.status_code == 200 and p.json()["job_grade_name"] == "Bậc 3"
 
     kinds = {e["event_type"] for e in client.get(f"/api/employees/{eid}/events", headers=_h(token)).json()["items"]}
     assert {"hired", "transferred", "promoted"} <= kinds
 
 
-def test_transfer_and_promote_use_free_text_grade_without_changing_salary(client):
+def test_transfer_and_promote_change_grade_without_changing_salary(client):
     """Bậc gỡ hẳn → điều chuyển đổi PHÒNG, thăng bậc đổi `job_grade` (free-text) + chức danh;
     lương của NV KHÔNG đổi và KHÔNG sinh mốc lương mới (lương theo NV, không theo bậc/phòng)."""
     token = _admin_token(client)
@@ -357,7 +369,7 @@ def test_transfer_and_promote_use_free_text_grade_without_changing_salary(client
 
     employee = _create(
         client, token, full_name="NV giữ nguyên lương khi đổi bậc", department_id=hcns,
-        hire_date="2026-01-01", job_grade="Thợ bậc 1",
+        hire_date="2026-01-01", job_grade_id=_bac(client, token, "bac_1"),
         initial_salary={"effective_from": "2026-01-01", "luong_vi_tri": 11_000_000,
                         "luong_trach_nhiem": 2_000_000, "allowance": 700_000},
     ).json()["employee"]
@@ -365,21 +377,22 @@ def test_transfer_and_promote_use_free_text_grade_without_changing_salary(client
     transferred = client.post(
         f"/api/employees/{employee['id']}/transitions",
         json={"kind": "transfer", "new_department_id": kd,
-              "new_job_grade": "Thợ bậc 2", "effective_date": "2026-04-01"},
+              "new_job_grade_id": _bac(client, token, "bac_2"),
+              "effective_date": "2026-04-01"},
         headers=_h(token),
     )
-    assert transferred.status_code == 200
+    assert transferred.status_code == 200, transferred.text
     assert transferred.json()["department_id"] == kd
-    assert transferred.json()["job_grade"] == "Thợ bậc 2"
+    assert transferred.json()["job_grade_name"] == "Bậc 2"
 
     promoted = client.post(
         f"/api/employees/{employee['id']}/transitions",
-        json={"kind": "promote", "new_job_grade": "Thợ bậc 3", "new_position": "Tổ phó",
-              "effective_date": "2026-07-01"},
+        json={"kind": "promote", "new_job_grade_id": _bac(client, token, "bac_3"),
+              "new_position": "Tổ phó", "effective_date": "2026-07-01"},
         headers=_h(token),
     )
-    assert promoted.status_code == 200
-    assert promoted.json()["job_grade"] == "Thợ bậc 3"
+    assert promoted.status_code == 200, promoted.text
+    assert promoted.json()["job_grade_name"] == "Bậc 3"
 
     # Lương KHÔNG đổi, KHÔNG sinh mốc lương mới (vẫn đúng 1 bản ghi ban đầu).
     history = client.get(
@@ -623,3 +636,14 @@ def test_user_with_profile_cannot_self_rename(client):
                       json={"username": "hasprofile", "password": "hasprofile1"}).json()["access_token"]
     r = client.patch("/api/users/me", json={"name": "Tên Tự Đặt"}, headers=_h(tok))
     assert r.status_code == 400
+
+
+def test_danh_sach_nhan_vien_chan_size_qua_200(client):
+    """Ghim ràng buộc mà FE ĐANG DỰA VÀO: `GET /api/employees` chặn `size > 200`.
+
+    Modal "Gán cho nhân viên" từng gửi `size=500` ⇒ 422, và vì gọi trong `Promise.all` nên danh
+    sách treo mãi ở "Đang tải danh sách nhân viên…". Nay FE phân trang theo lô 200
+    (`EMP_PAGE` trong `CauHinhLuongTab.tsx`) — hạ trần xuống dưới 200 là làm hỏng chỗ đó."""
+    token = _admin_token(client)
+    assert client.get("/api/employees?page=1&size=500", headers=_h(token)).status_code == 422
+    assert client.get("/api/employees?page=1&size=200", headers=_h(token)).status_code == 200

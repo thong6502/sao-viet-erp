@@ -128,7 +128,7 @@ function LeaveRequestFormModal({
         </header>
         <div className="ns-modal__body cc-day-detail-modal-body">
           {error && <div className="banner banner--error cc-ts-msg-banner" style={{ marginBottom: "16px" }}>{error}</div>}
-          
+
           <label className="ns-field">
             <span className="cc-field-label">Loại nghỉ *</span>
             <select value={form.leave_type_id} onChange={(e) => setForm({ ...form, leave_type_id: e.target.value === "" ? "" : Number(e.target.value) })}>
@@ -136,7 +136,7 @@ function LeaveRequestFormModal({
               {types.map((t) => <option key={t.id} value={t.id}>{t.name}{t.is_paid ? " (có lương)" : " (không lương)"}</option>)}
             </select>
           </label>
-          
+
           <div className="ns-grid" style={{ marginTop: 14 }}>
             <label className="ns-field">
               <span className="cc-field-label">Từ ngày *</span>
@@ -147,15 +147,15 @@ function LeaveRequestFormModal({
               <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })} />
             </label>
           </div>
-          
+
           <label className="ns-field" style={{ marginTop: 14 }}>
             <span className="cc-field-label">Lý do xin nghỉ</span>
             <input value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="vd: Về quê, khám bệnh…" />
           </label>
-          
+
           <div className="cc-info-card-note" style={{ marginTop: 16 }}>
             <AlertTriangle size={14} className="cc-note-icon" />
-            <span>Cuối tuần (T7/CN) không trừ vào phép năm. Đơn xin nghỉ phép năm sẽ bị chặn khi vượt quá số ngày phép còn lại.</span>
+            <span>Ngày nghỉ theo lịch công ty (mặc định Chủ nhật) và ngày lễ không trừ vào phép năm. Đơn xin nghỉ phép năm sẽ bị chặn khi vượt quá số ngày phép còn lại.</span>
           </div>
         </div>
         <footer className="ns-modal__foot">
@@ -322,13 +322,19 @@ function MyLeaveTab({ token, onChanged }: { token: string; onChanged?: () => voi
           </div>
           <div className="cc-quota-actions">
             <button className="btn btn--primary" onClick={() => { setIsCreateOpen(true); setError(null); }}>+ Xin nghỉ phép</button>
-            <span className="cc-note" style={{ margin: 0 }}>Nhấn vào dòng bản ghi đơn để xem tiến trình chi tiết.</span>
+            <span className="cc-note" style={{ margin: 0 }}>
+              Nhấn vào dòng bản ghi đơn để xem tiến trình chi tiết. Đi muộn / về sớm / nghỉ nửa
+              buổi khai ở <b>Chấm công → Đi muộn / về sớm / nghỉ nửa buổi</b> (tổ trưởng duyệt).
+            </span>
           </div>
         </div>
       ) : (
         <div className="cc-ts-toolbar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <button className="btn btn--primary" onClick={() => { setIsCreateOpen(true); setError(null); }}>+ Xin nghỉ phép</button>
-          <span className="cc-note" style={{ margin: 0 }}>Nhấn vào dòng bản ghi đơn để xem tiến trình chi tiết.</span>
+          <span className="cc-note" style={{ margin: 0 }}>
+            Nhấn vào dòng bản ghi đơn để xem tiến trình chi tiết. Đi muộn / về sớm / nghỉ nửa
+            buổi khai ở <b>Chấm công → Đi muộn / về sớm / nghỉ nửa buổi</b> (tổ trưởng duyệt).
+          </span>
         </div>
       )}
 
@@ -645,7 +651,7 @@ function CalendarTab({ token }: { token: string }) {
                     const cell = e.days[String(d)];
                     const weekend = isWeekend(d);
                     const isToday = isCurrentMonth && d === todayDay;
-                    
+
                     let cellContent = null;
                     let cellClass = "";
                     if (cell) {

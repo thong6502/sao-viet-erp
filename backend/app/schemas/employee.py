@@ -24,11 +24,13 @@ class AccountCreateIn(BaseModel):
 
 class InitialEmployeeSalaryIn(BaseModel):
     """Mức lương ban đầu khai cùng hồ sơ NV. Lương vị trí = lương cơ bản = mức đóng BH;
-    bậc thợ là free-text `job_grade` (hệ thống không quản)."""
+    bậc tay nghề khai ở bước Định danh (`job_grade_id` → danh mục `job_grades`)."""
 
     effective_from: date | None = None
     luong_vi_tri: float = Field(gt=0)
     luong_trach_nhiem: float = Field(default=0, ge=0)
+    # "Lương trả 1 lần" (đợt 1) — mức điền sẵn khi lập phiếu thanh toán lương đợt 1.
+    luong_dot_1: float = Field(default=0, ge=0)
     insurance_base: float | None = Field(default=None, ge=0)
     allowance: float = Field(default=0, ge=0)
     phu_cap_ca: float = Field(default=0, ge=0)
@@ -38,6 +40,8 @@ class InitialEmployeeSalaryIn(BaseModel):
     insurance_elsewhere: bool = False
     # Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn.
     union_member: bool = False
+    # % hoa hồng NV kinh doanh — PHÂN SỐ (0.05 = 5%). CHỈ KHAI, engine chưa cộng vào lương.
+    commission_pct: float = Field(default=0, ge=0, le=1)
     note: str | None = Field(default=None, max_length=255)
 
     @model_validator(mode="after")
@@ -51,7 +55,9 @@ class EmployeeBase(BaseModel):
     full_name: str = Field(min_length=1, max_length=255)
     department_id: int | None = None
     position: str | None = Field(default=None, max_length=255)
-    job_grade: str | None = Field(default=None, max_length=50)
+    # Bậc tay nghề = ID danh mục `job_grades` (chủ 29/07/2026). Ô CHỮ cũ đã bỏ khỏi API:
+    # để cả hai là dựng lại bẫy hai-ô-cùng-nghĩa. Chỉ khối SẢN XUẤT mới khai ô này.
+    job_grade_id: int | None = None
     hire_date: date | None = None
     probation_end_date: date | None = None
     date_of_birth: date | None = None
@@ -68,6 +74,8 @@ class EmployeeBase(BaseModel):
     social_insurance_no: str | None = Field(default=None, max_length=20)
     pit_tax_code: str | None = Field(default=None, max_length=20)
     dependents_count: int = Field(default=0, ge=0)
+    # Cách tính thuế TNCN: luy_tien (mặc định) · khau_tru_10 (HĐ<3 tháng) · cam_ket_08.
+    pit_mode: str = Field(default="luy_tien", pattern="^(luy_tien|khau_tru_10|cam_ket_08)$")
     bank_account: str | None = Field(default=None, max_length=30)
     bank_name: str | None = Field(default=None, max_length=100)
     default_shift_id: int | None = None  # ca làm việc mặc định (ca kíp)
@@ -102,8 +110,10 @@ class TransitionIn(BaseModel):
     effective_date: date | None = None
     note: str | None = Field(default=None, max_length=500)
     new_department_id: int | None = None      # transfer
-    # Bậc thợ là VĂN BẢN tự do (hệ thống không quản lý bậc — chủ 2026-07-20).
-    new_job_grade: str | None = Field(default=None, max_length=50)   # promote
+    # Bậc tay nghề mới. `new_job_grade_id` là đường CHÍNH (danh mục `job_grades`);
+    # `new_job_grade` (chữ) giữ cho API cũ — service tra ngược danh mục theo tên.
+    new_job_grade_id: int | None = None                             # promote | transfer
+    new_job_grade: str | None = Field(default=None, max_length=50)   # promote (tương thích)
     new_position: str | None = Field(default=None, max_length=255)   # promote
     resign_reason: str | None = Field(default=None, max_length=255)  # resign
 
@@ -124,6 +134,29 @@ class AccountIn(BaseModel):
 class AssignShiftIn(BaseModel):
     effective_from: date = Field(default_factory=date.today)
     default_shift_id: int | None = None   # null = bỏ gán ca
+
+
+class AssignShiftBulkIn(BaseModel):
+    """Đặt CA NỀN cho nhiều NV một lượt (màn Phân ca tháng).
+
+    Ca nền áp dụng từ `effective_from` trở về sau cho MỌI tháng — khác với tô ca
+    trên lưới (chỉ đúng ngày đã tô)."""
+
+    employee_ids: list[int] = Field(min_length=1, max_length=500)
+    effective_from: date = Field(default_factory=date.today)
+    default_shift_id: int | None = None   # null = bỏ gán ca
+
+
+class AssignShiftBulkFail(BaseModel):
+    employee_id: int
+    reason: str
+
+
+class AssignShiftBulkOut(BaseModel):
+    updated: int = 0
+    # Số NV vào làm SAU ngày được chọn → mốc tự lùi về đúng ngày vào làm của họ.
+    adjusted: int = 0
+    failed: list[AssignShiftBulkFail] = []
 
 
 class ShiftAssignmentOut(BaseModel):
@@ -165,7 +198,9 @@ class EmployeeRow(BaseModel):
     department_id: int | None
     department_name: str | None = None
     position: str | None = None
-    job_grade: str | None = None
+    job_grade_id: int | None = None
+    job_grade_name: str | None = None   # tên bậc để hiện thẳng, khỏi tra thêm
+    job_grade: str | None = None        # CỘT CŨ (chữ) — chỉ còn để hồ sơ chưa chuyển vẫn hiện
     status: str
     hire_date: date | None = None
     probation_end_date: date | None = None
@@ -194,6 +229,7 @@ class EmployeeOut(EmployeeRow):
     social_insurance_no: str | None = None
     pit_tax_code: str | None = None
     dependents_count: int = 0
+    pit_mode: str = "luy_tien"
     bank_account: str | None = None
     bank_name: str | None = None
     default_shift_id: int | None = None
@@ -336,6 +372,9 @@ class EmployeeActivityOut(BaseModel):
 class DepartmentOption(BaseModel):
     id: int
     name: str
+    # Khối SẢN XUẤT — cờ HIỆU LỰC: tự tick HOẶC có tổ tiên tick (server đã leo cây `parent_id`).
+    # FE chỉ đọc một boolean để ẩn/hiện ô Bậc tay nghề, không phải tự đi leo cây.
+    la_san_xuat: bool = False
 
 
 class UserOption(BaseModel):
@@ -359,3 +398,36 @@ class EmployeeMetaOut(BaseModel):
     departments: list[DepartmentOption]
     unlinked_users: list[UserOption]
     roles: list[RoleOption] = []
+
+
+class JobGradeIn(BaseModel):
+    """Thêm một bậc tay nghề. `code` bỏ trống thì service tự sinh."""
+
+    name: str = Field(min_length=1, max_length=60)
+    code: str | None = Field(default=None, max_length=20)
+    seq: int | None = None
+    note: str | None = Field(default=None, max_length=255)
+
+
+class JobGradeUpdateIn(BaseModel):
+    """Sửa bậc. `exclude_unset` ở router ⇒ không gửi field nào thì field đó KHÔNG bị đụng."""
+
+    name: str | None = Field(default=None, max_length=60)
+    seq: int | None = None
+    is_active: bool | None = None
+    note: str | None = Field(default=None, max_length=255)
+
+
+class JobGradeOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    seq: int
+    is_active: bool
+    note: str | None = None
+
+
+class JobGradesOut(BaseModel):
+    items: list[JobGradeOut]

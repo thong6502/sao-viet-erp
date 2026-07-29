@@ -2,7 +2,9 @@
 for work_locations + attendance_logs. No business rules (those live in AttendanceService)."""
 from __future__ import annotations
 
+import calendar
 import json
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -12,6 +14,7 @@ from ..models.attendance import (
     AttendanceLog,
     AttendancePeriod,
     AttendancePeriodLine,
+    REQ_APPROVED,
     REQ_PENDING,
     WorkLocation,
     WorkShift,
@@ -184,12 +187,41 @@ class AttendanceRepository:
         stmt = stmt.order_by(AttendanceAdjustRequest.created_at.desc(), AttendanceAdjustRequest.id.desc()).limit(limit)
         return list(self.db.execute(stmt).scalars())
 
-    def count_pending_requests(self, *, employee_ids: set[int] | None = None) -> int:
+    def live_adjust_days(self, employee_id: int, year: int, month: int) -> set:
+        """Tập NGÀY CÔNG (`work_date`) mà NV đang có yêu cầu chỉnh công CÒN HIỆU LỰC trong tháng —
+        nền cho hạn mức "tối đa N lần/tháng".
+
+        Trả SET NGÀY chứ không trả số đếm: service cần vừa biết đã dùng bao nhiêu, vừa biết ngày
+        sắp gửi có nằm sẵn trong đó không (quên cả giờ vào lẫn giờ ra của cùng một ngày phải gửi
+        2 đơn, nhưng chỉ tính 1 lượt) — cả hai bằng MỘT truy vấn.
+
+        `pending` cũng giữ chỗ như `approved` (chống gửi ồ ạt rồi duyệt sau); `rejected`/`cancelled`
+        trả lại lượt."""
+        last = calendar.monthrange(year, month)[1]
+        rows = self.db.execute(
+            select(AttendanceAdjustRequest.work_date).where(
+                AttendanceAdjustRequest.employee_id == employee_id,
+                AttendanceAdjustRequest.status.in_((REQ_PENDING, REQ_APPROVED)),
+                AttendanceAdjustRequest.work_date >= date(year, month, 1),
+                AttendanceAdjustRequest.work_date <= date(year, month, last),
+            ).distinct()
+        ).scalars()
+        return set(rows)
+
+    def count_pending_requests(self, *, employee_ids: set[int] | None = None,
+                               start: date | None = None, end: date | None = None) -> int:
+        """`start`/`end` lọc theo NGÀY CÔNG. Guard chốt công phải truyền khoảng của đúng tháng
+        đang chốt — không lọc thì một đơn treo từ tháng 5 chặn chốt tháng 7, mà HCNS mở tháng 7
+        ra chẳng thấy nó đâu để mà duyệt."""
         from sqlalchemy import func
         stmt = select(func.count()).select_from(AttendanceAdjustRequest).where(
             AttendanceAdjustRequest.status == REQ_PENDING)
         if employee_ids is not None:
             stmt = stmt.where(AttendanceAdjustRequest.employee_id.in_(employee_ids))
+        if start is not None:
+            stmt = stmt.where(AttendanceAdjustRequest.work_date >= start)
+        if end is not None:
+            stmt = stmt.where(AttendanceAdjustRequest.work_date <= end)
         return self.db.execute(stmt).scalar_one()
 
     def list_all(
@@ -248,6 +280,11 @@ class AttendanceRepository:
                 "night_days": int(ln.night_days or 0),
                 "holiday_cong": float(getattr(ln, "holiday_cong", 0) or 0),
                 "restday_cong": float(getattr(ln, "restday_cong", 0) or 0),
+                "plain_cong": float(getattr(ln, "plain_cong", 0) or 0),
+                # PHẢI khớp 1-1 với nhánh LIVE của `AttendanceService.metrics_map`. Thiếu ở đây
+                # thì lương ĐỔI SỐ đúng lúc HCNS bấm Chốt công (draft một số, chốt xong một số).
+                "excused_cong": float(getattr(ln, "excused_cong", 0) or 0),
+                "paid_leave_days": float(getattr(ln, "paid_leave_days", 0) or 0),
                 "ot_holiday_minutes": int(getattr(ln, "ot_holiday_minutes", 0) or 0),
                 "ot_restday_minutes": int(getattr(ln, "ot_restday_minutes", 0) or 0),
                 "late_off_days": _load_off_days(getattr(ln, "late_off_days_json", None)),

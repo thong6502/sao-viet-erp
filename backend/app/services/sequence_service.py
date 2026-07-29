@@ -7,6 +7,10 @@ from sqlalchemy.orm import Session
 from ..models.document_sequence import (
     SEQ_DOC_TYPE_PAYMENT_RECEIPT,
     SEQ_DOC_TYPE_PAYMENT_VOUCHER,
+    SEQ_DOC_TYPE_STOCK_REQUEST_IN,
+    SEQ_DOC_TYPE_STOCK_REQUEST_OUT,
+    SEQ_DOC_TYPE_STOCK_VOUCHER_IN,
+    SEQ_DOC_TYPE_STOCK_VOUCHER_OUT,
     SEQ_YEAR_GLOBAL,
 )
 from ..repositories.document_sequence_repo import DocumentSequenceRepository
@@ -23,6 +27,11 @@ PREFIX_MAP = {
 FLAT_PREFIX_MAP = {
     SEQ_DOC_TYPE_PAYMENT_VOUCHER: "PC",  # dùng chung cho Phiếu chi tiền mặt LẪN UNC
     SEQ_DOC_TYPE_PAYMENT_RECEIPT: "PT",
+    # Kho: phiếu nhập/xuất (in mẫu 01-VT/02-VT) + đề nghị nhập/xuất.
+    SEQ_DOC_TYPE_STOCK_VOUCHER_IN: "PNK",
+    SEQ_DOC_TYPE_STOCK_VOUCHER_OUT: "PXK",
+    SEQ_DOC_TYPE_STOCK_REQUEST_IN: "DNN",
+    SEQ_DOC_TYPE_STOCK_REQUEST_OUT: "DNX",
 }
 
 # #18 — múi giờ NGHIỆP VỤ (VN = UTC+7, không DST → offset cố định, không cần tzdata). Server

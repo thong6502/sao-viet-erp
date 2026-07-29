@@ -72,10 +72,14 @@ class LeaveService:
         employees: EmployeeRepository,
         audit: AuditLogRepository,
         calendar=None,
+        late_early=None,
     ) -> None:
         self.leaves = leaves
         self.employees = employees
         self.audit = audit
+        # LateEarlyRepository | None — phiếu đi muộn/về sớm có tick "trừ vào phép năm" cũng tiêu
+        # quỹ phép (nửa buổi = 0,5 ngày). Chỉ đọc REPO nên không vòng service↔service.
+        self._late_early = late_early
         # CalendarService | None — lịch chung (loại ngày lễ + tuần T2–T7). Đặt tên `_work_calendar`
         # để KHÔNG che method `calendar()` (lịch nghỉ tháng) của service này. None → fallback Mon–Fri.
         self._work_calendar = calendar
@@ -225,13 +229,36 @@ class LeaveService:
 
     # --- hạn mức phép năm ----------------------------------------------------
 
-    def _used_working_days(self, employee_id: int, leave_type_id: int, year: int) -> int:
-        """Tổng NGÀY LÀM VIỆC đã dùng + đang giữ (approved + pending) của 1 loại nghỉ trong
-        năm dương lịch — mẫu số kiểm hạn mức."""
-        total = 0
+    def _used_working_days(self, employee_id: int, leave_type_id: int, year: int) -> float:
+        """Tổng NGÀY phép đã dùng + đang giữ (approved + pending) của 1 loại nghỉ trong năm
+        dương lịch — mẫu số kiểm hạn mức.
+
+        Cộng từ HAI kênh: đơn nghỉ nguyên ngày, và phiếu đi muộn/về sớm có tick "trừ vào phép
+        năm" (nửa buổi → 0,5 ngày). Thiếu kênh thứ hai thì người ta xin nửa buổi trừ phép thoải
+        mái mà số dư không hề giảm. Trả FLOAT vì có số lẻ 0,5."""
+        total = 0.0
         for r in self.leaves.list_for_quota(employee_id, leave_type_id, year):
             total += self._wd(r.start_date, r.end_date)
+        if self._late_early is not None:
+            total += self._late_early.leave_cong_used(employee_id, leave_type_id, year)
         return total
+
+    def remaining_for(self, *, employee, leave_type_id: int, year: int,
+                      exclude_late_early_id: int | None = None) -> float | None:
+        """Số ngày phép CÒN LẠI của 1 NV cho 1 loại nghỉ. None = loại không giới hạn hạn mức.
+
+        Dùng chung cho cả đơn nghỉ lẫn phiếu đi muộn/về sớm ⇒ hai đường không bao giờ tính lệch.
+        `exclude_late_early_id` để lúc SỬA phiếu không tự đếm chính nó."""
+        lt = self.leaves.get_type(leave_type_id)
+        if lt is None or not lt.annual_quota or lt.annual_quota <= 0:
+            return None
+        quota = self._quota_for(employee, lt.annual_quota, year)
+        used = self._used_working_days(employee.id, leave_type_id, year)
+        if exclude_late_early_id is not None and self._late_early is not None:
+            old = self._late_early.get_request(exclude_late_early_id)
+            if old is not None and old.leave_type_id == leave_type_id:
+                used -= float(old.leave_cong or 0)
+        return max(0.0, quota - used)
 
     def my_quotas(self, *, user, year: int) -> list[dict]:
         """Tình hình hạn mức của NV đăng nhập (chỉ loại có annual_quota > 0): đã dùng / còn
