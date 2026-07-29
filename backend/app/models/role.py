@@ -184,3 +184,29 @@ class RolePermission(Base):
     can_handover: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # --- kho (spec-kho-de-nghi §9.1) — 4 quyền chi tiết của module Kho ------------------
+    # TẠO ĐỀ NGHỊ nhập/xuất. TÁCH khỏi `can_create` (= lập PHIẾU): người đề nghị không lập
+    # phiếu, còn thủ kho lập phiếu nhưng không tự đề nghị cho mình.
+    can_request: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # XEM SỐ TỒN. Thiếu quyền → chỉ thấy ĐÈN TÍN HIỆU 5 màu, không thấy con số. Đây là cách
+    # người đề nghị biết "sắp hết" mà vẫn không lộ số liệu tồn (spec §7/§8).
+    can_view_stock: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # XEM GIÁ VỐN & giá trị tồn. BRD §1.5: tồn ai cũng xem được, giá vốn chỉ Kế toán + BGĐ.
+    # Thiếu quyền → API ẩn đơn giá/thành tiền, và bản in cũng bỏ 2 cột đó.
+    can_view_cost: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # KHAI NGƯỠNG tồn / cận tồn / tối đa. Tách khỏi `can_update` vì đổi ngưỡng là đổi toàn
+    # bộ hệ cảnh báo mua hàng, không phải sửa dữ liệu thường.
+    can_set_threshold: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    # GHI SỔ phiếu (chốt tồn). TÁCH khỏi `can_create` (= LẬP phiếu nháp) để giữ SoD: thủ kho
+    # lập nháp, KẾ TOÁN KHO ghi sổ (BRD §3.19 — người ghi sổ khác người cầm hàng).
+    can_post: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )

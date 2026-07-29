@@ -2360,6 +2360,214 @@ def _migrate_drop_kho_giay_chuan(db: Session) -> None:
         db.rollback()
 
 
+def _migrate_role_permission_kho_direction(db: Session) -> None:
+    """Phân quyền CHIỀU kho (spec-kho-de-nghi): thêm `role_permissions.can_nhap`/`can_xuat`.
+    Quyền thật = chiều ∩ việc. DEFAULT FALSE (bool). No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "role_permissions")
+    for col in ("can_nhap", "can_xuat"):
+        if col not in cols:
+            db.execute(text(
+                f"ALTER TABLE role_permissions ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+    db.commit()
+
+
+def _migrate_stock_request_line_ten_tu_do(db: Session) -> None:
+    """Đề nghị hàng MỚI gõ tên tự do (spec-kho-de-nghi): thêm `stock_request_lines.ten_tu_do`
+    (VARCHAR(255)). material_id để rỗng cho hàng chưa có mã — SQLite/PG không siết lại NOT NULL
+    cũ được qua ALTER, nhưng model đã cho nullable nên hàng mới ghi material_id NULL bình thường
+    (cột cũ vốn NOT NULL trên DB cũ; hàng free-text chỉ phát sinh SAU migration này). No-op nếu
+    bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_request_lines" not in insp.get_table_names():
+        return
+    if "ten_tu_do" not in _existing_columns(insp, "stock_request_lines"):
+        db.execute(text("ALTER TABLE stock_request_lines ADD COLUMN ten_tu_do VARCHAR(255)"))
+    # Nới material_id (hàng free-text để rỗng). Postgres nới tại chỗ; SQLite không ALTER được
+    # NOT NULL cũ → dev drop dev.db để create_all dựng lại theo model (đã nullable). Tests dùng
+    # DB in-memory nên luôn theo model mới.
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("ALTER TABLE stock_request_lines ALTER COLUMN material_id DROP NOT NULL"))
+    db.commit()
+
+
+def _migrate_stock_request_line_material_nullable(db: Session) -> None:
+    """Nới `stock_request_lines.material_id` → NULLABLE (hàng free-text ở đề nghị để mã rỗng).
+
+    0096 thêm `ten_tu_do` nhưng KHÔNG nới được NOT NULL cũ trên SQLite (không ALTER COLUMN được),
+    nên DB dev đã áp 0096 vẫn chèn hàng mới (material_id NULL) là dính IntegrityError. Migration
+    này làm nốt việc nới, GIỮ NGUYÊN dữ liệu:
+      * Postgres: `ALTER COLUMN ... DROP NOT NULL` tại chỗ.
+      * SQLite:   DỰNG LẠI bảng theo model (material_id nullable), copy trọn dữ liệu, tạo lại index.
+    Idempotent: nếu material_id đã nullable (DB mới create_all theo model) → no-op.
+    """
+    insp = inspect(db.get_bind())
+    if "stock_request_lines" not in insp.get_table_names():
+        return
+    cols = {c["name"]: c for c in insp.get_columns("stock_request_lines")}
+    mat = cols.get("material_id")
+    if mat is None or mat.get("nullable", True):
+        return  # đã nullable → không cần làm gì
+
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        db.execute(text("ALTER TABLE stock_request_lines ALTER COLUMN material_id DROP NOT NULL"))
+        db.commit()
+        return
+    if dialect == "sqlite":
+        # App KHÔNG bật PRAGMA foreign_keys (mặc định OFF) → drop/rename không bị FK chặn.
+        # Bảng _new khớp đúng model: material_id NULLABLE, có ten_tu_do (0096 đã thêm trước).
+        db.execute(text(
+            "CREATE TABLE stock_request_lines_new ("
+            " id INTEGER NOT NULL PRIMARY KEY,"
+            " request_id INTEGER NOT NULL,"
+            " material_id INTEGER,"
+            " ten_tu_do VARCHAR(255),"
+            " dvt VARCHAR(16) NOT NULL,"
+            " sl_de_nghi NUMERIC(14, 2) NOT NULL CHECK (sl_de_nghi > 0),"
+            " sl_duyet NUMERIC(14, 2) NOT NULL DEFAULT '0' CHECK (sl_duyet >= 0),"
+            " sl_da_ung NUMERIC(14, 2) NOT NULL DEFAULT '0' CHECK (sl_da_ung >= 0),"
+            " ghi_chu VARCHAR(500),"
+            " FOREIGN KEY(request_id) REFERENCES stock_requests (id) ON DELETE CASCADE,"
+            " FOREIGN KEY(material_id) REFERENCES materials (id)"
+            ")"
+        ))
+        db.execute(text(
+            "INSERT INTO stock_request_lines_new"
+            " (id, request_id, material_id, ten_tu_do, dvt, sl_de_nghi, sl_duyet, sl_da_ung, ghi_chu)"
+            " SELECT id, request_id, material_id, ten_tu_do, dvt, sl_de_nghi, sl_duyet, sl_da_ung,"
+            " ghi_chu FROM stock_request_lines"
+        ))
+        db.execute(text("DROP TABLE stock_request_lines"))
+        db.execute(text("ALTER TABLE stock_request_lines_new RENAME TO stock_request_lines"))
+        db.execute(text(
+            "CREATE INDEX ix_stock_request_lines_request_id ON stock_request_lines (request_id)"
+        ))
+        db.execute(text(
+            "CREATE INDEX ix_stock_request_lines_material_id ON stock_request_lines (material_id)"
+        ))
+        db.commit()
+
+
+def _migrate_material_kho_conversion(db: Session) -> None:
+    """Quy đổi đơn vị KHO (spec-kho-de-nghi): thêm `materials.don_vi_phu` (VARCHAR(16)) +
+    `materials.he_so_quy_doi` (NUMERIC(14,4)). Nullable. No-op DB fresh / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "materials" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "materials")
+    if "don_vi_phu" not in cols:
+        db.execute(text("ALTER TABLE materials ADD COLUMN don_vi_phu VARCHAR(16)"))
+    if "he_so_quy_doi" not in cols:
+        db.execute(text("ALTER TABLE materials ADD COLUMN he_so_quy_doi NUMERIC(14,4)"))
+    db.commit()
+
+
+def _migrate_stock_voucher_line_ghi_chu(db: Session) -> None:
+    """Ghi chú theo DÒNG phiếu (spec-kho-de-nghi): thêm `stock_voucher_lines.ghi_chu`
+    (VARCHAR(500) nullable). No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_voucher_lines" not in insp.get_table_names():
+        return
+    if "ghi_chu" not in _existing_columns(insp, "stock_voucher_lines"):
+        db.execute(text("ALTER TABLE stock_voucher_lines ADD COLUMN ghi_chu VARCHAR(500)"))
+    db.commit()
+
+
+def _migrate_stock_request_kho_id(db: Session) -> None:
+    """Kho ĐÍCH của đề nghị (spec-kho-de-nghi): thêm `stock_requests.kho_id` (INTEGER nullable,
+    soft → kho_hang.id). Nullable để hàng cũ (đề nghị trước khi có cột) không vỡ; API create
+    bắt buộc. No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_requests" not in insp.get_table_names():
+        return
+    if "kho_id" not in _existing_columns(insp, "stock_requests"):
+        db.execute(text("ALTER TABLE stock_requests ADD COLUMN kho_id INTEGER"))
+    db.commit()
+
+
+def _migrate_role_permission_kho(db: Session) -> None:
+    """Phân quyền module Kho (spec-kho-de-nghi §9.1): thêm 4 cột quyền chi tiết vào
+    `role_permissions` — can_request (tạo đề nghị), can_view_stock (xem SỐ tồn, thiếu thì
+    chỉ thấy đèn tín hiệu), can_view_cost (xem giá vốn), can_set_threshold (khai ngưỡng tồn).
+    DEFAULT FALSE (bool, KHÔNG phải '0' — chuỗi chạy SQLite nhưng vỡ Postgres). No-op trên
+    DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "role_permissions")
+    for col in ("can_request", "can_view_stock", "can_view_cost", "can_set_threshold"):
+        if col not in cols:
+            db.execute(text(
+                f"ALTER TABLE role_permissions ADD COLUMN {col} BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+    db.commit()
+
+
+def _migrate_role_permission_kho_post(db: Session) -> None:
+    """Tách GHI SỔ phiếu khỏi LẬP phiếu (SoD): thêm `role_permissions.can_post`. Thủ kho chỉ
+    lập nháp (can_create), Kế toán kho/QL kho ghi sổ (can_post). DEFAULT FALSE (bool). No-op
+    DB fresh / cột đã có. Seed cấp can_post cho các vai kho phù hợp lúc reseed."""
+    insp = inspect(db.get_bind())
+    if "role_permissions" not in insp.get_table_names():
+        return
+    if "can_post" not in _existing_columns(insp, "role_permissions"):
+        db.execute(text(
+            "ALTER TABLE role_permissions ADD COLUMN can_post BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
+
+
+def _migrate_stock_voucher_nguoi_ghi_so(db: Session) -> None:
+    """Lưu AI GHI SỔ phiếu (duyệt/chốt): thêm `stock_vouchers.nguoi_ghi_so_id` (INTEGER nullable,
+    soft → users.id). Null cho phiếu cũ. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_vouchers" not in insp.get_table_names():
+        return
+    if "nguoi_ghi_so_id" not in _existing_columns(insp, "stock_vouchers"):
+        db.execute(text("ALTER TABLE stock_vouchers ADD COLUMN nguoi_ghi_so_id INTEGER"))
+    db.commit()
+
+
+def _migrate_stock_request_line_don_gia(db: Session) -> None:
+    """Đơn giá NHẬP do người đề nghị khai: thêm `stock_request_lines.don_gia` (INTEGER nullable).
+    Phiếu kế thừa giá này khi ghi sổ (kho không sửa). No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_request_lines" not in insp.get_table_names():
+        return
+    if "don_gia" not in _existing_columns(insp, "stock_request_lines"):
+        db.execute(text("ALTER TABLE stock_request_lines ADD COLUMN don_gia INTEGER"))
+    db.commit()
+
+
+def _migrate_stock_request_line_ly_do_thieu(db: Session) -> None:
+    """Kho phản hồi: thêm `stock_request_lines.ly_do_thieu` (VARCHAR(500) nullable) — lý do kho
+    cấp/nhập ít hơn số còn phải cấp. No-op DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_request_lines" not in insp.get_table_names():
+        return
+    if "ly_do_thieu" not in _existing_columns(insp, "stock_request_lines"):
+        db.execute(text("ALTER TABLE stock_request_lines ADD COLUMN ly_do_thieu VARCHAR(500)"))
+    db.commit()
+
+
+def _migrate_stock_request_line_quy_doi(db: Session) -> None:
+    """Quy đổi đơn vị khai Ở ĐỀ NGHỊ (chuyển từ phiếu sang): thêm `stock_request_lines.don_vi_phu`
+    (VARCHAR(16)) + `he_so_quy_doi` (NUMERIC(14,4)), nullable. No-op DB fresh / bảng chưa có / đã có."""
+    insp = inspect(db.get_bind())
+    if "stock_request_lines" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "stock_request_lines")
+    if "don_vi_phu" not in cols:
+        db.execute(text("ALTER TABLE stock_request_lines ADD COLUMN don_vi_phu VARCHAR(16)"))
+    if "he_so_quy_doi" not in cols:
+        db.execute(text("ALTER TABLE stock_request_lines ADD COLUMN he_so_quy_doi NUMERIC(14,4)"))
+    db.commit()
+
+
 MIGRATIONS: list[tuple[str, callable]] = [
     ("0002_operation_full_fields", _migrate_operation_full_fields),
     ("0003_norms_waste_groups", _migrate_norms_waste_groups),
@@ -2477,6 +2685,26 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0090_drop_kho_giay_chuan", _migrate_drop_kho_giay_chuan),
     # Khách chốt MỘT PHẦN: cờ dòng báo giá khách ưng/không (đơn chỉ kéo dòng accepted).
     ("0091_quote_item_accepted", _migrate_quote_item_accepted),
+    # Module Kho — đề nghị/phiếu/lô: 4 ô quyền chi tiết. Bảng stock_* là bảng MỚI nên
+    # create_all tự dựng, không cần migration; chỉ role_permissions là bảng cũ phải ALTER.
+    ("0092_role_permission_kho", _migrate_role_permission_kho),
+    ("0093_stock_request_kho_id", _migrate_stock_request_kho_id),
+    ("0094_stock_voucher_line_ghi_chu", _migrate_stock_voucher_line_ghi_chu),
+    ("0095_material_kho_conversion", _migrate_material_kho_conversion),
+    ("0096_stock_request_line_ten_tu_do", _migrate_stock_request_line_ten_tu_do),
+    # Nới NOT NULL cũ của material_id (0096 chỉ nới được trên Postgres) → dev SQLite hết
+    # IntegrityError khi đề nghị hàng mới. SQLite phải dựng lại bảng, giữ nguyên dữ liệu.
+    ("0097_stock_request_line_material_nullable", _migrate_stock_request_line_material_nullable),
+    # Tách ghi sổ phiếu khỏi lập phiếu (SoD): can_post cho role_permissions.
+    ("0098_role_permission_kho_post", _migrate_role_permission_kho_post),
+    # Lưu người ghi sổ phiếu (hiện "ai duyệt/ghi sổ phiếu" trên chi tiết).
+    ("0099_stock_voucher_nguoi_ghi_so", _migrate_stock_voucher_nguoi_ghi_so),
+    # Đơn giá NHẬP khai ở đề nghị (người đề nghị nhập, phiếu kế thừa; kho không sửa).
+    ("0100_stock_request_line_don_gia", _migrate_stock_request_line_don_gia),
+    # Quy đổi đơn vị khai ở đề nghị (chuyển từ phiếu sang).
+    ("0101_stock_request_line_quy_doi", _migrate_stock_request_line_quy_doi),
+    # Kho phản hồi: lý do cấp/nhập thiếu so với còn phải cấp.
+    ("0102_stock_request_line_ly_do_thieu", _migrate_stock_request_line_ly_do_thieu),
 ]
 
 

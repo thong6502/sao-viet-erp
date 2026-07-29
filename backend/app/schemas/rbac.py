@@ -327,6 +327,11 @@ class PermissionRow(BaseModel):
     can_assign_work: bool = False      # san_xuat — tổ trưởng gán thợ vào công đoạn
     can_record_output: bool = False    # san_xuat — tổ trưởng ghi sản lượng đạt/hỏng (Lát 2)
     can_handover: bool = False         # san_xuat — tổ trưởng bàn giao + xác nhận nhận (Lát 2)
+    can_request: bool = False          # kho — tạo đề nghị nhập/xuất (tách khỏi lập phiếu)
+    can_view_stock: bool = False       # kho — xem SỐ tồn (thiếu → chỉ đèn tín hiệu 5 màu)
+    can_view_cost: bool = False        # kho — xem giá vốn & giá trị tồn (chỉ KT + BGĐ)
+    can_set_threshold: bool = False    # kho — khai ngưỡng tồn / cận tồn / tối đa
+    can_post: bool = False             # kho — GHI SỔ phiếu (chốt tồn); tách khỏi lập nháp (SoD)
 
 
 class PermissionMatrixIn(BaseModel):

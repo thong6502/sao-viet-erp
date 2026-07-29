@@ -89,6 +89,11 @@ class Material(Base):
     ink_color_code: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Nhóm film
     film_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Quy đổi đơn vị KHO (hệ số cố định) — spec-kho-de-nghi: nhập theo đơn vị phụ (ream/kg),
+    # lưu lô theo `unit` (đơn vị tồn). 1 don_vi_phu = he_so_quy_doi × unit. Bỏ trống = không
+    # quy đổi (chỉ nhập theo đơn vị tồn). Tách khỏi purchase_uom/conversion_* của engine giá.
+    don_vi_phu: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    he_so_quy_doi: Mapped[float | None] = mapped_column(Numeric(14, 4), nullable=True)
     version: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="1", default=1
     )

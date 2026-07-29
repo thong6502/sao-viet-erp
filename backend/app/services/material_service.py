@@ -19,6 +19,8 @@ _EXTRA_MATERIAL_FIELDS = (
     "material_group", "default_supplier", "base_uom", "purchase_uom", "consumption_uom",
     "conversion_method", "conversion_factor", "ink_type", "ink_color_system",
     "ink_color_code", "film_type",
+    # Quy đổi KHO (hệ số cố định) — chảy thẳng xuống repo/model.
+    "don_vi_phu", "he_so_quy_doi",
 )
 
 VALID_MATERIAL_TYPES = {
@@ -32,6 +34,9 @@ VALID_MATERIAL_TYPES = {
     "lamination",
     "glue",
     "chemical",
+    # Mặt hàng Kho "bình thường" thêm nhanh ngay ở đề nghị (chỉ tên + ĐVT). Engine tính giá
+    # không đọc loại này nên không vỡ tính giá; material_group để None (được phép, xem _clean_extra).
+    "hang_khac",
 }
 
 class MaterialError(Exception):
@@ -154,6 +159,7 @@ class MaterialService:
         name: str,
         material_type: str,
         unit: str,
+        code: str | None = None,
         min_fee: int = 0,
         width_cm: float | None = None,
         height_cm: float | None = None,
@@ -184,11 +190,18 @@ class MaterialService:
         if self.repo.find_by_name(name) is not None:
             raise MaterialDuplicate("Tên vật tư đã tồn tại.")
 
+        # Mã tự đặt (tuỳ chọn): chuẩn hoá HOA + bỏ khoảng trắng thừa; trùng thì chặn. Bỏ trống
+        # → để repo tự sinh theo loại.
+        code_clean = (code or "").strip().upper() or None
+        if code_clean is not None and self.repo.get_by_code(code_clean) is not None:
+            raise MaterialDuplicate(f"Mã '{code_clean}' đã tồn tại.")
+
         clean_extra = self._clean_extra(extra, material_type)
         material = self.repo.create(
             name=name.strip(),
             material_type=material_type,
             unit=unit.strip(),
+            code=code_clean,
             min_fee=min_fee,
             width_cm=width_cm,
             height_cm=height_cm,
@@ -208,6 +221,24 @@ class MaterialService:
             detail=f"{material.code} - {material.name} ({material_type})",
         )
         return material
+
+    def set_quy_doi(
+        self, *, material_id: int, don_vi_phu: str | None, he_so_quy_doi: float | None, actor
+    ) -> Material:
+        """Khai/sửa quy đổi đơn vị KHO (hệ số cố định) cho một mặt hàng — dùng cho nút 'Quy đổi'
+        ngay trên dòng phiếu. Đặt đơn vị phụ + hệ số, hoặc xoá (cả hai None) để bỏ quy đổi."""
+        m = self.get_material(material_id)
+        dv = (don_vi_phu or "").strip() or None
+        hs = float(he_so_quy_doi) if he_so_quy_doi is not None else None
+        # Khai thì phải đủ CẶP (đơn vị phụ + hệ số > 0); xoá thì cả hai trống.
+        if dv is not None or hs is not None:
+            if not dv or hs is None or hs <= 0:
+                raise MaterialValidationError("Quy đổi cần đơn vị phụ và hệ số lớn hơn 0.")
+        m.don_vi_phu = dv
+        m.he_so_quy_doi = hs
+        self.repo.db.commit()
+        self.repo.db.refresh(m)
+        return m
 
     def update_material(
         self,

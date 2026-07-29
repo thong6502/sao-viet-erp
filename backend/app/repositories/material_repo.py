@@ -28,6 +28,15 @@ class MaterialRepository:
             .where(Material.id == material_id)
         ).scalars().first()
 
+    def by_ids(self, ids) -> dict[int, Material]:
+        """Nạp NHIỀU mã trong 1 query (KHÔNG kèm `costs` — nơi gọi chỉ cần code/name/unit/quy đổi).
+        Tránh N+1 khi serialize danh sách đề nghị/phiếu."""
+        ids = [i for i in set(ids) if i is not None]
+        if not ids:
+            return {}
+        rows = self.db.execute(select(Material).where(Material.id.in_(ids))).scalars()
+        return {m.id: m for m in rows}
+
     def get_by_code(self, code: str) -> Material | None:
         return self.db.execute(
             select(Material)
@@ -94,7 +103,8 @@ class MaterialRepository:
     # --- writes -------------------------------------------------------------
 
     def _next_code(self, material_type: str) -> str:
-        prefix = "GY" if material_type == "paper" else "VT"
+        # Tiền tố 2 ký tự: giấy→GY, hàng Kho thêm nhanh→HH, còn lại→VT (parse code[2:]).
+        prefix = {"paper": "GY", "hang_khac": "HH"}.get(material_type, "VT")
         max_n = 0
         for code in self.db.execute(
             select(Material.code).where(Material.code.like(f"{prefix}%"))
@@ -111,6 +121,7 @@ class MaterialRepository:
         name: str,
         material_type: str,
         unit: str,
+        code: str | None = None,
         min_fee: int = 0,
         width_cm: float | None = None,
         height_cm: float | None = None,
@@ -124,7 +135,8 @@ class MaterialRepository:
         **extra,
     ) -> Material:
         material = Material(
-            code=self._next_code(material_type),
+            # Mã tự đặt (đã chuẩn hoá ở service) nếu có; bỏ trống thì hệ thống tự sinh.
+            code=code or self._next_code(material_type),
             name=name,
             material_type=material_type,
             unit=unit,
