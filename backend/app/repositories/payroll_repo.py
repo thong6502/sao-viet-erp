@@ -278,33 +278,19 @@ class PayrollRepository:
             ).scalars()
         )
 
-    def approved_advance_map(self, year: int, month: int) -> dict[int, float]:
-        """{employee_id → tổng tạm ứng ĐÃ DUYỆT của kỳ} — để trừ vào bảng lương."""
-        rows = self.db.execute(
-            select(SalaryAdvance.employee_id, func.sum(SalaryAdvance.amount))
-            .where(
-                SalaryAdvance.period_year == year,
-                SalaryAdvance.period_month == month,
-                SalaryAdvance.status == ADV_APPROVED,
-            )
-            .group_by(SalaryAdvance.employee_id)
-        ).all()
-        return {emp_id: float(total or 0) for emp_id, total in rows}
-
-    def advance_used(self, employee_id: int, year: int, month: int, *,
-                     exclude_id: int | None = None) -> float:
-        """Tổng tạm ứng 1 NV ĐÃ CHIẾM CHỖ trong kỳ = ĐÃ DUYỆT **+ ĐANG CHỜ DUYỆT** (chủ chốt
-        2026-07-23: đơn chờ duyệt giữ chỗ, chặn chiêu gửi nhiều đơn nhỏ rồi duyệt hết thành vượt trần).
-        `exclude_id` để lúc DUYỆT một đơn không tự đếm chính nó vào phần đã dùng."""
-        stmt = select(func.sum(SalaryAdvance.amount)).where(
-            SalaryAdvance.employee_id == employee_id,
+    def approved_advance_map(self, year: int, month: int, *,
+                             kind: str | None = None) -> dict[int, float]:
+        """{employee_id → tổng ĐÃ DUYỆT của kỳ} — để trừ vào bảng lương. `kind` lọc loại phiếu
+        (tam_ung / luong_dot_1); None = mọi loại."""
+        stmt = select(SalaryAdvance.employee_id, func.sum(SalaryAdvance.amount)).where(
             SalaryAdvance.period_year == year,
             SalaryAdvance.period_month == month,
-            SalaryAdvance.status.in_((ADV_PENDING, ADV_APPROVED)),
+            SalaryAdvance.status == ADV_APPROVED,
         )
-        if exclude_id is not None:
-            stmt = stmt.where(SalaryAdvance.id != exclude_id)
-        return float(self.db.execute(stmt).scalar() or 0)
+        if kind is not None:
+            stmt = stmt.where(SalaryAdvance.kind == kind)
+        rows = self.db.execute(stmt.group_by(SalaryAdvance.employee_id)).all()
+        return {emp_id: float(total or 0) for emp_id, total in rows}
 
     # --- payroll_periods ----------------------------------------------------
 

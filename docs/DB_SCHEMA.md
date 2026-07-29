@@ -1665,6 +1665,33 @@ ca = thêm mốc mới; khoảng kết thúc của mốc suy ra bằng ngày li�
 
 ---
 
+### `employee_shift_days`
+
+**Purpose:** ca của nhân viên tại MỘT NGÀY cụ thể — lớp **đè** lên ca mặc định theo mốc
+(`employee_shift_assignments`). Dùng cho xoay ca linh hoạt (hôm nay ca khuya, mai ca ngày), khai
+bằng lưới NV × ngày ở tab "Khai ca". Mỗi ngày công vẫn **chỉ 1 ca** — `(employee_id, work_date)`
+UNIQUE là hàng rào cứng; làm ngoài khung ca là TĂNG CA (module riêng), không phải ca thứ hai.
+Ba trạng thái một ô lưới: **không có dòng** = kế thừa ca mặc định · **có `shift_id`** = ca cụ thể ·
+**`is_off=True`** = nghỉ theo lịch. `is_off` chỉ là dấu KẾ HOẠCH: KHÔNG chặn chấm công và KHÔNG
+sinh hệ số lương (đi làm ngày nghỉ riêng vẫn hưởng 1× như ngày thường; chủ nhật vẫn theo luật nghỉ
+tuần chung), nên `shift_id_on()` cố ý bỏ qua dòng `is_off` và rơi xuống ca nền. Bảng do `create_all` tạo.
+
+| Column        | Type (SQLAlchemy → SQLite / Postgres)                  | Key                         | Null | Default        | Meaning                                              |
+| ------------- | ------------------------------------------------------ | --------------------------- | ---- | -------------- | ---------------------------------------------------- |
+| `id`          | `Integer` → `INTEGER` / `SERIAL`                       | **PK**                      | no   | auto-increment | Surrogate primary key.                               |
+| `employee_id` | `Integer` → `INTEGER`                                  | **FK→employees.id**, **IX** | no   | —              | Nhân viên chủ; `ON DELETE CASCADE`.                  |
+| `work_date`   | `Date` → `DATE`                                        | **IX**                      | no   | —              | NGÀY CÔNG (cùng trục `work_day_of`), không phải ngày lịch của lượt bấm. |
+| `shift_id`    | `Integer` → `INTEGER`                                  | **IX**                      | yes  | —              | Soft-ref `work_shifts.id`; NULL đi kèm `is_off` = nghỉ theo lịch. |
+| `is_off`      | `Boolean` → `BOOLEAN`                                  | —                           | no   | `false`        | Nghỉ luân phiên theo lịch — dấu kế hoạch, không ra tiền. |
+| `created_by`  | `Integer` → `INTEGER`                                  | **FK→users.id**             | yes  | —              | Người khai ca.                                       |
+| `created_at`  | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | —                           | no   | now (UTC)      | Khi ghi máy.                                         |
+
+**Keys & indexes**
+
+- Primary key: `id`. Unique: `(employee_id, work_date)` — `uq_employee_shift_day`.
+
+---
+
 ### `employee_events`
 
 **Purpose:** một mốc "Quá trình công tác" của nhân viên (module `nhan_su`). Service ghi 1
@@ -1815,6 +1842,35 @@ Phiếu tăng ca (module `tang_ca`): NV tự gửi → tổ trưởng duyệt, H
 
 ---
 
+### `late_early_requests`
+
+Phiếu xin **ĐI MUỘN / VỀ SỚM / NGHỈ NỬA BUỔI** (module `di_muon`): NV tự gửi → **tổ trưởng duyệt**, HOẶC tổ trưởng khai hộ (duyệt luôn) — cùng luồng phiếu tăng ca. Cố ý KHÔNG dùng chung `leave_requests`: đây là **phiếu chấm công ngoại lệ**, người duyệt khác (tổ trưởng vs HCNS), và gộp chung thì phải nhớ lọc nó ra ở 7 chỗ đọc đơn nghỉ (badge, chuông, lịch nghỉ, 2 danh sách, chặn chốt công, quota). **Hai nhánh tiền** phân biệt bằng `leave_type_id`: NULL = mất công phần vắng, không đụng quỹ phép; khác NULL = tiêu `leave_cong` ngày phép và phần vắng vẫn được trả theo **lương vị trí**. Cả hai nhánh đều được **miễn phạt** đi muộn/về sớm đúng số phút đã xin. Bảng mới do `create_all` tạo (không migration).
+
+| Column | Type (Py → SQL) | Key | Null | Default | Notes |
+| --- | --- | --- | --- | --- | --- |
+| `id` | `Integer` → `INTEGER` | **PK** | no | auto | Khóa chính. |
+| `employee_id` | `Integer` → `INTEGER` | **FK→employees.id, IX** | no | — | NV xin vắng (ON DELETE CASCADE). |
+| `work_date` | `Date` → `DATE` | **IX** | no | — | NGÀY CÔNG của ca gốc (ngày VÀO ca). |
+| `from_minute` | `Integer` → `INTEGER` | — | no | — | Phút bắt đầu VẮNG MẶT, tính từ 00:00 của `work_date`. |
+| `to_minute` | `Integer` → `INTEGER` | — | no | — | Phút kết thúc vắng mặt. Engine chỉ dùng ĐỘ DÀI `to − from`. |
+| `leave_type_id` | `Integer` → `INTEGER` | **IX** | yes | — | Soft-ref `leave_types.id` (KHÔNG FK cứng). NULL = **không** trừ quỹ phép. |
+| `leave_cong` | `Numeric(4,2)` → `NUMERIC` | — | no | `0` | Số ngày phép bị trừ, **đã làm tròn 0,5** (vắng ≤ nửa ca → 0,5; vượt → 1,0). |
+| `reason` | `String(500)` → `VARCHAR(500)` | — | yes | — | Lý do xin vắng. |
+| `status` | `String(16)` → `VARCHAR(16)` | **IX** | no | `pending` | pending/approved/rejected/cancelled. |
+| `decided_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | Người duyệt/từ chối. |
+| `decided_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | Thời điểm quyết. |
+| `decision_note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú / lý do từ chối (từ chối bắt buộc ghi). |
+| `created_by` | `Integer` → `INTEGER` | **FK→users.id** | yes | — | User tạo phiếu (NV tự gửi hoặc tổ trưởng khai hộ). |
+| `created_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | no | now (UTC) | Khi tạo. |
+| `seen_by_employee_at` | `DateTime(timezone=True)` → `DATETIME` / `TIMESTAMPTZ` | — | yes | — | NV đã xem kết quả chưa (chuông Topbar). Timestamp, KHÔNG Boolean. |
+
+**Keys & indexes**
+
+- Primary key: `id`.
+- Indexes: `employee_id`, `work_date`, `status`, `leave_type_id`.
+
+---
+
 ### `attendance_adjust_requests`
 
 Yêu cầu chỉnh công: NV tự gửi (giải trình 1 ngày công) → HCNS duyệt/từ chối. Duyệt ⇒ sinh 1 punch điều chỉnh tay (`attendance_logs.is_manual`) → công tự tính lại. Bảng mới do `create_all` tạo (không migration).
@@ -1885,7 +1941,7 @@ từ đây khi kỳ đã `locked`. Xóa + ghi lại mỗi lần Chốt / Mở l�
 | `total_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Số công thực (đã gồm công lễ + nghỉ phép có lương). |
 | `total_days` | `Integer` → `INTEGER` | — | no | `0` | Số ngày có chấm công. |
 | `total_leave` | `Integer` → `INTEGER` | — | no | `0` | Tổng ngày nghỉ phép đã duyệt. |
-| `paid_leave_days` | `Integer` → `INTEGER` | — | no | `0` | Nghỉ phép CÓ lương. |
+| `paid_leave_days` | `Numeric(6,2)` → `NUMERIC(6, 2)` | — | no | `0` | Nghỉ phép CÓ lương. Số LẺ được (phiếu nghỉ nửa buổi có trừ phép = 0,5 ngày). |
 | `unpaid_leave_days` | `Integer` → `INTEGER` | — | no | `0` | Nghỉ KHÔNG lương. |
 | `holiday_days` | `Integer` → `INTEGER` | — | no | `0` | Ngày nghỉ lễ hưởng công. |
 | `total_hours` | `Numeric(7,2)` → `NUMERIC` | — | no | `0` | Tổng giờ có mặt. |
@@ -1893,6 +1949,8 @@ từ đây khi kỳ đã `locked`. Xóa + ghi lại mỗi lần Chốt / Mở l�
 | `night_days` | `Integer` → `INTEGER` | — | no | `0` | Số ngày làm ca đêm. |
 | `holiday_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công LÀM ngày lễ (Đ98 → Lương trả premium). Thêm qua migration 0065. |
 | `restday_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công LÀM ngày nghỉ tuần (Đ98 → premium). Thêm qua migration 0065. |
+| `plain_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công LÀM ngày nghỉ `off1x` — Lương trả 1× (KHÔNG hệ số), uncapped. Thêm qua migration 0109. |
+| `excused_cong` | `Numeric(6,2)` → `NUMERIC` | — | no | `0` | Công THIẾU nhưng CÓ ĐƠN nghỉ theo giờ đã duyệt (đi muộn/về sớm/nửa ngày). **KHÔNG** cộng vào `total_cong` — tiền công vẫn trừ; chỉ để Lương giữ nguyên phụ cấp chuyên cần. Thêm qua migration 0111. |
 | `ot_holiday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày lễ. Thêm qua migration 0065. |
 | `ot_restday_minutes` | `Integer` → `INTEGER` | — | no | `0` | Phút OT ngày nghỉ tuần. Thêm qua migration 0065. |
 | `late_off_days_json` | `Text` → `TEXT` | — | yes | — | JSON list SỐ PHÚT vi phạm (trễ+sớm, không phép) MỖI NGÀY — đóng băng để Lương áp bảng phạt trễ/sớm tự động (mỗi phần tử = 1 lần). Thêm qua migration 0098. |
@@ -2350,9 +2408,13 @@ công tháng (có lương = 1 công "P"; không lương = 0 công "KL").
 
 ### `leave_requests`
 
-**Purpose:** đơn xin nghỉ của một NV (Nghỉ phép — module `nhan_su`). Nguyên ngày, từ
-`start_date` đến `end_date` bao gồm. Workflow `pending → approved / rejected / cancelled`.
-Đơn `approved` được Bảng công tháng đọc (đánh dấu P/KL các ngày trong khoảng).
+**Purpose:** đơn xin nghỉ NGUYÊN NGÀY của một NV (Nghỉ phép — module `nhan_su`), từ `start_date`
+đến `end_date` bao gồm 2 đầu. Workflow `pending → approved / rejected / cancelled`. Đơn `approved`
+được Bảng công tháng đọc để đánh dấu P/KL.
+
+⚠️ Nghỉ theo GIỜ (đi muộn / về sớm / nửa buổi) **KHÔNG** nằm ở bảng này — xem `late_early_requests`
+(bảng riêng, tổ trưởng duyệt). Từng gộp chung rồi tách ra vì có 7 nơi đọc đơn nghỉ, sót một chỗ lọc
+là phiếu 2 tiếng lại chặn chốt công / vẽ thành nghỉ trọn ngày.
 
 | Column                | Type (SQLAlchemy → SQLite / Postgres)                  | Key                           | Null | Default        | Meaning                                                                                                                                            |
 | --------------------- | ------------------------------------------------------ | ----------------------------- | ---- | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -2361,7 +2423,7 @@ công tháng (có lương = 1 công "P"; không lương = 0 công "KL").
 | `leave_type_id`       | `Integer` → `INTEGER`                                  | **FK→leave_types.id**, **IX** | yes  | —              | Loại nghỉ; `ON DELETE SET NULL`.                                                                                                                   |
 | `start_date`          | `Date` → `DATE`                                        | **IX**                        | no   | —              | Từ ngày (bao gồm).                                                                                                                                 |
 | `end_date`            | `Date` → `DATE`                                        | —                             | no   | —              | Đến ngày (bao gồm).                                                                                                                                |
-| `days`                | `Integer` → `INTEGER`                                  | —                             | no   | `1`            | Số ngày nghỉ = số ngày lịch bao gồm 2 đầu.                                                                                                         |
+| `days`                | `Integer` → `INTEGER`                                  | —                             | no   | `1`            | Số ngày nghỉ = số ngày lịch bao gồm 2 đầu. Đơn theo GIỜ luôn = 1.                                                                                   |
 | `reason`              | `String(500)` → `VARCHAR(500)`                         | —                             | yes  | —              | Lý do nghỉ.                                                                                                                                        |
 | `status`              | `String(16)` → `VARCHAR(16)`                           | **IX**                        | no   | `pending`      | pending/approved/rejected/cancelled.                                                                                                               |
 | `decided_by`          | `Integer` → `INTEGER`                                  | **FK→users.id**               | yes  | —              | Người duyệt/từ chối.                                                                                                                               |
@@ -2418,7 +2480,7 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 |---|---|---|---|---|---|
 | `id` | `Integer` → `INTEGER` / `SERIAL` | **PK** | no | auto-increment | Surrogate primary key. |
 | `day` | `Date` → `DATE` | **UQ**, **IX** | no | — | Ngày dương cụ thể (1 ngày 1 bản ghi). |
-| `kind` | `String(8)` → `VARCHAR(8)` | — | no | `off` | `off` = nghỉ lễ; `work` = làm bù. |
+| `kind` | `String(8)` → `VARCHAR(8)` | — | no | `off` | `off` = nghỉ lễ; `work` = làm bù; `off1x` = nghỉ, đi làm chỉ 1× (không hệ số). |
 | `name` | `String(200)` → `VARCHAR(200)` | — | no | — | Tên ngày (vd "Quốc khánh"). |
 | `is_paid` | `Boolean` → `BOOLEAN` | — | no | `true` | Lễ hưởng lương (chỉ có nghĩa với `off`). |
 | `note` | `String(500)` → `VARCHAR(500)` | — | yes | — | Ghi chú (vd "mùng 1 Tết ÂL"). |
@@ -2462,6 +2524,7 @@ lương → Bảng công cộng 1 công. Giả định `is_paid` = công ty tr�
 | `bh_base_cap` | `Numeric(14,2)` | no | `50600000` | Trần đóng BHXH+BHYT = 20× mức tham chiếu; 0 = không trần (Pha 4a). |
 | `bhtn_base_cap` | `Numeric(14,2)` | no | `106200000` | Trần đóng BHTN = 20× lương tối thiểu vùng; 0 = không trần (Pha 4a). |
 | `advance_max_pct` | `Numeric(6,4)` | no | `0.1` | TRẦN TẠM ỨNG/tháng: tổng tạm ứng 1 tháng của 1 NV ≤ tỷ lệ này × (lương vị trí + trách nhiệm). Đơn CHỜ DUYỆT cũng chiếm chỗ. `0` = không giới hạn. Thêm qua migration 0105. |
+| `adjust_max_per_month` | `Integer` | no | `5` | HẠN MỨC CHỈNH CÔNG/tháng: mỗi NV tự gửi "Yêu cầu chỉnh công" cho tối đa ngần này **NGÀY CÔNG** (đếm `work_date` phân biệt, KHÔNG đếm số đơn — quên cả vào lẫn ra 1 ngày vẫn là 1 lượt). Đơn CHỜ DUYỆT cũng chiếm chỗ; bị từ chối/hủy thì trả lại. HCNS chấm bù TRỰC TIẾP không bị giới hạn. `0` = không giới hạn. Thêm qua migration 0114. |
 | `updated_at` | `DateTime(tz)` | no | now | Lần cập nhật. |
 
 ---
@@ -2527,6 +2590,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `source_salary_row_id` | `Integer` | —                           | yes  | —       | LEGACY soft-ref `department_salary_rows` khi amount_mode=dept_row (đọc sống) — vừa là bậc vừa là nguồn tiền; PRD v2 tách 2 vai. |
 | `luong_vi_tri`   | `Numeric(14,2)` | —                           | no   | `0`     | **Mức hợp đồng RIÊNG của NV — lương vị trí** (PRD v2 C2). Mức nền = vị trí + trách nhiệm (gốc prorate theo công + gốc tính tăng ca). Thêm qua migration 0088 (backfill từ dòng bậc → lương KHÔNG đổi). |
 | `luong_trach_nhiem` | `Numeric(14,2)` | —                        | no   | `0`     | **Mức hợp đồng RIÊNG của NV — lương trách nhiệm**. Thêm qua migration 0088. |
+| `luong_dot_1` | `Numeric(14,2)` | — | no | `0` | "Lương trả 1 lần" — số cố định điền sẵn khi tạo phiếu thanh toán lương đợt 1. Migration 0106. |
 | `insurance_base` | `Numeric(14,2)` | —                           | yes  | —       | Mức đóng BH (NULL = mức lương).      |
 | `allowance`      | `Numeric(14,2)` | —                           | no   | `0`     | **Phụ cấp KHÁC** của riêng NV (xăng/điện thoại/kiêm nhiệm…) — KHAI TAY, cộng phẳng (không prorate theo công, không vào gốc tính tăng ca). |
 | `phu_cap_ca`     | `Numeric(14,2)` | —                           | no   | `0`     | **Phụ cấp CA** (ca đêm/ca tới sáng/cơm ca…) — KHAI TAY một số cố định dùng mọi tháng; hệ thống KHÔNG tự tính. Vào dòng lương ở `payroll_lines.night_pay`. Thêm qua migration 0090. |
@@ -2554,6 +2618,7 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `advance_date`  | `Date`          | —                           | no   | —         | Ngày ứng.                            |
 | `amount`        | `Numeric(14,2)` | —                           | no   | —         | Số tiền ứng.                         |
 | `reason`        | `String(255)`   | —                           | yes  | —         | Lý do.                               |
+| `kind`          | `String(16)`    | —                           | no   | `tam_ung` | Loại phiếu: `tam_ung` (ad-hoc) \| `luong_dot_1` (thanh toán lương đợt 1). Migration 0107. |
 | `status`        | `String(12)`    | **IX**                      | no   | `pending` | pending/approved/rejected/cancelled. |
 | `decided_by`    | `Integer`       | **FK→users.id**             | yes  | —         | Người duyệt.                         |
 | `decided_at`    | `DateTime(tz)`  | —                           | yes  | —         | Thời điểm duyệt.                     |
@@ -2596,7 +2661,10 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `actual_cong` | `Numeric(6,2)` | — | no | `0` | Số công thực (từ Chấm công). |
 | `standard_cong` | `Numeric(6,2)` | — | no | `26` | Công chuẩn kỳ. |
 | `monthly_salary` | `Numeric(14,2)` | — | no | `0` | Mức lương tháng (đã giải). |
-| `luong_cong` | `Numeric(14,2)` | — | no | `0` | Lương theo công. |
+| `luong_cong` | `Numeric(14,2)` | — | no | `0` | Lương theo công (đã gồm phần ngày phép ở dòng dưới). |
+| `luong_ngay_phep` | `Numeric(14,2)` | — | no | `0` | **TRONG ĐÓ** của `luong_cong`: tiền những ngày nghỉ phép, trả theo **lương vị trí** (không lương trách nhiệm). ĐỪNG cộng lại vào gross. Khác cột tay `phep_nam`. Thêm qua migration 0112. |
+| `paid_leave_cong` | `Numeric(6,2)` | — | no | `0` | Số công phép CÓ LƯƠNG thực được trả (sau khi kẹp trần công chuẩn). Thêm qua migration 0112. |
+| `excused_cong` | `Numeric(6,2)` | — | no | `0` | Công thiếu ĐƯỢC PHÉP (đơn nghỉ theo giờ đã duyệt) — chỉ để giải trình vì sao công thiếu mà chuyên cần vẫn đủ. Thêm qua migration 0112. |
 | `chuyen_can` | `Numeric(14,2)` | — | no | `0` | Thưởng chuyên cần. |
 | `allowance` | `Numeric(14,2)` | — | no | `0` | TỔNG phụ cấp tháng = phụ cấp KHÁC + trách nhiệm + thâm niên (2 cột dưới). Phụ cấp CA đi riêng ở `night_pay`. |
 | `phu_cap_tham_nien` | `Numeric(14,2)` | — | no | `0` | **TRONG ĐÓ** của `allowance` — chép từ `employee_salaries.phu_cap_tham_nien`. Như trên: không cộng thêm vào gross. Thêm qua migration 0089. |
@@ -2628,7 +2696,8 @@ Lookup khớp cụ thể nhất, `effective_from ≤ kỳ`. Chiều NULL = wildc
 | `pit` | `Numeric(14,2)` | — | no | `0` | Thuế TNCN (tự tính, có thể ghi đè tay). |
 | `pit_manual` | `Boolean` | — | no | `false` | TNCN do HCNS ghi đè tay (không auto ghi đè). Thêm qua migration 0044. |
 | `pit_taxable` | `Numeric(14,2)` | — | no | `0` | Thu nhập tính thuế đã dùng để tính TNCN. Thêm qua migration 0044. |
-| `advance_total` | `Numeric(14,2)` | — | no | `0` | Tổng tạm ứng đã duyệt. |
+| `advance_total` | `Numeric(14,2)` | — | no | `0` | Tổng tạm ứng đã duyệt (kind=tam_ung). |
+| `luong_dot_1_total` | `Numeric(14,2)` | — | no | `0` | Tổng "thanh toán lương đợt 1" đã duyệt (kind=luong_dot_1) của kỳ. Migration 0108. |
 | `net_pay` | `Numeric(14,2)` | — | no | `0` | Thực lĩnh. |
 | `note` | `String(255)` | — | yes | — | Ghi chú. |
 | `updated_at` | `DateTime(tz)` | — | no | now | Lần cập nhật. |

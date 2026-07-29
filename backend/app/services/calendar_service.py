@@ -18,7 +18,14 @@ from __future__ import annotations
 import calendar as _cal
 from datetime import date, timedelta
 
-from ..models.work_calendar import KIND_OFF, KIND_WORK, SPECIAL_KINDS, SpecialDay, WorkCalendarConfig
+from ..models.work_calendar import (
+    KIND_OFF,
+    KIND_OFF1X,
+    KIND_WORK,
+    SPECIAL_KINDS,
+    SpecialDay,
+    WorkCalendarConfig,
+)
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.calendar_repo import CalendarRepository
 
@@ -104,7 +111,7 @@ class CalendarService:
         if sp is not None:
             if sp.kind == KIND_WORK:
                 return True
-            if sp.kind == KIND_OFF:
+            if sp.kind in (KIND_OFF, KIND_OFF1X):   # off1x cũng là ngày NGHỈ
                 return False
         return self._weekday_works(d)
 
@@ -138,6 +145,12 @@ class CalendarService:
         return [s for s in self.calendar.list_in_range(date(year, month, 1), date(year, month, last))
                 if s.kind == KIND_OFF and s.is_paid]
 
+    def plain_days_in_month(self, year: int, month: int) -> list[SpecialDay]:
+        """Ngày nghỉ 'off1x' trong tháng — nghỉ KHÔNG lương; ai đi làm được trả 1× (không hệ số)."""
+        last = _cal.monthrange(year, month)[1]
+        return [s for s in self.calendar.list_in_range(date(year, month, 1), date(year, month, last))
+                if s.kind == KIND_OFF1X]
+
     # --- CRUD ngày đặc biệt ------------------------------------------------
 
     def list_special_days(self, year: int) -> list[SpecialDay]:
@@ -163,8 +176,10 @@ class CalendarService:
         day, kind, name = self._validate_special(day, kind, name)
         if self.calendar.get_by_day(day) is not None:
             raise CalendarValidationError(f"Ngày {day.isoformat()} đã được khai.")
+        # off1x = nghỉ KHÔNG lương (chỉ ai đi làm mới có 1× cho ngày đó) → ép is_paid False.
+        is_paid = False if kind == KIND_OFF1X else bool(is_paid)
         s = self.calendar.create(day=day, kind=kind, name=name,
-                                 is_paid=bool(is_paid), note=_clean(note))
+                                 is_paid=is_paid, note=_clean(note))
         self._invalidate()
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="create_special_day",
                           target=f"special_day:{s.id}", detail=f"{day.isoformat()} {kind} {name}")
@@ -179,8 +194,9 @@ class CalendarService:
         clash = self.calendar.get_by_day(day)
         if clash is not None and clash.id != s.id:
             raise CalendarValidationError(f"Ngày {day.isoformat()} đã được khai.")
+        is_paid = False if kind == KIND_OFF1X else bool(is_paid)
         s = self.calendar.update(s, day=day, kind=kind, name=name,
-                                 is_paid=bool(is_paid), note=_clean(note))
+                                 is_paid=is_paid, note=_clean(note))
         self._invalidate()
         self.audit.create(actor_user_id=getattr(actor, "id", None), action="update_special_day",
                           target=f"special_day:{s.id}", detail=f"{day.isoformat()} {kind} {name}")

@@ -17,6 +17,8 @@ has shipped.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -1660,6 +1662,62 @@ def _migrate_attendance_line_special_day(db: Session) -> None:
     db.commit()
 
 
+def _migrate_attendance_line_plain_cong(db: Session) -> None:
+    """Ngày nghỉ 'off1x' (chủ 25/07/2026): công LÀM ngày đó trả 1× (không hệ số). Snapshot vào
+    `attendance_period_lines.plain_cong` để Lương trả sau khi chốt. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "attendance_period_lines" not in insp.get_table_names():
+        return
+    if "plain_cong" not in _existing_columns(insp, "attendance_period_lines"):
+        db.execute(text(
+            "ALTER TABLE attendance_period_lines ADD COLUMN plain_cong NUMERIC(6,2) NOT NULL DEFAULT 0"))
+        db.commit()
+
+
+def _migrate_attendance_line_paid_leave_fraction(db: Session) -> None:
+    """Phiếu nghỉ NỬA BUỔI có trừ phép (chủ 27/07/2026) ⇒ `paid_leave_days` phải chứa 0,5.
+    SQLite không ALTER kiểu cột được, nhưng nó lưu kiểu động nên cột INTEGER cũ vẫn nhận 0.5 —
+    chỉ Postgres mới cần đổi thật. Idempotent, no-op nếu đã là NUMERIC hoặc bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "attendance_period_lines" not in insp.get_table_names():
+        return
+    if db.get_bind().dialect.name != "postgresql":
+        return
+    db.execute(text(
+        "ALTER TABLE attendance_period_lines "
+        "ALTER COLUMN paid_leave_days TYPE NUMERIC(6,2) USING paid_leave_days::numeric"))
+    db.commit()
+
+
+def _migrate_payroll_line_luong_ngay_phep(db: Session) -> None:
+    """Ngày nghỉ phép năm chỉ trả LƯƠNG VỊ TRÍ (chủ 27/07/2026). `luong_ngay_phep` là số TRONG ĐÓ
+    của `luong_cong` (đừng cộng vào gross); 2 cột công đi kèm để giải trình. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "luong_ngay_phep" not in cols:
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN luong_ngay_phep NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    for name in ("paid_leave_cong", "excused_cong"):
+        if name not in cols:
+            db.execute(text(
+                f"ALTER TABLE payroll_lines ADD COLUMN {name} NUMERIC(6,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_attendance_line_excused_cong(db: Session) -> None:
+    """Nghỉ theo GIỜ có đơn (chủ 27/07/2026): phần công thiếu ĐƯỢC PHÉP, snapshot để phụ cấp
+    chuyên cần không bị trừ sau khi chốt công. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "attendance_period_lines" not in insp.get_table_names():
+        return
+    if "excused_cong" not in _existing_columns(insp, "attendance_period_lines"):
+        db.execute(text(
+            "ALTER TABLE attendance_period_lines ADD COLUMN excused_cong NUMERIC(6,2) NOT NULL DEFAULT 0"))
+        db.commit()
+
+
 def _migrate_order_redesign_fields(db: Session) -> None:
     """Redesign Đơn hàng bán (P1, redesign-don-hang-ban.md): thêm cột mới vào `orders`
     (nguồn/bản chất/đặt hàng/duyệt/chốt/hủy). Chỉ ADD COLUMN với default
@@ -2771,6 +2829,452 @@ def _migrate_payroll_ot_night_extra_pct(db: Session) -> None:
     db.commit()
 
 
+def _migrate_component_note_and_source(db: Session) -> None:
+    """Danh mục khoản thu nhập v2 (chủ 2026-07-27):
+      - `employee_salary_components.note` — ghi vết cho khoản "Thu nhập khác".
+      - `payroll_line_components.source`  — `employee` (chép từ hồ sơ, ghi đè khi tính lại) vs
+        `line` (thưởng nóng thêm tay, PHẢI giữ nguyên). Default `employee` để mọi dòng đã snapshot
+        trước đây được hiểu đúng là chép-từ-hồ-sơ.
+      - `payroll_line_components.note`.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    names = insp.get_table_names()
+    if "employee_salary_components" in names:
+        if "note" not in _existing_columns(insp, "employee_salary_components"):
+            db.execute(text("ALTER TABLE employee_salary_components ADD COLUMN note VARCHAR(255)"))
+    if "payroll_line_components" in names:
+        cols = _existing_columns(insp, "payroll_line_components")
+        if "source" not in cols:
+            db.execute(text("ALTER TABLE payroll_line_components ADD COLUMN source "
+                            "VARCHAR(8) NOT NULL DEFAULT 'employee'"))
+        if "note" not in cols:
+            db.execute(text("ALTER TABLE payroll_line_components ADD COLUMN note VARCHAR(255)"))
+    db.commit()
+
+
+def _migrate_pit_mode_and_flat_rate(db: Session) -> None:
+    """Nhánh thuế cho lao động THỜI VỤ / thực tập (chủ 2026-07-27).
+
+    `employees.pit_mode` — `luy_tien` (mặc định, giữ nguyên hành vi cũ cho toàn bộ dữ liệu đang có)
+    · `khau_tru_10` (HĐ dưới 3 tháng: khấu trừ 10% tại nguồn) · `cam_ket_08` (không khấu trừ).
+    `payroll_params.pit_flat_rate` + `pit_flat_threshold` — hai số này đổi theo luật nên khai được.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    names = insp.get_table_names()
+    if "employees" in names and "pit_mode" not in _existing_columns(insp, "employees"):
+        db.execute(text(
+            "ALTER TABLE employees ADD COLUMN pit_mode VARCHAR(16) NOT NULL DEFAULT 'luy_tien'"))
+    if "payroll_params" in names:
+        cols = _existing_columns(insp, "payroll_params")
+        if "pit_flat_rate" not in cols:
+            db.execute(text("ALTER TABLE payroll_params ADD COLUMN pit_flat_rate "
+                            "NUMERIC(6,4) NOT NULL DEFAULT 0.1"))
+        if "pit_flat_threshold" not in cols:
+            db.execute(text("ALTER TABLE payroll_params ADD COLUMN pit_flat_threshold "
+                            "NUMERIC(14,2) NOT NULL DEFAULT 2000000"))
+    db.commit()
+
+
+def _migrate_salary_apply_self_deduction(db: Session) -> None:
+    """`employee_salaries.apply_self_deduction` (chủ 2026-07-27): có áp giảm trừ bản thân khi tính
+    TNCN không. Người làm 2 nơi chỉ được đăng ký giảm trừ bản thân ở MỘT nơi. Mặc định BẬT nên dữ
+    liệu cũ giữ nguyên số. Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if "employee_salaries" not in insp.get_table_names():
+        return
+    if "apply_self_deduction" not in _existing_columns(insp, "employee_salaries"):
+        db.execute(text(
+            "ALTER TABLE employee_salaries ADD COLUMN apply_self_deduction "
+            "BOOLEAN NOT NULL DEFAULT true"))
+    db.commit()
+
+
+def _migrate_payroll_line_thu_nhap_chiu_thue(db: Session) -> None:
+    """`payroll_lines.thu_nhap_chiu_thue` — tổng thu nhập CHỊU thuế TNCN của kỳ (tổng lương trừ
+    các khoản miễn, TRƯỚC giảm trừ gia cảnh). Chủ yêu cầu hiện số này trên phiếu lương; cột
+    `pit_taxable` sẵn có là thu nhập TÍNH thuế (sau giảm trừ), lệch nhau ~15,5tr nên không thay
+    thế được. Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in insp.get_table_names():
+        return
+    if "thu_nhap_chiu_thue" not in _existing_columns(insp, "payroll_lines"):
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN thu_nhap_chiu_thue NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_seed_missing_payroll_components(db: Session) -> None:
+    """Bù các khoản danh mục còn THIẾU (sự cố seed 27/07/2026).
+
+    `seed_payroll_components` là seed-once theo ĐẾM DÒNG: bảng có dòng nào rồi là bỏ qua sạch.
+    Máy dev đã seed nhầm một bản dở (thiếu đúng 4 khoản MIỄN THUẾ là lý do sinh ra danh mục:
+    trang phục · tiền nhà · đi lại · tiền cơm), và seed-once không bao giờ bù lại được.
+
+    Chỉ INSERT code chưa có; KHÔNG đụng dòng đang tồn tại (giữ nguyên chỉnh sửa của chủ). Chạy
+    một lần qua registry migration nên khoản chủ CỐ Ý xoá sau này sẽ không bị mọc lại."""
+    insp = inspect(db.get_bind())
+    if "payroll_components" not in insp.get_table_names():
+        return
+    from .seed import _PAYROLL_COMPONENTS_SEED
+    have = {r[0] for r in db.execute(text("SELECT code FROM payroll_components")).all()}
+    for code, name, kind, taxable, order in _PAYROLL_COMPONENTS_SEED:
+        if code in have:
+            continue
+        db.execute(
+            # `created_at` chỉ có default phía Python (không server_default) ⇒ INSERT thô phải
+            # tự điền, nếu không vướng NOT NULL.
+            # Cột BOOLEAN phải nhận bool/`false`/`true` — số `0`/`1` chạy được trên SQLite nhưng
+            # Postgres từ chối thẳng (DatatypeMismatch).
+            text("INSERT INTO payroll_components "
+                 "(code, name, kind, is_taxable, in_insurance_base, sort_order, is_active, created_at) "
+                 "VALUES (:c, :n, :k, :t, false, :o, true, :now)"),
+            {"c": code, "n": name, "k": kind, "t": bool(taxable), "o": order,
+             "now": datetime.now(timezone.utc)},
+        )
+    db.commit()
+
+
+def _migrate_payroll_phat_cap_pct(db: Session) -> None:
+    """Trần khấu trừ kỷ luật thành THAM SỐ (chủ 29/07/2026 — "bỏ cái 30% fix cứng trong code").
+
+    Trước đây `_capped_penalty` viết thẳng `0.30`. Đây là mức LUẬT (Điều 102 BLLĐ) nên không xoá
+    trần, chỉ bỏ chỗ viết cứng: mặc định 0.30 giữ nguyên hành vi cũ, `0` = tắt trần.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("payroll_params" in insp.get_table_names()
+            and "phat_cap_pct" not in _existing_columns(insp, "payroll_params")):
+        db.execute(text(
+            "ALTER TABLE payroll_params ADD COLUMN phat_cap_pct NUMERIC(6,4) NOT NULL DEFAULT 0.3"))
+    db.commit()
+
+
+def _migrate_job_grade_catalog(db: Session) -> None:
+    """Bậc tay nghề: từ CHỮ TỰ DO thành DANH MỤC có id (chủ 29/07/2026 — "khai bậc tay nghề cho
+    nhân viên sản xuất", "chia nó thành 3 bậc, 2 bậc phụ").
+
+    Trước đây bậc nằm ở HAI chỗ song song, không cái nào dùng được để tính:
+      - `employees.job_grade`     — chữ tự do "3/7", máy không gộp được với "Thợ bậc 3"
+      - `employees.pay_grade_key` — chuẩn hoá 'tho_1'…, nhưng KHÔNG có màn nào khai
+
+    Migration này gom cả hai về `employees.job_grade_id` → `job_grades`. Mã danh mục dùng LẠI
+    đúng bộ `pay_grade_key` cũ nên đường (a) khớp chắc chắn, không đoán.
+
+    ⚠️ Seed đặt ở ĐÂY chứ không ở `seed.py`: `SEED_DEMO` đang tắt nên `seed.py` không chạy, mà
+    danh mục rỗng thì màn hồ sơ không có gì để chọn. Cùng cách đã làm ở migration 0123.
+
+    Guard theo cột/số dòng → chạy lại lần hai là no-op, KHÔNG đè bậc chủ đã sửa tên."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "job_grades" not in tables:
+        return                       # create_all chưa chạy → không có gì để làm
+
+    # (1) Cột mới trên `employees` — create_all KHÔNG bao giờ ALTER bảng đã có.
+    if "employees" in tables and "job_grade_id" not in _existing_columns(insp, "employees"):
+        db.execute(text("ALTER TABLE employees ADD COLUMN job_grade_id INTEGER"))
+        db.commit()
+
+    # (2) Seed 5 bậc — CHỈ khi danh mục còn rỗng.
+    # Viết thẳng ở đây, KHÔNG import từ models: migration là bản ghi LỊCH SỬ, phải cho ra cùng
+    # kết quả mãi mãi. Import hằng số của model thì mai kia sửa model là đổi luôn hành vi của
+    # migration cũ trên DB chưa nâng cấp.
+    seed_rows = (("bac_1", "Bậc 1", 1), ("bac_2", "Bậc 2", 2), ("bac_3", "Bậc 3", 3),
+                 ("bac_4", "Bậc 4", 4), ("bac_5", "Bậc 5", 5))
+    # Bộ mã `pay_grade_key` CŨ ('tho_*'/'phu_*') → bậc mới. Xếp theo mức lương giảm dần trong
+    # bảng lương thật 2026 (25/22/20tr rồi 14,5/10,5tr) nên phụ 1–2 rơi đúng xuống bậc 4–5.
+    legacy_codes = {"tho_1": "bac_1", "tho_2": "bac_2", "tho_3": "bac_3",
+                    "phu_1": "bac_4", "phu_2": "bac_5"}
+    now = datetime.now(timezone.utc)
+    if not db.execute(text("SELECT 1 FROM job_grades LIMIT 1")).first():
+        for code, name, seq in seed_rows:
+            db.execute(
+                text("INSERT INTO job_grades (code, name, seq, is_active, created_at) "
+                     "VALUES (:c, :n, :s, true, :now)"),
+                {"c": code, "n": name, "s": seq, "now": now},
+            )
+        db.commit()
+
+    if "employees" not in tables:
+        return
+
+    def _by_code() -> dict[str, int]:
+        return {r[1]: r[0] for r in db.execute(text("SELECT id, code FROM job_grades"))}
+
+    def _by_name() -> dict[str, int]:
+        # Khoá so khớp: bỏ dấu cách thừa + gộp hoa/thường. "  bậc 3 " ≡ "Bậc 3".
+        return {" ".join(str(r[1]).split()).lower(): r[0]
+                for r in db.execute(text("SELECT id, name FROM job_grades"))}
+
+    # (3a) Backfill từ `pay_grade_key` — khớp MÃ, chắc chắn đúng, không đoán.
+    if "pay_grade_key" in _existing_columns(insp, "employees"):
+        codes = _by_code()
+        for emp_id, key in db.execute(text(
+            "SELECT id, pay_grade_key FROM employees "
+            "WHERE job_grade_id IS NULL AND pay_grade_key IS NOT NULL"
+        )).all():
+            k = str(key).strip()
+            gid = codes.get(k) or codes.get(legacy_codes.get(k, ""))
+            if gid:
+                db.execute(text("UPDATE employees SET job_grade_id = :g WHERE id = :i"),
+                           {"g": gid, "i": emp_id})
+        db.commit()
+
+    # (3b/c) Backfill từ `job_grade` (chữ). Không khớp bậc nào ⇒ VẪN tạo dòng danh mục nhưng
+    # `is_active = false`: không vứt dữ liệu người ta đã nhập, mà cũng không làm bẩn danh sách
+    # chọn. Chủ vào soát rồi gộp/bật lại tuỳ ý.
+    if "job_grade" not in _existing_columns(insp, "employees"):
+        return
+    rows = db.execute(text(
+        "SELECT id, job_grade FROM employees "
+        "WHERE job_grade_id IS NULL AND job_grade IS NOT NULL AND TRIM(job_grade) <> ''"
+    )).all()
+    if not rows:
+        return
+    names = _by_name()
+    next_seq = (db.execute(text("SELECT MAX(seq) FROM job_grades")).scalar() or 0) + 1
+    for emp_id, raw in rows:
+        label = " ".join(str(raw).split())
+        gid = names.get(label.lower())
+        if gid is None:
+            db.execute(
+                text("INSERT INTO job_grades (code, name, seq, is_active, note, created_at) "
+                     "VALUES (:c, :n, :s, false, :note, :now)"),
+                {"c": f"cu_{next_seq}", "n": label[:60], "s": next_seq,
+                 "note": "Tự sinh từ dữ liệu cũ — soát lại rồi gộp hoặc bật", "now": now},
+            )
+            db.commit()
+            names = _by_name()
+            gid = names[label.lower()]
+            next_seq += 1
+        db.execute(text("UPDATE employees SET job_grade_id = :g WHERE id = :i"),
+                   {"g": gid, "i": emp_id})
+    db.commit()
+
+
+def _migrate_job_grade_drop_phu(db: Session) -> None:
+    """Bỏ bậc PHỤ: 3 chính + 2 phụ → **5 bậc chính** Bậc 1…Bậc 5 (chủ 2026-07-29, chốt lại trong
+    ngày: *"bỏ phụ đi cho 5 bậc chính đánh từ bậc 1 đến bậc 5"*).
+
+    Đổi tên **TẠI CHỖ, GIỮ NGUYÊN `id`** — không xoá rồi seed lại. Ai đang mang bậc thì
+    `employees.job_grade_id` vẫn trỏ đúng dòng đó, không mất bậc, không cần gán lại.
+
+    Ánh xạ theo mức lương giảm dần của bảng lương thật 2026 (25/22/20tr rồi 14,5/10,5tr) nên
+    Phụ 1–2 rơi đúng xuống Bậc 4–5, thứ tự tay nghề giữ nguyên.
+
+    Chỉ đụng dòng CÒN NGUYÊN tên seed cũ: chủ đã đổi tên bậc nào thì giữ tên đó (chỉ chuẩn hoá
+    `code`), không đè công khai báo của chủ."""
+    insp = inspect(db.get_bind())
+    if "job_grades" not in insp.get_table_names():
+        return
+    doi = (("tho_1", "bac_1", "Bậc 1", 1), ("tho_2", "bac_2", "Bậc 2", 2),
+           ("tho_3", "bac_3", "Bậc 3", 3), ("phu_1", "bac_4", "Phụ 1", "Bậc 4"),
+           ("phu_2", "bac_5", "Phụ 2", "Bậc 5"))
+    for row in doi:
+        ma_cu, ma_moi = row[0], row[1]
+        ten_cu = row[2] if isinstance(row[3], str) else None
+        ten_moi = row[3] if isinstance(row[3], str) else row[2]
+        seq_moi = int(ma_moi[-1])
+        cur = db.execute(text("SELECT id, name FROM job_grades WHERE code = :c"),
+                         {"c": ma_cu}).first()
+        if cur is None:
+            continue                       # DB mới đã seed thẳng bac_* → không có gì để đổi
+        if db.execute(text("SELECT 1 FROM job_grades WHERE code = :c"),
+                      {"c": ma_moi}).first():
+            continue                       # đã có bậc mới trùng mã → đừng đụng, tránh vỡ UNIQUE
+        # Tên: chỉ đổi khi chủ CHƯA sửa tay (tên còn đúng tên seed cũ).
+        con_nguyen = cur[1] == (ten_cu if ten_cu is not None else ten_moi)
+        db.execute(
+            text("UPDATE job_grades SET code = :cm, seq = :s"
+                 + (", name = :n" if con_nguyen else "") + " WHERE id = :i"),
+            ({"cm": ma_moi, "s": seq_moi, "n": ten_moi, "i": cur[0]} if con_nguyen
+             else {"cm": ma_moi, "s": seq_moi, "i": cur[0]}),
+        )
+    db.commit()
+
+
+def _migrate_employee_salary_commission_pct(db: Session) -> None:
+    """% hoa hồng cho nhân viên kinh doanh (chủ 29/07/2026 — "khai phần trăm hoa hồng cho nhân
+    viên sale").
+
+    Đặt trên `employee_salaries` (không phải `employees`) để có LỊCH SỬ miễn phí: bảng này vốn
+    mỗi lần khai là một bản ghi mới theo `effective_from`. Đổi % từ tháng 8 thì kỳ tháng 7 tính
+    lại vẫn ra số cũ.
+
+    Lưu PHÂN SỐ (0.05 = 5%), đúng quy ước `cong_doan_rate` / `phat_cap_pct`. Đợt này CHỈ KHAI —
+    engine lương không đọc cột này, khai bao nhiêu cũng không đổi một đồng nào."""
+    insp = inspect(db.get_bind())
+    if ("employee_salaries" in insp.get_table_names()
+            and "commission_pct" not in _existing_columns(insp, "employee_salaries")):
+        db.execute(text(
+            "ALTER TABLE employee_salaries "
+            "ADD COLUMN commission_pct NUMERIC(6,4) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_piece_rate_unit_free_text(db: Session) -> None:
+    """Đơn vị đơn giá khoán: nới 12→24 ký tự và đổi MÃ cũ sang CHỮ hiển thị (chủ 29/07/2026).
+
+    Trước đây `unit` lưu mã (`m2`, `bai_in`) rồi FE dịch sang nhãn (`m²`, `bài in`). Nay ô Đơn vị
+    cho gõ tự do + gợi ý, nên giữ tầng mã là hỏng: bấm gợi ý "m²" lưu ra chuỗi KHÁC với mã "m2"
+    của dòng cũ ⇒ hai dòng cùng nghĩa, khác giá trị, thống kê không gom được.
+
+    An toàn: `unit` thuần NHÃN HIỂN THỊ, không logic nào rẽ nhánh theo nó (hằng `PIECE_UNITS` cũ
+    khai ra rồi không ai dùng). Idempotent: chạy lại không đổi gì vì mã cũ đã hết."""
+    insp = inspect(db.get_bind())
+    if "piece_rates" not in insp.get_table_names():
+        return
+    # Postgres ép độ dài VARCHAR nên phải ALTER; SQLite thì không ⇒ bỏ qua là đúng.
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(text("ALTER TABLE piece_rates ALTER COLUMN unit TYPE VARCHAR(24)"))
+    for ma, nhan in (("m2", "m²"), ("bai_in", "bài in"), ("tan", "tấn"), ("cuon", "cuốn"),
+                     ("luot", "lượt"), ("hop", "hộp"), ("to", "tờ"), ("khac", "khác")):
+        db.execute(text("UPDATE piece_rates SET unit = :nhan WHERE unit = :ma"),
+                   {"nhan": nhan, "ma": ma})
+    db.commit()
+
+
+def _migrate_move_bonus_columns_to_components(db: Session) -> None:
+    """Dời 6 cột thưởng nhập tay sang khoản DANH MỤC (chủ 28/07/2026).
+
+    Chủ: *"khoản 5s hay thưởng gì thì cho nó select từ quy tắc, để coi nó chịu thuế hay không"*.
+    6 ô tay (`thuong_5s`, `thuong_doanh_so`, `thuong_thanh_tich`, `phep_nam`, `tra_dong_phuc`,
+    `other_bonus`) vốn bị ĐÓNG ĐINH chịu thuế, nay khai qua danh mục để cờ `is_taxable` dùng chung.
+
+    ⚠️ CHỈ đụng kỳ `draft`. Kỳ đã CHỐT/ĐÃ CHI giữ nguyên cột cũ — phiếu lương đã ký của người lao
+    động không được đổi một đồng nào, và engine vẫn cộng các cột đó nên số cũ vẫn đúng.
+
+    Tiền KHÔNG đổi: mỗi đồng rời khỏi cột thì vào đúng một dòng `payroll_line_components`
+    (`source='line'` — khoản của RIÊNG kỳ này, không lặp sang kỳ sau, và sống sót "Tính lại")."""
+    insp = inspect(db.get_bind())
+    names = insp.get_table_names()
+    for t in ("payroll_lines", "payroll_line_components", "payroll_components", "payroll_periods"):
+        if t not in names:
+            return
+    cols = {c["name"] for c in insp.get_columns("payroll_lines")}
+    # `phep_nam` + `other_bonus` không có khoản danh mục riêng (cố ý — xem `_RESERVED` và seed):
+    # dồn vào khoản MỞ "Thu nhập khác (chịu thuế)", ghi rõ nguồn ở `note` để không mất dấu vết.
+    plan = (
+        ("thuong_5s",         "thuong_5s",        None),
+        ("thuong_doanh_so",   "thuong_doanh_so",  None),
+        ("thuong_thanh_tich", "thuong_thanh_tich", None),
+        ("tra_dong_phuc",     "tra_dong_phuc",    None),
+        ("phep_nam",          "thu_nhap_khac_ct", "Phép năm (cột cũ)"),
+        ("other_bonus",       "thu_nhap_khac_ct", "Thưởng khác (cột cũ)"),
+    )
+    plan = [p for p in plan if p[0] in cols]
+    if not plan:
+        return
+    comp = {
+        r[0]: r for r in db.execute(text(
+            "SELECT code, id, name, kind, is_taxable FROM payroll_components")).all()
+    }
+    # Thiếu khoản đích (chủ đã xoá tay) ⇒ BỎ QUA cột đó, để nguyên tiền ở cột cũ. Thà hiện ở khối
+    # "Khoản kỳ cũ" chỉ đọc còn hơn làm bay mất tiền của người lao động.
+    plan = [p for p in plan if p[1] in comp]
+    if not plan:
+        return
+
+    src = ", ".join(p[0] for p in plan)
+    rows = db.execute(text(
+        f"SELECT l.id, {src} FROM payroll_lines l "
+        "JOIN payroll_periods p ON p.id = l.period_id WHERE p.status = 'draft'"
+    )).all()
+    for row in rows:
+        line_id = row[0]
+        taken = {
+            r[0] for r in db.execute(
+                text("SELECT component_id FROM payroll_line_components WHERE line_id = :l"),
+                {"l": line_id}).all()
+        }
+        # Gộp theo khoản ĐÍCH: `phep_nam` và `other_bonus` cùng trỏ "Thu nhập khác (chịu thuế)"
+        # nên phải cộng vào MỘT dòng — hai dòng sẽ vướng UNIQUE(line_id, component_id).
+        bucket: dict[int, list] = {}
+        cleared: list[str] = []
+        for i, (col, code, label) in enumerate(plan, start=1):
+            amount = float(row[i] or 0)
+            if not amount:
+                continue
+            code_, cid, cname, ckind, ctax = comp[code]
+            if cid in taken:
+                # Dòng khoản này đã tồn tại (HCNS tự thêm trước đó) ⇒ không đụng vào, giữ nguyên
+                # cột cũ. Cộng thêm vào số của người dùng là sửa dữ liệu sau lưng họ.
+                continue
+            slot = bucket.setdefault(cid, [code_, cname, ckind, ctax, 0.0, []])
+            slot[4] += amount
+            slot[5].append(label or "Chuyển từ cột cũ")
+            cleared.append(col)
+        for cid, (code_, cname, ckind, ctax, amount, labels) in bucket.items():
+            db.execute(text(
+                "INSERT INTO payroll_line_components "
+                "(line_id, component_id, code, name, kind, is_taxable, amount, source, note) "
+                "VALUES (:l, :c, :code, :n, :k, :t, :a, 'line', :note)"),
+                # `is_taxable` là BOOLEAN: `ctax` đọc ra là bool (Postgres) hay int (SQLite) đều
+                # phải ép về bool, nếu không Postgres báo DatatypeMismatch.
+                {"l": line_id, "c": cid, "code": code_, "n": cname, "k": ckind,
+                 "t": bool(ctax), "a": amount, "note": " · ".join(labels)[:255]})
+        if cleared:
+            sets = ", ".join(f"{c} = 0" for c in cleared)
+            db.execute(text(f"UPDATE payroll_lines SET {sets} WHERE id = :l"), {"l": line_id})
+    db.commit()
+
+
+def _migrate_drop_duplicate_payroll_components(db: Session) -> None:
+    """Dọn các khoản danh mục TRÙNG với cột đã có (lỗi seed đợt đầu 27/07/2026).
+
+    Bản seed đầu liệt kê cả tăng ca / chuyên cần / phụ cấp ca / thưởng / khoán / các khoản phạt —
+    những thứ ĐÃ CÓ ô khai riêng và engine đã tự tính. Khai tiền ở cả hai chỗ là TRẢ HAI LẦN.
+    Seed là seed-once nên bản sửa không tự dọn được dữ liệu đã tạo.
+
+    CHỈ xoá khoản chưa hề dùng: không có dòng lương nào, không có mức khai theo nhóm hay theo
+    người. Khoản đã dùng thì để nguyên cho chủ tự quyết — dữ liệu của người dùng, không tự xoá."""
+    insp = inspect(db.get_bind())
+    names = insp.get_table_names()
+    if "payroll_components" not in names:
+        return
+    dup = (
+        "them_gio_150", "them_gio_200", "chuyen_can_pc", "phu_cap_ca_dem",
+        "thuong_thanh_tich", "thuong_doanh_so", "thuong_5s", "luong_san_luong",
+        "tra_dong_phuc", "phat_bien_ban", "dt_vuot_troi", "phat_5s",
+        "di_tre_ve_som", "tru_loi_khoan",
+    )
+    marks = ", ".join(f"'{c}'" for c in dup)
+    used = []
+    for tbl, col in (("payroll_line_components", "component_id"),
+                     ("payroll_group_components", "component_id"),
+                     ("employee_salary_components", "component_id")):
+        if tbl in names:
+            used.append(f"SELECT {col} FROM {tbl}")
+    guard = f" AND id NOT IN ({' UNION '.join(used)})" if used else ""
+    db.execute(text(f"DELETE FROM payroll_components WHERE code IN ({marks}){guard}"))
+    db.commit()
+
+
+def _migrate_payroll_line_thu_nhap_mien_thue(db: Session) -> None:
+    """Danh mục khoản thu nhập (chủ 2026-07-27): `payroll_lines.thu_nhap_mien_thue` — tổng phần
+    thu nhập được MIỄN thuế của kỳ, để phiếu lương giải trình số thuế. Phần chịu thuế đã có sẵn ở
+    cột `pit_taxable`, không thêm cột trùng.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    if "thu_nhap_mien_thue" not in cols:
+        db.execute(text(
+            "ALTER TABLE payroll_lines ADD COLUMN thu_nhap_mien_thue NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_payroll_adjust_max_per_month(db: Session) -> None:
+    """Hạn mức chỉnh công (chủ 2026-07-27): `payroll_params.adjust_max_per_month` — mỗi NV tự gửi
+    yêu cầu chỉnh công cho tối đa ngần này NGÀY CÔNG mỗi tháng. 0 = không giới hạn.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("payroll_params" in insp.get_table_names()
+            and "adjust_max_per_month" not in _existing_columns(insp, "payroll_params")):
+        db.execute(text(
+            "ALTER TABLE payroll_params ADD COLUMN adjust_max_per_month INTEGER NOT NULL DEFAULT 5"))
+    db.commit()
+
+
 def _migrate_payroll_advance_max_pct(db: Session) -> None:
     """Trần tạm ứng (chủ 2026-07-23): `payroll_params.advance_max_pct` — tổng tạm ứng 1 tháng của 1 NV
     không vượt tỷ lệ này × (lương vị trí + trách nhiệm). 0 = không giới hạn.
@@ -2779,6 +3283,36 @@ def _migrate_payroll_advance_max_pct(db: Session) -> None:
     if ("payroll_params" in insp.get_table_names()
             and "advance_max_pct" not in _existing_columns(insp, "payroll_params")):
         db.execute(text("ALTER TABLE payroll_params ADD COLUMN advance_max_pct NUMERIC(6,4) NOT NULL DEFAULT 0.1"))
+    db.commit()
+
+
+def _migrate_salary_luong_dot_1(db: Session) -> None:
+    """Lương đợt 1 (chủ 2026-07-24): `employee_salaries.luong_dot_1` — mức trả 1 lần cố định theo hồ sơ.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("employee_salaries" in insp.get_table_names()
+            and "luong_dot_1" not in _existing_columns(insp, "employee_salaries")):
+        db.execute(text("ALTER TABLE employee_salaries ADD COLUMN luong_dot_1 NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_salary_advance_kind(db: Session) -> None:
+    """Phân loại phiếu (chủ 2026-07-24): `salary_advances.kind` = tam_ung | luong_dot_1. Mặc định tam_ung
+    (hàng cũ = tạm ứng). Guard theo cột → idempotent."""
+    insp = inspect(db.get_bind())
+    if ("salary_advances" in insp.get_table_names()
+            and "kind" not in _existing_columns(insp, "salary_advances")):
+        db.execute(text("ALTER TABLE salary_advances ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'tam_ung'"))
+    db.commit()
+
+
+def _migrate_payroll_line_luong_dot_1_total(db: Session) -> None:
+    """Snapshot lương đợt 1 đã duyệt của kỳ (chủ 2026-07-24): `payroll_lines.luong_dot_1_total`.
+    Guard theo cột → idempotent."""
+    insp = inspect(db.get_bind())
+    if ("payroll_lines" in insp.get_table_names()
+            and "luong_dot_1_total" not in _existing_columns(insp, "payroll_lines")):
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN luong_dot_1_total NUMERIC(14,2) NOT NULL DEFAULT 0"))
     db.commit()
 
 
@@ -3340,6 +3874,32 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0103_payroll_ot_night_extra_pct", _migrate_payroll_ot_night_extra_pct),
     ("0104_piece_rate_department_id", _migrate_piece_rate_department_id),
     ("0105_payroll_advance_max_pct", _migrate_payroll_advance_max_pct),
+    ("0106_salary_luong_dot_1", _migrate_salary_luong_dot_1),
+    ("0107_salary_advance_kind", _migrate_salary_advance_kind),
+    ("0108_payroll_line_luong_dot_1_total", _migrate_payroll_line_luong_dot_1_total),
+    ("0109_attendance_line_plain_cong", _migrate_attendance_line_plain_cong),
+    ("0111_attendance_line_excused_cong", _migrate_attendance_line_excused_cong),
+    ("0112_payroll_line_luong_ngay_phep", _migrate_payroll_line_luong_ngay_phep),
+    ("0113_attendance_line_paid_leave_fraction", _migrate_attendance_line_paid_leave_fraction),
+    ("0114_payroll_adjust_max_per_month", _migrate_payroll_adjust_max_per_month),
+    ("0115_payroll_line_thu_nhap_mien_thue", _migrate_payroll_line_thu_nhap_mien_thue),
+    ("0116_drop_duplicate_payroll_components", _migrate_drop_duplicate_payroll_components),
+    ("0117_seed_missing_payroll_components", _migrate_seed_missing_payroll_components),
+    ("0118_payroll_line_thu_nhap_chiu_thue", _migrate_payroll_line_thu_nhap_chiu_thue),
+    ("0119_salary_apply_self_deduction", _migrate_salary_apply_self_deduction),
+    ("0120_pit_mode_and_flat_rate", _migrate_pit_mode_and_flat_rate),
+    ("0121_component_note_and_source", _migrate_component_note_and_source),
+    ("0122_seed_open_income_components", _migrate_seed_missing_payroll_components),
+    # 0123 dùng LẠI hàm top-up: 4 khoản thưởng vừa thêm vào `_PAYROLL_COMPONENTS_SEED` sẽ được
+    # bù cho DB đã seed từ trước. Lưu ý `0116` từng XOÁ đúng 4 code này (hồi đó chúng còn là ô
+    # tay ⇒ trùng); nay ô tay đã gỡ nên tạo lại là CÓ CHỦ Ý, không phải lặp lỗi cũ.
+    ("0123_seed_bonus_components", _migrate_seed_missing_payroll_components),
+    ("0124_move_bonus_columns_to_components", _migrate_move_bonus_columns_to_components),
+    ("0125_piece_rate_unit_free_text", _migrate_piece_rate_unit_free_text),
+    ("0126_payroll_phat_cap_pct", _migrate_payroll_phat_cap_pct),
+    ("0127_job_grade_catalog", _migrate_job_grade_catalog),
+    ("0128_employee_salary_commission_pct", _migrate_employee_salary_commission_pct),
+    ("0129_job_grade_drop_phu", _migrate_job_grade_drop_phu),
 ]
 
 

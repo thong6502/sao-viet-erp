@@ -5,6 +5,8 @@ auto VÀO/RA toggling, self check-in gated on a linked employee, and the RBAC bo
 """
 from __future__ import annotations
 
+from datetime import date
+
 from app.db import SessionLocal
 from app.repositories.employee_repo import EmployeeRepository
 from app.repositories.rbac_repo import DepartmentRepository, RoleRepository
@@ -523,3 +525,160 @@ def test_locations_config_forbidden_without_permission(client):
         json={"name": "x", "latitude": 10, "longitude": 10, "radius_m": 100},
         headers=_h(token),
     ).status_code == 403
+
+
+# --- hạn mức chỉnh công (chủ 27/07/2026: tối đa N ngày/tháng) ----------------
+
+
+def _shift_from_month_start(client, token, employee_id: int) -> None:
+    """Gán ca có hiệu lực từ NGÀY 1 tháng này — `_assign_test_shift` mặc định lấy hiệu lực từ
+    HÔM NAY, nên các ngày đầu tháng sẽ 'chưa được gán ca' và yêu cầu chỉnh công bị chặn trước
+    khi chạm tới luật hạn mức."""
+    shift_id = _ensure_test_shift(client, token)
+    today = date.today()
+    eff = date(today.year, today.month, 1)
+    # Ép `hire_date` qua repo: mốc ca KHÔNG được trước ngày vào làm, mà hồ sơ admin do
+    # `backfill_employee_profiles` sinh ra có ngày vào làm là hôm nay.
+    db = SessionLocal()
+    try:
+        repo = EmployeeRepository(db)
+        repo.update(repo.get_by_id(employee_id), hire_date=date(2020, 1, 1))
+    finally:
+        db.close()
+    r = client.put(f"/api/employees/{employee_id}/shift",
+                   json={"default_shift_id": shift_id, "effective_from": eff.isoformat()},
+                   headers=_h(token))
+    assert r.status_code == 200, r.text
+    return eff
+
+
+def _set_adjust_limit(client, token, n: int) -> None:
+    r = client.put("/api/luong/params", json={"adjust_max_per_month": n}, headers=_h(token))
+    assert r.status_code == 200, r.text
+    assert r.json()["adjust_max_per_month"] == n
+
+
+def _req_adjust(client, token, *, day: str, check_type: str = "in", expect=200):
+    r = client.post("/api/attendance/me/adjust-request",
+                    json={"date": day, "check_type": check_type,
+                          "suggested_time": "08:00", "reason": "quên chấm"},
+                    headers=_h(token))
+    assert r.status_code == expect, r.text
+    return r
+
+
+def _quota(client, token) -> dict:
+    return client.get("/api/attendance/me/adjust-requests", headers=_h(token)).json()["quota"]
+
+
+def _this_month(day: int) -> str:
+    """Ngày trong THÁNG HIỆN TẠI — hạn mức đếm theo tháng của `work_date`, và `/me/adjust-requests`
+    trả quota của tháng hiện tại, nên test phải bám tháng hiện tại mới đọc được số."""
+    today = date.today()
+    return date(today.year, today.month, min(day, 28)).isoformat()
+
+
+def test_han_muc_chinh_cong_chan_khi_het_luot(client):
+    """5 ngày khác nhau thì OK; ngày thứ 6 bị chặn kèm SỐ cụ thể."""
+    token = _admin_token(client)
+    _shift_from_month_start(client, token, _link_admin_employee(client, token))
+    _set_adjust_limit(client, token, 5)
+
+    for d in (1, 2, 3, 4, 5):
+        _req_adjust(client, token, day=_this_month(d))
+    q = _quota(client, token)
+    assert q["limit"] == 5 and q["used"] == 5 and q["remaining"] == 0
+
+    r = _req_adjust(client, token, day=_this_month(6), expect=400)
+    assert "5/5" in r.json()["detail"], r.json()["detail"]
+
+
+def test_cung_mot_ngay_khong_ton_them_luot(client):
+    """⭐ 1 NGÀY = 1 lượt. Quên cả giờ VÀO lẫn giờ RA phải gửi 2 đơn — vẫn chỉ tính 1 lượt,
+    nếu không thì '5 lần' thực chất chỉ còn 2,5 ngày."""
+    token = _admin_token(client)
+    _shift_from_month_start(client, token, _link_admin_employee(client, token))
+    _set_adjust_limit(client, token, 1)
+
+    _req_adjust(client, token, day=_this_month(10), check_type="in")
+    assert _quota(client, token)["used"] == 1
+    # Hết hạn mức (1/1) nhưng CÙNG ngày đó vẫn gửi được lượt RA.
+    _req_adjust(client, token, day=_this_month(10), check_type="out")
+    assert _quota(client, token)["used"] == 1        # KHÔNG tăng
+    # Ngày KHÁC thì mới bị chặn.
+    _req_adjust(client, token, day=_this_month(11), expect=400)
+
+
+def test_tu_choi_va_huy_tra_lai_luot(client):
+    """Đơn bị TỪ CHỐI / ĐÃ HỦY nhả lại lượt; đơn ĐÃ DUYỆT thì vẫn giữ chỗ."""
+    token = _admin_token(client)
+    _shift_from_month_start(client, token, _link_admin_employee(client, token))
+    _set_adjust_limit(client, token, 2)
+
+    r1 = _req_adjust(client, token, day=_this_month(3)).json()
+    r2 = _req_adjust(client, token, day=_this_month(4)).json()
+    _req_adjust(client, token, day=_this_month(5), expect=400)
+
+    # Từ chối r1 → nhả 1 lượt.
+    assert client.post(f"/api/attendance/adjust-requests/{r1['id']}/reject",
+                       json={"note": "không hợp lệ"}, headers=_h(token)).status_code == 200
+    assert _quota(client, token)["used"] == 1
+    r3 = _req_adjust(client, token, day=_this_month(5)).json()
+
+    # Hủy r3 (NV tự hủy) → nhả tiếp.
+    assert client.post(f"/api/attendance/me/adjust-requests/{r3['id']}/cancel",
+                       headers=_h(token)).status_code == 200
+    assert _quota(client, token)["used"] == 1
+
+    # DUYỆT r2 → vẫn chiếm chỗ (không nhả).
+    assert client.post(f"/api/attendance/adjust-requests/{r2['id']}/approve",
+                       json={"fault_party": "nv_quen"}, headers=_h(token)).status_code == 200
+    assert _quota(client, token)["used"] == 1
+    _req_adjust(client, token, day=_this_month(6))          # còn đúng 1 lượt
+    _req_adjust(client, token, day=_this_month(7), expect=400)
+
+
+def test_han_muc_0_la_khong_gioi_han(client):
+    """Đường thoát: đặt 0 ⇒ tắt luật (máy chấm công hỏng cả tuần thì mở khoá được)."""
+    token = _admin_token(client)
+    _shift_from_month_start(client, token, _link_admin_employee(client, token))
+    _set_adjust_limit(client, token, 0)
+    for d in range(1, 9):
+        _req_adjust(client, token, day=_this_month(d))
+    q = _quota(client, token)
+    assert q["limit"] == 0 and q["remaining"] is None
+
+
+def test_hcns_cham_bu_truc_tiep_khong_bi_gioi_han(client):
+    """Chốt của chủ: chỉ giới hạn ĐƠN của NV. HCNS chấm bù tay không giới hạn và KHÔNG ăn lượt
+    của NV — máy chấm hỏng cả ngày thì HCNS phải sửa được cho cả tổ."""
+    token = _admin_token(client)
+    eid = _link_admin_employee(client, token)
+    _shift_from_month_start(client, token, eid)
+    _set_adjust_limit(client, token, 1)
+    _req_adjust(client, token, day=_this_month(2))           # NV dùng hết 1/1
+
+    for d in range(10, 18):
+        assert client.post("/api/attendance/adjust",
+                           json={"employee_id": eid, "date": _this_month(d), "check_type": "in",
+                                 "time": "08:00", "reason": "máy hỏng"},
+                           headers=_h(token)).status_code == 200
+    assert _quota(client, token)["used"] == 1                # lượt của NV không đổi
+
+
+def test_han_muc_tinh_theo_thang_cua_ngay_cong(client):
+    """Hạn mức gắn với THÁNG CỦA NGÀY CÔNG bị sửa, không phải tháng gửi đơn.
+
+    Nếu đếm theo ngày gửi thì mùng 1 gửi bù cho tháng trước sẽ ăn mất lượt của tháng mới."""
+    token = _admin_token(client)
+    _shift_from_month_start(client, token, _link_admin_employee(client, token))
+    _set_adjust_limit(client, token, 2)
+
+    _req_adjust(client, token, day=_this_month(3))
+    _req_adjust(client, token, day=_this_month(4))
+    _req_adjust(client, token, day=_this_month(5), expect=400)   # tháng này hết lượt
+
+    # Ngày thuộc THÁNG SAU vẫn gửi được — hạn mức riêng từng tháng.
+    today = date.today()
+    nxt = date(today.year + (today.month == 12), (today.month % 12) + 1, 5)
+    _req_adjust(client, token, day=nxt.isoformat())

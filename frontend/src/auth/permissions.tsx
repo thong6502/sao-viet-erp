@@ -30,6 +30,7 @@ export type PermAction =
   | "toggle_active"
   | "reparent"
   | "view_salary"
+  | "edit_salary"
   | "adjust"
   | "approve_exception"
   | "set_credit_terms"
@@ -92,6 +93,7 @@ export function PermissionsProvider({
     if (action === "toggle_active") return row.can_toggle_active;
     if (action === "reparent") return row.can_reparent;
     if (action === "view_salary") return row.can_view_salary;
+    if (action === "edit_salary") return row.can_edit_salary;
     if (action === "adjust") return row.can_adjust;
     if (action === "approve_exception") return row.can_approve_exception;
     if (action === "set_credit_terms") return row.can_set_credit_terms;

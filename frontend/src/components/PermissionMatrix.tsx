@@ -180,6 +180,13 @@ const FINE_ACTIONS: Record<
     { key: "can_export", label: "Xuất Excel danh sách" },
     { key: "can_adjust", label: "Chấm công: chấm bù / sửa công" },
   ],
+  di_muon: [
+    {
+      key: "can_approve",
+      label: "Duyệt phiếu đi muộn / về sớm",
+      hint: "Duyệt / từ chối phiếu đi muộn · về sớm · nghỉ nửa buổi của người khác (và khai hộ cho thợ — khai hộ là duyệt luôn). Kết hợp Phạm vi: 'Cả phòng' = tổ trưởng chỉ đụng được người trong tổ mình + các tổ con; 'Tất cả' = HCNS duyệt toàn công ty. KHÔNG cần cờ này để nhân viên tự xin/hủy phiếu của chính mình.",
+    },
+  ],
   tang_ca: [
     {
       key: "can_approve",
@@ -215,6 +222,8 @@ const MODULE_HINTS: Record<string, string> = {
     "Xem: thấy đơn nghỉ trong phạm vi được cấp. Chỉnh sửa: quản danh mục loại nghỉ. Nhân viên tự gửi và tự hủy đơn của mình thì KHÔNG cần cấp gì thêm.",
   tang_ca:
     "Xem: thấy mục Tăng ca trên thanh bên + danh sách phiếu trong phạm vi. Nhân viên tự gửi / tự hủy phiếu của chính mình thì KHÔNG cần cấp quyền nào. Muốn DUYỆT phiếu người khác thì bật quyền chi tiết “Duyệt phiếu tăng ca”.",
+  di_muon:
+    "Xem: thấy danh sách phiếu đi muộn / về sớm / nghỉ nửa buổi trong phạm vi (tab nằm trong màn Chấm công). Nhân viên tự xin / tự hủy phiếu của CHÍNH MÌNH thì KHÔNG cần cấp quyền nào — tab luôn hiện. Muốn DUYỆT phiếu người khác (và khai hộ thợ) thì bật quyền chi tiết “Duyệt phiếu đi muộn / về sớm”.",
   luong:
     "Xem: mở màn Lương (bảng lương tháng, tạm ứng). Chỉnh sửa: tính lại lương, sửa dòng lương, khai cấu hình. Cấu hình lương + duyệt tạm ứng + chốt kỳ + xuất file nằm ở quyền chi tiết. Nhân viên xem “Phiếu lương của tôi” thì không cần quyền này.",
   khach_hang:
@@ -259,7 +268,7 @@ const MODULE_GROUPS: { key: string; label: string; modules: string[] }[] = [
   { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat"] },
   { key: "kho", label: "Kho", modules: ["kho", "thu_mua"] },
   { key: "ke_toan", label: "Kế toán", modules: ["ke_toan"] },
-  { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "tang_ca", "luong"] },
+  { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "tang_ca", "di_muon", "luong"] },
   {
     key: "danh_muc",
     label: "Danh mục",

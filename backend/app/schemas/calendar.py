@@ -38,7 +38,7 @@ class ConfigOut(BaseModel):
 
 class SpecialDayIn(BaseModel):
     day: date
-    kind: str = Field(default="off")  # 'off' | 'work' (service validate)
+    kind: str = Field(default="off")  # 'off' | 'work' | 'off1x' (service validate)
     name: str = Field(min_length=1, max_length=200)
     is_paid: bool = True
     note: str | None = Field(default=None, max_length=500)

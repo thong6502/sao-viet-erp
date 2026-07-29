@@ -55,6 +55,7 @@ MODULES: list[tuple[str, str]] = [
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
     ("tang_ca", "Tăng ca"),
+    ("di_muon", "Đi muộn / về sớm"),
     ("luong", "Lương"),
 ]
 
@@ -187,6 +188,23 @@ def _ot_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
     )
 
 
+# Phiếu ĐI MUỘN / VỀ SỚM / NGHỈ NỬA BUỔI — cùng luồng duyệt với tăng ca (tổ trưởng duyệt tổ mình).
+def _el_self(scope: str = SCOPE_OWN) -> dict:
+    """Tự phục vụ cho MỌI nhân viên: xem phiếu của mình + tự gửi + tự hủy. KHÔNG duyệt."""
+    return dict(
+        can_read=True, can_create=True, can_update=False, can_delete=False,
+        scope=scope, can_cancel=True,
+    )
+
+
+def _el_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
+    """Quyền DUYỆT phiếu đi muộn/về sớm (+ khai hộ cho thợ, khai hộ là duyệt luôn)."""
+    return dict(
+        can_read=True, can_create=True, can_update=True, can_delete=False,
+        scope=scope, can_approve=True, can_cancel=True,
+    )
+
+
 # Roles: (department_name, role_name, {module_key: permission}). The minimal default
 # role ("Nhân viên") is Read-only on Dashboard, scope own.
 ROLES: list[tuple[str, str, dict[str, dict]]] = [
@@ -222,6 +240,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # Nghỉ phép: HCNS là nơi DUYỆT tập trung (mọi đơn toàn công ty) + quản loại nghỉ.
             "nghi_phep": _leave_admin(SCOPE_ALL),
             "tang_ca": _ot_lead(SCOPE_ALL),
+            "di_muon": _el_lead(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
@@ -241,7 +260,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
     ),
     # Vai "Nhân viên" tối thiểu: Dashboard + tự phục vụ Nghỉ phép (cửa vào self-service).
     ("Hành chính nhân sự", "Nhân viên",
-     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self()}),
+     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()}),
     # --- Khối SẢN XUẤT (Lát 1 — hộp việc 2 tầng, gate theo Ô QUYỀN, không theo chức danh) ---
     # Kế hoạch SX: cấu hình lệnh + PHÁT (can_approve), thấy mọi tổ (scope all). KHÔNG gán thợ.
     (
@@ -260,6 +279,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "phong_ban": _read(SCOPE_ALL),
             "nghi_phep": _leave_self(),
             "tang_ca": _ot_self(),
+            "di_muon": _el_self(),
         },
     ),
     # Tổ trưởng SX: xem tổ mình (scope own) + GÁN thợ (can_assign_work) → hộp việc FULL + nút gán.
@@ -276,6 +296,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             "nghi_phep": _leave_self(),
             # Tổ trưởng DUYỆT phiếu tăng ca của tổ mình (scope department = tổ + cây con).
             "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
+            "di_muon": _el_lead(SCOPE_DEPARTMENT),
         },
     ),
     # Thợ SX: CHỈ xem việc được gán (read scope own, không gán) → hộp việc lọc theo bước được gán.
@@ -283,14 +304,14 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Sản xuất",
         "Thợ SX",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
-         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
     ),
     # QC: xem mọi tổ (scope all) để soi công đoạn bất kỳ (ghi lỗi = Lát 3, thêm can_report_defect sau).
     (
         "Sản xuất",
         "QC",
         {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL),
-         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self(), "di_muon": _el_self()},
     ),
     (
         "Kinh doanh",
@@ -1929,6 +1950,75 @@ def seed_pit_brackets(db: Session) -> None:
     db.commit()
 
 
+# Danh mục KHOẢN THU NHẬP mặc định (chủ 2026-07-27).
+#
+# ⚠️ KHÔNG seed những khoản ĐÃ CÓ CỘT RIÊNG và đã được engine TỰ TÍNH: tăng ca (`ot_pay` suy từ
+# chấm công) · phụ cấp ca (`phu_cap_ca` → `night_pay`) · chuyên cần · lương khoán/sản lượng ·
+# TIỀN NGÀY NGHỈ PHÉP (`luong_ngay_phep`, nằm trong `luong_cong`) · các khoản phạt.
+# Seed trùng những khoản đó là TRẢ TIỀN HAI LẦN. Danh sách chặn ở `_RESERVED`
+# (`payroll_component_service.py`) canh đúng ranh giới này.
+#
+# (code, tên, kind, is_taxable, sort_order) — `is_taxable=False` = MIỄN thuế TNCN.
+# 4 khoản miễn lấy đúng theo sheet TÍNH THUẾ TNCN của kế toán (`lương thuế T 05.2026.xlsx`).
+_PAYROLL_COMPONENTS_SEED = [
+    ("trang_phuc",         "Trang phục",             "thu", False, 10),
+    ("tro_cap_nha_o",      "Trợ cấp tiền nhà ở",     "thu", False, 20),
+    ("ho_tro_di_lai",      "Hỗ trợ chi phí đi lại",  "thu", False, 30),
+    ("tien_com",           "Tiền ăn ca / CN / giờ",  "thu", False, 40),
+    ("phu_cap_dien_thoai", "Phụ cấp điện thoại",     "thu", True,  50),
+    ("phu_cap_xang",       "Phụ cấp xăng xe",        "thu", True,  60),
+    ("phu_cap_kiem_nhiem", "Phụ cấp kiêm nhiệm",     "thu", True,  70),
+    # 4 khoản THƯỞNG chuyển từ ô tay sang danh mục (chủ 28/07/2026: "khoản 5s hay thưởng gì thì
+    # cho nó select từ quy tắc, để coi nó chịu thuế hay không"). Cột cũ trên `payroll_lines` vẫn
+    # còn để kỳ ĐÃ CHỐT giữ nguyên số, nhưng không ai ghi mới được nữa ⇒ KHÔNG trả hai lần.
+    # `is_taxable=True` giữ ĐÚNG hành vi cũ (5 ô tay vốn bị đóng đinh chịu thuế); chủ tự bỏ tích
+    # cho khoản nào thực chất là hoàn tiền (điển hình: Trả đồng phục).
+    ("thuong_5s",          "Thưởng 5S",              "thu", True,  100),
+    ("thuong_doanh_so",    "Thưởng doanh số",        "thu", True,  110),
+    ("thuong_thanh_tich",  "Thưởng thành tích",      "thu", True,  120),
+    ("tra_dong_phuc",      "Trả đồng phục",          "thu", True,  130),
+    # Hai khoản MỞ (chủ 27/07/2026): khoản lặt vặt phát sinh một lần (thưởng nóng của Sếp) thì
+    # dùng luôn hai khoản này + ghi chú, KHÔNG phải đẻ một danh mục mới dùng một lần rồi bỏ.
+    ("thu_nhap_khac_ct",   "Thu nhập khác (chịu thuế)", "thu", True,  900),
+    ("thu_nhap_khac_mt",   "Thu nhập khác (miễn thuế)", "thu", False, 910),
+]
+
+
+def seed_payroll_components(db: Session) -> None:
+    """Danh mục khoản thu nhập — SEED-ONCE (chủ tự thêm/xoá/đổi cờ thì KHÔNG bị mọc lại sau restart)."""
+    from sqlalchemy import func, select
+
+    from .models.payroll import PayrollComponent
+    if db.execute(select(func.count(PayrollComponent.id))).scalar_one() > 0:
+        return
+    for code, name, kind, taxable, order in _PAYROLL_COMPONENTS_SEED:
+        db.add(PayrollComponent(code=code, name=name, kind=kind,
+                                is_taxable=taxable, sort_order=order))
+    db.commit()
+
+
+def seed_job_grades(db: Session) -> None:
+    """Danh mục BẬC TAY NGHỀ — SEED-ONCE (chủ sửa tên/tắt bậc thì KHÔNG bị mọc lại sau restart).
+
+    Bộ chủ chốt 29/07/2026: 3 bậc chính + 2 bậc phụ, Bậc 1 là bậc CAO NHẤT. Không tiền, không
+    hệ số — đúng "khai bậc thôi".
+
+    ⚠️ Trùng ý với migration 0127 là CỐ Ý, và cần cả hai:
+      - DB thật đang chạy: `schema_migrations` chưa có 0127 ⇒ migration seed + backfill bậc cũ.
+      - DB dựng mới / test: test wipe bảng bằng `drop_all` nhưng `schema_migrations` KHÔNG phải
+        bảng model nên sống sót ⇒ migration bị coi là "đã chạy" và bỏ qua. Không có seeder này
+        thì danh mục rỗng, màn hồ sơ không có bậc nào để chọn.
+    Cả hai đều guard "đã có dòng thì thôi" nên chạy chồng cũng không nhân đôi."""
+    from sqlalchemy import func, select
+
+    from .models.employee import JOB_GRADE_SEED, JobGrade
+    if db.execute(select(func.count(JobGrade.id))).scalar_one() > 0:
+        return
+    for code, name, seq in JOB_GRADE_SEED:
+        db.add(JobGrade(code=code, name=name, seq=seq))
+    db.commit()
+
+
 def seed_san_xuat_org(db: Session) -> None:
     """Nền phòng ban SẢN XUẤT: đánh dấu "Sản xuất" là khối sản
     xuất + dựng cây TỔ con (Chế bản/In/Cán/Bế/Đóng gói/KCS, cấp "Tổ"), gắn công đoạn → tổ, chuyển
@@ -2067,6 +2157,8 @@ def seed_all(db: Session) -> None:
     seed_machines(db)
     seed_operations(db)
     seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
+    seed_payroll_components(db)  # danh mục khoản thu nhập + cờ chịu thuế TNCN
+    seed_job_grades(db)  # danh mục bậc tay nghề (khối SX) — vận hành thật, không gated demo
     seed_pit_brackets(db)  # biểu thuế TNCN — dữ liệu vận hành thật (Lương đọc tính thuế)
     if settings.seed_demo:
         seed_kd_staff(db)

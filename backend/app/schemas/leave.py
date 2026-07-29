@@ -74,8 +74,10 @@ class LeaveQuotaOut(BaseModel):
     leave_type_id: int
     name: str
     annual_quota: int
-    used: int          # ngày làm việc đã dùng + đang chờ (năm dương lịch)
-    remaining: int
+    # FLOAT: phiếu nghỉ nửa buổi có tick "trừ phép" tiêu 0,5 ngày. Ép int thì số dư hiện sai
+    # (12 → 12 thay vì 11,5) và người ta xin nửa buổi thoải mái mà quỹ không bao giờ cạn.
+    used: float        # ngày làm việc đã dùng + đang chờ (năm dương lịch)
+    remaining: float
 
 
 class MyLeaveOut(BaseModel):

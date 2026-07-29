@@ -15,6 +15,9 @@ from ..deps import (
     get_authorization_service,
     get_department_repository,
     get_employee_repository,
+    get_employee_repository,
+    get_payroll_component_repository,
+    get_payroll_component_service,
     get_payroll_service,
     get_piece_work_service,
     get_user_repository,
@@ -23,11 +26,35 @@ from ..deps import (
 )
 from ..models.user import User
 from ..realtime import hub
+from ..services.payroll_component_service import (
+    ComponentError,
+    ComponentNotFound,
+    ComponentValidationError,
+    PayrollComponentService,
+)
 from ..services.rbac_service import AuthorizationService
 from ..repositories.employee_repo import EmployeeRepository
 from ..repositories.rbac_repo import DepartmentRepository
 from ..repositories.user_repo import UserRepository
+from ..repositories.employee_repo import EmployeeRepository
+from ..repositories.payroll_component_repo import PayrollComponentRepository
 from ..schemas.payroll import (
+    ComponentDeleteOut,
+    BulkAssignIn,
+    BulkAssignOut,
+    ComponentAmountsOut,
+    ComponentHoldersOut,
+    ComponentIn,
+    ComponentOut,
+    ComponentPatchIn,
+    ComponentValueOut,
+    ComponentValuesIn,
+    ComponentValuesOut,
+    LineComponentIn,
+    LineComponentOut,
+    LineComponentPatchIn,
+    LineComponentsOut,
+    ComponentsOut,
     AdvanceDecisionIn,
     AdvanceIn,
     AdvanceOut,
@@ -39,7 +66,6 @@ from ..schemas.payroll import (
     LatePenaltyBracketIn,
     LatePenaltyBracketOut,
     LatePenaltyBracketsOut,
-    AdvanceQuotaOut,
     InsuranceLineOut,
     LineOut,
     LineUpdateIn,
@@ -63,7 +89,15 @@ from ..schemas.payroll import (
     SalaryPreviewOut,
     TableOut,
 )
-from ..schemas.piece_work import RateIn, RateOut, RatesOut
+from ..schemas.piece_work import (
+    LeaderBracketOut,
+    LeaderBracketsIn,
+    LeaderBracketsOut,
+    RateIn,
+    RateOut,
+    RatesOut,
+    UnitsOut,
+)
 from ..services.payroll_service import (
     PayrollError,
     PayrollLocked,
@@ -92,6 +126,19 @@ Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Departments = Annotated[DepartmentRepository, Depends(get_department_repository)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
+CompService = Annotated[PayrollComponentService, Depends(get_payroll_component_service)]
+CompRepo = Annotated[PayrollComponentRepository, Depends(get_payroll_component_repository)]
+Employees = Annotated[EmployeeRepository, Depends(get_employee_repository)]
+
+
+def _emp_scope_for(authz: AuthorizationService, user: User) -> str:
+    """Phạm vi DỮ LIỆU NHÂN VIÊN của người gọi. Quyền `luong:update` chỉ trả lời "được làm
+    không"; "làm cho AI" là trục `nhan_su` (department_id) — hai chuyện khác nhau.
+
+    Mặc định `own` (an toàn): vai nào có `luong` mà chưa khai scope `nhan_su` thì bị thu về
+    chính mình chứ không rơi vào 'all'. Hiện chỉ Giám đốc và Trưởng phòng HCNS có `luong`, cả
+    hai đều `nhan_su=all` nên không ai bị vướng."""
+    return authz.scope_for(user, "nhan_su") or "own"
 
 
 def _raise(exc: Exception) -> None:
@@ -142,9 +189,14 @@ def _lines_out(lines, employees: EmployeeRepository, departments: DepartmentRepo
         emp = employees.get_by_id(eid)
         if emp is not None:
             emp_map[eid] = emp
+    # Khoản danh mục của CẢ MẺ trong 1 truy vấn (bảng lương ~100 dòng → đừng hỏi từng dòng).
+    comp_map: dict[int, list] = {}
+    if lines and svc is not None and getattr(svc, "components", None) is not None:
+        comp_map = svc.components.line_components_map([ln.id for ln in lines])
     out: list[LineOut] = []
     for ln in lines:
         o = LineOut.model_validate(ln)
+        o.components = [LineComponentOut.model_validate(c) for c in comp_map.get(ln.id, [])]
         o.ca_pay = float(ln.night_pay)     # alias FE v2 — CÙNG một số với night_pay
         o.night_premium_pay = float(getattr(ln, "night_premium_pay", 0) or 0)
         # "Phụ cấp khác" = phần còn lại của TỔNG phụ cấp sau khi tách 2 khoản khai ở tổ →
@@ -399,7 +451,9 @@ def set_salary(employee_id: int, body: SalaryIn, svc: Service,
                            luong_vi_tri=body.luong_vi_tri, luong_trach_nhiem=body.luong_trach_nhiem,
                            phu_cap_ca=body.phu_cap_ca, phu_cap_tham_nien=body.phu_cap_tham_nien,
                            insurance_elsewhere=body.insurance_elsewhere,
-                           union_member=body.union_member)
+                           union_member=body.union_member, luong_dot_1=body.luong_dot_1,
+                           apply_self_deduction=body.apply_self_deduction,
+                           commission_pct=body.commission_pct)
     except PayrollError as exc:
         _raise(exc)
     return SalaryOut.model_validate(s)
@@ -432,7 +486,7 @@ def create_advance(body: AdvanceIn, svc: Service, employees: Employees, departme
     try:
         a = svc.create_advance(employee_id=body.employee_id, actor=user, period_year=body.period_year,
                                period_month=body.period_month, advance_date=body.advance_date,
-                               amount=body.amount, reason=body.reason)
+                               amount=body.amount, reason=body.reason, kind=body.kind)
     except PayrollError as exc:
         _raise(exc)
     out = _adv_out([a], employees, departments)[0]
@@ -479,7 +533,8 @@ def my_advances(svc: Service, employees: Employees, departments: Departments,
                 user: CurrentUser) -> MyAdvancesOut:
     res = svc.my_advances(user=user)
     return MyAdvancesOut(has_employee=res["has_employee"],
-                         items=_adv_out(res["items"], employees, departments))
+                         items=_adv_out(res["items"], employees, departments),
+                         luong_dot_1=res.get("luong_dot_1", 0))
 
 
 @router.post("/advances/me", response_model=AdvanceOut, status_code=status.HTTP_201_CREATED)
@@ -493,26 +548,12 @@ def create_my_advance(body: MyAdvanceIn, svc: Service, employees: Employees,
     try:
         a = svc.create_advance(employee_id=emp.id, actor=user, period_year=body.period_year,
                                period_month=body.period_month, advance_date=body.advance_date,
-                               amount=body.amount, reason=body.reason)
+                               amount=body.amount, reason=body.reason, kind=body.kind)
     except PayrollError as exc:
         _raise(exc)
     out = _adv_out([a], employees, departments)[0]
     _notify_advance_pending(out.employee_name)
     return out
-
-
-@router.get("/advances/quota", response_model=AdvanceQuotaOut)
-def my_advance_quota(svc: Service, employees: Employees, user: CurrentUser,
-                     year: int = Query(...), month: int = Query(ge=1, le=12)) -> AdvanceQuotaOut:
-    """Hạn mức tạm ứng CÒN LẠI của chính tôi trong kỳ — để form hiện "còn được ứng X đ" TRƯỚC khi gõ.
-    Dùng chung `advance_quota()` với chỗ CHẶN nên số trên màn luôn khớp số backend áp dụng."""
-    emp = employees.get_by_user_id(user.id)
-    if emp is None:
-        raise HTTPException(status_code=400, detail="Tài khoản chưa gắn hồ sơ nhân sự.")
-    try:
-        return AdvanceQuotaOut(**svc.advance_quota(employee_id=emp.id, year=year, month=month))
-    except PayrollError as exc:
-        _raise(exc)
 
 
 @router.get("/advances/notify-summary")
@@ -558,13 +599,12 @@ def generate(body: GenerateIn, svc: Service, employees: Employees, departments: 
 def update_line(line_id: int, body: LineUpdateIn, svc: Service, employees: Employees, departments: Departments,
                 user: Annotated[User, Depends(require_permission(MODULE, "update"))]) -> LineOut:
     try:
+        # Khoản THƯỞNG không đi qua đây nữa — xem ghi chú ở `LineUpdateIn`.
         ln = svc.update_line(line_id=line_id, actor=user, vi_pham=body.vi_pham,
-                             other_bonus=body.other_bonus, pit=body.pit, pit_manual=body.pit_manual,
+                             pit=body.pit, pit_manual=body.pit_manual,
                              di_tre_manual=body.di_tre_manual,
                              monthly_override=body.monthly_override, note=body.note,
-                             thuong_5s=body.thuong_5s, thuong_doanh_so=body.thuong_doanh_so,
-                             thuong_thanh_tich=body.thuong_thanh_tich, phep_nam=body.phep_nam,
-                             tra_dong_phuc=body.tra_dong_phuc, dieu_chinh_luong=body.dieu_chinh_luong,
+                             dieu_chinh_luong=body.dieu_chinh_luong,
                              di_tre=body.di_tre, dt_vuot_troi=body.dt_vuot_troi,
                              phat_bien_ban=body.phat_bien_ban, phat_5s_dong_phuc=body.phat_5s_dong_phuc,
                              kpi_percent=body.kpi_percent)
@@ -623,6 +663,18 @@ def _xlsx_response(content: bytes, filename: str) -> Response:
                     headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+def _bonus_total(l: LineOut) -> float:
+    """Cột "Thưởng" của bảng/file xuất = khoản PHÁT SINH kỳ này + 6 cột thưởng CŨ.
+
+    ⚠️ KHÔNG tính khoản `source='employee'`: nó đã nằm trong `allowance` (cột "Phụ cấp") — cộng cả
+    hai là file xuất ra đếm đôi tiền của cùng một khoản. Giữ ĐỒNG BỘ với `bonusRows()` ở FE."""
+    return (
+        sum(c.amount for c in l.components if c.kind != "tru" and c.source == "line")
+        + float(l.other_bonus) + float(l.thuong_5s) + float(l.thuong_doanh_so)
+        + float(l.thuong_thanh_tich) + float(l.phep_nam) + float(l.tra_dong_phuc)
+    )
+
+
 def _build_table_xlsx(year: int, month: int, lines) -> bytes:
     from io import BytesIO
 
@@ -638,7 +690,7 @@ def _build_table_xlsx(year: int, month: int, lines) -> bytes:
                    "Thử việc" if l.is_probation else "Chính thức", float(l.actual_cong),
                    int(l.luong_cong), int(l.chuyen_can), int(l.allowance), int(l.khoan),
                    int(l.ot_pay), int(l.night_pay), int(getattr(l, "night_premium_pay", 0) or 0),
-                   int(l.vi_pham), int(l.other_bonus),
+                   int(l.vi_pham), int(_bonus_total(l)),
                    int(l.gross), int(l.bhxh), int(l.pit), int(l.advance_total), int(l.net_pay)])
     buf = BytesIO()
     wb.save(buf)
@@ -670,7 +722,9 @@ def export_table_xlsx(svc: Service, employees: Employees, departments: Departmen
     data = svc.get_table(year=year, month=month)
     if data is None:
         raise HTTPException(status_code=404, detail="Chưa có bảng lương tháng này.")
-    lines = _lines_out(data["lines"], employees, departments)
+    # PHẢI truyền `svc`: thiếu nó thì `LineOut.components` rỗng ⇒ cột "Thưởng" trong file xuất ra
+    # bằng 0 trong khi cột "Tổng" đã gồm tiền thưởng — kế toán đối chiếu là lệch.
+    lines = _lines_out(data["lines"], employees, departments, svc)
     return _xlsx_response(_build_table_xlsx(year, month, lines), f"bang-luong-{year}-{month:02d}.xlsx")
 
 
@@ -708,6 +762,48 @@ def list_rates(svc: PieceService, user: Annotated[User, Depends(require_permissi
     return RatesOut(items=[RateOut.model_validate(r) for r in svc.list_rates(department_id=department_id)])
 
 
+@router.get("/khoan/leader-brackets", response_model=LeaderBracketsOut)
+def list_leader_brackets(svc: PieceService,
+                         user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+                         department_id: int) -> LeaderBracketsOut:
+    """Bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — mỗi tổ một bộ riêng.
+
+    ⚠️ Engine CHƯA áp bảng này: tiền tính trên TỔNG KHOÁN của tổ, mà tổng khoán hiện luôn = 0
+    (chưa có nguồn sản lượng). Xem docstring `PieceLeaderBonusBracket`."""
+    return LeaderBracketsOut(
+        department_id=department_id,
+        items=[LeaderBracketOut.model_validate(b) for b in svc.leader_brackets(department_id)],
+    )
+
+
+@router.put("/khoan/leader-brackets", response_model=LeaderBracketsOut)
+def set_leader_brackets(body: LeaderBracketsIn, svc: PieceService,
+                        user: Annotated[User, Depends(require_permission(MODULE, "update"))]
+                        ) -> LeaderBracketsOut:
+    """Thay CẢ BỘ mốc của một tổ. `items` rỗng = tổ này không áp thưởng/phạt tổ trưởng."""
+    try:
+        rows = svc.set_leader_brackets(
+            department_id=body.department_id,
+            rows=[i.model_dump() for i in body.items],
+        )
+    except PieceWorkError as exc:
+        _raise(exc)
+    return LeaderBracketsOut(
+        department_id=body.department_id,
+        items=[LeaderBracketOut.model_validate(b) for b in rows],
+    )
+
+
+@router.get("/khoan/units", response_model=UnitsOut)
+def list_khoan_units(svc: PieceService,
+                     user: Annotated[User, Depends(require_permission(MODULE, "read"))]) -> UnitsOut:
+    """Gợi ý cho ô "Đơn vị" = mồi mặc định ∪ đơn vị nhà máy ĐÃ dùng.
+
+    ⚠️ Đây KHÔNG phải whitelist — người dùng gõ đơn vị ngoài danh sách vẫn lưu được (chủ
+    29/07/2026: *"chỉ select được mấy cái thôi… bất tiện lắm"*)."""
+    return UnitsOut(items=svc.unit_suggestions())
+
+
 @router.post("/khoan/rates", response_model=RateOut, status_code=status.HTTP_201_CREATED)
 def create_rate(body: RateIn, svc: PieceService,
                 user: Annotated[User, Depends(require_permission(MODULE, "create"))]) -> RateOut:
@@ -732,4 +828,176 @@ def delete_rate(rate_id: int, svc: PieceService,
     try:
         svc.delete_rate(rate_id)
     except PieceWorkError as exc:
+        _raise(exc)
+
+
+# --- Danh mục khoản thu nhập (chủ 2026-07-27) --------------------------------
+# Ô tích "Chịu thuế" trên từng khoản là NGUỒN DUY NHẤT trả lời "khoản này có tính TNCN không".
+
+
+def _comp_raise(exc: Exception) -> None:
+    if isinstance(exc, ComponentNotFound):
+        raise HTTPException(status_code=404, detail=str(exc))
+    if isinstance(exc, ComponentValidationError):
+        raise HTTPException(status_code=400, detail=str(exc))
+    raise exc
+
+
+def _comp_out(c, repo) -> ComponentOut:
+    o = ComponentOut.model_validate(c)
+    o.employee_count = repo.employee_count(c.id)
+    o.period_count = repo.period_count(c.id)
+    return o
+
+
+@router.get("/components", response_model=ComponentsOut)
+def list_components(csvc: CompService, repo: CompRepo, user: ConfigViewer) -> ComponentsOut:
+    """Cả khoản đã ngưng dùng cũng trả — màn cấu hình cần hiện để bật lại được."""
+    return ComponentsOut(items=[_comp_out(c, repo) for c in csvc.list_components()])
+
+
+@router.post("/components", response_model=ComponentOut, status_code=status.HTTP_201_CREATED)
+def create_component(body: ComponentIn, csvc: CompService, repo: CompRepo,
+                     user: Annotated[User, Depends(require_permission(MODULE, "create"))]):
+    try:
+        c = csvc.create_component(actor=user, **body.model_dump())
+    except ComponentError as exc:
+        _comp_raise(exc)
+    return _comp_out(c, repo)
+
+
+@router.put("/components/{component_id}", response_model=ComponentOut)
+def update_component(component_id: int, body: ComponentPatchIn, csvc: CompService, repo: CompRepo,
+                     user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    try:
+        c = csvc.update_component(actor=user, component_id=component_id,
+                                  **body.model_dump(exclude_none=True))
+    except ComponentError as exc:
+        _comp_raise(exc)
+    return _comp_out(c, repo)
+
+
+@router.delete("/components/{component_id}", response_model=ComponentDeleteOut)
+def delete_component(component_id: int, csvc: CompService,
+                     user: Annotated[User, Depends(require_permission(MODULE, "delete"))]):
+    """Chưa có số liệu ⇒ xoá hẳn. Đã dùng rồi ⇒ chỉ NGƯNG DÙNG (giữ phiếu lương kỳ cũ nguyên vẹn)."""
+    try:
+        res = csvc.delete_component(actor=user, component_id=component_id)
+    except ComponentError as exc:
+        _comp_raise(exc)
+    return ComponentDeleteOut(**res)
+
+
+@router.get("/components/{component_id}/holders", response_model=ComponentHoldersOut)
+def component_holders(component_id: int, csvc: CompService, repo: CompRepo,
+                      employees: Employees, user: ConfigViewer):
+    """NV còn giữ khoản này khi khoản ĐÃ ngừng áp dụng. Lương vẫn trả đủ (chốt của chủ) — danh
+    sách này để màn hình bật cảnh báo đỏ, không phải để cắt tiền ai."""
+    c = repo.get_component(component_id)
+    if c is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy khoản thu nhập.")
+    out = []
+    for eid in csvc.employees_holding_inactive(component_id):
+        emp = employees.get_by_id(eid)
+        if emp is not None:
+            out.append({"employee_id": eid, "code": emp.code, "full_name": emp.full_name})
+    return ComponentHoldersOut(component_id=c.id, component_name=c.name, items=out)
+
+
+@router.get("/components/employee/{employee_id}", response_model=ComponentValuesOut)
+def employee_component_values(employee_id: int, csvc: CompService, employees: Employees,
+                              user: ConfigViewer):
+    """Khoản ĐANG DÙNG của 1 NV (mặc định nhóm, đè bởi mức riêng) — cùng hàm engine dùng để ra tiền."""
+    emp = employees.get_by_id(employee_id)
+    if emp is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy nhân viên.")
+    rows = csvc.resolve_for(employee_id=employee_id)
+    return ComponentValuesOut(items=[ComponentValueOut(**r) for r in rows])
+
+
+@router.put("/components/employee/{employee_id}", response_model=ComponentValuesOut)
+def set_employee_component_values(employee_id: int, body: ComponentValuesIn, csvc: CompService,
+                                  employees: Employees,
+                                  user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    """`amount = null` ⇒ xoá mức riêng, người đó rơi về mức mặc định của nhóm lương."""
+    try:
+        csvc.set_employee_values(actor=user, employee_id=employee_id,
+                                 items=[i.model_dump() for i in body.items])
+    except ComponentError as exc:
+        _comp_raise(exc)
+    return employee_component_values(employee_id, csvc, employees, user)
+
+
+@router.get("/components/{component_id}/employee-amounts", response_model=ComponentAmountsOut)
+def component_employee_amounts(component_id: int, repo: CompRepo, user: ConfigViewer):
+    """Ai đang được gán khoản này và mức bao nhiêu — modal gán hàng loạt cần để hiện
+    "đã có 500.000đ — bỏ qua" / "500.000đ → 800.000đ" TRƯỚC khi người dùng bấm Lưu."""
+    if repo.get_component(component_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy khoản thu nhập.")
+    return ComponentAmountsOut(
+        component_id=component_id,
+        items=[{"employee_id": r.employee_id, "amount": float(r.amount), "note": r.note}
+               for r in repo.rows_of_component(component_id)],
+    )
+
+
+@router.post("/components/{component_id}/bulk-assign", response_model=BulkAssignOut)
+def bulk_assign_component(component_id: int, body: BulkAssignIn, csvc: CompService,
+                          authz: Authz,
+                          user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    """Rải MỘT khoản cho NHIỀU nhân viên trong một thao tác (chủ 28/07/2026).
+
+    Lọc theo scope người bấm — tổ trưởng không gán được ra ngoài tổ mình."""
+    try:
+        res = csvc.bulk_assign(
+            actor=user, component_id=component_id, amount=body.amount, note=body.note,
+            employee_ids=body.employee_ids or None, all_active=body.all_active,
+            overwrite=body.overwrite, scope=_emp_scope_for(authz, user),
+        )
+    except ComponentError as exc:
+        _comp_raise(exc)
+    return BulkAssignOut(**res)
+
+
+# --- Khoản PHÁT SINH trên một dòng lương (thưởng nóng — chủ 27/07/2026) ------
+# Khoản gán ở HỒ SƠ được trả lặp lại mọi tháng; khoản ở đây CHỈ có ở kỳ này và KHÔNG lặp sang kỳ
+# sau. Đây là chỗ khai "thưởng nóng của Sếp".
+
+
+@router.get("/lines/{line_id}/components", response_model=LineComponentsOut)
+def list_line_components(line_id: int, svc: Service, user: ConfigViewer) -> LineComponentsOut:
+    try:
+        rows = svc.list_line_components(line_id=line_id)
+    except PayrollError as exc:
+        _raise(exc)
+    return LineComponentsOut(items=[LineComponentOut.model_validate(r) for r in rows])
+
+
+@router.post("/lines/{line_id}/components", response_model=LineComponentOut,
+             status_code=status.HTTP_201_CREATED)
+def add_line_component(line_id: int, body: LineComponentIn, svc: Service,
+                       user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    try:
+        row = svc.add_line_component(actor=user, line_id=line_id, **body.model_dump())
+    except PayrollError as exc:
+        _raise(exc)
+    return LineComponentOut.model_validate(row)
+
+
+@router.put("/lines/components/{row_id}", response_model=LineComponentOut)
+def update_line_component(row_id: int, body: LineComponentPatchIn, svc: Service,
+                          user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    try:
+        row = svc.update_line_component(actor=user, row_id=row_id, **body.model_dump())
+    except PayrollError as exc:
+        _raise(exc)
+    return LineComponentOut.model_validate(row)
+
+
+@router.delete("/lines/components/{row_id}", status_code=204)
+def delete_line_component(row_id: int, svc: Service,
+                          user: Annotated[User, Depends(require_permission(MODULE, "update"))]):
+    try:
+        svc.delete_line_component(actor=user, row_id=row_id)
+    except PayrollError as exc:
         _raise(exc)
