@@ -99,7 +99,7 @@ def test_upload_avatar_succeeds_and_me_reflects_it(client):
     )
     assert resp.status_code == 200
     url = resp.json()["avatar_url"]
-    assert url.startswith("/static/avatars/")
+    assert url.startswith("/api/files/avatars/")
     # The file is actually served.
     assert client.get(url).status_code == 200
     # /me now carries the avatar path.

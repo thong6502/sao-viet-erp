@@ -10,7 +10,7 @@ import {
   ApiError,
   type CustomerAddress,
   type CustomerContact,
-  type LenhSXRow,
+  type LsxListItem,
   type OrderCreateInput,
   type OrderDetail,
   type OrderEnumsOut,
@@ -403,18 +403,22 @@ function OrderDrawer({
   const isCocDone = isChotDone && order.deposit_ok;
   const remaining = Math.max(0, order.deposit_required - order.deposit_received);
 
-  // Bước Sản xuất — suy từ lệnh + mốc "Chuyển SX": chưa chuyển → chờ KH → đang chạy → XONG (nhập kho TP).
-  const [lenhs, setLenhs] = useState<LenhSXRow[]>([]);
+  // Bước Sản xuất — đọc LỆNH THẬT của bàn Kế hoạch SX (`/api/lsx`). Chưa chuyển → chờ kế hoạch lên
+  // lệnh → đang chạy. "Xong" thuộc pha THỰC THI (nhập kho thành phẩm) — chưa dựng nên luôn false,
+  // đừng suy ra từ trạng thái lệnh ở lát này.
+  const [lenhs, setLenhs] = useState<LsxListItem[]>([]);
   useEffect(() => {
-    if (!token || order.status !== "ordered" || !order.san_xuat_released_at) { setLenhs([]); return; }
-    api.lenhSanXuat.list(token, { order_id: order.id }).then((r) => setLenhs(r.items)).catch(() => setLenhs([]));
+    if (!token || order.status !== "ordered" || !order.san_xuat_released_at) {
+      setLenhs([]);
+      return;
+    }
+    api.lsx.list(token, { order_id: order.id }).then((r) => setLenhs(r.items)).catch(() => setLenhs([]));
   }, [token, order.id, order.status, order.san_xuat_released_at]);
   const sxReleased = !!order.san_xuat_released_at;
-  const activeLenhs = lenhs.filter((l) => l.trang_thai !== "huy");
-  const sxDone = sxReleased && activeLenhs.length > 0 && activeLenhs.every((l) => l.trang_thai === "xong");
-  const sxState: "chua" | "cho_kh" | "chay" | "xong" =
-    !sxReleased ? "chua" : activeLenhs.length === 0 ? "cho_kh" : sxDone ? "xong" : "chay";
-  const sxText = { chua: "chưa chuyển", cho_kh: "chờ kế hoạch", chay: "đang chạy", xong: "xong" }[sxState];
+  const sxDone = false;
+  const sxState: "chua" | "cho_kh" | "chay" =
+    !sxReleased ? "chua" : lenhs.length === 0 ? "cho_kh" : "chay";
+  const sxText = { chua: "chưa chuyển", cho_kh: "chờ kế hoạch", chay: "đang chạy" }[sxState];
 
   const doneSeg = (isChotDone ? 1 : 0) + (isCocDone ? 1 : 0) + (sxDone ? 1 : 0);
 
@@ -690,21 +694,22 @@ function OrderDrawer({
                         <div style={{ display: "grid", gap: 4 }}>
                           <KV k="Trạng thái" v={sxText} />
                           <KV k="Chuyển lúc" v={<span className="dhb__mono">{fmtDate(order.san_xuat_released_at)}</span>} />
-                          {activeLenhs.length > 0 && (
-                            <KV k="Lệnh SX" v={`${activeLenhs.filter((l) => l.trang_thai === "xong").length}/${activeLenhs.length} lệnh xong`} />
+                          {lenhs.length > 0 && (
+                            <KV
+                              k="Lệnh SX"
+                              v={`${lenhs.length} lệnh · ${lenhs.filter((l) => l.trang_thai === "san_sang").length} sẵn sàng`}
+                            />
                           )}
                           <p style={{ color: "var(--ash)", fontSize: 12, margin: "2px 0 0" }}>
                             {sxState === "cho_kh"
-                              ? "Đang chờ Kế hoạch lên lệnh & phát hành."
-                              : sxState === "chay"
-                              ? "Xưởng đang chạy — bước này XONG khi nhập kho thành phẩm."
-                              : "Đã nhập kho thành phẩm — sản xuất hoàn tất."}
+                              ? "Đang chờ Kế hoạch lên lệnh sản xuất."
+                              : "Kế hoạch đã lên lệnh — bước này XONG khi nhập kho thành phẩm."}
                           </p>
                           <button
                             type="button"
                             className="link dhb__mono"
                             style={{ color: "var(--rust)", background: "none", border: 0, padding: 0, cursor: "pointer", fontWeight: 600, justifySelf: "start" }}
-                            onClick={() => navigate?.("ke-hoach-sx")}
+                            onClick={() => navigate?.("ke-hoach-sx", { openSxOrderId: order.id })}
                           >
                             Mở bàn Kế hoạch sản xuất ↗
                           </button>

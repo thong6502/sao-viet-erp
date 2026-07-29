@@ -194,19 +194,20 @@ export type QuoteEvent =
   // duyệt/từ chối → 'decision' gửi riêng nhân viên đề nghị.
   | { type: "advance_pending_changed"; code?: string }
   | { type: "advance_decision"; code?: string; decision: "approved" | "rejected" }
-  // Sản xuất (Lát 1) dùng CHUNG kênh hub — tín hiệu NHẸ để hộp việc tổ refetch + "ting". Số chính
-  // xác lấy qua to-badges/inbox (đã lọc scope server-side). `lenh_sx_routing` = có lệnh mới PHÁT
-  // vào các tổ `to_ids`; `lenh_sx_assigned` = 1 thợ được gán (đích danh tới user).
-  | { type: "lenh_sx_routing"; form_id?: number; lenh_ids?: number[]; to_ids: number[] }
-  | { type: "lenh_sx_assigned"; lenh_id: number; to_id: number | null }
-  | { type: "lenh_sx_phat"; form_id: number; lenh_ids: number[] }
-  | { type: "lenh_sx_duyet_mau"; lenh_id: number }
-  | { type: "lenh_sx_ban_giao"; lenh_id: number; ban_giao_id: number; to_nhan_id: number | null }
-  | { type: "lenh_sx_qc_loi"; lenh_id: number; qc_id: number; to_bi_quy_id: number | null }
+  // Phiếu tăng ca: NV gửi/hủy → 'ot_pending_changed' (người duyệt refetch badge); tổ trưởng
+  // duyệt/từ chối → 'ot_decision' đẩy riêng cho nhân viên nộp phiếu.
+  | { type: "ot_pending_changed"; code?: string }
+  | { type: "ot_decision"; code?: string; decision: "approved" | "rejected" }
   // Handoff Đơn → bàn Kế hoạch SX: đơn chốt 'bắn xuống' hàng chờ; Sale đổi gấp/lưu ý SAU chốt →
   // bàn kế hoạch "ting" (badge nhảy). Nội dung chính xác FE refetch hàng chờ / detail.
   | { type: "order_ordered"; code?: string; order_id: number }
   | { type: "order_sx_hint_changed"; code?: string; order_id: number; is_rush: boolean }
+  // Kế hoạch tạo/sửa/xoá lệnh sản xuất → hàng chờ + bước "Sản xuất" ở Đơn hàng cập nhật ngay.
+  | { type: "lsx_changed"; order_id: number }
+  // Bài ghép tạo/sửa/xoá → hàng chờ ghép + danh sách bài ghép cập nhật ngay (không cần refresh).
+  | { type: "bai_ghep_changed" }
+  // Xếp lịch: đưa vào/gỡ kế hoạch · gán máy-ca-giờ · khóa → bàn Xếp lịch + badge cập nhật ngay.
+  | { type: "xep_lich_changed" }
   // Chốt (thông tin) → báo KẾ TOÁN "đơn chờ ghi cọc" (popup module Phiếu thu). amount = cần thu.
   | { type: "order_deposit_needed"; code?: string; order_id: number; amount: number }
   // Kho (spec-kho-de-nghi §10): `stock_request` = tin đích danh có sẵn câu chữ để toast;
@@ -214,34 +215,538 @@ export type QuoteEvent =
   | { type: "stock_request"; code?: string; message: string }
   | { type: "stock_request_pending_changed"; code?: string };
 
-// --- Hộp việc TỔ sản xuất (Lát 1) --------------------------------------------
-export interface ToInboxAssignee { user_id: number; ten: string }
-export interface StepSanLuong { so_dat: number; so_hong: number; don_vi: string }
-export interface StepChoNhan { ban_giao_id: number; so_giao: number; don_vi: string; tu_to_ten: string | null }
-export interface ToInboxStep {
-  step_id: number; thu_tu: number; ten: string;
-  to_id: number | null; to_ten: string | null; is_mine: boolean; assignees: ToInboxAssignee[];
-  ghi_chu: string | null; quy_cach: string | null;   // ② ghi chú + quy cách BƯỚC (tổ hết trơ)
-  may_id: number | null; may_label: string | null; ca: string | null;  // 1.12 máy finishing + ca (tổ tự xếp)
-  san_luong: StepSanLuong | null;   // Lát 2: Σ đạt/hỏng đã ghi cho bước
-  da_giao: number;                  // Lát 2: Σ đã giao đi từ bước
-  cho_nhan: StepChoNhan | null;     // Lát 2: bàn giao đến chờ bước này xác nhận
+// --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ------------------------------
+// Job (đơn) → Part (lệnh) → Operation (công đoạn). Mỗi DÒNG ĐƠN = 1 lệnh, ngang hàng.
+export type LsxTrangThai =
+  | "nhap"
+  | "cho_bo_sung"
+  | "san_sang"
+  | "da_lap_ke_hoach"   // đã sinh dòng xếp lịch (≈ Firm Planned) — routing khóa
+  | "da_phat_hanh";     // đã phát hành xuống xưởng (≈ Released)
+export type LsxDonVi = "to" | "cai" | "kem" | "bai";
+/** Loại bước = bước CHIẾM cái gì khi lên Gantt (`bai_ghep` khai sẵn, pha sau mới sinh). */
+export type LsxLoaiBuoc = "may" | "to" | "thue_ngoai" | "cho" | "kcs" | "xa_to" | "bai_ghep";
+export type LsxDonViNangSuat = "to_gio" | "cai_gio" | "kem_gio" | "bai_gio";
+
+export const LSX_DON_VI_LABELS: Record<string, string> = {
+  to: "tờ", cai: "con", kem: "kẽm", bai: "bài",
+};
+
+/** Nhãn + màu của loại bước. `tone` map sang class `.khsx-lb--{tone}` trong ke-hoach-sx.css. */
+export const LSX_LOAI_BUOC_META: Record<LsxLoaiBuoc, { label: string; tone: string; hint: string }> = {
+  may: { label: "Máy", tone: "may", hint: "Chiếm máy — có thanh trên lịch máy" },
+  to: { label: "Tổ", tone: "to", hint: "Tổ lao động làm tay — chiếm nhân công, không chiếm máy" },
+  thue_ngoai: { label: "Thuê ngoài", tone: "ngoai", hint: "Nhà gia công làm — không chiếm máy nội bộ" },
+  cho: { label: "Chờ", tone: "cho", hint: "Chờ kỹ thuật (khô mực/khô keo) — chỉ đẩy lịch, không chiếm gì" },
+  kcs: { label: "KCS", tone: "kcs", hint: "Kiểm tra — chiếm tổ" },
+  xa_to: { label: "Xả tờ", tone: "xa", hint: "Chia bán thành phẩm — chiếm máy xén" },
+  bai_ghep: { label: "Bài ghép", tone: "ghep", hint: "Chạy chung ở bài ghép (chưa dùng ở bản này)" },
+};
+
+/** Mã checklist "thiếu gì" → nhãn hiển thị (server trả mã, FE dịch). CHẶN nút Sẵn sàng. */
+export const LSX_THIEU_LABELS: Record<string, string> = {
+  khong_co_ptg: "Chưa có bài tính giá",
+  thieu_giay: "Thiếu loại giấy",
+  thieu_kho: "Thiếu kích thước",
+  thieu_routing: "Chưa có công đoạn",
+  thieu_ngay_giao: "Thiếu ngày giao",
+  thieu_khuon: "Chưa gán khuôn bế",
+  thieu_to_may: "Có công đoạn chưa gán tổ / máy",
+  thieu_ncc: "Công đoạn thuê ngoài chưa có nhà gia công",
+  thieu_tg_thue_ngoai: "Công đoạn thuê ngoài chưa có ngày gửi / nhận",
+  thieu_he_so: "Đổi đơn vị nhưng chưa khai hệ số quy đổi",
+};
+
+/** Cảnh báo MỀM — chỉ tô màu, không chặn lưu và không chặn Sẵn sàng. */
+export const LSX_CANH_BAO_LABELS: Record<string, string> = {
+  ra_lon_hon_vao: "Có công đoạn ra nhiều hơn vào",
+  dut_chuyen: "Đứt chuyền — bước sau đòi nhiều hơn bước trước giao",
+  vuot_han_giao: "Tổng thời gian dẫn vượt hạn giao khách",
+  khac_bai_tinh_gia: "Routing đã đổi so với bài tính giá",
+  may_khong_hop_kho: "Khổ tờ in vượt khổ tối đa của máy",
+};
+
+// --- Bài ghép (print gang) — gom công đoạn in nhiều LSX chạy chung 1 tờ --------
+export type BaiGhepTrangThai = "nhap" | "san_sang";
+
+/** Checklist CHẶN "sẵn sàng xếp lịch" (server trả mã, FE dịch). */
+export const BAI_GHEP_THIEU_LABELS: Record<string, string> = {
+  thieu_thanh_vien: "Cần ít nhất 2 lệnh",
+  thieu_giay: "Chưa chọn giấy chạy chung",
+  thieu_kho_in: "Chưa có khổ tờ in chung",
+  thieu_ups: "Có thành viên chưa khai số con/tờ",
+  thieu_so_to: "Chưa tính được số tờ",
+};
+
+/** Cảnh báo MỀM — chỉ tô màu, không chặn. */
+export const BAI_GHEP_CANH_BAO_LABELS: Record<string, string> = {
+  khac_giay: "Thành viên khác loại giấy",
+  khac_so_mau: "Thành viên khác số màu",
+  khac_so_mat: "Thành viên khác số mặt / kiểu trở",
+  co_gap: "Có lệnh GẤP trong bài",
+  lech_han: "Hạn giao các lệnh lệch nhau xa",
+  thanh_vien_khong_san_sang: "Có lệnh không còn sẵn sàng",
+  don_huy: "Có lệnh thuộc đơn đã huỷ",
+  bai_thua: "Bài thưa — nhiều chỗ trống, phí giấy",
+};
+
+/** Mức tương thích 1 thuộc tính giữa các thành viên → nhãn + tone (class `.bghep-muc--{tone}`). */
+export const BAI_GHEP_MUC_META: Record<string, { label: string; tone: string }> = {
+  phu_hop: { label: "Phù hợp", tone: "ok" },
+  can_xac_nhan: { label: "Cần xác nhận", tone: "warn" },
+  khong_phu_hop: { label: "Không phù hợp", tone: "bad" },
+};
+
+export interface HangChoGhepItem {
+  lsx_id: number; ma: string; ten: string | null;
+  so_luong_dat: number; don_vi_tinh: string | null; so_con: number;
+  han_hoan_thanh_sx: string | null; is_rush: boolean;
+  order_id: number | null; customer_name: string | null;
+  giay_id: number | null; giay_ten: string | null; gsm: number | null;
+  so_mau_a: number | null; so_mau_b: number | null; quy_cach_in: string | null;
+  kho_tp: string | null; kho_in: string | null;
 }
-export interface ToInboxItem {
-  lenh_id: number; order_id: number; order_no: string | null;
-  khach: string | null; muc_tieu_sl: number; steps: ToInboxStep[];
-  han_giao_khach: string | null; han_giao_noi_bo: string | null;  // ① hạn khách + nội bộ
-  ghi_chu_ky_thuat: string | null;                                // ghi chú kỹ thuật cả lệnh
-  can_khuon: boolean; khuon_be_label: string | null;              // ③ khuôn bế (read-only, điều độ gán)
-  may_in_label: string | null; ngay_chay: string | null;          // ④ lịch chạy máy in (read-only)
+export interface HangChoGhepOut { items: HangChoGhepItem[]; total: number }
+
+export interface BaiGhepListItem {
+  id: number; ma: string; trang_thai: BaiGhepTrangThai; so_lsx: number;
+  giay_ten: string | null; kho_in: string | null;
+  so_to_tot: number; tong_to: number; han_in_muon_nhat: string | null; so_canh_bao: number;
 }
-export interface ToInboxOut {
-  to_id: number; to_ten: string; to_ma: string;
-  view: "full" | "assigned"; can_assign: boolean; items: ToInboxItem[];
+export interface BaiGhepListOut { items: BaiGhepListItem[]; total: number }
+
+export interface BaiGhepThanhVien {
+  thanh_vien_id: number; lsx_id: number; lsx_ma: string | null; lsx_ten: string | null;
+  so_luong_dat: number; don_vi_tinh: string | null; is_rush: boolean; trang_thai_lsx: string | null;
+  so_con_tren_to: number; san_luong_du_kien: number; du: number;
+  giay_id: number | null; giay_ten: string | null;
+  so_mau_a: number | null; so_mau_b: number | null; quy_cach_in: string | null;
+  kho_tp: string | null; han_hoan_thanh_sx: string | null;
 }
-export interface ToMember { user_id: number; ten: string; chuc_vu: string | null }
-export interface FinishingMay { id: number; ma: string; ten: string }  // 1.12 máy finishing (đã lọc non-press server-side)
-export interface ToBadge { to_id: number; count: number }
+export interface BaiGhepSoTo {
+  so_to_tot: number; tong_to: number; fill_pct: number | null; han_in_muon_nhat: string | null;
+  rows: { thanh_vien_id: number; lsx_id: number; can: number; con: number;
+          san_luong_du_kien: number; du: number }[];
+}
+export interface BaiGhepTuongThichRow { thuoc_tinh: string; gia_tri: (string | null)[]; muc: string }
+export interface BaiGhepTuongThich { thanh_vien: { lsx_id: number }[]; rows: BaiGhepTuongThichRow[] }
+export interface BaiGhepDetail {
+  id: number; ma: string; trang_thai: BaiGhepTrangThai;
+  giay_id: number | null; giay_ten: string | null;
+  kho_in_dai: number | null; kho_in_rong: number | null;
+  may_id: number | null; may_ten: string | null;
+  hao_hut_setup: number; hao_hut_chay: number; ghi_chu: string | null;
+  thanh_vien: BaiGhepThanhVien[];
+  so_to: BaiGhepSoTo;
+  tuong_thich: BaiGhepTuongThich;
+  thieu: string[]; canh_bao: string[];
+}
+export interface BaiGhepUpdateBody {
+  giay_id?: number | null; kho_in_dai?: number | null; kho_in_rong?: number | null;
+  may_id?: number | null; hao_hut_setup?: number; hao_hut_chay?: number; ghi_chu?: string | null;
+}
+
+// --- Xếp lịch công đoạn — bàn xếp lịch (máy + giờ) của Kế hoạch sản xuất -------
+// Routing đã "sẵn sàng" → đưa vào kế hoạch (khóa routing) → gán máy/tổ/NCC + ca + giờ; hệ tính giờ
+// kết thúc + độ dư + nhãn nguy cơ + cờ xung đột. Số DẪN XUẤT tính lúc đọc ở server (không lưu cột).
+export type XepLichNguon = "lsx" | "in_ghep";
+/** Nhãn nguy cơ trễ do server chấm (theo độ dư so hạn). FE dịch qua NguyCoTreChip. */
+export type XepLichRuiRo =
+  | "an_toan"
+  | "sap_toi_han"
+  | "nguy_co_tre"
+  | "da_tre"
+  | "chua_co_han";
+
+/** 1 nguồn trong order-pool "Chờ xếp": LSX độc lập hoặc bài ghép đã sẵn sàng, chưa đưa vào kế hoạch. */
+export interface XepLichHangChoItem {
+  nguon: XepLichNguon;
+  id: number;
+  ma: string;
+  ten: string | null;
+  so_cong_doan: number;
+  is_rush: boolean;
+  han_hoan_thanh_sx: string | null;
+}
+export interface XepLichHangChoOut { items: XepLichHangChoItem[]; total: number }
+
+/** 1 dòng lịch = 1 công đoạn cần xếp (hoặc lần in chung của bài ghép). Mọi số dẫn xuất đã tính sẵn. */
+export interface XepLichRow {
+  id: number;
+  nguon: XepLichNguon;
+  lsx_id: number | null;
+  bai_ghep_id: number | null;
+  lsx_ma: string | null;         // in_ghep → mã bài ghép
+  cong_doan_ten: string | null;  // in_ghep → "In chung"
+  loai_buoc: LsxLoaiBuoc | null;
+  so_luong_vao: number | null;
+  don_vi_vao: string | null;
+  // Tài nguyên gán (record-only: máy đề xuất, người quyết)
+  may_id: number | null;
+  may_ten: string | null;
+  department_id: number | null;
+  department_ten: string | null;
+  nha_cung_cap: string | null;
+  work_shift_id: number | null;
+  // Lịch (ISO datetime "giờ nhà máy") + dẫn xuất
+  som_nhat: string | null;
+  muon_nhat: string | null;
+  start_at: string | null;
+  finish_at: string | null;
+  chiem_may_phut: number;
+  tong_phut: number;
+  // Breakdown chiếm máy (Gantt vẽ thanh 2 đoạn setup+chạy; vệ sinh gộp cuối).
+  setup_phut: number;
+  chay_phut: number;
+  ve_sinh_phut: number;
+  theo_may: boolean;                     // thời lượng tính LẠI theo tốc độ máy đang gán (HM3) vs snapshot
+  canh_bao_thoi_luong: string | null;    // may_chua_toc_do | don_vi_lech — vì sao không tính-theo-máy được
+  slack_ngay: number | null;
+  nhan_rui_ro: XepLichRuiRo | null;
+  // Trạng thái
+  trang_thai: string;            // cho_xep | da_xep
+  is_locked: boolean;
+  co_xung_dot: boolean;
+  blocked_reason: string | null; // thieu_may | thieu_thoi_luong | cho_tien_de | …
+  // Kiểm khả năng máy (HM4) — soft, KHÔNG chặn (khổ/số màu/định lượng vượt spec máy đang gán).
+  can_xac_nhan: boolean;
+  ly_do_xac_nhan: string[];      // kho_vuot_may | so_mau_vuot_units | gsm_ngoai_khoang
+  is_rush: boolean;
+}
+export interface XepLichRowListOut { items: XepLichRow[]; total: number }
+
+/** Gán tài nguyên/giờ cho 1 dòng — CHỈ gửi field cần sửa (router `exclude_unset`). */
+export interface XepLichGanBody {
+  may_id?: number | null;
+  department_id?: number | null;
+  nha_cung_cap?: string | null;
+  work_shift_id?: number | null;
+  start_at?: string | null;
+}
+/** 1 dòng trong gán-loạt (bulk) — kèm id dòng. */
+export type XepLichGanLoatRow = XepLichGanBody & { id: number };
+
+/** Gợi ý xếp (chỉ đọc): máy trống sớm nhất + kết thúc nếu xếp + hạn lùi còn kịp giao. */
+export interface XepLichGoiY {
+  may_id: number | null;
+  khe_trong: string | null;
+  finish_neu_xep: string | null;
+  han_lui: string | null;
+}
+
+/** Nền lịch máy cho Gantt: khoảng LÀM VIỆC theo ca của xưởng + vùng KHÓA máy (bảo trì/khóa). */
+export interface XepLichLichKhoang { start: string; finish: string }
+export interface XepLichVungKhoa { start: string; finish: string; ly_do: string | null }
+export interface XepLichLichNen {
+  may_id: number;
+  khoang_lam: XepLichLichKhoang[];
+  khoang_khoa: XepLichVungKhoa[];
+}
+
+/** Xem-trước-ảnh-hưởng khi kéo-thả (đợt 4 — endpoint `/xem-truoc`, KHÔNG commit). Khớp `XemTruocOut`. */
+export interface XepLichPreviewBody { may_id?: number | null; start_at: string }
+export interface XepLichPreviewDayDoi {
+  id: number; cong_doan_ten: string | null; som_nhat: string | null;  // sớm-nhất MỚI sau khi bị đẩy
+}
+export interface XepLichPreview {
+  finish_at: string | null;
+  chiem_may_phut: number;
+  setup_phut: number;
+  chay_phut: number;
+  ve_sinh_phut: number;
+  theo_may: boolean;
+  xung_dot_ids: number[];              // id dòng đã xếp sẽ chồng giờ trên máy này
+  day_doi: XepLichPreviewDayDoi[];     // bước sau bị đẩy
+  han_hoan_thanh_moi: string | null;
+  nhan_rui_ro: XepLichRuiRo | null;
+  can_xac_nhan: boolean;               // máy có thể không kham nổi (khổ/số màu/định lượng) — cảnh báo, không chặn
+  ly_do_xac_nhan: string[];
+}
+
+/** 1 khoảng khóa máy (bảo trì/hỏng/nghỉ) — CRUD + Gantt overlay. */
+export interface XepLichVungKhoaItem {
+  id: number;
+  may_id: number;
+  start: string;
+  finish: string;
+  ly_do: string;   // bao_tri | hong_hoc | nghi | khac
+  note: string | null;
+}
+export interface XepLichVungKhoaListOut { items: XepLichVungKhoaItem[] }
+export interface XepLichVungKhoaIn { tu: string; den: string; ly_do?: string; note?: string | null }
+
+// --- Vấn đề kế hoạch (xung đột & nguy cơ trễ) — dẫn xuất lúc đọc + state người xử lý ---
+export type XepLichSeverity = "chan" | "nghiem_trong" | "cao" | "canh_bao";
+export type XepLichVanDeCategory =
+  | "trung_may"
+  | "de_khoa_may"
+  | "sai_tien_nhiem"
+  | "gang_thieu_xa_to"
+  | "thieu_du_lieu"
+  | "nguy_co_tre"
+  | "may_khong_kham"
+  | "qua_tai_may"
+  | "han_bai_ghep"
+  | "thue_ngoai";
+export type XepLichVanDeTrangThai =
+  | "moi"
+  | "tiep_nhan"
+  | "dang_xu_ly"
+  | "da_xu_ly"
+  | "ngoai_le"
+  | "tam_hoan";
+
+export interface XepLichVanDeImpact {
+  lsx_ids: number[];
+  bai_ghep_ids: number[];
+  may_ids: number[];
+  dong_ids: number[];
+  mas: string[];
+}
+export interface XepLichVanDeException {
+  ly_do: string | null;
+  by: number | null;
+  expires_at: string | null;
+}
+export interface XepLichVanDe {
+  issue_key: string;
+  category: XepLichVanDeCategory;
+  severity: XepLichSeverity;
+  title: string;
+  nguyen_nhan: string | null;
+  impacts: XepLichVanDeImpact;
+  delay_phut: number | null;
+  group_key: string | null;
+  // State người xử lý (trộn lúc đọc)
+  trang_thai: XepLichVanDeTrangThai;
+  assigned_to: number | null;
+  note: string | null;
+  tai_phat: number;
+  mo_lai: boolean;                 // vấn đề tái phát (đã xử lý mà lại dẫn xuất)
+  exception: XepLichVanDeException | null;
+}
+export interface XepLichVanDeSummary {
+  chan: number;
+  nghiem_trong: number;
+  cao: number;
+  canh_bao: number;
+  ngoai_le: number;
+  tong: number;
+}
+export interface XepLichVanDeListOut {
+  items: XepLichVanDe[];
+  summary: XepLichVanDeSummary;
+  total: number;
+}
+export interface XepLichVanDeState {
+  issue_key: string;
+  trang_thai: XepLichVanDeTrangThai;
+  assigned_to: number | null;
+  note: string | null;
+  tai_phat: number;
+}
+export interface XepLichPhatHanhOut { id: number; ma: string; trang_thai: string }
+export interface XepLichSanSangItem { nguon: XepLichNguon; id: number; ma: string; blocking: number }
+export interface XepLichSanSangOut { items: XepLichSanSangItem[]; total: number }
+export interface XepLichVanDeParams {
+  severity?: XepLichSeverity;
+  category?: XepLichVanDeCategory;
+  trang_thai?: XepLichVanDeTrangThai;
+  lsx_id?: number;
+  may_id?: number;
+}
+
+/** Lý do khóa máy → nhãn hiển thị. */
+export const XEP_LICH_KHOA_LABELS: Record<string, string> = {
+  bao_tri: "Bảo trì",
+  hong_hoc: "Máy hỏng",
+  nghi: "Nghỉ",
+  khac: "Khác",
+};
+
+/** Mã lý do bị chặn (`blocked_reason`) → nhãn hiển thị (server trả mã, FE dịch). */
+export const XEP_LICH_BLOCKED_LABELS: Record<string, string> = {
+  thieu_may: "Chưa gán máy / tổ",
+  thieu_thoi_luong: "Chưa khai năng suất — không tính được thời lượng",
+  cho_tien_de: "Chờ bước trước xếp / xong",
+};
+
+/** Kiểm khả năng máy (HM4) — mã lý do `ly_do_xac_nhan` → nhãn (máy đề xuất, người quyết; KHÔNG chặn). */
+export const XEP_LICH_XAC_NHAN_LABELS: Record<string, string> = {
+  kho_vuot_may: "Khổ tờ in vượt khổ máy",
+  so_mau_vuot_units: "Số màu vượt số đầu mực máy",
+  gsm_ngoai_khoang: "Định lượng giấy ngoài dải máy",
+};
+
+/** Cảnh báo thời lượng (HM3) — vì sao KHÔNG tính-theo-máy được (số đang là snapshot bước). */
+export const XEP_LICH_CANH_BAO_TL_LABELS: Record<string, string> = {
+  may_chua_toc_do: "Máy chưa khai tốc độ — thời lượng theo snapshot bước",
+  don_vi_lech: "Đơn vị máy/bước lệch — thời lượng theo snapshot bước",
+};
+
+export interface HangChoItem {
+  order_id: number;
+  order_no: string;
+  customer_name: string | null;
+  sale_name: string | null;
+  delivery_committed_date: string | null;
+  is_rush: boolean;
+  production_note: string | null;
+  san_xuat_released_at: string | null;
+  so_dong: number;
+  so_dong_co_lsx: number;
+}
+export interface HangChoOut { items: HangChoItem[]; total: number }
+
+export interface LsxPreviewRouting {
+  thu_tu: number; ten: string; nhom: string | null;
+  /** Cùng bộ mã với `LsxCongDoan.loai_buoc` — thay cờ `thue_ngoai` cũ, để màn "lệnh dự kiến"
+   *  và màn lệnh đã tạo hiển thị giống nhau. */
+  loai_buoc: LsxLoaiBuoc;
+  department_id: number | null; department_ten: string | null;
+  nha_cung_cap: string | null;
+}
+export interface LsxPreviewLine {
+  order_line_id: number;
+  ten: string;
+  so_luong_dat: number;
+  don_vi_tinh: string;
+  phieu_thanh_phan_id: number | null;
+  ptg_ma: string | null;
+  bu_hao_to: number;
+  so_to_ke_hoach: number;
+  so_to_nguyen: number;
+  so_con: number;
+  so_kem: number;
+  so_luot: number;
+  routing: LsxPreviewRouting[];
+  quy_cach: Record<string, unknown> | null;
+  thieu: string[];
+  /** SL lúc tính giá KHÁC SL đơn (cảnh báo mềm — số dùng thật là của đơn). */
+  sl_ptg: number | null;
+  lsx_id: number | null;
+  lsx_ma: string | null;
+}
+export interface LsxPreviewOut {
+  order_id: number;
+  order_no: string;
+  customer_name: string | null;
+  sale_name: string | null;
+  delivery_committed_date: string | null;
+  is_rush: boolean;
+  production_note: string | null;
+  lines: LsxPreviewLine[];
+  warnings: string[];
+}
+
+/** Khối gia công ngoài (§8) — chỉ có nghĩa khi `loai_buoc = "thue_ngoai"`. */
+interface LsxThueNgoaiFields {
+  nha_cung_cap: string | null;
+  sl_gui: number | null;
+  ngay_gui_dk: string | null;
+  van_chuyen_ngay: number | null;
+  gia_cong_ngay: number | null;
+  ngay_nhan_dk: string | null;
+  hao_hut_cho_phep: number | null;
+  don_gia_gia_cong: number | null;
+  yeu_cau_ky_thuat: string | null;
+  nguoi_giao_nhan_id: number | null;
+}
+
+export interface LsxCongDoan extends LsxThueNgoaiFields {
+  id: number; thu_tu: number; cong_doan_id: number | null;
+  ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc; bat_buoc: boolean;
+  department_id: number | null; department_ten: string | null;
+  may_id: number | null; may_ten: string | null; may_thay_the_ids: number[];
+  // Đơn vị VÀO ≠ RA là chuyện thường ở bế/xén — hệ số quy đổi nối hai đầu.
+  so_luong_vao: number; so_luong_ra: number;
+  don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
+  hao_hut: number; hao_hut_pct: number; ty_le_hao_hut: number; so_luot_chay: number;
+  so_nhan_cong: number;
+  setup_phut: number; nang_suat: number | null; don_vi_nang_suat: string | null;
+  chay_phut: number | null;   // null = để máy tính từ năng suất
+  ve_sinh_phut: number; cho_phut: number; di_chuyen_phut: number;
+  // derived: chiếm máy ĂN capacity; tổng thêm chờ + di chuyển (KHÔNG ăn capacity)
+  chiem_may_phut: number; tong_phut: number;
+  dieu_kien_json: string[];
+  nguoi_giao_nhan_ten: string | null;
+  ghi_chu: string | null;
+}
+export interface LsxCongDoanBody extends Partial<LsxThueNgoaiFields> {
+  thu_tu?: number; cong_doan_id?: number | null; ten?: string; nhom?: string | null;
+  loai_buoc?: LsxLoaiBuoc; bat_buoc?: boolean;
+  department_id?: number | null; may_id?: number | null; may_thay_the_ids?: number[];
+  so_luong_vao?: number; so_luong_ra?: number;
+  don_vi_vao?: string; don_vi_ra?: string; he_so_quy_doi?: number;
+  hao_hut?: number; hao_hut_pct?: number; so_luot_chay?: number; so_nhan_cong?: number;
+  setup_phut?: number; nang_suat?: number | null; don_vi_nang_suat?: string | null;
+  chay_phut?: number | null;
+  ve_sinh_phut?: number; cho_phut?: number; di_chuyen_phut?: number;
+  dieu_kien_json?: string[];
+  ghi_chu?: string | null;
+}
+/** Tổng thời gian dẫn cả lệnh — DẪN XUẤT ở server, không lưu cột. */
+export interface LsxLeadTime {
+  tong_phut: number;
+  chiem_may_phut: number;
+  so_ngay: number;              // quy ước 8h/ngày, chưa trừ nghỉ lễ
+  ngay_du_kien_xong: string | null;
+  ngay_con_lai: number | null;  // tới hạn giao khách; âm = đã trễ
+}
+/** 1 dòng GỢI Ý của phép tính ngược — chưa ghi DB. */
+export interface LsxTinhNguocRow {
+  id: number; thu_tu: number; ten: string;
+  so_luong_vao: number; so_luong_ra: number;
+  don_vi_vao: string; don_vi_ra: string;
+}
+export interface LsxTinhNguocOut { rows: LsxTinhNguocRow[]; so_to_ke_hoach: number }
+/** Bộ mặc định khi ĐỔI bước sang công đoạn khác. KHÔNG có SL vào/ra — số đó thuộc CHUỖI
+ *  (bước trước giao bao nhiêu thì bước này nhận bấy nhiêu), không thuộc công đoạn. */
+export interface LsxBuocMacDinh {
+  cong_doan_id: number; ten: string; nhom: string | null; loai_buoc: LsxLoaiBuoc;
+  department_id: number | null; may_id: number | null;
+  don_vi_vao: string; don_vi_ra: string; he_so_quy_doi: number;
+  setup_phut: number; nang_suat: number | null; don_vi_nang_suat: string | null;
+  ve_sinh_phut: number;
+}
+export interface LsxListItem {
+  id: number; ma: string; loai: string; ten: string; trang_thai: LsxTrangThai;
+  order_id: number; order_no: string | null; customer_name: string | null;
+  so_luong_dat: number; don_vi_tinh: string; so_to_ke_hoach: number;
+  han_giao_khach: string | null; han_hoan_thanh_sx: string | null;
+  is_rush: boolean; to_dau_ten: string | null; so_cong_doan: number;
+}
+export interface LsxListOut { items: LsxListItem[]; total: number }
+export interface LsxDetail {
+  id: number; ma: string; loai: string; lsx_goc_id: number | null; ten: string;
+  trang_thai: LsxTrangThai;
+  order_id: number; order_line_id: number; order_no: string | null;
+  customer_name: string | null; customer_po_no: string | null; sale_name: string | null;
+  quote_version_id: number | null; quote_number: string | null; quote_version_number: number | null;
+  phieu_thanh_phan_id: number | null; ptg_id: number | null; ptg_ma: string | null;
+  so_luong_dat: number; don_vi_tinh: string; bu_hao_to: number;
+  so_to_ke_hoach: number; so_to_nguyen: number; so_con: number;
+  ban_giao_at: string | null; han_giao_khach: string | null; han_hoan_thanh_sx: string | null;
+  is_rush: boolean;
+  quy_cach_json: Record<string, unknown> | null;
+  khuon_be_id: number | null; khuon_be_ten: string | null;
+  may_id: number | null; may_ten: string | null;
+  nguoi_phu_trach_id: number | null; nguoi_phu_trach_ten: string | null;
+  ghi_chu: string | null; created_at: string; updated_at: string;
+  cong_doans: LsxCongDoan[];
+  /** Hai rổ TÁCH BẠCH: `thieu` chặn nút Sẵn sàng; `canh_bao` chỉ tô màu. */
+  thieu: string[];
+  canh_bao: string[];
+  lead_time: LsxLeadTime | null;
+}
+export interface LsxUpdateBody {
+  ten?: string; so_luong_dat?: number; don_vi_tinh?: string; bu_hao_to?: number;
+  so_to_ke_hoach?: number; so_to_nguyen?: number; so_con?: number;
+  han_hoan_thanh_sx?: string | null; is_rush?: boolean;
+  khuon_be_id?: number | null; may_id?: number | null;
+  nguoi_phu_trach_id?: number | null; ghi_chu?: string | null;
+}
+export interface LsxActivity { at: string; actor_name: string | null; action: string; detail: string }
 
 export function connectQuoteEvents(token: string, onEvent: (e: QuoteEvent) => void): () => void {
   let closed = false;
@@ -343,36 +848,7 @@ export type SalaryMechanism =
 export interface DepartmentSalaryPolicy {
   salary_mechanism: SalaryMechanism;
   probation_ratio: number;
-  has_piece_work: boolean;
-}
-
-/** Một dòng mức lương trong "bảng lương của phòng" (Pha 1, lát 2). */
-export interface DepartmentSalaryRow {
-  id: number;
-  department_id: number;
-  label: string;
-  apply_by: SalaryMechanism;
-  pay_grade_key?: string | null;
-  seniority_band?: string | null;
-  gender?: string | null;
-  luong_vi_tri: number;
-  luong_trach_nhiem: number;
-  phu_cap: number;
-  chuyen_can: number;
-  sort_order: number;
-  is_active: boolean;
-}
-
-export interface DepartmentSalaryRowInput {
-  label: string;
-  apply_by: SalaryMechanism;
-  pay_grade_key?: string | null;
-  seniority_band?: string | null;
-  gender?: string | null;
-  luong_vi_tri: number;
-  luong_trach_nhiem: number;
-  phu_cap: number;
-  chuyen_can: number;
+  has_piece_work?: boolean;
 }
 
 /** A tier in the org-level catalog (spec-06 / PBI-4009). */
@@ -1432,6 +1908,16 @@ export interface EmployeeRow {
   created_at: string | null;
 }
 
+export interface EmployeeShiftAssignment {
+  id: number;
+  employee_id: number;
+  shift_id: number | null;
+  effective_from: string;
+  effective_to: string | null;
+  is_current: boolean;
+  created_at: string;
+}
+
 export interface EmployeeDetail extends EmployeeRow {
   date_of_birth: string | null;
   gender: string | null;
@@ -1538,6 +2024,22 @@ export interface EmployeeAccountInput {
   role_id?: number | null;
 }
 
+export interface EmployeeInitialSalaryInput {
+  effective_from?: string | null;
+  /** Lương cơ bản (đóng BH) — mức đóng BHXH/BHYT/BHTN bám số này. */
+  luong_vi_tri: number;
+  luong_trach_nhiem?: number;
+  allowance?: number;
+  phu_cap_ca?: number;
+  phu_cap_tham_nien?: number;
+  chuyen_can?: number;
+  /** BH đóng ở nơi khác → công ty chỉ đóng TNLĐ-BNN (không trừ BHXH/BHYT/BHTN của NV). */
+  insurance_elsewhere?: boolean;
+  /** Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn. */
+  union_member?: boolean;
+  note?: string | null;
+}
+
 export interface EmployeeInput {
   full_name: string;
   department_id: number | null;
@@ -1566,7 +2068,10 @@ export interface EmployeeInput {
   payroll_group?: string | null;
   pay_grade_key?: string | null;
   note?: string | null;
+  /** Thâm niên đã có TRƯỚC khi vào làm (tháng) — chỉ gửi lúc TẠO hồ sơ. */
+  prior_seniority_months?: number;
   account?: EmployeeAccountInput | null;
+  initial_salary?: EmployeeInitialSalaryInput | null;
 }
 
 export interface EmployeeTransitionInput {
@@ -1688,7 +2193,6 @@ export interface MyShift {
   start_time: string;   // "HH:MM"
   end_time: string;
   is_overnight: boolean;
-  night_shift: boolean;
 }
 
 export interface TodaySummary {
@@ -1705,6 +2209,8 @@ export interface AttendanceStatus {
   has_employee: boolean;
   employee_name: string | null;
   next_action: string | null;
+  can_check: boolean;
+  check_block_reason: string | null;
   last_check: AttendanceLog | null;
   locations_configured: boolean;
   shift: MyShift | null;         // ca mặc định của NV (nếu đã gán)
@@ -1717,8 +2223,13 @@ export interface WorkShift {
   start_time: string;   // "HH:MM"
   end_time: string;
   is_overnight: boolean;
-  night_shift: boolean;
+  /** Hệ số ca đêm (1.3 = +30%) cho giờ rơi 22h–06h trong ca — chỉ ca qua đêm. */
+  night_multiplier: number;
   grace_minutes: number;
+  /** Phụ cấp cơm khai theo ca (đ). Đợt 1: lưu/phơi; engine chưa dùng. */
+  meal_allowance: number;
+  /** Phụ cấp ca khai theo ca (đ), áp ca ngày/đêm. Đợt 1: lưu/phơi; engine chưa dùng. */
+  shift_allowance: number;
   is_active: boolean;
   note: string | null;
 }
@@ -1728,13 +2239,17 @@ export interface WorkShiftInput {
   start_time: string;
   end_time: string;
   is_overnight?: boolean;
-  night_shift?: boolean;
+  night_multiplier?: number;
   grace_minutes?: number;
+  meal_allowance?: number;
+  shift_allowance?: number;
   note?: string | null;
   is_active?: boolean;
 }
 
 export interface TimesheetDay {
+  shift_id?: number | null;
+  shift_name?: string | null;
   first_in: string | null;
   last_out: string | null;
   hours: number | null;
@@ -1780,6 +2295,46 @@ export interface LeaveTypeInput {
   annual_quota?: number;
   note?: string | null;
   is_active?: boolean;
+}
+
+// --- Tăng ca (module `tang_ca`) ---------------------------------------------
+// `from_minute`/`to_minute` = phút tính từ 00:00 của NGÀY CÔNG; > 1440 nghĩa là đã sang hôm sau
+// (vd 03:00 hôm sau = 1620). Cùng trục với cách bảng công gom ca qua đêm.
+export interface OvertimeRequest {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  work_date: string;
+  from_minute: number;
+  to_minute: number;
+  minutes: number;
+  reason: string | null;
+  status: string;
+  decided_at: string | null;
+  decision_note: string | null;
+  created_at: string | null;
+}
+export interface OvertimeInput {
+  work_date: string;
+  from_minute: number;
+  to_minute: number;
+  reason?: string | null;
+}
+export interface OvertimeForInput extends OvertimeInput {
+  employee_id: number;
+}
+export interface MyOvertime {
+  has_employee: boolean;
+  employee_name: string | null;
+  items: OvertimeRequest[];
+}
+export interface OvertimeSummary {
+  pending_in_scope: number | null;
+  my_decided_unseen: number;
+}
+export interface OvertimeBulkResult {
+  done: number[];
+  skipped: number[];
 }
 
 export interface LeaveRequest {
@@ -1840,7 +2395,13 @@ export interface PayrollParams {
   bhxh_rate: number;
   bhyt_rate: number;
   bhtn_rate: number;
+  /** Phía NGƯỜI SỬ DỤNG LAO ĐỘNG — KHÔNG trừ vào lương NV, chỉ để tính chi phí công ty. */
+  bhxh_rate_er: number;
+  bhyt_rate_er: number;
+  bhtn_rate_er: number;
   cong_doan_rate: number;
+  /** Tỷ lệ TNLĐ-BNN công ty chịu (mẫu 0.5%=0.005) — khi NV có BH đóng ở nơi khác. */
+  tnld_bnn_rate: number;
   deduction_self: number;
   deduction_dependent: number;
   chuyen_can_default: number;
@@ -1851,8 +2412,20 @@ export interface PayrollParams {
   restday_work_multiplier: number;
   holiday_work_multiplier: number;
   night_pct: number;
+  /** Cộng dồn tăng ca đêm (Đ98.3) — mặc định 0.2 = +20%. Khai được ở Cấu hình lương. */
+  ot_night_extra_pct: number;
   bh_base_cap: number;
   bhtn_base_cap: number;
+  /** Trần tạm ứng/tháng: tổng tạm ứng ≤ tỷ lệ này × (lương vị trí + trách nhiệm). 0 = không giới hạn. */
+  advance_max_pct: number;
+}
+/** Hạn mức tạm ứng còn lại của NV trong 1 kỳ. `limit`/`remaining` = null ⇒ không giới hạn. */
+export interface AdvanceQuota {
+  monthly: number;
+  pct: number;
+  limit: number | null;
+  used: number;
+  remaining: number | null;
 }
 export interface SalaryRule {
   id: number;
@@ -1881,26 +2454,47 @@ export interface EmployeeSalary {
   id: number;
   employee_id: number;
   effective_from: string;
+  effective_to?: string | null;
+  is_current?: boolean;
   amount_mode: string;
   base_amount: number | null;
-  source_salary_row_id: number | null;
+  /** Mức HỢP ĐỒNG riêng của NV — mức nền = vị trí + trách nhiệm. */
+  luong_vi_tri: number;
+  luong_trach_nhiem: number;
+  /** Mức đóng BH khai riêng (dormant — engine bám luong_vi_tri). */
   insurance_base: number | null;
-  allowance: number;
+  /** 3 khoản PHỤ CẤP KHAI TAY — số cố định, engine cộng phẳng, KHÔNG tự tính gì. */
+  allowance: number; // phụ cấp KHÁC (gộp)
+  phu_cap_ca?: number;
+  phu_cap_tham_nien?: number;
   chuyen_can: number;
+  /** BH đóng ở nơi khác → công ty chỉ đóng TNLĐ-BNN (prefill checkbox Sửa lương). */
+  insurance_elsewhere?: boolean;
+  /** Đoàn viên công đoàn → mới bị trừ đoàn phí (prefill checkbox Sửa lương). */
+  union_member?: boolean;
   note: string | null;
   created_at: string;
+  created_by?: number | null;
+  /** Tên người điều chỉnh (nhật ký "ai sửa"). */
+  actor_name?: string | null;
 }
 export interface EmployeeSalaryInput {
   effective_from: string;
   amount_mode: string;
   base_amount?: number | null;
-  /** Trỏ 1 dòng bảng lương của tổ → engine đọc sống (amount_mode tự thành 'dept_row'). */
-  source_salary_row_id?: number | null;
-  insurance_base?: number | null;
-  /** Phụ cấp của riêng NV (mỗi người mỗi khác). */
-  allowance?: number;
-  /** Chuyên cần của riêng NV (mỗi người mỗi khác). */
+  /** Gõ riêng 2 ô mức hợp đồng của chính NV — khai thì amount_mode tự thành 'manual'. */
+  luong_vi_tri?: number;
+  luong_trach_nhiem?: number;
+  /** 3 khoản phụ cấp KHAI TAY của riêng NV — gõ một lần, tháng nào cũng cộng đúng số này. */
+  allowance?: number; // phụ cấp KHÁC (gộp)
+  phu_cap_ca?: number;
+  phu_cap_tham_nien?: number;
+  /** Chuyên cần của riêng NV (0 = dùng mức của tổ). */
   chuyen_can?: number;
+  /** BH đóng ở nơi khác → công ty chỉ đóng TNLĐ-BNN (không trừ BHXH/BHYT/BHTN của NV). */
+  insurance_elsewhere?: boolean;
+  /** Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn. */
+  union_member?: boolean;
   note?: string | null;
 }
 export interface EmployeeSalaries {
@@ -1914,7 +2508,11 @@ export interface SalaryPreview {
   source: string;
   chuyen_can: number;
   allowance: number;
+  phu_cap_ca: number;
+  phu_cap_tham_nien: number;
   insurance_base: number;
+  luong_vi_tri: number;
+  luong_trach_nhiem: number;
 }
 export interface SalaryAdvance {
   id: number;
@@ -1978,12 +2576,24 @@ export interface PayrollLine {
   monthly_salary: number;
   luong_cong: number;
   chuyen_can: number;
+  /** TỔNG phụ cấp tháng — ĐÃ GỒM 3 dòng dưới. Render 3 dòng thì ĐỪNG cộng thêm số này.
+   *  Phụ cấp CA (`ca_pay`/`night_pay`) là khoản RIÊNG, KHÔNG nằm trong `allowance`. */
   allowance: number;
+  phu_cap_tham_nien?: number;
+  /** Phần còn lại = allowance − thâm niên (backend tính). */
+  phu_cap_khac?: number;
   khoan: number;
   ot_minutes: number;
   ot_pay: number;
   night_days: number;
+  /** Phụ cấp CA khai tay của NV (v2.1) — cột DB. `ca_pay` là alias, CÙNG một số, đừng cộng 2 lần. */
   night_pay: number;
+  ca_pay?: number;
+  /** Premium CA ĐÊM theo giờ (giờ 22h–06h × hệ số + tăng ca đêm) — tự tính từ chấm công, DÒNG RIÊNG. */
+  night_premium_pay?: number;
+  /** % đạt KPI của tháng (nhập tay ở modal "Sửa lương") và tiền thưởng đã quy ra. */
+  kpi_percent: number;
+  kpi_bonus: number;
   vi_pham: number;
   other_bonus: number;
   thuong_5s: number;
@@ -1993,12 +2603,17 @@ export interface PayrollLine {
   tra_dong_phuc: number;
   dieu_chinh_luong: number;
   di_tre: number;
+  /** True = HCNS sửa tay ô "Đi trễ" (phạt tự động không đè); False = tự động từ chấm công. */
+  di_tre_manual: boolean;
   dt_vuot_troi: number;
   phat_bien_ban: number;
   phat_5s_dong_phuc: number;
   gross: number;
   insurance_base: number;
+  /** TỔNG bảo hiểm NV đóng (10.5%) — số đã đóng băng lúc tính lương. */
   bhxh: number;
+  /** Tách 3 khoản cho phiếu lương (nhãn đã kèm tỷ lệ). Tổng 3 dòng == `bhxh`. Rỗng ở đường xuất Excel. */
+  insurance_lines?: { label: string; amount: number }[];
   cong_doan: number;
   pit: number;
   pit_manual: boolean;
@@ -2012,8 +2627,12 @@ export interface PayrollLineInput {
   other_bonus?: number | null;
   pit?: number | null;
   pit_manual?: boolean | null;
+  /** False = đưa phạt trễ VỀ TỰ ĐỘNG (tính lại từ chấm công); None = giữ nguyên. */
+  di_tre_manual?: boolean | null;
   monthly_override?: number | null;
   note?: string | null;
+  /** % đạt KPI → tiền = % × mức trần KPI của bộ phận (Cấu hình lương, Tab 2). */
+  kpi_percent?: number | null;
   thuong_5s?: number | null;
   thuong_doanh_so?: number | null;
   thuong_thanh_tich?: number | null;
@@ -2036,6 +2655,50 @@ export interface PitBracketInput {
   up_to?: number | null;
   rate: number;
 }
+// Bảng phạt đi trễ / về sớm (toàn công ty, sửa được) — mirror biểu thuế TNCN.
+// `up_to_minute` null = bậc cao nhất (∞, trên 1 giờ); `amount` = tiền phạt/lần (đồng).
+export interface LatePenaltyBracket {
+  id: number;
+  seq: number;
+  up_to_minute: number | null;
+  amount: number;
+}
+export interface LatePenaltyBracketInput {
+  seq: number;
+  up_to_minute?: number | null;
+  amount: number;
+}
+
+// --- Cấu hình lương: thành phần lương theo BỘ PHẬN (Tab 2) ------------------
+// PRD v2.1: chỉ còn 4 khoản khai theo TỔ. Các khoản phụ cấp (ca · thâm niên) đã chuyển sang
+// KHAI TAY ở từng NV (`employee_salaries`); gửi key cũ lên BE giờ ăn 422.
+export type SalaryComponentKey =
+  | "kpi"
+  | "chuyen_can"
+  | "luong_khoan"
+  | "tang_ca";
+export interface DeptComponent {
+  component_key: SalaryComponentKey;
+  is_enabled: boolean;
+  /** null = bật nhưng CHƯA khai mức → 0 đ (không còn mức mặc định công ty để rơi xuống). */
+  value: number | null;
+  /** Bộ phận đã khai riêng dòng này chưa. */
+  is_set: boolean;
+  /** LEGACY — danh mục phụ cấp cấp công ty đã gỡ, BE luôn trả mặc định. */
+  company_enabled: boolean;
+  company_value: number | null;
+  company_unit: string | null;
+}
+export interface DeptComponentInput {
+  component_key: SalaryComponentKey;
+  is_enabled: boolean;
+  value?: number | null;
+}
+export interface DeptComponents {
+  department_id: number;
+  items: DeptComponent[];
+}
+
 export interface PayrollTable {
   period: PayrollPeriod | null;
   lines: PayrollLine[];
@@ -2051,6 +2714,7 @@ export interface MyPayslip {
 export interface PieceRate {
   id: number;
   group_name: string;
+  department_id: number | null;
   code: string | null;
   name: string;
   unit: string;
@@ -2060,6 +2724,7 @@ export interface PieceRate {
 }
 export interface PieceRateInput {
   group_name: string;
+  department_id?: number | null;
   code?: string | null;
   name: string;
   unit: string;
@@ -2976,105 +3641,7 @@ export interface OrderListParams {
   size?: number;
 }
 
-// --- Kế hoạch & Lệnh sản xuất (spec-ke-hoach-san-xuat) --------------------
-// DTO đọc thuần map thẳng ORM (record-only) — chỉ ID mềm cho ấn phẩm/máy/công đoạn/tổ;
-// FE resolve tên qua các danh mục (orders · máy · công đoạn · phòng ban) như PTG resolve giấy/máy.
-export interface MauApprovedSnapshot {
-  user_id?: number | null;
-  to?: string | null;
-  chuc_vu?: string | null;
-  ten?: string | null;
-}
-export interface LenhSXRow {
-  id: number;
-  order_id: number;
-  phieu_thanh_phan_id: number | null;
-  may_id: number | null;
-  trang_thai: string; // nhap | dang_chay | xong | huy
-  khuon_be_id: number | null;      // ③ khuôn bế đã gán
-  han_giao_khach: string | null;   // ① hạn KHÁCH (snapshot đơn lúc bung)
-  han_giao_noi_bo: string | null;   // ① hạn NỘI BỘ (buffer planner nhập)
-  mau_approved_at: string | null;
-  mau_approved_by: number | null;
-  mau_approved_snapshot: MauApprovedSnapshot | null;
-  created_at: string;
-  updated_at: string;
-}
-export interface LenhSXListOut {
-  items: LenhSXRow[];
-  total: number;
-  page: number;
-  size: number;
-}
-export interface PrintFormRow {
-  id: number;
-  giay_id: number | null;
-  giay_label: string | null;
-  kho_in_dai: number;
-  kho_in_rong: number;
-  so_mau: number;
-  may_id: number | null;
-  so_to_chay: number;
-  so_kem: number;
-  trang_thai: string; // cho_ghep | du_dieu_kien | da_phat | in_xong
-  created_at: string;
-}
-export interface PlacementRow {
-  id: number;
-  print_form_id: number;
-  lenh_sx_id: number;
-  so_con: number;
-}
-export interface RoutingStepRow {
-  id: number;
-  lenh_sx_id: number;
-  thu_tu: number;
-  cong_doan_id: number | null;
-  to_id: number | null;
-  ten: string;
-  ghi_chu: string | null;    // ② ghi chú kỹ thuật bước (chép từ báo giá)
-  quy_cach: string | null;   // ② quy cách bước "N mặt · M vị trí"
-}
-// 1 BÀI CON của lệnh (ấn phẩm được pick vào lệnh) — giữ chi tiết để không mất khi gom.
-export interface LenhItemRow {
-  id: number | null; // id bài con (để mở drawer cấu hình override); null = lệnh cũ chưa có bài con
-  phieu_thanh_phan_id: number | null;
-  ten: string;
-  qty: number;
-  don_vi_tinh: string;
-}
-// Override quy cách in tại lệnh (chỉ field quy cách; null = gỡ override, kế thừa lại báo giá).
-export interface QuyCachOverride {
-  giay_id?: number | null;
-  dai_thanh_pham?: number | null;
-  rong_thanh_pham?: number | null;
-  kho_thanh_pham?: string | null;
-  kho_mo_rong?: string | null;
-  tay_gap?: string | null;
-  so_to_per_sp?: number | null;
-  kho_nguyen_dai?: number | null;
-  kho_nguyen_rong?: number | null;
-  nguon_giay?: string | null;
-  quy_cach_in?: string | null;
-  kho_in_dai?: number | null;
-  kho_in_rong?: number | null;
-  so_con?: number | null;
-  con_auto?: boolean | null;
-  che_ban_loai?: string | null;
-  so_mau_a?: number | null;
-  so_mau_b?: number | null;
-}
-export interface LenhSXDetailOut extends LenhSXRow {
-  items: LenhItemRow[];
-  routing: RoutingStepRow[];
-  forms: PrintFormRow[];
-  muc_tieu_sl: number;
-  ghi_chu_ky_thuat: string | null;   // ghi chú kỹ thuật CẢ LỆNH (đọc sống từ ấn phẩm đại diện)
-  can_khuon: boolean;                // ③ lệnh có công đoạn bế → cần gán khuôn
-  khuon_be_label: string | null;     // ③ khuôn đã gán "mã · tên"
-}
-
-// ③ Danh mục khuôn bế (đọc để gán vào lệnh có bế)
+// --- Khuôn bế (danh mục dùng chung) ---------------------------------------
 export interface KhuonBeRow {
   id: number;
   ma: string;
@@ -3642,40 +4209,6 @@ export const api = {
     departmentSubtree(token: string, id: number): Promise<DepartmentSubtreeRow[]> {
       return authed<DepartmentSubtreeRow[]>(`/api/departments/${id}/subtree`, token);
     },
-    /** Bảng lương của phòng (Pha 1, lát 2). */
-    listSalaryRows(token: string, deptId: number): Promise<DepartmentSalaryRow[]> {
-      return authed<DepartmentSalaryRow[]>(
-        `/api/departments/${deptId}/salary-rows`,
-        token,
-      );
-    },
-    createSalaryRow(
-      token: string,
-      deptId: number,
-      input: DepartmentSalaryRowInput,
-    ): Promise<DepartmentSalaryRow> {
-      return authed<DepartmentSalaryRow>(
-        `/api/departments/${deptId}/salary-rows`,
-        token,
-        { method: "POST", body: JSON.stringify(input) },
-      );
-    },
-    updateSalaryRow(
-      token: string,
-      rowId: number,
-      input: DepartmentSalaryRowInput,
-    ): Promise<DepartmentSalaryRow> {
-      return authed<DepartmentSalaryRow>(
-        `/api/departments/salary-rows/${rowId}`,
-        token,
-        { method: "PUT", body: JSON.stringify(input) },
-      );
-    },
-    deleteSalaryRow(token: string, rowId: number): Promise<void> {
-      return authed<void>(`/api/departments/salary-rows/${rowId}`, token, {
-        method: "DELETE",
-      });
-    },
     /** People eligible to head a unit: everyone in the unit + its sub-units (PBI-4004). */
     headCandidates(token: string, id: number): Promise<UserBrief[]> {
       return authed<UserBrief[]>(`/api/departments/${id}/head-candidates`, token);
@@ -4188,10 +4721,6 @@ export const api = {
     meta(token: string): Promise<EmployeeMeta> {
       return authed<EmployeeMeta>("/api/employees/meta", token);
     },
-    /** Dòng bảng lương của tổ — cho form thêm NV chọn mức (gác quyền nhân sự). */
-    salaryRows(token: string, deptId: number): Promise<DepartmentSalaryRow[]> {
-      return authed<DepartmentSalaryRow[]>(`/api/employees/meta/salary-rows/${deptId}`, token);
-    },
     get(token: string, id: number): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}`, token);
     },
@@ -4208,11 +4737,14 @@ export const api = {
       });
     },
     /** Gán ca mặc định (an toàn — chỉ đụng default_shift_id). Dùng cho panel Gán ca ở Chấm công. */
-    setShift(token: string, id: number, shiftId: number | null): Promise<{ ok: boolean; employee_id: number; default_shift_id: number | null }> {
+    setShift(token: string, id: number, shiftId: number | null, effectiveFrom: string): Promise<{ ok: boolean; employee_id: number; default_shift_id: number | null; assignment_id: number; effective_from: string }> {
       return authed(`/api/employees/${id}/shift`, token, {
         method: "PUT",
-        body: JSON.stringify({ default_shift_id: shiftId }),
+        body: JSON.stringify({ default_shift_id: shiftId, effective_from: effectiveFrom }),
       });
+    },
+    shiftHistory(token: string, id: number): Promise<{ employee_id: number; items: EmployeeShiftAssignment[] }> {
+      return authed<{ employee_id: number; items: EmployeeShiftAssignment[] }>(`/api/employees/${id}/shift-history`, token);
     },
     transition(token: string, id: number, input: EmployeeTransitionInput): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}/transitions`, token, {
@@ -4438,6 +4970,50 @@ export const api = {
     },
   },
 
+  // --- Tăng ca (tang_ca) ----------------------------------------------------
+  overtime: {
+    mine(token: string): Promise<MyOvertime> {
+      return authed<MyOvertime>("/api/overtime/me", token);
+    },
+    createMine(token: string, input: OvertimeInput): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>("/api/overtime/me", token,
+        { method: "POST", body: JSON.stringify(input) });
+    },
+    createFor(token: string, input: OvertimeForInput): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>("/api/overtime", token,
+        { method: "POST", body: JSON.stringify(input) });
+    },
+    list(token: string, statusFilter?: string): Promise<{ items: OvertimeRequest[] }> {
+      const q = statusFilter ? `?status_filter=${encodeURIComponent(statusFilter)}` : "";
+      return authed<{ items: OvertimeRequest[] }>(`/api/overtime${q}`, token);
+    },
+    approve(token: string, id: number, note?: string): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}/approve`, token,
+        { method: "POST", body: JSON.stringify({ note: note ?? null }) });
+    },
+    reject(token: string, id: number, note: string): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}/reject`, token,
+        { method: "POST", body: JSON.stringify({ note }) });
+    },
+    cancel(token: string, id: number): Promise<OvertimeRequest> {
+      return authed<OvertimeRequest>(`/api/overtime/${id}/cancel`, token, { method: "POST" });
+    },
+    bulkApprove(token: string, ids: number[]): Promise<OvertimeBulkResult> {
+      return authed<OvertimeBulkResult>("/api/overtime/bulk-approve", token,
+        { method: "POST", body: JSON.stringify({ ids }) });
+    },
+    bulkReject(token: string, ids: number[], note: string): Promise<OvertimeBulkResult> {
+      return authed<OvertimeBulkResult>("/api/overtime/bulk-reject", token,
+        { method: "POST", body: JSON.stringify({ ids, note }) });
+    },
+    summary(token: string): Promise<OvertimeSummary> {
+      return authed<OvertimeSummary>("/api/overtime/summary", token);
+    },
+    markSeen(token: string): Promise<void> {
+      return authed<void>("/api/overtime/mark-seen", token, { method: "POST" });
+    },
+  },
+
   // --- Nghỉ phép (nhan_su) --------------------------------------------------
   leaves: {
     types(token: string): Promise<{ items: LeaveType[] }> {
@@ -4544,10 +5120,6 @@ export const api = {
     setSalary(token: string, employeeId: number, input: EmployeeSalaryInput): Promise<EmployeeSalary> {
       return authed<EmployeeSalary>(`/api/luong/salaries/${employeeId}`, token, { method: "POST", body: JSON.stringify(input) });
     },
-    /** Dòng bảng lương của tổ — cho SalaryModal chọn/sửa mức theo dòng tổ (gác quyền lương). */
-    salaryRows(token: string, deptId: number): Promise<DepartmentSalaryRow[]> {
-      return authed<DepartmentSalaryRow[]>(`/api/luong/salary-rows/${deptId}`, token);
-    },
     deleteSalary(token: string, salaryId: number): Promise<void> {
       return authed<void>(`/api/luong/salaries/item/${salaryId}`, token, { method: "DELETE" });
     },
@@ -4572,6 +5144,9 @@ export const api = {
     },
     createMyAdvance(token: string, input: MyAdvanceInput): Promise<SalaryAdvance> {
       return authed<SalaryAdvance>("/api/luong/advances/me", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    advanceQuota(token: string, year: number, month: number): Promise<AdvanceQuota> {
+      return authed<AdvanceQuota>(`/api/luong/advances/quota?year=${year}&month=${month}`, token);
     },
     advanceNotifySummary(token: string): Promise<AdvanceNotifySummary> {
       return authed<AdvanceNotifySummary>("/api/luong/advances/notify-summary", token);
@@ -4599,6 +5174,26 @@ export const api = {
     },
     deletePitBracket(token: string, id: number): Promise<void> {
       return authed<void>(`/api/luong/pit-brackets/${id}`, token, { method: "DELETE" });
+    },
+    // --- Bảng phạt đi trễ / về sớm (toàn công ty) — mirror pit-brackets ---
+    latePenaltyBrackets(token: string): Promise<{ items: LatePenaltyBracket[] }> {
+      return authed<{ items: LatePenaltyBracket[] }>("/api/luong/late-penalty-brackets", token);
+    },
+    createLatePenaltyBracket(token: string, input: LatePenaltyBracketInput): Promise<LatePenaltyBracket> {
+      return authed<LatePenaltyBracket>("/api/luong/late-penalty-brackets", token, { method: "POST", body: JSON.stringify(input) });
+    },
+    updateLatePenaltyBracket(token: string, id: number, input: LatePenaltyBracketInput): Promise<LatePenaltyBracket> {
+      return authed<LatePenaltyBracket>(`/api/luong/late-penalty-brackets/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
+    },
+    deleteLatePenaltyBracket(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/luong/late-penalty-brackets/${id}`, token, { method: "DELETE" });
+    },
+    // --- Cấu hình lương: thành phần lương theo bộ phận (Tab 2) ---
+    deptComponents(token: string, deptId: number): Promise<DeptComponents> {
+      return authed<DeptComponents>(`/api/luong/dept-components/${deptId}`, token);
+    },
+    setDeptComponents(token: string, deptId: number, items: DeptComponentInput[]): Promise<DeptComponents> {
+      return authed<DeptComponents>(`/api/luong/dept-components/${deptId}`, token, { method: "PUT", body: JSON.stringify({ items }) });
     },
     lock(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/lock", token, { method: "POST", body: JSON.stringify({ year, month }) });
@@ -4631,8 +5226,9 @@ export const api = {
       return authed<MyPayslip>("/api/luong/payslip/me", token);
     },
     // --- Lương khoán (nhịp 2) ---
-    khoanRates(token: string): Promise<{ items: PieceRate[] }> {
-      return authed<{ items: PieceRate[] }>("/api/luong/khoan/rates", token);
+    khoanRates(token: string, departmentId?: number | null): Promise<{ items: PieceRate[] }> {
+      const q = departmentId != null ? `?department_id=${departmentId}` : "";
+      return authed<{ items: PieceRate[] }>(`/api/luong/khoan/rates${q}`, token);
     },
     createKhoanRate(token: string, input: PieceRateInput): Promise<PieceRate> {
       return authed<PieceRate>("/api/luong/khoan/rates", token, { method: "POST", body: JSON.stringify(input) });
@@ -4701,6 +5297,262 @@ export const api = {
     /** Nhật ký hoạt động THẬT (ai làm gì · khi nào) của phiếu tính giá này. */
     activity(token: string, id: number): Promise<{ items: PtgActivity[] }> {
       return authed<{ items: PtgActivity[] }>(`/api/phieu-tinh-gia/${id}/activity`, token);
+    },
+  },
+
+  // --- Lệnh sản xuất (LSX) — bàn Kế hoạch sản xuất ---------------------------
+  lsx: {
+    /** Đơn Sale đã "Chuyển xuống sản xuất" mà còn dòng chưa lên lệnh. */
+    hangCho(token: string): Promise<HangChoOut> {
+      return authed<HangChoOut>("/api/lsx/hang-cho", token);
+    },
+    /** Danh sách lệnh DỰ KIẾN của 1 đơn — dẫn xuất tại chỗ, chưa ghi DB. */
+    preview(token: string, orderId: number): Promise<LsxPreviewOut> {
+      return authed<LsxPreviewOut>(`/api/lsx/preview/${orderId}`, token);
+    },
+    /** Xác nhận tạo lệnh cho các dòng đã tick. */
+    tao(token: string, orderId: number, orderLineIds: number[]): Promise<LsxListOut> {
+      return authed<LsxListOut>(`/api/lsx/tao/${orderId}`, token, {
+        method: "POST",
+        body: JSON.stringify({ order_line_ids: orderLineIds }),
+      });
+    },
+    list(token: string, params: { order_id?: number; trang_thai?: string; q?: string } = {}): Promise<LsxListOut> {
+      const qs = new URLSearchParams();
+      if (params.order_id) qs.set("order_id", String(params.order_id));
+      if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<LsxListOut>(`/api/lsx${suffix}`, token);
+    },
+    get(token: string, id: number): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}`, token);
+    },
+    update(token: string, id: number, body: LsxUpdateBody): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}`, token, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    },
+    /** REPLACE-ALL routing của LỆNH (không đụng phiếu tính giá, không ảnh hưởng lệnh khác).
+     *  `lyDo` chỉ gửi khi routing đã lệch bài tính giá — server ghép vào nhật ký (§10). */
+    saveRouting(
+      token: string, id: number, congDoans: LsxCongDoanBody[], lyDo?: string,
+    ): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}/routing`, token, {
+        method: "PUT",
+        body: JSON.stringify({ cong_doans: congDoans, ly_do: lyDo || null }),
+      });
+    },
+    /** Gợi ý SL vào/ra cho cả chuỗi, chạy ngược từ SL thành phẩm. CHỈ ĐỌC — không ghi gì. */
+    tinhNguoc(token: string, id: number): Promise<LsxTinhNguocOut> {
+      return authed<LsxTinhNguocOut>(`/api/lsx/${id}/tinh-nguoc`, token);
+    },
+    /** Bộ mặc định khi ĐỔI một bước sang công đoạn khác (loại bước · tổ · máy · đơn vị · chuẩn bị ·
+     *  năng suất). Luật nằm ở backend — client chỉ áp kết quả, KHÔNG tự tính lại. */
+    macDinhBuoc(token: string, id: number, congDoanId: number): Promise<LsxBuocMacDinh> {
+      return authed<LsxBuocMacDinh>(`/api/lsx/${id}/mac-dinh-buoc/${congDoanId}`, token);
+    },
+    setTrangThai(token: string, id: number, trangThai: LsxTrangThai): Promise<LsxDetail> {
+      return authed<LsxDetail>(`/api/lsx/${id}/trang-thai`, token, {
+        method: "POST",
+        body: JSON.stringify({ trang_thai: trangThai }),
+      });
+    },
+    remove(token: string, id: number): Promise<void> {
+      return authed<void>(`/api/lsx/${id}`, token, { method: "DELETE" });
+    },
+    activity(token: string, id: number): Promise<{ items: LsxActivity[] }> {
+      return authed<{ items: LsxActivity[] }>(`/api/lsx/${id}/activity`, token);
+    },
+  },
+
+  // --- Bài ghép (print gang) — gom công đoạn in nhiều LSX chạy chung 1 tờ ----
+  baiGhep: {
+    /** LSX sẵn sàng, có công đoạn in, chưa thuộc bài ghép nào. */
+    hangCho(token: string, params: { giay_id?: number; q?: string } = {}): Promise<HangChoGhepOut> {
+      const qs = new URLSearchParams();
+      if (params.giay_id) qs.set("giay_id", String(params.giay_id));
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<HangChoGhepOut>(`/api/bai-ghep/hang-cho${suffix}`, token);
+    },
+    list(token: string): Promise<BaiGhepListOut> {
+      return authed<BaiGhepListOut>("/api/bai-ghep", token);
+    },
+    get(token: string, id: number): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}`, token);
+    },
+    tao(token: string, lsxIds: number[]): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>("/api/bai-ghep", token, {
+        method: "POST", body: JSON.stringify({ lsx_ids: lsxIds }),
+      });
+    },
+    update(token: string, id: number, body: BaiGhepUpdateBody): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}`, token, {
+        method: "PUT", body: JSON.stringify(body),
+      });
+    },
+    themThanhVien(token: string, id: number, lsxIds: number[]): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien`, token, {
+        method: "POST", body: JSON.stringify({ lsx_ids: lsxIds }),
+      });
+    },
+    suaThanhVien(token: string, id: number, tvId: number, soConTrenTo: number): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, {
+        method: "PUT", body: JSON.stringify({ so_con_tren_to: soConTrenTo }),
+      });
+    },
+    boThanhVien(token: string, id: number, tvId: number): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/thanh-vien/${tvId}`, token, { method: "DELETE" });
+    },
+    setTrangThai(token: string, id: number, trangThai: BaiGhepTrangThai): Promise<BaiGhepDetail> {
+      return authed<BaiGhepDetail>(`/api/bai-ghep/${id}/trang-thai`, token, {
+        method: "POST", body: JSON.stringify({ trang_thai: trangThai }),
+      });
+    },
+    remove(token: string, id: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/bai-ghep/${id}`, token, { method: "DELETE" });
+    },
+    activity(token: string, id: number): Promise<{ items: LsxActivity[] }> {
+      return authed<{ items: LsxActivity[] }>(`/api/bai-ghep/${id}/activity`, token);
+    },
+  },
+
+  // --- Xếp lịch công đoạn — bàn xếp lịch (máy + giờ) của Kế hoạch sản xuất ----
+  xepLich: {
+    /** Order-pool "Chờ xếp": LSX độc lập + bài ghép đã sẵn sàng, CHƯA đưa vào kế hoạch. */
+    hangCho(token: string): Promise<XepLichHangChoOut> {
+      return authed<XepLichHangChoOut>("/api/xep-lich/hang-cho", token);
+    },
+    /** Bảng dòng lịch (đã đưa vào kế hoạch). `may_id`/`q` lọc phía server; màn dùng lọc client-side. */
+    dong(token: string, params: { may_id?: number; q?: string } = {}): Promise<XepLichRowListOut> {
+      const qs = new URLSearchParams();
+      if (params.may_id) qs.set("may_id", String(params.may_id));
+      if (params.q) qs.set("q", params.q);
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<XepLichRowListOut>(`/api/xep-lich/dong${suffix}`, token);
+    },
+    duaVaoLsx(token: string, lsxId: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/dua-vao/lsx/${lsxId}`, token, { method: "POST" });
+    },
+    duaVaoBaiGhep(token: string, baiGhepId: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/dua-vao/bai-ghep/${baiGhepId}`, token, { method: "POST" });
+    },
+    goLsx(token: string, lsxId: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/lsx/${lsxId}`, token, { method: "DELETE" });
+    },
+    goBaiGhep(token: string, baiGhepId: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/bai-ghep/${baiGhepId}`, token, { method: "DELETE" });
+    },
+    /** Gán 1 dòng — chỉ gửi field cần sửa. Trả về dòng đã tính lại (finish/xung đột/trạng thái). */
+    gan(token: string, dongId: number, body: XepLichGanBody): Promise<XepLichRow> {
+      return authed<XepLichRow>(`/api/xep-lich/dong/${dongId}/gan`, token, {
+        method: "PUT", body: JSON.stringify(body),
+      });
+    },
+    /** Gán hàng loạt (bulk) — mỗi dòng kèm id + field cần sửa. */
+    ganLoat(token: string, rows: XepLichGanLoatRow[]): Promise<XepLichRowListOut> {
+      return authed<XepLichRowListOut>("/api/xep-lich/dong/gan-loat", token, {
+        method: "PUT", body: JSON.stringify({ rows }),
+      });
+    },
+    khoa(token: string, dongId: number, khoa: boolean): Promise<XepLichRow> {
+      return authed<XepLichRow>(`/api/xep-lich/dong/${dongId}/khoa`, token, {
+        method: "POST", body: JSON.stringify({ khoa }),
+      });
+    },
+    moKhoa(token: string, dongId: number): Promise<XepLichRow> {
+      return authed<XepLichRow>(`/api/xep-lich/dong/${dongId}/mo-khoa`, token, { method: "POST" });
+    },
+    goiY(token: string, dongId: number): Promise<XepLichGoiY> {
+      return authed<XepLichGoiY>(`/api/xep-lich/dong/${dongId}/goi-y`, token);
+    },
+    /** Nền lịch máy (khoảng làm-việc theo ca + vùng khóa) cho Gantt vẽ nền + curtains. `tu`/`den` = YYYY-MM-DD. */
+    lichNen(token: string, mayId: number, tu: string, den: string): Promise<XepLichLichNen> {
+      const qs = new URLSearchParams({ tu, den });
+      return authed<XepLichLichNen>(`/api/xep-lich/may/${mayId}/lich-nen?${qs.toString()}`, token);
+    },
+    /** Xem-trước-ảnh-hưởng khi kéo (đợt 4) — KHÔNG commit; trả xung đột + bước bị đẩy + nguy cơ trễ. */
+    preview(token: string, dongId: number, body: XepLichPreviewBody): Promise<XepLichPreview> {
+      return authed<XepLichPreview>(`/api/xep-lich/dong/${dongId}/xem-truoc`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
+    /** Mọi khoảng khóa máy (mọi máy) giao [tu, den] — Gantt overlay nền bảo trì. `tu`/`den`=YYYY-MM-DD. */
+    vungKhoaRange(token: string, tu: string, den: string): Promise<XepLichVungKhoaListOut> {
+      const qs = new URLSearchParams({ tu, den });
+      return authed<XepLichVungKhoaListOut>(`/api/xep-lich/vung-khoa?${qs.toString()}`, token);
+    },
+    /** Tạo khoảng khóa 1 máy (bảo trì/hỏng/nghỉ). */
+    taoVungKhoa(token: string, mayId: number, body: XepLichVungKhoaIn): Promise<XepLichVungKhoaItem> {
+      return authed<XepLichVungKhoaItem>(`/api/xep-lich/may/${mayId}/vung-khoa`, token, {
+        method: "POST", body: JSON.stringify(body),
+      });
+    },
+    xoaVungKhoa(token: string, pid: number): Promise<{ ok: boolean }> {
+      return authed<{ ok: boolean }>(`/api/xep-lich/vung-khoa/${pid}`, token, { method: "DELETE" });
+    },
+
+    // --- Vấn đề kế hoạch (xung đột & nguy cơ trễ) + phát hành ---------------
+    /** Danh sách xung đột & nguy cơ trễ (dẫn xuất) + tổng hợp theo mức. */
+    vanDe(token: string, params: XepLichVanDeParams = {}): Promise<XepLichVanDeListOut> {
+      const qs = new URLSearchParams();
+      if (params.severity) qs.set("severity", params.severity);
+      if (params.category) qs.set("category", params.category);
+      if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
+      if (params.lsx_id) qs.set("lsx_id", String(params.lsx_id));
+      if (params.may_id) qs.set("may_id", String(params.may_id));
+      const suffix = qs.toString() ? `?${qs.toString()}` : "";
+      return authed<XepLichVanDeListOut>(`/api/xep-lich/van-de${suffix}`, token);
+    },
+    /** LSX/bài ghép đã lập kế hoạch + số xung đột CHẶN còn lại (0 = phát hành được). */
+    sanSangPhatHanh(token: string): Promise<XepLichSanSangOut> {
+      return authed<XepLichSanSangOut>("/api/xep-lich/san-sang-phat-hanh", token);
+    },
+    vanDeTiepNhan(token: string, issueKey: string): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/tiep-nhan", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey }),
+      });
+    },
+    vanDeGiao(token: string, issueKey: string, userId: number): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/giao", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey, user_id: userId }),
+      });
+    },
+    vanDeGhiChu(token: string, issueKey: string, note: string): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/ghi-chu", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey, note }),
+      });
+    },
+    vanDeDanhDauXuLy(token: string, issueKey: string): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/danh-dau-xu-ly", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey }),
+      });
+    },
+    vanDeTamHoan(token: string, issueKey: string): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/tam-hoan", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey }),
+      });
+    },
+    /** Duyệt ngoại lệ (cần quyền PHÁT). `expiresAt`=ISO hoặc null (không hạn). */
+    vanDeNgoaiLe(token: string, issueKey: string, lyDo: string, expiresAt: string | null = null): Promise<XepLichVanDeState> {
+      return authed<XepLichVanDeState>("/api/xep-lich/van-de/ngoai-le", token, {
+        method: "POST", body: JSON.stringify({ issue_key: issueKey, ly_do: lyDo, expires_at: expiresAt }),
+      });
+    },
+    /** Phát hành kế hoạch (Released) — gate 0 xung đột Chặn. Cần quyền PHÁT. */
+    phatHanhLsx(token: string, lsxId: number): Promise<XepLichPhatHanhOut> {
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/lsx/${lsxId}`, token, { method: "POST" });
+    },
+    phatHanhBaiGhep(token: string, baiGhepId: number): Promise<XepLichPhatHanhOut> {
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/bai-ghep/${baiGhepId}`, token, { method: "POST" });
+    },
+    goPhatHanhLsx(token: string, lsxId: number): Promise<XepLichPhatHanhOut> {
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/lsx/${lsxId}`, token, { method: "DELETE" });
+    },
+    goPhatHanhBaiGhep(token: string, baiGhepId: number): Promise<XepLichPhatHanhOut> {
+      return authed<XepLichPhatHanhOut>(`/api/xep-lich/phat-hanh/bai-ghep/${baiGhepId}`, token, { method: "DELETE" });
     },
   },
 
@@ -4914,210 +5766,6 @@ export const api = {
       return authed<OrderDetail>(`/api/orders/${id}/attachments/${attachmentId}`, token, { method: "DELETE" });
     },
   },
-  // --- Kế hoạch & Lệnh sản xuất (spec-ke-hoach-san-xuat) --------------------
-  // Máy CHỈ GHI NHẬN: đọc thuần (list/detail lệnh · tờ in). Actions ghép/duyệt/phát = chunk sau.
-  lenhSanXuat: {
-    list(token: string, params: LenhSXListParams = {}): Promise<LenhSXListOut> {
-      const qs = new URLSearchParams();
-      if (params.order_id != null) qs.set("order_id", String(params.order_id));
-      if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
-      if (params.page) qs.set("page", String(params.page));
-      qs.set("size", String(params.size ?? 200));
-      const suffix = qs.toString() ? `?${qs.toString()}` : "";
-      return authed<LenhSXListOut>(`/api/lenh-sx/lenh${suffix}`, token);
-    },
-    get(token: string, id: number): Promise<LenhSXDetailOut> {
-      return authed<LenhSXDetailOut>(`/api/lenh-sx/lenh/${id}`, token);
-    },
-    forms(token: string, params: { trang_thai?: string; may_id?: number } = {}): Promise<PrintFormListOut> {
-      const qs = new URLSearchParams();
-      if (params.trang_thai) qs.set("trang_thai", params.trang_thai);
-      if (params.may_id != null) qs.set("may_id", String(params.may_id));
-      qs.set("size", "200");
-      return authed<PrintFormListOut>(`/api/lenh-sx/forms?${qs.toString()}`, token);
-    },
-    form(token: string, id: number): Promise<PrintFormDetailOut> {
-      return authed<PrintFormDetailOut>(`/api/lenh-sx/forms/${id}`, token);
-    },
-    // --- Ghi (Chunk 7): ghép tờ · gán máy · duyệt mẫu · phát (cổng AND). Máy CHỈ GHI NHẬN. ---
-    duyetMau(token: string, lenhId: number): Promise<LenhSXRow> {
-      return authed<LenhSXRow>(`/api/lenh-sx/lenh/${lenhId}/duyet-mau`, token, { method: "POST" });
-    },
-    ghep(token: string, body: GhepInput): Promise<PrintFormDetailOut> {
-      return authed<PrintFormDetailOut>(`/api/lenh-sx/forms/ghep`, token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    ganMay(token: string, formId: number, mayId: number | null): Promise<PrintFormRow> {
-      return authed<PrintFormRow>(`/api/lenh-sx/forms/${formId}/gan-may`, token, {
-        method: "POST",
-        body: JSON.stringify({ may_id: mayId }),
-      });
-    },
-    phat(token: string, formId: number): Promise<PrintFormRow> {
-      return authed<PrintFormRow>(`/api/lenh-sx/forms/${formId}/phat`, token, { method: "POST" });
-    },
-    // --- Hộp việc TỔ (Lát 1): badge navbar · inbox 2 tầng · gán/bỏ gán thợ ---
-    toBadges(token: string): Promise<{ items: ToBadge[] }> {
-      return authed<{ items: ToBadge[] }>(`/api/lenh-sx/to-badges`, token);
-    },
-    toInbox(token: string, toId: number): Promise<ToInboxOut> {
-      return authed<ToInboxOut>(`/api/lenh-sx/to/${toId}/inbox`, token);
-    },
-    toMembers(token: string, toId: number): Promise<{ items: ToMember[] }> {
-      return authed<{ items: ToMember[] }>(`/api/lenh-sx/to/${toId}/members`, token);
-    },
-    // 1.12 — máy finishing (bế/cán/bồi) cho tổ xếp máy bước; đã lọc non-press + gác san_xuat:read.
-    finishingMays(token: string): Promise<{ items: FinishingMay[] }> {
-      return authed<{ items: FinishingMay[] }>(`/api/lenh-sx/finishing-mays`, token);
-    },
-    assign(token: string, stepId: number, userIds: number[]): Promise<{ ok: boolean; count: number }> {
-      return authed<{ ok: boolean; count: number }>(`/api/lenh-sx/routing/${stepId}/assign`, token, {
-        method: "POST", body: JSON.stringify({ user_ids: userIds }),
-      });
-    },
-    unassign(token: string, stepId: number, userId: number): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/lenh-sx/routing/${stepId}/assign/${userId}`, token, {
-        method: "DELETE",
-      });
-    },
-    // 1.12 — tổ xếp máy finishing + ca cho 1 bước (record-only; máy CHỈ GHI NHẬN). may_id=null gỡ máy; ca=""/null gỡ ca.
-    setStepMayCa(
-      token: string, stepId: number, body: { may_id: number | null; ca: string | null },
-    ): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/lenh-sx/routing/${stepId}/may-ca`, token, {
-        method: "PUT", body: JSON.stringify(body),
-      });
-    },
-    // Lát 2 — ghi 1 đợt sản lượng đạt/hỏng cho bước (record-only, cộng dồn).
-    ghiSanLuong(
-      token: string, stepId: number,
-      body: { so_dat: number; so_hong: number; don_vi: string; ghi_chu?: string | null },
-    ): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/lenh-sx/routing/${stepId}/san-luong`, token, {
-        method: "POST", body: JSON.stringify(body),
-      });
-    },
-    // Lát 2 — tổ giao số sang bước kế (ting đích danh tổ nhận).
-    banGiao(
-      token: string, stepId: number, body: { so_giao: number; don_vi: string },
-    ): Promise<{ ok: boolean; ban_giao_id: number }> {
-      return authed<{ ok: boolean; ban_giao_id: number }>(`/api/lenh-sx/routing/${stepId}/ban-giao`, token, {
-        method: "POST", body: JSON.stringify(body),
-      });
-    },
-    // Lát 2 — tổ nhận xác nhận số nhận (con dấu 2, lệch được).
-    xacNhanNhan(
-      token: string, banGiaoId: number, body: { so_nhan: number; ly_do_lech?: string | null },
-    ): Promise<{ ok: boolean }> {
-      return authed<{ ok: boolean }>(`/api/lenh-sx/ban-giao/${banGiaoId}/nhan`, token, {
-        method: "POST", body: JSON.stringify(body),
-      });
-    },
-    // --- Routing (Chunk B · §13.2): copy từ tính giá khi bung, kế hoạch sửa (thêm/bớt/đổi thứ tự/tổ). ---
-    routing(token: string, lenhId: number): Promise<RoutingStepRow[]> {
-      return authed<RoutingStepRow[]>(`/api/lenh-sx/lenh/${lenhId}/routing`, token);
-    },
-    themBuoc(
-      token: string, lenhId: number, body: { cong_doan_id: number | null; to_id?: number | null },
-    ): Promise<RoutingStepRow[]> {
-      return authed<RoutingStepRow[]>(`/api/lenh-sx/lenh/${lenhId}/routing`, token, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-    },
-    suaBuoc(
-      token: string, stepId: number, body: { cong_doan_id: number | null; to_id: number | null },
-    ): Promise<RoutingStepRow[]> {
-      return authed<RoutingStepRow[]>(`/api/lenh-sx/routing/${stepId}`, token, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      });
-    },
-    xoaBuoc(token: string, stepId: number): Promise<RoutingStepRow[]> {
-      return authed<RoutingStepRow[]>(`/api/lenh-sx/routing/${stepId}`, token, { method: "DELETE" });
-    },
-    reorderRouting(token: string, lenhId: number, stepIds: number[]): Promise<RoutingStepRow[]> {
-      return authed<RoutingStepRow[]>(`/api/lenh-sx/lenh/${lenhId}/routing/reorder`, token, {
-        method: "POST",
-        body: JSON.stringify({ step_ids: stepIds }),
-      });
-    },
-    // --- Handoff (§5.1): đơn chốt chờ kế hoạch → bấm 'Lên kế hoạch' (bung, idempotent). ---
-    hangCho(token: string): Promise<HangChoDon[]> {
-      return authed<HangChoDon[]>(`/api/lenh-sx/hang-cho`, token);
-    },
-    bung(token: string, orderId: number): Promise<LenhSXRow[]> {
-      return authed<LenhSXRow[]>(`/api/lenh-sx/lenh/bung`, token, {
-        method: "POST",
-        body: JSON.stringify({ order_id: orderId }),
-      });
-    },
-    // ① Kế hoạch SỬA hạn giao (khách/nội bộ) — CHỈ khi lệnh nháp; sau phát 409. Field nào gửi thì set.
-    suaHanGiao(
-      token: string, lenhId: number,
-      body: { han_giao_khach?: string | null; han_giao_noi_bo?: string | null },
-    ): Promise<LenhSXRow> {
-      return authed<LenhSXRow>(`/api/lenh-sx/lenh/${lenhId}/han-giao`, token, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      });
-    },
-    // ③ Điều độ gán khuôn bế cho lệnh (null = gỡ). Record-only, không chặn phát.
-    ganKhuon(token: string, lenhId: number, khuonBeId: number | null): Promise<LenhSXRow> {
-      return authed<LenhSXRow>(`/api/lenh-sx/lenh/${lenhId}/khuon`, token, {
-        method: "PUT",
-        body: JSON.stringify({ khuon_be_id: khuonBeId }),
-      });
-    },
-    // ④ Bảng Máy × Ngày: các lệnh nháp + đang chạy (FE tự dồn vào ô/khay).
-    lichChay(token: string, params: { from?: string; to?: string } = {}): Promise<LichChayRow[]> {
-      const qs = new URLSearchParams();
-      if (params.from) qs.set("from", params.from);
-      if (params.to) qs.set("to", params.to);
-      const s = qs.toString();
-      return authed<LichChayRow[]>(`/api/lenh-sx/lich-chay${s ? `?${s}` : ""}`, token);
-    },
-    // ④ Kéo lệnh vào ô (máy, ngày) / gỡ khỏi lưới — field nào gửi thì set (cho null).
-    xepLich(
-      token: string, lenhId: number,
-      body: { may_id?: number | null; ngay_chay?: string | null; thu_tu_chay?: number | null; thoi_luong_phut?: number | null },
-    ): Promise<LenhSXRow> {
-      return authed<LenhSXRow>(`/api/lenh-sx/lenh/${lenhId}/lich-chay`, token, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      });
-    },
-    // ④ Đổi thứ tự chạy trong 1 ô (máy×ngày) — mảng id theo thứ tự mới.
-    xepLichReorder(token: string, lenhIds: number[]): Promise<LenhSXRow[]> {
-      return authed<LenhSXRow[]>(`/api/lenh-sx/lich-chay/reorder`, token, {
-        method: "POST",
-        body: JSON.stringify({ lenh_ids: lenhIds }),
-      });
-    },
-    // PICK gom: người kế hoạch chọn nhóm ấn phẩm (cùng 1 đơn) → 1 LỆNH nháp + bài con. Máy CHỈ GHI.
-    taoLenh(token: string, orderId: number, phieuThanhPhanIds: number[]): Promise<LenhSXRow> {
-      return authed<LenhSXRow>(`/api/lenh-sx/lenh`, token, {
-        method: "POST",
-        body: JSON.stringify({ order_id: orderId, phieu_thanh_phan_ids: phieuThanhPhanIds }),
-      });
-    },
-    // Chi tiết ấn phẩm (quy cách + routing gốc) cho DRAWER — đã lọc thương mại ở backend.
-    // Kèm lenhItemId (mở từ lệnh) → giá trị hiệu lực + cờ editable (lệnh nháp).
-    anPhamChiTiet(token: string, ptpId: number, lenhItemId?: number | null): Promise<AnPhamChiTiet> {
-      const qs = lenhItemId != null ? `?lenh_item_id=${lenhItemId}` : "";
-      return authed<AnPhamChiTiet>(`/api/lenh-sx/an-pham/${ptpId}${qs}`, token);
-    },
-    // Kế hoạch SỬA quy cách in của 1 bài con (override báo giá) — chỉ khi lệnh nháp. Trả hiệu lực mới.
-    suaQuyCach(token: string, itemId: number, override: QuyCachOverride): Promise<AnPhamChiTiet> {
-      return authed<AnPhamChiTiet>(`/api/lenh-sx/bai-con/${itemId}/quy-cach`, token, {
-        method: "PUT",
-        body: JSON.stringify(override),
-      });
-    },
-  },
-
   // --- Khuôn bế (danh mục — đọc để gán vào lệnh có bế) ----------------------
   khuonBe: {
     list(token: string, params: { q?: string; active?: boolean } = {}): Promise<{ items: KhuonBeRow[] }> {
@@ -5525,8 +6173,9 @@ export const api = {
 
   // --- Công đoạn (danh mục, lite cho dropdown) -----------------------------
   congDoan: {
+    // size ≤ 200 — router chặn `le=200`, gửi 500 là 422 (đừng nâng lại).
     list(token: string): Promise<{ items: CongDoanLite[] }> {
-      return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=500", token);
+      return authed<{ items: CongDoanLite[] }>("/api/cong-doan?size=200", token);
     },
   },
 

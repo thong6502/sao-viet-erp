@@ -2214,7 +2214,7 @@ def _migrate_care_task_recurrence(db: Session) -> None:
 
 
 def _migrate_department_la_san_xuat(db: Session) -> None:
-    """Phân hệ Sản xuất (spec-ke-hoach-san-xuat §13.1): thêm `departments.la_san_xuat` (Boolean,
+    """Phân hệ Sản xuất: thêm `departments.la_san_xuat` (Boolean,
     default false) — đánh dấu phòng/khối là bộ phận sản xuất; cả cây con (theo parent_id) kế thừa.
     No-op trên DB fresh (create_all đã dựng cột) / bảng chưa có / cột đã có."""
     insp = inspect(db.get_bind())
@@ -2358,6 +2358,601 @@ def _migrate_drop_kho_giay_chuan(db: Session) -> None:
         db.commit()
     except Exception:
         db.rollback()
+def _migrate_cau_hinh_luong(db: Session) -> None:
+    """Màn "Cấu hình lương" (docs/prd-cau-hinh-luong.md §9) — chỉ ADD COLUMN, idempotent:
+      - `department_salary_rows.promotion_condition` (VARCHAR(255) nullable) — điều kiện thăng bậc.
+      - `payroll_params` += 3 tỷ lệ phía NGƯỜI SỬ DỤNG LAO ĐỘNG (BHXH 17.5% · BHYT 3% · BHTN 1%)
+        — KHÔNG trừ vào lương NV, chỉ để tính chi phí bảo hiểm của công ty.
+      - `payroll_lines` += `kpi_percent` (% đạt nhập tay) + `kpi_bonus` (tiền thưởng KPI).
+    Hai bảng MỚI `department_salary_components` + `allowance_types` do `create_all` tự tạo.
+    No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "department_salary_rows" in tables:
+        if "promotion_condition" not in _existing_columns(insp, "department_salary_rows"):
+            db.execute(text(
+                "ALTER TABLE department_salary_rows ADD COLUMN promotion_condition VARCHAR(255)"
+            ))
+    if "payroll_params" in tables:
+        cols = _existing_columns(insp, "payroll_params")
+        for name, ddl in (
+            ("bhxh_rate_er", "NUMERIC(6,4) NOT NULL DEFAULT 0.175"),
+            ("bhyt_rate_er", "NUMERIC(6,4) NOT NULL DEFAULT 0.03"),
+            ("bhtn_rate_er", "NUMERIC(6,4) NOT NULL DEFAULT 0.01"),
+        ):
+            if name not in cols:
+                db.execute(text(f"ALTER TABLE payroll_params ADD COLUMN {name} {ddl}"))
+    if "payroll_lines" in tables:
+        cols = _existing_columns(insp, "payroll_lines")
+        for name, ddl in (
+            ("kpi_percent", "NUMERIC(6,2) NOT NULL DEFAULT 0"),
+            ("kpi_bonus", "NUMERIC(14,2) NOT NULL DEFAULT 0"),
+        ):
+            if name not in cols:
+                db.execute(text(f"ALTER TABLE payroll_lines ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
+def _migrate_department_salary_policy_note(db: Session) -> None:
+    """`departments.salary_policy_note` (VARCHAR(500) nullable) — ô ghi chú chính sách lương
+    của tổ ở màn Cấu hình lương Tab 1 (prd-cau-hinh-luong §3). Nullable nên không cần default.
+    Idempotent, no-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "departments" not in insp.get_table_names():
+        return
+    if "salary_policy_note" not in _existing_columns(insp, "departments"):
+        db.execute(text("ALTER TABLE departments ADD COLUMN salary_policy_note VARCHAR(500)"))
+    db.commit()
+
+
+def _migrate_luong_v2_khung_bac(db: Session) -> None:
+    """PRD v2 "Cấu hình lương" (docs/prd-cau-hinh-luong.md §10) — tách BẬC khỏi TIỀN:
+
+      - `department_salary_rows` += `luong_min`/`luong_max` (KHUNG của bậc — C1, nullable).
+      - `employee_salaries` += `luong_vi_tri`/`luong_trach_nhiem` (mức hợp đồng RIÊNG của NV — C2)
+        + `pay_grade_row_id` (bậc, CHỈ để phân loại — tách khỏi nguồn tiền).
+
+    **BACKFILL GIỮ NGUYÊN LƯƠNG NGƯỜI CŨ:** bản ghi đang trỏ `source_salary_row_id` được COPY
+    `luong_vi_tri`/`luong_trach_nhiem` CỦA DÒNG BẬC xuống chính bản ghi NV, và `pay_grade_row_id
+    = source_salary_row_id`. Sau migration engine đọc mức từ bản ghi NV → SỐ LƯƠNG KHÔNG ĐỔI.
+
+    Idempotent: backfill chỉ chạm hàng `pay_grade_row_id IS NULL` (chạy lại = no-op, không đè số
+    admin đã sửa). Hai bảng MỚI `department_shift_rates` + `payroll_line_shifts` do `create_all`
+    tự tạo. No-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "department_salary_rows" in tables:
+        cols = _existing_columns(insp, "department_salary_rows")
+        for name in ("luong_min", "luong_max"):
+            if name not in cols:
+                db.execute(text(f"ALTER TABLE department_salary_rows ADD COLUMN {name} NUMERIC(14,2)"))
+    if "employee_salaries" not in tables:
+        db.commit()
+        return
+    cols = _existing_columns(insp, "employee_salaries")
+    for name, ddl in (
+        ("luong_vi_tri", "NUMERIC(14,2) NOT NULL DEFAULT 0"),
+        ("luong_trach_nhiem", "NUMERIC(14,2) NOT NULL DEFAULT 0"),
+        ("pay_grade_row_id", "INTEGER"),
+    ):
+        if name not in cols:
+            db.execute(text(f"ALTER TABLE employee_salaries ADD COLUMN {name} {ddl}"))
+    db.commit()   # commit DDL TRƯỚC backfill (gotcha pysqlite — xem migration 0004)
+    if "department_salary_rows" in tables and "source_salary_row_id" in cols:
+        db.execute(text(
+            "UPDATE employee_salaries SET"
+            " luong_vi_tri = COALESCE((SELECT r.luong_vi_tri FROM department_salary_rows r"
+            "                          WHERE r.id = employee_salaries.source_salary_row_id), 0),"
+            " luong_trach_nhiem = COALESCE((SELECT r.luong_trach_nhiem FROM department_salary_rows r"
+            "                               WHERE r.id = employee_salaries.source_salary_row_id), 0),"
+            " pay_grade_row_id = source_salary_row_id"
+            " WHERE pay_grade_row_id IS NULL AND source_salary_row_id IS NOT NULL"
+            " AND EXISTS (SELECT 1 FROM department_salary_rows r"
+            "             WHERE r.id = employee_salaries.source_salary_row_id)"
+        ))
+    db.commit()
+
+
+def _migrate_payroll_line_allowance_split(db: Session) -> None:
+    """Tách phụ cấp trên PHIẾU LƯƠNG (PRD v2 bệnh B2 "phụ cấp một cục", nghiệm thu §12.6):
+    `payroll_lines` += `phu_cap_trach_nhiem` + `phu_cap_tham_nien` — số tiền TỪNG khoản đã tính
+    của kỳ, để phiếu lương hiện dòng riêng thay vì một cục "Phụ cấp".
+
+    **KHÔNG đổi tiền của ai:** hai cột này là "TRONG ĐÓ" của `payroll_lines.allowance` (tổng
+    phụ cấp) — engine vẫn cộng đúng một lần qua `allowance`. Dòng lương CŨ nhận DEFAULT 0 nên
+    `allowance` vẫn là tổng đúng (phiếu cũ hiện "Phụ cấp khác" = toàn bộ, 2 dòng kia = 0).
+    Chỉ ADD COLUMN, idempotent; no-op trên DB fresh / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    if "payroll_lines" not in insp.get_table_names():
+        return
+    cols = _existing_columns(insp, "payroll_lines")
+    for name in ("phu_cap_trach_nhiem", "phu_cap_tham_nien"):
+        if name not in cols:
+            db.execute(text(
+                f"ALTER TABLE payroll_lines ADD COLUMN {name} NUMERIC(14,2) NOT NULL DEFAULT 0"
+            ))
+    db.commit()
+
+
+def _migrate_luong_phu_cap_khai_tay(db: Session) -> None:
+    """Chủ chốt 2026-07-20 — ĐẢO NGƯỢC cách khai phụ cấp: *"Phụ cấp ca, trách nhiệm, thâm niên
+    — cho nó khai tay đi, hệ thống không cần tính toán, khi nào sửa thì nó sửa"* và *"Đơn giá ca
+    — bỏ đi, vì khi khai lương rồi thì nó tự chia"*. Khai theo TỪNG NGƯỜI, một SỐ CỐ ĐỊNH.
+
+      - `employee_salaries` += `phu_cap_ca` · `phu_cap_trach_nhiem` · `phu_cap_tham_nien`
+        (NOT NULL DEFAULT 0) — engine cộng PHẲNG y như `allowance` ("phụ cấp khác").
+      - DROP `department_shift_rates` · `payroll_line_shifts` · `allowance_types`: 3 bảng của
+        cách tính cũ (đơn giá ca × số lượt · danh mục phụ cấp cấp công ty) không còn điều khiển
+        gì. An toàn vì cả cụm này CHƯA commit/CHƯA deploy — chỉ tồn tại ở dev.db.
+      - Dọn `department_salary_components` các dòng `phu_cap_*`: 3 khoản đã chuyển hẳn về cấp NV,
+        để lại chỉ gây hiểu nhầm "khai ở tổ mà không ra tiền".
+
+    Chuyên cần/KPI/lương bậc/khoán/tăng ca vẫn khai theo TỔ — không đụng. Idempotent, no-op trên
+    DB trắng / bảng chưa có / cột đã có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "employee_salaries" in tables:
+        cols = _existing_columns(insp, "employee_salaries")
+        for name in ("phu_cap_ca", "phu_cap_trach_nhiem", "phu_cap_tham_nien"):
+            if name not in cols:
+                db.execute(text(
+                    f"ALTER TABLE employee_salaries ADD COLUMN {name} NUMERIC(14,2) NOT NULL DEFAULT 0"
+                ))
+        db.commit()
+    for tbl in ("payroll_line_shifts", "department_shift_rates", "allowance_types"):
+        if tbl in tables:
+            db.execute(text(f"DROP TABLE IF EXISTS {tbl}"))
+    if "department_salary_components" in tables:
+        db.execute(text(
+            "DELETE FROM department_salary_components WHERE component_key IN"
+            " ('phu_cap_ca_dem', 'phu_cap_trach_nhiem', 'phu_cap_tham_nien')"
+        ))
+    db.commit()
+
+
+def _migrate_employee_shift_history(db: Session) -> None:
+    """Backfill versioned shifts from the legacy employee default shift."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "employee_shift_assignments" not in tables or "employees" not in tables:
+        return
+    db.execute(text(
+        "INSERT INTO employee_shift_assignments"
+        " (employee_id, shift_id, effective_from, created_by, created_at)"
+        " SELECT e.id, e.default_shift_id, COALESCE(e.hire_date, '1900-01-01'), NULL, CURRENT_TIMESTAMP"
+        " FROM employees e"
+        " WHERE e.default_shift_id IS NOT NULL"
+        " AND NOT EXISTS (SELECT 1 FROM employee_shift_assignments a WHERE a.employee_id = e.id)"
+    ))
+    db.commit()
+
+
+def _migrate_luong_bo_bac_luong(db: Session) -> None:
+    """Chủ chốt 2026-07-20 (đảo phần bậc): BỎ HẲN hệ thống bậc lương — bậc chỉ để phân nhóm,
+    không quyết định tiền (bảng T05: cùng bậc 2 mà người 20tr người 10,5tr). Bậc về lại free-text
+    `employees.job_grade` đã có sẵn. Và bỏ khoản `phu_cap_trach_nhiem` khai tay (trùng ý với
+    `luong_trach_nhiem`).
+
+      - DROP TABLE `department_salary_rows` (khung/điều kiện thăng bậc/đếm NV theo bậc).
+      - DROP COLUMN `employee_salaries.pay_grade_row_id` · `.phu_cap_trach_nhiem`.
+      - DROP COLUMN `payroll_lines.phu_cap_trach_nhiem` (dòng phiếu lương trùng).
+      - DROP COLUMN `departments.salary_policy_note`.
+
+    `employee_salaries.insurance_base` GIỮ dormant (Điều 2 — không migration phá hủy). Best-effort
+    từng câu (SQLite cũ từ chối DROP COLUMN → cột mồ côi vô hại, model không map). An toàn vì cả cụm
+    bậc lương CHƯA commit/CHƯA deploy. Idempotent, no-op trên DB trắng / bảng-cột chưa/đã bỏ."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    if "department_salary_rows" in tables:
+        run("DROP TABLE IF EXISTS department_salary_rows")
+    for tbl, col in (
+        ("employee_salaries", "pay_grade_row_id"),
+        ("employee_salaries", "phu_cap_trach_nhiem"),
+        ("payroll_lines", "phu_cap_trach_nhiem"),
+        ("departments", "salary_policy_note"),
+    ):
+        if tbl in tables and col in _existing_columns(insp, tbl):
+            run(f"ALTER TABLE {tbl} DROP COLUMN {col}")
+
+
+def _migrate_luong_phu_cap_com_ca_dem(db: Session) -> None:
+    """Đợt 1 nhân sự & lương:
+      - `payroll_params.com_allowance` (25000) + `.night_allowance` (50000) — phụ cấp cơm khi
+        tăng ca (17h30→24h) + phụ cấp ca đêm (qua 12h), cấp CÔNG TY. Đợt 1 chỉ LƯU + phơi;
+        engine `_compute` CHƯA đọc (nối ở Đợt 2).
+      - `employees.prior_seniority_months` (0) — thâm niên đã có TRƯỚC khi vào làm (tháng);
+        tổng thâm niên = số này + thời gian từ hire_date. Chỉ lưu + hiển thị.
+
+    Idempotent (kiểm cột trước khi ALTER), no-op trên DB fresh (create_all đã dựng) / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "payroll_params" in tables:
+        existing = _existing_columns(insp, "payroll_params")
+        if "com_allowance" not in existing:
+            db.execute(text(
+                "ALTER TABLE payroll_params ADD COLUMN com_allowance NUMERIC(14,2) NOT NULL DEFAULT 25000"
+            ))
+        if "night_allowance" not in existing:
+            db.execute(text(
+                "ALTER TABLE payroll_params ADD COLUMN night_allowance NUMERIC(14,2) NOT NULL DEFAULT 50000"
+            ))
+    if "employees" in tables:
+        if "prior_seniority_months" not in _existing_columns(insp, "employees"):
+            db.execute(text(
+                "ALTER TABLE employees ADD COLUMN prior_seniority_months INTEGER NOT NULL DEFAULT 0"
+            ))
+    db.commit()
+
+
+def _migrate_ca_phu_cap_com_ca_dem(db: Session) -> None:
+    """Đợt 1b — chuyển phụ cấp cơm/ca đêm từ cấp CÔNG TY sang khai theo TỪNG CA (chủ 2026-07-21):
+      - GỠ `payroll_params.com_allowance` + `.night_allowance` (vừa thêm ở 0093) — best-effort:
+        SQLite < 3.35 không hỗ trợ DROP COLUMN → bỏ qua, để cột mồ côi vô hại (model không map).
+        Postgres prod DROP bình thường.
+      - THÊM `work_shifts.meal_allowance` (25000) + `.night_allowance` (50000) — phụ cấp khai
+        theo ca; NV được gán ca đó tự cộng. Đợt 1 chỉ LƯU; engine `_compute` CHƯA cộng (Đợt 2).
+
+    Idempotent (kiểm cột trước khi ALTER), forward-only, no-op trên DB fresh (create_all đã dựng)
+    / bảng chưa có."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+
+    def run(sql: str) -> None:
+        """Best-effort DDL: nuốt lỗi (SQLite cũ từ chối DROP COLUMN) để migration không vỡ."""
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    if "payroll_params" in tables:
+        existing = _existing_columns(insp, "payroll_params")
+        for col in ("com_allowance", "night_allowance"):
+            if col in existing:
+                run(f"ALTER TABLE payroll_params DROP COLUMN {col}")
+
+    if "work_shifts" in tables:
+        existing = _existing_columns(insp, "work_shifts")
+        if "meal_allowance" not in existing:
+            db.execute(text(
+                "ALTER TABLE work_shifts ADD COLUMN meal_allowance NUMERIC(14,2) NOT NULL DEFAULT 25000"
+            ))
+        if "night_allowance" not in existing:
+            db.execute(text(
+                "ALTER TABLE work_shifts ADD COLUMN night_allowance NUMERIC(14,2) NOT NULL DEFAULT 50000"
+            ))
+    db.commit()
+
+
+def _migrate_ca_rename_shift_allowance_go_night_shift(db: Session) -> None:
+    """Đợt 2a — chỉnh danh mục CA (`work_shifts`), chủ 2026-07-21:
+      - ĐỔI TÊN `night_allowance` → `shift_allowance` (giữ default 50000): phụ cấp của CA,
+        áp cho ca ngày hay đêm (bỏ chữ "đêm").
+      - GỠ `night_shift` — cờ "Ca đêm (có phụ cấp)" thừa (phụ cấp giờ là ô SỐ gắn vào ca).
+
+    Mỗi bước guard riêng theo cột tồn tại → idempotent, forward-only, chạy 2 lần OK, no-op trên
+    DB trắng (create_all đã dựng đúng shape). SQLite ≥ 3.35 hỗ trợ RENAME/DROP COLUMN; engine cũ
+    thì bọc best-effort (bỏ qua, để cột dormant vô hại). Postgres prod chạy bình thường."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    if "work_shifts" not in insp.get_table_names():
+        return
+
+    def run(sql: str) -> None:
+        """Best-effort DDL: nuốt lỗi (SQLite cũ từ chối RENAME/DROP COLUMN) để migration không vỡ."""
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    existing = _existing_columns(insp, "work_shifts")
+
+    # 1) ĐỔI TÊN night_allowance → shift_allowance (chỉ khi nguồn còn & đích chưa có).
+    if "night_allowance" in existing and "shift_allowance" not in existing:
+        run("ALTER TABLE work_shifts RENAME COLUMN night_allowance TO shift_allowance")
+
+    # 2) GỠ night_shift (chỉ khi còn tồn tại).
+    if "night_shift" in existing:
+        run("ALTER TABLE work_shifts DROP COLUMN night_shift")
+
+    db.commit()
+
+
+def _migrate_luong_insurance_elsewhere(db: Session) -> None:
+    """BH đóng ở nơi khác (chủ 2026-07-21):
+      - `payroll_params.tnld_bnn_rate` — tỷ lệ TNLĐ-BNN công ty chịu (mặc định 0.5% = 0.005).
+      - `employee_salaries.insurance_elsewhere` — cờ NV có BH đóng ở nơi khác → công ty KHÔNG trừ
+        BHXH/BHYT/BHTN của NV, chỉ chịu TNLĐ-BNN.
+
+    Mỗi cột guard riêng theo tồn tại → idempotent, forward-only, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    tables = insp.get_table_names()
+    if "payroll_params" in tables and "tnld_bnn_rate" not in _existing_columns(insp, "payroll_params"):
+        db.execute(text(
+            "ALTER TABLE payroll_params ADD COLUMN tnld_bnn_rate NUMERIC(6,4) NOT NULL DEFAULT 0.005"))
+    if ("employee_salaries" in tables
+            and "insurance_elsewhere" not in _existing_columns(insp, "employee_salaries")):
+        db.execute(text(
+            "ALTER TABLE employee_salaries ADD COLUMN insurance_elsewhere BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
+def _migrate_luong_union_member(db: Session) -> None:
+    """Đoàn phí công đoàn theo TỪNG NGƯỜI (chủ 2026-07-21): CHỈ đoàn viên mới đóng.
+    `employee_salaries.insurance_elsewhere` đã có; nay thêm `union_member` (mặc định FALSE = opt-in).
+    Guard theo cột tồn tại → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("employee_salaries" in insp.get_table_names()
+            and "union_member" not in _existing_columns(insp, "employee_salaries")):
+        db.execute(text(
+            "ALTER TABLE employee_salaries ADD COLUMN union_member BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
+def _migrate_attendance_late_off_days(db: Session) -> None:
+    """Phạt trễ/sớm TỰ ĐỘNG (chủ 2026-07-21): snapshot kỳ công đóng băng danh sách SỐ PHÚT vi phạm
+    (trễ+sớm, không phép) mỗi ngày để Lương áp bảng phạt. Thêm `attendance_period_lines.late_off_days_json`
+    (TEXT, chứa JSON list). Guard theo cột tồn tại → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("attendance_period_lines" in insp.get_table_names()
+            and "late_off_days_json" not in _existing_columns(insp, "attendance_period_lines")):
+        db.execute(text("ALTER TABLE attendance_period_lines ADD COLUMN late_off_days_json TEXT"))
+    db.commit()
+
+
+def _migrate_payroll_di_tre_manual(db: Session) -> None:
+    """Phạt trễ/sớm TỰ ĐỘNG (chủ 2026-07-21): cờ `payroll_lines.di_tre_manual` — HCNS sửa tay ô "Đi trễ"
+    thì khóa không cho phạt tự động (từ chấm công) đè khi Tính lại. Mirror `pit_manual`. Guard theo cột
+    tồn tại → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("payroll_lines" in insp.get_table_names()
+            and "di_tre_manual" not in _existing_columns(insp, "payroll_lines")):
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN di_tre_manual BOOLEAN NOT NULL DEFAULT FALSE"))
+    db.commit()
+
+
+def _migrate_ca_night_multiplier(db: Session) -> None:
+    """Lương ca đêm theo giờ (chủ 2026-07-22): hệ số ca đêm per-ca `work_shifts.night_multiplier`
+    (mặc định 1.3 = +30%). Guard theo cột tồn tại → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("work_shifts" in insp.get_table_names()
+            and "night_multiplier" not in _existing_columns(insp, "work_shifts")):
+        db.execute(text("ALTER TABLE work_shifts ADD COLUMN night_multiplier NUMERIC(6,4) NOT NULL DEFAULT 1.3"))
+    db.commit()
+
+
+def _migrate_attendance_night_premium(db: Session) -> None:
+    """Lương ca đêm theo giờ (chủ 2026-07-22): snapshot kỳ công đóng băng phút đêm để Lương tính premium.
+    Thêm `attendance_period_lines`: night_premium_minutes (Σ phút đêm × (hệ số−1)) + 3 cột phút TĂNG CA ĐÊM
+    theo loại ngày. Guard theo từng cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if "attendance_period_lines" in insp.get_table_names():
+        cols = _existing_columns(insp, "attendance_period_lines")
+        for name, ddl in (
+            ("night_premium_minutes", "NUMERIC(10,2) NOT NULL DEFAULT 0"),
+            ("ot_night_normal_minutes", "INTEGER NOT NULL DEFAULT 0"),
+            ("ot_night_restday_minutes", "INTEGER NOT NULL DEFAULT 0"),
+            ("ot_night_holiday_minutes", "INTEGER NOT NULL DEFAULT 0"),
+        ):
+            if name not in cols:
+                db.execute(text(f"ALTER TABLE attendance_period_lines ADD COLUMN {name} {ddl}"))
+    db.commit()
+
+
+def _migrate_payroll_night_premium_pay(db: Session) -> None:
+    """Lương ca đêm theo giờ (chủ 2026-07-22): dòng riêng `payroll_lines.night_premium_pay` = tiền premium
+    giờ đêm + tăng ca đêm (tách khỏi ô "Phụ cấp ca" khai tay). Guard theo cột → idempotent."""
+    insp = inspect(db.get_bind())
+    if ("payroll_lines" in insp.get_table_names()
+            and "night_premium_pay" not in _existing_columns(insp, "payroll_lines")):
+        db.execute(text("ALTER TABLE payroll_lines ADD COLUMN night_premium_pay NUMERIC(14,2) NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_payroll_ot_night_extra_pct(db: Session) -> None:
+    """Lương ca đêm theo giờ (chủ 2026-07-22): tham số KHAI ĐƯỢC `payroll_params.ot_night_extra_pct`
+    (cộng dồn tăng ca đêm Đ98.3, mặc định 0.2 = 20%). `night_pct` (phụ trội đêm) đã có sẵn.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("payroll_params" in insp.get_table_names()
+            and "ot_night_extra_pct" not in _existing_columns(insp, "payroll_params")):
+        db.execute(text("ALTER TABLE payroll_params ADD COLUMN ot_night_extra_pct NUMERIC(6,4) NOT NULL DEFAULT 0.2"))
+    db.commit()
+
+
+def _migrate_payroll_advance_max_pct(db: Session) -> None:
+    """Trần tạm ứng (chủ 2026-07-23): `payroll_params.advance_max_pct` — tổng tạm ứng 1 tháng của 1 NV
+    không vượt tỷ lệ này × (lương vị trí + trách nhiệm). 0 = không giới hạn.
+    Guard theo cột → idempotent, no-op trên DB create_all mới."""
+    insp = inspect(db.get_bind())
+    if ("payroll_params" in insp.get_table_names()
+            and "advance_max_pct" not in _existing_columns(insp, "payroll_params")):
+        db.execute(text("ALTER TABLE payroll_params ADD COLUMN advance_max_pct NUMERIC(6,4) NOT NULL DEFAULT 0.1"))
+    db.commit()
+
+
+def _migrate_piece_rate_department_id(db: Session) -> None:
+    """Lương khoán: gắn đơn giá `piece_rates` vào TỔ cụ thể (departments.id) để khai đơn giá
+    ngay trong Cấu hình lương của tổ. Cột nullable — đơn giá cũ/chưa gắn tổ vẫn hợp lệ.
+    Guard theo cột → idempotent, no-op trên DB create_all mới / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if ("piece_rates" in insp.get_table_names()
+            and "department_id" not in _existing_columns(insp, "piece_rates")):
+        db.execute(text("ALTER TABLE piece_rates ADD COLUMN department_id INTEGER"))
+    db.commit()
+
+
+def _migrate_drop_lenh_sx_cu(db: Session) -> None:
+    """DỌN NỀN module Kế hoạch SX cũ: DROP 8 bảng của bản đã gỡ (commit `bcefd1c` xoá tầng code
+    nhưng GIỮ bảng). Module mới dựng bảng TÊN KHÁC (`lsx` / `lsx_cong_doan`), nên bảng cũ chỉ còn
+    là rác — mà để lại thì `create_all` không đụng tới, dữ liệu mồ côi nằm mãi trên prod.
+
+    Drop CON TRƯỚC CHA để khỏi vướng FK; Postgres thêm CASCADE (SQLite bỏ qua từ khoá này nên tách
+    2 nhánh theo dialect). Best-effort từng bảng: bảng nào không có thì bỏ qua, no-op trên DB fresh.
+    Các migration 0079–0087 (ALTER mấy bảng này) GIỮ NGUYÊN — chúng đã tự guard "bảng chưa có → return".
+    """
+    is_pg = (db.get_bind().dialect.name or "").startswith("postgres")
+    for table in (
+        "routing_step_assignment", "san_luong", "ban_giao", "gang_placement",
+        "lenh_item", "routing_step", "print_form", "lenh_sx",
+    ):
+        try:
+            db.execute(text(f"DROP TABLE IF EXISTS {table}{' CASCADE' if is_pg else ''}"))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+
+# (tên cột, định nghĩa SQL) cho `lsx_cong_doan` ở migration 0093. Mọi cột NOT NULL đều kèm DEFAULT
+# nên ALTER chạy được trên bảng đã có dữ liệu. BOOLEAN dùng literal `TRUE` (KHÔNG phải '1') — chuỗi
+# '1' chạy SQLite nhưng vỡ khi Postgres tạo bảng trắng.
+_LSX_CD_COLS_0093: tuple[tuple[str, str], ...] = (
+    # Nhận diện bước
+    ("loai_buoc", "VARCHAR(12) NOT NULL DEFAULT 'may'"),
+    ("bat_buoc", "BOOLEAN NOT NULL DEFAULT TRUE"),
+    # Số lượng & hao hụt (cặp Scrap Factor % + Fixed Scrap Qty)
+    ("don_vi_vao", "VARCHAR(8) NOT NULL DEFAULT 'to'"),
+    ("don_vi_ra", "VARCHAR(8) NOT NULL DEFAULT 'to'"),
+    ("he_so_quy_doi", "NUMERIC(12,4) NOT NULL DEFAULT 1"),
+    ("hao_hut_pct", "NUMERIC(6,2) NOT NULL DEFAULT 0"),
+    ("so_luot_chay", "INTEGER NOT NULL DEFAULT 1"),
+    # Năng suất & thời gian (nguồn cho Gantt)
+    ("setup_phut", "NUMERIC(10,2) NOT NULL DEFAULT 0"),
+    ("nang_suat", "NUMERIC(12,2)"),
+    ("don_vi_nang_suat", "VARCHAR(10)"),
+    ("chay_phut", "NUMERIC(10,2)"),
+    ("ve_sinh_phut", "NUMERIC(10,2) NOT NULL DEFAULT 0"),
+    ("cho_phut", "NUMERIC(10,2) NOT NULL DEFAULT 0"),
+    ("di_chuyen_phut", "NUMERIC(10,2) NOT NULL DEFAULT 0"),
+    ("so_nhan_cong", "INTEGER NOT NULL DEFAULT 1"),
+    # Phương thức thực hiện
+    ("may_thay_the_ids", "JSON"),
+    ("dieu_kien_json", "JSON"),
+    # Gia công ngoài (§8)
+    ("sl_gui", "NUMERIC(14,2)"),
+    ("ngay_gui_dk", "DATE"),
+    ("van_chuyen_ngay", "NUMERIC(6,2)"),
+    ("gia_cong_ngay", "NUMERIC(6,2)"),
+    ("ngay_nhan_dk", "DATE"),
+    ("hao_hut_cho_phep", "NUMERIC(14,2)"),
+    ("don_gia_gia_cong", "NUMERIC(18,2)"),
+    ("yeu_cau_ky_thuat", "TEXT"),
+    ("nguoi_giao_nhan_id", "INTEGER"),
+)
+
+# Suy `loai_buoc` từ TÊN bước khi backfill (bản cũ chỉ có cờ `thue_ngoai` + `nhom`). Chạy trong
+# Python chứ không LIKE trong SQL: SQLite `LOWER()` không hạ được chữ có dấu tiếng Việt.
+_TEN_LOAI_BUOC_0093: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("kcs", ("kcs", "kiểm tra", "kiem tra", "duyệt màu", "duyet mau")),
+    ("cho", ("chờ", "cho kho", "khô mực", "kho muc", "khô keo", "kho keo")),
+    ("xa_to", ("xả tờ", "xa to", "chia bán thành phẩm", "chia ban thanh pham")),
+    ("to", ("dán", "dan tay", "gấp", "gap tay", "đóng gói", "dong goi", "vào bìa", "vao bia",
+            "đóng cuốn", "dong cuon", "bao bì", "bao bi")),
+)
+
+
+def _migrate_lsx_routing_chi_tiet(db: Session) -> None:
+    """Routing lệnh SX lát 2: bổ sung dữ liệu để xếp được Gantt + khối gia công ngoài đầy đủ.
+
+    Thêm 26 cột `lsx_cong_doan` (loại bước · đơn vị vào/ra + hệ số quy đổi · hao hụt % · năng suất
+    và 4 loại thời gian · số nhân công · điều kiện bắt đầu · 9 cột thuê ngoài) + `lsx.routing_goc_json`
+    (ảnh chụp routing lúc tạo, để cảnh báo "routing đã đổi so với bài tính giá").
+
+    Rồi BỎ hai cột cũ đã bị thay: `thue_ngoai` (tập con của `loai_buoc`) và `don_vi` (tách thành
+    `don_vi_vao`/`don_vi_ra`) — giữ lại sẽ thành hai nguồn sự thật. DROP là best-effort: SQLite
+    < 3.35 từ chối thì để cột mồ côi, vô hại vì model không map nữa và cả hai đều có DEFAULT.
+
+    Idempotent, no-op trên DB fresh (create_all đã ra schema mới) và trên DB chưa có bảng `lsx`."""
+    bind = db.get_bind()
+    insp = inspect(bind)
+    tables = set(insp.get_table_names())
+    if "lsx_cong_doan" not in tables:
+        return
+
+    def run(sql: str) -> None:
+        try:
+            db.execute(text(sql))
+            db.commit()
+        except Exception:
+            db.rollback()
+
+    cols = _existing_columns(insp, "lsx_cong_doan")
+    for name, ddl in _LSX_CD_COLS_0093:
+        if name not in cols:
+            db.execute(text(f"ALTER TABLE lsx_cong_doan ADD COLUMN {name} {ddl}"))
+    if "routing_goc_json" not in _existing_columns(insp, "lsx"):
+        db.execute(text("ALTER TABLE lsx ADD COLUMN routing_goc_json JSON"))
+    db.commit()
+    run("CREATE INDEX IF NOT EXISTS ix_lsx_cong_doan_nguoi_giao_nhan_id "
+        "ON lsx_cong_doan (nguoi_giao_nhan_id)")
+
+    # --- Backfill từ schema cũ (chỉ khi cột cũ còn) ---
+    if "don_vi" in cols:
+        db.execute(text("UPDATE lsx_cong_doan SET don_vi_vao = don_vi, don_vi_ra = don_vi "
+                        "WHERE don_vi IS NOT NULL AND don_vi <> ''"))
+        db.commit()
+    if "thue_ngoai" in cols:
+        db.execute(text("UPDATE lsx_cong_doan SET loai_buoc = 'thue_ngoai' WHERE thue_ngoai"))
+        db.commit()
+        # Bước nội bộ: mặc định 'may', hạ về 'to'/'kcs'/'cho'/'xa_to' theo tên (thủ công/kiểm/chờ).
+        rows = db.execute(text(
+            "SELECT id, ten FROM lsx_cong_doan WHERE loai_buoc <> 'thue_ngoai'"
+        )).all()
+        for row_id, ten in rows:
+            low = (ten or "").strip().lower()
+            for loai, keys in _TEN_LOAI_BUOC_0093:
+                if any(k in low for k in keys):
+                    db.execute(
+                        text("UPDATE lsx_cong_doan SET loai_buoc = :l WHERE id = :i"),
+                        {"l": loai, "i": row_id},
+                    )
+                    break
+        db.commit()
+
+    # --- Bỏ cột đã bị thay (best-effort) ---
+    run("ALTER TABLE lsx_cong_doan DROP COLUMN thue_ngoai")
+    run("ALTER TABLE lsx_cong_doan DROP COLUMN don_vi")
+
+
+def _migrate_cong_doan_nang_suat(db: Session) -> None:
+    """Thêm `cong_doan.nang_suat` (output/giờ) — năng suất mặc định khi lên Lệnh sản xuất.
+
+    Dành cho bước KHÔNG gắn máy: máy có `may_thiet_bi.toc_do` riêng, còn việc làm tay (dán, đóng
+    gói) thì năng suất thuộc về công đoạn — không có ô này thì kế hoạch phải gõ lại ở MỌI lệnh.
+    NULL = chưa khai (routing để trống, không bịa số 0). Đơn vị KHÔNG lưu: suy từ đơn vị đầu vào
+    của bước. Idempotent; no-op trên DB fresh (create_all đã ra cột) hoặc khi bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "cong_doan" not in insp.get_table_names():
+        return
+    if "nang_suat" not in _existing_columns(insp, "cong_doan"):
+        db.execute(text("ALTER TABLE cong_doan ADD COLUMN nang_suat NUMERIC(12,2)"))
+    db.commit()
+
+
+def _migrate_work_shift_dung_cho_lich_may(db: Session) -> None:
+    """Thêm `work_shifts.dung_cho_lich_may` (BOOLEAN NOT NULL DEFAULT FALSE) — đánh dấu ca nào thuộc
+    LỊCH CHẠY MÁY của xưởng (khác ca chấm công HR). Xếp lịch công đoạn (Gantt theo máy) tính giờ theo
+    TẬP ca có cờ này (nghỉ trưa = khe giữa 2 ca); chưa tick ca nào → fallback 8h phẳng [08:00,16:00)
+    giữ nguyên hành vi lát 1. Idempotent; no-op DB fresh (create_all đã ra cột) / bảng chưa có."""
+    insp = inspect(db.get_bind())
+    if "work_shifts" not in insp.get_table_names():
+        return
+    if "dung_cho_lich_may" not in _existing_columns(insp, "work_shifts"):
+        db.execute(text(
+            "ALTER TABLE work_shifts ADD COLUMN dung_cho_lich_may BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+    db.commit()
 
 
 def _migrate_role_permission_kho_direction(db: Session) -> None:
@@ -2657,6 +3252,9 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0073_employee_salary_chuyen_can", _migrate_employee_salary_chuyen_can),
     ("0074_payslip_detail_items", _migrate_payslip_detail_items),
     ("0075_salary_advance_code", _migrate_salary_advance_code),
+    # Màn "Cấu hình lương" 3 tab (prd-cau-hinh-luong §9) — nối tiếp nhánh HCNS.
+    ("0076_cau_hinh_luong", _migrate_cau_hinh_luong),
+    ("0077_department_salary_policy_note", _migrate_department_salary_policy_note),
     # Nhánh Kế hoạch/LSX (accounting-wip): cờ phòng sản xuất. Khác CHUỖI id nên không đụng 0075 ở trên.
     ("0075_department_la_san_xuat", _migrate_department_la_san_xuat),
     # Handoff Đơn→Kế hoạch: Sale 'Chuyển xuống sản xuất' (sau chốt) → đơn vào hàng chờ.
@@ -2705,6 +3303,43 @@ MIGRATIONS: list[tuple[str, callable]] = [
     ("0101_stock_request_line_quy_doi", _migrate_stock_request_line_quy_doi),
     # Kho phản hồi: lý do cấp/nhập thiếu so với còn phải cấp.
     ("0102_stock_request_line_ly_do_thieu", _migrate_stock_request_line_ly_do_thieu),
+    # --- Nhánh rebuild-san-xuat (Kế hoạch SX / Gantt) — id chuỗi ĐẦY ĐỦ khác main dù trùng số ---
+    # Dọn nền module Kế hoạch SX cũ (bảng còn sót sau khi gỡ code) — bản mới dùng `lsx`/`lsx_cong_doan`.
+    ("0092_drop_lenh_sx_cu", _migrate_drop_lenh_sx_cu),
+    # Routing lệnh SX lát 2: dữ liệu đủ để lên Gantt (loại bước · đơn vị vào/ra · năng suất & thời
+    # gian · số nhân công) + gia công ngoài đầy đủ; bỏ `thue_ngoai`/`don_vi` đã bị thay.
+    ("0093_lsx_routing_chi_tiet", _migrate_lsx_routing_chi_tiet),
+    # Năng suất mặc định của công đoạn — cho bước làm TAY (không gắn máy) khỏi phải gõ lại mỗi lệnh.
+    ("0094_cong_doan_nang_suat", _migrate_cong_doan_nang_suat),
+    # Gantt theo máy (lát 2): cờ ca thuộc lịch chạy máy của xưởng — engine tính giờ theo ca thật
+    # (nghỉ trưa/đa ca/ca đêm); rỗng → fallback 8h phẳng giữ hành vi lát 1.
+    ("0095_work_shift_dung_cho_lich_may", _migrate_work_shift_dung_cho_lich_may),
+    # --- Nhánh main (Nhân sự / Lương / Chấm công) — bảng khác, chạy độc lập với khối trên ---
+    # PRD v2 Cấu hình lương: khung bậc + mức hợp đồng riêng của NV (tách bậc khỏi tiền).
+    ("0088_luong_v2_khung_bac", _migrate_luong_v2_khung_bac),
+    # Phiếu lương tách dòng phụ cấp trách nhiệm / thâm niên (B2 — không đổi tổng tiền).
+    ("0089_payroll_line_allowance_split", _migrate_payroll_line_allowance_split),
+    # Phụ cấp ca/trách nhiệm/thâm niên → KHAI TAY theo từng NV; gỡ đơn giá ca + danh mục phụ cấp.
+    ("0090_luong_phu_cap_khai_tay", _migrate_luong_phu_cap_khai_tay),
+    ("0091_employee_shift_history", _migrate_employee_shift_history),
+    # Bỏ hẳn hệ thống bậc lương (về free-text job_grade) + bỏ phu_cap_trach_nhiem khai tay.
+    ("0092_luong_bo_bac_luong", _migrate_luong_bo_bac_luong),
+    # Đợt 1: phụ cấp cơm/ca đêm cấp công ty (payroll_params) + thâm niên trước khi vào làm (employees).
+    ("0093_luong_phu_cap_com_ca_dem", _migrate_luong_phu_cap_com_ca_dem),
+    # Đợt 1b: dời phụ cấp cơm/ca đêm từ payroll_params → khai theo từng CA (work_shifts).
+    ("0094_ca_phu_cap_com_ca_dem", _migrate_ca_phu_cap_com_ca_dem),
+    # Đợt 2a: work_shifts — đổi night_allowance→shift_allowance · gỡ night_shift.
+    ("0095_ca_rename_shift_allowance_go_night_shift", _migrate_ca_rename_shift_allowance_go_night_shift),
+    ("0096_luong_insurance_elsewhere", _migrate_luong_insurance_elsewhere),
+    ("0097_luong_union_member", _migrate_luong_union_member),
+    ("0098_attendance_late_off_days", _migrate_attendance_late_off_days),
+    ("0099_payroll_di_tre_manual", _migrate_payroll_di_tre_manual),
+    ("0100_ca_night_multiplier", _migrate_ca_night_multiplier),
+    ("0101_attendance_night_premium", _migrate_attendance_night_premium),
+    ("0102_payroll_night_premium_pay", _migrate_payroll_night_premium_pay),
+    ("0103_payroll_ot_night_extra_pct", _migrate_payroll_ot_night_extra_pct),
+    ("0104_piece_rate_department_id", _migrate_piece_rate_department_id),
+    ("0105_payroll_advance_max_pct", _migrate_payroll_advance_max_pct),
 ]
 
 

@@ -33,8 +33,8 @@ class PieceWorkService:
 
     # --- đơn giá khoán ------------------------------------------------------
 
-    def list_rates(self):
-        return self.piece.list_rates()
+    def list_rates(self, department_id: int | None = None):
+        return self.piece.list_rates(department_id=department_id)
 
     def create_rate(self, **f):
         if not f.get("group_name"):

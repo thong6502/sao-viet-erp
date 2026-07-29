@@ -99,7 +99,10 @@ def _shift_out(s) -> WorkShiftOut:
     return WorkShiftOut(
         id=s.id, name=s.name, start_time=min_to_hhmm(s.start_minute),
         end_time=min_to_hhmm(s.end_minute), is_overnight=s.is_overnight,
-        night_shift=s.night_shift, grace_minutes=s.grace_minutes, is_active=s.is_active, note=s.note,
+        night_multiplier=float(getattr(s, "night_multiplier", 1.3) or 1.3),
+        grace_minutes=s.grace_minutes,
+        meal_allowance=s.meal_allowance, shift_allowance=s.shift_allowance,
+        is_active=s.is_active, note=s.note,
     )
 
 
@@ -123,8 +126,9 @@ def create_shift(
     try:
         s = svc.create_shift(
             actor=user, name=body.name, start_time=body.start_time, end_time=body.end_time,
-            is_overnight=body.is_overnight, night_shift=body.night_shift,
-            grace_minutes=body.grace_minutes, note=body.note,
+            is_overnight=body.is_overnight, grace_minutes=body.grace_minutes,
+            meal_allowance=body.meal_allowance, shift_allowance=body.shift_allowance,
+            night_multiplier=body.night_multiplier, note=body.note,
         )
     except AttendanceError as exc:
         _raise(exc)
@@ -141,8 +145,10 @@ def update_shift(
     try:
         s = svc.update_shift(
             actor=user, shift_id=shift_id, name=body.name, start_time=body.start_time,
-            end_time=body.end_time, is_overnight=body.is_overnight, night_shift=body.night_shift,
-            grace_minutes=body.grace_minutes, note=body.note, is_active=body.is_active,
+            end_time=body.end_time, is_overnight=body.is_overnight,
+            grace_minutes=body.grace_minutes, meal_allowance=body.meal_allowance,
+            shift_allowance=body.shift_allowance, night_multiplier=body.night_multiplier,
+            note=body.note, is_active=body.is_active,
         )
     except AttendanceError as exc:
         _raise(exc)
@@ -230,12 +236,14 @@ def my_status(svc: Service, user: CurrentUser) -> MyStatusOut:
         has_employee=st["has_employee"],
         employee_name=st.get("employee_name"),
         next_action=st.get("next_action"),
+        can_check=st.get("can_check", False),
+        check_block_reason=st.get("check_block_reason"),
         last_check=AttendanceLogOut.model_validate(last) if last is not None else None,
         locations_configured=st["locations_configured"],
         shift=(MyShiftOut(id=shift.id, name=shift.name,
                           start_time=min_to_hhmm(shift.start_minute),
                           end_time=min_to_hhmm(shift.end_minute),
-                          is_overnight=shift.is_overnight, night_shift=shift.night_shift)
+                          is_overnight=shift.is_overnight)
                if shift is not None else None),
         today=TodaySummaryOut(**today) if today is not None else None,
     )

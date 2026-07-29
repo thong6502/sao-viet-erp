@@ -54,6 +54,7 @@ MODULES: list[tuple[str, str]] = [
     ("dm_cong_doan", "Công đoạn gia công"),
     ("nhan_su", "Nhân sự"),
     ("nghi_phep", "Nghỉ phép"),
+    ("tang_ca", "Tăng ca"),
     ("luong", "Lương"),
 ]
 
@@ -168,6 +169,24 @@ def _leave_admin(scope: str = SCOPE_ALL) -> dict:
     )
 
 
+def _ot_self(scope: str = SCOPE_OWN) -> dict:
+    """Tự phục vụ Phiếu tăng ca cho MỌI nhân viên: xem phiếu của mình + tự gửi + tự hủy.
+    KHÔNG duyệt (duyệt gate bằng `can_approve`)."""
+    return dict(
+        can_read=True, can_create=True, can_update=False, can_delete=False,
+        scope=scope, can_cancel=True,
+    )
+
+
+def _ot_lead(scope: str = SCOPE_DEPARTMENT) -> dict:
+    """Quyền DUYỆT phiếu tăng ca (+ tạo hộ cho thợ, tạo hộ là duyệt luôn). Scope `department`
+    = tổ mình + cây con ⇒ tổ trưởng CHỈ duyệt được người trong tổ; HCNS/Admin dùng scope `all`."""
+    return dict(
+        can_read=True, can_create=True, can_update=True, can_delete=False,
+        scope=scope, can_approve=True, can_cancel=True,
+    )
+
+
 # Roles: (department_name, role_name, {module_key: permission}). The minimal default
 # role ("Nhân viên") is Read-only on Dashboard, scope own.
 ROLES: list[tuple[str, str, dict[str, dict]]] = [
@@ -202,6 +221,7 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             },
             # Nghỉ phép: HCNS là nơi DUYỆT tập trung (mọi đơn toàn công ty) + quản loại nghỉ.
             "nghi_phep": _leave_admin(SCOPE_ALL),
+            "tang_ca": _ot_lead(SCOPE_ALL),
             # Lương: HCNS/kế toán chạy trọn (tạo kỳ, duyệt tạm ứng, chốt, xuất).
             "luong": _full(SCOPE_ALL),
             # HCNS quản trị người dùng → giữ trọn các thao tác quản trị (tách khỏi "sửa"):
@@ -220,7 +240,8 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         },
     ),
     # Vai "Nhân viên" tối thiểu: Dashboard + tự phục vụ Nghỉ phép (cửa vào self-service).
-    ("Hành chính nhân sự", "Nhân viên", {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self()}),
+    ("Hành chính nhân sự", "Nhân viên",
+     {"dashboard": _read(SCOPE_OWN), "nghi_phep": _leave_self(), "tang_ca": _ot_self()}),
     # --- Khối SẢN XUẤT (Lát 1 — hộp việc 2 tầng, gate theo Ô QUYỀN, không theo chức danh) ---
     # Kế hoạch SX: cấu hình lệnh + PHÁT (can_approve), thấy mọi tổ (scope all). KHÔNG gán thợ.
     (
@@ -228,9 +249,17 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
         "Kế hoạch SX",
         {
             "dashboard": _read(SCOPE_OWN),
-            "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True},
+            # can_approve = phát hành kế hoạch; can_approve_exception = duyệt ngoại lệ (bỏ qua cảnh
+            # báo khi phát hành) — Kế hoạch SX (trưởng điều độ) cầm cả hai.
+            "san_xuat": {**_rcu(SCOPE_ALL), "can_approve": True, "can_approve_exception": True},
             "khuon_be": _read(SCOPE_ALL),  # ③ điều độ đọc danh mục khuôn để gán vào lệnh có bế
+            # Sửa routing của lệnh cần ĐỌC danh mục: công đoạn (thêm bước), máy (gán máy), tổ
+            # (đổi tổ phụ trách). Chỉ READ — cấu hình danh mục vẫn là việc của phòng khác.
+            "dm_cong_doan": _read(SCOPE_ALL),
+            "dm_thiet_bi": _read(SCOPE_ALL),
+            "phong_ban": _read(SCOPE_ALL),
             "nghi_phep": _leave_self(),
+            "tang_ca": _ot_self(),
         },
     ),
     # Tổ trưởng SX: xem tổ mình (scope own) + GÁN thợ (can_assign_work) → hộp việc FULL + nút gán.
@@ -245,19 +274,23 @@ ROLES: list[tuple[str, str, dict[str, dict]]] = [
             # NV trong phòng mới duyệt được (own chỉ thấy của mình → không có gì để duyệt).
             "kho": {**_read(SCOPE_DEPARTMENT), "can_request": True, "can_approve": True},
             "nghi_phep": _leave_self(),
+            # Tổ trưởng DUYỆT phiếu tăng ca của tổ mình (scope department = tổ + cây con).
+            "tang_ca": _ot_lead(SCOPE_DEPARTMENT),
         },
     ),
     # Thợ SX: CHỈ xem việc được gán (read scope own, không gán) → hộp việc lọc theo bước được gán.
     (
         "Sản xuất",
         "Thợ SX",
-        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN), "nghi_phep": _leave_self()},
+        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_OWN),
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
     ),
     # QC: xem mọi tổ (scope all) để soi công đoạn bất kỳ (ghi lỗi = Lát 3, thêm can_report_defect sau).
     (
         "Sản xuất",
         "QC",
-        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL), "nghi_phep": _leave_self()},
+        {"dashboard": _read(SCOPE_OWN), "san_xuat": _read(SCOPE_ALL),
+         "nghi_phep": _leave_self(), "tang_ca": _ot_self()},
     ),
     (
         "Kinh doanh",
@@ -1511,13 +1544,13 @@ def seed_work_shifts(db: Session) -> None:
         return
     shifts = {
         "Hành chính": repo.create_shift(name="Hành chính", start_minute=8 * 60, end_minute=17 * 60,
-                                        is_overnight=False, night_shift=False, grace_minutes=5, is_active=True),
+                                        is_overnight=False, grace_minutes=5, is_active=True),
         "Ca 1": repo.create_shift(name="Ca 1", start_minute=6 * 60, end_minute=14 * 60,
-                                  is_overnight=False, night_shift=False, grace_minutes=5, is_active=True),
+                                  is_overnight=False, grace_minutes=5, is_active=True),
         "Ca 2": repo.create_shift(name="Ca 2", start_minute=14 * 60, end_minute=22 * 60,
-                                  is_overnight=False, night_shift=False, grace_minutes=5, is_active=True),
+                                  is_overnight=False, grace_minutes=5, is_active=True),
         "Ca 3": repo.create_shift(name="Ca 3", start_minute=22 * 60, end_minute=6 * 60,
-                                  is_overnight=True, night_shift=True, grace_minutes=5, is_active=True),
+                                  is_overnight=True, grace_minutes=5, is_active=True),
     }
     assign = {
         "Trần Văn An": "Hành chính", "Lê Thị Bình": "Hành chính", "Phạm Minh Cường": "Hành chính",
@@ -1851,212 +1884,6 @@ def seed_phieu_tinh_gia(db: Session) -> None:
     db.commit()
 
 
-def seed_lenh_san_xuat_demo(db: Session) -> None:
-    """Seed dữ liệu SẢN XUẤT demo (Kế hoạch & Lệnh SX) — CHỈ khi SEED_DEMO + bảng `lenh_sx` rỗng.
-
-    Dữ liệu ĐI QUA logic thật (`LenhSanXuatService`) để mỗi bước qua đúng cổng:
-    bung → ghép (tờ in) → gán máy → duyệt mẫu → phát (cổng AND) → sản lượng/bàn giao/QC → nhập kho.
-    TÁI DÙNG ấn phẩm từ PTG demo (`seed_phieu_tinh_gia`) làm nguồn; tạo vài ĐƠN CHỐT mỏng làm
-    'cầu' (`OrderLine.phieu_thanh_phan_id`) vì đơn demo `seed_sales_history` không gắn ấn phẩm.
-    Máy/công đoạn = soft-ref THẬT (`may_thiet_bi`/`cong_doan` của `seed_rebuild_catalog`) để UI
-    tracking resolve được tên. Idempotent (có ≥1 lệnh → bỏ).
-
-    Kết quả (đa trạng thái để UI có màu):
-      · 5 đơn · 7 lệnh — nháp / đang chạy / xong.
-      · 5 tờ in — chờ ghép / đủ điều kiện / đã phát; có 1 tờ GHÉP ĐA-KHÁCH + 1 tờ ghép 2 cấu phần.
-      · sản lượng rải công đoạn (in/cán/bế) · 1 bàn giao chờ nhận · 1 lỗi QC chờ xác nhận ·
-        1 lệnh nhập kho đủ SL → XONG.
-    """
-    from datetime import datetime, timezone
-
-    from sqlalchemy import select
-
-    from .models.cong_doan import CongDoan
-    from .models.lenh_san_xuat import LenhSanXuat, RoutingStep
-    from .models.may_thiet_bi import MayThietBi
-    from .models.order import COST_BASIS_NONE, SOURCE_NHAP_TAY, STATUS_ORDERED, Order, OrderLine
-    from .models.phieu_tinh_gia import PhieuTinhGia
-    from .repositories.order_repo import OrderRepository
-    from .services.lenh_san_xuat_service import LenhSanXuatService
-
-    # Idempotent: đã có lệnh SX → bỏ (re-run không nhân đôi).
-    if db.execute(select(LenhSanXuat)).first() is not None:
-        return
-    # Nền ấn phẩm = PTG demo. Chưa seed PTG → không có gì để bung → bỏ.
-    ptg_by_ma = {p.ma: p for p in db.execute(select(PhieuTinhGia)).scalars()}
-    if not ptg_by_ma:
-        return
-
-    def _ptp(ma: str, idx: int):
-        ptg = ptg_by_ma.get(ma)
-        if ptg is None or idx >= len(ptg.thanh_phans):
-            return None
-        return ptg.thanh_phans[idx]
-
-    # Ấn phẩm nguồn từ PTG demo (đa cấu phần: Catalogue ruột+bìa, Hộp thân+nắp).
-    ruot = _ptp("PTG-2026-0203", 0)      # Catalogue — Ruột
-    bia = _ptp("PTG-2026-0203", 1)       # Catalogue — Bìa
-    than = _ptp("PTG-2026-0204", 0)      # Hộp — Thân
-    nap = _ptp("PTG-2026-0204", 1)       # Hộp — Nắp
-    toroi = _ptp("PTG-2026-0206", 0)     # Tờ rơi A4
-    danhthiep = _ptp("PTG-2026-0202", 0)  # Danh thiếp
-    thetreo = _ptp("PTG-2026-0211", 0)   # Hangtag — Thẻ treo
-    if ruot is None or bia is None:
-        return  # PTG demo thiếu ấn phẩm chủ lực → bỏ (không dựng nửa vời)
-
-    # Khách + Sale demo (để đơn có chủ; None -> bỏ trống, soft).
-    customers = CustomerRepository(db)
-    users = UserRepository(db)
-    an_phat = bao_bi = minh_khai = None
-    for c in customers.list_scoped_all(scope="all", actor=_SeedActor()):
-        if "An Phát" in c.name:
-            an_phat = c
-        elif "Bao Bì Việt" in c.name:
-            bao_bi = c
-        elif "Minh Khai" in c.name:
-            minh_khai = c
-    sale1 = users.get_by_username("sale1")
-    sale2 = users.get_by_username("sale2")
-
-    # Máy in THẬT (may_thiet_bi) + công đoạn THẬT (cong_doan) cho soft-ref.
-    may_by_ma = {m.ma: m for m in db.execute(select(MayThietBi)).scalars()}
-    print_mays = [may_by_ma.get(f"IN-0{i}") for i in range(1, 7)]
-    print_mays = [m for m in print_mays if m is not None] or list(may_by_ma.values())
-
-    def _may(i: int):
-        return print_mays[i % len(print_mays)] if print_mays else None
-
-    cd_by_ma = {c.ma: c for c in db.execute(select(CongDoan)).scalars()}
-    cd_in = cd_by_ma.get("CD-0002")    # In offset
-    cd_can = cd_by_ma.get("CD-0003")   # Cán màng bóng
-    cd_be = cd_by_ma.get("CD-0006")    # Bế nổi
-    to_sx = DepartmentRepository(db).get_by_name("Sản xuất")
-    to_sx_id = to_sx.id if to_sx else None
-
-    order_repo = OrderRepository(db)
-    now = datetime.now(timezone.utc)
-
-    def _mk_order(desc: str, customer, sale, lines: list[tuple]):
-        """Đơn CHỐT mỏng (nhập tay, không giá vốn) làm 'cầu' đơn↔ấn phẩm. lines=[(mô tả, SL, ptp)]."""
-        sale_id = sale.id if sale else None
-        o = Order(
-            order_no=order_repo._next_order_no(),
-            customer_id=(customer.id if customer else None),
-            source_type=SOURCE_NHAP_TAY,
-            order_kind="moi",
-            sale_user_id=sale_id,
-            status=STATUS_ORDERED,
-            vat_pct_estimate=8,
-            cost_basis=COST_BASIS_NONE,
-            ordered_at=now,
-            ordered_by=sale_id,
-            created_at=now,
-        )
-        for ln_desc, qty, ptp in lines:
-            o.lines.append(OrderLine(
-                description=ln_desc,
-                qty=qty,
-                phieu_thanh_phan_id=(ptp.id if ptp else None),
-                unit_price_snapshot=1000,
-                line_total=qty * 1000,
-                vat_pct_estimate=8,
-            ))
-        db.add(o)
-        db.flush()  # để _next_order_no kế thấy row này (unique DH###)
-        return o
-
-    # --- 5 đơn chốt (tái dùng ấn phẩm PTG) ---
-    order_cat = _mk_order("Catalogue 21×28 (ruột + bìa)", an_phat, sale1,
-                          [("Ruột catalogue", 5000, ruot), ("Bìa catalogue", 5000, bia)])
-    order_hop = _mk_order("Hộp giấy offset (thân + nắp)", bao_bi, sale2,
-                          [("Thân hộp", 10000, than), ("Nắp hộp", 10000, nap)])
-    order_toroi = _mk_order("Tờ rơi A4 4 màu 2 mặt", minh_khai, sale1,
-                            [("Tờ rơi A4", 30000, toroi)])
-    order_dt = _mk_order("Danh thiếp cao cấp ép kim", an_phat, sale1,
-                         [("Danh thiếp", 8000, danhthiep)])
-    order_tag = _mk_order("Hangtag Lavello Black", bao_bi, sale2,
-                          [("Thẻ treo", 5000, thetreo)])
-    db.commit()
-
-    svc = LenhSanXuatService(db)
-
-    def _lenh_of(order, ptp):
-        """Lệnh của (đơn, ấn phẩm) sau khi bung."""
-        if ptp is None:
-            return None
-        for l0 in svc.list_lenh(order_id=order.id, size=50)[0]:
-            if l0.phieu_thanh_phan_id == ptp.id:
-                return l0
-        return None
-
-    # --- bung: đơn chốt → lệnh nháp (mỗi dòng-đơn có ấn phẩm = 1 lệnh) ---
-    for o in (order_cat, order_hop, order_toroi, order_dt, order_tag):
-        svc.bung_lenh(order_id=o.id)
-
-    L_ruot = _lenh_of(order_cat, ruot)
-    L_bia = _lenh_of(order_cat, bia)
-    L_than = _lenh_of(order_hop, than)
-    L_nap = _lenh_of(order_hop, nap)
-    L_toroi = _lenh_of(order_toroi, toroi)
-    L_dt = _lenh_of(order_dt, danhthiep)
-    L_tag = _lenh_of(order_tag, thetreo)
-
-    def _ghep(label, may, so_mau, kho_dai, kho_rong, placements):
-        """Tạo tờ in + xếp bài. placements=[(lenh, so_con)]."""
-        rows = [{"lenh_sx_id": l.id, "so_con": sc} for l, sc in placements if l is not None]
-        so_to = max((sc for _, sc in placements), default=0)
-        return svc.ghep(
-            giay_label=label, kho_in_dai=kho_dai, kho_in_rong=kho_rong, so_mau=so_mau,
-            so_to_chay=(1500 if so_to == 0 else max(1, 8000 // max(so_to, 1))), so_kem=so_mau,
-            placements=rows,
-        )
-
-    # === Tờ 1: GHÉP ĐA-KHÁCH (danh thiếp An Phát + thẻ treo Bao Bì trên 1 tờ) → PHÁT ===
-    form_gang = _ghep("Couché 300 79×109 (ghép đa-khách)", _may(0), 4, 1090, 790,
-                      [(L_dt, 24), (L_tag, 60)])
-    if form_gang.may_id is None:
-        svc.gan_may(form_id=form_gang.id, may_id=(_may(0).id if _may(0) else None))
-    if L_dt:
-        svc.duyet_mau(lenh_id=L_dt.id, actor_id=(sale1.id if sale1 else None))
-    if L_tag:
-        svc.duyet_mau(lenh_id=L_tag.id, actor_id=(sale2.id if sale2 else None))
-    svc.phat(form_id=form_gang.id)   # → da_phat; L_dt, L_tag → dang_chay
-
-    # === Tờ 2: Ruột catalogue (riêng) → PHÁT → sản lượng → nhập kho ĐỦ → XONG ===
-    form_ruot = _ghep("Couché 150 79×109 (ruột)", _may(1), 4, 1090, 790, [(L_ruot, 4)])
-    svc.gan_may(form_id=form_ruot.id, may_id=(_may(1).id if _may(1) else None))
-    if L_ruot:
-        svc.duyet_mau(lenh_id=L_ruot.id, actor_id=(sale1.id if sale1 else None))
-    svc.phat(form_id=form_ruot.id)   # → da_phat; L_ruot → dang_chay
-
-    # === Tờ 3: Bìa catalogue → gán máy + duyệt mẫu (ĐỦ ĐIỀU KIỆN) nhưng CHƯA phát ===
-    form_bia = _ghep("Couché 300 65×86 (bìa)", _may(2), 4, 860, 650, [(L_bia, 2)])
-    svc.gan_may(form_id=form_bia.id, may_id=(_may(2).id if _may(2) else None))
-    if L_bia:
-        svc.duyet_mau(lenh_id=L_bia.id, actor_id=(sale1.id if sale1 else None))   # form → du_dieu_kien
-
-    # === Tờ 4: Hộp thân+nắp (ghép 2 cấu phần cùng đơn) → duyệt MỖI thân → tờ CHỜ GHÉP (cổng AND) ===
-    form_hop = _ghep("Ivory 350 79×109 (thân + nắp)", _may(3), 4, 1090, 790,
-                     [(L_than, 2), (L_nap, 4)])
-    svc.gan_may(form_id=form_hop.id, may_id=(_may(3).id if _may(3) else None))
-    if L_than:
-        svc.duyet_mau(lenh_id=L_than.id, actor_id=(sale2.id if sale2 else None))  # còn nắp chưa duyệt → cho_ghep
-
-    # === Tờ 5: Tờ rơi — chỉ ghép, CHƯA gán máy (CHỜ GHÉP, sớm nhất) ===
-    _ghep("Couché 150 79×109 (tờ rơi)", None, 4, 1090, 790, [(L_toroi, 4)])
-
-    # ③ Demo realism: bước "Bế" copy từ PTG demo thiếu `cong_doan_id` → link vào công đoạn bế có
-    # tooling (`tooling_type='khuon_be'`) để màn lệnh demo hiện được luồng gán khuôn (`can_khuon`).
-    be_cd = db.execute(select(CongDoan).where(CongDoan.tooling_type == "khuon_be")).scalars().first()
-    if be_cd is not None:
-        for st in db.execute(
-            select(RoutingStep).where(RoutingStep.ten.like("Bế%"), RoutingStep.cong_doan_id.is_(None))
-        ).scalars():
-            st.cong_doan_id = be_cd.id
-
-    db.commit()
-
-
 # Ngày nghỉ lễ DƯƠNG cố định (điều 112 BLLĐ). CHỈ các ngày dương chắc chắn — Tết Nguyên đán
 # (5 ngày) + Giỗ Tổ 10/3 ÂL + ngày kề Quốc khánh là ÂM/biến động theo thông báo Chính phủ hằng
 # năm → admin tự khai qua UI (FE cảnh báo khi năm chưa đủ 11 ngày nghỉ-có-lương).
@@ -2103,7 +1930,7 @@ def seed_pit_brackets(db: Session) -> None:
 
 
 def seed_san_xuat_org(db: Session) -> None:
-    """Nền phòng ban SẢN XUẤT (spec-ke-hoach-san-xuat §13.1): đánh dấu "Sản xuất" là khối sản
+    """Nền phòng ban SẢN XUẤT: đánh dấu "Sản xuất" là khối sản
     xuất + dựng cây TỔ con (Chế bản/In/Cán/Bế/Đóng gói/KCS, cấp "Tổ"), gắn công đoạn → tổ, chuyển
     thợ demo từ HCNS về đúng tổ. Idempotent (bấm lại an toàn). Chạy trong SEED_DEMO (cần công đoạn
     + nhân sự demo). Thực tế: con người tự cấu hình tổ trong màn Phòng ban — đây chỉ là dữ liệu mẫu."""
@@ -2262,7 +2089,6 @@ def seed_all(db: Session) -> None:
         seed_document_sequences(db)
         seed_san_xuat_org(db)  # nền tổ SX (§13.1): tag "Sản xuất" + cây tổ + gắn công đoạn/thợ
         seed_san_xuat_accounts(db)  # Lát 1: tài khoản tổ trưởng/thợ/kế hoạch/QC + head_user_id
-        seed_lenh_san_xuat_demo(db)  # dữ liệu sản xuất mẫu (bung→ghép→phát→sản lượng→nhập kho)
     backfill_user_codes(db)
     # Chạy NGOÀI khối demo: luật "mọi tài khoản phải có hồ sơ" áp cho mọi DB (dev/live),
     # và phải chạy SAU các seed tài khoản demo ở trên để dọn luôn đám vừa tạo.

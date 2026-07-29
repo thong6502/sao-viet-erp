@@ -180,7 +180,19 @@ const FINE_ACTIONS: Record<
     { key: "can_export", label: "Xuất Excel danh sách" },
     { key: "can_adjust", label: "Chấm công: chấm bù / sửa công" },
   ],
+  tang_ca: [
+    {
+      key: "can_approve",
+      label: "Duyệt phiếu tăng ca",
+      hint: "Duyệt / từ chối phiếu tăng ca của người khác (và tạo hộ cho thợ — tạo hộ là duyệt luôn). Kết hợp Phạm vi: 'Cả phòng' = tổ trưởng chỉ đụng được người trong tổ mình + các tổ con; 'Tất cả' = HCNS duyệt toàn công ty. KHÔNG cần cờ này để nhân viên tự gửi/hủy phiếu của chính mình.",
+    },
+  ],
   luong: [
+    {
+      key: "can_view_salary",
+      label: "Xem cấu hình lương",
+      hint: "Cho xem thang bậc, khung lương, KPI, phụ cấp, bảo hiểm và lịch sử lương nhân viên. Không cần cấp quyền này để nhân viên xem Phiếu lương của tôi.",
+    },
     { key: "can_approve", label: "Duyệt tạm ứng" },
     { key: "can_lock", label: "Chốt kỳ lương" },
     { key: "can_export", label: "Xuất bảng lương / file chuyển khoản" },
@@ -191,6 +203,43 @@ const FINE_ACTIONS: Record<
     { key: "can_cancel", label: "Hủy chứng từ chờ chi" },
     { key: "can_export", label: "In / xuất chứng từ" },
   ],
+};
+
+// Giải thích NGẮN cho từng module: bật "Xem" / "Chỉnh sửa" thì người dùng làm được gì. Hiện qua
+// dấu ⓘ cạnh tên module (cùng khuôn tooltip với quyền chi tiết). Module không khai ở đây thì
+// không hiện ⓘ — thà thiếu còn hơn mô tả sai.
+const MODULE_HINTS: Record<string, string> = {
+  nhan_su:
+    "Xem: mở Hồ sơ nhân sự + Chấm công (danh sách NV, bảng công tháng). Chỉnh sửa: thêm/sửa/xóa hồ sơ nhân viên. Lương & BHXH của NV bị che riêng — muốn thấy phải bật quyền chi tiết “Xem lương & BHXH”.",
+  nghi_phep:
+    "Xem: thấy đơn nghỉ trong phạm vi được cấp. Chỉnh sửa: quản danh mục loại nghỉ. Nhân viên tự gửi và tự hủy đơn của mình thì KHÔNG cần cấp gì thêm.",
+  tang_ca:
+    "Xem: thấy mục Tăng ca trên thanh bên + danh sách phiếu trong phạm vi. Nhân viên tự gửi / tự hủy phiếu của chính mình thì KHÔNG cần cấp quyền nào. Muốn DUYỆT phiếu người khác thì bật quyền chi tiết “Duyệt phiếu tăng ca”.",
+  luong:
+    "Xem: mở màn Lương (bảng lương tháng, tạm ứng). Chỉnh sửa: tính lại lương, sửa dòng lương, khai cấu hình. Cấu hình lương + duyệt tạm ứng + chốt kỳ + xuất file nằm ở quyền chi tiết. Nhân viên xem “Phiếu lương của tôi” thì không cần quyền này.",
+  khach_hang:
+    "Xem: danh bạ khách + lịch sử giao dịch. Chỉnh sửa: thêm/sửa/xóa khách. Điều chuyển sang sale khác, xuất file, xem công nợ, đặt chính sách tài chính nằm ở quyền chi tiết.",
+  bao_gia:
+    "Xem: xem báo giá trong phạm vi. Chỉnh sửa: tạo/sửa báo giá + thao tác vòng đời thường (gửi khách, ghi nhận đồng ý/từ chối, hủy, xuất PDF, tạo bản mới). Riêng báo giá “đặc thù” cần quyền chi tiết để duyệt.",
+  don_hang_ban:
+    "Xem: xem đơn hàng bán. Chỉnh sửa: tạo/sửa đơn. Duyệt đơn đặc thù, hủy đơn đã chốt và ghi phiếu thu cọc nằm ở quyền chi tiết.",
+  san_xuat:
+    "Xem: mở hộp việc / lệnh sản xuất trong phạm vi. Chỉnh sửa: cấu hình và phát lệnh. Gán thợ, ghi sản lượng, bàn giao giữa tổ nằm ở quyền chi tiết.",
+  vai_tro:
+    "Xem: xem danh sách vai trò và ma trận quyền. Chỉnh sửa: thêm/sửa/xóa vai trò. Muốn SỬA được chính ma trận này thì cần quyền chi tiết “Sửa ma trận phân quyền”.",
+  nguoi_dung:
+    "Xem: danh sách tài khoản. Chỉnh sửa: tạo/sửa tài khoản. Đặt lại mật khẩu, khóa tài khoản, thu hồi phiên, gán vai trò, chuyển phòng ban nằm ở quyền chi tiết.",
+  phong_ban:
+    "Xem: xem cây tổ chức phòng ban / tổ. Chỉnh sửa: thêm/sửa/xóa phòng ban. Đặt trưởng phòng và đổi cấp trên trong cây nằm ở quyền chi tiết.",
+  ke_toan:
+    "Xem: xem chứng từ kế toán. Chỉnh sửa: nhập/sửa chứng từ. Duyệt PMH, lập phiếu chi/UNC, xác nhận đã chi, hủy chứng từ, in/xuất nằm ở quyền chi tiết.",
+};
+
+// Nghĩa CHUNG của 3 cột — luôn đúng với mọi module, hiện ở dòng tiêu đề.
+const COL_HINTS = {
+  read: "Cho phép MỞ và ĐỌC dữ liệu của module này. Tắt “Xem” thì mục đó biến mất khỏi thanh bên trái.",
+  write: "Gộp 3 quyền Thêm + Sửa + Xóa. Bật là được tạo mới, sửa và xóa dữ liệu — trong giới hạn của cột Phạm vi.",
+  scope: "Giới hạn được đụng tới bao nhiêu dữ liệu: “Của tôi” = chỉ bản ghi của chính mình · “Cả phòng” = phòng/tổ mình và mọi tổ con · “Tất cả” = toàn công ty.",
 };
 
 export const SCOPES: { value: Scope; label: string }[] = [
@@ -210,7 +259,7 @@ const MODULE_GROUPS: { key: string; label: string; modules: string[] }[] = [
   { key: "san_xuat", label: "Sản xuất", modules: ["san_xuat"] },
   { key: "kho", label: "Kho", modules: ["kho", "thu_mua"] },
   { key: "ke_toan", label: "Kế toán", modules: ["ke_toan"] },
-  { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "luong"] },
+  { key: "nhan_su", label: "Nhân sự", modules: ["nhan_su", "nghi_phep", "tang_ca", "luong"] },
   {
     key: "danh_muc",
     label: "Danh mục",
@@ -353,9 +402,24 @@ export function PermissionMatrix({
               <div className="rdx-perm__rows" role="group" aria-label={g.label}>
                 <div className="rdx-perm__colhead" aria-hidden="true">
                   <span className="rdx-perm__c-mod">Module</span>
-                  <span className="rdx-perm__c-act">Xem</span>
-                  <span className="rdx-perm__c-act">Chỉnh sửa</span>
-                  <span className="rdx-perm__c-scope">Phạm vi</span>
+                  <span className="rdx-perm__c-act">
+                    Xem
+                    <span className="rdx-perm__fine-hint" title={COL_HINTS.read}>
+                      <Icon name="help" size={13} />
+                    </span>
+                  </span>
+                  <span className="rdx-perm__c-act">
+                    Chỉnh sửa
+                    <span className="rdx-perm__fine-hint" title={COL_HINTS.write}>
+                      <Icon name="help" size={13} />
+                    </span>
+                  </span>
+                  <span className="rdx-perm__c-scope">
+                    Phạm vi
+                    <span className="rdx-perm__fine-hint" title={COL_HINTS.scope}>
+                      <Icon name="help" size={13} />
+                    </span>
+                  </span>
                 </div>
                 {g.rows.map((row) => {
                   const label = moduleLabel.get(row.module_key) ?? row.module_key;
@@ -369,7 +433,18 @@ export function PermissionMatrix({
                   return (
                     <div key={row.module_key} className="rdx-perm__row">
                       <div className="rdx-perm__cell rdx-perm__cell--mod">
-                        <span className="rdx-perm__mod">{label}</span>
+                        <span className="rdx-perm__mod">
+                          {label}
+                          {MODULE_HINTS[row.module_key] && (
+                            <span
+                              className="rdx-perm__fine-hint"
+                              title={MODULE_HINTS[row.module_key]}
+                              aria-hidden="true"
+                            >
+                              <Icon name="help" size={13} />
+                            </span>
+                          )}
+                        </span>
                         {fineActs && (
                           <button
                             type="button"
@@ -451,7 +526,7 @@ export function PermissionMatrix({
                                     title={a.hint}
                                     aria-hidden="true"
                                   >
-                                    ⓘ
+                                    <Icon name="help" size={13} />
                                   </span>
                                 )}
                               </span>

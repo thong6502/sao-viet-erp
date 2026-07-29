@@ -13,21 +13,24 @@ import {
 import { ActivityLogPage } from "../pages/ActivityLogPage";
 import { BaoGiaPage } from "../pages/BaoGiaPage";
 import { DonHangBanPage } from "../pages/DonHangBanPage";
+import { KeHoachSXPage } from "../pages/KeHoachSXPage";
+import { BaiGhepPage } from "../pages/BaiGhepPage";
+import { XepLichPage } from "../pages/XepLichPage";
 import { TinhGiaPage } from "../pages/TinhGiaPage";
-import { SanXuatPage } from "../pages/SanXuatPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { DepartmentsPage } from "../pages/DepartmentsPage";
 import { KhachHangPage } from "../pages/KhachHangPage";
 import { QuyTrinhKinhDoanhPage } from "../pages/QuyTrinhKinhDoanhPage";
 import { ChamCongPage } from "../pages/ChamCongPage";
 import { NghiPhepPage } from "../pages/NghiPhepPage";
+import { TangCaPage } from "../pages/TangCaPage";
 import { LuongPage } from "../pages/LuongPage";
 import { HoSoCuaToiPage } from "../pages/HoSoCuaToiPage";
 import { NhanSuPage } from "../pages/NhanSuPage";
 import { RebuildCatalogPage } from "../pages/RebuildCatalogPage";
 import { KhoTonKhoPage } from "../pages/KhoTonKhoPage";
 import { KhoPage } from "../pages/KhoPage";
-import { ToSanXuatView } from "../pages/ToSanXuatView";
+
 // Danh mục rebuild (config .tsx — render pill JSX)
 import { REBUILD_CONFIGS } from "../pages/rebuildCatalogConfigs";
 import { DepartmentPurchaseRequestsPage } from "../pages/DepartmentPurchaseRequestsPage";
@@ -37,7 +40,7 @@ import { AccountingPurchaseInboxPage } from "../pages/AccountingPurchaseInboxPag
 import { PaymentVouchersPage } from "../pages/PaymentVouchersPage";
 import { PaymentReceiptsPage } from "../pages/PaymentReceiptsPage";
 import { AccountingBankAccountsPage } from "../pages/AccountingBankAccountsPage";
-import { MODULES_BY_NAV_ID, Sidebar, type NavItem } from "./Sidebar";
+import { MODULES_BY_NAV_ID, SELF_SERVICE_MODULE, Sidebar, type NavItem } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
 /** A cross-module navigation intent: which screen to open + optional payload so the
@@ -66,6 +69,10 @@ export interface NavParams {
   /** Liên thông Kho → YCMH: mở form Yêu cầu mua hàng điền sẵn dòng vật tư (Tên + ĐVT). */
   purchaseSeedLines?: { item_name: string; unit: string; quantity: number; note?: string | null }[];
   purchaseSeedPurpose?: string;
+  /** Liên thông Đơn hàng → bàn Kế hoạch SX: mở thẳng đơn này ở hàng chờ / danh sách lệnh. */
+  openSxOrderId?: number;
+  /** Liên thông Phòng ban → Lương: mở thẳng tab "Cấu hình lương" (bảng lương của tổ). */
+  luongTab?: "cauhinh";
 }
 
 export type NavigateFn = (id: string, params?: NavParams) => void;
@@ -81,9 +88,6 @@ export function AppShell() {
   // Kho đã khai báo → đổ menu con ĐỘNG dưới "Kho hàng" (Cấu hình danh mục). Refetch khi
   // khai báo/sửa/xoá kho (onMutate màn khai báo) → navbar cập nhật NGAY, không cần refresh.
   const [khoList, setKhoList] = useState<{ id: number; ma: string; ten: string }[]>([]);
-  // Tổ khối SẢN XUẤT (phòng tick `la_san_xuat` + cây con thừa hưởng) → menu con ĐỘNG dưới "Sản
-  // xuất", mỗi tổ 1 hộp việc. Refetch khi tick/bỏ cờ ở form sửa phòng → navbar nhảy NGAY.
-  const [toSxList, setToSxList] = useState<{ id: number; ma: string; ten: string }[]>([]);
   // Chuông Topbar: số đơn nghỉ CỦA TÔI vừa được quyết mà chưa xem (mọi NV).
   const [leaveUnseen, setLeaveUnseen] = useState(0);
   // Real-time luồng gửi duyệt (SSE): toast nổi + mốc 'chờ tôi duyệt' gần nhất để chỉ toast khi TĂNG.
@@ -95,10 +99,7 @@ export function AppShell() {
   const lastPending = useRef(0);
   const lastOrderAction = useRef(0);
   const lastAdvancePending = useRef(0);
-  // Sản xuất (Lát 1): tick tăng mỗi sự kiện SX → hộp việc tổ đang mở tự refetch. Ref danh sách tổ
-  // CỦA TÔI để toast ĐÚNG tổ khi có lệnh mới phát (tránh stale closure trong kênh SSE mở-1-lần).
-  const [sxTick, setSxTick] = useState(0);
-  const toSxRef = useRef<{ id: number }[]>([]);
+  const lastOtPending = useRef(0);
   const pushToast = useCallback((text: string, tone: "ok" | "warn" | "info") => {
     const id = ++toastSeq.current;
     setToasts((prev) => [...prev, { id, text, tone }]);
@@ -120,7 +121,9 @@ export function AppShell() {
       .myAccess(token)
       .then((acc) => {
         if (cancelled) return;
-        setReadable(new Set(acc.modules));
+        // Các API "của tôi" tự giới hạn theo hồ sơ đăng nhập, không cần cấp
+        // `luong:read` (quyền quản trị). Module ảo này chỉ mở cửa menu tự phục vụ.
+        setReadable(new Set([...acc.modules, SELF_SERVICE_MODULE]));
         setCaps(buildCapabilities(acc.permissions));
       })
       .catch(() => {
@@ -146,6 +149,19 @@ export function AppShell() {
             "nghi-phep": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
           }));
           setLeaveUnseen(s.my_decided_unseen ?? 0);
+        })
+        .catch(() => {});
+    }
+    // Badge Tăng ca: số phiếu chờ duyệt trong scope (endpoint trả null nếu không có quyền duyệt).
+    if (readable.has("tang_ca")) {
+      api.overtime
+        .summary(token)
+        .then((s) => {
+          setBadges((prev) => ({
+            ...prev,
+            "tang-ca": s.pending_in_scope && s.pending_in_scope > 0 ? s.pending_in_scope : 0,
+          }));
+          lastOtPending.current = s.pending_in_scope ?? 0;
         })
         .catch(() => {});
     }
@@ -184,6 +200,23 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Kế hoạch SX = số đơn Sale đã chuyển xuống mà CÒN dòng chưa lên lệnh (hàng chờ).
+    if (readable.has("san_xuat")) {
+      api.lsx
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total })))
+        .catch(() => {});
+      // Badge Bài ghép = số LSX sẵn sàng đang chờ ghép (pool).
+      api.baiGhep
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
+        .catch(() => {});
+      // Badge Xếp lịch = số nguồn (LSX / bài ghép) đang chờ xếp (chưa đưa vào kế hoạch).
+      api.xepLich
+        .hangCho(token)
+        .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
+        .catch(() => {});
+    }
     // Badge Lương = số đề nghị tạm ứng đang chờ TÔI duyệt (0 với người không có quyền duyệt).
     if (readable.has("luong")) {
       api.luong
@@ -191,20 +224,6 @@ export function AppShell() {
         .then((s) => {
           lastAdvancePending.current = s.pending_approval_count;
           setBadges((prev) => ({ ...prev, luong: s.pending_approval_count }));
-        })
-        .catch(() => {});
-    }
-    // Badge Sản xuất (Lát 1) = số việc đang chờ ở MỖI tổ user thấy (đã lọc scope server-side) →
-    // map sang nav id `to-sx:<id>`. Tổ trưởng đếm mọi lệnh ghé tổ; thợ đếm lệnh mình được gán.
-    if (readable.has("san_xuat")) {
-      api.lenhSanXuat
-        .toBadges(token)
-        .then((r) => {
-          setBadges((prev) => {
-            const next = { ...prev };
-            for (const b of r.items) next[`to-sx:${b.to_id}`] = b.count;
-            return next;
-          });
         })
         .catch(() => {});
     }
@@ -224,23 +243,12 @@ export function AppShell() {
   }, [token, readable]);
   useEffect(() => { reloadKho(); }, [reloadKho]);
 
-  // Tổ khối SX cho menu con động (chỉ người có quyền `san_xuat`). Gọi lại sau khi tick/bỏ cờ
-  // `la_san_xuat` ở form sửa phòng (onDeptChanged) → navbar cập nhật ngay, không cần refresh.
-  const reloadToSx = useCallback(() => {
-    if (!token || readable === null || !readable.has("san_xuat")) return;
-    crud("/api/lenh-sx/to")
-      .list(token)
-      .then((r) => setToSxList(r.items.map((t) => ({ id: Number(t.id), ma: String(t.ma), ten: String(t.ten) }))))
-      .catch(() => {});
-  }, [token, readable]);
-  useEffect(() => { reloadToSx(); }, [reloadToSx]);
-  useEffect(() => { toSxRef.current = toSxList; }, [toSxList]);
-
   // Real-time luồng gửi duyệt (CLAUDE.md "gửi nội bộ = real-time"): mở 1 kênh SSE sau đăng nhập →
   // GĐ thấy 'chờ duyệt' ngay khi Sale trình; Sale thấy 'đã duyệt/từ chối' ngay khi GĐ quyết. Chỉ mở
   // cho người có quyền xem Báo giá (người khác không nhận tín hiệu). Đóng khi logout/đổi phạm vi.
   useEffect(() => {
-    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho"))) return;
+    if (!token || readable === null || !(readable.has("bao_gia") || readable.has("don_hang_ban") || readable.has("khach_hang") || readable.has("luong") || readable.has("san_xuat") || readable.has("kho") || readable.has("tang_ca"))) return;
+
     const close = connectQuoteEvents(token, (e) => {
       // Mọi event luồng duyệt → đẩy tick: màn Báo giá đang mở tự tải lại bảng + số đếm tab.
       setQuoteTick((n) => n + 1);
@@ -288,6 +296,32 @@ export function AppShell() {
             lastOrderAction.current = s.action_count;
           })
           .catch(() => {});
+      } else if (
+        readable.has("san_xuat") &&
+        (e.type === "order_ordered" ||
+          e.type === "lsx_changed" ||
+          e.type === "bai_ghep_changed" ||
+          e.type === "xep_lich_changed")
+      ) {
+        // Sale "Chuyển xuống sản xuất" → hàng chờ Kế hoạch nhảy (badge + toast); Kế hoạch/ghép bài/
+        // xếp lịch đổi → 3 badge khối Sản xuất co giãn NGAY. Nội dung màn tự refetch qua `quoteTick`.
+        api.lsx
+          .hangCho(token)
+          .then((r) => {
+            setBadges((prev) => ({ ...prev, "ke-hoach-sx": r.total }));
+            if (e.type === "order_ordered") {
+              pushToast(`🔔 Đơn ${e.code ?? ""} vừa chuyển xuống sản xuất`.trim(), "info");
+            }
+          })
+          .catch(() => {});
+        api.baiGhep
+          .hangCho(token)
+          .then((r) => setBadges((prev) => ({ ...prev, "bai-ghep": r.total })))
+          .catch(() => {});
+        api.xepLich
+          .hangCho(token)
+          .then((r) => setBadges((prev) => ({ ...prev, "xep-lich-cong-doan": r.total })))
+          .catch(() => {});
       } else if (readable.has("khach_hang") && e.type === "care_due") {
         // Tới giờ hẹn → ting người phụ trách: toast + badge "Khách hàng" (số việc đến hạn) tự nhảy.
         pushToast(`🔔 Tới hẹn chăm sóc: ${e.customer}${e.note ? " — " + e.note : ""}`, "info");
@@ -304,6 +338,28 @@ export function AppShell() {
           e.decision === "approved" ? "ok" : "warn",
         );
         reloadBadges();
+      } else if (e.type === "ot_decision") {
+        // NV nộp phiếu tăng ca nhận quyết định của tổ trưởng — đẩy riêng tới đúng người.
+        pushToast(
+          e.decision === "approved"
+            ? "✓ Phiếu tăng ca của bạn đã được duyệt"
+            : "✕ Phiếu tăng ca của bạn bị từ chối",
+          e.decision === "approved" ? "ok" : "warn",
+        );
+        reloadBadges();
+      } else if (readable.has("tang_ca") && e.type === "ot_pending_changed") {
+        // Có phiếu tăng ca mới/hủy → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
+        api.overtime
+          .summary(token)
+          .then((s) => {
+            const n = s.pending_in_scope ?? 0;
+            setBadges((prev) => ({ ...prev, "tang-ca": n }));
+            if (n > lastOtPending.current) {
+              pushToast("🔔 Có phiếu tăng ca chờ bạn duyệt", "info");
+            }
+            lastOtPending.current = n;
+          })
+          .catch(() => {});
       } else if (readable.has("luong") && e.type === "advance_pending_changed") {
         // Có đề nghị tạm ứng mới/đổi → refetch số 'chờ duyệt'; toast khi TĂNG (người duyệt).
         api.luong
@@ -316,36 +372,14 @@ export function AppShell() {
             lastAdvancePending.current = s.pending_approval_count;
           })
           .catch(() => {});
-      } else if (readable.has("san_xuat") && e.type === "lenh_sx_routing") {
-        // Có lệnh mới PHÁT vào tổ trong routing → reload badge tổ (scope-filtered) + refetch hộp việc
-        // đang mở; toast CHỈ khi tổ của tôi (broadcast tới mọi vai SX, nên lọc lại theo tổ mình).
-        reloadBadges();
-        setSxTick((n) => n + 1);
-        const mine = new Set(toSxRef.current.map((t) => t.id));
-        if ((e.to_ids ?? []).some((id) => mine.has(id))) {
-          pushToast("🔔 Có lệnh sản xuất mới ở tổ của bạn", "info");
-        }
-      } else if (readable.has("san_xuat") && e.type === "lenh_sx_assigned") {
-        // Đích danh tới thợ được gán → toast + reload badge + refetch hộp việc.
-        reloadBadges();
-        setSxTick((n) => n + 1);
-        pushToast("📋 Bạn được giao việc sản xuất mới", "info");
       } else if (readable.has("kho") && e.type === "stock_request") {
         // Tin ĐÍCH DANH của luồng kho (trình duyệt · duyệt/từ chối · kho tiếp nhận · cấp hàng).
         // Câu chữ do backend soạn theo bước — FE dựng lại câu ở đây là cầm chắc lệch nội dung.
         pushToast(e.message, "info");
       } else if (readable.has("kho") && e.type === "stock_request_pending_changed") {
-        // Tín hiệu NHẸ: `quoteTick` ở đầu handler đã tăng → 2 màn kho đang mở tự refetch.
+        // Tín hiệu NHẸ: quoteTick ở đầu handler đã tăng → 2 màn kho đang mở tự refetch.
         // Module kho chưa có endpoint đếm nên KHÔNG gọi reloadBadges (sẽ chỉ tốn request).
-      } else if (readable.has("san_xuat") && e.type === "lenh_sx_ban_giao") {
-        // Có hàng BÀN GIAO tới 1 tổ → reload badge (scope-filtered) + refetch hộp việc; toast CHỈ khi
-        // tổ nhận là tổ của tôi (đích danh to_nhan_id; broadcast tới mọi vai SX nên lọc lại theo tổ mình).
-        reloadBadges();
-        setSxTick((n) => n + 1);
-        const mine = new Set(toSxRef.current.map((t) => t.id));
-        if (e.to_nhan_id != null && mine.has(e.to_nhan_id)) {
-          pushToast("📦 Có hàng bàn giao tới tổ của bạn", "info");
-        }
+
       }
     });
     return close;
@@ -381,11 +415,12 @@ export function AppShell() {
   // "kho-item:<id>" = màn 1 kho (menu con động) — gác quyền `kho` + `view_stock`.
   const moduleKeys =
     MODULES_BY_NAV_ID[baseId] ??
-    (baseId === "kho-item" ? ["kho"] : baseId === "to-sx" ? ["san_xuat"] : undefined);
+    (baseId === "kho-item" ? ["kho"] : undefined);
   const allowed =
     moduleKeys != null &&
     moduleKeys.some((moduleKey) => readable.has(moduleKey)) &&
     (baseId !== "kho-item" || canViewStock);
+
   const itemChildren: Record<string, { id: string; label: string }[]> = {};
   // Kho đã khai báo → item ĐỘNG dưới SECTION "Kho hàng" (id section = "kho-hang"). Bấm 1 kho → màn tạm.
   // Chỉ đổ khi có `can_view_stock`; thiếu quyền → section "Kho hàng" rỗng nên tự ẩn.
@@ -395,14 +430,9 @@ export function AppShell() {
       id: `kho-item:${w.id}`, label: w.ten, icon: "warehouse", module: "kho",
     }));
   }
-  // Mục "Kho" chỉ cần `kho:read`; tab "Hộp yêu cầu" (cần create/view_stock) tự ẩn trong KhoPage.
+  // Mục "Kho" chỉ cần `kho:read`; tab "Phiếu từ đề nghị" (cần create/view_stock) tự ẩn trong KhoPage.
   const hiddenIds = new Set<string>();
-  // Tổ khối SX → item ĐỘNG (phẳng) dưới SECTION "Sản xuất", ngang hàng "Kế hoạch SX". Bấm 1 tổ → hộp việc riêng.
-  if (toSxList.length) {
-    dynamicItems["san-xuat"] = toSxList.map((t): NavItem => ({
-      id: `to-sx:${t.id}`, label: t.ten, icon: "users", module: "san_xuat",
-    }));
-  }
+
 
   function renderContent() {
     if (!allowed) {
@@ -446,21 +476,6 @@ export function AppShell() {
         />
       );
     }
-    // Màn TẠM cho 1 tổ khối SX (bấm item "to-sx:<id>" dưới section "Sản xuất").
-    if (baseId === "to-sx") {
-      const id = Number(activeId.split(":")[1]);
-      const t = toSxList.find((x) => x.id === id);
-      return (
-        <ToSanXuatView
-          key={`to-sx-${id}`}
-          toId={id}
-          ten={t?.ten ?? "Tổ sản xuất"}
-          ma={t?.ma}
-          token={token ?? ""}
-          refetchSignal={sxTick}
-        />
-      );
-    }
     // Danh mục rebuild (Máy · Vật liệu Kho · Công đoạn · Loại SP · Giấy) — 1 trang generic theo config.
     if (REBUILD_CONFIGS[baseId]) {
       return <RebuildCatalogPage key={baseId} config={REBUILD_CONFIGS[baseId]} />;
@@ -469,7 +484,7 @@ export function AppShell() {
       case "quy-trinh-kinh-doanh":
         return <QuyTrinhKinhDoanhPage navigate={navigate} />;
       case "phong-ban":
-        return <DepartmentsPage onDeptChanged={reloadToSx} />;
+        return <DepartmentsPage />;
       case "nhan-su":
         return <NhanSuPage navigate={navigate} />;
       case "ho-so-cua-toi":
@@ -478,8 +493,18 @@ export function AppShell() {
         return <ChamCongPage navigate={navigate} focusEmployeeId={navParams?.focusEmployeeId} />;
       case "nghi-phep":
         return <NghiPhepPage onChanged={reloadBadges} focusEmployeeId={navParams?.focusEmployeeId} />;
+      case "tang-ca":
+        // `eventTick` nhảy theo MỌI sự kiện SSE → bảng phiếu đang mở tự tải lại ngay khi bên kia
+        // duyệt/từ chối/gửi phiếu (không chỉ nhảy badge).
+        return <TangCaPage onChanged={reloadBadges} eventTick={quoteTick} />;
       case "luong":
-        return <LuongPage focusEmployeeId={navParams?.focusEmployeeId} eventTick={quoteTick} />;
+        return (
+          <LuongPage
+            focusEmployeeId={navParams?.focusEmployeeId}
+            eventTick={quoteTick}
+            openTab={navParams?.luongTab}
+          />
+        );
       case "khach-hang":
         return <KhachHangPage navigate={navigate} onBadgeStale={reloadBadges} />;
       case "tinh-gia":
@@ -495,7 +520,18 @@ export function AppShell() {
       case "don-hang-ban":
         return <DonHangBanPage navigate={navigate} openOrderId={navParams?.openOrderId ?? null} />;
       case "ke-hoach-sx":
-        return <SanXuatPage />;
+        return (
+          <KeHoachSXPage
+            navigate={navigate}
+            openOrderId={navParams?.openSxOrderId ?? null}
+            eventTick={quoteTick}
+            onBadgeStale={reloadBadges}
+          />
+        );
+      case "bai-ghep":
+        return <BaiGhepPage eventTick={quoteTick} onBadgeStale={reloadBadges} />;
+      case "xep-lich-cong-doan":
+        return <XepLichPage navigate={navigate} eventTick={quoteTick} onBadgeStale={reloadBadges} />;
       case "yeu-cau-mua-hang":
         return (
           <DepartmentPurchaseRequestsPage

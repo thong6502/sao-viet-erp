@@ -546,9 +546,6 @@
 .cc-shift-card--overnight {
   border-left-color: var(--plum);
 }
-.cc-shift-card--night {
-  border-left-color: var(--rust);
-}
 .cc-shift-card-header {
   display: flex;
   justify-content: space-between;
@@ -641,6 +638,56 @@
 .cc-assign__bar select:focus {
   border-color: var(--rust);
   box-shadow: 0 0 0 3px var(--rust-soft);
+}
+
+.cc-assign__date {
+  display: grid;
+  gap: 4px;
+  min-width: 150px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ash);
+}
+
+.cc-assign__date input {
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.cc-history-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.cc-shift-history {
+  margin-top: 16px;
+  border-top: 1px solid var(--rule);
+  padding-top: 14px;
+}
+
+.cc-shift-history__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.cc-shift-history__head > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.cc-shift-history__head span {
+  color: var(--ash-2);
+  font-size: 12px;
 }
 
 /* 8. KPI Dashboards cao cấp */
@@ -2403,4 +2450,83 @@
 .cc-timesheet-table tbody tr:hover {
   background-color: var(--rule-hair) !important;
 }
+.cc-time-selects {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 5px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
 
+.cc-time-selects:focus-within {
+  border-color: var(--rust);
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.08);
+}
+
+.cc-time-select {
+  position: relative;
+  min-width: 0;
+}
+
+.ns-field .cc-time-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-width: 0;
+  height: 52px;
+  padding: 20px 34px 5px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--r-4);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--ff-mono);
+  font-size: 18px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--duration-fast), border-color var(--duration-fast);
+}
+
+.ns-field .cc-time-select select:hover {
+  background: #fff;
+  border-color: var(--rule-soft);
+}
+
+.ns-field .cc-time-select select:focus {
+  border-color: var(--rust);
+  background: #fff;
+  box-shadow: none;
+}
+
+.cc-time-select__caption {
+  position: absolute;
+  z-index: 1;
+  top: 7px;
+  left: 12px;
+  color: var(--ash-2);
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.cc-time-select__chevron {
+  position: absolute;
+  top: 50%;
+  right: 11px;
+  color: var(--ash-2);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.cc-time-selects__separator {
+  color: var(--rust);
+  font-family: var(--ff-mono);
+  font-size: 22px;
+  line-height: 1;
+}

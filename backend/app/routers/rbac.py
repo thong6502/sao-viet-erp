@@ -3,6 +3,7 @@
 guarded by require_permission on the relevant module."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -12,6 +13,7 @@ from ..deps import (
     get_authorization_service,
     get_department_service,
     get_employee_service,
+    get_payroll_service,
     get_role_service,
     get_unit_level_service,
     get_user_admin_service,
@@ -23,8 +25,6 @@ from ..schemas.rbac import (
     AuditRow,
     DepartmentCreate,
     DepartmentMemberOut,
-    DepartmentSalaryRowInput,
-    DepartmentSalaryRowOut,
     DepartmentSubtreeRow,
     DepartmentSummaryOut,
     DepartmentTransferIn,
@@ -89,6 +89,7 @@ from ..services.user_admin_service import (
 from ..services.user_admin_service import DepartmentNotFound as UADeptNotFound
 from ..services.activity_service import ActivityService
 from ..services.rbac_service import AuthorizationService
+from ..services.payroll_service import PayrollError, PayrollService
 
 router = APIRouter(prefix="/api", tags=["rbac"])
 
@@ -98,6 +99,7 @@ Levels = Annotated[UnitLevelService, Depends(get_unit_level_service)]
 Users = Annotated[UserAdminService, Depends(get_user_admin_service)]
 # Điều chuyển nhân sự đi qua HỒ SƠ (ghi Quá trình công tác) → màn Phòng ban cần EmployeeService.
 EmployeeSvc = Annotated[EmployeeService, Depends(get_employee_service)]
+PayrollSvc = Annotated[PayrollService, Depends(get_payroll_service)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 Activity = Annotated[ActivityService, Depends(get_activity_service)]
 
@@ -224,73 +226,6 @@ def delete_department(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-# --- Bảng lương của phòng (Pha 1, lát 2) -----------------------------------
-@router.get(
-    "/departments/{dept_id}/salary-rows",
-    response_model=list[DepartmentSalaryRowOut],
-)
-def list_salary_rows(
-    dept_id: int,
-    depts: Depts,
-    _: Annotated[object, Depends(require_permission("phong_ban", "read"))],
-) -> list:
-    return depts.list_salary_rows(dept_id)
-
-
-@router.post(
-    "/departments/{dept_id}/salary-rows",
-    response_model=DepartmentSalaryRowOut,
-    status_code=status.HTTP_201_CREATED,
-)
-def create_salary_row(
-    dept_id: int,
-    payload: DepartmentSalaryRowInput,
-    depts: Depts,
-    user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
-):
-    try:
-        return depts.add_salary_row(
-            department_id=dept_id, data=payload.model_dump(), actor_id=user.id
-        )
-    except DeptNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-
-
-@router.put(
-    "/departments/salary-rows/{row_id}",
-    response_model=DepartmentSalaryRowOut,
-)
-def update_salary_row(
-    row_id: int,
-    payload: DepartmentSalaryRowInput,
-    depts: Depts,
-    user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
-):
-    try:
-        return depts.update_salary_row(
-            row_id=row_id, data=payload.model_dump(), actor_id=user.id
-        )
-    except DeptNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-
-
-@router.delete(
-    "/departments/salary-rows/{row_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    response_class=Response,
-)
-def delete_salary_row(
-    row_id: int,
-    depts: Depts,
-    user: Annotated[object, Depends(require_permission("phong_ban", "update"))],
-) -> Response:
-    try:
-        depts.delete_salary_row(row_id=row_id, actor_id=user.id)
-    except DeptNotFound as e:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
-
-
 @router.get("/departments/{dept_id}/subtree", response_model=list[DepartmentSubtreeRow])
 def department_subtree(
     dept_id: int,
@@ -315,6 +250,7 @@ def department_head_candidates(
 def transfer_department_staff(
     payload: DepartmentTransferIn,
     employees: EmployeeSvc,
+    payroll: PayrollSvc,
     user: Annotated[object, Depends(require_permission("nguoi_dung", "transfer"))],
 ) -> TransferResult:
     """PBI-4008 — bulk điều chuyển NHÂN SỰ sang phòng khác (vai trò cũ bị gỡ, ghi Quá trình
@@ -331,6 +267,8 @@ def transfer_department_staff(
     except EmployeeNotFound as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     except EmployeeValidationError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+    except PayrollError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
     return TransferResult(transferred=n)
 

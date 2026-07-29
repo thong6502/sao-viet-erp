@@ -284,7 +284,7 @@ class OrderAttachment(Base):
         Integer, ForeignKey("orders.id", ondelete="CASCADE"), index=True, nullable=False
     )
     kind: Mapped[str] = mapped_column(String(16), nullable=False, default=ATTACH_KIND_CONSENT)
-    # URL phục vụ qua /static (bytes dưới <backend>/static/don-hang/<order_id>/).
+    # URL phục vụ qua /api/files (bytes trong kho file `don-hang/<order_id>/`, cần quyền đọc đơn).
     file_url: Mapped[str] = mapped_column(String(500), nullable=False)
     file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)

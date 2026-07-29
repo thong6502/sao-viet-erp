@@ -17,7 +17,10 @@ dist/
 .vite/
 *.tsbuildinfo
 
-# Env / secrets (commit an .env.example instead)
+# Env / secrets — KHÔNG BAO GIỜ commit, kể cả .env.prod/.env.stg cục bộ.
+# Bản mẫu duy nhất trong git là .env.example (có khối "TRIỂN KHAI THẬT" liệt kê thứ phải đổi).
+# Đã cân nhắc commit sẵn .env.prod/.env.stg cho tiện `cp` rồi BỎ: secret vào lịch sử git là
+# không gỡ ra được.
 .env
 .env.*
 !.env.example
@@ -33,10 +36,11 @@ backend/static/avatars/
 # Hồ sơ nhân sự upload (CCCD…) = runtime + dữ liệu cá nhân nhạy cảm, KHÔNG commit
 backend/static/hr/
 backend/static/crm/
-# File đính kèm phiếu kho / lệnh sản xuất / phiếu chi kế toán = runtime content
+# File đính kèm phiếu kho / lệnh sản xuất / phiếu chi + phiếu thu kế toán = runtime content
 backend/static/kho/
 backend/static/san-xuat/
 backend/static/ke-toan/
+backend/static/ke-toan-thu/
 # File đính kèm đơn hàng (PO khách) / chứng từ cọc (ủy nhiệm chi) = runtime content
 backend/static/don-hang/
 backend/static/don-hang-coc/

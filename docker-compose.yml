@@ -1,45 +1,191 @@
-# Docker stack for the GAN app.
-#   db      — PostgreSQL (the database, per this spec's requirement)
-#   backend — FastAPI, connects to `db` and serves the API on :8000
+# FILE COMPOSE DUY NHẤT của dự án: Postgres + Redis + MinIO + FastAPI backend + nginx + Caddy.
+# (`docker-compose.yml` bản dev đã bỏ — nó khai trùng redis/minio; dev thật chạy `./dev.ps1`
+# với uvicorn + vite trên máy, DB SQLite, không cần compose.)
 #
-# Quick start:
-#   cp .env.example .env          # adjust secrets
-#   docker compose up db          # just Postgres
-#   docker compose up --build     # Postgres + backend API
-# The frontend runs locally with `npm run dev` (see frontend/README via QUICKSTART).
+#   Caddy (TLS, :80/:443) ─▶ web (nginx, build FE) ─/api─▶ backend (uvicorn :8000)
+#                                                            ├─▶ db     (Postgres — dữ liệu)
+#                                                            ├─▶ redis  (pub/sub SSE + khoá)
+#                                                            └─▶ minio  (kho file)
+#
+# LỆNH DUY NHẤT, MỌI MÔI TRƯỜNG:
+#
+#   docker compose up -d --build
+#
+# Dựng những service nào là do `.env` quyết, qua biến COMPOSE_PROFILES — KHÔNG phải gõ
+# `--profile` ở dòng lệnh:
+#
+#   .env local           COMPOSE_PROFILES=db,redis,minio
+#                        → chỉ hạ tầng. Không caddy ⇒ KHÔNG xin chứng chỉ gì cả.
+#                          Backend + frontend chạy ngoài bằng ./dev.ps1.
+#   .env.stg / .env.prod COMPOSE_PROFILES=db,redis,minio,backend,web,caddy
+#                        → full stack, có TLS.
+#
+# Mỗi service vẫn mang profile riêng nên vẫn bật/tắt lẻ được khi cần:
+#   docker compose --profile redis restart redis
+#
+# LƯU Ý về phụ thuộc: Compose từ chối cả project nếu một service được bật lại `depends_on` một
+# service đang tắt. Đã thử thật:
+#   db | redis | minio  → chạy lẻ được
+#   backend             → phải kèm db, redis, minio  (chờ cả 3 healthy)
+#   web                 → phải kèm backend + 3 cái trên (nginx phân giải `backend` LÚC KHỞI ĐỘNG)
+#   caddy               → phải kèm web + chuỗi trên
+# Nghĩa là hai bộ COMPOSE_PROFILES ở trên là hai tổ hợp hợp lệ; đừng cắt lưng chừng.
+#
+# Bí mật đọc từ `.env` cùng thư mục (KHÔNG commit). Bản mẫu duy nhất trong git: `.env.example`.
+name: erp-svn                          # COMPOSE_PROJECT_NAME trong .env ghi đè được
 
 services:
   db:
+    profiles: ["db"]
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
-      POSTGRES_DB: ${POSTGRES_DB:-gan_app}
-    ports:
-      - "5432:5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql/data
+    ports:
+      # CHỈ loopback — không ra Internet. Cần có để backend chạy NGOÀI container (./dev.ps1)
+      # nối được vào. 5433 chứ không phải 5432: máy dev thường đã cài sẵn Postgres, và trên
+      # VPS thì 5432 đã thuộc stack myanphu-staging.
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-gan_app}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 10
 
+  redis:
+    profiles: ["redis"]
+    image: redis:7-alpine
+    restart: unless-stopped
+    # Không bật persistence: Redis ở đây CHỈ làm pub/sub SSE + khoá chống chạy trùng, mất sạch
+    # khi restart cũng không sao (badge tự lành qua notify-summary, khoá tự hết hạn theo TTL).
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      # CHỈ loopback — không ra Internet. Có mặt để backend chạy ngoài container (máy dev) nối
+      # được. 6380 chứ không phải 6379 vì cổng mặc định hay bị Redis khác chiếm sẵn; đặt qua
+      # .env để prod và staging chạy chung VPS không đá cổng nhau.
+      - "127.0.0.1:${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    profiles: ["minio"]
+    image: minio/minio
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+    ports:
+      # CHỈ loopback. Người dùng KHÔNG bao giờ chạm MinIO trực tiếp — họ đọc file qua backend
+      # /api/files (có kiểm đăng nhập + quyền), nên Caddyfile không phải sửa gì. Hai cổng này
+      # chỉ để backend-chạy-ngoài-container (dev) và để soi bucket bằng console.
+      # 9010/9002 thay vì 9000/9001: trên VPS 9001 đã thuộc stack myanphu-staging.
+      - "127.0.0.1:${MINIO_API_PORT:-9010}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9002}:9001"
+    healthcheck:
+      # `curl` có sẵn trong image minio/minio (đã kiểm bằng cách chạy thật, không đoán).
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   backend:
+    profiles: ["backend"]
     build: ./backend
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-app}@db:5432/${POSTGRES_DB:-gan_app}
-      JWT_SECRET: ${JWT_SECRET:-dev-insecure-secret-change-me}
-      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+      APP_ENV: production                # bật guard bắt buộc JWT_SECRET mạnh
+      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      JWT_SECRET: ${JWT_SECRET}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin123}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD}
       SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Admin}
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      SEED_DEMO: ${SEED_DEMO:-false}     # production: KHÔNG seed dữ liệu demo
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      # Có REDIS_URL → SSE đẩy qua pub/sub (chạy được nhiều worker) + khoá bật.
+      REDIS_URL: redis://redis:6379/0
+      # Có MINIO_ENDPOINT → file ghi vào MinIO thay vì đĩa container (app/storage.py).
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-svn-files}
+    expose:
+      - "8000"                           # chỉ nội bộ; nginx proxy vào
+    # KHÔNG còn volume cho /app/static: file người dùng nằm ở MinIO, không nằm trên đĩa container.
+
+  web:
+    profiles: ["web"]
+    build:
+      context: ./frontend
+      args:
+        # Bundle FE là file TĨNH, biến này được nướng vào lúc build chứ không đọc lúc chạy —
+        # đổi giá trị thì phải `up --build` lại `web`.
+        # Rỗng = same-origin: client gọi /api tương đối, nginx trong image proxy sang backend.
+        # Dùng ${VAR-} (một gạch) để giá trị RỖNG cố ý vẫn được giữ, không bị thay bằng default.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL-}
+    restart: unless-stopped
+    depends_on:
+      - backend
+    expose:
+      - "80"                             # Caddy CÙNG project gọi thẳng `web:80`
     ports:
-      - "8000:8000"
+      # Cổng để Caddy của project KHÁC với tới — đường staging đi nhờ TLS của Caddy production
+      # (xem Caddyfile + STG_UPSTREAM). Mỗi môi trường một cổng: production 8180, staging 8181.
+      # Né 8080/8081 vì trên VPS stack myanphu đã chiếm.
+      #
+      # WEB_BIND: 127.0.0.1 CHỈ mở cho loopback của host — container KHÔNG vào được. Caddy gọi
+      # `host.docker.internal`, và địa chỉ đó phân giải ra IP gateway của bridge Docker
+      # (thường 172.17.0.1), nên bind loopback là `Connection refused` → 502. Đã vỡ thật.
+      # Staging vì thế khai WEB_BIND=172.17.0.1: container tới được, mà vẫn KHÔNG lộ ra
+      # Internet (IP nội bộ của host). Production giữ mặc định 127.0.0.1 vì Caddy của nó nằm
+      # cùng mạng compose, gọi thẳng `web:80`, không cần cổng này.
+      - "${WEB_BIND:-127.0.0.1}:${WEB_PORT:-8180}:80"
+
+  # Reverse-proxy + auto-HTTPS (Let's Encrypt) cho subdomain.
+  caddy:
+    profiles: ["caddy"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      # Đặt qua .env để staging (8090/8443) không tranh cổng với production (80/443).
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN}        # vd: svn.superbai.io (đặt trong .env)
+      # Staging đi nhờ TLS của Caddy này. Mặc định `stg.localhost` ⇒ chứng chỉ nội bộ, KHÔNG
+      # gọi Let's Encrypt — an toàn cho máy dev và cho VPS chưa dựng staging.
+      STG_DOMAIN: ${STG_DOMAIN:-stg.localhost}
+      STG_UPSTREAM: ${STG_UPSTREAM:-host.docker.internal:8181}
+    extra_hosts:
+      # Linux không tự có `host.docker.internal` — khai để Caddy với tới cổng loopback của host
+      # (nơi `web` của stack staging publish).
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data                 # lưu chứng chỉ TLS (đừng xoá)
+      - caddy_config:/config
 
 volumes:
   pgdata:
+  miniodata:
+  caddy_data:
+  caddy_config:

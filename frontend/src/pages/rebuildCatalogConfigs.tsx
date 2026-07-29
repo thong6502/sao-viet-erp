@@ -73,6 +73,10 @@ export const CFG_MAY: CatalogConfig = {
     { key: "loai_may", label: "Nhóm máy", render: (r) => (r.loai_may ? String(r.loai_may) : "—") },
     { key: "kho_max", label: "Khổ giấy max (mm)",
       render: (r) => (r.kho_max_rong || r.kho_max_dai ? `${r.kho_max_rong ?? "?"}×${r.kho_max_dai ?? "?"}` : "—") },
+    // Hiện ngay trên list để nhìn ra máy nào CHƯA khai tốc độ — không phải bấm vào từng cái.
+    // Máy chưa có số thì lệnh sản xuất bỏ trống thời gian chạy, Gantt sau này vẽ thanh rỗng.
+    { key: "toc_do", label: "Tốc độ",
+      render: (r) => (r.toc_do ? `${Number(r.toc_do).toLocaleString("vi-VN")} tờ/giờ` : "—") },
   ],
   fields: [
     // ── Nhóm máy (chữ gợi ý + tự do) ──────────────────────────────────────────
@@ -105,10 +109,22 @@ export const CFG_MAY: CatalogConfig = {
     { key: "kho_min_dai", label: "Khổ giấy min — dài (mm)", type: "number", group: "Khổ giấy" },
     { key: "kho_max_rong", label: "Khổ giấy max — rộng (mm)", type: "number", group: "Khổ giấy" },
     { key: "kho_max_dai", label: "Khổ giấy max — dài (mm)", type: "number", group: "Khổ giấy" },
+    // ── Tốc độ & thời gian → nuôi thẳng thời lượng bước ở Lệnh sản xuất ───────
+    { key: "toc_do", label: "Tốc độ chạy (tờ/giờ)", type: "number", group: "Tốc độ & thời gian",
+      hint: "Tính theo LƯỢT qua máy — in 2 mặt thì mỗi tờ chạy 2 lượt. Bỏ trống thì lệnh sản xuất để trống thời gian chạy." },
+    { key: "thoi_gian_rua_muc", label: "Thời gian rửa mực (phút)", type: "number", group: "Tốc độ & thời gian",
+      showIf: (f) => isMayIn(f.loai_may),
+      hint: "Vệ sinh máy sau khi in xong — cộng vào thời gian chiếm máy" },
     // ── Ghi chú ────────────────────────────────────────────────────────────────
     { key: "ghi_chu", label: "Ghi chú 1", type: "text", group: "Ghi chú" },
     { key: "ghi_chu_2", label: "Ghi chú 2", type: "text", group: "Ghi chú" },
   ],
+  // Xưởng CHỈ in offset tờ → không có ô chọn đơn vị tốc độ, hệ tự ghi `to_gio`. Bày dropdown 5 lựa
+  // chọn (m²/cuộn/mét…) chỉ tạo cơ hội chọn nhầm rồi thắc mắc sao lệnh SX vẫn trống năng suất.
+  transformSubmit: (body) => ({
+    ...body,
+    don_vi_toc_do: body.toc_do ? "to_gio" : null,
+  }),
 };
 
 export const CFG_CONG_DOAN: CatalogConfig = {
@@ -121,12 +137,23 @@ export const CFG_CONG_DOAN: CatalogConfig = {
     { key: "nhom", label: "Giai đoạn", render: (r) => lbl(NHOM_CD)(r.nhom) },
     { key: "kieu_bu_hao", label: "Bù hao", render: (r) =>
         r.kieu_bu_hao === "co_dinh" ? `Cố định ${r.so_to_bu_hao ?? 50} tờ` : lbl(KIEU_BU_HAO)(r.kieu_bu_hao ?? "khong") },
+    // Nhìn ra công đoạn nào chưa khai số cho Lệnh sản xuất (giống cột Tốc độ bên màn Máy).
+    { key: "setup_time", label: "Chuẩn bị",
+      render: (r) => (Number(r.setup_time) > 0 ? `${Number(r.setup_time)} phút` : "—") },
     { key: "ghi_chu", label: "Ghi chú", render: (r) => (r.ghi_chu ? String(r.ghi_chu) : "—") },
   ],
   fields: [
     { key: "nhom", label: "Giai đoạn", type: "select", required: true, group: "Thông tin", options: mapOpt(NHOM_CD) },
     { key: "department_id", label: "Phòng ban / Tổ phụ trách", type: "ref", refPrefix: "/api/cong-doan/phong-ban", group: "Thông tin",
       hint: "Tổ/bộ phận sẽ nhận việc công đoạn này khi phát lệnh sản xuất" },
+
+    // ── Số nuôi thẳng thời lượng bước ở Lệnh sản xuất (giá trị MẶC ĐỊNH, kế hoạch sửa được) ────
+    { key: "setup_time", label: "Thời gian chuẩn bị (phút)", type: "number", group: "Lệnh sản xuất",
+      hint: "Canh máy trước khi chạy — tính MỘT LẦN cho cả lệnh, không nhân theo số lượng" },
+    { key: "may_id", label: "Máy mặc định", type: "ref", refPrefix: "/api/may-thiet-bi", group: "Lệnh sản xuất",
+      hint: "Bung lệnh là tự gán máy này. Bỏ trống thì bước in vẫn lấy máy đã chọn ở phiếu tính giá." },
+    { key: "nang_suat", label: "Năng suất mỗi giờ", type: "number", group: "Lệnh sản xuất",
+      hint: "Đơn vị đi theo đầu vào của bước: chế bản = kẽm/giờ · in, cán, bế = tờ/giờ · dán, đóng gói = con/giờ. Bước có máy thì lấy tốc độ máy — ô này dành cho việc LÀM TAY." },
 
     // CHỈ TÍNH THEO CÔNG THỨC: đã bỏ ô 'Cách tính giá' / 'Đơn giá' / 'Bậc kích thước'.
     // Đơn giá nhập per-phiếu (mỗi dòng phiếu tính giá tự mang don_gia); công đoạn chỉ khai CÔNG THỨC.

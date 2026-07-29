@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # --- create / edit ----------------------------------------------------------
@@ -20,6 +20,31 @@ class AccountCreateIn(BaseModel):
     password: str = Field(min_length=6, max_length=128)
     name: str | None = Field(default=None, max_length=255)
     role_id: int | None = None
+
+
+class InitialEmployeeSalaryIn(BaseModel):
+    """Mức lương ban đầu khai cùng hồ sơ NV. Lương vị trí = lương cơ bản = mức đóng BH;
+    bậc thợ là free-text `job_grade` (hệ thống không quản)."""
+
+    effective_from: date | None = None
+    luong_vi_tri: float = Field(gt=0)
+    luong_trach_nhiem: float = Field(default=0, ge=0)
+    insurance_base: float | None = Field(default=None, ge=0)
+    allowance: float = Field(default=0, ge=0)
+    phu_cap_ca: float = Field(default=0, ge=0)
+    phu_cap_tham_nien: float = Field(default=0, ge=0)
+    chuyen_can: float = Field(default=0, ge=0)
+    # BH đóng ở nơi khác → công ty chỉ đóng TNLĐ-BNN (không trừ BHXH/BHYT/BHTN của NV).
+    insurance_elsewhere: bool = False
+    # Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn.
+    union_member: bool = False
+    note: str | None = Field(default=None, max_length=255)
+
+    @model_validator(mode="after")
+    def require_positive_salary(self):
+        if self.luong_vi_tri + self.luong_trach_nhiem <= 0:
+            raise ValueError("Muc luong rieng cua nhan vien phai lon hon 0.")
+        return self
 
 
 class EmployeeBase(BaseModel):
@@ -54,8 +79,14 @@ class EmployeeBase(BaseModel):
 class EmployeeCreate(EmployeeBase):
     # New employees default to Thử việc; the API accepts an override for imports.
     status: str = Field(default="probation", max_length=16)
+    # Thâm niên đã có TRƯỚC khi vào làm (tháng) — chỉ khai lúc TẠO (không ở EmployeeBase để
+    # bản PUT sửa hồ sơ không vô tình reset về 0). Wizard nhập theo NĂM rồi × 12.
+    prior_seniority_months: int = Field(default=0, ge=0)
     # Optional: create + link a login account in the same call (wizard "Lưu").
     account: AccountCreateIn | None = None
+    # Accepted only with `luong:update`; grade ownership is validated against
+    # the selected department before the employee is created.
+    initial_salary: InitialEmployeeSalaryIn | None = None
 
 
 class EmployeeUpdate(EmployeeBase):
@@ -71,6 +102,7 @@ class TransitionIn(BaseModel):
     effective_date: date | None = None
     note: str | None = Field(default=None, max_length=500)
     new_department_id: int | None = None      # transfer
+    # Bậc thợ là VĂN BẢN tự do (hệ thống không quản lý bậc — chủ 2026-07-20).
     new_job_grade: str | None = Field(default=None, max_length=50)   # promote
     new_position: str | None = Field(default=None, max_length=255)   # promote
     resign_reason: str | None = Field(default=None, max_length=255)  # resign
@@ -90,7 +122,25 @@ class AccountIn(BaseModel):
 
 
 class AssignShiftIn(BaseModel):
+    effective_from: date = Field(default_factory=date.today)
     default_shift_id: int | None = None   # null = bỏ gán ca
+
+
+class ShiftAssignmentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    employee_id: int
+    shift_id: int | None = None
+    effective_from: date
+    effective_to: date | None = None
+    is_current: bool = False
+    created_at: datetime
+
+
+class ShiftAssignmentsOut(BaseModel):
+    employee_id: int
+    items: list[ShiftAssignmentOut]
 
 
 # --- responses --------------------------------------------------------------

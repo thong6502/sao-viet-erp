@@ -221,52 +221,6 @@ class DepartmentService:
             "has_piece_work": dept.has_piece_work,
         }
 
-    # --- Bảng lương của phòng (Pha 1, lát 2) ---------------------------------
-    def list_salary_rows(self, department_id: int) -> list:
-        """Các dòng mức lương phòng tự khai (trả ORM; router serialize)."""
-        return self.departments.list_salary_rows(department_id)
-
-    def add_salary_row(self, *, department_id: int, data: dict, actor_id: int | None):
-        if self.departments.get_by_id(department_id) is None:
-            raise DepartmentNotFound("Không tìm thấy phòng ban")
-        order = self.departments.next_salary_row_order(department_id)
-        row = self.departments.create_salary_row(
-            department_id=department_id, sort_order=order, **data
-        )
-        self.audit.create(
-            actor_user_id=actor_id,
-            action="create_department_salary_row",
-            target=f"dept:{department_id}",
-            detail=f"{data.get('label', '')}",
-        )
-        return row
-
-    def update_salary_row(self, *, row_id: int, data: dict, actor_id: int | None):
-        row = self.departments.get_salary_row(row_id)
-        if row is None:
-            raise DepartmentNotFound("Không tìm thấy dòng lương")
-        row = self.departments.update_salary_row(row, **data)
-        self.audit.create(
-            actor_user_id=actor_id,
-            action="update_department_salary_row",
-            target=f"dept:{row.department_id}",
-            detail=f"row:{row_id} {data.get('label', '')}",
-        )
-        return row
-
-    def delete_salary_row(self, *, row_id: int, actor_id: int | None) -> None:
-        row = self.departments.get_salary_row(row_id)
-        if row is None:
-            raise DepartmentNotFound("Không tìm thấy dòng lương")
-        dept_id = row.department_id
-        self.departments.delete_salary_row(row)
-        self.audit.create(
-            actor_user_id=actor_id,
-            action="delete_department_salary_row",
-            target=f"dept:{dept_id}",
-            detail=f"row:{row_id}",
-        )
-
     def members_of_department(self, department_id: int) -> list[dict]:
         """NHÂN SỰ của một phòng — liệt kê theo HỒ SƠ, không phải theo tài khoản (Đ2:
         "ai thuộc phòng nào" bám hồ sơ). Kèm thông tin tài khoản nếu có: mọi tài khoản đều

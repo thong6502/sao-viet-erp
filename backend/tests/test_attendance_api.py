@@ -62,7 +62,30 @@ def _make_location(client, token, *, lat=10.0, lng=106.0, radius=200) -> int:
     ).json()["id"]
 
 
-def _link_admin_employee(client, token) -> int:
+def _ensure_test_shift(client, token) -> int:
+    items = client.get("/api/attendance/shifts", headers=_h(token)).json()["items"]
+    existing = next((s for s in items if s["name"] == "Ca kiểm thử chấm công"), None)
+    if existing is not None:
+        return existing["id"]
+    return client.post(
+        "/api/attendance/shifts",
+        json={"name": "Ca kiểm thử chấm công", "start_time": "00:00", "end_time": "23:59"},
+        headers=_h(token),
+    ).json()["id"]
+
+
+def _assign_test_shift(client, token, employee_id: int) -> int:
+    shift_id = _ensure_test_shift(client, token)
+    response = client.put(
+        f"/api/employees/{employee_id}/shift",
+        json={"default_shift_id": shift_id},
+        headers=_h(token),
+    )
+    assert response.status_code == 200
+    return shift_id
+
+
+def _link_admin_employee(client, token, *, assign_shift: bool = True) -> int:
     """Hồ sơ của admin để tự chấm công.
 
     LUẬT: mọi tài khoản ĐỀU có hồ sơ (`backfill_employee_profiles`) — admin không còn là ngoại lệ.
@@ -77,6 +100,8 @@ def _link_admin_employee(client, token) -> int:
               "hire_date": "2020-01-01"},
         headers=_h(token),
     )
+    if assign_shift:
+        _assign_test_shift(client, token, eid)
     return eid
 
 
@@ -135,6 +160,74 @@ def test_check_in_out_toggle_and_hard_block(client):
     logs = client.get("/api/attendance/me/logs", headers=_h(token)).json()["items"]
     assert len(logs) == 2  # only the two in-range checks were recorded
     assert {l["check_type"] for l in logs} == {"in", "out"}
+
+
+def test_check_in_out_is_blocked_without_an_effective_shift(client):
+    token = _admin_token(client)
+    _make_location(client, token, lat=10.0, lng=106.0, radius=200)
+    employee_id = _link_admin_employee(client, token, assign_shift=False)
+
+    # Ghi mốc bỏ ca hôm nay để bảo đảm cả dữ liệu cũ/default cũng không còn hiệu lực.
+    removed = client.put(
+        f"/api/employees/{employee_id}/shift",
+        json={"default_shift_id": None},
+        headers=_h(token),
+    )
+    assert removed.status_code == 200
+
+    status = client.get("/api/attendance/me/status", headers=_h(token)).json()
+    assert status["shift"] is None and status["next_action"] is None
+
+    preview = client.post(
+        "/api/attendance/me/preview",
+        json={"latitude": 10.0, "longitude": 106.0},
+        headers=_h(token),
+    )
+    check_in = client.post(
+        "/api/attendance/check",
+        json={"latitude": 10.0, "longitude": 106.0},
+        headers=_h(token),
+    )
+    assert preview.status_code == 400 and "chưa được gán ca" in preview.json()["detail"]
+    assert check_in.status_code == 400 and "chưa được gán ca" in check_in.json()["detail"]
+    assert client.get("/api/attendance/me/logs", headers=_h(token)).json()["items"] == []
+
+    today = _vn_today_str()
+    manual = client.post(
+        "/api/attendance/adjust",
+        json={"employee_id": employee_id, "date": today, "check_type": "in",
+              "time": "08:00", "reason": "Kiểm tra không có ca"},
+        headers=_h(token),
+    )
+    request = client.post(
+        "/api/attendance/me/adjust-request",
+        json={"date": today, "check_type": "in", "suggested_time": "08:00",
+              "reason": "Kiểm tra không có ca"},
+        headers=_h(token),
+    )
+    assert manual.status_code == 400 and "chưa được gán ca" in manual.json()["detail"]
+    assert request.status_code == 400 and "chưa được gán ca" in request.json()["detail"]
+
+    # Có ca thì chấm VÀO được; bỏ ca sau đó thì lượt RA cũng bị chặn và không sinh log mới.
+    _assign_test_shift(client, token, employee_id)
+    checked_in = client.post(
+        "/api/attendance/check",
+        json={"latitude": 10.0, "longitude": 106.0},
+        headers=_h(token),
+    )
+    assert checked_in.status_code == 200 and checked_in.json()["check_type"] == "in"
+    client.put(
+        f"/api/employees/{employee_id}/shift",
+        json={"default_shift_id": None},
+        headers=_h(token),
+    )
+    check_out = client.post(
+        "/api/attendance/check",
+        json={"latitude": 10.0, "longitude": 106.0},
+        headers=_h(token),
+    )
+    assert check_out.status_code == 400 and "chưa được gán ca" in check_out.json()["detail"]
+    assert len(client.get("/api/attendance/me/logs", headers=_h(token)).json()["items"]) == 1
 
 
 def test_me_preview_dry_run(client):
@@ -271,13 +364,15 @@ def _dept_hr_token(dept_name: str) -> str:
         db.close()
 
 
-def _link_employee(client, token, *, full_name, dept_id, user_id) -> int:
+def _link_employee(client, token, *, full_name, dept_id, user_id, assign_shift: bool = True) -> int:
     emp = client.post(
         "/api/employees",
         json={"full_name": full_name, "department_id": dept_id, "hire_date": "2020-01-01"},
         headers=_h(token),
     ).json()["employee"]
     client.post(f"/api/employees/{emp['id']}/account", json={"user_id": user_id}, headers=_h(token))
+    if assign_shift:
+        _assign_test_shift(client, token, emp["id"])
     return emp["id"]
 
 
@@ -343,7 +438,7 @@ def test_adjust_punch_recompute_and_rbac(client):
     token = _admin_token(client)
     _make_location(client, token, lat=10.0, lng=106.0, radius=200)
     shift = client.post("/api/attendance/shifts",
-                        json={"name": "HC", "start_time": "08:00", "end_time": "17:00"},
+                        json={"name": "HC", "start_time": "00:00", "end_time": "23:59"},
                         headers=_h(token)).json()
     emp_id = _link_admin_employee(client, token)
     client.put(f"/api/employees/{emp_id}/shift", json={"default_shift_id": shift["id"]}, headers=_h(token))

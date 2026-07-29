@@ -12,6 +12,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 
 from ..config import settings
 from ..deps import (
+    FILE_COOKIE,
+    FILE_COOKIE_PATH,
     CurrentUser,
     get_auth_service,
     get_authorization_service,
@@ -28,7 +30,7 @@ from ..schemas.auth import (
     TokenResponse,
     UserOut,
 )
-from ..security import create_access_token
+from ..security import create_access_token, create_file_token
 from ..services.auth_service import AuthError, AuthService, PasswordChangeError
 from ..services.profile_service import ProfileService
 from ..services.rbac_service import AuthorizationService
@@ -57,6 +59,27 @@ def _clear_refresh_cookie(response: Response) -> None:
     response.delete_cookie(REFRESH_COOKIE, path=COOKIE_PATH)
 
 
+def _set_file_cookie(response: Response, user) -> None:
+    """Cookie cho `<img src>` đọc /api/files (không gắn được header Bearer).
+
+    Cùng vòng đời với refresh cookie để ảnh không chết giữa phiên; `tv` bên trong khiến
+    đổi-mật-khẩu / logout-all giết luôn nó.
+    """
+    response.set_cookie(
+        key=FILE_COOKIE,
+        value=create_file_token(subject=str(user.id), token_version=user.token_version),
+        max_age=settings.refresh_token_expire_days * 24 * 60 * 60,
+        httponly=True,
+        secure=settings.is_production,
+        samesite="lax",
+        path=FILE_COOKIE_PATH,
+    )
+
+
+def _clear_file_cookie(response: Response) -> None:
+    response.delete_cookie(FILE_COOKIE, path=FILE_COOKIE_PATH)
+
+
 def _issue_access(user) -> str:
     return create_access_token(subject=str(user.id), token_version=user.token_version)
 
@@ -78,6 +101,7 @@ def login(
             detail="Tên đăng nhập hoặc mật khẩu không đúng",
         ) from None
     _set_refresh_cookie(response, refresh.issue(user, user_agent=request.headers.get("user-agent")))
+    _set_file_cookie(response, user)
     return TokenResponse(access_token=token, user=UserOut.model_validate(user))
 
 
@@ -94,10 +118,12 @@ def refresh_session(
         new_raw, user = refresh.rotate(raw, user_agent=request.headers.get("user-agent"))
     except RefreshError:
         _clear_refresh_cookie(response)
+        _clear_file_cookie(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session"
         ) from None
     _set_refresh_cookie(response, new_raw)
+    _set_file_cookie(response, user)
     return TokenResponse(access_token=_issue_access(user), user=UserOut.model_validate(user))
 
 
@@ -112,6 +138,7 @@ def logout(
         refresh.revoke(raw)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     _clear_refresh_cookie(response)
+    _clear_file_cookie(response)
     return response
 
 
@@ -142,6 +169,7 @@ def change_password(
     refresh_tokens.revoke_all_for_user(current_user.id)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     _clear_refresh_cookie(response)
+    _clear_file_cookie(response)
     return response
 
 

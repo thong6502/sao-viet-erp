@@ -15,7 +15,15 @@ class ParamsIn(BaseModel):
     bhxh_rate: float | None = Field(default=None, ge=0, le=1)
     bhyt_rate: float | None = Field(default=None, ge=0, le=1)
     bhtn_rate: float | None = Field(default=None, ge=0, le=1)
+    # Trần tạm ứng/tháng theo % (lương vị trí + trách nhiệm). 0 = không giới hạn.
+    advance_max_pct: float | None = Field(default=None, ge=0, le=1)
+    # Phía NGƯỜI SỬ DỤNG LAO ĐỘNG — KHÔNG trừ vào lương NV, chỉ tính chi phí công ty.
+    bhxh_rate_er: float | None = Field(default=None, ge=0, le=1)
+    bhyt_rate_er: float | None = Field(default=None, ge=0, le=1)
+    bhtn_rate_er: float | None = Field(default=None, ge=0, le=1)
     cong_doan_rate: float | None = Field(default=None, ge=0, le=1)
+    # TNLĐ-BNN do CÔNG TY chịu (mẫu 0.5% = 0.005) — dùng khi NV có BH đóng ở nơi khác.
+    tnld_bnn_rate: float | None = Field(default=None, ge=0, le=1)
     deduction_self: float | None = Field(default=None, ge=0)
     deduction_dependent: float | None = Field(default=None, ge=0)
     chuyen_can_default: float | None = Field(default=None, ge=0)
@@ -26,8 +34,10 @@ class ParamsIn(BaseModel):
     restday_work_multiplier: float | None = Field(default=None, ge=1, le=5)
     holiday_work_multiplier: float | None = Field(default=None, ge=1, le=5)
     night_pct: float | None = Field(default=None, ge=0, le=2)
+    ot_night_extra_pct: float | None = Field(default=None, ge=0, le=2)
     bh_base_cap: float | None = Field(default=None, ge=0)
     bhtn_base_cap: float | None = Field(default=None, ge=0)
+    # Phụ cấp cơm/ca đêm KHÔNG còn ở cấp công ty — khai theo từng CA (`work_shifts`).
 
 
 class ParamsOut(BaseModel):
@@ -38,7 +48,12 @@ class ParamsOut(BaseModel):
     bhxh_rate: float
     bhyt_rate: float
     bhtn_rate: float
+    advance_max_pct: float = 0.10
+    bhxh_rate_er: float = 0.175
+    bhyt_rate_er: float = 0.03
+    bhtn_rate_er: float = 0.01
     cong_doan_rate: float = 0
+    tnld_bnn_rate: float = 0.005
     deduction_self: float
     deduction_dependent: float
     chuyen_can_default: float
@@ -49,8 +64,42 @@ class ParamsOut(BaseModel):
     restday_work_multiplier: float
     holiday_work_multiplier: float
     night_pct: float
+    ot_night_extra_pct: float = 0.2
     bh_base_cap: float
     bhtn_base_cap: float
+
+
+# --- thành phần lương theo BỘ PHẬN (Cấu hình lương, Tab 2) ------------------
+
+_COMPONENT_KEY = "^(kpi|chuyen_can|luong_khoan|tang_ca)$"
+
+
+class DeptComponentIn(BaseModel):
+    component_key: str = Field(pattern=_COMPONENT_KEY)
+    is_enabled: bool = True
+    # Mức của TỔ (PRD v2 C6 — TỔ là nơi khai chính). NULL = bật nhưng CHƯA khai mức → 0đ
+    # (không còn "mức mặc định công ty" để rơi xuống).
+    value: float | None = Field(default=None, ge=0)
+
+
+class DeptComponentsIn(BaseModel):
+    items: list[DeptComponentIn]
+
+
+class DeptComponentOut(BaseModel):
+    component_key: str
+    is_enabled: bool
+    value: float | None = None
+    is_set: bool = False               # bộ phận đã khai riêng dòng này chưa
+    # LEGACY (giữ để FE cũ không vỡ): danh mục phụ cấp cấp công ty đã gỡ — luôn trả mặc định.
+    company_enabled: bool = True
+    company_value: float | None = None
+    company_unit: str | None = None
+
+
+class DeptComponentsOut(BaseModel):
+    department_id: int
+    items: list[DeptComponentOut]
 
 
 # --- biểu thuế TNCN ---------------------------------------------------------
@@ -73,6 +122,28 @@ class PitBracketOut(BaseModel):
 
 class PitBracketsOut(BaseModel):
     items: list[PitBracketOut]
+
+
+# --- bảng phạt đi trễ / về sớm ----------------------------------------------
+
+
+class LatePenaltyBracketIn(BaseModel):
+    seq: int = Field(ge=1)
+    up_to_minute: int | None = Field(default=None, ge=0)   # None = bậc cao nhất (∞)
+    amount: float = Field(ge=0)
+
+
+class LatePenaltyBracketOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    seq: int
+    up_to_minute: int | None = None
+    amount: float
+
+
+class LatePenaltyBracketsOut(BaseModel):
+    items: list[LatePenaltyBracketOut]
 
 
 # --- salary_rate_rules ------------------------------------------------------
@@ -114,14 +185,23 @@ class RulesOut(BaseModel):
 
 class SalaryIn(BaseModel):
     effective_from: date
-    amount_mode: str = Field(default="rule", pattern="^(rule|manual|dept_row)$")
+    amount_mode: str = Field(default="manual", pattern="^(rule|manual|dept_row)$")
     base_amount: float | None = Field(default=None, ge=0)
-    # Trỏ 1 dòng bảng lương của tổ (department_salary_rows) → engine đọc sống. Khi set thì
-    # amount_mode tự thành 'dept_row' (service tự đặt).
-    source_salary_row_id: int | None = Field(default=None, ge=1)
+    # MỨC LƯƠNG của NV — gõ riêng từng ô. Lương vị trí = lương cơ bản = mức đóng BH.
+    luong_vi_tri: float = Field(default=0, ge=0)
+    luong_trach_nhiem: float = Field(default=0, ge=0)
+    # DORMANT: mức đóng BH khai riêng — engine THÔI đọc (BH bám luong_vi_tri). Giữ nhận cho FE cũ.
     insurance_base: float | None = Field(default=None, ge=0)
-    allowance: float = Field(default=0, ge=0)          # phụ cấp riêng NV
+    # 3 khoản PHỤ CẤP KHAI TAY của NV — số cố định dùng mọi tháng, engine cộng phẳng
+    # (không prorate theo công, không vào gốc tính tăng ca), hệ thống KHÔNG tự tính.
+    allowance: float = Field(default=0, ge=0)              # phụ cấp KHÁC (gộp)
+    phu_cap_ca: float = Field(default=0, ge=0)             # phụ cấp ca (đêm/tới sáng/cơm ca…)
+    phu_cap_tham_nien: float = Field(default=0, ge=0)
     chuyen_can: float = Field(default=0, ge=0)         # chuyên cần riêng NV
+    # BH đóng ở nơi khác → công ty không trừ BHXH/BHYT/BHTN của NV, chỉ chịu TNLĐ-BNN.
+    insurance_elsewhere: bool = False
+    # Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn (mặc định false = không đóng).
+    union_member: bool = False
     note: str | None = Field(default=None, max_length=255)
 
 
@@ -131,14 +211,23 @@ class SalaryOut(BaseModel):
     id: int
     employee_id: int
     effective_from: date
+    effective_to: date | None = None
+    is_current: bool = False
     amount_mode: str
     base_amount: float | None = None
-    source_salary_row_id: int | None = None
+    luong_vi_tri: float = 0
+    luong_trach_nhiem: float = 0
     insurance_base: float | None = None
     allowance: float
+    phu_cap_ca: float = 0
+    phu_cap_tham_nien: float = 0
     chuyen_can: float = 0
+    insurance_elsewhere: bool = False   # cờ "BH đóng ở nơi khác" — để modal prefill checkbox
+    union_member: bool = False          # cờ "đoàn viên công đoàn" — để modal prefill checkbox
     note: str | None = None
     created_at: datetime
+    created_by: int | None = None
+    actor_name: str | None = None      # tên người điều chỉnh (nhật ký "ai sửa")
 
 
 class SalariesOut(BaseModel):
@@ -150,10 +239,14 @@ class SalariesOut(BaseModel):
 class SalaryPreviewOut(BaseModel):
     employee_id: int
     monthly: float
-    source: str            # rule | manual | none
+    source: str            # employee | manual | none
     chuyen_can: float
     allowance: float
-    insurance_base: float
+    phu_cap_ca: float = 0
+    phu_cap_tham_nien: float = 0
+    insurance_base: float    # = luong_vi_tri (mức đóng BH)
+    luong_vi_tri: float = 0
+    luong_trach_nhiem: float = 0
 
 
 # --- advances ---------------------------------------------------------------
@@ -241,6 +334,27 @@ class PeriodPayIn(BaseModel):
     note: str | None = Field(default=None, max_length=255)
 
 
+class AdvanceQuotaOut(BaseModel):
+    """Hạn mức tạm ứng của 1 NV trong 1 kỳ — nuôi dòng "còn được ứng" trên form đề nghị."""
+
+    monthly: float               # lương tháng làm gốc (vị trí + trách nhiệm)
+    pct: float                   # tỷ lệ trần đang áp (0 = không giới hạn)
+    limit: float | None = None   # số tiền trần; None = không giới hạn
+    used: float = 0              # đã duyệt + đang chờ duyệt trong kỳ
+    remaining: float | None = None  # còn được ứng; None = không giới hạn
+
+
+class InsuranceLineOut(BaseModel):
+    """Một dòng bảo hiểm NV đóng trên phiếu lương (BHXH / BHYT / BHTN), nhãn đã kèm tỷ lệ.
+
+    Backend trả thẳng SỐ TIỀN để phiếu lương không phải đi xin tỷ lệ qua `GET /params` (endpoint đó
+    đòi quyền `luong:view_salary` — nhân viên xem phiếu của chính mình không có ⇒ trước đây rơi về
+    một dòng gộp). Ba dòng LUÔN cộng đúng bằng `LineOut.bhxh` đã đóng băng."""
+
+    label: str
+    amount: float
+
+
 class LineOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -258,12 +372,19 @@ class LineOut(BaseModel):
     monthly_salary: float
     luong_cong: float
     chuyen_can: float
-    allowance: float
+    allowance: float               # TỔNG phụ cấp tháng (đã gồm 3 dòng dưới)
+    # Tách dòng cho phiếu lương (B2) — 2 số này CỘNG LẠI = `allowance`, đừng cộng thêm vào tổng.
+    phu_cap_tham_nien: float = 0
+    phu_cap_khac: float = 0        # router fills = allowance − thâm niên
     khoan: float = 0
     ot_minutes: int = 0
     ot_pay: float = 0
     night_days: int = 0
-    night_pay: float = 0
+    night_pay: float = 0           # = phụ cấp CA khai tay của NV — cột DB
+    ca_pay: float = 0              # alias của `night_pay` (cùng MỘT số, đừng cộng 2 lần)
+    night_premium_pay: float = 0   # premium CA ĐÊM theo giờ (giờ đêm × hệ số + tăng ca đêm) — tự tính, miễn TNCN
+    kpi_percent: float = 0
+    kpi_bonus: float = 0
     vi_pham: float
     other_bonus: float
     thuong_5s: float = 0
@@ -273,12 +394,15 @@ class LineOut(BaseModel):
     tra_dong_phuc: float = 0
     dieu_chinh_luong: float = 0
     di_tre: float = 0
+    di_tre_manual: bool = False    # True = HCNS sửa tay (phạt tự động không đè); False = tự động từ chấm công
     dt_vuot_troi: float = 0
     phat_bien_ban: float = 0
     phat_5s_dong_phuc: float = 0
     gross: float
     insurance_base: float
-    bhxh: float
+    bhxh: float                    # TỔNG bảo hiểm NV đóng (10.5%) — số đã đóng băng lúc tính lương
+    # Tách 3 khoản để phiếu lương hiện chi tiết; tổng 3 dòng == `bhxh`. Router điền (cần params).
+    insurance_lines: list[InsuranceLineOut] = []
     cong_doan: float = 0
     pit: float
     pit_manual: bool = False
@@ -298,8 +422,11 @@ class LineUpdateIn(BaseModel):
     other_bonus: float | None = Field(default=None, ge=0)
     pit: float | None = Field(default=None, ge=0)
     pit_manual: bool | None = None   # False = reset về tự tính; None = giữ nguyên
+    di_tre_manual: bool | None = None  # False = đưa phạt trễ VỀ TỰ ĐỘNG (tính lại từ chấm công); None = giữ
     monthly_override: float | None = Field(default=None, ge=0)
     note: str | None = Field(default=None, max_length=255)
+    # % đạt KPI của tháng (ô nhập tay) → tiền = % × mức trần KPI của bộ phận.
+    kpi_percent: float | None = Field(default=None, ge=0, le=200)
     # Khoản chi tiết (phiếu lương) — HCNS nhập tay. Thưởng ge=0; dieu_chinh_luong cho phép ÂM.
     thuong_5s: float | None = Field(default=None, ge=0)
     thuong_doanh_so: float | None = Field(default=None, ge=0)

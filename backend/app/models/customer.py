@@ -309,8 +309,8 @@ class CustomerNote(Base):
 
 
 class CustomerAttachment(Base):
-    """File đính kèm hồ sơ khách hàng. Bytes nằm dưới <backend>/static/crm và được serve
-    read-only tại /static; chỉ lưu path ở đây (mirror employee_attachments)."""
+    """File đính kèm hồ sơ khách hàng. Bytes nằm trong kho file `crm/` (app/storage.py), đọc
+    qua /api/files (cần quyền `khach_hang`); chỉ lưu path ở đây (mirror employee_attachments)."""
 
     __tablename__ = "customer_attachments"
 

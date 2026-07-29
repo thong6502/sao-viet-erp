@@ -24,6 +24,8 @@ export interface NavItem {
   children?: NavChild[];
 }
 
+export const SELF_SERVICE_MODULE = "self_service";
+
 interface NavSection {
   id: string;
   label: string;
@@ -60,12 +62,13 @@ const NAV: NavSection[] = [
     ],
   },
   {
+    // Bàn của bộ phận Kế hoạch sản xuất: nhận đơn Sale đã chuyển xuống → bung lệnh sản xuất.
     id: "san-xuat",
     label: "Sản xuất",
     items: [
-      // "Kế hoạch SX" = list/detail lệnh (bung → ghép → duyệt mẫu → phát). Module theo dõi thực thi
-      // xưởng (theo dõi SX · nhập liệu xưởng · QC/KCS) đã gỡ.
-      { id: "ke-hoach-sx", label: "Kế hoạch SX", icon: "calendar", module: "san_xuat" },
+      { id: "ke-hoach-sx", label: "Kế hoạch sản xuất", icon: "workflow", module: "san_xuat" },
+      { id: "bai-ghep", label: "Bài ghép", icon: "layers", module: "san_xuat" },
+      { id: "xep-lich-cong-doan", label: "Xếp lịch công đoạn", icon: "calendar", module: "san_xuat" },
     ],
   },
   {
@@ -147,9 +150,16 @@ const NAV: NavSection[] = [
       // sự vì nó là cái khung chứa.
       { id: "phong-ban", label: "Phòng ban", icon: "building", module: "phong_ban" },
       { id: "nhan-su", label: "Hồ sơ nhân sự", icon: "users", module: "nhan_su" },
-      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su" },
+      { id: "cham-cong", label: "Chấm công", icon: "activity", module: "nhan_su", modules: ["nhan_su", SELF_SERVICE_MODULE] },
       { id: "nghi-phep", label: "Nghỉ phép", icon: "calendar", module: "nghi_phep" },
-      { id: "luong", label: "Lương", icon: "calculator", module: "luong" },
+      { id: "tang-ca", label: "Tăng ca", icon: "clock", module: "tang_ca" },
+      {
+        id: "luong",
+        label: "Lương",
+        icon: "calculator",
+        module: "luong",
+        modules: ["luong", SELF_SERVICE_MODULE],
+      },
     ],
   },
   {

@@ -10,9 +10,10 @@ from .audit import AuditLog
 from .costing import Costing, CostingOperation, CostingPaperOption
 from .customer import Customer
 from .department import Department
-from .employee import Employee, EmployeeAttachment, EmployeeEvent
+from .employee import Employee, EmployeeAttachment, EmployeeEvent, EmployeeShiftAssignment
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
+from .overtime import OvertimeRequest
 from .work_calendar import SpecialDay, WorkCalendarConfig
 from .material import Material, MaterialCost
 from .machine import Machine, MachineRate
@@ -26,6 +27,7 @@ from .order import (
 )
 from .payroll import (
     EmployeeSalary,
+    LatePenaltyBracket,
     PayrollLine,
     PayrollParams,
     PayrollPeriod,
@@ -77,17 +79,13 @@ from .stock_voucher import StockVoucher, StockVoucherAttachment, StockVoucherLin
 from .khuon_be import KhuonBe
 from .loai_san_pham import LoaiSanPham
 from .phieu_tinh_gia import PhieuTinhGia, PhieuThanhPhan, PhieuThanhPham
+from .lsx import Lsx, LsxCongDoan
+from .bai_ghep import BaiGhep, BaiGhepThanhVien
+from .xep_lich import XepLichCongDoan
+from .xep_lich_van_de import XepLichVanDe
+from .machine_unavailable import MachineUnavailablePeriod
 from .document_sequence import DocumentSequence
 from .estimate import Estimate, EstimateOption, EstimateCostLine
-from .lenh_san_xuat import (
-    BanGiao,
-    GangPlacement,
-    LenhItem,
-    LenhSanXuat,
-    PrintForm,
-    RoutingStep,
-    SanLuong,
-)
 
 __all__ = [
     "User",
@@ -99,6 +97,7 @@ __all__ = [
     "RefreshToken",
     "UnitLevel",
     "Employee",
+    "EmployeeShiftAssignment",
     "EmployeeEvent",
     "EmployeeAttachment",
     "ProfileUpdateRequest",
@@ -109,6 +108,7 @@ __all__ = [
     "AttendancePeriodLine",
     "LeaveType",
     "LeaveRequest",
+    "OvertimeRequest",
     "WorkCalendarConfig",
     "SpecialDay",
     "Customer",
@@ -153,6 +153,7 @@ __all__ = [
     "PayrollPeriod",
     "PayrollLine",
     "PitTaxBracket",
+    "LatePenaltyBracket",
     "PieceRate",
     "PlateDieRate",
     "Norm",
@@ -163,13 +164,6 @@ __all__ = [
     "PhieuTinhGia",
     "PhieuThanhPhan",
     "PhieuThanhPham",
-    "LenhSanXuat",
-    "LenhItem",
-    "SanLuong",
-    "BanGiao",
-    "PrintForm",
-    "GangPlacement",
-    "RoutingStep",
     "KhoHang",
     "StockRequest",
     "StockRequestLine",
@@ -179,4 +173,11 @@ __all__ = [
     "StockLot",
     "StockThreshold",
     "KhuonBe",
+    "Lsx",
+    "LsxCongDoan",
+    "BaiGhep",
+    "BaiGhepThanhVien",
+    "XepLichCongDoan",
+    "XepLichVanDe",
+    "MachineUnavailablePeriod",
 ]

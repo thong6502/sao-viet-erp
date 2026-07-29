@@ -8,10 +8,12 @@ linked to the acting user (`user_id == actor.id`); `department` to the actor's d
 """
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from ..models.employee import Employee, EmployeeAttachment, EmployeeEvent
+from ..models.employee import Employee, EmployeeAttachment, EmployeeEvent, EmployeeShiftAssignment
 from ..models.profile_request import ProfileUpdateRequest
 from ..models.role import SCOPE_ALL, SCOPE_DEPARTMENT, SCOPE_OWN
 from .org_scope import dept_subtree_ids
@@ -177,6 +179,112 @@ class EmployeeRepository:
             .order_by(Employee.code)
         )
         return list(self.db.execute(stmt).scalars())
+
+    # --- default shift history --------------------------------------------
+
+    def list_shift_assignments(self, employee_id: int) -> list[EmployeeShiftAssignment]:
+        return list(
+            self.db.execute(
+                select(EmployeeShiftAssignment)
+                .where(EmployeeShiftAssignment.employee_id == employee_id)
+                .order_by(
+                    EmployeeShiftAssignment.effective_from.desc(),
+                    EmployeeShiftAssignment.id.desc(),
+                )
+            ).scalars()
+        )
+
+    def shift_assignment_on(self, employee_id: int, on: date) -> EmployeeShiftAssignment | None:
+        return self.db.execute(
+            select(EmployeeShiftAssignment)
+            .where(
+                EmployeeShiftAssignment.employee_id == employee_id,
+                EmployeeShiftAssignment.effective_from <= on,
+            )
+            .order_by(
+                EmployeeShiftAssignment.effective_from.desc(),
+                EmployeeShiftAssignment.id.desc(),
+            )
+            .limit(1)
+        ).scalars().first()
+
+    def shift_id_on(self, employee: Employee, on: date) -> int | None:
+        """Resolve the default shift on a date, preserving legacy employees.
+
+        Before an employee has any versioned assignment, ``default_shift_id`` is
+        the compatibility source. Once history exists, a date before its first
+        row intentionally means "no shift", not the cached current value.
+        """
+        row = self.shift_assignment_on(employee.id, on)
+        if row is not None:
+            return row.shift_id
+        has_history = self.db.execute(
+            select(EmployeeShiftAssignment.id)
+            .where(EmployeeShiftAssignment.employee_id == employee.id)
+            .limit(1)
+        ).first()
+        return None if has_history is not None else employee.default_shift_id
+
+    def shift_is_referenced(self, shift_id: int) -> bool:
+        history_ref = self.db.execute(
+            select(EmployeeShiftAssignment.id)
+            .where(EmployeeShiftAssignment.shift_id == shift_id)
+            .limit(1)
+        ).first()
+        if history_ref is not None:
+            return True
+        legacy_ref = self.db.execute(
+            select(Employee.id).where(Employee.default_shift_id == shift_id).limit(1)
+        ).first()
+        return legacy_ref is not None
+
+    def set_shift_assignment(
+        self,
+        *,
+        employee: Employee,
+        shift_id: int | None,
+        effective_from: date,
+        created_by: int | None,
+    ) -> EmployeeShiftAssignment:
+        history = self.list_shift_assignments(employee.id)
+
+        # Preserve the legacy value as the first historical period before adding
+        # a later change. This keeps old attendance months stable.
+        if not history and employee.default_shift_id is not None:
+            baseline = employee.hire_date or date(1900, 1, 1)
+            if baseline < effective_from:
+                self.db.add(EmployeeShiftAssignment(
+                    employee_id=employee.id,
+                    shift_id=employee.default_shift_id,
+                    effective_from=baseline,
+                    created_by=created_by,
+                ))
+
+        row = self.db.execute(
+            select(EmployeeShiftAssignment).where(
+                EmployeeShiftAssignment.employee_id == employee.id,
+                EmployeeShiftAssignment.effective_from == effective_from,
+            )
+        ).scalars().first()
+        if row is None:
+            row = EmployeeShiftAssignment(
+                employee_id=employee.id,
+                shift_id=shift_id,
+                effective_from=effective_from,
+                created_by=created_by,
+            )
+            self.db.add(row)
+        else:
+            row.shift_id = shift_id
+            row.created_by = created_by
+
+        # Compatibility cache used by older screens. Attendance calculations use
+        # the versioned history above and therefore remain correct for old dates.
+        employee.default_shift_id = shift_id
+        self.db.commit()
+        self.db.refresh(row)
+        self.db.refresh(employee)
+        return row
 
     # --- writes -------------------------------------------------------------
 

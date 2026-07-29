@@ -7,8 +7,7 @@ nâng bậc) go through `/transitions` so each writes a Quá trình công tác e
 """
 from __future__ import annotations
 
-import secrets
-from pathlib import Path
+from datetime import date, timedelta
 from typing import Annotated
 
 from fastapi import (
@@ -28,15 +27,16 @@ from ..deps import (
     get_authorization_service,
     get_department_repository,
     get_employee_service,
+    get_payroll_service,
     get_role_repository,
     get_user_repository,
+    require_any_permission,
     require_permission,
 )
 from ..models.user import User
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.rbac_repo import DepartmentRepository, RoleRepository
 from ..repositories.user_repo import UserRepository
-from ..schemas.rbac import DepartmentSalaryRowOut
 from ..schemas.employee import (
     AccountIn,
     AssignShiftIn,
@@ -61,6 +61,8 @@ from ..schemas.employee import (
     MyProfileOut,
     RequestDecisionIn,
     RoleOption,
+    ShiftAssignmentOut,
+    ShiftAssignmentsOut,
     TransitionIn,
     UpdateRequestIn,
     UpdateRequestOut,
@@ -76,15 +78,19 @@ from ..services.employee_service import (
     SENSITIVE_FIELDS,
 )
 from ..services.rbac_service import AuthorizationService
+from ..services.payroll_service import PayrollError, PayrollService
+from ..storage import get_storage, make_key, url_from_key
 
 router = APIRouter(prefix="/api/employees", tags=["employees"])
 
 MODULE = "nhan_su"
 
-# Uploaded HR files live under <backend>/static/hr and are served read-only at /static.
-_STATIC_DIR = Path(__file__).resolve().parents[2] / "static"
+# Hồ sơ HR (CCCD, hợp đồng…) đi qua kho file dùng chung; đọc lại qua /api/files, chỉ người
+# có quyền `nhan_su` mới xem được (app/routers/files.py).
+_HR_SUBDIR = "hr"
 
 Service = Annotated[EmployeeService, Depends(get_employee_service)]
+Payroll = Annotated[PayrollService, Depends(get_payroll_service)]
 Authz = Annotated[AuthorizationService, Depends(get_authorization_service)]
 Users = Annotated[UserRepository, Depends(get_user_repository)]
 Depts = Annotated[DepartmentRepository, Depends(get_department_repository)]
@@ -266,17 +272,6 @@ def get_meta(
     )
 
 
-@router.get("/meta/salary-rows/{dept_id}", response_model=list[DepartmentSalaryRowOut])
-def get_dept_salary_rows(
-    dept_id: int,
-    depts: Depts,
-    _: Annotated[User, Depends(require_permission(MODULE, "create"))],
-) -> list:
-    """Dòng bảng lương của tổ — cho form thêm NV chọn mức. Gác quyền NHÂN SỰ (không cần
-    quyền `phong_ban` như endpoint gốc ở router rbac)."""
-    return depts.list_salary_rows(dept_id)
-
-
 # --- create -----------------------------------------------------------------
 
 
@@ -284,6 +279,7 @@ def get_dept_salary_rows(
 def create_employee(
     body: EmployeeCreate,
     svc: Service,
+    payroll_svc: Payroll,
     authz: Authz,
     depts: Depts,
     users: Users,
@@ -291,15 +287,36 @@ def create_employee(
 ) -> EmployeeCreateOut:
     data = body.model_dump()
     account = data.pop("account", None)
+    initial_salary = data.pop("initial_salary", None)
     department_id = data.pop("department_id")
     status_in = data.pop("status")
     hire_date = data.pop("hire_date")
+    if initial_salary is not None:
+        if not authz.can(user, "luong", "update"):
+            raise HTTPException(
+                status_code=403,
+                detail="Ban khong co quyen khai muc luong ban dau cho nhan vien.",
+            )
+        effective_from = initial_salary.get("effective_from") or hire_date or date.today()
+        if hire_date is not None and effective_from < hire_date:
+            raise HTTPException(
+                status_code=400,
+                detail="Ngay hieu luc luong khong duoc truoc ngay vao lam.",
+            )
+        initial_salary["effective_from"] = effective_from
     try:
         employee, dup_nid, dup_si = svc.create_employee(
             actor=user, department_id=department_id, status=status_in,
             hire_date=hire_date, fields=data,
             can_edit_salary=authz.can(user, MODULE, "edit_salary"),
         )
+        if initial_salary is not None:
+            payroll_svc.set_salary(
+                employee_id=employee.id,
+                actor=user,
+                amount_mode="manual",
+                **initial_salary,
+            )
         account_username = None
         if account and account.get("username"):
             employee, _ = svc.create_account(
@@ -310,6 +327,8 @@ def create_employee(
             account_username = account["username"]
     except EmployeeError as exc:
         _raise(exc)
+    except PayrollError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     return EmployeeCreateOut(
         employee=_full(employee, depts, users),
         duplicate_national_id=_dup(dup_nid),
@@ -480,13 +499,47 @@ def assign_default_shift(
 ) -> dict:
     """Gán ca mặc định cho NV (an toàn, chỉ đụng default_shift_id) — panel Gán ca ở Chấm công."""
     try:
-        emp = svc.set_default_shift(
+        emp, assignment = svc.set_default_shift(
             employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
-            shift_id=body.default_shift_id,
+            shift_id=body.default_shift_id, effective_from=body.effective_from,
         )
     except EmployeeError as exc:
         _raise(exc)
-    return {"ok": True, "employee_id": emp.id, "default_shift_id": emp.default_shift_id}
+    return {
+        "ok": True,
+        "employee_id": emp.id,
+        "default_shift_id": emp.default_shift_id,
+        "assignment_id": assignment.id,
+        "effective_from": assignment.effective_from,
+    }
+
+
+@router.get("/{employee_id}/shift-history", response_model=ShiftAssignmentsOut)
+def list_shift_history(
+    employee_id: int,
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+) -> ShiftAssignmentsOut:
+    try:
+        rows = svc.list_shift_assignments(
+            employee_id=employee_id, scope=_scope_for(authz, user), actor=user
+        )
+    except EmployeeError as exc:
+        _raise(exc)
+
+    today = date.today()
+    items: list[ShiftAssignmentOut] = []
+    for index, row in enumerate(rows):
+        newer = rows[index - 1] if index > 0 else None
+        effective_to = newer.effective_from - timedelta(days=1) if newer is not None else None
+        out = ShiftAssignmentOut.model_validate(row)
+        out.effective_to = effective_to
+        out.is_current = row.effective_from <= today and (
+            effective_to is None or effective_to >= today
+        )
+        items.append(out)
+    return ShiftAssignmentsOut(employee_id=employee_id, items=items)
 
 
 # --- transitions (stage changes) -------------------------------------------
@@ -497,12 +550,16 @@ def apply_transition(
     employee_id: int,
     body: TransitionIn,
     svc: Service,
+    payroll_svc: Payroll,
     authz: Authz,
     depts: Depts,
     users: Users,
     user: Annotated[User, Depends(require_permission(MODULE, "update"))],
 ) -> EmployeeOut:
     try:
+        current = svc.get_employee(
+            employee_id=employee_id, scope=_scope_for(authz, user), actor=user
+        )
         employee = svc.apply_transition(
             employee_id=employee_id, scope=_scope_for(authz, user), actor=user,
             kind=body.kind, effective_date=body.effective_date, note=body.note,
@@ -511,6 +568,8 @@ def apply_transition(
         )
     except EmployeeError as exc:
         _raise(exc)
+    except PayrollError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
     return _full(employee, depts, users)
 
 
@@ -600,14 +659,9 @@ def upload_attachment(
     except EmployeeError as exc:
         _raise(exc)
 
-    safe_name = Path(file.filename or "file").name
-    token = secrets.token_hex(4)
-    dest_dir = _STATIC_DIR / "hr" / str(employee_id)
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / f"{token}_{safe_name}"
-    with dest.open("wb") as f:
-        f.write(file.file.read())
-    file_url = f"/static/hr/{employee_id}/{token}_{safe_name}"
+    key, safe_name = make_key(_HR_SUBDIR, employee_id, file.filename)
+    get_storage().save(key, file.file.read(), file.content_type)
+    file_url = url_from_key(key)
 
     try:
         att = svc.add_attachment(
