@@ -29,12 +29,20 @@ from ..models.attendance import (
     WorkLocation,
     WorkShift,
 )
+from ..models.employee import (
+    SHIFT_LOG_ACTION_INHERIT,
+    SHIFT_LOG_ACTION_OFF,
+    SHIFT_LOG_ACTION_SET,
+    SHIFT_LOG_KIND_DAY,
+    SHIFT_LOG_ORIGIN_GRID,
+)
 from ..models.leave import STATUS_PENDING as LEAVE_PENDING
 from ..models.payroll import PERIOD_LOCKED
 from ..models.role import SCOPE_ALL
 from ..repositories.attendance_repo import AttendanceRepository
 from ..repositories.audit_repo import AuditLogRepository
 from ..repositories.employee_repo import EmployeeRepository
+from ..shift_notify import push_shift_changes as _push_shift_changes
 
 # Giờ Việt Nam (UTC+7, không DST) — dùng để gom "ngày công" theo lịch địa phương.
 VN_TZ = timezone(timedelta(hours=7))
@@ -754,6 +762,81 @@ class AttendanceService:
             return self.attendance.list_all(employee_ids={employee_id}, limit=limit)
         return self.attendance.list_all(employee_ids=allowed, limit=limit)
 
+    # --- lịch sử thay đổi ca + hộp thư của NV -------------------------------
+
+    def shift_changes(self, *, scope=None, actor=None, year: int | None = None,
+                      month: int | None = None, employee_id: int | None = None,
+                      kind: str | None = None, limit: int = 500) -> list[dict]:
+        """Lịch sử đổi ca cho màn HCNS — LỌC THEO SCOPE (tổ trưởng chỉ thấy tổ mình).
+
+        Trả dict đã kèm TÊN người và TÊN ca: màn hình cần đọc được ngay "từ Ca ngày sang Ca
+        đêm", không phải tự đi tra 3 bảng."""
+        allowed = self._allowed_employee_ids(scope, actor)
+        if employee_id is not None:
+            if allowed is not None and employee_id not in allowed:
+                return []          # ngoài phạm vi → rỗng, KHÔNG rò dữ liệu tổ khác
+            allowed = [employee_id]
+        elif allowed is not None:
+            allowed = list(allowed)
+
+        start = end = None
+        if year and month:
+            start = date(year, month, 1)
+            end = date(year, month, calendar.monthrange(year, month)[1])
+        rows = self.employees.list_shift_changes(
+            employee_ids=allowed, kind=kind, start=start, end=end, limit=limit)
+        return self._decorate_shift_changes(rows)
+
+    def _decorate_shift_changes(self, rows) -> list[dict]:
+        """Gắn tên NV / tên ca / tên người sửa vào từng dòng — MỘT lượt tra cho cả mẻ."""
+        shift_names = {s.id: s.name for s in self.attendance.list_shifts()}
+        emp_ids = {r.employee_id for r in rows}
+        emps = {e: self.employees.get_by_id(e) for e in emp_ids}
+        actor_ids = {r.actor_user_id for r in rows if r.actor_user_id}
+        actors = {}
+        for uid in actor_ids:
+            emp = self.employees.get_by_user_id(uid)
+            actors[uid] = emp.full_name if emp is not None else None
+        out = []
+        for r in rows:
+            emp = emps.get(r.employee_id)
+            out.append({
+                "id": r.id, "employee_id": r.employee_id,
+                "employee_name": getattr(emp, "full_name", None),
+                "employee_code": getattr(emp, "code", None),
+                "kind": r.kind, "origin": r.origin, "action": r.action,
+                "apply_date": r.apply_date,
+                "shift_id_before": r.shift_id_before,
+                "shift_name_before": shift_names.get(r.shift_id_before),
+                "shift_id_after": r.shift_id_after,
+                "shift_name_after": shift_names.get(r.shift_id_after),
+                "is_off_before": bool(r.is_off_before), "is_off_after": bool(r.is_off_after),
+                "inherited_before": bool(r.inherited_before),
+                "actor_user_id": r.actor_user_id,
+                "actor_name": actors.get(r.actor_user_id),
+                "created_at": r.created_at,
+                # NULL = NV không có tài khoản ⇒ màn hiện chip "chưa báo được".
+                "notified": r.notified_user_id is not None,
+                "seen": r.seen_at is not None,
+            })
+        return out
+
+    def my_shift_changes(self, *, user, unseen_only: bool = False, limit: int = 50) -> list[dict]:
+        """Hộp thư của chính người đăng nhập. Đọc theo `notified_user_id` — người không có tài
+        khoản thì vốn không có hộp thư nên không cần map qua employee.
+
+        `unseen_only` cho khối báo ở màn "Công của tôi": nó là tin MỚI, đọc xong phải thôi hiện.
+        Lấy cả đã đọc thì khối đó bám đầu màn vĩnh viễn."""
+        rows = self.employees.list_my_shift_changes(
+            user.id, unseen_only=unseen_only, limit=limit)
+        return self._decorate_shift_changes(rows)
+
+    def unseen_shift_changes(self, *, user) -> int:
+        return self.employees.count_unseen_shift_changes(user.id)
+
+    def mark_shift_changes_seen(self, *, user) -> int:
+        return self.employees.mark_shift_changes_seen(user.id)
+
     # --- bảng công tháng ----------------------------------------------------
 
     def monthly_timesheet(self, *, year: int, month: int, department_id: int | None = None,
@@ -1421,10 +1504,35 @@ class AttendanceService:
 
         saved = cleared = 0
         rejected: list[dict] = []
+        # Dòng lịch sử vừa ghi — dùng để đẩy thông báo SAU commit và đếm "chưa báo được".
+        logs: list = []
 
         def _reject(c, reason):
             rejected.append({"employee_id": c.get("employee_id"),
                              "date": str(c.get("work_date")), "reason": reason})
+
+        def _log(emp, wd, action, *, shift_after=None, is_off_after=False):
+            """Chụp trạng thái TRƯỚC rồi ghi một dòng lịch sử.
+
+            Phải gọi TRƯỚC khi upsert/delete — sau đó thì giá trị cũ đã bị ghi đè mất."""
+            day = self.employees.shift_day_on(emp.id, wd)
+            inherited = day is None
+            log = self.employees.log_shift_change(
+                employee_id=emp.id, kind=SHIFT_LOG_KIND_DAY,
+                origin=SHIFT_LOG_ORIGIN_GRID, action=action, apply_date=wd,
+                # Chưa khai tay ngày này ⇒ ca đang hiệu lực là CA NỀN; resolve qua seam
+                # `shift_id_on` thay vì tự dò lại (một nguồn sự thật duy nhất).
+                shift_id_before=(self.employees.shift_id_on(emp, wd) if inherited
+                                 else day.shift_id),
+                shift_id_after=shift_after,
+                is_off_before=(False if inherited else bool(day.is_off)),
+                is_off_after=is_off_after,
+                inherited_before=inherited,
+                actor_user_id=actor_id,
+                notified_user_id=getattr(emp, "user_id", None),
+            )
+            if log is not None:
+                logs.append(log)
 
         for c in cells:
             emp_id, wd, action = c["employee_id"], c["work_date"], c["action"]
@@ -1444,10 +1552,14 @@ class AttendanceService:
                 _reject(c, "Ngày này nhân viên chưa vào làm hoặc đã nghỉ việc.")
                 continue
             if action == "inherit":
+                # Ô về kế thừa ca nền: ca SAU chính là ca nền đang hiệu lực ngày đó.
+                _log(emp, wd, SHIFT_LOG_ACTION_INHERIT,
+                     shift_after=self.employees.base_shift_id_on(emp, wd))
                 if self.employees.delete_shift_day(emp_id, wd):
                     cleared += 1
                 continue
             if action == "off":
+                _log(emp, wd, SHIFT_LOG_ACTION_OFF, shift_after=None, is_off_after=True)
                 self.employees.upsert_shift_day(employee_id=emp_id, work_date=wd, shift_id=None,
                                                 is_off=True, created_by=actor_id)
                 saved += 1
@@ -1459,6 +1571,7 @@ class AttendanceService:
             if not shift.is_active:
                 _reject(c, f"Ca '{shift.name}' đã ngừng sử dụng.")
                 continue
+            _log(emp, wd, SHIFT_LOG_ACTION_SET, shift_after=shift.id)
             self.employees.upsert_shift_day(employee_id=emp_id, work_date=wd, shift_id=shift.id,
                                             is_off=False, created_by=actor_id)
             saved += 1
@@ -1472,7 +1585,9 @@ class AttendanceService:
             target=f"attendance_shift_plan:{year}-{month:02d}",
             detail=f"{saved} ô khai, {cleared} ô về mặc định, {len(rejected)} ô bị từ chối",
         )
-        return {"saved": saved, "cleared": cleared, "rejected": rejected}
+        notified, not_notified = _push_shift_changes(logs)
+        return {"saved": saved, "cleared": cleared, "rejected": rejected,
+                "changed": len(logs), "notified": notified, "not_notified": not_notified}
 
     # --- "ô biết nói": chi tiết 1 ngày + điều chỉnh punch nguồn -------------
 

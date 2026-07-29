@@ -201,6 +201,9 @@ export type QuoteEvent =
   // Phiếu đi muộn / về sớm / nghỉ nửa buổi: cùng luồng với tăng ca (tổ trưởng duyệt), bảng riêng.
   | { type: "el_pending_changed"; code?: string }
   | { type: "el_decision"; code?: string; decision: "approved" | "rejected" }
+  // Quản lý đổi ca của một người → đẩy RIÊNG cho chính người đó (5 đường: lưới phân ca, panel
+  // Gán ca, gán hàng loạt, sửa hồ sơ, gỡ mốc). `count` = số thay đổi trong lần lưu đó.
+  | { type: "shift_changed"; count?: number }
   // Sản xuất (Lát 1) dùng CHUNG kênh hub — tín hiệu NHẸ để hộp việc tổ refetch + "ting". Số chính
   // xác lấy qua to-badges/inbox (đã lọc scope server-side). `lenh_sx_routing` = có lệnh mới PHÁT
   // vào các tổ `to_ids`; `lenh_sx_assigned` = 1 thợ được gán (đích danh tới user).
@@ -949,6 +952,10 @@ export interface ModuleCapability {
   can_toggle_active: boolean;
   can_reparent: boolean;
   can_view_salary: boolean;
+  /** nhan_su — SỬA được nhóm field lương/BHXH của hồ sơ (STK · số sổ BHXH · MST · nhóm lương ·
+   *  `pit_mode`). Thiếu quyền: backend LẶNG LẼ bỏ các field đó khỏi bản ghi, KHÔNG 403 ⇒ UI
+   *  phải đọc lại kết quả rồi mới dám báo "đã đổi". */
+  can_edit_salary: boolean;
   can_adjust: boolean;
   /** A2: don_hang_ban — GĐ duyệt "đơn đặc thù" (chỉ Giám đốc). */
   can_approve_exception: boolean;
@@ -1885,6 +1892,41 @@ export interface QuotationListParams {
 
 export type EmployeeStatus = "probation" | "active" | "on_leave" | "suspended" | "resigned";
 
+/** Cách tính thuế TNCN của MỘT người (chốt chủ 27/07/2026 — `employees.pit_mode`).
+ *  Ba trạng thái nên dùng chuỗi, không nhồi 2 cờ Boolean (nhồi là mở chỗ để lệch). */
+export type PitMode = "luy_tien" | "khau_tru_10" | "cam_ket_08";
+/** Nhãn + giải thích ngắn cho dropdown "Cách tính thuế TNCN". `warn` = câu cảnh báo hiện
+ *  trong ConfirmDialog TRƯỚC khi lưu (đổi nhánh là đổi TIỀN THUẾ của người đó). */
+export const PIT_MODE_META: Record<PitMode, { label: string; hint: string }> = {
+  luy_tien: {
+    label: "Luỹ tiến từng phần",
+    hint: "HĐ từ 3 tháng trở lên: tính theo bảng thuế luỹ tiến + giảm trừ gia cảnh.",
+  },
+  khau_tru_10: {
+    label: "Khấu trừ 10% tại nguồn",
+    hint: "HĐ dưới 3 tháng / thời vụ / thực tập: KHÔNG áp giảm trừ gia cảnh.",
+  },
+  cam_ket_08: {
+    label: "Có cam kết 08/CK-TNCN",
+    hint: "Cả năm chưa tới ngưỡng chịu thuế ⇒ không khấu trừ thuế TNCN.",
+  },
+};
+export const PIT_MODE_ORDER: PitMode[] = ["luy_tien", "khau_tru_10", "cam_ket_08"];
+
+/** Nhóm lương (`employees.payroll_group`) — trục tra bảng thang bậc (`salary_rate_rules`).
+ *  KHÔNG quyết định mức lương của người: mức lương khai ở Lương → Lương nhân viên, và khoản
+ *  thu nhập gán theo TỪNG NGƯỜI (không có mức mặc định theo nhóm — chốt chủ 27/07/2026). */
+export const PAYROLL_GROUPS: { key: string; label: string }[] = [
+  { key: "van_phong", label: "Khối văn phòng" },
+  { key: "to_in", label: "Tổ In (theo bậc thợ)" },
+  { key: "san_xuat", label: "Tổ sản xuất (dán · bồi · bế · thành phẩm…)" },
+];
+/** Nhóm lạ (dữ liệu cũ / nhóm tự khai) vẫn phải đọc được — không nuốt thành "—". */
+export function payrollGroupLabel(key: string | null | undefined): string {
+  if (!key) return "— chưa gán —";
+  return PAYROLL_GROUPS.find((g) => g.key === key)?.label ?? key;
+}
+
 export interface EmployeeRow {
   id: number;
   code: string;
@@ -1892,7 +1934,12 @@ export interface EmployeeRow {
   department_id: number | null;
   department_name: string | null;
   position: string | null;
+  /** Bậc tay nghề kiểu CŨ (chữ tự gõ). Chỉ còn là đường ĐỌC dữ liệu cũ — hồ sơ mới khai qua
+   *  `job_grade_id`; đổi bậc thì đi qua transition chứ không ghi thẳng field này nữa. */
   job_grade: string | null;
+  /** Bậc tay nghề theo DANH MỤC (`job_grades`) — nguồn sự thật hiện tại. */
+  job_grade_id: number | null;
+  job_grade_name: string | null;
   status: string;
   hire_date: string | null;
   probation_end_date: string | null;
@@ -1929,6 +1976,9 @@ export interface EmployeeDetail extends EmployeeRow {
   social_insurance_no: string | null;
   pit_tax_code: string | null;
   dependents_count: number;
+  /** Cách tính thuế TNCN. `null` = người xem KHÔNG có `nhan_su:view_salary` (backend che
+   *  cùng nhóm field lương/BHXH) — KHÔNG phải "chưa khai", đừng gửi lại null (422). */
+  pit_mode: PitMode | null;
   bank_account: string | null;
   bank_name: string | null;
   default_shift_id: number | null;
@@ -2006,8 +2056,20 @@ export interface EmployeeActivityRow {
   created_at: string;
 }
 
+/** Một bậc tay nghề trong danh mục (`job_grades`). Bậc chỉ để KHAI — không mang tiền, không
+ *  hệ số; `seq` nhỏ = bậc cao (Bậc 1 cao nhất). */
+export interface JobGrade {
+  id: number;
+  code: string;
+  name: string;
+  seq: number;
+  is_active: boolean;
+  note: string | null;
+}
+
 export interface EmployeeMeta {
-  departments: { id: number; name: string }[];
+  /** `la_san_xuat` là cờ HIỆU LỰC — backend đã leo cây cha-con, FE không phải tự suy. */
+  departments: { id: number; name: string; la_san_xuat: boolean }[];
   unlinked_users: { id: number; username: string; name: string }[];
   /** Vai trò để gán cho tài khoản. Role thuộc ĐÚNG 1 phòng ban → lọc theo phòng của hồ sơ. */
   roles: { id: number; name: string; department_id: number }[];
@@ -2035,6 +2097,9 @@ export interface EmployeeInitialSalaryInput {
   insurance_elsewhere?: boolean;
   /** Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn. */
   union_member?: boolean;
+  /** % hoa hồng của NV kinh doanh — PHÂN SỐ (0.05 = 5%), backend chặn `le=1`. CHỈ ĐỂ KHAI:
+   *  engine lương KHÔNG tự cộng số này vào bảng lương. */
+  commission_pct?: number;
   note?: string | null;
 }
 
@@ -2042,7 +2107,9 @@ export interface EmployeeInput {
   full_name: string;
   department_id: number | null;
   position?: string | null;
-  job_grade?: string | null;
+  /** Bậc tay nghề — CHỈ gửi được lúc TẠO hồ sơ. `PUT /api/employees/{id}` cố tình bỏ qua field
+   *  này; đổi bậc sau đó phải đi qua `transition` để còn sinh mốc quá trình công tác. */
+  job_grade_id?: number | null;
   status?: string;
   hire_date?: string | null;
   probation_end_date?: string | null;
@@ -2060,6 +2127,9 @@ export interface EmployeeInput {
   social_insurance_no?: string | null;
   pit_tax_code?: string | null;
   dependents_count?: number;
+  /** Cách tính thuế TNCN — chỉ ghi được khi actor có `nhan_su:edit_salary`; thiếu quyền thì
+   *  backend BỎ QUA field này (không 403). Gửi null = 422 (schema có pattern). */
+  pit_mode?: PitMode;
   bank_account?: string | null;
   bank_name?: string | null;
   default_shift_id?: number | null;
@@ -2078,6 +2148,9 @@ export interface EmployeeTransitionInput {
   note?: string | null;
   new_department_id?: number | null;
   new_job_grade?: string | null;
+  /** Bậc tay nghề mới theo danh mục. ⚠ Với `kind: "transfer"` backend XOÁ bậc khi field này
+   *  vắng mặt (bậc tổ cũ không mang sang tổ mới) — muốn giữ thì phải gửi id. */
+  new_job_grade_id?: number | null;
   new_position?: string | null;
   resign_reason?: string | null;
 }
@@ -2341,6 +2414,45 @@ export interface ShiftPlanSaveOut {
   saved: number;
   cleared: number;
   rejected: ShiftPlanReject[];
+  /** Số ô THỰC SỰ đổi (lưu lại y nguyên không tính) — nuôi banner sau khi Lưu. */
+  changed: number;
+  notified: number;
+  /** NV chưa có tài khoản đăng nhập ⇒ không có chỗ nhận thông báo. Nói thẳng, đừng nuốt. */
+  not_notified: number;
+}
+
+// --- Lịch sử thay đổi ca (chủ 28/07/2026) ---
+/** `day` = tô đè MỘT ngày trên lưới · `base` = ca nền, áp từ ngày hiệu lực TRỞ VỀ SAU. */
+export type ShiftChangeKind = "day" | "base";
+/** Thao tác đến từ màn nào — dùng để hiện chip "Gỡ mốc" tách khỏi "Ca nền". */
+export type ShiftChangeOrigin = "grid" | "base_panel" | "base_bulk" | "profile" | "base_remove";
+export interface ShiftChange {
+  id: number;
+  employee_id: number;
+  employee_name: string | null;
+  employee_code: string | null;
+  kind: ShiftChangeKind;
+  origin: ShiftChangeOrigin;
+  action: "set" | "off" | "inherit" | "remove";
+  /** `day` → ngày công bị đổi. `base` → ngày BẮT ĐẦU HIỆU LỰC. Đừng đọc lẫn hai nghĩa này. */
+  apply_date: string;
+  shift_id_before: number | null;
+  shift_name_before: string | null;
+  shift_id_after: number | null;
+  shift_name_after: string | null;
+  is_off_before: boolean;
+  is_off_after: boolean;
+  /** `day`: trước đó ô đang KẾ THỪA ca nền (chưa ai khai tay ngày này). */
+  inherited_before: boolean;
+  actor_user_id: number | null;
+  actor_name: string | null;
+  created_at: string;
+  /** false = NV không có tài khoản ⇒ chưa báo được cho ai. */
+  notified: boolean;
+  seen: boolean;
+}
+export interface AttendanceNotify {
+  unseen_shift_changes: number;
 }
 
 // --- Nghỉ phép (leave) ---
@@ -2525,6 +2637,13 @@ export interface PayrollParams {
   tnld_bnn_rate: number;
   deduction_self: number;
   deduction_dependent: number;
+  /** Nhánh `khau_tru_10`: thuế = tỷ lệ này × thu nhập chịu thuế (mẫu 0.10 = 10%), chỉ khấu
+   *  trừ khi thu nhập ≥ `pit_flat_threshold`. Hai số đổi theo luật ⇒ ĐỪNG viết cứng vào UI. */
+  pit_flat_rate: number;
+  pit_flat_threshold: number;
+  /** Trần khấu trừ kỷ luật (Điều 102 BLLĐ) — mức LUẬT, mặc định 0.30.
+   *  `0` = TẮT trần: ghi phạt bao nhiêu trừ bấy nhiêu (thực nhận vẫn có sàn 0). */
+  phat_cap_pct: number;
   chuyen_can_default: number;
   standard_hours_per_day: number;
   ot_multiplier: number;
@@ -2589,6 +2708,11 @@ export interface EmployeeSalary {
   insurance_elsewhere?: boolean;
   /** Đoàn viên công đoàn → mới bị trừ đoàn phí (prefill checkbox Sửa lương). */
   union_member?: boolean;
+  /** Có áp giảm trừ bản thân khi tính TNCN không. Mặc định BẬT; tắt khi người này đã đăng ký
+   *  giảm trừ bản thân ở nơi làm việc khác (luật cho đăng ký ở ĐÚNG MỘT nơi). */
+  apply_self_deduction?: boolean;
+  /** % hoa hồng NV kinh doanh — PHÂN SỐ (0.05 = 5%). Chỉ để khai, engine không tự cộng. */
+  commission_pct?: number;
   note: string | null;
   created_at: string;
   created_by?: number | null;
@@ -2614,6 +2738,11 @@ export interface EmployeeSalaryInput {
   insurance_elsewhere?: boolean;
   /** Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn. */
   union_member?: boolean;
+  /** Áp giảm trừ bản thân khi tính TNCN (mặc định true). Bỏ tích khi người này đã đăng ký
+   *  giảm trừ bản thân ở nơi làm việc khác. */
+  apply_self_deduction?: boolean;
+  /** % hoa hồng NV kinh doanh — PHÂN SỐ (0.05 = 5%), backend chặn `le=1`. */
+  commission_pct?: number;
   note?: string | null;
 }
 export interface EmployeeSalaries {
@@ -2730,6 +2859,13 @@ export interface PayrollLine {
   kpi_percent: number;
   kpi_bonus: number;
   vi_pham: number;
+  /**
+   * Khoản DANH MỤC của dòng lương (snapshot Tầng 3) — phiếu lương in TỪNG DÒNG từ đây.
+   * ⚠️ `source: "employee"` ĐÃ nằm trong `allowance`; tách thành dòng riêng thì phải trừ khỏi
+   * "Phụ cấp khác". `source: "line"` nằm NGOÀI `allowance`, cộng thẳng.
+   */
+  components?: LineComponent[];
+  /** 6 cột dưới đây NGỪNG GHI từ 28/07/2026 (thưởng khai qua `components`). Kỳ cũ vẫn có số. */
   other_bonus: number;
   thuong_5s: number;
   thuong_doanh_so: number;
@@ -2752,7 +2888,12 @@ export interface PayrollLine {
   cong_doan: number;
   pit: number;
   pit_manual: boolean;
+  /** Thu nhập TÍNH thuế của kỳ (đã trừ bảo hiểm + giảm trừ gia cảnh) — số thuế bấm trên số này.
+   *  KHÔNG phải "tổng thu nhập chịu thuế"; backend không snapshot số đó (PRD §3.3). */
   pit_taxable: number;
+  /** Tổng phần thu nhập ĐƯỢC MIỄN thuế của kỳ = tăng ca + ca đêm + Σ khoản danh mục
+   *  `is_taxable = false`. Snapshot lúc tính lương — đổi cờ hôm nay không làm lệch kỳ cũ. */
+  thu_nhap_mien_thue: number;
   advance_total: number;
   /** Tổng "thanh toán lương đợt 1" đã duyệt của kỳ — dòng RIÊNG, KHÔNG gộp vào advance_total. */
   luong_dot_1_total: number;
@@ -2760,8 +2901,10 @@ export interface PayrollLine {
   note: string | null;
 }
 export interface PayrollLineInput {
+  // ⚠️ CỐ Ý KHÔNG CÓ 6 ô thưởng cũ (`thuong_5s`, `other_bonus`…): từ 28/07/2026 thưởng khai qua
+  // danh mục (`addLineComponent`) để cờ "Chịu thuế" là quy tắc chung. Backend cũng đã bỏ chúng
+  // khỏi `LineUpdateIn` — thêm lại ở đây chỉ tạo field gửi đi rồi bị bỏ qua trong im lặng.
   vi_pham?: number | null;
-  other_bonus?: number | null;
   pit?: number | null;
   pit_manual?: boolean | null;
   /** False = đưa phạt trễ VỀ TỰ ĐỘNG (tính lại từ chấm công); None = giữ nguyên. */
@@ -2770,11 +2913,6 @@ export interface PayrollLineInput {
   note?: string | null;
   /** % đạt KPI → tiền = % × mức trần KPI của bộ phận (Cấu hình lương, Tab 2). */
   kpi_percent?: number | null;
-  thuong_5s?: number | null;
-  thuong_doanh_so?: number | null;
-  thuong_thanh_tich?: number | null;
-  phep_nam?: number | null;
-  tra_dong_phuc?: number | null;
   dieu_chinh_luong?: number | null;   // cho phép ±
   di_tre?: number | null;
   dt_vuot_troi?: number | null;
@@ -2836,6 +2974,125 @@ export interface DeptComponents {
   items: DeptComponent[];
 }
 
+// --- Danh mục khoản thu nhập & thu nhập chịu thuế TNCN (chốt chủ 2026-07-27) ---
+// Trước đây mọi phụ cấp gộp vào MỘT ô `allowance` nên engine không biết khoản nào miễn thuế →
+// thu thừa TNCN. Giờ mỗi khoản một dòng danh mục, có cờ `is_taxable` bật/tắt tại chỗ.
+export type ComponentKind = "thu" | "tru";
+export interface PayrollComponent {
+  id: number;
+  code: string;
+  name: string;
+  /** `thu` = cộng vào tổng lương · `tru` = khấu trừ. */
+  kind: ComponentKind;
+  /** Ô tích "Chịu thuế" — false = KHÔNG tính vào thu nhập chịu thuế TNCN. */
+  is_taxable: boolean;
+  in_insurance_base: boolean;
+  sort_order: number;
+  is_active: boolean;
+  note: string | null;
+  /** Số NHÂN VIÊN đang được gán khoản này (hồ sơ — Tầng 2). */
+  employee_count: number;
+  /** Số KỲ LƯƠNG đã có khoản này (Tầng 3). Đếm KỲ chứ không đếm dòng: 100 dòng cùng một
+   *  tháng vẫn là MỘT kỳ. Một trong hai số > 0 ⇒ xoá cứng bị chặn, chỉ ngừng áp dụng được. */
+  period_count: number;
+}
+export interface PayrollComponentInput {
+  name: string;
+  kind?: ComponentKind;
+  is_taxable?: boolean;
+  in_insurance_base?: boolean;
+  sort_order?: number;
+  note?: string | null;
+}
+/** Sửa TỪNG PHẦN — field nào bỏ qua thì backend giữ nguyên. */
+export interface PayrollComponentPatch {
+  name?: string;
+  kind?: ComponentKind;
+  is_taxable?: boolean;
+  in_insurance_base?: boolean;
+  sort_order?: number;
+  is_active?: boolean;
+  note?: string | null;
+}
+/** Kết quả DELETE — nói rõ việc VỪA XẢY RA. `deactivated` = chỉ ngừng áp dụng, KHÔNG xoá:
+ *  báo "đã xoá" trong trường hợp này là nói sai việc vừa làm. */
+export interface PayrollComponentDeleteResult {
+  deleted: boolean;
+  deactivated: boolean;
+  employee_count: number;
+  period_count: number;
+  /** Câu backend đã viết sẵn — màn hình hiện NGUYÊN VĂN, không tự chế lại. */
+  message: string;
+}
+/** NV còn được gán một khoản ĐÃ NGỪNG ÁP DỤNG — lương vẫn trả đủ, danh sách này chỉ để HCNS
+ *  chủ động gỡ. Backend trả rỗng khi khoản còn đang bật. */
+export interface ComponentHolders {
+  component_id: number;
+  component_name: string;
+  items: { employee_id: number; code: string; full_name: string }[];
+}
+/** Gán MỘT khoản cho NHIỀU người trong một thao tác (chủ 28/07/2026). */
+export interface BulkAssignInput {
+  amount: number;
+  note?: string | null;
+  /** Chọn cụ thể. Bỏ trống + `all_active: true` = tất cả NV ĐANG LÀM VIỆC trong phạm vi. */
+  employee_ids?: number[];
+  all_active?: boolean;
+  /** ⚠️ Bật = ĐÈ mức riêng đã khai cho từng người, KHÔNG hoàn tác được. Mặc định tắt. */
+  overwrite?: boolean;
+}
+export interface BulkAssignResult {
+  assigned: number;            // thêm mới
+  overwritten: number;         // đã ĐÈ mức riêng — hiện riêng, đừng gộp vào `assigned`
+  skipped_existing: number;    // đã có mức riêng, không đè
+  skipped_out_of_scope: number;
+  total: number;
+}
+
+/** Khoản ĐANG GÁN cho một NV (Tầng 2). Chỉ trả khoản CÓ TIỀN — không phải cả danh mục. */
+export interface ComponentValue {
+  component_id: number;
+  code: string;
+  name: string;
+  kind: ComponentKind;
+  /** Kế thừa từ danh mục gốc (Tầng 1) — CHỈ ĐỌC, không sửa được ở tầng này. */
+  is_taxable: boolean;
+  amount: number;
+  note: string | null;
+  /** false = danh mục đã NGỪNG ÁP DỤNG nhưng người này còn giữ ⇒ bật cảnh báo đỏ.
+   *  Tiền VẪN được trả (chốt của chủ) — không tự cắt lương ai. */
+  is_active: boolean;
+}
+export interface ComponentValueInput {
+  component_id: number;
+  /** null = GỠ khoản khỏi người này (kỳ sau không trả nữa). */
+  amount: number | null;
+  note?: string | null;
+}
+
+/** Tầng 3 — khoản trên MỘT dòng bảng lương. `source`: `employee` = chép từ hồ sơ (sửa ở
+ *  Lương → Lương nhân viên) · `line` = thêm tay, CHỈ có ở kỳ này, không lặp sang tháng sau. */
+export interface LineComponent {
+  id: number;
+  component_id: number;
+  code: string;
+  name: string;
+  kind: ComponentKind;
+  is_taxable: boolean;
+  amount: number;
+  note: string | null;
+  source: "employee" | "line";
+}
+export interface LineComponentInput {
+  component_id: number;
+  amount: number;
+  note?: string | null;
+}
+export interface LineComponentPatch {
+  amount?: number;
+  note?: string | null;
+}
+
 export interface PayrollTable {
   period: PayrollPeriod | null;
   lines: PayrollLine[];
@@ -2859,6 +3116,29 @@ export interface PieceRate {
   note: string | null;
   is_active: boolean;
 }
+/** Một bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi của tổ (chủ 29/07/2026).
+ *
+ *  Tra: bậc ĐẦU TIÊN có `tỷ lệ lỗi ≤ up_to_defect_pct` thắng; `null` = bậc "trở lên" (∞), đúng
+ *  MỘT bậc và phải nằm cuối. `rate_pct` DƯƠNG = thưởng · ÂM = phạt, tính trên TỔNG TIỀN KHOÁN
+ *  của tổ. ⚠️ Engine CHƯA áp — tổng khoán hiện luôn = 0 vì chưa có nguồn sản lượng. */
+export interface LeaderBracket {
+  id: number;
+  department_id: number;
+  seq: number;
+  up_to_defect_pct: number | null;
+  rate_pct: number;
+  note: string | null;
+}
+export interface LeaderBracketInput {
+  up_to_defect_pct: number | null;
+  rate_pct: number;
+  note?: string | null;
+}
+export interface LeaderBracketsOut {
+  department_id: number;
+  items: LeaderBracket[];
+}
+
 export interface PieceRateInput {
   group_name: string;
   department_id?: number | null;
@@ -4455,6 +4735,20 @@ export const api = {
     meta(token: string): Promise<EmployeeMeta> {
       return authed<EmployeeMeta>("/api/employees/meta", token);
     },
+    /** Danh mục bậc tay nghề. Mặc định chỉ lấy bậc ĐANG BẬT — form khai chỉ được chọn bậc
+     *  còn dùng; muốn xem cả bậc đã tắt thì `active_only: false`. */
+    jobGrades(token: string, params: { active_only?: boolean } = {}): Promise<{ items: JobGrade[] }> {
+      const qs = params.active_only === false ? "?active_only=false" : "?active_only=true";
+      return authed<{ items: JobGrade[] }>(`/api/employees/bac-tay-nghe${qs}`, token);
+    },
+    /** Thêm bậc ngay trong form khai (khỏi bắt sang màn khác rồi quay lại mất dữ liệu đang gõ).
+     *  Trùng tên → 400 kèm câu tiếng Việt của backend, hiện thẳng dưới ô nhập. */
+    createJobGrade(token: string, input: { name: string }): Promise<JobGrade> {
+      return authed<JobGrade>("/api/employees/bac-tay-nghe", token, {
+        method: "POST",
+        body: JSON.stringify(input),
+      });
+    },
     get(token: string, id: number): Promise<EmployeeDetail> {
       return authed<EmployeeDetail>(`/api/employees/${id}`, token);
     },
@@ -4714,6 +5008,31 @@ export const api = {
     saveShiftPlan(token: string, year: number, month: number, items: ShiftPlanPatchItem[]): Promise<ShiftPlanSaveOut> {
       return authed<ShiftPlanSaveOut>("/api/attendance/shift-plan", token,
         { method: "PUT", body: JSON.stringify({ year, month, cells: items }) });
+    },
+    // --- Lịch sử thay đổi ca + hộp thư của NV (chủ 28/07/2026) ---
+    /** Lịch sử đổi ca cho HCNS — CẢ ô lưới (`kind=day`) lẫn ca nền (`kind=base`).
+     *  Bỏ `kind` = xem cả hai. Lọc theo scope người gọi ở backend. */
+    shiftChanges(token: string, opts: { year?: number; month?: number; employeeId?: number; kind?: ShiftChangeKind } = {}): Promise<{ items: ShiftChange[] }> {
+      const qs = new URLSearchParams();
+      if (opts.year) qs.set("year", String(opts.year));
+      if (opts.month) qs.set("month", String(opts.month));
+      if (opts.employeeId != null) qs.set("employee_id", String(opts.employeeId));
+      if (opts.kind) qs.set("kind", opts.kind);
+      return authed<{ items: ShiftChange[] }>(`/api/attendance/shift-changes?${qs.toString()}`, token);
+    },
+    /** Hộp thư "ca của tôi vừa bị đổi" — mọi NV có tài khoản đều gọi được.
+     *  `unseen: true` = chỉ tin CHƯA ĐỌC (khối báo ở màn Công của tôi; lấy cả tin đã đọc thì
+     *  khối đó bám đầu màn vĩnh viễn). */
+    myShiftChanges(token: string, opts: { unseen?: boolean } = {}): Promise<{ items: ShiftChange[] }> {
+      const qs = opts.unseen ? "?unseen=true" : "";
+      return authed<{ items: ShiftChange[] }>(`/api/attendance/my-shift-changes${qs}`, token);
+    },
+    markShiftChangesSeen(token: string): Promise<AttendanceNotify> {
+      return authed<AttendanceNotify>("/api/attendance/my-shift-changes/seen", token, { method: "POST" });
+    },
+    /** Số nuôi badge — SSE đẩy `shift_changed` thì gọi lại hàm này. */
+    notifySummary(token: string): Promise<AttendanceNotify> {
+      return authed<AttendanceNotify>("/api/attendance/notify-summary", token);
     },
     // --- Chốt công tháng (kỳ công) ---
     period(token: string, year: number, month: number): Promise<AttendancePeriod> {
@@ -4976,6 +5295,22 @@ export const api = {
     updateLine(token: string, id: number, input: PayrollLineInput): Promise<PayrollLine> {
       return authed<PayrollLine>(`/api/luong/lines/${id}`, token, { method: "PUT", body: JSON.stringify(input) });
     },
+    // --- Tầng 3: khoản PHÁT SINH trên một dòng lương (thưởng nóng) ---
+    // Khoản gán ở HỒ SƠ được trả LẶP LẠI mọi tháng; khoản ở đây CHỈ có ở kỳ này. Mỗi thao tác
+    // backend tính lại NGAY dòng lương đó ⇒ số tổng của dòng đổi sau mỗi lệnh.
+    lineComponents(token: string, lineId: number): Promise<{ items: LineComponent[] }> {
+      return authed<{ items: LineComponent[] }>(`/api/luong/lines/${lineId}/components`, token);
+    },
+    addLineComponent(token: string, lineId: number, input: LineComponentInput): Promise<LineComponent> {
+      return authed<LineComponent>(`/api/luong/lines/${lineId}/components`, token, { method: "POST", body: JSON.stringify(input) });
+    },
+    /** Chỉ sửa được dòng `source: "line"` — dòng chép từ hồ sơ backend chặn (nói rõ chỗ sửa). */
+    updateLineComponent(token: string, rowId: number, patch: LineComponentPatch): Promise<LineComponent> {
+      return authed<LineComponent>(`/api/luong/lines/components/${rowId}`, token, { method: "PUT", body: JSON.stringify(patch) });
+    },
+    deleteLineComponent(token: string, rowId: number): Promise<void> {
+      return authed<void>(`/api/luong/lines/components/${rowId}`, token, { method: "DELETE" });
+    },
     pitBrackets(token: string): Promise<{ items: PitBracket[] }> {
       return authed<{ items: PitBracket[] }>("/api/luong/pit-brackets", token);
     },
@@ -5007,6 +5342,50 @@ export const api = {
     },
     setDeptComponents(token: string, deptId: number, items: DeptComponentInput[]): Promise<DeptComponents> {
       return authed<DeptComponents>(`/api/luong/dept-components/${deptId}`, token, { method: "PUT", body: JSON.stringify({ items }) });
+    },
+    // --- Danh mục khoản thu nhập (Cấu hình lương, tab "Danh mục khoản thu nhập") ---
+    components: {
+      /** Cả khoản ĐÃ NGƯNG DÙNG cũng trả — màn cấu hình cần hiện để bật lại được. */
+      list(token: string): Promise<{ items: PayrollComponent[] }> {
+        return authed<{ items: PayrollComponent[] }>("/api/luong/components", token);
+      },
+      create(token: string, input: PayrollComponentInput): Promise<PayrollComponent> {
+        return authed<PayrollComponent>("/api/luong/components", token, { method: "POST", body: JSON.stringify(input) });
+      },
+      update(token: string, id: number, patch: PayrollComponentPatch): Promise<PayrollComponent> {
+        return authed<PayrollComponent>(`/api/luong/components/${id}`, token, { method: "PUT", body: JSON.stringify(patch) });
+      },
+      /** Chưa có số liệu ⇒ xoá hẳn. Đã dùng ⇒ chỉ NGỪNG ÁP DỤNG — ĐỌC `message` rồi hiện
+       *  NGUYÊN VĂN, đừng tự chế câu báo. */
+      remove(token: string, id: number): Promise<PayrollComponentDeleteResult> {
+        return authed<PayrollComponentDeleteResult>(`/api/luong/components/${id}`, token, { method: "DELETE" });
+      },
+      /** NV còn giữ khoản này khi khoản ĐÃ ngừng áp dụng — nuôi cảnh báo "còn N người đang gán". */
+      holders(token: string, id: number): Promise<ComponentHolders> {
+        return authed<ComponentHolders>(`/api/luong/components/${id}/holders`, token);
+      },
+      /** Khoản ĐANG GÁN của 1 NV — CHỈ trả khoản có tiền khác 0, không phải cả danh mục.
+       *  Muốn dựng dropdown "thêm khoản" thì lấy `components.list` rồi trừ đi tập này. */
+      employeeValues(token: string, employeeId: number): Promise<{ items: ComponentValue[] }> {
+        return authed<{ items: ComponentValue[] }>(`/api/luong/components/employee/${employeeId}`, token);
+      },
+      /** `amount: null` ⇒ GỠ khoản khỏi người này. Chỉ nhận `component_id` CÓ SẴN trong danh
+       *  mục — không có đường đẻ khoản mới từ hồ sơ nhân viên (quy trình 2 bước). */
+      setEmployeeValues(token: string, employeeId: number, items: ComponentValueInput[]): Promise<{ items: ComponentValue[] }> {
+        return authed<{ items: ComponentValue[] }>(`/api/luong/components/employee/${employeeId}`, token, { method: "PUT", body: JSON.stringify({ items }) });
+      },
+      /** Ai đang được gán khoản này + mức bao nhiêu — cho modal gán hàng loạt XEM TRƯỚC ai bị
+       *  bỏ qua / ai bị đổi từ bao nhiêu sang bao nhiêu. Khác `holders` (chỉ khoản đã tắt). */
+      employeeAmounts(token: string, id: number): Promise<{ component_id: number; items: { employee_id: number; amount: number; note: string | null }[] }> {
+        return authed<{ component_id: number; items: { employee_id: number; amount: number; note: string | null }[] }>(`/api/luong/components/${id}/employee-amounts`, token);
+      },
+      /** Rải MỘT khoản cho NHIỀU người trong một thao tác.
+       *
+       *  ⚠️ `overwrite` MẶC ĐỊNH FALSE và phải giữ vậy: bật lên là xoá mức riêng đã khai cho
+       *  từng người, không có đường hoàn tác. Chỉ gửi `true` khi người dùng CHỦ ĐỘNG tích ô. */
+      bulkAssign(token: string, id: number, input: BulkAssignInput): Promise<BulkAssignResult> {
+        return authed<BulkAssignResult>(`/api/luong/components/${id}/bulk-assign`, token, { method: "POST", body: JSON.stringify(input) });
+      },
     },
     lock(token: string, year: number, month: number): Promise<PayrollPeriod> {
       return authed<PayrollPeriod>("/api/luong/lock", token, { method: "POST", body: JSON.stringify({ year, month }) });
@@ -5042,6 +5421,22 @@ export const api = {
     khoanRates(token: string, departmentId?: number | null): Promise<{ items: PieceRate[] }> {
       const q = departmentId != null ? `?department_id=${departmentId}` : "";
       return authed<{ items: PieceRate[] }>(`/api/luong/khoan/rates${q}`, token);
+    },
+    /** Gợi ý cho ô "Đơn vị" = mồi mặc định ∪ đơn vị nhà máy ĐÃ dùng.
+     *  ⚠️ KHÔNG phải whitelist — gõ đơn vị ngoài danh sách này vẫn lưu bình thường. */
+    khoanUnits(token: string): Promise<{ items: string[] }> {
+      return authed<{ items: string[] }>("/api/luong/khoan/units", token);
+    },
+    /** Bậc thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi — mỗi tổ một bộ riêng. */
+    leaderBrackets(token: string, departmentId: number): Promise<LeaderBracketsOut> {
+      return authed<LeaderBracketsOut>(`/api/luong/khoan/leader-brackets?department_id=${departmentId}`, token);
+    },
+    /** Thay CẢ BỘ mốc của một tổ. Mảng rỗng = tổ này không áp thưởng/phạt tổ trưởng. */
+    setLeaderBrackets(token: string, departmentId: number, items: LeaderBracketInput[]): Promise<LeaderBracketsOut> {
+      return authed<LeaderBracketsOut>("/api/luong/khoan/leader-brackets", token, {
+        method: "PUT",
+        body: JSON.stringify({ department_id: departmentId, items }),
+      });
     },
     createKhoanRate(token: string, input: PieceRateInput): Promise<PieceRate> {
       return authed<PieceRate>("/api/luong/khoan/rates", token, { method: "POST", body: JSON.stringify(input) });

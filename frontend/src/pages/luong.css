@@ -1067,3 +1067,556 @@
 /* Nút dạng liên kết trong ghi chú ô "Đi trễ" (đổi tự động ⇄ sửa tay). */
 .lg-linkbtn { background: none; border: none; padding: 0; font: inherit; color: var(--rust);
   cursor: pointer; text-decoration: underline; }
+
+/* ==========================================================================
+   Danh mục khoản thu nhập (Cấu hình lương, tab con 2) + danh sách khoản của
+   từng NV ở modal "Sửa lương". Ô tích "Chịu thuế" là CHECKBOX thật (chủ gọi
+   đúng chữ "tích"), cột hẹp nên checkbox quét mắt nhanh hơn công tắc trượt.
+   ========================================================================== */
+
+/* Khoản đã NGỪNG ÁP DỤNG: mờ cả dòng, vẫn đọc được để bấm "Bật lại". */
+.cl-dm--off td { opacity: 0.55; }
+.cl-dm__tag { margin-left: var(--sp-2); vertical-align: middle; }
+/* "Xem N người đang gán" — khoản đã tắt mà NV còn giữ thì LƯƠNG VẪN TRẢ; nút này là đường
+   duy nhất biết còn ai đang dính. Dạng link để không tranh chỗ với 2 nút thao tác bên phải. */
+.cl-dm__holders {
+  display: block;
+  margin-top: 3px;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: var(--fw-medium);
+  color: var(--signal);
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* Danh sách NV còn giữ khoản đã ngừng áp dụng (modal) — mã + tên, không thao tác tại chỗ. */
+.cl-holders {
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  list-style: none;
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+}
+.cl-holders li {
+  padding: 6px 10px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.cl-holders li:last-child { border-bottom: none; }
+.cl-holders__code {
+  display: inline-block;
+  min-width: 76px;
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
+}
+
+/* inline-flex trên <label> BÊN TRONG <td> — KHÔNG đặt flex lên chính <td>. */
+.cl-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+.cl-check input[type="checkbox"],
+.cl-check__box {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--rust);
+  cursor: pointer;
+  flex: none;
+}
+.cl-check input[type="checkbox"]:disabled { cursor: progress; }
+
+/* --- Khoản thu nhập của TỪNG NV (modal Sửa lương) — GRID, không phải bảng ---
+   HAI bảng tách nhau: `--sys` là 5 ô lương cố định (3 cột, không gỡ được) · `--cat` là khoản
+   theo danh mục gán cho người này (5 cột, có ghi chú + nút Gỡ). Trộn chung làm người dùng
+   tưởng gỡ được cả ô hệ thống. */
+.lg-comp {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+  margin-top: var(--sp-2);
+}
+/* Modal "Sửa lương" rộng 780px ⇒ chỗ thật cho bảng chỉ ~740px. Cột phải tính vừa số đó,
+   đừng để 5 cột tràn ngang trong modal. */
+.lg-comp__row {
+  display: grid;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.lg-comp--sys .lg-comp__row,
+.lg-comp--sys .lg-comp__head { grid-template-columns: minmax(200px, 1fr) 104px 160px; }
+.lg-comp--cat .lg-comp__row,
+.lg-comp--cat .lg-comp__head {
+  grid-template-columns: minmax(150px, 1.2fr) 100px 130px minmax(120px, 1fr) 64px;
+}
+.lg-comp__row:last-child { border-bottom: none; }
+/* Danh mục đã NGỪNG ÁP DỤNG mà người này còn giữ: viền đỏ + chữ đỏ, nhưng SỐ TIỀN hiện bình
+   thường (không gạch ngang, không ẩn) — lương vẫn đang trả khoản này. */
+.lg-comp__row--off {
+  background: var(--signal-soft);
+  box-shadow: inset 3px 0 0 var(--signal);
+}
+.lg-comp__warn {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  font-weight: var(--fw-medium);
+  color: var(--signal);
+}
+.lg-comp__name {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  min-width: 0;
+}
+.lg-comp__src {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ash-2);
+  font-weight: var(--fw-regular);
+}
+.lg-comp__money input,
+.lg-comp__note input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.lg-comp__money input {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.lg-comp__money input:focus,
+.lg-comp__note input:focus {
+  border-color: var(--rust);
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.08);
+}
+.lg-comp__act { text-align: right; }
+.lg-comp__act .btn { font-size: 12px; padding: 4px 10px; }
+/* Ô lương HỆ THỐNG — nguồn số là `employee_salaries`, gạch trái rust để tách khỏi bảng khoản
+   danh mục ngay bên dưới. */
+.lg-comp__row--sys {
+  background: var(--canvas);
+  box-shadow: inset 3px 0 0 var(--rust-soft);
+}
+.lg-comp__head {
+  display: grid;
+  gap: var(--sp-2);
+  padding: 6px 12px;
+  background: var(--paper-contrast);
+  border-bottom: 2px solid var(--rule-soft);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ash);
+}
+.lg-comp__head span:nth-child(3) { text-align: right; }
+.lg-comp__empty {
+  padding: var(--sp-4);
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--ash);
+}
+/* "+ Thêm khoản thu nhập" = CHỌN từ danh mục (không có ô gõ tên tự do — quy trình 2 bước). */
+.lg-comp__add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.lg-comp__pick {
+  min-width: 260px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.lg-comp__add .cc-card__hint { flex: 1 1 100%; margin: 0; }
+@media (max-width: 1000px) {
+  .lg-comp--sys .lg-comp__row,
+  .lg-comp--sys .lg-comp__head { grid-template-columns: 1fr 92px 132px; }
+  .lg-comp--cat .lg-comp__row,
+  .lg-comp--cat .lg-comp__head { grid-template-columns: 1fr 92px 132px 64px; }
+  .lg-comp--cat .lg-comp__head span:nth-child(4) { display: none; }
+  .lg-comp--cat .lg-comp__note { grid-column: 1 / -1; }
+}
+
+/* --- TẦNG 3: khoản PHÁT SINH của riêng một kỳ (modal Sửa dòng bảng lương) ---
+   Dòng `--emp` chép từ hồ sơ NV: chỉ đọc ở đây, sửa ở màn hồ sơ lương. */
+.lg-lc {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+  margin-top: var(--sp-2);
+}
+.lg-lc__head,
+.lg-lc__row {
+  display: grid;
+  /* Cùng lý do với `.lg-comp`: modal rộng 780px, cột phải vừa ~740px. Cột cuối chứa 2 nút
+     (Lưu · Xoá) nên rộng hơn cột "Gỡ" của bảng khoản hồ sơ. */
+  grid-template-columns: minmax(140px, 1.2fr) 100px 130px minmax(110px, 1fr) 108px;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: 8px 12px;
+}
+.lg-lc__head {
+  padding: 6px 12px;
+  background: var(--paper-contrast);
+  border-bottom: 2px solid var(--rule-soft);
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--ash);
+}
+.lg-lc__head span:nth-child(3) { text-align: right; }
+.lg-lc__row { border-bottom: 1px solid var(--rule-hair); }
+.lg-lc__row:last-child { border-bottom: none; }
+.lg-lc__row--emp { background: var(--rule-hair); }
+.lg-lc__name {
+  font-size: 13px;
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+  min-width: 0;
+}
+.lg-lc__src {
+  display: block;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ash-2);
+  font-weight: var(--fw-regular);
+}
+.lg-lc__money input,
+.lg-lc__note input {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.lg-lc__money input { text-align: right; font-variant-numeric: tabular-nums; }
+.lg-lc__money input:focus,
+.lg-lc__note input:focus {
+  border-color: var(--rust);
+  outline: none;
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(197, 64, 10, 0.08);
+}
+.lg-lc__ro {
+  display: block;
+  font-size: 13px;
+  color: var(--ash);
+  font-variant-numeric: tabular-nums;
+}
+.lg-lc__money .lg-lc__ro { text-align: right; }
+.lg-lc__act { text-align: right; white-space: nowrap; }
+.lg-lc__act .btn { font-size: 12px; padding: 4px 8px; margin-left: 4px; }
+.lg-lc__empty {
+  padding: var(--sp-4);
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--ash);
+}
+.lg-lc__add {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+}
+.lg-lc__add input {
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.lg-lc__add input[type="number"] { width: 140px; text-align: right; }
+.lg-lc__add input[type="text"] { flex: 1 1 200px; min-width: 160px; }
+.lg-lc__pick {
+  min-width: 260px;
+  padding: 6px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  background: var(--canvas);
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+}
+.lg-lc__add .cc-card__hint { flex: 1 1 100%; margin: 0; }
+@media (max-width: 1000px) {
+  .lg-lc__head,
+  .lg-lc__row { grid-template-columns: 1fr 92px 128px 96px; }
+  .lg-lc__head span:nth-child(4) { display: none; }
+  .lg-lc__note { grid-column: 1 / -1; }
+}
+
+/* --- Cấu hình tính thuế TNCN theo TỪNG NGƯỜI (modal Sửa lương) --------------
+   Trái: cách tính thuế (`employees.pit_mode`) · Phải: 2 mục giảm trừ gia cảnh. Đổi sang
+   nhánh khấu trừ 10% / cam kết 08 thì bên phải MỜ đi — 2 mục đó không còn tác dụng. */
+.lg-pit {
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(280px, 1.2fr);
+  gap: var(--sp-4);
+  align-items: start;
+  margin-top: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--canvas);
+}
+.lg-pit__mode { min-width: 0; }
+.lg-pit__ded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding-left: var(--sp-4);
+  border-left: 1px solid var(--rule-hair);
+}
+.lg-pit__ded--off { opacity: 0.55; }
+.lg-pit__note {
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: var(--fw-medium);
+  color: var(--rust-deep);
+}
+.lg-pit__dep {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 6px 10px;
+  border-radius: var(--r-5);
+  background: var(--paper-contrast);
+  font-size: 13px;
+}
+.lg-pit__dep-label {
+  font-size: 12.5px;
+  color: var(--ash);
+  font-weight: var(--fw-bold);
+}
+.lg-pit__dep-val { font-variant-numeric: tabular-nums; }
+@media (max-width: 1000px) {
+  .lg-pit { grid-template-columns: 1fr; }
+  .lg-pit__ded {
+    padding-left: 0;
+    border-left: none;
+    padding-top: var(--sp-3);
+    border-top: 1px solid var(--rule-hair);
+  }
+}
+
+/* Ô "Các khoản phụ cấp" GỘP MỘT CỤC của dữ liệu cũ — chỉ đọc, kèm nhắc tách ra. */
+.lg-legacy input[readonly] {
+  background: rgba(138, 134, 118, 0.06);
+  color: var(--ash);
+  cursor: not-allowed;
+}
+
+/* --- Phiếu lương: 2 dòng thuế trước dòng THỰC NHẬN --- */
+.lg-payslip2__tax {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: var(--sp-3);
+  padding: 8px 0;
+  border-top: 1px solid var(--rule);
+}
+.lg-payslip2__taxcell {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: 13px;
+}
+.lg-payslip2__taxcell b { font-variant-numeric: tabular-nums; }
+.lg-payslip2__taxnote {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--ash-2);
+  line-height: 1.5;
+}
+
+/* --- Sửa lương: khoản của KỲ CŨ (6 ô thưởng đã ngừng ghi 28/07/2026) ---
+   Chỉ đọc, tông xám nhạt để không lẫn với các ô còn sửa được ở trên/dưới. */
+.lg-legacy {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+  margin-top: var(--sp-2);
+  background: var(--paper-contrast);
+}
+.lg-legacy__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: 7px 12px;
+  font-size: 13px;
+  color: var(--ash);
+  border-bottom: 1px solid var(--rule-hair);
+}
+.lg-legacy__row:last-child { border-bottom: none; }
+.lg-legacy__row b {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Gán hàng loạt một khoản cho nhiều NV (chủ 28/07/2026) ---
+   Chỗ nguy hiểm duy nhất là ô "Ghi đè": bật lên là xoá mức riêng đã khai cho từng người và
+   KHÔNG hoàn tác được, nên phần hiển thị phải nói rõ ai bị đổi từ bao nhiêu sang bao nhiêu. */
+.cl-bulk {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.cl-bulk__modes {
+  display: flex;
+  gap: var(--sp-4);
+  flex-wrap: wrap;
+}
+.cl-bulk__list {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--paper);
+}
+.cl-bulk__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 6px 12px;
+  font-size: 13px;
+  border-bottom: 1px solid var(--rule-hair);
+  cursor: pointer;
+}
+.cl-bulk__row:last-child { border-bottom: none; }
+/* Đã có mức riêng mà chưa xin ghi đè ⇒ khoá, nhìn là biết sẽ bị bỏ qua. */
+.cl-bulk__row--locked {
+  cursor: not-allowed;
+  background: var(--paper-contrast);
+  color: var(--ash-2);
+}
+.cl-bulk__name { flex: 1; min-width: 0; }
+.cl-bulk__name b { font-variant-numeric: tabular-nums; margin-right: 6px; }
+.cl-bulk__has {
+  font-size: 11px;
+  color: var(--ash-2);
+}
+/* Sắp bị ghi đè — tông cảnh báo, KHÔNG dùng họ `signal` (dành cho lỗi hệ thống). */
+.cl-bulk__over {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  color: var(--amber-deep);
+  background: var(--amber-soft);
+  padding: 1px 6px;
+  border-radius: var(--r-2);
+  font-variant-numeric: tabular-nums;
+}
+.cl-bulk__ow {
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  background: var(--paper-contrast);
+}
+
+/* Thanh loc + chon ca nhom cua modal gan hang loat. */
+.cl-bulk__tools {
+  display: grid;
+  grid-template-columns: 1fr 160px;
+  gap: var(--sp-2);
+}
+.cl-bulk__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: 12px;
+  color: var(--ash);
+}
+.cl-bulk__bar span { flex: 1; }
+.cl-bulk__bar b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* Ô số có HẬU TỐ đơn vị (vd "160000  đ/m²") — giữ NGUYÊN kiểu `ns-field input` để không lạc
+   lõng cạnh các ô khác trong cùng modal. Hậu tố `pointer-events: none` để bấm vào vẫn trúng ô. */
+.cl-suffixed { position: relative; display: flex; }
+.cl-suffixed input { width: 100%; padding-right: 68px; }
+.cl-suffixed span {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: 56px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  color: var(--ash-2);
+  pointer-events: none;
+}
+
+/* --- Thưởng/phạt tổ trưởng theo tỷ lệ hàng lỗi (chủ 29/07/2026) --- */
+/* Ô % kèm chip Thưởng/Phạt: dấu âm dễ đọc lướt thành dương nên phải có chữ đi kèm. */
+.cl-lb__rate { display: flex; align-items: center; gap: var(--sp-2); }
+.cl-lb__rate input { width: 96px; }
+/* Câu đọc từ chính bảng mốc — bảng số khó hình dung, đọc câu thì ra ngay. */
+.cl-lb__read {
+  margin-top: var(--sp-2);
+  padding: 8px 12px;
+  border-left: 3px solid var(--rule);
+  background: var(--paper-contrast);
+  border-radius: var(--r-2);
+  line-height: 1.7;
+}
+.cl-lb__try {
+  display: grid;
+  grid-template-columns: 180px 220px 1fr;
+  gap: var(--sp-3);
+  align-items: end;
+  margin-top: var(--sp-3);
+  padding: 10px 12px;
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-3);
+}
+.cl-lb__out { font-size: 13px; color: var(--ink); padding-bottom: 8px; }
+.cl-lb__out b { font-variant-numeric: tabular-nums; }
+.cl-lb__foot { display: flex; justify-content: flex-end; margin-top: var(--sp-3); }
+
+/* Cảnh báo khi trần khấu trừ vượt mức luật hoặc bị tắt — cảnh báo, KHÔNG chặn. */
+.cl-warn-legal {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  color: var(--amber-deep);
+  font-weight: var(--fw-medium);
+}

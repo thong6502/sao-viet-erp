@@ -31,6 +31,7 @@ from ..schemas.attendance import (
     ApproveRequestIn,
     AttendanceLogOut,
     AttendanceLogsOut,
+    AttendanceNotifyOut,
     CheckIn,
     CheckResultOut,
     DayDetailOut,
@@ -44,6 +45,8 @@ from ..schemas.attendance import (
     HolidayMark,
     PeriodActionIn,
     AttendancePeriodOut,
+    ShiftChangeOut,
+    ShiftChangesOut,
     ShiftPlanOut,
     ShiftPlanSaveIn,
     ShiftPlanSaveOut,
@@ -217,6 +220,50 @@ def save_shift_plan(
     except AttendanceError as exc:
         _raise(exc)
     return ShiftPlanSaveOut(**res)
+
+
+# --- lịch sử thay đổi ca + hộp thư của NV (chủ 28/07/2026) ------------------
+
+
+@router.get("/shift-changes", response_model=ShiftChangesOut)
+def list_shift_changes(
+    svc: Service,
+    authz: Authz,
+    user: Annotated[User, Depends(require_permission(MODULE, "read"))],
+    year: int | None = None,
+    month: int | None = None,
+    employee_id: int | None = None,
+    kind: str | None = None,
+) -> ShiftChangesOut:
+    """Lịch sử đổi ca cho HCNS/quản lý — CẢ HAI lớp (ô lưới + ca nền).
+
+    Lọc theo scope như `shift-plan`: tổ trưởng chỉ thấy tổ mình. `kind` để tách riêng
+    *Sửa tay* (`day`) / *Ca nền* (`base`)."""
+    rows = svc.shift_changes(
+        scope=_scope_for(authz, user), actor=user,
+        year=year, month=month, employee_id=employee_id, kind=kind,
+    )
+    return ShiftChangesOut(items=[ShiftChangeOut(**r) for r in rows])
+
+
+@router.get("/my-shift-changes", response_model=ShiftChangesOut)
+def my_shift_changes(svc: Service, user: CurrentUser, unseen: bool = False) -> ShiftChangesOut:
+    """Hộp thư "ca của tôi vừa bị đổi" — mọi NV có tài khoản đều xem được của CHÍNH mình,
+    không cần quyền quản lý. `unseen=true` chỉ lấy tin CHƯA ĐỌC (khối báo ở màn Công của tôi)."""
+    rows = svc.my_shift_changes(user=user, unseen_only=unseen)
+    return ShiftChangesOut(items=[ShiftChangeOut(**r) for r in rows])
+
+
+@router.post("/my-shift-changes/seen", response_model=AttendanceNotifyOut)
+def mark_my_shift_changes_seen(svc: Service, user: CurrentUser) -> AttendanceNotifyOut:
+    svc.mark_shift_changes_seen(user=user)
+    return AttendanceNotifyOut(unseen_shift_changes=0)
+
+
+@router.get("/notify-summary", response_model=AttendanceNotifyOut)
+def notify_summary(svc: Service, user: CurrentUser) -> AttendanceNotifyOut:
+    """Số nuôi badge + toast real-time (SSE đẩy `shift_changed` → FE gọi lại hàm này)."""
+    return AttendanceNotifyOut(unseen_shift_changes=svc.unseen_shift_changes(user=user))
 
 
 # --- work locations (HR) ----------------------------------------------------

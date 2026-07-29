@@ -22,6 +22,7 @@ from .repositories.calendar_repo import CalendarRepository
 from .repositories.late_early_repo import LateEarlyRepository
 from .repositories.leave_repo import LeaveRepository
 from .repositories.overtime_repo import OvertimeRepository
+from .repositories.payroll_component_repo import PayrollComponentRepository
 from .repositories.payroll_repo import PayrollRepository
 from .repositories.piece_work_repo import PieceWorkRepository
 from .repositories.cong_doan_repo import CongDoanRepository
@@ -63,6 +64,7 @@ from .services.calendar_service import CalendarService
 from .services.leave_service import LeaveService
 from .services.late_early_service import LateEarlyService
 from .services.overtime_service import OvertimeService
+from .services.payroll_component_service import PayrollComponentService
 from .services.payroll_service import PayrollService
 from .services.piece_work_service import PieceWorkService
 from .services.customer_service import CustomerService
@@ -411,6 +413,21 @@ def get_piece_work_service(
     return PieceWorkService(piece)
 
 
+def get_payroll_component_repository(
+    db: Annotated[Session, Depends(get_db)],
+) -> PayrollComponentRepository:
+    return PayrollComponentRepository(db)
+
+
+def get_payroll_component_service(
+    components: Annotated[PayrollComponentRepository, Depends(get_payroll_component_repository)],
+    audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
+    employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
+) -> PayrollComponentService:
+    # `employees` cho gán HÀNG LOẠT: lọc NV theo scope người bấm (tổ trưởng không gán ra ngoài tổ).
+    return PayrollComponentService(components, audit, employees)
+
+
 def get_payroll_service(
     payroll: Annotated[PayrollRepository, Depends(get_payroll_repository)],
     employees: Annotated[EmployeeRepository, Depends(get_employee_repository)],
@@ -418,10 +435,11 @@ def get_payroll_service(
     audit: Annotated[AuditLogRepository, Depends(get_audit_repository)],
     piece: Annotated[PieceWorkService, Depends(get_piece_work_service)],
     departments: Annotated[DepartmentRepository, Depends(get_department_repository)],
+    components: Annotated[PayrollComponentRepository, Depends(get_payroll_component_repository)],
 ) -> PayrollService:
     # attendance → số CÔNG; piece → tiền KHOÁN (nhịp 2); departments → cờ has_piece_work.
     return PayrollService(payroll, employees, attendance, audit=audit, piece=piece,
-                          departments=departments)
+                          departments=departments, components=components)
 
 
 def get_costing_repository(

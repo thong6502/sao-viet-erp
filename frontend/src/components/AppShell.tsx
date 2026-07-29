@@ -93,6 +93,9 @@ export function AppShell() {
   const toastSeq = useRef(0);
   const lastPending = useRef(0);
   const lastOrderAction = useRef(0);
+  // Số lần ca của TÔI bị đổi mà chưa đọc — chỉ toast khi số TĂNG (có việc mới), không toast
+  // lại mỗi lần refetch.
+  const lastShiftChange = useRef(0);
   const lastAdvancePending = useRef(0);
   const lastOtPending = useRef(0);
   const lastElPending = useRef(0);
@@ -187,6 +190,15 @@ export function AppShell() {
         })
         .catch(() => {});
     }
+    // Badge Chấm công = số lần ca CỦA TÔI bị đổi mà tôi chưa đọc. KHÔNG gác sau `readable`:
+    // công nhân xưởng không có quyền đọc module nhân sự vẫn phải biết ca mình bị đổi.
+    api.attendance
+      .notifySummary(token)
+      .then((s) => {
+        lastShiftChange.current = s.unseen_shift_changes;
+        setBadges((prev) => ({ ...prev, "cham-cong": s.unseen_shift_changes }));
+      })
+      .catch(() => {});
     // Badge Báo giá in ấn = 'chờ TÔI duyệt' (người duyệt) + 'quyết định chưa xem' (người soạn).
     // Số real-time: SSE đẩy sự kiện → hàm này refetch; ở đây cũng là snapshot lúc đổi màn/mở app.
     if (readable.has("bao_gia")) {
@@ -305,6 +317,19 @@ export function AppShell() {
               pushToast("🔔 Có đơn hàng chờ bạn xử lý", "info");
             }
             lastOrderAction.current = s.action_count;
+          })
+          .catch(() => {});
+      } else if (e.type === "shift_changed") {
+        // Quản lý vừa đổi ca của TÔI. Không gác sau `readable`: đây là việc của chính mình,
+        // công nhân xưởng không có quyền đọc module nhân sự vẫn phải nhận được.
+        api.attendance
+          .notifySummary(token)
+          .then((s) => {
+            setBadges((prev) => ({ ...prev, "cham-cong": s.unseen_shift_changes }));
+            if (s.unseen_shift_changes > lastShiftChange.current) {
+              pushToast("🔔 Ca làm việc của bạn vừa được thay đổi", "info");
+            }
+            lastShiftChange.current = s.unseen_shift_changes;
           })
           .catch(() => {});
       } else if (

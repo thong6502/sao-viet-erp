@@ -1002,3 +1002,91 @@ def test_migration_0095_renames_shift_allowance_and_drops_night_shift():
     empty = sessionmaker(bind=create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool))()
     _migrate_ca_rename_shift_allowance_go_night_shift(empty)
+
+
+# --- Trần khấu trừ kỷ luật thành THAM SỐ (chủ 29/07/2026) -------------------
+# "Bỏ cái 30% đang fix cứng trong code." KHÔNG xoá trần (đó là mức LUẬT Đ102), chỉ bỏ chỗ viết
+# cứng: mặc định 0.30 giữ nguyên hành vi cũ, 0 = tắt trần.
+#
+# Dùng `_compute` TRỰC TIẾP (như các test Đ102 sẵn có) thay vì đi qua API: NV không có chấm công
+# thì `actual_cong = 0` ⇒ lương = 0 ⇒ không có gì để kẹp, test thành vô nghĩa.
+
+
+def _phat_v(cap_pct, *, phat=100_000_000, luong=20_000_000):
+    """Chạy `_compute` với một mức trần, trả về dict kết quả."""
+    db = SessionLocal()
+    try:
+        svc = PayrollService(PayrollRepository(db), EmployeeRepository(db), attendance=None)
+        params = svc.get_params()
+        params.phat_cap_pct = cap_pct          # đổi trong bộ nhớ, không đụng DB
+        emp = SimpleNamespace(status="active", hire_date=date(2020, 1, 1), gender="male",
+                              payroll_group=None, pay_grade_key=None, dependents_count=0)
+        return svc._compute(
+            employee=emp, salary=_salary_ns(luong_vi_tri=luong), params=params,
+            actual_cong=26, standard_cong=26, phat_bien_ban=phat, on=date(2026, 6, 1),
+        )
+    finally:
+        db.close()
+
+
+def test_tran_phat_mac_dinh_van_la_30_phan_tram(client):
+    """⭐ Không khai gì ⇒ hành vi Y HỆT trước khi đưa thành tham số."""
+    client
+    v = _phat_v(0.30)
+    income = (v["luong_cong"] + v["chuyen_can"] + v["allowance"] + v["khoan"]
+              + v["ot_pay"] + v["night_pay"])
+    phat_eff = income - v["gross"]
+    base = income - v["bhxh"] - v["pit"]
+    assert v["phat_bien_ban"] == 100_000_000, "cột phạt LƯU RAW, không lưu số đã kẹp"
+    assert abs(phat_eff - round(0.30 * base)) <= 1, "mặc định phải vẫn đúng 30%"
+    assert v["gross"] > 0
+
+
+def test_tran_phat_doi_duoc_thanh_50(client):
+    """Đặt 50% ⇒ kẹp ở 50%, trừ được NHIỀU hơn ⇒ gross thấp hơn."""
+    client
+    v30, v50 = _phat_v(0.30), _phat_v(0.50)
+    assert v50["gross"] < v30["gross"], "nới trần lên 50% phải trừ được nhiều hơn"
+    income = (v50["luong_cong"] + v50["chuyen_can"] + v50["allowance"] + v50["khoan"]
+              + v50["ot_pay"] + v50["night_pay"])
+    base = income - v50["bhxh"] - v50["pit"]
+    assert abs((income - v50["gross"]) - round(0.50 * base)) <= 1
+
+
+def test_tran_phat_bang_0_la_TAT_tran_va_gross_khong_am(client):
+    """⭐ Đặt 0 ⇒ ghi phạt bao nhiêu trừ bấy nhiêu.
+
+    Và `gross` phải có SÀN 0: chính trần 30% vốn là thứ ngăn gross xuống âm (phạt ≤ 30% của
+    chính thu nhập). Tắt trần mà không có sàn thì phạt 100tr trên lương 20tr ra gross ÂM —
+    in ra phiếu lương là số vô nghĩa."""
+    client
+    v = _phat_v(0)
+    assert v["gross"] == 0, f"tắt trần: phạt 100tr phải ăn hết lương, gross={v['gross']}"
+    assert v["gross"] >= 0, "gross KHÔNG được âm"
+    assert v["phat_bien_ban"] == 100_000_000, "cột phạt vẫn LƯU RAW"
+
+
+def test_sua_1_o_va_tinh_lai_ra_CUNG_so_khi_doi_tran(client):
+    """⭐ `_capped_penalty` có HAI chỗ gọi (`_compute` và `update_line`). Sót một chỗ thì
+    "Tính lại" và "Sửa 1 ô" ra hai số khác nhau — lỗi đã tái phát nhiều lần ở file này."""
+    token = _admin_token(client)
+    try:
+        client.put("/api/luong/params", json={"phat_cap_pct": 0.50}, headers=_h(token))
+        eid = _make_emp(client, token, name="NV So Hai Đường Trần")
+        client.post(f"/api/luong/salaries/{eid}", json={"effective_from": "2026-01-01",
+                    "luong_vi_tri": 20_000_000, "union_member": True}, headers=_h(token))
+        gen = client.post("/api/luong/generate", json={"year": 2026, "month": 11},
+                          headers=_h(token)).json()
+        line = next(l for l in gen["lines"] if l["employee_id"] == eid)
+
+        sua = client.put(f"/api/luong/lines/{line['id']}",
+                         json={"vi_pham": 30_000_000, "di_tre": 500_000},
+                         headers=_h(token)).json()
+        gen2 = client.post("/api/luong/generate", json={"year": 2026, "month": 11},
+                           headers=_h(token)).json()
+        tinh_lai = next(l for l in gen2["lines"] if l["employee_id"] == eid)
+
+        for k in ("gross", "net_pay", "pit", "cong_doan", "bhxh"):
+            assert sua[k] == tinh_lai[k], f"lệch ở {k}: sửa 1 ô {sua[k]} vs tính lại {tinh_lai[k]}"
+    finally:
+        client.put("/api/luong/params", json={"phat_cap_pct": 0.30}, headers=_h(token))

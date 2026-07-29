@@ -3850,3 +3850,164 @@
 @media (max-width: 1180px) {
   .el-timegrid { grid-template-columns: 1fr; }
 }
+
+/* --- Khối C: Lịch sử thay đổi ca (chủ 28/07/2026) ---
+   Hai lớp sinh ra ca của một người, phân biệt bằng CHIP màu + icon:
+     ✎ Sửa tay (hổ phách) = tô đè đúng một ngày trên lưới
+     🗓 Ca nền (xanh rêu)  = áp từ ngày hiệu lực TRỞ VỀ SAU
+   KHÔNG dùng họ `signal` (dành riêng cho lỗi hệ thống). */
+.cc-scl {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.cc-scl__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+}
+.cc-scl__filters { display: flex; gap: 4px; }
+.cc-scl__filter {
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+  border-radius: var(--r-2);
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--ash);
+  cursor: pointer;
+}
+.cc-scl__filter.is-on {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+  font-weight: var(--fw-bold);
+}
+.cc-scl__list {
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r-3);
+  overflow: hidden;
+}
+.cc-scl__row {
+  display: grid;
+  /* Nam TRONG drawer hep (~520px) chu khong phai bang full-width:
+     chip . ngay ap dung . truoc-sau . nguoi sua . co chua bao */
+  grid-template-columns: 84px minmax(96px, 1fr) minmax(120px, 1.4fr) 118px;
+  gap: var(--sp-2);
+  align-items: center;
+  padding: 7px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--rule-hair);
+}
+.cc-scl__row:last-child { border-bottom: none; }
+.cc-scl__chip {
+  font-size: 11px;
+  font-weight: var(--fw-bold);
+  padding: 2px 7px;
+  border-radius: var(--r-2);
+  text-align: center;
+  white-space: nowrap;
+}
+.cc-scl__chip--day { background: var(--amber-soft); color: var(--amber-deep); }
+.cc-scl__chip--base { background: var(--moss-soft); color: var(--moss-deep); }
+.cc-scl__chip--rm {
+  background: var(--paper-contrast);
+  color: var(--ash);
+  border: 1px solid var(--rule-soft);
+}
+.cc-scl__when { color: var(--ash); font-variant-numeric: tabular-nums; }
+.cc-scl__when em { font-style: normal; font-size: 11px; color: var(--ash-2); }
+.cc-scl__delta { color: var(--ink); }
+.cc-scl__head {
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  color: var(--ink);
+}
+.cc-scl__by { font-size: 12px; color: var(--ash); }
+.cc-scl__by em { display: block; font-style: normal; font-size: 11px; color: var(--ash-2); }
+/* NV không có tài khoản đăng nhập ⇒ không có chỗ nhận thông báo. Nói thẳng chứ đừng nuốt. */
+/* Con thu 5 cua grid 4 cot -> cho han xuong dong rieng, khong de no day cot khac. */
+.cc-scl__nomail {
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-size: 11px;
+  color: var(--ash-2);
+  border: 1px dashed var(--rule);
+  border-radius: var(--r-2);
+  padding: 1px 6px;
+  text-align: center;
+}
+
+/* --- "Công của tôi": hộp thư ca bị đổi --- */
+.cc-myshift {
+  border: 1px solid var(--amber-deep);
+  background: var(--amber-soft);
+  border-radius: var(--r-3);
+  padding: 10px 14px;
+  margin-bottom: var(--sp-3);
+}
+.cc-myshift__head {
+  font-weight: var(--fw-bold);
+  font-size: 13px;
+  color: var(--amber-deep);
+  margin-bottom: 6px;
+}
+.cc-myshift__bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.cc-myshift__x {
+  border: 0;
+  background: none;
+  color: var(--amber-deep);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+.cc-myshift__list { margin: 0; padding-left: 18px; }
+/* Mo rong: 50 thong bao ma do het ra la day bang cong xuong duoi man hinh. */
+.cc-myshift__list.is-open { max-height: 220px; overflow-y: auto; }
+.cc-myshift__more {
+  margin-top: 6px;
+  border: 0;
+  background: none;
+  padding: 0;
+  font-size: 12px;
+  font-weight: var(--fw-bold);
+  color: var(--amber-deep);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.cc-myshift__list li {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+.cc-myshift__list em {
+  display: block;
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ash-2);
+}
+
+/* Ô KHAI TAY mang thêm dấu bút ✎ ở góc (chủ 28/07/2026: "cần có màu sắc hoặc icon").
+   Màu nền `is-hand` một mình chưa đủ — người dùng phải đối chiếu với chú giải mới đoán ra.
+   Làm bằng ::after nên không đụng JSX lưới, và không chiếm chỗ (position: absolute). */
+.cc-sp-chip.is-hand { position: relative; }
+.cc-sp-chip.is-hand::after {
+  content: "✎";
+  position: absolute;
+  top: -5px;
+  right: -4px;
+  font-size: 9px;
+  line-height: 1;
+  color: var(--amber-deep);
+  pointer-events: none;
+}
+/* Mặc định lưới ở mật độ GỌN: ô quá nhỏ để chứa thêm ký tự nên chỉ hiện dấu bút ở mật độ
+   THOÁNG. Ở mật độ gọn vẫn còn màu nền  + chú giải để phân biệt. */
+.cc-sp-chip.is-hand::after { display: none; }
+.cc-sp-table--roomy .cc-sp-chip.is-hand::after { display: block; }

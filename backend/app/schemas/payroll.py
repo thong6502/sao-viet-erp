@@ -37,6 +37,11 @@ class ParamsIn(BaseModel):
     bhtn_base_cap: float | None = Field(default=None, ge=0)
     # Hạn mức chỉnh công/tháng (số NGÀY CÔNG, không phải số đơn). 0 = không giới hạn.
     adjust_max_per_month: int | None = Field(default=None, ge=0, le=31)
+    # Khấu trừ 10% tại nguồn cho HĐ dưới 3 tháng / thời vụ.
+    pit_flat_rate: float | None = Field(default=None, ge=0, le=1)
+    pit_flat_threshold: float | None = Field(default=None, ge=0)
+    # Trần khấu trừ kỷ luật (Đ102 BLLĐ). 0 = TẮT trần — cố ý cho phép, chủ tự chịu rủi ro.
+    phat_cap_pct: float | None = Field(default=None, ge=0, le=1)
     # Phụ cấp cơm/ca đêm KHÔNG còn ở cấp công ty — khai theo từng CA (`work_shifts`).
 
 
@@ -51,6 +56,9 @@ class ParamsOut(BaseModel):
     advance_max_pct: float = 0.10
     # Mặc định để dòng params CŨ (chưa có cột) không vỡ validate.
     adjust_max_per_month: int = 5
+    pit_flat_rate: float = 0.10
+    pit_flat_threshold: float = 2_000_000
+    phat_cap_pct: float = 0.30
     bhxh_rate_er: float = 0.175
     bhyt_rate_er: float = 0.03
     bhtn_rate_er: float = 0.01
@@ -204,6 +212,11 @@ class SalaryIn(BaseModel):
     insurance_elsewhere: bool = False
     # Đoàn viên công đoàn → mới bị trừ đoàn phí công đoàn (mặc định false = không đóng).
     union_member: bool = False
+    # Có áp giảm trừ bản thân khi tính TNCN không. Mặc định BẬT; tắt khi người này đã đăng ký
+    # giảm trừ bản thân ở nơi làm việc khác (chỉ được đăng ký ở MỘT nơi).
+    apply_self_deduction: bool = True
+    # % hoa hồng NV kinh doanh — PHÂN SỐ (0.05 = 5%). Chặn trên 1 để khỏi ai gõ "5" ra 500%.
+    commission_pct: float = Field(default=0, ge=0, le=1)
     # "Lương trả 1 lần" — mức cố định điền sẵn khi tạo phiếu thanh toán lương đợt 1.
     luong_dot_1: float = Field(default=0, ge=0)
     note: str | None = Field(default=None, max_length=255)
@@ -228,6 +241,9 @@ class SalaryOut(BaseModel):
     chuyen_can: float = 0
     insurance_elsewhere: bool = False   # cờ "BH đóng ở nơi khác" — để modal prefill checkbox
     union_member: bool = False          # cờ "đoàn viên công đoàn" — để modal prefill checkbox
+    apply_self_deduction: bool = True   # cờ giảm trừ bản thân — modal prefill checkbox
+    # ⚠️ Thiếu dòng này là API nuốt im lặng: service trả đúng, Pydantic vứt, không báo lỗi.
+    commission_pct: float = 0           # % hoa hồng (phân số) — modal prefill
     luong_dot_1: float = 0              # "lương trả 1 lần" — prefill khi tạo phiếu đợt 1
     note: str | None = None
     created_at: datetime
@@ -413,6 +429,16 @@ class LineOut(BaseModel):
     pit: float
     pit_manual: bool = False
     pit_taxable: float = 0
+    # Thu nhập CHỊU thuế = tổng lương − các khoản miễn (TRƯỚC giảm trừ gia cảnh + BHXH).
+    # Khác `pit_taxable` (thu nhập TÍNH thuế, sau giảm trừ) ~15,5tr — đừng dùng lẫn.
+    thu_nhap_chiu_thue: float = 0
+    # Khoản DANH MỤC của dòng này (snapshot Tầng 3) — phiếu lương in TỪNG DÒNG từ đây.
+    # ⚠️ Không có field này thì khoản `source='line'` (thưởng nóng) cộng vào `gross` nhưng KHÔNG
+    # có dòng nào trên phiếu ⇒ tổng thu trên phiếu nhỏ hơn thực nhận, NV không đối chiếu được.
+    components: list[LineComponentOut] = []
+    # Tổng phần thu nhập được MIỄN thuế của kỳ (tăng ca + ca đêm + khoản danh mục không chịu thuế).
+    # Thiếu dòng này thì cột tính đúng nhưng API nuốt mất — phiếu lương không bao giờ hiện được.
+    thu_nhap_mien_thue: float = 0
     advance_total: float
     luong_dot_1_total: float = 0
     net_pay: float
@@ -425,8 +451,12 @@ class TableOut(BaseModel):
 
 
 class LineUpdateIn(BaseModel):
+    # ⚠️ CỐ Ý KHÔNG CÓ: thuong_5s · thuong_doanh_so · thuong_thanh_tich · phep_nam ·
+    # tra_dong_phuc · other_bonus. Từ 28/07/2026 mọi khoản thưởng khai qua DANH MỤC
+    # (`POST /lines/{id}/components`) để cờ "Chịu thuế" là quy tắc chung, không phải ô tay đóng
+    # đinh chịu thuế. 6 cột cũ vẫn còn trong `LineOut` + trong công thức cộng để kỳ ĐÃ CHỐT giữ
+    # nguyên số; chỉ chặn ghi MỚI. Thêm lại vào đây là mở lại đường lách quy tắc thuế.
     vi_pham: float | None = Field(default=None, ge=0)
-    other_bonus: float | None = Field(default=None, ge=0)
     pit: float | None = Field(default=None, ge=0)
     pit_manual: bool | None = None   # False = reset về tự tính; None = giữ nguyên
     di_tre_manual: bool | None = None  # False = đưa phạt trễ VỀ TỰ ĐỘNG (tính lại từ chấm công); None = giữ
@@ -434,12 +464,7 @@ class LineUpdateIn(BaseModel):
     note: str | None = Field(default=None, max_length=255)
     # % đạt KPI của tháng (ô nhập tay) → tiền = % × mức trần KPI của bộ phận.
     kpi_percent: float | None = Field(default=None, ge=0, le=200)
-    # Khoản chi tiết (phiếu lương) — HCNS nhập tay. Thưởng ge=0; dieu_chinh_luong cho phép ÂM.
-    thuong_5s: float | None = Field(default=None, ge=0)
-    thuong_doanh_so: float | None = Field(default=None, ge=0)
-    thuong_thanh_tich: float | None = Field(default=None, ge=0)
-    phep_nam: float | None = Field(default=None, ge=0)
-    tra_dong_phuc: float | None = Field(default=None, ge=0)
+    # Khoản chi tiết (phiếu lương) — HCNS nhập tay. `dieu_chinh_luong` cho phép ÂM.
     dieu_chinh_luong: float | None = Field(default=None)
     di_tre: float | None = Field(default=None, ge=0)
     dt_vuot_troi: float | None = Field(default=None, ge=0)
@@ -455,3 +480,164 @@ class PayslipOut(BaseModel):
     employee_name: str | None = None
     period: PeriodOut | None = None
     line: LineOut | None = None
+
+
+# --- Danh mục khoản thu nhập (chủ 2026-07-27) --------------------------------
+
+
+class ComponentIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    kind: str = Field(default="thu", pattern="^(thu|tru)$")
+    is_taxable: bool = True
+    in_insurance_base: bool = False
+    sort_order: int = 0
+    note: str | None = Field(default=None, max_length=255)
+
+
+class ComponentPatchIn(BaseModel):
+    """Sửa từng phần — field nào None thì giữ nguyên."""
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    kind: str | None = Field(default=None, pattern="^(thu|tru)$")
+    is_taxable: bool | None = None
+    in_insurance_base: bool | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
+    note: str | None = Field(default=None, max_length=255)
+
+
+class ComponentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    code: str
+    name: str
+    kind: str
+    is_taxable: bool
+    in_insurance_base: bool
+    sort_order: int
+    is_active: bool
+    note: str | None = None
+    # Router điền — nền cho thông điệp "đã gán cho N nhân viên, đã chốt M kỳ lương".
+    employee_count: int = 0
+    period_count: int = 0
+
+
+class ComponentsOut(BaseModel):
+    items: list[ComponentOut]
+
+
+class ComponentHoldersOut(BaseModel):
+    """NV còn được gán một khoản ĐÃ NGỪNG ÁP DỤNG — nuôi cảnh báo đỏ. Tiền vẫn được trả bình
+    thường; đây chỉ là danh sách để HCNS chủ động gỡ."""
+    component_id: int
+    component_name: str
+    items: list[dict] = []
+
+
+class ComponentAmountsOut(BaseModel):
+    """Ai đang được gán MỘT khoản và mức bao nhiêu — cho modal gán hàng loạt xem trước.
+
+    Khác `ComponentHoldersOut`: bảng kia CHỈ trả người giữ khoản đã NGỪNG ÁP DỤNG (nuôi cảnh
+    báo đỏ) và không có số tiền, nên không dùng lại được cho việc này."""
+
+    component_id: int
+    items: list[dict] = []
+
+
+class BulkAssignIn(BaseModel):
+    """Rải MỘT khoản cho NHIỀU người (chủ 28/07/2026)."""
+
+    amount: float = Field(ge=0)
+    note: str | None = Field(default=None, max_length=255)
+    # Chọn cụ thể; bỏ trống + `all_active=True` = tất cả NV ĐANG LÀM VIỆC trong phạm vi.
+    employee_ids: list[int] = []
+    all_active: bool = False
+    # ⚠️ MẶC ĐỊNH False và phải giữ nguyên: bật lên là xoá mức riêng đã khai cho từng người,
+    # không có đường hoàn tác. Client quên gửi ⇒ hành vi an toàn (không đè).
+    overwrite: bool = False
+
+
+class BulkAssignOut(BaseModel):
+    assigned: int = 0            # thêm mới
+    overwritten: int = 0         # ĐÈ mức riêng đã có — tách riêng để banner nói đúng
+    skipped_existing: int = 0    # đã có mức riêng, không đè (mặc định)
+    skipped_out_of_scope: int = 0
+    total: int = 0
+
+
+class ComponentDeleteOut(BaseModel):
+    """Nói rõ việc vừa xảy ra: xoá hẳn hay chỉ ngừng áp dụng. `message` là câu hiển thị nguyên văn
+    — màn hình KHÔNG được tự chế lại, tránh báo "đã xoá" khi thực ra chỉ tắt đi."""
+    deleted: bool
+    deactivated: bool
+    employee_count: int = 0
+    period_count: int = 0
+    message: str = ""
+
+
+class ComponentValueIn(BaseModel):
+    component_id: int
+    # None = GỠ khoản khỏi người này (kỳ sau không trả nữa).
+    amount: float | None = Field(default=None, ge=0)
+    # Ghi chú tự do — cho khoản "Thu nhập khác" lưu vết vì sao có khoản này.
+    note: str | None = Field(default=None, max_length=255)
+
+
+class ComponentValuesIn(BaseModel):
+    items: list[ComponentValueIn] = []
+
+
+class ComponentValueOut(BaseModel):
+    component_id: int
+    code: str
+    name: str
+    kind: str
+    is_taxable: bool
+    amount: float
+    note: str | None = None
+    # False = khoản đã NGỪNG ÁP DỤNG nhưng NV vẫn đang được gán ⇒ màn hình bật cảnh báo đỏ.
+    # Tiền VẪN được trả (chốt của chủ) — cảnh báo để HCNS chủ động gỡ, không tự cắt lương.
+    is_active: bool = True
+
+
+class ComponentValuesOut(BaseModel):
+    items: list[ComponentValueOut] = []
+
+
+# --- Tầng 3: khoản PHÁT SINH trên một dòng lương ----------------------------
+
+
+class LineComponentIn(BaseModel):
+    component_id: int
+    amount: float = Field(ge=0)
+    note: str | None = Field(default=None, max_length=255)
+
+
+class LineComponentPatchIn(BaseModel):
+    amount: float | None = Field(default=None, ge=0)
+    note: str | None = Field(default=None, max_length=255)
+
+
+class LineComponentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    component_id: int
+    code: str
+    name: str
+    kind: str
+    is_taxable: bool
+    amount: float
+    note: str | None = None
+    # `employee` = chép từ hồ sơ NV (chỉ đọc ở màn bảng lương) · `line` = thêm tay cho riêng kỳ này.
+    source: str
+
+
+class LineComponentsOut(BaseModel):
+    items: list[LineComponentOut]
+
+
+# `LineOut` khai `components: list[LineComponentOut]` NHƯNG được định nghĩa phía trên → forward ref
+# chưa giải được lúc tạo lớp. Rebuild tường minh ở đây cho lỗi (nếu có) nổ lúc import, không phải
+# lúc trả response cho người dùng.
+LineOut.model_rebuild()

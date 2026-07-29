@@ -15,7 +15,9 @@ from .employee import (
     EmployeeAttachment,
     EmployeeEvent,
     EmployeeShiftAssignment,
+    EmployeeShiftChangeLog,
     EmployeeShiftDay,
+    JobGrade,
 )
 from .profile_request import ProfileUpdateRequest
 from .leave import LeaveRequest, LeaveType
@@ -34,15 +36,18 @@ from .order import (
 )
 from .payroll import (
     EmployeeSalary,
+    EmployeeSalaryComponent,
     LatePenaltyBracket,
+    PayrollComponent,
     PayrollLine,
+    PayrollLineComponent,
     PayrollParams,
     PayrollPeriod,
     PitTaxBracket,
     SalaryAdvance,
     SalaryRateRule,
 )
-from .piece_work import PieceRate
+from .piece_work import PieceLeaderBonusBracket, PieceRate
 from .product import Product, ProductComponent
 from .product_type_catalog import ProductTypeCatalog
 from .purchase import (
@@ -102,9 +107,11 @@ __all__ = [
     "UnitLevel",
     "Employee",
     "EmployeeShiftAssignment",
+    "EmployeeShiftChangeLog",
     "EmployeeShiftDay",
     "EmployeeEvent",
     "EmployeeAttachment",
+    "JobGrade",
     "ProfileUpdateRequest",
     "WorkLocation",
     "WorkShift",
@@ -158,8 +165,12 @@ __all__ = [
     "SalaryAdvance",
     "PayrollPeriod",
     "PayrollLine",
+    "PayrollComponent",
+    "EmployeeSalaryComponent",
+    "PayrollLineComponent",
     "PitTaxBracket",
     "LatePenaltyBracket",
+    "PieceLeaderBonusBracket",
     "PieceRate",
     "PlateDieRate",
     "Norm",

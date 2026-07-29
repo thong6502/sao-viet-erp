@@ -3,7 +3,14 @@
 //   • Điểm chấm công (HR) — khai toạ độ + bán kính; "Lấy vị trí hiện tại" để điền nhanh.
 //   • Bảng chấm công (HR) — toàn bộ log.
 // Server là cổng geofence thật (Haversine); ngoài phạm vi bị chặn cứng.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   api,
   type AttendanceLog,
@@ -25,6 +32,7 @@ import {
   type AttendancePeriod,
   type WorkLocation,
   type WorkLocationInput,
+  type ShiftChange,
   type WorkShift,
   type WorkShiftInput,
   type WorkCalendarConfig,
@@ -102,9 +110,15 @@ const FAULT_OPTIONS: { value: string; label: string }[] = [
   { value: "khac", label: "Khác" },
 ];
 
-const TIME_HOURS = Array.from({ length: 24 }, (_, index) => String(index).padStart(2, "0"));
-const TIME_MINUTES = Array.from({ length: 60 }, (_, index) => String(index).padStart(2, "0"));
-const FAULT_LABEL: Record<string, string> = Object.fromEntries(FAULT_OPTIONS.map((o) => [o.value, o.label]));
+const TIME_HOURS = Array.from({ length: 24 }, (_, index) =>
+  String(index).padStart(2, "0"),
+);
+const TIME_MINUTES = Array.from({ length: 60 }, (_, index) =>
+  String(index).padStart(2, "0"),
+);
+const FAULT_LABEL: Record<string, string> = Object.fromEntries(
+  FAULT_OPTIONS.map((o) => [o.value, o.label]),
+);
 
 function fmtDateTime(s: string | null | undefined): string {
   if (!s) return "—";
@@ -160,8 +174,10 @@ function fmtElapsed(fromIso: string | null | undefined, now: number): string {
   const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(fromIso);
   const start = new Date(hasTz ? fromIso : `${fromIso}Z`).getTime();
   let s = Math.max(0, Math.floor((now - start) / 1000));
-  const h = Math.floor(s / 3600); s -= h * 3600;
-  const m = Math.floor(s / 60); s -= m * 60;
+  const h = Math.floor(s / 3600);
+  s -= h * 3600;
+  const m = Math.floor(s / 60);
+  s -= m * 60;
   const p = (n: number) => String(n).padStart(2, "0");
   return `${p(h)}:${p(m)}:${p(s)}`;
 }
@@ -183,7 +199,9 @@ function getPosition(): Promise<GeolocationPosition> {
       clearTimeout(watchdog);
       fn();
     };
-    const timeoutErr = Object.assign(new Error("Lấy vị trí quá lâu."), { code: 3 });
+    const timeoutErr = Object.assign(new Error("Lấy vị trí quá lâu."), {
+      code: 3,
+    });
     const watchdog = setTimeout(() => finish(() => reject(timeoutErr)), 14000);
     navigator.geolocation.getCurrentPosition(
       (pos) => finish(() => resolve(pos)),
@@ -201,9 +219,12 @@ function getPosition(): Promise<GeolocationPosition> {
 
 function geoErrText(e: unknown): string {
   const code = (e as { code?: number } | null)?.code;
-  if (code === 1) return "Bạn đã từ chối quyền vị trí. Hãy cho phép định vị rồi thử lại.";
-  if (code === 2) return "Không lấy được vị trí. Kiểm tra Dịch vụ định vị (Location) của Windows đã bật chưa.";
-  if (code === 3) return "Lấy vị trí quá lâu. Kiểm tra mạng và Dịch vụ định vị của Windows rồi thử lại.";
+  if (code === 1)
+    return "Bạn đã từ chối quyền vị trí. Hãy cho phép định vị rồi thử lại.";
+  if (code === 2)
+    return "Không lấy được vị trí. Kiểm tra Dịch vụ định vị (Location) của Windows đã bật chưa.";
+  if (code === 3)
+    return "Lấy vị trí quá lâu. Kiểm tra mạng và Dịch vụ định vị của Windows rồi thử lại.";
   if (e instanceof Error) return e.message;
   return "Không lấy được vị trí.";
 }
@@ -223,8 +244,8 @@ export function ChamCongPage({
 }) {
   const { token } = useAuth();
   const can = useCan();
-  const canConfig = can("nhan_su", "update");   // cấu hình điểm/ca
-  const canView = can("nhan_su", "read");       // xem toàn xưởng (theo scope)
+  const canConfig = can("nhan_su", "update"); // cấu hình điểm/ca
+  const canView = can("nhan_su", "read"); // xem toàn xưởng (theo scope)
   const canApproveEl = can("di_muon", "approve"); // duyệt phiếu đi muộn / về sớm
   const [tab, setTab] = useState<Tab>("me");
 
@@ -238,54 +259,85 @@ export function ChamCongPage({
       <header className="ns__head">
         <div>
           <h1 className="ns__title">Chấm công</h1>
-          <p className="ns__sub">Chấm công theo vị trí GPS · phải ở gần điểm làm việc đã khai</p>
+          <p className="ns__sub">
+            Chấm công theo vị trí GPS · phải ở gần điểm làm việc đã khai
+          </p>
         </div>
       </header>
 
       <nav className="cc-tabs">
-        <button className={tab === "me" ? "is-active" : ""} onClick={() => setTab("me")}>
+        <button
+          className={tab === "me" ? "is-active" : ""}
+          onClick={() => setTab("me")}
+        >
           <UserCheck size={14} /> Chấm công của tôi
         </button>
-        <button className={tab === "my-timesheet" ? "is-active" : ""} onClick={() => setTab("my-timesheet")}>
+        <button
+          className={tab === "my-timesheet" ? "is-active" : ""}
+          onClick={() => setTab("my-timesheet")}
+        >
           <CalendarDays size={14} /> Công của tôi
         </button>
         {/* LUÔN hiện: ai vào được màn Chấm công cũng phải xin đi muộn/về sớm cho CHÍNH MÌNH được. */}
-        <button className={tab === "di-muon" ? "is-active" : ""} onClick={() => setTab("di-muon")}>
+        <button
+          className={tab === "di-muon" ? "is-active" : ""}
+          onClick={() => setTab("di-muon")}
+        >
           <Clock3 size={14} /> Đi muộn / về sớm / nghỉ nửa buổi
         </button>
         {canConfig && (
-          <button className={tab === "locations" ? "is-active" : ""} onClick={() => setTab("locations")}>
+          <button
+            className={tab === "locations" ? "is-active" : ""}
+            onClick={() => setTab("locations")}
+          >
             <MapPin size={14} /> Điểm chấm công
           </button>
         )}
         {canConfig && (
-          <button className={tab === "khai-ca" ? "is-active" : ""} onClick={() => setTab("khai-ca")}>
+          <button
+            className={tab === "khai-ca" ? "is-active" : ""}
+            onClick={() => setTab("khai-ca")}
+          >
             <Clock size={14} /> Khai ca
           </button>
         )}
         {canConfig && (
-          <button className={tab === "lich-le" ? "is-active" : ""} onClick={() => setTab("lich-le")}>
+          <button
+            className={tab === "lich-le" ? "is-active" : ""}
+            onClick={() => setTab("lich-le")}
+          >
             <Calendar size={14} /> Lịch & Ngày lễ
           </button>
         )}
         {canView && (
-          <button className={tab === "logs" ? "is-active" : ""} onClick={() => setTab("logs")}>
+          <button
+            className={tab === "logs" ? "is-active" : ""}
+            onClick={() => setTab("logs")}
+          >
             <ClipboardList size={14} /> Bảng chấm công
           </button>
         )}
         {canView && (
-          <button className={tab === "timesheet" ? "is-active" : ""} onClick={() => setTab("timesheet")}>
+          <button
+            className={tab === "timesheet" ? "is-active" : ""}
+            onClick={() => setTab("timesheet")}
+          >
             <Table size={14} /> Bảng công tháng
           </button>
         )}
         {canView && (
-          <button className={tab === "yeu-cau" ? "is-active" : ""} onClick={() => setTab("yeu-cau")}>
+          <button
+            className={tab === "yeu-cau" ? "is-active" : ""}
+            onClick={() => setTab("yeu-cau")}
+          >
             <FileEdit size={14} /> Yêu cầu chỉnh công
           </button>
         )}
       </nav>
 
-      {tab === "me" && <MyCheckIn token={token!} canConfig={canConfig} navigate={navigate} />}
+      {tab === "me" && (
+        <MyCheckIn token={token!} canConfig={canConfig} navigate={navigate} />
+      )}
       {tab === "my-timesheet" && <MyTimesheetTab token={token!} />}
       {tab === "di-muon" && (
         <LateEarlyTab
@@ -298,16 +350,33 @@ export function ChamCongPage({
       {tab === "locations" && canConfig && <LocationsTab token={token!} />}
       {tab === "khai-ca" && canConfig && <ShiftsTab token={token!} />}
       {tab === "lich-le" && canConfig && <CalendarTab token={token!} />}
-      {tab === "logs" && canView && <LogsTab token={token!} focusEmployeeId={focusEmployeeId} />}
-      {tab === "timesheet" && canView && <TimesheetTab token={token!} canAdjust={can("nhan_su", "adjust")} />}
-      {tab === "yeu-cau" && canView && <AdjustRequestsTab token={token!} canAdjust={can("nhan_su", "adjust")} />}
+      {tab === "logs" && canView && (
+        <LogsTab token={token!} focusEmployeeId={focusEmployeeId} />
+      )}
+      {tab === "timesheet" && canView && (
+        <TimesheetTab token={token!} canAdjust={can("nhan_su", "adjust")} />
+      )}
+      {tab === "yeu-cau" && canView && (
+        <AdjustRequestsTab
+          token={token!}
+          canAdjust={can("nhan_su", "adjust")}
+        />
+      )}
     </main>
   );
 }
 
 // --- Tab: Chấm công của tôi -------------------------------------------------
 
-function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: boolean; navigate?: NavigateFn }) {
+function MyCheckIn({
+  token,
+  canConfig,
+  navigate,
+}: {
+  token: string;
+  canConfig: boolean;
+  navigate?: NavigateFn;
+}) {
   const [status, setStatus] = useState<AttendanceStatus | null>(null);
   const [logs, setLogs] = useState<AttendanceLog[]>([]);
   const [checking, setChecking] = useState(false);
@@ -323,20 +392,32 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => {
+      mounted.current = false;
+    };
   }, []);
 
   const load = useCallback(() => {
-    api.attendance.myStatus(token).then(setStatus).catch(() => setStatus(null));
-    api.attendance.myLogs(token).then((r) => setLogs(r.items)).catch(() => setLogs([]));
+    api.attendance
+      .myStatus(token)
+      .then(setStatus)
+      .catch(() => setStatus(null));
+    api.attendance
+      .myLogs(token)
+      .then((r) => setLogs(r.items))
+      .catch(() => setLogs([]));
   }, [token]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   // Clock live update
   useEffect(() => {
     const updateTime = () => {
       const d = new Date();
-      setClockTime(d.toLocaleTimeString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }));
+      setClockTime(
+        d.toLocaleTimeString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" }),
+      );
     };
     updateTime();
     const interval = setInterval(updateTime, 1000);
@@ -345,10 +426,15 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
 
   // Vòng geofence "sống": lấy GPS + dry-run tới server (không ghi log) để biết trong/ngoài vùng.
   const refreshPreview = useCallback(async () => {
-    setLocating(true); setGeoErr(null);
+    setLocating(true);
+    setGeoErr(null);
     try {
       const pos = await getPosition();
-      const p = await api.attendance.preview(token, pos.coords.latitude, pos.coords.longitude);
+      const p = await api.attendance.preview(
+        token,
+        pos.coords.latitude,
+        pos.coords.longitude,
+      );
       if (mounted.current) setPreview(p);
     } catch (e) {
       if (mounted.current) setGeoErr(geoErrText(e));
@@ -357,8 +443,14 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
     }
   }, [token]);
   useEffect(() => {
-    if (status?.has_employee && status.can_check && status.locations_configured) refreshPreview();
-  }, [status?.has_employee, status?.can_check, status?.locations_configured, refreshPreview]);
+    if (status?.has_employee && status.can_check && status.locations_configured)
+      refreshPreview();
+  }, [
+    status?.has_employee,
+    status?.can_check,
+    status?.locations_configured,
+    refreshPreview,
+  ]);
 
   // Đồng hồ LIVE khi đang trong ca (lần chấm gần nhất là VÀO → next_action = "out").
   useEffect(() => {
@@ -383,7 +475,11 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
     setGeoErr(null);
     try {
       const pos = await getPosition();
-      const res = await api.attendance.check(token, pos.coords.latitude, pos.coords.longitude);
+      const res = await api.attendance.check(
+        token,
+        pos.coords.latitude,
+        pos.coords.longitude,
+      );
       setResult(res);
       load();
       refreshPreview();
@@ -407,7 +503,11 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
         radius_m: 150,
         is_active: true,
       });
-      const res = await api.attendance.check(token, pos.coords.latitude, pos.coords.longitude);
+      const res = await api.attendance.check(
+        token,
+        pos.coords.latitude,
+        pos.coords.longitude,
+      );
       setResult(res);
       load();
     } catch (e) {
@@ -422,8 +522,8 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
   if (!status.has_employee) {
     return (
       <div className="banner banner--warn" style={{ marginTop: 12 }}>
-        Tài khoản của bạn <strong>chưa gắn hồ sơ nhân viên</strong> nên không thể tự chấm công.
-        Liên hệ HCNS để nối tài khoản với hồ sơ.
+        Tài khoản của bạn <strong>chưa gắn hồ sơ nhân viên</strong> nên không
+        thể tự chấm công. Liên hệ HCNS để nối tài khoản với hồ sơ.
       </div>
     );
   }
@@ -432,13 +532,29 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
   // Lượt kế tiếp thuộc phiên TĂNG CA (đã ra ca chính + có phiếu duyệt) → đổi nhãn nút cho rõ.
   const otMode = !!status.ot_mode;
   const actionLabel = isIn
-    ? (otMode ? "CHẤM VÀO TĂNG CA" : "CHẤM VÀO")
-    : (otMode ? "CHẤM RA TĂNG CA" : "CHẤM RA");
+    ? otMode
+      ? "CHẤM VÀO TĂNG CA"
+      : "CHẤM VÀO"
+    : otMode
+      ? "CHẤM RA TĂNG CA"
+      : "CHẤM RA";
   const outside = preview != null && !preview.within_range;
-  const showTimer = status.next_action === "out" && status.last_check?.check_type === "in";
-  const btnDisabled = checking || locating || !status.can_check || !status.locations_configured || outside;
+  const showTimer =
+    status.next_action === "out" && status.last_check?.check_type === "in";
+  const btnDisabled =
+    checking ||
+    locating ||
+    !status.can_check ||
+    !status.locations_configured ||
+    outside;
 
-  const geoCls = locating ? "cc-geo-status--wait" : preview?.within_range ? "cc-geo-status--in" : preview ? "cc-geo-status--out" : "";
+  const geoCls = locating
+    ? "cc-geo-status--wait"
+    : preview?.within_range
+      ? "cc-geo-status--in"
+      : preview
+        ? "cc-geo-status--out"
+        : "";
 
   function getShiftProgress(start: string, end: string, now: number): number {
     try {
@@ -467,7 +583,13 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
       <div className="cc-main-card">
         {status.employee_name && (
           <div className="cc-employee-avatar">
-            {status.employee_name.split(" ").filter(Boolean).map(n => n[0]).slice(-2).join("").toUpperCase()}
+            {status.employee_name
+              .split(" ")
+              .filter(Boolean)
+              .map((n) => n[0])
+              .slice(-2)
+              .join("")
+              .toUpperCase()}
           </div>
         )}
         <div className="cc-employee-name">{status.employee_name}</div>
@@ -490,18 +612,27 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
         {status.shift && (
           <div className="cc-shift-tracker">
             <div className="cc-shift-title">
-              <Clock size={14} /> Ca {status.shift.name} ({status.shift.start_time} - {status.shift.end_time})
+              <Clock size={14} /> Ca {status.shift.name} (
+              {status.shift.start_time} - {status.shift.end_time})
             </div>
             <div className="cc-shift-time">
               {showTimer ? (
-                <span>Thời gian đã làm: <b>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b></span>
+                <span>
+                  Thời gian đã làm:{" "}
+                  <b>{fmtElapsed(status.last_check?.checked_at, nowTick)}</b>
+                </span>
               ) : (
                 <span>Chưa bắt đầu ca làm việc.</span>
               )}
             </div>
             {showTimer && (
               <div className="cc-shift-progress-bg">
-                <div className="cc-shift-progress-fill" style={{ width: `${getShiftProgress(status.shift.start_time, status.shift.end_time, nowTick)}%` }} />
+                <div
+                  className="cc-shift-progress-fill"
+                  style={{
+                    width: `${getShiftProgress(status.shift.start_time, status.shift.end_time, nowTick)}%`,
+                  }}
+                />
               </div>
             )}
           </div>
@@ -516,54 +647,126 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
         {/* GPS Range Status Bar */}
         {status.locations_configured && (
           <div className={`cc-geo-status ${geoCls}`}>
-            {locating ? <RefreshCw className="cc-animate-spin" size={14} /> : preview?.within_range ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+            {locating ? (
+              <RefreshCw className="cc-animate-spin" size={14} />
+            ) : preview?.within_range ? (
+              <CheckCircle size={14} />
+            ) : (
+              <AlertTriangle size={14} />
+            )}
             <span style={{ flex: 1, textAlign: "left" }}>
-              {locating ? "📡 Đang định vị GPS của bạn..."
-                : preview?.within_range ? `✓ Trong phạm vi "${preview.nearest_name}" · cách ${Math.round(preview.distance_m ?? 0)} m`
-                : preview ? `⊘ Ngoài phạm vi "${preview.nearest_name}" · còn cách ${Math.round(preview.meters_out ?? 0)} m`
-                : "Bấm nút bên phải để tải lại phạm vi."}
+              {locating
+                ? "📡 Đang định vị GPS của bạn..."
+                : preview?.within_range
+                  ? `✓ Trong phạm vi "${preview.nearest_name}" · cách ${Math.round(preview.distance_m ?? 0)} m`
+                  : preview
+                    ? `⊘ Ngoài phạm vi "${preview.nearest_name}" · còn cách ${Math.round(preview.meters_out ?? 0)} m`
+                    : "Bấm nút bên phải để tải lại phạm vi."}
             </span>
-            <button className="cc-geo-status-refresh" onClick={refreshPreview} disabled={locating} title="Cập nhật vị trí">
-              <RefreshCw size={12} className={locating ? "cc-animate-spin" : ""} />
+            <button
+              className="cc-geo-status-refresh"
+              onClick={refreshPreview}
+              disabled={locating}
+              title="Cập nhật vị trí"
+            >
+              <RefreshCw
+                size={12}
+                className={locating ? "cc-animate-spin" : ""}
+              />
             </button>
           </div>
         )}
 
         {/* Glow Pulsing Radar Button */}
         <div className="cc-radar-container">
-          {!btnDisabled && <div className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`} />}
-          {!btnDisabled && <div className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`} />}
+          {!btnDisabled && (
+            <div
+              className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`}
+            />
+          )}
+          {!btnDisabled && (
+            <div
+              className={`cc-radar-wave ${isIn ? "cc-radar-wave--in" : "cc-radar-wave--out"}`}
+            />
+          )}
           <button
             className={`cc-radar-btn ${outside ? "cc-radar-btn--locked" : isIn ? "cc-radar-btn--in" : "cc-radar-btn--out"}`}
             onClick={() => doCheck()}
             disabled={btnDisabled}
           >
             <span className="cc-radar-btn-icon">
-              {locating ? <RefreshCw className="cc-animate-spin" size={24} /> : !status.can_check || outside ? <Lock size={24} /> : <UserCheck size={24} />}
+              {locating ? (
+                <RefreshCw className="cc-animate-spin" size={24} />
+              ) : !status.can_check || outside ? (
+                <Lock size={24} />
+              ) : (
+                <UserCheck size={24} />
+              )}
             </span>
             <span style={{ fontSize: "14px", marginTop: "2px" }}>
-              {checking ? "Đang chấm…" : locating ? "Đang dò GPS…" : !status.can_check ? "CHƯA ĐẾN GIỜ CHẤM" : actionLabel}
+              {checking
+                ? "Đang chấm…"
+                : locating
+                  ? "Đang dò GPS…"
+                  : !status.can_check
+                    ? "CHƯA ĐẾN GIỜ CHẤM"
+                    : actionLabel}
             </span>
           </button>
         </div>
 
         {!status.locations_configured && (
-          <p className="cc-note">Chưa cấu hình điểm chấm công nào. Hãy liên hệ HCNS.</p>
+          <p className="cc-note">
+            Chưa cấu hình điểm chấm công nào. Hãy liên hệ HCNS.
+          </p>
         )}
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", width: "100%", marginTop: "16px" }}>
-          <button className="btn btn--ghost" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "10px var(--sp-2)", fontSize: "13px" }} onClick={() => setShowHistory(true)}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "10px",
+            width: "100%",
+            marginTop: "16px",
+          }}
+        >
+          <button
+            className="btn btn--ghost"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "6px",
+              padding: "10px var(--sp-2)",
+              fontSize: "13px",
+            }}
+            onClick={() => setShowHistory(true)}
+          >
             <ClipboardList size={14} /> Lịch sử
           </button>
           {navigate && (
-            <button className="btn btn--ghost" style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px", padding: "10px var(--sp-2)", fontSize: "13px" }} onClick={() => navigate("nghi-phep")}>
+            <button
+              className="btn btn--ghost"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "6px",
+                padding: "10px var(--sp-2)",
+                fontSize: "13px",
+              }}
+              onClick={() => navigate("nghi-phep")}
+            >
               <Coffee size={14} /> Nghỉ phép
             </button>
           )}
         </div>
 
         {geoErr && (
-          <div className="banner banner--error" style={{ marginTop: 12, width: "100%" }}>
+          <div
+            className="banner banner--error"
+            style={{ marginTop: 12, width: "100%" }}
+          >
             {geoErr}{" "}
             <button
               className="btn btn--ghost"
@@ -576,21 +779,31 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
           </div>
         )}
         {result && (
-          <div className={`banner ${result.success ? "banner--ok" : "banner--warn"}`} style={{ marginTop: 12, width: "100%" }}>
+          <div
+            className={`banner ${result.success ? "banner--ok" : "banner--warn"}`}
+            style={{ marginTop: 12, width: "100%" }}
+          >
             {result.message}
           </div>
         )}
 
-        {canConfig && (!status.locations_configured || (result != null && !result.within_range)) && (
-          <div className="cc-setup" style={{ width: "100%" }}>
-            <button className="btn btn--ghost cc-setup__btn" onClick={setPointHere} disabled={checking}>
-              📍 Đặt điểm chấm công tại đây
-            </button>
-            <p className="cc-note">
-              Tạo điểm chấm công mới tại tọa độ hiện tại (bán kính 150m) để chấm ngay.
-            </p>
-          </div>
-        )}
+        {canConfig &&
+          (!status.locations_configured ||
+            (result != null && !result.within_range)) && (
+            <div className="cc-setup" style={{ width: "100%" }}>
+              <button
+                className="btn btn--ghost cc-setup__btn"
+                onClick={setPointHere}
+                disabled={checking}
+              >
+                📍 Đặt điểm chấm công tại đây
+              </button>
+              <p className="cc-note">
+                Tạo điểm chấm công mới tại tọa độ hiện tại (bán kính 150m) để
+                chấm ngay.
+              </p>
+            </div>
+          )}
       </div>
 
       {showHistory && (
@@ -599,29 +812,83 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
 
       {showConfirmOut && (
         <div className="ns-modal" role="dialog" aria-modal="true">
-          <div className="ns-modal__box cc-confirm-box" style={{ maxWidth: "420px" }}>
+          <div
+            className="ns-modal__box cc-confirm-box"
+            style={{ maxWidth: "420px" }}
+          >
             <header className="ns-modal__head">
-              <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
+              <h2
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  margin: 0,
+                }}
+              >
                 {otMode ? "Xác nhận kết thúc tăng ca" : "Xác nhận kết thúc ca"}
               </h2>
-              <button className="ns-modal__x" onClick={() => setShowConfirmOut(false)}>×</button>
+              <button
+                className="ns-modal__x"
+                onClick={() => setShowConfirmOut(false)}
+              >
+                ×
+              </button>
             </header>
-            <div className="ns-modal__body" style={{ textAlign: "center", padding: "28px 20px" }}>
+            <div
+              className="ns-modal__body"
+              style={{ textAlign: "center", padding: "28px 20px" }}
+            >
               <div className="cc-confirm-icon-wrap">
                 <LogOut size={32} />
               </div>
-              <p style={{ fontSize: "16px", fontWeight: "var(--fw-bold)", color: "var(--ink)", margin: "20px 0 8px 0" }}>
+              <p
+                style={{
+                  fontSize: "16px",
+                  fontWeight: "var(--fw-bold)",
+                  color: "var(--ink)",
+                  margin: "20px 0 8px 0",
+                }}
+              >
                 {otMode ? "Bạn sắp chấm RA TĂNG CA" : "Bạn sắp chấm RA"}
               </p>
-              <p style={{ fontSize: "13px", color: "var(--ash)", lineHeight: "1.5", margin: 0 }}>
+              <p
+                style={{
+                  fontSize: "13px",
+                  color: "var(--ash)",
+                  lineHeight: "1.5",
+                  margin: 0,
+                }}
+              >
                 {otMode
                   ? "Hành động này sẽ ghi nhận giờ kết thúc phiên tăng ca của bạn. Giờ tăng ca được trả theo thực tế bạn chấm ra (trong khung phiếu đã duyệt)."
                   : "Hành động này sẽ ghi nhận giờ kết thúc ca làm việc của bạn. Bạn chắc chắn muốn kết thúc ca chứ?"}
               </p>
             </div>
-            <footer className="ns-modal__foot" style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-              <button className="btn btn--ghost" style={{ flex: 1 }} onClick={() => setShowConfirmOut(false)}>Hủy</button>
-              <button className="btn btn--primary" style={{ flex: 1, background: "var(--signal)", borderColor: "var(--signal)", color: "#fff" }} onClick={() => doCheck(true)}>
+            <footer
+              className="ns-modal__foot"
+              style={{
+                display: "flex",
+                gap: "12px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                className="btn btn--ghost"
+                style={{ flex: 1 }}
+                onClick={() => setShowConfirmOut(false)}
+              >
+                Hủy
+              </button>
+              <button
+                className="btn btn--primary"
+                style={{
+                  flex: 1,
+                  background: "var(--signal)",
+                  borderColor: "var(--signal)",
+                  color: "#fff",
+                }}
+                onClick={() => doCheck(true)}
+              >
                 {otMode ? "Đồng ý (RA TĂNG CA)" : "Đồng ý (RA)"}
               </button>
             </footer>
@@ -632,48 +899,83 @@ function MyCheckIn({ token, canConfig, navigate }: { token: string; canConfig: b
   );
 }
 
-function MyHistoryModal({ logs, onClose }: { logs: AttendanceLog[]; onClose: () => void }) {
+function MyHistoryModal({
+  logs,
+  onClose,
+}: {
+  logs: AttendanceLog[];
+  onClose: () => void;
+}) {
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
       <div className="ns-modal__box" style={{ maxWidth: "480px" }}>
         <header className="ns-modal__head">
-          <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
+          <h2
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              margin: 0,
+            }}
+          >
             <ClipboardList size={18} /> Lịch sử chấm công của tôi
           </h2>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
-        <div className="ns-modal__body" style={{ maxHeight: "400px", overflowY: "auto" }}>
+        <div
+          className="ns-modal__body"
+          style={{ maxHeight: "400px", overflowY: "auto" }}
+        >
           <div className="cc-timeline" style={{ marginTop: 0 }}>
             {logs.map((l) => (
               <div key={l.id} className="cc-timeline-item">
-                <div className={`cc-timeline-badge ${l.check_type === "in" ? "cc-timeline-badge--in" : "cc-timeline-badge--out"}`} />
+                <div
+                  className={`cc-timeline-badge ${l.check_type === "in" ? "cc-timeline-badge--in" : "cc-timeline-badge--out"}`}
+                />
                 <div className="cc-timeline-content">
                   <div className="cc-timeline-left">
                     <span className="cc-timeline-action">
                       Chấm {l.check_type === "in" ? "VÀO" : "RA"}
                     </span>
                     <span className="cc-timeline-location">
-                      <MapPin size={12} /> {l.location_name || "Vị trí không xác định"}
+                      <MapPin size={12} />{" "}
+                      {l.location_name || "Vị trí không xác định"}
                     </span>
                   </div>
                   <div className="cc-timeline-right">
-                    <span className="cc-timeline-time">{fmtDateTime(l.checked_at)}</span>
+                    <span className="cc-timeline-time">
+                      {fmtDateTime(l.checked_at)}
+                    </span>
                     <div className="cc-timeline-distance">
-                      {l.distance_m != null ? `Cự ly: ${Math.round(l.distance_m)}m` : "—"}
+                      {l.distance_m != null
+                        ? `Cự ly: ${Math.round(l.distance_m)}m`
+                        : "—"}
                     </div>
                   </div>
                 </div>
               </div>
             ))}
             {logs.length === 0 && (
-              <p className="ns__empty" style={{ background: "var(--paper)", padding: "16px", borderRadius: "8px", border: "1px solid var(--rule-soft)" }}>
+              <p
+                className="ns__empty"
+                style={{
+                  background: "var(--paper)",
+                  padding: "16px",
+                  borderRadius: "8px",
+                  border: "1px solid var(--rule-soft)",
+                }}
+              >
                 Chưa có dữ liệu lịch sử chấm công.
               </p>
             )}
           </div>
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose}>Đóng</button>
+          <button className="btn btn--ghost" onClick={onClose}>
+            Đóng
+          </button>
         </footer>
       </div>
     </div>
@@ -691,24 +993,65 @@ function MyTimesheetTab({ token }: { token: string }) {
   const [loading, setLoading] = useState(true);
   const [reqs, setReqs] = useState<AdjustRequest[]>([]);
   const [quota, setQuota] = useState<AdjustQuota | null>(null);
-  const [reqDate, setReqDate] = useState<string | null>(null);   // ngày đang xin chỉnh (mở modal)
+  const [reqDate, setReqDate] = useState<string | null>(null); // ngày đang xin chỉnh (mở modal)
   const [year, month] = ym.split("-").map(Number);
 
   useEffect(() => {
     setLoading(true);
-    api.attendance.myTimesheet(token, year, month)
-      .then(setData).catch(() => setData(null)).finally(() => setLoading(false));
+    api.attendance
+      .myTimesheet(token, year, month)
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
   }, [token, year, month]);
 
   const loadReqs = useCallback(() => {
-    api.attendance.myAdjustRequests(token)
-      .then((r) => { setReqs(r.items); setQuota(r.quota ?? null); })
-      .catch(() => { setReqs([]); setQuota(null); });
+    api.attendance
+      .myAdjustRequests(token)
+      .then((r) => {
+        setReqs(r.items);
+        setQuota(r.quota ?? null);
+      })
+      .catch(() => {
+        setReqs([]);
+        setQuota(null);
+      });
   }, [token]);
-  useEffect(() => { loadReqs(); }, [loadReqs]);
+  useEffect(() => {
+    loadReqs();
+  }, [loadReqs]);
+
+  // Hộp thư "ca của tôi vừa bị đổi" — CHỈ tin CHƯA ĐỌC.
+  //
+  // Mở màn = đánh dấu đã đọc (badge về 0) nhưng khối vẫn HIỆN hết lượt này, để người ta kịp
+  // đọc; lần vào sau mới hết. Lấy cả tin đã đọc thì khối bám đầu màn vĩnh viễn — lỗi đã gặp.
+  // Dài thì gập lại: 50 thông báo mà đổ hết ra là đẩy bảng công xuống dưới màn hình.
+  const [shiftMsgs, setShiftMsgs] = useState<ShiftChange[]>([]);
+  const [msgsOpen, setMsgsOpen] = useState(false);   // mở rộng xem hết
+  const [msgsHidden, setMsgsHidden] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    api.attendance
+      .myShiftChanges(token, { unseen: true })
+      .then((r) => {
+        if (!alive) return;
+        setShiftMsgs(r.items);
+        if (r.items.length > 0) {
+          void api.attendance.markShiftChangesSeen(token).catch(() => {});
+        }
+      })
+      .catch(() => alive && setShiftMsgs([]));
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+  const MSG_PREVIEW = 3;
+  const msgsShown = msgsOpen ? shiftMsgs : shiftMsgs.slice(0, MSG_PREVIEW);
 
   function openReq(dayNum: number) {
-    setReqDate(`${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`);
+    setReqDate(
+      `${year}-${String(month).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`,
+    );
   }
 
   function shiftMonth(offset: number) {
@@ -718,7 +1061,7 @@ function MyTimesheetTab({ token }: { token: string }) {
   }
 
   const row = data?.rows[0] ?? null;
-  
+
   // Build calendar matrix cells
   const startOffset = (new Date(year, month - 1, 1).getDay() + 6) % 7; // Mon=0..Sun=6
   const calendarCells: (number | null)[] = [];
@@ -733,20 +1076,82 @@ function MyTimesheetTab({ token }: { token: string }) {
 
   return (
     <div>
+      {/* Ca bị quản lý đổi — người lao động phải biết, không phải tự phát hiện lúc tới xưởng. */}
+      {shiftMsgs.length > 0 && !msgsHidden && (
+        <div className="cc-myshift">
+          <div className="cc-myshift__bar">
+            <span className="cc-myshift__head">
+              🔔 Ca làm việc của bạn vừa được thay đổi
+              {shiftMsgs.length > 1 && ` (${shiftMsgs.length})`}
+            </span>
+            <button
+              type="button"
+              className="cc-myshift__x"
+              onClick={() => setMsgsHidden(true)}
+              aria-label="Ẩn thông báo"
+              title="Đã đọc, ẩn đi"
+            >
+              ×
+            </button>
+          </div>
+          <ul className={`cc-myshift__list${msgsOpen ? " is-open" : ""}`}>
+            {msgsShown.map((m) => (
+              <li key={m.id}>
+                Ca làm việc ngày <b>{fmtDateVN(m.apply_date)}</b>
+                {m.kind === "base" && " (và các ngày sau)"} của bạn đã được thay đổi từ{" "}
+                <b>{m.is_off_before ? "Nghỉ theo lịch" : (m.shift_name_before ?? "không có ca")}</b>{" "}
+                sang{" "}
+                <b>{m.is_off_after ? "Nghỉ theo lịch" : (m.shift_name_after ?? "không có ca")}</b>
+                {m.actor_name && <> bởi <b>{m.actor_name}</b></>}.
+                <em>{fmtDateTime(m.created_at)}</em>
+              </li>
+            ))}
+          </ul>
+          {shiftMsgs.length > MSG_PREVIEW && (
+            <button
+              type="button"
+              className="cc-myshift__more"
+              onClick={() => setMsgsOpen((o) => !o)}
+            >
+              {msgsOpen
+                ? "Thu gọn"
+                : `Xem thêm ${shiftMsgs.length - MSG_PREVIEW} thay đổi nữa`}
+            </button>
+          )}
+        </div>
+      )}
       <div className="cc-ts-toolbar-container">
         <div className="cc-month-navigator">
-          <button className="cc-month-nav-btn" onClick={() => shiftMonth(-1)} title="Tháng trước">
+          <button
+            className="cc-month-nav-btn"
+            onClick={() => shiftMonth(-1)}
+            title="Tháng trước"
+          >
             <ChevronLeft size={16} />
           </button>
           <span className="cc-month-nav-label">
             Tháng {month} / {year}
           </span>
-          <button className="cc-month-nav-btn" onClick={() => shiftMonth(1)} title="Tháng sau">
+          <button
+            className="cc-month-nav-btn"
+            onClick={() => shiftMonth(1)}
+            title="Tháng sau"
+          >
             <ChevronRight size={16} />
           </button>
           <div className="cc-month-picker-wrapper">
-            <input type="month" className="cc-month-picker-hidden" value={ym} onChange={(e) => setYm(e.target.value)} id="cc-month-picker" />
-            <label htmlFor="cc-month-picker" className="cc-month-picker-trigger" title="Chọn tháng nhanh">
+            <input
+              type="month"
+              className="cc-month-picker-hidden"
+              value={ym}
+              onChange={(e) => setYm(e.target.value)}
+              id="cc-month-picker"
+            />
+            <label
+              htmlFor="cc-month-picker"
+              className="cc-month-picker-trigger"
+              title="Chọn tháng nhanh"
+            >
               <CalendarDays size={14} /> Chọn tháng
             </label>
           </div>
@@ -755,9 +1160,15 @@ function MyTimesheetTab({ token }: { token: string }) {
         <div className="cc-ts-info-group">
           <div className="cc-ts-legend">
             <span className="cc-ts-legend-title">Chú giải:</span>
-            <span className="cc-badge-pill cc-badge-pill--primary">✓ Đi làm</span>
-            <span className="cc-badge-pill cc-badge-pill--orange">+OT Làm thêm</span>
-            <span className="cc-badge-pill cc-badge-pill--purple">Nghỉ lễ/Phép</span>
+            <span className="cc-badge-pill cc-badge-pill--primary">
+              ✓ Đi làm
+            </span>
+            <span className="cc-badge-pill cc-badge-pill--orange">
+              +OT Làm thêm
+            </span>
+            <span className="cc-badge-pill cc-badge-pill--purple">
+              Nghỉ lễ/Phép
+            </span>
           </div>
 
           <div className="cc-ts-tip">
@@ -767,17 +1178,46 @@ function MyTimesheetTab({ token }: { token: string }) {
         </div>
       </div>
       {loading && <p className="ns__empty">Đang tải biểu công…</p>}
-      {!loading && !row && <p className="ns__empty">Tháng này bạn chưa có dữ liệu chấm công.</p>}
+      {!loading && !row && (
+        <p className="ns__empty">Tháng này bạn chưa có dữ liệu chấm công.</p>
+      )}
       {!loading && row && data && (
-        <div style={{ background: "var(--canvas)", padding: "20px", borderRadius: "10px", border: "1px solid var(--rule-soft)", boxShadow: "var(--shadow-1)" }}>
-          <h4 className="ns-section__title" style={{ marginTop: 0 }}>Lịch công của tôi ({month}/{year})</h4>
-          
+        <div
+          style={{
+            background: "var(--canvas)",
+            padding: "20px",
+            borderRadius: "10px",
+            border: "1px solid var(--rule-soft)",
+            boxShadow: "var(--shadow-1)",
+          }}
+        >
+          <h4 className="ns-section__title" style={{ marginTop: 0 }}>
+            Lịch công của tôi ({month}/{year})
+          </h4>
+
           <div className="cc-month-grid">
             {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((w) => (
-              <div key={w} style={{ textAlign: "center", fontWeight: "bold", fontSize: "12px", paddingBottom: "8px", color: "var(--ash)" }}>{w}</div>
+              <div
+                key={w}
+                style={{
+                  textAlign: "center",
+                  fontWeight: "bold",
+                  fontSize: "12px",
+                  paddingBottom: "8px",
+                  color: "var(--ash)",
+                }}
+              >
+                {w}
+              </div>
             ))}
             {calendarCells.map((dayNum, idx) => {
-              if (dayNum === null) return <div key={`empty-${idx}`} className="cc-month-cell cc-month-cell--empty" />;
+              if (dayNum === null)
+                return (
+                  <div
+                    key={`empty-${idx}`}
+                    className="cc-month-cell cc-month-cell--empty"
+                  />
+                );
               const day = row.days[String(dayNum)];
               let cellClass = "cc-month-cell";
               let statusLabel = "";
@@ -792,33 +1232,93 @@ function MyTimesheetTab({ token }: { token: string }) {
                   const hasPunch = day.first_in || day.last_out;
                   if (hasPunch) {
                     cellClass += " cc-month-cell--work";
-                    if (day.late || day.early) cellClass += " cc-month-cell--makeup";
+                    if (day.late || day.early)
+                      cellClass += " cc-month-cell--makeup";
                     timeRange = `${day.first_in ?? "?"} - ${day.last_out ?? "?"}`;
-                    statusLabel = day.cong != null ? `Công: ${day.cong}` : (day.hours != null ? `${day.hours}h` : "Đã chấm");
+                    statusLabel =
+                      day.cong != null
+                        ? `Công: ${day.cong}`
+                        : day.hours != null
+                          ? `${day.hours}h`
+                          : "Đã chấm";
                     if (day.ot_minutes) otBadge = true;
                   }
                 }
               }
-              
-              const currentDayOfWeek = new Date(year, month - 1, dayNum).getDay();
-              const isWeekend = currentDayOfWeek === 0 || currentDayOfWeek === 6;
+
+              const currentDayOfWeek = new Date(
+                year,
+                month - 1,
+                dayNum,
+              ).getDay();
+              const isWeekend =
+                currentDayOfWeek === 0 || currentDayOfWeek === 6;
               if (!day && isWeekend) {
                 cellClass += " cc-month-cell--weekend";
               }
 
               return (
-                <div key={dayNum} className={cellClass} style={{ cursor: "pointer" }} onClick={() => openReq(dayNum)}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div
+                  key={dayNum}
+                  className={cellClass}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => openReq(dayNum)}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <span className="cc-month-cell-num">{dayNum}</span>
-                    {otBadge && <span className="cc-badge-pill cc-badge-pill--orange" style={{ padding: "1px 4px", fontSize: "9px" }}>+OT</span>}
+                    {otBadge && (
+                      <span
+                        className="cc-badge-pill cc-badge-pill--orange"
+                        style={{ padding: "1px 4px", fontSize: "9px" }}
+                      >
+                        +OT
+                      </span>
+                    )}
                   </div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--ink)", marginTop: "4px" }}>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      color: "var(--ink)",
+                      marginTop: "4px",
+                    }}
+                  >
                     {timeRange || "—"}
                   </div>
-                  <div style={{ fontSize: "10px", color: "var(--ash)", marginTop: "2px", display: "flex", justifyContent: "space-between", width: "100%" }}>
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "var(--ash)",
+                      marginTop: "2px",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      width: "100%",
+                    }}
+                  >
                     <span>{statusLabel}</span>
-                    {day?.late && <span style={{ color: "var(--signal)", fontWeight: "bold" }}>Muộn</span>}
-                    {day?.early && <span style={{ color: "var(--amber-deep)", fontWeight: "bold" }}>Sớm</span>}
+                    {day?.late && (
+                      <span
+                        style={{ color: "var(--signal)", fontWeight: "bold" }}
+                      >
+                        Muộn
+                      </span>
+                    )}
+                    {day?.early && (
+                      <span
+                        style={{
+                          color: "var(--amber-deep)",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        Sớm
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -832,25 +1332,53 @@ function MyTimesheetTab({ token }: { token: string }) {
           <h4 className="ns-section__title">
             Yêu cầu chỉnh công đã gửi
             {quota && quota.limit > 0 && (
-              <span className="cc-note" style={{ marginLeft: 8, fontWeight: 400 }}>
-                · tháng {quota.month}: {quota.used}/{quota.limit} ngày, còn {quota.remaining} lần
+              <span
+                className="cc-note"
+                style={{ marginLeft: 8, fontWeight: 400 }}
+              >
+                · tháng {quota.month}: {quota.used}/{quota.limit} ngày, còn{" "}
+                {quota.remaining} lần
               </span>
             )}
           </h4>
           <div className="ns__tablewrap">
             <table className="ns__table">
-              <thead><tr><th>Ngày</th><th>Chấm</th><th>Giờ đề xuất</th><th>Lý do</th><th>Trạng thái</th><th>Thao tác</th></tr></thead>
+              <thead>
+                <tr>
+                  <th>Ngày</th>
+                  <th>Chấm</th>
+                  <th>Giờ đề xuất</th>
+                  <th>Lý do</th>
+                  <th>Trạng thái</th>
+                  <th>Thao tác</th>
+                </tr>
+              </thead>
               <tbody>
                 {reqs.map((r) => (
                   <tr key={r.id}>
                     <td>{r.work_date}</td>
                     <td>{r.check_type === "in" ? "VÀO" : "RA"}</td>
                     <td>{r.suggested_time ?? "—"}</td>
-                    <td>{r.reason}{r.decision_note ? ` · (${r.decision_note})` : ""}</td>
+                    <td>
+                      {r.reason}
+                      {r.decision_note ? ` · (${r.decision_note})` : ""}
+                    </td>
                     <td>{statusBadge(r.status)}</td>
-                    <td>{r.status === "pending" && (
-                      <button className="btn btn--ghost ns-danger" style={{ padding: "2px 8px" }} onClick={() => api.attendance.cancelAdjustRequest(token, r.id).then(loadReqs)}>Hủy</button>
-                    )}</td>
+                    <td>
+                      {r.status === "pending" && (
+                        <button
+                          className="btn btn--ghost ns-danger"
+                          style={{ padding: "2px 8px" }}
+                          onClick={() =>
+                            api.attendance
+                              .cancelAdjustRequest(token, r.id)
+                              .then(loadReqs)
+                          }
+                        >
+                          Hủy
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -860,17 +1388,34 @@ function MyTimesheetTab({ token }: { token: string }) {
       )}
 
       {reqDate && (
-        <RequestAdjustModal token={token} date={reqDate} quota={quota}
-          onClose={() => setReqDate(null)} onSaved={() => { setReqDate(null); loadReqs(); }} />
+        <RequestAdjustModal
+          token={token}
+          date={reqDate}
+          quota={quota}
+          onClose={() => setReqDate(null)}
+          onSaved={() => {
+            setReqDate(null);
+            loadReqs();
+          }}
+        />
       )}
     </div>
   );
 }
 
 // NV gửi yêu cầu chỉnh công cho 1 ngày (self-service).
-function RequestAdjustModal({ token, date, quota, onClose, onSaved }: {
-  token: string; date: string; quota: AdjustQuota | null;
-  onClose: () => void; onSaved: () => void;
+function RequestAdjustModal({
+  token,
+  date,
+  quota,
+  onClose,
+  onSaved,
+}: {
+  token: string;
+  date: string;
+  quota: AdjustQuota | null;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
   const [checkType, setCheckType] = useState<"in" | "out">("out");
   const [time, setTime] = useState("");
@@ -883,24 +1428,40 @@ function RequestAdjustModal({ token, date, quota, onClose, onSaved }: {
   // Quota trả về là của THÁNG HIỆN TẠI, còn modal mở được cho ngày thuộc tháng khác (xem bảng
   // công tháng trước rồi bấm vào ô). Lệch tháng thì im lặng để backend quyết — thà không nhắc
   // còn hơn khoá nhầm nút Gửi bằng số của tháng khác.
-  const sameMonth = !!quota && date.startsWith(`${quota.year}-${String(quota.month).padStart(2, "0")}-`);
+  const sameMonth =
+    !!quota &&
+    date.startsWith(`${quota.year}-${String(quota.month).padStart(2, "0")}-`);
   const dayCounted = sameMonth && !!quota && quota.days.includes(date);
-  const quotaBlocked = sameMonth && !!quota && quota.limit > 0 && !dayCounted && quota.used >= quota.limit;
-  const quotaNote = !quota || quota.limit === 0 || !sameMonth ? null
-    : quotaBlocked
-      ? `Tháng ${quota.month} đã dùng hết ${quota.used}/${quota.limit} lần chỉnh công. `
-        + `Hủy một yêu cầu đang chờ, hoặc nhờ HCNS chấm bù trực tiếp.`
-      : dayCounted
-        ? `Ngày này đã tính lượt rồi — gửi thêm không tốn lượt. `
-          + `(Tháng ${quota.month}: đã dùng ${quota.used}/${quota.limit} ngày.)`
-        : `Tháng ${quota.month}: đã dùng ${quota.used}/${quota.limit} ngày, còn ${quota.remaining} lần.`;
+  const quotaBlocked =
+    sameMonth &&
+    !!quota &&
+    quota.limit > 0 &&
+    !dayCounted &&
+    quota.used >= quota.limit;
+  const quotaNote =
+    !quota || quota.limit === 0 || !sameMonth
+      ? null
+      : quotaBlocked
+        ? `Tháng ${quota.month} đã dùng hết ${quota.used}/${quota.limit} lần chỉnh công. ` +
+          `Hủy một yêu cầu đang chờ, hoặc nhờ HCNS chấm bù trực tiếp.`
+        : dayCounted
+          ? `Ngày này đã tính lượt rồi — gửi thêm không tốn lượt. ` +
+            `(Tháng ${quota.month}: đã dùng ${quota.used}/${quota.limit} ngày.)`
+          : `Tháng ${quota.month}: đã dùng ${quota.used}/${quota.limit} ngày, còn ${quota.remaining} lần.`;
 
   async function submit() {
-    if (!reason.trim()) { setError("Phải nhập lý do."); return; }
-    setBusy(true); setError(null);
+    if (!reason.trim()) {
+      setError("Phải nhập lý do.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
     try {
       await api.attendance.createAdjustRequest(token, {
-        date, check_type: checkType, suggested_time: time || null, reason: reason.trim(),
+        date,
+        check_type: checkType,
+        suggested_time: time || null,
+        reason: reason.trim(),
       });
       onSaved();
     } catch (e) {
@@ -914,30 +1475,65 @@ function RequestAdjustModal({ token, date, quota, onClose, onSaved }: {
       <div className="ns-modal__box">
         <header className="ns-modal__head">
           <h2>Xin chỉnh công · {date}</h2>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
         <div className="ns-modal__body">
           {error && <div className="banner banner--error">{error}</div>}
           {quotaNote && (
-            <div className={`banner ${quotaBlocked ? "banner--warn" : ""}`} style={{ marginBottom: 12 }}>
+            <div
+              className={`banner ${quotaBlocked ? "banner--warn" : ""}`}
+              style={{ marginBottom: 12 }}
+            >
               {quotaNote}
             </div>
           )}
           <div className="ns-grid">
-            <label className="ns-field"><span className="ns-field__label">Chấm còn thiếu</span>
-              <select value={checkType} onChange={(e) => setCheckType(e.target.value as "in" | "out")}>
-                <option value="in">VÀO</option><option value="out">RA</option>
-              </select></label>
-            <label className="ns-field"><span className="ns-field__label">Giờ (gợi ý, không bắt buộc)</span>
-              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} /></label>
+            <label className="ns-field">
+              <span className="ns-field__label">Chấm còn thiếu</span>
+              <select
+                value={checkType}
+                onChange={(e) => setCheckType(e.target.value as "in" | "out")}
+              >
+                <option value="in">VÀO</option>
+                <option value="out">RA</option>
+              </select>
+            </label>
+            <label className="ns-field">
+              <span className="ns-field__label">
+                Giờ (gợi ý, không bắt buộc)
+              </span>
+              <input
+                type="time"
+                value={time}
+                onChange={(e) => setTime(e.target.value)}
+              />
+            </label>
           </div>
-          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Lý do (bắt buộc)</span>
-            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="vd: Quên chấm ra vì máy hết pin…" /></label>
-          <p className="cc-note">Yêu cầu sẽ gửi HCNS duyệt. Được duyệt thì công tự cập nhật.</p>
+          <label className="ns-field" style={{ marginTop: 12 }}>
+            <span className="ns-field__label">Lý do (bắt buộc)</span>
+            <input
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="vd: Quên chấm ra vì máy hết pin…"
+            />
+          </label>
+          <p className="cc-note">
+            Yêu cầu sẽ gửi HCNS duyệt. Được duyệt thì công tự cập nhật.
+          </p>
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn--primary" onClick={submit} disabled={busy || quotaBlocked}>{busy ? "Đang gửi…" : "Gửi yêu cầu"}</button>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
+            Hủy
+          </button>
+          <button
+            className="btn btn--primary"
+            onClick={submit}
+            disabled={busy || quotaBlocked}
+          >
+            {busy ? "Đang gửi…" : "Gửi yêu cầu"}
+          </button>
         </footer>
       </div>
     </div>
@@ -951,12 +1547,18 @@ function LocationsTab({ token }: { token: string }) {
   const [editing, setEditing] = useState<WorkLocation | "new" | null>(null);
 
   const load = useCallback(() => {
-    api.attendance.locations(token).then((r) => setItems(r.items)).catch(() => setItems([]));
+    api.attendance
+      .locations(token)
+      .then((r) => setItems(r.items))
+      .catch(() => setItems([]));
   }, [token]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   async function remove(id: number) {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa điểm chấm công này?")) return;
+    if (!window.confirm("Bạn có chắc chắn muốn xóa điểm chấm công này?"))
+      return;
     await api.attendance.deleteLocation(token, id);
     load();
   }
@@ -975,33 +1577,70 @@ function LocationsTab({ token }: { token: string }) {
             <div>
               <div className="cc-loc-header">
                 <span className="cc-loc-title">{l.name}</span>
-                <span className={`cc-badge-pill ${l.is_active ? "cc-badge-pill--primary" : "cc-badge-pill--gray"}`}>
+                <span
+                  className={`cc-badge-pill ${l.is_active ? "cc-badge-pill--primary" : "cc-badge-pill--gray"}`}
+                >
                   {l.is_active ? "Đang dùng" : "Đã tắt"}
                 </span>
               </div>
               <div className="cc-loc-details">
-                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                <div
+                  style={{ display: "flex", gap: "6px", alignItems: "center" }}
+                >
                   <MapIcon size={14} />
-                  <span className="cc-loc-coord">{Number(l.latitude).toFixed(6)}, {Number(l.longitude).toFixed(6)}</span>
+                  <span className="cc-loc-coord">
+                    {Number(l.latitude).toFixed(6)},{" "}
+                    {Number(l.longitude).toFixed(6)}
+                  </span>
                 </div>
                 <div className="cc-loc-radius">
-                  <div style={{ width: "10px", height: "10px", borderRadius: "50%", border: "2px solid var(--rust)", background: "var(--rust-soft)" }} />
+                  <div
+                    style={{
+                      width: "10px",
+                      height: "10px",
+                      borderRadius: "50%",
+                      border: "2px solid var(--rust)",
+                      background: "var(--rust-soft)",
+                    }}
+                  />
                   Bán kính geofence: <b>{l.radius_m} m</b>
                 </div>
-                {l.note && <div style={{ fontSize: "12px", color: "var(--ash)", marginTop: "4px" }}>Ghi chú: {l.note}</div>}
+                {l.note && (
+                  <div
+                    style={{
+                      fontSize: "12px",
+                      color: "var(--ash)",
+                      marginTop: "4px",
+                    }}
+                  >
+                    Ghi chú: {l.note}
+                  </div>
+                )}
               </div>
             </div>
             <div className="cc-loc-actions">
-              <button className="btn btn--ghost" style={{ padding: "4px 10px" }} onClick={() => setEditing(l)}>
+              <button
+                className="btn btn--ghost"
+                style={{ padding: "4px 10px" }}
+                onClick={() => setEditing(l)}
+              >
                 <Edit3 size={12} /> Sửa
               </button>
-              <button className="btn btn--ghost ns-danger" style={{ padding: "4px 10px" }} onClick={() => remove(l.id)}>
+              <button
+                className="btn btn--ghost ns-danger"
+                style={{ padding: "4px 10px" }}
+                onClick={() => remove(l.id)}
+              >
                 <Trash2 size={12} /> Xóa
               </button>
             </div>
           </div>
         ))}
-        {items?.length === 0 && <div className="ns__empty" style={{ gridColumn: "1/-1" }}>Chưa có điểm chấm công nào được cấu hình.</div>}
+        {items?.length === 0 && (
+          <div className="ns__empty" style={{ gridColumn: "1/-1" }}>
+            Chưa có điểm chấm công nào được cấu hình.
+          </div>
+        )}
       </div>
 
       {editing && (
@@ -1009,15 +1648,26 @@ function LocationsTab({ token }: { token: string }) {
           token={token}
           location={editing === "new" ? null : editing}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); load(); }}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
         />
       )}
     </div>
   );
 }
 
-function LocationForm({ token, location, onClose, onSaved }: {
-  token: string; location: WorkLocation | null; onClose: () => void; onSaved: () => void;
+function LocationForm({
+  token,
+  location,
+  onClose,
+  onSaved,
+}: {
+  token: string;
+  location: WorkLocation | null;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
   const [form, setForm] = useState<WorkLocationInput>({
     name: location?.name ?? "",
@@ -1031,7 +1681,10 @@ function LocationForm({ token, location, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
 
-  function set<K extends keyof WorkLocationInput>(k: K, v: WorkLocationInput[K]) {
+  function set<K extends keyof WorkLocationInput>(
+    k: K,
+    v: WorkLocationInput[K],
+  ) {
     setForm((f) => ({ ...f, [k]: v }));
   }
 
@@ -1040,7 +1693,11 @@ function LocationForm({ token, location, onClose, onSaved }: {
     setError(null);
     try {
       const pos = await getPosition();
-      setForm((f) => ({ ...f, latitude: Number(pos.coords.latitude.toFixed(7)), longitude: Number(pos.coords.longitude.toFixed(7)) }));
+      setForm((f) => ({
+        ...f,
+        latitude: Number(pos.coords.latitude.toFixed(7)),
+        longitude: Number(pos.coords.longitude.toFixed(7)),
+      }));
     } catch (e) {
       setError(geoErrText(e));
     } finally {
@@ -1052,7 +1709,8 @@ function LocationForm({ token, location, onClose, onSaved }: {
     setBusy(true);
     setError(null);
     try {
-      if (location) await api.attendance.updateLocation(token, location.id, form);
+      if (location)
+        await api.attendance.updateLocation(token, location.id, form);
       else await api.attendance.createLocation(token, form);
       onSaved();
     } catch (e) {
@@ -1066,32 +1724,82 @@ function LocationForm({ token, location, onClose, onSaved }: {
       <div className="ns-modal__box">
         <header className="ns-modal__head">
           <h2>{location ? "Sửa điểm chấm công" : "Thêm điểm chấm công"}</h2>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
         <div className="ns-modal__body">
           {error && <div className="banner banner--error">{error}</div>}
-          <label className="ns-field"><span className="ns-field__label">Tên điểm *</span>
-            <input value={form.name} onChange={(e) => set("name", e.target.value)} /></label>
+          <label className="ns-field">
+            <span className="ns-field__label">Tên điểm *</span>
+            <input
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+            />
+          </label>
           <div className="ns-grid" style={{ marginTop: 12 }}>
-            <label className="ns-field"><span className="ns-field__label">Vĩ độ (latitude)</span>
-              <input type="number" step="0.0000001" value={form.latitude} onChange={(e) => set("latitude", Number(e.target.value))} /></label>
-            <label className="ns-field"><span className="ns-field__label">Kinh độ (longitude)</span>
-              <input type="number" step="0.0000001" value={form.longitude} onChange={(e) => set("longitude", Number(e.target.value))} /></label>
-            <label className="ns-field"><span className="ns-field__label">Bán kính (mét)</span>
-              <input type="number" min={1} value={form.radius_m} onChange={(e) => set("radius_m", Number(e.target.value))} /></label>
-            <label className="ns-field"><span className="ns-field__label">Trạng thái</span>
-              <label className="ns-check"><input type="checkbox" checked={!!form.is_active} onChange={(e) => set("is_active", e.target.checked)} /> Đang dùng</label>
+            <label className="ns-field">
+              <span className="ns-field__label">Vĩ độ (latitude)</span>
+              <input
+                type="number"
+                step="0.0000001"
+                value={form.latitude}
+                onChange={(e) => set("latitude", Number(e.target.value))}
+              />
+            </label>
+            <label className="ns-field">
+              <span className="ns-field__label">Kinh độ (longitude)</span>
+              <input
+                type="number"
+                step="0.0000001"
+                value={form.longitude}
+                onChange={(e) => set("longitude", Number(e.target.value))}
+              />
+            </label>
+            <label className="ns-field">
+              <span className="ns-field__label">Bán kính (mét)</span>
+              <input
+                type="number"
+                min={1}
+                value={form.radius_m}
+                onChange={(e) => set("radius_m", Number(e.target.value))}
+              />
+            </label>
+            <label className="ns-field">
+              <span className="ns-field__label">Trạng thái</span>
+              <label className="ns-check">
+                <input
+                  type="checkbox"
+                  checked={!!form.is_active}
+                  onChange={(e) => set("is_active", e.target.checked)}
+                />{" "}
+                Đang dùng
+              </label>
             </label>
           </div>
-          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Ghi chú (địa chỉ…)</span>
-            <input value={form.note ?? ""} onChange={(e) => set("note", e.target.value)} /></label>
-          <button className="btn btn--ghost" style={{ marginTop: 12 }} onClick={useMyLocation} disabled={locating}>
+          <label className="ns-field" style={{ marginTop: 12 }}>
+            <span className="ns-field__label">Ghi chú (địa chỉ…)</span>
+            <input
+              value={form.note ?? ""}
+              onChange={(e) => set("note", e.target.value)}
+            />
+          </label>
+          <button
+            className="btn btn--ghost"
+            style={{ marginTop: 12 }}
+            onClick={useMyLocation}
+            disabled={locating}
+          >
             {locating ? "Đang lấy…" : "📍 Lấy vị trí hiện tại của tôi"}
           </button>
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? "Đang lưu…" : "Lưu"}</button>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
+            Hủy
+          </button>
+          <button className="btn btn--primary" onClick={save} disabled={busy}>
+            {busy ? "Đang lưu…" : "Lưu"}
+          </button>
         </footer>
       </div>
     </div>
@@ -1100,38 +1808,62 @@ function LocationForm({ token, location, onClose, onSaved }: {
 
 // --- Tab: Bảng chấm công (HR) -----------------------------------------------
 
-function LogsTab({ token, focusEmployeeId }: { token: string; focusEmployeeId?: number }) {
+function LogsTab({
+  token,
+  focusEmployeeId,
+}: {
+  token: string;
+  focusEmployeeId?: number;
+}) {
   const [items, setItems] = useState<AttendanceLog[] | null>(null);
   const [focus, setFocus] = useState<number | undefined>(focusEmployeeId);
   const [kpi, setKpi] = useState<TodayKpi | null>(null);
 
   useEffect(() => setFocus(focusEmployeeId), [focusEmployeeId]);
   useEffect(() => {
-    api.attendance.logs(token, focus).then((r) => setItems(r.items)).catch(() => setItems([]));
+    api.attendance
+      .logs(token, focus)
+      .then((r) => setItems(r.items))
+      .catch(() => setItems([]));
   }, [token, focus]);
 
   useEffect(() => {
     if (focus == null) {
-      api.attendance.kpi(token).then(setKpi).catch(() => setKpi(null));
+      api.attendance
+        .kpi(token)
+        .then(setKpi)
+        .catch(() => setKpi(null));
     }
   }, [token, focus]);
 
-  const focusName = focus ? items?.find((l) => l.employee_id === focus)?.employee_name : undefined;
+  const focusName = focus
+    ? items?.find((l) => l.employee_id === focus)?.employee_name
+    : undefined;
 
   // Render chart slices for Recharts MixDonut
-  const chartSlices = kpi ? [
-    { label: "Đang có mặt", value: kpi.present_now },
-    { label: "Quên chấm RA", value: kpi.missing_out },
-    { label: "Đi muộn hôm nay", value: kpi.late_today },
-    { label: "YC chờ duyệt", value: kpi.pending_requests },
-  ].filter(s => s.value > 0) : [];
+  const chartSlices = kpi
+    ? [
+        { label: "Đang có mặt", value: kpi.present_now },
+        { label: "Quên chấm RA", value: kpi.missing_out },
+        { label: "Đi muộn hôm nay", value: kpi.late_today },
+        { label: "YC chờ duyệt", value: kpi.pending_requests },
+      ].filter((s) => s.value > 0)
+    : [];
 
   return (
     <div>
       {focus != null && (
         <div className="cc-focus">
-          <span>Đang xem chấm công của <b>{focusName ?? `NV #${focus}`}</b></span>
-          <button type="button" className="btn btn--ghost" onClick={() => setFocus(undefined)}>✕ Bỏ lọc — xem cả xưởng</button>
+          <span>
+            Đang xem chấm công của <b>{focusName ?? `NV #${focus}`}</b>
+          </span>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => setFocus(undefined)}
+          >
+            ✕ Bỏ lọc — xem cả xưởng
+          </button>
         </div>
       )}
 
@@ -1179,7 +1911,14 @@ function LogsTab({ token, focusEmployeeId }: { token: string; focusEmployeeId?: 
             </div>
 
             {/* Donut chart analysis */}
-            <div style={{ background: "var(--paper)", padding: "16px", borderRadius: "10px", border: "1px solid var(--rule-soft)" }}>
+            <div
+              style={{
+                background: "var(--paper)",
+                padding: "16px",
+                borderRadius: "10px",
+                border: "1px solid var(--rule-soft)",
+              }}
+            >
               <div className="cc-chart-title">
                 <ClipboardList size={14} /> Tỷ lệ chuyên cần hôm nay
               </div>
@@ -1194,7 +1933,15 @@ function LogsTab({ token, focusEmployeeId }: { token: string; focusEmployeeId?: 
                   />
                 </div>
               ) : (
-                <div className="ns__empty" style={{ height: "160px", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div
+                  className="ns__empty"
+                  style={{
+                    height: "160px",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
                   Hôm nay chưa có dữ liệu chấm công.
                 </div>
               )}
@@ -1203,7 +1950,11 @@ function LogsTab({ token, focusEmployeeId }: { token: string; focusEmployeeId?: 
         </div>
       )}
 
-      {!items ? <p className="ns__empty">Đang tải lịch sử chấm công…</p> : <AttendanceTable logs={items} showEmployee={focus == null} />}
+      {!items ? (
+        <p className="ns__empty">Đang tải lịch sử chấm công…</p>
+      ) : (
+        <AttendanceTable logs={items} showEmployee={focus == null} />
+      )}
     </div>
   );
 }
@@ -1214,13 +1965,21 @@ function LogsTab({ token, focusEmployeeId }: { token: string; focusEmployeeId?: 
 
 // --- Tab: Lịch làm việc & Ngày lễ (nền dùng chung cho Công / Phép / Lương) --
 
-const WEEKDAY_FIELDS: { key: keyof WorkCalendarConfigInput; label: string }[] = [
-  { key: "works_mon", label: "T2" }, { key: "works_tue", label: "T3" },
-  { key: "works_wed", label: "T4" }, { key: "works_thu", label: "T5" },
-  { key: "works_fri", label: "T6" }, { key: "works_sat", label: "T7" },
-  { key: "works_sun", label: "CN" },
-];
-const KIND_LABEL: Record<string, string> = { off: "Nghỉ lễ", work: "Làm bù", off1x: "Nghỉ — làm 1×" };
+const WEEKDAY_FIELDS: { key: keyof WorkCalendarConfigInput; label: string }[] =
+  [
+    { key: "works_mon", label: "T2" },
+    { key: "works_tue", label: "T3" },
+    { key: "works_wed", label: "T4" },
+    { key: "works_thu", label: "T5" },
+    { key: "works_fri", label: "T6" },
+    { key: "works_sat", label: "T7" },
+    { key: "works_sun", label: "CN" },
+  ];
+const KIND_LABEL: Record<string, string> = {
+  off: "Nghỉ lễ",
+  work: "Làm bù",
+  off1x: "Nghỉ — làm 1×",
+};
 
 function fmtDateVN(iso: string): string {
   const [y, m, d] = iso.split("-");
@@ -1245,17 +2004,32 @@ function CalendarTab({ token }: { token: string }) {
   const [preview, setPreview] = useState<CalendarMonth | null>(null);
 
   const loadConfig = useCallback(() => {
-    api.calendar.getConfig(token).then(setConfig).catch(() => setConfig(null));
+    api.calendar
+      .getConfig(token)
+      .then(setConfig)
+      .catch(() => setConfig(null));
   }, [token]);
   const loadSpecial = useCallback(() => {
-    api.calendar.specialDays(token, year).then(setSpecial).catch(() => setSpecial(null));
+    api.calendar
+      .specialDays(token, year)
+      .then(setSpecial)
+      .catch(() => setSpecial(null));
   }, [token, year]);
   const loadPreview = useCallback(() => {
-    api.calendar.month(token, year, previewMonth).then(setPreview).catch(() => setPreview(null));
+    api.calendar
+      .month(token, year, previewMonth)
+      .then(setPreview)
+      .catch(() => setPreview(null));
   }, [token, year, previewMonth]);
-  useEffect(() => { loadConfig(); }, [loadConfig]);
-  useEffect(() => { loadSpecial(); }, [loadSpecial]);
-  useEffect(() => { loadPreview(); }, [loadPreview]);
+  useEffect(() => {
+    loadConfig();
+  }, [loadConfig]);
+  useEffect(() => {
+    loadSpecial();
+  }, [loadSpecial]);
+  useEffect(() => {
+    loadPreview();
+  }, [loadPreview]);
 
   function toggleDay(key: keyof WorkCalendarConfigInput) {
     setConfig((c) => (c ? { ...c, [key]: !c[key] } : c));
@@ -1263,11 +2037,16 @@ function CalendarTab({ token }: { token: string }) {
   }
   async function saveConfig() {
     if (!config) return;
-    setCfgBusy(true); setCfgMsg(null);
+    setCfgBusy(true);
+    setCfgMsg(null);
     try {
       const saved = await api.calendar.updateConfig(token, {
-        works_mon: config.works_mon, works_tue: config.works_tue, works_wed: config.works_wed,
-        works_thu: config.works_thu, works_fri: config.works_fri, works_sat: config.works_sat,
+        works_mon: config.works_mon,
+        works_tue: config.works_tue,
+        works_wed: config.works_wed,
+        works_thu: config.works_thu,
+        works_fri: config.works_fri,
+        works_sat: config.works_sat,
         works_sun: config.works_sun,
       });
       setConfig(saved);
@@ -1281,7 +2060,8 @@ function CalendarTab({ token }: { token: string }) {
   }
   async function removeSpecial(id: number) {
     await api.calendar.deleteSpecialDay(token, id);
-    loadSpecial(); loadPreview();
+    loadSpecial();
+    loadPreview();
   }
 
   return (
@@ -1291,27 +2071,56 @@ function CalendarTab({ token }: { token: string }) {
         <section className="cal-panel">
           <h4 className="ns-section__title">Tuần làm việc chuẩn</h4>
           <p className="cc-note" style={{ marginTop: "4px" }}>
-            Bật/tắt từng thứ. Ngày làm việc là mẫu tính công chuẩn tháng + trừ phép năm;
-            ngày tắt = nghỉ tuần (không trừ phép). Ngày lễ khai riêng ở bên cạnh.
+            Bật/tắt từng thứ. Ngày làm việc là mẫu tính công chuẩn tháng + trừ
+            phép năm; ngày tắt = nghỉ tuần (không trừ phép). Ngày lễ khai riêng
+            ở bên cạnh.
           </p>
           <div className="cal-week">
             {WEEKDAY_FIELDS.map((w) => (
-              <label key={String(w.key)} className={`cal-week__day ${config?.[w.key] ? "is-on" : ""}`}>
-                <input type="checkbox" checked={!!config?.[w.key]} onChange={() => toggleDay(w.key)} />
+              <label
+                key={String(w.key)}
+                className={`cal-week__day ${config?.[w.key] ? "is-on" : ""}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={!!config?.[w.key]}
+                  onChange={() => toggleDay(w.key)}
+                />
                 <span>{w.label}</span>
               </label>
             ))}
           </div>
-          <div className="cc-toolbar" style={{ marginTop: "auto", marginBottom: 0 }}>
-            <button className="btn btn--primary" onClick={saveConfig} disabled={cfgBusy || !config}>
+          <div
+            className="cc-toolbar"
+            style={{ marginTop: "auto", marginBottom: 0 }}
+          >
+            <button
+              className="btn btn--primary"
+              onClick={saveConfig}
+              disabled={cfgBusy || !config}
+            >
               {cfgBusy ? "Đang lưu…" : "Lưu tuần làm việc"}
             </button>
-            {cfgMsg && <span className="cc-assign__msg" style={{ marginLeft: "12px", color: "var(--moss)", fontSize: "13px" }}>{cfgMsg}</span>}
+            {cfgMsg && (
+              <span
+                className="cc-assign__msg"
+                style={{
+                  marginLeft: "12px",
+                  color: "var(--moss)",
+                  fontSize: "13px",
+                }}
+              >
+                {cfgMsg}
+              </span>
+            )}
           </div>
         </section>
 
         {/* Ngày lễ & làm bù */}
-        <section className="cal-panel" style={{ display: "flex", flexDirection: "column" }}>
+        <section
+          className="cal-panel"
+          style={{ display: "flex", flexDirection: "column" }}
+        >
           <div className="cal-panel__head">
             <h4 className="ns-section__title">Ngày lễ & làm bù</h4>
             <div className="cal-yearpick">
@@ -1334,16 +2143,35 @@ function CalendarTab({ token }: { token: string }) {
           </div>
 
           <div className="cc-toolbar">
-            <button className="btn btn--primary" onClick={() => setEditing("new")}>
-              <Plus size={14} style={{ marginRight: "4px", display: "inline-block", verticalAlign: "middle" }} />
+            <button
+              className="btn btn--primary"
+              onClick={() => setEditing("new")}
+            >
+              <Plus
+                size={14}
+                style={{
+                  marginRight: "4px",
+                  display: "inline-block",
+                  verticalAlign: "middle",
+                }}
+              />
               <span>Thêm ngày</span>
             </button>
           </div>
 
-          <div className="ns__tablewrap" style={{ flexGrow: 1, overflowY: "auto", maxHeight: "250px" }}>
+          <div
+            className="ns__tablewrap"
+            style={{ flexGrow: 1, overflowY: "auto", maxHeight: "250px" }}
+          >
             <table className="ns__table">
               <thead>
-                <tr><th>Ngày</th><th>Tên</th><th>Loại</th><th>Hưởng lương</th><th style={{ width: "160px", textAlign: "right" }}></th></tr>
+                <tr>
+                  <th>Ngày</th>
+                  <th>Tên</th>
+                  <th>Loại</th>
+                  <th>Hưởng lương</th>
+                  <th style={{ width: "160px", textAlign: "right" }}></th>
+                </tr>
               </thead>
               <tbody>
                 {special?.items.map((s) => (
@@ -1351,11 +2179,15 @@ function CalendarTab({ token }: { token: string }) {
                     <td className="ns__code">{fmtDateVN(s.day)}</td>
                     <td style={{ fontWeight: "var(--fw-medium)" }}>{s.name}</td>
                     <td>
-                      <span className={`ns-badge ${s.kind === "work" ? "ns-badge--info" : s.kind === "off1x" ? "ns-badge--warn" : "ns-badge--ok"}`}>
+                      <span
+                        className={`ns-badge ${s.kind === "work" ? "ns-badge--info" : s.kind === "off1x" ? "ns-badge--warn" : "ns-badge--ok"}`}
+                      >
                         {KIND_LABEL[s.kind] ?? s.kind}
                       </span>
                     </td>
-                    <td>{s.kind === "off" ? (s.is_paid ? "Có" : "Không") : "—"}</td>
+                    <td>
+                      {s.kind === "off" ? (s.is_paid ? "Có" : "Không") : "—"}
+                    </td>
                     <td className="cc-rowact" style={{ textAlign: "right" }}>
                       <button
                         className="btn btn--ghost btn--sm"
@@ -1363,7 +2195,14 @@ function CalendarTab({ token }: { token: string }) {
                         style={{ padding: "4px 8px", marginRight: "4px" }}
                         title="Sửa"
                       >
-                        <Edit3 size={13} style={{ display: "inline-block", verticalAlign: "middle", marginRight: "2px" }} />
+                        <Edit3
+                          size={13}
+                          style={{
+                            display: "inline-block",
+                            verticalAlign: "middle",
+                            marginRight: "2px",
+                          }}
+                        />
                         Sửa
                       </button>
                       <button
@@ -1372,17 +2211,32 @@ function CalendarTab({ token }: { token: string }) {
                         style={{ padding: "4px 8px" }}
                         title="Xóa"
                       >
-                        <Trash2 size={13} style={{ display: "inline-block", verticalAlign: "middle", marginRight: "2px" }} />
+                        <Trash2
+                          size={13}
+                          style={{
+                            display: "inline-block",
+                            verticalAlign: "middle",
+                            marginRight: "2px",
+                          }}
+                        />
                         Xóa
                       </button>
                     </td>
                   </tr>
                 ))}
                 {!special && (
-                  <tr><td colSpan={5} className="ns__empty">Đang tải…</td></tr>
+                  <tr>
+                    <td colSpan={5} className="ns__empty">
+                      Đang tải…
+                    </td>
+                  </tr>
                 )}
                 {special?.items.length === 0 && (
-                  <tr><td colSpan={5} className="ns__empty">Chưa khai ngày đặc biệt nào cho năm {year}.</td></tr>
+                  <tr>
+                    <td colSpan={5} className="ns__empty">
+                      Chưa khai ngày đặc biệt nào cho năm {year}.
+                    </td>
+                  </tr>
                 )}
               </tbody>
             </table>
@@ -1418,21 +2272,43 @@ function CalendarTab({ token }: { token: string }) {
             <p className="cal-standard">
               <Info size={14} style={{ color: "var(--ash)", flexShrink: 0 }} />
               <span>
-                Công chuẩn tháng {preview.month}/{preview.year}: <strong>{preview.working_days}</strong> công
-                {preview.holidays.length > 0 && <> · {preview.holidays.length} ngày lễ</>}
+                Công chuẩn tháng {preview.month}/{preview.year}:{" "}
+                <strong>{preview.working_days}</strong> công
+                {preview.holidays.length > 0 && (
+                  <> · {preview.holidays.length} ngày lễ</>
+                )}
               </span>
             </p>
             <div className="cc-month-grid">
               {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((d) => (
-                <div key={d} style={{ textAlign: "center", fontWeight: "bold", fontSize: "12px", paddingBottom: "6px", color: "var(--ash)" }}>{d}</div>
+                <div
+                  key={d}
+                  style={{
+                    textAlign: "center",
+                    fontWeight: "bold",
+                    fontSize: "12px",
+                    paddingBottom: "6px",
+                    color: "var(--ash)",
+                  }}
+                >
+                  {d}
+                </div>
               ))}
               {buildMonthGrid(preview).map((cell, i) =>
                 cell ? (
-                  <div key={i} className={`cc-month-cell cc-month-cell--${cell.kind}`} title={cell.name ?? ""}>
+                  <div
+                    key={i}
+                    className={`cc-month-cell cc-month-cell--${cell.kind}`}
+                    title={cell.name ?? ""}
+                  >
                     <span className="cc-month-cell-num">{cell.day}</span>
-                    {cell.name && <span className="cc-month-cell-name">{cell.name}</span>}
+                    {cell.name && (
+                      <span className="cc-month-cell-name">{cell.name}</span>
+                    )}
                   </div>
-                ) : <div key={i} className="cc-month-cell cc-month-cell--empty" />
+                ) : (
+                  <div key={i} className="cc-month-cell cc-month-cell--empty" />
+                ),
               )}
             </div>
             <div className="cal-legend">
@@ -1446,16 +2322,34 @@ function CalendarTab({ token }: { token: string }) {
       </section>
 
       {editing && (
-        <SpecialDayForm token={token} special={editing === "new" ? null : editing} year={year}
+        <SpecialDayForm
+          token={token}
+          special={editing === "new" ? null : editing}
+          year={year}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); loadSpecial(); loadPreview(); }} />
+          onSaved={() => {
+            setEditing(null);
+            loadSpecial();
+            loadPreview();
+          }}
+        />
       )}
     </div>
   );
 }
 
-function SpecialDayForm({ token, special, year, onClose, onSaved }: {
-  token: string; special: SpecialDay | null; year: number; onClose: () => void; onSaved: () => void;
+function SpecialDayForm({
+  token,
+  special,
+  year,
+  onClose,
+  onSaved,
+}: {
+  token: string;
+  special: SpecialDay | null;
+  year: number;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
   const [form, setForm] = useState<SpecialDayInput>({
     day: special?.day ?? `${year}-01-01`,
@@ -1466,9 +2360,12 @@ function SpecialDayForm({ token, special, year, onClose, onSaved }: {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  function set<K extends keyof SpecialDayInput>(k: K, v: SpecialDayInput[K]) { setForm((f) => ({ ...f, [k]: v })); }
+  function set<K extends keyof SpecialDayInput>(k: K, v: SpecialDayInput[K]) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
   async function save() {
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
       if (special) await api.calendar.updateSpecialDay(token, special.id, form);
       else await api.calendar.createSpecialDay(token, form);
@@ -1483,38 +2380,78 @@ function SpecialDayForm({ token, special, year, onClose, onSaved }: {
       <div className="ns-modal__box">
         <header className="ns-modal__head">
           <h2>{special ? "Sửa ngày đặc biệt" : "Thêm ngày đặc biệt"}</h2>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
         <div className="ns-modal__body">
           {error && <div className="banner banner--error">{error}</div>}
-          <label className="ns-field"><span className="ns-field__label">Ngày *</span>
-            <input type="date" value={form.day} onChange={(e) => set("day", e.target.value)} /></label>
-          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Tên *</span>
-            <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="vd Quốc khánh" /></label>
-          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Loại</span>
-            <select value={form.kind} onChange={(e) => set("kind", e.target.value as "off" | "work" | "off1x")}>
+          <label className="ns-field">
+            <span className="ns-field__label">Ngày *</span>
+            <input
+              type="date"
+              value={form.day}
+              onChange={(e) => set("day", e.target.value)}
+            />
+          </label>
+          <label className="ns-field" style={{ marginTop: 12 }}>
+            <span className="ns-field__label">Tên *</span>
+            <input
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="vd Quốc khánh"
+            />
+          </label>
+          <label className="ns-field" style={{ marginTop: 12 }}>
+            <span className="ns-field__label">Loại</span>
+            <select
+              value={form.kind}
+              onChange={(e) =>
+                set("kind", e.target.value as "off" | "work" | "off1x")
+              }
+            >
               <option value="off">Nghỉ lễ (ngày lẽ ra làm nhưng nghỉ)</option>
               <option value="work">Làm bù (đi làm ngày lẽ ra nghỉ)</option>
-              <option value="off1x">Nghỉ — đi làm chỉ lương chính (1×, không hệ số)</option>
-            </select></label>
+              <option value="off1x">
+                Nghỉ — đi làm chỉ lương chính (1×, không hệ số)
+              </option>
+            </select>
+          </label>
           {form.kind === "off" && (
             <label className="ns-check" style={{ marginTop: 12 }}>
-              <input type="checkbox" checked={!!form.is_paid} onChange={(e) => set("is_paid", e.target.checked)} />
+              <input
+                type="checkbox"
+                checked={!!form.is_paid}
+                onChange={(e) => set("is_paid", e.target.checked)}
+              />
               Hưởng nguyên lương (cộng 1 công vào bảng công)
             </label>
           )}
           {form.kind === "off1x" && (
             <p className="cc-note" style={{ marginTop: 10 }}>
-              Ngày nghỉ <b>không lương</b>. Ai đi làm được <b>cộng thêm 1 công lương chính (1×)</b> — KHÔNG
-              nhân hệ số lễ/nghỉ, không bị trần công tháng.
+              Ngày nghỉ <b>không lương</b>. Ai đi làm được{" "}
+              <b>cộng thêm 1 công lương chính (1×)</b> — KHÔNG nhân hệ số
+              lễ/nghỉ, không bị trần công tháng.
             </p>
           )}
-          <label className="ns-field" style={{ marginTop: 12 }}><span className="ns-field__label">Ghi chú</span>
-            <input value={form.note ?? ""} onChange={(e) => set("note", e.target.value)} placeholder="vd mùng 1 Tết Âm lịch" /></label>
+          <label className="ns-field" style={{ marginTop: 12 }}>
+            <span className="ns-field__label">Ghi chú</span>
+            <input
+              value={form.note ?? ""}
+              onChange={(e) => set("note", e.target.value)}
+              placeholder="vd mùng 1 Tết Âm lịch"
+            />
+          </label>
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn--primary" onClick={save} disabled={busy || !form.name.trim() || !form.day}>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
+            Hủy
+          </button>
+          <button
+            className="btn btn--primary"
+            onClick={save}
+            disabled={busy || !form.name.trim() || !form.day}
+          >
             {busy ? "Đang lưu…" : "Lưu"}
           </button>
         </footer>
@@ -1529,7 +2466,12 @@ function SpecialDayForm({ token, special, year, onClose, onSaved }: {
 
 /** Khối gập dùng chung. Nội dung mount LAZY lần mở đầu rồi GIỮ (ẩn bằng `hidden`)
  *  — nếu unmount, bản nháp phân ca đang gõ dở sẽ bay mất khi gập khối lại. */
-function CollapsibleSection({ title, summary, defaultOpen = false, children }: {
+function CollapsibleSection({
+  title,
+  summary,
+  defaultOpen = false,
+  children,
+}: {
   title: string;
   summary?: ReactNode;
   defaultOpen?: boolean;
@@ -1537,15 +2479,30 @@ function CollapsibleSection({ title, summary, defaultOpen = false, children }: {
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const [mounted, setMounted] = useState(defaultOpen);
-  useEffect(() => { if (open) setMounted(true); }, [open]);
+  useEffect(() => {
+    if (open) setMounted(true);
+  }, [open]);
   return (
     <section className={`cc-sp-sect ${open ? "is-open" : ""}`}>
-      <button type="button" className="cc-sp-sect__head" aria-expanded={open} onClick={() => setOpen((o) => !o)}>
-        <ChevronDown size={16} className="cc-sp-sect__chev" aria-hidden="true" />
+      <button
+        type="button"
+        className="cc-sp-sect__head"
+        aria-expanded={open}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <ChevronDown
+          size={16}
+          className="cc-sp-sect__chev"
+          aria-hidden="true"
+        />
         <span className="cc-sp-sect__title">{title}</span>
         {summary != null && <span className="cc-sp-sect__sum">{summary}</span>}
       </button>
-      {mounted && <div className="cc-sp-sect__body" hidden={!open}>{children}</div>}
+      {mounted && (
+        <div className="cc-sp-sect__body" hidden={!open}>
+          {children}
+        </div>
+      )}
     </section>
   );
 }
@@ -1555,10 +2512,20 @@ function CollapsibleSection({ title, summary, defaultOpen = false, children }: {
 const SHIFT_TONES = ["moss", "amber", "steel", "plum", "rust"] as const;
 type ShiftTone = (typeof SHIFT_TONES)[number];
 
-interface ShiftMeta { id: number; code: string; tone: ShiftTone; name: string; title: string }
+interface ShiftMeta {
+  id: number;
+  code: string;
+  tone: ShiftTone;
+  name: string;
+  title: string;
+}
 
 function stripTones(value: string): string {
-  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/Đ/g, "D");
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
 }
 
 /** Luật deterministic: "ca <n>" → C<n> · "hành chính" → HC · qua đêm → K · còn lại viết tắt ≤3 ký tự. */
@@ -1569,12 +2536,17 @@ function shiftShortCode(s: WorkShift): string {
   if (/hanh\s*chinh/i.test(plain)) return "HC";
   if (s.is_overnight) return "K";
   const words = plain.split(/\s+/).filter(Boolean);
-  if (words.length >= 2) return words.slice(0, 3).map((w) => w[0]).join("").toUpperCase();
+  if (words.length >= 2)
+    return words
+      .slice(0, 3)
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase();
   return (words[0] ?? "?").slice(0, 3).toUpperCase();
 }
 
 function buildShiftMeta(shifts: WorkShift[]): Map<number, ShiftMeta> {
-  const ordered = [...shifts].sort((a, b) => a.id - b.id);   // màu bám thứ tự id tăng dần
+  const ordered = [...shifts].sort((a, b) => a.id - b.id); // màu bám thứ tự id tăng dần
   const used = new Map<string, number>();
   const out = new Map<number, ShiftMeta>();
   ordered.forEach((s, i) => {
@@ -1583,7 +2555,7 @@ function buildShiftMeta(shifts: WorkShift[]): Map<number, ShiftMeta> {
     used.set(base, seen + 1);
     out.set(s.id, {
       id: s.id,
-      code: seen > 0 ? `${base}${seen + 1}` : base,          // trùng thì nối chỉ số
+      code: seen > 0 ? `${base}${seen + 1}` : base, // trùng thì nối chỉ số
       tone: SHIFT_TONES[i % SHIFT_TONES.length],
       name: s.name,
       title: `${s.name} · ${s.start_time}–${s.end_time}${s.is_overnight ? " (qua đêm)" : ""}`,
@@ -1593,9 +2565,21 @@ function buildShiftMeta(shifts: WorkShift[]): Map<number, ShiftMeta> {
 }
 
 // --- Lưới phân ca tháng ------------------------------------------------------
-type Brush = { kind: "shift"; shiftId: number } | { kind: "off" } | { kind: "inherit" };
-interface EffCell { shiftId: number | null; hand: boolean; off: boolean }
-interface DragRect { r0: number; c0: number; r1: number; c1: number }
+type Brush =
+  | { kind: "shift"; shiftId: number }
+  | { kind: "off" }
+  | { kind: "inherit" };
+interface EffCell {
+  shiftId: number | null;
+  hand: boolean;
+  off: boolean;
+}
+interface DragRect {
+  r0: number;
+  c0: number;
+  r1: number;
+  c1: number;
+}
 
 const DENSITY_KEY = "cc-sp-density";
 const SAVE_CHUNK = 500;
@@ -1612,18 +2596,27 @@ function cellKey(employeeId: number, date: string): string {
 
 /** Giá trị KẾ THỪA của từng ngày (ca nền) — suy từ chính các ô server trả về `source !== "day"`.
  *  Cần cho lúc người dùng bấm "Mặc định ⌫": biết trước ô sẽ rơi về ca nào mà không phải gọi lại API. */
-function inheritOfRow(row: ShiftPlanRow, cal: ShiftPlanDay[]): { inherit: (number | null)[]; base: number | null } {
+function inheritOfRow(
+  row: ShiftPlanRow,
+  cal: ShiftPlanDay[],
+): { inherit: (number | null)[]; base: number | null } {
   const n = cal.length;
   const arr: (number | null)[] = new Array(n).fill(null);
   const known: boolean[] = new Array(n).fill(false);
   cal.forEach((c, i) => {
     const cell = row.days[String(c.day)];
-    if (cell && cell.source !== "day") { arr[i] = cell.shift_id; known[i] = true; }
+    if (cell && cell.source !== "day") {
+      arr[i] = cell.shift_id;
+      known[i] = true;
+    }
   });
   let last: number | null = null;
   let seen = false;
   for (let i = 0; i < n; i++) {
-    if (known[i]) { last = arr[i]; seen = true; } else if (seen) arr[i] = last;
+    if (known[i]) {
+      last = arr[i];
+      seen = true;
+    } else if (seen) arr[i] = last;
   }
   const first = known.indexOf(true);
   if (first > 0) for (let i = 0; i < first; i++) arr[i] = arr[first];
@@ -1631,7 +2624,12 @@ function inheritOfRow(row: ShiftPlanRow, cal: ShiftPlanDay[]): { inherit: (numbe
   for (const v of arr) if (v != null) freq.set(v, (freq.get(v) ?? 0) + 1);
   let base: number | null = null;
   let bestCount = 0;
-  freq.forEach((count, id) => { if (count > bestCount) { bestCount = count; base = id; } });
+  freq.forEach((count, id) => {
+    if (count > bestCount) {
+      bestCount = count;
+      base = id;
+    }
+  });
   return { inherit: arr, base };
 }
 
@@ -1642,9 +2640,9 @@ function inheritOfRow(row: ShiftPlanRow, cal: ShiftPlanDay[]): { inherit: (numbe
  *  kíp lệch nhau và ngày nào cũng có người đủ ở cả 3 ca. */
 interface RotationPlan {
   pattern: Brush[];
-  startDay: number;      // ngày trong tháng bắt đầu tô (1..số ngày)
-  phase: number;         // số bước lệch giữa hai người liền nhau
-  skipRest: boolean;     // bỏ trắng ngày nghỉ tuần / lễ
+  startDay: number; // ngày trong tháng bắt đầu tô (1..số ngày)
+  phase: number; // số bước lệch giữa hai người liền nhau
+  skipRest: boolean; // bỏ trắng ngày nghỉ tuần / lễ
 }
 
 /** Rải mẫu lên từng người theo ĐÚNG THỨ TỰ ĐANG HIỂN THỊ trên lưới.
@@ -1680,9 +2678,16 @@ function countPatchDiff(
   let n = 0;
   after.forEach((v, k) => {
     const b = before.get(k);
-    if (!b || b.action !== v.action || (b.shift_id ?? null) !== (v.shift_id ?? null)) n += 1;
+    if (
+      !b ||
+      b.action !== v.action ||
+      (b.shift_id ?? null) !== (v.shift_id ?? null)
+    )
+      n += 1;
   });
-  before.forEach((_, k) => { if (!after.has(k)) n += 1; });
+  before.forEach((_, k) => {
+    if (!after.has(k)) n += 1;
+  });
   return n;
 }
 
@@ -1694,23 +2699,36 @@ function clampNum(raw: string, lo: number, hi: number): number {
 }
 
 function ShiftPlanPanel({ token }: { token: string }) {
-  const [ym, setYm] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() + 1 }; });
+  const [ym, setYm] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  });
   const { year, month } = ym;
   const [deptId, setDeptId] = useState<number | "">("");
   const [depts, setDepts] = useState<{ id: number; name: string }[]>([]);
   const [q, setQ] = useState("");
-  const [density, setDensity] = useState<"compact" | "roomy">(
-    () => (localStorage.getItem(DENSITY_KEY) === "roomy" ? "roomy" : "compact"));
+  const [density, setDensity] = useState<"compact" | "roomy">(() =>
+    localStorage.getItem(DENSITY_KEY) === "roomy" ? "roomy" : "compact",
+  );
   const [data, setData] = useState<ShiftPlanMonth | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [brush, setBrush] = useState<Brush | null>(null);
-  const [pending, setPending] = useState<Map<string, ShiftPlanPatchItem>>(() => new Map());
+  const [pending, setPending] = useState<Map<string, ShiftPlanPatchItem>>(
+    () => new Map(),
+  );
   const [rejects, setRejects] = useState<Map<string, string>>(() => new Map());
   const [drag, setDrag] = useState<DragRect | null>(null);
   const [saving, setSaving] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
-  const [result, setResult] = useState<{ saved: number; cleared: number; rejected: number } | null>(null);
+  const [progress, setProgress] = useState<{
+    done: number;
+    total: number;
+  } | null>(null);
+  const [result, setResult] = useState<{
+    saved: number;
+    cleared: number;
+    rejected: number;
+  } | null>(null);
   const [guard, setGuard] = useState<{ run: () => void } | null>(null);
   // Lọc nhanh người CHƯA CÓ CA NỀN. Quan trọng vì form hồ sơ không còn gán ca nữa:
   // người mới tạo sẽ không chấm công được cho tới khi được đặt ca nền ở đây.
@@ -1718,7 +2736,10 @@ function ShiftPlanPanel({ token }: { token: string }) {
   // "Đặt ca nền" — ghi vào MỐC hiệu lực (áp dụng mọi tháng sau), khác hẳn tô lưới.
   // `baseTarget` cho phép áp cho MỘT người (bấm ô Ca nền của hàng đó) hoặc TẤT CẢ
   // người đang hiển thị (nút trên thanh công cụ) — cùng một form, cùng một endpoint.
-  const [baseTarget, setBaseTarget] = useState<{ ids: number[]; label: string } | null>(null);
+  const [baseTarget, setBaseTarget] = useState<{
+    ids: number[];
+    label: string;
+  } | null>(null);
   // "" = chưa chọn (chặn Áp dụng) · "none" = cố ý bỏ gán ca. Hai thứ này PHẢI khác nhau:
   // để trống mà vẫn cho bấm thì lỡ tay là xoá ca nền cả phòng, và ai mất ca thì không
   // chấm công được.
@@ -1727,12 +2748,16 @@ function ShiftPlanPanel({ token }: { token: string }) {
   const [baseBusy, setBaseBusy] = useState(false);
   const [baseMsg, setBaseMsg] = useState<string | null>(null);
   // Lịch sử đổi ca nền của 1 NV (thay cho bảng lịch sử ở khối "Ca mặc định" cũ).
-  const [histFor, setHistFor] = useState<{ id: number; name: string } | null>(null);
+  const [histFor, setHistFor] = useState<{ id: number; name: string } | null>(
+    null,
+  );
   const [hist, setHist] = useState<EmployeeShiftAssignment[] | null>(null);
   const [histNonce, setHistNonce] = useState(0);
   const [histBusy, setHistBusy] = useState(false);
   const [histErr, setHistErr] = useState<string | null>(null);
-  const [confirmDel, setConfirmDel] = useState<EmployeeShiftAssignment | null>(null);
+  const [confirmDel, setConfirmDel] = useState<EmployeeShiftAssignment | null>(
+    null,
+  );
   // "Áp nhanh" — rải sẵn một mẫu xoay ca (vd 2-2-2) cho cả tổ, các kíp lệch pha nhau.
   // Chỉ ghi vào NHÁP như tô tay: xem lưới xong người dùng mới bấm Lưu.
   const [qfOpen, setQfOpen] = useState(false);
@@ -1744,25 +2769,44 @@ function ShiftPlanPanel({ token }: { token: string }) {
   const locked = data?.locked === true;
   const dirtyCount = pending.size;
 
-  useEffect(() => { localStorage.setItem(DENSITY_KEY, density); }, [density]);
   useEffect(() => {
-    api.employees.meta(token).then((m) => setDepts(m.departments)).catch(() => setDepts([]));
+    localStorage.setItem(DENSITY_KEY, density);
+  }, [density]);
+  useEffect(() => {
+    api.employees
+      .meta(token)
+      .then((m) => setDepts(m.departments))
+      .catch(() => setDepts([]));
   }, [token]);
 
   const reload = useCallback(async () => {
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError(null);
     try {
-      setData(await api.attendance.shiftPlan(token, year, month, deptId === "" ? null : deptId));
+      setData(
+        await api.attendance.shiftPlan(
+          token,
+          year,
+          month,
+          deptId === "" ? null : deptId,
+        ),
+      );
     } catch (e) {
       setData(null);
       setError(e instanceof Error ? e.message : "Không tải được lưới phân ca.");
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }, [token, year, month, deptId]);
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+  }, [reload]);
   // Đổi tháng/phòng = thay bộ dữ liệu → nháp cũ không còn ý nghĩa (đã hỏi ở guard trước đó).
   useEffect(() => {
-    setPending(new Map()); setRejects(new Map()); setResult(null);
-    setQfStart(1);   // tháng khác = số ngày khác → ngày bắt đầu cũ có thể vượt ra ngoài
+    setPending(new Map());
+    setRejects(new Map());
+    setResult(null);
+    setQfStart(1); // tháng khác = số ngày khác → ngày bắt đầu cũ có thể vượt ra ngoài
   }, [year, month, deptId]);
 
   // --- Lịch tháng + hàng hiển thị -------------------------------------------
@@ -1783,87 +2827,156 @@ function ShiftPlanPanel({ token }: { token: string }) {
   }, [data]);
 
   const noDefaultCount = useMemo(
-    () => (data?.rows ?? []).filter((r) => r.no_default).length, [data]);
+    () => (data?.rows ?? []).filter((r) => r.no_default).length,
+    [data],
+  );
 
   const visibleRows = useMemo(() => {
     let rows = data?.rows ?? [];
     if (onlyNoDefault) rows = rows.filter((r) => r.no_default);
     const needle = stripTones(q).trim().toLowerCase();
     if (!needle) return rows;
-    return rows.filter((r) => stripTones(`${r.employee_name} ${r.employee_code ?? ""}`).toLowerCase().includes(needle));
+    return rows.filter((r) =>
+      stripTones(`${r.employee_name} ${r.employee_code ?? ""}`)
+        .toLowerCase()
+        .includes(needle),
+    );
   }, [data, q, onlyNoDefault]);
 
   const shiftMeta = useMemo(() => buildShiftMeta(data?.shifts ?? []), [data]);
-  const orderedShifts = useMemo(() => [...(data?.shifts ?? [])].sort((a, b) => a.id - b.id), [data]);
-  const paintShifts = useMemo(() => orderedShifts.filter((s) => s.is_active), [orderedShifts]);
+  const orderedShifts = useMemo(
+    () => [...(data?.shifts ?? [])].sort((a, b) => a.id - b.id),
+    [data],
+  );
+  const paintShifts = useMemo(
+    () => orderedShifts.filter((s) => s.is_active),
+    [orderedShifts],
+  );
 
   const inheritInfo = useMemo(() => {
-    const m = new Map<number, { inherit: (number | null)[]; base: number | null }>();
-    for (const r of data?.rows ?? []) m.set(r.employee_id, inheritOfRow(r, cal));
+    const m = new Map<
+      number,
+      { inherit: (number | null)[]; base: number | null }
+    >();
+    for (const r of data?.rows ?? [])
+      m.set(r.employee_id, inheritOfRow(r, cal));
     return m;
   }, [data, cal]);
 
   /** Giá trị HIỂN THỊ của mọi ô = dữ liệu server + nháp đang giữ. */
-  const grid: EffCell[][] = useMemo(() => visibleRows.map((row) => cal.map((c, ci) => {
-    const patch = pending.get(cellKey(row.employee_id, c.date));
-    if (patch) {
-      if (patch.action === "set") return { shiftId: patch.shift_id ?? null, hand: true, off: false };
-      if (patch.action === "off") return { shiftId: null, hand: true, off: true };
-      return { shiftId: inheritInfo.get(row.employee_id)?.inherit[ci] ?? null, hand: false, off: false };
-    }
-    const cell = row.days[String(c.day)];
-    if (!cell) return { shiftId: null, hand: false, off: false };
-    return { shiftId: cell.shift_id, hand: cell.source === "day", off: cell.is_off };
-  })), [visibleRows, cal, pending, inheritInfo]);
+  const grid: EffCell[][] = useMemo(
+    () =>
+      visibleRows.map((row) =>
+        cal.map((c, ci) => {
+          const patch = pending.get(cellKey(row.employee_id, c.date));
+          if (patch) {
+            if (patch.action === "set")
+              return {
+                shiftId: patch.shift_id ?? null,
+                hand: true,
+                off: false,
+              };
+            if (patch.action === "off")
+              return { shiftId: null, hand: true, off: true };
+            return {
+              shiftId: inheritInfo.get(row.employee_id)?.inherit[ci] ?? null,
+              hand: false,
+              off: false,
+            };
+          }
+          const cell = row.days[String(c.day)];
+          if (!cell) return { shiftId: null, hand: false, off: false };
+          return {
+            shiftId: cell.shift_id,
+            hand: cell.source === "day",
+            off: cell.is_off,
+          };
+        }),
+      ),
+    [visibleRows, cal, pending, inheritInfo],
+  );
 
-  const footCounts = useMemo(() => cal.map((_, ci) => {
-    const byShift = new Map<number, number>();
-    let off = 0;
-    let none = 0;
-    for (const cells of grid) {
-      const eff = cells[ci];
-      if (!eff) continue;
-      if (eff.off) off += 1;
-      else if (eff.shiftId != null) byShift.set(eff.shiftId, (byShift.get(eff.shiftId) ?? 0) + 1);
-      else none += 1;
-    }
-    return { byShift, off, none };
-  }), [grid, cal]);
+  const footCounts = useMemo(
+    () =>
+      cal.map((_, ci) => {
+        const byShift = new Map<number, number>();
+        let off = 0;
+        let none = 0;
+        for (const cells of grid) {
+          const eff = cells[ci];
+          if (!eff) continue;
+          if (eff.off) off += 1;
+          else if (eff.shiftId != null)
+            byShift.set(eff.shiftId, (byShift.get(eff.shiftId) ?? 0) + 1);
+          else none += 1;
+        }
+        return { byShift, off, none };
+      }),
+    [grid, cal],
+  );
 
   // --- Bút ca: tô 1 ô hoặc kéo cả hình chữ nhật ------------------------------
   const paintable = !locked && !!brush && !saving;
 
-  const applyBrush = useCallback((next: Map<string, ShiftPlanPatchItem>, row: ShiftPlanRow, c: ShiftPlanDay, b: Brush) => {
-    const key = cellKey(row.employee_id, c.date);
-    const cell = row.days[String(c.day)];
-    const wasHand = cell?.source === "day";
-    const wasOff = cell?.is_off === true;
-    const wasShift = cell?.shift_id ?? null;
-    // Ô quay lại đúng giá trị gốc thì TỰ RƠI khỏi map (không gửi request thừa).
-    if (b.kind === "inherit") {
-      if (!wasHand) next.delete(key);
-      else next.set(key, { employee_id: row.employee_id, work_date: c.date, action: "inherit" });
-    } else if (b.kind === "off") {
-      if (wasHand && wasOff) next.delete(key);
-      else next.set(key, { employee_id: row.employee_id, work_date: c.date, action: "off" });
-    } else {
-      if (wasHand && !wasOff && wasShift === b.shiftId) next.delete(key);
-      else next.set(key, { employee_id: row.employee_id, work_date: c.date, action: "set", shift_id: b.shiftId });
-    }
-  }, []);
+  const applyBrush = useCallback(
+    (
+      next: Map<string, ShiftPlanPatchItem>,
+      row: ShiftPlanRow,
+      c: ShiftPlanDay,
+      b: Brush,
+    ) => {
+      const key = cellKey(row.employee_id, c.date);
+      const cell = row.days[String(c.day)];
+      const wasHand = cell?.source === "day";
+      const wasOff = cell?.is_off === true;
+      const wasShift = cell?.shift_id ?? null;
+      // Ô quay lại đúng giá trị gốc thì TỰ RƠI khỏi map (không gửi request thừa).
+      if (b.kind === "inherit") {
+        if (!wasHand) next.delete(key);
+        else
+          next.set(key, {
+            employee_id: row.employee_id,
+            work_date: c.date,
+            action: "inherit",
+          });
+      } else if (b.kind === "off") {
+        if (wasHand && wasOff) next.delete(key);
+        else
+          next.set(key, {
+            employee_id: row.employee_id,
+            work_date: c.date,
+            action: "off",
+          });
+      } else {
+        if (wasHand && !wasOff && wasShift === b.shiftId) next.delete(key);
+        else
+          next.set(key, {
+            employee_id: row.employee_id,
+            work_date: c.date,
+            action: "set",
+            shift_id: b.shiftId,
+          });
+      }
+    },
+    [],
+  );
 
   // --- Áp nhanh: dựng nháp thử + xem trước -----------------------------------
-  const qfPlan: RotationPlan = useMemo(() => ({
-    pattern: qfPattern,
-    startDay: Math.min(Math.max(1, qfStart), Math.max(1, cal.length)),
-    phase: qfPhase,
-    skipRest: qfSkipRest,
-  }), [qfPattern, qfStart, qfPhase, qfSkipRest, cal.length]);
+  const qfPlan: RotationPlan = useMemo(
+    () => ({
+      pattern: qfPattern,
+      startDay: Math.min(Math.max(1, qfStart), Math.max(1, cal.length)),
+      phase: qfPhase,
+      skipRest: qfSkipRest,
+    }),
+    [qfPattern, qfStart, qfPhase, qfSkipRest, cal.length],
+  );
 
   /** Nháp SAU KHI áp + số ô đổi. Dùng chung cho dòng tóm tắt và nút "Áp vào nháp",
    *  nên con số người dùng thấy đúng bằng thứ sắp ghi xuống, không phải ước lượng. */
   const qfDraft = useMemo(() => {
-    if (!qfOpen || qfPattern.length === 0 || visibleRows.length === 0) return null;
+    if (!qfOpen || qfPattern.length === 0 || visibleRows.length === 0)
+      return null;
     const next = new Map(pending);
     const touched: string[] = [];
     runRotation(visibleRows, cal, qfPlan, (row, day, b) => {
@@ -1884,14 +2997,20 @@ function ShiftPlanPanel({ token }: { token: string }) {
       const i = at.get(row.employee_id);
       if (i != null) byRow[i]?.set(day.day, b);
     });
-    return { rows, byRow, days: cal.filter((c) => c.day >= qfPlan.startDay).slice(0, QF_STRIP_DAYS) };
+    return {
+      rows,
+      byRow,
+      days: cal.filter((c) => c.day >= qfPlan.startDay).slice(0, QF_STRIP_DAYS),
+    };
   }, [qfOpen, qfPattern.length, visibleRows, cal, qfPlan]);
 
   const commitRef = useRef<(rect: DragRect) => void>(() => undefined);
   commitRef.current = (rect: DragRect) => {
     if (!brush || locked) return;
-    const rA = Math.min(rect.r0, rect.r1), rB = Math.max(rect.r0, rect.r1);
-    const cA = Math.min(rect.c0, rect.c1), cB = Math.max(rect.c0, rect.c1);
+    const rA = Math.min(rect.r0, rect.r1),
+      rB = Math.max(rect.r0, rect.r1);
+    const cA = Math.min(rect.c0, rect.c1),
+      cB = Math.max(rect.c0, rect.c1);
     const hits: { row: ShiftPlanRow; day: ShiftPlanDay }[] = [];
     for (let r = rA; r <= rB; r += 1) {
       const row = visibleRows[r];
@@ -1931,14 +3050,28 @@ function ShiftPlanPanel({ token }: { token: string }) {
 
   // Phím tắt: 1..9 chọn ca thứ N · 0 = Nghỉ · Backspace/Delete = về mặc định · Esc = bỏ bút.
   useEffect(() => {
-    if (locked || qfOpen) return;   // đang mở modal Áp nhanh thì phím số là để nhập, không phải đổi bút
+    if (locked || qfOpen) return; // đang mở modal Áp nhanh thì phím số là để nhập, không phải đổi bút
     function onKey(e: KeyboardEvent) {
       const t = e.target as HTMLElement | null;
-      if (t && (/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)) return;
+      if (
+        t &&
+        (/^(INPUT|SELECT|TEXTAREA)$/.test(t.tagName) || t.isContentEditable)
+      )
+        return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.key === "Escape") { setBrush(null); return; }
-      if (e.key === "Backspace" || e.key === "Delete") { e.preventDefault(); setBrush({ kind: "inherit" }); return; }
-      if (e.key === "0") { setBrush({ kind: "off" }); return; }
+      if (e.key === "Escape") {
+        setBrush(null);
+        return;
+      }
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        setBrush({ kind: "inherit" });
+        return;
+      }
+      if (e.key === "0") {
+        setBrush({ kind: "off" });
+        return;
+      }
       if (/^[1-9]$/.test(e.key)) {
         const s = paintShifts[Number(e.key) - 1];
         if (s) setBrush({ kind: "shift", shiftId: s.id });
@@ -1951,31 +3084,52 @@ function ShiftPlanPanel({ token }: { token: string }) {
   // Chặn mất dữ liệu khi còn nháp.
   useEffect(() => {
     if (!dirtyCount) return;
-    function onBeforeUnload(e: BeforeUnloadEvent) { e.preventDefault(); e.returnValue = ""; }
+    function onBeforeUnload(e: BeforeUnloadEvent) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirtyCount]);
 
   useEffect(() => {
-    if (histFor == null) { setHist(null); setHistErr(null); return; }
+    if (histFor == null) {
+      setHist(null);
+      setHistErr(null);
+      return;
+    }
     let alive = true;
-    api.employees.shiftHistory(token, histFor.id)
-      .then((r) => { if (alive) setHist(r.items); })
-      .catch(() => { if (alive) setHist([]); });
-    return () => { alive = false; };
+    api.employees
+      .shiftHistory(token, histFor.id)
+      .then((r) => {
+        if (alive) setHist(r.items);
+      })
+      .catch(() => {
+        if (alive) setHist([]);
+      });
+    return () => {
+      alive = false;
+    };
   }, [token, histFor, histNonce]);
 
   async function removeMilestone(assignmentId: number) {
     if (histFor == null) return;
-    setHistBusy(true); setHistErr(null);
+    setHistBusy(true);
+    setHistErr(null);
     try {
-      await api.employees.deleteShiftAssignment(token, histFor.id, assignmentId);
+      await api.employees.deleteShiftAssignment(
+        token,
+        histFor.id,
+        assignmentId,
+      );
       setConfirmDel(null);
-      setHistNonce((n) => n + 1);   // nạp lại lịch sử
-      await reload();               // ca nền đổi ⇒ lưới phải vẽ lại
+      setHistNonce((n) => n + 1); // nạp lại lịch sử
+      await reload(); // ca nền đổi ⇒ lưới phải vẽ lại
     } catch (e) {
       setHistErr(e instanceof Error ? e.message : "Không xóa được mốc này.");
-    } finally { setHistBusy(false); }
+    } finally {
+      setHistBusy(false);
+    }
   }
 
   // Mở form đặt ca nền: mặc định áp dụng từ NGÀY 1 của tháng đang xem.
@@ -1988,29 +3142,43 @@ function ShiftPlanPanel({ token }: { token: string }) {
 
   async function applyBase() {
     const ids = baseTarget?.ids ?? [];
-    if (ids.length === 0) { setBaseMsg("Không có nhân viên nào để áp dụng."); return; }
-    setBaseBusy(true); setBaseMsg(null);
+    if (ids.length === 0) {
+      setBaseMsg("Không có nhân viên nào để áp dụng.");
+      return;
+    }
+    setBaseBusy(true);
+    setBaseMsg(null);
     try {
       const res = await api.employees.setShiftBulk(
-        token, ids, typeof baseShift === "number" ? baseShift : null, baseFrom);
+        token,
+        ids,
+        typeof baseShift === "number" ? baseShift : null,
+        baseFrom,
+      );
       // Ca nền đổi ⇒ mọi ô đang "kế thừa" phải vẽ lại theo ca mới.
       await reload();
       if (res.failed.length === 0 && res.adjusted === 0) {
         setBaseTarget(null);
       } else {
-        setBaseMsg([
-          `Đã đặt ca nền cho ${res.updated} nhân viên.`,
-          res.adjusted
-            ? `${res.adjusted} người vào làm sau ngày bạn chọn — mốc của họ tự lùi về đúng ngày vào làm.`
-            : null,
-          res.failed.length
-            ? `${res.failed.length} người bị bỏ qua: ${[...new Set(res.failed.map((f) => f.reason))].join(" · ")}`
-            : null,
-        ].filter(Boolean).join(" "));
+        setBaseMsg(
+          [
+            `Đã đặt ca nền cho ${res.updated} nhân viên.`,
+            res.adjusted
+              ? `${res.adjusted} người vào làm sau ngày bạn chọn — mốc của họ tự lùi về đúng ngày vào làm.`
+              : null,
+            res.failed.length
+              ? `${res.failed.length} người bị bỏ qua: ${[...new Set(res.failed.map((f) => f.reason))].join(" · ")}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
       }
     } catch (e) {
       setBaseMsg(e instanceof Error ? e.message : "Không đặt được ca nền.");
-    } finally { setBaseBusy(false); }
+    } finally {
+      setBaseBusy(false);
+    }
   }
 
   function guarded(run: () => void) {
@@ -2018,34 +3186,51 @@ function ShiftPlanPanel({ token }: { token: string }) {
     else run();
   }
   function stepMonth(delta: number) {
-    guarded(() => setYm((cur) => {
-      const m = cur.month + delta;
-      if (m < 1) return { year: cur.year - 1, month: 12 };
-      if (m > 12) return { year: cur.year + 1, month: 1 };
-      return { year: cur.year, month: m };
-    }));
+    guarded(() =>
+      setYm((cur) => {
+        const m = cur.month + delta;
+        if (m < 1) return { year: cur.year - 1, month: 12 };
+        if (m > 12) return { year: cur.year + 1, month: 1 };
+        return { year: cur.year, month: m };
+      }),
+    );
   }
 
   async function save() {
     const items = Array.from(pending.values());
     if (!items.length) return;
-    setSaving(true); setResult(null); setError(null);
+    setSaving(true);
+    setResult(null);
+    setError(null);
     let saved = 0;
     let cleared = 0;
-    const rejected: { employee_id: number | null; date: string; reason: string }[] = [];
+    const rejected: {
+      employee_id: number | null;
+      date: string;
+      reason: string;
+    }[] = [];
     try {
       for (let i = 0; i < items.length; i += SAVE_CHUNK) {
         const lot = items.slice(i, i + SAVE_CHUNK);
-        setProgress({ done: Math.min(i + lot.length, items.length), total: items.length });
+        setProgress({
+          done: Math.min(i + lot.length, items.length),
+          total: items.length,
+        });
         const out = await api.attendance.saveShiftPlan(token, year, month, lot);
-        saved += out.saved; cleared += out.cleared; rejected.push(...out.rejected);
+        saved += out.saved;
+        cleared += out.cleared;
+        rejected.push(...out.rejected);
       }
-      const rejMap = new Map(rejected.map((r) => [cellKey(r.employee_id ?? -1, r.date), r.reason]));
+      const rejMap = new Map(
+        rejected.map((r) => [cellKey(r.employee_id ?? -1, r.date), r.reason]),
+      );
       setRejects(rejMap);
       // Ô bị từ chối Ở LẠI trạng thái bẩn — tuyệt đối không im lặng bỏ qua.
       setPending((prev) => {
         const next = new Map<string, ShiftPlanPatchItem>();
-        prev.forEach((v, k) => { if (rejMap.has(k)) next.set(k, v); });
+        prev.forEach((v, k) => {
+          if (rejMap.has(k)) next.set(k, v);
+        });
         return next;
       });
       setResult({ saved, cleared, rejected: rejected.length });
@@ -2053,10 +3238,16 @@ function ShiftPlanPanel({ token }: { token: string }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : "Lỗi khi lưu phân ca.");
       await reload();
-    } finally { setSaving(false); setProgress(null); }
+    } finally {
+      setSaving(false);
+      setProgress(null);
+    }
   }
 
-  const rejectReasons = useMemo(() => Array.from(new Set(rejects.values())), [rejects]);
+  const rejectReasons = useMemo(
+    () => Array.from(new Set(rejects.values())),
+    [rejects],
+  );
 
   function brushLabel(b: Brush): string {
     if (b.kind === "off") return "Nghỉ";
@@ -2069,20 +3260,25 @@ function ShiftPlanPanel({ token }: { token: string }) {
     return shiftMeta.get(b.shiftId)?.code ?? "?";
   }
   function brushTone(b: Brush): string {
-    return b.kind === "shift" ? (shiftMeta.get(b.shiftId)?.tone ?? "steel") : "rest";
+    return b.kind === "shift"
+      ? (shiftMeta.get(b.shiftId)?.tone ?? "steel")
+      : "rest";
   }
 
   // --- Áp nhanh --------------------------------------------------------------
-  const qf222 = paintShifts.length >= 3 ? paintShifts.slice(0, 3) : null;   // 3 kíp đầu theo thứ tự bút ca
+  const qf222 = paintShifts.length >= 3 ? paintShifts.slice(0, 3) : null; // 3 kíp đầu theo thứ tự bút ca
   const qfWeekly = paintShifts.length >= 2 ? paintShifts : null;
   const qfLen = qfPattern.length;
   // Lệch nhiều hơn số bước của chu kỳ thì quay vòng — nói thẳng ra để khỏi tưởng máy ăn gian.
-  const qfEffPhase = qfLen > 0 ? ((Math.trunc(qfPhase) % qfLen) + qfLen) % qfLen : 0;
+  const qfEffPhase =
+    qfLen > 0 ? ((Math.trunc(qfPhase) % qfLen) + qfLen) % qfLen : 0;
 
   function openQuickFill() {
     // Ca đã ngưng hoạt động thì gỡ khỏi mẫu — tô vào chỉ để server từ chối.
     const live = new Set(paintShifts.map((s) => s.id));
-    setQfPattern((p) => p.filter((b) => b.kind !== "shift" || live.has(b.shiftId)));
+    setQfPattern((p) =>
+      p.filter((b) => b.kind !== "shift" || live.has(b.shiftId)),
+    );
     setQfStart((d) => Math.min(Math.max(1, d), Math.max(1, cal.length)));
     setQfOpen(true);
   }
@@ -2106,71 +3302,148 @@ function ShiftPlanPanel({ token }: { token: string }) {
       <div className="cc-ts-header-actions cc-sp-toolbar">
         <div className="cc-ts-filters">
           <div className="cc-sp-month">
-            <button type="button" className="cc-sp-month__nav" onClick={() => stepMonth(-1)} title="Tháng trước" aria-label="Tháng trước">
+            <button
+              type="button"
+              className="cc-sp-month__nav"
+              onClick={() => stepMonth(-1)}
+              title="Tháng trước"
+              aria-label="Tháng trước"
+            >
               <ChevronLeft size={15} />
             </button>
-            <span className="cc-sp-month__label">Tháng {month}/{year}</span>
-            <button type="button" className="cc-sp-month__nav" onClick={() => stepMonth(1)} title="Tháng sau" aria-label="Tháng sau">
+            <span className="cc-sp-month__label">
+              Tháng {month}/{year}
+            </span>
+            <button
+              type="button"
+              className="cc-sp-month__nav"
+              onClick={() => stepMonth(1)}
+              title="Tháng sau"
+              aria-label="Tháng sau"
+            >
               <ChevronRight size={15} />
             </button>
           </div>
-          <select className="cc-ts-select-dept" value={deptId} aria-label="Lọc phòng/tổ"
-            onChange={(e) => { const v = e.target.value === "" ? "" : Number(e.target.value); guarded(() => setDeptId(v)); }}>
+          <select
+            className="cc-ts-select-dept"
+            value={deptId}
+            aria-label="Lọc phòng/tổ"
+            onChange={(e) => {
+              const v = e.target.value === "" ? "" : Number(e.target.value);
+              guarded(() => setDeptId(v));
+            }}
+          >
             <option value="">Tất cả phòng/tổ</option>
-            {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {depts.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
           </select>
           <div className="cc-sp-search">
             <Search size={14} aria-hidden="true" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Tìm tên / mã NV" aria-label="Tìm nhân viên" />
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Tìm tên / mã NV"
+              aria-label="Tìm nhân viên"
+            />
           </div>
           {noDefaultCount > 0 && (
-            <button type="button"
+            <button
+              type="button"
               className={`cc-sp-flag${onlyNoDefault ? " is-on" : ""}`}
               aria-pressed={onlyNoDefault}
               onClick={() => setOnlyNoDefault((v) => !v)}
-              title="Những người chưa có ca nền — họ CHƯA CHẤM CÔNG ĐƯỢC cho tới khi được đặt ca">
-              <AlertTriangle size={13} aria-hidden="true" /> Chưa có ca ({noDefaultCount})
+              title="Những người chưa có ca nền — họ CHƯA CHẤM CÔNG ĐƯỢC cho tới khi được đặt ca"
+            >
+              <AlertTriangle size={13} aria-hidden="true" /> Chưa có ca (
+              {noDefaultCount})
             </button>
           )}
         </div>
         <div className="cc-ts-actions">
-          <button type="button" className="btn btn--ghost" disabled={locked || visibleRows.length === 0}
-            onClick={() => openBase(visibleRows.map((r) => r.employee_id),
-              `tất cả ${visibleRows.length} nhân viên đang hiển thị`)}
-            title="Đặt ca nền cho TẤT CẢ nhân viên đang hiển thị (bấm ô 'Ca nền' của một hàng để đặt riêng cho người đó)">
-            <Users size={14} /> Đặt ca nền cho tất cả…
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={locked || visibleRows.length === 0}
+            onClick={() =>
+              openBase(
+                visibleRows.map((r) => r.employee_id),
+                `tất cả ${visibleRows.length} nhân viên đang hiển thị`,
+              )
+            }
+            title="Đặt ca nền cho TẤT CẢ nhân viên đang hiển thị (bấm ô 'Ca nền' của một hàng để đặt riêng cho người đó)"
+          >
+            <Users size={14} /> Đặt ca chính cho tất cả…
           </button>
-          <button type="button" className="btn btn--ghost" disabled={locked || visibleRows.length === 0}
+          {/* <button type="button" className="btn btn--ghost" disabled={locked || visibleRows.length === 0}
             onClick={openQuickFill}
             title="Rải sẵn cả tháng theo một chu kỳ lặp (vd 2-2-2), các kíp tự lệch nhau — khỏi tô tay từng ô">
             <Repeat size={14} /> Áp nhanh…
-          </button>
+          </button> */}
           <div className="cc-sp-density" role="group" aria-label="Mật độ lưới">
-            <button type="button" className={density === "compact" ? "is-on" : ""} aria-pressed={density === "compact"}
-              onClick={() => setDensity("compact")}>Gọn</button>
-            <button type="button" className={density === "roomy" ? "is-on" : ""} aria-pressed={density === "roomy"}
-              onClick={() => setDensity("roomy")}>Thoáng</button>
+            <button
+              type="button"
+              className={density === "compact" ? "is-on" : ""}
+              aria-pressed={density === "compact"}
+              onClick={() => setDensity("compact")}
+            >
+              Gọn
+            </button>
+            <button
+              type="button"
+              className={density === "roomy" ? "is-on" : ""}
+              aria-pressed={density === "roomy"}
+              onClick={() => setDensity("roomy")}
+            >
+              Thoáng
+            </button>
           </div>
-          <button type="button" className="btn btn--ghost" onClick={() => void reload()} disabled={loading || saving} title="Tải lại lưới">
-            <RefreshCw size={14} className={loading ? "cc-animate-spin" : undefined} /> Tải lại
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => void reload()}
+            disabled={loading || saving}
+            title="Tải lại lưới"
+          >
+            <RefreshCw
+              size={14}
+              className={loading ? "cc-animate-spin" : undefined}
+            />{" "}
+            Tải lại
           </button>
         </div>
       </div>
 
       {locked && (
         <div className="banner banner--warn cc-sp-banner">
-          <span><Lock size={13} aria-hidden="true" /> Kỳ công tháng {month}/{year} đã chốt — mở lại kỳ mới sửa được phân ca.</span>
+          <span>
+            <Lock size={13} aria-hidden="true" /> Kỳ công tháng {month}/{year}{" "}
+            đã chốt — mở lại kỳ mới sửa được phân ca.
+          </span>
         </div>
       )}
-      {error && <div className="banner banner--error cc-sp-banner"><span>{error}</span></div>}
+      {error && (
+        <div className="banner banner--error cc-sp-banner">
+          <span>{error}</span>
+        </div>
+      )}
       {result && (
         <div className="banner banner--success cc-sp-banner">
-          <span>Đã lưu {result.saved} ô{result.cleared ? ` · gỡ ${result.cleared} ô về mặc định` : ""} · {result.rejected} ô bị từ chối</span>
+          <span>
+            Đã lưu {result.saved} ô
+            {result.cleared ? ` · gỡ ${result.cleared} ô về mặc định` : ""} ·{" "}
+            {result.rejected} ô bị từ chối
+          </span>
         </div>
       )}
       {rejectReasons.length > 0 && (
         <div className="banner banner--warn cc-sp-banner">
-          <span>Ô bị từ chối vẫn còn đánh dấu trên lưới (viền cảnh báo) — di chuột vào ô để xem lý do. {rejectReasons.join(" · ")}</span>
+          <span>
+            Ô bị từ chối vẫn còn đánh dấu trên lưới (viền cảnh báo) — di chuột
+            vào ô để xem lý do. {rejectReasons.join(" · ")}
+          </span>
         </div>
       )}
 
@@ -2181,26 +3454,44 @@ function ShiftPlanPanel({ token }: { token: string }) {
             const meta = shiftMeta.get(s.id);
             const on = brush?.kind === "shift" && brush.shiftId === s.id;
             return (
-              <button key={s.id} type="button" aria-pressed={on}
+              <button
+                key={s.id}
+                type="button"
+                aria-pressed={on}
                 className={`cc-sp-pill cc-sp-pill--${meta?.tone ?? "steel"} ${on ? "is-on" : ""}`}
                 title={`${meta?.title ?? s.name}${i < 9 ? ` · phím ${i + 1}` : ""}`}
-                onClick={() => setBrush(on ? null : { kind: "shift", shiftId: s.id })}>
+                onClick={() =>
+                  setBrush(on ? null : { kind: "shift", shiftId: s.id })
+                }
+              >
                 <span className="cc-sp-pill__code">{meta?.code ?? "?"}</span>
                 <span className="cc-sp-pill__name">{s.name}</span>
               </button>
             );
           })}
-          <button type="button" aria-pressed={brush?.kind === "off"}
+          <button
+            type="button"
+            aria-pressed={brush?.kind === "off"}
             className={`cc-sp-pill cc-sp-pill--rest ${brush?.kind === "off" ? "is-on" : ""}`}
             title="Nghỉ luân phiên — dấu kế hoạch, không chặn chấm công, không sinh hệ số tiền · phím 0"
-            onClick={() => setBrush(brush?.kind === "off" ? null : { kind: "off" })}>
-            <span className="cc-sp-pill__code">–</span><span className="cc-sp-pill__name">Nghỉ</span>
+            onClick={() =>
+              setBrush(brush?.kind === "off" ? null : { kind: "off" })
+            }
+          >
+            <span className="cc-sp-pill__code">–</span>
+            <span className="cc-sp-pill__name">Nghỉ</span>
           </button>
-          <button type="button" aria-pressed={brush?.kind === "inherit"}
+          <button
+            type="button"
+            aria-pressed={brush?.kind === "inherit"}
             className={`cc-sp-pill cc-sp-pill--erase ${brush?.kind === "inherit" ? "is-on" : ""}`}
             title="Xoá ô đã khai tay → về ca mặc định · phím Backspace"
-            onClick={() => setBrush(brush?.kind === "inherit" ? null : { kind: "inherit" })}>
-            <Eraser size={13} aria-hidden="true" /><span className="cc-sp-pill__name">Mặc định ⌫</span>
+            onClick={() =>
+              setBrush(brush?.kind === "inherit" ? null : { kind: "inherit" })
+            }
+          >
+            <Eraser size={13} aria-hidden="true" />
+            <span className="cc-sp-pill__name">Mặc định ⌫</span>
           </button>
           <span className="cc-sp-brush__hint">
             {brush
@@ -2223,33 +3514,58 @@ function ShiftPlanPanel({ token }: { token: string }) {
       {loading && <p className="ns__empty">Đang tải lưới phân ca…</p>}
       {!loading && data && (
         <div className="cc-timesheet-scroll-container cc-sp-scroll">
-          <table className={`cc-timesheet-table cc-sp-table ${density === "roomy" ? "cc-sp-table--roomy" : ""} ${drag ? "is-dragging" : ""}`}>
+          <table
+            className={`cc-timesheet-table cc-sp-table ${density === "roomy" ? "cc-sp-table--roomy" : ""} ${drag ? "is-dragging" : ""}`}
+          >
             <thead>
               <tr>
                 <th className="cc-sp-col-name">Nhân viên</th>
-                <th className="cc-sp-col-base" title="Ca mặc định (nền) đang áp dụng cho nhân viên">Ca nền</th>
+                <th
+                  className="cc-sp-col-base"
+                  title="Ca mặc định (nền) đang áp dụng cho nhân viên"
+                >
+                  Ca nền
+                </th>
                 {cal.map((c) => {
                   const restDay = c.weekday === 6 || !c.is_working;
-                  const cls = ["cc-sp-hdr",
+                  const cls = [
+                    "cc-sp-hdr",
                     c.weekday === 0 ? "cc-sp-hdr--wk" : "",
                     restDay ? "cc-sp-hdr--we" : "",
                     c.special_kind === "off" ? "cc-sp-hdr--hol" : "",
                     c.special_kind === "work" ? "cc-sp-hdr--make" : "",
-                    c.special_kind === "off1x" ? "cc-sp-hdr--x1" : ""].filter(Boolean).join(" ");
-                  const tip = [`${getWeekdayLabel(year, month, c.day)} ${fmtYmd(c.date)}`,
+                    c.special_kind === "off1x" ? "cc-sp-hdr--x1" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ");
+                  const tip = [
+                    `${getWeekdayLabel(year, month, c.day)} ${fmtYmd(c.date)}`,
                     c.name,
-                    c.special_kind === "off1x" ? "Nghỉ không lương — đi làm hưởng 1× lương chính" : null,
+                    c.special_kind === "off1x"
+                      ? "Nghỉ không lương — đi làm hưởng 1× lương chính"
+                      : null,
                     c.special_kind === "work" ? "Ngày làm bù" : null,
-                  ].filter(Boolean).join(" · ");
+                  ]
+                    .filter(Boolean)
+                    .join(" · ");
                   return (
                     <th key={c.day} className={cls} title={tip} scope="col">
-                      <div className="cc-sp-hdr__wd">{getWeekdayLabel(year, month, c.day)}</div>
+                      <div className="cc-sp-hdr__wd">
+                        {getWeekdayLabel(year, month, c.day)}
+                      </div>
                       <div className="cc-sp-hdr__d">{c.day}</div>
-                      {c.special_kind === "off1x" && <div className="cc-sp-hdr__flag">1×</div>}
+                      {c.special_kind === "off1x" && (
+                        <div className="cc-sp-hdr__flag">1×</div>
+                      )}
                     </th>
                   );
                 })}
-                <th className="cc-sp-col-bar" title="Tỷ trọng ca trong tháng của từng nhân viên">Ca/tháng</th>
+                <th
+                  className="cc-sp-col-bar"
+                  title="Tỷ trọng ca trong tháng của từng nhân viên"
+                >
+                  Ca/tháng
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -2260,32 +3576,62 @@ function ShiftPlanPanel({ token }: { token: string }) {
                 let restDays = 0;
                 grid[ri]?.forEach((eff) => {
                   if (eff.off) restDays += 1;
-                  else if (eff.shiftId != null) counts.set(eff.shiftId, (counts.get(eff.shiftId) ?? 0) + 1);
+                  else if (eff.shiftId != null)
+                    counts.set(eff.shiftId, (counts.get(eff.shiftId) ?? 0) + 1);
                 });
                 const segs = orderedShifts
                   .filter((s) => (counts.get(s.id) ?? 0) > 0)
-                  .map((s) => ({ key: `s${s.id}`, tone: shiftMeta.get(s.id)?.tone ?? "steel", n: counts.get(s.id) ?? 0 }));
-                const barTitle = [
-                  ...orderedShifts.filter((s) => (counts.get(s.id) ?? 0) > 0)
-                    .map((s) => `${shiftMeta.get(s.id)?.name ?? s.name}: ${counts.get(s.id)}`),
-                  restDays ? `Nghỉ: ${restDays}` : null,
-                ].filter(Boolean).join(" · ") || "Chưa có ca nào trong tháng";
+                  .map((s) => ({
+                    key: `s${s.id}`,
+                    tone: shiftMeta.get(s.id)?.tone ?? "steel",
+                    n: counts.get(s.id) ?? 0,
+                  }));
+                const barTitle =
+                  [
+                    ...orderedShifts
+                      .filter((s) => (counts.get(s.id) ?? 0) > 0)
+                      .map(
+                        (s) =>
+                          `${shiftMeta.get(s.id)?.name ?? s.name}: ${counts.get(s.id)}`,
+                      ),
+                    restDays ? `Nghỉ: ${restDays}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || "Chưa có ca nào trong tháng";
                 const total = Math.max(1, cal.length);
                 return (
-                  <tr key={row.employee_id} className={row.no_default ? "cc-sp-row--nodef" : ""}>
+                  <tr
+                    key={row.employee_id}
+                    className={row.no_default ? "cc-sp-row--nodef" : ""}
+                  >
                     <td className="cc-sp-col-name">
                       <div className="cc-name-cell-wrapper">
-                        <span className="cc-name-avatar">{getInitials(row.employee_name)}</span>
+                        <span className="cc-name-avatar">
+                          {getInitials(row.employee_name)}
+                        </span>
                         <span className="cc-sp-who">
-                          <button type="button" className="cc-sp-who__name cc-sp-who__link"
+                          <button
+                            type="button"
+                            className="cc-sp-who__name cc-sp-who__link"
                             title={`${row.employee_name} — xem lịch sử đổi ca nền`}
-                            onClick={() => setHistFor({ id: row.employee_id, name: row.employee_name })}>
+                            onClick={() =>
+                              setHistFor({
+                                id: row.employee_id,
+                                name: row.employee_name,
+                              })
+                            }
+                          >
                             {row.employee_name}
                           </button>
                           <span className="cc-sp-who__sub">
-                            <span className="cc-sp-who__code">{row.employee_code ?? "—"}</span>
+                            <span className="cc-sp-who__code">
+                              {row.employee_code ?? "—"}
+                            </span>
                             {row.no_default && (
-                              <span className="ns-badge ns-badge--warn cc-sp-nodef" title="Nhân viên chưa được gán ca mặc định — khai ca trên lưới hoặc gán ở khối C · Ca mặc định">
+                              <span
+                                className="ns-badge ns-badge--warn cc-sp-nodef"
+                                title="Nhân viên chưa được gán ca mặc định — khai ca trên lưới hoặc gán ở khối C · Ca mặc định"
+                              >
                                 Chưa có ca
                               </span>
                             )}
@@ -2294,72 +3640,176 @@ function ShiftPlanPanel({ token }: { token: string }) {
                       </div>
                     </td>
                     <td className="cc-sp-col-base">
-                      <button type="button" className="cc-sp-basebtn" disabled={locked}
-                        onClick={() => openBase([row.employee_id], row.employee_name, base)}
-                        title={`Đặt ca nền riêng cho ${row.employee_name}`
-                          + (baseMeta ? ` — hiện: ${baseMeta.title}` : " — hiện chưa có ca nền")}>
-                        {baseMeta
-                          ? <span className={`cc-sp-chip cc-sp-chip--${baseMeta.tone} is-ghost`}>{baseMeta.code}</span>
-                          : <span className="cc-sp-chip cc-sp-chip--none is-ghost">·</span>}
+                      <button
+                        type="button"
+                        className="cc-sp-basebtn"
+                        disabled={locked}
+                        onClick={() =>
+                          openBase([row.employee_id], row.employee_name, base)
+                        }
+                        title={
+                          `Đặt ca nền riêng cho ${row.employee_name}` +
+                          (baseMeta
+                            ? ` — hiện: ${baseMeta.title}`
+                            : " — hiện chưa có ca nền")
+                        }
+                      >
+                        {baseMeta ? (
+                          <span
+                            className={`cc-sp-chip cc-sp-chip--${baseMeta.tone} is-ghost`}
+                          >
+                            {baseMeta.code}
+                          </span>
+                        ) : (
+                          <span className="cc-sp-chip cc-sp-chip--none is-ghost">
+                            ·
+                          </span>
+                        )}
                       </button>
                     </td>
                     {cal.map((c, ci) => {
                       const key = cellKey(row.employee_id, c.date);
-                      const inRect = !!drag
-                        && ri >= Math.min(drag.r0, drag.r1) && ri <= Math.max(drag.r0, drag.r1)
-                        && ci >= Math.min(drag.c0, drag.c1) && ci <= Math.max(drag.c0, drag.c1);
-                      let eff = grid[ri]?.[ci] ?? { shiftId: null, hand: false, off: false };
+                      const inRect =
+                        !!drag &&
+                        ri >= Math.min(drag.r0, drag.r1) &&
+                        ri <= Math.max(drag.r0, drag.r1) &&
+                        ci >= Math.min(drag.c0, drag.c1) &&
+                        ci <= Math.max(drag.c0, drag.c1);
+                      let eff = grid[ri]?.[ci] ?? {
+                        shiftId: null,
+                        hand: false,
+                        off: false,
+                      };
                       if (inRect && brush) {
-                        if (brush.kind === "off") eff = { shiftId: null, hand: true, off: true };
-                        else if (brush.kind === "inherit") eff = { shiftId: inheritInfo.get(row.employee_id)?.inherit[ci] ?? null, hand: false, off: false };
-                        else eff = { shiftId: brush.shiftId, hand: true, off: false };
+                        if (brush.kind === "off")
+                          eff = { shiftId: null, hand: true, off: true };
+                        else if (brush.kind === "inherit")
+                          eff = {
+                            shiftId:
+                              inheritInfo.get(row.employee_id)?.inherit[ci] ??
+                              null,
+                            hand: false,
+                            off: false,
+                          };
+                        else
+                          eff = {
+                            shiftId: brush.shiftId,
+                            hand: true,
+                            off: false,
+                          };
                       }
-                      const meta = eff.shiftId != null ? shiftMeta.get(eff.shiftId) : undefined;
+                      const meta =
+                        eff.shiftId != null
+                          ? shiftMeta.get(eff.shiftId)
+                          : undefined;
                       const reason = rejects.get(key);
                       const restDay = c.weekday === 6 || !c.is_working;
-                      const cls = ["cc-day-cell", "cc-sp-cell",
+                      const cls = [
+                        "cc-day-cell",
+                        "cc-sp-cell",
                         c.weekday === 0 ? "cc-sp-cell--wk" : "",
                         restDay ? "cc-sp-cell--we" : "",
-                        c.special_kind === "off" || c.special_kind === "off1x" ? "cc-sp-cell--hol" : "",
+                        c.special_kind === "off" || c.special_kind === "off1x"
+                          ? "cc-sp-cell--hol"
+                          : "",
                         c.special_kind === "work" ? "cc-sp-cell--make" : "",
                         eff.off ? "cc-sp-cell--rest" : "",
                         pending.has(key) ? "is-dirty" : "",
                         reason ? "is-rejected" : "",
                         inRect ? "is-preview" : "",
-                        paintable ? "is-paintable" : ""].filter(Boolean).join(" ");
-                      const dayTip = [`${getWeekdayLabel(year, month, c.day)} ${fmtYmd(c.date)}`, c.name].filter(Boolean).join(" · ");
+                        paintable ? "is-paintable" : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ");
+                      const dayTip = [
+                        `${getWeekdayLabel(year, month, c.day)} ${fmtYmd(c.date)}`,
+                        c.name,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
                       const chipTip = [
-                        eff.off ? "Nghỉ theo lịch (dấu kế hoạch — không chặn chấm công, không sinh hệ số)" : meta?.title ?? "Chưa có ca",
+                        eff.off
+                          ? "Nghỉ theo lịch (dấu kế hoạch — không chặn chấm công, không sinh hệ số)"
+                          : (meta?.title ?? "Chưa có ca"),
                         eff.hand ? "khai tay" : "kế thừa ca nền",
                         dayTip,
-                        c.special_kind === "off1x" ? "Nghỉ không lương — đi làm hưởng 1× lương chính" : null,
+                        c.special_kind === "off1x"
+                          ? "Nghỉ không lương — đi làm hưởng 1× lương chính"
+                          : null,
                         reason ? `TỪ CHỐI: ${reason}` : null,
-                      ].filter(Boolean).join(" · ");
+                      ]
+                        .filter(Boolean)
+                        .join(" · ");
                       return (
-                        <td key={c.day} className={cls} title={dayTip}
-                          onMouseDown={paintable ? (e) => { e.preventDefault(); setDrag({ r0: ri, c0: ci, r1: ri, c1: ci }); } : undefined}
-                          onMouseEnter={paintable ? () => setDrag((d) => (d ? { ...d, r1: ri, c1: ci } : d)) : undefined}>
-                          {eff.off
-                            ? <span className="cc-sp-rest" title={chipTip}>–</span>
-                            : meta
-                              ? <span className={`cc-sp-chip cc-sp-chip--${meta.tone} ${eff.hand ? "is-hand" : "is-ghost"}`} title={chipTip}>{meta.code}</span>
-                              : <span className="cc-sp-chip cc-sp-chip--none is-ghost" title={chipTip}>·</span>}
+                        <td
+                          key={c.day}
+                          className={cls}
+                          title={dayTip}
+                          onMouseDown={
+                            paintable
+                              ? (e) => {
+                                  e.preventDefault();
+                                  setDrag({ r0: ri, c0: ci, r1: ri, c1: ci });
+                                }
+                              : undefined
+                          }
+                          onMouseEnter={
+                            paintable
+                              ? () =>
+                                  setDrag((d) =>
+                                    d ? { ...d, r1: ri, c1: ci } : d,
+                                  )
+                              : undefined
+                          }
+                        >
+                          {eff.off ? (
+                            <span className="cc-sp-rest" title={chipTip}>
+                              –
+                            </span>
+                          ) : meta ? (
+                            <span
+                              className={`cc-sp-chip cc-sp-chip--${meta.tone} ${eff.hand ? "is-hand" : "is-ghost"}`}
+                              title={chipTip}
+                            >
+                              {meta.code}
+                            </span>
+                          ) : (
+                            <span
+                              className="cc-sp-chip cc-sp-chip--none is-ghost"
+                              title={chipTip}
+                            >
+                              ·
+                            </span>
+                          )}
                         </td>
                       );
                     })}
                     <td className="cc-sp-col-bar">
                       <div className="cc-sp-bar" title={barTitle}>
                         {segs.map((s) => (
-                          <span key={s.key} className={`cc-sp-bar__seg cc-sp-bar__seg--${s.tone}`} style={{ width: `${(s.n / total) * 100}%` }} />
+                          <span
+                            key={s.key}
+                            className={`cc-sp-bar__seg cc-sp-bar__seg--${s.tone}`}
+                            style={{ width: `${(s.n / total) * 100}%` }}
+                          />
                         ))}
-                        {restDays > 0 && <span className="cc-sp-bar__seg cc-sp-bar__seg--rest" style={{ width: `${(restDays / total) * 100}%` }} />}
+                        {restDays > 0 && (
+                          <span
+                            className="cc-sp-bar__seg cc-sp-bar__seg--rest"
+                            style={{ width: `${(restDays / total) * 100}%` }}
+                          />
+                        )}
                       </div>
                     </td>
                   </tr>
                 );
               })}
               {visibleRows.length === 0 && (
-                <tr><td colSpan={cal.length + 3} className="ns__empty">Không có nhân viên phù hợp bộ lọc.</td></tr>
+                <tr>
+                  <td colSpan={cal.length + 3} className="ns__empty">
+                    Không có nhân viên phù hợp bộ lọc.
+                  </td>
+                </tr>
               )}
             </tbody>
             <tfoot>
@@ -2368,27 +3818,51 @@ function ShiftPlanPanel({ token }: { token: string }) {
                 <td className="cc-sp-col-base" />
                 {cal.map((c, ci) => {
                   const f = footCounts[ci];
-                  const parts = orderedShifts.filter((s) => (f?.byShift.get(s.id) ?? 0) > 0);
-                  const tip = [
-                    ...parts.map((s) => `${shiftMeta.get(s.id)?.name ?? s.name}: ${f.byShift.get(s.id)}`),
-                    f?.off ? `Nghỉ: ${f.off}` : null,
-                    f?.none ? `Chưa có ca: ${f.none}` : null,
-                  ].filter(Boolean).join(" · ") || "Không có ai";
+                  const parts = orderedShifts.filter(
+                    (s) => (f?.byShift.get(s.id) ?? 0) > 0,
+                  );
+                  const tip =
+                    [
+                      ...parts.map(
+                        (s) =>
+                          `${shiftMeta.get(s.id)?.name ?? s.name}: ${f.byShift.get(s.id)}`,
+                      ),
+                      f?.off ? `Nghỉ: ${f.off}` : null,
+                      f?.none ? `Chưa có ca: ${f.none}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "Không có ai";
                   return (
-                    <td key={c.day} className={`cc-sp-foot ${c.weekday === 0 ? "cc-sp-cell--wk" : ""}`} title={tip}>
+                    <td
+                      key={c.day}
+                      className={`cc-sp-foot ${c.weekday === 0 ? "cc-sp-cell--wk" : ""}`}
+                      title={tip}
+                    >
                       {parts.map((s, i) => (
                         <span key={s.id}>
                           {i > 0 && <span className="cc-sp-foot__sep">·</span>}
-                          <span className={`cc-sp-foot__n cc-sp-foot__n--${shiftMeta.get(s.id)?.tone ?? "steel"}`}>{f.byShift.get(s.id)}</span>
+                          <span
+                            className={`cc-sp-foot__n cc-sp-foot__n--${shiftMeta.get(s.id)?.tone ?? "steel"}`}
+                          >
+                            {f.byShift.get(s.id)}
+                          </span>
                         </span>
                       ))}
                       {!!f?.off && (
                         <span>
-                          {parts.length > 0 && <span className="cc-sp-foot__sep">·</span>}
-                          <span className="cc-sp-foot__n cc-sp-foot__n--rest">{f.off}</span>
+                          {parts.length > 0 && (
+                            <span className="cc-sp-foot__sep">·</span>
+                          )}
+                          <span className="cc-sp-foot__n cc-sp-foot__n--rest">
+                            {f.off}
+                          </span>
                         </span>
                       )}
-                      {!parts.length && !f?.off && <span className="cc-sp-foot__n cc-sp-foot__n--zero">—</span>}
+                      {!parts.length && !f?.off && (
+                        <span className="cc-sp-foot__n cc-sp-foot__n--zero">
+                          —
+                        </span>
+                      )}
                     </td>
                   );
                 })}
@@ -2401,17 +3875,39 @@ function ShiftPlanPanel({ token }: { token: string }) {
 
       {!locked && (
         <div className="cc-sp-actionbar">
-          <span className={`cc-sp-dirty ${dirtyCount ? "is-on" : ""}`} aria-live="polite">
+          <span
+            className={`cc-sp-dirty ${dirtyCount ? "is-on" : ""}`}
+            aria-live="polite"
+          >
             <span className="cc-sp-dirty__dot" aria-hidden="true" />
-            {dirtyCount ? `${dirtyCount} thay đổi chưa lưu` : "Chưa có thay đổi"}
+            {dirtyCount
+              ? `${dirtyCount} thay đổi chưa lưu`
+              : "Chưa có thay đổi"}
           </span>
-          {progress && <span className="cc-sp-progress">Đang lưu {progress.done}/{progress.total}…</span>}
+          {progress && (
+            <span className="cc-sp-progress">
+              Đang lưu {progress.done}/{progress.total}…
+            </span>
+          )}
           <span className="cc-sp-actionbar__gap" />
-          <button type="button" className="btn btn--ghost" disabled={!dirtyCount || saving}
-            onClick={() => { setPending(new Map()); setRejects(new Map()); setResult(null); }}>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            disabled={!dirtyCount || saving}
+            onClick={() => {
+              setPending(new Map());
+              setRejects(new Map());
+              setResult(null);
+            }}
+          >
             <Undo2 size={14} /> Hoàn tác tất cả
           </button>
-          <button type="button" className="btn btn--primary" disabled={!dirtyCount || saving} onClick={() => void save()}>
+          <button
+            type="button"
+            className="btn btn--primary"
+            disabled={!dirtyCount || saving}
+            onClick={() => void save()}
+          >
             <Save size={14} /> {saving ? "Đang lưu…" : "Lưu"}
           </button>
         </div>
@@ -2423,44 +3919,91 @@ function ShiftPlanPanel({ token }: { token: string }) {
             <header className="ns-modal__head">
               <div className="cc-modal-title-group">
                 <h2>Đặt ca nền</h2>
-                <span className="cc-modal-subtitle">Áp cho: {baseTarget.label}</span>
+                <span className="cc-modal-subtitle">
+                  Áp cho: {baseTarget.label}
+                </span>
               </div>
-              <button className="ns-modal__x" onClick={() => setBaseTarget(null)} disabled={baseBusy}>×</button>
+              <button
+                className="ns-modal__x"
+                onClick={() => setBaseTarget(null)}
+                disabled={baseBusy}
+              >
+                ×
+              </button>
             </header>
             <div className="ns-modal__body">
               <p className="cc-note">
-                Ca nền áp dụng <strong>từ ngày đã chọn trở về sau, cho MỌI tháng</strong> — khác với tô ca
-                trên lưới (chỉ đúng ngày đã tô). Ngày nào không khai trên lưới thì dùng ca nền này.
+                Ca nền áp dụng{" "}
+                <strong>từ ngày đã chọn trở về sau, cho MỌI tháng</strong> —
+                khác với tô ca trên lưới (chỉ đúng ngày đã tô). Ngày nào không
+                khai trên lưới thì dùng ca nền này.
               </p>
               <label className="cc-sp-basepop__row">
                 <span>Ca</span>
-                <select value={baseShift}
-                  onChange={(e) => setBaseShift(
-                    e.target.value === "" ? "" : e.target.value === "none" ? "none" : Number(e.target.value))}>
+                <select
+                  value={baseShift}
+                  onChange={(e) =>
+                    setBaseShift(
+                      e.target.value === ""
+                        ? ""
+                        : e.target.value === "none"
+                          ? "none"
+                          : Number(e.target.value),
+                    )
+                  }
+                >
                   <option value="">— chọn ca —</option>
                   {paintShifts.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name} ({s.start_time}–{s.end_time})</option>
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.start_time}–{s.end_time})
+                    </option>
                   ))}
                   <option value="none">— bỏ gán ca nền —</option>
                 </select>
               </label>
               <label className="cc-sp-basepop__row">
                 <span>Áp dụng từ</span>
-                <input type="date" value={baseFrom} onChange={(e) => setBaseFrom(e.target.value)} />
+                <input
+                  type="date"
+                  value={baseFrom}
+                  onChange={(e) => setBaseFrom(e.target.value)}
+                />
               </label>
               {baseShift === "none" && (
                 <p className="cc-sp-basepop__msg">
-                  Bỏ ca nền = những ngày không khai trên lưới sẽ <strong>không có ca</strong>, và người đó
-                  <strong> không chấm công được</strong>. Chỉ dùng khi thực sự muốn vậy.
+                  Bỏ ca nền = những ngày không khai trên lưới sẽ{" "}
+                  <strong>không có ca</strong>, và người đó
+                  <strong> không chấm công được</strong>. Chỉ dùng khi thực sự
+                  muốn vậy.
                 </p>
               )}
               {baseMsg && <p className="cc-sp-basepop__msg">{baseMsg}</p>}
             </div>
-            <footer className="ns-modal__foot" style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-              <button className="btn btn--ghost" onClick={() => setBaseTarget(null)} disabled={baseBusy}>Hủy</button>
-              <button className="btn btn--primary" onClick={() => void applyBase()}
-                disabled={baseBusy || baseShift === "" || !baseFrom}>
-                {baseBusy ? "Đang áp dụng…" : baseShift === "none" ? "Bỏ gán ca nền" : "Áp dụng"}
+            <footer
+              className="ns-modal__foot"
+              style={{
+                display: "flex",
+                gap: "12px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                className="btn btn--ghost"
+                onClick={() => setBaseTarget(null)}
+                disabled={baseBusy}
+              >
+                Hủy
+              </button>
+              <button
+                className="btn btn--primary"
+                onClick={() => void applyBase()}
+                disabled={baseBusy || baseShift === "" || !baseFrom}
+              >
+                {baseBusy
+                  ? "Đang áp dụng…"
+                  : baseShift === "none"
+                    ? "Bỏ gán ca nền"
+                    : "Áp dụng"}
               </button>
             </footer>
           </div>
@@ -2474,15 +4017,19 @@ function ShiftPlanPanel({ token }: { token: string }) {
               <div className="cc-modal-title-group">
                 <h2>Áp nhanh mẫu xoay ca</h2>
                 <span className="cc-modal-subtitle">
-                  Tháng {month}/{year} · {visibleRows.length} nhân viên đang hiển thị
+                  Tháng {month}/{year} · {visibleRows.length} nhân viên đang
+                  hiển thị
                 </span>
               </div>
-              <button className="ns-modal__x" onClick={() => setQfOpen(false)}>×</button>
+              <button className="ns-modal__x" onClick={() => setQfOpen(false)}>
+                ×
+              </button>
             </header>
             <div className="ns-modal__body cc-qf-body">
               <p className="cc-note">
-                Rải sẵn cả tháng theo một chu kỳ lặp đi lặp lại, thay cho việc tô tay từng ô.
-                Máy chỉ ghi vào nháp — <strong>áp xong vẫn phải bấm Lưu</strong>.
+                Rải sẵn cả tháng theo một chu kỳ lặp đi lặp lại, thay cho việc
+                tô tay từng ô. Máy chỉ ghi vào nháp —{" "}
+                <strong>áp xong vẫn phải bấm Lưu</strong>.
               </p>
 
               {(qf222 || qfWeekly) && (
@@ -2490,34 +4037,56 @@ function ShiftPlanPanel({ token }: { token: string }) {
                   <div className="cc-qf-head">Mẫu có sẵn</div>
                   <div className="cc-qf-row">
                     {qf222 && (
-                      <button type="button" className="cc-qf-preset"
+                      <button
+                        type="button"
+                        className="cc-qf-preset"
                         title="2 ngày ca đầu → 2 ngày ca giữa → 2 ngày ca khuya, người sau lệch 2 ngày so với người trước"
                         onClick={() => {
                           const [a, b, c] = qf222;
                           if (!a || !b || !c) return;
-                          setQfPattern([a, a, b, b, c, c].map((s) => ({ kind: "shift", shiftId: s.id })));
+                          setQfPattern(
+                            [a, a, b, b, c, c].map((s) => ({
+                              kind: "shift",
+                              shiftId: s.id,
+                            })),
+                          );
                           setQfPhase(2);
-                        }}>
-                        <span className="cc-qf-preset__name">2-2-2 (3 kíp)</span>
+                        }}
+                      >
+                        <span className="cc-qf-preset__name">
+                          2-2-2 (3 kíp)
+                        </span>
                         <span className="cc-qf-preset__sub">
-                          {qf222.map((s) => shiftMeta.get(s.id)?.code ?? "?").join(" · ")} · lệch 2 ngày
+                          {qf222
+                            .map((s) => shiftMeta.get(s.id)?.code ?? "?")
+                            .join(" · ")}{" "}
+                          · lệch 2 ngày
                         </span>
                       </button>
                     )}
                     {qfWeekly && (
-                      <button type="button" className="cc-qf-preset"
+                      <button
+                        type="button"
+                        className="cc-qf-preset"
                         title="Mỗi ca làm trọn 7 ngày rồi đổi, người sau lệch nguyên 1 tuần"
                         onClick={() => {
                           const p: Brush[] = [];
-                          for (const s of qfWeekly) for (let k = 0; k < 7; k += 1) p.push({ kind: "shift", shiftId: s.id });
+                          for (const s of qfWeekly)
+                            for (let k = 0; k < 7; k += 1)
+                              p.push({ kind: "shift", shiftId: s.id });
                           setQfPattern(p);
                           setQfPhase(7);
-                        }}>
+                        }}
+                      >
                         <span className="cc-qf-preset__name">Xoay tuần</span>
-                        <span className="cc-qf-preset__sub">mỗi ca 7 ngày · lệch 1 tuần</span>
+                        <span className="cc-qf-preset__sub">
+                          mỗi ca 7 ngày · lệch 1 tuần
+                        </span>
                       </button>
                     )}
-                    <span className="cc-note">Bấm xong vẫn sửa lại được ở dưới.</span>
+                    <span className="cc-note">
+                      Bấm xong vẫn sửa lại được ở dưới.
+                    </span>
                   </div>
                 </div>
               )}
@@ -2525,13 +4094,22 @@ function ShiftPlanPanel({ token }: { token: string }) {
               <div className="cc-qf-block">
                 <div className="cc-qf-head">
                   Chu kỳ lặp — mỗi ô là một ngày
-                  {qfLen > 0 && <span className="cc-qf-head__n">{qfLen} ngày/vòng</span>}
+                  {qfLen > 0 && (
+                    <span className="cc-qf-head__n">{qfLen} ngày/vòng</span>
+                  )}
                 </div>
                 <div className="cc-qf-chips">
-                  {qfLen === 0 && <span className="cc-qf-chips__empty">Chưa có ngày nào — bấm ca ở dưới để thêm</span>}
+                  {qfLen === 0 && (
+                    <span className="cc-qf-chips__empty">
+                      Chưa có ngày nào — bấm ca ở dưới để thêm
+                    </span>
+                  )}
                   {qfPattern.map((b, i) => (
-                    <span key={i} className={`cc-qf-chip cc-qf-chip--${brushTone(b)}`}
-                      title={`Ngày thứ ${i + 1} của vòng · ${brushLabel(b)}`}>
+                    <span
+                      key={i}
+                      className={`cc-qf-chip cc-qf-chip--${brushTone(b)}`}
+                      title={`Ngày thứ ${i + 1} của vòng · ${brushLabel(b)}`}
+                    >
                       {brushCode(b)}
                     </span>
                   ))}
@@ -2541,25 +4119,51 @@ function ShiftPlanPanel({ token }: { token: string }) {
                   {paintShifts.map((s) => {
                     const meta = shiftMeta.get(s.id);
                     return (
-                      <button key={s.id} type="button"
+                      <button
+                        key={s.id}
+                        type="button"
                         className={`cc-sp-pill cc-sp-pill--${meta?.tone ?? "steel"}`}
                         title={meta?.title ?? s.name}
-                        onClick={() => setQfPattern((p) => [...p, { kind: "shift", shiftId: s.id }])}>
-                        <span className="cc-sp-pill__code">{meta?.code ?? "?"}</span>
+                        onClick={() =>
+                          setQfPattern((p) => [
+                            ...p,
+                            { kind: "shift", shiftId: s.id },
+                          ])
+                        }
+                      >
+                        <span className="cc-sp-pill__code">
+                          {meta?.code ?? "?"}
+                        </span>
                         <span className="cc-sp-pill__name">{s.name}</span>
                       </button>
                     );
                   })}
-                  <button type="button" className="cc-sp-pill"
+                  <button
+                    type="button"
+                    className="cc-sp-pill"
                     title="Ngày nghỉ luân phiên trong chu kỳ"
-                    onClick={() => setQfPattern((p) => [...p, { kind: "off" }])}>
-                    <span className="cc-sp-pill__code">–</span><span className="cc-sp-pill__name">Nghỉ</span>
+                    onClick={() => setQfPattern((p) => [...p, { kind: "off" }])}
+                  >
+                    <span className="cc-sp-pill__code">–</span>
+                    <span className="cc-sp-pill__name">Nghỉ</span>
                   </button>
                   <span className="cc-qf-row__gap" />
-                  <button type="button" className="btn btn--ghost" disabled={qfLen === 0}
-                    onClick={() => setQfPattern((p) => p.slice(0, -1))}>Xoá ngày cuối</button>
-                  <button type="button" className="btn btn--ghost" disabled={qfLen === 0}
-                    onClick={() => setQfPattern([])}>Xoá hết</button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    disabled={qfLen === 0}
+                    onClick={() => setQfPattern((p) => p.slice(0, -1))}
+                  >
+                    Xoá ngày cuối
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    disabled={qfLen === 0}
+                    onClick={() => setQfPattern([])}
+                  >
+                    Xoá hết
+                  </button>
                 </div>
               </div>
 
@@ -2567,26 +4171,52 @@ function ShiftPlanPanel({ token }: { token: string }) {
                 <div className="cc-qf-opts">
                   <label className="cc-qf-field">
                     <span>Bắt đầu từ ngày</span>
-                    <input type="number" min={1} max={Math.max(1, cal.length)} value={qfStart}
-                      onChange={(e) => setQfStart(clampNum(e.target.value, 1, Math.max(1, cal.length)))} />
+                    <input
+                      type="number"
+                      min={1}
+                      max={Math.max(1, cal.length)}
+                      value={qfStart}
+                      onChange={(e) =>
+                        setQfStart(
+                          clampNum(e.target.value, 1, Math.max(1, cal.length)),
+                        )
+                      }
+                    />
                   </label>
                   <label className="cc-qf-field">
                     <span>Lệch pha giữa các nhân viên</span>
-                    <input type="number" min={0} max={30} value={qfPhase}
-                      onChange={(e) => setQfPhase(clampNum(e.target.value, 0, 30))} />
+                    <input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={qfPhase}
+                      onChange={(e) =>
+                        setQfPhase(clampNum(e.target.value, 0, 30))
+                      }
+                    />
                   </label>
                 </div>
                 <p className="cc-note">
-                  Người thứ 2 bắt đầu muộn hơn người thứ nhất bấy nhiêu bước — để các kíp phủ kín mọi ca.
-                  Để <strong>0</strong> thì cả tổ chạy y hệt nhau.
-                  {qfLen > 0 && qfEffPhase !== qfPhase && ` Vòng chỉ có ${qfLen} ngày nên lệch ${qfPhase} thực ra bằng lệch ${qfEffPhase}.`}
+                  Người thứ 2 bắt đầu muộn hơn người thứ nhất bấy nhiêu bước —
+                  để các kíp phủ kín mọi ca. Để <strong>0</strong> thì cả tổ
+                  chạy y hệt nhau.
+                  {qfLen > 0 &&
+                    qfEffPhase !== qfPhase &&
+                    ` Vòng chỉ có ${qfLen} ngày nên lệch ${qfPhase} thực ra bằng lệch ${qfEffPhase}.`}
                 </p>
                 <label className="cc-qf-check">
-                  <input type="checkbox" checked={qfSkipRest} onChange={(e) => setQfSkipRest(e.target.checked)} />
+                  <input
+                    type="checkbox"
+                    checked={qfSkipRest}
+                    onChange={(e) => setQfSkipRest(e.target.checked)}
+                  />
                   <span>
                     Không tô vào ngày nghỉ tuần &amp; ngày lễ
-                    <em>Xưởng 3 ca chạy liên tục thì cứ để TẮT. Bật thì ngày nghỉ bỏ trắng và không tiêu một bước
-                      của chu kỳ, nên vòng xoay không bị lệch.</em>
+                    <em>
+                      Xưởng 3 ca chạy liên tục thì cứ để TẮT. Bật thì ngày nghỉ
+                      bỏ trắng và không tiêu một bước của chu kỳ, nên vòng xoay
+                      không bị lệch.
+                    </em>
                   </span>
                 </label>
               </div>
@@ -2594,22 +4224,46 @@ function ShiftPlanPanel({ token }: { token: string }) {
               {qfStrip && (
                 <div className="cc-qf-block">
                   <div className="cc-qf-head">
-                    Xem trước {qfStrip.rows.length} người đầu · {qfStrip.days.length} ngày đầu
+                    Xem trước {qfStrip.rows.length} người đầu ·{" "}
+                    {qfStrip.days.length} ngày đầu
                   </div>
                   <div className="cc-qf-strip">
                     <div className="cc-qf-strip__row cc-qf-strip__row--head">
                       <span className="cc-qf-strip__who" />
-                      {qfStrip.days.map((c) => <span key={c.day} className="cc-qf-strip__d">{c.day}</span>)}
+                      {qfStrip.days.map((c) => (
+                        <span key={c.day} className="cc-qf-strip__d">
+                          {c.day}
+                        </span>
+                      ))}
                     </div>
                     {qfStrip.rows.map((r, i) => (
                       <div key={r.employee_id} className="cc-qf-strip__row">
-                        <span className="cc-qf-strip__who" title={r.employee_name}>{r.employee_name}</span>
+                        <span
+                          className="cc-qf-strip__who"
+                          title={r.employee_name}
+                        >
+                          {r.employee_name}
+                        </span>
                         {qfStrip.days.map((c) => {
                           const b = qfStrip.byRow[i]?.get(c.day);
-                          if (!b) return <span key={c.day} className="cc-qf-strip__c cc-qf-strip__c--skip" title="Bỏ trắng">·</span>;
+                          if (!b)
+                            return (
+                              <span
+                                key={c.day}
+                                className="cc-qf-strip__c cc-qf-strip__c--skip"
+                                title="Bỏ trắng"
+                              >
+                                ·
+                              </span>
+                            );
                           return (
-                            <span key={c.day} className={`cc-qf-strip__c cc-qf-chip--${brushTone(b)}`}
-                              title={`Ngày ${c.day} · ${brushLabel(b)}`}>{brushCode(b)}</span>
+                            <span
+                              key={c.day}
+                              className={`cc-qf-strip__c cc-qf-chip--${brushTone(b)}`}
+                              title={`Ngày ${c.day} · ${brushLabel(b)}`}
+                            >
+                              {brushCode(b)}
+                            </span>
                           );
                         })}
                       </div>
@@ -2619,17 +4273,38 @@ function ShiftPlanPanel({ token }: { token: string }) {
               )}
 
               <p className="cc-qf-sum">
-                Áp cho <strong>{visibleRows.length} nhân viên</strong> đang hiển thị · từ ngày <strong>{qfPlan.startDay}</strong> ·{" "}
+                Áp cho <strong>{visibleRows.length} nhân viên</strong> đang hiển
+                thị · từ ngày <strong>{qfPlan.startDay}</strong> ·{" "}
                 <strong>{qfDraft?.changed ?? 0} ô</strong> sẽ đổi
               </p>
-              {qfLen > 0 && visibleRows.length > 0 && qfDraft?.changed === 0 && (
-                <p className="cc-sp-basepop__msg">Mẫu này trùng đúng thứ lưới đang có — áp vào cũng không đổi ô nào.</p>
-              )}
+              {qfLen > 0 &&
+                visibleRows.length > 0 &&
+                qfDraft?.changed === 0 && (
+                  <p className="cc-sp-basepop__msg">
+                    Mẫu này trùng đúng thứ lưới đang có — áp vào cũng không đổi
+                    ô nào.
+                  </p>
+                )}
             </div>
-            <footer className="ns-modal__foot" style={{ display: "flex", gap: "12px", justifyContent: "flex-end" }}>
-              <button className="btn btn--ghost" onClick={() => setQfOpen(false)}>Hủy</button>
-              <button className="btn btn--primary" onClick={applyQuickFill}
-                disabled={locked || qfLen === 0 || visibleRows.length === 0}>
+            <footer
+              className="ns-modal__foot"
+              style={{
+                display: "flex",
+                gap: "12px",
+                justifyContent: "flex-end",
+              }}
+            >
+              <button
+                className="btn btn--ghost"
+                onClick={() => setQfOpen(false)}
+              >
+                Hủy
+              </button>
+              <button
+                className="btn btn--primary"
+                onClick={applyQuickFill}
+                disabled={locked || qfLen === 0 || visibleRows.length === 0}
+              >
                 Áp vào nháp
               </button>
             </footer>
@@ -2638,59 +4313,99 @@ function ShiftPlanPanel({ token }: { token: string }) {
       )}
 
       {histFor && (
-        <div className="cc-sp-drawer" role="dialog" aria-label={`Lịch sử đổi ca nền — ${histFor.name}`}>
-          <div className="cc-sp-drawer__backdrop" onClick={() => setHistFor(null)} />
+        <div
+          className="cc-sp-drawer"
+          role="dialog"
+          aria-label={`Lịch sử đổi ca nền — ${histFor.name}`}
+        >
+          <div
+            className="cc-sp-drawer__backdrop"
+            onClick={() => setHistFor(null)}
+          />
           <div className="cc-sp-drawer__panel">
             <div className="cc-sp-drawer__head">
               <div>
-                <div className="cc-sp-drawer__title">Lịch sử ca nền</div>
+                <div className="cc-sp-drawer__title">Lịch sử ca</div>
                 <div className="cc-sp-drawer__sub">{histFor.name}</div>
               </div>
-              <button type="button" className="btn btn--ghost" onClick={() => setHistFor(null)}>Đóng</button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => setHistFor(null)}
+              >
+                Đóng
+              </button>
             </div>
             <p className="cc-note">
-              Ca nền áp dụng từ ngày hiệu lực trở về sau. Ngày nào khai riêng trên lưới thì ô đó thắng ca nền.
+              Ca nền áp dụng từ ngày hiệu lực trở về sau. Ngày nào khai riêng
+              trên lưới thì ô đó thắng ca nền.
             </p>
-            {histErr && <div className="banner banner--error"><span>{histErr}</span></div>}
+            {histErr && (
+              <div className="banner banner--error">
+                <span>{histErr}</span>
+              </div>
+            )}
             {hist == null && <p className="ns__empty">Đang tải…</p>}
-            {hist?.length === 0 && <p className="ns__empty">Chưa có mốc ca nền nào.</p>}
+            {hist?.length === 0 && (
+              <p className="ns__empty">Chưa có mốc ca nền nào.</p>
+            )}
             {hist && hist.length > 0 && (
               <ul className="cc-sp-hist">
                 {hist.map((h) => {
                   // 3 trạng thái, KHÔNG phải 2: mốc đặt cho ngày mai không phải "đã qua".
-                  const state = h.is_current ? "current"
-                    : h.effective_from > isoToday() ? "future" : "past";
+                  const state = h.is_current
+                    ? "current"
+                    : h.effective_from > isoToday()
+                      ? "future"
+                      : "past";
                   return (
-                  <li key={h.id} className={`cc-sp-hist__item is-${state}`}>
-                    <div className="cc-sp-hist__body">
-                      <div className="cc-sp-hist__top">
-                        <span className="cc-sp-hist__name">
-                          {h.shift_id == null
-                            ? "Bỏ ca (không có ca)"
-                            : (shiftMeta.get(h.shift_id)?.name ?? `Ca #${h.shift_id}`)}
-                        </span>
-                        <span className={`cc-sp-hist__tag is-${state}`}>
-                          {state === "current" ? "Đang áp dụng"
-                            : state === "future" ? "Sắp áp dụng" : "Đã qua"}
-                        </span>
+                    <li key={h.id} className={`cc-sp-hist__item is-${state}`}>
+                      <div className="cc-sp-hist__body">
+                        <div className="cc-sp-hist__top">
+                          <span className="cc-sp-hist__name">
+                            {h.shift_id == null
+                              ? "Bỏ ca (không có ca)"
+                              : (shiftMeta.get(h.shift_id)?.name ??
+                                `Ca #${h.shift_id}`)}
+                          </span>
+                          <span className={`cc-sp-hist__tag is-${state}`}>
+                            {state === "current"
+                              ? "Đang áp dụng"
+                              : state === "future"
+                                ? "Sắp áp dụng"
+                                : "Đã qua"}
+                          </span>
+                        </div>
+                        <div className="cc-sp-hist__range">
+                          {fmtYmd(h.effective_from)} →{" "}
+                          {h.effective_to
+                            ? fmtYmd(h.effective_to)
+                            : "trở về sau"}
+                        </div>
                       </div>
-                      <div className="cc-sp-hist__range">
-                        {fmtYmd(h.effective_from)} → {h.effective_to ? fmtYmd(h.effective_to) : "trở về sau"}
-                      </div>
-                    </div>
-                    <button type="button" className="cc-sp-hist__del" disabled={histBusy}
-                      onClick={() => setConfirmDel(h)} title="Gỡ mốc này (dùng khi gán nhầm)"
-                      aria-label="Gỡ mốc này">
-                      <Trash2 size={14} />
-                    </button>
-                  </li>
+                      <button
+                        type="button"
+                        className="cc-sp-hist__del"
+                        disabled={histBusy}
+                        onClick={() => setConfirmDel(h)}
+                        title="Gỡ mốc này (dùng khi gán nhầm)"
+                        aria-label="Gỡ mốc này"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </li>
                   );
                 })}
               </ul>
             )}
             <p className="cc-note">
-              Gỡ một mốc thì ngày tháng thuộc mốc đó quay về theo <strong>mốc liền trước</strong>.
+              Gỡ một mốc thì ngày tháng thuộc mốc đó quay về theo{" "}
+              <strong>mốc liền trước</strong>.
             </p>
+
+            {/* Phần trên là ca nền ĐANG LÀ GÌ theo giai đoạn; phần này là AI ĐÃ ĐỔI GÌ —
+                gồm cả sửa tay từng ngày trên lưới mà danh sách mốc ở trên không hề thể hiện. */}
+            <ShiftChangeLogPanel token={token} employeeId={histFor.id} />
           </div>
         </div>
       )}
@@ -2699,23 +4414,40 @@ function ShiftPlanPanel({ token }: { token: string }) {
         open={!!confirmDel}
         danger
         title="Gỡ mốc ca nền"
-        message={confirmDel
-          ? `Gỡ mốc "${confirmDel.shift_id == null ? "Bỏ ca"
-              : (shiftMeta.get(confirmDel.shift_id)?.name ?? `Ca #${confirmDel.shift_id}`)}"`
-            + ` áp dụng từ ${fmtYmd(confirmDel.effective_from)}?`
-            + " Những ngày thuộc mốc này sẽ quay về theo mốc liền trước."
-          : undefined}
+        message={
+          confirmDel
+            ? `Gỡ mốc "${
+                confirmDel.shift_id == null
+                  ? "Bỏ ca"
+                  : (shiftMeta.get(confirmDel.shift_id)?.name ??
+                    `Ca #${confirmDel.shift_id}`)
+              }"` +
+              ` áp dụng từ ${fmtYmd(confirmDel.effective_from)}?` +
+              " Những ngày thuộc mốc này sẽ quay về theo mốc liền trước."
+            : undefined
+        }
         confirmLabel="Gỡ mốc"
         busy={histBusy}
         error={histErr}
-        onConfirm={() => { if (confirmDel) void removeMilestone(confirmDel.id); }}
-        onCancel={() => { setConfirmDel(null); setHistErr(null); }}
+        onConfirm={() => {
+          if (confirmDel) void removeMilestone(confirmDel.id);
+        }}
+        onCancel={() => {
+          setConfirmDel(null);
+          setHistErr(null);
+        }}
       />
 
       <DiscardChangesDialog
         open={!!guard}
         message={`Còn ${dirtyCount} ô phân ca chưa lưu. Rời tháng/phòng này mà không lưu?`}
-        onDiscard={() => { const g = guard; setPending(new Map()); setRejects(new Map()); setGuard(null); g?.run(); }}
+        onDiscard={() => {
+          const g = guard;
+          setPending(new Map());
+          setRejects(new Map());
+          setGuard(null);
+          g?.run();
+        }}
         onKeepEditing={() => setGuard(null)}
       />
     </div>
@@ -2726,9 +4458,14 @@ function ShiftsTab({ token }: { token: string }) {
   const [items, setItems] = useState<WorkShift[] | null>(null);
   const [editing, setEditing] = useState<WorkShift | "new" | null>(null);
   const load = useCallback(() => {
-    api.attendance.shifts(token).then((r) => setItems(r.items)).catch(() => setItems([]));
+    api.attendance
+      .shifts(token)
+      .then((r) => setItems(r.items))
+      .catch(() => setItems([]));
   }, [token]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   async function remove(id: number) {
     if (!window.confirm("Bạn có chắc chắn muốn xóa ca làm việc này?")) return;
@@ -2743,100 +4480,323 @@ function ShiftsTab({ token }: { token: string }) {
     <div className="cc-sp-stack">
       <CollapsibleSection
         title="A · Ca làm việc"
-        summary={items == null ? "đang tải…" : (
-          <>
-            <span className="cc-sp-sum__txt">{items.length} ca{activeCount !== items.length ? ` · ${activeCount} đang dùng` : ""}</span>
-            {[...items].sort((a, b) => a.id - b.id).map((s) => {
-              const m = shiftMeta.get(s.id);
-              return (
-                <span key={s.id} className={`cc-sp-chip cc-sp-chip--${m?.tone ?? "steel"} is-hand`} title={m?.title}>
-                  {m?.code}
-                </span>
-              );
-            })}
-          </>
-        )}
+        summary={
+          items == null ? (
+            "đang tải…"
+          ) : (
+            <>
+              <span className="cc-sp-sum__txt">
+                {items.length} ca
+                {activeCount !== items.length
+                  ? ` · ${activeCount} đang dùng`
+                  : ""}
+              </span>
+              {[...items]
+                .sort((a, b) => a.id - b.id)
+                .map((s) => {
+                  const m = shiftMeta.get(s.id);
+                  return (
+                    <span
+                      key={s.id}
+                      className={`cc-sp-chip cc-sp-chip--${m?.tone ?? "steel"} is-hand`}
+                      title={m?.title}
+                    >
+                      {m?.code}
+                    </span>
+                  );
+                })}
+            </>
+          )
+        }
       >
         <div className="cc-toolbar">
-          <button className="btn btn--primary" onClick={() => setEditing("new")}>
+          <button
+            className="btn btn--primary"
+            onClick={() => setEditing("new")}
+          >
             <Plus size={14} /> Thêm ca làm việc
           </button>
         </div>
 
         <div className="cc-card-grid">
-        {items?.map((s) => (
-          <div key={s.id} className={`cc-shift-card ${s.is_overnight ? "cc-shift-card--overnight" : ""}`}>
-            <div className="cc-shift-card-actions">
-              <button className="btn btn--ghost" style={{ padding: "4px 6px", minWidth: "auto" }} onClick={() => setEditing(s)} title="Sửa ca">
-                <Edit3 size={13} />
-              </button>
-              <button className="btn btn--ghost ns-danger" style={{ padding: "4px 6px", minWidth: "auto" }} onClick={() => remove(s.id)} title="Xóa ca">
-                <Trash2 size={13} />
-              </button>
+          {items?.map((s) => (
+            <div
+              key={s.id}
+              className={`cc-shift-card ${s.is_overnight ? "cc-shift-card--overnight" : ""}`}
+            >
+              <div className="cc-shift-card-actions">
+                <button
+                  className="btn btn--ghost"
+                  style={{ padding: "4px 6px", minWidth: "auto" }}
+                  onClick={() => setEditing(s)}
+                  title="Sửa ca"
+                >
+                  <Edit3 size={13} />
+                </button>
+                <button
+                  className="btn btn--ghost ns-danger"
+                  style={{ padding: "4px 6px", minWidth: "auto" }}
+                  onClick={() => remove(s.id)}
+                  title="Xóa ca"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+
+              <div className="cc-shift-card-header">
+                <span className="cc-shift-name">{s.name}</span>
+                <span
+                  className={`cc-badge-pill ${s.is_active ? "cc-badge-pill--primary" : "cc-badge-pill--gray"}`}
+                >
+                  {s.is_active ? "Đang hoạt động" : "Đã tắt"}
+                </span>
+              </div>
+              <div className="cc-shift-times">
+                <Clock size={13} style={{ color: "var(--ash)" }} />
+                <span>
+                  {s.start_time} – {s.end_time}
+                </span>
+              </div>
+              <div className="cc-shift-meta">
+                <span className="cc-badge-pill cc-badge-pill--gray">
+                  Dung sai trễ: {s.grace_minutes}′
+                </span>
+                {s.is_overnight ? (
+                  <span className="cc-badge-pill cc-badge-pill--purple">
+                    <Moon
+                      size={10}
+                      style={{
+                        display: "inline",
+                        verticalAlign: "middle",
+                        marginRight: "2px",
+                      }}
+                    />{" "}
+                    Qua đêm
+                  </span>
+                ) : (
+                  <span className="cc-badge-pill cc-badge-pill--primary">
+                    <Sun
+                      size={10}
+                      style={{
+                        display: "inline",
+                        verticalAlign: "middle",
+                        marginRight: "2px",
+                      }}
+                    />{" "}
+                    Ca ngày
+                  </span>
+                )}
+              </div>
+              {s.note && (
+                <div
+                  style={{
+                    fontSize: "12px",
+                    color: "var(--ash)",
+                    marginTop: "8px",
+                  }}
+                >
+                  Ghi chú: {s.note}
+                </div>
+              )}
             </div>
-            
-            <div className="cc-shift-card-header">
-              <span className="cc-shift-name">{s.name}</span>
-              <span className={`cc-badge-pill ${s.is_active ? "cc-badge-pill--primary" : "cc-badge-pill--gray"}`}>
-                {s.is_active ? "Đang hoạt động" : "Đã tắt"}
-              </span>
+          ))}
+          {items?.length === 0 && (
+            <div className="ns__empty" style={{ gridColumn: "1/-1" }}>
+              Chưa có ca làm việc nào được cấu hình.
             </div>
-            <div className="cc-shift-times">
-              <Clock size={13} style={{ color: "var(--ash)" }} />
-              <span>{s.start_time} – {s.end_time}</span>
-            </div>
-            <div className="cc-shift-meta">
-              <span className="cc-badge-pill cc-badge-pill--gray">Dung sai trễ: {s.grace_minutes}′</span>
-              {s.is_overnight
-                ? <span className="cc-badge-pill cc-badge-pill--purple"><Moon size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "2px" }} /> Qua đêm</span>
-                : <span className="cc-badge-pill cc-badge-pill--primary"><Sun size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "2px" }} /> Ca ngày</span>}
-            </div>
-            {s.note && <div style={{ fontSize: "12px", color: "var(--ash)", marginTop: "8px" }}>Ghi chú: {s.note}</div>}
-          </div>
-        ))}
-        {items?.length === 0 && <div className="ns__empty" style={{ gridColumn: "1/-1" }}>Chưa có ca làm việc nào được cấu hình.</div>}
+          )}
         </div>
       </CollapsibleSection>
 
       <CollapsibleSection
         title="B · Phân ca tháng"
         defaultOpen
-        summary={<span className="cc-sp-sum__txt">Lưới ngày × nhân viên · ô trống = kế thừa ca nền</span>}
+        summary={
+          <span className="cc-sp-sum__txt">
+            Lưới ngày × nhân viên · ô trống = kế thừa ca nền
+          </span>
+        }
       >
         <ShiftPlanPanel token={token} />
       </CollapsibleSection>
 
+      {/* KHÔNG có khối "C · Lịch sử thay đổi ca" riêng (chủ 29/07/2026): lịch sử nằm TRONG
+          drawer "Lịch sử ca" của từng người — bấm vào tên nhân viên trên lưới. Hai chỗ cùng
+          kể chuyện đổi ca thì người dùng phải tự đoán chỗ nào là chỗ thật. */}
       {editing && (
-        <ShiftForm token={token} shift={editing === "new" ? null : editing}
-          onClose={() => setEditing(null)} onSaved={() => { setEditing(null); load(); }} />
+        <ShiftForm
+          token={token}
+          shift={editing === "new" ? null : editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null);
+            load();
+          }}
+        />
       )}
     </div>
   );
 }
 
-function ShiftForm({ token, shift, onClose, onSaved }: {
-  token: string; shift: WorkShift | null; onClose: () => void; onSaved: () => void;
+// --- Khối C: Lịch sử thay đổi ca (chủ 28/07/2026) ---------------------------
+// Ca của một người đến từ HAI lớp: ô lưới (đè đúng một ngày) và ca nền (áp từ ngày hiệu lực
+// TRỞ VỀ SAU). Màn này hiện CẢ HAI — chỉ hiện lưới thì khi ai đó đổi ca nền, người xem thấy
+// "không có thay đổi nào" trong khi ca đã đổi thật, tệ hơn là không có màn lịch sử.
+
+const SHIFT_CHANGE_FILTERS = [
+  { key: "all", label: "Tất cả" },
+  { key: "day", label: "✎ Sửa tay" },
+  { key: "base", label: "🗓 Ca nền" },
+] as const;
+
+/** Câu mô tả một dòng — dùng chung cho màn HCNS và hộp thư của NV, để hai nơi không kể hai kiểu. */
+function shiftChangeText(c: ShiftChange): string {
+  const truoc = c.is_off_before ? "Nghỉ theo lịch" : (c.shift_name_before ?? "không có ca");
+  const sau = c.is_off_after ? "Nghỉ theo lịch" : (c.shift_name_after ?? "không có ca");
+  return `${truoc} → ${sau}`;
+}
+
+function ShiftChangeLogPanel({
+  token,
+  employeeId,
+}: {
+  token: string;
+  employeeId: number;
+}) {
+  const [filter, setFilter] = useState<(typeof SHIFT_CHANGE_FILTERS)[number]["key"]>("all");
+  // null = ĐANG TẢI. Khởi tạo [] sẽ hiện "chưa có thay đổi nào" ngay lúc còn fetch — báo SAI.
+  const [rows, setRows] = useState<ShiftChange[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  // KHÔNG lọc tháng: drawer mở cho MỘT người nên số dòng vốn ít, mà chặn theo tháng thì thay
+  // đổi tháng trước biến mất — đúng lúc người ta mở ra để hỏi "ai đổi ca tôi hôm nọ".
+  useEffect(() => {
+    let alive = true;
+    api.attendance
+      .shiftChanges(token, {
+        employeeId,
+        kind: filter === "all" ? undefined : filter,
+      })
+      .then((r) => {
+        if (!alive) return;
+        setRows(r.items);
+        setErr(null);
+      })
+      .catch((e) => alive && setErr(elErr(e)));
+    return () => {
+      alive = false;
+    };
+  }, [token, employeeId, filter]);
+
+  return (
+    <div className="cc-scl">
+      <div className="cc-scl__bar">
+        <span className="cc-scl__head">Ai đã đổi ca của người này</span>
+        <div className="cc-scl__filters">
+          {SHIFT_CHANGE_FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              className={`cc-scl__filter${filter === f.key ? " is-on" : ""}`}
+              onClick={() => setFilter(f.key)}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {err && <div className="banner banner--error">{err}</div>}
+
+      {rows === null ? (
+        <p className="cc-hint">Đang tải lịch sử…</p>
+      ) : rows.length === 0 ? (
+        <p className="cc-hint">
+          Chưa có thay đổi nào được ghi lại. Từ nay mọi lần sửa ô trên lưới hoặc đổi ca nền đều
+          hiện ở đây kèm người sửa và giờ sửa.
+        </p>
+      ) : (
+        <div className="cc-scl__list">
+          {rows.map((c) => (
+            <div className="cc-scl__row" key={c.id}>
+              <span
+                className={`cc-scl__chip cc-scl__chip--${
+                  c.origin === "base_remove" ? "rm" : c.kind
+                }`}
+              >
+                {c.origin === "base_remove"
+                  ? "⊘ Gỡ mốc"
+                  : c.kind === "day"
+                    ? "✎ Sửa tay"
+                    : "🗓 Ca nền"}
+              </span>
+              {/* HAI mốc thời gian khác nhau, đừng đọc lẫn: cột này là ngày ca ĐƯỢC ÁP DỤNG,
+                  còn giờ ở cột phải mới là LÚC THAO TÁC. */}
+              <span className="cc-scl__when">
+                {c.kind === "base" ? "Áp dụng từ " : ""}
+                {fmtDateVN(c.apply_date)}
+                {c.kind === "base" && <em>trở về sau</em>}
+              </span>
+              <span className="cc-scl__delta">{shiftChangeText(c)}</span>
+              <span className="cc-scl__by">
+                {c.actor_name ?? "—"}
+                <em>{fmtDateTime(c.created_at)}</em>
+              </span>
+              {!c.notified && (
+                <span className="cc-scl__nomail" title="Nhân viên chưa có tài khoản đăng nhập">
+                  chưa báo được
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShiftForm({
+  token,
+  shift,
+  onClose,
+  onSaved,
+}: {
+  token: string;
+  shift: WorkShift | null;
+  onClose: () => void;
+  onSaved: () => void;
 }) {
   const [form, setForm] = useState<WorkShiftInput>({
-    name: shift?.name ?? "", start_time: shift?.start_time ?? "08:00", end_time: shift?.end_time ?? "17:00",
+    name: shift?.name ?? "",
+    start_time: shift?.start_time ?? "08:00",
+    end_time: shift?.end_time ?? "17:00",
     is_overnight: shift?.is_overnight ?? false,
     night_multiplier: shift?.night_multiplier ?? 1.3,
     grace_minutes: shift?.grace_minutes ?? 5,
-    meal_allowance: shift?.meal_allowance ?? 25000, shift_allowance: shift?.shift_allowance ?? 50000,
-    note: shift?.note ?? "", is_active: shift?.is_active ?? true,
+    meal_allowance: shift?.meal_allowance ?? 25000,
+    shift_allowance: shift?.shift_allowance ?? 50000,
+    note: shift?.note ?? "",
+    is_active: shift?.is_active ?? true,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  function set<K extends keyof WorkShiftInput>(k: K, v: WorkShiftInput[K]) { setForm((f) => ({ ...f, [k]: v })); }
+  function set<K extends keyof WorkShiftInput>(k: K, v: WorkShiftInput[K]) {
+    setForm((f) => ({ ...f, [k]: v }));
+  }
   function timeParts(field: "start_time" | "end_time") {
     return (normalizeTime24(form[field]) ?? "00:00").split(":");
   }
-  function setTimePart(field: "start_time" | "end_time", part: "hour" | "minute", value: string) {
+  function setTimePart(
+    field: "start_time" | "end_time",
+    part: "hour" | "minute",
+    value: string,
+  ) {
     const [hour, minute] = timeParts(field);
     set(field, part === "hour" ? `${value}:${minute}` : `${hour}:${value}`);
   }
   async function save() {
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     const startTime = normalizeTime24(form.start_time);
     const endTime = normalizeTime24(form.end_time);
     if (!startTime || !endTime) {
@@ -2860,93 +4820,185 @@ function ShiftForm({ token, shift, onClose, onSaved }: {
       <div className="ns-modal__box">
         <header className="ns-modal__head">
           <h2>{shift ? "Sửa ca làm việc" : "Thêm ca làm việc"}</h2>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
         <div className="ns-modal__body">
           {error && <div className="banner banner--error">{error}</div>}
-          <label className="ns-field"><span className="ns-field__label">Tên ca *</span>
-            <input value={form.name} onChange={(e) => set("name", e.target.value)} placeholder="Hành chính / Ca 1…" /></label>
+          <label className="ns-field">
+            <span className="ns-field__label">Tên ca *</span>
+            <input
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="Hành chính / Ca 1…"
+            />
+          </label>
           <div className="ns-grid" style={{ marginTop: 12 }}>
-            <label className="ns-field"><span className="ns-field__label">Giờ vào ca (24 giờ)</span>
+            <label className="ns-field">
+              <span className="ns-field__label">Giờ vào ca (24 giờ)</span>
               <span className="cc-time-selects">
                 <span className="cc-time-select">
                   <span className="cc-time-select__caption">Giờ</span>
-                  <select aria-label="Giờ vào ca" value={timeParts("start_time")[0]}
-                    onChange={(e) => setTimePart("start_time", "hour", e.target.value)}>
-                    {TIME_HOURS.map((hour) => <option key={hour} value={hour}>{hour}</option>)}
+                  <select
+                    aria-label="Giờ vào ca"
+                    value={timeParts("start_time")[0]}
+                    onChange={(e) =>
+                      setTimePart("start_time", "hour", e.target.value)
+                    }
+                  >
+                    {TIME_HOURS.map((hour) => (
+                      <option key={hour} value={hour}>
+                        {hour}
+                      </option>
+                    ))}
                   </select>
                   <ChevronDown className="cc-time-select__chevron" size={15} />
                 </span>
                 <strong className="cc-time-selects__separator">:</strong>
                 <span className="cc-time-select">
                   <span className="cc-time-select__caption">Phút</span>
-                  <select aria-label="Phút vào ca" value={timeParts("start_time")[1]}
-                    onChange={(e) => setTimePart("start_time", "minute", e.target.value)}>
-                    {TIME_MINUTES.map((minute) => <option key={minute} value={minute}>{minute}</option>)}
+                  <select
+                    aria-label="Phút vào ca"
+                    value={timeParts("start_time")[1]}
+                    onChange={(e) =>
+                      setTimePart("start_time", "minute", e.target.value)
+                    }
+                  >
+                    {TIME_MINUTES.map((minute) => (
+                      <option key={minute} value={minute}>
+                        {minute}
+                      </option>
+                    ))}
                   </select>
                   <ChevronDown className="cc-time-select__chevron" size={15} />
                 </span>
               </span>
             </label>
-            <label className="ns-field"><span className="ns-field__label">Giờ ra ca (24 giờ)</span>
+            <label className="ns-field">
+              <span className="ns-field__label">Giờ ra ca (24 giờ)</span>
               <span className="cc-time-selects">
                 <span className="cc-time-select">
                   <span className="cc-time-select__caption">Giờ</span>
-                  <select aria-label="Giờ ra ca" value={timeParts("end_time")[0]}
-                    onChange={(e) => setTimePart("end_time", "hour", e.target.value)}>
-                    {TIME_HOURS.map((hour) => <option key={hour} value={hour}>{hour}</option>)}
+                  <select
+                    aria-label="Giờ ra ca"
+                    value={timeParts("end_time")[0]}
+                    onChange={(e) =>
+                      setTimePart("end_time", "hour", e.target.value)
+                    }
+                  >
+                    {TIME_HOURS.map((hour) => (
+                      <option key={hour} value={hour}>
+                        {hour}
+                      </option>
+                    ))}
                   </select>
                   <ChevronDown className="cc-time-select__chevron" size={15} />
                 </span>
                 <strong className="cc-time-selects__separator">:</strong>
                 <span className="cc-time-select">
                   <span className="cc-time-select__caption">Phút</span>
-                  <select aria-label="Phút ra ca" value={timeParts("end_time")[1]}
-                    onChange={(e) => setTimePart("end_time", "minute", e.target.value)}>
-                    {TIME_MINUTES.map((minute) => <option key={minute} value={minute}>{minute}</option>)}
+                  <select
+                    aria-label="Phút ra ca"
+                    value={timeParts("end_time")[1]}
+                    onChange={(e) =>
+                      setTimePart("end_time", "minute", e.target.value)
+                    }
+                  >
+                    {TIME_MINUTES.map((minute) => (
+                      <option key={minute} value={minute}>
+                        {minute}
+                      </option>
+                    ))}
                   </select>
                   <ChevronDown className="cc-time-select__chevron" size={15} />
                 </span>
               </span>
             </label>
-            <label className="ns-field"><span className="ns-field__label">Dung sai đi muộn (phút)</span>
-              <input type="number" min={0} value={form.grace_minutes} onChange={(e) => set("grace_minutes", Number(e.target.value))} /></label>
+            <label className="ns-field">
+              <span className="ns-field__label">Dung sai đi muộn (phút)</span>
+              <input
+                type="number"
+                min={0}
+                value={form.grace_minutes}
+                onChange={(e) => set("grace_minutes", Number(e.target.value))}
+              />
+            </label>
           </div>
           <p className="cc-note" style={{ marginTop: 8 }}>
-            Chọn theo giờ 24 giờ: <strong>00:00 là nửa đêm</strong>, còn <strong>12:00 là buổi trưa</strong>.
+            Chọn theo giờ 24 giờ: <strong>00:00 là nửa đêm</strong>, còn{" "}
+            <strong>12:00 là buổi trưa</strong>.
           </p>
           <div className="ns-grid" style={{ marginTop: 12 }}>
-            <label className="ns-field"><span className="ns-field__label">Phụ cấp cơm (đ)</span>
-              <input type="number" min={0} step={5000} value={form.meal_allowance ?? 0}
-                onChange={(e) => set("meal_allowance", Number(e.target.value))} /></label>
-            <label className="ns-field"><span className="ns-field__label">Phụ cấp ca (đ)</span>
-              <input type="number" min={0} step={5000} value={form.shift_allowance ?? 0}
-                onChange={(e) => set("shift_allowance", Number(e.target.value))} /></label>
+            <label className="ns-field">
+              <span className="ns-field__label">Phụ cấp cơm (đ)</span>
+              <input
+                type="number"
+                min={0}
+                step={5000}
+                value={form.meal_allowance ?? 0}
+                onChange={(e) => set("meal_allowance", Number(e.target.value))}
+              />
+            </label>
+            <label className="ns-field">
+              <span className="ns-field__label">Phụ cấp ca (đ)</span>
+              <input
+                type="number"
+                min={0}
+                step={5000}
+                value={form.shift_allowance ?? 0}
+                onChange={(e) => set("shift_allowance", Number(e.target.value))}
+              />
+            </label>
           </div>
           <p className="cc-note" style={{ marginTop: 8 }}>
-            Phụ cấp gắn theo ca: nhân viên được gán ca này sẽ tự cộng khi tính lương.
+            Phụ cấp gắn theo ca: nhân viên được gán ca này sẽ tự cộng khi tính
+            lương.
           </p>
           <label className="ns-check" style={{ marginTop: 12 }}>
-            <input type="checkbox" checked={!!form.is_overnight} onChange={(e) => set("is_overnight", e.target.checked)} />
+            <input
+              type="checkbox"
+              checked={!!form.is_overnight}
+              onChange={(e) => set("is_overnight", e.target.checked)}
+            />
             Ca qua đêm (ra hôm sau, vd 22:00→06:00)
           </label>
           {form.is_overnight && (
             <label className="ns-field" style={{ marginTop: 10 }}>
-              <span className="ns-field__label">Hệ số ca đêm (vd 1.3 = +30%)</span>
-              <input type="number" min={1} step={0.05} value={form.night_multiplier ?? 1.3}
-                onChange={(e) => set("night_multiplier", Number(e.target.value))} />
+              <span className="ns-field__label">
+                Hệ số ca đêm (vd 1.3 = +30%)
+              </span>
+              <input
+                type="number"
+                min={1}
+                step={0.05}
+                value={form.night_multiplier ?? 1.3}
+                onChange={(e) =>
+                  set("night_multiplier", Number(e.target.value))
+                }
+              />
               <span className="cc-note" style={{ marginTop: 4 }}>
-                Cộng thêm cho GIỜ rơi 22h–06h trong ca (theo luật ≥ 1.3 = +30%). Tăng ca đêm tính riêng theo Cấu hình lương.
+                Cộng thêm cho GIỜ rơi 22h–06h trong ca (theo luật ≥ 1.3 = +30%).
+                Tăng ca đêm tính riêng theo Cấu hình lương.
               </span>
             </label>
           )}
           <label className="ns-check">
-            <input type="checkbox" checked={!!form.is_active} onChange={(e) => set("is_active", e.target.checked)} /> Đang dùng
+            <input
+              type="checkbox"
+              checked={!!form.is_active}
+              onChange={(e) => set("is_active", e.target.checked)}
+            />{" "}
+            Đang dùng
           </label>
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
-          <button className="btn btn--primary" onClick={save} disabled={busy}>{busy ? "Đang lưu…" : "Lưu"}</button>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
+            Hủy
+          </button>
+          <button className="btn btn--primary" onClick={save} disabled={busy}>
+            {busy ? "Đang lưu…" : "Lưu"}
+          </button>
         </footer>
       </div>
     </div>
@@ -2974,7 +5026,7 @@ function EmployeeCalendarModal({
   year,
   month,
   daysInMonth,
-  onClose
+  onClose,
 }: {
   employeeName: string;
   employeeRow: TimesheetRow;
@@ -3020,42 +5072,80 @@ function EmployeeCalendarModal({
 
   return (
     <div className="ns-modal" role="dialog" aria-modal="true">
-      <div className="ns-modal__box cc-emp-cal-modal-box" style={{ maxWidth: "700px" }}>
+      <div
+        className="ns-modal__box cc-emp-cal-modal-box"
+        style={{ maxWidth: "700px" }}
+      >
         <header className="ns-modal__head">
-          <h2 style={{ display: "flex", alignItems: "center", gap: "8px", margin: 0 }}>
-            <Calendar size={18} /> Lịch công tháng {month}/{year} · {employeeName}
+          <h2
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              margin: 0,
+            }}
+          >
+            <Calendar size={18} /> Lịch công tháng {month}/{year} ·{" "}
+            {employeeName}
           </h2>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
         <div className="ns-modal__body">
           {/* Summary metrics of the employee */}
           <div className="cc-emp-cal-summary-grid">
             <div className="cc-emp-cal-summary-card">
               <span className="cc-emp-cal-summary-lbl">Số ngày công</span>
-              <span className="cc-emp-cal-summary-val">{employeeRow.total_cong ?? workedDays} công</span>
+              <span className="cc-emp-cal-summary-val">
+                {employeeRow.total_cong ?? workedDays} công
+              </span>
             </div>
             <div className="cc-emp-cal-summary-card">
               <span className="cc-emp-cal-summary-lbl">Tổng giờ làm</span>
-              <span className="cc-emp-cal-summary-val">{employeeRow.total_hours ?? 0}h</span>
+              <span className="cc-emp-cal-summary-val">
+                {employeeRow.total_hours ?? 0}h
+              </span>
             </div>
             <div className="cc-emp-cal-summary-card">
               <span className="cc-emp-cal-summary-lbl">Tăng ca (OT)</span>
-              <span className="cc-emp-cal-summary-val">{(totalOtMinutes / 60).toFixed(1)}h</span>
+              <span className="cc-emp-cal-summary-val">
+                {(totalOtMinutes / 60).toFixed(1)}h
+              </span>
             </div>
             <div className="cc-emp-cal-summary-card">
               <span className="cc-emp-cal-summary-lbl">Muộn / Sớm</span>
-              <span className="cc-emp-cal-summary-val text-warn">{lateDays} / {earlyDays} lần</span>
+              <span className="cc-emp-cal-summary-val text-warn">
+                {lateDays} / {earlyDays} lần
+              </span>
             </div>
           </div>
 
           {/* Calendar grid */}
           <div className="cc-month-grid" style={{ marginTop: "16px" }}>
             {["T2", "T3", "T4", "T5", "T6", "T7", "CN"].map((w) => (
-              <div key={w} style={{ textAlign: "center", fontWeight: "bold", fontSize: "11px", paddingBottom: "6px", color: "var(--ash)" }}>{w}</div>
+              <div
+                key={w}
+                style={{
+                  textAlign: "center",
+                  fontWeight: "bold",
+                  fontSize: "11px",
+                  paddingBottom: "6px",
+                  color: "var(--ash)",
+                }}
+              >
+                {w}
+              </div>
             ))}
             {calendarCells.map((dayNum, idx) => {
-              if (dayNum === null) return <div key={`empty-${idx}`} className="cc-month-cell cc-month-cell--empty" />;
-              
+              if (dayNum === null)
+                return (
+                  <div
+                    key={`empty-${idx}`}
+                    className="cc-month-cell cc-month-cell--empty"
+                  />
+                );
+
               const day = employeeRow.days[String(dayNum)];
               let cellClass = "cc-month-cell cc-emp-cal-cell";
               let timeRange = "";
@@ -3070,33 +5160,90 @@ function EmployeeCalendarModal({
                   const hasPunch = day.first_in || day.last_out;
                   if (hasPunch) {
                     cellClass += " cc-month-cell--work";
-                    if (day.late || day.early) cellClass += " cc-month-cell--makeup";
+                    if (day.late || day.early)
+                      cellClass += " cc-month-cell--makeup";
                     timeRange = `${day.first_in ?? "?"} - ${day.last_out ?? "?"}`;
-                    statusLabel = day.cong != null ? `Công: ${day.cong}` : (day.hours != null ? `${day.hours}h` : "Đã chấm");
+                    statusLabel =
+                      day.cong != null
+                        ? `Công: ${day.cong}`
+                        : day.hours != null
+                          ? `${day.hours}h`
+                          : "Đã chấm";
                     if (day.ot_minutes) otBadge = true;
                   }
                 }
               }
 
-              const currentDayOfWeek = new Date(year, month - 1, dayNum).getDay();
-              const isWeekendCell = currentDayOfWeek === 0 || currentDayOfWeek === 6;
+              const currentDayOfWeek = new Date(
+                year,
+                month - 1,
+                dayNum,
+              ).getDay();
+              const isWeekendCell =
+                currentDayOfWeek === 0 || currentDayOfWeek === 6;
               if (!day && isWeekendCell) {
                 cellClass += " cc-month-cell--weekend";
               }
 
               return (
                 <div key={dayNum} className={cellClass}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <span className="cc-month-cell-num">{dayNum}</span>
-                    {otBadge && <span className="cc-badge-pill cc-badge-pill--orange" style={{ padding: "1px 4px", fontSize: "9px" }}>+OT</span>}
+                    {otBadge && (
+                      <span
+                        className="cc-badge-pill cc-badge-pill--orange"
+                        style={{ padding: "1px 4px", fontSize: "9px" }}
+                      >
+                        +OT
+                      </span>
+                    )}
                   </div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--ink)", marginTop: "4px" }}>
+                  <div
+                    style={{
+                      fontSize: "11px",
+                      fontWeight: 600,
+                      color: "var(--ink)",
+                      marginTop: "4px",
+                    }}
+                  >
                     {timeRange || "—"}
                   </div>
-                  <div style={{ fontSize: "10px", color: "var(--ash)", marginTop: "2px", display: "flex", flexWrap: "wrap", gap: "2px", justifyContent: "space-between", width: "100%" }}>
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      color: "var(--ash)",
+                      marginTop: "2px",
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "2px",
+                      justifyContent: "space-between",
+                      width: "100%",
+                    }}
+                  >
                     <span>{statusLabel}</span>
-                    {day?.late && <span style={{ color: "var(--signal)", fontWeight: "bold" }}>Muộn</span>}
-                    {day?.early && <span style={{ color: "var(--amber-deep)", fontWeight: "bold" }}>Sớm</span>}
+                    {day?.late && (
+                      <span
+                        style={{ color: "var(--signal)", fontWeight: "bold" }}
+                      >
+                        Muộn
+                      </span>
+                    )}
+                    {day?.early && (
+                      <span
+                        style={{
+                          color: "var(--amber-deep)",
+                          fontWeight: "bold",
+                        }}
+                      >
+                        Sớm
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -3104,14 +5251,22 @@ function EmployeeCalendarModal({
           </div>
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose}>Đóng</button>
+          <button className="btn btn--ghost" onClick={onClose}>
+            Đóng
+          </button>
         </footer>
       </div>
     </div>
   );
 }
 
-function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean }) {
+function TimesheetTab({
+  token,
+  canAdjust,
+}: {
+  token: string;
+  canAdjust: boolean;
+}) {
   const [ym, setYm] = useState(() => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -3121,46 +5276,82 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
   const [downloading, setDownloading] = useState(false);
   const [deptId, setDeptId] = useState<number | "">("");
   const [depts, setDepts] = useState<{ id: number; name: string }[]>([]);
-  const [openDay, setOpenDay] = useState<{ employeeId: number; employeeName: string; date: string } | null>(null);
+  const [openDay, setOpenDay] = useState<{
+    employeeId: number;
+    employeeName: string;
+    date: string;
+  } | null>(null);
   const [period, setPeriod] = useState<AttendancePeriod | null>(null);
   const [periodBusy, setPeriodBusy] = useState(false);
-  const [periodMsg, setPeriodMsg] = useState<{ text: string; type: "success" | "error" } | null>(null);
-  const [selectedEmployeeCal, setSelectedEmployeeCal] = useState<{ row: TimesheetRow; name: string } | null>(null);
+  const [periodMsg, setPeriodMsg] = useState<{
+    text: string;
+    type: "success" | "error";
+  } | null>(null);
+  const [selectedEmployeeCal, setSelectedEmployeeCal] = useState<{
+    row: TimesheetRow;
+    name: string;
+  } | null>(null);
   const [year, month] = ym.split("-").map(Number);
 
   useEffect(() => {
-    api.employees.meta(token).then((m) => setDepts(m.departments)).catch(() => setDepts([]));
+    api.employees
+      .meta(token)
+      .then((m) => setDepts(m.departments))
+      .catch(() => setDepts([]));
   }, [token]);
 
   const loadPeriod = useCallback(() => {
-    api.attendance.period(token, year, month).then(setPeriod).catch(() => setPeriod(null));
+    api.attendance
+      .period(token, year, month)
+      .then(setPeriod)
+      .catch(() => setPeriod(null));
   }, [token, year, month]);
-  useEffect(() => { loadPeriod(); setPeriodMsg(null); }, [loadPeriod]);
+  useEffect(() => {
+    loadPeriod();
+    setPeriodMsg(null);
+  }, [loadPeriod]);
 
   const reload = useCallback(() => {
     setLoading(true);
-    api.attendance.timesheet(token, year, month, deptId === "" ? null : deptId)
-      .then(setData).catch(() => setData(null)).finally(() => setLoading(false));
+    api.attendance
+      .timesheet(token, year, month, deptId === "" ? null : deptId)
+      .then(setData)
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
   }, [token, year, month, deptId]);
-  useEffect(() => { reload(); }, [reload]);
+  useEffect(() => {
+    reload();
+  }, [reload]);
 
   async function doLockPeriod() {
-    setPeriodBusy(true); setPeriodMsg(null);
+    setPeriodBusy(true);
+    setPeriodMsg(null);
     try {
       setPeriod(await api.attendance.lockPeriod(token, year, month));
       setPeriodMsg({ text: "Đã chốt công tháng.", type: "success" });
     } catch (e) {
-      setPeriodMsg({ text: e instanceof Error ? e.message : "Lỗi khi chốt công.", type: "error" });
-    } finally { setPeriodBusy(false); }
+      setPeriodMsg({
+        text: e instanceof Error ? e.message : "Lỗi khi chốt công.",
+        type: "error",
+      });
+    } finally {
+      setPeriodBusy(false);
+    }
   }
   async function doReopenPeriod() {
-    setPeriodBusy(true); setPeriodMsg(null);
+    setPeriodBusy(true);
+    setPeriodMsg(null);
     try {
       setPeriod(await api.attendance.reopenPeriod(token, year, month));
       setPeriodMsg({ text: "Đã mở lại kỳ công.", type: "success" });
     } catch (e) {
-      setPeriodMsg({ text: e instanceof Error ? e.message : "Lỗi khi mở kỳ công.", type: "error" });
-    } finally { setPeriodBusy(false); }
+      setPeriodMsg({
+        text: e instanceof Error ? e.message : "Lỗi khi mở kỳ công.",
+        type: "error",
+      });
+    } finally {
+      setPeriodBusy(false);
+    }
   }
 
   function openCell(employeeId: number, employeeName: string, dayNum: number) {
@@ -3171,7 +5362,12 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
   async function exportCsv() {
     setDownloading(true);
     try {
-      const url = await api.attendance.timesheetCsvBlobUrl(token, year, month, deptId === "" ? null : deptId);
+      const url = await api.attendance.timesheetCsvBlobUrl(
+        token,
+        year,
+        month,
+        deptId === "" ? null : deptId,
+      );
       const a = document.createElement("a");
       a.href = url;
       a.download = `bang-cong-${year}-${String(month).padStart(2, "0")}.csv`;
@@ -3184,7 +5380,9 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
     }
   }
 
-  const days = data ? Array.from({ length: data.days_in_month }, (_, i) => i + 1) : [];
+  const days = data
+    ? Array.from({ length: data.days_in_month }, (_, i) => i + 1)
+    : [];
 
   // Dynamic KPIs calculations
   const totalEmployees = data?.rows.length ?? 0;
@@ -3228,9 +5426,15 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
             <span className="cc-ts-kpi-label">Tổng giờ làm</span>
           </div>
         </div>
-        <div className={`cc-ts-kpi-card cc-ts-kpi-card--period ${period?.status === "locked" ? "is-locked" : "is-draft"}`}>
+        <div
+          className={`cc-ts-kpi-card cc-ts-kpi-card--period ${period?.status === "locked" ? "is-locked" : "is-draft"}`}
+        >
           <div className="cc-ts-kpi-icon">
-            {period?.status === "locked" ? <Lock size={18} /> : <Unlock size={18} />}
+            {period?.status === "locked" ? (
+              <Lock size={18} />
+            ) : (
+              <Unlock size={18} />
+            )}
           </div>
           <div className="cc-ts-kpi-info">
             <span className="cc-ts-kpi-num">
@@ -3246,17 +5450,36 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
       </div>
 
       {/* Warning banner for pending checks */}
-      {period && period.status !== "locked" && (period.hanging_days > 0 || period.pending_leaves + period.pending_adjusts + period.pending_late_early > 0) && (
-        <div className="banner banner--warn cc-ts-warn-banner" style={{ marginBottom: "16px" }}>
-          <AlertTriangle size={14} style={{ marginRight: "6px" }} />
-          <span>
-            Kỳ công có <strong>{period.hanging_days}</strong> ngày treo (thiếu chấm RA) và <strong>{period.pending_leaves + period.pending_adjusts + period.pending_late_early}</strong> đơn chờ duyệt.
-          </span>
-        </div>
-      )}
+      {period &&
+        period.status !== "locked" &&
+        (period.hanging_days > 0 ||
+          period.pending_leaves +
+            period.pending_adjusts +
+            period.pending_late_early >
+            0) && (
+          <div
+            className="banner banner--warn cc-ts-warn-banner"
+            style={{ marginBottom: "16px" }}
+          >
+            <AlertTriangle size={14} style={{ marginRight: "6px" }} />
+            <span>
+              Kỳ công có <strong>{period.hanging_days}</strong> ngày treo (thiếu
+              chấm RA) và{" "}
+              <strong>
+                {period.pending_leaves +
+                  period.pending_adjusts +
+                  period.pending_late_early}
+              </strong>{" "}
+              đơn chờ duyệt.
+            </span>
+          </div>
+        )}
 
       {periodMsg && (
-        <div className={`banner ${periodMsg.type === "error" ? "banner--error" : "banner--ok"} cc-ts-msg-banner`} style={{ marginBottom: "16px" }}>
+        <div
+          className={`banner ${periodMsg.type === "error" ? "banner--error" : "banner--ok"} cc-ts-msg-banner`}
+          style={{ marginBottom: "16px" }}
+        >
           {periodMsg.text}
         </div>
       )}
@@ -3264,35 +5487,81 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
       {/* 2. Redesigned Filter & Actions Bar */}
       <div className="cc-ts-header-actions">
         <div className="cc-ts-filters">
-          <input type="month" value={ym} onChange={(e) => setYm(e.target.value)} className="cc-ts-input-month" />
-          <select value={deptId} onChange={(e) => setDeptId(e.target.value === "" ? "" : Number(e.target.value))} className="cc-ts-select-dept">
+          <input
+            type="month"
+            value={ym}
+            onChange={(e) => setYm(e.target.value)}
+            className="cc-ts-input-month"
+          />
+          <select
+            value={deptId}
+            onChange={(e) =>
+              setDeptId(e.target.value === "" ? "" : Number(e.target.value))
+            }
+            className="cc-ts-select-dept"
+          >
             <option value="">Tất cả phòng/tổ</option>
-            {depts.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+            {depts.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
           </select>
           <div className="cc-ts-legend-strip">
-            <span className="cc-ts-legend-item cc-ts-legend-item--work">Công</span>
-            <span className="cc-ts-legend-item cc-ts-legend-item--late">Muộn</span>
-            <span className="cc-ts-legend-item cc-ts-legend-item--early">Sớm</span>
-            <span className="cc-ts-legend-item cc-ts-legend-item--leave">Nghỉ/Phép</span>
-            <span className="cc-ts-legend-item cc-ts-legend-item--ot">OT (+)</span>
+            <span className="cc-ts-legend-item cc-ts-legend-item--work">
+              Công
+            </span>
+            <span className="cc-ts-legend-item cc-ts-legend-item--late">
+              Muộn
+            </span>
+            <span className="cc-ts-legend-item cc-ts-legend-item--early">
+              Sớm
+            </span>
+            <span className="cc-ts-legend-item cc-ts-legend-item--leave">
+              Nghỉ/Phép
+            </span>
+            <span className="cc-ts-legend-item cc-ts-legend-item--ot">
+              OT (+)
+            </span>
           </div>
         </div>
 
         <div className="cc-ts-actions">
-          <button className="btn btn--ghost cc-ts-btn-export" onClick={exportCsv} disabled={downloading || !data?.rows.length}>
-            {downloading ? <RefreshCw className="cc-animate-spin" size={14} /> : <FileEdit size={14} />}
+          <button
+            className="btn btn--ghost cc-ts-btn-export"
+            onClick={exportCsv}
+            disabled={downloading || !data?.rows.length}
+          >
+            {downloading ? (
+              <RefreshCw className="cc-animate-spin" size={14} />
+            ) : (
+              <FileEdit size={14} />
+            )}
             <span>{downloading ? "Đang xuất…" : "Xuất CSV"}</span>
           </button>
 
           {canAdjust && period && (
             <div className="cc-ts-action-lock-wrapper">
               {period.status === "draft" ? (
-                <button className="btn btn--primary cc-ts-btn-lock" onClick={doLockPeriod} disabled={periodBusy}>
+                <button
+                  className="btn btn--primary cc-ts-btn-lock"
+                  onClick={doLockPeriod}
+                  disabled={periodBusy}
+                >
                   <Lock size={14} />
                   <span>{periodBusy ? "Đang khóa…" : "Chốt công tháng"}</span>
                 </button>
               ) : (
-                <button className="btn btn--ghost cc-ts-btn-unlock" onClick={doReopenPeriod} disabled={periodBusy || period.payroll_locked} title={period.payroll_locked ? "Kỳ lương đã chốt — không mở lại kỳ công" : ""}>
+                <button
+                  className="btn btn--ghost cc-ts-btn-unlock"
+                  onClick={doReopenPeriod}
+                  disabled={periodBusy || period.payroll_locked}
+                  title={
+                    period.payroll_locked
+                      ? "Kỳ lương đã chốt — không mở lại kỳ công"
+                      : ""
+                  }
+                >
                   <Unlock size={14} />
                   <span>{periodBusy ? "Đang mở…" : "Mở lại kỳ công"}</span>
                 </button>
@@ -3316,7 +5585,10 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
                   const label = getWeekdayLabel(year, month, d);
                   const weekend = isWeekend(year, month, d);
                   return (
-                    <th key={d} className={`cc-day-hdr-v2 ${weekend ? "cc-day-hdr-v2--weekend" : ""}`}>
+                    <th
+                      key={d}
+                      className={`cc-day-hdr-v2 ${weekend ? "cc-day-hdr-v2--weekend" : ""}`}
+                    >
                       <div className="cc-day-hdr-v2-weekday">{label}</div>
                       <div className="cc-day-hdr-v2-num">{d}</div>
                     </th>
@@ -3333,12 +5605,20 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
                   row={r}
                   days={days}
                   isWeekend={(d) => isWeekend(year, month, d)}
-                  onCellClick={(dayNum) => openCell(r.employee_id, r.employee_name, dayNum)}
-                  onNameClick={() => setSelectedEmployeeCal({ row: r, name: r.employee_name })}
+                  onCellClick={(dayNum) =>
+                    openCell(r.employee_id, r.employee_name, dayNum)
+                  }
+                  onNameClick={() =>
+                    setSelectedEmployeeCal({ row: r, name: r.employee_name })
+                  }
                 />
               ))}
               {data.rows.length === 0 && (
-                <tr><td colSpan={days.length + 5} className="ns__empty">Chưa có dữ liệu chấm công tháng này.</td></tr>
+                <tr>
+                  <td colSpan={days.length + 5} className="ns__empty">
+                    Chưa có dữ liệu chấm công tháng này.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>
@@ -3347,8 +5627,11 @@ function TimesheetTab({ token, canAdjust }: { token: string; canAdjust: boolean 
 
       {openDay && (
         <DayDetailModal
-          token={token} canAdjust={canAdjust}
-          employeeId={openDay.employeeId} employeeName={openDay.employeeName} date={openDay.date}
+          token={token}
+          canAdjust={canAdjust}
+          employeeId={openDay.employeeId}
+          employeeName={openDay.employeeName}
+          date={openDay.date}
           onClose={() => setOpenDay(null)}
           onChanged={reload}
         />
@@ -3373,7 +5656,7 @@ function TimesheetRowView({
   days,
   isWeekend,
   onCellClick,
-  onNameClick
+  onNameClick,
 }: {
   row: TimesheetRow;
   days: number[];
@@ -3382,16 +5665,28 @@ function TimesheetRowView({
   onNameClick?: () => void;
 }) {
   const clickable = !!onCellClick;
-  const cellProps = (d: number) => clickable
-    ? { role: "button" as const, tabIndex: 0, onClick: () => onCellClick!(d), style: { cursor: "pointer" } }
-    : {};
+  const cellProps = (d: number) =>
+    clickable
+      ? {
+          role: "button" as const,
+          tabIndex: 0,
+          onClick: () => onCellClick!(d),
+          style: { cursor: "pointer" },
+        }
+      : {};
   return (
     <tr>
       <td className="cc-sticky-col-code">{row.employee_code}</td>
       <td className="cc-sticky-col-name">
         <div className="cc-name-cell-wrapper">
-          <span className="cc-name-avatar">{getInitials(row.employee_name)}</span>
-          <span className="cc-name-link" onClick={onNameClick} title="Xem lịch công tháng">
+          <span className="cc-name-avatar">
+            {getInitials(row.employee_name)}
+          </span>
+          <span
+            className="cc-name-link"
+            onClick={onNameClick}
+            title="Xem lịch công tháng"
+          >
             {row.employee_name}
           </span>
         </div>
@@ -3401,51 +5696,86 @@ function TimesheetRowView({
         const isWe = isWeekend(d);
         const day = row.days[String(d)];
         const cellClass = `cc-day-cell ${isWe ? "cc-day-cell--weekend" : ""}`;
-        
+
         if (!day) return <td key={d} className={cellClass} {...cellProps(d)} />;
-        
+
         if (day.leave) {
           const leaveLabel = day.leave_paid ? "P" : "KL";
           return (
             <td key={d} className={cellClass} {...cellProps(d)}>
-              <span className="cc-cell-badge cc-cell-badge--leave" title={`Nghỉ: ${day.leave}`}>
+              <span
+                className="cc-cell-badge cc-cell-badge--leave"
+                title={`Nghỉ: ${day.leave}`}
+              >
                 {leaveLabel}
               </span>
             </td>
           );
         }
-        
+
         // Formulate badge classes
         let badgeClass = "cc-cell-badge";
         if (day.late) badgeClass += " cc-cell-badge--late";
         else if (day.early) badgeClass += " cc-cell-badge--early";
         else badgeClass += " cc-cell-badge--work";
-        
-        const label = day.cong != null ? String(day.cong) : (day.hours != null ? `${day.hours}h` : "•");
-        const tip = `${day.first_in ?? "?"}–${day.last_out ?? "?"}`
-          + (day.late ? " · đi muộn" : "") + (day.early ? " · về sớm" : "")
-          + (day.ot_minutes ? ` · OT ${day.ot_minutes}′` : "") + (day.night ? " · ca đêm" : "");
-          
+
+        const label =
+          day.cong != null
+            ? String(day.cong)
+            : day.hours != null
+              ? `${day.hours}h`
+              : "•";
+        const tip =
+          `${day.first_in ?? "?"}–${day.last_out ?? "?"}` +
+          (day.late ? " · đi muộn" : "") +
+          (day.early ? " · về sớm" : "") +
+          (day.ot_minutes ? ` · OT ${day.ot_minutes}′` : "") +
+          (day.night ? " · ca đêm" : "");
+
         return (
           <td key={d} className={cellClass} {...cellProps(d)}>
             <span className={badgeClass} title={tip}>
               {label}
-              {day.ot_minutes ? <span className="cc-cell-ot-dot" title={`Tăng ca: ${day.ot_minutes}′`}>+</span> : null}
+              {day.ot_minutes ? (
+                <span
+                  className="cc-cell-ot-dot"
+                  title={`Tăng ca: ${day.ot_minutes}′`}
+                >
+                  +
+                </span>
+              ) : null}
             </span>
           </td>
         );
       })}
-      <td style={{ fontWeight: "bold", textAlign: "center" }}>{row.total_cong != null ? row.total_cong : row.total_days}</td>
-      <td style={{ fontWeight: "bold", textAlign: "center" }}>{row.total_hours}h</td>
+      <td style={{ fontWeight: "bold", textAlign: "center" }}>
+        {row.total_cong != null ? row.total_cong : row.total_days}
+      </td>
+      <td style={{ fontWeight: "bold", textAlign: "center" }}>
+        {row.total_hours}h
+      </td>
     </tr>
   );
 }
 
 // "Ô biết nói": chi tiết punch 1 ngày của 1 NV + chấm bù/sửa (fault_party) có audit.
 
-function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onClose, onChanged }: {
-  token: string; canAdjust: boolean; employeeId: number; employeeName: string; date: string;
-  onClose: () => void; onChanged: () => void;
+function DayDetailModal({
+  token,
+  canAdjust,
+  employeeId,
+  employeeName,
+  date,
+  onClose,
+  onChanged,
+}: {
+  token: string;
+  canAdjust: boolean;
+  employeeId: number;
+  employeeName: string;
+  date: string;
+  onClose: () => void;
+  onChanged: () => void;
 }) {
   const [detail, setDetail] = useState<DayDetail | null>(null);
   const [busy, setBusy] = useState(false);
@@ -3460,59 +5790,107 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
   const [otBusy, setOtBusy] = useState(false);
 
   const load = useCallback(() => {
-    api.attendance.day(token, employeeId, date).then(setDetail).catch(() => setDetail(null));
+    api.attendance
+      .day(token, employeeId, date)
+      .then(setDetail)
+      .catch(() => setDetail(null));
   }, [token, employeeId, date]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
   // Điền sẵn giờ vào/ra tăng ca theo phiếu khi có gợi ý (HCNS chỉnh lại giờ ra thực tế rồi lưu).
   const sugFrom = detail?.ot_suggestion?.from_time;
   const sugTo = detail?.ot_suggestion?.to_time;
   useEffect(() => {
-    if (sugFrom && sugTo) { setOtIn(sugFrom); setOtOut(sugTo); }
+    if (sugFrom && sugTo) {
+      setOtIn(sugFrom);
+      setOtOut(sugTo);
+    }
   }, [sugFrom, sugTo]);
 
   async function addPunch() {
-    if (!reason.trim()) { setError("Phải nhập lý do."); return; }
-    setBusy(true); setError(null);
+    if (!reason.trim()) {
+      setError("Phải nhập lý do.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
     try {
       const d = await api.attendance.adjust(token, {
-        employee_id: employeeId, date, check_type: checkType, time, reason: reason.trim(), fault_party: fault,
+        employee_id: employeeId,
+        date,
+        check_type: checkType,
+        time,
+        reason: reason.trim(),
+        fault_party: fault,
       });
-      setDetail(d); setReason(""); onChanged();
+      setDetail(d);
+      setReason("");
+      onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Lỗi khi chấm bù.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function removePunch(logId: number) {
-    setBusy(true); setError(null);
+    setBusy(true);
+    setError(null);
     try {
-      const d = await api.attendance.deleteManualLog(token, logId, employeeId, date);
-      setDetail(d); onChanged();
+      const d = await api.attendance.deleteManualLog(
+        token,
+        logId,
+        employeeId,
+        date,
+      );
+      setDetail(d);
+      onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Lỗi khi xóa.");
-    } finally { setBusy(false); }
+    } finally {
+      setBusy(false);
+    }
   }
 
   // Chấm bù cặp tăng ca: thêm lượt VÀO rồi RA (2 punch) → engine tự gom thành phiên tăng ca.
   async function addOtPair() {
-    if (!otIn || !otOut) { setError("Nhập đủ giờ vào và ra tăng ca."); return; }
-    if (otOut <= otIn) { setError("Giờ ra tăng ca phải sau giờ vào."); return; }
-    setOtBusy(true); setError(null);
+    if (!otIn || !otOut) {
+      setError("Nhập đủ giờ vào và ra tăng ca.");
+      return;
+    }
+    if (otOut <= otIn) {
+      setError("Giờ ra tăng ca phải sau giờ vào.");
+      return;
+    }
+    setOtBusy(true);
+    setError(null);
     const reasonTxt = "Chấm bù cặp tăng ca (NV quên chấm)";
     try {
       await api.attendance.adjust(token, {
-        employee_id: employeeId, date, check_type: "in", time: otIn,
-        reason: reasonTxt, fault_party: "nv_quen",
+        employee_id: employeeId,
+        date,
+        check_type: "in",
+        time: otIn,
+        reason: reasonTxt,
+        fault_party: "nv_quen",
       });
       const d = await api.attendance.adjust(token, {
-        employee_id: employeeId, date, check_type: "out", time: otOut,
-        reason: reasonTxt, fault_party: "nv_quen",
+        employee_id: employeeId,
+        date,
+        check_type: "out",
+        time: otOut,
+        reason: reasonTxt,
+        fault_party: "nv_quen",
       });
-      setDetail(d); onChanged();
+      setDetail(d);
+      onChanged();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Lỗi khi chấm bù cặp tăng ca.");
-      load();   // tải lại: có thể lượt VÀO đã thêm nhưng RA lỗi
-    } finally { setOtBusy(false); }
+      load(); // tải lại: có thể lượt VÀO đã thêm nhưng RA lỗi
+    } finally {
+      setOtBusy(false);
+    }
   }
 
   return (
@@ -3521,63 +5899,99 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
         <header className="ns-modal__head">
           <div className="cc-modal-title-group">
             <h2>Chi tiết chấm công</h2>
-            <p className="cc-modal-subtitle">{employeeName} · Ngày {date}</p>
+            <p className="cc-modal-subtitle">
+              {employeeName} · Ngày {date}
+            </p>
           </div>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
         <div className="ns-modal__body cc-day-detail-modal-body">
           {error && <div className="banner banner--error">{error}</div>}
-          {!detail ? <p className="ns__empty">Đang tải…</p> : (
+          {!detail ? (
+            <p className="ns__empty">Đang tải…</p>
+          ) : (
             <>
               {/* Summary Strip */}
               <div className="cc-day-summary-strip">
                 <div className="cc-day-summary-item">
                   <span className="cc-day-summary-lbl">Ca làm việc</span>
-                  <span className="cc-day-summary-val cc-badge-shift">{detail.shift_name ?? "Chưa gán"}</span>
+                  <span className="cc-day-summary-val cc-badge-shift">
+                    {detail.shift_name ?? "Chưa gán"}
+                  </span>
                 </div>
                 <div className="cc-day-summary-item">
                   <span className="cc-day-summary-lbl">Ngày công</span>
-                  <span className="cc-day-summary-val cc-badge-cong">{detail.cong != null ? detail.cong : "—"}</span>
+                  <span className="cc-day-summary-val cc-badge-cong">
+                    {detail.cong != null ? detail.cong : "—"}
+                  </span>
                 </div>
                 {detail.reason && (
                   <div className="cc-day-summary-item">
                     <span className="cc-day-summary-lbl">Cảnh báo</span>
-                    <span className="cc-day-summary-val cc-badge-warn">⚠ {detail.reason}</span>
+                    <span className="cc-day-summary-val cc-badge-warn">
+                      ⚠ {detail.reason}
+                    </span>
                   </div>
                 )}
               </div>
 
               {/* Punch Timeline */}
               <div className="cc-punch-timeline-container">
-                <h4 className="cc-section-title-mini">Lịch sử lượt chấm công</h4>
+                <h4 className="cc-section-title-mini">
+                  Lịch sử lượt chấm công
+                </h4>
                 <div className="cc-timeline-flow">
                   {detail.punches.map((p, idx) => {
                     const isIn = p.check_type === "in";
                     return (
                       <div className="cc-timeline-item" key={p.id}>
                         <div className="cc-timeline-connector">
-                          <div className={`cc-timeline-dot ${isIn ? "is-in" : "is-out"}`} />
-                          {idx < detail.punches.length - 1 && <div className="cc-timeline-line" />}
+                          <div
+                            className={`cc-timeline-dot ${isIn ? "is-in" : "is-out"}`}
+                          />
+                          {idx < detail.punches.length - 1 && (
+                            <div className="cc-timeline-line" />
+                          )}
                         </div>
                         <div className="cc-timeline-content">
                           <div className="cc-timeline-header">
                             <span className="cc-timeline-time">{p.time}</span>
-                            <span className={`cc-timeline-badge ${isIn ? "is-in" : "is-out"}`}>
+                            <span
+                              className={`cc-timeline-badge ${isIn ? "is-in" : "is-out"}`}
+                            >
                               {isIn ? "VÀO" : "RA"}
                             </span>
-                            <span className={`cc-timeline-source ${p.is_manual ? "is-manual" : "is-gps"}`}>
+                            <span
+                              className={`cc-timeline-source ${p.is_manual ? "is-manual" : "is-gps"}`}
+                            >
                               {p.is_manual ? "Chấm bù" : "GPS"}
                             </span>
                           </div>
                           {p.is_manual && (
                             <div className="cc-timeline-details">
-                              {p.fault_party && <span className="cc-fault-party">{FAULT_LABEL[p.fault_party] ?? p.fault_party}</span>}
-                              {p.adjust_reason && <span className="cc-adjust-reason"> · {p.adjust_reason}</span>}
+                              {p.fault_party && (
+                                <span className="cc-fault-party">
+                                  {FAULT_LABEL[p.fault_party] ?? p.fault_party}
+                                </span>
+                              )}
+                              {p.adjust_reason && (
+                                <span className="cc-adjust-reason">
+                                  {" "}
+                                  · {p.adjust_reason}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
                         {p.is_manual && canAdjust && (
-                          <button className="cc-btn-timeline-delete" onClick={() => removePunch(p.id)} disabled={busy} title="Xóa lượt chấm này">
+                          <button
+                            className="cc-btn-timeline-delete"
+                            onClick={() => removePunch(p.id)}
+                            disabled={busy}
+                            title="Xóa lượt chấm này"
+                          >
                             <Trash2 size={13} />
                           </button>
                         )}
@@ -3585,7 +5999,12 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
                     );
                   })}
                   {detail.punches.length === 0 && (
-                    <p className="ns__empty" style={{ padding: "16px 0", textAlign: "center" }}>Ngày này chưa có lượt chấm nào.</p>
+                    <p
+                      className="ns__empty"
+                      style={{ padding: "16px 0", textAlign: "center" }}
+                    >
+                      Ngày này chưa có lượt chấm nào.
+                    </p>
                   )}
                 </div>
               </div>
@@ -3594,24 +6013,49 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
               {canAdjust && detail.ot_suggestion && (
                 <div className="cc-ot-suggest">
                   <h4 className="cc-ot-suggest__title">
-                    <AlertTriangle size={14} /> Chưa chấm cặp tăng ca — phiếu {detail.ot_suggestion.from_time}–{detail.ot_suggestion.to_time}
+                    <AlertTriangle size={14} /> Chưa chấm cặp tăng ca — phiếu{" "}
+                    {detail.ot_suggestion.from_time}–
+                    {detail.ot_suggestion.to_time}
                   </h4>
-                  <p className="cc-ot-suggest__hint">Giờ điền sẵn theo phiếu; sửa <b>giờ ra</b> theo thực tế rồi lưu.</p>
+                  <p className="cc-ot-suggest__hint">
+                    Giờ điền sẵn theo phiếu; sửa <b>giờ ra</b> theo thực tế rồi
+                    lưu.
+                  </p>
                   <div className="cc-ot-suggest__grid">
                     <div className="cc-adjust-field">
                       <span className="cc-field-label">Vào tăng ca</span>
                       <div className="cc-input-time-wrapper">
-                        <input type="time" value={otIn} onChange={(e) => setOtIn(e.target.value)} />                      </div>
+                        <input
+                          type="time"
+                          value={otIn}
+                          onChange={(e) => setOtIn(e.target.value)}
+                        />{" "}
+                      </div>
                     </div>
                     <div className="cc-adjust-field">
-                      <span className="cc-field-label">Ra tăng ca (thực tế)</span>
+                      <span className="cc-field-label">
+                        Ra tăng ca (thực tế)
+                      </span>
                       <div className="cc-input-time-wrapper">
-                        <input type="time" value={otOut} onChange={(e) => setOtOut(e.target.value)} />                      </div>
+                        <input
+                          type="time"
+                          value={otOut}
+                          onChange={(e) => setOtOut(e.target.value)}
+                        />{" "}
+                      </div>
                     </div>
                   </div>
                   <div className="cc-adjust-action-row">
-                    <button className="btn cc-btn-add-punch" onClick={addOtPair} disabled={otBusy}>
-                      {otBusy ? <RefreshCw className="cc-animate-spin" size={14} /> : "Chấm bù cặp tăng ca"}
+                    <button
+                      className="btn cc-btn-add-punch"
+                      onClick={addOtPair}
+                      disabled={otBusy}
+                    >
+                      {otBusy ? (
+                        <RefreshCw className="cc-animate-spin" size={14} />
+                      ) : (
+                        "Chấm bù cặp tăng ca"
+                      )}
                     </button>
                   </div>
                 </div>
@@ -3625,7 +6069,12 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
                     <div className="cc-adjust-field">
                       <span className="cc-field-label">Loại chấm</span>
                       <div className="cc-select-wrapper">
-                        <select value={checkType} onChange={(e) => setCheckType(e.target.value as "in" | "out")}>
+                        <select
+                          value={checkType}
+                          onChange={(e) =>
+                            setCheckType(e.target.value as "in" | "out")
+                          }
+                        >
                           <option value="in">VÀO</option>
                           <option value="out">RA</option>
                         </select>
@@ -3634,32 +6083,63 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
                     <div className="cc-adjust-field">
                       <span className="cc-field-label">Giờ</span>
                       <div className="cc-input-time-wrapper">
-                        <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />                      </div>
+                        <input
+                          type="time"
+                          value={time}
+                          onChange={(e) => setTime(e.target.value)}
+                        />{" "}
+                      </div>
                     </div>
                     <div className="cc-adjust-field">
                       <span className="cc-field-label">Nguyên nhân</span>
                       <div className="cc-select-wrapper">
-                        <select value={fault} onChange={(e) => setFault(e.target.value)}>
-                          {FAULT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        <select
+                          value={fault}
+                          onChange={(e) => setFault(e.target.value)}
+                        >
+                          {FAULT_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>
+                              {o.label}
+                            </option>
+                          ))}
                         </select>
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="cc-adjust-field" style={{ marginTop: 14 }}>
-                    <span className="cc-field-label">Lý do (bắt buộc, ghi vào nhật ký)</span>
-                    <input className="cc-input-text" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="vd: NV quên chấm ra, đã xác minh…" />
+                    <span className="cc-field-label">
+                      Lý do (bắt buộc, ghi vào nhật ký)
+                    </span>
+                    <input
+                      className="cc-input-text"
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      placeholder="vd: NV quên chấm ra, đã xác minh…"
+                    />
                   </div>
-                  
+
                   <div className="cc-adjust-action-row">
-                    <button className="btn btn--primary cc-btn-add-punch" onClick={addPunch} disabled={busy}>
-                      {busy ? <RefreshCw className="cc-animate-spin" size={14} /> : "Thêm punch chấm bù"}
+                    <button
+                      className="btn btn--primary cc-btn-add-punch"
+                      onClick={addPunch}
+                      disabled={busy}
+                    >
+                      {busy ? (
+                        <RefreshCw className="cc-animate-spin" size={14} />
+                      ) : (
+                        "Thêm punch chấm bù"
+                      )}
                     </button>
                   </div>
-                  
+
                   <div className="cc-info-card-note">
                     <AlertTriangle size={14} className="cc-note-icon" />
-                    <span>Công được <b>tự động tính lại</b> từ các lượt chấm (punch) — không ghi đè trực tiếp con số. Mọi thao tác đều được lưu nhật ký kiểm toán.</span>
+                    <span>
+                      Công được <b>tự động tính lại</b> từ các lượt chấm (punch)
+                      — không ghi đè trực tiếp con số. Mọi thao tác đều được lưu
+                      nhật ký kiểm toán.
+                    </span>
                   </div>
                 </div>
               )}
@@ -3667,7 +6147,9 @@ function DayDetailModal({ token, canAdjust, employeeId, employeeName, date, onCl
           )}
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose}>Đóng</button>
+          <button className="btn btn--ghost" onClick={onClose}>
+            Đóng
+          </button>
         </footer>
       </div>
     </div>
@@ -3693,7 +6175,13 @@ function statusBadge(s: string) {
   return <span className={`cc-badge-status ${cls}`}>{label}</span>;
 }
 
-function AdjustRequestsTab({ token, canAdjust }: { token: string; canAdjust: boolean }) {
+function AdjustRequestsTab({
+  token,
+  canAdjust,
+}: {
+  token: string;
+  canAdjust: boolean;
+}) {
   const [items, setItems] = useState<AdjustRequest[] | null>(null);
   const [status, setStatus] = useState("pending");
   const [faults, setFaults] = useState<Record<number, string>>({});
@@ -3701,25 +6189,42 @@ function AdjustRequestsTab({ token, canAdjust }: { token: string; canAdjust: boo
   const [err, setErr] = useState<string | null>(null);
 
   const load = useCallback(() => {
-    api.attendance.listAdjustRequests(token, status).then((r) => setItems(r.items)).catch(() => setItems([]));
+    api.attendance
+      .listAdjustRequests(token, status)
+      .then((r) => setItems(r.items))
+      .catch(() => setItems([]));
   }, [token, status]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   async function approve(r: AdjustRequest) {
-    setBusy(true); setErr(null);
+    setBusy(true);
+    setErr(null);
     try {
-      await api.attendance.approveAdjustRequest(token, r.id, { fault_party: faults[r.id] ?? r.fault_party ?? "nv_quen" });
+      await api.attendance.approveAdjustRequest(token, r.id, {
+        fault_party: faults[r.id] ?? r.fault_party ?? "nv_quen",
+      });
       load();
-    } catch (e) { setErr(e instanceof Error ? e.message : "Lỗi khi duyệt."); }
-    finally { setBusy(false); }
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lỗi khi duyệt.");
+    } finally {
+      setBusy(false);
+    }
   }
   async function reject(r: AdjustRequest) {
     const note = window.prompt("Lý do từ chối yêu cầu:");
     if (!note) return;
-    setBusy(true); setErr(null);
-    try { await api.attendance.rejectAdjustRequest(token, r.id, note); load(); }
-    catch (e) { setErr(e instanceof Error ? e.message : "Lỗi khi từ chối."); }
-    finally { setBusy(false); }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.attendance.rejectAdjustRequest(token, r.id, note);
+      load();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Lỗi khi từ chối.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -3733,15 +6238,30 @@ function AdjustRequestsTab({ token, canAdjust }: { token: string; canAdjust: boo
             <option value="all">Tất cả</option>
           </select>
         </div>
-        <div className="cc-info-card-note" style={{ margin: 0, padding: "8px 12px" }}>
+        <div
+          className="cc-info-card-note"
+          style={{ margin: 0, padding: "8px 12px" }}
+        >
           <Info size={14} className="cc-note-icon" />
-          <span>Duyệt yêu cầu sẽ tự động tạo lượt chấm công bù (punch) tương ứng và tính lại ngày công của ngày đó.</span>
+          <span>
+            Duyệt yêu cầu sẽ tự động tạo lượt chấm công bù (punch) tương ứng và
+            tính lại ngày công của ngày đó.
+          </span>
         </div>
       </div>
-      
-      {err && <div className="banner banner--error cc-ts-msg-banner" style={{ marginBottom: "16px" }}>{err}</div>}
-      
-      {!items ? <p className="ns__empty">Đang tải…</p> : (
+
+      {err && (
+        <div
+          className="banner banner--error cc-ts-msg-banner"
+          style={{ marginBottom: "16px" }}
+        >
+          {err}
+        </div>
+      )}
+
+      {!items ? (
+        <p className="ns__empty">Đang tải…</p>
+      ) : (
         <div className="cc-timesheet-scroll-container">
           <table className="cc-timesheet-table">
             <thead>
@@ -3760,19 +6280,32 @@ function AdjustRequestsTab({ token, canAdjust }: { token: string; canAdjust: boo
                 <tr key={r.id}>
                   <td>
                     <div className="cc-name-cell-wrapper">
-                      <span className="cc-name-avatar">{getInitials(r.employee_name)}</span>
-                      <span className="cc-name-text-plain" title={r.employee_name ?? `NV#${r.employee_id}`}>
+                      <span className="cc-name-avatar">
+                        {getInitials(r.employee_name)}
+                      </span>
+                      <span
+                        className="cc-name-text-plain"
+                        title={r.employee_name ?? `NV#${r.employee_id}`}
+                      >
                         {r.employee_name ?? `NV#${r.employee_id}`}
                       </span>
                     </div>
                   </td>
                   <td>{r.work_date}</td>
                   <td style={{ textAlign: "center" }}>
-                    <span className={`cc-cell-badge ${r.check_type === "in" ? "cc-cell-badge--work" : "cc-cell-badge--late"}`}>
+                    <span
+                      className={`cc-cell-badge ${r.check_type === "in" ? "cc-cell-badge--work" : "cc-cell-badge--late"}`}
+                    >
                       {r.check_type === "in" ? "VÀO" : "RA"}
                     </span>
                   </td>
-                  <td style={{ textAlign: "center", fontFamily: "var(--ff-mono)", fontWeight: "bold" }}>
+                  <td
+                    style={{
+                      textAlign: "center",
+                      fontFamily: "var(--ff-mono)",
+                      fontWeight: "bold",
+                    }}
+                  >
                     {r.suggested_time ?? "—"}
                   </td>
                   <td>
@@ -3785,28 +6318,59 @@ function AdjustRequestsTab({ token, canAdjust }: { token: string; canAdjust: boo
                       )}
                     </div>
                   </td>
-                  <td style={{ textAlign: "center" }}>{statusBadge(r.status)}</td>
+                  <td style={{ textAlign: "center" }}>
+                    {statusBadge(r.status)}
+                  </td>
                   {canAdjust && (
                     <td style={{ textAlign: "center" }}>
                       {r.status === "pending" ? (
                         <div className="cc-adjust-actions-group">
                           <div className="cc-select-wrapper cc-select-fault-wrapper">
-                            <select value={faults[r.id] ?? r.fault_party ?? "nv_quen"}
-                              onChange={(e) => setFaults((f) => ({ ...f, [r.id]: e.target.value }))}>
-                              {FAULT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                            <select
+                              value={faults[r.id] ?? r.fault_party ?? "nv_quen"}
+                              onChange={(e) =>
+                                setFaults((f) => ({
+                                  ...f,
+                                  [r.id]: e.target.value,
+                                }))
+                              }
+                            >
+                              {FAULT_OPTIONS.map((o) => (
+                                <option key={o.value} value={o.value}>
+                                  {o.label}
+                                </option>
+                              ))}
                             </select>
                           </div>
-                          <button className="btn btn--primary cc-btn-approve" onClick={() => approve(r)} disabled={busy}>Duyệt</button>
-                          <button className="btn btn--ghost cc-btn-reject" onClick={() => reject(r)} disabled={busy}>Từ chối</button>
+                          <button
+                            className="btn btn--primary cc-btn-approve"
+                            onClick={() => approve(r)}
+                            disabled={busy}
+                          >
+                            Duyệt
+                          </button>
+                          <button
+                            className="btn btn--ghost cc-btn-reject"
+                            onClick={() => reject(r)}
+                            disabled={busy}
+                          >
+                            Từ chối
+                          </button>
                         </div>
-                      ) : "—"}
+                      ) : (
+                        "—"
+                      )}
                     </td>
                   )}
                 </tr>
               ))}
               {items.length === 0 && (
                 <tr>
-                  <td colSpan={canAdjust ? 7 : 6} className="ns__empty" style={{ padding: "24px", textAlign: "center" }}>
+                  <td
+                    colSpan={canAdjust ? 7 : 6}
+                    className="ns__empty"
+                    style={{ padding: "24px", textAlign: "center" }}
+                  >
                     Không có yêu cầu chỉnh sửa công nào.
                   </td>
                 </tr>
@@ -3825,7 +6389,9 @@ function getInitials(name?: string | null) {
   if (!name) return "?";
   const parts = name.trim().split(/\s+/);
   if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
-  return (parts[parts.length - 2][0] + parts[parts.length - 1][0]).toUpperCase();
+  return (
+    parts[parts.length - 2][0] + parts[parts.length - 1][0]
+  ).toUpperCase();
 }
 
 function parseDateTimeVN(iso: string | null | undefined) {
@@ -3833,12 +6399,23 @@ function parseDateTimeVN(iso: string | null | undefined) {
   const hasTz = /[zZ]|[+-]\d{2}:?\d{2}$/.test(iso);
   const d = new Date(hasTz ? iso : `${iso}Z`);
   if (Number.isNaN(d.getTime())) return { time: iso, date: "" };
-  const timeStr = d.toLocaleTimeString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", hour12: false });
-  const dateStr = d.toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
+  const timeStr = d.toLocaleTimeString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    hour12: false,
+  });
+  const dateStr = d.toLocaleDateString("vi-VN", {
+    timeZone: "Asia/Ho_Chi_Minh",
+  });
   return { time: timeStr, date: dateStr };
 }
 
-function AttendanceTable({ logs, showEmployee }: { logs: AttendanceLog[]; showEmployee: boolean }) {
+function AttendanceTable({
+  logs,
+  showEmployee,
+}: {
+  logs: AttendanceLog[];
+  showEmployee: boolean;
+}) {
   return (
     <div className="ns__tablewrap">
       <table className="ns__table cc-log-table">
@@ -3855,17 +6432,37 @@ function AttendanceTable({ logs, showEmployee }: { logs: AttendanceLog[]; showEm
             const { time, date } = parseDateTimeVN(l.checked_at);
             const isInside = l.distance_m == null || l.distance_m <= 150; // Bán kính chuẩn 150m
             return (
-              <tr key={l.id} className={`cc-log-row cc-log-row--${l.check_type}`}>
+              <tr
+                key={l.id}
+                className={`cc-log-row cc-log-row--${l.check_type}`}
+              >
                 {showEmployee && (
                   <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                      <span className="cc-avatar-mini">{getInitials(l.employee_name)}</span>
-                      <span style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)" }}>{l.employee_name ?? `NV#${l.employee_id}`}</span>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "10px",
+                      }}
+                    >
+                      <span className="cc-avatar-mini">
+                        {getInitials(l.employee_name)}
+                      </span>
+                      <span
+                        style={{
+                          fontWeight: "var(--fw-medium)",
+                          color: "var(--ink)",
+                        }}
+                      >
+                        {l.employee_name ?? `NV#${l.employee_id}`}
+                      </span>
                     </div>
                   </td>
                 )}
                 <td>
-                  <span className={`cc-log-badge cc-log-badge--${l.check_type}`}>
+                  <span
+                    className={`cc-log-badge cc-log-badge--${l.check_type}`}
+                  >
                     {l.check_type === "in" ? (
                       <>
                         <LogIn size={12} style={{ marginRight: "4px" }} />
@@ -3887,12 +6484,30 @@ function AttendanceTable({ logs, showEmployee }: { logs: AttendanceLog[]; showEm
                 </td>
                 <td>
                   <div style={{ display: "flex", flexDirection: "column" }}>
-                    <span style={{ fontWeight: "var(--fw-medium)", color: "var(--ink)" }}>{l.location_name ?? "📍 Vị trí ngoài danh mục"}</span>
-                    <span className={`cc-log-distance ${isInside ? "is-inside" : "is-outside"}`}>
-                      <MapPin size={11} style={{ marginRight: "3px", display: "inline-block", verticalAlign: "middle" }} />
-                      {l.distance_m != null ? (
-                        isInside ? `Trong phạm vi (${Math.round(l.distance_m)}m)` : `Ngoài phạm vi (${Math.round(l.distance_m)}m)`
-                      ) : "Không có GPS"}
+                    <span
+                      style={{
+                        fontWeight: "var(--fw-medium)",
+                        color: "var(--ink)",
+                      }}
+                    >
+                      {l.location_name ?? "📍 Vị trí ngoài danh mục"}
+                    </span>
+                    <span
+                      className={`cc-log-distance ${isInside ? "is-inside" : "is-outside"}`}
+                    >
+                      <MapPin
+                        size={11}
+                        style={{
+                          marginRight: "3px",
+                          display: "inline-block",
+                          verticalAlign: "middle",
+                        }}
+                      />
+                      {l.distance_m != null
+                        ? isInside
+                          ? `Trong phạm vi (${Math.round(l.distance_m)}m)`
+                          : `Ngoài phạm vi (${Math.round(l.distance_m)}m)`
+                        : "Không có GPS"}
                     </span>
                   </div>
                 </td>
@@ -3901,7 +6516,9 @@ function AttendanceTable({ logs, showEmployee }: { logs: AttendanceLog[]; showEm
           })}
           {logs.length === 0 && (
             <tr>
-              <td colSpan={showEmployee ? 4 : 3} className="ns__empty">Chưa có bản ghi chấm công.</td>
+              <td colSpan={showEmployee ? 4 : 3} className="ns__empty">
+                Chưa có bản ghi chấm công.
+              </td>
             </tr>
           )}
         </tbody>
@@ -3932,23 +6549,38 @@ interface ElShift {
   overnight: boolean;
 }
 
-const EL_TOLERANCE = 10;          // dung sai mép ca (phút) khi suy ra kiểu vắng
-const EL_FALLBACK_WINDOW = 480;   // ca 8h — mẫu số dự phòng khi chưa gán ca (khớp backend)
+const EL_TOLERANCE = 10; // dung sai mép ca (phút) khi suy ra kiểu vắng
+const EL_FALLBACK_WINDOW = 480; // ca 8h — mẫu số dự phòng khi chưa gán ca (khớp backend)
 
-const EL_KIND_META: Record<ElKind, { label: string; Icon: typeof Clock; cls: string }> = {
+const EL_KIND_META: Record<
+  ElKind,
+  { label: string; Icon: typeof Clock; cls: string }
+> = {
   late: { label: "Đi muộn", Icon: LogIn, cls: "el-kind--late" },
   early: { label: "Về sớm", Icon: LogOut, cls: "el-kind--early" },
   half: { label: "Nghỉ nửa buổi", Icon: Coffee, cls: "el-kind--half" },
   mid: { label: "Vắng giữa ca", Icon: Clock, cls: "el-kind--mid" },
 };
 
-const EL_FORM_KINDS: { value: ElFormKind; label: string; Icon: typeof Clock }[] = [
+const EL_FORM_KINDS: {
+  value: ElFormKind;
+  label: string;
+  Icon: typeof Clock;
+}[] = [
   { value: "late", label: "Đi muộn", Icon: LogIn },
   { value: "early", label: "Về sớm", Icon: LogOut },
   { value: "half", label: "Nghỉ nửa buổi", Icon: Coffee },
 ];
 
-const EL_WEEKDAYS = ["Chủ nhật", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"];
+const EL_WEEKDAYS = [
+  "Chủ nhật",
+  "Thứ 2",
+  "Thứ 3",
+  "Thứ 4",
+  "Thứ 5",
+  "Thứ 6",
+  "Thứ 7",
+];
 
 function elErr(e: unknown): string {
   // Lỗi 400 của backend đã là tiếng Việt và khớp nhãn UI → hiện NGUYÊN VĂN, đừng viết lại.
@@ -3972,7 +6604,15 @@ function elMinToHhmm(m: number): string {
 
 /** Ca ở dạng "HH:MM" (nguồn `myStatus().shift` — self-service, ai cũng gọi được). */
 function elMakeShift(
-  s: { name: string; start_time: string; end_time: string; is_overnight: boolean } | null | undefined,
+  s:
+    | {
+        name: string;
+        start_time: string;
+        end_time: string;
+        is_overnight: boolean;
+      }
+    | null
+    | undefined,
 ): ElShift | null {
   if (!s) return null;
   const st = elHhmmToMin(s.start_time);
@@ -3991,7 +6631,12 @@ function elShiftFromMinutes(s: {
   return elShiftFrom(s.name, s.start_minute, s.end_minute, s.is_overnight);
 }
 
-function elShiftFrom(name: string, st: number, en: number, overnight: boolean): ElShift | null {
+function elShiftFrom(
+  name: string,
+  st: number,
+  en: number,
+  overnight: boolean,
+): ElShift | null {
   const endMin = en + (overnight || en <= st ? 1440 : 0);
   if (endMin <= st) return null;
   return { name, startMin: st, endMin, overnight: endMin > 1440 };
@@ -4004,7 +6649,11 @@ function elOnAxis(minute: number, sh: ElShift | null): number {
 }
 
 /** Suy ra kiểu vắng theo khung ca (dung sai 10'). Không biết ca ⇒ null (chip trung tính). */
-function elKindOf(fromMinute: number, toMinute: number, sh: ElShift | null): ElKind | null {
+function elKindOf(
+  fromMinute: number,
+  toMinute: number,
+  sh: ElShift | null,
+): ElKind | null {
   if (!sh) return null;
   const from = elOnAxis(fromMinute, sh);
   const to = elOnAxis(toMinute, sh);
@@ -4060,7 +6709,13 @@ function elDayMonth(ymd: string): string {
 }
 
 /** Mã 1 (icon + CHỮ) + Mã 2 (mini-bar đặt đúng vị trí trong ca). */
-function ElKindCell({ r, shift }: { r: LateEarlyRequest; shift: ElShift | null }) {
+function ElKindCell({
+  r,
+  shift,
+}: {
+  r: LateEarlyRequest;
+  shift: ElShift | null;
+}) {
   const kind = elKindOf(r.from_minute, r.to_minute, shift);
   if (kind === null || shift === null) {
     return (
@@ -4078,8 +6733,14 @@ function ElKindCell({ r, shift }: { r: LateEarlyRequest; shift: ElShift | null }
   const span = shift.endMin - shift.startMin;
   const from = elOnAxis(r.from_minute, shift);
   const to = elOnAxis(r.to_minute, shift);
-  const left = Math.max(0, Math.min(100, ((from - shift.startMin) / span) * 100));
-  const right = Math.max(0, Math.min(100, ((to - shift.startMin) / span) * 100));
+  const left = Math.max(
+    0,
+    Math.min(100, ((from - shift.startMin) / span) * 100),
+  );
+  const right = Math.max(
+    0,
+    Math.min(100, ((to - shift.startMin) / span) * 100),
+  );
   const width = Math.max(5, Math.min(right - left, 100 - left));
   return (
     <div className="el-kindcell">
@@ -4104,13 +6765,19 @@ function ElKindCell({ r, shift }: { r: LateEarlyRequest; shift: ElShift | null }
 function ElLeaveCell({ r }: { r: LateEarlyRequest }) {
   if (r.leave_type_id != null) {
     return (
-      <span className="el-leave" title={r.leave_type_name ?? "Trừ vào phép năm"}>
+      <span
+        className="el-leave"
+        title={r.leave_type_name ?? "Trừ vào phép năm"}
+      >
         −{elNum(r.leave_cong)} ngày
       </span>
     );
   }
   return (
-    <span className="el-noleave" title="Không đụng quỹ phép — mất công phần vắng, nhưng không bị phạt.">
+    <span
+      className="el-noleave"
+      title="Không đụng quỹ phép — mất công phần vắng, nhưng không bị phạt."
+    >
       Không lương
     </span>
   );
@@ -4149,7 +6816,9 @@ function ElTable({
             <th style={{ textAlign: "center" }}>Phép năm</th>
             <th style={{ textAlign: "left" }}>Lý do</th>
             <th style={{ textAlign: "center" }}>Trạng thái</th>
-            {showDecision && <th style={{ textAlign: "left" }}>Kết quả duyệt</th>}
+            {showDecision && (
+              <th style={{ textAlign: "left" }}>Kết quả duyệt</th>
+            )}
             <th style={{ textAlign: "right" }} aria-label="Thao tác" />
           </tr>
         </thead>
@@ -4171,8 +6840,13 @@ function ElTable({
               {showEmployee && (
                 <td>
                   <div className="cc-name-cell-wrapper">
-                    <span className="cc-name-avatar">{getInitials(r.employee_name)}</span>
-                    <span className="cc-name-text-plain" title={r.employee_name ?? `NV#${r.employee_id}`}>
+                    <span className="cc-name-avatar">
+                      {getInitials(r.employee_name)}
+                    </span>
+                    <span
+                      className="cc-name-text-plain"
+                      title={r.employee_name ?? `NV#${r.employee_id}`}
+                    >
                       {r.employee_name ?? `NV#${r.employee_id}`}
                     </span>
                   </div>
@@ -4204,9 +6878,19 @@ function ElTable({
                 <td>
                   {r.decided_by_name || r.decided_at || r.decision_note ? (
                     <div className="cc-reason-wrapper">
-                      <span className="cc-reason-text">{r.decided_by_name ?? "—"}</span>
-                      {r.decided_at && <span className="el-cell-sub">{fmtDateTime(r.decided_at)}</span>}
-                      {r.decision_note && <div className="cc-decision-note-sub">💬 {r.decision_note}</div>}
+                      <span className="cc-reason-text">
+                        {r.decided_by_name ?? "—"}
+                      </span>
+                      {r.decided_at && (
+                        <span className="el-cell-sub">
+                          {fmtDateTime(r.decided_at)}
+                        </span>
+                      )}
+                      {r.decision_note && (
+                        <div className="cc-decision-note-sub">
+                          💬 {r.decision_note}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     "—"
@@ -4240,7 +6924,9 @@ function ElRejectModal({
       <div className="ns-modal__box cc-day-detail-modal-box">
         <header className="ns-modal__head">
           <h2>{count > 1 ? `Từ chối ${count} phiếu` : "Từ chối phiếu"}</h2>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
         <div className="ns-modal__body">
           <label className="ns-field">
@@ -4252,11 +6938,20 @@ function ElRejectModal({
               autoFocus
             />
           </label>
-          <p className="np-hint">Lý do này hiện ở cột <b>Kết quả duyệt</b> để thợ biết vì sao bị từ chối.</p>
+          <p className="np-hint">
+            Lý do này hiện ở cột <b>Kết quả duyệt</b> để thợ biết vì sao bị từ
+            chối.
+          </p>
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose}>Hủy</button>
-          <button className="btn btn--primary" disabled={!note.trim()} onClick={() => onConfirm(note.trim())}>
+          <button className="btn btn--ghost" onClick={onClose}>
+            Hủy
+          </button>
+          <button
+            className="btn btn--primary"
+            disabled={!note.trim()}
+            onClick={() => onConfirm(note.trim())}
+          >
             Từ chối
           </button>
         </footer>
@@ -4294,11 +6989,17 @@ function ElFormModal({
   const [employeeId, setEmployeeId] = useState<number | null>(null);
   const [empQuery, setEmpQuery] = useState("");
   const [workDate, setWorkDate] = useState(editing?.work_date ?? isoToday());
-  const [from, setFrom] = useState(editing ? elMinToHhmm(editing.from_minute) : "");
+  const [from, setFrom] = useState(
+    editing ? elMinToHhmm(editing.from_minute) : "",
+  );
   const [to, setTo] = useState(editing ? elMinToHhmm(editing.to_minute) : "");
   const [kind, setKind] = useState<ElFormKind | null>(null);
-  const [deduct, setDeduct] = useState(editing ? editing.leave_type_id != null : false);
-  const [leaveTypeId, setLeaveTypeId] = useState<number | null>(editing?.leave_type_id ?? null);
+  const [deduct, setDeduct] = useState(
+    editing ? editing.leave_type_id != null : false,
+  );
+  const [leaveTypeId, setLeaveTypeId] = useState<number | null>(
+    editing?.leave_type_id ?? null,
+  );
   const [reason, setReason] = useState(editing?.reason ?? "");
   const [types, setTypes] = useState<LeaveType[]>([]);
   const [quotas, setQuotas] = useState<LeaveQuota[]>([]);
@@ -4317,13 +7018,21 @@ function ElFormModal({
       })
       .catch(() => setTypes([]));
     if (!forEmployee) {
-      api.leaves.me(token).then((r) => setQuotas(r.quotas ?? [])).catch(() => setQuotas([]));
+      api.leaves
+        .me(token)
+        .then((r) => setQuotas(r.quotas ?? []))
+        .catch(() => setQuotas([]));
     }
   }, [token, forEmployee]);
 
-  const pickedEmp = employeeId != null ? roster.find((e) => e.id === employeeId) ?? null : null;
+  const pickedEmp =
+    employeeId != null
+      ? (roster.find((e) => e.id === employeeId) ?? null)
+      : null;
   const activeShift = forEmployee
-    ? (pickedEmp?.default_shift_id != null ? shiftById.get(pickedEmp.default_shift_id) ?? null : null)
+    ? pickedEmp?.default_shift_id != null
+      ? (shiftById.get(pickedEmp.default_shift_id) ?? null)
+      : null
     : myShift;
 
   // SỬA phiếu: suy lại kiểu từ khung ca (ca nạp async) để nút segmented sáng đúng ô. Chỉ chạy
@@ -4340,7 +7049,8 @@ function ElFormModal({
   // Checkbox trừ phép CHỈ mở cho nghỉ nửa buổi (đi muộn 20' mà tick trừ sẽ tròn thành 0,5 ngày
   // → lỗ hổng quỹ phép). Ngoại lệ: đang SỬA phiếu vốn có trừ phép mà chưa suy được kiểu ⇒ vẫn
   // phơi ra, nếu không lưu lại sẽ ÂM THẦM mất phần trừ phép cũ.
-  const canDeduct = kind === "half" || (kind === null && editing?.leave_type_id != null);
+  const canDeduct =
+    kind === "half" || (kind === null && editing?.leave_type_id != null);
 
   // Chọn kiểu vắng → TỰ ĐIỀN GIỜ theo mép ca: vừa ít thao tác, vừa khoá giờ đúng mép nên
   // chip suy ra kiểu đúng y như người dùng vừa chọn.
@@ -4369,11 +7079,17 @@ function ElFormModal({
   const fromAbs = fromRaw == null ? null : elOnAxis(fromRaw, activeShift);
   const toAbs = toRaw == null ? null : elOnAxis(toRaw, activeShift);
   const minutes = fromAbs != null && toAbs != null ? toAbs - fromAbs : null;
-  const timeErr = minutes != null && minutes <= 0 ? "Đến lúc phải sau Vắng từ lúc." : null;
+  const timeErr =
+    minutes != null && minutes <= 0 ? "Đến lúc phải sau Vắng từ lúc." : null;
 
-  const windowMin = activeShift ? activeShift.endMin - activeShift.startMin : EL_FALLBACK_WINDOW;
+  const windowMin = activeShift
+    ? activeShift.endMin - activeShift.startMin
+    : EL_FALLBACK_WINDOW;
   const leaveCong = elLeaveCong(minutes ?? 0, windowMin);
-  const quota = quotas.find((q) => q.leave_type_id === leaveTypeId) ?? quotas.find((q) => q.annual_quota > 0) ?? null;
+  const quota =
+    quotas.find((q) => q.leave_type_id === leaveTypeId) ??
+    quotas.find((q) => q.annual_quota > 0) ??
+    null;
   const remaining = quota?.remaining ?? 0;
   const shortOfLeave = !forEmployee && quotas.length > 0 && remaining < 0.5;
 
@@ -4394,7 +7110,9 @@ function ElFormModal({
     const q = empQuery.trim().toLowerCase();
     const list = q
       ? roster.filter(
-          (e) => e.full_name.toLowerCase().includes(q) || (e.code ?? "").toLowerCase().includes(q),
+          (e) =>
+            e.full_name.toLowerCase().includes(q) ||
+            (e.code ?? "").toLowerCase().includes(q),
         )
       : roster;
     return list.slice(0, 300);
@@ -4404,8 +7122,10 @@ function ElFormModal({
     setErr(null);
     if (forEmployee && employeeId == null) return setErr("Cần chọn nhân viên.");
     if (!workDate) return setErr("Cần chọn ngày công.");
-    if (fromAbs == null || toAbs == null) return setErr("Cần khai giờ bắt đầu và giờ kết thúc.");
-    if (minutes == null || minutes <= 0) return setErr("Đến lúc phải sau Vắng từ lúc.");
+    if (fromAbs == null || toAbs == null)
+      return setErr("Cần khai giờ bắt đầu và giờ kết thúc.");
+    if (minutes == null || minutes <= 0)
+      return setErr("Đến lúc phải sau Vắng từ lúc.");
     const input = {
       work_date: workDate,
       from_minute: fromAbs,
@@ -4419,7 +7139,10 @@ function ElFormModal({
         await api.lateEarly.updateMine(token, editing.id, input);
         onSaved("Đã lưu phiếu — chờ tổ trưởng duyệt.");
       } else if (forEmployee) {
-        await api.lateEarly.createFor(token, { ...input, employee_id: employeeId as number });
+        await api.lateEarly.createFor(token, {
+          ...input,
+          employee_id: employeeId as number,
+        });
         onSaved(`Đã tạo & duyệt phiếu cho ${pickedEmp?.full_name ?? "thợ"}.`);
       } else {
         await api.lateEarly.createMine(token, input);
@@ -4443,7 +7166,9 @@ function ElFormModal({
                 ? "Khai hộ thợ — đi muộn / về sớm"
                 : "Xin đi muộn / về sớm"}
           </h2>
-          <button className="ns-modal__x" onClick={onClose}>×</button>
+          <button className="ns-modal__x" onClick={onClose}>
+            ×
+          </button>
         </header>
         <div className="ns-modal__body">
           {err && <div className="banner banner--error">{err}</div>}
@@ -4471,7 +7196,9 @@ function ElFormModal({
               />
               <select
                 value={employeeId ?? ""}
-                onChange={(e) => setEmployeeId(e.target.value ? Number(e.target.value) : null)}
+                onChange={(e) =>
+                  setEmployeeId(e.target.value ? Number(e.target.value) : null)
+                }
               >
                 <option value="">— chọn thợ trong tổ của bạn —</option>
                 {empOptions.map((e) => (
@@ -4487,16 +7214,24 @@ function ElFormModal({
 
           <label className={`ns-field ${forEmployee ? "el-field" : ""}`}>
             <span className="ns-field__label">Ngày công *</span>
-            <input type="date" value={workDate} onChange={(e) => setWorkDate(e.target.value)} />
+            <input
+              type="date"
+              value={workDate}
+              onChange={(e) => setWorkDate(e.target.value)}
+            />
           </label>
 
           {clash && (
             <div className="banner banner--warn el-stack">
               <span>
-                Ngày {elDayMonth(clash.work_date)} đã có phiếu <b>{statusText(clash.status)}</b>. Mỗi ngày
-                chỉ được một phiếu — sửa hoặc hủy phiếu cũ trước.
+                Ngày {elDayMonth(clash.work_date)} đã có phiếu{" "}
+                <b>{statusText(clash.status)}</b>. Mỗi ngày chỉ được một phiếu —
+                sửa hoặc hủy phiếu cũ trước.
               </span>
-              <button className="btn btn--ghost" onClick={() => onOpenExisting(clash)}>
+              <button
+                className="btn btn--ghost"
+                onClick={() => onOpenExisting(clash)}
+              >
                 Mở phiếu ngày đó
               </button>
             </div>
@@ -4522,9 +7257,11 @@ function ElFormModal({
             <div className="el-shiftline">
               <Clock size={13} />
               <span>
-                Ca của {forEmployee ? "thợ" : "bạn"}: <b>{activeShift.name}</b> ·{" "}
+                Ca của {forEmployee ? "thợ" : "bạn"}: <b>{activeShift.name}</b>{" "}
+                ·{" "}
                 <span className="el-shiftline__time">
-                  {elMinToHhmm(activeShift.startMin)}–{elMinToHhmm(activeShift.endMin)}
+                  {elMinToHhmm(activeShift.startMin)}–
+                  {elMinToHhmm(activeShift.endMin)}
                 </span>
               </span>
             </div>
@@ -4532,7 +7269,8 @@ function ElFormModal({
             <div className="el-shiftline">
               <AlertTriangle size={13} />
               <span>
-                Chưa rõ khung ca{forEmployee ? " của thợ" : ""} — hãy tự khai giờ vắng bên dưới.
+                Chưa rõ khung ca{forEmployee ? " của thợ" : ""} — hãy tự khai
+                giờ vắng bên dưới.
               </span>
             </div>
           )}
@@ -4540,16 +7278,25 @@ function ElFormModal({
           <div className="el-timegrid">
             <label className="ns-field">
               <span className="ns-field__label">Vắng từ lúc *</span>
-              <input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
+              <input
+                type="time"
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
             </label>
             <label className="ns-field">
               <span className="ns-field__label">Đến lúc *</span>
-              <input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
+              <input
+                type="time"
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
             </label>
           </div>
 
           <p className="np-hint">
-            Khai đúng khoảng anh/chị <b>KHÔNG có mặt</b> ở xưởng. Ví dụ ca 07:30–16:30:
+            Khai đúng khoảng anh/chị <b>KHÔNG có mặt</b> ở xưởng. Ví dụ ca
+            07:30–16:30:
             <br />• Đi muộn 1 tiếng → vắng từ <b>07:30</b> đến <b>08:30</b>
             <br />• Về sớm 2 tiếng → vắng từ <b>14:30</b> đến <b>16:30</b>
             <br />• Nghỉ nửa buổi chiều → vắng từ <b>12:30</b> đến <b>16:30</b>
@@ -4563,13 +7310,19 @@ function ElFormModal({
           {canDeduct && types.length > 0 && (
             <div className="el-stack">
               <label className="ns-check">
-                <input type="checkbox" checked={deduct} onChange={(e) => setDeduct(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={deduct}
+                  onChange={(e) => setDeduct(e.target.checked)}
+                />
                 Trừ vào phép năm — vẫn được trả lương phần vắng
               </label>
               {deduct ? (
                 <>
                   <p className="np-hint np-hint--ok">
-                    {leaveCong > 0 ? `Tiêu ${elNum(leaveCong)} ngày phép năm` : "Khai giờ vắng để biết tiêu bao nhiêu ngày phép"}
+                    {leaveCong > 0
+                      ? `Tiêu ${elNum(leaveCong)} ngày phép năm`
+                      : "Khai giờ vắng để biết tiêu bao nhiêu ngày phép"}
                     {forEmployee
                       ? " · số dư của thợ được hệ thống kiểm khi lưu."
                       : leaveCong > 0
@@ -4580,7 +7333,11 @@ function ElFormModal({
                     <span className="ns-field__label">Loại nghỉ</span>
                     <select
                       value={leaveTypeId ?? ""}
-                      onChange={(e) => setLeaveTypeId(e.target.value ? Number(e.target.value) : null)}
+                      onChange={(e) =>
+                        setLeaveTypeId(
+                          e.target.value ? Number(e.target.value) : null,
+                        )
+                      }
                     >
                       {types.map((t) => (
                         <option key={t.id} value={t.id}>
@@ -4592,10 +7349,14 @@ function ElFormModal({
                   {shortOfLeave && (
                     <div className="banner banner--warn el-stack">
                       <span>
-                        Phép năm chỉ còn {elNum(remaining)} ngày — phiếu này cần {elNum(leaveCong)} ngày.
-                        Bỏ tick để xin không lương (vẫn không bị phạt).
+                        Phép năm chỉ còn {elNum(remaining)} ngày — phiếu này cần{" "}
+                        {elNum(leaveCong)} ngày. Bỏ tick để xin không lương (vẫn
+                        không bị phạt).
                       </span>
-                      <button className="btn btn--ghost" onClick={() => setDeduct(false)}>
+                      <button
+                        className="btn btn--ghost"
+                        onClick={() => setDeduct(false)}
+                      >
                         Bỏ tick, gửi không lương
                       </button>
                     </div>
@@ -4604,8 +7365,10 @@ function ElFormModal({
               ) : (
                 <p className="np-hint">
                   Không đụng quỹ phép · mất công phần vắng
-                  {minutes != null && minutes > 0 ? ` (${elDurLong(minutes)})` : ""} · không bị phạt đi
-                  muộn.
+                  {minutes != null && minutes > 0
+                    ? ` (${elDurLong(minutes)})`
+                    : ""}{" "}
+                  · không bị phạt đi muộn.
                 </p>
               )}
             </div>
@@ -4621,9 +7384,15 @@ function ElFormModal({
           </label>
         </div>
         <footer className="ns-modal__foot">
-          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>Hủy</button>
+          <button className="btn btn--ghost" onClick={onClose} disabled={busy}>
+            Hủy
+          </button>
           <button className="btn btn--primary" onClick={save} disabled={busy}>
-            {busy ? "Đang lưu…" : forEmployee ? "Tạo & duyệt luôn" : "Gửi phiếu"}
+            {busy
+              ? "Đang lưu…"
+              : forEmployee
+                ? "Tạo & duyệt luôn"
+                : "Gửi phiếu"}
           </button>
         </footer>
       </div>
@@ -4642,7 +7411,9 @@ function LateEarlyTab({
   onChanged?: () => void;
   eventTick?: number;
 }) {
-  const [sub, setSub] = useState<"mine" | "queue">(canApprove ? "queue" : "mine");
+  const [sub, setSub] = useState<"mine" | "queue">(
+    canApprove ? "queue" : "mine",
+  );
   // KHỞI TẠO `null` chứ KHÔNG phải `[]`: `[]` làm lúc đang fetch hiện "chưa có phiếu nào" — báo SAI.
   const [mine, setMine] = useState<LateEarlyRequest[] | null>(null);
   const [queue, setQueue] = useState<LateEarlyRequest[] | null>(null);
@@ -4665,7 +7436,8 @@ function LateEarlyTab({
   useEffect(() => {
     // Ca của TÔI: `myStatus` là self-service (ai cũng gọi được) → nguồn ca cho tab "của tôi",
     // và là nguồn DUY NHẤT với người KHÔNG có quyền duyệt (họ không gọi được /roster).
-    api.attendance.myStatus(token)
+    api.attendance
+      .myStatus(token)
       .then((s) => setMyShift(elMakeShift(s.shift as MyShift | null)))
       .catch(() => setMyShift(null));
   }, [token]);
@@ -4715,7 +7487,8 @@ function LateEarlyTab({
           setQueue([]);
           setErrQueue(elErr(e));
         });
-      api.lateEarly.summary(token)
+      api.lateEarly
+        .summary(token)
         .then((s) => setPendingCount(s.pending_in_scope ?? 0))
         .catch(() => undefined);
     }
@@ -4725,12 +7498,15 @@ function LateEarlyTab({
   }, [token, canApprove, statusFilter, onChanged]);
 
   // `eventTick` đổi = có sự kiện real-time (SSE) → tải lại bảng, khỏi bắt người dùng F5.
-  useEffect(() => { load(); }, [load, eventTick]);
+  useEffect(() => {
+    load();
+  }, [load, eventTick]);
 
   const shiftFor = useCallback(
     (r: LateEarlyRequest): ElShift | null => {
       const emp = roster.find((e) => e.id === r.employee_id);
-      if (emp?.default_shift_id != null) return shiftById.get(emp.default_shift_id) ?? null;
+      if (emp?.default_shift_id != null)
+        return shiftById.get(emp.default_shift_id) ?? null;
       return null;
     },
     [roster, shiftById],
@@ -4752,7 +7528,12 @@ function LateEarlyTab({
   }, [queue, kindFilter, canInferKind, shiftFor]);
 
   const selectable = useMemo(
-    () => new Set((queueRows ?? []).filter((r) => r.status === "pending").map((r) => r.id)),
+    () =>
+      new Set(
+        (queueRows ?? [])
+          .filter((r) => r.status === "pending")
+          .map((r) => r.id),
+      ),
     [queueRows],
   );
   const picked = useMemo(
@@ -4823,15 +7604,21 @@ function LateEarlyTab({
       {sub === "mine" && (
         <>
           <div className="cc-ts-toolbar">
-            <div className="cc-info-card-note el-toolbar-grow" style={{ margin: 0, padding: "8px 12px" }}>
+            <div
+              className="cc-info-card-note el-toolbar-grow"
+              style={{ margin: 0, padding: "8px 12px" }}
+            >
               <Info size={14} className="cc-note-icon" />
               <span>
-                Khai đúng khoảng <b>không có mặt</b> ở xưởng. Phiếu được duyệt = <b>không bị phạt</b> đi
-                muộn / về sớm đúng số phút đã xin.
+                Khai đúng khoảng <b>không có mặt</b> ở xưởng. Phiếu được duyệt ={" "}
+                <b>không bị phạt</b> đi muộn / về sớm đúng số phút đã xin.
               </span>
             </div>
             {hasEmployee && (
-              <button className="btn btn--primary" onClick={() => setCreating("mine")}>
+              <button
+                className="btn btn--primary"
+                onClick={() => setCreating("mine")}
+              >
                 <Plus size={14} /> Xin đi muộn / về sớm
               </button>
             )}
@@ -4839,22 +7626,31 @@ function LateEarlyTab({
 
           {!hasEmployee && (
             <div className="banner banner--warn el-stack">
-              Tài khoản của bạn <b>chưa gắn hồ sơ nhân viên</b> nên chưa gửi phiếu được. Liên hệ HCNS.
+              Tài khoản của bạn <b>chưa gắn hồ sơ nhân viên</b> nên chưa gửi
+              phiếu được. Liên hệ HCNS.
             </div>
           )}
-          {errMine && <div className="banner banner--error el-stack">{errMine}</div>}
+          {errMine && (
+            <div className="banner banner--error el-stack">{errMine}</div>
+          )}
 
           {mine === null ? (
             <p className="ns__empty">Đang tải phiếu…</p>
           ) : mine.length === 0 ? (
             <div className="el-empty">
-              <p className="el-empty__title">Bạn chưa có phiếu đi muộn / về sớm nào.</p>
+              <p className="el-empty__title">
+                Bạn chưa có phiếu đi muộn / về sớm nào.
+              </p>
               <p className="el-empty__hint">
-                Hôm nào đến muộn hoặc về sớm thì khai ở đây — <b>có phiếu được duyệt mới không bị phạt tiền</b>.
+                Hôm nào đến muộn hoặc về sớm thì khai ở đây —{" "}
+                <b>có phiếu được duyệt mới không bị phạt tiền</b>.
               </p>
               {hasEmployee && (
                 <div className="el-empty__cta">
-                  <button className="btn btn--primary" onClick={() => setCreating("mine")}>
+                  <button
+                    className="btn btn--primary"
+                    onClick={() => setCreating("mine")}
+                  >
                     <Plus size={14} /> Xin đi muộn / về sớm
                   </button>
                 </div>
@@ -4873,11 +7669,18 @@ function LateEarlyTab({
                 r.status === "pending" || r.status === "approved" ? (
                   <>
                     {r.status === "pending" && (
-                      <button className="btn btn--ghost" onClick={() => setEditing(r)}>Sửa</button>
+                      <button
+                        className="btn btn--ghost"
+                        onClick={() => setEditing(r)}
+                      >
+                        Sửa
+                      </button>
                     )}
                     <button
                       className="btn btn--ghost cc-btn-reject"
-                      onClick={() => run(() => api.lateEarly.cancel(token, r.id), "mine")}
+                      onClick={() =>
+                        run(() => api.lateEarly.cancel(token, r.id), "mine")
+                      }
                     >
                       Hủy
                     </button>
@@ -4925,27 +7728,44 @@ function LateEarlyTab({
                 })}
               </div>
             )}
-            <button className="btn btn--primary" onClick={() => setCreating("for")}>
+            <button
+              className="btn btn--primary"
+              onClick={() => setCreating("for")}
+            >
               <Plus size={14} /> Khai hộ thợ
             </button>
           </div>
 
-          {errQueue && <div className="banner banner--error el-stack">{errQueue}</div>}
+          {errQueue && (
+            <div className="banner banner--error el-stack">{errQueue}</div>
+          )}
 
           {picked.length > 0 && (
             <div className="cc-bulk-actions-floating">
-              <span className="cc-bulk-label">Đã chọn {picked.length} phiếu</span>
+              <span className="cc-bulk-label">
+                Đã chọn {picked.length} phiếu
+              </span>
               <div className="cc-bulk-btn-group">
                 <button
                   className="btn btn--primary cc-btn-approve"
-                  onClick={() => run(() => api.lateEarly.bulkApprove(token, picked), "queue")}
+                  onClick={() =>
+                    run(() => api.lateEarly.bulkApprove(token, picked), "queue")
+                  }
                 >
                   ✓ Duyệt {picked.length}
                 </button>
-                <button className="btn btn--ghost cc-btn-reject" onClick={() => setRejecting(picked)}>
+                <button
+                  className="btn btn--ghost cc-btn-reject"
+                  onClick={() => setRejecting(picked)}
+                >
                   ✕ Từ chối {picked.length}
                 </button>
-                <button className="btn btn--ghost" onClick={() => setSelected(new Set())}>Bỏ chọn</button>
+                <button
+                  className="btn btn--ghost"
+                  onClick={() => setSelected(new Set())}
+                >
+                  Bỏ chọn
+                </button>
               </div>
             </div>
           )}
@@ -4964,7 +7784,9 @@ function LateEarlyTab({
                   Đổi bộ lọc sang <b>Tất cả</b> để xem phiếu đã xử lý.
                 </p>
               ) : kindFilter.size > 0 ? (
-                <p className="el-empty__hint">Bỏ bớt chip lọc kiểu để thấy thêm phiếu.</p>
+                <p className="el-empty__hint">
+                  Bỏ bớt chip lọc kiểu để thấy thêm phiếu.
+                </p>
               ) : null}
             </div>
           ) : (
@@ -4981,11 +7803,16 @@ function LateEarlyTab({
                   <div className="cc-approve-actions-cell">
                     <button
                       className="btn btn--primary cc-btn-approve"
-                      onClick={() => run(() => api.lateEarly.approve(token, r.id), "queue")}
+                      onClick={() =>
+                        run(() => api.lateEarly.approve(token, r.id), "queue")
+                      }
                     >
                       Duyệt
                     </button>
-                    <button className="btn btn--ghost cc-btn-reject" onClick={() => setRejecting([r.id])}>
+                    <button
+                      className="btn btn--ghost cc-btn-reject"
+                      onClick={() => setRejecting([r.id])}
+                    >
                       Từ chối
                     </button>
                   </div>

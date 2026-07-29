@@ -1,5 +1,6 @@
-// Cấu hình lương — MỘT tab của màn Lương (không phải màn riêng), 2 tab con:
+// Cấu hình lương — MỘT tab của màn Lương (không phải màn riêng), 3 tab con:
 //   • Cơ chế lương theo bộ phận — 8 tham số toàn công ty + 4 thành phần lương của tổ.
+//   • Danh mục khoản thu nhập  — mỗi khoản một dòng + ô tích "Chịu thuế" (chốt chủ 27/07/2026).
 //   • Bảo hiểm & Thuế          — bảo hiểm 2 phía + thuế TNCN.
 //
 // PRD v2.1: chuyên cần trừ dần khai theo TỔ · các khoản phụ cấp (ca · thâm niên · khác) KHÔNG
@@ -13,14 +14,19 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Info, Trash2 } from "lucide-react";
 import {
   api,
+  type ComponentHolders,
+  type EmployeeRow,
+  type ComponentKind,
   type Department,
   type DeptComponent,
   type LatePenaltyBracket,
+  type PayrollComponent,
   type PayrollParams,
   type PitBracket,
   type SalaryComponentKey,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import { DiscardChangesDialog } from "../components/DiscardChangesDialog";
 import { KhoanRatesEditor } from "../components/KhoanRatesEditor";
 import { money } from "../utils/format";
@@ -29,10 +35,11 @@ import "./rebuild-catalog.css";
 
 // --- Hằng dùng chung --------------------------------------------------------
 
-type SubTab = "cochE" | "phucap";
+type SubTab = "cochE" | "danhmuc" | "phucap";
 
 const SUB_TABS: { key: SubTab; label: string }[] = [
   { key: "cochE", label: "Cơ chế lương theo bộ phận" },
+  { key: "danhmuc", label: "Danh mục khoản thu nhập" },
   { key: "phucap", label: "Bảo hiểm & Thuế" },
 ];
 
@@ -392,11 +399,14 @@ export function CauHinhLuongTab({
     () => validatePenalties(penaltiesDraft),
     [penaltiesDraft],
   );
+  // Tab "Danh mục khoản thu nhập" KHÔNG bao giờ dirty: mọi thao tác (thêm/sửa/xoá/bật cờ) là
+  // lệnh dứt điểm, lưu ngay — không có nháp nào để mất khi đổi tab.
   const tabDirty: Record<SubTab, boolean> = {
     cochE: dirtyA || dirtyComps,
+    danhmuc: false,
     phucap: dirtyIns || dirtyTax || dirtyPenalty,
   };
-  const anyDirty = tabDirty.cochE || tabDirty.phucap;
+  const anyDirty = tabDirty.cochE || tabDirty.danhmuc || tabDirty.phucap;
 
   useEffect(() => {
     onDirtyChange?.(anyDirty);
@@ -651,6 +661,8 @@ export function CauHinhLuongTab({
         />
       )}
 
+      {sub === "danhmuc" && <DanhMucTab token={token} readOnly={readOnly} />}
+
       {sub === "phucap" && paramsDraft && (
         <PhuCapTab
           p={paramsDraft}
@@ -727,6 +739,7 @@ const PARAMS_INS = [
   "bhtn_base_cap",
   "cong_doan_rate",
   "tnld_bnn_rate",
+  "phat_cap_pct",
 ] as const satisfies readonly (keyof PayrollParams)[];
 const PARAMS_TAX = [
   "deduction_self",
@@ -905,6 +918,22 @@ function CoCheTab({
     );
   const khoanOn =
     comps.find((c) => c.component_key === "luong_khoan")?.is_enabled ?? false;
+
+  // "Bật sản xuất" tính theo CÂY: chính tổ tích, HOẶC có tổ tiên tích — đúng ghi chú ở
+  // `client.ts:848` ("Effective tính theo cây ở FE"). Chỉ soi mỗi cờ của chính tổ thì tổ con
+  // của khối Sản xuất sẽ không được coi là sản xuất.
+  const laSanXuat = useMemo(() => {
+    const byId = new Map(depts.map((d) => [d.id, d]));
+    let cur = deptId == null ? undefined : byId.get(deptId);
+    const daQua = new Set<number>();          // chặn vòng lặp nếu cây bị khai sai
+    while (cur && !daQua.has(cur.id)) {
+      if (cur.la_san_xuat) return true;
+      daQua.add(cur.id);
+      cur = cur.parent_id == null ? undefined : byId.get(cur.parent_id);
+    }
+    return false;
+  }, [depts, deptId]);
+  const toTruongUserId = depts.find((d) => d.id === deptId)?.head_user_id ?? null;
 
   return (
     <>
@@ -1130,6 +1159,17 @@ function CoCheTab({
           </div>
         </div>
       )}
+
+      {/* Chủ 29/07/2026: "tổ nào bật sản xuất VÀ lương khoán thì nó sẽ hiện cái form điền %". */}
+      {khoanOn && laSanXuat && deptId != null && (
+        <LeaderBonusEditor
+          token={token}
+          departmentId={deptId}
+          deptName={deptName}
+          hasLeader={toTruongUserId != null}
+          readOnly={readOnly}
+        />
+      )}
     </>
   );
 }
@@ -1181,6 +1221,1186 @@ const OT_FIELDS: {
 // ============================================================================
 // TAB 3 — Bảo hiểm & Thuế
 // ============================================================================
+
+// --- Thưởng/phạt TỔ TRƯỞNG theo tỷ lệ hàng lỗi (chủ 29/07/2026) -------------
+// "Hàng lỗi khoảng 5% thì thưởng 2% trên tổng, lỗi trên 10% thì bị trừ 10% trên tổng.
+//  % này là TIỀN đó nha." → % tính trên TỔNG TIỀN KHOÁN của tổ; dương = thưởng, âm = phạt.
+//
+// ⚠️ Engine CHƯA áp bảng này (tổng khoán hiện luôn = 0 vì chưa có nguồn sản lượng) — banner
+// vàng dưới đây nói thẳng điều đó. ĐỪNG GỠ: khai xong mà tưởng đã chạy là mất niềm tin.
+
+type BracketRow = { up_to: number | null; rate: number; note: string };
+
+function LeaderBonusEditor({
+  token,
+  departmentId,
+  deptName,
+  hasLeader,
+  readOnly,
+}: {
+  token: string;
+  departmentId: number;
+  deptName: string;
+  hasLeader: boolean;
+  readOnly: boolean;
+}) {
+  const [rows, setRows] = useState<BracketRow[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [thuLoi, setThuLoi] = useState(7);          // ô thử nhanh: tỷ lệ lỗi
+  const [thuKhoan, setThuKhoan] = useState(0);      // tổng khoán giả định
+
+  useEffect(() => {
+    let alive = true;
+    api.luong
+      .leaderBrackets(token, departmentId)
+      .then((r) => {
+        if (!alive) return;
+        setRows(
+          r.items.map((b) => ({
+            up_to: b.up_to_defect_pct,
+            rate: b.rate_pct,
+            note: b.note ?? "",
+          })),
+        );
+        setErr(null);
+      })
+      .catch((e) => alive && setErr(errText(e)));
+    return () => {
+      alive = false;
+    };
+  }, [token, departmentId]);
+
+  function patch(i: number, f: Partial<BracketRow>) {
+    setRows((rs) => (rs ?? []).map((r, k) => (k === i ? { ...r, ...f } : r)));
+  }
+
+  function them() {
+    setRows((rs) => {
+      const cur = rs ?? [];
+      // Gợi ý rule-based: mốc mới = mốc kế cuối + 5. Bậc "trở lên" luôn giữ ở cuối.
+      const coMoc = cur.filter((r) => r.up_to != null);
+      const moc = coMoc.length ? (coMoc[coMoc.length - 1].up_to as number) + 5 : 5;
+      const cuoi = cur.filter((r) => r.up_to == null);
+      return [...coMoc, { up_to: moc, rate: 0, note: "" }, ...(cuoi.length ? cuoi : [
+        { up_to: null, rate: 0, note: "" },
+      ])];
+    });
+  }
+
+  async function luu() {
+    setBusy(true);
+    setErr(null);
+    setOk(null);
+    try {
+      const r = await api.luong.setLeaderBrackets(token, departmentId, (rows ?? []).map((x) => ({
+        up_to_defect_pct: x.up_to,
+        rate_pct: x.rate,
+        note: x.note.trim() || null,
+      })));
+      setRows(
+        r.items.map((b) => ({
+          up_to: b.up_to_defect_pct,
+          rate: b.rate_pct,
+          note: b.note ?? "",
+        })),
+      );
+      setOk("Đã lưu bậc thưởng/phạt tổ trưởng.");
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** Tra bậc — MIRROR đúng `PieceWorkService.leader_bonus_pct` ở backend: bậc ĐẦU TIÊN có
+   *  `lỗi ≤ trần` thắng. Hai bên lệch nhau thì ô thử nhanh nói dối. */
+  function traBac(loi: number): BracketRow | null {
+    for (const r of rows ?? []) {
+      if (r.up_to == null || loi <= r.up_to) return r;
+    }
+    const rs = rows ?? [];
+    return rs.length ? rs[rs.length - 1] : null;
+  }
+
+  const bacTrung = traBac(thuLoi);
+  const tienThu = bacTrung ? Math.round((thuKhoan * bacTrung.rate) / 100) : 0;
+
+  /** Đọc bảng mốc thành câu tiếng Việt — nhìn bảng số khó hình dung, đọc câu thì ra ngay. */
+  const cauDoc = (rows ?? [])
+    .map((r, i, arr) => {
+      const truoc = i === 0 ? null : arr[i - 1].up_to;
+      const pham =
+        r.up_to == null
+          ? `trên ${truoc ?? 0}%`
+          : truoc == null
+            ? `≤ ${r.up_to}%`
+            : `trên ${truoc}–${r.up_to}%`;
+      const act =
+        r.rate > 0 ? `thưởng ${r.rate}%` : r.rate < 0 ? `phạt ${Math.abs(r.rate)}%` : "không thưởng/phạt";
+      return `lỗi ${pham} ⇒ ${act}`;
+    })
+    .join(" · ");
+
+  return (
+    <div className="cl-card">
+      <div className="cl-card__head">
+        <div>
+          <h3 className="cl-card__title">Thưởng / phạt tổ trưởng theo chất lượng — {deptName}</h3>
+          <p className="cl-card__desc">
+            Tỷ lệ hàng lỗi của tổ càng thấp thì tổ trưởng được thưởng càng nhiều; lỗi vượt mốc
+            thì bị trừ. Số % ở đây là <b>% trên TỔNG TIỀN KHOÁN của tổ</b> — tức là tiền.
+          </p>
+        </div>
+        {!readOnly && (
+          <Button variant="ghost" onClick={them}>
+            + Thêm bậc
+          </Button>
+        )}
+      </div>
+
+      <div className="cl-card__body">
+        {/* Sự thật phải nói thẳng: khai xong CHƯA ra tiền. */}
+        <div className="banner banner--warn">
+          <span>
+            Tiền khoán của tổ hiện <b>luôn = 0</b> vì chưa có nguồn nhập sản lượng — khai mốc ở
+            đây là <b>chuẩn bị trước</b>, chưa ra tiền cho tới khi mở lại phần sản lượng.
+          </span>
+        </div>
+        {!hasLeader && (
+          <div className="banner banner--warn">
+            <span>
+              Tổ này <b>chưa có tổ trưởng</b> — khai mốc xong vẫn chưa có ai nhận. Gán ở màn
+              <b> Phòng ban</b>.
+            </span>
+          </div>
+        )}
+        {err && <div className="banner banner--error">{err}</div>}
+        {ok && <div className="banner banner--success">{ok}</div>}
+
+        {rows === null ? (
+          <p className="cl-hint-inline">Đang tải bậc thưởng/phạt…</p>
+        ) : rows.length === 0 ? (
+          <div className="cl-empty">
+            <span className="cl-empty__title">Tổ này chưa áp thưởng/phạt tổ trưởng</span>
+            <span className="cl-empty__desc">
+              Bấm “+ Thêm bậc” để khai. Ví dụ: lỗi ≤ 5% ⇒ thưởng 2%; trên 10% ⇒ phạt 10%.
+            </span>
+          </div>
+        ) : (
+          <>
+            <div className="cl-table__wrap">
+              <table className="cl-table">
+                <thead>
+                  <tr>
+                    <th style={{ width: 60 }}>Bậc</th>
+                    <th style={{ width: 190 }}>Tỷ lệ lỗi tới (%)</th>
+                    <th style={{ width: 210 }}>Thưởng (+) / Phạt (−) %</th>
+                    <th>Ghi chú</th>
+                    {!readOnly && <th style={{ width: 56 }} aria-label="Thao tác" />}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i}>
+                      <td>{i + 1}</td>
+                      <td>
+                        {r.up_to == null ? (
+                          <span className="cl-muted">trở lên (mọi tỷ lệ cao hơn)</span>
+                        ) : (
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step={1}
+                            disabled={readOnly}
+                            value={r.up_to}
+                            onChange={(e) => patch(i, { up_to: Number(e.target.value) })}
+                          />
+                        )}
+                      </td>
+                      <td>
+                        <div className="cl-lb__rate">
+                          <input
+                            type="number"
+                            min={-100}
+                            max={100}
+                            step={1}
+                            disabled={readOnly}
+                            value={r.rate}
+                            onChange={(e) => patch(i, { rate: Number(e.target.value) })}
+                          />
+                          {/* Dấu âm dễ đọc lướt thành dương ⇒ hiện chip chữ cho chắc. */}
+                          <span
+                            className={`ns-badge ${
+                              r.rate > 0
+                                ? "ns-badge--ok"
+                                : r.rate < 0
+                                  ? "ns-badge--warn"
+                                  : "ns-badge--muted"
+                            }`}
+                          >
+                            {r.rate > 0 ? "Thưởng" : r.rate < 0 ? "Phạt" : "Hòa"}
+                          </span>
+                        </div>
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          maxLength={255}
+                          disabled={readOnly}
+                          value={r.note}
+                          onChange={(e) => patch(i, { note: e.target.value })}
+                        />
+                      </td>
+                      {!readOnly && (
+                        <td className="act">
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            aria-label={`Xoá bậc ${i + 1}`}
+                            onClick={() => setRows((rs) => (rs ?? []).filter((_, k) => k !== i))}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <p className="cl-hint-inline cl-lb__read">{cauDoc}</p>
+
+            {/* Thử nhanh — bám đúng helper "Tính nhanh phạt" của bảng phạt đi trễ. */}
+            <div className="cl-lb__try">
+              <label className="ns-field">
+                <span className="ns-field__label">Thử: tỷ lệ lỗi (%)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={thuLoi}
+                  onChange={(e) => setThuLoi(Number(e.target.value))}
+                />
+              </label>
+              <label className="ns-field">
+                <span className="ns-field__label">Tổng khoán giả định (đ)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1000000}
+                  value={thuKhoan}
+                  onChange={(e) => setThuKhoan(Number(e.target.value))}
+                />
+              </label>
+              <div className="cl-lb__out">
+                {bacTrung ? (
+                  <>
+                    Trúng bậc <b>{(rows ?? []).indexOf(bacTrung) + 1}</b> ⇒{" "}
+                    <b>{bacTrung.rate > 0 ? `+${bacTrung.rate}` : bacTrung.rate}%</b>
+                    {thuKhoan > 0 && (
+                      <>
+                        {" "}
+                        ⇒{" "}
+                        <b className={tienThu < 0 ? "lg-minus" : ""}>
+                          {tienThu < 0 ? "−" : "+"}
+                          {money(Math.abs(tienThu))}đ
+                        </b>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  "Chưa khai bậc nào."
+                )}
+              </div>
+            </div>
+
+            {!readOnly && (
+              <div className="cl-lb__foot">
+                <Button onClick={() => void luu()} disabled={busy}>
+                  {busy ? "Đang lưu…" : "Lưu bậc thưởng/phạt"}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- Tab con: Danh mục khoản thu nhập — TẦNG 1 (PRD v2, chốt chủ 27/07/2026) --
+// Đây là BƯỚC 1 của quy trình 2 bước: muốn có khoản mới thì tạo Ở ĐÂY trước, rồi mới sang
+// hồ sơ nhân viên (Lương → Lương nhân viên → Sửa lương) CHỌN khoản đó và nhập tiền. Hồ sơ NV
+// không có ô gõ tên khoản tự do — nếu không, mỗi người một cách gọi và cờ "Chịu thuế" loạn.
+// Cờ `is_taxable` CHỈ sống ở tầng này; tầng 2/3 chép lại, không sửa được.
+// LƯU NGAY từng thao tác (không gom vào thanh lưu sticky): xoá là lệnh dứt điểm và câu báo
+// phải khớp ĐÚNG việc backend vừa làm — xoá hẳn hay chỉ ngừng áp dụng.
+
+type CompDraft = { name: string; kind: ComponentKind; is_taxable: boolean };
+const NEW_COMPONENT: CompDraft = { name: "", kind: "thu", is_taxable: true };
+
+function DanhMucTab({ token, readOnly }: { token: string; readOnly: boolean }) {
+  // null = ĐANG TẢI. Khởi tạo [] sẽ hiện "chưa có khoản nào" ngay lúc còn đang fetch — báo SAI.
+  const [items, setItems] = useState<PayrollComponent[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [ok, setOk] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  // Form thêm/sửa dùng chung — `id: null` = thêm mới.
+  const [form, setForm] = useState<{ id: number | null; draft: CompDraft } | null>(null);
+  const [formBusy, setFormBusy] = useState(false);
+  const [formErr, setFormErr] = useState<string | null>(null);
+  const [del, setDel] = useState<PayrollComponent | null>(null);
+  const [delBusy, setDelBusy] = useState(false);
+  const [delErr, setDelErr] = useState<string | null>(null);
+  // Danh sách NV còn giữ một khoản ĐÃ NGỪNG ÁP DỤNG. `null` = chưa mở modal; `items` rỗng =
+  // mở rồi mà không còn ai. Lương vẫn trả đủ — modal này để HCNS biết còn ai phải gỡ.
+  const [holders, setHolders] = useState<ComponentHolders | null>(null);
+  const [holdersBusy, setHoldersBusy] = useState(false);
+  const [holdersErr, setHoldersErr] = useState<string | null>(null);
+  // Gán hàng loạt (chủ 28/07/2026). `bulk` = khoản đang gán; null = modal đóng.
+  const [bulk, setBulk] = useState<PayrollComponent | null>(null);
+
+  const load = useCallback(() => {
+    api.luong.components
+      .list(token)
+      .then((r) => {
+        setItems(r.items);
+        setErr(null);
+      })
+      // GIỮ NGUYÊN `items`: gán [] khi lỗi sẽ hiện "chưa có khoản nào" — báo SAI (tải hỏng
+      // chứ danh mục không rỗng). Lần đầu hỏng thì `items` vẫn null ⇒ render khối "thử lại".
+      .catch((e) => setErr(errText(e)));
+  }, [token]);
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  /** Ai còn giữ khoản đã ngừng áp dụng. Gọi lúc BẤM (không tải sẵn cho cả bảng): danh sách
+   *  này chỉ cần khi người dùng thật sự muốn xem, tải sẵn là N request thừa mỗi lần vào tab. */
+  async function openHolders(c: PayrollComponent) {
+    setHoldersBusy(true);
+    setHoldersErr(null);
+    setHolders({ component_id: c.id, component_name: c.name, items: [] });
+    try {
+      setHolders(await api.luong.components.holders(token, c.id));
+    } catch (e) {
+      setHoldersErr(errText(e));
+    } finally {
+      setHoldersBusy(false);
+    }
+  }
+
+  function openBulk(c: PayrollComponent) {
+    setErr(null);
+    setBulk(c);
+  }
+
+  /** Báo việc VỪA làm. `sticky` cho câu quan trọng (ngừng áp dụng) — không tự tắt sau vài giây. */
+  function say(msg: string, sticky = false) {
+    setOk(msg);
+    if (!sticky)
+      window.setTimeout(() => setOk((cur) => (cur === msg ? null : cur)), 5000);
+  }
+
+  async function patch(c: PayrollComponent, body: Parameters<typeof api.luong.components.update>[2], msg: string) {
+    setBusyId(c.id);
+    setErr(null);
+    try {
+      const updated = await api.luong.components.update(token, c.id, body);
+      setItems((list) => (list ?? []).map((x) => (x.id === c.id ? updated : x)));
+      say(msg);
+    } catch (e) {
+      setErr(errText(e));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function saveForm() {
+    if (!form) return;
+    const name = form.draft.name.trim();
+    if (!name) {
+      setFormErr("Nhập tên khoản.");
+      return;
+    }
+    setFormBusy(true);
+    setFormErr(null);
+    try {
+      if (form.id == null) {
+        // Khoản mới xuống CUỐI danh mục (không chen giữa các khoản kế toán đang quen thứ tự).
+        const maxSort = (items ?? []).reduce((m, c) => Math.max(m, c.sort_order), 0);
+        await api.luong.components.create(token, {
+          name,
+          kind: form.draft.kind,
+          is_taxable: form.draft.is_taxable,
+          sort_order: maxSort + 10,
+        });
+        say(`Đã thêm khoản “${name}”.`);
+      } else {
+        await api.luong.components.update(token, form.id, {
+          name,
+          kind: form.draft.kind,
+          is_taxable: form.draft.is_taxable,
+        });
+        say(`Đã lưu khoản “${name}”.`);
+      }
+      setForm(null);
+      load();
+    } catch (e) {
+      setFormErr(errText(e));
+    } finally {
+      setFormBusy(false);
+    }
+  }
+
+  /** ĐỌC kết quả trả về rồi mới báo: backend có thể chỉ NGỪNG ÁP DỤNG chứ không xoá.
+   *  Câu báo lấy NGUYÊN VĂN `message` của backend — tự chế lại là nói sai việc vừa làm
+   *  (và làm lệch với thông điệp chủ đã duyệt). */
+  async function confirmDelete() {
+    if (!del) return;
+    const name = del.name;
+    setDelBusy(true);
+    setDelErr(null);
+    try {
+      const res = await api.luong.components.remove(token, del.id);
+      setDel(null);
+      load();
+      if (res.deleted) say(res.message || `Đã xoá khoản “${name}”.`);
+      else if (res.deactivated)
+        say(
+          res.message ||
+            `Khoản “${name}” đã có phát sinh dữ liệu nên chỉ chuyển sang NGỪNG SỬ DỤNG.`,
+          true,
+        );
+      else
+        say(
+          res.message ||
+            "Hệ thống không xoá và cũng không ngừng áp dụng khoản này. Tải lại danh mục để xem trạng thái thật.",
+          true,
+        );
+    } catch (e) {
+      setDelErr(errText(e));
+    } finally {
+      setDelBusy(false);
+    }
+  }
+
+  /** Đã có số liệu (gán cho NV hoặc đã chạy qua kỳ lương) ⇒ backend KHÔNG xoá cứng. */
+  const delUsed = del ? del.employee_count > 0 || del.period_count > 0 : false;
+
+  const editing = form?.id != null;
+
+  return (
+    <>
+      <div className="cl-card">
+        <div className="cl-card__head">
+          <div>
+            <h3 className="cl-card__title">Danh mục khoản thu nhập</h3>
+            <p className="cl-card__desc">
+              <b>Bước 1</b> của quy trình 2 bước: khoản mới phải tạo ở đây
+              trước. <b>Bước 2</b> — sang <b>Lương → Lương nhân viên → Sửa
+              lương</b> chọn khoản này cho từng người và nhập số tiền. Ô tích
+              “Chịu thuế” quyết định khoản có tính vào thu nhập chịu thuế TNCN
+              hay không, và <b>chỉ khai ở đây</b>.
+            </p>
+          </div>
+          {!readOnly && (
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setFormErr(null);
+                setForm({ id: null, draft: NEW_COMPONENT });
+              }}
+            >
+              + Thêm khoản
+            </Button>
+          )}
+        </div>
+
+        <div className="cl-card__body">
+          {err && <div className="banner banner--error">{err}</div>}
+          {ok && <div className="banner banner--success">{ok}</div>}
+
+          {items === null ? (
+            err ? (
+              <div className="cl-empty">
+                <span className="cl-empty__title">
+                  Không tải được danh mục khoản thu nhập
+                </span>
+                <span className="cl-empty__desc">
+                  Danh mục có thể vẫn còn nguyên — chỉ là lần tải này hỏng.
+                </span>
+                <div className="cl-note">
+                  <Button variant="ghost" onClick={load}>
+                    Thử lại
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="cl-hint-inline">Đang tải danh mục…</p>
+            )
+          ) : items.length === 0 ? (
+            <div className="cl-empty">
+              <span className="cl-empty__title">
+                Chưa có khoản nào trong danh mục
+              </span>
+              <span className="cl-empty__desc">
+                Bấm “+ Thêm khoản” để khai khoản đầu tiên (vd Trang phục · Tiền
+                ăn ca · Hỗ trợ đi lại). Chưa có khoản ở đây thì hồ sơ nhân viên
+                cũng chưa chọn được gì.
+              </span>
+            </div>
+          ) : (
+            <div className="cl-table__wrap">
+              <table className="cl-table">
+                <thead>
+                  <tr>
+                    <th>Tên khoản</th>
+                    <th style={{ width: 96 }}>Loại</th>
+                    <th style={{ width: 132 }}>Chịu thuế</th>
+                    <th className="num" style={{ width: 176 }}>
+                      Đang dùng
+                    </th>
+                    {!readOnly && (
+                      <th style={{ width: 150 }} aria-label="Thao tác" />
+                    )}
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((c) => (
+                    <tr key={c.id} className={c.is_active ? "" : "cl-dm--off"}>
+                      <td>
+                        <strong>{c.name}</strong>
+                        {!c.is_active && (
+                          <span className="rc-pill rc-pill--off cl-dm__tag">
+                            Ngừng áp dụng
+                          </span>
+                        )}
+                        {c.note && (
+                          <span className="cl-cell__sub">{c.note}</span>
+                        )}
+                        {/* Ngừng áp dụng mà NV còn giữ ⇒ lương VẪN TRẢ khoản này. Không nói
+                            ra thì tắt khoản xong không ai biết còn ai đang dính. */}
+                        {!c.is_active && c.employee_count > 0 && (
+                          <button
+                            type="button"
+                            className="cl-dm__holders"
+                            onClick={() => openHolders(c)}
+                          >
+                            Xem {c.employee_count} người đang gán
+                          </button>
+                        )}
+                      </td>
+                      <td>
+                        <span
+                          className={`ns-badge ${c.kind === "tru" ? "ns-badge--danger" : "ns-badge--ok"}`}
+                        >
+                          {c.kind === "tru" ? "Trừ" : "Thu"}
+                        </span>
+                      </td>
+                      <td>
+                        <label className="cl-check">
+                          <input
+                            type="checkbox"
+                            checked={c.is_taxable}
+                            disabled={readOnly || busyId === c.id}
+                            aria-label={`Chịu thuế — ${c.name}`}
+                            onChange={(e) =>
+                              patch(
+                                c,
+                                { is_taxable: e.target.checked },
+                                e.target.checked
+                                  ? `“${c.name}” giờ TÍNH vào thu nhập chịu thuế TNCN.`
+                                  : `“${c.name}” giờ được MIỄN thuế TNCN.`,
+                              )
+                            }
+                          />
+                          <span>{c.is_taxable ? "Chịu thuế" : "Miễn thuế"}</span>
+                        </label>
+                      </td>
+                      {/* "N nhân viên · M kỳ lương" — HR hình dung được mức độ ảnh hưởng;
+                          "N dòng lương" của bản cũ nói 100 dòng cùng một tháng thành 100. */}
+                      <td className="num">
+                        {c.employee_count > 0 || c.period_count > 0 ? (
+                          <>
+                            {c.employee_count} nhân viên · {c.period_count} kỳ
+                            lương
+                            <span className="cl-cell__sub">
+                              không xoá cứng được
+                            </span>
+                          </>
+                        ) : (
+                          <span className="cl-muted">chưa dùng</span>
+                        )}
+                      </td>
+                      {!readOnly && (
+                        <td className="act">
+                          <button
+                            type="button"
+                            className="btn btn--ghost"
+                            disabled={busyId === c.id}
+                            onClick={() => {
+                              setFormErr(null);
+                              setForm({
+                                id: c.id,
+                                draft: {
+                                  name: c.name,
+                                  kind: c.kind,
+                                  is_taxable: c.is_taxable,
+                                },
+                              });
+                            }}
+                          >
+                            Sửa
+                          </button>
+                          {/* Gán hàng loạt (chủ 28/07/2026): tạo khoản xong mà phải mở hồ sơ
+                              từng người thì nhà máy 40–100 người không dùng được. Khoản đã
+                              ngừng áp dụng thì không gán mới (luật sẵn có ở backend). */}
+                          {c.is_active && (
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              disabled={busyId === c.id}
+                              onClick={() => openBulk(c)}
+                            >
+                              Gán cho nhân viên
+                            </button>
+                          )}
+                          {c.is_active ? (
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              title="Xoá khoản này"
+                              aria-label={`Xoá khoản ${c.name}`}
+                              disabled={busyId === c.id}
+                              onClick={() => {
+                                setDelErr(null);
+                                setDel(c);
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn btn--ghost"
+                              disabled={busyId === c.id}
+                              onClick={() =>
+                                patch(
+                                  c,
+                                  { is_active: true },
+                                  `Đã bật lại khoản “${c.name}”.`,
+                                )
+                              }
+                            >
+                              Bật lại
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <p className="cl-hint-inline">
+            Bỏ tích “Chịu thuế” = khoản đó không tính vào thu nhập chịu thuế
+            TNCN. Đổi cờ chỉ ảnh hưởng kỳ tính từ đó về sau; kỳ đã chốt giữ
+            nguyên số cũ.
+          </p>
+          <p className="cl-hint-inline">
+            Khoản đã có số liệu thì KHÔNG xoá cứng được — hệ thống chỉ chuyển
+            sang <b>Ngừng áp dụng</b> để phiếu lương các kỳ cũ vẫn còn đủ dòng.
+            Người đang được gán khoản đó <b>vẫn được trả tiền như cũ</b>: bấm
+            “Xem N người đang gán” để gỡ từng người ở{" "}
+            <b>Lương → Lương nhân viên</b>.
+          </p>
+          <p className="cl-hint-inline">
+            Thưởng nóng / khoản chỉ có <b>một tháng</b> thì đừng tạo danh mục
+            mới: dùng sẵn <b>“Thu nhập khác (chịu thuế)”</b> hoặc{" "}
+            <b>“(miễn thuế)”</b>, khai thẳng ở <b>Bảng lương → Sửa dòng → Khoản
+            phát sinh tháng này</b> kèm ghi chú.
+          </p>
+        </div>
+      </div>
+
+      <ConfirmDialog
+        open={form !== null}
+        title={editing ? "Sửa khoản thu nhập" : "Thêm khoản thu nhập"}
+        confirmLabel={editing ? "Lưu khoản" : "Thêm khoản"}
+        busy={formBusy}
+        error={formErr}
+        onCancel={() => {
+          if (!formBusy) setForm(null);
+        }}
+        onConfirm={saveForm}
+      >
+        {form && (
+          <div className="rc-grid">
+            <label className="rc-field rc-field--full">
+              <span className="rc-field__label">Tên khoản</span>
+              <div className="rc-input-wrapper">
+                <input
+                  className="rc-input"
+                  autoFocus
+                  maxLength={120}
+                  placeholder="vd Trang phục · Tiền ăn ca · Hỗ trợ đi lại"
+                  value={form.draft.name}
+                  onChange={(e) =>
+                    setForm((f) =>
+                      f ? { ...f, draft: { ...f.draft, name: e.target.value } } : f,
+                    )
+                  }
+                />
+              </div>
+              <span className="rc-field__hint">
+                Tên này hiện nguyên văn trên phiếu lương của nhân viên.
+              </span>
+            </label>
+            <label className="rc-field">
+              <span className="rc-field__label">Loại khoản</span>
+              <div className="rc-input-wrapper">
+                <select
+                  className="rc-input"
+                  value={form.draft.kind}
+                  onChange={(e) =>
+                    setForm((f) =>
+                      f
+                        ? {
+                            ...f,
+                            draft: {
+                              ...f.draft,
+                              kind: e.target.value as ComponentKind,
+                            },
+                          }
+                        : f,
+                    )
+                  }
+                >
+                  <option value="thu">Thu — cộng vào tổng lương</option>
+                  <option value="tru">Trừ — khấu trừ vào thực nhận</option>
+                </select>
+              </div>
+            </label>
+            <label className="rc-field rc-field--check">
+              <span className="rc-field__label">Chịu thuế TNCN</span>
+              <input
+                type="checkbox"
+                className="cl-check__box"
+                checked={form.draft.is_taxable}
+                onChange={(e) =>
+                  setForm((f) =>
+                    f
+                      ? {
+                          ...f,
+                          draft: { ...f.draft, is_taxable: e.target.checked },
+                        }
+                      : f,
+                  )
+                }
+              />
+            </label>
+            <p className="rc-field__hint rc-field--full">
+              Bỏ tích nếu khoản này được MIỄN thuế (trang phục · tiền ăn ca ·
+              trợ cấp tiền nhà · hỗ trợ đi lại…). Tích = cộng vào thu nhập chịu
+              thuế TNCN.
+            </p>
+          </div>
+        )}
+      </ConfirmDialog>
+
+      <ConfirmDialog
+        open={del !== null}
+        danger
+        title={`Xoá khoản “${del?.name ?? ""}”?`}
+        confirmLabel={delUsed ? "Ngừng áp dụng khoản này" : "Xoá khoản"}
+        busy={delBusy}
+        error={delErr}
+        onCancel={() => {
+          if (!delBusy) setDel(null);
+        }}
+        onConfirm={confirmDelete}
+      >
+        {del &&
+          (delUsed ? (
+            <p className="cdlg__msg">
+              Khoản này đã có phát sinh dữ liệu (gán cho{" "}
+              <b>{del.employee_count} nhân viên</b>, đã chốt{" "}
+              <b>{del.period_count} kỳ lương</b>) nên KHÔNG xoá vĩnh viễn được.
+              Hệ thống sẽ chuyển sang <b>Ngừng áp dụng</b>: khoản biến mất khỏi
+              danh sách chọn khi gán mới, còn phiếu lương các kỳ cũ giữ nguyên
+              số đã trả.
+              {del.employee_count > 0 && (
+                <>
+                  {" "}
+                  Người đang được gán <b>vẫn tiếp tục được trả</b> khoản này cho
+                  tới khi bạn gỡ ở <b>Lương → Lương nhân viên</b>.
+                </>
+              )}
+            </p>
+          ) : (
+            <p className="cdlg__msg">
+              Khoản này chưa gán cho ai và chưa qua kỳ lương nào nên sẽ được xoá
+              hẳn khỏi danh mục.
+            </p>
+          ))}
+      </ConfirmDialog>
+
+      {/* Ai còn giữ khoản đã ngừng áp dụng — chỉ để XEM rồi đi gỡ, không thao tác tại chỗ:
+          gỡ khoản là sửa TIỀN LƯƠNG của người ta, phải làm ở đúng màn hồ sơ lương. */}
+      <ConfirmDialog
+        open={holders !== null}
+        hideConfirm
+        wide
+        title={`Đang gán khoản “${holders?.component_name ?? ""}”`}
+        cancelLabel="Đóng"
+        error={holdersErr}
+        onConfirm={() => setHolders(null)}
+        onCancel={() => setHolders(null)}
+      >
+        {holdersBusy ? (
+          <p className="cdlg__msg">Đang tải danh sách…</p>
+        ) : holders && holders.items.length === 0 ? (
+          <p className="cdlg__msg">
+            Không còn ai được gán khoản này.
+          </p>
+        ) : (
+          <>
+            <p className="cdlg__msg">
+              <b>{holders?.items.length ?? 0} người</b> vẫn đang được trả khoản
+              này mỗi tháng dù khoản đã ngừng áp dụng. Gỡ từng người ở{" "}
+              <b>Lương → Lương nhân viên → Sửa lương</b>.
+            </p>
+            <ul className="cl-holders">
+              {holders?.items.map((h) => (
+                <li key={h.employee_id}>
+                  <span className="cl-holders__code">{h.code}</span>
+                  {h.full_name}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </ConfirmDialog>
+
+      {bulk && (
+        <BulkAssignDialog
+          token={token}
+          component={bulk}
+          onClose={() => setBulk(null)}
+          onDone={(msg) => {
+            setBulk(null);
+            load();          // đếm "N nhân viên" trên bảng phải nhảy theo
+            say(msg, true);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+// --- Gán hàng loạt một khoản cho nhiều NV (chủ 28/07/2026) ------------------
+// Trước đây tạo khoản xong phải mở hồ sơ TỪNG người để thêm — nhà máy 40–100 người thì không
+// dùng được. Chỗ nguy hiểm duy nhất ở màn này là ô "Ghi đè": bật lên là xoá mức riêng đã khai
+// cho từng người và KHÔNG hoàn tác được, nên nó mặc định TẮT và khi bật phải cho xem trước
+// đúng ai bị đổi từ bao nhiêu sang bao nhiêu.
+
+/** Lấy HẾT nhân viên, phân trang cho tới khi đủ `total`.
+ *
+ * `GET /api/employees` chặn `size ≤ 200` (Query `le=200`) — gửi 500 là **422**, và vì gọi trong
+ * `Promise.all` nên hỏng một cái là danh sách treo mãi ở "Đang tải…". Kẹp về 200 thì hết lỗi
+ * nhưng ÂM THẦM SÓT người khi nhà máy vượt 200 — gán hàng loạt mà thiếu người thì tệ hơn là báo
+ * lỗi. Nên lặp cho đủ. */
+const EMP_PAGE = 200;
+async function fetchAllEmployees(token: string): Promise<EmployeeRow[]> {
+  const first = await api.employees.list(token, { page: 1, size: EMP_PAGE });
+  const out = [...first.items];
+  const pages = Math.ceil(first.total / EMP_PAGE);
+  for (let p = 2; p <= pages; p++) {
+    const r = await api.employees.list(token, { page: p, size: EMP_PAGE });
+    out.push(...r.items);
+  }
+  return out;
+}
+
+function BulkAssignDialog({
+  token,
+  component,
+  onClose,
+  onDone,
+}: {
+  token: string;
+  component: PayrollComponent;
+  onClose: () => void;
+  onDone: (msg: string) => void;
+}) {
+  const [emps, setEmps] = useState<EmployeeRow[] | null>(null);
+  const [held, setHeld] = useState<Map<number, number> | null>(null);
+  const [mode, setMode] = useState<"all" | "pick">("all");
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [q, setQ] = useState("");
+  const [dept, setDept] = useState("");   // "" = mọi phòng ban/tổ; khác rỗng = department_id
+  const [depts, setDepts] = useState<Department[]>([]);
+  const [amount, setAmount] = useState(0);
+  const [note, setNote] = useState("");
+  const [overwrite, setOverwrite] = useState(false);   // ⚠️ mặc định TẮT — xem ghi chú khối trên
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      fetchAllEmployees(token),
+      api.luong.components.employeeAmounts(token, component.id),
+      // Lấy TỪ DANH MỤC phòng ban, KHÔNG suy từ nhân viên đã tải: suy từ nhân viên thì phòng
+      // nào chưa có ai sẽ biến mất khỏi bộ lọc — người dùng biết phòng đó tồn tại mà không
+      // thấy đâu, tưởng hệ thống mất dữ liệu.
+      api.rbac.departments(token),
+    ])
+      .then(([all, amounts, dsPhong]) => {
+        if (!alive) return;
+        // Chỉ NV ĐANG LÀM VIỆC — rải phụ cấp cho người đã nghỉ là đẻ tiền cho hồ sơ chết.
+        setEmps(all.filter((e) => e.status === "active" || e.status === "probation"));
+        setHeld(new Map(amounts.items.map((x) => [x.employee_id, x.amount])));
+        setDepts(dsPhong);
+        setErr(null);
+      })
+      .catch((e) => alive && setErr(errText(e)));
+    return () => {
+      alive = false;
+    };
+  }, [token, component.id]);
+
+  // Xổ theo CÂY: phòng cha rồi tới tổ con, tổ con thụt vào. Danh sách phẳng theo bảng chữ cái
+  // làm mất quan hệ "tổ này thuộc phòng nào" — nhà máy có nhiều tổ cùng tên kiểu "Tổ 1".
+  const deptOptions: { id: number; label: string }[] = [];
+  const soNguoi = new Map<number, number>();
+  for (const e of emps ?? []) {
+    if (e.department_id != null) soNguoi.set(e.department_id, (soNguoi.get(e.department_id) ?? 0) + 1);
+  }
+  const duyet = (parentId: number | null, sau: number) => {
+    for (const d of depts.filter((x) => (x.parent_id ?? null) === parentId)) {
+      const n = soNguoi.get(d.id) ?? 0;
+      deptOptions.push({
+        id: d.id,
+        // Số người hiện ngay trên nhãn: phòng "(0)" thì biết trước là lọc vào sẽ trống, khỏi
+        // bấm rồi mới ngơ ngác.
+        label: `${"  ".repeat(sau)}${sau ? "└ " : ""}${d.name} (${n})`,
+      });
+      duyet(d.id, sau + 1);
+    }
+  };
+  duyet(null, 0);
+
+  const shown = (emps ?? []).filter((e) => {
+    const s = q.trim().toLowerCase();
+    const hopTen =
+      !s || e.full_name.toLowerCase().includes(s) || (e.code ?? "").toLowerCase().includes(s);
+    return hopTen && (!dept || e.department_id === Number(dept));
+  });
+  // Người đã có mức riêng mà chưa xin ghi đè thì KHOÁ ⇒ "Chọn tất cả" cũng phải bỏ qua họ,
+  // nếu không nút này lại đẩy vào những id mà backend sẽ bỏ qua — số trên màn nói dối.
+  const chonDuoc = shown.filter((e) => overwrite || !held?.has(e.id));
+  const targets = mode === "all" ? (emps ?? []) : (emps ?? []).filter((e) => picked.has(e.id));
+  const willOverwrite = targets.filter((e) => held?.has(e.id)).length;
+  const willAdd = targets.length - willOverwrite;
+
+  async function save() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await api.luong.components.bulkAssign(token, component.id, {
+        amount,
+        note: note.trim() || null,
+        all_active: mode === "all",
+        employee_ids: mode === "all" ? [] : [...picked],
+        overwrite,
+      });
+      // Câu báo nói ĐÚNG việc vừa xảy ra: thêm mới và ghi đè là hai chuyện khác nhau.
+      const parts = [`Đã thêm mới ${res.assigned} người`];
+      if (res.overwritten) parts.push(`ghi đè ${res.overwritten} người`);
+      if (res.skipped_existing) parts.push(`bỏ qua ${res.skipped_existing} người đã có mức riêng`);
+      onDone(`“${component.name}”: ${parts.join(" · ")}.`);
+    } catch (e) {
+      setErr(errText(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <ConfirmDialog
+      open
+      wide
+      title={`Gán “${component.name}” cho nhân viên`}
+      confirmLabel={busy ? "Đang lưu…" : "Lưu"}
+      cancelLabel="Hủy"
+      error={err}
+      confirmDisabled={busy || targets.length === 0 || amount < 0}
+      onConfirm={() => void save()}
+      onCancel={onClose}
+    >
+      <div className="cl-bulk">
+        <div className="cl-bulk__modes">
+          <label className="cl-check">
+            <input type="radio" checked={mode === "all"} onChange={() => setMode("all")} />
+            <span>Tất cả nhân viên đang làm việc{emps ? ` (${emps.length})` : ""}</span>
+          </label>
+          <label className="cl-check">
+            <input type="radio" checked={mode === "pick"} onChange={() => setMode("pick")} />
+            <span>Chọn cụ thể{mode === "pick" ? ` (${picked.size})` : ""}</span>
+          </label>
+        </div>
+
+        {mode === "pick" && (
+          <>
+            {/* Lọc + chọn cả nhóm: "lọc tổ Bế → Chọn tất cả" là 2 cú bấm cho cả tổ, thay vì
+                tick từng người. Cố ý KHÔNG phân trang — danh sách tick chọn mà chia trang thì
+                tick xong sang trang khác là không còn nhìn thấy mình đã chọn ai. */}
+            <div className="cl-bulk__tools">
+              <input
+                className="cc-input-text"
+                placeholder="Tìm theo tên hoặc mã nhân viên…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+              <select
+                value={dept}
+                onChange={(e) => setDept(e.target.value)}
+                aria-label="Lọc theo phòng ban / tổ"
+              >
+                <option value="">Tất cả phòng ban / tổ</option>
+                {deptOptions.map((d) => (
+                  <option key={d.id} value={String(d.id)}>
+                    {d.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="cl-bulk__bar">
+              <span>
+                Đang hiện <b>{shown.length}</b> · đã chọn <b>{picked.size}</b>
+              </span>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={chonDuoc.length === 0}
+                onClick={() => setPicked((s) => new Set([...s, ...chonDuoc.map((e) => e.id)]))}
+              >
+                Chọn tất cả đang hiện ({chonDuoc.length})
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={picked.size === 0}
+                onClick={() => setPicked(new Set())}
+              >
+                Bỏ chọn hết
+              </button>
+            </div>
+            <div className="cl-bulk__list">
+              {emps === null ? (
+                <p className="cl-hint-inline">Đang tải danh sách nhân viên…</p>
+              ) : shown.length === 0 ? (
+                <p className="cl-hint-inline">Không tìm thấy ai khớp.</p>
+              ) : (
+                shown.map((e) => {
+                  const cu = held?.get(e.id);
+                  // Đã có mức riêng: KHOÁ khi chưa xin ghi đè — nhìn là biết ngay sẽ bị bỏ qua.
+                  const locked = cu != null && !overwrite;
+                  return (
+                    <label
+                      key={e.id}
+                      className={`cl-bulk__row${locked ? " cl-bulk__row--locked" : ""}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={picked.has(e.id)}
+                        disabled={locked}
+                        onChange={(ev) =>
+                          setPicked((s) => {
+                            const n = new Set(s);
+                            if (ev.target.checked) n.add(e.id);
+                            else n.delete(e.id);
+                            return n;
+                          })
+                        }
+                      />
+                      <span className="cl-bulk__name">
+                        <b>{e.code}</b> {e.full_name}
+                      </span>
+                      {cu != null && (
+                        <span className={overwrite ? "cl-bulk__over" : "cl-bulk__has"}>
+                          {overwrite
+                            ? `${money(cu)}đ → ${money(amount)}đ`
+                            : `đã có ${money(cu)}đ — bỏ qua`}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
+
+        <div className="ns-grid">
+          <label className="ns-field">
+            <span className="ns-field__label">Mức tiền chung *</span>
+            <input
+              type="number"
+              min={0}
+              step={50000}
+              value={amount}
+              onChange={(e) => setAmount(Number(e.target.value))}
+            />
+          </label>
+          <label className="ns-field">
+            <span className="ns-field__label">Ghi chú (dùng chung cả lô)</span>
+            <input
+              type="text"
+              maxLength={255}
+              placeholder="vd: Áp dụng từ tháng 8"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </label>
+        </div>
+
+        <label className="cl-check cl-bulk__ow">
+          <input
+            type="checkbox"
+            checked={overwrite}
+            onChange={(e) => setOverwrite(e.target.checked)}
+          />
+          <span>
+            Ghi đè mức riêng đã có
+            <span className="cl-cell__sub">
+              Tắt: giữ nguyên mức riêng của người đã có. Bật: đổi hết về mức chung ở trên.
+            </span>
+          </span>
+        </label>
+
+        {overwrite && willOverwrite > 0 && (
+          <div className="banner banner--warn">
+            ⚠ Sẽ ghi đè mức riêng của <b>{willOverwrite} người</b>. Thao tác này{" "}
+            <b>không hoàn tác được</b>.
+          </div>
+        )}
+        <p className="cl-hint-inline">
+          Sẽ thêm mới cho <b>{willAdd}</b> người
+          {willOverwrite > 0 && !overwrite && <> · bỏ qua <b>{willOverwrite}</b> người đã có mức riêng</>}
+          {willOverwrite > 0 && overwrite && <> · ghi đè <b>{willOverwrite}</b> người</>}.
+        </p>
+      </div>
+    </ConfirmDialog>
+  );
+}
 
 function PhuCapTab({
   p,
@@ -1361,6 +2581,28 @@ function PhuCapTab({
                 value={toPct(p.tnld_bnn_rate)}
                 onChange={(v) => setP("tnld_bnn_rate", v / 100)}
               />
+              {/* Trước 29/07/2026 số 30% viết cứng trong engine, không đổi được từ màn. */}
+              <ParamField
+                label="Trần khấu trừ kỷ luật"
+                hint="Điều 102 BLLĐ: tiền phạt / bồi thường trừ vào lương KHÔNG QUÁ 30% lương thực trả sau BHXH và thuế. Đặt 0 = TẮT trần (trừ trọn số đã ghi)."
+                suffix="%"
+                step={1}
+                min={0}
+                max={100}
+                readOnly={readOnly}
+                value={toPct(p.phat_cap_pct)}
+                onChange={(v) => setP("phat_cap_pct", v / 100)}
+              />
+              {/* Cảnh báo, KHÔNG chặn: chủ toàn quyền, nhưng phải thấy mình đang vượt mức luật. */}
+              {(toPct(p.phat_cap_pct) > 30 || toPct(p.phat_cap_pct) === 0) && (
+                <p className="cl-hint-inline cl-warn-legal">
+                  ⚠{" "}
+                  {toPct(p.phat_cap_pct) === 0
+                    ? "Đang TẮT trần — phạt bao nhiêu trừ bấy nhiêu (thực nhận vẫn không âm)."
+                    : `Đang đặt ${toPct(p.phat_cap_pct)}%, VƯỢT mức 30% của Điều 102 BLLĐ.`}{" "}
+                  Đây là mức luật định, không phải chính sách công ty.
+                </p>
+              )}
             </div>
           </section>
         </div>

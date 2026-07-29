@@ -1911,6 +1911,75 @@ def seed_pit_brackets(db: Session) -> None:
     db.commit()
 
 
+# Danh mục KHOẢN THU NHẬP mặc định (chủ 2026-07-27).
+#
+# ⚠️ KHÔNG seed những khoản ĐÃ CÓ CỘT RIÊNG và đã được engine TỰ TÍNH: tăng ca (`ot_pay` suy từ
+# chấm công) · phụ cấp ca (`phu_cap_ca` → `night_pay`) · chuyên cần · lương khoán/sản lượng ·
+# TIỀN NGÀY NGHỈ PHÉP (`luong_ngay_phep`, nằm trong `luong_cong`) · các khoản phạt.
+# Seed trùng những khoản đó là TRẢ TIỀN HAI LẦN. Danh sách chặn ở `_RESERVED`
+# (`payroll_component_service.py`) canh đúng ranh giới này.
+#
+# (code, tên, kind, is_taxable, sort_order) — `is_taxable=False` = MIỄN thuế TNCN.
+# 4 khoản miễn lấy đúng theo sheet TÍNH THUẾ TNCN của kế toán (`lương thuế T 05.2026.xlsx`).
+_PAYROLL_COMPONENTS_SEED = [
+    ("trang_phuc",         "Trang phục",             "thu", False, 10),
+    ("tro_cap_nha_o",      "Trợ cấp tiền nhà ở",     "thu", False, 20),
+    ("ho_tro_di_lai",      "Hỗ trợ chi phí đi lại",  "thu", False, 30),
+    ("tien_com",           "Tiền ăn ca / CN / giờ",  "thu", False, 40),
+    ("phu_cap_dien_thoai", "Phụ cấp điện thoại",     "thu", True,  50),
+    ("phu_cap_xang",       "Phụ cấp xăng xe",        "thu", True,  60),
+    ("phu_cap_kiem_nhiem", "Phụ cấp kiêm nhiệm",     "thu", True,  70),
+    # 4 khoản THƯỞNG chuyển từ ô tay sang danh mục (chủ 28/07/2026: "khoản 5s hay thưởng gì thì
+    # cho nó select từ quy tắc, để coi nó chịu thuế hay không"). Cột cũ trên `payroll_lines` vẫn
+    # còn để kỳ ĐÃ CHỐT giữ nguyên số, nhưng không ai ghi mới được nữa ⇒ KHÔNG trả hai lần.
+    # `is_taxable=True` giữ ĐÚNG hành vi cũ (5 ô tay vốn bị đóng đinh chịu thuế); chủ tự bỏ tích
+    # cho khoản nào thực chất là hoàn tiền (điển hình: Trả đồng phục).
+    ("thuong_5s",          "Thưởng 5S",              "thu", True,  100),
+    ("thuong_doanh_so",    "Thưởng doanh số",        "thu", True,  110),
+    ("thuong_thanh_tich",  "Thưởng thành tích",      "thu", True,  120),
+    ("tra_dong_phuc",      "Trả đồng phục",          "thu", True,  130),
+    # Hai khoản MỞ (chủ 27/07/2026): khoản lặt vặt phát sinh một lần (thưởng nóng của Sếp) thì
+    # dùng luôn hai khoản này + ghi chú, KHÔNG phải đẻ một danh mục mới dùng một lần rồi bỏ.
+    ("thu_nhap_khac_ct",   "Thu nhập khác (chịu thuế)", "thu", True,  900),
+    ("thu_nhap_khac_mt",   "Thu nhập khác (miễn thuế)", "thu", False, 910),
+]
+
+
+def seed_payroll_components(db: Session) -> None:
+    """Danh mục khoản thu nhập — SEED-ONCE (chủ tự thêm/xoá/đổi cờ thì KHÔNG bị mọc lại sau restart)."""
+    from sqlalchemy import func, select
+
+    from .models.payroll import PayrollComponent
+    if db.execute(select(func.count(PayrollComponent.id))).scalar_one() > 0:
+        return
+    for code, name, kind, taxable, order in _PAYROLL_COMPONENTS_SEED:
+        db.add(PayrollComponent(code=code, name=name, kind=kind,
+                                is_taxable=taxable, sort_order=order))
+    db.commit()
+
+
+def seed_job_grades(db: Session) -> None:
+    """Danh mục BẬC TAY NGHỀ — SEED-ONCE (chủ sửa tên/tắt bậc thì KHÔNG bị mọc lại sau restart).
+
+    Bộ chủ chốt 29/07/2026: 3 bậc chính + 2 bậc phụ, Bậc 1 là bậc CAO NHẤT. Không tiền, không
+    hệ số — đúng "khai bậc thôi".
+
+    ⚠️ Trùng ý với migration 0127 là CỐ Ý, và cần cả hai:
+      - DB thật đang chạy: `schema_migrations` chưa có 0127 ⇒ migration seed + backfill bậc cũ.
+      - DB dựng mới / test: test wipe bảng bằng `drop_all` nhưng `schema_migrations` KHÔNG phải
+        bảng model nên sống sót ⇒ migration bị coi là "đã chạy" và bỏ qua. Không có seeder này
+        thì danh mục rỗng, màn hồ sơ không có bậc nào để chọn.
+    Cả hai đều guard "đã có dòng thì thôi" nên chạy chồng cũng không nhân đôi."""
+    from sqlalchemy import func, select
+
+    from .models.employee import JOB_GRADE_SEED, JobGrade
+    if db.execute(select(func.count(JobGrade.id))).scalar_one() > 0:
+        return
+    for code, name, seq in JOB_GRADE_SEED:
+        db.add(JobGrade(code=code, name=name, seq=seq))
+    db.commit()
+
+
 def seed_san_xuat_org(db: Session) -> None:
     """Nền phòng ban SẢN XUẤT: đánh dấu "Sản xuất" là khối sản
     xuất + dựng cây TỔ con (Chế bản/In/Cán/Bế/Đóng gói/KCS, cấp "Tổ"), gắn công đoạn → tổ, chuyển
@@ -2049,6 +2118,8 @@ def seed_all(db: Session) -> None:
     seed_machines(db)
     seed_operations(db)
     seed_special_days(db)  # dữ liệu vận hành thật (không gated demo) — nền lịch/lễ dùng chung
+    seed_payroll_components(db)  # danh mục khoản thu nhập + cờ chịu thuế TNCN
+    seed_job_grades(db)  # danh mục bậc tay nghề (khối SX) — vận hành thật, không gated demo
     seed_pit_brackets(db)  # biểu thuế TNCN — dữ liệu vận hành thật (Lương đọc tính thuế)
     if settings.seed_demo:
         seed_kd_staff(db)

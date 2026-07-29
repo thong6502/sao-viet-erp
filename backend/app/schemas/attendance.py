@@ -302,6 +302,52 @@ class ShiftPlanSaveOut(BaseModel):
     saved: int = 0
     cleared: int = 0
     rejected: list[ShiftPlanRejectOut] = []
+    # Số ô THỰC SỰ đổi (lưu lại y nguyên không tính) — nuôi banner sau khi Lưu.
+    changed: int = 0
+    notified: int = 0
+    # NV không có tài khoản đăng nhập ⇒ không có chỗ nhận thông báo. Phơi ra để màn Khai ca nói
+    # thẳng "N người chưa báo được" thay vì im lặng bỏ qua (chốt chủ 28/07/2026).
+    not_notified: int = 0
+
+
+# --- Lịch sử thay đổi ca (chủ 28/07/2026) -----------------------------------
+
+
+class ShiftChangeOut(BaseModel):
+    id: int
+    employee_id: int
+    employee_name: str | None = None
+    employee_code: str | None = None
+    # `day` = ô một ngày trên lưới · `base` = ca nền theo mốc hiệu lực. FE dùng để hiện chip
+    # "✎ Sửa tay" vs "🗓 Ca nền" — đúng yêu cầu phân biệt bằng màu/icon.
+    kind: str
+    origin: str
+    action: str
+    # kind=day → NGÀY CÔNG. kind=base → ngày BẮT ĐẦU HIỆU LỰC (áp từ đó trở về sau).
+    apply_date: date
+    shift_id_before: int | None = None
+    shift_name_before: str | None = None
+    shift_id_after: int | None = None
+    shift_name_after: str | None = None
+    is_off_before: bool = False
+    is_off_after: bool = False
+    inherited_before: bool = False
+    actor_user_id: int | None = None
+    actor_name: str | None = None
+    created_at: datetime
+    # False = NV không có tài khoản đăng nhập ⇒ chưa báo được cho ai.
+    notified: bool = False
+    seen: bool = False
+
+
+class ShiftChangesOut(BaseModel):
+    items: list[ShiftChangeOut]
+
+
+class AttendanceNotifyOut(BaseModel):
+    """Số nuôi badge real-time — mirror `quotations.notify_summary`."""
+
+    unseen_shift_changes: int = 0
 
 
 # --- Chốt công tháng (kỳ công) ----------------------------------------------
