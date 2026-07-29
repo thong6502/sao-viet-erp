@@ -59,6 +59,12 @@
   position: relative;
 }
 .ptg-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Nhóm gộp (ruột + bìa của 1 cuốn): dòng nhóm đậm + kẻ trên, thành viên thụt vào.
+   Bản in đen-trắng nên phân cấp bằng ĐẬM/THỤT, không dùng màu. */
+.ptg-nhom > td { font-weight: 700; border-top-width: 1.5px; }
+.ptg-nhom__sub { font-weight: 400; font-size: 0.92em; }
+.ptg-nhom-con > td:first-child { padding-left: 18px; }
 .ptg-center { text-align: center; }
 .ptg-cap { font-size: 8.5px; text-transform: uppercase; letter-spacing: .08em; color: var(--ptg-muted); font-weight: 600; }
 .ptg-printed { position: absolute; top: 7mm; right: 12mm; font-size: 8px; color: var(--ptg-muted); font-variant-numeric: tabular-nums; }

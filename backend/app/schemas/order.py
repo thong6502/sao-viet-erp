@@ -26,6 +26,7 @@ class OrderLineOut(BaseModel):
     line_total: int | None
     cost_snapshot: int | None
     phieu_thanh_phan_id: int | None = None   # pin truy vết ấn phẩm (từ dòng báo giá nguồn)
+    nhom: str | None = None                  # nhãn gộp dòng khi IN xác nhận đơn (khớp báo giá)
     model_config = ConfigDict(from_attributes=True)
 
 

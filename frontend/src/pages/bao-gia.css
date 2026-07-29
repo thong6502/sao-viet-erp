@@ -1703,6 +1703,31 @@ select.input {
   border-radius: var(--r-pill); opacity: 1; vertical-align: middle;
 }
 
+/* ---- Nhóm gộp khi IN cho khách (ruột + bìa → 1 dòng "quyển sách") ----------
+   Dải nhóm mang đúng con số khách sẽ thấy; dòng con thụt vào dưới nó. */
+.rdx-quote tr.qgrouphd > td {
+  background: var(--rust-soft);
+  border-top: 1px solid var(--rust);
+  padding-top: 10px; padding-bottom: 10px;
+}
+.rdx-quote .qgrouphd__ten {
+  font-weight: 600; color: var(--ink);
+}
+.rdx-quote .qgrouphd__sub {
+  margin-left: 8px; font-size: 11px; color: var(--rust);
+}
+.rdx-quote tr.qrow--con > td:first-child {
+  padding-left: 22px;
+  /* Ray dọc suốt các dòng thuộc nhóm + kẻ đóng ở dòng cuối → thấy rõ nhóm hết ở đâu. */
+  box-shadow: inset 3px 0 0 var(--rust-soft);
+}
+.rdx-quote tr.qrow--conCuoi > td { border-bottom: 1px solid var(--rust); }
+.rdx-quote .hint--warn {
+  color: var(--rust);
+  background: var(--rust-soft);
+  border-color: var(--rust-soft);
+}
+
 /* ---- Diễn giải quy cách theo dòng (bung từ tính giá, sửa tại chỗ) ----------- */
 .rdx-quote .dg-list { margin: 4px 0 0; padding-left: 12px; list-style: none; }
 .rdx-quote .dg-list li {

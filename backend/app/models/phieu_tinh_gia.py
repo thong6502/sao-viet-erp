@@ -84,9 +84,14 @@ class PhieuThanhPhan(Base):
     rong_thanh_pham: Mapped[int] = mapped_column(Integer, nullable=False, default=0)  # mm ★
     kho_mo_rong: Mapped[str | None] = mapped_column(String(100), nullable=True)
     tay_gap: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    # Số BÀI IN (khuôn) mỗi sản phẩm — mỗi bài 1 bộ kẽm. Sách: số tay. KHÔNG phải số tờ giấy.
     so_to_per_sp: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     so_luong: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # SL đặt của SẢN PHẨM này (0 = lấy SL mặc định phiếu)
     don_vi_tinh: Mapped[str] = mapped_column(String(30), nullable=False, default="cái")  # ĐVT sản phẩm (text tự do) → chảy sang Báo giá
+    # Nhóm GỘP KHI BÁO GIÁ: các sản phẩm cùng nhãn này (ruột + bìa của 1 cuốn) in ra báo giá
+    # thành 1 DÒNG duy nhất. CHỈ ảnh hưởng báo giá — tính giá vẫn tính riêng từng dòng, và
+    # xuống sản xuất vẫn tách lệnh riêng cho ruột/bìa. Trống = không gộp (1 dòng như cũ).
+    nhom_bao_gia: Mapped[str | None] = mapped_column(String(120), nullable=True)
     loai_san_pham_id: Mapped[int | None] = mapped_column(Integer, nullable=True)  # → loai_san_pham.id (soft) — loại của sản phẩm này
 
     # --- Giấy ---
@@ -127,6 +132,9 @@ class PhieuThanhPhan(Base):
     # --- Màu (đã gộp: chỉ SỐ MÀU mỗi mặt — không SEL/Pan/Nền, không hệ số) ---
     so_mau_a: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # số màu mặt A
     so_mau_b: Mapped[int] = mapped_column(Integer, nullable=False, default=0)   # số màu mặt B
+    # Màu pha (Pantone) — NẰM TRONG tổng số màu trên, KHÔNG cộng thêm: 1 màu pha vẫn 1 kẽm, đã đếm
+    # ở so_mau_a/b. Ghi nhận để xưởng biết phải pha mực + rửa máy; engine chỉ phơi biến `so_mau_pha`.
+    so_mau_pha: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     # Ghi chú KỸ THUẬT/SX theo SẢN PHẨM (canh màu như mẫu · kẽm cũ · bù hao…) — kỹ thuật, KHÔNG giá;
     # xuống lệnh sản xuất (drawer chi tiết ấn phẩm). Khác `production_note` cấp đơn.

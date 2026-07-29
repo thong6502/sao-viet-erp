@@ -62,7 +62,7 @@ _TP_SCALAR_FIELDS = (
     "chua_duoi", "chua_ca_gay", "bleed_mm", "khe_cat_mm",
     "co_in", "che_ban_loai", "che_ban_don_gia", "quy_cach_in",
     "kho_in_dai", "kho_in_rong", "so_con", "con_auto", "may_id", "don_gia_cong_in",
-    "so_mau_a", "so_mau_b",
+    "so_mau_a", "so_mau_b", "so_mau_pha",
 )
 _ROW_SCALAR_FIELDS = (
     "thu_tu", "cong_doan_id", "ten", "don_gia", "so_luong", "bu_hao",

@@ -1582,6 +1582,282 @@ select.tg-input--sm {
   stroke-width: 1.2;
   transition: all var(--duration-base) var(--easing-standard);
 }
+/* Ghi chú dưới một NHÓM ô — gom lời giải thích về một dòng thay vì nhắc lại trên từng nhãn. */
+.tg-note {
+  margin: -2px 0 2px;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--ash-2);
+}
+.tg-note b {
+  color: var(--ash);
+  font-weight: var(--fw-medium);
+}
+/* Biến thể LIVE: đang phản ánh con số người dùng vừa gõ, không phải chú thích tĩnh. */
+.tg-note--live {
+  font-family: var(--ff-mono);
+  font-size: 11px;
+  color: var(--ash);
+}
+.tg-note--live b {
+  color: var(--rust);
+}
+
+/* ---------- Gộp dòng khi báo giá (thao tác ở LIST, không ở drawer từng dòng) ---------- */
+.tg-gopbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0 var(--sp-4) var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--rust-soft);
+  border-radius: var(--r-5);
+  background: var(--rust-soft);
+}
+.tg-gopbar__count {
+  font-family: var(--ff-sans);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  color: var(--rust);
+  white-space: nowrap;
+}
+.tg-gopbar__input {
+  flex: 1 1 240px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: var(--fs-sm);
+}
+.prow__pick {
+  text-align: center;
+  cursor: default;
+}
+.prow__pick input {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--rust);
+  cursor: pointer;
+}
+/* Dải NHÓM: dòng tiêu đề của cụm (không phải bản ghi thật) — nền kem đậm hơn + viền trái rust
+   để mắt biết ngay các dòng thụt bên dưới thuộc về nó. */
+.tg-complist__wrap tr.grouphd > td {
+  background: var(--rust-soft);
+  border-top: 1px solid var(--rust);
+  border-bottom: 1px solid var(--rule-soft);
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.grouphd__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-2);
+  background: none;
+  color: var(--rust);
+  cursor: pointer;
+}
+.grouphd__toggle:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 1px;
+}
+.grouphd__ten {
+  font-family: var(--ff-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+/* Phụ đề nằm CÙNG DÒNG với tên nhóm — dải mảnh, gọn (bám kiểu ở màn Kế hoạch sản xuất). */
+.grouphd__sub {
+  margin-left: 8px;
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  color: var(--rust);
+}
+.grouphd__bo {
+  border: 1px solid var(--rust);
+  border-radius: var(--r-pill);
+  padding: 2px 10px;
+  background: transparent;
+  color: var(--rust);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.grouphd__bo:hover {
+  background: var(--rust);
+  color: var(--on-charcoal);
+}
+.grouphd__bo:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+/* Dòng con thụt vào — chỉ thụt Ô TÊN, không thụt cả hàng (số liệu phải thẳng cột). */
+.tg-complist__wrap tr.prow--con > td:nth-child(3) {
+  padding-left: 22px;
+}
+/* Ray dọc chạy suốt các dòng thuộc nhóm + kẻ đóng ở dòng cuối → thấy rõ nhóm BẮT ĐẦU và KẾT
+   THÚC ở đâu. Chỉ thụt lề thì dòng ngay sau nhóm trông cũng như thành viên. */
+.tg-complist__wrap tr.prow--con > td:first-child {
+  box-shadow: inset 3px 0 0 var(--rust-soft);
+}
+.tg-complist__wrap tr.prow--conCuoi > td {
+  border-bottom: 1px solid var(--rust);
+}
+
+/* Nhãn nhóm trên dòng sản phẩm — cùng ngôn ngữ với chip cảnh báo cạnh nó, khác màu để không lẫn. */
+.tg-nhom-chip {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--sp-2);
+  padding: 1px 8px;
+  border: 1px solid var(--rust-soft);
+  border-radius: var(--r-pill);
+  background: var(--rust-soft);
+  color: var(--rust);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+/* ---------- Trợ lý "tính số khuôn từ số trang" (popover neo dưới ô Số khuôn in) ----------
+   Không phải modal: không scrim, không khoá nền, absolute nên KHÔNG đẩy layout. */
+/* Dùng CHUNG .tg-field cho khoảng cách nhãn↔ô (đừng tự đặt gap: .tg-field bị override 5px
+   ở nơi khác → tự đặt 8px là ô nhập tụt 3px, lệch hàng với ô bên cạnh). */
+.tg-calcwrap {
+  position: relative;
+}
+.tg-calcwrap__head {
+  display: flex;
+  /* center (không baseline): baseline cộng thêm phần descender của nút → hàng cao hơn nhãn thường. */
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+}
+.tg-calc__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: none;
+  /* KHÔNG padding dọc: nút cao hơn nhãn 1px là ô nhập tụt xuống, lệch hàng với ô bên cạnh. */
+  padding: 0 4px;
+  margin: 0 -4px;
+  border-radius: var(--r-2);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-2xs);
+  line-height: 1.4;
+  color: var(--rust);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tg-calc__open:hover {
+  text-decoration: underline;
+}
+.tg-calc__open:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.tg-calc {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: 268px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: var(--sp-4);
+  background: var(--canvas);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-5);
+  box-shadow: var(--shadow-4);
+  animation: tg-calc-in var(--duration-base) var(--easing-standard);
+}
+@keyframes tg-calc-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tg-calc {
+    animation: none;
+  }
+}
+.tg-calc__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-3);
+}
+/* Kết quả: số TO (anchor thị giác) + dòng cách tính nhỏ bên dưới. */
+.tg-calc__out {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 6px;
+  font-family: var(--ff-sans);
+  font-size: var(--fs-xs);
+  color: var(--ash);
+}
+.tg-calc__num {
+  font-family: var(--ff-mono);
+  font-size: var(--fs-xl);
+  font-weight: var(--fw-medium);
+  line-height: 1.1;
+  color: var(--rust);
+}
+.tg-calc__how {
+  flex: 1 0 100%;
+  font-family: var(--ff-mono);
+  font-size: var(--fs-2xs);
+  line-height: 1.5;
+  color: var(--ash-2);
+}
+.tg-calc__act {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+.tg-calc__apply {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 1px solid var(--charcoal);
+  border-radius: var(--r-3);
+  background: var(--charcoal);
+  color: var(--on-charcoal);
+  font-family: var(--ff-sans);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+.tg-calc__apply:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.tg-calc__apply:focus-visible {
+  outline: 2px solid var(--rust);
+  outline-offset: 2px;
+}
+.tg-chip--sm {
+  min-height: 32px;
+  padding: 4px 12px;
+  font-size: var(--fs-xs);
+}
+
 /* Vùng TRÀN LỀ quanh mỗi con (bleed > 0): con thật nằm gọn bên trong hình này. */
 .tg-imp__bleed {
   fill: var(--rust-soft);

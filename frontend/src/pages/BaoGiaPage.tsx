@@ -13,6 +13,7 @@ import {
   type QuotationStats,
   type QuoteItemDetail,
 } from "../api/client";
+import { gopTheoNhom, nhomLechSoLuong } from "../utils/gop-nhom";
 import { useAuth } from "../auth/useAuth";
 import { useCan } from "../auth/permissions";
 import { Button } from "../components/Button";
@@ -43,6 +44,7 @@ import {
   Send,
   ShieldCheck,
   Table,
+  TriangleAlert,
   X,
   Zap,
 } from "lucide-react";
@@ -499,6 +501,34 @@ function fmtDateTime(v: string | null): string {
   });
 }
 
+/** Node bảng báo giá: 1 nhóm gộp (in ra khách 1 dòng) hoặc 1 dòng lẻ. */
+type NodeBaoGia =
+  | { kind: "don"; key: string; it: QuoteItemDetail }
+  | { kind: "nhom"; key: string; ten: string; members: QuoteItemDetail[] };
+
+/** Gom dòng cùng nhãn `nhom`, giữ vị trí dòng ĐẦU của mỗi nhóm. Không nhãn = đứng riêng. */
+function gomDongTheoNhom(items: QuoteItemDetail[]): NodeBaoGia[] {
+  const out: NodeBaoGia[] = [];
+  const viTri = new Map<string, number>();
+  for (const it of items) {
+    const nh = (it.nhom ?? "").trim();
+    if (!nh) {
+      out.push({ kind: "don", key: `d${it.id}`, it });
+      continue;
+    }
+    const k = nh.toLowerCase();
+    const at = viTri.get(k);
+    if (at === undefined) {
+      viTri.set(k, out.length);
+      out.push({ kind: "nhom", key: k, ten: nh, members: [it] });
+    } else {
+      (out[at] as { members: QuoteItemDetail[] }).members.push(it);
+    }
+  }
+  return out;
+}
+
+
 function QuotationDetailView({
   quotationId,
   statuses,
@@ -645,7 +675,8 @@ function QuotationDetailView({
   const perUnit = qtyT ? Math.round(grandT / qtyT) : 0;
   const unitLabel = d.items[0]?.unit || "cái";
 
-  const productSummary = d.items[0]?.product_name ?? "—";
+  // Tên tóm tắt: dòng đầu thuộc nhóm thì lấy TÊN NHÓM (khách mua "quyển sách", không mua "ruột").
+  const productSummary = d.items[0]?.nhom?.trim() || d.items[0]?.product_name || "—";
   const ptgRefs = Array.from(new Set(d.items.map((it) => it.estimate_number).filter(Boolean)));
 
   // ---- Persist margin/VAT --------------------------------------------------
@@ -879,6 +910,15 @@ function QuotationDetailView({
   const quoteClosed = d.status === "accepted" || d.status === "converted_to_order";
   const acceptedDecided = d.items.some((it) => it.accepted);
   const declinedCount = quoteClosed && acceptedDecided ? d.items.filter((it) => !it.accepted).length : 0;
+  // Cây hiển thị của bảng: dòng cùng nhãn `nhom` kéo về cạnh nhau dưới 1 dải, tại vị trí dòng đầu.
+  // KHÔNG bọc useMemo: chỗ này nằm sau một `return` sớm của component → thêm hook ở đây là đổi
+  // thứ tự hook giữa các lần render (React văng). Danh sách vài dòng, tính thẳng rẻ hơn nhiều.
+  const nhomTrongBaoGia = gomDongTheoNhom(d.items);
+  // Nhóm gộp có các dòng lệch SL → bản in lấy SL dòng đầu, phải nhắc người soạn.
+  const nhomLech = nhomLechSoLuong(d.items, (it) => ({
+    nhom: it.nhom, ten: it.product_name, soLuong: it.quantity, donViTinh: it.unit,
+    thanhTien: 0, tienVat: 0, vatPct: it.vat_percent,
+  }));
 
   return (
     <main className="rdx-quote bgv">
@@ -966,7 +1006,8 @@ function QuotationDetailView({
           <div className="panel">
             <div className="panel__hd">
               <h3><Table size={16} /> {multi ? "Báo giá nhiều dòng" : "Giá vốn"}</h3>
-              <span className="tag">{multi ? `${d.items.length} phiếu tính giá` : "Khóa từ PTG"}</span>
+              {/* Đếm DÒNG, không phải phiếu — 1 phiếu tính giá đẻ nhiều dòng là chuyện thường. */}
+              <span className="tag">{multi ? `${d.items.length} dòng` : "Khóa từ PTG"}</span>
             </div>
             <div className="hint">
               <ShieldCheck size={15} />
@@ -976,6 +1017,17 @@ function QuotationDetailView({
                   : "Markup riêng từng dòng · giá đã gồm VAT."}
               </span>
             </div>
+            {/* Bản in lấy SL của DÒNG ĐẦU nhóm. SL trong nhóm lệch nhau là dấu hiệu khai nhầm
+                (bìa 1.250 / ruột 1.200) → nhắc ngay, không âm thầm in ra số sai. */}
+            {nhomLech.length > 0 && (
+              <div className="hint hint--warn" role="status">
+                <TriangleAlert size={15} />
+                <span>
+                  Nhóm {nhomLech.map((n) => `"${n}"`).join(", ")} có các dòng lệch số lượng — bản
+                  in gửi khách lấy SL của dòng đầu nhóm. Kiểm lại trước khi gửi.
+                </span>
+              </div>
+            )}
             <table>
               <thead>
                 <tr>
@@ -983,13 +1035,22 @@ function QuotationDetailView({
                 </tr>
               </thead>
               <tbody>
-                {d.items.map((it) => {
+                {/* Dải NHÓM: các dòng cùng nhãn in ra khách thành 1 dòng, nên bày chúng dưới một
+                    dải mang đúng con số khách thấy. Markup/chiết khấu vẫn nằm ở TỪNG dòng con. */}
+                {nhomTrongBaoGia.flatMap((node) => {
+                  const dongIt = (it: QuoteItemDetail, con: boolean, cuoi = false) => {
                   const c = calcItem(it);
                   const markupVal = multi ? (lineDraft[it.id] ?? it.margin_percent) : (draftMargin ?? it.margin_percent);
                   const discPct = c.selling > 0 ? Math.round(((discDraft[it.id] ?? it.discount_amount) / c.selling) * 100) : 0;
                   const declined = quoteClosed && acceptedDecided && !it.accepted;
                   return (
-                    <tr key={it.id} className={declined ? "declined" : undefined}>
+                    <tr
+                      key={it.id}
+                      className={
+                        `${declined ? "declined" : ""}${con ? " qrow--con" : ""}${cuoi ? " qrow--conCuoi" : ""}`
+                          .trim() || undefined
+                      }
+                    >
                       <td>
                         <span className="pname">{it.product_name}</span>
                         {declined && <span className="declined-badge">Khách không lấy</span>}
@@ -1069,6 +1130,27 @@ function QuotationDetailView({
                       <td className="num strong">{vnd(c.final)}</td>
                     </tr>
                   );
+                  };
+
+                  if (node.kind === "don") return [dongIt(node.it, false)];
+                  const tongVon = node.members.reduce((s, m) => s + calcItem(m).cost, 0);
+                  const tongTien = node.members.reduce((s, m) => s + calcItem(m).final, 0);
+                  return [
+                    <tr key={`nh-${node.key}`} className="qgrouphd">
+                      <td>
+                        <span className="qgrouphd__ten">{node.ten}</span>
+                        <span className="qgrouphd__sub">
+                          {node.members.length} phần · in ra khách 1 dòng
+                        </span>
+                      </td>
+                      <td className="num">{node.members[0].quantity.toLocaleString("vi-VN")}</td>
+                      <td className="num muted">{numf(tongVon)}</td>
+                      <td className="num muted">—</td>
+                      <td className="num muted">—</td>
+                      <td className="num strong">{vnd(tongTien)}</td>
+                    </tr>,
+                    ...node.members.map((m, k) => dongIt(m, true, k === node.members.length - 1)),
+                  ];
                 })}
                 {/* Hàng tổng chỉ có nghĩa khi ≥2 dòng; 1 dòng thì lặp lại chính dòng đó. */}
                 {d.items.length > 1 && (
@@ -1511,6 +1593,11 @@ function QuotationDetailView({
         const picked = d.items.filter((it) => acceptPicks[it.id]);
         const pickedIds = picked.map((it) => it.id);
         const pickedTotal = picked.reduce((s, it) => s + calcItem(it).final, 0);
+        // Đếm theo SẢN PHẨM THƯƠNG MẠI (nhóm = 1), không đếm dòng — khách mua 2 thứ chứ không
+        // phải 3: quyển catalogue (ruột + bìa) và sản phẩm 3.
+        const soNhomDaChon = nhomTrongBaoGia.filter((n) =>
+          n.kind === "don" ? !!acceptPicks[n.it.id] : n.members.every((m) => acceptPicks[m.id]),
+        ).length;
         return (
           <div className="bg__overlay" onClick={() => setAcceptOpen(false)}>
             <div className="card bg__dialog" style={{ maxWidth: "560px" }} onClick={(e) => e.stopPropagation()}>
@@ -1529,29 +1616,59 @@ function QuotationDetailView({
                     />
                     <span>Chọn tất cả</span>
                   </label>
-                  <span className="accept-pick-head-count">{pickedIds.length}/{d.items.length} khách lấy</span>
+                  <span className="accept-pick-head-count">{soNhomDaChon}/{nhomTrongBaoGia.length} khách lấy</span>
                 </div>
+                {/* Khách chốt theo SẢN PHẨM THƯƠNG MẠI: 1 ô tick cho cả nhóm. Cho tick lẻ ruột
+                    mà bỏ bìa là ra đơn không làm được cuốn sách — nên nhóm đi liền một khối. */}
                 <div className="accept-pick-list">
-                  {d.items.map((it) => {
-                    const on = !!acceptPicks[it.id];
+                  {nhomTrongBaoGia.map((node) => {
+                    if (node.kind === "don") {
+                      const it = node.it;
+                      const on = !!acceptPicks[it.id];
+                      return (
+                        <label key={it.id} className={`accept-pick-row${on ? "" : " off"}`}>
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={(e) => setAcceptPicks((p) => ({ ...p, [it.id]: e.target.checked }))}
+                          />
+                          <span className="accept-pick-name">
+                            {it.product_name}
+                            <span className="accept-pick-qty">{it.quantity.toLocaleString("vi-VN")} {it.unit}</span>
+                          </span>
+                          <span className="accept-pick-amt">{vnd(calcItem(it).final)}</span>
+                        </label>
+                      );
+                    }
+                    const on = node.members.every((m) => acceptPicks[m.id]);
+                    const dau = node.members[0];
+                    const tien = node.members.reduce((s, m) => s + calcItem(m).final, 0);
                     return (
-                      <label key={it.id} className={`accept-pick-row${on ? "" : " off"}`}>
+                      <label key={node.key} className={`accept-pick-row${on ? "" : " off"}`}>
                         <input
                           type="checkbox"
                           checked={on}
-                          onChange={(e) => setAcceptPicks((p) => ({ ...p, [it.id]: e.target.checked }))}
+                          onChange={(e) =>
+                            setAcceptPicks((p) => ({
+                              ...p,
+                              ...Object.fromEntries(node.members.map((m) => [m.id, e.target.checked])),
+                            }))
+                          }
                         />
                         <span className="accept-pick-name">
-                          {it.product_name}
-                          <span className="accept-pick-qty">{it.quantity.toLocaleString("vi-VN")} {it.unit}</span>
+                          {node.ten}
+                          <span className="accept-pick-qty">
+                            {dau.quantity.toLocaleString("vi-VN")} {dau.unit} ·{" "}
+                            {node.members.map((m) => m.product_name).join(" + ")}
+                          </span>
                         </span>
-                        <span className="accept-pick-amt">{vnd(calcItem(it).final)}</span>
+                        <span className="accept-pick-amt">{vnd(tien)}</span>
                       </label>
                     );
                   })}
                 </div>
                 <div className="accept-pick-sum">
-                  <span>Khách chốt <b>{pickedIds.length}</b>/{d.items.length} sản phẩm</span>
+                  <span>Khách chốt <b>{soNhomDaChon}</b>/{nhomTrongBaoGia.length} sản phẩm</span>
                   <span className="accept-pick-sum-amt">{vnd(pickedTotal)}</span>
                 </div>
                 {err && <div className="ro-note" style={{ marginTop: "8px", color: "var(--signal)" }}>{err}</div>}
@@ -1588,12 +1705,20 @@ function QuotationPrintModal({
   const money = (v: number) => Math.round(v).toLocaleString("vi-VN");
 
   // Bảng hiển thị giá CHƯA VAT; VAT + tổng thanh toán ở panel dưới (bám dữ liệu thật của báo giá).
-  const lines = d.items.map((it) => {
-    const net = Math.max(0, it.selling_price - it.discount_amount); // thành tiền chưa VAT / dòng
-    const netUnit = it.quantity ? Math.round(net / it.quantity) : Math.round(net);
-    return { it, net, netUnit };
-  });
-  const netSubtotal = lines.reduce((s, l) => s + l.net, 0); // Σ tiền hàng chưa VAT
+  // GỘP NHÓM: ruột + bìa cùng nhãn `nhom` in ra 1 dòng "quyển sách" (khách mua 1 cuốn, không phải
+  // 1 ruột + 1 bìa). Chỉ gộp ở bản in — dữ liệu vẫn từng dòng để markup riêng + xuống SX tách lệnh.
+  const lines = gopTheoNhom(d.items, (it) => ({
+    nhom: it.nhom,
+    ten: it.product_name,
+    soLuong: it.quantity,
+    donViTinh: it.unit,
+    thanhTien: Math.max(0, it.selling_price - it.discount_amount),   // net chưa VAT
+    tienVat: it.vat_amount,
+    vatPct: it.vat_percent,
+    kichThuoc: it.product_spec_text,
+    dienGiai: it.dien_giai,
+  }));
+  const netSubtotal = lines.reduce((s, l) => s + l.thanhTien, 0); // Σ tiền hàng chưa VAT
   const vatAmount = d.vat_amount;
   const grand = d.total; // tổng thanh toán (gồm VAT)
   const vatSet = new Set(d.items.map((it) => it.vat_percent));
@@ -1667,26 +1792,31 @@ function QuotationPrintModal({
               </tr>
             </thead>
             <tbody>
-              {lines.map(({ it, net, netUnit }, i) => (
-                <tr key={it.id}>
-                  <td className="c">{i + 1}</td>
-                  <td className="c">{it.estimate_number ?? "—"}</td>
-                  <td>
-                    <span className="q-prod">{it.product_name}</span>{it.note ? `, ${it.note}` : ""}
-                    {/* Diễn giải quy cách: gạch đầu dòng dưới tên SP (mỗi dòng dữ liệu = 1 mục). */}
-                    {it.dien_giai && (
-                      <ul className="q-dg">
-                        {it.dien_giai.split("\n").filter(Boolean).map((ln, k) => <li key={k}>{ln}</li>)}
-                      </ul>
-                    )}
-                  </td>
-                  <td className="c">{it.product_spec_text ?? "—"}</td>
-                  <td className="c">{it.unit}</td>
-                  <td className="c">{it.quantity.toLocaleString("vi-VN")}</td>
-                  <td className="r">{money(netUnit)}</td>
-                  <td className="r">{money(net)}</td>
-                </tr>
-              ))}
+              {lines.map((g, i) => {
+                // Nhóm 1 dòng → mã hàng + ghi chú của chính dòng đó; nhóm gộp → để trống vì mã
+                // của ruột và bìa khác nhau, in một cái ra là sai.
+                const don = g.goc.length === 1 ? g.goc[0] : null;
+                return (
+                  <tr key={g.key}>
+                    <td className="c">{i + 1}</td>
+                    <td className="c">{don?.estimate_number ?? "—"}</td>
+                    <td>
+                      <span className="q-prod">{g.ten}</span>{don?.note ? `, ${don.note}` : ""}
+                      {/* Diễn giải quy cách: gạch đầu dòng dưới tên SP (nhóm gộp → mỗi phần 1 mục). */}
+                      {g.dienGiai.length > 0 && (
+                        <ul className="q-dg">
+                          {g.dienGiai.map((ln, k) => <li key={k}>{ln}</li>)}
+                        </ul>
+                      )}
+                    </td>
+                    <td className="c">{g.kichThuoc ?? "—"}</td>
+                    <td className="c">{g.donViTinh}</td>
+                    <td className="c">{g.soLuong.toLocaleString("vi-VN")}</td>
+                    <td className="r">{money(g.donGia)}</td>
+                    <td className="r">{money(g.thanhTien)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr>

@@ -142,6 +142,7 @@ class QuoteItemOut(BaseModel):
     product_name: str
     product_spec_text: str | None
     dien_giai: str | None = None   # diễn giải quy cách in dưới tên SP (bung từ tính giá, sửa được)
+    nhom: str | None = None        # nhãn gộp dòng khi IN cho khách (ruột + bìa → 1 dòng)
     quantity: int
     unit: str
     total_cost_snapshot: float

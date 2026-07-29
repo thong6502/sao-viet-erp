@@ -609,6 +609,8 @@ export interface LsxPreviewLine {
   don_vi_tinh: string;
   phieu_thanh_phan_id: number | null;
   ptg_ma: string | null;
+  /** Nhãn nhóm — chỉ gom hiển thị; sản xuất vẫn 1 lệnh cho mỗi dòng đơn. */
+  nhom: string | null;
   // null = chưa tính được (dòng chưa có bài tính giá) → hiện "—", không phải số 0 thật.
   bu_hao_to: number | null;
   so_to_ke_hoach: number | null;
@@ -708,6 +710,8 @@ export interface LsxBuocMacDinh {
 }
 export interface LsxListItem {
   id: number; ma: string; loai: string; ten: string; trang_thai: LsxTrangThai;
+  /** Nhãn nhóm của dòng đơn — cho biết lệnh "Bìa" thuộc "Catalogue A4 - 32 trang". */
+  nhom: string | null;
   order_id: number; order_no: string | null; customer_name: string | null;
   so_luong_dat: number; don_vi_tinh: string; so_to_ke_hoach: number;
   han_giao_khach: string | null; han_hoan_thanh_sx: string | null;
@@ -716,6 +720,8 @@ export interface LsxListItem {
 export interface LsxListOut { items: LsxListItem[]; total: number }
 export interface LsxDetail {
   id: number; ma: string; loai: string; lsx_goc_id: number | null; ten: string;
+  /** Nhãn nhóm đọc sống từ dòng đơn — luôn đúng hiện tại, khác `quy_cach_json` là ảnh chụp. */
+  nhom: string | null;
   trang_thai: LsxTrangThai;
   order_id: number; order_line_id: number; order_no: string | null;
   customer_name: string | null; customer_po_no: string | null; sale_name: string | null;
@@ -1498,6 +1504,8 @@ export interface ThanhPhanOut {
   rong_thanh_pham: number; // ③
   kho_mo_rong: string | null;
   tay_gap: string | null;
+  /** Nhãn gộp dòng khi báo giá (ruột + bìa 1 cuốn gõ giống nhau). Không vào công thức giá. */
+  nhom_bao_gia: string | null;
   so_to_per_sp: number;
   so_luong: number; // SL đặt của sản phẩm này (0 = lấy SL mặc định phiếu)
   don_vi_tinh: string; // ĐVT sản phẩm (text tự do, mặc định "cái") → chảy sang Báo giá
@@ -1536,6 +1544,8 @@ export interface ThanhPhanOut {
   // Màu in (gộp — chỉ số màu mỗi mặt)
   so_mau_a: number;
   so_mau_b: number;
+  /** Màu pha Pantone — NẰM TRONG tổng số màu trên, không cộng thêm kẽm. */
+  so_mau_pha: number;
   ghi_chu_ky_thuat: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
   gia_von_tp: number;
   thanh_phams: ThanhPhamOut[];
@@ -1603,6 +1613,7 @@ export interface ThanhPhanIn {
   rong_thanh_pham?: number;
   kho_mo_rong?: string | null;
   tay_gap?: string | null;
+  nhom_bao_gia?: string | null;
   so_to_per_sp?: number;
   so_luong?: number; // SL đặt của sản phẩm này (0 = SL mặc định phiếu)
   don_vi_tinh?: string | null; // ĐVT sản phẩm (text tự do)
@@ -1636,6 +1647,7 @@ export interface ThanhPhanIn {
   don_gia_cong_in?: number;
   so_mau_a?: number;
   so_mau_b?: number;
+  so_mau_pha?: number;
   ghi_chu_ky_thuat?: string | null; // note KỸ THUẬT/SX theo sản phẩm → drawer lệnh
   thanh_phams?: ThanhPhamIn[];
   vat_tus?: VatTuLineIn[];
@@ -1746,6 +1758,8 @@ export interface QuoteItemDetail {
   product_spec_text: string | null;
   /** Diễn giải quy cách in dưới tên SP — mỗi dòng = 1 gạch đầu dòng. Bung từ tính giá, sửa được. */
   dien_giai: string | null;
+  /** Nhãn nhóm gộp KHI IN: các dòng cùng nhãn (ruột + bìa 1 cuốn) in ra khách thành 1 dòng. */
+  nhom: string | null;
   quantity: number;
   unit: string;
   total_cost_snapshot: number;
@@ -3414,6 +3428,8 @@ export interface OrderLineOut {
   line_total: number | null;
   cost_snapshot: number | null;
   phieu_thanh_phan_id: number | null;
+  /** Nhãn nhóm gộp KHI IN xác nhận đơn — copy từ dòng báo giá, khớp bản khách đã nhận. */
+  nhom: string | null;
 }
 export interface AttachmentOut {
   id: number;

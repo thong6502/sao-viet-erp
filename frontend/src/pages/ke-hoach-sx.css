@@ -157,6 +157,11 @@
   color: var(--ash);
   margin-top: 2px;
 }
+/* Nhãn nhóm dưới tên lệnh — sắc rust để tách khỏi dòng phụ "khách hàng" màu xám bên cạnh. */
+.khsx__sub--nhom {
+  color: var(--rust);
+  font-weight: var(--fw-medium);
+}
 .khsx__name {
   font-weight: var(--fw-medium);
   max-width: 240px;
@@ -423,6 +428,31 @@
 }
 /* Dòng đã lên lệnh: làm mờ NỀN, giữ chữ --ink để vẫn đọc được. */
 .khsx-prev__row--done { background: var(--rule-hair); }
+
+/* Nhóm (ruột + bìa của 1 cuốn): dải tiêu đề gom hiển thị — TỪNG DÒNG VẪN LÀ MỘT LỆNH RIÊNG,
+   nên không có tick ở dải, chỉ là nhãn ngữ cảnh. */
+.khsx-prev__nhom > td {
+  background: var(--rust-soft);
+  border-top: 1px solid var(--rust);
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.khsx-prev__nhomTen {
+  font-weight: var(--fw-medium);
+  color: var(--ink);
+}
+.khsx-prev__nhomSub {
+  margin-left: 8px;
+  font-size: var(--fs-2xs);
+  color: var(--rust);
+}
+/* Thanh ray dọc bên trái chạy suốt các dòng thuộc nhóm → thấy RÕ nhóm bắt đầu và KẾT THÚC ở
+   đâu. Chỉ thụt lề thì dòng ngay sau nhóm trông cũng như thành viên. */
+.khsx-prev__row--con > td:first-child {
+  box-shadow: inset 3px 0 0 var(--rust-soft);
+}
+.khsx-prev__row--con > td:nth-child(2) { padding-left: 20px; }
+.khsx-prev__row--conCuoi > td { border-bottom: 1px solid var(--rust); }
 .khsx-prev__tickcol { width: 40px; }
 .khsx-prev__tick { display: block; padding: var(--sp-2); cursor: pointer; }
 .khsx-prev__name { font-weight: var(--fw-bold); }

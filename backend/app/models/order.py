@@ -217,6 +217,11 @@ class OrderLine(Base):
     # copy-on-write. NULL cho đơn nhập tay (không có ấn phẩm định giá).
     phieu_thanh_phan_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Nhãn NHÓM GỘP KHI IN (copy từ `quote_items.nhom`): bản in xác nhận đơn gom các dòng cùng
+    # nhãn thành 1 dòng, khớp bản báo giá khách đã nhận. KHÔNG đụng sản xuất — `lsx_service` vẫn
+    # sinh 1 lệnh cho MỖI dòng đơn, nên ruột/bìa vẫn ra 2 lệnh riêng.
+    nhom: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
     # --- P0 snapshot copy-on-write ----------------------------------------------
     unit_price_snapshot: Mapped[int | None] = mapped_column(Integer, nullable=True)
     norm_snapshot: Mapped[dict | None] = mapped_column(JSON, nullable=True)

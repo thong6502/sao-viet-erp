@@ -553,6 +553,41 @@
   border-bottom: none;
 }
 
+/* Giá trị đã chọn từ hồ sơ khách (địa chỉ / người nhận) — hiện lại dưới dropdown để người
+   nhập thấy đúng cái vừa chọn mà không phải sổ ra xem lại. */
+.dhb__pick-echo {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ash);
+}
+
+/* Nhóm gộp: dòng nhóm = con số khách thấy trên báo giá; dưới nó sổ ra từng phần (ruột, bìa)
+   cho người trong nhà. Cùng ngôn ngữ với dải nhóm ở màn Báo giá. */
+.dhb__comm-table tr.dhb__comm-nhom > td {
+  font-weight: 500;
+  background: var(--rust-soft);
+  border-top: 1px solid var(--rust);
+  border-bottom-color: transparent;
+}
+.dhb__comm-nhomSub {
+  margin-left: 8px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--rust);
+}
+.dhb__comm-table tr.dhb__comm-con > td {
+  color: var(--ash);
+  font-size: 12px;
+}
+.dhb__comm-table tr.dhb__comm-con > td:first-child {
+  padding-left: 18px;
+  box-shadow: inset 3px 0 0 var(--rust-soft);
+}
+.dhb__comm-table tr.dhb__comm-conCuoi > td {
+  border-bottom: 1px solid var(--rust);
+}
+
 .dhb__summary-box {
   background: var(--paper-contrast);
   border-radius: var(--r-3);

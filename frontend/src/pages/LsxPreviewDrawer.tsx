@@ -207,15 +207,34 @@ export function LsxPreviewDrawer({
                   </tbody>
                 ) : (
                   <tbody>
-                    {(data?.lines ?? []).map((l) => (
-                      <PreviewRow
-                        key={l.order_line_id}
-                        line={l}
-                        checked={picked.has(l.order_line_id)}
-                        onToggle={() => toggle(l.order_line_id)}
-                        onOpenLsx={onOpenLsx}
-                      />
-                    ))}
+                    {/* Gom hiển thị theo nhãn nhóm (ruột + bìa của 1 cuốn) cho dễ đọc — nhưng
+                        MỖI DÒNG VẪN LÀ MỘT LỆNH: tick riêng, số tờ/kẽm riêng, máy chạy khác nhau. */}
+                    {gomDongLenh(data?.lines ?? []).flatMap((node) => {
+                      const dong = (l: LsxPreviewLine, con: boolean, cuoi = false) => (
+                        <PreviewRow
+                          key={l.order_line_id}
+                          line={l}
+                          con={con}
+                          conCuoi={cuoi}
+                          checked={picked.has(l.order_line_id)}
+                          onToggle={() => toggle(l.order_line_id)}
+                          onOpenLsx={onOpenLsx}
+                        />
+                      );
+                      if (node.kind === "don") return [dong(node.line, false)];
+                      return [
+                        <tr key={`nh-${node.key}`} className="khsx-prev__nhom">
+                          <td />
+                          <td colSpan={9}>
+                            <span className="khsx-prev__nhomTen">{node.ten}</span>
+                            <span className="khsx-prev__nhomSub">
+                              {node.members.length} phần · {node.members.length} lệnh riêng
+                            </span>
+                          </td>
+                        </tr>,
+                        ...node.members.map((m, i) => dong(m, true, i === node.members.length - 1)),
+                      ];
+                    })}
                   </tbody>
                 )}
               </table>
@@ -250,20 +269,56 @@ export function LsxPreviewDrawer({
   );
 }
 
+/** Node hiển thị: 1 nhóm (nhiều dòng lệnh) hoặc 1 dòng lẻ. Gom theo nhãn `nhom`, giữ vị trí. */
+type NodeLenh =
+  | { kind: "don"; key: string; line: LsxPreviewLine }
+  | { kind: "nhom"; key: string; ten: string; members: LsxPreviewLine[] };
+
+function gomDongLenh(lines: LsxPreviewLine[]): NodeLenh[] {
+  const out: NodeLenh[] = [];
+  const viTri = new Map<string, number>();
+  for (const l of lines) {
+    const nh = (l.nhom ?? "").trim();
+    if (!nh) {
+      out.push({ kind: "don", key: `d${l.order_line_id}`, line: l });
+      continue;
+    }
+    const k = nh.toLowerCase();
+    const at = viTri.get(k);
+    if (at === undefined) {
+      viTri.set(k, out.length);
+      out.push({ kind: "nhom", key: k, ten: nh, members: [l] });
+    } else {
+      (out[at] as { members: LsxPreviewLine[] }).members.push(l);
+    }
+  }
+  return out;
+}
+
+
 function PreviewRow({
   line,
+  con,
+  conCuoi,
   checked,
   onToggle,
   onOpenLsx,
 }: {
   line: LsxPreviewLine;
+  con?: boolean;
+  conCuoi?: boolean;
   checked: boolean;
   onToggle: () => void;
   onOpenLsx: (id: number) => void;
 }) {
   const daCo = line.lsx_id != null;
   return (
-    <tr className={daCo ? "khsx-prev__row khsx-prev__row--done" : "khsx-prev__row"}>
+    <tr
+      className={
+        `khsx-prev__row${daCo ? " khsx-prev__row--done" : ""}` +
+        `${con ? " khsx-prev__row--con" : ""}${conCuoi ? " khsx-prev__row--conCuoi" : ""}`
+      }
+    >
       <td>
         <label className="khsx-prev__tick">
           <input type="checkbox" checked={checked} onChange={onToggle} disabled={daCo} />

@@ -281,6 +281,20 @@ export function LsxDetailView({
   const n = (k: string): number => Number(qc[k] ?? 0);
   const s = (k: string): string => (qc[k] == null || qc[k] === "" ? "—" : String(qc[k]));
   const coBinhBai = n("kho_in_dai") > 0 && n("kho_in_rong") > 0 && n("dai_thanh_pham") > 0 && n("rong_thanh_pham") > 0;
+  // Nhãn cách in cho THỢ đọc — không phơi mã enum `mot_mat` ra bản lệnh.
+  const cachIn =
+    ({ mot_mat: "1 mặt", hai_mat: "2 mặt (A/B)", tu_tro: "Tự trở", tro_nhip: "Trở nhíp" } as Record<string, string>)[
+      String(qc.quy_cach_in ?? "")
+    ] ?? s("quy_cach_in");
+  // 0 × 0 = CHƯA khai khổ tờ in (engine chạy thẳng trên khổ giấy nguyên) — nói ra chứ đừng in số 0.
+  const khoToIn =
+    n("kho_in_dai") > 0 && n("kho_in_rong") > 0
+      ? `${num(n("kho_in_dai"))} × ${num(n("kho_in_rong"))}`
+      : "— (in thẳng khổ giấy nguyên)";
+  const vatTus = (Array.isArray(qc.vat_tus) ? qc.vat_tus : []) as { ten?: string; so_luong?: number }[];
+  // Ảnh chụp quy cách của lệnh CŨ không có các khoá thêm sau (bleed, khe cắt, cách bình…).
+  // Thiếu khoá thì phải hiện "—", KHÔNG được để `n()` trả 0 rồi bày ra như số thật của phiếu.
+  const co = (k: string): boolean => qc[k] !== undefined && qc[k] !== null;
   const chuaMm =
     n("chua_xen") + n("chua_tay_ke") + n("chua_nhip") + n("chua_duoi") + n("chua_ca_gay");
   const canKhuon = d.cong_doans.some((c) => /bế|cấn/i.test(c.ten));
@@ -473,7 +487,10 @@ export function LsxDetailView({
                 <KV k="Khổ thành phẩm" v={s("kho_thanh_pham")} />
                 <KV k="Khổ mở rộng" v={s("kho_mo_rong")} />
                 <KV k="Tay gấp" v={s("tay_gap")} />
-                <KV k="Số tờ / sản phẩm" v={num(n("so_to_per_sp"))} mono />
+                <KV k="Số bài in" v={num(n("so_to_per_sp"))} mono />
+                {/* Ưu tiên nhãn ĐỌC SỐNG từ dòng đơn; ảnh chụp quy cách chỉ là dự phòng cho
+                    lệnh tạo trước khi có tính năng nhóm. */}
+                <KV k="Thuộc sản phẩm" v={d.nhom || s("nhom_bao_gia")} />
               </div>
 
               <h4 className="khsx-spec__head">Giấy &amp; tờ in</h4>
@@ -482,9 +499,16 @@ export function LsxDetailView({
                 <KV k="Định lượng (gsm)" v={qc.gsm ? num(n("gsm")) : "—"} mono />
                 <KV k="Nguồn giấy" v={qc.nguon_giay === "khach" ? "Khách cấp" : "Công ty"} />
                 <KV k="Khổ giấy nguyên (mm)" v={`${num(n("kho_nguyen_dai"))} × ${num(n("kho_nguyen_rong"))}`} mono />
-                <KV k="Khổ tờ in (mm)" v={`${num(n("kho_in_dai"))} × ${num(n("kho_in_rong"))}`} mono />
-                <KV k="Cách in" v={s("quy_cach_in")} />
+                <KV k="Khổ tờ in (mm)" v={khoToIn} mono />
+                <KV k="Cách in" v={cachIn} />
                 <KV k="Số màu A / B" v={`${num(n("so_mau_a"))} / ${num(n("so_mau_b"))}`} mono />
+                {/* Màu pha nằm TRONG tổng số màu (không cộng thêm kẽm) nhưng thợ phải pha mực +
+                    rửa máy → phải hiện, không thì xưởng không biết đường chuẩn bị. */}
+                <KV
+                  k="Trong đó màu pha"
+                  v={co("so_mau_pha") ? (n("so_mau_pha") > 0 ? num(n("so_mau_pha")) : "không") : "—"}
+                  mono
+                />
                 <KV k="Tổng chừa (mm)" v={num(chuaMm)} mono />
               </div>
 
@@ -494,7 +518,33 @@ export function LsxDetailView({
                 <KV k="Số mảnh xả" v={num(n("so_manh_xa"))} mono />
                 <KV k="Số kẽm" v={num(n("so_kem"))} mono />
                 <KV k="Số lượt in" v={num(n("so_luot"))} mono />
+                {/* Hai số thợ bình bài cần: tràn lề mỗi cạnh con + khe giữa 2 con kề nhau. */}
+                <KV
+                  k="Bleed / khe cắt (mm)"
+                  v={co("bleed_mm") || co("khe_cat_mm") ? `${num(n("bleed_mm"))} / ${num(n("khe_cat_mm"))}` : "—"}
+                  mono
+                />
+                <KV
+                  k="Cách bình"
+                  v={co("con_auto") ? (qc.con_auto === false ? "Ép số con" : "Máy tự bình") : "—"}
+                />
               </div>
+
+              {vatTus.length > 0 && (
+                <>
+                  <h4 className="khsx-spec__head">Vật tư in ấn</h4>
+                  <div className="khsx-kvgrid">
+                    {vatTus.map((vt, i) => (
+                      <KV
+                        key={i}
+                        k={vt.ten || `Vật tư ${i + 1}`}
+                        v={vt.so_luong ? num(Number(vt.so_luong)) : "theo định mức"}
+                        mono
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
 
               {coBinhBai && (
                 <div className="khsx-spec__diagram">

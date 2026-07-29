@@ -683,6 +683,9 @@ class QuotationService:
                 product_spec_text=tp.kho_thanh_pham,
                 # Đông cứng lúc tạo: sửa PTG về sau KHÔNG đổi bản đã gửi khách (đồng bộ → version mới).
                 dien_giai=dien_giai_tu_thanh_phan(self.quotations.db, tp),
+                # Nhãn nhóm: chỉ để BẢN IN gom dòng (ruột + bìa → 1 dòng "quyển sách"). Dữ liệu
+                # vẫn 1 dòng/thành phần để markup riêng + mạch xuống sản xuất không đứt.
+                nhom=(getattr(tp, "nhom_bao_gia", None) or None),
                 quantity=qty,
                 unit=(getattr(tp, "don_vi_tinh", None) or "cái"),   # ĐVT chảy từ sản phẩm PTG
                 total_cost_snapshot=cost,

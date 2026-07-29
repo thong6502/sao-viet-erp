@@ -1,6 +1,7 @@
 // Phiếu XÁC NHẬN ĐƠN HÀNG (gửi khách) — CÓ giá, CÓ cọc, KHÔNG MST, KHÔNG lộ cost/margin.
 // Data lấy trực tiếp từ OrderDetail đã fetch ở màn Đơn hàng bán.
 import { PrintSheet } from "../components/PrintSheet";
+import { gopTheoNhom } from "../utils/gop-nhom";
 import type { OrderDetail } from "../api/client";
 
 const money = (n: number | null | undefined): string => Math.round(n || 0).toLocaleString("vi-VN");
@@ -22,6 +23,17 @@ export function OrderConfirmPrint({
 }) {
   const total = d.total ?? 0;
   const vat = Math.max(0, (d.total_with_vat ?? 0) - total);
+  // Gộp dòng cùng nhãn `nhom` y như bản báo giá → khách nhận 2 chứng từ khớp nhau ("quyển sách"
+  // chứ không phải 1 ruột + 1 bìa). Đơn bên trong vẫn giữ từng dòng để sinh lệnh sản xuất riêng.
+  const dongGop = gopTheoNhom(d.lines, (l) => ({
+    nhom: l.nhom,
+    ten: l.description,
+    soLuong: l.qty,
+    donViTinh: l.don_vi_tinh,
+    thanhTien: l.line_total ?? 0,
+    tienVat: Math.round(((l.line_total ?? 0) * (l.vat_pct_estimate || 0)) / 100),
+    vatPct: l.vat_pct_estimate,
+  }));
   const remaining = Math.max(0, (d.total_with_vat ?? 0) - (d.deposit_received ?? 0));
 
   return (
@@ -94,15 +106,15 @@ export function OrderConfirmPrint({
           </tr>
         </thead>
         <tbody>
-          {d.lines.map((l, i) => (
-            <tr key={l.id}>
+          {dongGop.map((g, i) => (
+            <tr key={g.key}>
               <td className="c">{i + 1}</td>
-              <td>{l.description}</td>
-              <td className="c">{l.don_vi_tinh}</td>
-              <td className="c">{l.qty.toLocaleString("vi-VN")}</td>
-              <td className="r">{money(l.unit_price_snapshot)}</td>
-              <td className="c">{l.vat_pct_estimate}%</td>
-              <td className="r">{money(l.line_total)}</td>
+              <td>{g.ten}</td>
+              <td className="c">{g.donViTinh}</td>
+              <td className="c">{g.soLuong.toLocaleString("vi-VN")}</td>
+              <td className="r">{money(g.donGia)}</td>
+              <td className="c">{g.vatPct === null ? "—" : `${g.vatPct}%`}</td>
+              <td className="r">{money(g.thanhTien)}</td>
             </tr>
           ))}
         </tbody>

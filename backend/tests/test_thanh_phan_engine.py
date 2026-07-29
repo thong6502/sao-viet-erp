@@ -114,10 +114,12 @@ def test_compute_phieu_auto_binhbai_xa_giay():
     assert nvl["subtotal"] == ceil(to_net / 2) * 5000
     # Chỉ 2 nhóm — không còn A/B/C/D.
     assert [g["idx"] for g in res["groups"]] == ["nvl", "cong_doan"]
-    # Công đoạn = Kẽm hai mặt (4+4)×100000 + Công in (tờ gross × 2 mặt)×100 (KHÔNG nhân số màu).
-    kem = 8 * 100000
-    cong_in = to_net * 2 * 100
-    assert _grp(res, "cong_doan")["subtotal"] == kem + cong_in
+    # Chuỗi công đoạn RỖNG → KHÔNG có tiền in / kẽm. Engine không tự đẻ dòng thay thế nữa
+    # (bỏ fallback `don_gia_cong_in` / `che_ban_don_gia`), chỉ NHẮC để người dùng tự thêm.
+    assert _grp(res, "cong_doan")["rows"] == []
+    assert _grp(res, "cong_doan")["subtotal"] == 0
+    w = " ".join(res["warnings"])
+    assert "chưa có công đoạn IN" in w and "CHẾ BẢN/KẼM" in w
     # Tổng = Σ nhóm
     assert res["grand_total"] == round(sum(g["subtotal"] for g in res["groups"]), 2)
 
@@ -263,3 +265,43 @@ def test_cong_doan_default_theo_nhom_khong_can_khai_cong_thuc():
     tien_in = m["to_dau_vao"] * 2 * 200
     tien_kem = m["so_kem"] * 90000
     assert _grp(res, "cong_doan")["subtotal"] == tien_in + tien_kem
+
+
+def _fin_row(**kw) -> dict:
+    """1 dòng công đoạn gia công có công thức phẳng: tiền = so_luong × don_gia."""
+    return {"ten": "Bế", "don_gia": 300, "cong_doan": {
+        "ten": "Bế", "nhom": "finishing", "cong_thuc_gia": "so_luong * don_gia"}, **kw}
+
+
+def _tp_co_cong_doan(**kw) -> dict:
+    tp = _component()
+    tp["thanh_phams"] = [_fin_row(**kw.pop("row", {}))]
+    tp.update(kw)
+    return tp
+
+
+def test_mau_pha_cong_them_ban_kem():
+    """Mỗi màu mực = 1 bản kẽm, màu pha cũng vậy: 4 màu CMYK + 1 Pantone = 5 kẽm."""
+    khong = compute_phieu(so_luong=2000, thanh_phans=[_tp_co_cong_doan()])
+    co = compute_phieu(so_luong=2000, thanh_phans=[_tp_co_cong_doan(so_mau_pha=1)])
+    k0 = khong["meta"]["components"][0]["so_kem"]
+    k1 = co["meta"]["components"][0]["so_kem"]
+    assert k1 == k0 + 1                      # ĐÚNG 1 bản kẽm cho 1 màu pha
+    # In 1 mặt 4 màu process + 1 Pantone → 5 kẽm.
+    tp = _component()
+    tp.update({"quy_cach_in": "mot_mat", "so_mau_a": 4, "so_mau_b": 0, "so_mau_pha": 1,
+               "so_to_per_sp": 1})
+    assert compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]["so_kem"] == 5
+    # Túi in 2 màu Pantone, không dùng CMYK → 2 kẽm.
+    tp2 = _component()
+    tp2.update({"quy_cach_in": "mot_mat", "so_mau_a": 0, "so_mau_b": 0, "so_mau_pha": 2,
+                "so_to_per_sp": 1})
+    assert compute_phieu(so_luong=1000, thanh_phans=[tp2])["meta"]["components"][0]["so_kem"] == 2
+
+
+def test_mau_pha_nhan_theo_so_tay():
+    """Ruột sách 8 tay, 4 màu + 1 pha mỗi tay → (4+1) × 8 = 40 kẽm."""
+    tp = _component()
+    tp.update({"quy_cach_in": "mot_mat", "so_mau_a": 4, "so_mau_b": 0, "so_mau_pha": 1,
+               "so_to_per_sp": 8})
+    assert compute_phieu(so_luong=1000, thanh_phans=[tp])["meta"]["components"][0]["so_kem"] == 40

@@ -471,6 +471,7 @@ class OrderService:
                 vat_pct_estimate=_i(it.vat_percent),
                 cost_snapshot=(_i(it.total_cost_snapshot) if it.total_cost_snapshot else None),
                 phieu_thanh_phan_id=it.phieu_thanh_phan_id,   # pin truy vết ấn phẩm (soft) từ dòng báo giá
+                nhom=getattr(it, "nhom", None),   # nhãn gộp dòng khi in xác nhận đơn (khớp báo giá)
             ))
 
         order = self.repo.create(

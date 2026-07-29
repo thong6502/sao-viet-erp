@@ -903,6 +903,58 @@ def _migrate_may_nhip_giay(db: Session) -> None:
     db.commit()
 
 
+def _migrate_ptg_so_mau_pha(db: Session) -> None:
+    """Tính giá: thêm `phieu_thanh_phan.so_mau_pha` — số màu PHA (Pantone) nằm TRONG tổng số màu.
+
+    Không cộng vào số kẽm (1 màu pha vẫn 1 kẽm, đã đếm ở so_mau_a/b). Ghi nhận để xưởng biết phải
+    pha mực + rửa máy; engine phơi biến `so_mau_pha` cho công thức. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    if "so_mau_pha" not in _existing_columns(insp, "phieu_thanh_phan"):
+        db.execute(text(
+            "ALTER TABLE phieu_thanh_phan ADD COLUMN so_mau_pha INTEGER NOT NULL DEFAULT 0"))
+    db.commit()
+
+
+def _migrate_ptg_nhom_bao_gia(db: Session) -> None:
+    """Tính giá: thêm `phieu_thanh_phan.nhom_bao_gia` — nhãn GỘP DÒNG KHI BÁO GIÁ.
+
+    Ruột + bìa của cùng 1 cuốn gõ chung nhãn → báo giá in ra 1 dòng "quyển sách" thay vì 2 dòng
+    rời. Chỉ ảnh hưởng báo giá: tính giá vẫn tách từng dòng, sản xuất vẫn tách lệnh. Nullable
+    (trống = không gộp) nên không cần default. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "phieu_thanh_phan" not in insp.get_table_names():
+        return
+    if "nhom_bao_gia" not in _existing_columns(insp, "phieu_thanh_phan"):
+        db.execute(text("ALTER TABLE phieu_thanh_phan ADD COLUMN nhom_bao_gia VARCHAR(120)"))
+    db.commit()
+
+
+def _migrate_quote_item_nhom(db: Session) -> None:
+    """Báo giá: thêm `quote_items.nhom` — nhãn nhóm ĐÔNG CỨNG từ `phieu_thanh_phan.nhom_bao_gia`
+    lúc sinh dòng (giống `dien_giai`), vì id thành phần đổi mỗi lần lưu PTG nên không đọc-sống
+    được. Bản in báo giá gom các dòng cùng nhãn thành 1 dòng. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "quote_items" not in insp.get_table_names():
+        return
+    if "nhom" not in _existing_columns(insp, "quote_items"):
+        db.execute(text("ALTER TABLE quote_items ADD COLUMN nhom VARCHAR(120)"))
+    db.commit()
+
+
+def _migrate_order_line_nhom(db: Session) -> None:
+    """Đơn hàng: thêm `order_lines.nhom` — copy từ dòng báo giá khi chốt đơn, để bản in xác nhận
+    đơn gom dòng giống hệt bản báo giá (khách nhận 2 chứng từ khớp nhau). KHÔNG ảnh hưởng sản
+    xuất: lệnh vẫn sinh theo TỪNG dòng đơn. No-op nếu đã có."""
+    insp = inspect(db.get_bind())
+    if "order_lines" not in insp.get_table_names():
+        return
+    if "nhom" not in _existing_columns(insp, "order_lines"):
+        db.execute(text("ALTER TABLE order_lines ADD COLUMN nhom VARCHAR(120)"))
+    db.commit()
+
+
 def _migrate_ptg_bleed_khe_cat(db: Session) -> None:
     """Tính giá: thêm `phieu_thanh_phan.bleed_mm` + `khe_cat_mm` (mm) — bình bài đúng kích thước con.
 
@@ -3158,6 +3210,13 @@ MIGRATIONS: list[tuple[str, callable]] = [
     # Bình bài: nhíp GIẤY của máy (khác nhíp kẽm) + bleed/khe cắt trên phiếu tính giá.
     ("0107_may_nhip_giay", _migrate_may_nhip_giay),
     ("0108_ptg_bleed_khe_cat", _migrate_ptg_bleed_khe_cat),
+    # Màu pha Pantone — ghi nhận để xưởng biết pha mực; không đổi số kẽm.
+    ("0109_ptg_so_mau_pha", _migrate_ptg_so_mau_pha),
+    # Nhóm gộp dòng KHI IN cho khách (ruột + bìa của 1 cuốn → 1 dòng trên báo giá / xác nhận đơn).
+    # Nhãn chảy PTG → báo giá → đơn; sản xuất KHÔNG đọc, vẫn 1 lệnh mỗi dòng đơn.
+    ("0110_ptg_nhom_bao_gia", _migrate_ptg_nhom_bao_gia),
+    ("0111_quote_item_nhom", _migrate_quote_item_nhom),
+    ("0112_order_line_nhom", _migrate_order_line_nhom),
 ]
 
 

@@ -62,6 +62,13 @@ _TEN_DEM_CON = ("dán", "gấp", "đóng gói", "cắt thành phẩm", "kcs", "t
                 "đóng cuốn", "thành phẩm", "nhập kho")
 # Công đoạn cần khuôn bế (checklist "chờ bổ sung"). Cũng là bước ĐỔI ĐƠN VỊ tờ → con.
 _TEN_CAN_KHUON = ("bế", "be ", "cấn")
+
+# Trường KHÔNG chép sang quy cách lệnh sản xuất: toàn bộ là TIỀN (lệnh xuống xưởng không mang
+# giá vốn) + số lượng (đã có `so_luong_dat` của ĐƠN, chép lại chỉ gây mâu thuẫn).
+_QC_BO_QUA = frozenset({
+    "don_gia_giay", "don_gia_don_vi", "don_gia_cong_in", "che_ban_don_gia",
+    "cong_thuc_gia", "gia_von_tp", "so_luong",
+})
 # Đơn vị năng suất luôn ĐI THEO đơn vị đầu vào của bước (công thức là `so_luong_vao / nang_suat`),
 # nên suy ra chứ không lưu cột riêng — lưu riêng là mở đường cho hai thứ lệch nhau.
 _DV_VAO_SANG_NS = {DV_TO: NS_TO_GIO, DV_CAI: NS_CAI_GIO, DV_KEM: NS_KEM_GIO, DV_BAI: NS_BAI_GIO}
@@ -313,35 +320,33 @@ class LsxService:
         comps = result.get("meta", {}).get("components") or []
         comp = comps[0] if comps else {}
 
+        # QUY CÁCH = KẾ THỪA TRỌN từ bài tính giá: chép NGUYÊN cụm trường của sản phẩm thay vì
+        # liệt kê tay — thêm trường mới ở phiếu tính giá là lệnh nhận được ngay, không phải nhớ
+        # sửa thêm chỗ này (đó là lý do màu pha / bleed / khe cắt / máy từng bị rơi mất).
+        # Chỉ BỎ tiền và dữ liệu lồng: lệnh xuống xưởng không mang giá vốn.
         quy_cach = {
-            "dai_thanh_pham": resolved.get("dai_thanh_pham"),
-            "rong_thanh_pham": resolved.get("rong_thanh_pham"),
-            "kho_thanh_pham": resolved.get("kho_thanh_pham"),
-            "kho_mo_rong": resolved.get("kho_mo_rong"),
-            "tay_gap": resolved.get("tay_gap"),
-            "so_to_per_sp": resolved.get("so_to_per_sp"),
-            "giay_id": resolved.get("giay_id"),
+            k: v
+            for k, v in resolved.items()
+            if k not in _QC_BO_QUA and not isinstance(v, (list, dict))
+        }
+        quy_cach.update({
             "giay_ten": resolved.get("giay_ten") or resolved.get("kho_nguyen"),
-            "gsm": resolved.get("gsm"),
-            "nguon_giay": resolved.get("nguon_giay"),
             "kho_nguyen_dai": resolved.get("kho_dai") or resolved.get("kho_nguyen_dai"),
             "kho_nguyen_rong": resolved.get("kho_rong") or resolved.get("kho_nguyen_rong"),
-            "kho_in_dai": resolved.get("kho_in_dai"),
-            "kho_in_rong": resolved.get("kho_in_rong"),
-            "quy_cach_in": resolved.get("quy_cach_in"),
-            "so_mau_a": resolved.get("so_mau_a"),
-            "so_mau_b": resolved.get("so_mau_b"),
-            "chua_xen": resolved.get("chua_xen"),
-            "chua_tay_ke": resolved.get("chua_tay_ke"),
-            "chua_nhip": resolved.get("chua_nhip"),
-            "chua_duoi": resolved.get("chua_duoi"),
-            "chua_ca_gay": resolved.get("chua_ca_gay"),
+            # Nhãn nhóm + ghi chú kỹ thuật không nằm trong bộ field engine → lấy thẳng từ ORM.
+            "nhom_bao_gia": getattr(tp, "nhom_bao_gia", None),
+            "ghi_chu_ky_thuat": getattr(tp, "ghi_chu_ky_thuat", None),
+            # Vật tư in ấn (mực · màng · keo): tên + lượng, KHÔNG kèm đơn giá.
+            "vat_tus": [
+                {"ten": vt.get("ten"), "so_luong": vt.get("so_luong")}
+                for vt in (resolved.get("vat_tus") or [])
+            ],
+            # Số DẪN XUẤT của engine (chạy lại theo SL đơn).
             "so_kem": comp.get("so_kem"),
             "so_luot": comp.get("so_luot"),
             "so_con": comp.get("con"),
             "so_manh_xa": comp.get("so_manh_xa"),
-            "ghi_chu_ky_thuat": getattr(tp, "ghi_chu_ky_thuat", None),
-        }
+        })
 
         routing: list[dict] = []
         for i, row in enumerate(resolved.get("thanh_phams") or []):
@@ -423,6 +428,8 @@ class LsxService:
                 "don_vi_tinh": line.don_vi_tinh or "cái",
                 "phieu_thanh_phan_id": line.phieu_thanh_phan_id,
                 "ptg_ma": ptg_ma,
+                # Nhãn nhóm chỉ để GOM HIỂN THỊ ở màn kế hoạch — vẫn 1 lệnh / 1 dòng đơn.
+                "nhom": getattr(line, "nhom", None),
                 # Chưa có bài tính giá → comp rỗng, các số dẫn xuất là "chưa tính được" → None
                 # (UI hiện "—"), KHÔNG ép 0/1 giả. Có PTG mà số thật = 0 thì vẫn hiện 0.
                 "bu_hao_to": (
@@ -830,7 +837,12 @@ class LsxService:
 
                 quote = self.db.get(Quote, ver.quote_id)
                 quote_number = quote.quote_number if quote else None
+        # Nhãn nhóm ĐỌC SỐNG từ dòng đơn, KHÔNG lấy trong `quy_cach_json`: quy cách là ảnh chụp
+        # lúc tạo lệnh nên lệnh tạo trước khi có tính năng nhóm sẽ trống — mà "thuộc sản phẩm nào"
+        # là thông tin thương mại, phải luôn đúng hiện tại.
+        line = self.db.get(OrderLine, lsx.order_line_id) if lsx.order_line_id else None
         return {
+            "nhom": getattr(line, "nhom", None),
             "order_no": order.order_no if order else None,
             "customer_name": self._customer_name(order) if order else None,
             "customer_po_no": order.customer_po_no if order else None,
@@ -895,6 +907,17 @@ class LsxService:
         orders = {
             o.id: o for o in self.db.execute(select(Order).where(Order.id.in_(order_ids))).scalars()
         } if order_ids else {}
+        # Nhãn nhóm (vd "Catalogue A4 - 32 trang") — ĐỌC SỐNG từ dòng đơn: lệnh "Bìa" đứng một
+        # mình thì không ai biết nó thuộc cuốn nào. `order_line_id` là FK THẬT, ổn định (khác
+        # `phieu_thanh_phan_id` bị tái sinh mỗi lần lưu PTG) nên đọc sống an toàn, khỏi thêm cột.
+        line_ids = {r.order_line_id for r in rows if r.order_line_id}
+        nhom_by_line = {
+            ln.id: ln.nhom
+            for ln in (
+                self.db.execute(select(OrderLine).where(OrderLine.id.in_(line_ids))).scalars()
+                if line_ids else []
+            )
+        }
         dept_ids = {cd.department_id for r in rows for cd in r.cong_doans if cd.department_id}
         dept_names = self._dept_names(dept_ids)
         out: list[dict] = []
@@ -903,6 +926,7 @@ class LsxService:
             first = r.cong_doans[0] if r.cong_doans else None
             out.append({
                 "id": r.id, "ma": r.ma, "loai": r.loai, "ten": r.ten, "trang_thai": r.trang_thai,
+                "nhom": nhom_by_line.get(r.order_line_id),
                 "order_id": r.order_id,
                 "order_no": o.order_no if o else None,
                 "customer_name": self._customer_name(o) if o else None,

@@ -274,7 +274,9 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     """Tính chi phí 1 SẢN PHẨM → 2 nhóm (nvl · cong_doan). Trả {name, rows, total, meta}."""
     name = tp.get("ten") or ""
     sl = _i(tp.get("so_luong")) or _i(so_luong_mac_dinh)   # SL của sản phẩm này; 0 → SL mặc định phiếu
-    so_to_per_sp = max(_i(tp.get("so_to_per_sp"), 1), 1)   # số tờ (tay) trên 1 sản phẩm
+    # Số BÀI IN (khuôn) khác nhau của 1 sản phẩm — KHÔNG phải số tờ giấy trong sản phẩm.
+    # Nhân cả số tờ in LẪN số bộ kẽm: sách 100 trang bình 16 trang/tay = 7 bài, mỗi bài 1 bộ kẽm.
+    so_to_per_sp = max(_i(tp.get("so_to_per_sp"), 1), 1)
     qc = tp.get("quy_cach_in", "mot_mat")
     passes = 1 if qc == "mot_mat" else 2                    # số mặt qua máy (2 mặt / tự trở = 2)
 
@@ -368,9 +370,12 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     to_sau_in = max(to_dau_vao - hao, 0.0)
     to_nguyen = ceil(to_dau_vao / xa) if to_dau_vao > 0 else 0
 
-    so_mau_a = _i(tp.get("so_mau_a"))
-    so_mau_b = _i(tp.get("so_mau_b"))
-    so_mau = so_mau_a + so_mau_b
+    so_mau_a = _i(tp.get("so_mau_a"))     # màu PROCESS mặt A (CMYK…)
+    so_mau_b = _i(tp.get("so_mau_b"))     # màu PROCESS mặt B
+    # Màu pha (Pantone) CỘNG THÊM — mỗi màu mực chạy 1 đơn vị máy là 1 bản kẽm, màu pha cũng vậy.
+    # 4 màu CMYK + 1 Pantone = 5 kẽm. Ô "Số màu mặt A/B" là màu process, KHÔNG gồm màu pha.
+    so_mau_pha = max(_i(tp.get("so_mau_pha")), 0)
+    so_mau = so_mau_a + so_mau_b + so_mau_pha
     co_in = bool(tp.get("co_in", True))
 
     # --- Biến đổi đơn vị cho biến công thức (mm -> m) ---
@@ -385,6 +390,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
     # --- Số kẽm ---
     # 1 bộ kẽm mang cả 2 mặt (mot_mat / tự trở / trở nhíp) → chỉ màu A; AB (hai_mat) = 2 bộ riêng A+B.
     kem_mau = so_mau_a if qc in ("mot_mat", "tu_tro", "tro_nhip") else (so_mau_a + so_mau_b)
+    kem_mau += so_mau_pha        # màu pha = mực riêng, chạy đơn vị riêng → bản kẽm riêng
     so_kem = kem_mau * so_to_per_sp
     so_luot = to_dau_vao * passes
 
@@ -399,6 +405,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
         "so_luong": sl,
         "so_tp": con,
         "so_mau": so_mau,
+        "so_mau_pha": so_mau_pha,
         "so_mat": passes,
         "so_kem": so_kem,
         "to_dau_vao": to_dau_vao,
@@ -484,56 +491,13 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "cong_thuc": dan_vt,
         })
 
-    # --- Công đoạn trong chuỗi thuộc print/prepress → In/Kẽm ĐÃ là CÔNG ĐOẠN (không hard-code nữa) ---
+    # Chuỗi công đoạn là NGUỒN DUY NHẤT: In / Chế bản phải nằm trong routing như mọi công đoạn
+    # khác. KHÔNG tự đẻ dòng thay thế khi chuỗi thiếu — chỉ NHẮC để người dùng tự thêm.
     chain_nhoms = {((r.get("cong_doan") or {}).get("nhom")) for r in (tp.get("thanh_phams") or [])}
-    has_print_cd = "print" in chain_nhoms
-    has_prepress_cd = "prepress" in chain_nhoms
-
-    # --- Công in (FALLBACK field cứng — chỉ khi chuỗi CHƯA có công đoạn 'print') ---
-    if co_in and not has_print_cd:
-        dg_in = _f(tp.get("don_gia_cong_in"))
-        formula = "to_dau_vao * so_mat * don_gia_luot"
-        
-        eval_ctx = dict(ctx_vars)
-        eval_ctx["don_gia"] = dg_in
-        eval_ctx["don_gia_luot"] = dg_in
-
-        try:
-            tien_in = safe_eval(formula, eval_ctx)
-        except Exception as e:
-            warnings.append(f"Thành phần '{name}': lỗi công thức công in ({e}) — tính 0đ.")
-            tien_in = 0.0
-
-        rows["cong_doan"].append({
-            "ten": _pre(name, "Công in"),
-            "thanh_tien": _r(tien_in),
-            "gia_don_sp": _r(tien_in / sl) if sl > 0 else 0.0,
-            "cong_thuc": format_substituted_formula(formula, eval_ctx),
-            "ghi_chu": f"{so_luot} lượt ({to_dau_vao} tờ × {passes} mặt)"
-        })
-
-    # --- Chế bản/kẽm (FALLBACK field cứng — chỉ khi chuỗi CHƯA có công đoạn 'prepress') ---
-    if co_in and so_kem > 0 and not has_prepress_cd:
-        che_ban_dg = _f(tp.get("che_ban_don_gia"))
-        formula = "so_kem * don_gia_kem"
-        
-        eval_ctx = dict(ctx_vars)
-        eval_ctx["don_gia"] = che_ban_dg
-        eval_ctx["don_gia_kem"] = che_ban_dg
-
-        try:
-            tien_che_ban = safe_eval(formula, eval_ctx)
-        except Exception as e:
-            warnings.append(f"Thành phần '{name}': lỗi công thức chế bản ({e}) — tính 0đ.")
-            tien_che_ban = 0.0
-
-        rows["cong_doan"].append({
-            "ten": _pre(name, "Chế bản / kẽm"),
-            "thanh_tien": _r(tien_che_ban),
-            "gia_don_sp": _r(tien_che_ban / sl) if sl > 0 else 0.0,
-            "cong_thuc": format_substituted_formula(formula, eval_ctx),
-            "ghi_chu": "",
-        })
+    if co_in and "print" not in chain_nhoms:
+        warnings.append(f"Thành phần '{name}': chuỗi chưa có công đoạn IN — chưa tính tiền in.")
+    if co_in and so_kem > 0 and "prepress" not in chain_nhoms:
+        warnings.append(f"Thành phần '{name}': chuỗi chưa có công đoạn CHẾ BẢN/KẼM — chưa tính tiền kẽm.")
 
     # --- Công đoạn trong chuỗi (chế bản/in/gia công) theo thứ tự routing ---
     ctx_base = {
@@ -619,6 +583,7 @@ def _compute_one(tp: dict, so_luong_mac_dinh: int, warnings: list[str], flags: d
             "cong_thuc": cong_thuc,
             "ghi_chu": ghi_chu,
         })
+
 
     total = sum(_f(r.get("thanh_tien")) for grp in rows.values() for r in grp)
     return {

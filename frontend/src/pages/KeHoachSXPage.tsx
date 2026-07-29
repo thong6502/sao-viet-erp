@@ -435,8 +435,11 @@ function LenhTable({
                       <span className="khsx__code">{l.ma}</span>
                       {l.is_rush && <ChipGap />}
                     </td>
-                    <td className="khsx__name" title={l.ten}>
+                    {/* Lệnh chỉ mang tên bộ phận ("Bìa") → phải nói rõ nó thuộc sản phẩm thương
+                        mại nào, không thì nhìn danh sách không biết bìa của cuốn nào. */}
+                    <td className="khsx__name" title={l.nhom ? `${l.nhom} — ${l.ten}` : l.ten}>
                       {l.ten}
+                      {l.nhom && <div className="khsx__sub khsx__sub--nhom">{l.nhom}</div>}
                     </td>
                     <td>
                       {l.order_no ?? "—"}
