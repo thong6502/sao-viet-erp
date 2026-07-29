@@ -48,6 +48,7 @@ class OvertimeRequestOut(BaseModel):
     reason: str | None = None
     status: str
     decided_by: int | None = None
+    decided_by_name: str | None = None    # router điền (tên người duyệt/từ chối)
     decided_at: datetime | None = None
     decision_note: str | None = None
     created_at: datetime | None = None
